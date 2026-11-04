@@ -4,11 +4,15 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, IconButton } from '$lib/components/ui';
 	import CopyButton from '$lib/components/ui/CopyButton.svelte';
+	import { pinKey, promptPosition } from '$lib/elixirs/model';
 
 	interface ViewerEntry {
 		text: string;
 		text_id: string;
 		for_key: string;
+		slot_key?: string;
+		prompt_number?: number;
+		prompt_count?: number;
 		reasoning?: string | null;
 		rolled_instruction?: string | null;
 		instruction_seed?: number | null;
@@ -39,8 +43,15 @@
 	let index = $derived(Math.min(Math.max(position, 0), Math.max(entries.length - 1, 0)));
 	let entry = $derived(entries[index]);
 	let named = $derived(entry ? sources[entry.for_key] : undefined);
-	let subtitle = $derived(entries.length > 1 ? `Prompt ${index + 1} of ${entries.length}${named ? ` · ${named}` : ''}` : (named ?? 'Prompt'));
-	let kept = $derived(!!entry && Object.prototype.hasOwnProperty.call(pinned, entry.for_key));
+	let place = $derived(entry ? promptPosition(entry) : null);
+	let subtitle = $derived(
+		place
+			? `Prompt ${place}${named ? ` · ${named}` : ''}`
+			: entries.length > 1
+				? `Prompt ${index + 1} of ${entries.length}${named ? ` · ${named}` : ''}`
+				: (named ?? 'Prompt')
+	);
+	let kept = $derived(!!entry && Object.prototype.hasOwnProperty.call(pinned, pinKey(entry)));
 	let words = $derived(entry?.reasoning ? entry.reasoning.trim().split(/\s+/).filter(Boolean).length : 0);
 
 	function go(step: number) {

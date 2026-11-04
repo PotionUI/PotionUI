@@ -436,6 +436,36 @@ export function formOverrides(
 	return result;
 }
 
+export const MAX_PROMPTS_PER_INPUT = 20;
+
+export interface WrittenPrompt {
+	for_key: string;
+	slot_key?: string;
+	prompt_number?: number;
+	prompt_count?: number;
+}
+
+export function pinKey(entry: WrittenPrompt): string {
+	return entry.slot_key ?? entry.for_key;
+}
+
+export function promptsPerInput(node: Pick<ElixirNode, 'prompts_per_input'> | null | undefined): number {
+	const count = Math.floor(Number(node?.prompts_per_input ?? 1));
+	return Number.isFinite(count) ? Math.min(Math.max(count, 1), MAX_PROMPTS_PER_INPUT) : 1;
+}
+
+export function promptPosition(entry: WrittenPrompt): string | null {
+	const count = entry.prompt_count ?? 1;
+	return count > 1 ? `${entry.prompt_number ?? 1} of ${count}` : null;
+}
+
+export function promptHeading(entry: WrittenPrompt, sources: Record<string, string>, index: number, total: number): string {
+	const named = sources[entry.for_key];
+	const position = promptPosition(entry);
+	if (position) return named ? `${named} · prompt ${position}` : `Prompt ${position}`;
+	return named ?? (total > 1 ? `Prompt ${index + 1}` : 'Prompt');
+}
+
 export function pinText(definition: ElixirDefinition, nodeId: string, key: string, text: string): ElixirDefinition {
 	const node = definition.nodes.find((item) => item.id === nodeId);
 	if (!node || node.kind !== 'llm') return definition;

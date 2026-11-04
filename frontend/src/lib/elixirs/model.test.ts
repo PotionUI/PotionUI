@@ -1,5 +1,9 @@
 import { expect, test } from 'vitest';
 import {
+	MAX_PROMPTS_PER_INPUT,
+	pinKey,
+	promptHeading,
+	promptsPerInput,
 	addNode,
 	checkConnection,
 	choosePreset,
@@ -273,4 +277,21 @@ test('a save takes the server-owned session fields, so a followed node keeps its
 	expect(merged.nodes[0].session_mode).toBe('follow');
 	expect(merged.nodes[0].session_ref).toStrictEqual(ref);
 	expect(merged.nodes[0].session_hash).toBe('h2');
+});
+
+test('a written prompt is pinned by its own slot and labelled by its place for its input', () => {
+	const second = { for_key: 'library:p1', slot_key: 'library:p1#2', prompt_number: 2, prompt_count: 3 };
+	expect(pinKey(second)).toBe('library:p1#2');
+	expect(pinKey({ for_key: 'library:p1' })).toBe('library:p1');
+	expect(promptHeading(second, { 'library:p1': 'p1.png' }, 4, 6)).toBe('p1.png · prompt 2 of 3');
+	expect(promptHeading(second, {}, 4, 6)).toBe('Prompt 2 of 3');
+	expect(promptHeading({ for_key: 'x' }, {}, 1, 2)).toBe('Prompt 2');
+	expect(promptHeading({ for_key: 'x' }, { x: 'x.png' }, 0, 1)).toBe('x.png');
+});
+
+test('prompts per input defaults to one and stays within the cap', () => {
+	expect(promptsPerInput({})).toBe(1);
+	expect(promptsPerInput({ prompts_per_input: 4 })).toBe(4);
+	expect(promptsPerInput({ prompts_per_input: 99 })).toBe(MAX_PROMPTS_PER_INPUT);
+	expect(promptsPerInput({ prompts_per_input: 0 })).toBe(1);
 });

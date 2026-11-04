@@ -83,6 +83,7 @@ export interface ElixirNode {
 	instruction_chips?: Record<string, ChipData>;
 	variables?: VariablesMap;
 	target_node_id?: string | null;
+	prompts_per_input?: number;
 	pinned?: Record<string, string>;
 	position?: { x: number; y: number };
 }
@@ -131,6 +132,12 @@ export interface OutputEntry {
 	original_filename?: string | null;
 	preview_url?: string | null;
 	media_url?: string | null;
+	for_key?: string;
+	slot_key?: string;
+	prompt_number?: number;
+	prompt_count?: number;
+	prompt_index?: number;
+	prompt_key?: string;
 }
 
 export interface RunCheckpoint {

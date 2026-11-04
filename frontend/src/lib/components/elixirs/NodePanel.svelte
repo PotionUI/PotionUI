@@ -3,6 +3,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import InlineChipEditor from '$lib/components/InlineChipEditor.svelte';
+	import NumberStepper from '$lib/components/NumberStepper.svelte';
 	import VariableManagerModal from '$lib/components/VariableManagerModal.svelte';
 	import type { ChipData } from '$lib/types/segments';
 	import type { VariableDef, VariablesMap } from '$lib/utils/variableDefs';
@@ -15,7 +16,7 @@
 	import NodeSettingsForm from './NodeSettingsForm.svelte';
 	import NodeRequestPreview from './NodeRequestPreview.svelte';
 	import { activeTab, panelTabs } from '$lib/elixirs/panelTabs';
-	import { MEDIA_LABELS, countLabel, kindNoun, presetKey, summarizeSnapshot } from '$lib/elixirs/model';
+	import { MAX_PROMPTS_PER_INPUT, MEDIA_LABELS, countLabel, kindNoun, presetKey, promptsPerInput, summarizeSnapshot } from '$lib/elixirs/model';
 	import { SESSION_MODES, conversions, effectiveSettings, modeExplanation, sessionMode, sessionProblem, sessionRow } from '$lib/elixirs/follow';
 
 	type PanelNode = ElixirNode & { llm_id?: string | null; assets: MediaAsset[] };
@@ -278,6 +279,22 @@
 				</div>
 				<p class="text-sm text-fg-subtle">
 					Runs once for each connected image or video, or once when nothing is connected. Type $ for one of its variables, # for the phrasebook, or {'{a|b}'} for a choice; every prompt it writes gets its own roll.
+				</p>
+			</div>
+
+			<div class="flex flex-col gap-1.5" data-testid="elixir-node-prompts-per-input">
+				<span class="text-sm font-medium text-fg-muted">Prompts per input</span>
+				<div class="w-32">
+					<NumberStepper
+						value={promptsPerInput(node)}
+						min={1}
+						max={MAX_PROMPTS_PER_INPUT}
+						label="Prompts per input"
+						onChange={(value) => value !== promptsPerInput(node) && onwriterchange?.({ prompts_per_input: value })}
+					/>
+				</div>
+				<p class="text-sm text-fg-subtle">
+					Writes this many prompts for each input, each with its own roll. A preset that can take several prompts at once runs them as one generation.
 				</p>
 			</div>
 

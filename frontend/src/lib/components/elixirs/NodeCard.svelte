@@ -6,6 +6,7 @@
 	import NodeStatusRow from './NodeStatusRow.svelte';
 	import OutputGallery from './OutputGallery.svelte';
 	import TextOutputs from './TextOutputs.svelte';
+	import { promptsPerInput } from '$lib/elixirs/model';
 	import type { Lane } from '$lib/elixirs/choice';
 	import { openOnActivate } from '$lib/elixirs/nodeClick';
 
@@ -71,6 +72,9 @@
 		<div class="lead">
 			{#if kind === 'llm'}
 				<p class="instruction {data.instructionLine ? 'text-fg-muted' : 'text-fg-subtle'}">{data.instructionLine || 'No instruction yet'}</p>
+				{#if promptsPerInput(data.node) > 1}
+					<p class="text-sm tabular-nums text-fg-subtle" data-testid="writer-prompts-per-input">{promptsPerInput(data.node)} prompts per input</p>
+				{/if}
 			{:else}
 				<p class="truncate text-fg">{data.presetLine}</p>
 				{#if data.marker}

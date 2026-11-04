@@ -5,12 +5,16 @@
 	import { tileChoice, type Choice } from '$lib/elixirs/choice';
 	import type { OutputEntry } from '$lib/elixirs/types';
 	import { tileKey } from '$lib/elixirs/tiles';
+	import { pinKey, promptHeading } from '$lib/elixirs/model';
 	import WriterOutputViewer from './WriterOutputViewer.svelte';
 
 	interface TextEntry extends OutputEntry {
 		text: string;
 		text_id: string;
 		for_key: string;
+		slot_key?: string;
+		prompt_number?: number;
+		prompt_count?: number;
 		reasoning?: string | null;
 		rolled_instruction?: string | null;
 		instruction_seed?: number | null;
@@ -43,11 +47,11 @@
 	let broken = $derived(Array.from({ length: Math.max(0, failed) }, (_, index) => index));
 
 	function heading(entry: TextEntry, index: number) {
-		return sources[entry.for_key] ?? (entries.length > 1 ? `Prompt ${index + 1}` : 'Prompt');
+		return promptHeading(entry, sources, index, entries.length);
 	}
 
 	function isPinned(entry: TextEntry) {
-		return Object.prototype.hasOwnProperty.call(pinned, entry.for_key);
+		return Object.prototype.hasOwnProperty.call(pinned, pinKey(entry));
 	}
 
 	function startEdit(entry: TextEntry) {
@@ -85,7 +89,12 @@
 						</span>
 					</button>
 				{/if}
-				<span class="file truncate font-mono">{heading(entry, index)}</span>
+				<span class="file font-mono">
+					<span class="block truncate">{sources[entry.for_key] ?? heading(entry, index)}</span>
+					{#if (entry.prompt_count ?? 1) > 1}
+						<span class="block tabular-nums" data-testid="prompt-position">{entry.prompt_number ?? 1}/{entry.prompt_count}</span>
+					{/if}
+				</span>
 				<div class="body">
 					{#if editing === entry.text_id}
 						<textarea

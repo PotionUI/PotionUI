@@ -89,6 +89,7 @@
 		nodeLabel,
 		nodePorts,
 		pickerKeys,
+		pinKey,
 		pinText,
 		promptConnected,
 		summarizeSnapshot,
@@ -147,6 +148,7 @@
 
 	interface WrittenEntry {
 		for_key: string;
+		slot_key?: string;
 		text: string;
 		text_id: string;
 	}
@@ -503,15 +505,15 @@
 	}
 
 	function pinWritten(nodeId: string, entry: WrittenEntry) {
-		change(pinText(definition!, nodeId, entry.for_key, entry.text), 0);
+		change(pinText(definition!, nodeId, pinKey(entry), entry.text), 0);
 	}
 
 	function unpinWritten(nodeId: string, entry: WrittenEntry) {
-		change(unpinText(definition!, nodeId, entry.for_key), 0);
+		change(unpinText(definition!, nodeId, pinKey(entry)), 0);
 	}
 
 	async function editWritten(nodeId: string, entry: WrittenEntry, text: string) {
-		change(pinText(definition!, nodeId, entry.for_key, text), 0);
+		change(pinText(definition!, nodeId, pinKey(entry), text), 0);
 		if (!run || readOnly || !isActive(run)) {
 			toast('success', 'Pinned. The next brew uses your text.');
 			return;

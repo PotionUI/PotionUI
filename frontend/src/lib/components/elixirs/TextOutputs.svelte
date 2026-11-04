@@ -11,6 +11,8 @@
 		text_id: string;
 		for_key: string;
 		reasoning?: string | null;
+		rolled_instruction?: string | null;
+		instruction_seed?: number | null;
 	}
 
 	interface Props {
@@ -34,6 +36,7 @@
 
 	let editing = $state<string | null>(null);
 	let thinking = $state<Record<string, boolean>>({});
+	let rolled = $state<Record<string, boolean>>({});
 	let draft = $state('');
 	let skeletons = $derived(Array.from({ length: Math.max(0, pending) }, (_, index) => index));
 	let broken = $derived(Array.from({ length: Math.max(0, failed) }, (_, index) => index));
@@ -103,6 +106,16 @@
 						</div>
 					{:else}
 						<p class="text">{entry.text}</p>
+						{#if entry.rolled_instruction}
+							{@const open = !!rolled[entry.text_id]}
+							<button type="button" class="think" aria-expanded={open} onclick={() => (rolled = { ...rolled, [entry.text_id]: !open })}>
+								Rolled instruction
+								<Icon name={open ? 'chevron-up' : 'chevron-down'} className="h-3 w-3" />
+							</button>
+							{#if open}
+								<p class="reasoning" tabindex="0" aria-label="Rolled instruction for {heading(entry, index)}">{entry.rolled_instruction}</p>
+							{/if}
+						{/if}
 						{#if entry.reasoning}
 							{@const shown = !!thinking[entry.text_id]}
 							<button type="button" class="think" aria-expanded={shown} onclick={() => (thinking = { ...thinking, [entry.text_id]: !shown })}>

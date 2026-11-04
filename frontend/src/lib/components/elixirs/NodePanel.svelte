@@ -2,6 +2,9 @@
 	import { Alert, Button, SegmentedControl } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import InlineChipEditor from '$lib/components/InlineChipEditor.svelte';
+	import type { ChipData } from '$lib/types/segments';
+	import type { VariablesMap } from '$lib/utils/variableDefs';
 	import { untrack } from 'svelte';
 	import type { ElixirsApi } from '$lib/services/api/elixirs';
 	import type { ElixirNode, FollowedState, MediaAsset, NodeOverrides, PresetEntry, ValidationIssue } from '$lib/elixirs/types';
@@ -24,6 +27,7 @@
 		models?: WriterModel[];
 		targets?: Array<{ id: string; label: string }>;
 		targetLabel?: string | null;
+		variables?: VariablesMap;
 		problem?: string | null;
 	}
 
@@ -96,14 +100,19 @@
 
 	let title = $state(untrack(() => node.title ?? ''));
 	let instruction = $state(untrack(() => node.instruction ?? ''));
+	let instructionChips = $state.raw<Record<string, ChipData>>(untrack(() => node.instruction_chips ?? {}));
 	let instructionTimer: ReturnType<typeof setTimeout> | undefined;
+	let writerVariables = $derived(writer?.variables ?? {});
 
 	function commitInstruction() {
 		clearTimeout(instructionTimer);
-		if (instruction !== (node.instruction ?? '')) onwriterchange?.({ instruction });
+		const chipsChanged = JSON.stringify(instructionChips) !== JSON.stringify(node.instruction_chips ?? {});
+		if (instruction !== (node.instruction ?? '') || chipsChanged) onwriterchange?.({ instruction, instruction_chips: instructionChips });
 	}
 
-	function typeInstruction() {
+	function typeInstruction(event: CustomEvent<{ value: string; chips: Record<string, ChipData> }>) {
+		instruction = event.detail.value;
+		instructionChips = event.detail.chips ?? {};
 		clearTimeout(instructionTimer);
 		instructionTimer = setTimeout(commitInstruction, 600);
 	}
@@ -194,17 +203,29 @@
 
 		{#if node.kind === 'llm'}
 			<div class="flex flex-col gap-1.5">
-				<label for="elixir-node-instruction" class="text-sm font-medium text-fg-muted">Instruction</label>
-				<textarea
-					id="elixir-node-instruction"
-					class="input min-h-[8rem] w-full resize-y"
-					maxlength="4000"
-					placeholder="For the provided image, write a prompt that recreates it."
-					bind:value={instruction}
-					oninput={typeInstruction}
-					onblur={commitInstruction}
-				></textarea>
-				<p class="text-sm text-fg-subtle">Runs once for each connected image or video, or once when nothing is connected.</p>
+				<span id="elixir-node-instruction-label" class="text-sm font-medium text-fg-muted">Instruction</span>
+				<div
+					class="instruction-box segment-composer"
+					role="group"
+					aria-labelledby="elixir-node-instruction-label"
+					data-testid="elixir-node-instruction"
+					onfocusout={commitInstruction}
+				>
+					<div class="segment-content">
+						<InlineChipEditor
+							value={instruction}
+							chips={instructionChips}
+							borderless={true}
+							variant="segment-composer"
+							variables={writerVariables}
+							placeholder="For the provided image, write a prompt that recreates it."
+							on:change={typeInstruction}
+						/>
+					</div>
+				</div>
+				<p class="text-sm text-fg-subtle">
+					Runs once for each connected image or video, or once when nothing is connected. Type $ for a variable of the step it writes for, # for the phrasebook, or {'{a|b}'} for a choice; every prompt it writes gets its own roll.
+				</p>
 			</div>
 
 			<div class="flex flex-col gap-1.5">
@@ -522,6 +543,16 @@
 	:global(:where(html:not([data-input='pointer']))) .session-row:focus-visible {
 		outline: 2px solid rgb(var(--signal));
 		outline-offset: 2px;
+	}
+	.instruction-box {
+		min-height: 8rem;
+		padding: 6px 10px;
+		border: 1px solid rgb(var(--line));
+		border-radius: 4px;
+		background: rgb(var(--surface-2));
+	}
+	.instruction-box:focus-within {
+		border-color: rgb(var(--line-strong));
 	}
 	.read-only-note {
 		display: flex;

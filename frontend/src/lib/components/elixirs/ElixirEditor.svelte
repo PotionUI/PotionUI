@@ -37,7 +37,7 @@
 	import { openOutputView, type OutputViewHandle } from '$lib/elixirs/outputView';
 	import { prepareNodeRequest } from '$lib/elixirs/requests';
 	import { directorIssues } from '$lib/elixirs/director';
-	import { FOLLOW_ISSUE_CODES, cardMarker, effectiveSettings, sessionHashes, sessionMode, staleReasonText, uniqueSessionName } from '$lib/elixirs/follow';
+	import { FOLLOW_ISSUE_CODES, cardMarker, effectiveSettings, sessionHashes, sessionMode, staleReasonText, uniqueSessionName, writerVariables } from '$lib/elixirs/follow';
 	import { brewName, isActive, isCurrentRun, isPolling, newIdempotencyKey, nodeRunView, runLabel } from '$lib/elixirs/runs';
 	import { laneTakes, nodeChoice, toggled, viewerSendTo, type Lane } from '$lib/elixirs/choice';
 	import { readWidths, viewerStorage, withWidth, writeWidths } from '$lib/elixirs/columns';
@@ -533,6 +533,7 @@
 		return {
 			targets: writerTargets(definition!, presetIndex),
 			targetLabel: targetId ? labelOf(targetId) : null,
+			variables: writerVariables(definition!, node, followed),
 			problem: problem?.message ?? null,
 			models: report?.writer?.models ?? []
 		};

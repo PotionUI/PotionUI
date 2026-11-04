@@ -67,6 +67,18 @@ again in later brews for the same file instead of asking the language model.
 The writer uses a language model the user can use: the server default when one is set,
 otherwise the user's assigned models, and one with vision support when files are connected.
 
+The instruction is a prompt template typed in the same chip editor as Generate's prompt:
+`{a|b}` choices and weights, `${name}` variables, conditions and `#phrasebook` chips (see
+[Prompts](prompts.md)). `$` offers the variables of the step the writer writes for, taken from
+that step's effective settings in any session mode. The server rolls the template once per
+write, before the language model call, with a fresh seed recorded on the invocation
+(`effective_seed`): variables come from the target step's prepared request, so a pinned
+variable uses its pin as on Generate, and a shuffled phrasebook chip picks one of the owner's
+active values in that category. Each written prompt keeps the instruction it was written from
+and its seed (`rolled_instruction`, `instruction_seed`), shown as "Rolled instruction" on the
+node. Running the writer or the brew again rolls again; retrying a failed write reuses its roll.
+An instruction without template syntax or chips is sent exactly as typed.
+
 ## Limits
 
 Admins set how large an elixir and a brew may grow through these system settings:

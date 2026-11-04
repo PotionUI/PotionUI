@@ -1,3 +1,5 @@
+import type { ChipData } from '$lib/types/segments';
+
 export type NodeKind = 'media' | 'preset' | 'llm';
 
 export interface PortSpec {
@@ -77,6 +79,7 @@ export interface ElixirNode {
 	assets?: MediaAsset[];
 	source_revision?: number;
 	instruction?: string;
+	instruction_chips?: Record<string, ChipData>;
 	target_node_id?: string | null;
 	pinned?: Record<string, string>;
 	position?: { x: number; y: number };

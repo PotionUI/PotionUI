@@ -1896,6 +1896,7 @@
 			bind:compare
 			bind:stackOpen
 			canCompare={canCompareNow}
+			barVisible={phone && activeTool === 'effects'}
 			{editCount}
 			onundo={doUndo}
 			onredo={doRedo}

@@ -1,15 +1,18 @@
 <script lang="ts">
+	import CanvasChip from '$lib/components/tool-tabs/frame/CanvasChip.svelte';
 	import { moveCropRect, resizeCropRect, type CropCorner, type CropRect } from '$lib/media/editors/cropGeometry';
 
 	let {
 		rect,
 		ratio = null,
 		stageAspect,
+		label = null,
 		onchange
 	}: {
 		rect: CropRect;
 		ratio?: number | null;
 		stageAspect: number;
+		label?: string | null;
 		onchange: (rect: CropRect) => void;
 	} = $props();
 
@@ -17,10 +20,10 @@
 
 	const corners: CropCorner[] = ['nw', 'ne', 'sw', 'se'];
 	const cornerClass: Record<CropCorner, string> = {
-		nw: '-left-1.5 -top-1.5 cursor-nwse-resize',
-		ne: '-right-1.5 -top-1.5 cursor-nesw-resize',
-		sw: '-bottom-1.5 -left-1.5 cursor-nesw-resize',
-		se: '-bottom-1.5 -right-1.5 cursor-nwse-resize'
+		nw: '-left-0.5 -top-0.5 cursor-nwse-resize border-l-2 border-t-2',
+		ne: '-right-0.5 -top-0.5 cursor-nesw-resize border-r-2 border-t-2',
+		sw: '-bottom-0.5 -left-0.5 cursor-nesw-resize border-b-2 border-l-2',
+		se: '-bottom-0.5 -right-0.5 cursor-nwse-resize border-b-2 border-r-2'
 	};
 
 	function start(event: PointerEvent, corner: CropCorner | null) {
@@ -68,11 +71,16 @@
 		</div>
 		{#each corners as corner (corner)}
 			<span
-				class="absolute h-3 w-3 rounded-sm border border-scrim bg-scrim-on {cornerClass[corner]}"
+				class="absolute h-6 w-6 touch-none border-scrim-on {cornerClass[corner]}"
 				role="presentation"
 				onpointerdown={(event) => start(event, corner)}
 				data-crop-corner={corner}
 			></span>
 		{/each}
+		{#if label}
+			<div class="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2">
+				<CanvasChip caps={false}>{label}</CanvasChip>
+			</div>
+		{/if}
 	</div>
 </div>

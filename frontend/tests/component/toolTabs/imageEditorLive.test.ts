@@ -303,6 +303,38 @@ describe('Looks tray', () => {
 	});
 });
 
+describe('phone layout', () => {
+	it('puts the tray above a one-line bar for Looks, with the tool strip at the bottom', () => {
+		const view = render('effects', { phone: true });
+		const tray = view.q('[data-tray]')!;
+		const bar = view.q('[data-options-bar="phone"]')!;
+		expect(view.q('[data-tool-rail="strip"]')).not.toBeNull();
+		expect(tray.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(bar.querySelector('[data-options-apply]')?.textContent?.trim()).toBe('Apply');
+		view.q<HTMLButtonElement>('[data-tray-item="reel"]')!.click();
+		flushSync();
+		expect(view.q('[data-options-bar="phone"] [data-bar-look]')?.textContent).toBe('Reel');
+		expect(view.q('[data-options-bar="phone"] [data-property-slider="Intensity"]')).not.toBeNull();
+		expect(view.q<HTMLButtonElement>('[data-options-bar="phone"] [data-options-apply]')?.disabled).toBe(false);
+	});
+
+	it('has no bar and no Apply for Adjust, only section tabs over the sliders', () => {
+		const view = render('adjust', { phone: true });
+		expect(view.q('[data-options-bar="phone"]')).toBeNull();
+		expect(view.all('[data-options-apply]')).toHaveLength(0);
+		expect(view.all('[data-adjust-section]').map((section) => section.dataset.adjustSection)).toEqual(['light']);
+		view.q<HTMLButtonElement>('[aria-label="Adjustment section"] button:nth-child(2)')!.click();
+		flushSync();
+		expect(view.all('[data-adjust-section]').map((section) => section.dataset.adjustSection)).toEqual(['colour']);
+	});
+
+	it('keeps the other tools on the options panel with Apply', () => {
+		const view = render('crop', { phone: true });
+		expect(view.q('[data-options-bar="phone"]')).toBeNull();
+		expect(view.q('[data-options-panel="phone"] [data-options-apply]')).not.toBeNull();
+	});
+});
+
 describe('options bar', () => {
 	it('replaces the file name with the tool name and the live output size for Crop', () => {
 		const view = render('crop');

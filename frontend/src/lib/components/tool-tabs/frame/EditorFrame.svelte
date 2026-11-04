@@ -15,6 +15,7 @@
 		editCount = 0,
 		stackOpen = $bindable(false),
 		phoneChips = 'top',
+		barVisible = true,
 		onundo,
 		onredo,
 		onsave,
@@ -36,6 +37,7 @@
 		editCount?: number;
 		stackOpen?: boolean;
 		phoneChips?: 'top' | 'bottom';
+		barVisible?: boolean;
 		onundo: () => void;
 		onredo: () => void;
 		onsave: () => void;
@@ -154,7 +156,7 @@
 			</div>
 		</div>
 		{@render below?.()}
-		{#if bar}
+		{#if bar && barVisible}
 			<div class="flex h-12 flex-none items-center gap-2.5 border-t border-line bg-surface-1 px-3" data-options-bar="phone">
 				{@render bar()}
 			</div>

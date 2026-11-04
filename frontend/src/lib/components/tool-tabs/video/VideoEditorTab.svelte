@@ -1337,6 +1337,7 @@
 			bind:compare
 			bind:stackOpen
 			canCompare={ready}
+			barVisible={phoneBarred}
 			editCount={visibleCount}
 			phoneChips="bottom"
 			onundo={doUndo}
@@ -1471,6 +1472,7 @@
 								rect={cropRect}
 								ratio={CROP_ASPECTS.find((entry) => entry.key === aspect)?.ratio ?? null}
 								stageAspect={displaySize.width / Math.max(1, displaySize.height)}
+								label="{Math.round(cropRect.width * displaySize.width)} × {Math.round(cropRect.height * displaySize.height)}"
 								onchange={(rect) => setParams('crop', { ...readCrop(panelParams), rect })}
 							/>
 						{/if}

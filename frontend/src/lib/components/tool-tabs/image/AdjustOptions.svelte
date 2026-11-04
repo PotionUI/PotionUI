@@ -106,14 +106,22 @@
 {/snippet}
 
 {#if phone}
-	<SegmentedControl
-		variant="toggle"
-		fullWidth
-		ariaLabel="Adjustment section"
-		items={ADJUST_SECTIONS.map((section) => ({ id: section.id, label: section.label }))}
-		selected={tab}
-		onSelect={(id) => (tab = id as AdjustSection['id'])}
-	/>
+	{@const active = ADJUST_SECTIONS.find((section) => section.id === tab)}
+	<div class="flex items-center gap-2">
+		<div class="min-w-0 flex-1">
+			<SegmentedControl
+				variant="toggle"
+				fullWidth
+				ariaLabel="Adjustment section"
+				items={ADJUST_SECTIONS.map((section) => ({ id: section.id, label: section.label }))}
+				selected={tab}
+				onSelect={(id) => (tab = id as AdjustSection['id'])}
+			/>
+		</div>
+		{#if active && sectionEdited(active, stack, lookup)}
+			<IconButton icon="refresh" label="Reset {active.label}" size="sm" onclick={() => onreset(controlOps(active))} data-adjust-reset={active.id} />
+		{/if}
+	</div>
 {/if}
 
 <div class="flex flex-col {phone ? 'max-h-[34vh] gap-3 overflow-y-auto pr-1' : 'gap-5'}" data-adjust-options>

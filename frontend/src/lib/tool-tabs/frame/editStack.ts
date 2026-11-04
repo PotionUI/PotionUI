@@ -22,6 +22,11 @@ export interface StepRevision<P = unknown> {
 	after: StepDraft<P>;
 }
 
+export interface LiveSession<P = unknown> {
+	id: string;
+	before: StepDraft<P> | null;
+}
+
 export interface EditStackState<P = unknown> {
 	steps: EditStep<P>[];
 	cursor: number;
@@ -29,6 +34,7 @@ export interface EditStackState<P = unknown> {
 	seq: number;
 	revisions?: StepRevision<P>[];
 	redoRevisions?: StepRevision<P>[];
+	live?: LiveSession<P> | null;
 }
 
 export type LanePair = readonly [string, string];
@@ -77,7 +83,7 @@ export function undoneCount(state: EditStackState<unknown>): number {
 }
 
 export function beginEdit<P>(state: EditStackState<P>, draft: StepDraft<P>): EditStackState<P> {
-	return { ...state, pending: { ...draft, target: null } };
+	return { ...commitLive(state), pending: { ...draft, target: null } };
 }
 
 export function updatePending<P>(state: EditStackState<P>, patch: Partial<StepDraft<P>>): EditStackState<P> {
@@ -85,9 +91,10 @@ export function updatePending<P>(state: EditStackState<P>, patch: Partial<StepDr
 	return { ...state, pending: { ...state.pending, ...patch } };
 }
 
-export function reopen<P>(state: EditStackState<P>, id: string): EditStackState<P> {
+export function reopen<P>(input: EditStackState<P>, id: string): EditStackState<P> {
+	const state = commitLive(input);
 	const index = state.steps.findIndex((step) => step.id === id);
-	if (index < 0 || index >= state.cursor) return state;
+	if (index < 0 || index >= state.cursor) return input;
 	const step = state.steps[index];
 	const pending: PendingEdit<P> = {
 		tool: step.tool,
@@ -112,7 +119,8 @@ export function discardPending<P>(state: EditStackState<P>): EditStackState<P> {
 	return { ...state, pending: null };
 }
 
-export function apply<P>(state: EditStackState<P>): EditStackState<P> {
+export function apply<P>(input: EditStackState<P>): EditStackState<P> {
+	const state = commitLive(input);
 	const pending = state.pending;
 	if (!pending) return state;
 	const { target, ...draft } = pending;
@@ -132,8 +140,57 @@ export function apply<P>(state: EditStackState<P>): EditStackState<P> {
 }
 
 function withoutHistory<P>(state: EditStackState<P>): EditStackState<P> {
-	const { revisions: _revisions, redoRevisions: _redoRevisions, ...rest } = state;
+	const { revisions: _revisions, redoRevisions: _redoRevisions, live: _live, ...rest } = state;
 	return rest;
+}
+
+export function commitLive<P>(state: EditStackState<P>): EditStackState<P> {
+	const live = state.live;
+	if (!live) return state;
+	const { live: _live, ...rest } = state;
+	const step = state.steps.find((entry) => entry.id === live.id);
+	if (!step || !live.before) return rest;
+	const after = draftOf(step);
+	if (JSON.stringify(live.before) === JSON.stringify(after)) return rest;
+	const revision: StepRevision<P> = { id: live.id, at: state.cursor, before: live.before, after };
+	return { ...rest, revisions: [...(state.revisions ?? []), revision], redoRevisions: [] };
+}
+
+export function isLive(state: EditStackState<unknown>): boolean {
+	return !!state.live;
+}
+
+export function liveEdit<P>(
+	input: EditStackState<P>,
+	draft: StepDraft<P>,
+	match: (step: EditStep<P>) => boolean,
+	options: { identity?: boolean } = {}
+): EditStackState<P> {
+	const found = appliedSteps(input).findLast(match);
+	let state = input.live && input.live.id !== found?.id ? commitLive(input) : input;
+	if (!found) {
+		if (options.identity) return state;
+		const seq = state.seq + 1;
+		const step: EditStep<P> = { ...draft, id: `s${seq}`, hidden: false };
+		const steps = [...appliedSteps(state), step];
+		const next: EditStackState<P> = { steps, cursor: steps.length, pending: state.pending, seq, live: { id: step.id, before: null } };
+		if (state.revisions?.length) next.revisions = state.revisions;
+		return next;
+	}
+	const pending = state.pending?.target === found.id ? null : state.pending;
+	const session = state.live ?? { id: found.id, before: draftOf(found) };
+	if (options.identity && session.before === null) {
+		const index = state.steps.findIndex((step) => step.id === found.id);
+		const { live: _live, ...rest } = state;
+		return { ...rest, steps: state.steps.filter((step) => step.id !== found.id), cursor: index < state.cursor ? state.cursor - 1 : state.cursor, pending };
+	}
+	if (!found.hidden && pending === state.pending && JSON.stringify(draftOf(found)) === JSON.stringify(draft)) return state;
+	const steps = restyle(state, found.id, draft).map((step) => (step.id === found.id ? { ...step, hidden: false } : step));
+	return { ...state, steps, pending, live: session };
+}
+
+function settled<P>(state: EditStackState<P>): EditStackState<P> {
+	return commitLive(state);
 }
 
 function draftOf<P>(step: EditStep<P>): StepDraft<P> {
@@ -181,7 +238,8 @@ function untouched<P>(state: EditStackState<P>): boolean {
 	return JSON.stringify(draftOf(step)) === JSON.stringify(draft);
 }
 
-export function undo<P>(state: EditStackState<P>): EditStackState<P> {
+export function undo<P>(input: EditStackState<P>): EditStackState<P> {
+	const state = settled(input);
 	if (state.pending && !untouched(state)) return { ...state, pending: null };
 	if (state.pending) return undo({ ...state, pending: null });
 	const revision = undoRevision(state);
@@ -197,8 +255,9 @@ export function undo<P>(state: EditStackState<P>): EditStackState<P> {
 	return { ...state, cursor: state.cursor - 1 };
 }
 
-export function redo<P>(state: EditStackState<P>): EditStackState<P> {
-	if (!canRedo(state)) return state;
+export function redo<P>(input: EditStackState<P>): EditStackState<P> {
+	const state = settled(input);
+	if (!canRedo(state)) return input;
 	const revision = redoRevision(state);
 	if (revision) {
 		return {
@@ -211,7 +270,8 @@ export function redo<P>(state: EditStackState<P>): EditStackState<P> {
 	return { ...state, cursor: state.cursor + 1 };
 }
 
-export function undoLabel(state: EditStackState<unknown>): string | null {
+export function undoLabel(input: EditStackState<unknown>): string | null {
+	const state = settled(input);
 	if (state.pending) return state.pending.label;
 	const revision = undoRevision(state);
 	if (revision) return revision.after.label;
@@ -225,7 +285,8 @@ export function redoLabel(state: EditStackState<unknown>): string | null {
 	return canRedo(state) ? state.steps[state.cursor].label : null;
 }
 
-export function seek<P>(state: EditStackState<P>, cursor: number): EditStackState<P> {
+export function seek<P>(input: EditStackState<P>, cursor: number): EditStackState<P> {
+	const state = settled(input);
 	const next = Math.max(0, Math.min(state.steps.length, Math.trunc(cursor)));
 	if (next === state.cursor && !state.pending) return state;
 	return { ...withoutHistory(state), cursor: next, pending: null };
@@ -237,9 +298,10 @@ export function toggleHidden<P>(state: EditStackState<P>, id: string): EditStack
 	return { ...state, steps };
 }
 
-export function remove<P>(state: EditStackState<P>, id: string): EditStackState<P> {
+export function remove<P>(input: EditStackState<P>, id: string): EditStackState<P> {
+	const state = settled(input);
 	const index = state.steps.findIndex((step) => step.id === id);
-	if (index < 0) return state;
+	if (index < 0) return input;
 	const steps = state.steps.filter((step) => step.id !== id);
 	const cursor = index < state.cursor ? state.cursor - 1 : state.cursor;
 	const pending = state.pending?.target === id ? null : state.pending;
@@ -276,12 +338,13 @@ export function canMove(
 }
 
 export function move<P>(
-	state: EditStackState<P>,
+	input: EditStackState<P>,
 	id: string,
 	to: number,
 	pinned: readonly LanePair[] = DEFAULT_PINNED_LANES
 ): EditStackState<P> {
-	if (!canMove(state, id, to, pinned)) return state;
+	if (!canMove(input, id, to, pinned)) return input;
+	const state = settled(input);
 	const from = state.steps.findIndex((step) => step.id === id);
 	const steps = [...moved(appliedSteps(state), from, to), ...undoneSteps(state)];
 	return { ...withoutHistory(state), steps };
@@ -352,7 +415,8 @@ export interface SerializedStack {
 	seq: number;
 }
 
-export function serialize(state: EditStackState<unknown>): SerializedStack {
+export function serialize(input: EditStackState<unknown>): SerializedStack {
+	const state = settled(input);
 	return JSON.parse(
 		JSON.stringify({ v: STACK_VERSION, steps: state.steps, cursor: state.cursor, pending: state.pending, seq: state.seq })
 	);

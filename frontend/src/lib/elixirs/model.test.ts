@@ -4,7 +4,6 @@ import {
 	checkConnection,
 	choosePreset,
 	connect,
-	elixirIdFromPath,
 	emptyDefinition,
 	formOverrides,
 	indexPresets,
@@ -245,14 +244,6 @@ test('the settings summary reads prompts, seed, settings and local edits', () =>
 	expect(summary.media).toStrictEqual(['keyframes']);
 	expect(summary.edited).toBe(true);
 	expect(summarizeSnapshot(null)).toBe(null);
-});
-
-test('the editor id is read from the page path', () => {
-	expect(elixirIdFromPath('/plugins/elixirs/01ABC', 'elixirs')).toBe('01ABC');
-	expect(elixirIdFromPath('/plugins/elixirs/01ABC/', 'elixirs')).toBe('01ABC');
-	expect(elixirIdFromPath('/plugins/elixirs', 'elixirs')).toBe(null);
-	expect(elixirIdFromPath('/plugins/elixirs/../x', 'elixirs')).toBe(null);
-	expect(elixirIdFromPath('/generate', 'elixirs')).toBe(null);
 });
 
 test('form edits become overrides relative to the copied session', () => {

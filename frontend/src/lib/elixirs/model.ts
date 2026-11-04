@@ -409,13 +409,6 @@ export function summarizeSnapshot(snapshot: SessionSettings | null | undefined, 
 	};
 }
 
-export function elixirIdFromPath(pathname: string, route: string): string | null {
-	const prefix = `/plugins/${route}`;
-	if (!pathname.startsWith(prefix)) return null;
-	const rest = pathname.slice(prefix.length).replace(/^\/+|\/+$/g, '');
-	return rest && /^[A-Za-z0-9]+$/.test(rest) ? rest : null;
-}
-
 export function countLabel(count: number, singular: string, plural = `${singular}s`): string {
 	return `${count} ${count === 1 ? singular : plural}`;
 }

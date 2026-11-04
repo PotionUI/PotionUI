@@ -298,7 +298,8 @@ close that gap:
   (+2 GB), guarded like the DiT's: when the guard refuses, the pipes encode on the CPU. A streamed
   teardown leaves idle blocks in the CUDA cache, which `mem_get_info` counts as used, so a phase that
   decides from free VRAM right after it must empty the cache first when its first reading does not
-  fit (LTX's projection ladder does). An encoder within the fit region is still moved whole, so a
+  fit (LTX's projection ladder does; a cold DiT placement always does, before it decides what to
+  evict). An encoder within the fit region is still moved whole, so a
   transient beyond the reserve (very long prompt, many vision tiles) can still overflow there. The
   whole move is also not undone when it fails with anything but an OOM the same predicate accepts. A
   driver-error OOM the policy calls fatal (below) tears the streaming down and propagates.

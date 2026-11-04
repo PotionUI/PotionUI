@@ -39,6 +39,7 @@ from src.platform.runtime.native.kernels import Fp8ScaledLinear, FastPathKind, f
 from src.platform.runtime.native.kernels.fp8_linear import _quantize_fp8_dynamic
 from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear
 from src.platform.runtime.native.memory.partial import plan_residency_split
+from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
     _ACTIVATION_SAFETY_MARGIN,
@@ -138,6 +139,7 @@ def test_place_dit_for_sequence_threads_inner_dim_into_the_reserve(monkeypatch):
     monkeypatch.setattr(f"{_MOD}.minimum_inference_memory_gb", lambda: 0.0)
     manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
     monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
+    monkeypatch.setattr(f"{_MOD}.torch.cuda.empty_cache", lambda: None)
 
     calls = []
     dit = SimpleNamespace(
@@ -592,6 +594,7 @@ class _free_vram:
         self._patchers = (
             patch(f"{_MOD}.free_vram_gb", return_value=raw_gb),
             patch(f"{_MOD}.effective_free_vram_gb", return_value=effective_gb),
+            patch(f"{_MOD}.torch.cuda.empty_cache"),
         )
 
     def __enter__(self):
@@ -1956,6 +1959,7 @@ def _cuda_placement_reserve(monkeypatch, layer, *, free_gb=26.0):
     manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
     monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
     monkeypatch.setattr(f"{_MOD}.maybe_compile_dit", lambda *a, **k: None)
+    monkeypatch.setattr(f"{_MOD}.torch.cuda.empty_cache", lambda: None)
     return place_dit_for_sequence(_dit_with(layer), "cuda", video_tokens=31_620)
 
 
@@ -2276,3 +2280,96 @@ def test_an_empty_lora_stack_evicts_nothing():
         make_room_for_lora_stack("cuda", [], ())
     assert manager.ensure_free_calls == []
     assert manager.offload_all_calls == []
+
+
+def test_cold_placement_hands_the_allocator_pool_back_before_judging_what_to_evict():
+    released = []
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: 12.0 if released else 4.0), \
+            patch(f"{_MOD}.effective_free_vram_gb", return_value=12.0), \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=lambda: released.append(True)):
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+    assert decision.mode == "resident"
+
+
+def test_a_warm_dit_that_no_longer_fits_hands_the_pool_back_after_its_offload():
+    offloaded = []
+    released = []
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    dit.device = "cuda"
+    dit.offload = lambda: offloaded.append(True)
+    manager = _FakeResidencyRegistry()
+
+    def release():
+        if offloaded:
+            released.append(True)
+
+    with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: 12.0 if released else 4.0), \
+            patch(f"{_MOD}.effective_free_vram_gb", return_value=0.0), \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=release):
+        place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert offloaded
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+
+
+def test_placement_evicts_for_the_reserve_as_well_as_the_weight():
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    patches, manager = _patched(free_gb=4.0, min_reserve=1.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000, reserve_gb=5.0)
+    assert decision.activation_reserve_gb + decision.extra_reserve_gb > 1.0
+    assert [need for _device, need, _free, _exclude in manager.ensure_free_calls] == [
+        pytest.approx(10.0 + decision.activation_reserve_gb + decision.extra_reserve_gb)]
+
+
+def test_placement_keeps_the_inference_minimum_over_a_smaller_reserve():
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    patches, manager = _patched(free_gb=4.0, min_reserve=3.0)
+    with patches[0], patches[1], patches[2]:
+        place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert [need for _device, need, _free, _exclude in manager.ensure_free_calls] == [pytest.approx(13.0)]
+
+
+class _ForeignResident:
+    def offload(self):
+        pass
+
+
+def test_a_foreign_resident_is_evicted_for_a_reserve_that_would_otherwise_stream_the_dit():
+    registry = GpuResidencyRegistry()
+    foreign = _ForeignResident()
+    registry.note_resident(foreign, "cuda", 7.0)
+    dit, calls = _dit(estimated_vram_gb=20.0)
+
+    def free(_device):
+        return 31.0 - registry.resident_gb("cuda")
+
+    with patch(f"{_MOD}.free_vram_gb", side_effect=free), patch(f"{_MOD}.effective_free_vram_gb", side_effect=free), \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=registry), \
+            patch(f"{_MOD}.maybe_compile_dit"), patch(f"{_MOD}.torch.cuda.empty_cache"):
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000, reserve_gb=4.0)
+    assert decision.mode == "resident"
+    assert calls["move_to"] == ["cuda"]
+    assert registry.resident_gb("cuda") == 0.0
+
+
+def test_the_warm_fast_path_keeps_the_allocator_pool():
+    dit, calls = _dit(estimated_vram_gb=19.6)
+    dit.device = "cuda"
+    patches, manager = _patched(free_gb=2.0, effective_gb=10.0)
+    with patches[0], patches[1], patches[2], \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.empty_cache") as empty, \
+            patch(f"{_MOD}.maybe_compile_dit"):
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=5.0)
+    assert decision.kept_resident is True
+    assert not empty.called

@@ -33,12 +33,12 @@ delegates to (``NativeModel.move_to``/``stream_to``, ``memory/partial.py``'s
 greedy leaf split, ``GpuResidencyRegistry``, ``free_vram_gb``,
 ``minimum_inference_memory_gb``) is reused unchanged.
 
-Short clips (a few seconds) always see the exact previous behaviour: the full
-DiT comfortably fits the resolution-scaled reserve, so the decision is
-"resident" and the call sequence is byte-identical to the old plain
-``move_to``. Only once the sequence length pushes the estimated reserve high
-enough that the full checkpoint would not leave room for it does this degrade
-to partial residency.
+Short clips (a few seconds) on a card that holds the DiT stay fully pinned: the
+full DiT comfortably fits the resolution-scaled reserve, so the decision is
+"resident" and the DiT moves whole, as the old plain ``move_to`` did, once the
+allocator's idle pool has been handed back. Only once the sequence length pushes
+the estimated reserve high enough that the full checkpoint would not leave room
+for it does this degrade to partial residency.
 
 This module deliberately does NOT touch ``src/platform/runtime/native/arch/
 ltx/rope.py`` or the RoPE construction in ``arch/ltx/model.py`` -- a parallel
@@ -632,12 +632,13 @@ def place_dit_for_sequence(
     # allocator gets the last word in `guard_sampling_oom` instead. Placement
     # below then lands on a zero (or near-zero) weight budget, i.e. a fully
     # streamed DiT, which is the best shot at running this clip anyway.
-    # Every fits-check in this function reads `effective_free_vram_gb`, never
+    # Every budget in this function reads `effective_free_vram_gb`, never
     # `free_vram_gb`: `mem_get_info` counts OUR OWN caching allocator's
     # reserved-but-unallocated pool (the previous phase's activation buffers,
     # which the next cudaMalloc reclaims) as USED, so judging fit on the raw
     # number under-reports the budget. The raw number is still read, to
-    # report both in the over-commit warning.
+    # report both in the over-commit warning, and by `_ensure_room_for` once
+    # the cold path below has handed the pool back.
     free_raw = free_vram_gb(device) or 0.0
     free_if_dit_unloaded = effective_free_vram_gb(device) or 0.0
     if dit_is_fully_resident(dit, device):
@@ -670,10 +671,10 @@ def place_dit_for_sequence(
         # are about to be freed anyway, then fall through to a placement
         # decision byte-identical to the cold-start path.
         dit.offload()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
-    need_gb = weight_gb + minimum_inference_memory_gb() if weight_gb > 0.0 else 0.0
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    need_gb = weight_gb + max(minimum_inference_memory_gb(), total_reserve) if weight_gb > 0.0 else 0.0
     _ensure_room_for(device, need_gb, own_models)
     free = effective_free_vram_gb(device) or 0.0
     weight_budget = max(0.0, free - total_reserve)

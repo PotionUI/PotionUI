@@ -67,7 +67,7 @@
 	import type { UploadFileInfo } from '$lib/services/api/media';
 	import { toasts } from '$lib/stores/toast';
 	import { tabsStore } from '$lib/stores/tabs';
-	import { isGenerationTab, isToolTab, type MediaRef } from '$lib/types/tabs';
+	import { isGenerationTab, isToolTab, userGenerationTabs, type MediaRef } from '$lib/types/tabs';
 	import { logger } from '$lib/utils/logger';
 	import {
 		compileSteps,
@@ -286,7 +286,7 @@
 				? { allowed: false, reason: 'A split saves two new items' }
 				: { allowed: true }
 	);
-	let generationTabs = $derived($tabsStore.tabs.filter(isGenerationTab));
+	let generationTabs = $derived(userGenerationTabs($tabsStore.tabs));
 	let schemaKey = $derived(generationTabs.map((tab) => `${tab.id}:${tab.selectedPreset ?? ''}:${tab.selectedMode ?? ''}`).join('|'));
 	let sendTargets = $derived.by(() => {
 		const list = buildSendTargets(generationTabs, fieldsByTab);

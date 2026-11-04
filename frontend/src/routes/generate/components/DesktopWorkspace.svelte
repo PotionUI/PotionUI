@@ -18,36 +18,47 @@
 	export let onReload: () => void;
 
 	$: presetVersion = presets.find((preset) => preset.id === tab.selectedPreset)?.version;
+	$: embedded = tab.embedded ?? null;
 </script>
 
-<SessionScope
-	presetId={tab.selectedPreset}
-	currentMode={tab.selectedMode}
-	tabId={tab.id}
-	{presetVersion}
-	{availableModes}
-	let:session
-	let:actions
-	let:fieldLabels
->
+{#if embedded && embedded.persistence === 'local'}
 	<div class="flex h-full flex-col">
-		<ContextToolbar
-			{tab}
-			{presets}
-			{readiness}
-			{isLoading}
-			{isReloading}
-			{availableModes}
-			{session}
-			{actions}
-			{fieldLabels}
-			{onPresetChange}
-			{onModeChange}
-			{onVariantChange}
-			{onReload}
-		/>
 		<div class="min-h-0 flex-1">
 			<slot />
 		</div>
 	</div>
-</SessionScope>
+{:else}
+	<SessionScope
+		presetId={tab.selectedPreset}
+		currentMode={tab.selectedMode}
+		tabId={tab.id}
+		{presetVersion}
+		{availableModes}
+		let:session
+		let:actions
+		let:fieldLabels
+	>
+		<div class="flex h-full flex-col">
+			{#if !embedded}
+				<ContextToolbar
+					{tab}
+					{presets}
+					{readiness}
+					{isLoading}
+					{isReloading}
+					{availableModes}
+					{session}
+					{actions}
+					{fieldLabels}
+					{onPresetChange}
+					{onModeChange}
+					{onVariantChange}
+					{onReload}
+				/>
+			{/if}
+			<div class="min-h-0 flex-1">
+				<slot />
+			</div>
+		</div>
+	</SessionScope>
+{/if}

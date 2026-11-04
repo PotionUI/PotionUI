@@ -1,6 +1,6 @@
 import { writable, derived, type Readable } from 'svelte/store';
-import type { GenerationTab, GenerationState, MediaRef, PersistedGenerationTab, PersistedToolTab, Tab, ToolTab, ToolTabHint } from '$lib/types/tabs';
-import { isGenerationTab, isToolTab } from '$lib/types/tabs';
+import type { EmbeddedTabRef, GenerationTab, GenerationState, MediaRef, PersistedGenerationTab, PersistedToolTab, Tab, ToolTab, ToolTabHint } from '$lib/types/tabs';
+import { embeddedTabFor, isEmbeddedTab, isGenerationTab, isToolTab, userGenerationTabs, visibleTabs } from '$lib/types/tabs';
 import { findToolTabByKey, findToolTabFor, mediaFileStem, planToolTabOpen } from '$lib/tool-tabs/sources';
 import { toolLabel } from '$lib/tool-tabs/registry';
 import { registerBuiltinToolKinds } from '$lib/tool-tabs/builtin';
@@ -141,17 +141,17 @@ export interface TabsState {
 
 export function normalizeTabsState(state: TabsState): TabsState {
 	let tabs = state.tabs;
-	if (!tabs.some(isGenerationTab)) {
-		tabs = [...tabs, createDefaultTab(generateTabId(), 'Generation 1')];
+	if (!userGenerationTabs(tabs).length) {
+		tabs = [...tabs.filter((tab) => !isEmbeddedTab(tab)), createDefaultTab(generateTabId(), 'Generation 1')];
 	}
-	const activeTabId = tabs.some((tab) => tab.id === state.activeTabId) ? state.activeTabId : tabs[0].id;
+	const activeTabId = tabs.some((tab) => tab.id === state.activeTabId && !isEmbeddedTab(tab)) ? state.activeTabId : tabs[0].id;
 	const active = tabs.find((tab) => tab.id === activeTabId);
 	const last = tabs.find((tab) => tab.id === state.lastGenerationTabId);
 	const lastGenerationTabId = isGenerationTab(active)
 		? active.id
-		: isGenerationTab(last)
+		: isGenerationTab(last) && (!isEmbeddedTab(last) || last.embedded.toolTabId === activeTabId)
 			? last.id
-			: tabs.find(isGenerationTab)!.id;
+			: userGenerationTabs(tabs)[0].id;
 	if (tabs === state.tabs && activeTabId === state.activeTabId && lastGenerationTabId === state.lastGenerationTabId) {
 		return state;
 	}
@@ -203,10 +203,12 @@ function tabPersistenceFieldsChanged(a: Tab, b: Tab): boolean {
 function tabsRelevantToPersistenceChanged(prev: TabsState, next: TabsState): boolean {
 	if (prev.activeTabId !== next.activeTabId) return true;
 	if (prev.lastGenerationTabId !== next.lastGenerationTabId) return true;
-	if (prev.tabs.length !== next.tabs.length) return true;
-	for (let i = 0; i < next.tabs.length; i++) {
-		const prevTab = prev.tabs[i];
-		const nextTab = next.tabs[i];
+	const prevTabs = visibleTabs(prev.tabs);
+	const nextTabs = visibleTabs(next.tabs);
+	if (prevTabs.length !== nextTabs.length) return true;
+	for (let i = 0; i < nextTabs.length; i++) {
+		const prevTab = prevTabs[i];
+		const nextTab = nextTabs[i];
 		if (prevTab === nextTab) continue;
 		if (prevTab.id !== nextTab.id) return true;
 		if (tabPersistenceFieldsChanged(prevTab, nextTab)) return true;
@@ -218,6 +220,19 @@ const PROMPT_UPDATE_KEYS = ['prompt', 'negativePrompt', 'promptSegments', 'negat
 
 function seedTabPrompts(tab: GenerationTab): GenerationTab {
 	return { ...seedSegmentsFromText(tab), promptTabs: seedPromptTabs(tab.promptTabs) };
+}
+
+function retireClosedTabs(closed: readonly Tab[], remaining: readonly Tab[]): void {
+	for (const tab of closed.filter(isGenerationTab)) {
+		const claimed = tabClaimedGenerationIds(tab);
+		if (claimed.size === 0) continue;
+		const stillClaimed = new Set<string>();
+		for (const other of remaining.filter(isGenerationTab)) {
+			for (const id of tabClaimedGenerationIds(other)) stillClaimed.add(id);
+		}
+		const orphaned = [...claimed].filter((id) => !stillClaimed.has(id));
+		if (orphaned.length > 0) retireOrphanedGenerationIds(orphaned);
+	}
 }
 
 function createTabsStore() {
@@ -332,7 +347,7 @@ function createTabsStore() {
 		addTab: () => {
 			update((state) => {
 				const newId = generateTabId();
-				const newTab = createDefaultTab(newId, `Generation ${state.tabs.filter(isGenerationTab).length + 1}`);
+				const newTab = createDefaultTab(newId, `Generation ${userGenerationTabs(state.tabs).length + 1}`);
 				return {
 					...state,
 					tabs: [...state.tabs, newTab],
@@ -357,33 +372,17 @@ function createTabsStore() {
 		removeTab: (tabId: string) => {
 			formulaApplied.clear(tabId);
 			update((state) => {
-				const closedTab = state.tabs.find((t) => t.id === tabId);
-				const newTabs = state.tabs.filter((t) => t.id !== tabId);
-				if (newTabs.length === 0) {
+				const closing = state.tabs.filter((t) => t.id === tabId || (isEmbeddedTab(t) && t.embedded.toolTabId === tabId));
+				const newTabs = state.tabs.filter((t) => !closing.includes(t));
+				if (visibleTabs(newTabs).length === 0) {
 					return state;
 				}
 
-				// Consumer-tied generation resource lifetime: a generation this
-				// closed tab was the LAST consumer of (nothing else claims it --
-				// see tabClaimedGenerationIds) loses its cached outputs and
-				// WebSocket subscription now; one a still-open tab also claims
-				// (a shared Director run, say) keeps them untouched.
-				if (isGenerationTab(closedTab)) {
-					const claimed = tabClaimedGenerationIds(closedTab);
-					if (claimed.size > 0) {
-						const stillClaimed = new Set<string>();
-						for (const tab of newTabs.filter(isGenerationTab)) {
-							for (const id of tabClaimedGenerationIds(tab)) stillClaimed.add(id);
-						}
-						const orphaned = [...claimed].filter((id) => !stillClaimed.has(id));
-						if (orphaned.length > 0) retireOrphanedGenerationIds(orphaned);
-					}
-				}
+				retireClosedTabs(closing, newTabs);
 
 				let newActiveId = state.activeTabId;
 				if (state.activeTabId === tabId) {
-					// Switch to the first tab if we're closing the active one
-					newActiveId = newTabs[0].id;
+					newActiveId = visibleTabs(newTabs)[0].id;
 				}
 
 				return {
@@ -395,7 +394,42 @@ function createTabsStore() {
 		},
 
 		setActiveTab: (tabId: string) => {
-			update((state) => (state.tabs.some((tab) => tab.id === tabId) ? { ...state, activeTabId: tabId } : state));
+			update((state) => {
+				const requested = state.tabs.find((tab) => tab.id === tabId);
+				const target = isEmbeddedTab(requested) ? state.tabs.find((tab) => tab.id === requested.embedded.toolTabId) : requested;
+				if (!target) return state;
+				const embedded = isToolTab(target) ? embeddedTabFor(state.tabs, target.id) : null;
+				return embedded ? { ...state, activeTabId: target.id, lastGenerationTabId: embedded.id } : { ...state, activeTabId: target.id };
+			});
+		},
+
+		openEmbeddedTab: (toolTabId: string, data: Partial<Omit<GenerationTab, 'kind' | 'id' | 'embedded'>> & { nodeId: string; persistence: 'local' | 'session' }): string => {
+			const newId = generateTabId();
+			update((state) => {
+				const owner = state.tabs.find((tab) => tab.id === toolTabId);
+				if (!isToolTab(owner)) return state;
+				const { nodeId, persistence, ...rest } = data;
+				const existing = embeddedTabFor(state.tabs, toolTabId);
+				const returnTo = existing?.embedded.returnTo ?? userGenerationTabs(state.tabs).find((tab) => tab.id === state.lastGenerationTabId)?.id ?? null;
+				const embedded: EmbeddedTabRef = { toolTabId, nodeId, persistence, returnTo };
+				const tab: GenerationTab = { ...createDefaultTab(newId, owner.name), ...rest, kind: 'generation', id: newId, embedded };
+				const tabs = [...state.tabs.filter((t) => t !== existing), tab];
+				if (existing) retireClosedTabs([existing], tabs);
+				return { ...state, tabs, lastGenerationTabId: newId };
+			});
+			return newId;
+		},
+
+		closeEmbeddedTab: (toolTabId: string): void => {
+			update((state) => {
+				const existing = embeddedTabFor(state.tabs, toolTabId);
+				if (!existing) return state;
+				const tabs = state.tabs.filter((t) => t !== existing);
+				retireClosedTabs([existing], tabs);
+				const returnTo = tabs.find((t) => t.id === existing.embedded.returnTo && isGenerationTab(t) && !t.embedded);
+				const lastGenerationTabId = state.lastGenerationTabId === existing.id ? returnTo?.id ?? userGenerationTabs(tabs)[0]?.id ?? '' : state.lastGenerationTabId;
+				return { ...state, tabs, lastGenerationTabId };
+			});
 		},
 
 		// Tab updates

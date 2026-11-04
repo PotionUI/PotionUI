@@ -519,6 +519,7 @@ export interface GenerationTab extends TabBase {
 	modeStateByMode?: Record<string, ModeState>;
 	seed?: number;
 	activeGenerationId?: string | null;
+	embedded?: EmbeddedTabRef;
 	/** Library prompt (src/features/prompt_database) applied to this tab from the
 	 *  Prompt Library's "Generate with this" — rides onto GenerationRequest.source_prompt_id.
 	 *  Cleared on preset change; deliberately absent from PersistedTab, same tier as
@@ -581,6 +582,22 @@ export interface GenerationTab extends TabBase {
 	color?: string | null;
 }
 
+export interface EmbeddedBaseline {
+	values: Record<string, unknown>;
+	form: Record<string, unknown>;
+	capturedAt: number;
+	revision: number;
+	print: string;
+}
+
+export interface EmbeddedTabRef {
+	toolTabId: string;
+	nodeId: string;
+	persistence: 'local' | 'session';
+	returnTo: string | null;
+	baseline?: EmbeddedBaseline | null;
+}
+
 export type Tab = GenerationTab | ToolTab;
 
 export function isToolTab(tab: Tab | null | undefined): tab is ToolTab {
@@ -593,6 +610,23 @@ export function isGenerationTab(tab: Tab | null | undefined): tab is GenerationT
 
 export function generationTabs(tabs: readonly Tab[]): GenerationTab[] {
 	return tabs.filter(isGenerationTab);
+}
+
+export function isEmbeddedTab(tab: Tab | null | undefined): tab is GenerationTab & { embedded: EmbeddedTabRef } {
+	return isGenerationTab(tab) && !!tab.embedded;
+}
+
+export function visibleTabs(tabs: readonly Tab[]): Tab[] {
+	return tabs.filter((tab) => !isEmbeddedTab(tab));
+}
+
+export function userGenerationTabs(tabs: readonly Tab[]): GenerationTab[] {
+	return tabs.filter((tab): tab is GenerationTab => isGenerationTab(tab) && !tab.embedded);
+}
+
+export function embeddedTabFor(tabs: readonly Tab[], toolTabId: string | null | undefined): (GenerationTab & { embedded: EmbeddedTabRef }) | null {
+	if (!toolTabId) return null;
+	return tabs.find((tab): tab is GenerationTab & { embedded: EmbeddedTabRef } => isEmbeddedTab(tab) && tab.embedded.toolTabId === toolTabId) ?? null;
 }
 
 export function findGenerationTab(tabs: readonly Tab[], id: string | null | undefined): GenerationTab | undefined {

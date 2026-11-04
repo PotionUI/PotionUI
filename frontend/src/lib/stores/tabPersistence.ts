@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import type { GenerationTab } from '$lib/types/tabs';
 import type { PersistedGenerationTab, PersistedTab, PersistedTabsState, PersistedToolTab, Tab, ToolTab } from '$lib/types/tabs';
-import { isToolTab } from '$lib/types/tabs';
+import { isEmbeddedTab, isToolTab } from '$lib/types/tabs';
 import { TABS_STORAGE_KEY } from '$lib/types/tabs';
 import { scopedStorage } from '$lib/stores/identityScopedStorage';
 import { randomUUID } from '$lib/utils/uuid';
@@ -109,7 +109,7 @@ export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string, lastGen
 	if (!browser) return;
 	try {
 		const persisted: PersistedTabsState = {
-			tabs: tabs.map((tab) => {
+			tabs: tabs.filter((tab) => !isEmbeddedTab(tab)).map((tab) => {
 				if (isToolTab(tab)) return toPersistedTab(tab);
 				const persistedTab = toPersistedTab(tab);
 				return tabDraftOutbox.retainedLegacyIds().has(tab.id)
@@ -117,7 +117,7 @@ export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string, lastGen
 					: persistedTab;
 			}),
 			activeTabId,
-			...(lastGenerationTabId ? { lastGenerationTabId } : {})
+			...(lastGenerationTabId && tabs.some((tab) => tab.id === lastGenerationTabId && !isEmbeddedTab(tab)) ? { lastGenerationTabId } : {})
 		};
 		scopedStorage.set(TABS_STORAGE_KEY, JSON.stringify(persisted));
 	} catch {

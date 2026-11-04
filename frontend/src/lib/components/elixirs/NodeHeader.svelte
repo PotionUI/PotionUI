@@ -22,6 +22,9 @@
 	{/if}
 	<h3 class="min-w-0 flex-1 truncate font-semibold text-fg">{data.label}</h3>
 	<div class="flex shrink-0 items-center">
+		{#if kind === 'preset' && data.node.preset_id && data.node.mode && data.canOpenInPreset}
+			<NodeIconButton icon="external-link" large={phone} label="Open {data.label} in preset" tip="Open in preset" onclick={() => data.onopeninpreset(data.node.id)} />
+		{/if}
 		{#if kind !== 'media' && !data.readOnly}
 			<NodeIconButton
 				icon="refresh"

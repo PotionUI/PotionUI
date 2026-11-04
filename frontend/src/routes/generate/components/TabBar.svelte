@@ -19,12 +19,12 @@
 	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
 	import { sessionLiveSync, remoteChangeLabel } from '$lib/stores/sessionLiveSync';
 	import { tabShowsUnsavedChanges } from '$lib/tabs/tabDirty';
-	import { isToolTab, type Tab, type ToolTab } from '$lib/types/tabs';
+	import { isToolTab, visibleTabs, type Tab, type ToolTab } from '$lib/types/tabs';
 	import type { WorkspaceTab } from '$lib/types/generation';
 	import NewTabMenu from '$lib/tool-tabs/NewTabMenu.svelte';
 	import { toolKinds } from '$lib/tool-tabs/registry';
 
-	$: tabs = $tabsStore.tabs;
+	$: tabs = visibleTabs($tabsStore.tabs);
 	$: activeTabId = $tabsStore.activeTabId;
 
 	const liveSyncMarks = sessionLiveSync.marks;

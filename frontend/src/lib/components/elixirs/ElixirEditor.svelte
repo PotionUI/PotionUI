@@ -9,13 +9,23 @@
 </script>
 
 <script lang="ts">
-	import { onDestroy, onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, tick as nextFrame, untrack } from 'svelte';
+	import { get } from 'svelte/store';
 	import { Button, LoadErrorState, Spinner } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { toasts, type ToastType } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { elixirsApi, type ElixirResult } from '$lib/services/api/elixirs';
 	import { elixirRenamed } from '$lib/elixirs/events';
+	import { tabsStore } from '$lib/stores/tabs';
+	import { embeddedTabFor } from '$lib/types/tabs';
+	import { loadPresets } from '$lib/stores/presetsCatalog';
+	import { restoreTabSession } from '$lib/session/restoreTabSession';
+	import { requestTabSave } from '$lib/stores/workspaceSaveRequest';
+	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
+	import { createStepEditor } from '$lib/elixirs/stepEditor';
+	import { stepIndex, stepOptions } from '$lib/elixirs/stepEdit';
+	import { publishStepBar } from '$lib/elixirs/stepBar';
 	import CardLane from './CardLane.svelte';
 	import LaneMenu, { type LaneMenuData, type LaneMenuGroup, type LaneMenuItem } from './LaneMenu.svelte';
 	import NodePanel from './NodePanel.svelte';
@@ -148,13 +158,15 @@
 
 	interface Props {
 		id: string;
+		tabId?: string | null;
 		hostPhone?: boolean;
 		ontitle?: (name: string) => void;
+		ondirty?: (edits: number) => void;
 		onstatus?: (run: Run | null, steps: ElixirStep[]) => void;
 		onlost?: () => void;
 	}
 
-	let { id, hostPhone = false, ontitle, onstatus, onlost }: Props = $props();
+	let { id, tabId = null, hostPhone = false, ontitle, ondirty, onstatus, onlost }: Props = $props();
 
 	const client = elixirsApi();
 
@@ -185,6 +197,7 @@
 	let pending = $state.raw<Record<string, Partial<Pending>>>({});
 	let menu = $state.raw<LaneMenuData | null>(null);
 	let flashId = $state<string | null>(null);
+	let editedIds = $state.raw<string[]>([]);
 	let announcement = $state('');
 	let widths = $state.raw(untrack(() => readWidths(viewerStorage(), id)));
 	let sessionPicker = $state<{ nodeId: string; purpose: string } | null>(null);
@@ -234,6 +247,70 @@
 					.map((node) => ({ id: node.id, label: nodeLabel(node, presetIndex), view: nodeRunView(run, node) }))
 			: []
 	);
+
+	async function fetchLatest() {
+		const result = await client.getElixir(id);
+		if (!result.ok) return null;
+		const data = result.data as ElixirRecord;
+		return { revision: data.revision, node: (nodeId: string) => data.definition.nodes.find((node) => node.id === nodeId) ?? null, record: data };
+	}
+
+	async function commitStep(nodeId: string, overrides: NodeOverrides) {
+		if (!definition || !nodeById(nodeId)) return 'error' as const;
+		change(updateNode(definition, nodeId, { overrides }), 0);
+		await flush();
+		if (saveState === 'saved') return 'saved' as const;
+		return saveState === 'conflict' ? ('conflict' as const) : ('error' as const);
+	}
+
+	const stepEditor = createStepEditor({
+		elixirName: () => name.trim() || 'Untitled elixir',
+		options: () => stepOptions(definition, laneOrder, presetIndex),
+		node: (nodeId) => nodeById(nodeId),
+		followed: (nodeId) => followed[nodeId],
+		revision: () => record?.revision ?? 0,
+		settle: () => settle(),
+		fetchLatest,
+		adopt: (data) => {
+			adopt(data as ElixirRecord);
+			void refreshFollowed();
+			void validate();
+		},
+		commit: commitStep,
+		tabs: {
+			open: (data) => tabsStore.openEmbeddedTab(tabId ?? '', data),
+			close: () => tabsStore.closeEmbeddedTab(tabId ?? ''),
+			current: () => embeddedTabFor(get(tabsStore).tabs, tabId),
+			setBaseline: (baseline) => {
+				const tab = embeddedTabFor(get(tabsStore).tabs, tabId);
+				if (tab) tabsStore.updateTab(tab.id, { embedded: { ...tab.embedded, baseline } });
+			},
+			subscribe: (run) => tabsStore.subscribe((state) => run(embeddedTabFor(state.tabs, tabId)))
+		},
+		host: { setTitle: (title) => ontitle?.(title), setDirty: (edits) => ondirty?.(edits) },
+		loadSession: async (tab) => {
+			const catalog = await loadPresets();
+			await restoreTabSession(tab, { presets: catalog.success && catalog.data ? catalog.data : [] });
+		},
+		saveSession: (sessionTabId) => requestTabSave(sessionTabId),
+		watchSessionDirty: (sessionTabId, run) => tabSessionDirty.subscribe((marks) => run(!!marks[sessionTabId])),
+		notify: {
+			error: (message) => toast('error', message),
+			saved: (message, undo) => toasts.show('success', message, { action: { label: 'Undo', onClick: undo }, duration: 8000 })
+		},
+		onReturn: (nodeId, saved) => {
+			if (saved) editedIds = [...editedIds.filter((item) => item !== nodeId), nodeId];
+			void nextFrame().then(() => flash(nodeId));
+		},
+		now: () => Date.now()
+	});
+
+	const stepState = stepEditor.state;
+
+	function openInPreset(nodeId: string) {
+		if (!tabId) return;
+		void stepEditor.open(nodeId);
+	}
 
 	function llmOf(node: ElixirNode): string | null {
 		return (node as ElixirNode & { llm_id?: string | null }).llm_id ?? null;
@@ -545,6 +622,9 @@
 			onslot: openSlotMenu,
 			onmodel: openModelMenu,
 			onmore: openMoreMenu,
+			onopeninpreset: openInPreset,
+			canOpenInPreset: !!tabId && !readOnly,
+			edited: editedIds.includes(node.id),
 			onchoosepreset: chooseCardPreset
 		};
 		if (node.kind === 'llm') {
@@ -724,6 +804,9 @@
 		const siblings = siblingsOf(tree!, nodeId);
 		const at = siblings.indexOf(nodeId);
 		const items: LaneMenuItem[] = [];
+		if (node.kind === 'preset' && node.preset_id && node.mode && tabId) {
+			items.push({ icon: 'external-link', name: 'Open in preset', desc: 'The full Generate view for this step', run: () => openInPreset(nodeId) });
+		}
 		if (node.kind !== 'media') {
 			items.push({ icon: 'refresh', name: 'Run this step again', desc: runAgainBlocked ?? 'Steps after it will need a rerun', disabled: !!runAgainBlocked, run: () => runNodeAgain(nodeId) });
 		}
@@ -857,6 +940,7 @@
 		await refreshFollowed();
 		await validate();
 		await loadRuns();
+		if (!destroyed && tabId) await stepEditor.resume();
 	}
 
 	async function loadRuns() {
@@ -1475,7 +1559,7 @@
 	}
 
 	function onbeforeunload(event: BeforeUnloadEvent) {
-		if (saveState === 'dirty' || saveState === 'saving') event.preventDefault();
+		if (saveState === 'dirty' || saveState === 'saving' || $stepState.edits > 0) event.preventDefault();
 	}
 
 	let statusText = $derived(
@@ -1510,6 +1594,8 @@
 
 	onDestroy(() => {
 		destroyed = true;
+		stepEditor.destroy();
+		if (tabId) publishStepBar(tabId, null);
 		viewer?.handle.close();
 		for (const timer of draftTimers.values()) clearTimeout(timer);
 		clearTimeout(saveTimer);
@@ -1521,7 +1607,37 @@
 
 	$effect(() => {
 		const title = record?.name;
-		if (title) untrack(() => ontitle?.(title));
+		const stepping = !!$stepState.nodeId;
+		if (title && !stepping) untrack(() => ontitle?.(title));
+	});
+
+	$effect(() => {
+		const state = $stepState;
+		const options = stepOptions(definition, laneOrder, presetIndex);
+		const owner = tabId;
+		if (!owner) return;
+		if (!state.nodeId) {
+			publishStepBar(owner, null);
+			return;
+		}
+		publishStepBar(owner, {
+			elixirName: name.trim() || 'Untitled elixir',
+			stepLabel: state.label,
+			follow: state.follow,
+			sessionName: state.sessionName,
+			steps: options,
+			index: stepIndex(options, state.nodeId),
+			edits: state.edits,
+			saving: state.saving,
+			opening: state.opening,
+			confirm: state.confirm,
+			conflict: state.conflict,
+			back: () => void stepEditor.back(),
+			go: (nodeId) => void stepEditor.go(nodeId),
+			save: () => void stepEditor.save(),
+			answerConfirm: (choice) => void stepEditor.answerConfirm(choice),
+			resolveConflict: (choice) => void stepEditor.resolveConflict(choice)
+		});
 	});
 
 	$effect(() => {

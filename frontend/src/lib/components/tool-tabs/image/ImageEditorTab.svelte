@@ -102,7 +102,7 @@
 	import { mediaFileStem } from '$lib/tool-tabs/sources';
 	import { imageEffects } from '$lib/tool-tabs/image/shaderEffect';
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
-	import { isGenerationTab, type GenerationTab, type MediaRef } from '$lib/types/tabs';
+	import { isGenerationTab, userGenerationTabs, type GenerationTab, type MediaRef } from '$lib/types/tabs';
 	import { analyseImage, detectPanels, type Analysis, type Rect } from '$lib/tool-tabs/image/slice/detect';
 	import { cropCanvas as sliceCrop, zipStore } from '$lib/tool-tabs/image/slice/crops';
 	import {
@@ -391,7 +391,7 @@
 		!!source && !!resolvedRef && !saving && !busy && (referencesOnly || !(saveSlice && sliceSaved)) && (effective.length > 0 || !!pending || mode === 'paint')
 	);
 
-	let generationTabs = $derived($tabsStore.tabs.filter(isGenerationTab));
+	let generationTabs = $derived(userGenerationTabs($tabsStore.tabs));
 	let tabFormKey = $derived(generationTabs.map((tab) => `${tab.id}|${tab.selectedPreset}|${tab.selectedMode}|${tab.selectedVariant ?? ''}`).join(','));
 	let referenceTargets = $derived<ReferenceTarget[]>(referenceTargetsFor(generationTabs, refFieldsByTab, presetNames, sliceCount || sliceItems.length));
 	let sendTargets = $derived(sendTargetsFor(generationTabs, fieldsByTab, presetNames, !!liveMaskNow, sendFirst));
@@ -1131,7 +1131,7 @@
 
 	function useAsReferences() {
 		if (!sliceItems.length) return;
-		const targets = referenceTargetsFor(get(tabsStore).tabs.filter(isGenerationTab), refFieldsByTab, presetNames, sliceItems.length);
+		const targets = referenceTargetsFor(userGenerationTabs(get(tabsStore).tabs), refFieldsByTab, presetNames, sliceItems.length);
 		if (targets.length === 1) {
 			commitReferences(targets[0], sliceItems);
 			return;

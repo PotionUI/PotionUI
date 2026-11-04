@@ -110,3 +110,24 @@ menu footer that names the tab a menu opens.
 - `ToolTabHost.svelte`: mounts the active tool. `PhoneToolTabView.svelte`: phone top bar + host.
 - `NewTabMenu.svelte`: the "+" menu. `TabsSheet.svelte`: the phone Tabs sheet.
 - `status.ts`, `ToolTabStatusMark.svelte`: tab status. `watchers.ts`: background `watch` runners.
+
+## Embedded generation tabs
+
+A tool tab can swap its content for the real Generate view without becoming a generation tab in the
+strip. `tabsStore.openEmbeddedTab(toolTabId, { nodeId, persistence, ...tabFields })` appends a
+`GenerationTab` whose `embedded` field (`EmbeddedTabRef`) names the owning tool tab. The embedded tab:
+
+- never appears in the tab strip, the workspaces, the chat pin list or the editors send-to lists
+  (`visibleTabs` / `userGenerationTabs`), and is never persisted (`saveTabsToLocalStorage` drops it);
+- becomes `activeTab` (the generation view) while its owner is the active tab, and is shown again
+  whenever the owner is re-activated (`setActiveTab`);
+- is removed with its owner (`removeTab`) or with `closeEmbeddedTab`.
+
+`persistence: 'local'` mounts the Generate body without a session controller, so nothing is autosaved
+and no session is created; the owner reads the tab and writes the result itself.
+`persistence: 'session'` mounts the normal session controller on `selectedSessionId`.
+
+The Generate page shows the embedded body when the owner has published a bar model with
+`publishStepBar` (`$lib/elixirs/stepBar`): the owner content stays mounted underneath, hidden, so
+scroll and panel state survive. The Elixir tool uses this for "Open in preset"
+(`$lib/elixirs/stepEditor`, `$lib/elixirs/stepEdit`).

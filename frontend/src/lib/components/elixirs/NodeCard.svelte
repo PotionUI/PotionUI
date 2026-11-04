@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, SegmentedControl } from '$lib/components/ui';
+	import { Badge, Button, SegmentedControl } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import NodeHeader from './NodeHeader.svelte';
 	import NodeIssues from './NodeIssues.svelte';
@@ -79,6 +79,9 @@
 							<Icon name={data.marker.icon} className="h-3.5 w-3.5 shrink-0" />
 						{/if}
 						<span class="truncate">{data.marker.text}</span>
+						{#if data.edited}
+							<Badge variant="signal" size="sm">Edited</Badge>
+						{/if}
 					</p>
 				{/if}
 			{/if}

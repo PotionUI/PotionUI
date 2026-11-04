@@ -10,7 +10,7 @@ import type {
 import type { VariablesMap } from '$lib/utils/variableDefs';
 import { toasts } from './toast';
 import { tabsStore } from './tabs';
-import { generationTabs } from '$lib/types/tabs';
+import { userGenerationTabs as generationTabs } from '$lib/types/tabs';
 import { tabDraftOutbox, type TabDraftOutbox } from './tabDraftOutbox';
 import { diffVariables, overlayOps, sameForSync } from './tabDraftOps';
 

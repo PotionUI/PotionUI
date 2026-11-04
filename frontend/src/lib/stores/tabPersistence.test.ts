@@ -142,6 +142,18 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		expect(restoredTab.selectedVariant).toBe('default');
 	});
 
+	it('never persists an embedded step tab or points the saved view at one', async () => {
+		const { saveTabsToLocalStorage, loadTabsFromLocalStorage } = await import('./tabPersistence');
+		const real = fakeTab({ id: 'real' });
+		const embedded = fakeTab({ id: 'emb', embedded: { toolTabId: 'owner', nodeId: 'n1', persistence: 'local', returnTo: 'real' } });
+
+		saveTabsToLocalStorage([real, embedded], 'real', 'emb');
+		const restored = loadTabsFromLocalStorage();
+
+		expect(restored!.tabs.map((tab) => tab.id)).toEqual(['real']);
+		expect(restored!.lastGenerationTabId).toBeUndefined();
+	});
+
 	it('strips data: URI strings out of formData before persisting', async () => {
 		const { saveTabsToLocalStorage, loadTabsFromLocalStorage } = await import('./tabPersistence');
 		const tab = fakeTab({

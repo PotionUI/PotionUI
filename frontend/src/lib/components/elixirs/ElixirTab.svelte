@@ -30,7 +30,7 @@
 
 {#if elixirId}
 	{#key elixirId}
-		<ElixirEditor id={elixirId} hostPhone={host.phone} ontitle={(name) => host.setTitle(name)} onstatus={report} onlost={lost} />
+		<ElixirEditor id={elixirId} tabId={host.tabId} hostPhone={host.phone} ontitle={(name) => host.setTitle(name)} ondirty={(edits) => host.setDirty(edits)} onstatus={report} onlost={lost} />
 	{/key}
 {:else}
 	<div class="dot-grid flex min-h-0 flex-1 justify-center overflow-y-auto px-3 pb-6 pt-14" data-testid="elixir-chooser">

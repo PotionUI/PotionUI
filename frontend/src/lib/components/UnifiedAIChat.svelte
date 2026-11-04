@@ -13,7 +13,7 @@
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import { buildUploadedMediaItem } from '$lib/components/form-fields/mediaLoaderUpload';
 	import { activeTab, activeToolTab, tabsStore } from '$lib/stores/tabs';
-	import { generationTabs } from '$lib/types/tabs';
+	import { userGenerationTabs as generationTabs } from '$lib/types/tabs';
 	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';

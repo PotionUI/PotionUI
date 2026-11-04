@@ -9,15 +9,17 @@
 	import ToolTabHost from '$lib/tool-tabs/ToolTabHost.svelte';
 	import { startToolTabWatchers } from '$lib/tool-tabs/watchers';
 	import { allElixirsOpen } from '$lib/elixirs/events';
+	import { stepBars } from '$lib/elixirs/stepBar';
+	import StepEditBar from '$lib/components/elixirs/StepEditBar.svelte';
+	import StepDialogs from '$lib/components/elixirs/StepDialogs.svelte';
 	import PhoneToolTabView from '$lib/tool-tabs/PhoneToolTabView.svelte';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
-	import type { DirectorRunState, GenerationTab } from '$lib/types/tabs';
+	import { isEmbeddedTab, type DirectorRunState, type GenerationTab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { submitGate, limits, limitsMeta } from '$lib/plans/store';
 	import { get } from 'svelte/store';
-	import { tabDraftSync } from '$lib/stores/tabDraftSync';
 	import { sessionLiveSync } from '$lib/stores/sessionLiveSync';
-	import { decideSessionVariables, finishDeferredSessionVariables } from '$lib/session/sessionVariablesRestore';
+	import { restoreTabSession } from '$lib/session/restoreTabSession';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import {
 		cancelGrid,
@@ -40,14 +42,7 @@
 	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import { applyIndependentUsages, mergeVariableRolls } from '$lib/utils/variableDefs';
 	import { findUndefinedVariableUsages } from '$lib/utils/promptVariables';
-	import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
-	import {
-		collectTabSessionData,
-		isSessionGoneError,
-		isSessionMissingResponse,
-		formDataPublicationPatch,
-		shouldRestoreTabSessionOnMount
-	} from '$lib/utils/sessionTabState';
+	import { formDataPublicationPatch } from '$lib/utils/sessionTabState';
 	import { WebSocketService, createGenerationSocket } from '$lib/services/websocket';
 	import type { WebSocketMessage } from '$lib/services/websocket';
 	import { dispatchGenerationMessageCoalesced } from '$lib/stores/generation';
@@ -125,7 +120,7 @@
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { firstResourceIssue } from '$lib/utils/generationResourceReadiness';
 	import { resolveDefaultModeSelection } from '$lib/utils/modeAutoSelect';
-	import { buildModeSwitchPatch, seedModeStateFromSessionData } from '$lib/utils/modeState';
+	import { buildModeSwitchPatch } from '$lib/utils/modeState';
 	import { describePresetsEmptyState } from '$lib/utils/presetsEmptyState';
 	import { loadPresets, invalidatePresets } from '$lib/stores/presetsCatalog';
 	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
@@ -668,7 +663,9 @@
 	$: tabs = generationTabs($tabsStore.tabs);
 	$: activeTabId = $activeTab.id;
 	$: currentTab = $activeTab;
-	$: toolTabActive = !!$activeToolTab;
+	$: stepBar = $activeToolTab ? $stepBars[$activeToolTab.id] ?? null : null;
+	$: embeddedActive = !!stepBar && !!$activeToolTab && isEmbeddedTab($activeTab) && $activeTab.embedded.toolTabId === $activeToolTab.id;
+	$: toolTabActive = !!$activeToolTab && !embeddedActive;
 	$: rewriteMergedFieldMarkers(currentTab, currentTabFieldAliases);
 
 	function rewriteMergedFieldMarkers(tab: typeof currentTab, aliases: Record<string, string>) {
@@ -997,111 +994,7 @@
 
 	async function restoreTabSessions() {
 		const currentTabs = generationTabs($tabsStore.tabs);
-
-		await Promise.all(currentTabs.map(async (tab) => {
-			// tabsStore is module-scope, so SPA navigation remounts this page without
-			// resetting it: a tab that already has a session baseline holds a live draft
-			// that must not be overwritten. Only a full reload (baseline undefined after
-			// localStorage rehydration) hydrates from the server.
-			if (!shouldRestoreTabSessionOnMount(tab)) return;
-			// shouldRestoreTabSessionOnMount already guarantees both are set; narrow
-			// locally so the compiler sees it too.
-			const selectedSessionId = tab.selectedSessionId!;
-			const selectedMode = tab.selectedMode!;
-
-			try {
-				const response = await api.getSessionById(selectedSessionId);
-				if (response.success && response.data) {
-					const session = response.data;
-					const modeData = session.data[selectedMode];
-
-					if (modeData) {
-						// Non-blocking notice: the mode/variant selectors re-validate against
-						// live preset data once modes/variants load (see the modesPerTab
-						// reactive block below), so an unknown saved variant just falls back
-						// to the default there rather than failing here.
-						const presetForSession = presets.find((p) => p.id === (modeData.selectedPreset || tab.selectedPreset));
-						if (modeData.presetVersion && presetForSession?.version && modeData.presetVersion !== presetForSession.version) {
-							toasts.warning(
-								`Session "${tab.name}" was saved with preset version ${modeData.presetVersion}, now at ${presetForSession.version} — some fields may have changed.`
-							);
-						}
-
-						// Restore session data to tab (keep selectedSessionId!). Shared with
-						// SessionPill's manual picker and sessions.ts's loadSession —
-						// see sessionRestore.ts's header for why (this path was the one
-						// missing `variables`, `promptTabs`, and `leftPanelCollapsed`).
-						const restoredPatch = buildSessionRestoreTabPatch(modeData, {
-							promptPanelWidth: tab.promptPanelWidth
-						});
-						const draftReady = await tabDraftSync.settled(4000);
-						const currentVariables = () => findGenerationTab(get(tabsStore).tabs, tab.id)?.variables;
-						const variablesDecision = decideSessionVariables(draftReady, currentVariables());
-						const { variables: sessionVariables, ...patchWithoutVariables } = restoredPatch;
-						const appliedPatch = variablesDecision === 'replace' ? restoredPatch : patchWithoutVariables;
-						const restoredTab = {
-							...tab,
-							selectedPreset: modeData.selectedPreset || tab.selectedPreset,
-							selectedVariant: modeData.selectedVariant || null,
-							selectedSessionId: tab.selectedSessionId,
-							...restoredPatch,
-							modeStateByMode: seedModeStateFromSessionData(session.data, tab.selectedMode)
-						};
-
-						tabsStore.updateTab(tab.id, {
-							selectedPreset: modeData.selectedPreset || tab.selectedPreset,
-							selectedVariant: modeData.selectedVariant || null,
-							selectedSessionId: tab.selectedSessionId, // Preserve session ID
-							...appliedPatch,
-							// Seed the per-mode cache from every OTHER mode this session has
-							// data for, so a live mode switch after this restore picks up
-							// that mode's saved config instead of starting empty.
-							modeStateByMode: restoredTab.modeStateByMode,
-							sessionVersion: session.version,
-							// The bar is allowed to remount, but not to redefine this server
-							// snapshot as whatever draft happens to be in the tab then.
-							savedSessionSignature: JSON.stringify(
-								collectTabSessionData(restoredTab, tab.selectedMode, session.data, presetForSession?.version)
-							),
-							sessionBaselineAwaitingFormNormalization: true
-						});
-						if (variablesDecision === 'replace') tabDraftSync.replaceDraft(tab.id, sessionVariables ?? {});
-						if (variablesDecision === 'defer') {
-							void finishDeferredSessionVariables(
-								{
-									settled: () => tabDraftSync.settled(),
-									currentVariables,
-									apply: (variables) => tabsStore.updateTab(tab.id, { variables }),
-									replace: (variables) => tabDraftSync.replaceDraft(tab.id, variables)
-								},
-								sessionVariables ?? {}
-							);
-						}
-					}
-				} else if (isSessionMissingResponse(response)) {
-					console.warn(`[TabRestore] Session for tab ${tab.name} no longer exists, clearing the link.`);
-					tabsStore.updateTab(tab.id, {
-						selectedSessionId: null,
-						savedSessionSignature: null,
-						sessionBaselineAwaitingFormNormalization: false
-					});
-				}
-			} catch (error) {
-				// A thrown HTTP 404 proves the session is gone; any other failure (network
-				// error, backend still booting) must not destroy the tab's saved link -
-				// the next successful loadSessions binds it back once reachable.
-				if (isSessionGoneError(error)) {
-					console.error(`[TabRestore] Failed to restore session for tab ${tab.name}:`, error);
-					tabsStore.updateTab(tab.id, {
-						selectedSessionId: null,
-						savedSessionSignature: null,
-						sessionBaselineAwaitingFormNormalization: false
-					});
-				} else {
-					console.warn(`[TabRestore] Backend unreachable while restoring session for tab ${tab.name}, keeping the saved link:`, error);
-				}
-			}
-		}));
+		await Promise.all(currentTabs.map((tab) => restoreTabSession(tab, { presets })));
 	}
 
 	// Single restore/reconcile pass for every tab, run on connect AND on every
@@ -1941,9 +1834,14 @@
 <!-- Main Layout Wrapper. Below md the shell's main reserves the fixed bottom
 	tab bar (4rem + safe-area), so this page must size itself to what's left of
 	the *visible* viewport — 100vh would overflow behind the bar. -->
-<div class="h-[calc(100dvh_-_var(--tab-bar-height))] md:h-dvh flex flex-col bg-canvas overflow-hidden">
+<div class="relative h-[calc(100dvh_-_var(--tab-bar-height))] md:h-dvh flex flex-col bg-canvas overflow-hidden">
 
 	<TabBar />
+
+	{#if embeddedActive && stepBar}
+		<StepEditBar model={stepBar} phone={$isMobile} />
+		<StepDialogs model={stepBar} />
+	{/if}
 
 	<!-- Keep lightweight tab wrappers, but mount the expensive editor only for the active tab. -->
 	{#each tabs as tab (tab.id)}
@@ -2110,7 +2008,12 @@
 
 	{#if $activeToolTab}
 		{#key $activeToolTab.id}
-			<div class="flex-1 min-h-0 overflow-hidden" data-testid="tool-tab-area">
+			<div
+				class="min-h-0 overflow-hidden {embeddedActive ? 'invisible pointer-events-none absolute inset-0' : 'flex-1'}"
+				inert={embeddedActive}
+				aria-hidden={embeddedActive ? 'true' : undefined}
+				data-testid="tool-tab-area"
+			>
 				{#if $isMobile}
 					<PhoneToolTabView tab={$activeToolTab} />
 				{:else}

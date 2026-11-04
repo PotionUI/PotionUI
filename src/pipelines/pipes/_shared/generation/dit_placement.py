@@ -725,8 +725,7 @@ def place_dit_for_sequence(
         # decision byte-identical to the cold-start path.
         dit.offload()
 
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    _release_idle_pool(device)
     need_gb = weight_gb + max(minimum_inference_memory_gb(), total_reserve) if weight_gb > 0.0 else 0.0
     _ensure_room_for(device, need_gb, own_models)
     free = effective_free_vram_gb(device) or 0.0
@@ -922,6 +921,12 @@ def _sampling_oom(
     )
 
 
+def _release_idle_pool(device: str) -> None:
+    if str(device).startswith("cuda") and torch.cuda.is_available():
+        with torch.cuda.device(device):
+            torch.cuda.empty_cache()
+
+
 def _ensure_room_for(device: str, need_gb: float, own_models: Iterable[Any]) -> None:
     """Evict FOREIGN GPU-resident components (never ``own_models``) to make
     ``need_gb`` free on ``device``. Mirrors ``NativeGenerator._ensure_room_for``
@@ -936,8 +941,8 @@ def _ensure_room_for(device: str, need_gb: float, own_models: Iterable[Any]) -> 
         offloaded = manager.ensure_free(device, need_gb, free, exclude=own_models)
     else:
         offloaded = manager.offload_all(device, exclude=own_models)
-    if offloaded and torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    if offloaded:
+        _release_idle_pool(device)
 
 
 def make_room_for_lora_stack(device: str, stack: Iterable[Any], own_models: Iterable[Any]) -> None:
@@ -946,8 +951,7 @@ def make_room_for_lora_stack(device: str, stack: Iterable[Any], own_models: Iter
     )
     if not stack_bytes:
         return
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    _release_idle_pool(device)
     _ensure_room_for(device, stack_bytes / _BYTES_PER_GB + minimum_inference_memory_gb(), own_models)
 
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import math
 import types
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -54,8 +54,10 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     _dit_dequant_transient_bytes,
     _dit_lora_profile,
     _dit_quant_activation_bytes_per_token,
+    _ensure_room_for,
     _ffn_transient_bytes_per_token,
     _LTX_INNER_DIM,
+    _release_idle_pool,
     DitLoraProfile,
     DitPlacementDecision,
     SamplingOutOfMemory,
@@ -2282,6 +2284,7 @@ def test_room_for_a_lora_stack_is_judged_once_the_allocator_pool_is_handed_back(
             patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
             patch(f"{_MOD}.get_residency_registry", return_value=manager), \
             patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.device"), \
             patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=lambda: released.append(True)):
         make_room_for_lora_stack("cuda", stack, ())
     assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
@@ -2304,6 +2307,7 @@ def test_cold_placement_hands_the_allocator_pool_back_before_judging_what_to_evi
             patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
             patch(f"{_MOD}.get_residency_registry", return_value=manager), \
             patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.device"), \
             patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=lambda: released.append(True)):
         decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
     assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
@@ -2327,10 +2331,119 @@ def test_a_warm_dit_that_no_longer_fits_hands_the_pool_back_after_its_offload():
             patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
             patch(f"{_MOD}.get_residency_registry", return_value=manager), \
             patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.device"), \
             patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=release):
         place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
     assert offloaded
     assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+
+
+class _TwoCards:
+    def __init__(self):
+        self.current = "cuda:0"
+        self.idle_gb = {"cuda:0": 3.0, "cuda:1": 8.0}
+
+    @contextmanager
+    def selected(self, device):
+        previous, self.current = self.current, str(device)
+        try:
+            yield
+        finally:
+            self.current = previous
+
+    def empty_cache(self):
+        self.idle_gb[self.current] = 0.0
+
+    def free_gb(self, device):
+        return 12.0 - self.idle_gb[str(device)]
+
+    def installed(self, manager):
+        stack = ExitStack()
+        for patcher in (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.device", self.selected),
+            patch("torch.cuda.empty_cache", self.empty_cache),
+            patch(f"{_MOD}.free_vram_gb", side_effect=self.free_gb),
+            patch(f"{_MOD}.effective_free_vram_gb", return_value=12.0),
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0),
+            patch(f"{_MOD}.get_residency_registry", return_value=manager),
+        ):
+            stack.enter_context(patcher)
+        return stack
+
+
+_LORA_STACK_2GB = [({"down": torch.empty(16384, 32768, dtype=torch.bfloat16, device="meta")}, 1.0)]
+
+
+def test_a_cold_placement_on_a_second_card_empties_that_cards_pool_before_judging_what_to_evict():
+    cards, manager = _TwoCards(), _FakeResidencyRegistry()
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    with cards.installed(manager):
+        decision = place_dit_for_sequence(dit, "cuda:1", video_tokens=1_000)
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+    assert cards.idle_gb == {"cuda:0": 3.0, "cuda:1": 0.0}
+    assert cards.current == "cuda:0"
+    assert decision.mode == "resident"
+
+
+@pytest.mark.parametrize("device", ["cuda:1", torch.device("cuda:1")], ids=["str", "torch_device"])
+def test_room_for_a_lora_stack_on_a_second_card_is_judged_once_that_cards_pool_is_handed_back(device):
+    cards, manager = _TwoCards(), _FakeResidencyRegistry()
+    with cards.installed(manager):
+        make_room_for_lora_stack(device, _LORA_STACK_2GB, ())
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+    assert cards.idle_gb == {"cuda:0": 3.0, "cuda:1": 0.0}
+    assert cards.current == "cuda:0"
+
+
+def test_an_eviction_on_a_second_card_hands_that_cards_pool_back():
+    cards = _TwoCards()
+    manager = SimpleNamespace(ensure_free=lambda *a, **k: True)
+    with cards.installed(manager):
+        _ensure_room_for("cuda:1", 5.0, ())
+    assert cards.idle_gb == {"cuda:0": 3.0, "cuda:1": 0.0}
+    assert cards.current == "cuda:0"
+
+
+def test_an_eviction_that_offloaded_nothing_keeps_the_cards_pool():
+    cards = _TwoCards()
+    manager = SimpleNamespace(ensure_free=lambda *a, **k: False)
+    with cards.installed(manager):
+        _ensure_room_for("cuda:1", 5.0, ())
+    assert cards.idle_gb == {"cuda:0": 3.0, "cuda:1": 8.0}
+
+
+@pytest.mark.parametrize("device", ["cpu", torch.device("cpu")], ids=["str", "torch_device"])
+def test_a_cpu_device_touches_no_card_on_a_machine_that_has_one(device):
+    manager = _FakeResidencyRegistry()
+    with patch("torch.cuda.is_available", return_value=True), \
+            patch("torch.cuda.empty_cache") as empty, \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=manager):
+        make_room_for_lora_stack(device, _LORA_STACK_2GB, ())
+        _ensure_room_for(device, 5.0, ())
+    assert not empty.called
+    assert manager.ensure_free_calls == []
+
+
+@pytest.mark.parametrize("device, selected", [
+    ("cuda:1", 1), (torch.device("cuda:1"), 1), ("cuda", 0), (torch.device("cuda"), 0),
+], ids=["str_index", "torch_device_index", "str_current", "torch_device_current"])
+def test_emptying_the_pool_selects_the_card_and_restores_the_current_one_even_when_it_raises(device, selected):
+    exchanges = []
+
+    def exchange(index):
+        exchanges.append(index)
+        return 0
+
+    with patch("torch.cuda.is_available", return_value=True), \
+            patch("torch.cuda.current_device", return_value=0), \
+            patch("torch.cuda._exchange_device", side_effect=exchange), \
+            patch("torch.cuda._maybe_exchange_device", side_effect=exchange), \
+            patch("torch.cuda.empty_cache", side_effect=RuntimeError("driver")):
+        with pytest.raises(RuntimeError, match="driver"):
+            _release_idle_pool(device)
+    assert exchanges == [selected, 0]
 
 
 def test_placement_evicts_for_the_reserve_as_well_as_the_weight():

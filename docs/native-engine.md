@@ -403,9 +403,10 @@ it is not retried, the segments stop growing for the rest of the process
 (`torch.cuda.memory._set_allocator_settings`, the other allocator options kept), and the generation
 fails under its own error code, `gpu_restart_required`: admins read that the process can no longer
 use the GPU and get Restart Backend as the only hint, other users are told to ask an administrator
-to restart the backend. A failure read from its text alone (`classify_error_text`: a stored row, a
-worker's message) asks for a restart only while this process is damaged, reads as `cuda_oom` otherwise,
-and never records anything. Until the process restarts, every run with an enabled pipe on `cuda`
+to restart the backend. A failure read from its text alone (`classify_error_text`: a stored row) asks
+for a restart only while this process is damaged, reads as `cuda_oom` otherwise, and never records
+anything; a worker's failure never asks for this process's restart at all
+(`worker_failure_category`). Until the process restarts, every run with an enabled pipe on `cuda`
 is refused before its first pipe with that same code, `GET /health` and the native backend's health
 report `degraded` with the same reason, and nothing restarts on its own. What the operator sees and
 does is in [Backends → Troubleshooting](/admin?tab=docs&doc=dev/backends).
@@ -414,10 +415,17 @@ does is in [Backends → Troubleshooting](/admin?tab=docs&doc=dev/backends).
 off, driver-error OOMs are always retried. The same error under native Linux keeps entering the
 fallbacks, and a `torch.OutOfMemoryError` keeps being retried everywhere, a damaged process included.
 
-The refusal and the degraded health live in `GenerationEngine`, `GET /health` and `NativeBackend`. A
-`native.remote` worker shares the fallbacks and the policy, so under WSL2 it does not retry either
-and its segments stop growing, but it keeps accepting jobs and its own `/health` does not change until
-its process or container is restarted by hand.
+A `native.remote` worker (`./potionui worker start` under WSL2, or the worker image under Docker
+Desktop on Windows, whose container sees the WSL2 kernel and so counts as WSL2 for `is_wsl()`) runs
+the same allocator code but never `GenerationEngine`, so it carries the fatal path itself
+(`src/features/remote_execution/worker/executor.py`): once the allocator is damaged, every enabled pipe
+on `cuda`, by the same rule (`pipe_config_runs_on_cuda`), is refused before it is built under the
+worker's own code `worker_gpu_restart_required`, and the exception a pipe raises is classified on the
+worker (`classify_generation_error`), so the host receives a code instead of reading the message. The
+worker's `GET /health` and the remote native backend's health report `degraded`, and the hint names the
+worker process or container rather than Restart Backend, which only replaces the host's own process.
+A worker under native Linux keeps retrying as before. What the operator sees and does is in
+[Remote Native](/admin?tab=docs&doc=dev/remote-native).
 
 ## The extension contract — adding model N+1
 

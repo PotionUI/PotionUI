@@ -8,6 +8,7 @@ from src.pipelines.cloud import CloudRunError
 from src.platform.runtime.cuda_allocator import (
     DRIVER_OOM_MESSAGES,
     RESTART_ACTION,
+    WORKER_RESTART_ACTION,
     allocator_damage,
     needs_gpu_restart,
     record_driver_oom,
@@ -48,6 +49,8 @@ _BACKEND_UNREACHABLE_MARKERS = (
 
 UNCLASSIFIED = "unclassified"
 
+WORKER_GPU_RESTART_REQUIRED = "worker_gpu_restart_required"
+
 _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "cuda_oom": (
         "Ran out of GPU memory (VRAM) during generation.",
@@ -62,6 +65,11 @@ _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
         "This process can no longer use the GPU: a CUDA out-of-memory left its memory allocator unusable. "
         "Restart Backend (Administration > Backends) before the next generation.",
         (RESTART_ACTION,),
+    ),
+    WORKER_GPU_RESTART_REQUIRED: (
+        "A CUDA out-of-memory left the remote worker's GPU allocator unusable. "
+        "Restart the worker process (or its container) before the next generation.",
+        (WORKER_RESTART_ACTION,),
     ),
     "host_ram_oom": (
         "Ran out of host RAM while streaming model weights.",
@@ -180,6 +188,10 @@ _USER_CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "gpu_restart_required": (
         "The server's GPU needs a restart before it can generate again.",
         ("Ask your administrator to restart the backend",),
+    ),
+    WORKER_GPU_RESTART_REQUIRED: (
+        "The server's GPU needs a restart before it can generate again.",
+        ("Ask your administrator to restart the worker",),
     ),
     "host_ram_oom": (
         "This was too much for the server's memory right now.",
@@ -310,6 +322,18 @@ def classify_error_text(text: Optional[str]) -> ErrorClassification:
     return classification_for_code(UNCLASSIFIED)
 
 
+def worker_failure_category(code: Optional[str], text: Optional[str]) -> str:
+    if code == "gpu_restart_required":
+        return WORKER_GPU_RESTART_REQUIRED
+    if code in _CATEGORIES:
+        return code
+    message = (text or "").lower()
+    for category, matches in _TEXT_CHECKS:
+        if category != "gpu_restart_required" and matches(message):
+            return category
+    return UNCLASSIFIED
+
+
 def _has_any(message: str, markers: Tuple[str, ...]) -> bool:
     return any(marker in message for marker in markers)
 
@@ -327,6 +351,7 @@ def _text_is_cuda_oom(message: str) -> bool:
 
 
 _TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (
+    (WORKER_GPU_RESTART_REQUIRED, lambda m: "worker's gpu allocator" in m),
     ("gpu_restart_required", lambda m: "can no longer use the gpu" in m),
     ("gpu_restart_required", _text_is_fatal_driver_oom),
     ("cuda_oom", _text_is_cuda_oom),

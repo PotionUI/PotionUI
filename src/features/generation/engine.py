@@ -13,7 +13,7 @@ from src.pipelines.outputs import (
 )
 from src.features.generation.error_classification import classify_generation_error
 from src.platform.assets import AssetFetcher
-from src.platform.runtime.cuda_allocator import raise_if_allocator_damaged
+from src.platform.runtime.cuda_allocator import pipe_config_runs_on_cuda, raise_if_allocator_damaged
 from src.platform.runtime.gpu import GpuMonitor
 from src.platform.observability.system_probe import SystemMonitor
 from src.platform.runtime.memory_advisor import MemoryAdvisor
@@ -188,10 +188,7 @@ def _pipe_identifier(pipe_config: Dict[str, Any]) -> str:
 
 
 def _runs_on_cuda(pipes: list) -> bool:
-    return any(
-        pipe.get('enabled') and str((pipe.get('config') or {}).get('device') or 'cuda').startswith('cuda')
-        for pipe in pipes
-    )
+    return any(pipe.get('enabled') and pipe_config_runs_on_cuda(pipe.get('config')) for pipe in pipes)
 
 
 def _pipe_identifier_map(pipes: list) -> Dict[str, str]:

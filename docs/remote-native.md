@@ -57,6 +57,7 @@ scaled down to what a worker actually needs.
 | `POTIONUI_WORKER_DEVICE` / `_DTYPE` / `_VRAM_GB` | no | probed | Override what the worker injects into every pipe's config - see "Device injection" below. |
 | `POTIONUI_BUILD_ID` | no | none | Fed into `compute_build_fingerprint`; absent degrades to a protocol-version-only fingerprint. |
 | `POTIONUI_WORKER_MODEL_DIR` | no | `/models` | Model depot root. Models are looked up at `<root>/<type directory>/<filename>` - the same one-folder-per-type layout as the host's models folder (`src/platform/filesystem/model_types.py`). Files placed there by hand are found as long as the filename matches; a `.digest` sidecar is written on first inventory. |
+| `POTIONUI_CUDA_DRIVER_OOM` | no | fatal under WSL2, retry elsewhere | What a driver-error OOM does to this worker - see "GPU allocator damage" below. |
 
 Engine switches (fp8/nvfp4 fast multiply, LoRA fusing, `torch.compile`, stream
 prefetch, fp8 quantize-at-load, the attention pin, the LTX decode tiles, Sol-Attn
@@ -127,6 +128,54 @@ trap" `effective_config.py`'s docstring warns about; it lives in
 `src/features/generation/effective_config.py` /
 `src/features/generation/package_assembly.py`, both outside this worker's
 owned files.
+
+## GPU allocator damage
+
+Under WSL2 with expandable segments on, a card running out of VRAM raises
+`CUDA driver error: device not ready` or `CUDA driver error: out of memory`, and
+that error leaves the process's GPU allocator unusable until it restarts
+([Native Engine](/admin?tab=docs&doc=dev/native-engine) has the mechanism). A worker
+started with `./potionui worker start` under WSL2 is concerned, and so is the worker
+image under Docker Desktop on Windows, whose container sees the WSL2 kernel. A worker
+under native Linux, a RunPod pod included, retries that error instead and never enters
+this state, unless `POTIONUI_CUDA_DRIVER_OOM=fatal` is set on it.
+`POTIONUI_CUDA_DRIVER_OOM=retry` keeps a WSL2 worker retrying.
+
+From the first such error, and until the worker process restarts:
+
+- that execution fails under `worker_gpu_restart_required`, `retryable: false`;
+- every later enabled pipe on `cuda` is refused before it is built, under the same code. A pipe
+  whose `device` is absent or blank counts as `cuda`, after the worker's own device was injected,
+  so on a CPU worker only a pipe pinned to `cuda` is refused, and a pipe pinned to `cpu` still runs;
+- `GET /health`, which takes no token, answers 200 with `"status": "degraded"` and a `reason` quoting
+  the driver error;
+- the handshake carries the token `allocator_damaged` in `capabilities.features`.
+
+The exception any pipe raises is classified on the worker with the host's own classifier, so the
+failure's code is a category the host knows (`cuda_oom`, `host_ram_oom`, `missing_model_file`, ...),
+and `pipe_failed` only when nothing classifies. Those stay `retryable: true`, as `pipe_failed` was.
+
+The `native.remote` backend reads the token: its health reports `degraded`, naming the worker and
+asking for its restart, and a pipeline with an enabled pipe on `cuda` is refused before submit. A
+token says that the damage happened, not which error caused it: the driver's words are on the
+worker's own `GET /health`, in its log and on the failure that caused the damage. Administrators read
+that the worker needs a restart, other users that they should ask an administrator to restart it.
+
+**To get out**, restart the worker process or its container, or stop and start the pod. The state
+lives only in the process's memory, so the new process starts healthy. The host handshakes on every
+health check and every dispatch, so it sees the restart at its next one. Restart Backend on the host
+does nothing for a worker, and nothing a worker sends can damage the host or make it ask for its own
+restart (`worker_failure_category`).
+
+**Mixed versions.** The damage travels as a token rather than a new field because `ProtocolModel`
+forbids unknown fields: a host without that field would refuse the whole handshake, even from a
+healthy worker. `WORKER_PROTOCOL_VERSION` does not change.
+
+- An older host ignores the token, so it reports the worker as healthy and keeps sending; the worker
+  refuses each CUDA pipe itself. That host reads the refusal's text, which names the worker's restart,
+  and classifies it as `cuda_oom`, from the driver error it quotes.
+- An older worker sends no token and fails every pipe as `pipe_failed` with the driver's text. A newer
+  host reads that text as `cuda_oom`: it cannot tell that the worker needs a restart.
 
 ## Journal
 
@@ -242,7 +291,9 @@ forces eager pipe discovery the first time it runs).
    missing a host-only plugin's pipe should not block a pipeline that never
    uses it. A build mismatch or an unreachable worker fails the row
    immediately (`error_code` `fingerprint_mismatch` / `worker_unreachable`)
-   and returns *without ever calling submit*. The real pipe-catalog check is
+   and returns *without ever calling submit*, and so does a worker advertising
+   a damaged GPU allocator (`worker_gpu_restart_required`, see "GPU allocator
+   damage" above), unless every enabled pipe is pinned away from `cuda`. The real pipe-catalog check is
    the worker's own per-package gate (`WorkerCoordinator._fingerprint_mismatch`):
    the package carries `pipe_contracts` (pipe_type -> contract fingerprint,
    one entry per pipe the pipeline actually uses); the worker rejects only if
@@ -282,7 +333,10 @@ forces eager pipe discovery the first time it runs).
    included); the worker-lifecycle kinds without a payload
    (`staging`/`running`/`pipe_started`) are instead synthesized into a
    `ProgressGenerationOutput` here with the `<<PIPE:name>>` title convention.
-   A failed/rejected event's `JobErrorV1` becomes an `ErrorGenerationOutput`.
+   A failed/rejected event's `JobErrorV1` becomes an `ErrorGenerationOutput`
+   carrying its code; `worker_failure_category` keeps a code the host knows and
+   otherwise reads the message, without the checks that would ask for this
+   host's own restart.
 8. Any exception between claiming the row and a terminal event (submit
    failing, an upload failing, an artifact failing digest verification, the
    connection dying) marks the row FAILED (`error_code: dispatch_error`)

@@ -37,11 +37,17 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PIL import Image
 
 from src.features.generation.engine import deep_update, validate_pipe_configuration
+from src.features.generation.error_classification import (
+    UNCLASSIFIED,
+    WORKER_GPU_RESTART_REQUIRED,
+    classify_generation_error,
+)
 from src.features.remote_execution.output_codec import OutputEncodeError, encode_output
 from src.features.remote_execution.worker.device_injection import inject_worker_device
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import GenerationOutput, ProgressGenerationOutput
+from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_damage, pipe_config_runs_on_cuda
 from src.platform.worker_protocol import ArtifactRefV1, ContentDigest, ProcessedPipelineV1
 
 logger = logging.getLogger(__name__)
@@ -82,6 +88,15 @@ class WorkerEvent:
     detail: Optional[str] = None
     artifacts: Tuple[ArtifactRefV1, ...] = ()
     payload: Dict[str, Any] = field(default_factory=dict)
+
+
+def _failure_code(exc: BaseException) -> Tuple[str, bool]:
+    category = classify_generation_error(exc).category
+    if category == "gpu_restart_required":
+        return WORKER_GPU_RESTART_REQUIRED, False
+    if category == UNCLASSIFIED:
+        return "pipe_failed", True
+    return category, True
 
 
 def _resolve_asset_tokens(value: Any, resolve: Callable[[str], Path]) -> Any:
@@ -152,6 +167,13 @@ class WorkerPipelineExecutor:
                     "invalid_config", str(exc), retryable=False, pipe_id=processed.pipe_id,
                 ) from exc
 
+            damage = allocator_damage()
+            if damage is not None and pipe_config_runs_on_cuda(config):
+                raise PipeExecutionError(
+                    WORKER_GPU_RESTART_REQUIRED, str(CudaAllocatorDamaged(damage, worker=True)),
+                    retryable=False, pipe_id=processed.pipe_id,
+                )
+
             pipe = pipe_class(config)
             pipe_input = self._resolve_inputs(pipe_class, processed, pipe_outputs)
             pipe_input = self._inject_services(pipe_class, pipe_input)
@@ -176,8 +198,9 @@ class WorkerPipelineExecutor:
                 # be re-wrapped as a generic, retryable "pipe_failed" below.
                 raise
             except Exception as exc:
+                code, retryable = _failure_code(exc)
                 raise PipeExecutionError(
-                    "pipe_failed", str(exc), retryable=True, pipe_id=processed.pipe_id,
+                    code, str(exc), retryable=retryable, pipe_id=processed.pipe_id,
                 ) from exc
 
             pipe_outputs[processed.pipe_id] = dict(result.output or {}) if result else {}

@@ -1,6 +1,7 @@
 export const FAILURE_ALERT_CATEGORIES: { value: string; label: string }[] = [
 	{ value: 'cuda_oom', label: 'GPU out of memory' },
 	{ value: 'gpu_restart_required', label: 'GPU needs a restart' },
+	{ value: 'worker_gpu_restart_required', label: 'Worker GPU needs a restart' },
 	{ value: 'host_ram_oom', label: 'Host RAM exhausted' },
 	{ value: 'missing_model_file', label: 'Missing model file' },
 	{ value: 'disk_full', label: 'Disk full' },

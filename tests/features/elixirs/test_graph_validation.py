@@ -443,3 +443,25 @@ def test_a_frame_input_needs_the_preset_mode_to_support_it(check, catalog):
     assert problem["node_id"] == "orbit"
     assert problem["message"] == "Orbit left cannot end on an image in this mode. Remove the last frame connection."
     assert not last["valid"]
+
+
+def test_a_step_added_before_the_start_feeds_it_and_becomes_the_first_in_order(check):
+    before_nodes = [preset("orbit", H3, "video", title="Orbit left")]
+
+    nodes = [preset("photo", KREA, "txt2img", title="Product photo")] + before_nodes
+    edges = [edge("new-start", "photo", "images", "orbit", "first_frame")]
+    report = check(nodes, edges)
+
+    assert report["valid"], report["issues"]
+    assert report["order"] == ["photo", "orbit"]
+    assert report["estimates"]["nodes"]["orbit"]["invocations"] == 1
+
+
+def test_a_files_source_added_before_the_start_feeds_it(check):
+    nodes = [media("files", [library("photo-1")], title="Product images"), preset("orbit", H3, "video", title="Orbit left")]
+    edges = [edge("new-start", "files", "images", "orbit", "first_frame")]
+
+    report = check(nodes, edges)
+
+    assert report["valid"], report["issues"]
+    assert report["order"][0] == "files"

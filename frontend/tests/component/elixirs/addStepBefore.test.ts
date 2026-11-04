@@ -161,6 +161,18 @@ describe('column resize handle', () => {
 		expect(handle.getAttribute('aria-label')).toBe('Width of column 1');
 		expect(Number(handle.getAttribute('aria-valuenow'))).toBeGreaterThan(0);
 	});
+
+	it('uses the shared pane handle strip and grip and marks the column it drags', async () => {
+		render();
+		await vi.waitFor(() => expect(document.body.querySelector('[role="separator"]')).not.toBeNull());
+		const handle = document.body.querySelector<HTMLElement>('[role="separator"]')!;
+		expect(handle.classList.contains('cursor-col-resize')).toBe(true);
+		expect(handle.querySelector('span[aria-hidden="true"]')).not.toBeNull();
+		expect(handle.getAttribute('data-dragging')).toBe('false');
+		handle.setPointerCapture = () => {};
+		handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: 100 }));
+		await vi.waitFor(() => expect(handle.getAttribute('data-dragging')).toBe('true'));
+	});
 });
 
 describe('connectors', () => {

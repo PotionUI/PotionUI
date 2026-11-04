@@ -5,6 +5,7 @@
 	import type { LaneTree } from '$lib/elixirs/lane';
 	import type { ElixirDefinition, ElixirNode } from '$lib/elixirs/types';
 	import { COLUMN_MAX, COLUMN_MIN, clampWidth, columnWidth, keyedWidth } from '$lib/elixirs/columns';
+	import { PANE_HANDLE_GRIP, PANE_HANDLE_STRIP } from '$lib/generation/paneHandle';
 
 	interface Props {
 		definition: ElixirDefinition;
@@ -188,9 +189,10 @@
 							<span class="col-name font-mono" aria-hidden="true">{index === 0 ? 'Start' : 'Then'}</span>
 							<span class="col-rule" aria-hidden="true"></span>
 							<span class="resize" class:active={dragging?.index === index}>
-								<Tooltip text="Drag to resize column">
+								<Tooltip text="Drag to resize column" wrapperClass="flex h-full">
 									<span
-										class="resize-handle"
+										class="resize-handle {PANE_HANDLE_STRIP} cursor-col-resize"
+										data-dragging={dragging?.index === index}
 										role="separator"
 										tabindex="0"
 										aria-orientation="vertical"
@@ -204,7 +206,7 @@
 										onpointercancel={endDrag}
 										ondblclick={() => reset(index)}
 										onkeydown={(event) => keyResize(event, index)}
-									></span>
+									><span class={PANE_HANDLE_GRIP} aria-hidden="true"></span></span>
 								</Tooltip>
 							</span>
 						</span>
@@ -337,51 +339,17 @@
 	}
 	.resize {
 		position: absolute;
-		top: 50%;
-		right: -8px;
+		top: -20px;
+		bottom: -16px;
+		right: calc((var(--g) - var(--h)) * -1 - 6px);
 		display: flex;
-		transform: translateY(-50%);
 	}
 	.resize-handle {
-		position: relative;
-		display: block;
-		width: 16px;
-		height: 28px;
-		cursor: col-resize;
 		touch-action: none;
-		border-radius: 4px;
-	}
-	.resize-handle::before {
-		content: '';
-		position: absolute;
-		top: 4px;
-		bottom: 4px;
-		left: 7px;
-		width: 2px;
-		border-radius: 1px;
-		background: rgb(var(--line-strong));
-		transition: background-color 0.12s, top 0.12s, bottom 0.12s;
-	}
-	.resize-handle:hover {
-		background: rgb(var(--surface-2));
-	}
-	.resize-handle:hover::before {
-		top: 0;
-		bottom: 0;
-		background: rgb(var(--line-hover));
-	}
-	:global(:where(html:not([data-input='pointer']))) .resize-handle:focus-visible,
-	.resize.active .resize-handle {
-		outline: none;
-		background: rgb(var(--surface-2));
-	}
-	:global(:where(html:not([data-input='pointer']))) .resize-handle:focus-visible::before,
-	.resize.active .resize-handle::before {
-		top: 0;
-		bottom: 0;
-		background: rgb(var(--signal));
+		border-left: 1px solid rgb(var(--line));
 	}
 	:global(:where(html:not([data-input='pointer']))) .resize-handle:focus-visible {
+		outline: none;
 		box-shadow: 0 0 0 2px rgb(var(--signal) / 0.35);
 	}
 	.roots {

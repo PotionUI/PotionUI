@@ -45,6 +45,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_SAFETY_MARGIN,
     _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
     _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
+    _dit_dequant_transient_bytes,
     _dit_lora_profile,
     _dit_quant_activation_bytes_per_token,
     _ffn_transient_bytes_per_token,
@@ -52,6 +53,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     DitLoraProfile,
     DitPlacementDecision,
     SamplingOutOfMemory,
+    dequant_transient_reserve_gb,
     estimate_activation_reserve_gb,
     guard_sampling_oom,
     make_room_for_lora_stack,
@@ -2373,3 +2375,83 @@ def test_the_warm_fast_path_keeps_the_allocator_pool():
         decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=5.0)
     assert decision.kept_resident is True
     assert not empty.called
+
+
+_H3_FC1 = (5376, 28672)
+_H3_FC1_DEQUANT_BYTES = 2 * 5376 * 28672 * 2
+
+
+def test_an_int8_linear_costs_two_dequantised_copies_of_its_weight():
+    dit = SimpleNamespace(module=nn.Sequential(_int8_layer(5376, 21504), _int8_layer(*_H3_FC1)))
+    assert _dit_dequant_transient_bytes(dit) == _H3_FC1_DEQUANT_BYTES
+
+
+def test_an_int8_linear_dequantises_even_with_the_fp8_gemm_gate_on(machine):
+    machine(fp8=True)
+    dit = SimpleNamespace(module=nn.Sequential(_int8_layer(*_H3_FC1)))
+    assert _dit_dequant_transient_bytes(dit) == _H3_FC1_DEQUANT_BYTES
+
+
+def test_an_fp8_linear_on_the_gemm_fast_path_has_no_dequant_transient(machine):
+    dit = SimpleNamespace(module=nn.Sequential(_fp8_layer(4096, 4096)))
+    machine(fp8=True)
+    assert _dit_dequant_transient_bytes(dit) == 0
+    machine(fp8=False)
+    assert _dit_dequant_transient_bytes(dit) == 2 * 4096 * 4096 * 2
+
+
+def test_unquantized_linears_and_bare_doubles_have_no_dequant_transient():
+    assert _dit_dequant_transient_bytes(SimpleNamespace(module=nn.Sequential(nn.Linear(8, 8)))) == 0
+    assert _dit_dequant_transient_bytes(SimpleNamespace(module=lambda x: x)) == 0
+    assert _dit_dequant_transient_bytes(_dit()[0]) == 0
+
+
+def test_the_dequant_transient_is_a_flat_term_not_a_per_token_one():
+    dims = dict(inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM)
+    added = [
+        estimate_activation_reserve_gb(tokens, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims)
+        - estimate_activation_reserve_gb(tokens, **dims)
+        for tokens in (8_000, 50_000)
+    ]
+    assert added[0] == pytest.approx(added[1])
+    assert added[0] == pytest.approx(_H3_FC1_DEQUANT_BYTES / 1024 ** 3 * _ACTIVATION_SAFETY_MARGIN)
+
+
+def test_the_flat_reserve_set_aside_for_a_dit_is_what_its_transient_adds_to_the_estimate():
+    dit = SimpleNamespace(module=nn.Sequential(_int8_layer(*_H3_FC1)))
+    dims = dict(inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM)
+    added = estimate_activation_reserve_gb(8_000, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims) \
+        - estimate_activation_reserve_gb(8_000, **dims)
+    assert dequant_transient_reserve_gb(dit) == pytest.approx(added)
+
+
+@pytest.mark.parametrize("tokens", [19_284, 39_800])
+def test_the_dequant_transient_rides_on_top_of_a_chunked_ffn_phase(tokens):
+    dims = dict(inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM)
+    rows = default_ffn_chunk_rows(tokens, _H3_HIDDEN_SIZE, _H3_FFN_DIM)
+    chunked = estimate_activation_reserve_gb(tokens, ffn_chunk_rows=rows, **dims)
+    with_transient = estimate_activation_reserve_gb(
+        tokens, ffn_chunk_rows=rows, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims,
+    )
+    assert rows
+    assert with_transient - chunked == pytest.approx(_H3_FC1_DEQUANT_BYTES / 1024 ** 3 * _ACTIVATION_SAFETY_MARGIN)
+    assert with_transient < estimate_activation_reserve_gb(tokens, **dims)
+
+
+def test_placement_charges_the_dits_own_dequant_transient():
+    calls = []
+    dit = SimpleNamespace(
+        module=nn.Sequential(_int8_layer(*_H3_FC1)), estimated_vram_gb=19.61, device="cpu",
+        move_to=lambda d: calls.append(("resident", d)),
+        stream_to=lambda d, budget: calls.append(("partial", d, budget)),
+    )
+    patches, manager = _patched(free_gb=10.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=8_000, audio_tokens=244, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        )
+    expected = estimate_activation_reserve_gb(
+        8_000, 244, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES,
+    )
+    assert decision.activation_reserve_gb == pytest.approx(expected)
+    assert calls == [("partial", "cuda", pytest.approx(10.0 - expected))]

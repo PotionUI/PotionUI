@@ -144,7 +144,11 @@ from src.platform.runtime.native.arch.minimax_h3.vdn import (
     window_bounds,
 )
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext, emit_gallery
-from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import (
+    dequant_transient_reserve_gb,
+    guard_sampling_oom,
+    place_dit_for_sequence,
+)
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     LORA_OPTION_AUDIO as _LORA_OPTION_AUDIO,
@@ -289,6 +293,7 @@ class _FitHint:
 def _fit_hint(
     free_gb: float, extra_reserve_gb: float, activation_reserve_gb: float,
     total_tokens: int, latent_frames: int, fps: float, width: int, height: int,
+    flat_reserve_gb: float = 0.0,
 ) -> Optional[_FitHint]:
     """The longest clip (at `width`x`height`) or the widest canvas (at this
     clip's own duration) that would have fit `free_gb`, derived by linearly
@@ -296,7 +301,8 @@ def _fit_hint(
     used to compute `activation_reserve_gb` -- by how much of `free_gb`
     (after `extra_reserve_gb`) that reserve overshot. Not a new estimation
     model: `estimate_activation_reserve_gb` is linear in token count above
-    its floor, so this is the same ratio inverted, using numbers the failed
+    its floor once `flat_reserve_gb`, a quantized DiT's dequantisation term, is
+    set aside, so this is the same ratio inverted, using numbers the failed
     placement already computed.
 
     Returns `None` when nothing usable can be said (a non-positive token/
@@ -312,10 +318,11 @@ def _fit_hint(
     video tokens (which do) -- an approximation, not an exact inverse, which
     is why both results are reported as "about", not exact figures.
     """
-    budget_gb = free_gb - extra_reserve_gb
-    if activation_reserve_gb <= 0.0 or total_tokens <= 0 or latent_frames <= 0 or budget_gb <= 0.0:
+    budget_gb = free_gb - extra_reserve_gb - flat_reserve_gb
+    token_reserve_gb = activation_reserve_gb - flat_reserve_gb
+    if token_reserve_gb <= 0.0 or total_tokens <= 0 or latent_frames <= 0 or budget_gb <= 0.0:
         return None
-    scale = budget_gb / activation_reserve_gb
+    scale = budget_gb / token_reserve_gb
     fit_tokens = total_tokens * scale
 
     fit_seconds = fit_pixel_frames = None
@@ -2433,6 +2440,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             hint = _fit_hint(
                 free_gb, extra_reserve_gb, activation_reserve_gb, tokens,
                 num_latent_frames, FPS, c.width, c.height,
+                flat_reserve_gb=dequant_transient_reserve_gb(c.bundle.dit),
             )
             return _format_fit_hint(hint, c.width, c.height)
 

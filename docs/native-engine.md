@@ -238,6 +238,20 @@ close that gap:
   `auto`); `auto` only triggers in the "doesn't fit bf16, fits fp8" window. Prefer resident-fp8 over
   streamed-bf16: fp8 is both faster and higher PCIe throughput than streaming, at a small grid-level
   precision cost.
+- **DiT activation reserve** (`estimate_activation_reserve_gb`, `pipes/_shared/generation/dit_placement.py`).
+  The pipes that run their own denoise loop (LTX, MiniMax-H3) budget the DiT's resident weights against
+  what one sampling forward allocates on top of them: `budget = free VRAM - reserve`, and a DiT over
+  that budget streams the rest.
+
+  **Formula**, with `S` tokens: `reserve = max(0.5 GB, 1.15 × [S × attention + S × (lora buffer +
+  quant) + lora weight side + dequant])`.
+  `attention` is 90,112 B per token at LTX's inner dim 4096; H3 adds its FFN, or takes the larger of
+  attention and its chunked-MLP phase. `dequant = 2 × max(out × in) × 2 B` is flat: a quantized Linear
+  on the `DEQUANT` path holds two compute-dtype copies of its weight while it scales it, one layer at
+  a time, so only the widest counts, ≈ 0.25 GiB for LTX's FFN and ≈ 0.57 GiB for H3's `fc1`. int8
+  always takes that path, fp8 whenever the GEMM kernel is off or refuses it. An nvfp4 Linear is left
+  out: its scale tables go into the weight, but its forward still materialises the weight, and
+  nothing reserves that transient (≈ 0.66 GiB for LTX's FFN).
 - **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
   `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the
   GPU for its encode, so its placement is decided for that phase alone. An encoder that does not fit

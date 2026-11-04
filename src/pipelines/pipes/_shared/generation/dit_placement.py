@@ -87,7 +87,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Literal
+from typing import Any, Callable, Iterable, Iterator, Literal
 
 import torch
 
@@ -272,6 +272,7 @@ _LORA_OUTPUT_BUFFER_ALLOCATIONS = 2
 # ``weight.clone()`` plus the ``(out, in)`` delta built beside it in
 # ``apply_lora_deltas``.
 _LORA_WEIGHT_SIDE_ALLOCATIONS = 2
+_DEQUANT_WEIGHT_ALLOCATIONS = 2
 
 
 @dataclass(frozen=True)
@@ -334,7 +335,7 @@ _ACTIVATION_RESERVE_FLOOR_GB = 0.5
 def estimate_activation_reserve_gb(
     video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
     inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None, ffn_chunk_rows: int = 0,
-    quant_activation_bytes_per_token: int = 0,
+    quant_activation_bytes_per_token: int = 0, dequant_transient_bytes: int = 0,
 ) -> float:
     """Estimate the DiT-forward activation VRAM reserve for one sampling step.
 
@@ -367,21 +368,51 @@ def estimate_activation_reserve_gb(
     bytes_per_token = lora.output_buffer_bytes_per_token
     bytes_per_token += max(0, int(quant_activation_bytes_per_token))
     activation_bytes = _activation_bytes(s, inner_dim, ffn_dim, max(0, int(ffn_chunk_rows)))
-    raw_gb = (activation_bytes + s * bytes_per_token + lora.weight_side_bytes) / _BYTES_PER_GB
+    raw_gb = (activation_bytes + s * bytes_per_token + lora.weight_side_bytes + dequant_transient_bytes) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
-def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
+@dataclass(frozen=True)
+class ReserveTerms:
+    lora: DitLoraProfile = _NO_LORA
+    inner_dim: int = _LTX_INNER_DIM
+    ffn_dim: int | None = None
+    ffn_chunk_rows: int = 0
+    quant_activation_bytes_per_token: int = 0
+    dequant_transient_bytes: int = 0
+
+    def reserve_gb(self, video_tokens: int, audio_tokens: int = 0) -> float:
+        return estimate_activation_reserve_gb(video_tokens, audio_tokens, **vars(self))
+
+
+def _quantized_linears(dit: Any) -> Iterator[tuple[Any, Any]]:
     walk = getattr(getattr(dit, "module", None), "modules", None)
-    if not callable(walk):
-        return 0
-    widest = 0
-    for m in walk():
-        path = fast_path(m)
-        if path is None or path.kind is FastPathKind.DEQUANT:
-            continue
-        widest = max(widest, _ACTIVATION_QUANT_BYTES_PER_ELEMENT[path.quant_format] * m.in_features)
-    return widest
+    if callable(walk):
+        for m in walk():
+            path = fast_path(m)
+            if path is not None:
+                yield m, path
+
+
+def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
+    return max(
+        (_ACTIVATION_QUANT_BYTES_PER_ELEMENT[path.quant_format] * m.in_features
+         for m, path in _quantized_linears(dit) if path.kind is not FastPathKind.DEQUANT),
+        default=0,
+    )
+
+
+def _dit_dequant_transient_bytes(dit: Any) -> int:
+    widest = max(
+        (m.in_features * m.out_features for m, path in _quantized_linears(dit)
+         if path.kind is FastPathKind.DEQUANT and path.quant_format is not QuantFormat.NVFP4),
+        default=0,
+    )
+    return _DEQUANT_WEIGHT_ALLOCATIONS * widest * _COMPUTE_DTYPE_BYTES
+
+
+def dequant_transient_reserve_gb(dit: Any) -> float:
+    return _dit_dequant_transient_bytes(dit) * _ACTIVATION_SAFETY_MARGIN / _BYTES_PER_GB
 
 
 def _dit_lora_profile(dit: Any) -> DitLoraProfile:
@@ -441,6 +472,15 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
                 _LORA_WEIGHT_SIDE_ALLOCATIONS * out_features * in_features * _COMPUTE_DTYPE_BYTES,
             )
     return DitLoraProfile(output_buffer_out_features, weight_side_bytes, delta_bytes, active, delta_bytes_on_cuda)
+
+
+def _dit_reserve_terms(
+    dit: Any, *, inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None, ffn_chunk_rows: int = 0,
+) -> ReserveTerms:
+    return ReserveTerms(
+        _dit_lora_profile(dit), inner_dim, ffn_dim, ffn_chunk_rows,
+        _dit_quant_activation_bytes_per_token(dit), _dit_dequant_transient_bytes(dit),
+    )
 
 
 def _dit_dequant_table_gb(dit: Any) -> float:
@@ -596,10 +636,10 @@ def place_dit_for_sequence(
     be freed anyway -- a fresh placement decision, not a stale one.
     """
     own_models = tuple(own_models)
-    lora = _dit_lora_profile(dit)
-    lora_active = lora.active
-    lora_weight_gb = lora.delta_gb
-    weight_gb = _dit_weight_to_place_gb(dit, lora)
+    terms = _dit_reserve_terms(dit, inner_dim=inner_dim, ffn_dim=ffn_dim, ffn_chunk_rows=ffn_chunk_rows)
+    lora_active = terms.lora.active
+    lora_weight_gb = terms.lora.delta_gb
+    weight_gb = _dit_weight_to_place_gb(dit, terms.lora)
 
     if not str(device).startswith("cuda"):
         dit.move_to(device)
@@ -613,11 +653,7 @@ def place_dit_for_sequence(
     if linear_summary:
         logger.info("[LTX PLACEMENT] %s", linear_summary)
 
-    activation_reserve = estimate_activation_reserve_gb(
-        video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
-        ffn_chunk_rows=ffn_chunk_rows,
-        quant_activation_bytes_per_token=_dit_quant_activation_bytes_per_token(dit),
-    )
+    activation_reserve = terms.reserve_gb(video_tokens, audio_tokens)
     extra_reserve = max(0.0, float(reserve_gb))
     total_reserve = activation_reserve + extra_reserve
 

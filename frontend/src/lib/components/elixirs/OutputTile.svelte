@@ -99,7 +99,10 @@
 				alt=""
 				class="h-full w-full object-cover"
 				loading="lazy"
-				onload={(event) => measure(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)}
+				onload={(event) => {
+					const img = event.currentTarget as HTMLImageElement;
+					measure(img.naturalWidth, img.naturalHeight);
+				}}
 				onerror={() => (failed = true)}
 			/>
 		{:else}

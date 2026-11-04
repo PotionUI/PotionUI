@@ -296,10 +296,7 @@ def _fit_hint(
     flat_reserve_gb: float = 0.0,
 ) -> Optional[_FitHint]:
     """The longest clip (at `width`x`height`) or the widest canvas (at this
-    clip's own duration) that would have fit `free_gb`, derived by linearly
-    rescaling `total_tokens` -- the SAME token count `place_dit_for_sequence`
-    used to compute `activation_reserve_gb` -- by how much of `free_gb`
-    (after `extra_reserve_gb`) that reserve overshot.
+    clip's own duration) that would have fit `free_gb`.
 
     Returns `None` when nothing usable can be said (a non-positive token/
     frame count, or the budget itself is non-positive). Either field on the

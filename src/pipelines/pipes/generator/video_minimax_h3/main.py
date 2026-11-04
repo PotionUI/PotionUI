@@ -299,11 +299,7 @@ def _fit_hint(
     clip's own duration) that would have fit `free_gb`, derived by linearly
     rescaling `total_tokens` -- the SAME token count `place_dit_for_sequence`
     used to compute `activation_reserve_gb` -- by how much of `free_gb`
-    (after `extra_reserve_gb`) that reserve overshot. Not a new estimation
-    model: `estimate_activation_reserve_gb` is linear in token count above
-    its floor once `flat_reserve_gb`, a quantized DiT's dequantisation term, is
-    set aside, so this is the same ratio inverted, using numbers the failed
-    placement already computed.
+    (after `extra_reserve_gb`) that reserve overshot.
 
     Returns `None` when nothing usable can be said (a non-positive token/
     frame count, or the budget itself is non-positive). Either field on the

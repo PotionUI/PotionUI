@@ -18,7 +18,7 @@ encode, so ``refine_tube_pixels`` routes its encode through
 ``_shared/vae/ltx_tiled_encode.py``'s ``encode_with_oom_retry`` -- the same
 estimate-then-choose-then-retry ladder ``latent_upscaler/ltx`` uses.
 
-A small tube (a few thousand DiT tokens) gets a small activation reserve
+A small tube (a few thousand DiT tokens) gets a near-floor activation reserve
 from :func:`place_dit_for_sequence`'s token-only formula, so the DiT goes FULLY
 resident -- correct for the denoise, but leaving almost nothing free for the
 tube's OWN VAE decode, whose cost scales with PIXEL dimensions, not token count.

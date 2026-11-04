@@ -283,7 +283,7 @@ class _VideoLtxCtx:
     initial_latents: list = field(default_factory=list)
     # Loaded (state_dict, strength) stack for `stage2_loras` -- built once in
     # build_context (not per seed) and applied/removed around each seed's
-    # placement and sampling in generate_one via temporarily_applied_loras. Empty =
+    # sampling call in generate_one via temporarily_applied_loras. Empty =
     # no stage2_loras configured, or configured without an `initial_latent`
     # (ignored with a warning; see build_context).
     stage2_lora_stack: list = field(default_factory=list)
@@ -959,22 +959,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             if preview_hook is not None:
                 hooks.append(preview_hook)
 
-        # `stage2_lora_stack` (built once in build_context) is applied ONLY
-        # around the placement and this call -- the entire denoise loop, every
-        # per-step DiT forward, but NOT the VAE decode below -- and restored
-        # exactly on exit (including on an exception), additive with whatever
-        # LoRA stack the model loader already baked/resident onto this shared
-        # DiT (project rule: refinement shares the generation LoRA chain, this
-        # only ADDS to it). Empty stack (no stage2_loras, or not a refine
-        # call) -> no-op, byte-identical to before this feature existed.
         own_models = _own_models(c.bundle)
         with _scoped_loras_on_card(
                 c.bundle.dit, c.device, [*c.scoped_lora_stack, *c.stage2_lora_stack], own_models):
-            # Sequence-length-aware placement -- see
-            # dit_placement.py's module docstring. video_tokens covers base +
-            # appended conditioning tokens (media keyframes / IC-LoRA references);
-            # audio_tokens covers the appended audio stream when audio generation
-            # is on -- both ride the same packed sampler state ``x``.
             placement = place_dit_for_sequence(
                 c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
                 own_models=own_models,

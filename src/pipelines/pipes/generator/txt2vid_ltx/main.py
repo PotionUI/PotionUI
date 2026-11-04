@@ -362,12 +362,6 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         else:
             latents = torch.zeros(shape, device=c.device, dtype=c.dtype)
 
-        # Sequence-length-aware placement: a plain full-pin
-        # move_to leaves a FIXED activation budget that a long clip's growing
-        # attention/RoPE/hidden-state activations can exceed and OOM on, even
-        # though the same DiT comfortably fits a short clip. See
-        # dit_placement.py's module docstring for the full reasoning; short
-        # clips still pin the whole DiT.
         placement = place_dit_for_sequence(
             c.bundle.dit, c.device, video_tokens=t_lat * h_lat * w_lat,
             own_models=(c.bundle.dit, c.vae),

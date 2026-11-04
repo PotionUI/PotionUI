@@ -241,7 +241,14 @@ close that gap:
 - **DiT activation reserve** (`estimate_activation_reserve_gb`, `pipes/_shared/generation/dit_placement.py`).
   The pipes that run their own denoise loop (LTX, MiniMax-H3) budget the DiT's resident weights against
   what one sampling forward allocates on top of them: `budget = free VRAM - reserve`, and a DiT over
-  that budget streams the rest.
+  that budget streams the rest. A short clip on a card that holds the DiT and its reserve stays fully
+  resident, the DiT moved whole. The weight is `estimated_vram_gb` plus the runtime LoRA deltas still
+  off the card plus an nvfp4 DiT's scale tables: `estimated_vram_gb` is the checkpoint's file size and
+  cannot see a LoRA (a real H3 turbo-LoRA OOM: ~1.4 GB of bf16 deltas the old budget never saw), and a
+  delta already on the card is out of the free reading, so adding it would count it twice. Every fit
+  check reads `effective_free_vram_gb`. Eviction alone reads the raw `free_vram_gb`, so a cold placement,
+  or a warm DiT that no longer fits once it has offloaded, hands the idle pool back before it decides
+  what to evict.
 
   **Formula**, with `S` tokens, `V` of them video: `reserve = max(0.5 GB, 1.15 × [S × attention + S ×
   (lora buffer + quant + gelu) + V × rows × inner × 2 B + lora weight side + transient])`, where
@@ -277,14 +284,21 @@ close that gap:
   | 110,880 | 14.86 | 18.48 | 20.79 | 25.29 |
   | 248,880 | 33.32 | 41.49 | 46.62 | 56.77 |
 
-  The ~9.4 GB of the attention calibration in `dit_placement.py` sits under these figures: at
-  S = 110,880 the same blocks reach 9.77 GiB at the first self-attention, 12.32 GiB in later attentions
+  The ~9.4 GB of the attention calibration in `dit_placement.py`, a measured 40 s 720x1280 LTX-2.3 OOM,
+  is what that run read when it died, and its four terms cover the attention phase only. It sits under
+  these figures: at S = 110,880 the same blocks reach 9.77 GiB at the first self-attention, 12.32 GiB in later attentions
   and 14.86 GiB at the FFN. That fits a forward that stopped in attention, though nothing recorded
   where it stopped. These are logical bytes, what the forward asks for:
   fragmentation and cuDNN or cuBLAS workspace are what the 1.15 covers, and one 12 GB card has checked
   only the per-token figures of `video_ltx`, from S = 1,560 to 7,800. Generated audio and a reduced
   reference hold the same room on LTX-2.5 and on an LTX-2 19B shape, about 1.2 × the peak, except the
-  two together on that 19B shape, about 1.08 ×.
+  two together on that 19B shape, about 1.08 ×. A tiny sequence sits just above the floor, about 0.67 GiB
+  at 4,000 tokens on a bf16 DiT and 0.81 GiB with the int8 transient, so the LTX detailer's DiT goes
+  resident and the tube passes its own pixel-sized VAE decode as `reserve_gb`.
+
+  **The fit hint.** Above its floor the reserve is linear in tokens once a quantized DiT's flat dequant
+  transient is set aside, so MiniMax-H3's `_fit_hint` inverts that ratio from the numbers the failed
+  placement already computed: `scale = (free - extra - flat) / (reserve - flat)`.
 
   **The clip planner.** `sequence_fit` charges the same reserve, on every card, so `video_ltx` plans what
   placement will budget for, and counts foreign residents as room, since placement evicts them for the
@@ -295,6 +309,11 @@ close that gap:
   pass, so the window count can jump where those two tests cross. It judges with the pipe's scoped LoRA
   stack on the DiT, the state placement reads, then drops it: 1.22 GiB of deltas turn those four plans
   into 73, 81, 177 and 241 frames.
+
+  **Scoped LoRA stacks.** `video_ltx` lands `scoped_loras` and `stage2_loras` before its placement and keeps
+  them for the whole denoise loop, every per-step forward, but not for the VAE decode. They come off exactly
+  on exit, an exception included, and add to whatever the model loader already baked or left resident on the
+  shared DiT: refinement shares the generation LoRA chain and only adds to it. An empty stack is a no-op.
 - **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
   `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the
   GPU for its encode, so its placement is decided for that phase alone. An encoder that does not fit

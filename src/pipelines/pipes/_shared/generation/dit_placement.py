@@ -33,12 +33,9 @@ delegates to (``NativeModel.move_to``/``stream_to``, ``memory/partial.py``'s
 greedy leaf split, ``GpuResidencyRegistry``, ``free_vram_gb``,
 ``minimum_inference_memory_gb``) is reused unchanged.
 
-Short clips (a few seconds) on a card that holds the DiT stay fully pinned: the
-full DiT comfortably fits the resolution-scaled reserve, so the decision is
-"resident" and the DiT moves whole, as the old plain ``move_to`` did, once the
-allocator's idle pool has been handed back. Only once the sequence length pushes
-the estimated reserve high enough that the full checkpoint would not leave room
-for it does this degrade to partial residency.
+Only once the sequence length pushes the estimated reserve high
+enough that the full checkpoint would not leave room for it does this degrade
+to partial residency.
 
 This module deliberately does NOT touch ``src/platform/runtime/native/arch/
 ltx/rope.py`` or the RoPE construction in ``arch/ltx/model.py`` -- a parallel
@@ -59,8 +56,8 @@ compiles only while the DiT's streamer is active.
 the token-derived ``activation_reserve``. The token-only reserve is wrong for a
 caller whose GPU work AFTER placement isn't proportional to sequence length --
 the detailer's per-tube VAE decode: a tiny
-tube (~4k tokens) gets a small activation reserve (about 0.67 to 0.81GB), so the DiT
-went FULLY resident (its 23GB weight comfortably fit ``free`` minus that), which
+tube (~4k tokens) gets a near-floor activation reserve, so the DiT
+went FULLY resident (its 23GB weight comfortably fit), which
 is CORRECT for the denoise step that follows immediately, but leaves the
 tube's subsequent VAE decode with almost no headroom (observed: 27.87GB
 allocated, 109MB free, decode OOM'd on a ~136MB allocation). ``reserve_gb``
@@ -197,9 +194,9 @@ _LTX_INNER_DIM = 4096
 # RoPE operates on half the inner dim (real/imag pair per rotated axis).
 _LTX_ROPE_HALF_DIM = _LTX_INNER_DIM // 2
 
-# Attention-phase activation-reserve terms (bytes/token), calibrated against a
-# measured 40s/720x1280 LTX-2.3 OOM: S ~= 110,880 tokens read ~9.4GB over the
-# resident DiT weights, decomposed as:
+# Per-token activation-reserve terms (bytes/token), calibrated against a
+# measured 40s/720x1280 LTX-2.3 OOM: S ~= 110,880
+# tokens peaked ~9.4GB over the resident DiT weights, decomposed as:
 #   attention transient    ~6 * S * inner_dim * 2B (bf16)      ~= 5.2GB
 #   RoPE fp32 build spike  ~3 * S * rope_half_dim * 4B (fp32)  ~= 2.6GB
 #   held bf16 cos/sin      ~2 * S * rope_half_dim * 2B (bf16)  ~= 0.9GB
@@ -437,13 +434,6 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
     with two plain ones is charged for exactly what each side costs rather
     than for whichever kind happens to be first.
 
-    ``delta_bytes`` is the reason a resident-vs-partial decision cannot judge
-    on ``dit.estimated_vram_gb`` alone: that is the base checkpoint's own
-    file size and has no way to know a LoRA was ever applied, so it
-    under-budgets by the delta bytes a free reading cannot see yet, those
-    still off the card (a real H3 turbo-LoRA OOM: ~1.4GB of bf16 deltas,
-    invisible to the prior budget).
-
     Returns :data:`_NO_LORA` when there is nothing to walk -- ``dit.module``
     unset, or a bare callable test double rather than an ``nn.Module``.
     """
@@ -622,14 +612,6 @@ def place_dit_for_sequence(
     default to LTX's own attention inner dimension / a no-op, so every LTX
     call site is byte-identical; a non-LTX caller passes its own values.
 
-    The comparison against ``weight_budget`` uses ``dit.estimated_vram_gb``
-    PLUS any runtime LoRA delta still off the card
-    (:func:`_dit_lora_profile`'s ``delta_gb_off_card``) -- invisible to
-    ``estimated_vram_gb`` (the base checkpoint's own file size) and to the
-    free reading until it lands, whereas a delta already on the card is out
-    of that reading; see that function's docstring for the OOM this
-    under-budgeting caused.
-
     **Warm residency.** A generation whose DiT was left fully resident by
     the PRIOR generation's warm-start restore (``dit_restore.
     restore_dit_best_effort``) hits ``free_vram_gb(device)`` with that DiT's
@@ -685,13 +667,12 @@ def place_dit_for_sequence(
     # allocator gets the last word in `guard_sampling_oom` instead. Placement
     # below then lands on a zero (or near-zero) weight budget, i.e. a fully
     # streamed DiT, which is the best shot at running this clip anyway.
-    # Every budget in this function reads `effective_free_vram_gb`, never
+    # Every fits-check in this function reads `effective_free_vram_gb`, never
     # `free_vram_gb`: `mem_get_info` counts OUR OWN caching allocator's
     # reserved-but-unallocated pool (the previous phase's activation buffers,
     # which the next cudaMalloc reclaims) as USED, so judging fit on the raw
     # number under-reports the budget. The raw number is still read, to
-    # report both in the over-commit warning, and by `_ensure_room_for` once
-    # the cold path below has handed the pool back.
+    # report both in the over-commit warning.
     free_raw = free_vram_gb(device) or 0.0
     free_if_dit_unloaded = effective_free_vram_gb(device) or 0.0
     if dit_is_fully_resident(dit, device):

@@ -339,14 +339,20 @@
 	}
 	.resize {
 		position: absolute;
-		top: -20px;
-		bottom: -16px;
-		right: calc((var(--g) - var(--h)) * -1 - 6px);
+		top: 50%;
+		right: calc((var(--g) - var(--h)) * -1 - 5px);
+		height: 28px;
 		display: flex;
+		transform: translateY(-50%);
 	}
 	.resize-handle {
+		width: 10px;
 		touch-action: none;
 		border-left: 1px solid rgb(var(--line));
+		border-radius: 4px;
+	}
+	.resize-handle > :global(span) {
+		height: 14px;
 	}
 	:global(:where(html:not([data-input='pointer']))) .resize-handle:focus-visible {
 		outline: none;

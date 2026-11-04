@@ -1,6 +1,4 @@
-import type { VariablesMap } from '$lib/utils/variableDefs';
-import { writerTarget } from './model';
-import type { ElixirDefinition, ElixirNode, NodeLike, FollowedState, NodeOverrides, SessionSettings, ValidationIssue } from './types';
+import type { ElixirDefinition, NodeLike, FollowedState, NodeOverrides, SessionSettings, ValidationIssue } from './types';
 
 export interface SessionModeOption {
 	id: string;
@@ -179,11 +177,4 @@ export function uniqueSessionName(base: string | null | undefined, taken: Iterab
 		const candidate = `${name} ${index}`;
 		if (!used.has(candidate.toLowerCase())) return candidate;
 	}
-}
-
-export function writerVariables(definition: ElixirDefinition, node: ElixirNode, followed: Record<string, FollowedState | undefined>): VariablesMap {
-	const targetId = writerTarget(definition, node);
-	const target = targetId ? definition.nodes.find((item) => item.id === targetId) : null;
-	const variables = target ? effectiveSettings(target, followed[target.id])?.variables : null;
-	return variables && typeof variables === 'object' && !Array.isArray(variables) ? (variables as VariablesMap) : {};
 }

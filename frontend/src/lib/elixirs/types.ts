@@ -1,4 +1,5 @@
 import type { ChipData } from '$lib/types/segments';
+import type { VariablesMap } from '$lib/utils/variableDefs';
 
 export type NodeKind = 'media' | 'preset' | 'llm';
 
@@ -80,6 +81,7 @@ export interface ElixirNode {
 	source_revision?: number;
 	instruction?: string;
 	instruction_chips?: Record<string, ChipData>;
+	variables?: VariablesMap;
 	target_node_id?: string | null;
 	pinned?: Record<string, string>;
 	position?: { x: number; y: number };

@@ -13,6 +13,7 @@ from pydantic import (
 from src.features.elixirs.identity import media_ref
 from src.features.elixirs.sessions import OVERRIDE_KEYS
 from src.features.elixirs.vocabulary import MediaType, PortName
+from src.features.tab_drafts.validation import variable_errors
 
 MAX_STORED_NODES = 256
 MAX_STORED_EDGES = 512
@@ -150,6 +151,7 @@ class LlmNode(BaseModel):
     position: Position = Field(default_factory=Position)
     instruction: Annotated[str, StringConstraints(max_length=MAX_INSTRUCTION_CHARS)] = ""
     instruction_chips: Dict[ChipKey, InstructionChip] = Field(default_factory=dict)
+    variables: Dict[str, Any] = Field(default_factory=dict)
     target_node_id: Optional[ElementId] = None
     llm_id: Optional[ElementId] = None
     pinned: Dict[PinKey, WrittenText] = Field(default_factory=dict)
@@ -166,6 +168,14 @@ class LlmNode(BaseModel):
     def _few_chips(cls, value: Dict[str, InstructionChip]) -> Dict[str, InstructionChip]:
         if len(value) > MAX_INSTRUCTION_CHIPS:
             raise ValueError(f"an instruction can hold at most {MAX_INSTRUCTION_CHIPS} phrasebook chips")
+        return value
+
+    @field_validator("variables")
+    @classmethod
+    def _valid_variables(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        errors = variable_errors(value)
+        if errors:
+            raise ValueError("; ".join(errors))
         return value
 
 

@@ -13,8 +13,7 @@ import {
 	sessionRow,
 	staleReasonText,
 	templateSource,
-	uniqueSessionName,
-	writerVariables
+	uniqueSessionName
 } from './follow';
 import type { ElixirNode } from './types';
 
@@ -167,25 +166,4 @@ test('a saved session gets a name no other session of the preset has', () => {
 	expect(uniqueSessionName('Gold restyle', ['Gold restyle'])).toBe('Gold restyle 2');
 	expect(uniqueSessionName('Gold restyle', ['Gold restyle', 'gold restyle 2'])).toBe('Gold restyle 3');
 	expect(uniqueSessionName('  ', [])).toBe('Elixir step');
-});
-
-test('a writer offers the variables of the step it writes for, whatever its session mode', () => {
-	const copied: ElixirNode = {
-		id: 'copy',
-		kind: 'preset',
-		session_mode: 'copy',
-		session_snapshot: { variables: { mood: { type: 'text', value: 'noir' } } },
-		overrides: { variables: { light: { type: 'text', value: 'dusk' } } }
-	};
-	const live: ElixirNode = { ...followed(), id: 'live' };
-	const fresh: ElixirNode = { id: 'fresh', kind: 'preset', session_mode: 'new', overrides: { variables: { subject: 'fox' } } };
-	const writer = (target: string): ElixirNode => ({ id: `w-${target}`, kind: 'llm', target_node_id: target });
-	const lost: ElixirNode = { id: 'lost', kind: 'llm' };
-	const definition = { nodes: [copied, live, fresh, writer('copy'), writer('live'), writer('fresh'), lost], edges: [] };
-	const state = { live: { status: 'ok', settings: { variables: { era: { type: 'text', value: '1920s' } } }, session_hash: 'h' } };
-
-	expect(writerVariables(definition, writer('copy'), state)).toEqual({ light: { type: 'text', value: 'dusk' } });
-	expect(writerVariables(definition, writer('live'), state)).toEqual({ era: { type: 'text', value: '1920s' } });
-	expect(writerVariables(definition, writer('fresh'), state)).toEqual({ subject: 'fox' });
-	expect(writerVariables(definition, lost, state)).toEqual({});
 });

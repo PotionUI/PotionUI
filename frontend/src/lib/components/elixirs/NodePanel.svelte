@@ -3,8 +3,11 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import InlineChipEditor from '$lib/components/InlineChipEditor.svelte';
+	import VariableManagerModal from '$lib/components/VariableManagerModal.svelte';
 	import type { ChipData } from '$lib/types/segments';
-	import type { VariablesMap } from '$lib/utils/variableDefs';
+	import type { VariableDef, VariablesMap } from '$lib/utils/variableDefs';
+	import { countUsagesByName } from '$lib/utils/promptVariables';
+	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import { untrack } from 'svelte';
 	import type { ElixirsApi } from '$lib/services/api/elixirs';
 	import type { ElixirNode, FollowedState, MediaAsset, NodeOverrides, PresetEntry, ValidationIssue } from '$lib/elixirs/types';
@@ -27,7 +30,6 @@
 		models?: WriterModel[];
 		targets?: Array<{ id: string; label: string }>;
 		targetLabel?: string | null;
-		variables?: VariablesMap;
 		problem?: string | null;
 	}
 
@@ -102,7 +104,20 @@
 	let instruction = $state(untrack(() => node.instruction ?? ''));
 	let instructionChips = $state.raw<Record<string, ChipData>>(untrack(() => node.instruction_chips ?? {}));
 	let instructionTimer: ReturnType<typeof setTimeout> | undefined;
-	let writerVariables = $derived(writer?.variables ?? {});
+	const NO_VARIABLES: VariablesMap = {};
+	let writerVariables = $derived(node.variables ?? NO_VARIABLES);
+	let writerVariableCount = $derived(Object.keys(writerVariables).length);
+	let variablesOpen = $state(false);
+	let writerUsageCounts = $derived(countUsagesByName([instruction]));
+	let writerReaders = $derived(conditionReadersFor([instruction]));
+
+	function changeWriterVariables(variables: VariablesMap) {
+		onwriterchange?.({ variables });
+	}
+
+	function changeWriterVariable(name: string, def: VariableDef) {
+		changeWriterVariables({ ...writerVariables, [name]: def });
+	}
 
 	function commitInstruction() {
 		clearTimeout(instructionTimer);
@@ -203,7 +218,15 @@
 
 		{#if node.kind === 'llm'}
 			<div class="flex flex-col gap-1.5">
-				<span id="elixir-node-instruction-label" class="text-sm font-medium text-fg-muted">Instruction</span>
+				<div class="flex items-center justify-between gap-2">
+					<span id="elixir-node-instruction-label" class="text-sm font-medium text-fg-muted">Instruction</span>
+					<Button variant="secondary" size="sm" icon="braces" onclick={() => (variablesOpen = true)}>
+						Variables
+						{#if writerVariableCount > 0}
+							<span class="font-mono tabular-nums text-signal">{writerVariableCount}</span>
+						{/if}
+					</Button>
+				</div>
 				<div
 					class="instruction-box segment-composer"
 					role="group"
@@ -218,13 +241,16 @@
 							borderless={true}
 							variant="segment-composer"
 							variables={writerVariables}
+							conditionReaders={writerReaders}
+							onVariableDefChange={changeWriterVariable}
+							onOpenVariableManager={() => (variablesOpen = true)}
 							placeholder="For the provided image, write a prompt that recreates it."
 							on:change={typeInstruction}
 						/>
 					</div>
 				</div>
 				<p class="text-sm text-fg-subtle">
-					Runs once for each connected image or video, or once when nothing is connected. Type $ for a variable of the step it writes for, # for the phrasebook, or {'{a|b}'} for a choice; every prompt it writes gets its own roll.
+					Runs once for each connected image or video, or once when nothing is connected. Type $ for one of its variables, # for the phrasebook, or {'{a|b}'} for a choice; every prompt it writes gets its own roll.
 				</p>
 			</div>
 
@@ -500,6 +526,17 @@
 		</footer>
 	{/if}
 </aside>
+
+{#if node.kind === 'llm'}
+	<VariableManagerModal
+		isOpen={variablesOpen}
+		variables={writerVariables}
+		usageCounts={writerUsageCounts}
+		readers={writerReaders}
+		on:close={() => (variablesOpen = false)}
+		on:change={(event) => changeWriterVariables(event.detail)}
+	/>
+{/if}
 
 <style>
 	.panel-icon {

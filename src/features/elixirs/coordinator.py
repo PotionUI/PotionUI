@@ -1117,7 +1117,7 @@ class Coordinator:
         rolled = roll_instruction(
             request["instruction"],
             node.get("instruction_chips"),
-            template.get("variables"),
+            node.get("variables"),
             self.random_below(SEED_LIMIT),
             lambda path: self.port.phrasebook_texts(user, path),
         )

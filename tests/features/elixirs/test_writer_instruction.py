@@ -29,16 +29,24 @@ def chip(chip_id, path, value, shuffle=False, all_values=()):
     }
 
 
+def text(value):
+    return {"type": "text", "value": value}
+
+
+def choice(*options, mode="shuffle", pinned=None):
+    return {"type": "choice", "options": list(options), "mode": mode, "pinnedIndex": pinned}
+
+
 def no_phrasebook(path):
     raise AssertionError(f"the phrasebook was asked for {path}")
 
 
 def test_a_plain_instruction_is_used_exactly_as_written():
-    text = "  Describe the photo, 100% faithful #5 $10  "
 
-    rolled = roll_instruction(text, {}, {"mood": "noir"}, 11, no_phrasebook)
+    plain = "  Describe the photo, 100% faithful #5 $10  "
+    rolled = roll_instruction(plain, {}, {"mood": text("noir")}, 11, no_phrasebook)
 
-    assert (rolled.text, rolled.seed, rolled.rolled) == (text, None, False)
+    assert (rolled.text, rolled.seed, rolled.rolled) == (plain, None, False)
 
 
 def test_choices_roll_from_the_seed_and_reproduce_with_it():
@@ -48,11 +56,31 @@ def test_choices_roll_from_the_seed_and_reproduce_with_it():
     assert roll_instruction(MOOD, {}, None, 5, no_phrasebook) == roll_instruction(MOOD, {}, None, 5, no_phrasebook)
 
 
-def test_variables_of_the_target_step_fill_the_instruction():
-    rolled = roll_instruction("A ${subject} at ${time}, ${missing}.", {}, {"subject": "fox", "time": "{dawn|dusk}"}, 3, no_phrasebook)
+def test_the_writers_own_variables_fill_the_instruction():
+    variables = {"subject": text("fox"), "time": choice("dawn", "dusk")}
 
+    rolls = {roll_instruction("A ${subject} at ${time}, ${missing}.", {}, variables, seed, no_phrasebook).text for seed in range(30)}
+
+    assert rolls == {"A fox at dawn, .", "A fox at dusk, ."}
+    rolled = roll_instruction("A ${subject} at ${time}.", {}, variables, 3, no_phrasebook)
     assert rolled.rolled and rolled.seed == 3
-    assert rolled.text in {"A fox at dawn, .", "A fox at dusk, ."}
+    assert rolled == roll_instruction("A ${subject} at ${time}.", {}, variables, 3, no_phrasebook)
+
+
+def test_a_pinned_choice_variable_always_uses_its_pin_and_a_per_image_one_rolls():
+    pinned = {"light": choice("candles", "neon", "sun", mode="pin", pinned=1)}
+    per_image = {"light": choice("candles", "neon", mode="per-image")}
+
+    assert {roll_instruction("Lit by ${light}", {}, pinned, seed, no_phrasebook).text for seed in range(20)} == {"Lit by neon"}
+    assert {roll_instruction("Lit by ${light}", {}, per_image, seed, no_phrasebook).text for seed in range(30)} == {"Lit by candles", "Lit by neon"}
+
+
+def test_a_number_variable_rolls_inside_its_range():
+    variables = {"age": {"type": "number", "mode": "shuffle", "min": 20, "max": 22, "step": 1, "value": 20}}
+
+    rolls = {roll_instruction("Aged ${age}", {}, variables, seed, no_phrasebook).text for seed in range(40)}
+
+    assert rolls == {"Aged 20", "Aged 21", "Aged 22"}
 
 
 def test_a_fixed_phrasebook_chip_keeps_its_value_and_a_shuffled_one_rolls_from_the_phrasebook():
@@ -115,17 +143,27 @@ def test_instruction_chips_round_trip_through_the_schema():
     assert node["instruction_chips"]["c1"]["shuffle"] is True
 
 
+def test_writer_variables_round_trip_through_the_schema_and_bad_ones_are_refused():
+    variables = {"light": choice("candles", "neon", mode="pin", pinned=0), "subject": text("fox")}
+
+    node = ElixirDefinition.model_validate(describe_then_generate(instruction="${light}", variables=variables)).model_dump()["nodes"][1]
+
+    assert node["variables"] == variables
+    with pytest.raises(ValueError, match="pinnedIndex"):
+        ElixirDefinition.model_validate(describe_then_generate(variables={"light": choice("a", mode="pin", pinned=4)}))
+
+
 @pytest.fixture
 def counting(scratch_db, port):
     seeds = itertools.count(100)
     return Coordinator(store=RunStore(), port=port, limits_provider=Limits, boot_id="boot-1", random_below=lambda limit: next(seeds))
 
 
-def brew(coordinator, alice, contracts, definition, variables=None):
+def brew(coordinator, alice, contracts, definition, target_variables=None):
     elixir = saved(definition)
     made = template(KREA, "txt2img")
-    if variables is not None:
-        made["variables"] = variables
+    if target_variables is not None:
+        made["variables"] = target_variables
     return coordinator.start_graph_run(alice, elixir, contracts, {"make": made}, "automatic", "brew-1")
 
 
@@ -138,8 +176,9 @@ def test_each_write_gets_its_own_roll_with_variables_and_phrasebook(counting, po
     for index in range(8):
         port.media[f"library:p{index}"] = {"value": f"uploads/p{index}.png", "media_type": "image", "original_filename": f"p{index}.png", "origin": None}
     chips = {"c1": chip("c1", "colors", "red", shuffle=True)}
-    definition = describe_then_generate(assets=tuple(f"p{index}" for index in range(8)), instruction=STYLED, instruction_chips=chips)
-    run = brew(counting, alice, contracts, definition, variables={"subject": "a fox"})
+    variables = {"subject": text("a fox")}
+    definition = describe_then_generate(assets=tuple(f"p{index}" for index in range(8)), instruction=STYLED, instruction_chips=chips, variables=variables)
+    run = brew(counting, alice, contracts, definition)
 
     drain(counting)
 
@@ -149,7 +188,7 @@ def test_each_write_gets_its_own_roll_with_variables_and_phrasebook(counting, po
     seeds = sorted(write["instruction_seed"] for write in port.writes)
     assert len(set(seeds)) == 8
     for write in port.writes:
-        expected = roll_instruction(STYLED, chips, {"subject": "a fox"}, write["instruction_seed"], lambda path: port.phrasebook[path])
+        expected = roll_instruction(STYLED, chips, variables, write["instruction_seed"], lambda path: port.phrasebook[path])
         assert write["instruction"] == expected.text
     texts = written(counting, run)
     assert sorted(entry["rolled_instruction"] for entry in texts) == sorted(instructions)
@@ -157,9 +196,10 @@ def test_each_write_gets_its_own_roll_with_variables_and_phrasebook(counting, po
     assert sorted(item["effective_seed"] for item in counting.store.invocations(run["id"]) if item["node_id"] == "writer") == seeds
 
 
-def test_a_pinned_variable_reaches_the_instruction_as_its_pin(counting, port, alice, contracts):
-    definition = describe_then_generate(assets=("p1", "p2", "p3"), instruction="Lit by ${light}")
-    run = brew(counting, alice, contracts, definition, variables={"light": "candles"})
+def test_a_pinned_writer_variable_reaches_the_instruction_as_its_pin(counting, port, alice, contracts):
+    variables = {"light": choice("candles", "neon", "sun", mode="pin", pinned=0)}
+    definition = describe_then_generate(assets=("p1", "p2", "p3"), instruction="Lit by ${light}", variables=variables)
+    run = brew(counting, alice, contracts, definition)
 
     drain(counting)
 
@@ -167,9 +207,18 @@ def test_a_pinned_variable_reaches_the_instruction_as_its_pin(counting, port, al
     assert {entry["rolled_instruction"] for entry in written(counting, run)} == {"Lit by candles"}
 
 
+def test_variables_of_the_target_step_never_reach_the_instruction(counting, port, alice, contracts):
+    definition = describe_then_generate(assets=("p1",), instruction="Lit by ${light}.")
+    brew(counting, alice, contracts, definition, target_variables={"light": "candles"})
+
+    drain(counting)
+
+    assert port.writes[0]["instruction"] == "Lit by ."
+
+
 def test_a_plain_instruction_reaches_the_model_unchanged_and_shows_no_roll(counting, port, alice, contracts):
     definition = describe_then_generate(assets=("p1",), instruction="  Describe it, 100% faithful.  ")
-    run = brew(counting, alice, contracts, definition, variables={"light": "candles"})
+    run = brew(counting, alice, contracts, definition, target_variables={"light": "candles"})
 
     drain(counting)
 

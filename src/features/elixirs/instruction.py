@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from src.features.prompt.expander import expand_prompts
+from src.platform.resources.prompt_variables import build_variables_for_submit, variables_as_list
 
 TEMPLATE_MARKERS = ("{", "<<")
 
@@ -60,6 +61,6 @@ def roll_instruction(
     if not chips and not any(marker in template for marker in TEMPLATE_MARKERS):
         return RolledInstruction(text=template, seed=None, rolled=False)
     filled = _fill_chips(template, chips, random.Random(f"{seed}:phrasebook"), values_for)
-    bindings = {str(name): str(value) for name, value in (variables or {}).items() if value is not None}
+    bindings = build_variables_for_submit(variables_as_list(dict(variables or {})), random.Random(f"{seed}:variables").random)
     expanded = expand_prompts(filled, "", count=1, base_seed=seed, variables=bindings or None)
     return RolledInstruction(text=expanded[0].positive, seed=seed, rolled=True)

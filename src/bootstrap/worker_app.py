@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from src.bootstrap.worker_container import WorkerContainer, build_worker_container
 from src.features.remote_execution.worker.config import WorkerConfig
 from src.features.remote_execution.worker.routes import build_worker_router
+from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_damage
 
 
 def create_worker_app(
@@ -32,6 +33,17 @@ def create_worker_app(
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "worker_id": resolved_container.config.worker_id}
+        return worker_health_payload(resolved_container.config.worker_id)
 
     return app
+
+
+def worker_health_payload(worker_id: str) -> dict:
+    damage = allocator_damage()
+    if damage is not None:
+        return {
+            "status": "degraded",
+            "worker_id": worker_id,
+            "reason": str(CudaAllocatorDamaged(damage, worker=True)),
+        }
+    return {"status": "ok", "worker_id": worker_id}

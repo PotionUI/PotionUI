@@ -12,7 +12,9 @@ import platform as platform_module
 import shutil
 from pathlib import Path
 
+from src.platform.runtime.cuda_allocator import allocator_damage
 from src.platform.worker_protocol import GpuInfoV1, WorkerCapabilitiesV1
+from src.platform.worker_protocol.worker_info import ALLOCATOR_DAMAGED_FEATURE
 
 
 def probe_cuda() -> tuple[bool, str | None]:
@@ -86,5 +88,5 @@ def probe_capabilities(work_dir: Path) -> WorkerCapabilitiesV1:
         cuda_version=cuda_version,
         platform=platform_module.platform(),
         attention_backends=(),
-        features=(),
+        features=(ALLOCATOR_DAMAGED_FEATURE,) if allocator_damage() is not None else (),
     )

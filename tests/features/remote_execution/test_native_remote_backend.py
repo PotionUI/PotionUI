@@ -29,6 +29,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+import torch
 from fastapi import FastAPI
 
 from src.bootstrap.worker_app import create_worker_app
@@ -38,6 +39,8 @@ from src.features.backends.native_remote_backend import RemoteNativeBackend
 from src.features.models.locator import ModelLocator
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
+from src.features.generation.failure import failure_from_output
+from src.features.remote_execution.policy import should_requeue
 from src.features.remote_execution.records import RemoteExecutionState
 from src.features.remote_execution.repository import RemoteExecutionRepository
 from src.features.remote_execution.worker.config import WorkerConfig
@@ -56,6 +59,8 @@ from src.pipelines.outputs import (
     ProgressGenerationOutput,
 )
 from src.platform.database.database import Database
+from src.platform.runtime import cuda_allocator
+from src.platform.runtime.cuda_allocator import DRIVER_OOM_POLICY_ENV, RESTART_ACTION, WORKER_RESTART_HINT
 from tests.fixtures.db_template import copy_template_db
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
@@ -371,7 +376,64 @@ class FlagProbePipe:
         return PipeOutput(output={})
 
 
+class RaisingPipe:
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        raise self.error
+
+
+class OutOfMemoryPipe(RaisingPipe):
+    name = "oom/fake"
+    error = torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB")
+
+
+class DriverOomPipe(RaisingPipe):
+    name = "driver_oom/fake"
+    error = RuntimeError("CUDA driver error: device not ready")
+
+
+class BoomPipe(RaisingPipe):
+    name = "boom/fake"
+    error = RuntimeError("boom")
+
+
+class HostRestartWordingPipe(RaisingPipe):
+    name = "host_restart_wording/fake"
+    error = RuntimeError("This process can no longer use the GPU: restart it")
+
+
+class ErrorOutputPipe(RaisingPipe):
+    name = "error_output/fake"
+
+    def process(self, pipe_input, generation_outputs):
+        generation_outputs(ErrorGenerationOutput(error="CUDA driver error: device not ready"))
+        return PipeOutput(output={})
+
+
 _CLASSES = {
+    "oom/fake": OutOfMemoryPipe,
+    "driver_oom/fake": DriverOomPipe,
+    "boom/fake": BoomPipe,
+    "host_restart_wording/fake": HostRestartWordingPipe,
+    "error_output/fake": ErrorOutputPipe,
     "flag_probe/fake": FlagProbePipe,
     "image/fake": ImagePipe,
     "image/gated": GatedImagePipe,
@@ -1332,3 +1394,193 @@ class TestEngineFlagsTravelWithTheJob(NativeRemoteBackendTestCase):
         self.assertIs(package.engine_flags["native_fp8_matmul"], False)
         round_trip = type(package).model_validate(package.model_dump(mode="json"))
         self.assertEqual(round_trip.engine_flags, package.engine_flags)
+
+
+class TestWorkerAllocatorDamage(NativeRemoteBackendTestCase):
+    DAMAGE = "CUDA driver error: device not ready"
+
+    def _cuda_worker(self):
+        return self._build_worker(build_id=None, device="cuda", cuda_probe=lambda: (True, None))
+
+    def _pipeline_data(self, generation_id, config=None):
+        pipe = {"name": "image/fake", "id": "p1", "enabled": True, "config": config or {}, "input": []}
+        return {"generation_id": generation_id, "preset_id": "preset-1", "pipes": [pipe]}
+
+    def test_a_damaged_worker_is_refused_before_any_submit_under_the_worker_restart_code(self):
+        container, app = self._cuda_worker()
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            generation_id, outputs = self._run_generation(self._backend(app), self._pipeline_data("gen-damaged"))
+
+        self.assertIsNone(container.coordinator.record_for(generation_id))
+
+        row = self.repo.get_by_id(generation_id)
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "worker_gpu_restart_required")
+        self.assertTrue(row.error_message.startswith("Worker 'worker-1'"))
+        self.assertTrue(row.error_message.endswith(WORKER_RESTART_HINT))
+
+        errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].error_code, "worker_gpu_restart_required")
+        self.assertEqual(errors[0].error, row.error_message)
+
+    def test_a_pipeline_pinned_to_cpu_still_reaches_a_damaged_worker(self):
+        container, app = self._cuda_worker()
+        data = self._pipeline_data("gen-cpu-pinned", config={"device": "cpu"})
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            generation_id, _ = self._run_generation(self._backend(app), data)
+
+        self.assertIsNotNone(container.coordinator.record_for(generation_id))
+
+    def test_a_disabled_cuda_pipe_does_not_make_a_host_refuse_a_cpu_pipeline(self):
+        container, app = self._cuda_worker()
+        data = self._pipeline_data("gen-cpu-with-disabled", config={"device": "cpu"})
+        data["pipes"].append({"name": "image/fake", "id": "p2", "enabled": False, "config": {}, "input": []})
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            generation_id, _ = self._run_generation(self._backend(app), data)
+
+        self.assertIsNotNone(container.coordinator.record_for(generation_id))
+
+    def test_a_cpu_worker_is_not_refused_by_the_host(self):
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            generation_id, outputs = self._run_generation(
+                self._backend(self.worker_app), self._pipeline_data("gen-cpu-worker"),
+            )
+
+        self.assertIsNotNone(self.worker_container.coordinator.record_for(generation_id))
+        self.assertEqual(self.repo.get_by_id(generation_id).state, S.SUCCEEDED)
+        self.assertFalse([o for o in outputs if isinstance(o, ErrorGenerationOutput)])
+
+    def test_the_host_dispatches_again_as_soon_as_the_worker_restarted(self):
+        container, app = self._cuda_worker()
+        backend = self._backend(app)
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            self.assertEqual(self._run(backend.health_check())["status"], "degraded")
+            self._run_generation(backend, self._pipeline_data("gen-before-restart"))
+
+        with patch.object(cuda_allocator, "_damage", None):
+            self.assertEqual(self._run(backend.health_check())["status"], "healthy")
+            generation_id, _ = self._run_generation(backend, self._pipeline_data("gen-after-restart"))
+
+        self.assertIsNone(container.coordinator.record_for("gen-before-restart"))
+        self.assertIsNotNone(container.coordinator.record_for(generation_id))
+
+
+class TestWorkerFailureReachesTheHost(NativeRemoteBackendTestCase):
+    DAMAGE = "CUDA driver error: device not ready"
+    OLDER_WORKER = "src.features.remote_execution.worker.executor._failure_code"
+
+    def setUp(self):
+        super().setUp()
+        self._patchers += [
+            patch.dict("os.environ", {DRIVER_OOM_POLICY_ENV: "fatal", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}),
+            patch.object(cuda_allocator, "_stop_growing_expandable_segments", lambda: None),
+        ]
+        for patcher in self._patchers[-2:]:
+            patcher.start()
+
+    def _fail(self, generation_id, pipe_type, app=None, *, host_damage=None):
+        data = {
+            "generation_id": generation_id, "preset_id": "preset-1",
+            "pipes": [{"name": pipe_type, "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+        with patch.object(cuda_allocator, "_damage", host_damage):
+            _, outputs = self._run_generation(self._backend(app or self.worker_app), data)
+            errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+            self.assertEqual(len(errors), 1)
+            return errors[0], failure_from_output(errors[0]), cuda_allocator.allocator_damage()
+
+    def test_a_cuda_oom_on_the_worker_reaches_core_as_cuda_oom(self):
+        output, failure, _ = self._fail("gen-oom", "oom/fake")
+
+        self.assertEqual(self.repo.get_by_id("gen-oom").error_code, "cuda_oom")
+        self.assertEqual(failure.error_code, "cuda_oom")
+        self.assertIn("Tried to allocate 2.00 GiB", output.error)
+
+    def test_a_fatal_driver_oom_on_the_worker_asks_for_the_worker_restart_and_is_not_requeued(self):
+        output, failure, _ = self._fail("gen-fatal", "driver_oom/fake")
+
+        row = self.repo.get_by_id("gen-fatal")
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "worker_gpu_restart_required")
+        self.assertEqual(failure.error_code, "worker_gpu_restart_required")
+        self.assertEqual(output.error, self.DAMAGE)
+        self.assertNotIn("Restart Backend", failure.message)
+
+        terminal = self.repo.list_events("gen-fatal")[-1]
+        self.assertEqual(terminal.kind, "failed")
+        self.assertFalse(should_requeue(terminal.error, attempt=1, max_attempts=3))
+
+    def test_a_worker_damaged_after_the_handshake_refuses_under_its_own_code(self):
+        container, app = self._build_worker(build_id=None, device="cuda", cuda_probe=lambda: (True, None))
+
+        with patch.object(RemoteNativeBackend, "_allocator_damage_reason", lambda backend, info: None):
+            output, failure, _ = self._fail("gen-race", "image/fake", app, host_damage=self.DAMAGE)
+
+        self.assertIsNotNone(container.coordinator.record_for("gen-race"))
+        self.assertEqual(self.repo.get_by_id("gen-race").error_code, "worker_gpu_restart_required")
+        self.assertEqual(failure.error_code, "worker_gpu_restart_required")
+        self.assertIn(self.DAMAGE, output.error)
+        self.assertTrue(output.error.endswith(WORKER_RESTART_HINT))
+
+    def test_an_unclassified_worker_failure_stays_pipe_failed_on_the_row(self):
+        output, failure, _ = self._fail("gen-boom", "boom/fake")
+
+        self.assertEqual(self.repo.get_by_id("gen-boom").error_code, "pipe_failed")
+        self.assertEqual(failure.error_code, "unclassified")
+        self.assertEqual(output.error, "boom")
+
+    def test_a_retryable_failure_stays_retryable_on_the_wire(self):
+        self._fail("gen-retryable", "oom/fake")
+
+        terminal = self.repo.list_events("gen-retryable")[-1]
+        self.assertTrue(should_requeue(terminal.error, attempt=1, max_attempts=3))
+
+    def test_an_older_workers_driver_oom_text_reads_as_cuda_oom_and_marks_nothing_on_a_healthy_host(self):
+        with patch(self.OLDER_WORKER, lambda exc: ("pipe_failed", True)):
+            _, failure, damage = self._fail("gen-older", "driver_oom/fake")
+
+        self.assertEqual(self.repo.get_by_id("gen-older").error_code, "pipe_failed")
+        self.assertEqual(failure.error_code, "cuda_oom")
+        self.assertIsNone(damage)
+
+    def test_an_older_workers_driver_oom_text_never_asks_a_damaged_host_for_its_own_restart(self):
+        with patch(self.OLDER_WORKER, lambda exc: ("pipe_failed", True)):
+            _, failure, _ = self._fail("gen-older-damaged", "driver_oom/fake", host_damage=self.DAMAGE)
+
+        self.assertEqual(failure.error_code, "cuda_oom")
+        self.assertNotIn("Restart Backend", failure.message)
+        self.assertNotIn(RESTART_ACTION, failure.hints)
+
+    def test_a_worker_sending_the_hosts_own_restart_code_asks_for_the_worker_restart(self):
+        with patch(self.OLDER_WORKER, lambda exc: ("gpu_restart_required", False)):
+            _, failure, _ = self._fail("gen-host-code", "driver_oom/fake", host_damage=self.DAMAGE)
+
+        self.assertEqual(failure.error_code, "worker_gpu_restart_required")
+
+    def test_a_worker_text_worded_like_the_hosts_refusal_does_not_read_as_a_restart(self):
+        with patch(self.OLDER_WORKER, lambda exc: ("pipe_failed", True)):
+            _, failure, _ = self._fail("gen-wording", "host_restart_wording/fake")
+
+        self.assertEqual(failure.error_code, "unclassified")
+
+    def test_an_error_output_a_pipe_emits_on_the_worker_never_asks_a_damaged_host_for_its_own_restart(self):
+        _, failure, _ = self._fail("gen-error-output", "error_output/fake", host_damage=self.DAMAGE)
+
+        self.assertEqual(failure.error_code, "cuda_oom")
+
+    def test_a_dispatch_error_carrying_the_driver_text_neither_marks_the_host_nor_asks_for_its_restart(self):
+        async def raising_dispatch(backend, *args):
+            raise RuntimeError(self.DAMAGE)
+
+        with patch.object(RemoteNativeBackend, "_dispatch", raising_dispatch):
+            _, failure, damage = self._fail("gen-dispatch-error", "image/fake")
+            self.assertIsNone(damage)
+            self.assertEqual(failure.error_code, "cuda_oom")
+            _, failure, _ = self._fail("gen-dispatch-error-damaged", "image/fake", host_damage=self.DAMAGE)
+
+        self.assertEqual(failure.error_code, "cuda_oom")

@@ -168,6 +168,34 @@ class RunStore:
         with db.get_cursor() as cursor:
             return self.run_invocations(cursor, run_id)
 
+    def inherited_from_results(self, run: Dict[str, Any]) -> Dict[str, Any]:
+        from src.platform.database.database import db
+
+        inherited: Dict[str, Any] = {"node_states": {}, "checkpoints": {}, "edges": [], "invocations": []}
+        if run["scope"] != "node":
+            return inherited
+        with db.get_cursor() as cursor:
+            results = self.results_for(cursor, run["elixir_id"])
+            sources: Dict[str, Dict[str, Any]] = {}
+            for node_id, result in results.items():
+                source_id = (result or {}).get("run_id")
+                if node_id in run["node_states"] or not source_id or source_id == run["id"]:
+                    continue
+                if source_id not in sources:
+                    sources[source_id] = self.load_run(cursor, source_id)
+                source = sources[source_id]
+                state = ((source or {}).get("node_states") or {}).get(node_id)
+                if state is None:
+                    continue
+                inherited["node_states"][node_id] = state
+                for edge in source["graph"].get("edges", []):
+                    checkpoint = source["checkpoints"].get(edge["id"])
+                    if edge["source"] == node_id and checkpoint and checkpoint.get("confirmed") is not None and edge["id"] not in inherited["checkpoints"]:
+                        inherited["checkpoints"][edge["id"]] = checkpoint
+                        inherited["edges"].append(edge)
+                inherited["invocations"].extend(item for item in self.run_invocations(cursor, source_id) if item["node_id"] == node_id)
+        return inherited
+
     def invocations_with_status(self, statuses) -> List[Dict[str, Any]]:
         from src.platform.database.database import db
 

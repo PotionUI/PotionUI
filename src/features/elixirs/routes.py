@@ -143,7 +143,8 @@ def _progress(coordinator: Coordinator, user: User, invocation: Dict[str, Any]) 
 
 
 def run_detail(coordinator: Coordinator, user: User, run: Dict[str, Any]) -> Dict[str, Any]:
-    invocations = coordinator.store.invocations(run["id"])
+    inherited = coordinator.store.inherited_from_results(run)
+    invocations = [*coordinator.store.invocations(run["id"]), *inherited["invocations"]]
     return {
         "id": run["id"],
         "elixir_id": run["elixir_id"],
@@ -156,11 +157,11 @@ def run_detail(coordinator: Coordinator, user: User, run: Dict[str, Any]) -> Dic
         "created_at": run["created_at"],
         "updated_at": run["updated_at"],
         "finished_at": run.get("finished_at"),
-        "node_states": run["node_states"],
-        "checkpoints": run["checkpoints"],
+        "node_states": {**inherited["node_states"], **run["node_states"]},
+        "checkpoints": {**inherited["checkpoints"], **run["checkpoints"]},
         "graph_edges": [
             {key: edge.get(key) for key in ("id", "source", "source_handle", "target", "target_handle")}
-            for edge in run["graph"].get("edges", [])
+            for edge in [*run["graph"].get("edges", []), *inherited["edges"]]
         ],
         "scope_node_id": run.get("scope_node_id"),
         "invocations": [

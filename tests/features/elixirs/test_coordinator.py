@@ -943,3 +943,34 @@ def test_a_single_item_field_keeps_the_path_and_its_origin(coordinator, port, al
     second = port.submits[1]["form_data"]
     assert second["source_image"] == "generations/g1/f1.png"
     assert second["source_image__origin"] == {"generation_id": "g1", "file_index": 0}
+
+
+def test_rerunning_the_second_step_still_shows_the_first_steps_outputs(coordinator, port, alice, contracts):
+    from src.features.elixirs.routes import run_detail
+
+    elixir = three_step()
+    brew_through(coordinator, port, alice, contracts, elixir)
+
+    node_run = coordinator.start_node_run(alice, elixir, contracts, "polish", templates_for(elixir)["polish"], "node-key-polish-again")
+    detail = run_detail(coordinator, alice, node_run)
+
+    assert detail["scope"] == "node" and detail["scope_node_id"] == "polish"
+    assert set(detail["node_states"]) == {"polish", "sharpen"}
+    assert detail["node_states"]["sharpen"]["manifest"]["images"][0]["file_id"] == "f1"
+    assert {item["node_id"] for item in detail["invocations"]} == {"polish", "sharpen"}
+    assert all(item["status"] == "completed" for item in detail["invocations"] if item["node_id"] == "sharpen")
+    assert set(coordinator.store.get_run(node_run["id"])["node_states"]) == {"polish"}
+
+
+def test_rerunning_a_step_keeps_the_steps_after_it_in_view(coordinator, port, alice, contracts):
+    from src.features.elixirs.routes import run_detail
+
+    elixir = three_step()
+    brew_through(coordinator, port, alice, contracts, elixir)
+
+    node_run = coordinator.start_node_run(alice, elixir, contracts, "sharpen", templates_for(elixir)["sharpen"], "node-key-sharpen-again")
+    detail = run_detail(coordinator, alice, node_run)
+
+    assert set(detail["node_states"]) == {"sharpen", "polish"}
+    assert detail["node_states"]["polish"]["manifest"]["images"][0]["file_id"] == "f2"
+    assert detail["node_states"]["sharpen"]["status"] != "done"

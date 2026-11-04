@@ -296,10 +296,15 @@ class DitLoraProfile:
     weight_side_bytes: int = 0
     delta_bytes: int = 0
     active: bool = False
+    delta_bytes_on_cuda: int = 0
 
     @property
     def delta_gb(self) -> float:
         return self.delta_bytes / _BYTES_PER_GB
+
+    @property
+    def delta_gb_off_card(self) -> float:
+        return (self.delta_bytes - self.delta_bytes_on_cuda) / _BYTES_PER_GB
 
     @property
     def output_buffer_bytes_per_token(self) -> int:
@@ -393,8 +398,9 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
     ``delta_bytes`` is the reason a resident-vs-partial decision cannot judge
     on ``dit.estimated_vram_gb`` alone: that is the base checkpoint's own
     file size and has no way to know a LoRA was ever applied, so it
-    under-budgets by exactly the delta bytes whenever one is (a real H3
-    turbo-LoRA OOM: ~1.4GB of bf16 deltas, invisible to the prior budget).
+    under-budgets by the delta bytes a free reading cannot see yet, those
+    still off the card (a real H3 turbo-LoRA OOM: ~1.4GB of bf16 deltas,
+    invisible to the prior budget).
 
     Returns :data:`_NO_LORA` when there is nothing to walk -- ``dit.module``
     unset, or a bare callable test double rather than an ``nn.Module``.
@@ -405,6 +411,7 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
         return _NO_LORA
     active = False
     delta_bytes = 0
+    delta_bytes_on_cuda = 0
     output_buffer_out_features = 0
     weight_side_bytes = 0
     for m in walk():
@@ -416,7 +423,10 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
         for delta in [*deltas, *masked]:
             for tensor in (getattr(delta, "down", None), getattr(delta, "up", None)):
                 if isinstance(tensor, torch.Tensor):
-                    delta_bytes += tensor.numel() * tensor.element_size()
+                    tensor_bytes = tensor.numel() * tensor.element_size()
+                    delta_bytes += tensor_bytes
+                    if tensor.device.type == "cuda":
+                        delta_bytes_on_cuda += tensor_bytes
         out_features = int(getattr(m, "out_features", 0) or 0)
         in_features = int(getattr(m, "in_features", 0) or 0)
         if not out_features:
@@ -430,11 +440,15 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
                 weight_side_bytes,
                 _LORA_WEIGHT_SIDE_ALLOCATIONS * out_features * in_features * _COMPUTE_DTYPE_BYTES,
             )
-    return DitLoraProfile(output_buffer_out_features, weight_side_bytes, delta_bytes, active)
+    return DitLoraProfile(output_buffer_out_features, weight_side_bytes, delta_bytes, active, delta_bytes_on_cuda)
 
 
 def _dit_dequant_table_gb(dit: Any) -> float:
     return nvfp4_dequant_table_bytes(getattr(dit, "module", None)) / _BYTES_PER_GB
+
+
+def _dit_weight_to_place_gb(dit: Any, lora: DitLoraProfile) -> float:
+    return float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora.delta_gb_off_card + _dit_dequant_table_gb(dit)
 
 
 def _dit_lora_delta_gb(dit: Any) -> float:
@@ -495,7 +509,7 @@ def sequence_fit(dit: Any, device: str) -> "SequenceFit | None":
     if free is None:
         return None
     lora = _dit_lora_profile(dit)
-    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora.delta_gb + _dit_dequant_table_gb(dit)
+    weight_gb = _dit_weight_to_place_gb(dit, lora)
     if dit_is_fully_resident(dit, device):
         free += weight_gb
     return SequenceFit(weight_gb, free, lora, _dit_quant_activation_bytes_per_token(dit))
@@ -555,10 +569,11 @@ def place_dit_for_sequence(
     call site is byte-identical; a non-LTX caller passes its own values.
 
     The comparison against ``weight_budget`` uses ``dit.estimated_vram_gb``
-    PLUS any resident runtime LoRA delta (:func:`_dit_lora_profile`'s
-    ``delta_gb``) -- invisible to ``estimated_vram_gb`` (the base
-    checkpoint's own file size) but genuinely resident in VRAM once a LoRA
-    is applied; see that function's docstring for the OOM this
+    PLUS any runtime LoRA delta still off the card
+    (:func:`_dit_lora_profile`'s ``delta_gb_off_card``) -- invisible to
+    ``estimated_vram_gb`` (the base checkpoint's own file size) and to the
+    free reading until it lands, whereas a delta already on the card is out
+    of that reading; see that function's docstring for the OOM this
     under-budgeting caused.
 
     **Warm residency.** A generation whose DiT was left fully resident by
@@ -584,7 +599,7 @@ def place_dit_for_sequence(
     lora = _dit_lora_profile(dit)
     lora_active = lora.active
     lora_weight_gb = lora.delta_gb
-    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora_weight_gb + _dit_dequant_table_gb(dit)
+    weight_gb = _dit_weight_to_place_gb(dit, lora)
 
     if not str(device).startswith("cuda"):
         dit.move_to(device)
@@ -871,6 +886,17 @@ def _ensure_room_for(device: str, need_gb: float, own_models: Iterable[Any]) -> 
         torch.cuda.empty_cache()
 
 
+def make_room_for_lora_stack(device: str, stack: Iterable[Any], own_models: Iterable[Any]) -> None:
+    stack_bytes = sum(
+        tensor.numel() * tensor.element_size() for state_dict, _strength in stack for tensor in state_dict.values()
+    )
+    if not stack_bytes:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    _ensure_room_for(device, stack_bytes / _BYTES_PER_GB + minimum_inference_memory_gb(), own_models)
+
+
 def _move_resident(dit: Any, device: str, own_models: Iterable[Any]) -> str:
     """Full-pin ``dit`` on ``device``, degrading to partial residency on a
     persisting OOM. Mirrors ``NativeGenerator._move_dit_to_gpu``'s 3-tier
@@ -960,7 +986,7 @@ def _log_decision(decision: DitPlacementDecision, device: str) -> None:
         kept_resident=decision.kept_resident,
     )
     logger.debug(
-        "[LTX PLACEMENT] %s%s: DiT %.2fGB (incl. %.2fGB LoRA), S=%d video (+%d audio), activation reserve "
+        "[LTX PLACEMENT] %s%s: DiT %.2fGB to place, LoRA deltas %.2fGB, S=%d video (+%d audio), activation reserve "
         "%.2fGB (+%.2fGB extra), weight budget %.2fGB, lora_active=%s",
         decision.mode, " (kept, no move)" if decision.kept_resident else "",
         decision.dit_weight_gb, decision.lora_weight_gb, decision.video_tokens,

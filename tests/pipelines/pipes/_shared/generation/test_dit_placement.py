@@ -53,6 +53,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     SamplingOutOfMemory,
     estimate_activation_reserve_gb,
     guard_sampling_oom,
+    make_room_for_lora_stack,
     place_dit_for_sequence,
     sequence_fit,
 )
@@ -2184,3 +2185,94 @@ def test_a_wsl_driver_error_that_is_not_exhaustion_is_not_retried():
 
 def test_the_wsl_driver_oom_counts_as_an_oom():
     assert is_cuda_oom(_wsl_driver_oom())
+
+
+class _TensorOnCuda(torch.Tensor):
+    @property
+    def device(self):
+        return torch.device("cuda", 0)
+
+
+def _dit_with_deltas_on_the_card(delta_gb, estimated_vram_gb=23.3):
+    dit, _ = _dit(estimated_vram_gb)
+    side = int((delta_gb * 1024 ** 3 / 4) ** 0.5)
+    linear = nn.Linear(4, 4)
+    linear.lora_deltas = [SimpleNamespace(
+        down=torch.empty(side, side, dtype=torch.bfloat16, device="meta").as_subclass(_TensorOnCuda),
+        up=torch.empty(side, side, dtype=torch.bfloat16, device="meta").as_subclass(_TensorOnCuda),
+    )]
+    dit.module = nn.Sequential(linear)
+    return dit, _dit_lora_profile(dit).delta_gb
+
+
+@pytest.mark.parametrize("tokens, mode", [(60_000, "resident"), (70_000, "partial")])
+def test_a_cold_and_a_warm_dit_read_the_same_card_the_same_way_under_deltas_already_on_it(tokens, mode):
+    card_gb = 31.0
+    decisions = []
+    fits = []
+    for device in ("cpu", "cuda"):
+        dit, delta_gb = _dit_with_deltas_on_the_card(1.25)
+        dit.device = device
+        dit.offload = lambda dit=dit: setattr(dit, "device", "cpu")
+
+        def free(_device, dit=dit, delta_gb=delta_gb):
+            return card_gb - delta_gb - (dit.estimated_vram_gb if dit.device == "cuda" else 0.0)
+
+        with patch(f"{_MOD}.free_vram_gb", side_effect=free), patch(f"{_MOD}.effective_free_vram_gb", side_effect=free), \
+                patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+                patch(f"{_MOD}.get_residency_registry", return_value=_FakeResidencyRegistry()), \
+                patch(f"{_MOD}.torch.cuda.empty_cache"):
+            fits.append(sequence_fit(dit, "cuda"))
+            decisions.append(place_dit_for_sequence(dit, "cuda", video_tokens=tokens))
+    cold, warm = decisions
+    assert cold.mode == warm.mode == mode
+    assert cold.weight_budget_gb == pytest.approx(warm.weight_budget_gb)
+    assert cold.dit_weight_gb == warm.dit_weight_gb == pytest.approx(23.3)
+    assert cold.lora_weight_gb == warm.lora_weight_gb == pytest.approx(delta_gb)
+    assert fits[0].free_gb == pytest.approx(fits[1].free_gb)
+    assert fits[0].resident(tokens) == fits[1].resident(tokens) == (mode == "resident")
+
+
+def test_a_delta_still_off_the_card_counts_in_the_weight_to_place():
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    linear = nn.Linear(4, 4)
+    linear.lora_deltas = [SimpleNamespace(
+        down=torch.empty(32768, 16384, dtype=torch.bfloat16, device="meta"),
+        up=torch.empty(32768, 16384, dtype=torch.bfloat16, device="meta"),
+    )]
+    dit.module = nn.Sequential(linear)
+    patches, _ = _patched(free_gb=31.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert decision.lora_weight_gb == pytest.approx(2.0)
+    assert decision.dit_weight_gb == pytest.approx(12.0)
+
+
+def test_room_for_a_lora_stack_is_its_bytes_plus_the_inference_minimum():
+    stack = [({"down": torch.empty(16384, 32768, dtype=torch.bfloat16, device="meta")}, 1.0)]
+    own = (object(),)
+    patches, manager = _patched(free_gb=0.5, min_reserve=1.0)
+    with patches[0], patches[1], patches[2]:
+        make_room_for_lora_stack("cuda", stack, own)
+    assert manager.ensure_free_calls == [("cuda", pytest.approx(2.0), 0.5, own)]
+
+
+def test_room_for_a_lora_stack_is_judged_once_the_allocator_pool_is_handed_back():
+    released = []
+    manager = _FakeResidencyRegistry()
+    stack = [({"down": torch.empty(16384, 32768, dtype=torch.bfloat16, device="meta")}, 1.0)]
+    with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: 12.0 if released else 4.0), \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=lambda: released.append(True)):
+        make_room_for_lora_stack("cuda", stack, ())
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+
+
+def test_an_empty_lora_stack_evicts_nothing():
+    patches, manager = _patched(free_gb=0.5)
+    with patches[0], patches[1], patches[2]:
+        make_room_for_lora_stack("cuda", [], ())
+    assert manager.ensure_free_calls == []
+    assert manager.offload_all_calls == []

@@ -21,12 +21,14 @@ from src.pipelines.pipes.generator.video_ltx.conditioning import (
     prepare_ltx_conditions,
     reference_token_count,
 )
+from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDecision
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes.generator.video_ltx.main import (
     MAX_FRAMES,
     GeneratorLtxVideoPipe,
     _VideoLtxCtx,
     _resolve_latent_index,
+    _scoped_loras_on_card,
 )
 from src.platform.runtime.native.sampling import conditioned_sigmas, denoise_prenoised
 
@@ -2187,6 +2189,124 @@ def test_stage2_loras_wraps_with_empty_stack_on_a_plain_generation(caplog):
             ).process(_pipe_input(), lambda o: None)
 
     assert calls == [[]]
+
+
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+def test_the_dit_is_placed_inside_the_scoped_lora_block():
+    calls = []
+
+    @contextmanager
+    def fake_ctx(module, stack, runtime_only=False):
+        calls.append(("enter", runtime_only))
+        yield
+        calls.append(("exit",))
+
+    def fake_place(dit, device, *, video_tokens, audio_tokens=0, own_models=()):
+        calls.append(("place",))
+        return DitPlacementDecision("cpu", 0.0, 0.0, 0.0, video_tokens, audio_tokens)
+
+    def fake_denoise(fwd, x, cond, uncond, **kw):
+        calls.append(("denoise",))
+        return x
+
+    with patch("src.pipelines.pipes.generator.video_ltx.main.temporarily_applied_loras", fake_ctx), \
+         patch("src.pipelines.pipes.generator.video_ltx.main.place_dit_for_sequence", fake_place), \
+         patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", fake_denoise):
+        _pipe(resolution="64x64", frames=17).process(_pipe_input(), lambda o: None)
+
+    assert calls == [("enter", True), ("place",), ("denoise",), ("exit",)]
+
+
+_SCOPED_STACK = [({"lora.weight": torch.zeros(1)}, 1.0)]
+
+
+def _landing_scoped_block(events, *, ooms_landing=0, landing_error=None):
+    remaining = [ooms_landing]
+
+    @contextmanager
+    def fake_ctx(module, stack, runtime_only=False):
+        events.append("land")
+        if landing_error is not None:
+            raise landing_error
+        if remaining[0]:
+            remaining[0] -= 1
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory.")
+        yield
+
+    dit = SimpleNamespace(module=object(), offload=lambda: events.append("offload"))
+    return dit, fake_ctx
+
+
+def test_a_scoped_stack_gets_room_for_its_deltas_before_they_land():
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events)
+    own = (dit,)
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), \
+            patch(f"{_MAIN}.make_room_for_lora_stack",
+                  lambda device, stack, own_models: events.append(("room", device, stack, own_models))):
+        with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, own):
+            events.append("body")
+    assert events == [("room", "cuda", _SCOPED_STACK, own), "land", "body"]
+
+
+def test_an_oom_landing_the_deltas_unloads_the_warm_dit_and_retries_once():
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events, ooms_landing=1)
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), patch(f"{_MAIN}.make_room_for_lora_stack"), \
+            patch(f"{_MAIN}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MAIN}.torch.cuda.empty_cache", side_effect=lambda: events.append("release")):
+        with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, (dit,)):
+            events.append("body")
+    assert events == ["land", "offload", "release", "land", "body"]
+
+
+def test_a_second_oom_landing_the_deltas_reaches_the_caller():
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events, ooms_landing=2)
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), patch(f"{_MAIN}.make_room_for_lora_stack"), \
+            patch(f"{_MAIN}.torch.cuda.empty_cache"):
+        with pytest.raises(torch.cuda.OutOfMemoryError):
+            with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, (dit,)):
+                events.append("body")
+    assert events == ["land", "offload", "land"]
+
+
+def test_an_oom_inside_the_scoped_block_unloads_nothing_and_reaches_the_caller():
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events)
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), patch(f"{_MAIN}.make_room_for_lora_stack"):
+        with pytest.raises(torch.cuda.OutOfMemoryError):
+            with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, (dit,)):
+                events.append("body")
+                raise torch.cuda.OutOfMemoryError("CUDA out of memory.")
+    assert events == ["land", "body"]
+
+
+def test_a_landing_error_that_is_not_an_oom_is_not_retried():
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events, landing_error=RuntimeError("shape mismatch"))
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), patch(f"{_MAIN}.make_room_for_lora_stack"):
+        with pytest.raises(RuntimeError, match="shape mismatch"):
+            with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, (dit,)):
+                events.append("body")
+    assert events == ["land"]
+
+
+def test_the_dit_placement_and_the_scoped_block_name_the_same_own_models():
+    bundle = _bundle(audio=True)
+    seen = {}
+
+    def fake_place(dit, device, *, video_tokens, audio_tokens=0, own_models=(), **_terms):
+        seen["placement"] = own_models
+        return DitPlacementDecision("cpu", 0.0, 0.0, 0.0, video_tokens, audio_tokens)
+
+    with patch(f"{_MAIN}.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path), \
+            patch(f"{_MAIN}.make_room_for_lora_stack",
+                  lambda device, stack, own_models: seen.__setitem__("room", own_models)), \
+            patch(f"{_MAIN}.place_dit_for_sequence", fake_place), \
+            patch(f"{_MAIN}.denoise_prenoised", lambda fwd, x, c, u, **k: x):
+        _pipe(resolution="64x64", frames=17).process(_pipe_input(bundle=bundle), lambda o: None)
+    assert seen["room"] == seen["placement"] == (bundle.dit, bundle.vae, bundle.audio_vae, bundle.vocoder)
 
 
 # -- TE eviction --------------------------------------------------------------

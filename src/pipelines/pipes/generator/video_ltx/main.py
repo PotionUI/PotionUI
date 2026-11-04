@@ -90,10 +90,11 @@ separate mask:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import tempfile
 from dataclasses import dataclass, field, replace
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import torch
 
@@ -110,11 +111,13 @@ from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon, ProgressGenerationOutput
 from src.platform.runtime.device import clear_gpu_memory
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.dit_placement import (
     dit_is_fully_resident,
     guard_sampling_oom,
+    make_room_for_lora_stack,
     place_dit_for_sequence,
     sequence_fit,
 )
@@ -222,6 +225,29 @@ def _end_anchored_latent_index(clip_frames: int, frames: int) -> int:
     return max(0, t_lat - 1 - span)
 
 
+def _own_models(bundle: Any) -> Tuple[Any, ...]:
+    return tuple(m for m in (bundle.dit, bundle.vae, bundle.audio_vae, bundle.vocoder) if m is not None)
+
+
+@contextmanager
+def _scoped_loras_on_card(dit: Any, device: str, stack: List[Any], own_models: Tuple[Any, ...]) -> Iterator[None]:
+    make_room_for_lora_stack(device, stack, own_models)
+    for last_try in (False, True):
+        landed = False
+        try:
+            with temporarily_applied_loras(dit.module, stack, runtime_only=True):
+                landed = True
+                yield
+            return
+        except RuntimeError as exc:
+            if landed or last_try or not retry_after_cuda_oom(exc):
+                raise
+        logger.warning("[GENERATOR VIDEO-LTX] scoped LoRA deltas OOM'd landing; unloading the DiT and retrying")
+        dit.offload()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
 def _matched_clip_index(placements: List[dict]) -> Optional[int]:
     clips = [p for p in placements if p.get("source") == "video"]
     clip = next((p for p in clips if p.get("role", "keyframe") == "keyframe"), clips[0] if clips else None)
@@ -255,7 +281,7 @@ class _VideoLtxCtx:
     initial_latents: list = field(default_factory=list)
     # Loaded (state_dict, strength) stack for `stage2_loras` -- built once in
     # build_context (not per seed) and applied/removed around each seed's
-    # sampling call in generate_one via temporarily_applied_loras. Empty =
+    # placement and sampling in generate_one via temporarily_applied_loras. Empty =
     # no stage2_loras configured, or configured without an `initial_latent`
     # (ignored with a warning; see build_context).
     stage2_lora_stack: list = field(default_factory=list)
@@ -304,13 +330,13 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                            "descending, used VERBATIM (unlike manual_sigmas, the head is not forced to "
                            "1.0) -- required when 'initial_latent' is connected", required=False),
             PipeConfigSpec("stage2_loras", list, [],
-                           "LoRAs applied ONLY around this call's sampling, ADDED on top of the "
+                           "LoRAs applied ONLY around this call's placement and sampling, ADDED on top of the "
                            "generation LoRA stack already baked/resident on the shared DiT (e.g. the "
                            "distilled LoRA for a two-stage refine). Only meaningful when 'initial_latent' "
                            "is connected (a stage-2 refine call) -- ignored with a warning otherwise",
                            required=False),
             PipeConfigSpec("scoped_loras", list, [],
-                           "LoRAs applied ONLY around this call's sampling, on every call (not just a "
+                           "LoRAs applied ONLY around this call's placement and sampling, on every call (not just a "
                            "refine), and removed again afterwards so the next stage sees the DiT without "
                            "them. The Director's IC-LoRAs ride here so a stage-2 refine runs without "
                            "them unless asked to keep them", required=False),
@@ -882,15 +908,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             noise_a = torch.randn((1, c.audio_tokens, 128), generator=gen, device=c.device, dtype=c.dtype)
             x = torch.cat([x, noise_a], dim=1)
 
-        # Sequence-length-aware placement -- see
-        # dit_placement.py's module docstring. video_tokens covers base +
-        # appended conditioning tokens (media keyframes / IC-LoRA references);
-        # audio_tokens covers the appended audio stream when audio generation
-        # is on -- both ride the same packed sampler state ``x``.
-        placement = place_dit_for_sequence(
-            c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
-            own_models=tuple(m for m in (c.bundle.dit, c.bundle.vae, c.bundle.audio_vae, c.bundle.vocoder) if m is not None),
-        )
         # `replace(c, prepared=prepared)`, NOT `c` itself: `c` (ctx.extra) is
         # SHARED across every seed of this process() call (BaseGeneratorPipe's
         # seed loop calls generate_one once per seed against the same ctx) --
@@ -934,18 +951,28 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 hooks.append(preview_hook)
 
         # `stage2_lora_stack` (built once in build_context) is applied ONLY
-        # around this call -- the entire denoise loop, every per-step DiT
-        # forward, but NOT the VAE decode below -- and restored exactly on
-        # exit (including on an exception), additive with whatever LoRA
-        # stack the model loader already baked/resident onto this shared DiT
-        # (project rule: refinement shares the generation LoRA chain, this
+        # around the placement and this call -- the entire denoise loop, every
+        # per-step DiT forward, but NOT the VAE decode below -- and restored
+        # exactly on exit (including on an exception), additive with whatever
+        # LoRA stack the model loader already baked/resident onto this shared
+        # DiT (project rule: refinement shares the generation LoRA chain, this
         # only ADDS to it). Empty stack (no stage2_loras, or not a refine
         # call) -> no-op, byte-identical to before this feature existed.
-        sample_forward = guard_sampling_oom(
-            forward, dit=c.bundle.dit, device=c.device, decision=placement,
-        )
-        with temporarily_applied_loras(
-                c.bundle.dit.module, [*c.scoped_lora_stack, *c.stage2_lora_stack], runtime_only=True):
+        own_models = _own_models(c.bundle)
+        with _scoped_loras_on_card(
+                c.bundle.dit, c.device, [*c.scoped_lora_stack, *c.stage2_lora_stack], own_models):
+            # Sequence-length-aware placement -- see
+            # dit_placement.py's module docstring. video_tokens covers base +
+            # appended conditioning tokens (media keyframes / IC-LoRA references);
+            # audio_tokens covers the appended audio stream when audio generation
+            # is on -- both ride the same packed sampler state ``x``.
+            placement = place_dit_for_sequence(
+                c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
+                own_models=own_models,
+            )
+            sample_forward = guard_sampling_oom(
+                forward, dit=c.bundle.dit, device=c.device, decision=placement,
+            )
             x = denoise_prenoised(
                 sample_forward, x, cond, uncond,
                 steps=c.steps, sampler_name=c.sampler,

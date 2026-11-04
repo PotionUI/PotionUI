@@ -54,6 +54,7 @@
 	.gallery {
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
+		align-items: start;
 		gap: 10px;
 		padding: 4px 16px 16px;
 	}

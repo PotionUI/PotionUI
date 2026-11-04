@@ -20,6 +20,11 @@
 	let playing = $state(false);
 	let duration = $state<number | null>(null);
 	let failed = $state(false);
+	let ratio = $state<string | null>(null);
+
+	function measure(width: number, height: number) {
+		if (width > 0 && height > 0) ratio = `${width} / ${height}`;
+	}
 	let lastPointer = 'mouse';
 
 	let kind = $derived(tileKind(entry));
@@ -56,6 +61,7 @@
 <div
 	class="tile group relative w-full overflow-hidden rounded border border-line-strong bg-canvas hover:border-line-hover"
 	class:chosen={tick?.checked}
+	style:aspect-ratio={ratio}
 	onmouseenter={() => kind === 'video' && play()}
 	onmouseleave={() => kind === 'video' && stop()}
 	role="presentation"
@@ -81,11 +87,21 @@
 				playsinline
 				preload="metadata"
 				aria-hidden="true"
-				onloadedmetadata={() => (duration = video?.duration ?? null)}
+				onloadedmetadata={() => {
+					duration = video?.duration ?? null;
+					if (video) measure(video.videoWidth, video.videoHeight);
+				}}
 				onerror={() => (failed = true)}
 			></video>
 		{:else if still && !failed}
-			<img src={still} alt="" class="h-full w-full object-cover" loading="lazy" onerror={() => (failed = true)} />
+			<img
+				src={still}
+				alt=""
+				class="h-full w-full object-cover"
+				loading="lazy"
+				onload={(event) => measure(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)}
+				onerror={() => (failed = true)}
+			/>
 		{:else}
 			<span class="flex h-full w-full items-center justify-center text-fg-subtle">
 				<Icon name={kind === 'video' ? 'film' : kind === 'audio' ? 'audio' : 'image'} className="h-5 w-5" />

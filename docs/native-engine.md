@@ -243,8 +243,9 @@ close that gap:
   what one sampling forward allocates on top of them: `budget = free VRAM - reserve`, and a DiT over
   that budget streams the rest.
 
-  **Formula**, with `S` tokens: `reserve = max(0.5 GB, 1.15 × [S × attention + S × (lora buffer +
-  quant) + lora weight side + dequant])`.
+  **Formula**, with `S` tokens, `V` of them video: `reserve = max(0.5 GB, 1.15 × [S × attention + S ×
+  (lora buffer + quant + gelu) + V × rows × inner × 2 B + lora weight side + transient])`, where
+  `transient` is `dequant` on the fp8 GEMM path and `max(dequant, S × gelu)` everywhere else.
   `attention` is 90,112 B per token at LTX's inner dim 4096; H3 adds its FFN, or takes the larger of
   attention and its chunked-MLP phase. `dequant = 2 × max(out × in) × 2 B` is flat: a quantized Linear
   on the `DEQUANT` path holds two compute-dtype copies of its weight while it scales it, one layer at
@@ -252,6 +253,37 @@ close that gap:
   always takes that path, fp8 whenever the GEMM kernel is off or refuses it. An nvfp4 Linear is left
   out: its scale tables go into the weight, but its forward still materialises the weight, and
   nothing reserves that transient (≈ 0.66 GiB for LTX's FFN).
+  `gelu` and `rows` are LTX's (`ltx_reserve_terms`, `pipes/_shared/video/ltx_common.py`). `gelu = 16,384
+  × 2 B` is the GELU output, alive beside `fc2`'s dequantised weight; past about 8,192 tokens `fc1`'s
+  output beside that GELU outgrows the two weight copies, hence the `max`. On the fp8 GEMM path `fc1`'s
+  output never coexists with the quantiser's buffers, so the `max` drops out. `rows` is what a block
+  keeps as locals until it returns under a per-token timestep (`video_ltx`, `dfr_video_ltx`): 7 adaLN
+  values with prompt adaLN, 5 without. A scalar timestep (`txt2vid_ltx`, the LTX detailer) broadcasts
+  them, so 0. `video_ltx` adds two cases. Generated audio keeps `vx_norm3`, 1 row, and on a DiT whose
+  AV-cross adaLN follows its own timestep (`use_cross_timestep` off, LTX-2 19B) the 5 values of that
+  adaLN. A reference at a reduced scale gives a timestep that is no whole number of frames, so
+  `CompressedTimestep` keeps its whole table for the forward: the adaLN coefficients plus the embedded
+  timestep, 10 rows with prompt adaLN and 7 without, plus the 5 AV-cross rows of that same LTX-2 19B.
+
+  **Against the forward.** `test_the_ltx_reserve_covers_the_forward_peak_with_room_for_the_allocator`
+  runs real LTX-2.5-shaped int8 ConvRot blocks on the meta device, attention kernel stubbed, and adds
+  up the storages they create. The peak sits at `self.ff` and is linear past 28k tokens, ≈ 201 KB per
+  token, 144 KB with a scalar timestep. In GiB:
+
+  | `S` | Peak, scalar | Reserve, scalar | Peak, per-token | Reserve, per-token |
+  |---:|---:|---:|---:|---:|
+  | 3,080 | 0.59 | 0.69 | 0.75 | 0.88 |
+  | 14,080 | 1.90 | 2.35 | 2.66 | 3.21 |
+  | 110,880 | 14.86 | 18.48 | 20.79 | 25.29 |
+  | 248,880 | 33.32 | 41.49 | 46.62 | 56.77 |
+
+  The ~9.4 GB of the attention calibration in `dit_placement.py` sits under these figures: at
+  S = 110,880 the same blocks reach 9.77 GiB at the first self-attention, 12.32 GiB in later attentions
+  and 14.86 GiB at the FFN. That fits a forward that stopped in attention, though nothing recorded
+  where it stopped. These are logical bytes, what the forward asks for:
+  fragmentation and cuDNN or cuBLAS workspace are what the 1.15 covers, and no card has checked these
+  figures on this code. Generated audio and a reduced reference hold the same room on LTX-2.5 and on
+  an LTX-2 19B shape, about 1.2 × the peak, except the two together on that 19B shape, about 1.08 ×.
 - **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
   `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the
   GPU for its encode, so its placement is decided for that phase alone. An encoder that does not fit
@@ -325,7 +357,7 @@ Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 | **< 8 GB** | Partial residency (a handful of blocks resident, the rest streamed) + fp8-auto quantise-at-load when it lets more fit resident. VAE tiled, TE offloaded during sampling. |
 | **8–12 GB** | Partial / mostly-resident DiT; fp8-auto for the bigger families. TE & VAE offloaded off the DiT phase. |
 | **12–16 GB** | fp8-resident (auto) or bf16 partial residency for the 9–14B families; VAE offloaded, TE co-resident only when it fits. |
-| **≥ 16 GB** | As before — fully resident where the fit test allows, phase-offloading TE/VAE only under pressure. The 32GB dev card is the luxury case. |
+| **≥ 16 GB** | Fully resident where the fit test allows, phase-offloading TE/VAE only under pressure; a long clip still streams part of its DiT, because the activation reserve grows with its tokens. The 32GB dev card is the luxury case. |
 
 All of the above is unit-testable without a GPU: the fit math, the deterministic layer split, the
 fp8 quant equivalence, and the eviction accounting are pure functions (`tests/core/native/memory/`,

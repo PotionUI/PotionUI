@@ -461,7 +461,9 @@ def _bundle(family="ltx", audio=False, te_cache_key=None):
             decode=lambda z: torch.zeros(1, 3, z.shape[2], z.shape[3] * 32, z.shape[4] * 32)),
     )
     dit = SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
-                          module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True)))
+                          module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True,
+                                                                        has_prompt_adaln=False,
+                                                                        use_cross_timestep=False)))
     extras = {}
     if audio:
         extras = {"audio_vae": SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None,
@@ -1692,7 +1694,8 @@ def _bundle_with_encode_fill(fill: float):
             decode=lambda z: torch.zeros(1, 3, z.shape[2], z.shape[3] * 32, z.shape[4] * 32)),
     )
     dit = SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
-                          module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True)))
+                          module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True,
+                                                                        has_prompt_adaln=False)))
     return SimpleNamespace(dit=dit, vae=vae, spec=_FakeSpec(family="ltx"),
                            projections={}, audio_vae=None, vocoder=None)
 
@@ -2201,7 +2204,7 @@ def test_the_dit_is_placed_inside_the_scoped_lora_block():
         yield
         calls.append(("exit",))
 
-    def fake_place(dit, device, *, video_tokens, audio_tokens=0, own_models=()):
+    def fake_place(dit, device, *, video_tokens, audio_tokens=0, own_models=(), **_terms):
         calls.append(("place",))
         return DitPlacementDecision("cpu", 0.0, 0.0, 0.0, video_tokens, audio_tokens)
 
@@ -2307,6 +2310,50 @@ def test_the_dit_placement_and_the_scoped_block_name_the_same_own_models():
             patch(f"{_MAIN}.denoise_prenoised", lambda fwd, x, c, u, **k: x):
         _pipe(resolution="64x64", frames=17).process(_pipe_input(bundle=bundle), lambda o: None)
     assert seen["room"] == seen["placement"] == (bundle.dit, bundle.vae, bundle.audio_vae, bundle.vocoder)
+
+
+@pytest.mark.parametrize("prompt_adaln, rows", [(False, 5), (True, 7)])
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", lambda fwd, x, c, u, **k: x)
+def test_the_video_pipe_reserves_what_its_per_token_timestep_keeps_alive(prompt_adaln, rows):
+    bundle = _bundle()
+    bundle.dit.module.config.has_prompt_adaln = prompt_adaln
+    decision = DitPlacementDecision("cpu", 0.0, 0.0, 0.0, 0, 0)
+    with patch("src.pipelines.pipes.generator.video_ltx.main.place_dit_for_sequence", return_value=decision) as place:
+        _pipe(resolution="64x64", frames=17).process(_pipe_input(bundle=bundle), lambda o: None)
+    assert place.call_args.kwargs["gelu_ffn_dim"] == 16384
+    assert place.call_args.kwargs["modulation_rows"] == rows
+    assert place.call_args.kwargs["video_tokens"] == 3 * 2 * 2
+    assert place.call_args.kwargs["audio_tokens"] == 0
+
+
+@pytest.mark.parametrize("use_cross_timestep, rows", [(False, 11), (True, 6)])
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", lambda fwd, x, c, u, **k: x)
+def test_generated_audio_stays_out_of_the_video_tokens_and_adds_the_rows_it_keeps_alive(use_cross_timestep, rows):
+    bundle = _bundle(audio=True)
+    bundle.dit.module.config.use_cross_timestep = use_cross_timestep
+    decision = DitPlacementDecision("cpu", 0.0, 0.0, 0.0, 0, 0)
+    with patch(f"{_MAIN}.place_dit_for_sequence", return_value=decision) as place, \
+            patch(f"{_MAIN}.decode_generated_audio", lambda *a: None):
+        _pipe(resolution="64x64", frames=17, audio=True, audio_source="generate").process(
+            _pipe_input(bundle=bundle), lambda o: None)
+    assert place.call_args.kwargs["video_tokens"] == 3 * 2 * 2
+    assert place.call_args.kwargs["audio_tokens"] == audio_token_count(17, 25.0)
+    assert place.call_args.kwargs["modulation_rows"] == rows
+
+
+@pytest.mark.parametrize("scales, rows", [((1, 1), 5), ((2, 1), 17)])
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", lambda fwd, x, c, u, **k: x)
+def test_a_reference_at_a_reduced_scale_adds_the_rows_of_the_whole_adaln_table(tmp_path, scales, rows):
+    clip = _reference_clip(tmp_path, n_frames=9, size=64)
+    decision = DitPlacementDecision("cpu", 0.0, 0.0, 0.0, 0, 0)
+    with patch(f"{_MAIN}.place_dit_for_sequence", return_value=decision) as place, \
+            patch(f"{_MAIN}.resolve_reference_scales", return_value=scales):
+        _pipe(resolution="128x128", frames=9, media_placements=_CLIP_REFERENCE).process(
+            _pipe_input(videos=[str(clip)]), lambda o: None)
+    assert place.call_args.kwargs["modulation_rows"] == rows
 
 
 # -- TE eviction --------------------------------------------------------------

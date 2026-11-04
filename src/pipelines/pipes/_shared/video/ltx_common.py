@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, TypedDict
 import numpy as np
 import torch
 from src.platform.runtime.native.errors import DecodeNumericsError
@@ -16,11 +16,43 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     check_guider_mode_conflict,
 )
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
-from src.pipelines.pipes._shared.video.ltx_constants import LTX_SPATIAL_DOWNSCALE, LTX_TEMPORAL_DOWNSCALE
+from src.pipelines.pipes._shared.video.ltx_constants import (
+    LTX_ADALN_TABLE_ROWS,
+    LTX_AV_CROSS_ADALN_ROWS,
+    LTX_AV_NORM_ROWS,
+    LTX_FFN_DIM,
+    LTX_MODULATION_ROWS,
+    LTX_PROMPT_ADALN_MODULATION_ROWS,
+    LTX_PROMPT_ADALN_TABLE_ROWS,
+    LTX_SPATIAL_DOWNSCALE,
+    LTX_TEMPORAL_DOWNSCALE,
+)
 
 
 _warned_snapped_resolution: set[tuple[int, int]] = set()
 _warned_snapped_frames: set[int] = set()
+
+
+class LtxReserveTerms(TypedDict):
+    gelu_ffn_dim: int
+    modulation_rows: int
+
+
+def ltx_reserve_terms(
+    dit: Any, *, per_token_timestep: bool, per_token_frames_broken: bool = False, generates_audio: bool = False,
+) -> LtxReserveTerms:
+    rows = 0
+    if per_token_timestep:
+        config = dit.module.config
+        rows = LTX_PROMPT_ADALN_MODULATION_ROWS if config.has_prompt_adaln else LTX_MODULATION_ROWS
+        if per_token_frames_broken or generates_audio:
+            av_cross_rows = 0 if config.use_cross_timestep else LTX_AV_CROSS_ADALN_ROWS
+            if per_token_frames_broken:
+                table_rows = LTX_PROMPT_ADALN_TABLE_ROWS if config.has_prompt_adaln else LTX_ADALN_TABLE_ROWS
+                rows += table_rows + av_cross_rows
+            if generates_audio:
+                rows += LTX_AV_NORM_ROWS + av_cross_rows
+    return {"gelu_ffn_dim": LTX_FFN_DIM, "modulation_rows": rows}
 
 
 def snap_ltx_geometry(width: int, height: int, frames: int) -> tuple[int, int, int]:

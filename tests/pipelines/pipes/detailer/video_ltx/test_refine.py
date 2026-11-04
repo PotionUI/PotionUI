@@ -196,9 +196,10 @@ def test_refine_tube_pixels_places_dit_for_the_tube(monkeypatch):
     cond_model = SimpleNamespace(embeds={"context": torch.zeros(1, 1, 8)})
     placed = {}
 
-    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0):
+    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0, **terms):
         placed["video_tokens"] = video_tokens
         placed["reserve_gb"] = reserve_gb
+        placed["terms"] = terms
         return _fake_placement()
 
     monkeypatch.setattr(f"{_MOD}.denoise", lambda mf, latents, *a, **k: latents)
@@ -211,6 +212,7 @@ def test_refine_tube_pixels_places_dit_for_the_tube(monkeypatch):
     # A decode-headroom reserve is now always passed,
     # sized off this tube's own (small) decoded pixel dimensions.
     assert placed["reserve_gb"] > 0.0
+    assert placed["terms"] == {"gelu_ffn_dim": 16384, "modulation_rows": 0}
 
 
 # -- OOM fix: the tube encode goes through the shared VRAM-aware
@@ -310,7 +312,7 @@ def test_refine_tube_pixels_passes_the_estimated_decode_reserve_to_placement(mon
     cond_model = SimpleNamespace(embeds={"context": torch.zeros(1, 1, 8)})
     placed = {}
 
-    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0):
+    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0, **_terms):
         placed["reserve_gb"] = reserve_gb
         return _fake_placement()
 

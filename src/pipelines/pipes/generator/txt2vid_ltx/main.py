@@ -32,6 +32,7 @@ from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes._shared.video.ltx_common import (
     decode_ltx_video,
+    ltx_reserve_terms,
     parse_explicit_sigmas,
     snap_ltx_geometry,
     validate_ltx_schedule_config,
@@ -366,10 +367,11 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         # attention/RoPE/hidden-state activations can exceed and OOM on, even
         # though the same DiT comfortably fits a short clip. See
         # dit_placement.py's module docstring for the full reasoning; short
-        # clips see byte-identical behaviour (full pin, same call).
+        # clips still pin the whole DiT.
         placement = place_dit_for_sequence(
             c.bundle.dit, c.device, video_tokens=t_lat * h_lat * w_lat,
             own_models=(c.bundle.dit, c.vae),
+            **ltx_reserve_terms(c.bundle.dit, per_token_timestep=False),
         )
         dit_module = c.bundle.dit.module
         fps = c.fps

@@ -59,8 +59,8 @@ compiles only while the DiT's streamer is active.
 the token-derived ``activation_reserve``. The token-only reserve is wrong for a
 caller whose GPU work AFTER placement isn't proportional to sequence length --
 the detailer's per-tube VAE decode: a tiny
-tube (~4k tokens) gets a near-floor activation reserve (0.5GB), so the DiT
-went FULLY resident (its 23GB weight comfortably fit ``free - 0.5GB``), which
+tube (~4k tokens) gets a small activation reserve (about 0.67 to 0.81GB), so the DiT
+went FULLY resident (its 23GB weight comfortably fit ``free`` minus that), which
 is CORRECT for the denoise step that follows immediately, but leaves the
 tube's subsequent VAE decode with almost no headroom (observed: 27.87GB
 allocated, 109MB free, decode OOM'd on a ~136MB allocation). ``reserve_gb``
@@ -197,9 +197,9 @@ _LTX_INNER_DIM = 4096
 # RoPE operates on half the inner dim (real/imag pair per rotated axis).
 _LTX_ROPE_HALF_DIM = _LTX_INNER_DIM // 2
 
-# Per-token activation-reserve terms (bytes/token), calibrated against a
-# measured 40s/720x1280 LTX-2.3 OOM: S ~= 110,880
-# tokens peaked ~9.4GB over the resident DiT weights, decomposed as:
+# Attention-phase activation-reserve terms (bytes/token), calibrated against a
+# measured 40s/720x1280 LTX-2.3 OOM: S ~= 110,880 tokens read ~9.4GB over the
+# resident DiT weights, decomposed as:
 #   attention transient    ~6 * S * inner_dim * 2B (bf16)      ~= 5.2GB
 #   RoPE fp32 build spike  ~3 * S * rope_half_dim * 4B (fp32)  ~= 2.6GB
 #   held bf16 cos/sin      ~2 * S * rope_half_dim * 2B (bf16)  ~= 0.9GB
@@ -336,6 +336,7 @@ def estimate_activation_reserve_gb(
     video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
     inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None, ffn_chunk_rows: int = 0,
     quant_activation_bytes_per_token: int = 0, dequant_transient_bytes: int = 0,
+    gelu_ffn_dim: int = 0, modulation_rows: int = 0,
 ) -> float:
     """Estimate the DiT-forward activation VRAM reserve for one sampling step.
 
@@ -364,11 +365,19 @@ def estimate_activation_reserve_gb(
     Every existing LTX call site never passes this, so their estimate is
     unchanged.
     """
-    s = max(0, int(video_tokens)) + max(0, int(audio_tokens))
-    bytes_per_token = lora.output_buffer_bytes_per_token
-    bytes_per_token += max(0, int(quant_activation_bytes_per_token))
+    video = max(0, int(video_tokens))
+    s = video + max(0, int(audio_tokens))
+    gelu_bytes_per_token = gelu_ffn_dim * _COMPUTE_DTYPE_BYTES
+    quant_bytes_per_token = max(0, int(quant_activation_bytes_per_token))
+    bytes_per_token = lora.output_buffer_bytes_per_token + gelu_bytes_per_token + quant_bytes_per_token
     activation_bytes = _activation_bytes(s, inner_dim, ffn_dim, max(0, int(ffn_chunk_rows)))
-    raw_gb = (activation_bytes + s * bytes_per_token + lora.weight_side_bytes + dequant_transient_bytes) / _BYTES_PER_GB
+    modulation_bytes = video * modulation_rows * inner_dim * _COMPUTE_DTYPE_BYTES
+    transient_bytes = dequant_transient_bytes
+    if not quant_bytes_per_token:
+        transient_bytes = max(transient_bytes, s * gelu_bytes_per_token)
+    raw_gb = (
+        activation_bytes + s * bytes_per_token + modulation_bytes + lora.weight_side_bytes + transient_bytes
+    ) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
@@ -380,6 +389,8 @@ class ReserveTerms:
     ffn_chunk_rows: int = 0
     quant_activation_bytes_per_token: int = 0
     dequant_transient_bytes: int = 0
+    gelu_ffn_dim: int = 0
+    modulation_rows: int = 0
 
     def reserve_gb(self, video_tokens: int, audio_tokens: int = 0) -> float:
         return estimate_activation_reserve_gb(video_tokens, audio_tokens, **vars(self))
@@ -476,10 +487,12 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
 
 def _dit_reserve_terms(
     dit: Any, *, inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None, ffn_chunk_rows: int = 0,
+    gelu_ffn_dim: int = 0, modulation_rows: int = 0,
 ) -> ReserveTerms:
     return ReserveTerms(
         _dit_lora_profile(dit), inner_dim, ffn_dim, ffn_chunk_rows,
         _dit_quant_activation_bytes_per_token(dit), _dit_dequant_transient_bytes(dit),
+        gelu_ffn_dim, modulation_rows,
     )
 
 
@@ -586,6 +599,8 @@ def place_dit_for_sequence(
     ffn_dim: int | None = None,
     ffn_chunk_rows: int = 0,
     fit_hint: "FitHint | None" = None,
+    gelu_ffn_dim: int = 0,
+    modulation_rows: int = 0,
 ) -> DitPlacementDecision:
     """Place ``dit`` on ``device`` for sampling, sized to THIS generation's
     token count instead of an unconditional full-pin ``move_to``.
@@ -636,7 +651,10 @@ def place_dit_for_sequence(
     be freed anyway -- a fresh placement decision, not a stale one.
     """
     own_models = tuple(own_models)
-    terms = _dit_reserve_terms(dit, inner_dim=inner_dim, ffn_dim=ffn_dim, ffn_chunk_rows=ffn_chunk_rows)
+    terms = _dit_reserve_terms(
+        dit, inner_dim=inner_dim, ffn_dim=ffn_dim, ffn_chunk_rows=ffn_chunk_rows,
+        gelu_ffn_dim=gelu_ffn_dim, modulation_rows=modulation_rows,
+    )
     lora_active = terms.lora.active
     lora_weight_gb = terms.lora.delta_gb
     weight_gb = _dit_weight_to_place_gb(dit, terms.lora)

@@ -146,6 +146,7 @@ from src.pipelines.pipes._shared.video.frames import load_video_frames, probe_vi
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes._shared.video.ltx_common import (
     decode_ltx_video,
+    ltx_reserve_terms,
     parse_explicit_sigmas,
     snap_ltx_geometry,
     validate_ltx_schedule_config,
@@ -273,6 +274,7 @@ class _VideoLtxCtx:
     audio_mode: str = "none"          # "none" | "generate" | "file" | "passthrough"
     audio_file: Optional[Any] = None  # str/Path (file) or an already-decoded AudioTrack (passthrough)
     audio_tokens: int = 0
+    reference_scales: Tuple[int, int] = (1, 1)
     t_lat: int = 0
     h_lat: int = 0
     w_lat: int = 0
@@ -794,6 +796,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 width=width, height=height, frames=frames, fps=fps,
                 device=device, dtype=dtype, spec=spec,
                 audio_mode=audio_mode, audio_file=audio_file, audio_tokens=audio_tokens,
+                reference_scales=reference_scales,
                 t_lat=t_lat, h_lat=h_lat, w_lat=w_lat,
                 initial_latents=initial_latents, has_conditions=bool(conditions),
                 stage2_lora_stack=stage2_lora_stack, scoped_lora_stack=scoped_lora_stack,
@@ -969,6 +972,10 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             placement = place_dit_for_sequence(
                 c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
                 own_models=own_models,
+                **ltx_reserve_terms(
+                    c.bundle.dit, per_token_timestep=True, per_token_frames_broken=c.reference_scales[0] != 1,
+                    generates_audio=c.audio_mode == "generate",
+                ),
             )
             sample_forward = guard_sampling_oom(
                 forward, dit=c.bundle.dit, device=c.device, decision=placement,

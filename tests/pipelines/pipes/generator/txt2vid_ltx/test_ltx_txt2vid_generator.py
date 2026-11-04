@@ -14,6 +14,7 @@ from src.pipelines.outputs import GalleryGenerationOutput
 from src.platform.runtime.native.errors import DecodeNumericsError
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDecision
 from src.pipelines.pipes.generator.txt2vid_ltx.main import _LTXCtx, GeneratorLtxTxt2VidPipe
 from src.pipelines.pipes._shared.video.ltx_common import decode_ltx_video
 from src.pipelines.pipes._shared.video.ltx_common import snap_ltx_geometry
@@ -230,6 +231,16 @@ def test_emitted_videos_carry_live_resolution():
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)][0]
     # 1000x540 -> 32px grid (992x544), same snap this pipe's build_context applies.
     assert [v.resolution for v in gallery.videos] == [(992, 544), (992, 544)]
+
+
+@patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise", lambda mf, latents, c, u, **k: latents)
+def test_placement_reserves_the_ffn_output_and_no_modulation_under_a_scalar_timestep():
+    decision = DitPlacementDecision("cpu", 0.0, 0.0, 0.0, 0, 0)
+    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.place_dit_for_sequence", return_value=decision) as place:
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
+    assert place.call_args.kwargs["gelu_ffn_dim"] == 16384
+    assert place.call_args.kwargs["modulation_rows"] == 0
 
 
 # -- decode math ---------------------------------------------------------------

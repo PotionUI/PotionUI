@@ -194,6 +194,15 @@ class RunStore:
                         inherited["checkpoints"][edge["id"]] = checkpoint
                         inherited["edges"].append(edge)
                 inherited["invocations"].extend(item for item in self.run_invocations(cursor, source_id) if item["node_id"] == node_id)
+            drawn_in = (run.get("pinned_inputs") or {}).get("source_run_id")
+            if drawn_in:
+                if drawn_in not in sources:
+                    sources[drawn_in] = self.load_run(cursor, drawn_in)
+                source = sources[drawn_in] or {}
+                for node in (source.get("graph") or {}).get("nodes", []):
+                    state = (source.get("node_states") or {}).get(node["id"])
+                    if node.get("kind") == "media" and (state or {}).get("draw") and node["id"] not in run["node_states"]:
+                        inherited["node_states"].setdefault(node["id"], state)
         return inherited
 
     def invocations_with_status(self, statuses) -> List[Dict[str, Any]]:

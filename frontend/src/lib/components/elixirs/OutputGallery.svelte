@@ -17,9 +17,10 @@
 		ontick?: (key: string) => void;
 		onopen?: (entry: OutputEntry, index: number) => void;
 		openerScope?: string;
+		drawn?: Set<string> | null;
 	}
 
-	let { entries = [], pending = 0, pendingKind = 'image', label, emptyText = '', dim = false, failed = 0, choice = null, ontick, onopen, openerScope = '' }: Props = $props();
+	let { entries = [], pending = 0, pendingKind = 'image', label, emptyText = '', dim = false, failed = 0, choice = null, ontick, onopen, openerScope = '', drawn = null }: Props = $props();
 
 	let broken = $derived(Array.from({ length: Math.max(0, failed) }, (_, index) => index));
 
@@ -30,8 +31,12 @@
 	<div class="gallery" class:dim role="list" aria-label={label}>
 		{#each entries as entry, index (`${tileKey(entry)}:${index}`)}
 			{@const decor = tileChoice(choice, tileKey(entry))}
-			<div role="listitem">
+			{@const undrawn = !!drawn && !drawn.has(tileKey(entry))}
+			<div role="listitem" class:undrawn data-drawn={drawn ? String(!undrawn) : undefined}>
 				<OutputTile {entry} opener="{openerScope}:{tileKey(entry)}:{index}" tick={decor.tick} letters={decor.letters} ontick={() => ontick?.(tileKey(entry))} onopen={() => onopen?.(entry, index)} />
+				{#if undrawn}
+					<span class="sr-only">Not drawn this brew</span>
+				{/if}
 			</div>
 		{/each}
 		{#each skeletons as index (index)}
@@ -60,6 +65,14 @@
 	}
 	.gallery.dim {
 		opacity: 0.5;
+	}
+	.undrawn {
+		opacity: 0.35;
+		transition: opacity 150ms ease;
+	}
+	.undrawn:hover,
+	.undrawn:focus-within {
+		opacity: 0.8;
 	}
 	.skeleton,
 	.broken {

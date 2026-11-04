@@ -1,5 +1,6 @@
 import copy
 import logging
+import random
 import secrets
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -112,6 +113,22 @@ def prompts_per_input(node: Mapping[str, Any]) -> int:
     except (TypeError, ValueError):
         return 1
     return min(max(count, 1), MAX_PROMPTS_PER_INPUT)
+
+
+def drawn_count(node: Mapping[str, Any]) -> int:
+    total = len(node.get("assets") or [])
+    if node.get("pick") != "random":
+        return total
+    try:
+        count = int(node.get("pick_count") or 1)
+    except (TypeError, ValueError):
+        count = 1
+    return min(max(count, 1), total)
+
+
+def draw_files(assets: List[Dict[str, Any]], count: int, seed: int) -> List[Dict[str, Any]]:
+    chosen = sorted(random.Random(f"{seed}:files").sample(range(len(assets)), min(count, len(assets))))
+    return [assets[index] for index in chosen]
 
 
 def writer_rows(node: Mapping[str, Any], rows: Iterable[Tuple[Any, str, Any, int]]) -> List[Tuple[Any, str, Any, int]]:

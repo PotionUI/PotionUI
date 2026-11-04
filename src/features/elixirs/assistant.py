@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional
 
 from src.features.elixirs.assistant_edits import EditPlan, EditRefused, Planner, prompt_of, usable_modes
+from src.features.elixirs.brew import drawn_count
 from src.features.elixirs.coordinator import BrewRefused
 from src.features.elixirs.errors import AssistantRefused, SessionNotFoundError
 from src.features.elixirs.follow import FOLLOW, followed_issues, read_followed, session_mode_of
@@ -210,6 +211,8 @@ class ElixirAssistant:
         if kind == "media":
             step["media_type"] = node.get("media_type")
             step["file_count"] = len(node.get("assets") or [])
+            if node.get("pick") == "random":
+                step["random_pick"] = drawn_count(node)
             return step
         if kind == "llm":
             step["instruction"] = _short(node.get("instruction") or "")
@@ -309,7 +312,10 @@ class ElixirAssistant:
                 "prompts_per_input": node.get("prompts_per_input") or 1,
             }
         if node.get("kind") != "preset":
-            return {"step": node["id"], "kind": "files", "label": graph.label(node), "media_type": node.get("media_type"), "file_count": len(node.get("assets") or [])}
+            files = {"step": node["id"], "kind": "files", "label": graph.label(node), "media_type": node.get("media_type"), "file_count": len(node.get("assets") or [])}
+            if node.get("pick") == "random":
+                files["random_pick"] = drawn_count(node)
+            return files
         session_mode = session_mode_of(node)
         if session_mode == FOLLOW:
             current = self.read_session(user, (node.get("session_ref") or {}).get("id"))

@@ -52,6 +52,18 @@ def test_the_summary_lists_steps_left_to_right_with_their_sessions(world):
     assert summary["last_brew"] is None
 
 
+def test_the_summary_and_step_settings_report_a_random_pick_of_files(world):
+    definition = photos_into_sharpen(("p1", "p2", "p3"))
+    definition["nodes"][0].update(pick="random", pick_count=2)
+    record = create(definition)
+
+    steps = {step["id"]: step for step in world.assistant.summary("alice", record.id)["steps"]}
+
+    assert steps["photos"]["file_count"] == 3 and steps["photos"]["random_pick"] == 2
+    assert world.assistant.step_settings("alice", record.id, "photos")["random_pick"] == 2
+    assert "random_pick" not in {step["id"]: step for step in world.assistant.summary("alice", create(photos_into_sharpen()).id)["steps"]}["photos"]
+
+
 def test_the_summary_can_list_the_usable_presets(world):
     record = create(shoot_and_sharpen())
 

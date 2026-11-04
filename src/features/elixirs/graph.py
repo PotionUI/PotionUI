@@ -11,7 +11,7 @@ from typing import (
     Tuple,
 )
 
-from src.features.elixirs.brew import prompts_per_input
+from src.features.elixirs.brew import drawn_count, prompts_per_input
 from src.features.elixirs.catalog import Catalog
 from src.features.elixirs.contracts import Contracts, ModeContract, lint_contract
 from src.features.elixirs.follow import NEW, session_mode_of
@@ -614,7 +614,7 @@ def _estimate(
     for node_id in order:
         node = graph.by_id[node_id]
         if node.get("kind") == "media":
-            nodes[node_id] = {"invocations": 0, "outputs": len(node.get("assets") or [])}
+            nodes[node_id] = {"invocations": 0, "outputs": drawn_count(node)}
             continue
         if node.get("kind") == "llm":
             sources = incoming.get(node_id, [])

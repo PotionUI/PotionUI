@@ -53,6 +53,18 @@ An input target is either a form field of the mode (`kind: form_field`) or the f
 last frame of a single-shot Video Director document (`kind: video_director_role`,
 `role: first` or `last`).
 
+## Files card
+
+A files card sends every file it holds into each brew. Its settings can instead draw a few at
+random: **Use** All files (the default) or Random, with **How many** from 1 to the number of
+files it holds (`pick` and `pick_count` on the node; a node without them uses all files). A
+brew draws once when it starts, from a seed recorded on the run (`node_states.<node>.draw`:
+`seed`, `count`, `of`), and from then on only the drawn files exist for it: the steps after
+the card, choose-mode picks, a writer's Looks at and batch grouping all see the drawn files
+only. Running a later step again reuses the files its brew drew; the next brew draws again.
+Validation and the generation estimates count the drawn number, not every file. The card shows
+the mode (Random 3 of 40) and, for the current brew, dims the files it did not draw.
+
 ## Prompt writer
 
 A prompt writer node asks a language model to write a prompt from its instruction, once for
@@ -136,7 +148,7 @@ the user to press Brew, or Continue after a choice.
 
 | Tool | Approval | What it does |
 | --- | --- | --- |
-| `get_elixir` | no | Steps left to right (id, kind, preset and mode, session mode and session name, a writer's instruction, writes-for and prompts per input), connections, problems, the last brew and the steps waiting for a choice. `include_presets` lists the preset modes an elixir can use. |
+| `get_elixir` | no | Steps left to right (id, kind, preset and mode, session mode and session name, a writer's instruction, writes-for and prompts per input, a files step's file count and `random_pick`), connections, problems, the last brew and the steps waiting for a choice. `include_presets` lists the preset modes an elixir can use. |
 | `get_step_settings` | no | One step's effective prompt, negative prompt and form fields, bounded. A following step is read from its session. |
 | `get_choice_outputs` | no | The outputs of a step waiting for a choice, numbered, with their ids. When the chat's model has vision it also gets one image with the outputs numbered; without vision it gets the details only and asks the user. |
 | `edit_elixir` | yes | One batch of operations against the revision the assistant read. |
@@ -152,7 +164,8 @@ contains) and `set_session` (follow, copy or new). `set_settings` checks field n
 against the step's preset form and refuses fields filled by a connection. A following step's
 change is saved into its session through the sessions API with the version the elixir last
 saw, so every step and Generate tab using that session updates; a copy or new step keeps the
-change on the step.
+change on the step. The assistant cannot change a files step's pick; the user sets it in
+the card's settings.
 
 The batch is all or nothing. When the elixir changed since the assistant read it, the edit is
 refused and the assistant reads it again. Every refusal names the fix, e.g. `Operation 1

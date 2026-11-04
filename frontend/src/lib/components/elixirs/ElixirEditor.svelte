@@ -40,6 +40,7 @@
 	import { directorIssues } from '$lib/elixirs/director';
 	import { FOLLOW_ISSUE_CODES, cardMarker, effectiveSettings, sessionHashes, sessionMode, staleReasonText, uniqueSessionName } from '$lib/elixirs/follow';
 	import { brewName, isActive, isCurrentRun, isPolling, newIdempotencyKey, nodeRunView, runLabel } from '$lib/elixirs/runs';
+	import { drawnKeys, pickLine } from '$lib/elixirs/files';
 	import { laneTakes, nodeChoice, toggled, viewerSendTo, type Lane } from '$lib/elixirs/choice';
 	import { readWidths, viewerStorage, withWidth, writeWidths } from '$lib/elixirs/columns';
 	import { DRAWER_MIN, DRAWER_WIDTH, clampDrawer, draggedDrawer, drawerMax, keyedDrawer, readDrawer, writeDrawer } from '$lib/elixirs/drawer';
@@ -661,7 +662,7 @@
 			const sources = new Set((node.assets ?? []).map((asset) => asset.kind));
 			const sourceLine = sources.size === 0 ? 'No files yet' : sources.size > 1 ? 'From History and the Library' : sources.has('library') ? 'From the Library' : 'From History';
 			const unused = (node.assets?.length ?? 0) > 0 && (tree?.children.get(node.id) ?? []).length === 0;
-			return { ...base, assets: node.assets ?? [], countLine: countLabel(node.assets?.length ?? 0, noun), sourceLine, unused };
+			return { ...base, assets: node.assets ?? [], countLine: countLabel(node.assets?.length ?? 0, noun), sourceLine, pickLine: pickLine(node), drawn: drawnKeys(run, node.id), unused };
 		}
 		const preset = node.preset_id && node.mode ? presetIndex.get(`${node.preset_id}::${node.mode}`) : null;
 		return {
@@ -1920,6 +1921,7 @@
 							onclose={closeSettings}
 							writer={writerSettings(settingsNode)}
 							onwriterchange={changeWriter}
+							onfileschange={changeWriter}
 							tab={settingsTab}
 							ontabchange={(id) => (settingsTab = id)}
 						/>

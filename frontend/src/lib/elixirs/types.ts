@@ -53,6 +53,8 @@ export interface SessionRef {
 	deleted?: boolean;
 }
 
+export type FilePick = 'all' | 'random';
+
 export interface MediaAsset {
 	kind: 'history' | 'library';
 	generation_id?: string;
@@ -79,6 +81,8 @@ export interface ElixirNode {
 	media_type?: string | null;
 	assets?: MediaAsset[];
 	source_revision?: number;
+	pick?: FilePick;
+	pick_count?: number;
 	instruction?: string;
 	instruction_chips?: Record<string, ChipData>;
 	variables?: VariablesMap;
@@ -150,9 +154,16 @@ export interface RunCheckpoint {
 	error?: string | null;
 }
 
+export interface FileDraw {
+	seed: number;
+	count: number;
+	of: number;
+}
+
 export interface RunNodeState {
 	status: string;
 	manifest?: Record<string, OutputEntry[]>;
+	draw?: FileDraw;
 }
 
 export interface Invocation {

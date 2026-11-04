@@ -16,6 +16,7 @@
 	import NodeSettingsForm from './NodeSettingsForm.svelte';
 	import NodeRequestPreview from './NodeRequestPreview.svelte';
 	import { activeTab, panelTabs } from '$lib/elixirs/panelTabs';
+	import { FILE_PICKS, drawnCount } from '$lib/elixirs/files';
 	import { MAX_PROMPTS_PER_INPUT, MEDIA_LABELS, countLabel, kindNoun, presetKey, promptsPerInput, summarizeSnapshot } from '$lib/elixirs/model';
 	import { SESSION_MODES, conversions, effectiveSettings, modeExplanation, sessionMode, sessionProblem, sessionRow } from '$lib/elixirs/follow';
 
@@ -65,6 +66,7 @@
 		onclose?: () => void;
 		writer?: WriterContext | null;
 		onwriterchange?: (changes: Record<string, unknown>) => void;
+		onfileschange?: (changes: Record<string, unknown>) => void;
 		tab?: string;
 		ontabchange?: (id: string) => void;
 	}
@@ -94,6 +96,7 @@
 		onclose,
 		writer = null,
 		onwriterchange,
+		onfileschange,
 		tab = 'quick',
 		ontabchange
 	}: Props = $props();
@@ -541,6 +544,38 @@
 						<Button variant="ghost" size="sm" onclick={onclearmedia}>Remove all</Button>
 					{/if}
 				</div>
+				{#if node.assets.length > 1 || (node.assets.length > 0 && node.pick === 'random')}
+					<div class="flex flex-col gap-1.5" data-testid="elixir-files-pick-settings">
+						<span class="text-sm font-medium text-fg-muted">Use</span>
+						<SegmentedControl
+							items={FILE_PICKS}
+							selected={node.pick === 'random' ? 'random' : 'all'}
+							onSelect={(next) => next !== (node.pick ?? 'all') && onfileschange?.({ pick: next })}
+							ariaLabel="Which files each brew uses"
+							variant="toggle"
+							fullWidth
+						/>
+						{#if node.pick === 'random'}
+							<div class="mt-1 flex items-center gap-3">
+								<span class="text-sm text-fg-muted">How many</span>
+								<div class="w-32">
+									<NumberStepper
+										value={drawnCount(node)}
+										min={1}
+										max={node.assets.length}
+										label="How many files to draw"
+										onChange={(value) => value !== drawnCount(node) && onfileschange?.({ pick_count: value })}
+									/>
+								</div>
+							</div>
+						{/if}
+						<p class="text-sm text-fg-subtle">
+							{node.pick === 'random'
+								? `Each brew draws ${countLabel(drawnCount(node), 'file')} of ${node.assets.length} at random. Running a later step again keeps its brew's draw.`
+								: 'Each brew sends every file to the next steps.'}
+						</p>
+					</div>
+				{/if}
 				{#if node.assets.length > 0}
 					<ul class="grid grid-cols-3 gap-2" aria-label="Selected files">
 						{#each node.assets as asset, index (`${asset.kind}:${asset.item_id ?? asset.file_id}`)}

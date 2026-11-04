@@ -92,7 +92,7 @@ class GetElixirTool(_ElixirTool):
         return (
             "Read the elixir open in the user's Elixir tab: its revision, each step (id, kind preset/writer/files, "
             "label, column left to right, preset and mode, session mode follow/copy/new with the session's name, "
-            "a writer's instruction and writes_for), the connections, its problems, the last brew and the steps "
+            "a writer's instruction and writes_for, a files step's file_count and random_pick: files drawn at random per brew), the connections, its problems, the last brew and the steps "
             "waiting for a choice. Pass include_presets=true to list the preset modes an elixir can use (what each "
             "takes and makes). Call it before any edit; edit_elixir needs its revision."
         )

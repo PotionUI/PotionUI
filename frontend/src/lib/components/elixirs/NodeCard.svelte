@@ -46,8 +46,18 @@
 			<span class="font-mono tabular-nums text-fg">{data.countLine}</span>
 			<span class="text-sm text-fg-muted">{data.sourceLine}</span>
 		</div>
+		{#if data.pickLine}
+			<p class="pick" data-testid="elixir-files-pick">
+				<Icon name="shuffle" className="h-3.5 w-3.5" />
+				<span class="font-mono tabular-nums">{data.pickLine}</span>
+				{#if data.drawn}
+					<span class="text-fg-subtle">· this brew, others dimmed</span>
+				{/if}
+			</p>
+		{/if}
 		<OutputGallery
 			{entries}
+			drawn={data.drawn ?? null}
 			label="{data.label} files"
 			emptyText="Choose files from History or the Library."
 			openerScope={data.node.id}
@@ -357,6 +367,15 @@
 		display: flex;
 		flex-direction: column;
 		padding: 16px 16px 4px;
+	}
+	.pick {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		padding: 2px 16px 6px;
+		font-size: 12px;
+		color: rgb(var(--fg-muted));
 	}
 	.warn {
 		margin: 0 16px 16px;

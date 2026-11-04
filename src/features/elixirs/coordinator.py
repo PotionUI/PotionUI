@@ -14,6 +14,8 @@ from src.features.elixirs.brew import (
     bind_text,
     bind_texts,
     director_problem,
+    draw_files,
+    drawn_count,
     latest_attempts,
     manifest_for,
     media_manifest,
@@ -240,9 +242,15 @@ class Coordinator:
                     })
                 if not assets:
                     raise BrewRefused("no_media", f"{label} has no files yet.", node_id=node["id"])
+                state = {"status": "done"}
+                if node.get("pick") == "random":
+                    seed = self.random_below(SEED_LIMIT)
+                    count = drawn_count(node)
+                    state["draw"] = {"seed": seed, "count": count, "of": len(assets)}
+                    assets = draw_files(assets, count, seed)
                 pinned[node["id"]] = assets
-                port_name = MEDIA_SOURCE_PORTS[node["media_type"]]
-                node_states[node["id"]] = {"status": "done", "manifest": media_manifest(assets, port_name)}
+                state["manifest"] = media_manifest(assets, MEDIA_SOURCE_PORTS[node["media_type"]])
+                node_states[node["id"]] = state
                 continue
             if node.get("kind") == "llm":
                 node_states[node["id"]] = {"status": "waiting"}

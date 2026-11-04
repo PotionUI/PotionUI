@@ -29,6 +29,7 @@ ElementId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]
 Title = Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 RunMode = Literal["automatic", "review"]
+FilePick = Literal["all", "random"]
 SessionMode = Literal["follow", "copy", "new"]
 SessionHash = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
@@ -112,6 +113,8 @@ class MediaNode(BaseModel):
     media_type: Optional[MediaType] = None
     assets: List[AssetEntry] = Field(default_factory=list, max_length=MAX_STORED_ASSETS)
     source_revision: int = Field(default=0, ge=0)
+    pick: FilePick = "all"
+    pick_count: int = Field(default=1, ge=1, le=MAX_STORED_ASSETS)
 
 
 WrittenText = Annotated[str, StringConstraints(min_length=1, max_length=MAX_WRITTEN_CHARS)]

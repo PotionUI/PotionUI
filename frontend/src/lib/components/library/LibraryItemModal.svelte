@@ -2,6 +2,8 @@
 	import tooltip from '$lib/actions/tooltip';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import LoopToggle from '$lib/components/media/LoopToggle.svelte';
+	import { loopVideos } from '$lib/stores/loopVideos';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import { Badge } from '$lib/components/ui';
@@ -193,9 +195,10 @@
 	<div class="p-4 md:p-6 flex flex-col gap-4">
 		<div class="relative rounded-lg border border-line-strong bg-black overflow-hidden flex items-center justify-center min-h-[16rem] max-h-[60vh]">
 			{#if kind === 'video'}
-				<video src={item.url} class="max-h-[60vh] max-w-full" controls playsinline>
+				<video src={item.url} class="max-h-[60vh] max-w-full" controls loop={$loopVideos} playsinline>
 					<track kind="captions" />
 				</video>
+				<LoopToggle class="absolute top-3 right-3 z-10" />
 			{:else if kind === 'audio'}
 				<div class="w-full p-6 bg-surface-1">
 					<AudioPlayer tracks={audioTracks} showWaveform={true} showDownload={false} />

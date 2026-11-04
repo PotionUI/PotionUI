@@ -536,6 +536,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         container.organize_worker.start()
 
+        container.elixirs.runtime.start()
+
         yield
 
         # Shutdown
@@ -548,6 +550,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         await container.housekeeping_worker.stop()
         container.organize_worker.stop()
         container.organize_manager.shutdown()
+        await container.elixirs.runtime.stop()
         await container.content_safety.stop()
         await container.compute_status_monitor.stop()
         await container.indexing_progress_broadcaster.stop()

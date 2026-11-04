@@ -190,6 +190,40 @@ report["digest_wiring"] = {
     "the_recipe_plan_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.plan")._digests is digests,
     "the_recipe_fetch_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.fetch")._digests is digests,
 }
+from fastapi import FastAPI
+from src.bootstrap.routers import register_routers
+elixir_app = FastAPI()
+register_routers(elixir_app, c)
+report["elixir_routes"] = sorted(
+    f"{method} {route.path}"
+    for route in elixir_app.routes
+    if getattr(route, "path", "").startswith("/api/elixirs")
+    for method in route.methods
+)
+elixir_port = c.elixirs.coordinator.port
+elixir_hooks = (
+    "generation.after_complete", "generation.before_delete", "generation.before_bulk_delete",
+    "session.after_update", "session.after_delete",
+)
+report["elixirs_wiring"] = {
+    "every_hook_reaches_the_runtime": all(
+        any(pid == "elixirs_engine" for pid, _ in c.plugin_registry.hook_chain._handlers.get(name, []))
+        for name in elixir_hooks
+    ),
+    "the_runtime_drives_the_routes_coordinator": c.elixirs.runtime.coordinator is c.elixirs.coordinator,
+    "the_runtime_is_not_running_until_the_lifespan_starts_it": c.elixirs.runtime.running is False,
+    "brews_submit_through_the_container_orchestrator": elixir_port.orchestrator is c.generation_orchestrator,
+    "brews_read_history_through_the_container_facade": elixir_port.history is c.generation_history_facade,
+    "brews_resolve_library_files_through_the_container_media_store": elixir_port.media_store is c.media_store,
+    "prompts_are_written_by_the_container_prompt_writer": elixir_port.prompt_writer is c.prompt_enhancement_manager,
+    "owners_are_looked_up_in_the_container_users": elixir_port.users is c.user_repository,
+    "sessions_are_read_from_the_container_repositories": (
+        c.elixirs.sessions.sessions is c.session_repository
+        and c.elixirs.sessions.versions is c.session_version_repository
+    ),
+    "follows_read_sessions_through_the_same_reader": c.elixirs.runtime.follows.reader == c.elixirs.sessions.get_session,
+    "the_limits_come_from_the_seeded_settings": c.elixirs.limits().max_nodes == 24,
+}
 import src.platform.plugins.runtime_registries as runtime_registries
 report["recipe_smoke_wiring"] = {
     "the_smoke_asks_the_registry_for_the_app_loop": c.recipe_runner._executor_registry.get_executor("generation.smoke").app_loop is runtime_registries.get_app_loop,
@@ -279,6 +313,37 @@ def test_chat_turns_are_stored_durably_by_the_one_container_store(report):
 
 def test_organize_listens_to_the_tags_the_media_indexer_announces(report):
     assert report["detected_tags_wired"] is True
+
+
+def test_elixirs_are_composed_from_the_container_and_listen_to_their_hooks(report):
+    assert [k for k, v in report["elixirs_wiring"].items() if not v] == []
+
+
+def test_the_elixirs_api_is_mounted_on_the_app(report):
+    routes = report["elixir_routes"]
+    assert {
+        "GET /api/elixirs",
+        "POST /api/elixirs",
+        "GET /api/elixirs/presets",
+        "GET /api/elixirs/{elixir_id}",
+        "PUT /api/elixirs/{elixir_id}",
+        "DELETE /api/elixirs/{elixir_id}",
+        "POST /api/elixirs/{elixir_id}/validate",
+        "GET /api/elixirs/{elixir_id}/followed-sessions",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/session",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/session/follow",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/session/copy",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/session/new",
+        "POST /api/elixirs/{elixir_id}/runs",
+        "GET /api/elixirs/{elixir_id}/runs",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/runs",
+        "GET /api/elixirs/runs/{run_id}",
+        "POST /api/elixirs/runs/{run_id}/cancel",
+        "POST /api/elixirs/runs/{run_id}/edges/{edge_id}/continue",
+        "PUT /api/elixirs/runs/{run_id}/edges/{edge_id}/selection",
+        "PUT /api/elixirs/runs/{run_id}/texts/{text_id}",
+        "POST /api/elixirs/runs/{run_id}/nodes/{node_id}/retry-failed",
+    } <= set(routes)
 
 
 def test_admin_failure_alerts_listen_to_generation_failed(report):

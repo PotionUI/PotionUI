@@ -1,0 +1,95 @@
+schema_version: 1
+
+presets:
+  "4TK1KBQZ2XMB8ME0PTMXS1YJQP":
+    name: "Krea-2"
+    modes:
+      txt2img:
+        label: "Text to image"
+        prompt: true
+        quantity_field: "quantity"
+        outputs:
+          images:
+            label: "Final images"
+            media_type: "image"
+            selector: {is_final: true, is_derived: false}
+      enhance:
+        label: "Enhance"
+        prompt: true
+        quantity_field: "quantity"
+        inputs:
+          source_image:
+            label: "Source image"
+            media_type: "image"
+            target: {kind: "form_field", field: "source_image"}
+        outputs:
+          images:
+            label: "Enhanced images"
+            media_type: "image"
+            selector: {is_final: true, is_derived: false}
+
+  "01KX47H3MINIMAX000000000VA":
+    name: "MiniMax-H3"
+    modes:
+      video:
+        label: "Video"
+        prompt: true
+        quantity_field: "quantity"
+        inputs:
+          first_frame:
+            label: "First frame"
+            media_type: "image"
+            target: {kind: "video_director_role", role: "first"}
+          last_frame:
+            label: "Last frame"
+            media_type: "image"
+            target: {kind: "video_director_role", role: "last"}
+        outputs:
+          videos:
+            label: "Final videos"
+            media_type: "video"
+            selector: {is_final: true, is_derived: false}
+      upscale:
+        label: "Upscale video"
+        prompt: true
+        quantity_field: "quantity"
+        inputs:
+          input_video:
+            label: "Input video"
+            media_type: "video"
+            target: {kind: "form_field", field: "input_video"}
+        outputs:
+          videos:
+            label: "Upscaled videos"
+            media_type: "video"
+            selector: {is_final: true, is_derived: false}
+
+  "01KXB7C553THYMSMKY1QSYESFM":
+    name: "SeedVR2"
+    modes:
+      upscale:
+        label: "Upscale image"
+        prompt: false
+        inputs:
+          input_image:
+            label: "Input image"
+            media_type: "image"
+            target: {kind: "form_field", field: "input_image"}
+        outputs:
+          images:
+            label: "Upscaled images"
+            media_type: "image"
+            selector: {is_final: true, is_derived: false}
+      video_upscale:
+        label: "Upscale video"
+        prompt: false
+        inputs:
+          input_video:
+            label: "Input video"
+            media_type: "video"
+            target: {kind: "form_field", field: "input_video"}
+        outputs:
+          videos:
+            label: "Upscaled videos"
+            media_type: "video"
+            selector: {is_final: true, is_derived: false}

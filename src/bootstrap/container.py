@@ -301,6 +301,7 @@ from src.features.filters.collaborators import FilterCollaborators
 from src.features.filters.repository import UserFilterRepository
 from src.features.filters.routes import FilterController
 from src.features.organize.components import build_organize
+from src.features.elixirs.components import ElixirsComponents, build_elixirs
 from src.features.workspaces.repository import WorkspaceRepository
 from src.features.workspaces.routes import WorkspaceController
 from src.features.user_groups.routes import UserGroupController
@@ -568,6 +569,7 @@ class AppContainer:
     organize_manager: "OrganizeManager"
     organize_controller: "OrganizeController"
     organize_worker: "OrganizeWorker"
+    elixirs: ElixirsComponents
     limit_kind_registry: LimitKindRegistry
     plans: "PlansComponents"
     limit_guard: "LimitGuard"
@@ -1924,6 +1926,24 @@ def build_container() -> AppContainer:
     organize_controller = organize.controller
     organize_worker = organize.worker
     organize_worker.subscribe(plugin_registry.hook_chain)
+
+    elixirs = build_elixirs(
+        users=user_repository,
+        orchestrator=generation_orchestrator,
+        broadcaster=output_broadcaster,
+        generations=generation_repository,
+        generation_files=file_repo,
+        history=generation_history_facade,
+        file_service=file_service,
+        media_store=media_store,
+        prompt_writer=prompt_enhancement_manager,
+        presets=file_preset_repository,
+        settings=settings,
+        setting_repository=setting_repository,
+        session_repository=session_repository,
+        session_version_repository=session_version_repository,
+    )
+    elixirs.runtime.subscribe(plugin_registry.hook_chain)
 
     # Workspace components
 

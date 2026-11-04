@@ -50,6 +50,7 @@ Subsystem docs for anyone authoring presets, plugins, or touching the engine. Ad
 - [Native Engine v2](native-engine.md) — the in-process loading/detection/ops/sampling stack.
 - [The Plugin API](plugin-api.md) — `src.plugin_api`, the only surface a plugin may import from.
 - [Recipe Smoke Generation](recipes.md) — the test generation that ends a recipe, and the `smoke:` block that configures it.
+- [Elixirs](elixirs.md) — chaining presets, media and prompt writers into brews: preset contracts, local overrides and limits.
 - [Providers](providers.md) — plugins that talk to a model marketplace and own their own credentials.
 - [Prompt Expansion](prompts.md) — how a prompt template expands per image.
 - [Model Tools](model-tools.md) — the admin preset that quantizes models and merges LoRAs into new files.

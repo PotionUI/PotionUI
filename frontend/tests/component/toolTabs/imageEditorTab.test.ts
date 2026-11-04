@@ -104,8 +104,9 @@ describe('ImageEditorTab', () => {
 		const { q, all, calls } = render({ source: HISTORY_SOURCE, state: twoSteps(), activeTool: 'effects' });
 		expect(rows(all)).toEqual(['original', 'applied', 'current']);
 		expect(q('[data-image-editor]')?.dataset.tool).toBe('effects');
-		expect(q('[data-options-panel] h2')?.textContent).toBe('Effects');
-		expect(q('[data-effects-tab="looks"]')).not.toBeNull();
+		expect(q('[data-options-panel] h2')?.firstChild?.textContent).toBe('Looks');
+		expect(q('[data-options-subtitle]')?.textContent).toBe('Properties');
+		expect(q('[data-tray]')).not.toBeNull();
 		expect(calls.title).toContain('observatory-dusk');
 		expect(calls.dirty).toEqual([2]);
 	});
@@ -152,7 +153,8 @@ describe('ImageEditorTab', () => {
 		const { q, lastActions } = render({ source: HISTORY_SOURCE, state: twoSteps(), activeTool: 'effects', phone: true });
 		expect(q('[data-editor-frame="phone"]')).not.toBeNull();
 		expect(q('[data-tool-rail="strip"]')).not.toBeNull();
-		expect(q('[data-options-panel="phone"]')).not.toBeNull();
+		expect(q('[data-options-bar="phone"]')).not.toBeNull();
+		expect(q('[data-tray]')).not.toBeNull();
 		expect(q('[data-editor-toolbar]')).toBeNull();
 		expect(q('[data-frame-edits]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('2 edits');
 		expect(lastActions()?.undo?.label).toBe('Undo Reel');

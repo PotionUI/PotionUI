@@ -19,10 +19,10 @@
 	let box = $state<HTMLElement>();
 
 	const CORNERS: { corner: CropCorner; position: string; cursor: string }[] = [
-		{ corner: 'nw', position: '-left-[5px] -top-[5px]', cursor: 'nwse-resize' },
-		{ corner: 'ne', position: '-right-[5px] -top-[5px]', cursor: 'nesw-resize' },
-		{ corner: 'sw', position: '-bottom-[5px] -left-[5px]', cursor: 'nesw-resize' },
-		{ corner: 'se', position: '-bottom-[5px] -right-[5px]', cursor: 'nwse-resize' }
+		{ corner: 'nw', position: '-left-[2px] -top-[2px] border-l-2 border-t-2', cursor: 'nwse-resize' },
+		{ corner: 'ne', position: '-right-[2px] -top-[2px] border-r-2 border-t-2', cursor: 'nesw-resize' },
+		{ corner: 'sw', position: '-bottom-[2px] -left-[2px] border-b-2 border-l-2', cursor: 'nesw-resize' },
+		{ corner: 'se', position: '-bottom-[2px] -right-[2px] border-b-2 border-r-2', cursor: 'nwse-resize' }
 	];
 
 	let dims = $derived([
@@ -92,14 +92,14 @@
 		{#each CORNERS as handle (handle.corner)}
 			<button
 				type="button"
-				class="absolute {handle.position} h-2.5 w-2.5 rounded-[2px] bg-scrim-on shadow-floating"
+				class="absolute {handle.position} h-6 w-6 border-scrim-on bg-transparent touch-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-signal"
 				style="cursor:{handle.cursor}"
 				aria-label="Resize from the {handle.corner} corner"
 				onpointerdown={(event) => drag(event, handle.corner)}
 				data-crop-corner={handle.corner}
 			></button>
 		{/each}
-		<div class="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2">
+		<div class="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2">
 			<CanvasChip caps={false}>{label}</CanvasChip>
 		</div>
 	</div>

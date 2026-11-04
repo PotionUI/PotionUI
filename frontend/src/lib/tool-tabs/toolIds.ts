@@ -1,4 +1,4 @@
-export const IMAGE_TOOL_IDS = ['crop', 'resize', 'canvas', 'slice', 'paint', 'mask', 'effects', 'colorKey', 'subject'] as const;
+export const IMAGE_TOOL_IDS = ['crop', 'resize', 'canvas', 'slice', 'paint', 'mask', 'effects', 'adjust', 'colorKey', 'subject'] as const;
 
 export const VIDEO_TOOL_IDS = ['trim', 'split', 'crop', 'resize', 'speed', 'mute', 'volume', 'replace', 'effects', 'frame'] as const;
 

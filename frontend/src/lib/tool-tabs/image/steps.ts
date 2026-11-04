@@ -10,7 +10,7 @@ export const OUTPUT_LANE = 'output';
 
 export const IMAGE_PINNED_LANES: readonly LanePair[] = [[PAINT_LANE, GEOMETRY_LANE]];
 
-export type CoreImageTool = 'crop' | 'resize' | 'canvas' | 'slice' | 'paint' | 'mask' | 'effects' | 'colorKey' | 'subject';
+export type CoreImageTool = 'crop' | 'resize' | 'canvas' | 'slice' | 'paint' | 'mask' | 'effects' | 'adjust' | 'colorKey' | 'subject';
 
 export interface CropParams {
 	plan: ImageEditPlan;
@@ -71,7 +71,8 @@ const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; lane?: st
 	slice: { label: 'Slice', icon: 'editor-slice', lane: OUTPUT_LANE },
 	paint: { label: 'Paint', icon: 'editor-paint', lane: PAINT_LANE },
 	mask: { label: 'Mask', icon: 'editor-mask' },
-	effects: { label: 'Effects', icon: 'editor-effects' },
+	effects: { label: 'Looks', icon: 'editor-effects' },
+	adjust: { label: 'Adjust', icon: 'adjustments-horizontal' },
 	colorKey: { label: 'Color key', icon: 'editor-color-key' },
 	subject: { label: 'Subject', icon: 'editor-subject', lane: GEOMETRY_LANE }
 };
@@ -111,7 +112,7 @@ export function imageRail(catalog: readonly ToolDTO[] = []): RailGroup[] {
 	return [
 		{ id: 'shape', label: 'Shape', tools: [rail('crop'), rail('resize'), rail('canvas'), rail('slice')] },
 		{ id: 'paint', label: 'Paint', tools: [rail('paint'), rail('mask')] },
-		{ id: 'look', label: 'Look', tools: [rail('effects')] },
+		{ id: 'look', label: 'Look', tools: [rail('effects'), rail('adjust')] },
 		{
 			id: 'tools',
 			label: 'Tools',

@@ -4,7 +4,7 @@ import { appliedSteps, commitLive, liveEdit, toggleHidden, type EditStackState, 
 import { CURVE_POINTS, adjustDraft, type AdjustParams } from './steps';
 
 export type AdjustControl =
-	| { kind: 'slider'; op: string; param: string }
+	| { kind: 'slider'; op: string; param: string; label?: string }
 	| { kind: 'curves'; op: 'curves' }
 	| { kind: 'toggle'; op: string };
 
@@ -15,25 +15,27 @@ export interface AdjustSection {
 	controls: AdjustControl[];
 }
 
-const slider = (op: string, param: string): AdjustControl => ({ kind: 'slider', op, param });
+const slider = (op: string, param: string, label?: string): AdjustControl => (label ? { kind: 'slider', op, param, label } : { kind: 'slider', op, param });
+
+export const CAPTIONED_OPS: readonly string[] = ['curves', 'split_tone', 'vignette', 'grain'];
 
 export const ADJUST_SECTIONS: readonly AdjustSection[] = [
 	{
 		id: 'light',
 		label: 'Light',
 		icon: 'lightbulb',
-		controls: [slider('exposure', 'stops'), slider('tone', 'brightness'), slider('tone', 'contrast'), slider('fade', 'black_lift'), slider('fade', 'white_cap'), { kind: 'curves', op: 'curves' }]
+		controls: [slider('exposure', 'stops', 'Exposure'), slider('tone', 'brightness'), slider('tone', 'contrast'), slider('fade', 'black_lift'), slider('fade', 'white_cap'), { kind: 'curves', op: 'curves' }]
 	},
 	{
 		id: 'colour',
 		label: 'Colour',
 		icon: 'palette',
 		controls: [
-			slider('white_balance', 'temperature'),
-			slider('white_balance', 'tint'),
+			slider('white_balance', 'temperature', 'Temperature'),
+			slider('white_balance', 'tint', 'Tint'),
 			slider('tone', 'saturation'),
 			slider('tone', 'hue'),
-			slider('vibrance', 'amount'),
+			slider('vibrance', 'amount', 'Vibrance'),
 			slider('split_tone', 'shadow_hue'),
 			slider('split_tone', 'shadow_sat'),
 			slider('split_tone', 'highlight_hue'),
@@ -46,10 +48,10 @@ export const ADJUST_SECTIONS: readonly AdjustSection[] = [
 		label: 'Effects',
 		icon: 'sparkles',
 		controls: [
-			slider('vignette', 'amount'),
+			slider('vignette', 'amount', 'Amount'),
 			slider('vignette', 'midpoint'),
 			slider('vignette', 'feather'),
-			slider('grain', 'amount'),
+			slider('grain', 'amount', 'Amount'),
 			slider('grain', 'size'),
 			slider('grain', 'seed'),
 			{ kind: 'toggle', op: 'grayscale' },

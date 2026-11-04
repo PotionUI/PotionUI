@@ -25,6 +25,7 @@
 		canvas,
 		below,
 		panelTop,
+		bar,
 		options,
 		stack
 	}: {
@@ -45,6 +46,7 @@
 		canvas: Snippet;
 		below?: Snippet;
 		panelTop?: Snippet;
+		bar?: Snippet;
 		options?: Snippet;
 		stack?: Snippet<[StackVariant]>;
 	} = $props();
@@ -152,6 +154,11 @@
 			</div>
 		</div>
 		{@render below?.()}
+		{#if bar}
+			<div class="flex h-12 flex-none items-center gap-2.5 border-t border-line bg-surface-1 px-3" data-options-bar="phone">
+				{@render bar()}
+			</div>
+		{/if}
 		{@render options?.()}
 		{@render rail?.()}
 		{#if stackOpen && stack}

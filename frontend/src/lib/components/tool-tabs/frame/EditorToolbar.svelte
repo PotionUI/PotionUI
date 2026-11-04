@@ -37,6 +37,8 @@
 		moreItems = [],
 		leading,
 		replaceControl,
+		bar,
+		barActions,
 		onundo,
 		onredo,
 		oncompare,
@@ -70,6 +72,8 @@
 		moreItems?: MenuItem[];
 		leading?: Snippet;
 		replaceControl?: Snippet;
+		bar?: Snippet;
+		barActions?: Snippet;
 		onundo: () => void;
 		onredo: () => void;
 		oncompare: (next: boolean) => void;
@@ -167,23 +171,42 @@
 	{/if}
 {:else}
 	<div class="flex h-12 flex-none items-center gap-2 border-b border-line bg-surface-1 pl-4 pr-3" data-editor-toolbar="desktop">
-		<div class="flex min-w-0 flex-1 items-center gap-2.5">
-			<span class="min-w-0 truncate font-mono text-base {fileName ? 'text-fg' : 'text-fg-subtle'}" data-frame-file>{fileName ?? emptyLabel}</span>
-			{#if fileName && replaceControl}
-				{@render replaceControl()}
-			{/if}
-			{#if fileName}
+		<div class="flex min-w-0 flex-1 items-center gap-2.5" data-toolbar-lead>
+			{#if bar && fileName}
+				<span class="sr-only" data-frame-file>{fileName}</span>
+				{#if replaceControl}
+					{@render replaceControl()}
+				{/if}
 				{#each chips as chip, i (i)}
-					<span class="inline-flex h-5 flex-none items-center rounded bg-surface-3 px-1.5 font-mono text-sm tabular-nums text-fg-muted">{chip}</span>
+					<span class="inline-flex h-6 flex-none items-center rounded border border-line-strong bg-surface-2 px-2 font-mono text-sm tabular-nums text-fg-muted">{chip}</span>
 				{/each}
-				{#if source}
-					<span class="inline-flex min-w-0 items-center gap-1.5 text-sm text-fg-subtle">
-						<Icon name={source.icon} className="h-3.5 w-3.5 flex-none" />
-						<span class="truncate">{source.label}</span>
-					</span>
+				<span class="h-5 w-px flex-none bg-line-strong" aria-hidden="true"></span>
+				<div class="flex min-w-0 flex-1 items-center gap-2.5 overflow-x-auto [scrollbar-width:none]" data-options-bar>
+					{@render bar()}
+				</div>
+			{:else}
+				<span class="min-w-0 truncate font-mono text-base {fileName ? 'text-fg' : 'text-fg-subtle'}" data-frame-file>{fileName ?? emptyLabel}</span>
+				{#if fileName && replaceControl}
+					{@render replaceControl()}
+				{/if}
+				{#if fileName}
+					{#each chips as chip, i (i)}
+						<span class="inline-flex h-5 flex-none items-center rounded bg-surface-3 px-1.5 font-mono text-sm tabular-nums text-fg-muted">{chip}</span>
+					{/each}
+					{#if source}
+						<span class="inline-flex min-w-0 items-center gap-1.5 text-sm text-fg-subtle">
+							<Icon name={source.icon} className="h-3.5 w-3.5 flex-none" />
+							<span class="truncate">{source.label}</span>
+						</span>
+					{/if}
 				{/if}
 			{/if}
 		</div>
+		{#if bar && fileName && barActions}
+			<div class="flex flex-none items-center gap-2" data-options-actions>
+				{@render barActions()}
+			</div>
+		{/if}
 		{@render history()}
 		<span class="h-5 w-px flex-none bg-line-strong" aria-hidden="true"></span>
 		<Button

@@ -162,64 +162,34 @@ function imageOptions(params: EffectParams | null, props: Record<string, unknown
 
 const GRAIN_PARAMS: EffectParams = { kind: 'effect', tool: 'film_grain', name: 'Film grain', values: { ...GRAIN } };
 
-describe('Image effect card actions', () => {
-	it('renders the actions inside the open card, under its params', () => {
+describe('Image effect cards', () => {
+	it('opens the picked effect card with its params and no actions of its own', () => {
 		const { view, q } = imageOptions(GRAIN_PARAMS);
-		const actions = view.target.querySelectorAll('[data-effect-actions]');
-		expect(actions).toHaveLength(1);
 		const card = q('[data-effect-card="film_grain"]')!;
 		expect(card.dataset.open).toBe('true');
-		expect(card.contains(actions[0])).toBe(true);
-		expect(q('[data-effect-card="fix_colors"] [data-effect-actions]')).toBeNull();
+		expect(card.querySelector('[data-effect-description], input')).not.toBeNull();
+		expect(view.target.querySelectorAll('[data-effect-actions]')).toHaveLength(0);
+		expect(view.target.querySelectorAll('[data-options-apply]')).toHaveLength(0);
+		expect(q('[data-effect-card="fix_colors"]')!.dataset.open).toBeUndefined();
 	});
 
-	it('says Add for a new effect and Update for one reopened from the edits', () => {
-		const { q } = imageOptions(GRAIN_PARAMS);
-		expect(text(q('[data-options-apply]'))).toBe('Add Film grain ↵');
-		document.body.innerHTML = '';
-		const reopened = imageOptions(GRAIN_PARAMS, { updating: true, original: { ...GRAIN_PARAMS, values: { ...GRAIN, amount: 50 } } });
-		expect(text(reopened.q('[data-options-apply]'))).toBe('Update Film grain ↵');
-	});
-
-	it('disables Reset at the defaults and Reset puts the defaults back', () => {
-		const atDefaults = imageOptions(GRAIN_PARAMS);
-		expect(atDefaults.q<HTMLButtonElement>('[data-options-reset]')!.disabled).toBe(true);
-		document.body.innerHTML = '';
-		const changed = imageOptions({ ...GRAIN_PARAMS, values: { ...GRAIN, amount: 80 } } as EffectParams);
-		const reset = changed.q<HTMLButtonElement>('[data-options-reset]')!;
-		expect(reset.disabled).toBe(false);
-		reset.click();
-		expect(changed.changes).toEqual([{ ...GRAIN_PARAMS, values: GRAIN }]);
-	});
-
-	it('disables Update until the values differ from the saved edit', () => {
-		const same = imageOptions(GRAIN_PARAMS, { updating: true, original: GRAIN_PARAMS });
-		expect(same.q<HTMLButtonElement>('[data-options-apply]')!.disabled).toBe(true);
-		document.body.innerHTML = '';
-		const edited = imageOptions({ ...GRAIN_PARAMS, values: { ...GRAIN, amount: 80 } } as EffectParams, { updating: true, original: GRAIN_PARAMS });
-		expect(edited.q<HTMLButtonElement>('[data-options-apply]')!.disabled).toBe(false);
-	});
-
-	it('keeps Add enabled for a new effect and calls onapply', () => {
-		const { q, changes } = imageOptions(GRAIN_PARAMS);
-		const button = q<HTMLButtonElement>('[data-options-apply]')!;
-		expect(button.disabled).toBe(false);
-		button.click();
+	it('reports a pick as a change with the effect defaults', () => {
+		const { q, changes } = imageOptions(null);
+		q<HTMLButtonElement>('[data-effect-card="film_grain"] button')!.click();
 		expect(changes).toHaveLength(1);
+		expect(changes[0]).toMatchObject({ kind: 'effect', tool: 'film_grain', name: 'Film grain' });
 	});
 
-	it('puts the actions under the form on a phone', () => {
+	it('lists the effects as a strip on a phone', () => {
 		const { view, q } = imageOptions(GRAIN_PARAMS, { phone: true });
-		const strip = q('[data-effect-strip]')!;
-		const actions = q('[data-effect-actions]')!;
-		expect(view.target.querySelectorAll('[data-effect-actions]')).toHaveLength(1);
-		expect(strip.contains(actions)).toBe(false);
-		expect(strip.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(view.target.querySelectorAll('[data-effect-actions]')).toHaveLength(0);
+		expect(q('[data-effect-strip] [data-effect-chip="film_grain"]')!.getAttribute('aria-selected')).toBe('true');
 	});
 
-	it('shows no actions until something is picked', () => {
-		const { view } = imageOptions(null);
-		expect(view.target.querySelector('[data-effect-actions]')).toBeNull();
+	it('shows only the look hint until something is picked', () => {
+		const { q } = imageOptions(null);
+		expect(q('[data-looks-hint]')).not.toBeNull();
+		expect(q('[data-look-properties]')).toBeNull();
 	});
 });
 
@@ -278,19 +248,26 @@ describe('Image editor footer', () => {
 		vi.useRealTimers();
 	});
 
-	it('is absent for Effects, where the actions sit in the open edit', () => {
+	it('sits in the options bar for Looks, never in the properties panel', () => {
 		const { q, all } = renderImageEditor('effects', pendingLookState());
 		expect(all('[data-options-apply]')).toHaveLength(1);
 		expect(all('[data-options-reset]')).toHaveLength(1);
-		expect(q('[data-options-apply]')!.closest('[data-effect-actions]')).not.toBeNull();
-		expect(text(q('[data-options-apply]'))).toBe('Add Noir ↵');
+		expect(q('[data-options-apply]')!.closest('[data-options-actions]')).not.toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-panel]')).toBeNull();
+		expect(text(q('[data-options-apply]'))).toBe('Apply look ↵');
 	});
 
-	it('is present for Crop', () => {
+	it('sits in the options bar for Crop', () => {
 		const { q, all } = renderImageEditor('crop', emptyImageState('crop'));
 		expect(all('[data-options-apply]')).toHaveLength(1);
-		expect(q('[data-options-apply]')!.closest('[data-effect-actions]')).toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-actions]')).not.toBeNull();
 		expect(text(q('[data-options-apply]'))).toContain('Apply crop');
+	});
+
+	it('has no Apply for Adjust, only Reset all', () => {
+		const { q, all } = renderImageEditor('adjust', emptyImageState('adjust'));
+		expect(all('[data-options-apply]')).toHaveLength(0);
+		expect(text(q('[data-options-reset]'))).toBe('Reset all');
 	});
 
 	it('applies the open effect on Enter', async () => {
@@ -322,7 +299,6 @@ describe('Image effect opened from the list', () => {
 	});
 
 	function open(view: ReturnType<typeof renderImageEditor>, id: string) {
-		view.q<HTMLButtonElement>('[data-effects-tab="effects"]')!.click();
 		flushSync();
 		view.q<HTMLButtonElement>(`[data-effect-card="${id}"] button`)!.click();
 		flushSync();
@@ -334,7 +310,7 @@ describe('Image effect opened from the list', () => {
 		const view = renderImageEditor('effects', grainState(55));
 		open(view, 'film_grain');
 		const button = view.q<HTMLButtonElement>('[data-options-apply]')!;
-		expect(text(button)).toBe('Update Film grain ↵');
+		expect(text(button)).toBe('Update effect ↵');
 		expect(button.disabled).toBe(true);
 		expect(view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value).toBe('55');
 		expect(rows(view)).toEqual(['original', 'pending']);
@@ -343,16 +319,16 @@ describe('Image effect opened from the list', () => {
 	it('shows the defaults and Add for an effect that is not in the edits', () => {
 		const view = renderImageEditor('effects', grainState(55));
 		open(view, 'retro-tape.scanlines');
-		expect(text(view.q('[data-options-apply]'))).toBe('Add Scanlines ↵');
+		expect(text(view.q('[data-options-apply]'))).toBe('Add effect ↵');
 		expect(view.q<HTMLButtonElement>('[data-options-apply]')!.disabled).toBe(false);
 	});
 
 	it('Update replaces the step so the stack keeps its length, and undo restores the old values', async () => {
 		const view = renderImageEditor('effects', grainState(55));
 		open(view, 'film_grain');
-		view.q<HTMLButtonElement>('[data-effect-card="film_grain"] [data-options-reset]')!.click();
+		view.q<HTMLButtonElement>('[data-options-reset]')!.click();
 		flushSync();
-		expect(text(view.q('[data-options-apply]'))).toBe('Update Film grain ↵');
+		expect(text(view.q('[data-options-apply]'))).toBe('Update effect ↵');
 		view.q<HTMLButtonElement>('[data-options-apply]')!.click();
 		await settle();
 		expect(rows(view)).toEqual(['original', 'current']);
@@ -367,7 +343,7 @@ describe('Image effect opened from the list', () => {
 	it('edits the latest of two copies', () => {
 		const view = renderImageEditor('effects', grainState(20, 70));
 		open(view, 'film_grain');
-		expect(text(view.q('[data-options-apply]'))).toBe('Update Film grain ↵');
+		expect(text(view.q('[data-options-apply]'))).toBe('Update effect ↵');
 		expect(view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value).toBe('70');
 		expect(rows(view)).toEqual(['original', 'applied', 'pending']);
 	});

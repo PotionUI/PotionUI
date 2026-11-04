@@ -8,3 +8,6 @@ export { default as OptionsPanel } from './OptionsPanel.svelte';
 export { default as EditStack } from './EditStack.svelte';
 export { default as FrameSheet } from './FrameSheet.svelte';
 export { default as TickProgress } from './TickProgress.svelte';
+export { default as BarActions } from './BarActions.svelte';
+export { default as PropertySlider } from './PropertySlider.svelte';
+export { default as LookTray } from './LookTray.svelte';

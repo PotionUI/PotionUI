@@ -16,7 +16,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import tooltip from '$lib/actions/tooltip';
-	import { fitAspect, mirrorCropRect, rotateCropRect, turn } from '$lib/media/editors/cropGeometry';
+	import { ORIENTATION, rectInPixels, withAspect, withOrientation, withRectField, type OrientationKey, type RectField } from '$lib/tool-tabs/image/cropActions';
 	import { planDisplaySize, planOutputSize } from '$lib/media/editors/imageEditPlan';
 	import type { PixelSize } from '$lib/tool-tabs/image/payload';
 	import type { CropParams } from '$lib/tool-tabs/image/steps';
@@ -34,14 +34,15 @@
 	} = $props();
 
 	const OUTPUT_SIDES = [768, 1024, 1536, 2048];
-	const ORIENTATION = [
-		{ key: 'rotate-left', label: 'Rotate left', icon: 'editor-rotate-left' },
-		{ key: 'rotate-right', label: 'Rotate right', icon: 'editor-rotate-right' },
-		{ key: 'flip-h', label: 'Flip horizontal', icon: 'flip' },
-		{ key: 'flip-v', label: 'Flip vertical', icon: 'editor-flip-v' }
-	] as const;
+	const FIELDS: { key: RectField; label: string }[] = [
+		{ key: 'x', label: 'X' },
+		{ key: 'y', label: 'Y' },
+		{ key: 'width', label: 'W' },
+		{ key: 'height', label: 'H' }
+	];
 
 	let frame = $derived(planDisplaySize(params.plan, input));
+	let pixels = $derived(rectInPixels(params, frame));
 	let output = $derived(planOutputSize(params.plan, input));
 	let cropped = $derived(planOutputSize({ ...params.plan, targetLongestSide: null }, input));
 	let sides = $derived(OUTPUT_SIDES.filter((side) => side < Math.max(cropped.width, cropped.height)));
@@ -52,27 +53,16 @@
 	const off = 'border-line-strong bg-surface-2 text-fg-muted hover:border-line-hover hover:text-fg';
 
 	function chooseAspect(key: string, ratio: number | null) {
-		const aspect = frame.height > 0 ? frame.width / frame.height : 1;
-		onchange({ aspect: key, plan: ratio ? { ...params.plan, rect: fitAspect(params.plan.rect, ratio, aspect) } : params.plan });
+		onchange(withAspect(params, key, ratio, frame));
 	}
 
-	function orient(key: (typeof ORIENTATION)[number]['key']) {
-		const plan = params.plan;
-		if (key === 'rotate-left' || key === 'rotate-right') {
-			const quarters = key === 'rotate-right' ? 1 : -1;
-			onchange({ ...params, plan: { ...plan, rotation: turn(plan.rotation, quarters), rect: rotateCropRect(plan.rect, quarters) } });
-			return;
-		}
-		const axis = key === 'flip-h' ? 'horizontal' : 'vertical';
-		onchange({
-			...params,
-			plan: {
-				...plan,
-				flipHorizontal: axis === 'horizontal' ? !plan.flipHorizontal : plan.flipHorizontal,
-				flipVertical: axis === 'vertical' ? !plan.flipVertical : plan.flipVertical,
-				rect: mirrorCropRect(plan.rect, axis)
-			}
-		});
+	function orient(key: OrientationKey) {
+		onchange(withOrientation(params, key));
+	}
+
+	function setField(key: RectField, event: Event) {
+		const value = Number((event.target as HTMLInputElement).value);
+		if (Number.isFinite(value)) onchange(withRectField(params, frame, key, value));
 	}
 
 	function longest(side: number | null) {
@@ -130,6 +120,22 @@
 				</button>
 			{/each}
 		</div>
+	</div>
+	<div class="grid grid-cols-2 gap-1.5" role="group" aria-label="Crop rectangle" data-crop-fields>
+		{#each FIELDS as field (field.key)}
+			<label class="flex h-8 items-center gap-2 rounded border border-line-strong bg-surface-2 px-2 focus-within:border-signal/60">
+				<span class="font-mono text-sm text-fg-subtle">{field.label}</span>
+				<input
+					type="number"
+					min="0"
+					step="1"
+					class="min-w-0 flex-1 bg-transparent text-right font-mono text-sm tabular-nums text-fg focus:outline-none"
+					aria-label={field.label === 'X' ? 'Crop X' : field.label === 'Y' ? 'Crop Y' : field.label === 'W' ? 'Crop width' : 'Crop height'}
+					value={pixels[field.key]}
+					onchange={(event) => setField(field.key, event)}
+				/>
+			</label>
+		{/each}
 	</div>
 	<div class="h-px bg-line"></div>
 	<div class="flex flex-col gap-1.5 text-sm">

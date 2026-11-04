@@ -6,6 +6,7 @@
 	let {
 		title,
 		icon,
+		subtitle = null,
 		collapsed = $bindable(false),
 		applyLabel = 'Apply',
 		canApply = true,
@@ -18,6 +19,7 @@
 	}: {
 		title: string;
 		icon: string;
+		subtitle?: string | null;
 		collapsed?: boolean;
 		applyLabel?: string;
 		canApply?: boolean;
@@ -50,7 +52,7 @@
 	<section class="flex min-h-0 flex-col {collapsed ? 'flex-none' : 'flex-1'}" aria-label="{title} options" data-options-panel="desktop" data-collapsed={collapsed || undefined}>
 		<div class="flex h-11 flex-none items-center gap-2 pl-4 pr-2">
 			<Icon name={icon} className="h-3.5 w-3.5 flex-none text-fg-muted" />
-			<h2 class="min-w-0 flex-1 truncate text-base font-semibold text-fg">{title}</h2>
+			<h2 class="min-w-0 flex-1 truncate text-base font-semibold text-fg">{title}{#if subtitle}<span class="ml-2 font-mono text-sm font-normal text-fg-subtle" data-options-subtitle>{subtitle}</span>{/if}</h2>
 			<IconButton
 				icon={collapsed ? 'chevron-right' : 'chevron-down'}
 				label={collapsed ? 'Expand tool options' : 'Collapse tool options'}

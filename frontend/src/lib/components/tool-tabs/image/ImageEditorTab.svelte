@@ -9,19 +9,27 @@
 	import type { PaintSession, SessionSnapshot } from '$lib/components/imageEditor/session';
 	import { Button, IconButton, Kbd, SegmentedControl, Spinner } from '$lib/components/ui';
 	import {
+		BarActions,
 		CanvasChip,
 		EditStack,
 		EditorCanvas,
 		EditorFrame,
 		EditorToolbar,
 		FrameSheet,
+		LookTray,
 		OptionsPanel,
+		PropertySlider,
 		ToolRail
 	} from '$lib/components/tool-tabs/frame';
 	import SaveMenuRows from '$lib/components/tool-tabs/frame/SaveMenuRows.svelte';
+	import { paintFilters } from '$lib/components/imageEditor/registries';
 	import { filterCatalog, loadFilterCatalog } from '$lib/filters/catalog';
 	import { getOp } from '$lib/filters/engine';
+	import { sharedExtensions } from '$lib/filters/extensions';
+	import { buildStrip, isLocked } from '$lib/filters/strip';
 	import { scalarParams } from '$lib/filters/steps';
+	import { LookThumbPainter, drawSource } from '$lib/filters/thumbPainter';
+	import type { FilterItem } from '$lib/filters/types';
 	import { loadPresetFormSchema } from '$lib/form/formSources';
 	import { loadImage } from '$lib/media/editors/loadImage';
 	import { resolveEditableResource } from '$lib/media/editors/editorSource';
@@ -50,11 +58,14 @@
 		reopenLatest,
 		canRedo,
 		canUndo,
+		commitLive,
 		createStack,
 		discardPending,
 		effectiveSteps,
+		isLive,
 		move,
 		previewSteps,
+		previewWith,
 		redo,
 		redoLabel,
 		remove,
@@ -136,7 +147,20 @@
 	import SliceOverlay from './slice/SliceOverlay.svelte';
 	import SliceSaveRows from './slice/SliceSaveRows.svelte';
 	import SliceStrip, { type StripItem } from './slice/SliceStrip.svelte';
+	import {
+		adjustEditedCount,
+		adjustStepFor,
+		isAdjustParams,
+		isAdjustStep,
+		opDefaults,
+		resetAdjustOp,
+		setAdjustToggle,
+		setAdjustValue
+	} from '$lib/tool-tabs/image/adjustSections';
+	import { canApplyEffect, canResetEffect, effectDefaultsOf } from '$lib/tool-tabs/image/effectState';
+	import AdjustOptions from './AdjustOptions.svelte';
 	import CatalogToolOptions from './CatalogToolOptions.svelte';
+	import CropBar from './CropBar.svelte';
 	import CropOptions, { aspectLabel, IMAGE_ASPECTS } from './CropOptions.svelte';
 	import CropOverlay from './CropOverlay.svelte';
 	import EffectsOptions from './EffectsOptions.svelte';
@@ -174,6 +198,12 @@
 	let saving = $state<SavingProgress | null>(null);
 	let busy = $state(false);
 	let notice = $state<string | null>(null);
+	let query = $state('');
+	let hoverLook = $state<string | null>(null);
+	let thumbSource = $state.raw<ImageData | null>(null);
+	let liveTimer: ReturnType<typeof setTimeout> | null = null;
+	const LIVE_COMMIT_MS = 600;
+	const thumbPainter = new LookThumbPainter(() => extensions);
 
 	let phone = $derived(host.phone);
 	let source = $derived(host.source);
@@ -236,6 +266,7 @@
 	});
 
 	let catalog = $derived($mediaToolCatalog);
+	let extensions = $derived(sharedExtensions($filterCatalog.ops, paintFilters.list()));
 	let stillEffects = $derived(imageEffects(catalog));
 	let railGroups = $derived<RailGroup[]>(
 		source
@@ -266,7 +297,7 @@
 	);
 
 	let cropParams = $derived<CropParams>((pendingHere?.tool === 'crop' ? (pendingHere.params as CropParams) : null) ?? { plan: EMPTY_IMAGE_PLAN, aspect: 'free' });
-	let catalogTool = $derived(activeTool && !['crop', 'resize', 'paint', 'mask', 'effects', 'slice'].includes(activeTool) ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
+	let catalogTool = $derived(activeTool && !['crop', 'resize', 'paint', 'mask', 'effects', 'adjust', 'slice'].includes(activeTool) ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
 	let catalogValues = $derived<Record<string, unknown>>(
 		pendingHere && catalogTool ? ((pendingHere.params as CatalogParams).values ?? {}) : catalogTool ? initialValues(catalogTool) : {}
 	);
@@ -274,8 +305,29 @@
 	let effectUpdating = $derived(pendingHere?.tool === 'effects' && !!pendingHere.target);
 	let effectOriginal = $derived(effectUpdating ? ((stack.steps.find((step) => step.id === pendingHere?.target)?.params as EffectParams | undefined) ?? null) : null);
 
-	let mainSteps = $derived(mode === 'preview' ? previewSteps(stack) : mode === 'crop' ? (pendingHere?.tool === 'crop' ? stepsBeforeTarget : effective) : effective);
-	let beforeList = $derived(mode === 'preview' && compare ? (pending ? beforeSteps(stack) : []) : null);
+	let lookParams = $derived(effectParams?.kind === 'look' ? effectParams : null);
+	let trayItems = $derived.by(() => {
+		const needle = query.trim().toLowerCase();
+		const visible = $filterCatalog.items.filter((item) => !isLocked(item, extensions) && (!needle || item.name.toLowerCase().includes(needle)));
+		return buildStrip(visible, $filterCatalog.groups).flatMap((section) =>
+			section.items.map((item) => ({
+				id: item.id,
+				label: item.name,
+				group: section.label,
+				hint: item.tags?.length ? item.tags[item.tags.length - 1] : null,
+				selected: lookParams?.filter === item.id
+			}))
+		);
+	});
+	let trayById = $derived(new Map($filterCatalog.items.map((item) => [item.id, item] as const)));
+	let hoverItem = $derived<FilterItem | null>(activeTool === 'effects' && hoverLook && lookParams?.filter !== hoverLook ? (trayById.get(hoverLook) ?? null) : null);
+	let hoverDraft = $derived(hoverItem ? (lookDraft({ kind: 'look', filter: hoverItem.id, name: hoverItem.name, intensity: hoverItem.intensity }) as StepDraft<unknown>) : null);
+	let adjustCount = $derived(adjustEditedCount(stack));
+	let canCompareNow = $derived(mode === 'preview' && (activeTool === 'adjust' ? adjustCount > 0 : !!pending));
+	let mainSteps = $derived(mode === 'preview' ? previewWith(stack, hoverDraft) : mode === 'crop' ? (pendingHere?.tool === 'crop' ? stepsBeforeTarget : effective) : effective);
+	let beforeList = $derived(
+		mode === 'preview' && compare ? (activeTool === 'adjust' ? effective.filter((step) => !isAdjustStep(step)) : pending ? beforeSteps(stack) : []) : null
+	);
 	let thumbList = $derived(activeTool === 'effects' ? (pending ? beforeSteps(stack) : effective) : null);
 	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' ? stepsBeforeTarget : effective) : null);
 
@@ -451,7 +503,21 @@
 	});
 
 	$effect(() => {
-		if (!pending && compare) compare = false;
+		if (!canCompareNow && compare) compare = false;
+	});
+
+	$effect(() => {
+		const canvas = thumbRender?.canvas ?? null;
+		const size = phone ? 112 : 144;
+		thumbSource = thumbPainter.sourceFrom(canvas, size);
+	});
+
+	$effect(() => {
+		if (activeTool !== 'effects' && hoverLook) hoverLook = null;
+	});
+
+	onDestroy(() => {
+		if (liveTimer) clearTimeout(liveTimer);
 	});
 
 	$effect(() => {
@@ -540,11 +606,7 @@
 			return;
 		}
 		if (hint.effect && ADJUST_OPS.includes(hint.effect)) {
-			if (activeTool !== 'effects') await selectTool('effects');
-			const def = getOp(hint.effect);
-			if (!def) return;
-			const values = Object.fromEntries(scalarParams(def).map((param) => [param.id, param.default]));
-			setDraft('effects', { kind: 'adjust', op: def.id, name: def.label, values } satisfies EffectParams);
+			if (activeTool !== 'adjust') await selectTool('adjust');
 		}
 	}
 
@@ -731,6 +793,55 @@
 		else stack = beginEdit(stack, next);
 	}
 
+	function settleLive() {
+		if (liveTimer) clearTimeout(liveTimer);
+		liveTimer = null;
+		if (isLive(stack)) stack = commitLive(stack);
+	}
+
+	function writeLive(next: EditStackState<unknown>) {
+		notice = null;
+		stack = next;
+		if (liveTimer) clearTimeout(liveTimer);
+		liveTimer = setTimeout(settleLive, LIVE_COMMIT_MS);
+	}
+
+	function setAdjust(op: string, param: string, value: number) {
+		const spec = getOp(op, extensions);
+		if (spec) writeLive(setAdjustValue(stack, spec, param, value));
+	}
+
+	function toggleAdjust(op: string, on: boolean) {
+		const spec = getOp(op, extensions);
+		if (spec) writeLive(setAdjustToggle(stack, spec, on));
+	}
+
+	function resetAdjust(ops: string[]) {
+		settleLive();
+		let next = stack;
+		for (const op of ops) {
+			const spec = getOp(op, extensions);
+			if (spec) next = resetAdjustOp(next, spec);
+		}
+		stack = next;
+	}
+
+	function resetAllAdjust() {
+		resetAdjust([...new Set(applied.filter(isAdjustStep).map((step) => (step.params as { op: string }).op))]);
+	}
+
+	function pickLook(id: string | null) {
+		hoverLook = null;
+		if (id === null) {
+			if (pending?.tool === 'effects' && lookParams) stack = discardPending(stack);
+			return;
+		}
+		const item = trayById.get(id);
+		if (!item) return;
+		const intensity = lookParams?.filter === item.id ? lookParams.intensity : item.intensity;
+		setDraft('effects', { kind: 'look', filter: item.id, name: item.name, intensity } satisfies EffectParams);
+	}
+
 	async function landPaint(): Promise<boolean> {
 		if (!paintStage) return true;
 		const target = pending?.tool === 'paint' ? pending.target : null;
@@ -786,6 +897,8 @@
 	}
 
 	async function leaveTool(): Promise<boolean> {
+		settleLive();
+		hoverLook = null;
 		if (mode === 'paint') return landPaint();
 		if (mode === 'mask') return landMask();
 		landSlice();
@@ -811,9 +924,10 @@
 		if (!step || busy) return;
 		if (pending?.target === id) return;
 		if (!(await leaveTool())) return;
-		stack = reopen(stack, id);
-		activeTool = step.tool;
-		host.setActiveTool(step.tool);
+		const tool = step.tool === 'effects' && isAdjustParams(step.params) ? 'adjust' : step.tool;
+		if (tool !== 'adjust') stack = reopen(stack, id);
+		activeTool = tool;
+		host.setActiveTool(tool);
 	}
 
 	function doUndo() {
@@ -958,6 +1072,14 @@
 
 	function resetTool() {
 		notice = null;
+		if (activeTool === 'adjust') {
+			resetAllAdjust();
+			return;
+		}
+		if (activeTool === 'effects' && effectParams) {
+			setDraft('effects', effectDefaultsOf(effectParams, $filterCatalog.items, stillEffects));
+			return;
+		}
 		if (mode === 'mask') {
 			maskLayer?.clear();
 			mask = null;
@@ -1381,7 +1503,21 @@
 	let optionsTitle = $derived(activeTool ? toolMeta(activeTool, catalog).label : 'Tools');
 	let optionsIcon = $derived(activeTool ? toolMeta(activeTool, catalog).icon : 'sliders');
 	let applyLabel = $derived(
-		activeTool === 'crop' ? 'Apply crop' : activeTool === 'slice' ? 'Apply slice' : activeTool === 'mask' ? 'Save mask' : activeTool === 'paint' ? 'Apply paint' : 'Apply'
+		activeTool === 'crop'
+			? 'Apply crop'
+			: activeTool === 'slice'
+				? 'Apply slice'
+				: activeTool === 'mask'
+					? 'Save mask'
+					: activeTool === 'paint'
+						? 'Apply paint'
+						: activeTool === 'effects'
+							? effectParams?.kind === 'effect'
+								? effectUpdating
+									? 'Update effect'
+									: 'Add effect'
+								: 'Apply look'
+							: 'Apply'
 	);
 	let canApply = $derived(
 		!busy &&
@@ -1391,8 +1527,19 @@
 					? maskDirty
 					: activeTool === 'slice'
 						? pendingHere?.tool === 'slice' && !sliceLocked
-						: !!pendingHere || !!catalogTool)
+						: activeTool === 'effects'
+							? !!pendingHere && canApplyEffect(effectParams, effectOriginal, effectUpdating)
+							: !!pendingHere || !!catalogTool)
 	);
+	let canReset = $derived(
+		!busy &&
+			(activeTool === 'adjust'
+				? adjustCount > 0
+				: activeTool === 'effects'
+					? canResetEffect(effectParams, $filterCatalog.items, stillEffects)
+					: !!pendingHere || mode === 'mask' || mode === 'paint')
+	);
+	let phoneBarred = $derived(phone && (activeTool === 'effects' || activeTool === 'adjust'));
 	let pendingTools = $derived([...(pending ? [pending.tool] : []), ...(mode === 'paint' && paintState?.dirty ? ['paint'] : []), ...(maskDirty ? ['mask'] : [])]);
 	let originalSummary = $derived(sourceSize ? `${sourceSize.width}×${sourceSize.height} · ${extension}` : extension);
 	let stackMore = $derived(applied.length ? [{ id: 'clear', label: 'Remove all edits', icon: 'trash' }] : []);
@@ -1416,10 +1563,12 @@
 	{:else if activeTool === 'resize' && resizeParams && resizeInput}
 		<ResizeOptions params={resizeParams} input={resizeInput} {phone} onchange={(next) => setDraft('resize', next)} />
 	{:else if activeTool === 'effects'}
-		<EffectsOptions params={effectParams} base={thumbRender?.canvas ?? null} {phone} effects={stillEffects} updating={effectUpdating} original={effectOriginal} busy={!!busy} onopen={openEffect} onapply={() => void applyTool()} onchange={(next) => setDraft('effects', next)} />
+		<EffectsOptions params={effectParams} {phone} effects={stillEffects} bind:query onopen={openEffect} onchange={(next) => setDraft('effects', next)} />
 		{#if bakeIsCapped(outputDims) && !phone}
 			<p class="text-sm text-warning" data-bake-cap>Looks on pictures over {FULL_SIDE} px are drawn at {FULL_SIDE} px on the long side and scaled back up when saved.</p>
 		{/if}
+	{:else if activeTool === 'adjust'}
+		<AdjustOptions {stack} lookup={(op) => getOp(op, extensions)} {phone} onset={setAdjust} oncommit={settleLive} ontoggle={toggleAdjust} onreset={resetAdjust} />
 	{:else if activeTool === 'paint'}
 		{#if paintSession && paintState}
 			<PaintOptions session={paintSession} state={paintState} {phone} />
@@ -1489,7 +1638,76 @@
 	{/if}
 {/snippet}
 
+{#snippet barTitle()}
+	<span class="inline-flex flex-none items-center gap-2 text-base font-semibold text-fg" data-bar-title>
+		<Icon name={optionsIcon} className="h-3.5 w-3.5 flex-none text-fg-muted" />{optionsTitle}
+	</span>
+{/snippet}
+
+{#snippet barContent()}
+	{@render barTitle()}
+	{#if activeTool === 'crop' && cropInput}
+		<CropBar params={cropParams} input={cropInput} onchange={(next) => setDraft('crop', next)} />
+	{:else if activeTool === 'resize' && resizeParams}
+		<span class="ml-auto flex-none font-mono text-sm tabular-nums text-success" data-resize-output>{resizeParams.width}×{resizeParams.height}</span>
+	{:else if activeTool === 'effects'}
+		{#if lookParams}
+			<span class="inline-flex h-6 flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{lookParams.name}</span>
+			<div class="flex w-64 min-w-40 max-w-80 flex-1 items-center">
+				<PropertySlider inline label="Intensity" value={lookParams.intensity} min={0} max={100} defaultValue={trayById.get(lookParams.filter)?.intensity ?? 100} onchange={(value) => setDraft('effects', { ...lookParams, intensity: value })} />
+			</div>
+		{:else if effectParams?.kind === 'effect'}
+			<span class="inline-flex h-6 flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{effectParams.name}</span>
+		{:else}
+			<span class="min-w-0 truncate text-sm text-fg-subtle">Hover a look to preview it, click to choose</span>
+		{/if}
+	{:else if activeTool === 'adjust'}
+		<span class="min-w-0 truncate text-sm text-fg-subtle">Changes apply as you move a slider</span>
+	{/if}
+{/snippet}
+
+{#snippet barActionsContent()}
+	{#if activeTool === 'adjust'}
+		<Button variant="secondary" size="sm" class="h-7" disabled={!canReset} onclick={resetTool} attrs={{ 'data-options-reset': '' }}>Reset all</Button>
+	{:else}
+		<BarActions {applyLabel} {canApply} {canReset} onapply={() => void applyTool()} onreset={resetTool} />
+	{/if}
+{/snippet}
+
+{#snippet phoneBar()}
+	{#if activeTool === 'effects'}
+		{#if lookParams}
+			<span class="inline-flex h-6 flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{lookParams.name}</span>
+			<div class="flex min-w-0 flex-1 items-center">
+				<PropertySlider inline label="Intensity" value={lookParams.intensity} min={0} max={100} defaultValue={trayById.get(lookParams.filter)?.intensity ?? 100} onchange={(value) => setDraft('effects', { ...lookParams, intensity: value })} />
+			</div>
+		{:else}
+			<span class="min-w-0 flex-1 truncate text-sm text-fg-subtle">{effectParams?.kind === 'effect' ? effectParams.name : 'Tap a look to preview it'}</span>
+		{/if}
+		<Button variant="secondary" size="sm" class="h-8 flex-none" disabled={!canReset} onclick={resetTool} attrs={{ 'data-options-reset': '' }}>Reset</Button>
+		<Button variant="primary" size="sm" class="h-8 flex-none" disabled={!canApply} onclick={() => void applyTool()} attrs={{ 'data-options-apply': '' }}>Apply</Button>
+	{/if}
+{/snippet}
+
+{#snippet trayThumb(item: { id: string })}
+	{#if item.id === '__original'}
+		<canvas use:drawSource={thumbSource} class="alpha-checker block h-full w-full object-cover" aria-hidden="true"></canvas>
+	{:else}
+		{@const look = trayById.get(item.id)}
+		{#if look}
+			<canvas use:thumbPainter.draw={{ item: look, source: thumbSource }} class="alpha-checker block h-full w-full object-cover" aria-hidden="true"></canvas>
+		{/if}
+	{/if}
+{/snippet}
+
 {#snippet canvasArea()}
+	{#if hoverItem}
+		<div class="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2" data-preview-chip>
+			<CanvasChip caps={false}>
+				<Icon name="editor-eye" className="mr-1.5 h-3.5 w-3.5" />Previewing<strong class="mx-1.5 font-semibold">{hoverItem.name}</strong><span class="text-scrim-on/70">click to apply</span>
+			</CanvasChip>
+		</div>
+	{/if}
 	{#if suggestedPanels}
 		<div class="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-scrim-on/10 bg-scrim/70 p-[3px] text-scrim-on backdrop-blur" data-slice-suggest>
 			<Button variant="overlay" size="xs" class="h-7" icon="editor-slice" onclick={() => void acceptSliceHint()}>Slice {suggestedPanels} panels</Button>
@@ -1672,7 +1890,7 @@
 				onsave={() => undefined}
 			/>
 			<div class="flex min-h-0 flex-1">
-				<ToolRail groups={railGroups} onselect={() => undefined} />
+				<ToolRail groups={railGroups} variant="icons" onselect={() => undefined} />
 				<ImageEmptyState busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
 			</div>
 		{/if}
@@ -1681,7 +1899,7 @@
 			{phone}
 			bind:compare
 			bind:stackOpen
-			canCompare={mode === 'preview' && !!pending}
+			canCompare={canCompareNow}
 			{editCount}
 			onundo={doUndo}
 			onredo={doRedo}
@@ -1720,7 +1938,7 @@
 						undoLabel={undoText}
 						redoLabel={redoText}
 						{compare}
-						canCompare={mode === 'preview' && !!pending}
+						canCompare={canCompareNow}
 						{canSave}
 						saved={!!saved}
 						{replace}
@@ -1735,6 +1953,8 @@
 						oncompare={(next) => (compare = next)}
 						onsave={onSave}
 						oncancelsave={cancelSave}
+						bar={activeTool ? barContent : undefined}
+						barActions={activeTool ? barActionsContent : undefined}
 					>
 						{#snippet replaceControl()}
 							{@render replaceMenu()}
@@ -1743,13 +1963,20 @@
 				{/if}
 			{/snippet}
 			{#snippet rail()}
-				<ToolRail groups={railGroups} active={activeTool} pending={pendingTools} variant={phone ? 'strip' : 'rail'} onselect={(id) => void selectTool(id)} />
+				<ToolRail groups={railGroups} active={activeTool} pending={pendingTools} variant={phone ? 'strip' : 'icons'} onselect={(id) => void selectTool(id)} />
 			{/snippet}
 			{#snippet canvas()}
 				{@render canvasArea()}
 			{/snippet}
+			{#snippet bar()}
+				{#if phoneBarred}
+					{@render phoneBar()}
+				{/if}
+			{/snippet}
 			{#snippet below()}
-				{#if activeTool === 'slice' && sliceParams.cells.length}
+				{#if activeTool === 'effects'}
+					<LookTray items={trayItems} original={{ selected: !lookParams }} {phone} thumb={trayThumb} onpick={pickLook} onpreview={(id) => (hoverLook = id)} />
+				{:else if activeTool === 'slice' && sliceParams.cells.length}
 					<SliceStrip
 						items={sliceStrip}
 						skipped={sliceSkipped}
@@ -1762,19 +1989,22 @@
 				{/if}
 			{/snippet}
 			{#snippet options()}
-				<OptionsPanel
-					title={optionsTitle}
-					icon={optionsIcon}
-					{applyLabel}
-					{canApply}
-					canReset={!busy && (!!pendingHere || mode === 'mask' || mode === 'paint')}
-					actions={activeTool !== 'effects'}
-					{phone}
-					onapply={() => void applyTool()}
-					onreset={resetTool}
-				>
-					{@render optionsBody()}
-				</OptionsPanel>
+				{#if !(phoneBarred && activeTool === 'effects' && !stillEffects.length)}
+					<OptionsPanel
+						title={optionsTitle}
+						icon={optionsIcon}
+						subtitle={phone ? null : 'Properties'}
+						{applyLabel}
+						{canApply}
+						{canReset}
+						actions={phone && !phoneBarred}
+						{phone}
+						onapply={() => void applyTool()}
+						onreset={resetTool}
+					>
+						{@render optionsBody()}
+					</OptionsPanel>
+				{/if}
 			{/snippet}
 		</EditorFrame>
 	{/if}

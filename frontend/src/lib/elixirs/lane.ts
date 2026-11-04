@@ -508,3 +508,64 @@ export function choiceChips(choice: Choice | null | undefined, kindOf: (id: stri
 export function laneOfChild(chips: Chips | null | undefined, childId: string): Chip | null {
 	return chips?.lanes.find((lane) => lane.target === childId) ?? null;
 }
+
+export interface StartNeeds {
+	port: string | null;
+	type: string;
+	writer: boolean;
+	files: boolean;
+}
+
+export type StartChoice = { kind: 'preset'; presetId: string; mode: string } | { kind: 'files' } | { kind: 'writer' };
+
+const FEEDABLE = ['image', 'video'];
+
+export function startNeeds(definition: Def, rootId: string, presetIndex: PresetIndex): StartNeeds | null {
+	const node = definition.nodes.find((item) => item.id === rootId);
+	if (!node || node.kind === 'media') return null;
+	if (laneParent(definition, rootId) !== null || fileEdge(definition, rootId) || promptEdge(definition, rootId)) return null;
+	if (node.kind === 'llm') return { port: null, type: 'image', writer: false, files: true };
+	const inputs = nodePorts(node, presetIndex).inputs;
+	const open = Object.entries(inputs).find(
+		([port, spec]) => FEEDABLE.includes(spec.media_type ?? '') && !definition.edges.some((edge) => edge.target === rootId && edge.target_handle === port)
+	);
+	const writer = 'prompt' in inputs && !promptEdge(definition, rootId);
+	if (!open && !writer) return null;
+	return { port: open?.[0] ?? null, type: open?.[1].media_type ?? 'image', writer, files: !!open };
+}
+
+export function startPresetChoices(presets: PresetEntry[] | null | undefined, needs: StartNeeds, rootKind: string): PresetEntry[] {
+	if (!needs.files) return [];
+	if (rootKind !== 'llm') return presetChoices(presets, { makes: needs.type });
+	const seen = new Set<string>();
+	return FEEDABLE.flatMap((type) => presetChoices(presets, { makes: type })).filter((preset) => {
+		const key = `${preset.preset_id}::${preset.mode}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+}
+
+export function insertStartBefore(definition: Def, rootId: string, choice: StartChoice, presetIndex: PresetIndex): { definition: Def; id: string | null } {
+	const needs = startNeeds(definition, rootId, presetIndex);
+	const root = definition.nodes.find((item) => item.id === rootId);
+	if (!needs || !root) return { definition, id: null };
+	const id = newId('n', definition.nodes.map((node) => node.id));
+	if (choice.kind === 'writer') {
+		if (!needs.writer) return { definition, id: null };
+		const added = insertNodeAt(definition, blankNode('llm', id), rootId);
+		const result = connect(added, { source: id, sourceHandle: 'text', target: rootId, targetHandle: 'prompt' }, presetIndex);
+		return result.verdict.ok ? { definition: result.definition, id } : { definition, id: null };
+	}
+	if (!needs.files) return { definition, id: null };
+	const node: ElixirNode =
+		choice.kind === 'files' ? { ...blankNode('media', id), media_type: needs.type } : { ...blankNode('preset', id), preset_id: choice.presetId, mode: choice.mode };
+	const added = insertNodeAt(definition, node, rootId);
+	const outputs = Object.entries(nodePorts(node, presetIndex).outputs);
+	const exact = outputs.find(([, spec]) => spec.media_type === needs.type);
+	const any = root.kind === 'llm' ? outputs.find(([, spec]) => FEEDABLE.includes(spec.media_type ?? '')) : undefined;
+	const handle = (exact ?? any)?.[0];
+	if (!handle) return { definition, id: null };
+	const linked = linkFiles(added, id, handle, rootId, presetIndex, needs.port);
+	return linked.edges.length > added.edges.length ? { definition: linked, id } : { definition, id: null };
+}

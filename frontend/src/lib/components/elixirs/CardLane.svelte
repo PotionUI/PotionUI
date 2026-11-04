@@ -16,11 +16,13 @@
 		flashId?: string | null;
 		labelOf: (id: string) => string;
 		insertable: (id: string) => boolean;
+		startable?: (id: string) => boolean;
 		laneActive: (parent: string, child: string) => boolean;
 		onwidth?: (index: number, width: number) => void;
 		onwidthdone?: () => void;
 		onnext: (anchor: HTMLElement, id: string) => void;
 		oninsert: (anchor: HTMLElement, id: string) => void;
+		onbefore?: (anchor: HTMLElement, id: string) => void;
 		onstart: (anchor: HTMLElement) => void;
 	}
 
@@ -34,11 +36,13 @@
 		flashId = null,
 		labelOf,
 		insertable,
+		startable = () => false,
 		laneActive,
 		onwidth,
 		onwidthdone,
 		onnext,
 		oninsert,
+		onbefore,
 		onstart
 	}: Props = $props();
 
@@ -117,7 +121,7 @@
 	{@const kids = tree.children.get(id) ?? []}
 	{@const leaf = kids.length === 0}
 	<div class="node" style="--cw: {width(tree.depth.get(id) ?? 0)}px" data-lane-node={id}>
-		<div class="cw">
+		<div class="cw" class:open-end={leaf && (readOnly || phone)}>
 			<NodeCard data={nodeData(node)} {phone} flash={flashId === id} />
 			<i class="stub" aria-hidden="true"></i>
 		</div>
@@ -184,7 +188,7 @@
 							<span class="col-name font-mono" aria-hidden="true">{index === 0 ? 'Start' : 'Then'}</span>
 							<span class="col-rule" aria-hidden="true"></span>
 							<span class="resize" class:active={dragging?.index === index}>
-								<Tooltip text="Drag to resize the column">
+								<Tooltip text="Drag to resize column">
 									<span
 										class="resize-handle"
 										role="separator"
@@ -218,7 +222,18 @@
 			{:else}
 				<div class="roots">
 					{#each tree.roots as id (id)}
-						{@render branch(id)}
+						<div class="root">
+							{#if !phone && !readOnly && startable(id)}
+								<span class="before">
+									<Tooltip text={`Add a step before ${labelOf(id)}`}>
+										<button type="button" class="ins-button" aria-label="Add a step before {labelOf(id)}" aria-haspopup="menu" onclick={(event) => onbefore?.(event.currentTarget, id)}>
+											<Icon name="plus" className="h-3.5 w-3.5" />
+										</button>
+									</Tooltip>
+								</span>
+							{/if}
+							{@render branch(id)}
+						</div>
 					{/each}
 				</div>
 			{/if}
@@ -328,21 +343,43 @@
 		transform: translateY(-50%);
 	}
 	.resize-handle {
+		position: relative;
 		display: block;
 		width: 16px;
 		height: 28px;
 		cursor: col-resize;
 		touch-action: none;
 		border-radius: 4px;
-		background: linear-gradient(rgb(var(--signal)), rgb(var(--signal))) center / 2px 100% no-repeat;
-		background-size: 2px 0;
-		transition: background-size 0.12s;
 	}
-	.resize-handle:hover,
+	.resize-handle::before {
+		content: '';
+		position: absolute;
+		top: 4px;
+		bottom: 4px;
+		left: 7px;
+		width: 2px;
+		border-radius: 1px;
+		background: rgb(var(--line-strong));
+		transition: background-color 0.12s, top 0.12s, bottom 0.12s;
+	}
+	.resize-handle:hover {
+		background: rgb(var(--surface-2));
+	}
+	.resize-handle:hover::before {
+		top: 0;
+		bottom: 0;
+		background: rgb(var(--line-hover));
+	}
 	:global(:where(html:not([data-input='pointer']))) .resize-handle:focus-visible,
 	.resize.active .resize-handle {
-		background-size: 2px 100%;
 		outline: none;
+		background: rgb(var(--surface-2));
+	}
+	:global(:where(html:not([data-input='pointer']))) .resize-handle:focus-visible::before,
+	.resize.active .resize-handle::before {
+		top: 0;
+		bottom: 0;
+		background: rgb(var(--signal));
 	}
 	:global(:where(html:not([data-input='pointer']))) .resize-handle:focus-visible {
 		box-shadow: 0 0 0 2px rgb(var(--signal) / 0.35);
@@ -367,6 +404,24 @@
 		position: relative;
 		width: var(--cw);
 		flex: none;
+	}
+	.open-end > .stub {
+		display: none;
+	}
+	.root {
+		position: relative;
+	}
+	.before {
+		position: absolute;
+		top: calc(var(--ty) - 12px);
+		left: -30px;
+		z-index: 2;
+		opacity: 0.75;
+		transition: opacity 0.1s;
+	}
+	.root:hover > .before,
+	.before:focus-within {
+		opacity: 1;
 	}
 	.stub {
 		position: absolute;
@@ -405,9 +460,10 @@
 		position: absolute;
 		top: -3px;
 		right: 0;
-		border: 3px solid transparent;
-		border-left: 5px solid rgb(var(--line-hover));
-		border-right: 0;
+		border-style: solid;
+		border-color: transparent;
+		border-width: 3px 0 4px 5px;
+		border-left-color: rgb(var(--line-hover));
 	}
 	.c-up {
 		top: calc(var(--kg) * -1);

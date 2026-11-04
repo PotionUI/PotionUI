@@ -52,6 +52,7 @@
 		clearFileSource,
 		fileEdge,
 		insertNeeds,
+		insertStartBefore,
 		insertStepBefore,
 		laneOfChild,
 		laneTree,
@@ -63,8 +64,11 @@
 		removeStep,
 		siblingsOf,
 		slotMenu,
+		startNeeds,
+		startPresetChoices,
 		type Pending,
 		type Slot,
+		type StartChoice,
 		type SlotChoice,
 		type Unavailable
 	} from '$lib/elixirs/lane';
@@ -664,6 +668,38 @@
 		return !!choice?.choosing && laneOfChild(choice, childId)?.edgeId === choice.active;
 	}
 
+	function startable(rootId: string) {
+		const needs = definition ? startNeeds(definition, rootId, presetIndex) : null;
+		return !!needs;
+	}
+
+	function openBeforeMenu(anchor: HTMLElement | null, rootId: string) {
+		const needs = startNeeds(definition!, rootId, presetIndex);
+		const root = definition!.nodes.find((item) => item.id === rootId);
+		if (!needs || !root) return;
+		const options = startPresetChoices(presets, needs, root.kind);
+		const groups: LaneMenuGroup[] = [];
+		if (needs.files) {
+			const items: LaneMenuItem[] = options.map((preset) => ({ icon: 'flask', name: `${preset.preset_name} · ${preset.mode_label}`, run: () => addBefore(rootId, { kind: 'preset', presetId: preset.preset_id, mode: preset.mode }) }));
+			items.unshift({ icon: 'image', name: 'Files', desc: 'Pictures or clips you pick', run: () => addBefore(rootId, { kind: 'files' }) });
+			groups.push({ label: `Makes ${mediaNoun(needs.type)} for ${labelOf(rootId)}`, items });
+		}
+		if (needs.writer) groups.push({ label: 'Writes the prompt', items: [{ ai: true, name: 'Prompt writer', desc: `Writes the prompt for ${labelOf(rootId)}`, run: () => addBefore(rootId, { kind: 'writer' }) }] });
+		openMenu(anchor, `Add a step before ${labelOf(rootId)}`, groups);
+	}
+
+	function addBefore(rootId: string, choice: StartChoice) {
+		const result = insertStartBefore(definition!, rootId, choice, presetIndex);
+		if (!result.id) {
+			toast('error', 'That step cannot feed the start.');
+			return;
+		}
+		change(result.definition, 0);
+		announce(`Step added before ${labelOf(rootId)}`);
+		openSettings(result.id);
+		flash(result.id);
+	}
+
 	function insertable(childId: string) {
 		return !!insertNeeds(definition!, childId, presetIndex);
 	}
@@ -810,6 +846,7 @@
 		if (node.kind !== 'media') {
 			items.push({ icon: 'refresh', name: 'Run this step again', desc: runAgainBlocked ?? 'Steps after it will need a rerun', disabled: !!runAgainBlocked, run: () => runNodeAgain(nodeId) });
 		}
+		if (startable(nodeId)) items.push({ icon: 'plus', name: 'Add a step before', desc: `Moves ${labelOf(nodeId)} one column right`, run: () => openBeforeMenu(anchor, nodeId) });
 		const needs = insertNeeds(definition!, nodeId, presetIndex);
 		if (needs) items.push({ icon: 'plus', name: 'Insert a step before', desc: `Between ${labelOf(needs.parent)} and ${labelOf(nodeId)}`, run: () => openInsertMenu(anchor, nodeId) });
 		items.push({ icon: 'chevron-up', name: 'Move up', desc: 'Among steps that take the same input', disabled: at <= 0, run: () => move(nodeId, -1) });
@@ -1747,6 +1784,8 @@
 				{flashId}
 				{labelOf}
 				{insertable}
+				{startable}
+				onbefore={openBeforeMenu}
 				{laneActive}
 				onwidth={setWidth}
 				onwidthdone={saveWidths}

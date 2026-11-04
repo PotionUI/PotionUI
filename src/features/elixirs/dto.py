@@ -13,6 +13,7 @@ from pydantic import (
 from src.features.elixirs.identity import media_ref
 from src.features.elixirs.sessions import OVERRIDE_KEYS
 from src.features.elixirs.vocabulary import MediaType, PortName
+from src.features.generation.prompt_batch import MAX_BATCH_IMAGES
 from src.features.tab_drafts.validation import variable_errors
 
 MAX_STORED_NODES = 256
@@ -22,6 +23,7 @@ MAX_BREW_INVOCATIONS = 10000
 MAX_INSTRUCTION_CHARS = 4000
 MAX_WRITTEN_CHARS = 8000
 MAX_REASONING_CHARS = 20000
+MAX_PROMPTS_PER_INPUT = MAX_BATCH_IMAGES
 
 ElementId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
 Title = Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)]
@@ -154,6 +156,7 @@ class LlmNode(BaseModel):
     variables: Dict[str, Any] = Field(default_factory=dict)
     target_node_id: Optional[ElementId] = None
     llm_id: Optional[ElementId] = None
+    prompts_per_input: int = Field(default=1, ge=1, le=MAX_PROMPTS_PER_INPUT)
     pinned: Dict[PinKey, WrittenText] = Field(default_factory=dict)
 
     @field_validator("pinned")

@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from src.features.elixirs.catalog import Catalog
 from src.features.elixirs.contracts import Contracts, lint_contract
 from src.features.elixirs.definitions import NodeRejected, copy_followed, follow_session, import_session, own_settings
-from src.features.elixirs.dto import ElixirDefinition
+from src.features.elixirs.dto import MAX_PROMPTS_PER_INPUT, ElixirDefinition
 from src.features.elixirs.follow import COPY, FOLLOW, NEW, SESSION_MODES, session_mode_of
 from src.features.elixirs.instruction import _placeholder
 from src.features.elixirs.graph import _Graph
@@ -624,15 +624,21 @@ class Planner:
             old = writer.get("target_node_id")
             changed.append(("writes_for", old, target_id))
             writer["target_node_id"] = target_id
+        if "prompts_per_input" in op:
+            count = op.get("prompts_per_input")
+            if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_PROMPTS_PER_INPUT:
+                raise EditRefused(f"'prompts_per_input' must be a whole number from 1 to {MAX_PROMPTS_PER_INPUT}.")
+            changed.append(("prompts_per_input", writer.get("prompts_per_input") or 1, count))
+            writer["prompts_per_input"] = count
         return changed
 
     def set_writer(self, op: Mapping[str, Any]) -> None:
         writer = self.node(op.get("step"))
         if writer.get("kind") != "llm":
-            raise EditRefused(f"{self.label(writer)} is not a prompt writer. set_writer changes a writer's instruction and writes_for.")
+            raise EditRefused(f"{self.label(writer)} is not a prompt writer. set_writer changes a writer's instruction, writes_for and prompts_per_input.")
         changed = self.apply_writer_fields(writer, op)
         if not changed:
-            raise EditRefused("set_writer needs 'instruction', 'variables' or 'writes_for'.")
+            raise EditRefused("set_writer needs 'instruction', 'variables', 'writes_for' or 'prompts_per_input'.")
         for name, old, new in changed:
             self.row(writer["id"], name, old, new)
         self.changed = True

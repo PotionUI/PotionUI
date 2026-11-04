@@ -81,6 +81,16 @@ keeps the instruction it was written from and its seed (`rolled_instruction`,
 again rolls again; retrying a failed write reuses its roll. An instruction without template
 syntax or chips is sent exactly as typed.
 
+**Prompts per input** (`prompts_per_input`, 1 to 20, default 1) sets how many prompts the writer
+writes for each input. Every prompt is its own write: a separate language model call through the
+same path, with its own roll and seed, its own retry and its own pin. The node lists them per
+input as "Prompt k of N"; each written entry carries `for_key` (the input it was written for),
+`slot_key`, `prompt_number` and `prompt_count`, and a pin is kept under its `slot_key` (the
+input key for prompt 1, `<input key>#k` for prompt k), so one prompt can be pinned without the
+others. With 1 the entries look as they always did. The cap is the batch prompt limit of 20
+images ([Prompts](prompts.md#batch-prompts)), so the prompts of one input always fit one batch
+at quantity 1; the brew's `elixirs_max_invocations` still bounds the total.
+
 ## Limits
 
 Admins set how large an elixir and a brew may grow through these system settings:
@@ -99,6 +109,19 @@ what an elixir can store is capped.
 
 ## Brewing
 
+When a preset step gets several written prompts for the same input, either straight from a
+writer or paired with the file they were written for, and the preset supports batch prompts
+(`supports_prompt_batch`: every enabled backend of its engine can take them) and its form has
+no Video or Music Director document, the brew sends them as one generation with
+`batch_prompts: true` and `prompts` set to those prompts, the step's quantity per prompt.
+Prompts written for different inputs are never merged, since a batch shares its input files.
+When `prompts x quantity` would pass the 20-image cap the prompts are split over several
+batches. Otherwise each prompt is its own generation, as before. A batch is stored by
+Generate as one history entry per prompt; the brew waits for that split and records each file
+under its own entry with `prompt_index` (its place in the batch) and `prompt_key` (the written
+prompt it came from), so the step's outputs stay grouped per prompt and picks and Continue
+work per file.
+
 Brews survive a restart. Starting the app resumes every brew that was still running: work
 that was claimed but not sent is sent again, and a generation or written prompt cut off by
 the restart is marked interrupted so it can be retried. While a brew still needs files from
@@ -113,7 +136,7 @@ the user to press Brew, or Continue after a choice.
 
 | Tool | Approval | What it does |
 | --- | --- | --- |
-| `get_elixir` | no | Steps left to right (id, kind, preset and mode, session mode and session name, a writer's instruction and writes-for), connections, problems, the last brew and the steps waiting for a choice. `include_presets` lists the preset modes an elixir can use. |
+| `get_elixir` | no | Steps left to right (id, kind, preset and mode, session mode and session name, a writer's instruction, writes-for and prompts per input), connections, problems, the last brew and the steps waiting for a choice. `include_presets` lists the preset modes an elixir can use. |
 | `get_step_settings` | no | One step's effective prompt, negative prompt and form fields, bounded. A following step is read from its session. |
 | `get_choice_outputs` | no | The outputs of a step waiting for a choice, numbered, with their ids. When the chat's model has vision it also gets one image with the outputs numbered; without vision it gets the details only and asks the user. |
 | `edit_elixir` | yes | One batch of operations against the revision the assistant read. |
@@ -122,7 +145,8 @@ the user to press Brew, or Continue after a choice.
 `edit_elixir` operations: `add_step` (after a step, or a new lane), `add_start` (before a
 lane's first step), `insert_between`, `add_writer`, `remove` (files are rewired past the
 removed step), `connect`, `set_settings`, `set_writer` (instruction text, the writer's own
-`variables` merged by name with `null` removing one, and writes-for; phrasebook chips stay the
+`variables` merged by name with `null` removing one, writes-for and `prompts_per_input`
+from 1 to 20; phrasebook chips stay the
 user's: sending `instruction_chips` is refused, and a new instruction drops chips it no longer
 contains) and `set_session` (follow, copy or new). `set_settings` checks field names
 against the step's preset form and refuses fields filled by a connection. A following step's

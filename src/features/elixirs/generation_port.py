@@ -88,6 +88,34 @@ class GenerationPort:
     def files(self, user, generation_id: str) -> List[Dict[str, Any]]:
         return [entry for entry in self._visible_files(user, generation_id) if entry.get("is_final") and not entry.get("is_derived")]
 
+    def batch_files(self, user, generation_id: str, prompts: List[str], per_prompt: int) -> List[Dict[str, Any]]:
+        origin = self.files(user, generation_id)
+        members = [
+            member_id
+            for member_id in self.generations.batch_member_ids(generation_id, getattr(user, "id", None))
+            if member_id != generation_id
+        ]
+        if not members:
+            last = max(0, len(prompts) - 1)
+            return [
+                {**entry, "generation_id": generation_id, "prompt_index": min(position // max(1, per_prompt), last)}
+                for position, entry in enumerate(origin)
+            ]
+        files = [{**entry, "generation_id": generation_id, "prompt_index": 0} for entry in origin]
+        following = 1
+        for member_id in members:
+            member = self.generations.get_by_id(member_id, user_id=getattr(user, "id", None))
+            state = getattr(member, "prompt_state", None)
+            authored = state.get("prompt") if isinstance(state, dict) else None
+            index = next((position for position in range(following, len(prompts)) if prompts[position] == authored), following)
+            following = index + 1
+            try:
+                entries = self.files(user, member_id)
+            except GenerationNotFoundException:
+                continue
+            files.extend({**entry, "generation_id": member_id, "prompt_index": index} for entry in entries)
+        return files
+
     async def cancel(self, user, generation_id: str) -> bool:
         self._state(user, generation_id)
         cancelled = await self.orchestrator.cancel_generation(generation_id)

@@ -1817,6 +1817,7 @@ def build_container() -> AppContainer:
         session_repository=session_repository,
         session_version_repository=session_version_repository,
         phrasebook_values=phrasebook_value_repo,
+        prompt_batch=backend_registry.engine_supports_prompt_batch,
     )
     elixirs.runtime.subscribe(plugin_registry.hook_chain)
     elixir_assistant = ElixirAssistant(

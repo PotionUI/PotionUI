@@ -223,16 +223,16 @@ class EditElixirTool(_ElixirTool):
     @property
     def description(self) -> str:
         return (
-            "Change the open elixir in one batch; the user approves before anything is saved, and a rejected "
-            "operation cancels the whole batch. Pass the revision from get_elixir. Operations: "
+            "Change the open elixir in one batch; the user approves first and one rejected "
+            "operation cancels the batch. Pass the revision from get_elixir. Operations: "
             "add_step {after: step id or null for a new lane, preset_id, mode, title?, with_writer?}; "
             "add_start {before: a lane's first step, preset_id+mode, or kind 'writer'}; "
             "insert_between {before: the later step, preset_id, mode}; "
             "add_writer {for_step, instruction?}; remove {step}; "
             "connect {from, to, port?, from_port?} (a writer's text goes to 'prompt' or 'negative_prompt'); "
-            "set_settings {step, fields: {name: value}, prompt?, negative_prompt?} (a following step saves into "
-            "its session, a copy or new step keeps the change on the step); "
-            "set_writer {step, instruction?, variables?, writes_for?} (${name} uses a writer variable, {a|b} is an "
+            "set_settings {step, fields: {name: value}, prompt?, negative_prompt?} (saved into a followed "
+            "session, else on the step); "
+            "set_writer {step, instruction?, variables?, writes_for?, prompts_per_input?: 1-20} (${name} uses a writer variable, {a|b} is an "
             "inline choice; variables merge by name, null removes: {\"act\": {\"type\": \"choice\", \"options\": "
             "[\"run\", \"jump\"], \"mode\": \"shuffle\"}}; never send phrasebook chips); "
             "set_session {step, mode: follow|copy|new, session?: saved session name or id}. "
@@ -274,6 +274,7 @@ class EditElixirTool(_ElixirTool):
                             "instruction": {"type": "string"},
                             "variables": {"type": "object"},
                             "writes_for": {"type": ["string", "null"]},
+                            "prompts_per_input": {"type": "integer"},
                             "session": {"type": "string"},
                         },
                         "required": ["op"],

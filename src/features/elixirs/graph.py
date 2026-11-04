@@ -11,6 +11,7 @@ from typing import (
     Tuple,
 )
 
+from src.features.elixirs.brew import prompts_per_input
 from src.features.elixirs.catalog import Catalog
 from src.features.elixirs.contracts import Contracts, ModeContract, lint_contract
 from src.features.elixirs.follow import NEW, session_mode_of
@@ -618,6 +619,7 @@ def _estimate(
         if node.get("kind") == "llm":
             sources = incoming.get(node_id, [])
             invocations = max((nodes[edge["source"]]["outputs"] for edge in sources), default=0) if sources else 1
+            invocations *= prompts_per_input(node)
             nodes[node_id] = {"invocations": invocations, "outputs": invocations}
             continue
         contract = graph.contract(node)
@@ -626,6 +628,8 @@ def _estimate(
             continue
         sources = driving_edges(graph.by_id, incoming.get(node_id, []))
         invocations = max((nodes[edge["source"]]["outputs"] for edge in sources), default=0) if sources else 1
+        sides = [edge for edge in incoming.get(node_id, []) if edge not in sources and edge["target_handle"] == "prompt"]
+        invocations *= max((prompts_per_input(graph.by_id[edge["source"]]) for edge in sides), default=1)
         per_invocation = _quantity(graph.effective(node).get("formData") or {}, contract.quantity_field)
         nodes[node_id] = {"invocations": invocations, "outputs": invocations * per_invocation}
     severity = "error" if run_mode == "automatic" else "warning"

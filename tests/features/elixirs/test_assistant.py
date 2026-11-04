@@ -270,6 +270,22 @@ def test_writer_variables_merge_by_name_and_take_the_tool_shape(world):
     assert sorted(node(stored(record).definition, writer)["variables"]) == ["action"]
 
 
+def test_the_assistant_sets_how_many_prompts_a_writer_writes_per_input(world):
+    record = create(shoot_and_sharpen())
+    edit(world, record, {"op": "add_writer", "for_step": "sharpen"})
+    record = stored(record)
+    writer = next(item for item in record.definition["nodes"] if item["kind"] == "llm")["id"]
+
+    edit(world, record, {"op": "set_writer", "step": writer, "prompts_per_input": 4})
+
+    assert node(stored(record).definition, writer)["prompts_per_input"] == 4
+    assert world.assistant.step_settings("alice", record.id, writer)["prompts_per_input"] == 4
+    summary = world.assistant.summary("alice", record.id)
+    assert next(step for step in summary["steps"] if step["id"] == writer)["prompts_per_input"] == 4
+    for bad in (0, 21, "3", True):
+        assert "from 1 to 20" in refused(world, stored(record), {"op": "set_writer", "step": writer, "prompts_per_input": bad})
+
+
 def test_a_second_writer_for_the_same_step_is_refused(world):
     record = create(shoot_and_sharpen())
     edit(world, record, {"op": "add_writer", "for_step": "sharpen"})

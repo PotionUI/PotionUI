@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterable, List, Mapping
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 
 from src.features.presets.templates import default_form_name
 
@@ -35,11 +35,12 @@ def _mode_forms(mode: Any) -> Dict[str, Dict[str, Dict[str, Any]]]:
     return forms
 
 
-def catalog_entry(template: Any) -> Dict[str, Any]:
+def catalog_entry(template: Any, prompt_batch: bool = False) -> Dict[str, Any]:
     director = (template.vars or {}).get("video_director") or {}
     preset_modes = list(director.get("preset_modes") or [])
     return {
         "name": template.name,
+        "prompt_batch": prompt_batch,
         "director_modes": preset_modes,
         "director_shapes": {preset_mode: director_shapes(director, preset_mode) for preset_mode in preset_modes},
         "modes": {
@@ -49,10 +50,15 @@ def catalog_entry(template: Any) -> Dict[str, Any]:
     }
 
 
-def installed_catalog(presets: Any, preset_ids: Iterable[str]) -> Catalog:
+def installed_catalog(
+    presets: Any,
+    preset_ids: Iterable[str],
+    prompt_batch: Optional[Callable[[Optional[str]], bool]] = None,
+) -> Catalog:
     catalog: Catalog = {}
     for preset_id in sorted({preset_id for preset_id in preset_ids if preset_id}):
         template = presets.find_preset_by_id(preset_id)
         if template is not None:
-            catalog[preset_id] = catalog_entry(template)
+            batchable = bool(prompt_batch(getattr(template, "engine", None))) if prompt_batch else False
+            catalog[preset_id] = catalog_entry(template, batchable)
     return catalog

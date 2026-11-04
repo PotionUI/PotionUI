@@ -187,6 +187,10 @@ class FakePort:
     def files(self, user, generation_id):
         return self.generations[generation_id]["files"]
 
+    def batch_files(self, user, generation_id, prompts, per_prompt):
+        record = self.generations[generation_id]
+        return record.get("batch_files", record["files"])
+
     async def cancel(self, user, generation_id):
         self.cancels.append(generation_id)
         if self.generations[generation_id]["status"] in ("pending", "running"):

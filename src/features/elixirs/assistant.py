@@ -218,6 +218,7 @@ class ElixirAssistant:
             if node.get("variables"):
                 step["variables"] = sorted(node["variables"])
             step["writes_for"] = node.get("target_node_id")
+            step["prompts_per_input"] = node.get("prompts_per_input") or 1
             step["prompt_goes_to"] = [edge["target"] for edge in edges if edge["source"] == node["id"]]
             step["styled_for"] = writer_target(nodes, edges, node)
             return step
@@ -305,6 +306,7 @@ class ElixirAssistant:
                 ],
                 "variables": node.get("variables") or {},
                 "writes_for": node.get("target_node_id"),
+                "prompts_per_input": node.get("prompts_per_input") or 1,
             }
         if node.get("kind") != "preset":
             return {"step": node["id"], "kind": "files", "label": graph.label(node), "media_type": node.get("media_type"), "file_count": len(node.get("assets") or [])}

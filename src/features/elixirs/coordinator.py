@@ -9,20 +9,28 @@ from src.features.elixirs.brew import (
     SEED_LIMIT,
     TEXT_BINDINGS,
     BindingFailed,
+    batch_size,
     bind_input,
     bind_text,
+    bind_texts,
     director_problem,
     latest_attempts,
     manifest_for,
     media_manifest,
+    media_rows,
     node_status,
     outputs_from_files,
     pick_text,
     prepared_template,
+    prompts_per_input,
     reach,
     resolve_seed,
     rollup_status,
+    slot_parts,
     text_outputs,
+    text_rows,
+    texts_for_input,
+    writer_rows,
 )
 from src.features.elixirs.catalog import Catalog
 from src.features.elixirs.contracts import Contracts
@@ -58,11 +66,13 @@ from src.features.elixirs.vocabulary import (
     node_label,
 )
 from src.features.generation.exceptions import GenerationNotFoundException
+from src.features.generation.prompt_batch import per_prompt_quantity
 
 logger = logging.getLogger(__name__)
 
 TERMINAL_RUN_STATUSES = ("completed", "partial", "cancelled", "failed", "interrupted")
 MAX_WRITER_ERROR = 300
+MAX_FINISHED_REMEMBERED = 1024
 
 
 def _reasoning(result: Optional[Mapping[str, Any]]) -> Optional[str]:
@@ -133,6 +143,13 @@ def _target_of(nodes: Iterable[Mapping[str, Any]], edges: Iterable[Mapping[str, 
     return {"node_id": target_id, "preset_id": target.get("preset_id"), "mode": target.get("mode")}
 
 
+def _batchable(node: Mapping[str, Any], template: Mapping[str, Any], catalog: Optional[Catalog]) -> bool:
+    form_data = template.get("form_data") or {}
+    if isinstance(form_data.get("video_director"), Mapping) or isinstance(form_data.get("music_director"), Mapping):
+        return False
+    return bool(((catalog or {}).get(node.get("preset_id")) or {}).get("prompt_batch"))
+
+
 def _frozen_binding(node: Mapping[str, Any], target_input: Mapping[str, Any], catalog: Optional[Catalog]) -> Dict[str, Any]:
     binding = dict(target_input["binding"])
     if binding.get("kind") == "form_field":
@@ -161,6 +178,7 @@ class Coordinator:
         self._stopping: set = set()
         self._dirty: set = set()
         self._sweep = False
+        self._finished: Dict[str, None] = {}
 
     def start_graph_run(
         self,
@@ -244,7 +262,8 @@ class Coordinator:
                 roots.append(node["id"])
 
         limits = self.limits_provider()
-        if len(roots) > limits.max_invocations:
+        root_rows = {node_id: writer_rows(by_id[node_id], [(None, ROOT_INPUT, None, 0)]) for node_id in roots}
+        if sum(len(rows) for rows in root_rows.values()) > limits.max_invocations:
             raise BrewRefused("too_many_generations", f"One brew can start at most {limits.max_invocations} generations.")
         with self.store.transaction() as cursor:
             existing = self.store.find_run_by_key(cursor, user.id, idempotency_key)
@@ -264,6 +283,9 @@ class Coordinator:
                     "descendants": reach(edges),
                     "targets": {node["id"]: _target_of(nodes, edges, node) for node in nodes if node.get("kind") == "llm"},
                     "sessions": dict(sessions or {}),
+                    "prompt_batch": {
+                        node_id: _batchable(by_id[node_id], template, catalog) for node_id, template in frozen_templates.items()
+                    },
                 },
                 "templates": frozen_templates,
                 "pinned_inputs": pinned,
@@ -271,18 +293,19 @@ class Coordinator:
                 "checkpoints": {},
                 "idempotency_key": idempotency_key,
             })
-            for node_id in roots:
-                self.store.insert_invocation(cursor, {
-                    "run_id": run_id,
-                    "user_id": user.id,
-                    "node_id": node_id,
-                    "edge_id": None,
-                    "ordinal": 0,
-                    "input_key": ROOT_INPUT,
-                    "attempt": 1,
-                    "idempotency_key": invocation_key(run_id, node_id, None, ROOT_INPUT, 1),
-                    "status": "pending",
-                })
+            for node_id, rows in root_rows.items():
+                for _, input_key, _, ordinal in rows:
+                    self.store.insert_invocation(cursor, {
+                        "run_id": run_id,
+                        "user_id": user.id,
+                        "node_id": node_id,
+                        "edge_id": None,
+                        "ordinal": ordinal,
+                        "input_key": input_key,
+                        "attempt": 1,
+                        "idempotency_key": invocation_key(run_id, node_id, None, input_key, 1),
+                        "status": "pending",
+                    })
         self._settle(run_id)
         self.wake()
         return self.store.get_run(run_id)
@@ -404,8 +427,19 @@ class Coordinator:
                         node_id=node_id,
                     )
                 side_texts[side["id"]] = texts
+            prompt_batch = {} if writer else {node_id: _batchable(node, templates[node_id], catalog)}
+            planned = {
+                "graph": {"nodes": [node], "edges": frozen_edges, "prompt_batch": prompt_batch},
+                "templates": templates,
+                "node_states": {},
+                "pinned_inputs": {"sides": side_texts},
+            }
+            if drive is None:
+                selection_rows = writer_rows(node, [(None, ROOT_INPUT, None, 0)])
+            else:
+                selection_rows = self._rows_for(planned, drive, selection)
             limits = self.limits_provider()
-            if len(selection) > limits.max_invocations:
+            if len(selection_rows) > limits.max_invocations:
                 raise BrewRefused("too_many_generations", f"One brew can start at most {limits.max_invocations} generations.", node_id=node_id)
             run_id = self.store.insert_run(cursor, {
                 "elixir_id": elixir["id"],
@@ -426,6 +460,7 @@ class Coordinator:
                     "descendants": descendants,
                     "targets": {node_id: target} if writer else {},
                     "sessions": dict(sessions or {}),
+                    "prompt_batch": prompt_batch,
                 },
                 "templates": templates,
                 "pinned_inputs": {"selection": selection, "source_run_id": source_run_id, "sides": side_texts},
@@ -433,10 +468,6 @@ class Coordinator:
                 "checkpoints": {},
                 "idempotency_key": idempotency_key,
             })
-            if drive is None:
-                selection_rows = [(None, ROOT_INPUT, None, 0)]
-            else:
-                selection_rows = [(drive["id"], asset_key(entry), entry, ordinal) for ordinal, entry in enumerate(selection)]
             for edge_id, input_key, entry, ordinal in selection_rows:
                 self.store.insert_invocation(cursor, {
                     "run_id": run_id,
@@ -605,11 +636,38 @@ class Coordinator:
         self._dirty.discard(run_id)
         return run
 
+    @staticmethod
+    def _prompt_side(run: Mapping[str, Any], node_id: str) -> Optional[Mapping[str, Any]]:
+        return next(
+            (
+                edge for edge in run["graph"]["edges"]
+                if edge["target"] == node_id and edge.get("role") == "side" and edge["binding"].get("kind") == "prompt"
+            ),
+            None,
+        )
+
+    def _rows_for(self, run: Mapping[str, Any], edge: Mapping[str, Any], entries: List[Mapping[str, Any]]) -> List[tuple]:
+        base = [(edge["id"], asset_key(entry), entry, ordinal) for ordinal, entry in enumerate(entries)]
+        target = self._node(run, edge["target"])
+        if target.get("kind") == "llm":
+            return writer_rows(target, base)
+        size = batch_size(run["templates"].get(edge["target"]) or {}, bool((run["graph"].get("prompt_batch") or {}).get(edge["target"])))
+        if edge["binding"].get("kind") == "prompt":
+            return [(edge["id"], key, entry, ordinal) for ordinal, (key, entry) in enumerate(text_rows(entries, size))]
+        side = self._prompt_side(run, edge["target"])
+        if side is None:
+            return base
+        texts = self._texts_of(run, side)
+        return [
+            (edge_id, slot, row, ordinal)
+            for edge_id, key, entry, ordinal in base
+            for slot, row in media_rows(key, entry, texts_for_input(texts, key), size)
+        ]
+
     def _expand(self, cursor, run: Mapping[str, Any], edge: Mapping[str, Any], checkpoint: Mapping[str, Any]) -> int:
         by_key = {asset_key(entry): entry for entry in checkpoint["eligible"]}
         created = 0
-        for ordinal, key in enumerate(checkpoint["confirmed"]):
-            entry = by_key[key]
+        for _, key, entry, ordinal in self._rows_for(run, edge, [by_key[key] for key in checkpoint["confirmed"]]):
             inserted = self.store.insert_invocation(cursor, {
                 "run_id": run["id"],
                 "user_id": run["user_id"],
@@ -656,7 +714,10 @@ class Coordinator:
             if len(canonical) > limits.max_outputs_per_connection:
                 raise BrewRefused("too_many_files", f"One connection can carry at most {limits.max_outputs_per_connection} files.")
             existing = len(self.store.run_invocations(cursor, run_id))
-            if existing + len(canonical) > limits.max_invocations:
+            edge = next((item for item in run["graph"]["edges"] if item["id"] == edge_id), None)
+            by_key = {asset_key(entry): entry for entry in checkpoint["eligible"]}
+            planned = len(self._rows_for(run, edge, [by_key[key] for key in canonical])) if edge else len(canonical)
+            if existing + planned > limits.max_invocations:
                 raise BrewRefused("too_many_generations", f"One brew can start at most {limits.max_invocations} generations.")
             for member in [checkpoint, *self._open_partners(run, checkpoint)]:
                 member.update(
@@ -854,13 +915,27 @@ class Coordinator:
         status = state.get("status")
         live = ("submitted", "running")
         if status == "completed":
+            request = item.get("request") or {}
+            batched = bool(request.get("batch_prompts"))
+            if batched and item["generation_id"] not in self._finished and item.get("submitted_boot") == self.boot_id:
+                return False
             try:
-                files = self.port.files(user, item["generation_id"])
+                if batched:
+                    files = self.port.batch_files(
+                        user,
+                        item["generation_id"],
+                        [pair.get("positive") or "" for pair in request.get("prompts") or []],
+                        per_prompt_quantity(request.get("form_data")),
+                    )
+                else:
+                    files = self.port.files(user, item["generation_id"])
             except GenerationNotFoundException:
                 files = []
+            outputs = outputs_from_files(item["generation_id"], files, (item.get("input_ref") or {}).get("batch") if batched else None)
+            self._finished.pop(item["generation_id"], None)
             return self.store.update_invocation(
                 item["id"],
-                {"status": "completed", "outputs": outputs_from_files(item["generation_id"], files), "finished_at": utc_now(), "error": None},
+                {"status": "completed", "outputs": outputs, "finished_at": utc_now(), "error": None},
                 expected_status=live,
             )
         if status == "failed":
@@ -1040,7 +1115,10 @@ class Coordinator:
                 item["id"],
                 {
                     "status": "completed",
-                    "outputs": text_outputs(uuid.uuid4().hex, request["pinned"], item["input_key"], pinned=True),
+                    "outputs": text_outputs(
+                        uuid.uuid4().hex, request["pinned"], request["input_key"], pinned=True,
+                        slot_key=request.get("slot_key"), prompt_count=request.get("prompt_count") or 1,
+                    ),
                     "submitted_at": now,
                     "finished_at": now,
                     "error": None,
@@ -1068,6 +1146,7 @@ class Coordinator:
                 fields = {"status": "completed", "outputs": text_outputs(
                     uuid.uuid4().hex, text, request["input_key"], reasoning=_reasoning(result),
                     instruction=request.get("rolled_instruction"), instruction_seed=request.get("instruction_seed"),
+                    slot_key=request.get("slot_key"), prompt_count=request.get("prompt_count") or 1,
                 ), "error": None}
             else:
                 fields = {"status": "failed", "error": "The language model returned no prompt."}
@@ -1104,12 +1183,14 @@ class Coordinator:
             "kind": "llm",
             "instruction": node.get("instruction") or "",
             "llm_id": node.get("llm_id"),
-            "input_key": item["input_key"],
+            "input_key": slot_parts(item["input_key"])[0],
             "preset_id": target.get("preset_id"),
             "mode": target.get("mode"),
             "form_data": template.get("form_data") or {},
             "media": [],
         }
+        if prompts_per_input(node) > 1:
+            request.update(slot_key=item["input_key"], prompt_count=prompts_per_input(node))
         pinned = (node.get("pinned") or {}).get(item["input_key"])
         if pinned:
             request["pinned"] = pinned
@@ -1146,10 +1227,13 @@ class Coordinator:
             request = self._writer_request(user, run, node, item)
             return request, request.get("instruction_seed")
         request = copy.deepcopy(run["templates"][item["node_id"]])
+        batch = (item.get("input_ref") or {}).get("batch")
         if item.get("edge_id"):
             edge = next(edge for edge in run["graph"]["edges"] if edge["id"] == item["edge_id"])
             kind = edge["binding"].get("kind")
-            if kind in TEXT_BINDINGS:
+            if kind in TEXT_BINDINGS and batch:
+                request = bind_texts(request, self._batch_texts(self._texts_of(run, edge), batch))
+            elif kind in TEXT_BINDINGS:
                 entry = item.get("input_ref") or {}
                 current = next((text for text in self._texts_of(run, edge) if text.get("text_id") == entry.get("text_id")), entry)
                 request = bind_text(request, kind, current.get("text") or "")
@@ -1163,7 +1247,10 @@ class Coordinator:
             if side["target"] != item["node_id"] or side.get("role") != "side":
                 continue
             texts = self._texts_of(run, side)
-            chosen = pick_text(texts, item["input_key"])
+            if batch and side["binding"]["kind"] == "prompt":
+                request = bind_texts(request, self._batch_texts(texts, batch))
+                continue
+            chosen = pick_text(texts, slot_parts(item["input_key"])[0])
             if chosen is None:
                 if not texts:
                     raise BindingFailed("No written prompt reached this node.")
@@ -1172,6 +1259,14 @@ class Coordinator:
         seed = resolve_seed(request, self.random_below)
         request["idempotency_key"] = item["idempotency_key"]
         return request, seed
+
+    @staticmethod
+    def _batch_texts(texts: List[Mapping[str, Any]], keys: List[str]) -> List[str]:
+        by_key = {asset_key(text): text for text in texts}
+        missing = [key for key in keys if key not in by_key]
+        if missing:
+            raise BindingFailed(f"{len(missing)} of the {len(keys)} written prompts for this generation are no longer available.")
+        return [by_key[key].get("text") or "" for key in keys]
 
     def attach(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -1187,6 +1282,9 @@ class Coordinator:
 
     def on_generation_finished(self, generation_id: Optional[str]) -> None:
         if generation_id:
+            self._finished[generation_id] = None
+            while len(self._finished) > MAX_FINISHED_REMEMBERED:
+                self._finished.pop(next(iter(self._finished)))
             self.wake()
 
     async def run_forever(self, poll_seconds: float = 15.0) -> None:

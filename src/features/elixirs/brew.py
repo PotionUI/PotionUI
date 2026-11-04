@@ -3,7 +3,10 @@ import logging
 import secrets
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
+from src.features.elixirs.dto import MAX_PROMPTS_PER_INPUT
+from src.features.elixirs.identity import asset_key
 from src.features.elixirs.records import ACTIVE_INVOCATION_STATUSES
+from src.features.generation.prompt_batch import MAX_BATCH_IMAGES, per_prompt_quantity
 from src.features.video_director.binding import DirectorBindingError
 
 logger = logging.getLogger(__name__)
@@ -71,25 +74,98 @@ def node_status(latest: List[Mapping[str, Any]]) -> str:
     return "done"
 
 
-def outputs_from_files(generation_id: str, files: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+def outputs_from_files(generation_id: str, files: Iterable[Mapping[str, Any]], prompts: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     outputs = []
     for item in files:
         file_id = str(item.get("id"))
-        outputs.append({
+        output = {
             "kind": "history",
-            "generation_id": generation_id,
+            "generation_id": item.get("generation_id") or generation_id,
             "file_id": file_id,
             "media_type": str(item.get("file_type") or "").lower() or None,
             "file_index": item.get("index"),
             "original_filename": str(item.get("file_path") or "").rsplit("/", 1)[-1] or None,
             "preview_url": f"/api/media/files/{file_id}?size=medium",
-        })
+        }
+        index = item.get("prompt_index")
+        if prompts and isinstance(index, int) and 0 <= index < len(prompts):
+            output["prompt_index"] = index
+            output["prompt_key"] = prompts[index]
+        outputs.append(output)
     return outputs
+
+
+def prompt_slot(key: str, index: int) -> str:
+    return key if index == 0 else f"{key}#{index + 1}"
+
+
+def slot_parts(key: str) -> Tuple[str, int]:
+    base, _, number = str(key).partition("#")
+    return base, int(number) if number.isdigit() else 1
+
+
+def prompts_per_input(node: Mapping[str, Any]) -> int:
+    if node.get("kind") != "llm":
+        return 1
+    try:
+        count = int(node.get("prompts_per_input") or 1)
+    except (TypeError, ValueError):
+        return 1
+    return min(max(count, 1), MAX_PROMPTS_PER_INPUT)
+
+
+def writer_rows(node: Mapping[str, Any], rows: Iterable[Tuple[Any, str, Any, int]]) -> List[Tuple[Any, str, Any, int]]:
+    count = prompts_per_input(node)
+    return [(edge_id, prompt_slot(key, index), entry, ordinal) for edge_id, key, entry, ordinal in rows for index in range(count)]
+
+
+def batch_size(template: Mapping[str, Any], batchable: bool) -> int:
+    if not batchable:
+        return 1
+    return max(1, MAX_BATCH_IMAGES // per_prompt_quantity(template.get("form_data")))
+
+
+def prompt_order(text: Mapping[str, Any]) -> int:
+    return int(text.get("prompt_number") or 1)
+
+
+def texts_for_input(texts: List[Mapping[str, Any]], key: str) -> List[Mapping[str, Any]]:
+    exact = [text for text in texts if text.get("for_key") == key]
+    if not exact and len({text.get("for_key") for text in texts}) == 1:
+        exact = list(texts)
+    return sorted(exact, key=prompt_order)
+
+
+def _chunks(items: List[Any], size: int) -> List[List[Any]]:
+    return [items[start:start + size] for start in range(0, len(items), size)]
+
+
+def text_rows(entries: List[Mapping[str, Any]], size: int) -> List[Tuple[str, Dict[str, Any]]]:
+    groups: Dict[str, List[Mapping[str, Any]]] = {}
+    for entry in entries:
+        groups.setdefault(str(entry.get("for_key")), []).append(entry)
+    rows = []
+    for group in groups.values():
+        for chunk in _chunks(group, size):
+            entry = dict(chunk[0])
+            if len(chunk) > 1:
+                entry["batch"] = [asset_key(text) for text in chunk]
+            rows.append((asset_key(chunk[0]), entry))
+    return rows
+
+
+def media_rows(key: str, entry: Mapping[str, Any], texts: List[Mapping[str, Any]], size: int) -> List[Tuple[str, Dict[str, Any]]]:
+    if len(texts) <= 1:
+        return [(key, dict(entry))]
+    return [
+        (prompt_slot(key, index), {**entry, "batch": [asset_key(text) for text in chunk]})
+        for index, chunk in enumerate(_chunks(texts, size))
+    ]
 
 
 def manifest_for(latest: List[Mapping[str, Any]], ports: Mapping[str, str]) -> Dict[str, List[Dict[str, Any]]]:
     manifest: Dict[str, List[Dict[str, Any]]] = {name: [] for name in ports}
-    for invocation in sorted(latest, key=lambda item: item["ordinal"]):
+    for invocation in sorted(latest, key=lambda item: (item["ordinal"], slot_parts(item["input_key"])[1])):
         for output in invocation.get("outputs") or []:
             for name, media_type in ports.items():
                 if output.get("media_type") == media_type:
@@ -185,6 +261,23 @@ def bind_text(request: Dict[str, Any], binding: str, text: str) -> Dict[str, Any
     return bound
 
 
+def bind_texts(request: Dict[str, Any], texts: List[str]) -> Dict[str, Any]:
+    bound = bind_text(request, "prompt", texts[0])
+    if len(texts) == 1:
+        return bound
+    negative = bound["prompts"][0].get("negative") or ""
+    bound["prompts"] = [{"positive": text, "negative": negative} for text in texts]
+    bound["batch_prompts"] = True
+    segments = [segment for segment in bound.get("segments") or [] if segment.get("channel", "positive") != "positive"]
+    segments.extend(
+        {"channel": "positive", "prompt_index": index, "segment_index": 0, "segment_type": "content", "text": text}
+        for index, text in enumerate(texts)
+    )
+    bound["segments"] = segments
+    bound["prompt_state"] = {"prompt": texts[0], "prompts": [{"prompt": text} for text in texts]}
+    return bound
+
+
 def text_outputs(
     text_id: str,
     text: str,
@@ -193,8 +286,12 @@ def text_outputs(
     reasoning: Optional[str] = None,
     instruction: Optional[str] = None,
     instruction_seed: Optional[int] = None,
+    slot_key: Optional[str] = None,
+    prompt_count: int = 1,
 ) -> List[Dict[str, Any]]:
     entry = {"kind": "text", "text_id": text_id, "media_type": "text", "text": text, "for_key": for_key}
+    if prompt_count > 1:
+        entry.update(slot_key=slot_key or for_key, prompt_number=slot_parts(slot_key or for_key)[1], prompt_count=prompt_count)
     if instruction is not None:
         entry["rolled_instruction"] = instruction
         entry["instruction_seed"] = instruction_seed

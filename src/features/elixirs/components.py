@@ -1,6 +1,6 @@
 import functools
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Optional
 
 from src.features.elixirs.catalog import Catalog, installed_catalog
 from src.features.elixirs.contracts import Contracts, current_contracts
@@ -44,6 +44,7 @@ def build_elixirs(
     session_repository: Any,
     session_version_repository: Any,
     phrasebook_values: Any = None,
+    prompt_batch: Optional[Callable[[Optional[str]], bool]] = None,
 ) -> ElixirsComponents:
     repository = ElixirRepository()
     limits = stored_limits(setting_repository)
@@ -69,7 +70,7 @@ def build_elixirs(
         sessions=sessions,
         runtime=ElixirRuntime(coordinator, follows),
         resolver=port.resolve,
-        catalog=functools.partial(installed_catalog, presets),
+        catalog=functools.partial(installed_catalog, presets, prompt_batch=prompt_batch),
         contracts=current_contracts,
         limits=limits,
     )

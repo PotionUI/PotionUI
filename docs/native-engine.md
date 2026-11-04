@@ -314,6 +314,29 @@ close that gap:
   them for the whole denoise loop, every per-step forward, but not for the VAE decode. They come off exactly
   on exit, an exception included, and add to whatever the model loader already baked or left resident on the
   shared DiT: refinement shares the generation LoRA chain and only adds to it. An empty stack is a no-op.
+
+  **Eviction.** A cold placement evicts foreign residents for `weight + max(minimum_inference, total_reserve)`,
+  the room the budget `free - total_reserve` asks for. This is a choice. It offloads more warm residents than a
+  target of `weight + minimum_inference` would (an upscaler, other text encoders), and they reload when next
+  used. When the weight and the reserve together exceed the card it offloads them and still goes partial: what
+  it frees keeps that much more of the DiT resident instead of streamed.
+
+  **Two FFN settings.** `ffn_dim` is a SwiGLU width (H3's 14,336). `fc1`'s fused value|gate output is
+  `2 × ffn_dim` wide and two `ffn_dim` tensors follow it, so it charges `4 × ffn_dim × 2 B` per token on top of
+  attention or, when `ffn_chunk_rows` row-chunks the MLP, only that many rows in a phase that competes with
+  attention as a `max`. `gelu_ffn_dim` is a GELU output (LTX's 16,384): `width × 2 B` per token, never chunked,
+  and it also enters `transient`. One number would need a flag to say which of these rules applies, so the two
+  stay apart.
+
+  **Two gaps the formula keeps.** The GELU term charges an audio token the video width. The audio FFN is
+  `4 × audio_inner_dim = 8,192` wide, half of that, so each audio token is overcharged 16,384 B in each of the
+  two places the term appears. With the margin that is ≈ 4.5 MiB on a 5 s clip (126 audio tokens) and ≈ 36 MiB
+  at 40 s, under 0.2 % of the reserve. An `INT8_CONVROT` Linear on the `DEQUANT` path also allocates a third
+  array, the unrotate's output: 0.125 GiB for LTX's FFN, 0.287 GiB for H3's `fc1`. It does not raise the live
+  figure. The cast copy is released when the scaled product replaces it, so the unrotate's output sits beside
+  the scaled weight and two copies stay the peak (`test_a_convrot_unrotate_leaves_two_weight_copies_as_the_live_peak`,
+  on the meta device). Whatever workspace that `mm` takes on a real card is outside this count, like the other
+  cuBLAS workspace the 1.15 covers.
 - **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
   `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the
   GPU for its encode, so its placement is decided for that phase alone. An encoder that does not fit

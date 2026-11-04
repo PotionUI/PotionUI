@@ -2583,6 +2583,20 @@ def test_placement_charges_the_dits_own_dequant_transient():
 
 _LTX25_FFN = (4096, 16384)
 _LTX25_FFN_DEQUANT_BYTES = 2 * 4096 * 16384 * 2
+
+
+@pytest.mark.parametrize("in_features, out_features", [_LTX25_FFN, _H3_FC1], ids=["ltx_ffn", "h3_fc1"])
+def test_a_convrot_unrotate_leaves_two_weight_copies_as_the_live_peak(in_features, out_features):
+    layer = _int8_layer(in_features, out_features)
+    layer.weight_scale = torch.ones(out_features, 1, device="meta")
+    layer.convrot_hadamard = build_convrot_hadamard(256, "cpu", torch.float32).to("meta")
+    layer.convrot_groupsize = 256
+    with torch.no_grad(), _LiveBytes() as tracker:
+        layer._prepare_dequant_operand(torch.bfloat16, torch.device("meta"))
+    one_copy = in_features * out_features * 2
+    assert 2 * one_copy <= tracker.peak <= 2 * one_copy + 256 * 256 * 2
+
+
 _LTX25_BLOCKS = {
     "image_model": "ltxav", "in_channels": 128, "num_attention_heads": 32, "attention_head_dim": 128,
     "cross_attention_dim": 4096, "caption_channels": 3840, "num_layers": 2, "has_caption_projection": False,

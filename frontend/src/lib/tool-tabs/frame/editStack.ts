@@ -359,6 +359,14 @@ export function previewSteps<P>(state: EditStackState<P>): EditStep<P>[] {
 	return [...current, { ...draft, id: 'pending', hidden: false }];
 }
 
+export function previewWith<P>(state: EditStackState<P>, draft: StepDraft<P> | null): EditStep<P>[] {
+	if (!draft) return previewSteps(state);
+	const pending = state.pending;
+	const current = effectiveSteps(state);
+	if (pending?.target) return current.map((step) => (step.id === pending.target ? { ...step, ...draft } : step));
+	return [...current, { ...draft, id: 'pending', hidden: false }];
+}
+
 export function beforeSteps<P>(state: EditStackState<P>): EditStep<P>[] {
 	const pending = state.pending;
 	if (!pending) return [];

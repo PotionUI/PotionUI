@@ -11,6 +11,8 @@ import {
 	isLive,
 	liveEdit,
 	move,
+	previewSteps,
+	previewWith,
 	redo,
 	redoLabel,
 	remove,
@@ -239,5 +241,30 @@ describe('live edits', () => {
 		expect(canUndo(state)).toBe(true);
 		expect(undoLabel(state)).toBe('Tone');
 		expect(redoLabel(undo(state))).toBe('Tone');
+	});
+});
+
+describe('previewWith', () => {
+	it('shows the stack unchanged without a draft', () => {
+		const state = beginEdit(applyAll(crop), resize);
+		expect(previewWith(state, null)).toEqual(previewSteps(state));
+	});
+
+	it('appends a transient draft and replaces a pending one without touching the stack', () => {
+		const state = applyAll(crop);
+		expect(previewWith(state, tone(10)).map((step) => step.label)).toEqual(['Crop', 'Tone']);
+		expect(state.pending).toBeNull();
+		expect(state.steps).toHaveLength(1);
+		const pending = beginEdit(state, resize);
+		expect(previewWith(pending, tone(10)).map((step) => step.label)).toEqual(['Crop', 'Tone']);
+		expect(pending.pending?.label).toBe('Resize');
+	});
+
+	it('swaps the draft in for the step being reopened', () => {
+		const reopened = reopen(commitLive(live(createStack<Params>(), tone(10), 'tone')), 's1');
+		const shown = previewWith(reopened, tone(60));
+		expect(shown).toHaveLength(1);
+		expect(shown[0].params).toEqual({ op: 'tone', contrast: 60 });
+		expect(reopened.steps[0].params).toEqual({ op: 'tone', contrast: 10 });
 	});
 });

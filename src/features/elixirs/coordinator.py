@@ -326,6 +326,9 @@ class Coordinator:
                 raise BrewRefused("unknown_input", f"{label} has no {edge['target_handle']} input any more.", node_id=node_id)
             frozen_edges.append({**edge, "binding": _frozen_binding(node, target_input, catalog), "media_type": target_input["media_type"]})
         _with_roles(nodes, frozen_edges)
+        onward, peers, peer_edges = ([], [], [])
+        if not writer and (elixir.get("run_mode") or "review") != "automatic":
+            onward, peers, peer_edges = self._onward(nodes, edges, node, contracts, catalog)
         drive = next((edge for edge in frozen_edges if edge["role"] == "drive"), None)
         sides = [edge for edge in frozen_edges if edge["role"] == "side"]
         unbound = [edge["binding"]["field"] for edge in frozen_edges if edge["binding"].get("kind") == "form_field"]
@@ -414,7 +417,9 @@ class Coordinator:
                 "status": "pending",
                 "graph": {
                     "nodes": [node],
-                    "edges": frozen_edges,
+                    "edges": [*frozen_edges, *onward],
+                    "peers": peers,
+                    "peer_edges": peer_edges,
                     "ports": ports,
                     "descendants": descendants,
                     "targets": {node_id: target} if writer else {},
@@ -451,6 +456,33 @@ class Coordinator:
         self._settle(run_id)
         self.wake()
         return self.store.get_run(run_id)
+
+    @staticmethod
+    def _onward(nodes, edges, node, contracts: Contracts, catalog: Optional[Catalog]):
+        outgoing = [edge for edge in edges if edge["source"] == node["id"] and edge["target"] in nodes]
+        targets = {edge["target"] for edge in outgoing}
+        driving = {
+            edge["id"]
+            for target in targets
+            for edge in driving_edges(nodes, [item for item in edges if item["target"] == target])
+        }
+        onward = []
+        for edge in outgoing:
+            if edge["id"] not in driving:
+                continue
+            target = nodes[edge["target"]]
+            target_input = _ports_for(target, contracts)["inputs"].get(edge["target_handle"])
+            if target_input is None:
+                continue
+            onward.append({
+                **edge,
+                "binding": _frozen_binding(target, target_input, catalog),
+                "media_type": target_input["media_type"],
+                "role": "drive",
+            })
+        peers = [{"id": target, "kind": nodes[target].get("kind")} for target in sorted(targets)]
+        peer_edges = [edge for edge in edges if edge["source"] in targets and edge["target"] in targets]
+        return onward, peers, peer_edges
 
     @staticmethod
     def _check_director(label: str, node_id: str, template: Mapping[str, Any], edges: Iterable[Mapping[str, Any]]) -> None:
@@ -512,7 +544,11 @@ class Coordinator:
                     checkpoint = {
                         "revision": 1,
                         "eligible": eligible,
-                        "linked": linked_edge_ids(graph["nodes"], graph["edges"], edge),
+                        "linked": linked_edge_ids(
+                            [*graph["nodes"], *graph.get("peers", [])],
+                            [*graph["edges"], *graph.get("peer_edges", [])],
+                            edge,
+                        ),
                         "draft": [asset_key(entry) for entry in eligible],
                         "confirmed": None,
                         "confirmed_at": None,
@@ -529,7 +565,7 @@ class Coordinator:
                     checkpoints[edge["id"]] = checkpoint
             for edge in graph["edges"]:
                 checkpoint = checkpoints.get(edge["id"])
-                if not checkpoint or checkpoint.get("confirmed") is None or checkpoint.get("expanded"):
+                if not checkpoint or checkpoint.get("confirmed") is None or checkpoint.get("expanded") or edge["target"] not in node_states:
                     continue
                 if run.get("cancel_requested_at") or not self._sides_ready(graph, node_states, edge["target"]):
                     continue

@@ -484,6 +484,43 @@ def test_running_one_node_again_reuses_its_chosen_inputs_and_marks_what_follows_
     assert "Sharpen has newer outputs" in refused.value.message
 
 
+def test_running_one_node_again_in_choose_mode_waits_for_a_choice_that_feeds_the_next_step(coordinator, port, alice, contracts):
+    elixir = three_step()
+    elixir["run_mode"] = "review"
+    run = start(coordinator, alice, elixir, contracts, run_mode="review")
+    coordinator.confirm_edge(alice, run["id"], "e1", ["library:p1"], expected_revision=1)
+    asyncio.run(coordinator.pump())
+    port.media["history:g1:f1"] = {"value": "generations/g1/f1.png", "media_type": "image", "original_filename": "f1.png", "origin": {"generation_id": "g1", "file_index": 0}}
+    port.finish("g1", ("f1", "IMAGE"))
+    asyncio.run(coordinator.pump())
+    coordinator.confirm_edge(alice, run["id"], "e2", ["history:g1:f1"], expected_revision=1)
+    asyncio.run(coordinator.pump())
+    port.finish("g2", ("f2", "IMAGE"))
+    asyncio.run(coordinator.pump())
+
+    node_run = coordinator.start_node_run(alice, elixir, contracts, "sharpen", templates_for(elixir)["sharpen"], "node-key-choose")
+    asyncio.run(coordinator.pump())
+    port.finish("g3", ("f3", "IMAGE"))
+    asyncio.run(coordinator.pump())
+
+    waiting = coordinator.store.get_run(node_run["id"])
+    assert waiting["status"] == "awaiting_selection"
+    checkpoint = waiting["checkpoints"]["e2"]
+    assert checkpoint["confirmed"] is None
+    assert [entry["file_id"] for entry in checkpoint["eligible"]] == ["f3"]
+    assert any(edge["id"] == "e2" for edge in waiting["graph"]["edges"])
+
+    port.media["history:g3:f3"] = {"value": "generations/g3/f3.png", "media_type": "image", "original_filename": "f3.png", "origin": {"generation_id": "g3", "file_index": 0}}
+    done = coordinator.confirm_edge(alice, node_run["id"], "e2", ["history:g3:f3"], expected_revision=checkpoint["revision"])
+
+    assert done["status"] == "completed"
+    assert invocations(coordinator, done)[-1]["node_id"] == "sharpen"
+    assert len(port.submits) == 3
+    coordinator.start_node_run(alice, elixir, contracts, "polish", templates_for(elixir)["polish"], "node-key-polish")
+    asyncio.run(coordinator.pump())
+    assert port.submits[-1]["form_data"]["source_image"] == "generations/g3/f3.png"
+
+
 def test_a_node_cannot_run_while_connected_work_is_generating(coordinator, port, alice, contracts):
     elixir = three_step()
     start(coordinator, alice, elixir, contracts)

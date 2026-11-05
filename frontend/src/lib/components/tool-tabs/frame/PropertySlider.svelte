@@ -110,7 +110,7 @@
 		background: transparent;
 	}
 
-	.property-range:focus-visible {
+	:global(:where(html:not([data-input='pointer']))) .property-range:focus-visible {
 		outline: 1px solid rgb(var(--signal));
 		outline-offset: 3px;
 	}

@@ -770,7 +770,7 @@
 		inset: 0;
 	}
 
-	.open:focus-visible::after {
+	:global(:where(html:not([data-input='pointer']))) .open:focus-visible::after {
 		outline: 2px solid rgb(var(--signal));
 		outline-offset: -2px;
 	}

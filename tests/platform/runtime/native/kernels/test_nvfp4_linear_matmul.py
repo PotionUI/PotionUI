@@ -146,15 +146,23 @@ def test_forward_nvfp4_scaled_mm_calls_f_scaled_mm_with_expected_layout_and_dtyp
     assert kwargs["output_dtype"] == torch.bfloat16
 
 
-def test_forward_nvfp4_scaled_mm_adds_bias_on_host_after_gemm():
+def test_forward_nvfp4_scaled_mm_passes_the_bias_into_the_gemm():
     lin = _nvfp4_layer(in_f=32, out_f=16, bias=True)
     x = torch.randn(1, 32, dtype=torch.bfloat16)
     fake_out = torch.ones(1, 16, dtype=torch.bfloat16)
     with patch("torch.nn.functional.scaled_mm", return_value=fake_out) as mock_scaled_mm:
         out = lin._forward_nvfp4_scaled_mm(x)
     _, kwargs = mock_scaled_mm.call_args
-    assert "bias" not in kwargs or kwargs["bias"] is None
-    assert torch.allclose(out, fake_out + lin.bias.to(torch.bfloat16))
+    assert kwargs["bias"].dtype == torch.bfloat16
+    assert torch.equal(kwargs["bias"], lin.bias.to(torch.bfloat16))
+    assert torch.equal(out, fake_out)
+
+
+def test_forward_nvfp4_scaled_mm_passes_no_bias_for_a_bias_free_layer():
+    lin = _nvfp4_layer(in_f=32, out_f=16, bias=False)
+    with patch("torch.nn.functional.scaled_mm", return_value=torch.ones(1, 16, dtype=torch.bfloat16)) as mock_scaled_mm:
+        lin._forward_nvfp4_scaled_mm(torch.randn(1, 32, dtype=torch.bfloat16))
+    assert mock_scaled_mm.call_args.kwargs["bias"] is None
 
 
 def test_forward_nvfp4_scaled_mm_bails_on_kernel_runtime_error():

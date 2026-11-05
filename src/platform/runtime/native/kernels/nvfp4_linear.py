@@ -233,7 +233,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
         try:
             out = gemm_in_row_chunks(
                 x2d, self.out_features,
-                lambda rows, amax: self._nvfp4_gemm(rows, mat_b, w_scales, amax),
+                lambda rows, amax: self._nvfp4_gemm(rows, mat_b, w_scales, amax, bias),
                 nvfp4_activation_amax,
             )
         except ChunkedGemmFailed as failed:
@@ -247,13 +247,11 @@ class Nvfp4Linear(Fp8ScaledLinear):
             else:
                 _note_lora_path(self, "unfused-fast")
                 out = out + _lora_output_branch(x2d, self.lora_deltas, out.dtype, self.out_features)
-        if bias is not None:
-            out = out + bias
         return out.reshape(*orig_shape[:-1], -1)
 
     def _nvfp4_gemm(
         self, x2d: torch.Tensor, mat_b: torch.Tensor, w_scales: tuple[torch.Tensor, torch.Tensor],
-        tensor_amax: torch.Tensor | None,
+        tensor_amax: torch.Tensor | None, bias: torch.Tensor | None,
     ) -> torch.Tensor:
         try:
             x_packed, x_block, x_global = quantize_nvfp4_activation(x2d, tensor_amax=tensor_amax)
@@ -268,6 +266,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
                 [w_scales[0], w_scales[1]], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
                 swizzle_a=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
                 swizzle_b=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
+                bias=bias,
                 output_dtype=x2d.dtype,
             )
         except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:

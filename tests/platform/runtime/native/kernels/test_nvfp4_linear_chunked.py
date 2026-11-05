@@ -37,7 +37,10 @@ def _reference_scaled_mm(mat_a, mat_b, scale_a, _recipe_a, scale_b, _recipe_b, *
     cols = mat_b.shape[1]
     a = dequantize_nvfp4(mat_a.view(torch.uint8), scale_a[0], scale_a[1], rows, k)
     b = dequantize_nvfp4(mat_b.t().view(torch.uint8), scale_b[0], scale_b[1], cols, k)
-    return (a.double() @ b.double().t()).to(kwargs["output_dtype"])
+    out = a.double() @ b.double().t()
+    if kwargs.get("bias") is not None:
+        out = out + kwargs["bias"].double()
+    return out.to(kwargs["output_dtype"])
 
 
 def _activations(rows, seed=3):
@@ -105,6 +108,20 @@ def test_a_chunked_forward_matches_the_unchunked_forward_bit_for_bit():
     assert chunked_calls == [256, 256, 128]
     assert chunked.shape == (2, 320, _OUT)
     assert torch.equal(chunked, whole)
+
+
+def test_every_chunk_gets_the_bias_from_the_gemm_exactly_once():
+    lin = _nvfp4_layer(in_f=_IN, out_f=_OUT, bias=True)
+    x = _activations(640)
+    chunked, calls = _forward(lin, x, chunk_elements=256 * _IN)
+    packed, block, scale = quantize_nvfp4_dynamic(x)
+    a = dequantize_nvfp4(packed, block, scale, 640, _IN).double()
+    w = dequantize_nvfp4(
+        lin.nvfp4_packed, lin.nvfp4_weight_block_scale, lin.nvfp4_weight_global_scale, _OUT, _IN,
+    ).double()
+    expected = (a @ w.t() + lin.bias.to(torch.bfloat16).double()).to(torch.bfloat16)
+    assert calls == [256, 256, 128]
+    assert torch.equal(chunked, expected)
 
 
 def test_an_oom_on_a_large_input_retries_in_smaller_chunks_instead_of_dequantising(caplog):

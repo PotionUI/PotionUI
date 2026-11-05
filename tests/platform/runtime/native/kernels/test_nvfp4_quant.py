@@ -200,3 +200,13 @@ def test_out_of_memory_propagates_without_disabling(error, triton_kernel, eager,
         quantize_nvfp4_activation(FakeCudaTensor())
     assert nvfp4_quant_disabled_reason() is None
     assert eager == []
+
+
+def test_the_kernel_module_is_resolved_once_per_process(triton_kernel, eager, amax, monkeypatch):
+    with _on(blackwell()):
+        quantize_nvfp4_activation(FakeCudaTensor())
+        monkeypatch.setitem(sys.modules, TRITON_MODULE, None)
+        monkeypatch.delattr(kernels, "nvfp4_quant_triton", raising=False)
+        quantize_nvfp4_activation(FakeCudaTensor())
+    assert len(triton_kernel.calls) == 2
+    assert nvfp4_quant_disabled_reason() is None

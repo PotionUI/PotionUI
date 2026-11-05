@@ -291,11 +291,14 @@
 	$effect(() => {
 		void filters;
 		void section;
-		currentPage = 1;
-		if (!loading && !isAttributesSection && !isFoldersSection && !isAutoSection) {
-			loadModels();
-			loadModelTypes();
-		}
+		const ready = !loading && !isAttributesSection && !isFoldersSection && !isAutoSection;
+		untrack(() => {
+			currentPage = 1;
+			if (ready) {
+				void loadModels();
+				void loadModelTypes();
+			}
+		});
 	});
 
 	async function loadModels() {

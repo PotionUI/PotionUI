@@ -121,6 +121,57 @@ afterEach(() => {
 });
 
 describe('ModelsTab', () => {
+	describe('paging', () => {
+		function pagedResponse() {
+			return { success: true, data: { models: MODELS, total: 100, availability_indexed: false } };
+		}
+
+		function pageButton(label: string) {
+			return target.querySelector<HTMLButtonElement>(`nav[aria-label="Pagination"] button[aria-label="${label}"]`)!;
+		}
+
+		it('stays on the chosen page and requests that offset', async () => {
+			mockGetModels.mockResolvedValue(pagedResponse());
+			mountTab();
+			await flush();
+			flushSync();
+			expect(mockGetModels.mock.calls.at(-1)?.[0]).toMatchObject({ limit: 30, offset: 0 });
+
+			pageButton('Page 2').click();
+			await flush();
+			flushSync();
+			await flush();
+
+			expect(mockGetModels.mock.calls.at(-1)?.[0]).toMatchObject({ limit: 30, offset: 30 });
+			expect(pageButton('Page 2').getAttribute('aria-current')).toBe('page');
+			const callsAfter = mockGetModels.mock.calls.length;
+			await flush();
+			expect(mockGetModels.mock.calls.length).toBe(callsAfter);
+		});
+
+		it('returns to the first page when the section changes', async () => {
+			mockGetModels.mockResolvedValue(pagedResponse());
+			mountTab();
+			await flush();
+			flushSync();
+			pageButton('Page 2').click();
+			await flush();
+			flushSync();
+			expect(pageButton('Page 2').getAttribute('aria-current')).toBe('page');
+
+			const loraRow = Array.from(target.querySelectorAll('[data-pane-row]')).find((el) =>
+				el.textContent?.trim().startsWith('LoRA')
+			) as HTMLElement;
+			loraRow.click();
+			await flush();
+			flushSync();
+			await flush();
+
+			expect(mockGetModels.mock.calls.at(-1)?.[0]).toMatchObject({ model_type: 'lora', offset: 0 });
+			expect(pageButton('Page 1').getAttribute('aria-current')).toBe('page');
+		});
+	});
+
 	it('renders models rows and the by-type/attributes sidebar counts', async () => {
 		mountTab();
 		await flush();

@@ -37,7 +37,10 @@ describe('StatusCell', () => {
 });
 
 describe('TablePager', () => {
-	it('shows the page label and disables prev/next at the bounds', () => {
+	const navButton = (label: string) =>
+		target.querySelector(`nav[aria-label="Pagination"] button[aria-label="${label}"]`) as HTMLButtonElement;
+
+	it('renders the standard numeric pagination with the current page marked', () => {
 		mountComponent(TablePager, {
 			page: 1,
 			pageCount: 3,
@@ -45,12 +48,14 @@ describe('TablePager', () => {
 			onPageChange: vi.fn(),
 			onPageSizeChange: vi.fn()
 		});
-		expect(target.textContent).toContain('Page 1 of 3');
-		expect((target.querySelector('button[aria-label="Previous page"]') as HTMLButtonElement).disabled).toBe(true);
-		expect((target.querySelector('button[aria-label="Next page"]') as HTMLButtonElement).disabled).toBe(false);
+		expect(target.textContent).not.toContain('Page 1 of 3');
+		expect(navButton('Page 1').getAttribute('aria-current')).toBe('page');
+		expect(navButton('Page 3')).not.toBeNull();
+		expect(navButton('Previous page').disabled).toBe(true);
+		expect(navButton('Next page').disabled).toBe(false);
 	});
 
-	it('calls onPageChange with the adjacent page on prev/next', () => {
+	it('calls onPageChange with the adjacent or chosen page', () => {
 		const onPageChange = vi.fn();
 		mountComponent(TablePager, {
 			page: 2,
@@ -59,25 +64,40 @@ describe('TablePager', () => {
 			onPageChange,
 			onPageSizeChange: vi.fn()
 		});
-		(target.querySelector('button[aria-label="Next page"]') as HTMLButtonElement).click();
+		navButton('Next page').click();
 		expect(onPageChange).toHaveBeenCalledWith(3);
-		(target.querySelector('button[aria-label="Previous page"]') as HTMLButtonElement).click();
+		navButton('Previous page').click();
 		expect(onPageChange).toHaveBeenCalledWith(1);
+		navButton('Page 3').click();
+		expect(onPageChange).toHaveBeenLastCalledWith(3);
 	});
 
-	it('calls onPageSizeChange when the rows-per-page select changes', () => {
+	it('calls onPageSizeChange when the per-page select changes', () => {
 		const onPageSizeChange = vi.fn();
 		mountComponent(TablePager, {
 			page: 1,
-			pageCount: 1,
+			pageCount: 2,
 			pageSize: 25,
 			pageSizeOptions: [10, 25, 50],
 			onPageChange: vi.fn(),
 			onPageSizeChange
 		});
+		expect(target.textContent).toContain('Per page');
 		const select = target.querySelector('select') as HTMLSelectElement;
 		select.value = '50';
 		select.dispatchEvent(new Event('change', { bubbles: true }));
 		expect(onPageSizeChange).toHaveBeenCalledWith(50);
+	});
+
+	it('renders nothing when there is a single page', () => {
+		mountComponent(TablePager, {
+			page: 1,
+			pageCount: 1,
+			pageSize: 25,
+			onPageChange: vi.fn(),
+			onPageSizeChange: vi.fn()
+		});
+		expect(target.querySelector('nav')).toBeNull();
+		expect(target.querySelector('select')).toBeNull();
 	});
 });

@@ -320,9 +320,9 @@ for (const viewport of [
 			await expect(modelRow(page, 'Seedream 4.5')).toContainText('$0.04 / image');
 			await expect(modelRow(page, 'Veo 3.1')).toContainText('Deprecated');
 			await expect(modelRow(page, 'Retired Model')).toContainText('Missing from provider');
-			await expect(page.getByText('Page 1 of 2')).toBeVisible();
+			await expect(page.getByRole('navigation', { name: 'Pagination' })).toBeVisible();
 			await screenshot(page, JOURNEY, `list-${viewport.name}`);
-			await page.getByText('Page 1 of 2').scrollIntoViewIfNeeded();
+			await page.getByRole('navigation', { name: 'Pagination' }).scrollIntoViewIfNeeded();
 			await screenshot(page, JOURNEY, `pager-${viewport.name}`);
 		});
 

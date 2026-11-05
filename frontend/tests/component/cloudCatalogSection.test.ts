@@ -632,18 +632,20 @@ describe('Cloud catalog: reloading', () => {
 
 describe('Cloud catalog: paging', () => {
 	const nextButton = () => mounted!.target.querySelector<HTMLButtonElement>('button[aria-label="Next page"]')!;
+	const currentPageLabel = () =>
+		mounted!.target.querySelector('nav[aria-label="Pagination"] [aria-current="page"]')?.getAttribute('aria-label');
 
 	it('asks for the next fifty when going forward', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockImplementation(pagedCatalog(120));
 		mounted = mountSection();
 		await settle(10);
-		expect(mounted.text()).toContain('Page 1 of 3');
+		expect(currentPageLabel()).toBe('Page 1');
 
 		nextButton().click();
 		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenLastCalledWith('b1', { limit: 50, offset: 50 });
-		expect(mounted.text()).toContain('Page 2 of 3');
+		expect(currentPageLabel()).toBe('Page 2');
 		expect(mounted.rowFor('Model 50')).toBeTruthy();
 	});
 
@@ -662,7 +664,7 @@ describe('Cloud catalog: paging', () => {
 		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenLastCalledWith('b1', { limit: 100, offset: 0 });
-		expect(mounted.text()).toContain('Page 1 of 2');
+		expect(currentPageLabel()).toBe('Page 1');
 	});
 
 	it('reloads from the first page after a refresh started on a later page', async () => {
@@ -672,13 +674,13 @@ describe('Cloud catalog: paging', () => {
 		await settle(10);
 		nextButton().click();
 		await settle(10);
-		expect(mounted.text()).toContain('Page 2 of 3');
+		expect(currentPageLabel()).toBe('Page 2');
 
 		mounted.button('Refresh catalog')!.click();
 		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenLastCalledWith('b1', { limit: 50, offset: 0 });
-		expect(mounted.text()).toContain('Page 1 of 3');
+		expect(currentPageLabel()).toBe('Page 1');
 	});
 });
 

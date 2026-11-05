@@ -10,6 +10,7 @@ import torch
 
 from src.platform.runtime.native.detect.vae_detect import detect_ltx_video_vae_config
 from src.platform.runtime.native.kernels import disable_weight_init
+from src.platform.runtime.native.vae import ltx_causal_video
 from src.platform.runtime.native.vae.loader import load_ltx_video_vae
 from src.platform.runtime.native.vae.ltx_causal_video import LTXCausalVideoVAE
 
@@ -160,6 +161,84 @@ def test_repeated_encode_decode_calls_are_independent():
 
     assert torch.equal(latent_a1, latent_a2)
     assert not torch.equal(latent_a1, latent_b)
+
+
+_BUDGETS_THAT_SPLIT_A_CLIP = [1, 4096]
+
+
+def _cache_storage_held_on_every_call(vae: LTXCausalVideoVAE, run) -> list[tuple[int, int]]:
+    held = []
+
+    def record(module, _args, _output):
+        for state in module.temporal_cache_state.values():
+            for leaf in state if isinstance(state, tuple) else (state,):
+                if isinstance(leaf, torch.Tensor):
+                    held.append((leaf.untyped_storage().nbytes(), leaf.numel() * leaf.element_size()))
+
+    for module in vae.modules():
+        if hasattr(module, "temporal_cache_state"):
+            module.register_forward_hook(record)
+    with torch.no_grad():
+        run()
+    return held
+
+
+@pytest.mark.parametrize("chunk_bytes", _BUDGETS_THAT_SPLIT_A_CLIP)
+def test_a_decoder_cache_holds_only_the_frames_it_replays_at_every_call_of_a_clip(monkeypatch, chunk_bytes):
+    monkeypatch.setattr(ltx_causal_video, "_MAX_CHUNK_BYTES", chunk_bytes)
+    vae = _build_tiny()
+    latent = torch.randn(1, vae.latent_channels, 6, 4, 4)
+
+    held = _cache_storage_held_on_every_call(vae, lambda: vae.decode(latent))
+
+    assert held
+    assert all(stored == replayed for stored, replayed in held)
+
+
+def test_an_encoder_cache_holds_only_the_frames_it_replays_at_every_call_of_a_clip():
+    vae = _build_tiny()
+    pixels = torch.randn(1, 3, 17, 16, 16)
+
+    held = _cache_storage_held_on_every_call(vae, lambda: vae.encode(pixels))
+
+    assert held
+    assert all(stored == replayed for stored, replayed in held)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("chunk_bytes", [*_BUDGETS_THAT_SPLIT_A_CLIP, ltx_causal_video._MAX_CHUNK_BYTES])
+def test_copying_the_caches_changes_no_output_byte(monkeypatch, chunk_bytes, dtype):
+    monkeypatch.setattr(ltx_causal_video, "_MAX_CHUNK_BYTES", chunk_bytes)
+    vae = _build_tiny().to(dtype=dtype)
+    latent = torch.randn(1, vae.latent_channels, 6, 4, 4, dtype=dtype)
+    pixels = torch.randn(1, 3, 17, 16, 16, dtype=dtype)
+    copies = []
+
+    def outputs():
+        with torch.no_grad():
+            return [out.to(torch.float32).numpy().tobytes() for out in (vae.decode(latent), vae.encode(pixels))]
+
+    copied = outputs()
+    with monkeypatch.context() as views:
+        views.setattr(torch.Tensor, "clone", lambda tensor: copies.append(tensor.shape) or tensor)
+        viewed = outputs()
+
+    assert copies
+    assert copied == viewed
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("chunk_bytes", _BUDGETS_THAT_SPLIT_A_CLIP)
+def test_a_clip_decoded_in_chunks_matches_the_clip_decoded_whole(monkeypatch, chunk_bytes, dtype):
+    vae = _build_tiny().to(dtype=dtype)
+    latent = torch.randn(1, vae.latent_channels, 6, 4, 4, dtype=dtype)
+    with torch.no_grad():
+        whole = vae.decode(latent)
+    monkeypatch.setattr(ltx_causal_video, "_MAX_CHUNK_BYTES", chunk_bytes)
+    with torch.no_grad():
+        chunked = vae.decode(latent)
+
+    assert torch.allclose(chunked.to(torch.float32), whole.to(torch.float32), atol=1e-5)
 
 
 def test_accepts_preloaded_sd_and_metadata_without_reading_file():

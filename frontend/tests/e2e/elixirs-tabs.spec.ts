@@ -408,16 +408,15 @@ test('/elixirs opens a chooser tab that a pick replaces, then the last elixir ta
 	await screenshot(page, JOURNEY, 'new-elixir-empty-1440');
 });
 
-test('the sidebar has an Elixirs item that opens an elixir tab on the Generate page', async ({ page }) => {
+test('the sidebar has no Elixirs item and /elixirs still opens an elixir tab on the Generate page', async ({ page }) => {
 	test.setTimeout(60000);
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
 	await clearElixirs(page, token);
 
-	const link = page.locator('a[href="/elixirs"]').first();
-	await expect(link).toBeVisible();
-	await link.click();
+	await expect(page.locator('a[href="/elixirs"]')).toHaveCount(0);
+	await page.goto('/elixirs');
 	await page.waitForURL('**/generate');
 	await expect(page.getByTestId('elixir-chooser')).toBeVisible({ timeout: 30000 });
 	await expect(page).toHaveURL(/\/generate$/);

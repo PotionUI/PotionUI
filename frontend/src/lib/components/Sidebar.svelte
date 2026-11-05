@@ -67,7 +67,6 @@
 		{ path: '/history', label: 'History', icon: 'clock', order: 20, actionId: 'go_history' },
 		{ path: '/library', label: 'Library', icon: 'photo', order: 25, actionId: 'go_library' },
 		{ path: '/models', label: 'Models', icon: 'cube', order: 30, actionId: 'go_models' },
-		{ path: '/elixirs', label: 'Elixirs', icon: 'flask', order: 50 },
 		{ path: '/phrasebook', label: 'Phrasebook', icon: 'hash', order: 60, actionId: 'go_phrasebook' },
 		{ path: '/prompts', label: 'Prompts', icon: 'document', order: 70, actionId: 'go_prompts' },
 		{ path: '/inspirations', label: 'Inspirations', icon: 'lightbulb', order: 80, actionId: 'go_inspirations' }

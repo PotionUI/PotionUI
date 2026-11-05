@@ -1,13 +1,11 @@
 """VRAM-aware whole-clip/tiled LTX-2.5 diffusion-decode ladder, the decode-side
 twin of :mod:`ltx_tiled_encode`.
 
-Only the LTX-2.5 ``CausalDiffusionVAE`` needs the whole-clip/tiled ladder
-below. The 2.0/2.3 conv decoder self-chunks internally (``vae/ltx_causal_video.py``'s
-``Decoder.forward`` recurses by a fixed 128MB budget), so a whole-clip
-``decode()`` on it is already bounded for its OWN activations -- it still gets
+The 2.0/2.3 conv decoder self-chunks internally (``vae/ltx_causal_video.py``'s
+``Decoder.forward`` recurses by a fixed 128MB budget) -- it still gets
 a single evict-and-retry rung here, for callers (e.g. the detailer tube refine)
 that keep other large models resident on the same device across the decode.
-The diffusion decoder has no such internal bound: its stage 5 runs
+The diffusion decoder stage 5 runs
 neighborhood-attention blocks over the FULL pixel-token grid, and every
 transient there scales with that grid.
 
@@ -294,12 +292,6 @@ def decode_with_oom_retry(
     """
     module = vae.module
     if not supports_diffusion_tiled_decode(module):
-        # The conv decoder self-chunks its OWN activations, but a caller that
-        # keeps other large models resident on the same device (e.g. the
-        # detailer's DiT, pinned for the denoise that just fed this decode)
-        # can still OOM here -- retry once after evicting every OTHER
-        # GPU-resident component, the same belt the diffusion-decoder rungs
-        # below use.
         try:
             with torch.no_grad():
                 return module.decode(latent)

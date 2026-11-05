@@ -129,11 +129,11 @@ class CausalConv3d(nn.Module):
         needs_caching = not is_end
         if needs_caching and x.shape[2] >= self.time_kernel_size - 1:
             needs_caching = False
-            self.temporal_cache_state[tid] = (x[:, :, -(self.time_kernel_size - 1):, :, :], False)
+            self.temporal_cache_state[tid] = (x[:, :, -(self.time_kernel_size - 1):, :, :].clone(), False)
 
         x = torch.cat(pieces, dim=2)
         if needs_caching:
-            self.temporal_cache_state[tid] = (x[:, :, -(self.time_kernel_size - 1):, :, :], False)
+            self.temporal_cache_state[tid] = (x[:, :, -(self.time_kernel_size - 1):, :, :].clone(), False)
 
         return self.conv(x) if x.shape[2] >= self.time_kernel_size else x[:, :, :0, :, :]
 
@@ -170,7 +170,8 @@ def _add_exchange_cache(dest, cache_in, new_input, dim: int = 2):
             lead_in_dest.add_(lead_in_source)
         body, new_input = _split2(new_input, dest.shape[dim], dim)
         dest.add_(body)
-    return _cat_nonempty([cache_in, new_input], dim=dim)
+    kept = _cat_nonempty([cache_in, new_input], dim=dim)
+    return None if kept is None else kept.clone()
 
 
 class PixelNorm(nn.Module):
@@ -563,6 +564,7 @@ class Decoder(nn.Module):
 
         run_up(0, x, True)
         out = torch.cat(output, dim=2)
+        output.clear()
         return _unpatchify(out, self.patch_size, 1)
 
 

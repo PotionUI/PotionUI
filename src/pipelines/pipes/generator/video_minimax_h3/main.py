@@ -390,7 +390,7 @@ def _load_reference_video(video_path: Any, max_seconds: Optional[float] = None) 
 
 def _load_reference_audio(audio_path: Any) -> ReferenceMedia:
     """One `ref2va` audio reference's file path -> a `(channels, samples)`
-    float32 waveform at its native sample rate.
+    float32 waveform.
 
     More than two channels are downmixed to mono here rather than at the
     resampler: `normalize_condition_waveform` accepts mono or stereo only, and
@@ -399,8 +399,14 @@ def _load_reference_audio(audio_path: Any) -> ReferenceMedia:
     """
     import soundfile as sf
 
-    samples, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
-    waveform = torch.from_numpy(np.ascontiguousarray(samples.T))
+    try:
+        samples, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
+    except sf.LibsndfileError:
+        waveform, sample_rate = _decode_waveform_via_ffmpeg(audio_path)
+    else:
+        waveform = torch.from_numpy(np.ascontiguousarray(samples.T))
+        if sample_rate != AUDIO_SAMPLE_RATE:
+            waveform, sample_rate = _decode_waveform_via_ffmpeg(audio_path)
     if waveform.shape[0] > AUDIO_CHANNELS:
         waveform = waveform.mean(dim=0, keepdim=True)
     return ReferenceMedia(kind="audio", audio=waveform, sample_rate=int(sample_rate))
@@ -415,7 +421,7 @@ def _require_ffmpeg_or_raise() -> str:
 
 def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
     """Any media file (pure audio, or a video with an embedded soundtrack) ->
-    a `(channels, samples)` float32 waveform at its native rate, via a real
+    a `(channels, samples)` float32 waveform, via a real
     `ffmpeg` decode rather than `soundfile` (which does not read video
     containers) -- the fallback path for a refine's `audio_refine` when no
     `initial_audio_latent` was connected (module docstring, "Audio on a
@@ -436,7 +442,10 @@ def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
             )
         samples, sample_rate = sf.read(wav_path, dtype="float32", always_2d=True)
     finally:
-        Path(wav_path).unlink(missing_ok=True)
+        try:
+            Path(wav_path).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("[GENERATOR MINIMAX-H3] could not remove %s: %s", wav_path, exc)
     return torch.from_numpy(np.ascontiguousarray(samples.T)), int(sample_rate)
 
 

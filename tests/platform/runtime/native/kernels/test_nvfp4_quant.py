@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from src.platform.runtime.native import kernels
-from src.platform.runtime.native.io.quant_formats import nvfp4_tensor_scale, quantize_nvfp4_dynamic
+from src.platform.runtime.native.io.quant_formats import quantize_nvfp4_dynamic
 from src.platform.runtime.native.kernels import nvfp4_quant, nvfp4_quant_disabled_reason, quantize_nvfp4_activation
 from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, fake_capabilities, fake_device, installed_capabilities
 
@@ -48,11 +48,11 @@ def triton_kernel(monkeypatch):
     calls = []
     fake = types.ModuleType(TRITON_MODULE)
 
-    def quantize(x, tensor_scale):
-        calls.append((x, tensor_scale))
+    def quantize(x, tensor_amax):
+        calls.append((x, tensor_amax))
         if fake.error is not None:
             raise fake.error
-        return "triton-packed", "triton-block"
+        return "triton-packed", "triton-block", "triton-scale"
 
     fake.quantize = quantize
     fake.error = None
@@ -101,33 +101,30 @@ def test_a_cpu_tensor_is_quantized_by_the_eager_code_bit_for_bit(triton_kernel):
     assert triton_kernel.calls == []
 
 
-def test_a_blackwell_gpu_with_triton_runs_the_kernel_with_the_eager_tensor_scale(triton_kernel, eager, amax):
+def test_a_blackwell_gpu_with_triton_runs_the_kernel_on_the_whole_tensor_amax(triton_kernel, eager, amax):
     x = FakeCudaTensor()
     with _on(blackwell()):
-        packed, block, scale = quantize_nvfp4_activation(x)
-    assert (packed, block) == ("triton-packed", "triton-block")
+        assert quantize_nvfp4_activation(x) == ("triton-packed", "triton-block", "triton-scale")
     assert eager == []
     assert amax == [x]
-    assert torch.equal(scale, nvfp4_tensor_scale(torch.tensor(5376.0)).reshape(()))
     assert triton_kernel.calls[0][0] is x
+    assert torch.equal(triton_kernel.calls[0][1], torch.tensor(5376.0))
 
 
 class FakeCudaAmax:
-    def __init__(self, value):
-        self.value = value
-        self.device = torch.device("cuda:0")
+    device = torch.device("cuda:0")
 
-    def to(self, dtype):
-        return self.value.to(dtype)
+    def detach(self):
+        return self
 
 
 def test_a_given_tensor_amax_skips_the_global_reduction(triton_kernel, eager, amax):
-    given = torch.tensor(12.5)
+    given = FakeCudaAmax()
     with _on(ada()):
-        _, _, scale = quantize_nvfp4_activation(FakeCudaTensor(), tensor_amax=FakeCudaAmax(given))
+        quantize_nvfp4_activation(FakeCudaTensor(), tensor_amax=given)
     assert amax == []
     assert eager == []
-    assert torch.equal(scale, nvfp4_tensor_scale(given).reshape(()))
+    assert triton_kernel.calls[0][1] is given
 
 
 @pytest.mark.parametrize(

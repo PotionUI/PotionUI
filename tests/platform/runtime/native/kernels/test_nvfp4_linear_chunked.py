@@ -83,7 +83,7 @@ def test_chunk_rows_bound_the_quantiser_scratch_and_stay_on_the_scale_tile_grid(
 def test_the_global_amax_is_the_amax_the_whole_tensor_quantiser_uses():
     x = _activations(640)
     blocks = x.float().reshape(640, -1, 16).abs().amax(-1)
-    assert torch.equal(nvfp4_activation_amax(x), blocks.amax())
+    assert torch.equal(nvfp4_activation_amax(x).float(), blocks.amax())
 
 
 def test_quantising_row_chunks_against_the_global_amax_is_bit_exact():

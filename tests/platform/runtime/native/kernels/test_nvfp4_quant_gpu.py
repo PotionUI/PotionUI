@@ -33,9 +33,9 @@ def _assert_matches_eager(x: torch.Tensor, tensor_amax: torch.Tensor | None = No
     for g, w in zip(got, want):
         assert g.shape == w.shape and g.dtype == w.dtype
         assert torch.equal(_bits(g), _bits(w))
-    packed, block = nvfp4_quant_triton.quantize(x, got[2])
-    assert torch.equal(packed, want[0])
-    assert torch.equal(_bits(block), _bits(want[1]))
+    amax = nvfp4_activation_amax(x) if tensor_amax is None else tensor_amax
+    for g, w in zip(nvfp4_quant_triton.quantize(x, amax), want):
+        assert torch.equal(_bits(g), _bits(w))
 
 
 def _randn(m, k, dtype, seed, scale=1.0):
@@ -133,3 +133,34 @@ def test_every_float_around_the_exponent_and_rounding_thresholds_matches():
     assert block[0, 0].float().item() == 256.0
     _assert_matches_eager(x, amax)
     _assert_matches_eager(x.to(torch.bfloat16), amax)
+
+
+HOST_STALLS = ("cudaStreamSynchronize", "cudaDeviceSynchronize", "cudaEventSynchronize", "aten::_local_scalar_dense", "aten::item")
+SIDE_WORK = ("aten::clamp", "aten::div", "aten::zero_", "aten::fill_", "aten::zeros", "aten::_to_copy")
+
+
+def _profiled_names(fn) -> list[str]:
+    from collections import Counter
+
+    from torch.profiler import ProfilerActivity, profile
+
+    def names(f):
+        f()
+        torch.cuda.synchronize()
+        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+            f()
+        return Counter(e.name for e in prof.events())
+
+    return list((names(fn) - names(lambda: None)).elements())
+
+
+@pytest.mark.parametrize("rows", [1, 300])
+@pytest.mark.parametrize("given_amax", [False, True])
+def test_a_quantization_launches_only_the_reduction_and_the_kernel_without_host_stalls(rows, given_amax):
+    x = _randn(rows, 3072, torch.bfloat16, seed=9)
+    amax = nvfp4_activation_amax(x) if given_amax else None
+    names = _profiled_names(lambda: quantize_nvfp4_activation(x, amax))
+    assert names.count("_nvfp4_quant_kernel") == 1
+    assert ("aten::linalg_vector_norm" in names) is not given_amax
+    assert [n for n in names if n in HOST_STALLS or "DtoH" in n] == []
+    assert [n for n in names if n in SIDE_WORK] == []

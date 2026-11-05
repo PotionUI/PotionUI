@@ -17,6 +17,8 @@ _CONVROT_HADAMARD_CACHE: dict[tuple[int, str, torch.dtype], torch.Tensor] = {}
 _CONVROT_H4 = ((1, 1, 1, -1), (1, 1, -1, 1), (1, -1, 1, 1), (-1, 1, 1, 1))
 NVFP4_BLOCK = 16
 _F4_MAX = 6.0
+NVFP4_SCALE_MAX = _F4_MAX * E4M3_MAX
+NVFP4_AMAX_FLOOR = 1e-12
 
 
 def parse_comfy_quant(blob: torch.Tensor | None) -> dict | None:
@@ -203,11 +205,11 @@ def dequantize_nvfp4(
 
 
 def nvfp4_activation_amax(x2d: torch.Tensor) -> torch.Tensor:
-    return torch.linalg.vector_norm(x2d.detach(), ord=float("inf")).to(torch.float32)
+    return torch.linalg.vector_norm(x2d.detach(), ord=float("inf"))
 
 
 def nvfp4_tensor_scale(tensor_amax: torch.Tensor) -> torch.Tensor:
-    return tensor_amax.to(torch.float32).clamp(min=1e-12) / (_F4_MAX * E4M3_MAX)
+    return tensor_amax.to(torch.float32).clamp(min=NVFP4_AMAX_FLOOR) / NVFP4_SCALE_MAX
 
 
 def quantize_nvfp4_dynamic(

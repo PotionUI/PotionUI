@@ -3,7 +3,7 @@ import type { AxiosInstance } from 'axios';
 
 vi.mock('$lib/services/api/index', () => ({ api: { getClient: () => ({}) } }));
 
-import { createElixirsApi } from './elixirs';
+import { createElixirsApi, runQueryString } from './elixirs';
 
 interface Seen {
 	method: string;
@@ -122,5 +122,31 @@ describe('elixirs api', () => {
 		expect(refused.ok).toBe(false);
 		const versions = await createElixirsApi(axiosReturning({ data: [{ version_number: 2 }] }).client).listVersions('s1');
 		expect(versions).toEqual({ ok: true, data: [{ version_number: 2 }] });
+	});
+});
+
+describe('elixirs run history api', () => {
+	it('lists a page of runs with only the filters that are set', async () => {
+		const { calls, client } = axiosReturning({ runs: [], total: 0, active: 0, limit: 5, offset: 0 });
+		const elixirs = createElixirsApi(client);
+		await elixirs.listRuns('e 1', { limit: 5 });
+		await elixirs.listRuns('e1', { status: 'failed', from: '2026-10-01', q: '', run_mode: undefined, limit: 50, offset: 100 });
+		await elixirs.listRuns('e1');
+		expect(calls.map((call) => call.url)).toEqual([
+			'/api/elixirs/e%201/runs?limit=5',
+			'/api/elixirs/e1/runs?status=failed&from=2026-10-01&limit=50&offset=100',
+			'/api/elixirs/e1/runs'
+		]);
+		expect(runQueryString({ offset: 0 })).toBe('?offset=0');
+	});
+
+	it('cancels chosen runs or every active run', async () => {
+		const { calls, client } = axiosReturning({ cancelled: ['r1'] });
+		const elixirs = createElixirsApi(client);
+		await elixirs.cancelRuns('e1', { run_ids: ['r1', 'r2'] });
+		await elixirs.cancelRuns('e1', { all_active: true });
+		expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual(['POST /api/elixirs/e1/runs/cancel', 'POST /api/elixirs/e1/runs/cancel']);
+		expect(calls[0].data).toEqual({ run_ids: ['r1', 'r2'] });
+		expect(calls[1].data).toEqual({ all_active: true });
 	});
 });

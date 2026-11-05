@@ -1,6 +1,8 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, NoReturn, Optional
+import re
+from datetime import date
+from typing import TYPE_CHECKING, Any, Callable, Dict, Literal, NoReturn, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.features.elixirs.components import ElixirsComponents
 from src.features.elixirs.contracts import lint_contract
@@ -14,6 +16,7 @@ from src.features.elixirs.definitions import (
     own_settings,
 )
 from src.features.elixirs.dto import (
+    CancelBrewsRequest,
     CreateElixirRequest,
     EditTextRequest,
     FollowSessionRequest,
@@ -58,6 +61,19 @@ def _writer(nodes, status: Callable[[User, Optional[str]], Dict[str, Any]], user
         return known[llm_id]
 
     return lookup
+
+
+DEFAULT_BREW_PAGE = 50
+MAX_BREW_PAGE = 200
+DAY_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _is_day(value: str) -> bool:
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return bool(DAY_PATTERN.fullmatch(value))
 
 
 def _fail(status: int, code: str, message: str, **extra: Any) -> NoReturn:
@@ -549,12 +565,57 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
     @router.get("/{elixir_id}/runs")
     def list_brews(
         elixir_id: str,
+        status: Literal["all", "active", "finished", "failed", "cancelled"] = "all",
+        date_from: Optional[str] = Query(None, alias="from"),
+        date_to: Optional[str] = Query(None, alias="to"),
+        run_mode: Optional[Literal["review", "automatic"]] = None,
+        scope: Optional[Literal["elixir", "node"]] = None,
+        q: Optional[str] = Query(None, max_length=200),
+        limit: int = Query(DEFAULT_BREW_PAGE, ge=1, le=MAX_BREW_PAGE),
+        offset: int = Query(0, ge=0),
         user: User = Depends(get_current_active_user),
     ):
         repository = elixirs.repository
         coordinator = elixirs.coordinator
         _owned(repository, elixir_id, user)
-        return {"runs": coordinator.store.list_runs(elixir_id, user.id)}
+        for value in (date_from, date_to):
+            if value and not _is_day(value):
+                _fail(422, "invalid_date", "Dates must look like YYYY-MM-DD.")
+        page = coordinator.store.page_runs(
+            elixir_id,
+            user.id,
+            status=status,
+            date_from=date_from,
+            date_to=date_to,
+            run_mode=run_mode,
+            scope=scope,
+            query=q,
+            limit=limit,
+            offset=offset,
+        )
+        return {**page, "limit": limit, "offset": offset}
+
+    @router.post("/{elixir_id}/runs/cancel")
+    def cancel_brews(
+        elixir_id: str,
+        body: CancelBrewsRequest,
+        user: User = Depends(get_current_active_user),
+    ):
+        repository = elixirs.repository
+        coordinator = elixirs.coordinator
+        _owned(repository, elixir_id, user)
+        if body.run_ids is None and not body.all_active:
+            _fail(422, "nothing_to_cancel", "Choose brews to stop, or stop all active brews.")
+        wanted = None if body.all_active else list(dict.fromkeys(body.run_ids or []))
+        cancelled = []
+        for run_id in coordinator.store.cancellable_run_ids(elixir_id, user.id, wanted):
+            try:
+                run = coordinator.request_cancel(user, run_id)
+            except BrewRefused:
+                continue
+            if run.get("cancel_requested_at"):
+                cancelled.append(run_id)
+        return {"cancelled": cancelled}
 
     @router.post("/{elixir_id}/nodes/{node_id}/runs", status_code=201)
     def run_node(

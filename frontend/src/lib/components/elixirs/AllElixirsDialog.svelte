@@ -2,6 +2,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Menu, Spinner, LoadErrorState } from '$lib/components/ui';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
@@ -11,12 +12,27 @@
 	import { ELIXIR_TOOL, closeElixirTabs, elixirIdOf, openElixirTab, renameElixirTabs } from '$lib/elixirs/tab';
 	import { elixirRenamed } from '$lib/elixirs/events';
 	import { pollDelay } from '$lib/elixirs/listing';
-	import { MANAGE_FILTERS, copyName, deleteBlocked, manageRows, rowStatus, stepWord, type PickerSummary } from '$lib/elixirs/picker';
+	import { MANAGE_FILTERS, copyName, deleteBlocked as baseBlocked, manageRows, rowStatus, stepWord, type PickerSummary } from '$lib/elixirs/picker';
 	import { relativeTime } from '$lib/elixirs/time';
 	import ElixirThumbs from './ElixirThumbs.svelte';
 	import StatusDot from './StatusDot.svelte';
 
 	let { onclose }: { onclose: () => void } = $props();
+
+	function activeOf(elixir: PickerSummary): number {
+		return Number(elixir.active_runs ?? 0);
+	}
+
+	function activeText(elixir: PickerSummary): string {
+		const count = activeOf(elixir);
+		return `${count} active ${count === 1 ? 'brew' : 'brews'}`;
+	}
+
+	function deleteBlocked(elixir: PickerSummary, tab: ToolTabStatus | null | undefined): string | null {
+		const count = activeOf(elixir);
+		if (count > 1) return `Stop its ${count} active brews first`;
+		return baseBlocked(elixir, tab) ?? (count === 1 ? 'Stop its active brew first' : null);
+	}
 
 	const TONE_TEXT: Record<string, string> = {
 		signal: 'text-signal',
@@ -243,6 +259,13 @@
 						<div class="flex min-w-0 items-center gap-1.5 text-sm {TONE_TEXT[status.tone] ?? 'text-fg-subtle'}" role="cell">
 							{#if status.tone !== 'neutral'}<StatusDot tone={status.tone} pulse={status.pulse} ring={status.ring} />{/if}
 							<span class="truncate">{status.label}</span>
+							{#if activeOf(elixir) > 0}
+								<Tooltip text={activeText(elixir)}>
+									<span class="brews-badge" data-testid="active-brews-badge" role="img" aria-label={activeText(elixir)}>
+										<Icon name="flask" className="h-3 w-3" /><span class="font-mono tabular-nums">{activeOf(elixir)}</span>
+									</span>
+								</Tooltip>
+							{/if}
 						</div>
 						<div class="col-outputs" role="cell">
 							{#if (elixir.latest_outputs ?? []).length > 0}
@@ -358,7 +381,7 @@
 	.mrow {
 		display: grid;
 		min-height: 56px;
-		grid-template-columns: minmax(0, 1.7fr) 170px 104px 96px 136px;
+		grid-template-columns: minmax(0, 1.5fr) 232px 104px 96px 136px;
 		align-items: center;
 		gap: 12px;
 		padding: 8px 16px;
@@ -402,6 +425,19 @@
 		font-size: 13px;
 		font-weight: 600;
 		outline: none;
+	}
+
+	.brews-badge {
+		display: inline-flex;
+		height: 20px;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 4px;
+		padding: 0 6px;
+		border: 1px solid rgb(var(--signal) / 0.4);
+		border-radius: 4px;
+		color: rgb(var(--signal));
+		font-size: 12px;
 	}
 
 	.open-chip {

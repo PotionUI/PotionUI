@@ -278,6 +278,13 @@ class NodeRunRequest(BaseModel):
     session_hashes: Dict[ElementId, SessionHash] = Field(default_factory=dict, max_length=MAX_STORED_NODES)
 
 
+class CancelBrewsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_ids: Optional[List[Annotated[str, StringConstraints(min_length=1, max_length=200)]]] = Field(default=None, max_length=1000)
+    all_active: bool = False
+
+
 class EditTextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -237,15 +237,19 @@ export function stepState(view: (Pick<NodeRunView, 'status'> & { writer?: boolea
 	return { word, tone: STEP_TONES[view.status] ?? 'neutral' };
 }
 
-export function brewNumber(runs: Array<Pick<Run, 'id'>> | null | undefined, runId: string | null | undefined): number | null {
-	const index = (runs ?? []).findIndex((item) => item.id === runId);
-	return index === -1 ? null : (runs as unknown[]).length - index;
+type Numbered = Pick<Run, 'id' | 'number'>;
+
+export function brewNumber(runs: Numbered[] | null | undefined, runId: string | null | undefined): number | null {
+	const list = runs ?? [];
+	const index = list.findIndex((item) => item.id === runId);
+	if (index === -1) return null;
+	return list[index].number ?? list.length - index;
 }
 
-export function brewName(runs: Array<Pick<Run, 'id' | 'scope'>> | null | undefined, runId: string | null | undefined): string {
+export function brewName(runs: Array<Numbered & Pick<Run, 'scope'>> | null | undefined, runId: string | null | undefined): string {
 	const number = brewNumber(runs, runId);
 	if (number === null) return '';
-	const item = (runs as Array<Pick<Run, 'id' | 'scope'>>).find((entry) => entry.id === runId);
+	const item = (runs as Array<Numbered & Pick<Run, 'scope'>>).find((entry) => entry.id === runId);
 	return item?.scope === 'node' ? `Node run ${number}` : `Brew ${number}`;
 }
 

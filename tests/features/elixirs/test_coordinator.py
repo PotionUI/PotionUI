@@ -576,7 +576,7 @@ def test_files_a_brew_still_needs_cannot_be_deleted(coordinator, port, alice, co
     free = SimpleNamespace(data={"generation_id": "other"})
     hooks.on_before_delete(free)
     assert single.data["blocked"] is True and "still needs files" in single.data["block_reason"]
-    assert bulk.data["blocked"] is True and "(1 of the selected generations)" in bulk.data["block_reason"]
+    assert bulk.data["blocked"] is True and "1 of the selected generations is still needed" in bulk.data["block_reason"]
     assert "blocked" not in free.data
     coordinator.request_cancel(alice, run["id"])
     asyncio.run(coordinator.pump())

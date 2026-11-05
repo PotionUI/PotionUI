@@ -30,7 +30,7 @@ export function watchElixirTab(context: ToolTabWatchContext, client: () => Elixi
 	const tick = async () => {
 		if (stopped) return;
 		const api = client();
-		const listed = await api.listRuns(elixirId);
+		const listed = await api.listRuns(elixirId, { limit: 1 });
 		if (stopped) return;
 		const latest = listed.ok ? (listed.data?.runs?.[0] ?? null) : null;
 		if (!latest || (!LIVE.has(latest.status) && !wasBrewing)) {

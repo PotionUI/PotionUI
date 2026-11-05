@@ -189,6 +189,7 @@ export interface Invocation {
 
 export interface Run {
 	id?: string;
+	number?: number;
 	status: string;
 	scope?: string;
 	created_at?: string | null;
@@ -200,9 +201,54 @@ export interface Run {
 	invocations?: Invocation[];
 }
 
+export interface BrewRun {
+	id: string;
+	number: number;
+	scope: 'elixir' | 'node';
+	scope_node_id: string | null;
+	scope_label: string | null;
+	run_mode: 'review' | 'automatic';
+	status: string;
+	error: string | null;
+	elixir_revision: number;
+	steps_done: number;
+	steps_total: number;
+	outputs: number;
+	created_at: string;
+	updated_at: string;
+	finished_at: string | null;
+}
+
+export interface RunQuery {
+	status?: string;
+	from?: string;
+	to?: string;
+	run_mode?: string;
+	scope?: string;
+	q?: string;
+	limit?: number;
+	offset?: number;
+}
+
+export interface RunPage {
+	runs: BrewRun[];
+	total: number;
+	active: number;
+	limit: number;
+	offset: number;
+}
+
+export interface BlockingRun {
+	elixir_id: string;
+	elixir_name: string;
+	run_id: string;
+	number: number;
+}
+
 export interface ElixirSummary {
 	id: string;
 	name: string;
+	active_runs?: number;
 	status?: string;
 	status_at?: string | null;
 	latest_outputs?: OutputEntry[];

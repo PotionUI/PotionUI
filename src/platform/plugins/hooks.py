@@ -97,7 +97,11 @@ def run_veto_hook(
     if blocked:
         reason = result.get("block_reason", default_reason)
         logger.warning("%s blocked by plugin: %s", hook, reason)
-        raise error(reason)
+        failure = error(reason)
+        details = result.get("block_details")
+        if isinstance(details, dict):
+            failure.block_details = details
+        raise failure
     return result
 
 

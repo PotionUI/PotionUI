@@ -10,7 +10,18 @@ from src.features.sessions.hooks import SESSION_HOOKS
 logger = logging.getLogger(__name__)
 
 SUBSCRIBER_ID = "elixirs_engine"
-HOLD_REASON = "An elixir brew still needs files from this generation. Stop or finish that brew first."
+
+def _brew_name(holder: dict) -> str:
+    name = holder.get("elixir_name") or "an elixir"
+    number = holder.get("number")
+    return f"Brew {number} of {name}" if number else f"A brew of {name}"
+
+
+def _blocking_runs(holders: list) -> list:
+    return [
+        {"elixir_id": item["elixir_id"], "elixir_name": item["elixir_name"], "run_id": item["run_id"], "number": item["number"]}
+        for item in holders
+    ]
 
 
 def hook_data(context: Any) -> dict:
@@ -70,17 +81,31 @@ class ElixirRuntime:
 
     def on_before_delete(self, context):
         data = hook_data(context)
-        if self.coordinator.store.generations_in_use([data.get("generation_id")]):
+        generation_id = data.get("generation_id")
+        holders = self.coordinator.store.generation_holders([generation_id]).get(generation_id)
+        if holders:
             data["blocked"] = True
-            data["block_reason"] = HOLD_REASON
+            data["block_reason"] = f"{_brew_name(holders[0])} still needs files from this generation. Stop or finish that brew first."
+            data["block_details"] = {"blocking_runs": _blocking_runs(holders)}
         return context
 
     def on_before_bulk_delete(self, context):
         data = hook_data(context)
-        held = self.coordinator.store.generations_in_use(data.get("generation_ids") or [])
+        held = self.coordinator.store.generation_holders(data.get("generation_ids") or [])
         if held:
+            runs: dict = {}
+            for holders in held.values():
+                for item in holders:
+                    runs.setdefault(item["run_id"], item)
+            first = next(iter(runs.values()))
+            count = len(held)
+            verb = "is" if count == 1 else "are"
             data["blocked"] = True
-            data["block_reason"] = f"{HOLD_REASON} ({len(held)} of the selected generations)"
+            data["block_reason"] = (
+                f"{count} of the selected generations {verb} still needed by running brews, starting with {_brew_name(first)}. "
+                "Stop or finish those brews first."
+            )
+            data["block_details"] = {"blocking_runs": _blocking_runs(list(runs.values()))}
         return context
 
     def on_session_updated(self, context):

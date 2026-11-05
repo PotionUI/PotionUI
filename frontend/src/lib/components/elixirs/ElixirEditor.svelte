@@ -34,6 +34,9 @@
 	import LaneMenu, { type LaneMenuData, type LaneMenuGroup, type LaneMenuItem } from './LaneMenu.svelte';
 	import NodePanel from './NodePanel.svelte';
 	import ElixirHeader from './ElixirHeader.svelte';
+	import BrewHistoryDialog from './BrewHistoryDialog.svelte';
+	import { brewRequest } from '$lib/elixirs/openBrew';
+	import type { BrewRun } from '$lib/elixirs/types';
 	import ElixirEmptyState from './ElixirEmptyState.svelte';
 	import SessionPicker from './SessionPicker.svelte';
 	import { openMediaPicker } from '$lib/elixirs/overlays';
@@ -146,6 +149,7 @@
 
 	interface RunSummary {
 		id: string;
+		number?: number;
 		status: string;
 		scope?: string;
 		created_at?: string | null;
@@ -192,6 +196,7 @@
 	const confirmAction = confirmDialog;
 
 	const WRITER_PROBLEMS = new Set(['no_llm', 'llm_cannot_see']);
+	const RECENT_BREWS = 5;
 	const RUN_MODES = [
 		{ id: 'review', label: 'Choose outputs between presets' },
 		{ id: 'automatic', label: 'Run all branches' }
@@ -236,6 +241,19 @@
 	let phone = $derived(narrow || hostPhone);
 	let run = $state.raw<Run | null>(null);
 	let runs = $state.raw<RunSummary[]>([]);
+	let runsTotal = $state(0);
+	let runsActive = $state(0);
+	let historyOpen = $state(false);
+	let historyQuery = $state('');
+	let seeding = false;
+
+	$effect(() => {
+		const request = $brewRequest;
+		if (!request || request.elixirId !== id) return;
+		brewRequest.set(null);
+		historyQuery = String(request.number);
+		historyOpen = true;
+	});
 	let brewing = $state(false);
 	let runBusy = $state(false);
 	let pollTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1065,18 +1083,40 @@
 	}
 
 	async function loadRuns() {
-		const listed = await client.listRuns(id);
+		const listed = await client.listRuns(id, { limit: RECENT_BREWS });
 		if (!listed.ok || destroyed) return;
 		runs = listed.data.runs;
-		if (runs.length > 0) await showRun(runs[0].id);
+		runsTotal = listed.data.total;
+		runsActive = listed.data.active;
+		if (runs.length > 0) {
+			seeding = true;
+			await showRun(runs[0].id);
+			seeding = false;
+		}
 	}
 
-	async function showRun(runId: string) {
+	async function refreshRuns() {
+		const listed = await client.listRuns(id, { limit: RECENT_BREWS });
+		if (!listed.ok || destroyed) return;
+		const current = run?.id ? runs.find((item) => item.id === run!.id) : undefined;
+		runs = listed.data.runs;
+		if (current && !runs.some((item) => item.id === current.id)) runs = [...runs, current];
+		runsTotal = listed.data.total;
+		runsActive = listed.data.active;
+	}
+
+	async function showRun(runId: string, hint?: Pick<BrewRun, 'number'>) {
 		const result = await client.getRun(runId);
-		if (result.ok && !destroyed) setRun(result.data);
+		if (result.ok && !destroyed) setRun(result.data, hint);
 	}
 
-	function setRun(next: Run) {
+	function openFromHistory(item: BrewRun) {
+		historyOpen = false;
+		void showRun(item.id, item);
+	}
+
+	function setRun(next: Run, hint?: Pick<BrewRun, 'number'>) {
+		const changed = !seeding && (!run || run.id !== next.id || run.status !== next.status);
 		const finished = run && run.id === next.id && isActive(run) && !isActive(next);
 		if (run?.id !== next.id) {
 			for (const timer of draftTimers.values()) clearTimeout(timer);
@@ -1085,10 +1125,14 @@
 			activeLanes = {};
 		}
 		run = next;
-		const summary: RunSummary = { id: next.id as string, status: next.status, scope: next.scope, created_at: next.created_at };
+		const summary: RunSummary = { id: next.id as string, number: next.number ?? hint?.number, status: next.status, scope: next.scope, created_at: next.created_at };
+		const newest = runs.length === 0 || (summary.created_at ?? '') >= (runs[0].created_at ?? '');
 		runs = runs.some((item) => item.id === next.id)
-			? runs.map((item) => (item.id === next.id ? { ...item, ...summary } : item))
-			: [summary, ...runs];
+			? runs.map((item) => (item.id === next.id ? { ...item, ...summary, number: summary.number ?? item.number } : item))
+			: newest
+				? [summary, ...runs]
+				: [...runs, summary];
+		if (changed) void refreshRuns();
 		schedulePoll();
 		if (finished) refreshResults();
 	}
@@ -1869,6 +1913,12 @@
 			setupCodes={SETUP_CODES}
 			{run}
 			{runs}
+			runsTotal={runsTotal}
+			activeRuns={runsActive}
+			onviewall={() => {
+				historyQuery = '';
+				historyOpen = true;
+			}}
 			{steps}
 			{latestActive}
 			{runBusy}
@@ -2029,6 +2079,20 @@
 		{/if}
 	{/if}
 	<LaneMenu {menu} {phone} onclose={() => (menu = null)} />
+	{#if historyOpen}
+		<BrewHistoryDialog
+			elixirId={id}
+			elixirName={name.trim() || 'Untitled elixir'}
+			initialQuery={historyQuery}
+			onclose={() => (historyOpen = false)}
+			onopen={openFromHistory}
+			onbrew={() => {
+				historyOpen = false;
+				void brew();
+			}}
+			onchange={() => void refreshRuns()}
+		/>
+	{/if}
 	<p class="sr-only" aria-live="polite">{announcement}</p>
 {/if}
 </div>

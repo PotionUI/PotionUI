@@ -121,6 +121,10 @@ _INVALID_TAG = {InvalidTagException: Fail("invalid_tag", status=400)}
 _INVALID_DATE = {InvalidDateFilterException: Fail("invalid_date_format", status=400)}
 
 
+def _block_details(exc: Exception) -> dict:
+    return getattr(exc, "block_details", None) or {}
+
+
 class GenerationController(BaseController):
     def __init__(
         self,
@@ -554,7 +558,7 @@ class GenerationController(BaseController):
         return self.success_response(data={'version': version})
 
     @guarded(
-        {**_NOT_FOUND, GenerationDeleteFailedException: Fail("delete_failed", status=400)},
+        {**_NOT_FOUND, GenerationDeleteFailedException: Fail("delete_failed", status=400, extra=_block_details)},
         Fail("delete_failed", "Failed to delete generation", detail=failure_detail, status=400),
         admin="current_user",
     )
@@ -577,7 +581,7 @@ class GenerationController(BaseController):
         return self.success_response(message=message)
 
     @guarded(
-        {GenerationDeleteFailedException: Fail("bulk_delete_blocked", status=400)},
+        {GenerationDeleteFailedException: Fail("bulk_delete_blocked", status=400, extra=_block_details)},
         Fail("bulk_delete_failed", "Failed to bulk delete generations", detail=failure_detail, status=400),
         admin="current_user",
     )
@@ -730,7 +734,7 @@ class GenerationController(BaseController):
             **_INVALID_TAG,
             **_INVALID_DATE,
             ValueError: Fail("validation_error", status=400),
-            GenerationDeleteFailedException: Fail("bulk_delete_blocked", status=400),
+            GenerationDeleteFailedException: Fail("bulk_delete_blocked", status=400, extra=_block_details),
         },
         Fail("bulk_delete_failed", "Failed to bulk delete generations by tags", detail=failure_detail, status=400),
         admin="current_user",

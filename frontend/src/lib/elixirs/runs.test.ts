@@ -185,6 +185,10 @@ test('the run strip names brews by number and each step in a word', () => {
 	expect(brewName(runs, 'r1')).toBe('Brew 1');
 	expect(brewName(runs, 'r2')).toBe('Node run 2');
 	expect(brewName(runs, 'missing')).toBe('');
+	const paged = [{ id: 'r312', number: 312, scope: 'elixir' }, { id: 'r311', number: 311, scope: 'node' }];
+	expect(brewNumber(paged, 'r311')).toBe(311);
+	expect(brewName(paged, 'r312')).toBe('Brew 312');
+	expect(brewName(paged, 'r311')).toBe('Node run 311');
 	expect(stepState(null)).toStrictEqual({ word: 'Not brewed', tone: 'neutral' });
 	expect(stepState({ status: 'choose' })).toStrictEqual({ word: 'Your choice', tone: 'signal' });
 	expect(stepState({ status: 'failed' })).toStrictEqual({ word: 'Failed', tone: 'danger' });

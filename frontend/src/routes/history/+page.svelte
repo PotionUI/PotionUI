@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
+	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { showDeleteError } from '$lib/elixirs/openBrew';
 	import { onMount, onDestroy } from 'svelte';
 	import { generationIdOf } from '$lib/generation/messages/wire';
 	import { goto } from '$app/navigation';
@@ -378,7 +379,7 @@
 			try {
 				await historyStore.deleteGrid(target.grid.id);
 			} catch (error) {
-				toasts.error(getApiErrorMessage(error));
+				showDeleteError(error);
 			}
 			return;
 		}
@@ -388,7 +389,7 @@
 			generationToDelete = null;
 		} catch (error) {
 			logger.error('Failed to delete generation:', error);
-			toasts.error(getApiErrorMessage(error));
+			showDeleteError(error);
 		}
 	}
 

@@ -11,11 +11,32 @@ from src.features.elixirs.records import (
     RUNS_TABLE,
     utc_now,
 )
+from src.features.elixirs.vocabulary import UNTITLED, node_label
 from src.platform.util.ids import generate_ulid
 
 RUN_JSON_FIELDS = ("graph", "templates", "capability_digests", "pinned_inputs", "node_states", "checkpoints")
 INVOCATION_JSON_FIELDS = ("input_ref", "request", "outputs")
 
+
+STATUS_GROUPS = {
+    "active": ACTIVE_RUN_STATUSES,
+    "finished": ("completed", "partial"),
+    "failed": ("failed", "interrupted"),
+    "cancelled": ("cancelled",),
+}
+CANCELLABLE_RUN_STATUSES = ("pending", "running", "awaiting_selection", "needs_attention")
+DAY_START = " 00:00:00"
+DAY_END = " 23:59:59"
+
+def _escape_like(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+def _step_title_sql() -> str:
+    kinds = " ".join(f"WHEN '{kind}' THEN '{label}'" for kind, label in UNTITLED.items())
+    return (
+        "COALESCE(NULLIF(TRIM(json_extract(n.value, '$.title')), ''), "
+        f"CASE json_extract(n.value, '$.kind') {kinds} ELSE 'Untitled preset node' END)"
+    )
 
 def _placeholders(values) -> str:
     return ", ".join("?" for _ in values)
@@ -27,6 +48,13 @@ def _run_from_row(row) -> Dict[str, Any]:
         run[field] = json.loads(run[field]) if run.get(field) else {}
     return run
 
+
+def _decode(value) -> Dict[str, Any]:
+    try:
+        decoded = json.loads(value) if value else {}
+    except (TypeError, ValueError):
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
 
 def _invocation_from_row(row) -> Dict[str, Any]:
     invocation = dict(row)
@@ -53,6 +81,9 @@ class RunStore:
         run_id = fields.get("id") or generate_ulid()
         now = utc_now()
         row = _encode({**fields, "id": run_id, "created_at": now, "updated_at": now}, RUN_JSON_FIELDS)
+        if row.get("elixir_id") and "number" not in row:
+            cursor.execute(f"SELECT COALESCE(MAX(number), 0) + 1 FROM {RUNS_TABLE} WHERE elixir_id = ?", (row["elixir_id"],))
+            row["number"] = cursor.fetchone()[0]
         cursor.execute(
             f"INSERT INTO {RUNS_TABLE} ({', '.join(row)}) VALUES ({_placeholders(row)})",
             tuple(row.values()),
@@ -99,6 +130,110 @@ class RunStore:
                 (elixir_id, user_id),
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    def page_runs(
+        self,
+        elixir_id: str,
+        user_id: str,
+        *,
+        status: str = "all",
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        run_mode: Optional[str] = None,
+        scope: Optional[str] = None,
+        query: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        from src.platform.database.database import db
+
+        conditions = ["r.elixir_id = ?", "r.user_id = ?"]
+        params: List[Any] = [elixir_id, user_id]
+        if status in STATUS_GROUPS:
+            conditions.append(f"r.status IN ({_placeholders(STATUS_GROUPS[status])})")
+            params.extend(STATUS_GROUPS[status])
+        if date_from:
+            conditions.append("datetime(r.created_at) >= datetime(?)")
+            params.append(date_from + DAY_START)
+        if date_to:
+            conditions.append("datetime(r.created_at) <= datetime(?)")
+            params.append(date_to + DAY_END)
+        if run_mode:
+            conditions.append("r.run_mode = ?")
+            params.append(run_mode)
+        if scope == "node":
+            conditions.append("r.scope = 'node'")
+        elif scope == "elixir":
+            conditions.append("r.scope <> 'node'")
+        text = (query or "").strip().lstrip("#").strip()
+        if text:
+            title = (
+                "r.scope = 'node' AND EXISTS (SELECT 1 FROM json_each(r.graph, '$.nodes') n "
+                f"WHERE json_extract(n.value, '$.id') = r.scope_node_id AND LOWER({_step_title_sql()}) LIKE ? ESCAPE '\\')"
+            )
+            like = f"%{_escape_like(text.lower())}%"
+            if text.isdigit():
+                conditions.append(f"(r.number = ? OR ({title}))")
+                params.extend([int(text), like])
+            else:
+                conditions.append(f"({title})")
+                params.append(like)
+        where = " AND ".join(conditions)
+        with db.get_cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) FROM {RUNS_TABLE} r WHERE {where}", params)
+            total = cursor.fetchone()[0]
+            cursor.execute(
+                f"SELECT COUNT(*) FROM {RUNS_TABLE} WHERE elixir_id = ? AND user_id = ? AND status IN ({_placeholders(ACTIVE_RUN_STATUSES)})",
+                (elixir_id, user_id, *ACTIVE_RUN_STATUSES),
+            )
+            active = cursor.fetchone()[0]
+            cursor.execute(
+                f"""
+                SELECT r.id, r.elixir_id, r.number, r.elixir_revision, r.scope, r.scope_node_id, r.scope_edge_id, r.base_run_id,
+                       r.run_mode, r.status, r.error, r.created_at, r.updated_at, r.finished_at, r.graph, r.node_states
+                FROM {RUNS_TABLE} r WHERE {where} ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?
+                """,
+                (*params, limit, offset),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+            totals: Dict[str, int] = {}
+            if rows:
+                ids = [row["id"] for row in rows]
+                cursor.execute(
+                    f"SELECT run_id, SUM(json_array_length(outputs)) AS total FROM {INVOCATIONS_TABLE} "
+                    f"WHERE run_id IN ({_placeholders(ids)}) AND status = 'completed' GROUP BY run_id",
+                    ids,
+                )
+                totals = {row["run_id"]: int(row["total"] or 0) for row in cursor.fetchall()}
+        runs = []
+        for row in rows:
+            graph = _decode(row.pop("graph"))
+            states = _decode(row.pop("node_states"))
+            nodes = [node for node in graph.get("nodes") or [] if node.get("kind") != "media"]
+            tracked = [node for node in nodes if node.get("id") in states]
+            scoped = next((node for node in graph.get("nodes") or [] if node.get("id") == row["scope_node_id"]), None)
+            runs.append({
+                **row,
+                "scope_label": node_label(scoped) if scoped is not None and row["scope"] == "node" else None,
+                "steps_total": len(tracked),
+                "steps_done": sum(1 for node in tracked if states[node["id"]].get("status") == "done"),
+                "outputs": totals.get(row["id"], 0),
+            })
+        return {"runs": runs, "total": total, "active": active}
+
+    def cancellable_run_ids(self, elixir_id: str, user_id: str, run_ids: Optional[List[str]] = None) -> List[str]:
+        from src.platform.database.database import db
+
+        conditions = ["elixir_id = ?", "user_id = ?", f"status IN ({_placeholders(CANCELLABLE_RUN_STATUSES)})"]
+        params: List[Any] = [elixir_id, user_id, *CANCELLABLE_RUN_STATUSES]
+        if run_ids is not None:
+            if not run_ids:
+                return []
+            conditions.append(f"id IN ({_placeholders(run_ids)})")
+            params.extend(run_ids)
+        with db.get_cursor() as cursor:
+            cursor.execute(f"SELECT id FROM {RUNS_TABLE} WHERE {' AND '.join(conditions)} ORDER BY created_at, id", params)
+            return [row["id"] for row in cursor.fetchall()]
 
     def active_run_ids(self) -> List[str]:
         from src.platform.database.database import db
@@ -248,15 +383,16 @@ class RunStore:
         )
         return cursor.rowcount
 
-    def generations_in_use(self, generation_ids) -> set:
+    def generation_holders(self, generation_ids) -> Dict[str, List[Dict[str, Any]]]:
         wanted = {generation_id for generation_id in generation_ids if generation_id}
         if not wanted:
-            return set()
-        held: set = set()
+            return {}
+        holders: Dict[str, List[str]] = {}
         for run_id in self.active_run_ids():
             run = self.get_run(run_id)
             if run is None:
                 continue
+            held: set = set()
             for checkpoint in run["checkpoints"].values():
                 if checkpoint.get("confirmed") is None:
                     held.update(entry.get("generation_id") for entry in checkpoint.get("eligible") or [])
@@ -265,7 +401,24 @@ class RunStore:
                     continue
                 held.add(item.get("generation_id"))
                 held.add((item.get("input_ref") or {}).get("generation_id"))
-        return wanted & held
+            for generation_id in wanted & held:
+                holders.setdefault(generation_id, []).append(run_id)
+        rows = {row["run_id"]: row for row in self._holder_rows(sorted({run_id for ids in holders.values() for run_id in ids}))}
+        return {generation_id: [rows[run_id] for run_id in ids if run_id in rows] for generation_id, ids in holders.items()}
+
+    def _holder_rows(self, run_ids: List[str]) -> List[Dict[str, Any]]:
+        from src.platform.database.database import db
+
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT r.id AS run_id, r.elixir_id AS elixir_id, r.number AS number, e.name AS elixir_name
+                FROM {RUNS_TABLE} r LEFT JOIN {ELIXIRS_TABLE} e ON e.id = r.elixir_id
+                WHERE r.id IN ({_placeholders(run_ids)}) ORDER BY r.created_at, r.id
+                """,
+                run_ids,
+            )
+            return [dict(row) for row in cursor.fetchall()]
 
     def set_invocation_outputs(self, cursor, invocation_id: str, outputs: List[Dict[str, Any]]) -> None:
         cursor.execute(

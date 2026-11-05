@@ -211,3 +211,33 @@ async def test_the_soft_flag_applies_to_plain_guarded_too():
 
     assert response.success is False
 
+
+
+class Held(Exception):
+    pass
+
+
+class Extras(BaseController):
+    @guarded({Held: Fail("held", "Held", status=400, extra=lambda exc: getattr(exc, "extras", None))})
+    async def run(self, raised):
+        raise raised
+
+
+async def test_extra_fields_are_merged_into_the_error_detail():
+    raised = Held()
+    raised.extras = {"blocking": [1, 2], "message": "ignored"}
+
+    with pytest.raises(HTTPException) as caught:
+        await Extras().run(raised)
+
+    assert caught.value.detail["blocking"] == [1, 2]
+    assert caught.value.detail["error"] == "held"
+    assert caught.value.detail["message"] == "Held"
+
+
+async def test_an_extra_that_returns_nothing_changes_nothing():
+    with pytest.raises(HTTPException) as caught:
+        await Extras().run(Held())
+
+    assert set(caught.value.detail) == {"success", "error", "message", "code"}
+    assert caught.value.detail["message"] == "Held"

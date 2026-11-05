@@ -141,4 +141,8 @@ def summaries(repository, records: Iterable[ElixirRecord], user_id: str) -> Dict
     ids = [record.id for record in records]
     runs = repository.latest_runs(user_id, ids)
     outputs = recent_outputs(repository, user_id, ids, {record.id: final_nodes(record) for record in records})
-    return {record.id: summarize(record, runs.get(record.id), outputs.get(record.id)) for record in records}
+    active = repository.active_run_counts(user_id, ids)
+    return {
+        record.id: {**summarize(record, runs.get(record.id), outputs.get(record.id)), "active_runs": active.get(record.id, 0)}
+        for record in records
+    }

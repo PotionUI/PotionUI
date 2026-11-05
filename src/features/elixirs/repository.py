@@ -182,6 +182,22 @@ class ElixirRepository:
             runs[run["elixir_id"]] = run
         return runs
 
+    def active_run_counts(self, user_id: str, elixir_ids: List[str]) -> Dict[str, int]:
+        from src.platform.database.database import db
+
+        if not elixir_ids:
+            return {}
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT elixir_id, COUNT(*) AS total FROM {RUNS_TABLE}
+                WHERE user_id = ? AND elixir_id IN ({_placeholders(elixir_ids)}) AND status IN ({_placeholders(ACTIVE_RUN_STATUSES)})
+                GROUP BY elixir_id
+                """,
+                (user_id, *elixir_ids, *ACTIVE_RUN_STATUSES),
+            )
+            return {row["elixir_id"]: int(row["total"]) for row in cursor.fetchall()}
+
     def recent_completed_outputs(self, user_id: str, elixir_ids: List[str], per_elixir: int) -> List[Dict[str, Any]]:
         from src.platform.database.database import db
 

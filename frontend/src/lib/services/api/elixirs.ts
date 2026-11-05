@@ -1,5 +1,6 @@
 import type { AxiosInstance } from 'axios';
 import { api } from '$lib/services/api/index';
+import type { RunPage, RunQuery } from '$lib/elixirs/types';
 
 export interface ElixirApiError {
 	code: string;
@@ -34,6 +35,16 @@ async function call<T = any>(run: () => Promise<any>, fallback: string): Promise
 	} catch {
 		return { ok: false, error: { code: 'network', message: fallback } };
 	}
+}
+
+export function runQueryString(query: RunQuery): string {
+	const params = new URLSearchParams();
+	for (const [key, value] of Object.entries(query)) {
+		if (value === undefined || value === null || value === '') continue;
+		params.set(key, String(value));
+	}
+	const text = params.toString();
+	return text ? `?${text}` : '';
 }
 
 function id(value: string): string {
@@ -80,7 +91,10 @@ export function createElixirsApi(client: AxiosInstance) {
 		startBrew: (elixirId: string, body: Body) => call(() => post(`${elixir(elixirId)}/runs`, body), 'The brew could not be started.'),
 		runNode: (elixirId: string, nodeId: string, body: Body) =>
 			call(() => post(`${node(elixirId, nodeId)}/runs`, body), 'The node could not be run.'),
-		listRuns: (elixirId: string) => call(() => get(`${elixir(elixirId)}/runs`), 'Earlier brews could not be loaded.'),
+		listRuns: (elixirId: string, query: RunQuery = {}) =>
+			call<RunPage>(() => get(`${elixir(elixirId)}/runs${runQueryString(query)}`), 'Earlier brews could not be loaded.'),
+		cancelRuns: (elixirId: string, body: { run_ids: string[] } | { all_active: true }) =>
+			call<{ cancelled: string[] }>(() => post(`${elixir(elixirId)}/runs/cancel`, body), 'The brews could not be stopped.'),
 		getRun: (runId: string) => call(() => get(run(runId)), 'The brew could not be loaded.'),
 		saveSelection: (runId: string, edgeId: string, body: Body) =>
 			call(() => put(`${run(runId)}/edges/${id(edgeId)}/selection`, body), 'The choice could not be saved.'),

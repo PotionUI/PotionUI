@@ -29,6 +29,7 @@
 
 	interface HeaderRun {
 		id?: string;
+		number?: number;
 		status: string;
 		scope?: string;
 		created_at?: string | null;
@@ -55,6 +56,9 @@
 		brewBlocked?: string | null;
 		stopping?: boolean;
 		dockBrew?: boolean;
+		runsTotal?: number;
+		activeRuns?: number;
+		onviewall?: () => void;
 		oncommitname?: () => void;
 		onrunmode?: (mode: string) => void;
 		onadd?: (kind: string) => void;
@@ -84,6 +88,9 @@
 		brewBlocked = null,
 		stopping = false,
 		dockBrew = false,
+		runsTotal = undefined,
+		activeRuns = 0,
+		onviewall,
 		oncommitname,
 		onrunmode,
 		onadd,
@@ -120,6 +127,9 @@
 	let failed = $derived(failedCount(steps));
 	let segments = $derived<SummaryPart[]>(run ? progressSegments(brewName(runs, run.id ?? ''), done, steps.length, failed, runElapsed(run, now), tier) : []);
 	let fullSegments = $derived<SummaryPart[]>(run ? progressSegments(brewName(runs, run.id ?? ''), done, steps.length, failed, runElapsed(run, now), 'wide') : []);
+	const RECENT = 5;
+	let recent = $derived(runs.slice(0, RECENT));
+	let brewTotal = $derived(runsTotal ?? runs.length);
 	let primaryLabel = $derived(runs.length > 0 ? 'Brew again' : 'Brew');
 	let problemWord = $derived(issues.length === 1 ? 'problem' : 'problems');
 	let saveDot = $derived(saveState === 'saved' ? null : saveState === 'error' || saveState === 'conflict' ? 'bg-danger' : 'bg-warning');
@@ -231,6 +241,11 @@
 		onfocusissue?.(issue);
 	}
 
+	function viewAll() {
+		close(false);
+		onviewall?.();
+	}
+
 	function pickRun(runId: string) {
 		close();
 		onshowrun?.(runId);
@@ -275,9 +290,9 @@
 {/snippet}
 
 {#snippet brewsList(max: string)}
-	<p class="px-2 pb-1.5 text-sm text-fg-subtle">Each brew keeps its own outputs.</p>
+	<p class="px-2 pb-1.5 text-sm text-fg-subtle">Latest brews. Each keeps its own outputs.</p>
 	<ul class="flex {max} flex-col gap-0.5 overflow-y-auto">
-		{#each runs as item (item.id)}
+		{#each recent as item (item.id)}
 			<li>
 				<button
 					type="button"
@@ -292,6 +307,12 @@
 			</li>
 		{/each}
 	</ul>
+	<div class="my-1 h-px bg-line" role="separator"></div>
+	<button type="button" class="menu-item" data-testid="view-all-brews" onclick={viewAll}>
+		<Icon name={'list'} className="h-4 w-4 text-fg-muted" />
+		<span class="flex-1">{brewTotal > RECENT ? `View all ${brewTotal} brews` : 'Brew history'}</span>
+		{#if activeRuns > 0}<span class="font-mono text-sm tabular-nums text-signal">{activeRuns} active</span>{/if}
+	</button>
 {/snippet}
 
 <div
@@ -402,7 +423,7 @@
 					bind:this={brewsTrigger}
 					type="button"
 					class="header-chip"
-					aria-label="Brews {runs.length}"
+					aria-label="Brews {brewTotal}{activeRuns > 0 ? `, ${activeRuns} active` : ''}"
 					aria-expanded={panel === 'brews'}
 					aria-controls="elixir-brews"
 					onclick={() => toggle('brews')}
@@ -411,7 +432,10 @@
 					{#if tier !== 'compact'}
 						<span>Brews</span>
 					{/if}
-					<span class="font-mono tabular-nums text-fg-subtle">{runs.length}</span>
+					<span class="font-mono tabular-nums text-fg-subtle">{brewTotal}</span>
+					{#if activeRuns > 0}
+						<span class="live" data-testid="brews-live"><span class="live-dot" aria-hidden="true"></span><span class="font-mono tabular-nums">{activeRuns}</span>{#if wide}<span>active</span>{/if}</span>
+					{/if}
 				</button>
 				{#if panel === 'brews'}
 					<div id="elixir-brews" class="panel right-0 w-[min(20rem,calc(100vw-2rem))]">
@@ -512,7 +536,8 @@
 									<button type="button" class="menu-item" role="menuitem" onclick={() => (moreView = 'brews')}>
 										<Icon name={'clock'} className="h-4 w-4" />
 										<span class="flex-1">Brews</span>
-										<span class="font-mono tabular-nums text-fg-subtle">{runs.length}</span>
+										{#if activeRuns > 0}<span class="font-mono tabular-nums text-signal">{activeRuns} active</span>{/if}
+										<span class="font-mono tabular-nums text-fg-subtle">{brewTotal}</span>
 									</button>
 								{/if}
 							{/if}
@@ -578,6 +603,22 @@
 		border: 1px solid rgb(var(--line));
 		font-size: 12px;
 		color: rgb(var(--fg-muted));
+	}
+	.live {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding-left: 6px;
+		margin-left: 2px;
+		border-left: 1px solid rgb(var(--line));
+		color: rgb(var(--signal));
+	}
+	.live-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: rgb(var(--signal));
+		animation: pulse 1.6s ease-in-out infinite;
 	}
 	.header-chip:hover,
 	.problems-button:hover {

@@ -179,6 +179,7 @@ from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.chat.modes import (
     ChatModeRegistry,
+    build_conversation_mode,
     build_elixirs_mode,
     build_generation_mode,
     build_history_mode,
@@ -727,6 +728,7 @@ def build_container() -> AppContainer:
         build_phrasebook_mode(),
         build_prompts_mode(),
         build_elixirs_mode(),
+        build_conversation_mode(),
     ]
     for mode in builtin_modes:
         chat_mode_registry.register(mode)

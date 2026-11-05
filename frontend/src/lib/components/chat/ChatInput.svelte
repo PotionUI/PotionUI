@@ -53,6 +53,7 @@
 	export let visibleTools: ChatToolInfo[] = [];
 	export let disabledTools: string[] = [];
 	export let enableTools = true;
+	export let toolsAvailable = true;
 	export let onToggleEnableTools: ((enabled: boolean) => void) | undefined = undefined;
 	export let onToggleTool: ((name: string) => void) | undefined = undefined;
 	// Persistent per-user tool governance (admin-enabled + this user's own
@@ -167,7 +168,7 @@
 </script>
 
 <div class="composer-wrap">
-	{#if showToolsDropdown}
+	{#if toolsAvailable && showToolsDropdown}
 		<div
 			class="tools-popover"
 			use:dismiss={{ onDismiss: () => (showToolsDropdown = false), ignore: [toolsTriggerEl] }}
@@ -339,19 +340,21 @@
 						</button>
 					</Tooltip>
 				{/if}
-				<Tooltip text="Tools {enableTools ? 'ON' : 'OFF'}">
-					<button
-						bind:this={toolsTriggerEl}
-						type="button"
-						class="composer-tool"
-						class:active={showToolsDropdown || enableTools}
-						aria-expanded={showToolsDropdown}
-						on:click={toggleToolsDropdown}
-					>
-						<Icon name="chat-tools" className="icon" strokeWidth={1.8} /><span>Tools</span>
-						{#if totalToolCount > 0}<span class="tool-count">{enabledToolCount}</span>{/if}
-					</button>
-				</Tooltip>
+				{#if toolsAvailable}
+					<Tooltip text="Tools {enableTools ? 'ON' : 'OFF'}">
+						<button
+							bind:this={toolsTriggerEl}
+							type="button"
+							class="composer-tool"
+							class:active={showToolsDropdown || enableTools}
+							aria-expanded={showToolsDropdown}
+							on:click={toggleToolsDropdown}
+						>
+							<Icon name="chat-tools" className="icon" strokeWidth={1.8} /><span>Tools</span>
+							{#if totalToolCount > 0}<span class="tool-count">{enabledToolCount}</span>{/if}
+						</button>
+					</Tooltip>
+				{/if}
 				{#if onOpenMemory}
 					<Tooltip text="Memory">
 						<button

@@ -168,6 +168,8 @@ class ChatController(BaseController):
                 "resource_namespaces": mode.resource_namespaces,
                 "source": mode.source,
                 "admin_only": mode.admin_only,
+                "offers_tools": mode.offers_tools,
+                "app_context": mode.app_context,
             })
         return self.success_response(data={"modes": modes})
 

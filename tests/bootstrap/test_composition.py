@@ -228,6 +228,15 @@ report["elixirs_wiring"] = {
     "the_chat_assistant_edits_the_container_elixirs": c.chat_runtime.tool_services.elixirs.components is c.elixirs,
     "the_assistant_writes_sessions_into_the_container_repository": c.chat_runtime.tool_services.elixirs.session_writer.session_repository is c.session_repository,
 }
+conversation_mode = c.chat_runtime.chat_mode_registry.get("conversation")
+report["conversation_mode"] = {
+    "registered": conversation_mode is not None,
+    "offers_no_tool_even_a_global_one": (
+        conversation_mode is not None
+        and any(t.modes is None for t in c.chat_runtime.tool_executor.tool_registry.get_all())
+        and c.chat_runtime.tool_executor.tool_registry.get_for_mode(conversation_mode) == []
+    ),
+}
 import src.platform.plugins.runtime_registries as runtime_registries
 report["organize_instance_routes"] = sorted(
     f"{method} {route.path}"
@@ -357,6 +366,10 @@ def test_the_instance_organize_api_is_mounted_for_admins(report):
 
 def test_elixirs_are_composed_from_the_container_and_listen_to_their_hooks(report):
     assert [k for k, v in report["elixirs_wiring"].items() if not v] == []
+
+
+def test_the_conversation_mode_is_registered_without_tools(report):
+    assert [k for k, v in report["conversation_mode"].items() if not v] == []
 
 
 def test_the_elixirs_api_is_mounted_on_the_app(report):

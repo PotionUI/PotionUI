@@ -76,6 +76,8 @@ class ChatMode:
     source: str = "builtin"
     admin_only: bool = False
     core_groups: Tuple[str, ...] = ("core",)
+    offers_tools: bool = True
+    app_context: bool = True
 
     def resolve_prompt_template(self) -> str:
         """Return the prompt template, invoking it when it is a callable."""

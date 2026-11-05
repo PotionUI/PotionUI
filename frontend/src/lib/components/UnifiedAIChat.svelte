@@ -18,7 +18,14 @@
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
-	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
+	import {
+		chatModes,
+		modeOffersTools,
+		modeReadsAppContext,
+		resolveModeForRoute,
+		resolveModeName,
+		toolsForMode
+	} from '$lib/stores/chatModes';
 	import { declaredMode, collectProvidedContext, dispatchToolApplied } from '$lib/chat/pageContext';
 	import {
 		chatFormSessionId,
@@ -386,7 +393,7 @@
 			hasMessages: messages.length > 0,
 			presetName: resolvePresetName
 		});
-		if (switched) {
+		if (switched && appContextOn) {
 			contextDividers = [
 				...contextDividers,
 				{
@@ -534,7 +541,9 @@
 	$: supportsVision = selectedConfig?.supports_vision || false;
 
 	// Tools visible in the current mode (mode tools + global tools)
-	$: visibleTools = toolsForMode($chatModes.toolsCatalog, currentMode);
+	$: toolsOffered = modeOffersTools(currentMode, $chatModes.modes);
+	$: appContextOn = modeReadsAppContext(currentMode, $chatModes.modes);
+	$: visibleTools = toolsOffered ? toolsForMode($chatModes.toolsCatalog, currentMode) : [];
 
 	// Token usage tracking: the header's context meter (Seam 3) only wants
 	// the last request's prompt-token count, not a running total.
@@ -956,6 +965,7 @@
 		!videoDirectorActive && !!contextTab?.selectedPreset && presetBatchCache[contextTab.selectedPreset] === true;
 
 	function buildContextMetadata(): Record<string, any> {
+		if (!appContextOn) return {};
 		const tab = contextTab;
 		const activeSegments: Segment[] = videoDirectorActive ? [] : tab?.promptSegments || [];
 		const negativeSegments: Segment[] = videoDirectorActive ? [] : tab?.negativePromptSegments || [];
@@ -1924,7 +1934,7 @@
 							compact={false}
 							isStreaming={message.isStreaming || false}
 							isPartial={message.isPartial || false}
-							onApplyAction={enableTools
+							onApplyAction={enableTools && toolsOffered
 								? (action, actionIndex) =>
 										handleApplySegmentAction(action, message.id || '', actionIndex)
 								: undefined}
@@ -2035,7 +2045,7 @@
 		<!-- Pinned-to-another-tab warning: the only context state that needs its
 		     own block with actions; the following/pinned-active states render as
 		     the chip inside the composer's context row (see ChatInput's slot). -->
-		{#if stripModel && stripModel.state === 'pinned-mismatch'}
+		{#if appContextOn && stripModel && stripModel.state === 'pinned-mismatch'}
 			<div class="chat-overlay-col">
 				<ChatContextStrip
 					model={stripModel}
@@ -2079,18 +2089,19 @@
 			{visibleTools}
 			disabledTools={$chatSession.disabledTools}
 			{enableTools}
+			toolsAvailable={toolsOffered}
 			onToggleEnableTools={handleToggleEnableTools}
 			onToggleTool={handleToggleTool}
 			{myToolPreferences}
 			onOpenToolPreferences={() => (showToolPreferencesPanel = true)}
 			{alwaysAttachLastImage}
 			onToggleAttachImage={toggleAttachLastImage}
-			onOpenMemory={openMemoryPanel}
+			onOpenMemory={appContextOn ? openMemoryPanel : undefined}
 			memoryOpen={showMemoryPanel}
 			{memoryNoteCount}
 		>
 			<svelte:fragment slot="context">
-				{#if stripModel && stripModel.state !== 'pinned-mismatch'}
+				{#if appContextOn && stripModel && stripModel.state !== 'pinned-mismatch'}
 					<ChatContextStrip
 						model={stripModel}
 						flash={stripFlash}

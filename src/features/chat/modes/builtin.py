@@ -15,6 +15,7 @@ MODELS_MODE_ID = "models"
 PHRASEBOOK_MODE_ID = "phrasebook"
 PROMPTS_MODE_ID = "prompts"
 ELIXIRS_MODE_ID = "elixirs"
+CONVERSATION_MODE_ID = "conversation"
 
 _STYLE = (
     "Keep replies short and concrete. Do not greet, restate these instructions, "
@@ -321,5 +322,30 @@ def build_prompts_mode() -> ChatMode:
         resource_namespaces=[],
         llm_options={},
         core_groups=("core", "library"),
+        source="builtin",
+    )
+
+
+CONVERSATION_SYSTEM_PROMPT = (
+    "You are PotionAI, a helpful assistant. This is an open conversation: talk with the user about "
+    "whatever they bring up and answer directly. You have no tools and cannot see or change anything "
+    "in the app, so never offer to."
+)
+
+
+def build_conversation_mode() -> ChatMode:
+    return ChatMode(
+        id=CONVERSATION_MODE_ID,
+        name="Conversation",
+        description="Just talk to the model: no tools and nothing from the page",
+        system_prompt=CONVERSATION_SYSTEM_PROMPT,
+        tool_names=[],
+        icon="chat",
+        default_route_prefixes=[],
+        resource_namespaces=[],
+        llm_options={},
+        structured_reply=False,
+        offers_tools=False,
+        app_context=False,
         source="builtin",
     )

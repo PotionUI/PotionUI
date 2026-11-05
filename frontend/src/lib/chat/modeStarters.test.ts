@@ -64,3 +64,16 @@ describe('introForMode', () => {
 		expect(introForMode(null)).toEqual(introForMode('generation'));
 	});
 });
+
+describe('conversation mode', () => {
+	it('has its own starters and an intro that promises no tools or page', () => {
+		const starters = startersForMode('conversation');
+		expect(starters).toHaveLength(3);
+		expect(starters).not.toEqual(startersForMode('some-plugin-mode'));
+		const text = starters.map((s) => `${s.title} ${s.sub} ${s.prompt}`).join(' ');
+		expect(text).not.toMatch(/page|settings|current image|saved prompts/);
+		const intro = introForMode('conversation');
+		expect(intro).not.toEqual(introForMode('generation'));
+		expect(intro.body).toMatch(/no tools/);
+	});
+});

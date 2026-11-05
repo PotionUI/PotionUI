@@ -5,7 +5,13 @@ vi.mock('$lib/services/api/index', () => ({
 }));
 
 import { get } from 'svelte/store';
-import { resolveModeForRoute, resolveModeName, toolsForMode } from './chatModes';
+import {
+	modeOffersTools,
+	modeReadsAppContext,
+	resolveModeForRoute,
+	resolveModeName,
+	toolsForMode
+} from './chatModes';
 import { declareMode, declaredMode } from '$lib/chat/pageContext';
 import type { ChatMode, ChatToolInfo } from '$lib/types/chat';
 
@@ -135,5 +141,24 @@ describe('resolveModeName', () => {
 
 	it('falls back to the raw id for an unknown mode', () => {
 		expect(resolveModeName('unknown-mode', modes)).toBe('unknown-mode');
+	});
+});
+
+describe('modeOffersTools / modeReadsAppContext', () => {
+	const modes: ChatMode[] = [
+		mode('generation', ['/']),
+		{ ...mode('conversation', []), offers_tools: false, app_context: false }
+	];
+
+	it('turns both off only for a mode that says so', () => {
+		expect(modeOffersTools('conversation', modes)).toBe(false);
+		expect(modeReadsAppContext('conversation', modes)).toBe(false);
+		expect(modeOffersTools('generation', modes)).toBe(true);
+		expect(modeReadsAppContext('generation', modes)).toBe(true);
+	});
+
+	it('keeps tools and context for a mode the list does not know yet', () => {
+		expect(modeOffersTools('some-plugin-mode', modes)).toBe(true);
+		expect(modeReadsAppContext('some-plugin-mode', [])).toBe(true);
 	});
 });

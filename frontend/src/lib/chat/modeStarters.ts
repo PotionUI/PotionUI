@@ -131,6 +131,27 @@ const ELIXIRS: ChatStarter[] = [
 	}
 ];
 
+const CONVERSATION: ChatStarter[] = [
+	{
+		title: 'Talk something through',
+		sub: 'Think out loud about an idea or a decision',
+		prompt: 'Help me think through an idea I have been turning over.',
+		icon: 'chat-sparkles'
+	},
+	{
+		title: 'Explain a concept',
+		sub: 'A clear answer to anything you are curious about',
+		prompt: 'Explain how diffusion models turn noise into an image, in plain words.',
+		icon: 'chat-info'
+	},
+	{
+		title: 'Help me write',
+		sub: 'Draft, shorten or polish a piece of text',
+		prompt: 'Help me write a short, friendly description for a fantasy art series.',
+		icon: 'chat-edit'
+	}
+];
+
 const GENERIC: ChatStarter[] = [
 	{
 		title: 'What can you do here?',
@@ -158,7 +179,8 @@ const BY_MODE: Record<string, ChatStarter[]> = {
 	prompts: PROMPTS,
 	models: MODELS,
 	phrasebook: PHRASEBOOK,
-	elixirs: ELIXIRS
+	elixirs: ELIXIRS,
+	conversation: CONVERSATION
 };
 
 export function startersForMode(modeId: string | null | undefined): ChatStarter[] {
@@ -191,6 +213,10 @@ const INTRO_BY_MODE: Record<string, ChatIntro> = {
 	phrasebook: {
 		heading: 'What are we collecting?',
 		body: 'I can browse your phrasebook categories and help you add to them and clean up their values.'
+	},
+	conversation: {
+		heading: "What's on your mind?",
+		body: 'Just a conversation. I have no tools here and see nothing on the page, only what you write.'
 	},
 	elixirs: {
 		heading: 'What should this elixir do?',

@@ -2,6 +2,7 @@
 
 from src.platform.plugins.chat_modes import ChatMode, DuplicateChatModeError
 from src.features.chat.modes.builtin import (
+    CONVERSATION_MODE_ID,
     DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE,
     ELIXIRS_MODE_ID,
     GENERATION_MODE_ID,
@@ -9,6 +10,7 @@ from src.features.chat.modes.builtin import (
     MODELS_MODE_ID,
     PHRASEBOOK_MODE_ID,
     PROMPTS_MODE_ID,
+    build_conversation_mode,
     build_elixirs_mode,
     build_generation_mode,
     build_history_mode,
@@ -22,6 +24,7 @@ __all__ = [
     "ChatMode",
     "ChatModeRegistry",
     "DuplicateChatModeError",
+    "CONVERSATION_MODE_ID",
     "DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE",
     "ELIXIRS_MODE_ID",
     "GENERATION_MODE_ID",
@@ -29,6 +32,7 @@ __all__ = [
     "MODELS_MODE_ID",
     "PHRASEBOOK_MODE_ID",
     "PROMPTS_MODE_ID",
+    "build_conversation_mode",
     "build_elixirs_mode",
     "build_generation_mode",
     "build_history_mode",

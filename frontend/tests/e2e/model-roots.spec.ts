@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, screenshot, fulfillJson, mockAdminSocket } from './helpers';
+import { gotoFolders, openRowMenu, selectFolderView, sidebarRow } from './model-folders-nav';
 
 const JOURNEY = 'model-roots';
 
@@ -123,9 +124,8 @@ async function gotoSetupExisting(page: Page) {
 	await expect(page.getByLabel('Folder path')).toBeVisible();
 }
 
-async function gotoAdminFolders(page: Page) {
-	await page.goto('/admin?tab=models&view=folders');
-	await expect(page.getByRole('heading', { name: 'Folders', level: 2 })).toBeVisible({ timeout: 15000 });
+async function gotoAdminFolders(page: Page, view?: string | RegExp) {
+	await gotoFolders(page, view);
 }
 
 test.describe('model roots - setup wizard', () => {
@@ -290,9 +290,10 @@ test.describe('model roots - admin folders', () => {
 		await mockRootsGet(page, overview({ roots: [homeRoot(), libraryRoot()] }));
 		await mockIndexingStatus(page);
 		await gotoAdminFolders(page);
-		await expect(page.getByRole('button', { name: /^PotionUI models/ })).toBeVisible();
-		await expect(page.getByRole('button', { name: /^NAS/ })).toBeVisible();
+		await expect(sidebarRow(page, 'PotionUI models')).toBeVisible();
+		await expect(sidebarRow(page, 'NAS')).toBeVisible();
 		await expect(page.getByText('Built-in')).toBeVisible();
+		await expect(page.getByText('Online').first()).toBeVisible();
 		await screenshot(page, JOURNEY, 'admin-list');
 	});
 
@@ -305,9 +306,10 @@ test.describe('model roots - admin folders', () => {
 			})
 		);
 		await mockIndexingStatus(page);
-		await gotoAdminFolders(page);
-		await expect(page.getByText('Offline')).toBeVisible();
-		await page.getByText('Offline').hover();
+		await gotoAdminFolders(page, 'NAS');
+		await expect(page.getByText('Offline', { exact: true })).toBeVisible();
+		await expect(page.getByText('the path does not exist').first()).toBeVisible();
+		await page.getByText('Offline', { exact: true }).hover();
 		await screenshot(page, JOURNEY, 'admin-offline-root');
 	});
 
@@ -322,10 +324,9 @@ test.describe('model roots - admin folders', () => {
 			return fulfillJson(route, { success: true, data: libraryRoot({ bindings: [] }) });
 		});
 
-		await gotoAdminFolders(page);
-		await page.getByRole('button', { name: /^NAS/ }).click();
-		await expect(page.getByText('checkpoints', { exact: true })).toBeVisible({ timeout: 10000 });
-		await page.getByRole('button', { name: 'Remove checkpoints from NAS' }).click();
+		await gotoAdminFolders(page, 'NAS');
+		await expect(page.getByText('checkpoints', { exact: true }).filter({ visible: true })).toBeVisible({ timeout: 10000 });
+		await openRowMenu(page, 'checkpoints', 'Remove from folder');
 		await expect(page.getByText('Models under "checkpoints" in "NAS" become unavailable')).toBeVisible({
 			timeout: 10000
 		});
@@ -345,16 +346,16 @@ test.describe('model roots - admin folders', () => {
 			return fulfillJson(route, { success: true, data: { id: 'lib1', deleted: true } });
 		});
 
-		await gotoAdminFolders(page);
-		await page.getByRole('button', { name: /^NAS/ }).click();
-		await page.getByRole('button', { name: 'Delete' }).click();
+		await gotoAdminFolders(page, 'NAS');
+		await page.getByRole('button', { name: 'Folder settings' }).click();
+		await page.getByRole('button', { name: 'Delete folder' }).click();
 		await expect(page.getByText(/become unavailable, not deleted/)).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'admin-delete-root-confirm');
 		await page.getByRole('button', { name: 'Confirm' }).click();
 		await expect.poll(() => deleteCalled).toBe(true);
 	});
 
-	test('setting a read-only root as the write target is disabled with a reason', async ({ page }) => {
+	test('a read-only folder is never offered as the downloads folder', async ({ page }) => {
 		await loginAsOwner(page);
 		await mockRootsGet(
 			page,
@@ -372,18 +373,18 @@ test.describe('model roots - admin folders', () => {
 			return route.continue();
 		});
 
-		await gotoAdminFolders(page);
-		await expect(page.getByText('Model type order')).toBeVisible({ timeout: 10000 });
-		const setWriteButton = page.getByRole('button', { name: 'Set as write' });
-		await expect(setWriteButton).toBeDisabled();
-		await setWriteButton.hover();
-		await expect(page.getByText('This folder is read-only')).toBeVisible({ timeout: 10000 });
+		await gotoAdminFolders(page, 'Downloads & priority');
+		await expect(page.getByText('Existing files never move.')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('button', { name: 'Use for downloads' })).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'admin-write-refused');
-		await setWriteButton.click({ force: true });
+		await selectFolderView(page, 'NAS');
+		await page.getByRole('button', { name: 'Actions for checkpoints', exact: true }).click();
+		await expect(page.getByRole('menuitem', { name: 'Details' })).toBeVisible();
+		await expect(page.getByRole('menuitem', { name: 'Use for downloads' })).toHaveCount(0);
 		expect(writeCalled).toBe(false);
 	});
 
-	test('suggested folder can be added as a root', async ({ page }) => {
+	test('suggested folder can be added as a folder', async ({ page }) => {
 		await loginAsOwner(page);
 		await mockRootsGet(
 			page,
@@ -405,9 +406,9 @@ test.describe('model roots - admin folders', () => {
 			warnings: []
 		});
 
-		await gotoAdminFolders(page);
+		await gotoAdminFolders(page, 'Found outside folders');
 		await expect(page.getByText('Suggested folders')).toBeVisible({ timeout: 10000 });
-		await page.getByRole('button', { name: 'Add as root' }).click();
+		await page.getByRole('button', { name: 'Add as folder' }).click();
 		const modal = page.getByRole('dialog');
 		await expect(modal.getByText('Add a model folder')).toBeVisible({ timeout: 10000 });
 		await expect(modal.getByText('Base model')).toBeVisible({ timeout: 10000 });

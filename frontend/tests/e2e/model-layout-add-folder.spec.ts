@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, screenshot, fulfillJson, mockAdminSocket } from './helpers';
+import { clickAddFolder, gotoFolders } from './model-folders-nav';
 
 const JOURNEY = 'model-layout-add-folder';
 
@@ -134,9 +135,8 @@ async function setup(
 }
 
 async function openAddFolder(page: Page, path: string) {
-	await page.goto('/admin?tab=models&view=folders');
-	await expect(page.getByRole('heading', { name: 'Folders', level: 2 })).toBeVisible({ timeout: 15000 });
-	await page.getByRole('button', { name: 'Add folder' }).first().click();
+	await gotoFolders(page);
+	await clickAddFolder(page);
 	await page.getByLabel('Folder path').fill(path);
 	await page.getByRole('button', { name: 'Detect', exact: true }).click();
 }

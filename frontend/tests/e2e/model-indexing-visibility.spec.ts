@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, screenshot, fulfillJson, mockAdminSocket } from './helpers';
+import { gotoFolders } from './model-folders-nav';
 
 const JOURNEY = 'model-indexing-visibility';
 
@@ -82,10 +83,7 @@ async function gotoSetup(page: Page) {
 }
 
 async function gotoAdminModelsFolders(page: Page) {
-	await page.goto('/admin?tab=models&view=folders');
-	const heading = page.getByRole('heading', { name: 'Folders', level: 2 });
-	await expect(heading).toBeVisible({ timeout: 15000 });
-	await heading.scrollIntoViewIfNeeded();
+	await gotoFolders(page, 'Indexing');
 }
 
 test.describe('model indexing visibility - wizard', () => {

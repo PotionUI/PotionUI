@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, screenshot, fulfillJson, mockAdminSocket } from './helpers';
+import { clickAddFolder, gotoFolders, openFolderSettings } from './model-folders-nav';
 
 const JOURNEY = 'model-folder-picker';
 const ROOT = '/srv/sm';
@@ -168,14 +169,13 @@ async function setup(page: Page, options: { patchFails?: boolean } = {}) {
 }
 
 async function openFolders(page: Page) {
-	await page.goto('/admin?tab=models&view=folders');
-	await expect(page.getByRole('heading', { name: 'Folders', level: 2 })).toBeVisible({ timeout: 15000 });
+	await gotoFolders(page);
 }
 
 async function openRoot(page: Page) {
-	await openFolders(page);
-	await page.getByRole('button', { name: /^StabilityMatrix/ }).click();
-	await expect(page.getByText('Data/Models/Lora').first()).toBeVisible({ timeout: 10000 });
+	await gotoFolders(page, 'StabilityMatrix');
+	await expect(page.getByText('Data/Models/Lora').filter({ visible: true }).first()).toBeVisible({ timeout: 10000 });
+	await openFolderSettings(page);
 }
 
 test.describe('folder picker - desktop', () => {
@@ -185,7 +185,7 @@ test.describe('folder picker - desktop', () => {
 		await loginAsOwner(page);
 		const log = await setup(page);
 		await openFolders(page);
-		await page.getByRole('button', { name: 'Add folder' }).first().click();
+		await clickAddFolder(page);
 		await page.getByLabel('Folder path').fill(ROOT);
 		await page.getByRole('button', { name: 'Detect', exact: true }).click();
 		await expect(page.getByText('Detected folders')).toBeVisible({ timeout: 10000 });
@@ -206,14 +206,14 @@ test.describe('folder picker - desktop', () => {
 
 		await page.getByRole('button', { name: 'Add Base model folder' }).click();
 		await expect(page.getByText('Added by you')).toBeVisible();
-		await expect(page.getByText('Data/Models/Extra', { exact: true })).toBeVisible();
+		await expect(page.getByText('Data/Models/Extra', { exact: true }).filter({ visible: true })).toBeVisible();
 	});
 
 	test('Add folder: a typed path becomes a ticked "Added by you" row and is created', async ({ page }) => {
 		await loginAsOwner(page);
 		const log = await setup(page);
 		await openFolders(page);
-		await page.getByRole('button', { name: 'Add folder' }).first().click();
+		await clickAddFolder(page);
 		await page.getByLabel('Folder path').fill(ROOT);
 		await page.getByRole('button', { name: 'Detect', exact: true }).click();
 		await expect(page.getByText('Detected folders')).toBeVisible({ timeout: 10000 });
@@ -238,7 +238,7 @@ test.describe('folder picker - desktop', () => {
 		await loginAsOwner(page);
 		const log = await setup(page);
 		await openFolders(page);
-		await page.getByRole('button', { name: 'Add folder' }).first().click();
+		await clickAddFolder(page);
 		await page.getByLabel('Folder path').fill(ROOT);
 		await page.getByRole('button', { name: 'Detect', exact: true }).click();
 		await expect(page.getByText('Detected folders')).toBeVisible({ timeout: 10000 });
@@ -272,7 +272,7 @@ test.describe('folder picker - desktop', () => {
 		expect(log.patches[0]).toEqual({
 			bindings: [{ model_type: 'lora', subdir: 'Data/Models/Extra', write: false }]
 		});
-		await expect(page.getByText('Data/Models/Extra').first()).toBeVisible();
+		await expect(page.getByText('Data/Models/Extra').filter({ visible: true }).first()).toBeVisible();
 		await expect(page.getByLabel('Type', { exact: true })).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'desktop-panel-added');
 	});
@@ -305,7 +305,7 @@ test.describe('folder picker - desktop', () => {
 		await loginAsOwner(page);
 		const log = await setup(page);
 		await openFolders(page);
-		await page.getByRole('button', { name: 'Add folder' }).first().click();
+		await clickAddFolder(page);
 		await page.getByLabel('Folder path').fill(ROOT);
 		await page.getByRole('button', { name: 'Detect', exact: true }).click();
 		await expect(page.getByText('Detected folders')).toBeVisible({ timeout: 10000 });

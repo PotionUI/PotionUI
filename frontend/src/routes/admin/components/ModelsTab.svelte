@@ -42,8 +42,9 @@
 	import AttributeDetailPage from './models/AttributeDetailPage.svelte';
 	import ModelDetailPage from './models/ModelDetailPage.svelte';
 	import BulkTagModal from './models/BulkTagModal.svelte';
-	import { DetailHeader, DetailBody, DetailLayout } from '$lib/components/detail';
-	import ModelRootsPanel from '$lib/model-roots/ModelRootsPanel.svelte';
+	import FoldersPane from '$lib/model-folders/FoldersPane.svelte';
+	import FoldersSidebar from '$lib/model-folders/FoldersSidebar.svelte';
+	import { FoldersController } from '$lib/model-folders/controller.svelte';
 	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
 	import ModelTypeBadge from '$lib/components/ModelTypeBadge.svelte';
 	import {
@@ -178,6 +179,13 @@
 	const isAttributesSection = $derived(section === MODELS_ATTRIBUTES_SECTION);
 	const isFoldersSection = $derived(section === MODELS_FOLDERS_SECTION);
 	const detailOpen = $derived(!!viewId || isFoldersSection);
+	const folders = new FoldersController();
+	let foldersLoaded = false;
+	$effect(() => {
+		if (!isFoldersSection || foldersLoaded) return;
+		foldersLoaded = true;
+		void untrack(() => folders.load());
+	});
 
 	const typeRows = $derived(modelTypeRows(modelTypes, section));
 	const selectedTypeLabel = $derived(
@@ -732,6 +740,7 @@
 	{sectionCounts}
 	count={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
 	{detailOpen}
+	wideSidebar={isFoldersSection}
 	filterChips={isAttributesSection ? [] : filterChips}
 	onRemoveChip={(key) => updateFilters(modelsFilters.clearChip(filters, key))}
 	onClearFilters={() => updateFilters(modelsFilters.clearAll(filters))}
@@ -739,7 +748,9 @@
 	total={isAttributesSection ? definitions.length : totalCount}
 >
 	{#snippet sidebarTree()}
-		{#if !isAttributesSection && !isFoldersSection && typeRows.length > 0}
+		{#if isFoldersSection}
+			<FoldersSidebar ctrl={folders} />
+		{:else if !isAttributesSection && typeRows.length > 0}
 			<div class="border-t border-line">
 				<div class="px-3 pb-1 pt-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">By type</div>
 				<div class="space-y-0.5 p-2 pt-0">
@@ -1004,16 +1015,7 @@
 
 	{#if detailOpen}
 		{#if isFoldersSection}
-			<div class="flex h-full min-h-0 flex-col">
-				<DetailHeader title="Folders" />
-				<DetailBody>
-					<DetailLayout>
-						{#snippet main()}
-							<ModelRootsPanel />
-						{/snippet}
-					</DetailLayout>
-				</DetailBody>
-			</div>
+			<FoldersPane ctrl={folders} onBack={() => selectSection(MODELS_ALL_SECTION)} />
 		{:else if isAttributesSection}
 			{#if !selectedDefinition}
 				<div class="flex h-full items-center justify-center">

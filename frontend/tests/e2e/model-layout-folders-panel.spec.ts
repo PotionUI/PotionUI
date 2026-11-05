@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, screenshot, fulfillJson, mockAdminSocket } from './helpers';
+import { gotoFolders, openRowMenu } from './model-folders-nav';
 
 const JOURNEY = 'model-layout-folders-panel';
 
@@ -130,25 +131,23 @@ async function setup(page: Page, options: { readOnly?: boolean; detectRootPath?:
 }
 
 async function openRoot(page: Page) {
-	await page.goto('/admin?tab=models&view=folders');
-	await expect(page.getByRole('heading', { name: 'Folders', level: 2 })).toBeVisible({ timeout: 15000 });
-	await page.getByRole('button', { name: /^StabilityMatrix/ }).click();
-	await expect(page.getByText('LyCORIS', { exact: true })).toBeVisible({ timeout: 10000 });
+	await gotoFolders(page, 'StabilityMatrix');
+	await expect(page.getByText('Data/Models/LyCORIS', { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 10000 });
 }
+
+const subdirRow = (page: Page, subdir: string) => page.locator('[data-binding-row]').filter({ hasText: subdir });
 
 test.describe('folders panel with layout profiles - desktop', () => {
 	test.use({ viewport: { width: 1440, height: 1100 } });
 
-	test('shows the profile badge and groups subfolders by type', async ({ page }) => {
+	test('shows the profile badge and one row per subfolder', async ({ page }) => {
 		await loginAsOwner(page);
 		await setup(page);
 		await openRoot(page);
-		await expect(page.locator('button[aria-expanded]').getByText('StabilityMatrix', { exact: true }).nth(1)).toBeVisible();
-		await expect(page.getByText('LoRA', { exact: true })).toBeVisible();
-		await expect(page.getByText('Lora', { exact: true })).toBeVisible();
-		const row = (subdir: string) => page.locator('li').filter({ hasText: subdir }).last();
-		await expect(row('Data/Models/Lora').getByText('Downloads', { exact: true })).toBeVisible();
-		await expect(row('Data/Models/LyCORIS').getByText('Downloads', { exact: true })).toHaveCount(0);
+		await expect(page.getByRole('heading', { level: 2, name: 'StabilityMatrix' })).toBeVisible();
+		await expect(subdirRow(page, 'Data/Models/Lora')).toHaveCount(1);
+		await expect(subdirRow(page, 'Data/Models/Lora').getByText('Downloads', { exact: true }).filter({ visible: true })).toBeVisible();
+		await expect(subdirRow(page, 'Data/Models/LyCORIS').getByText('Downloads', { exact: true })).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'desktop-panel-grouped');
 	});
 
@@ -156,11 +155,11 @@ test.describe('folders panel with layout profiles - desktop', () => {
 		await loginAsOwner(page);
 		const log = await setup(page);
 		await openRoot(page);
-		await page.getByRole('button', { name: 'Make LyCORIS the downloads folder' }).click();
+		await openRowMenu(page, 'Data/Models/LyCORIS', 'Use for downloads');
 		await expect.poll(() => log.writes.length).toBe(1);
 		expect(log.writes[0]).toEqual({ model_type: 'lora', root_id: 'lib1', subdir: 'Data/Models/LyCORIS' });
-		await expect(page.getByRole('button', { name: 'Make Lora the downloads folder' })).toBeVisible({ timeout: 10000 });
-		await expect(page.getByRole('button', { name: 'Make LyCORIS the downloads folder' })).toHaveCount(0);
+		await expect(subdirRow(page, 'Data/Models/LyCORIS').getByText('Downloads', { exact: true }).filter({ visible: true })).toBeVisible({ timeout: 10000 });
+		await expect(subdirRow(page, 'Data/Models/Lora').getByText('Downloads', { exact: true })).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'desktop-panel-downloads-moved');
 	});
 
@@ -168,14 +167,14 @@ test.describe('folders panel with layout profiles - desktop', () => {
 		await loginAsOwner(page);
 		const log = await setup(page);
 		await openRoot(page);
-		await page.getByRole('button', { name: 'Remove LyCORIS from StabilityMatrix' }).click();
+		await openRowMenu(page, 'Data/Models/LyCORIS', 'Remove from folder');
 		await expect(page.getByText('Models under "LyCORIS" in "StabilityMatrix" become unavailable')).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'desktop-panel-remove-confirm');
 		await page.getByRole('button', { name: 'Confirm' }).click();
 		await expect.poll(() => log.patches.length).toBe(1);
 		expect(log.patches[0]).toEqual({ remove_bindings: [{ model_type: 'lora', subdir: 'Data/Models/LyCORIS' }] });
-		await expect(page.getByText('LyCORIS', { exact: true })).toHaveCount(0, { timeout: 10000 });
-		await expect(page.getByText('Lora', { exact: true })).toBeVisible();
+		await expect(subdirRow(page, 'Data/Models/LyCORIS')).toHaveCount(0, { timeout: 10000 });
+		await expect(subdirRow(page, 'Data/Models/Lora')).toHaveCount(1);
 	});
 
 	test('detect again offers only what is missing and never removes', async ({ page }) => {
@@ -194,7 +193,7 @@ test.describe('folders panel with layout profiles - desktop', () => {
 			{ model_type: 'vae', subdir: 'Data/Models/VAE', scan_headers: false, write: false }
 		]);
 		await expect(page.getByText('Found by detecting again')).toHaveCount(0, { timeout: 10000 });
-		await expect(page.getByText('VAE', { exact: true }).first()).toBeVisible();
+		await expect(subdirRow(page, 'Data/Models/VAE')).toHaveCount(1);
 		await page.getByRole('button', { name: 'Detect again' }).click();
 		await expect(page.getByText('Nothing new found')).toBeVisible({ timeout: 10000 });
 	});
@@ -203,12 +202,13 @@ test.describe('folders panel with layout profiles - desktop', () => {
 test.describe('folders panel edge cases', () => {
 	test.use({ viewport: { width: 1440, height: 1100 } });
 
-	test('a read-only root offers no downloads folder button', async ({ page }) => {
+	test('a read-only root offers no downloads folder action', async ({ page }) => {
 		await loginAsOwner(page);
 		await setup(page, { readOnly: true });
 		await openRoot(page);
-		await expect(page.getByRole('button', { name: /the downloads folder$/ })).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'Remove LyCORIS from StabilityMatrix' })).toBeVisible();
+		await page.getByRole('button', { name: 'Actions for Data/Models/LyCORIS', exact: true }).click();
+		await expect(page.getByRole('menuitem', { name: 'Remove from folder' })).toBeVisible();
+		await expect(page.getByRole('menuitem', { name: 'Use for downloads' })).toHaveCount(0);
 	});
 
 	test('detect again on a root inside a larger install compares nothing', async ({ page }) => {
@@ -227,7 +227,7 @@ test.describe('folders panel edge cases', () => {
 test.describe('folders panel with layout profiles - mobile', () => {
 	test.use({ viewport: { width: 390, height: 844 } });
 
-	test('the expanded root fits a phone', async ({ page }) => {
+	test('the folder table fits a phone', async ({ page }) => {
 		await loginAsOwner(page);
 		await setup(page);
 		await openRoot(page);

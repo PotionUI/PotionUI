@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, screenshot, fulfillJson } from './helpers';
+import { gotoFolders } from './model-folders-nav';
 
 const JOURNEY = 'model-needs-a-type';
 
@@ -433,10 +434,10 @@ async function mockFolders(page: Page, opts: { failPatch?: boolean } = {}) {
 }
 
 async function openFolder(page: Page) {
-	await page.goto('/admin?tab=models&view=folders');
-	await expect(page.getByRole('heading', { name: 'Folders', level: 2 })).toBeVisible({ timeout: 15000 });
-	await page.getByRole('button', { name: /^Forge models/ }).click();
-	await expect(page.getByText('Stable-diffusion', { exact: true })).toBeVisible({ timeout: 10000 });
+	await gotoFolders(page, 'Forge models');
+	await expect(page.getByText('Stable-diffusion', { exact: true }).filter({ visible: true })).toBeVisible({ timeout: 10000 });
+	await page.locator('[data-binding-row]').filter({ hasText: 'Stable-diffusion' }).click();
+	await expect(page.locator('[data-side-panel]')).toBeVisible();
 }
 
 test.describe('detect type from file - folders', () => {
@@ -452,7 +453,7 @@ test.describe('detect type from file - folders', () => {
 		await screenshot(page, JOURNEY, 'desktop-folders-switch-off');
 
 		await page.getByText('Detect type from file', { exact: true }).hover();
-		await expect(page.getByText(/Pickle files keep the folder's type/)).toBeVisible({ timeout: 5000 });
+		await expect(page.getByText(/Pickle files keep the folder type/)).toBeVisible({ timeout: 5000 });
 		await screenshot(page, JOURNEY, 'desktop-folders-switch-tooltip');
 
 		await toggles.click({ force: true });
@@ -467,7 +468,7 @@ test.describe('detect type from file - folders', () => {
 		await openFolder(page);
 		const toggle = page.getByRole('switch', { name: 'Detect type from file' });
 		await toggle.click({ force: true });
-		await expect(page.getByText('Header detection is not available for this folder.')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByLabel('Details', { exact: true }).getByText('Header detection is not available for this folder.')).toBeVisible({ timeout: 10000 });
 		await expect(toggle).not.toBeChecked();
 		await screenshot(page, JOURNEY, 'desktop-folders-switch-error');
 	});

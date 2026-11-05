@@ -53,6 +53,7 @@ function onPointerDown(event: PointerEvent) {
 
 function onKeyDown(event: KeyboardEvent) {
 	if (event.key !== 'Escape' || event.defaultPrevented) return;
+	if (event.target instanceof Element && event.target.closest('[data-keeps-escape]')) return;
 	const top = topDismissLayer();
 	if (!isActionLayer(top) || top.options.escape === false) return;
 	event.preventDefault();

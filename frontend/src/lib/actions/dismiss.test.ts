@@ -138,6 +138,22 @@ describe('dismiss escape ordering', () => {
 		a.destroy();
 	});
 
+	it('leaves Escape to an element that keeps it, and still dismisses from elsewhere', () => {
+		const onDismiss = vi.fn();
+		const a = dismiss(mount(), { onDismiss });
+		const input = mount('input');
+		input.setAttribute('data-keeps-escape', '');
+		const inner = mount('span');
+
+		const kept = escape(input);
+		expect(onDismiss).not.toHaveBeenCalled();
+		expect(kept.defaultPrevented).toBe(false);
+
+		escape(inner);
+		expect(onDismiss).toHaveBeenCalledTimes(1);
+		a.destroy();
+	});
+
 	it('ignores an Escape that was already handled', () => {
 		const onDismiss = vi.fn();
 		const a = dismiss(mount(), { onDismiss });

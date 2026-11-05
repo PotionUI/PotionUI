@@ -811,7 +811,7 @@
 			return;
 		}
 		const node = definition!.nodes.find((item) => item.id === nodeId);
-		if (!node || !slot.port) return;
+		if (!node) return;
 		const options = slotMenu(definition!, nodeId, slot.port, presetIndex, { tree: tree ?? undefined, estimates: report?.estimates?.nodes ?? {} });
 		const row = (item: SlotChoice | Unavailable): LaneMenuItem => ({
 			icon: iconFor(item.kind),
@@ -836,7 +836,6 @@
 	}
 
 	function setFileSource(nodeId: string, slot: Slot, item: SlotChoice | Unavailable) {
-		if (!slot.port) return;
 		const result = chooseFileSource(definition!, nodeId, slot.port, item.source, item.sourceHandle, presetIndex);
 		if (!result.verdict.ok) {
 			toast('warning', result.verdict.reason ?? '');

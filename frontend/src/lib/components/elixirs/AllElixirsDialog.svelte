@@ -246,6 +246,7 @@
 									class="rename"
 									aria-label="Rename {elixir.name}"
 									maxlength="120"
+									data-keeps-escape
 									onkeydown={(event) => renameKeydown(event, elixir)}
 									onblur={() => commitRename(elixir)}
 								/>

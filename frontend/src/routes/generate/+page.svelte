@@ -61,6 +61,7 @@
 	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
+	import { setGenerationAttachHost } from '$lib/generation/restore/attachHost';
 	import { onToolApplied } from '$lib/chat/pageContext';
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
@@ -920,6 +921,19 @@
 		// keybinding, sharing no caller-supplied `deps`) -- registered once
 		// here instead, cleared in onDestroy below.
 		setGenerationUnsubscribeHandler(unsubscribeGeneration);
+		setGenerationAttachHost((tabId, generationIds) =>
+			reconcileTabGenerations(tabId, api, tabsStore, {
+				extraCandidateIds: generationIds,
+				signal: restoreController.signal,
+				subscriptionOwner: ws,
+				onSubscribe: (id) => {
+					ws?.subscribe(id, (message: WebSocketMessage) => {
+						handleGenerationMessage(message);
+					});
+				},
+				unsubscribe: unsubscribeGeneration
+			})
+		);
 		setGridRunHandlers({ enrolled: subscribeGridCells, cancelled: retireGridCells });
 		ws.onConnectionChange((connected) => {
 			disconnectBanner.changed(connected);
@@ -1076,6 +1090,7 @@
 		unregisterChatRunGeneration?.();
 		unregisterChatRunGeneration = null;
 		setGenerationUnsubscribeHandler(null);
+		setGenerationAttachHost(null);
 		setGridRunHandlers(null);
 		if (ws) {
 			clearSubscriptionOwner(ws);

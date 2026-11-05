@@ -171,6 +171,8 @@ export interface RunNodeState {
 }
 
 export interface Invocation {
+	id?: string;
+	generation_id?: string | null;
 	node_id: string;
 	status: string;
 	edge_id?: string | null;

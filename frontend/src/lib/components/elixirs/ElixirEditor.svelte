@@ -19,7 +19,10 @@
 	import { elixirChanged, elixirRenamed, type ElixirChange } from '$lib/elixirs/events';
 	import { remoteAction } from '$lib/elixirs/remote';
 	import { tabsStore } from '$lib/stores/tabs';
-	import { embeddedTabFor } from '$lib/types/tabs';
+	import { embeddedTabFor, findGenerationTab } from '$lib/types/tabs';
+	import { createStepLive, stepGenerations, type StepLive } from '$lib/elixirs/stepLive';
+	import { attachExistingGenerations } from '$lib/generation/restore/attachHost';
+	import { api as generationApi } from '$lib/services/api';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import { restoreTabSession } from '$lib/session/restoreTabSession';
 	import { requestTabSave } from '$lib/stores/workspaceSaveRequest';
@@ -325,6 +328,40 @@
 	});
 
 	const stepState = stepEditor.state;
+
+	let stepLives = new Map<string, StepLive>();
+	let embeddedId = $derived(embeddedTabFor($tabsStore.tabs, tabId)?.id ?? null);
+
+	function liveFor(embedded: string): StepLive {
+		let live = stepLives.get(embedded);
+		if (!live) {
+			live = createStepLive({
+				readTab: () => findGenerationTab(get(tabsStore).tabs, embedded),
+				updateTab: (patch) => tabsStore.updateTab(embedded, patch),
+				attach: (ids) => attachExistingGenerations(embedded, ids),
+				files: async (generationId) => {
+					try {
+						const response = await generationApi.getGenerationById(generationId, false, true, { includeBatch: true });
+						return response.success && response.data ? ((response.data.files as unknown[]) ?? []) : null;
+					} catch {
+						return null;
+					}
+				}
+			});
+			stepLives = new Map([[embedded, live]]);
+		}
+		return live;
+	}
+
+	$effect(() => {
+		const nodeId = $stepState.nodeId;
+		const opening = $stepState.opening;
+		const current = run;
+		const embedded = embeddedId;
+		if (!embedded || !nodeId || opening || !current || current.id !== latestId) return;
+		const items = stepGenerations(current, nodeId);
+		void liveFor(embedded).sync(items);
+	});
 
 	function openInPreset(nodeId: string) {
 		if (!tabId) return;

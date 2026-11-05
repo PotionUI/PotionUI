@@ -292,7 +292,7 @@ async function fetchOutputs(
 
 /** Mirrors the shared-display patch `restoreActiveGenerations` used to build
  *  inline for a generation that finished while this tab was disconnected. */
-function buildActiveCompletionPatch(
+export function buildActiveCompletionPatch(
 	generationId: string,
 	outputs: RestoredGenerationData | null
 ): Partial<GenerationState> {

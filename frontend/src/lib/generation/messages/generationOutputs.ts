@@ -131,6 +131,10 @@ export function retireGeneration(generationId: string | undefined, unsubscribe: 
 	unsubscribe(generationId);
 }
 
+export function reviveGeneration(generationId: string | undefined): void {
+	if (generationId) retiredGenerationIds.delete(generationId);
+}
+
 /** Test-only: production never needs this (retirement is permanent for a
  *  page's lifetime), but a test suite reusing generation ids across
  *  unrelated cases needs a clean slate. */

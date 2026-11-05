@@ -73,6 +73,9 @@
 		{#if elapsed}
 			<span class="shrink-0 font-mono tabular-nums text-fg-subtle">{elapsed}</span>
 		{/if}
+		{#if running && view?.progress != null}
+			<span class="shrink-0 font-mono tabular-nums text-signal" data-testid="node-progress-percent">{view.progress}%</span>
+		{/if}
 		{#if running}
 			<div class="progress" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow={view?.progress ?? 0}>
 				<div class="h-full bg-signal transition-[width]" style="width: {view?.progress ?? 0}%"></div>

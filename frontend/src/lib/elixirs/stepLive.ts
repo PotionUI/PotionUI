@@ -61,7 +61,13 @@ export function createStepLive(deps: StepLiveDeps): StepLive {
 
 	async function run(items: StepGeneration[]): Promise<void> {
 		if (!deps.readTab()) return;
-		const completed = items.filter((item) => item.status === 'completed' && !attached.has(item.id));
+		const idle = (() => {
+			const tab = deps.readTab();
+			if (!tab || tab.activeGenerationId) return false;
+			const generation = tab.generation;
+			return generation.batchImages.length + generation.batchVideos.length + generation.batchAudios.length + (generation.batchMeshes?.length ?? 0) === 0;
+		})();
+		const completed = items.filter((item) => item.status === 'completed' && (!attached.has(item.id) || idle));
 		const running = items.filter((item) => item.status === 'running' && !attached.has(item.id));
 		const failed = items.filter((item) => item.status === 'failed' && !attached.has(item.id));
 

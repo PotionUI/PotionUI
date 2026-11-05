@@ -119,7 +119,7 @@ export function nodeRunView(run: MaybeRun, node: NodeLike, { invocations = run?.
 	);
 	let status = state.status;
 	if (status === 'done' && waiting && isActive(run)) status = 'choose';
-	const progress = progressValues.length ? Math.round((progressValues.reduce((a, b) => a + b, 0) / progressValues.length) * 100) : null;
+	const progress = progressValues.length ? Math.min(100, Math.round(((done + progressValues.reduce((a, b) => a + b, 0)) / Math.max(items.length, 1)) * 100)) : null;
 	const started = items.map((item) => item.submitted_at).filter((value): value is string => !!value).sort();
 	const finished = items.map((item) => item.finished_at).filter((value): value is string => !!value).sort();
 	return {

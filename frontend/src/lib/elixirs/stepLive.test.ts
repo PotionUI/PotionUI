@@ -13,7 +13,7 @@ const { findGenerationTab } = await import('$lib/types/tabs');
 const { dispatchGenerationMessage } = await import('$lib/stores/generation');
 const { reconcileTabGenerations } = await import('$lib/generation/restore/reconcile');
 const { setGenerationAttachHost, attachExistingGenerations } = await import('$lib/generation/restore/attachHost');
-const { setGenerationUnsubscribeHandler } = await import('$lib/generation/messages/generationOutputs');
+const { setGenerationUnsubscribeHandler, retireOrphanedGenerationIds } = await import('$lib/generation/messages/generationOutputs');
 const { createStepLive, stepGenerations } = await import('./stepLive');
 import type { Invocation, Run } from './types';
 
@@ -249,5 +249,95 @@ describe('step live attach', () => {
 		await live.sync(items);
 		expect(tab(tabId).activeGenerationId).toBe('g-run');
 		expect(subscribed).toEqual(['g-run']);
+	});
+
+	it('shows the final image when an attached generation completes and the next poll sees it finished', async () => {
+		statuses['g-fresh'] = 'running';
+		const live = liveFor(tabId);
+		const running = [{ id: 'g-fresh', status: 'running' as const, inputKey: 'k', at: 1 }];
+		await live.sync(running);
+		const send = (message: Record<string, unknown>) => dispatchGenerationMessage(message as never, { unsubscribe: (id) => unsubscribed.push(id) });
+
+		send({ type: 'generation_status', generation_id: 'g-fresh', status: 'running', progress: 50 });
+		send({ type: 'workbench_update', generation_id: 'g-fresh', pipe_id: 1, pipe_name: 'generator', output_type: 'image', file_type: 'image', temporary: true, image: 'data:image/png;base64,PREVIEW' });
+		send({ type: 'workbench_update', generation_id: 'g-fresh', pipe_id: 1, pipe_name: 'generator', output_type: 'image', temporary: false, image: 'data:image/png;base64,FINAL', path: '/api/media/generations/g-fresh/0.png' });
+		send({
+			type: 'gallery_update',
+			generation_id: 'g-fresh',
+			pipe_id: 2,
+			output_type: 'gallery',
+			images: ['data:image/png;base64,FINAL'],
+			image_urls_list: [{ original: '/api/media/generations/g-fresh/0.png', derived: false }],
+			videos: [],
+			video_urls_list: [],
+			audios: [],
+			audio_urls_list: [],
+			meshes: [],
+			mesh_urls_list: []
+		});
+		send({ type: 'generation_complete', data: { id: 'g-fresh', status: 'completed' } });
+		statuses['g-fresh'] = 'completed';
+		files['g-fresh'] = [{ file_type: 'IMAGE', file_path: 'x/0.png' }];
+
+		await live.sync([{ id: 'g-fresh', status: 'completed', inputKey: 'k', at: 1 }]);
+
+		const generation = tab(tabId).generation;
+		expect(generation.isGenerating).toBe(false);
+		expect(generation.currentGeneration?.status).toBe('completed');
+		expect(generation.currentGeneration?.current_image).toBe('data:image/png;base64,FINAL');
+		expect(generation.batchImages.map((image) => image.originalUrl)).toEqual(['/api/media/generations/g-fresh/0.png']);
+	});
+
+	it('shows the final image when a step is left and reopened while its generation runs', async () => {
+		statuses['g-again'] = 'running';
+		retireOrphanedGenerationIds(['g-again']);
+		const live = liveFor(tabId);
+		const running = [{ id: 'g-again', status: 'running' as const, inputKey: 'k', at: 1 }];
+		await live.sync(running);
+		const send = (message: Record<string, unknown>) => dispatchGenerationMessage(message as never, { unsubscribe: (id) => unsubscribed.push(id) });
+
+		send({ type: 'generation_status', generation_id: 'g-again', status: 'running', progress: 50 });
+		send({ type: 'workbench_update', generation_id: 'g-again', pipe_id: 1, pipe_name: 'generator', output_type: 'image', file_type: 'image', temporary: true, image: 'data:image/png;base64,PREVIEW' });
+		send({ type: 'workbench_update', generation_id: 'g-again', pipe_id: 1, pipe_name: 'generator', output_type: 'image', temporary: false, image: 'data:image/png;base64,FINAL', path: '/api/media/generations/g-again/0.png' });
+		send({
+			type: 'gallery_update',
+			generation_id: 'g-again',
+			pipe_id: 2,
+			output_type: 'gallery',
+			images: ['data:image/png;base64,FINAL'],
+			image_urls_list: [{ original: '/api/media/generations/g-again/0.png', derived: false }],
+			videos: [],
+			video_urls_list: [],
+			audios: [],
+			audio_urls_list: [],
+			meshes: [],
+			mesh_urls_list: []
+		});
+		send({ type: 'generation_complete', data: { id: 'g-again', status: 'completed' } });
+		statuses['g-again'] = 'completed';
+		files['g-again'] = [{ file_type: 'IMAGE', file_path: 'x/0.png' }];
+
+		await live.sync([{ id: 'g-again', status: 'completed', inputKey: 'k', at: 1 }]);
+
+		const generation = tab(tabId).generation;
+		expect(generation.isGenerating).toBe(false);
+		expect(generation.currentGeneration?.status).toBe('completed');
+		expect(generation.currentGeneration?.current_image).toBe('data:image/png;base64,FINAL');
+		expect(generation.batchImages.map((image) => image.originalUrl)).toEqual(['/api/media/generations/g-again/0.png']);
+	});
+
+	it('recovers the final result from history when the live gallery update never reached the tab', async () => {
+		statuses['g-nogallery'] = 'running';
+		files['g-nogallery'] = [{ file_type: 'IMAGE', file_path: 'x/0.png' }];
+		const live = liveFor(tabId);
+		await live.sync([{ id: 'g-nogallery', status: 'running', inputKey: 'k', at: 1 }]);
+		dispatchGenerationMessage({ type: 'workbench_update', generation_id: 'g-nogallery', pipe_id: 1, file_type: 'image', temporary: true, image: 'data:image/png;base64,PREVIEW' } as never, { unsubscribe: () => {} });
+		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'g-nogallery', status: 'completed' } } as never, { unsubscribe: () => {} });
+		expect(tab(tabId).generation.batchImages).toEqual([]);
+
+		await live.sync([{ id: 'g-nogallery', status: 'completed', inputKey: 'k', at: 1 }]);
+
+		expect(tab(tabId).generation.batchImages.map((image) => image.url)).toEqual(['/api/media/generations/g-nogallery/0.png']);
+		expect(tab(tabId).generation.currentGeneration?.current_image).toBe('/api/media/generations/g-nogallery/0.png');
 	});
 });

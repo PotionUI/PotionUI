@@ -166,9 +166,10 @@
 						{/if}
 					</PageTitle>
 
-					<div class="hidden h-6 w-px flex-shrink-0 bg-line-strong md:block"></div>
-
-					{@render toolbar?.()}
+					{#if toolbar}
+						<div class="hidden h-6 w-px flex-shrink-0 bg-line-strong md:block"></div>
+						{@render toolbar()}
+					{/if}
 
 					<div class="ml-auto flex flex-shrink-0 items-center gap-2">
 						{@render primary?.()}

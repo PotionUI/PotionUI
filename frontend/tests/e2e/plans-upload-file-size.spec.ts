@@ -99,7 +99,7 @@ test.describe('a per-file upload size limit', () => {
 	test('Plan and usage lists the largest upload and storage with no bar for the per-file limit', async ({ page }) => {
 		test.setTimeout(60000);
 		await loginAsOwner(page);
-		await page.goto('/settings');
+		await page.goto('/settings#plan');
 		const section = page.locator('#plan');
 		await expect(section).toContainText('Largest upload', { timeout: 15000 });
 		await expect(section).toContainText('1 KB');

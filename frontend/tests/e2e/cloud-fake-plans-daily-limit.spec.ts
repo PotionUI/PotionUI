@@ -137,7 +137,7 @@ test.describe('a daily generation limit', () => {
 	test('the usage view and the account menu show the used limit', async ({ page }) => {
 		test.setTimeout(60000);
 		await loginAsOwner(page);
-		await page.goto('/settings');
+		await page.goto('/settings#plan');
 		const section = page.locator('#plan');
 		await expect(section).toContainText('Generations today', { timeout: 15000 });
 		await expect(section).toContainText(/Generations today\s*(\d+) \/ \1/);

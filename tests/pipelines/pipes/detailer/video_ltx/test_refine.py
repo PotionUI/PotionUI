@@ -131,7 +131,7 @@ def _bundle():
         move_to=lambda d: enc_seen.setdefault("vae_moved", []).append(d) or enc_seen["vae_moved"],
         module=SimpleNamespace(encode=encode, decode=decode),
     )
-    dit = SimpleNamespace(compute_dtype=torch.float32, module=SimpleNamespace())
+    dit = SimpleNamespace(compute_dtype=torch.float32, module=SimpleNamespace(config=SimpleNamespace(inner_dim=4096)))
     spec = SimpleNamespace(sampling_settings={"shift": 2.37})
     return SimpleNamespace(vae=vae, dit=dit, spec=spec), enc_seen
 
@@ -179,6 +179,7 @@ def test_a_cancelled_refine_stops_the_dit_before_its_next_block(monkeypatch):
             flag["set"] = True
         return torch.zeros_like(x[0])
 
+    blockwise.config = bundle.dit.module.config
     bundle.dit.module = blockwise
     monkeypatch.setattr(f"{_MOD}.place_dit_for_sequence", lambda *a, **k: _fake_placement())
     cond_model = SimpleNamespace(embeds={"context": torch.zeros(1, 1, 8)})
@@ -196,9 +197,10 @@ def test_refine_tube_pixels_places_dit_for_the_tube(monkeypatch):
     cond_model = SimpleNamespace(embeds={"context": torch.zeros(1, 1, 8)})
     placed = {}
 
-    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0):
+    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0, **terms):
         placed["video_tokens"] = video_tokens
         placed["reserve_gb"] = reserve_gb
+        placed["terms"] = terms
         return _fake_placement()
 
     monkeypatch.setattr(f"{_MOD}.denoise", lambda mf, latents, *a, **k: latents)
@@ -211,6 +213,7 @@ def test_refine_tube_pixels_places_dit_for_the_tube(monkeypatch):
     # A decode-headroom reserve is now always passed,
     # sized off this tube's own (small) decoded pixel dimensions.
     assert placed["reserve_gb"] > 0.0
+    assert placed["terms"] == {"gelu_ffn_dim": 16384, "modulation_rows": 0}
 
 
 # -- OOM fix: the tube encode goes through the shared VRAM-aware
@@ -310,7 +313,7 @@ def test_refine_tube_pixels_passes_the_estimated_decode_reserve_to_placement(mon
     cond_model = SimpleNamespace(embeds={"context": torch.zeros(1, 1, 8)})
     placed = {}
 
-    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0):
+    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0, **_terms):
         placed["reserve_gb"] = reserve_gb
         return _fake_placement()
 

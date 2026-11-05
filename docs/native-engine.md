@@ -238,6 +238,111 @@ close that gap:
   `auto`); `auto` only triggers in the "doesn't fit bf16, fits fp8" window. Prefer resident-fp8 over
   streamed-bf16: fp8 is both faster and higher PCIe throughput than streaming, at a small grid-level
   precision cost.
+- **DiT activation reserve** (`estimate_activation_reserve_gb`, `pipes/_shared/generation/dit_placement.py`).
+  The pipes that run their own denoise loop (LTX, MiniMax-H3) budget the DiT's resident weights against
+  what one sampling forward allocates on top of them: `budget = free VRAM - reserve`, and a DiT over
+  that budget streams the rest. A short clip on a card that holds the DiT and its reserve stays fully
+  resident, the DiT moved whole. The weight is `estimated_vram_gb` plus the runtime LoRA deltas still
+  off the card plus an nvfp4 DiT's scale tables: `estimated_vram_gb` is the checkpoint's file size and
+  cannot see a LoRA (a real H3 turbo-LoRA OOM: ~1.4 GB of bf16 deltas the old budget never saw), and a
+  delta already on the card is out of the free reading, so adding it would count it twice. Every fit
+  check reads `effective_free_vram_gb`. Eviction reads the raw `free_vram_gb`, so a cold placement,
+  or a warm DiT that no longer fits once it has offloaded, hands the idle pool back before it decides
+  what to evict. The last budget of the OOM ladder in `_move_resident` reads it too.
+
+  **Formula**, with `S` tokens, `V` of them video: `reserve = max(0.5 GB, 1.15 × [S × attention + S ×
+  (lora buffer + quant + gelu) + V × rows × inner × 2 B + lora weight side + transient])`, where
+  `transient` is `dequant` on a GEMM fast path (fp8 or nvfp4) and `max(dequant, S × gelu)` everywhere else.
+  `attention` is 90,112 B per token at LTX's inner dim 4096; H3 adds its FFN, or takes the larger of
+  attention and its chunked-MLP phase. `dequant = 2 × max(out × in) × 2 B` is flat: a quantized Linear
+  on the `DEQUANT` path holds two compute-dtype copies of its weight while it scales it, one layer at
+  a time, so only the widest counts, ≈ 0.25 GiB for LTX's FFN, ≈ 0.57 GiB for `fc1` on a pruned H3 and
+  ≈ 0.97 GiB for `adaln_proj.linear` on the full int8 file. int8
+  always takes that path, fp8 whenever the GEMM kernel is off or refuses it. An nvfp4 Linear is left
+  out: its scale tables go into the weight, but its forward still materialises the weight, and
+  nothing reserves that transient (≈ 0.66 GiB for LTX's FFN).
+  `gelu` and `rows` are LTX's (`ltx_reserve_terms`, `pipes/_shared/video/ltx_common.py`, which reads them
+  from the loaded DiT's config). `gelu = 4 × inner × 2 B`, 16,384 × 2 B on the 19B and 22B shapes,
+  is the GELU output, alive beside `fc2`'s dequantised weight; past about 8,192 tokens `fc1`'s
+  output beside that GELU outgrows the two weight copies, hence the `max`. Only this term follows the
+  config: `attention` and `rows × inner` keep the 4096 default of `inner_dim`, which the LTX pipes do
+  not pass. On the fp8 GEMM path `fc1`'s
+  output never coexists with the quantiser's buffers, so the `max` drops out. `rows` is what a block
+  keeps as locals until it returns under a per-token timestep (`video_ltx`, `dfr_video_ltx`): 7 adaLN
+  values with prompt adaLN, 5 without. A scalar timestep (`txt2vid_ltx`, the LTX detailer) broadcasts
+  them, so 0. `video_ltx` adds two cases. Generated audio keeps `vx_norm3`, 1 row, and on a DiT whose
+  AV-cross adaLN follows its own timestep (`use_cross_timestep` off, LTX-2 19B) the 5 values of that
+  adaLN. A reference at a reduced scale gives a timestep that is no whole number of frames, so
+  `CompressedTimestep` keeps its whole table for the forward: the adaLN coefficients plus the embedded
+  timestep, 10 rows with prompt adaLN and 7 without, plus the 5 AV-cross rows of that same LTX-2 19B.
+
+  **Against the forward.** `test_the_ltx_reserve_covers_the_forward_peak_with_room_for_the_allocator`
+  runs real LTX-2.5-shaped int8 ConvRot blocks on the meta device, attention kernel stubbed, and adds
+  up the storages they create. The peak sits at `self.ff` and is linear past 28k tokens, ≈ 201 KB per
+  token, 144 KB with a scalar timestep. In GiB:
+
+  | `S` | Peak, scalar | Reserve, scalar | Peak, per-token | Reserve, per-token |
+  |---:|---:|---:|---:|---:|
+  | 3,080 | 0.59 | 0.69 | 0.75 | 0.88 |
+  | 14,080 | 1.90 | 2.35 | 2.66 | 3.21 |
+  | 110,880 | 14.86 | 18.48 | 20.79 | 25.29 |
+  | 248,880 | 33.32 | 41.49 | 46.62 | 56.77 |
+
+  The ~9.4 GB of the attention calibration in `dit_placement.py`, a measured 40 s 720x1280 LTX-2.3 OOM,
+  is what that run read when it died, and its four terms cover the attention phase only. It sits under
+  these figures: at S = 110,880 the same blocks reach 9.77 GiB at the first self-attention, 12.32 GiB in later attentions
+  and 14.86 GiB at the FFN. That fits a forward that stopped in attention, though nothing recorded
+  where it stopped. These are logical bytes, what the forward asks for:
+  fragmentation and cuDNN or cuBLAS workspace are what the 1.15 covers, and one 12 GB card has checked
+  only the per-token figures of `video_ltx`, from S = 1,560 to 7,800. Generated audio and a reduced
+  reference hold the same room on LTX-2.5 and on an LTX-2 19B shape, about 1.2 × the peak, except the
+  two together on that 19B shape, about 1.08 ×. A tiny sequence sits just above the floor, about 0.67 GiB
+  at 4,000 tokens on a bf16 DiT and 0.81 GiB with the int8 transient, so the LTX detailer's DiT goes
+  resident and the tube passes its own pixel-sized VAE decode as `reserve_gb`.
+
+  **The fit hint.** Above its floor the reserve is linear in tokens once a quantized DiT's flat dequant
+  transient is set aside, so MiniMax-H3's `_fit_hint` inverts that ratio from the numbers the failed
+  placement already computed: `scale = (free - extra - flat) / (reserve - flat)`.
+
+  **The clip planner.** `sequence_fit` charges the same reserve, on every card, so `video_ltx` plans what
+  placement will budget for, and counts foreign residents as room, since placement evicts them for the
+  weight and the reserve together. Without windows it cuts the clip to what the forward of its refine can
+  hold, without charging the VAE decode: at 960×544 in two stages with a prompt-adaLN DiT, a 481-frame
+  request plans 81 frames at 10.7 GB free, 89 at 12,
+  185 at 23 and 257 at 31. With windows it looks for a window the DiT stays resident in, then streams one
+  pass, so the window count can jump where those two tests cross. It judges with the pipe's scoped LoRA
+  stack on the DiT, the state placement reads, then drops it: 1.22 GiB of deltas turn those four plans
+  into 73, 81, 177 and 241 frames.
+
+  **Scoped LoRA stacks.** `video_ltx` lands `scoped_loras` and `stage2_loras` before its placement and keeps
+  them for the whole denoise loop, every per-step forward, but not for the VAE decode. They come off exactly
+  on exit, an exception included, and add to whatever the model loader already baked or left resident on the
+  shared DiT: refinement shares the generation LoRA chain and only adds to it. An empty stack is a no-op.
+
+  **Eviction.** A cold placement evicts foreign residents for `weight + max(minimum_inference, total_reserve)`,
+  the room the budget `free - total_reserve` asks for. This is a choice. It offloads more warm residents than a
+  target of `weight + minimum_inference` would (an upscaler, other text encoders), and they reload when next
+  used. When the weight and the reserve together exceed the card it offloads them and still goes partial. What
+  it frees only counts past the reserve, since the budget is `max(0, free - reserve)`: with a reserve above the
+  free VRAM of the whole card, it offloads them and gains nothing.
+
+  **Two FFN settings.** `ffn_dim` is a SwiGLU width (H3's 14,336). `fc1`'s fused value|gate output is
+  `2 × ffn_dim` wide and two `ffn_dim` tensors follow it, so it charges `4 × ffn_dim × 2 B` per token on top of
+  attention or, when `ffn_chunk_rows` row-chunks the MLP, only that many rows in a phase that competes with
+  attention as a `max`. `gelu_ffn_dim` is a GELU output (LTX's 16,384): `width × 2 B` per token, never chunked,
+  and it also enters `transient`. One number would need a flag to say which of these rules applies, so the two
+  stay apart.
+
+  **Two gaps the formula keeps.** The GELU term charges an audio token 32,768 B in each of the two places it
+  appears. The audio FFN, `4 × audio_inner_dim = 8,192` wide, runs after the video one, whose peak holds no audio
+  GELU output, so all of it is over the peak. At 720p with the margin that is ≈ 9 MiB at 5 s (126 audio tokens)
+  and ≈ 72 MiB at 40 s (1,001), about 0.27 % of the reserve. An `INT8_CONVROT` Linear on the `DEQUANT` path also
+  allocates a third array, the unrotate's output: 0.125 GiB for LTX's FFN, 0.287 GiB for `fc1` on a pruned H3,
+  0.484 GiB for `adaln_proj.linear` on the full int8 file. It does not raise the live
+  figure. The cast copy is released when the scaled product replaces it, so the unrotate's output sits beside
+  the scaled weight and two copies stay the peak (`test_a_convrot_unrotate_leaves_two_weight_copies_as_the_live_peak`,
+  on the meta device). Whatever workspace that `mm` takes on a real card is outside this count, like the other
+  cuBLAS workspace the 1.15 covers.
 - **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
   `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the
   GPU for its encode, so its placement is decided for that phase alone. An encoder that does not fit
@@ -298,7 +403,8 @@ close that gap:
   (+2 GB), guarded like the DiT's: when the guard refuses, the pipes encode on the CPU. A streamed
   teardown leaves idle blocks in the CUDA cache, which `mem_get_info` counts as used, so a phase that
   decides from free VRAM right after it must empty the cache first when its first reading does not
-  fit (LTX's projection ladder does). An encoder within the fit region is still moved whole, so a
+  fit (LTX's projection ladder does; a cold DiT placement always does, before it decides what to
+  evict). An encoder within the fit region is still moved whole, so a
   transient beyond the reserve (very long prompt, many vision tiles) can still overflow there. The
   whole move is also not undone when it fails with anything but an OOM the same predicate accepts. A
   driver-error OOM the policy calls fatal (below) tears the streaming down and propagates.
@@ -310,7 +416,7 @@ Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 | **< 8 GB** | Partial residency (a handful of blocks resident, the rest streamed) + fp8-auto quantise-at-load when it lets more fit resident. VAE tiled, TE offloaded during sampling. |
 | **8–12 GB** | Partial / mostly-resident DiT; fp8-auto for the bigger families. TE & VAE offloaded off the DiT phase. |
 | **12–16 GB** | fp8-resident (auto) or bf16 partial residency for the 9–14B families; VAE offloaded, TE co-resident only when it fits. |
-| **≥ 16 GB** | As before — fully resident where the fit test allows, phase-offloading TE/VAE only under pressure. The 32GB dev card is the luxury case. |
+| **≥ 16 GB** | Fully resident where the fit test allows, phase-offloading TE/VAE only under pressure; a long clip still streams part of its DiT or plans a shorter pass, because the activation reserve grows with its tokens. The 32GB dev card is the luxury case. |
 
 All of the above is unit-testable without a GPU: the fit math, the deterministic layer split, the
 fp8 quant equivalence, and the eviction accounting are pure functions (`tests/core/native/memory/`,

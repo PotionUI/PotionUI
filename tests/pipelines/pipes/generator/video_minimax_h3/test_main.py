@@ -36,6 +36,8 @@ from src.pipelines.pipes.generator.video_minimax_h3.layout import (
 from src.pipelines.pipes.generator.video_minimax_h3.main import (
     AUDIO_LATENT_CHANNELS,
     GeneratorMinimaxH3Pipe,
+    H3_FFN_DIM,
+    H3_HIDDEN_SIZE,
     H3_INNER_DIM,
     _fit_hint,
     _format_fit_hint,
@@ -46,7 +48,12 @@ from src.pipelines.pipes.generator.video_minimax_h3.main import (
     validate_minimax_h3_config,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import CANVAS_MULTIPLE, FPS
-from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDecision, SamplingOutOfMemory
+from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
+from src.pipelines.pipes._shared.generation.dit_placement import (
+    DitPlacementDecision,
+    SamplingOutOfMemory,
+    estimate_activation_reserve_gb,
+)
 
 _MAIN = "src.pipelines.pipes.generator.video_minimax_h3.main"
 _PLACEMENT = "src.pipelines.pipes._shared.generation.dit_placement"
@@ -3049,6 +3056,21 @@ def test_fit_hint_on_the_maintainer_trace_reports_a_shorter_clip_and_a_smaller_c
     assert hint.alt_height % CANVAS_MULTIPLE == 0
 
 
+@pytest.mark.parametrize("free_gb", [2.0, 2.5, 3.0])
+def test_fit_hint_on_a_quantized_dit_promises_no_more_than_the_free_vram_holds(free_gb):
+    tokens, latent_frames = 19_284, 107
+    dequant_bytes = 2 * H3_HIDDEN_SIZE * 28672 * 2
+    terms = dict(inner_dim=H3_INNER_DIM, ffn_dim=H3_FFN_DIM, dequant_transient_bytes=dequant_bytes,
+                 ffn_chunk_rows=default_ffn_chunk_rows(tokens, H3_HIDDEN_SIZE, H3_FFN_DIM))
+    hint = _fit_hint(
+        free_gb, 0.0, estimate_activation_reserve_gb(tokens, **terms), tokens, latent_frames, FPS, 1344, 768,
+        flat_reserve_gb=dequant_bytes * 1.15 / 1024 ** 3,
+    )
+    fit_latent_frames = (hint.fit_pixel_frames - 5) // 17 * 5 + 2
+    fit_reserve = estimate_activation_reserve_gb(fit_latent_frames * tokens // latent_frames, **terms)
+    assert free_gb - 0.16 < fit_reserve <= free_gb
+
+
 def test_fit_hint_duration_omitted_when_it_would_round_below_two_latent_frames():
     # Duration is LINEAR in the token scale while the canvas side is its
     # SQUARE ROOT, so a small-but-not-tiny scale kills the duration axis (it
@@ -3162,6 +3184,12 @@ def test_h3_hands_its_fit_hint_to_the_pre_flight_placement_too():
     )
     assert text == expected
     assert text  # and it actually says something for these numbers
+    with patch(f"{_MAIN}.dequant_transient_reserve_gb", return_value=3.0):
+        quantized = hint(4.0, activation_reserve_gb=5.0, extra_reserve_gb=0.0, tokens=104_019)
+    assert quantized == _format_fit_hint(
+        _fit_hint(4.0, 0.0, 5.0, 104_019, 107, FPS, 1344, 768, flat_reserve_gb=3.0), 1344, 768,
+    )
+    assert quantized != _format_fit_hint(_fit_hint(4.0, 0.0, 5.0, 104_019, 107, FPS, 1344, 768), 1344, 768)
 
 
 def test_the_fit_hint_is_built_from_the_free_vram_measured_at_failure():

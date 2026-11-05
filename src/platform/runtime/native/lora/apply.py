@@ -651,19 +651,19 @@ def temporarily_applied_loras(
         yield
         return
     states = _snapshot_linear_states(module)
-    _patched, _unmatched, reports = apply_loras_with_report(module, loras, runtime_only=runtime_only)
-    for report in reports:
-        if report.matched_params == 0:
-            logger.warning(
-                "[LORA] scoped %s matched 0 weights (%d unmatched keys); it has no effect",
-                report.source, report.unmatched_keys,
-            )
-        else:
-            logger.info(
-                "[LORA] scoped %s matched %d weights, %d unmatched keys",
-                report.source, report.matched_params, report.unmatched_keys,
-            )
     try:
+        _patched, _unmatched, reports = apply_loras_with_report(module, loras, runtime_only=runtime_only)
+        for report in reports:
+            if report.matched_params == 0:
+                logger.warning(
+                    "[LORA] scoped %s matched 0 weights (%d unmatched keys); it has no effect",
+                    report.source, report.unmatched_keys,
+                )
+            else:
+                logger.info(
+                    "[LORA] scoped %s matched %d weights, %d unmatched keys",
+                    report.source, report.matched_params, report.unmatched_keys,
+                )
         yield
     finally:
         _restore_linear_states(states)

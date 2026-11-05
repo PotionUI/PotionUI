@@ -58,6 +58,7 @@ from src.platform.runtime.native.vae.ltx_causal_video import _MAX_CHUNK_BYTES
 from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.vae.ltx_tiled_decode import DECODE_NOISE_SEED_OFFSET, decode_with_oom_retry
 from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
+from src.pipelines.pipes._shared.video.ltx_common import ltx_reserve_terms
 # Constants + the CPU/GPU cond-move helper, imported (not copied) -- these are
 # stable module-level values/functions, not the generator pipe's own logic.
 from src.pipelines.pipes._shared.video.ltx_constants import LTX_SPATIAL_DOWNSCALE, LTX_TEMPORAL_DOWNSCALE
@@ -226,6 +227,7 @@ def refine_tube_pixels(
     placement = place_dit_for_sequence(
         bundle.dit, device, video_tokens=t_lat * h_lat * w_lat,
         own_models=(bundle.dit, bundle.vae), reserve_gb=decode_reserve_gb,
+        **ltx_reserve_terms(bundle.dit, per_token_timestep=False),
     )
     dit_module = bundle.dit.module
 

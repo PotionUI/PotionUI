@@ -97,6 +97,7 @@ class _Dit:
 
     def __init__(self):
         self.frame_rates = []
+        self.config = SimpleNamespace(has_prompt_adaln=False, inner_dim=4096)
 
     def __call__(self, model_x, timestep, context, **kw):
         self.frame_rates.append(kw["frame_rate"])
@@ -187,19 +188,21 @@ def _run(pipe, bundle, *, denoise=None, is_cancelled=None, **input_kw):
     stack = [
         patch(f"{_MOD}.decode_ltx_video", side_effect=_fake_decode),
         patch(f"{_MOD}.release_idle_te", return_value=0.0),
-        patch(f"{_MOD}.place_dit_for_sequence", return_value=None),
         patch(f"{_MOD}.restore_dit_best_effort", return_value=None),
         patch(f"{_MOD}.clear_gpu_memory", return_value=None),
     ]
     if denoise is not None:
         stack.append(patch(f"{_MOD}.denoise_prenoised", side_effect=denoise))
     encode_patch = patch(f"{_MOD}.encode_frames_to_mp4", return_value=None)
+    place_patch = patch(f"{_MOD}.place_dit_for_sequence", return_value=None)
     for ctx in stack:
         ctx.start()
     recorder.encode = encode_patch.start()
+    recorder.place = place_patch.start()
     try:
         return pipe.process(_pipe_input(bundle, **input_kw), recorder, is_cancelled), recorder
     finally:
+        place_patch.stop()
         encode_patch.stop()
         for ctx in reversed(stack):
             ctx.stop()
@@ -255,6 +258,15 @@ def test_raw_form_resolution_that_snaps_to_the_latent_passes_preflight():
     w, h = W_LAT * 32, H_LAT * 32
     pipe = _pipe(resolution=f"{w + 15}x{h + 15}")
     _run(pipe, _bundle(), denoise=_DenoiseSpy())
+
+
+@pytest.mark.parametrize("prompt_adaln, rows", [(False, 5), (True, 7)])
+def test_placement_reserves_what_the_per_token_timestep_keeps_alive(prompt_adaln, rows):
+    bundle = _bundle()
+    bundle.dit.module.config.has_prompt_adaln = prompt_adaln
+    _, recorder = _run(_pipe(), bundle, denoise=_DenoiseSpy())
+    assert recorder.place.call_args.kwargs["gelu_ffn_dim"] == 16384
+    assert recorder.place.call_args.kwargs["modulation_rows"] == rows
 
 
 # -- round count and the T -> 2T-1 upsampler mapping --------------------------

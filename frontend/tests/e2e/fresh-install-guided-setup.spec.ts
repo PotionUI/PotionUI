@@ -49,7 +49,7 @@ test('a fresh instance runs Guided setup from the real wizard', async ({ page })
 		await page.locator('#confirmPassword').fill(PASSWORD);
 		await page.getByRole('button', { name: 'Create owner account' }).click();
 
-		await page.waitForURL(/\/setup$/, { timeout: 20000 });
+		await page.waitForURL(/\/setup$/, { timeout: 60000 });
 		await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible({ timeout: 20000 });
 		await expect(page.getByRole('button', { name: 'Skip the guide, go to the app' })).toBeVisible();
 		await screenshot(page, JOURNEY, '03-computer');

@@ -1,0 +1,5 @@
+schema_version: 1
+label: "Upscale image"
+outputs:
+  images:
+    label: "Upscaled images"

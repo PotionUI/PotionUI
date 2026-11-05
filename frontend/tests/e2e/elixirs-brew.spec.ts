@@ -8,10 +8,8 @@ import {
 	openElixir,
 	prepare,
 	problems,
-	removeContracts,
 	seedElixir,
-	setKnobs,
-	writeContracts
+	setKnobs
 } from './elixirs-fixtures';
 
 const JOURNEY = 'elixirs-brew';
@@ -54,14 +52,6 @@ async function noTinyText(root: Locator) {
 }
 
 test.describe.configure({ mode: 'serial' });
-
-test.beforeAll(() => {
-	writeContracts();
-});
-
-test.afterAll(() => {
-	removeContracts();
-});
 
 test('an automatic brew runs the photo, sends it into the edit and shows both results', async ({ page }) => {
 	test.setTimeout(180000);

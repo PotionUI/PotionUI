@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, NoReturn, Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.features.elixirs.components import ElixirsComponents
-from src.features.elixirs.contracts import lint_contract, local_contracts_error
+from src.features.elixirs.contracts import lint_contract
 from src.features.elixirs.coordinator import BrewRefused, Coordinator
 from src.features.elixirs.definitions import (
     NodeRejected,
@@ -229,7 +229,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
                 },
             })
         usable.sort(key=lambda item: (item["preset_name"].lower(), item["mode_label"].lower()))
-        return {"presets": usable, "local_contracts_error": local_contracts_error()}
+        return {"presets": usable}
 
     @router.get("")
     def list_elixirs(

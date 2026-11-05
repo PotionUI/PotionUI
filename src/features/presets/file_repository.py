@@ -16,6 +16,9 @@ class FilePresetRepository:
     def find_preset_by_id(self, preset_id: str):
         return self.preset_loader.get(preset_id)
 
+    def templates(self) -> List[Any]:
+        return list(self.preset_loader.all())
+
     def preset_to_info(
         self, preset_template, include_gallery: bool = False, include_styles: bool = False
     ) -> PresetInfo:

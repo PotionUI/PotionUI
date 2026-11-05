@@ -78,7 +78,6 @@ installed_presets.json
 content/presets/local/
 content/presets/.import-*
 content/automation/local/
-content/elixirs/local/
 content/filters/local/
 content/llm-profiles/local/
 content/model-layouts/local/

@@ -97,9 +97,13 @@ def catalog():
 
 @pytest.fixture
 def contracts():
-    from src.features.elixirs.contracts import load_contracts
+    import json
+    from pathlib import Path
 
-    return load_contracts()
+    from src.features.elixirs.contracts import ModeContract
+
+    expected = json.loads((Path(__file__).with_name("expected_contracts.json")).read_text(encoding="utf-8"))
+    return {tuple(key.split("|")): ModeContract.model_validate(value) for key, value in expected.items()}
 
 
 @pytest.fixture

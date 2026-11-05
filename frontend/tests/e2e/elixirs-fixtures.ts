@@ -1,49 +1,8 @@
 import { expect, type Locator, type Page } from '@playwright/test';
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
 import { loginAsOwner, ownerToken } from './helpers';
 
 export const FAKE_PRESET = '01M3SVA35XT0E7CG5JZTS9P21S';
 export const BACKEND_NAME = 'E2E Fake Cloud';
-export const LOCAL_CONTRACTS = resolve(process.cwd(), '../content/elixirs/local/contracts.yml');
-
-export const FAKE_CONTRACTS = `schema_version: 1
-presets:
-  "${FAKE_PRESET}":
-    name: "Fake Studio"
-    modes:
-      txt2img:
-        label: "Text to image"
-        prompt: true
-        quantity_field: "count"
-        outputs:
-          images:
-            label: "Final images"
-            media_type: "image"
-      edit:
-        label: "Edit"
-        prompt: true
-        quantity_field: "count"
-        inputs:
-          references:
-            label: "Reference image"
-            media_type: "image"
-            target: {kind: "form_field", field: "references"}
-        outputs:
-          images:
-            label: "Edited images"
-            media_type: "image"
-`;
-
-export function writeContracts(text: string = FAKE_CONTRACTS): void {
-	mkdirSync(dirname(LOCAL_CONTRACTS), { recursive: true });
-	writeFileSync(LOCAL_CONTRACTS, text, 'utf-8');
-}
-
-export function removeContracts(): void {
-	if (existsSync(LOCAL_CONTRACTS)) unlinkSync(LOCAL_CONTRACTS);
-}
-
 export function headers(token: string) {
 	return { Authorization: `Bearer ${token}` };
 }

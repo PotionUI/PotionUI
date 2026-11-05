@@ -31,7 +31,9 @@ modes:
     for mode in modes:
         mode_dir = preset_dir / "modes" / mode
         mode_dir.mkdir(parents=True, exist_ok=True)
-        (mode_dir / "pipeline.yml").write_text("pipeline: []\n")
+        (mode_dir / "pipeline.yml").write_text(
+            "pipeline:\n  - name: gallery\n    input:\n      - [image, generator, image]\n"
+        )
     # A clean, case-less tests.yml so tests unrelated to the tests.yml lint
     # rules (TestLintTestsYml below) don't have to account for the
     # "no tests.yml" informational warning every other lint check would

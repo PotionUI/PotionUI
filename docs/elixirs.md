@@ -16,38 +16,16 @@ The code lives in `src/features/elixirs/`; its API is served under `/api/elixirs
 
 ## Which presets can be used
 
-A preset mode can be used in an elixir once its inputs and outputs are declared. The
-shipped declarations live in `content/elixirs/marketplace/contracts.yml`, keyed by preset id
-and mode.
+Every preset mode is offered in the elixir picker as long as its inputs and outputs can be
+worked out from the preset itself. There is no separate list to maintain: the contract is
+derived from the mode's own form and pipeline, the same files the app renders. A mode that
+cannot be derived with confidence is left out, and `python scripts/preset_lint.py` says why
+(an info line, `not offered in elixirs`).
 
-To use your own or local presets, create `content/elixirs/local/contracts.yml` with the same
-shape. It is read on top of the shipped file: a mode you declare there replaces the shipped
-declaration for that preset and mode, and everything else stays as shipped. The file is
-checked with the same rules as the shipped one and picked up again as soon as it changes,
-with no restart. If it cannot be read, the shipped declarations are used and the preset list
-reports why. The `content/elixirs/local/` folder is ignored by git.
-
-```yaml
-schema_version: 1
-presets:
-  "YOUR-PRESET-ID":
-    name: "My preset"
-    modes:
-      img2img:
-        label: "Restyle"
-        prompt: true
-        quantity_field: "quantity"
-        inputs:
-          image:
-            label: "Image"
-            media_type: "image"
-            target: {kind: "form_field", field: "image"}
-        outputs:
-          images:
-            label: "Final images"
-            media_type: "image"
-            selector: {is_final: true, is_derived: false}
-```
+A mode can add an optional `modes/<mode>/elixir.yml` next to its `form.yml` to correct or
+extend what is derived, or to hide the mode with `enabled: false`. Presets that a plugin ships
+through a `presets:` root work the same way. The derivation rules and the `elixir.yml` schema
+are in [Presets, Elixir contract](presets.md#elixir-contract).
 
 An input target is either a form field of the mode (`kind: form_field`) or the first or
 last frame of a single-shot Video Director document (`kind: video_director_role`,

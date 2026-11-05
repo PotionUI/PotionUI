@@ -8,8 +8,6 @@ import {
 	openElixir,
 	prepare,
 	problems,
-	removeContracts,
-	writeContracts,
 	FAKE_PRESET
 } from './elixirs-fixtures';
 
@@ -20,21 +18,6 @@ const WRITTEN = [
 	'A small glass potion bottle glowing amber on a dark oak table, soft rim light, shallow depth of field',
 	'A violet potion in a round flask on a mossy stone ledge, cool moonlight, faint mist'
 ];
-
-const CONTRACTS = `schema_version: 1
-presets:
-  "${FAKE_PRESET}":
-    name: "Fake Studio"
-    modes:
-      txt2img:
-        label: "Text to image"
-        prompt: true
-        quantity_field: "count"
-        outputs:
-          images:
-            label: "Final images"
-            media_type: "image"
-`;
 
 let fake: FakeLLMServer;
 
@@ -94,12 +77,10 @@ async function themed(page: Page, theme: 'dark' | 'light', label: string) {
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
-	writeContracts(CONTRACTS);
 	fake = await startFakeLLM();
 });
 
 test.afterAll(async () => {
-	removeContracts();
 	await fake?.close();
 });
 

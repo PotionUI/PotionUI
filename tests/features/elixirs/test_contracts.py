@@ -1,33 +1,22 @@
-from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
 
 from src.features.elixirs.catalog import installed_catalog
-from src.features.elixirs.contracts import (
-    lint_contract,
-    lint_contracts,
-    load_contracts,
-    parse_contracts,
-)
+from src.features.elixirs.contracts import ModeContract, lint_contract, lint_contracts
 
 KREA = "4TK1KBQZ2XMB8ME0PTMXS1YJQP"
 H3 = "01KX47H3MINIMAX000000000VA"
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def document(mode_contract, preset_id=KREA, mode="txt2img"):
-    mode_contract = {"label": "Mode", **mode_contract}
-    return {"schema_version": 1, "presets": {preset_id: {"name": "Krea-2", "modes": {mode: mode_contract}}}}
+def contract(body):
+    return ModeContract.model_validate({"label": "Mode", **body})
 
 
 def images_out():
     return {"images": {"label": "Final images", "media_type": "image"}}
 
 
-def test_shipped_contracts_cover_the_proposal_examples():
-    contracts = load_contracts()
-
+def test_the_six_original_contracts_cover_the_proposal_examples(contracts):
     photo = contracts[(KREA, "txt2img")]
     video = contracts[(H3, "video")]
     assert photo.outputs["images"].media_type == "image"
@@ -40,17 +29,13 @@ def test_shipped_contracts_cover_the_proposal_examples():
 
 @pytest.fixture(scope="module")
 def marketplace_catalog():
-    from src.features.presets.loader import PresetTemplateLoader
-
-    loader = PresetTemplateLoader([str(REPO_ROOT / "content" / "presets" / "marketplace")])
-    loader._ensure_loaded()
     from src.features.presets.file_repository import FilePresetRepository
+    from src.features.presets.loader import PresetTemplateLoader
+    from tests.features.elixirs.test_derivation import MARKETPLACE
 
+    loader = PresetTemplateLoader([str(MARKETPLACE)])
+    loader._ensure_loaded()
     return installed_catalog(FilePresetRepository(loader), [*(template.id for template in loader.presets), "NOT-INSTALLED"])
-
-
-def test_shipped_contracts_match_the_installed_presets(marketplace_catalog):
-    assert lint_contracts(load_contracts(), marketplace_catalog) == []
 
 
 def test_the_catalog_reads_modes_media_fields_and_director_modes(marketplace_catalog):
@@ -66,8 +51,12 @@ def test_the_catalog_reads_modes_media_fields_and_director_modes(marketplace_cat
     assert "NOT-INSTALLED" not in marketplace_catalog
 
 
+def test_the_original_contracts_match_the_installed_presets(contracts, marketplace_catalog):
+    assert lint_contracts(contracts, marketplace_catalog) == []
+
+
 @pytest.mark.parametrize(
-    "contract, problem",
+    "body, problem",
     [
         ({"prompt": True, "quantity_field": "count", "outputs": images_out()}, "no count field"),
         (
@@ -96,23 +85,21 @@ def test_the_catalog_reads_modes_media_fields_and_director_modes(marketplace_cat
         ),
     ],
 )
-def test_lint_reports_contracts_that_do_not_fit_the_preset(catalog, contract, problem):
-    parsed = parse_contracts(document(contract, mode="enhance"))
-
-    problems = lint_contract(KREA, "enhance", parsed[(KREA, "enhance")], catalog)
+def test_lint_reports_contracts_that_do_not_fit_the_preset(catalog, body, problem):
+    problems = lint_contract(KREA, "enhance", contract(body), catalog)
 
     assert len(problems) == 1 and problem in problems[0]
 
 
 def test_lint_reports_unknown_presets_and_modes(catalog):
-    parsed = parse_contracts(document({"prompt": True, "outputs": images_out()}, mode="img2img"))
+    parsed = contract({"prompt": True, "outputs": images_out()})
 
-    assert "no img2img mode" in lint_contract(KREA, "img2img", parsed[(KREA, "img2img")], catalog)[0]
-    assert "not installed" in lint_contract("MISSING", "img2img", parsed[(KREA, "img2img")], catalog)[0]
+    assert "no img2img mode" in lint_contract(KREA, "img2img", parsed, catalog)[0]
+    assert "not installed" in lint_contract("MISSING", "img2img", parsed, catalog)[0]
 
 
 @pytest.mark.parametrize(
-    "contract",
+    "body",
     [
         {"prompt": True},
         {"prompt": True, "outputs": images_out(), "extra": 1},
@@ -146,68 +133,9 @@ def test_lint_reports_unknown_presets_and_modes(catalog):
         },
     ],
 )
-def test_malformed_contracts_are_refused(contract):
+def test_malformed_contracts_are_refused(body):
     with pytest.raises(ValidationError):
-        parse_contracts(document(contract))
-
-
-def write_local(path, mode_contract, preset_id="LOCAL-PRESET", mode="restyle"):
-    import yaml
-
-    path.write_text(yaml.safe_dump(document(mode_contract, preset_id=preset_id, mode=mode)), encoding="utf-8")
-
-
-def test_local_contracts_add_presets_and_replace_shipped_modes(tmp_path):
-    from src.features.elixirs.contracts import (
-        CONTRACTS_PATH,
-        current_contracts,
-        local_contracts_error,
-    )
-
-    local = tmp_path / "contracts.local.yml"
-    write_local(local, {"label": "Restyle", "prompt": True, "outputs": images_out()})
-
-    merged = current_contracts(CONTRACTS_PATH, local)
-
-    assert merged[("LOCAL-PRESET", "restyle")].label == "Restyle"
-    assert (H3, "video") in merged
-    assert local_contracts_error() is None
-
-    write_local(local, {"label": "Mine", "prompt": False, "outputs": images_out()}, preset_id=KREA, mode="txt2img")
-    import os
-
-    os.utime(local, (1, 1))
-    replaced = current_contracts(CONTRACTS_PATH, local)
-    assert replaced[(KREA, "txt2img")].prompt is False
-    assert ("LOCAL-PRESET", "restyle") not in replaced
-
-
-def test_a_broken_local_file_falls_back_to_the_shipped_contracts(tmp_path):
-    from src.features.elixirs.contracts import (
-        CONTRACTS_PATH,
-        current_contracts,
-        local_contracts_error,
-    )
-
-    local = tmp_path / "contracts.local.yml"
-    local.write_text("schema_version: 1\npresets:\n  X:\n    name: x\n    modes:\n      m: {prompt: true}\n", encoding="utf-8")
-
-    merged = current_contracts(CONTRACTS_PATH, local)
-
-    assert (KREA, "txt2img") in merged and ("X", "m") not in merged
-    assert "contracts.local.yml was not loaded" in local_contracts_error()
-
-
-def test_without_a_local_file_only_the_shipped_contracts_load(tmp_path):
-    from src.features.elixirs.contracts import (
-        CONTRACTS_PATH,
-        current_contracts,
-        load_contracts,
-        local_contracts_error,
-    )
-
-    assert current_contracts(CONTRACTS_PATH, tmp_path / "missing.yml") == load_contracts(CONTRACTS_PATH)
-    assert local_contracts_error() is None
+        contract(body)
 
 
 def test_a_preset_mode_override_can_turn_a_director_shape_off():

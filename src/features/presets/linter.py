@@ -538,6 +538,8 @@ class PresetLinter:
 
         issues.extend(self._lint_recommendations(preset_file))
 
+        issues.extend(self._lint_elixir_contracts(preset_file))
+
         return issues, manifest
 
     def _loaded_template(self, preset_file: Path):
@@ -560,6 +562,29 @@ class PresetLinter:
                 Path(template.path).resolve(): template for template in (loader.presets if loader else [])
             }
         return cache[key].get(resolved)
+
+    def _lint_elixir_contracts(self, preset_file: Path) -> List[LintIssue]:
+        from src.features.elixirs.catalog import catalog_entry
+        from src.features.elixirs.contracts import lint_contract
+        from src.features.elixirs.derivation import preset_results
+
+        template = self._loaded_template(preset_file)
+        if template is None:
+            return []
+        preset_str = str(preset_file)
+        issues: List[LintIssue] = []
+        catalog = {template.id: catalog_entry(template)}
+        for result in preset_results(template):
+            for message in result.errors:
+                issues.append(LintIssue("error", preset_str, message))
+            if result.contract is not None and result.overridden:
+                for message in lint_contract(template.id, result.mode, result.contract, catalog):
+                    issues.append(LintIssue("error", preset_str, f"modes/{result.mode}/elixir.yml: {message}"))
+            for message in result.problems:
+                issues.append(
+                    LintIssue("info", preset_str, f"modes/{result.mode}: not offered in elixirs: {message}")
+                )
+        return issues
 
     def _lint_recommendations(self, preset_file: Path) -> List[LintIssue]:
         from .mode_fields import model_fields, mode_requirement_fields

@@ -3,8 +3,9 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional
 
 from src.features.elixirs.catalog import Catalog, installed_catalog
-from src.features.elixirs.contracts import Contracts, current_contracts
+from src.features.elixirs.contracts import Contracts
 from src.features.elixirs.coordinator import Coordinator
+from src.features.elixirs.derivation import ContractCache
 from src.features.elixirs.follow import SessionFollows
 from src.features.elixirs.generation_port import GenerationPort
 from src.features.elixirs.limits import Limits, stored_limits
@@ -71,6 +72,6 @@ def build_elixirs(
         runtime=ElixirRuntime(coordinator, follows),
         resolver=port.resolve,
         catalog=functools.partial(installed_catalog, presets, prompt_batch=prompt_batch),
-        contracts=current_contracts,
+        contracts=ContractCache(presets.templates),
         limits=limits,
     )

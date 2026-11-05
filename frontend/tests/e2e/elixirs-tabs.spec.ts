@@ -9,11 +9,9 @@ import {
 	noHorizontalScroll,
 	openElixir,
 	prepare,
-	removeContracts,
 	seedElixir,
 	setKnobs,
-	stripTab,
-	writeContracts
+	stripTab
 } from './elixirs-fixtures';
 
 const JOURNEY = 'elixirs-tabs';
@@ -44,14 +42,6 @@ async function startBrew(page: Page, elixirId: string) {
 }
 
 test.describe.configure({ mode: 'serial' });
-
-test.beforeAll(() => {
-	writeContracts();
-});
-
-test.afterAll(() => {
-	removeContracts();
-});
 
 test('the + menu drills into the Elixir picker, which searches, opens, switches and creates', async ({ page }) => {
 	test.setTimeout(120000);

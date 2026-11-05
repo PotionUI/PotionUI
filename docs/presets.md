@@ -239,6 +239,68 @@ Write the condition from the pipeline, not from the field labels: read what feed
 declares nothing. A preset that never takes one sets `vars.supports_negative_prompt: false`
 instead.
 
+## Elixir contract
+
+Elixirs chain preset modes together ([Elixirs](elixirs.md)), so every mode needs a contract:
+which media it takes in, which media it produces, whether it takes a prompt. The contract is
+derived from the mode itself, and an optional `elixir.yml` overrides it.
+
+**Derivation.** For each mode the contract is built from the loaded form and pipeline:
+
+- `label` is the mode's display name (`mode_label` in `form.yml`, else the standard name).
+- `inputs` has one port per `image` or `video` field of the mode, found in any form variant. The
+  port name is the field name, the label is the field's label in sentence case, the media type is
+  the field type, and the target is `{kind: form_field, field: <name>}`. A field with
+  `hidden_when_video_director: true` is skipped in a Video Director mode.
+- `prompt` is true unless the mode is listed in `vars.promptless_modes`.
+- `quantity_field` is the numeric field (`stepper`, `number`, `integer`, `slider`) that a pipe's
+  `quantity:` reads through `form.<name>`. If several qualify, a field named `quantity` wins;
+  otherwise none is set.
+- `outputs` come from the `gallery` pipes that are always on: an `image` input gives an `images`
+  port ("Final images"), a `video` input gives a `videos` port ("Final videos"), both with the
+  selector `{is_final: true, is_derived: false}`. A gallery with `derived: true`, with
+  `enabled: false`, or with an `enabled:` expression is not a final output.
+
+A mode is not offered when the derivation is not confident: an `audio` or `media` field (no
+elixir media type), a field of the same name with different types across variants, a field name
+that clashes with an output port (`images`, `videos`), audio-only output, or no always-on
+gallery that takes an image or video. `python scripts/preset_lint.py` (and
+`GET /api/developer/presets/lint`) reports each one as an info line naming the reason.
+
+**Override.** `modes/<mode>/elixir.yml` sits inside the mode directory, for core, local and
+plugin presets alike:
+
+```yaml
+schema_version: 1
+enabled: true
+label: "Upscale video"
+prompt: true
+quantity_field: "quantity"
+inputs:
+  input_video:
+    label: "Clip to upscale"
+  mask: null
+  first_frame:
+    label: "First frame"
+    media_type: "image"
+    target: {kind: "video_director_role", role: "first"}
+outputs:
+  videos:
+    label: "Upscaled videos"
+```
+
+Every key is optional except `schema_version` (always `1`). Scalars replace the derived value;
+`quantity_field: null` removes it. `inputs` and `outputs` merge port by port: a listed port
+overrides only the keys it names (a `target` or `selector` is replaced whole), `null` removes a
+derived port, and a port that was not derived must name every key (`label`, `media_type`, plus
+`target` for inputs). Naming `inputs` or `outputs` at all makes you the owner of that side, so
+a derivation problem there no longer hides the mode. `enabled: false` hides the mode.
+
+The file is validated with the same models as the contract. An invalid `elixir.yml`, or a target
+that names a field the mode does not have, is a lint error and the mode is not offered. The
+Video Director targets (`kind: video_director_role`, `role: first|last`) need a mode listed in
+`vars.video_director.preset_modes`, and the media type must be `image`.
+
 ## See also
 
 - [Backends and Engines](backends.md) — `engine:`, how a preset's pipes get executed.

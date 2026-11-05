@@ -6,7 +6,10 @@ export type OrganizePausedReason =
 	| 'collection_missing'
 	| 'model_restricted'
 	| 'admin_paused'
+	| 'group_missing'
+	| 'provider_unavailable'
 	| null;
+export type OrganizeScope = 'user' | 'instance';
 export type OrganizeCollectionScope = 'history' | 'library' | 'models';
 
 export interface OrganizeSubjectInfo {
@@ -82,6 +85,7 @@ export interface OrganizeFactSpec {
 	component: string | null;
 	previewable: boolean;
 	triggers?: string[];
+	ignore_separators?: boolean;
 }
 
 export interface OrganizeConfigField {
@@ -105,9 +109,16 @@ export interface OrganizeActionSpec {
 	undoable: boolean;
 	source: string;
 	component: string | null;
+	description?: string;
+	scope?: OrganizeScope;
+	notes?: string[];
+	needs?: string[];
+	done_label?: string;
+	paced?: boolean;
 }
 
 export interface OrganizeCatalog {
+	scope?: OrganizeScope;
 	subjects: OrganizeSubjectInfo[];
 	kinds: Record<string, { operators: string[] }>;
 	operators: Record<string, string>;
@@ -119,6 +130,7 @@ export interface OrganizeCondition {
 	fact: string;
 	operator: string;
 	value: unknown;
+	ignore_separators?: boolean;
 }
 
 export interface OrganizeAction {
@@ -148,11 +160,21 @@ export interface OrganizeRule {
 	paused_reason: OrganizePausedReason;
 	paused_at: string | null;
 	issues: OrganizeIssue[];
-	targets: { collections: { id: string; name: string; exists: boolean }[] };
+	targets: {
+		collections: { id: string; name: string; exists: boolean }[];
+		groups?: { id: string | null; name: string; exists: boolean }[];
+	};
 	filed_count: number;
+	waiting_count?: number;
+	skipped_count?: number;
 	last_run_at: string | null;
 	created_at: string;
 	updated_at: string;
+	scope?: OrganizeScope;
+	created_by?: string | null;
+	created_by_name?: string | null;
+	updated_by?: string | null;
+	updated_by_name?: string | null;
 }
 
 export interface OrganizeRuleInput {
@@ -186,7 +208,7 @@ export interface OrganizePreview {
 	already_handled: number;
 	would_change: number;
 	approximate: boolean;
-	sample: { item_type: OrganizeSubject; item_id: string }[];
+	sample: { item_type: OrganizeSubject; item_id: string; name?: string; model_type?: string | null }[];
 	duplicates: { rule_id: string; name: string }[];
 }
 
@@ -200,6 +222,10 @@ export interface OrganizeJob {
 	total: number;
 	processed: number;
 	applied: number;
+	skipped?: number;
+	waiting?: number;
+	kind?: string;
+	scope?: OrganizeScope;
 	run_id: string | null;
 	error: string | null;
 	started_at: string;
@@ -222,11 +248,67 @@ export interface OrganizeRun {
 	applied: number;
 	undone: number;
 	can_undo: boolean;
+	scope?: OrganizeScope;
+	started_by?: string | null;
+	started_by_name?: string | null;
+	undone_by?: string | null;
+	undone_by_name?: string | null;
+	outcomes?: { updated: number; skipped: number; waiting: number };
+	reasons?: OrganizeRunReason[];
 	changes: {
 		collections: { id: string; name: string; count: number; live: number; created: boolean }[];
 		tags: { id: string; name: string; count: number; live: number }[];
-		other: { action: string; label: string; count: number; live: number }[];
+		groups?: { id: string; name: string; count: number; live: number }[];
+		other: { action: string; label: string; done_label?: string; count: number; live: number }[];
 	};
+}
+
+export type OrganizeOutcome = 'updated' | 'skipped' | 'waiting';
+
+export interface OrganizeRunReason {
+	outcome: 'skipped' | 'waiting';
+	code: string;
+	detail: string;
+	count: number;
+}
+
+export interface OrganizeRunItem {
+	item_type: OrganizeSubject;
+	item_id: string;
+	name: string;
+	model_type: string | null;
+	status: OrganizeOutcome;
+	code: string | null;
+	detail: string;
+	attempts: number;
+	next_try_at: string | null;
+}
+
+export interface OrganizeRunItemsPage {
+	run: OrganizeRun;
+	items: OrganizeRunItem[];
+	total: number;
+	page: number;
+	page_size: number;
+}
+
+export type OrganizeMatchStatus = 'would_change' | 'already_done';
+
+export interface OrganizeMatchItem {
+	item_type: OrganizeSubject;
+	item_id: string;
+	name: string;
+	model_type: string | null;
+	status: OrganizeMatchStatus;
+}
+
+export interface OrganizeMatchesPage {
+	total: number;
+	page: number;
+	page_size: number;
+	approximate: boolean;
+	counts: { would_change: number; already_done: number };
+	items: OrganizeMatchItem[];
 }
 
 export interface OrganizeActivityPage {

@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import type { Writable } from 'svelte/store';
-import { catalogFixture, ruleFixture } from './organizeFixtures';
+import { catalogFixture, modelCatalogFixture, ruleFixture } from './organizeFixtures';
 
 type PageStore = Writable<{ url: URL }>;
 
@@ -187,5 +187,38 @@ describe('Auto-organize page', () => {
 		await settle();
 		expect(api.getOrganizeActivity).toHaveBeenCalled();
 		expect(target.textContent).toContain('No activity yet');
+	});
+});
+
+describe('Auto-organize page keeps instance rules out', () => {
+	it('shows only personal model templates and collection actions on the user Models section', async () => {
+		api.getOrganizeCatalog.mockResolvedValue({ success: true, data: { ...modelCatalogFixture, scope: 'user' } });
+		api.listOrganizeRules.mockResolvedValue({ success: true, data: [] });
+		open('?subject=models');
+		mountPage();
+		await settle();
+		expect(api.listOrganizeRules).toHaveBeenCalledWith('model');
+		const templates = [...target.querySelectorAll('[data-testid="rule-template"]')].map((t) => t.textContent ?? '');
+		expect(templates.length).toBeGreaterThan(0);
+		for (const text of templates) {
+			expect(text).not.toContain('user group');
+			expect(text).not.toContain('CivitAI');
+		}
+		expect(target.textContent).not.toContain('instance');
+		expect(target.textContent).not.toContain('Give a user group access');
+		expect(target.textContent).not.toContain('Fetch CivitAI data');
+	});
+
+	it('does not offer an instance action in the new rule editor', async () => {
+		api.getOrganizeCatalog.mockResolvedValue({ success: true, data: { ...modelCatalogFixture, scope: 'user' } });
+		api.listOrganizeRules.mockResolvedValue({ success: true, data: [] });
+		open('?subject=models&rule=new');
+		mountPage();
+		await settle();
+		const labels = [...target.querySelectorAll('button')].map((b) => b.textContent?.trim());
+		expect(labels).toContain('Add to collection') ;
+		for (const label of ['Give a user group access', 'Add model tags', 'Set model type', 'Fetch CivitAI data']) {
+			expect(labels).not.toContain(label);
+		}
 	});
 });

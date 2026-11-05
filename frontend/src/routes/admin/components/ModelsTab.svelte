@@ -3,6 +3,7 @@
 	import { isAxiosError } from 'axios';
 	import dismiss from '$lib/actions/dismiss';
 	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
@@ -45,6 +46,9 @@
 	import FoldersPane from '$lib/model-folders/FoldersPane.svelte';
 	import FoldersSidebar from '$lib/model-folders/FoldersSidebar.svelte';
 	import { FoldersController } from '$lib/model-folders/controller.svelte';
+	import AutoOrganizePane from '$lib/model-auto-organize/AutoOrganizePane.svelte';
+	import { AutoOrganizeController } from '$lib/model-auto-organize/controller.svelte';
+	import { MODELS_AUTO_ORGANIZE_SECTION, autoOrganizeHref } from '$lib/model-auto-organize/section';
 	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
 	import ModelTypeBadge from '$lib/components/ModelTypeBadge.svelte';
 	import {
@@ -178,7 +182,9 @@
 	const viewId = $derived($page.url.searchParams.get('id'));
 	const isAttributesSection = $derived(section === MODELS_ATTRIBUTES_SECTION);
 	const isFoldersSection = $derived(section === MODELS_FOLDERS_SECTION);
-	const detailOpen = $derived(!!viewId || isFoldersSection);
+	const isAutoSection = $derived(section === MODELS_AUTO_ORGANIZE_SECTION);
+	const auto = new AutoOrganizeController();
+	const detailOpen = $derived(!!viewId || isFoldersSection || (isAutoSection && auto.editing));
 	const folders = new FoldersController();
 	let foldersLoaded = false;
 	$effect(() => {
@@ -191,7 +197,9 @@
 	const selectedTypeLabel = $derived(
 		!isAttributesSection ? (typeRows.find((row) => row.type === section)?.label ?? undefined) : undefined
 	);
-	const sectionCounts = $derived(modelLibrarySectionCounts(modelTypes, definitions.length));
+	const sectionCounts = $derived(
+		modelLibrarySectionCounts(modelTypes, definitions.length, auto.loaded ? auto.rules.length : undefined)
+	);
 
 	const filters = $derived(modelsFiltersFromSearchParams($page.url.searchParams));
 	const attrFilters = $derived(attributesFilters.fromSearchParams($page.url.searchParams));
@@ -226,7 +234,7 @@
 		if (nextSection !== 'all') params.set('view', nextSection);
 		if (nextSection === MODELS_ATTRIBUTES_SECTION) {
 			for (const [key, value] of attributesFilters.toSearchParams(overrides.attrFilters ?? attrFilters)) params.set(key, value);
-		} else if (nextSection !== MODELS_FOLDERS_SECTION) {
+		} else if (nextSection !== MODELS_FOLDERS_SECTION && nextSection !== MODELS_AUTO_ORGANIZE_SECTION) {
 			for (const [key, value] of modelsFilters.toSearchParams(overrides.modelFilters ?? filters)) params.set(key, value);
 		}
 		const id = overrides.id !== undefined ? overrides.id : viewId;
@@ -284,7 +292,7 @@
 		void filters;
 		void section;
 		currentPage = 1;
-		if (!loading && !isAttributesSection && !isFoldersSection) {
+		if (!loading && !isAttributesSection && !isFoldersSection && !isAutoSection) {
 			loadModels();
 			loadModelTypes();
 		}
@@ -294,7 +302,7 @@
 		try {
 			const { sort_by, sort_order } = modelsSortParams(filters.sortBy);
 			const response = await api.getModels({
-				model_type: section === 'all' || isAttributesSection || isFoldersSection ? undefined : section,
+				model_type: section === 'all' || isAttributesSection || isFoldersSection || isAutoSection ? undefined : section,
 				...modelsQueryParams(filters),
 				tag_ids: filters.tags.length > 0 ? filters.tags.join(',') : undefined,
 				sort_by,
@@ -386,7 +394,7 @@
 				{
 					...modelsQueryParams(filters),
 					tag_ids: filters.tags.length > 0 ? filters.tags.join(',') : undefined,
-					model_type: section === 'all' || isAttributesSection || isFoldersSection ? undefined : section,
+					model_type: section === 'all' || isAttributesSection || isFoldersSection || isAutoSection ? undefined : section,
 					include_tag_counts: true
 				},
 				request.signal
@@ -738,10 +746,10 @@
 	onSelectSection={selectSection}
 	titleLabel={selectedTypeLabel}
 	{sectionCounts}
-	count={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
+	count={isAutoSection ? (auto.loaded ? auto.rules.length : null) : isAttributesSection ? filteredAttributeDefinitions.length : models.length}
 	{detailOpen}
 	wideSidebar={isFoldersSection}
-	filterChips={isAttributesSection ? [] : filterChips}
+	filterChips={isAttributesSection || isAutoSection ? [] : filterChips}
 	onRemoveChip={(key) => updateFilters(modelsFilters.clearChip(filters, key))}
 	onClearFilters={() => updateFilters(modelsFilters.clearAll(filters))}
 	loadedCount={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
@@ -750,7 +758,7 @@
 	{#snippet sidebarTree()}
 		{#if isFoldersSection}
 			<FoldersSidebar ctrl={folders} />
-		{:else if !isAttributesSection && typeRows.length > 0}
+		{:else if !isAttributesSection && !isAutoSection && typeRows.length > 0}
 			<div class="border-t border-line">
 				<div class="px-3 pb-1 pt-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">By type</div>
 				<div class="space-y-0.5 p-2 pt-0">
@@ -775,7 +783,15 @@
 	{/snippet}
 
 	{#snippet toolbar()}
-		{#if isAttributesSection}
+		{#if isAutoSection}
+			{#if !$page.url.searchParams.get('pane')}
+				<LibraryFilterBar
+					q={auto.query}
+					onQueryChange={(value) => (auto.query = value)}
+					searchPlaceholder="Search rules by name…"
+				/>
+			{/if}
+		{:else if isAttributesSection}
 			<LibraryFilterBar
 				q={attrFilters.q}
 				onQueryChange={(value) => updateAttrFilters({ ...attrFilters, q: value })}
@@ -944,7 +960,11 @@
 	{/snippet}
 
 	{#snippet primary()}
-		{#if isAttributesSection}
+		{#if isAutoSection}
+			<Button variant="primary" size="sm" icon="plus" onclick={() => goto(autoOrganizeHref($page.url.pathname, { rule: 'new' }))}>
+				New rule
+			</Button>
+		{:else if isAttributesSection}
 			<Button variant="primary" size="sm" icon="plus" onclick={openCreateAttrModal}>New attribute</Button>
 		{:else}
 			<div class="flex flex-shrink-0 items-center gap-0.5 rounded bg-surface-2 p-0.5" role="radiogroup" aria-label="Models view">
@@ -975,7 +995,7 @@
 	{/snippet}
 
 	{#snippet overflow(close)}
-		{#if !isAttributesSection}
+		{#if !isAttributesSection && !isAutoSection}
 			{#if notIndexedYet > 0}
 				<a
 					href="/admin?tab=models&view=folders"
@@ -1013,7 +1033,9 @@
 		{/if}
 	{/snippet}
 
-	{#if detailOpen}
+	{#if isAutoSection}
+		<AutoOrganizePane ctrl={auto} />
+	{:else if detailOpen}
 		{#if isFoldersSection}
 			<FoldersPane ctrl={folders} onBack={() => selectSection(MODELS_ALL_SECTION)} />
 		{:else if isAttributesSection}

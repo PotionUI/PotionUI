@@ -12,6 +12,7 @@ const mockGetUnindexedModelsCount = vi.fn();
 const mockGetAttributeDefinitions = vi.fn();
 const mockGetEnabledBackends = vi.fn();
 const mockGetModelAssignmentSummary = vi.fn();
+const mockClientGet = vi.fn();
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -22,7 +23,8 @@ vi.mock('$lib/services/api/index', () => ({
 		getModelTypes: (...args: unknown[]) => mockGetModelTypes(...args),
 		getTags: (...args: unknown[]) => mockGetTags(...args),
 		getUnindexedModelsCount: (...args: unknown[]) => mockGetUnindexedModelsCount(...args),
-		getAttributeDefinitions: (...args: unknown[]) => mockGetAttributeDefinitions(...args)
+		getAttributeDefinitions: (...args: unknown[]) => mockGetAttributeDefinitions(...args),
+		getClient: () => ({ get: (...args: unknown[]) => mockClientGet(...args) })
 	}
 }));
 
@@ -105,6 +107,10 @@ beforeEach(() => {
 	mockGetAttributeDefinitions.mockResolvedValue({ success: true, data: { definitions: DEFINITIONS } });
 	mockGetEnabledBackends.mockResolvedValue({ success: true, data: [] });
 	mockGetModelAssignmentSummary.mockResolvedValue({ success: true, data: {} });
+	mockClientGet.mockImplementation((url: string) => {
+		const data = url.endsWith('/catalog') ? { scope: 'instance', subjects: [], kinds: {}, operators: {}, facts: [], actions: [] } : [];
+		return Promise.resolve({ data: { success: true, data } });
+	});
 });
 
 afterEach(() => {
@@ -194,6 +200,32 @@ describe('ModelsTab', () => {
 
 		expect(target.textContent).toContain('Strength');
 		expect(target.textContent).toContain('Trigger Words');
+		expect(target.textContent).not.toContain('base.safetensors');
+	});
+
+	it('lists Auto-organize as the last section and opens the instance rules without querying models', async () => {
+		mountTab();
+		await flush();
+		flushSync();
+
+		const sections = Array.from(target.querySelectorAll('[role="option"]')).map((el) => el.textContent ?? '');
+		const names = ['All models', 'Attributes', 'Folders', 'Auto-organize'];
+		const positions = names.map((name) => sections.findIndex((text) => text.includes(name)));
+		expect(positions.every((index) => index >= 0)).toBe(true);
+		expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+
+		mockGetModels.mockClear();
+		const autoRow = Array.from(target.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('Auto-organize'))!;
+		(autoRow as HTMLElement).click();
+		await flush();
+		flushSync();
+		page.set({ url: new URL('http://localhost/admin?tab=models&view=auto-organize') });
+		await flush(20);
+		flushSync();
+
+		expect(target.querySelector('[data-testid="model-auto-organize"]')).not.toBeNull();
+		expect(mockClientGet.mock.calls.map((c) => c[0])).toContain('/api/admin/organize/instance/rules');
+		expect(mockGetModels.mock.calls.some((c) => c[0]?.model_type === 'auto-organize')).toBe(false);
 		expect(target.textContent).not.toContain('base.safetensors');
 	});
 

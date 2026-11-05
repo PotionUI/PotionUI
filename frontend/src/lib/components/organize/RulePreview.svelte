@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
-	import { Alert, Spinner, Switch } from '$lib/components/ui';
-	import { api } from '$lib/services/api';
+	import { Alert, Button, Spinner, Switch } from '$lib/components/ui';
+	import { useOrganizeApi } from '$lib/organize/scope';
 	import {
 		actionTargetFilled,
 		conditionValueFilled,
@@ -12,7 +12,10 @@
 	} from '$lib/organize/draft';
 	import { subjectIcon } from '$lib/organize/icons';
 	import { subjectNoun } from '$lib/organize/sentence';
-	import type { OrganizeCatalog, OrganizePreview } from '$lib/types/organize';
+	import type { OrganizeCatalog, OrganizePreview, OrganizePreviewRequest } from '$lib/types/organize';
+	import MatchesDialog from './MatchesDialog.svelte';
+
+	const api = useOrganizeApi();
 
 	let {
 		draft,
@@ -33,6 +36,7 @@
 	let failed = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let sequence = 0;
+	let matchesOpen = $state(false);
 
 	const ready = $derived(
 		draft.conditions.every((c) =>
@@ -45,6 +49,16 @@
 		JSON.stringify([draft.id, draft.subject, draft.match, draftConditions(draft), filledActions])
 	);
 
+	function currentRequest(): OrganizePreviewRequest {
+		return {
+			subject: draft.subject,
+			match: draft.match,
+			conditions: draftConditions(draft),
+			actions: filledActions,
+			rule_id: draft.id
+		};
+	}
+
 	$effect(() => {
 		void signature;
 		clearTimeout(timer);
@@ -55,13 +69,7 @@
 		}
 		loading = true;
 		const mine = ++sequence;
-		const request = {
-			subject: draft.subject,
-			match: draft.match,
-			conditions: draftConditions(draft),
-			actions: filledActions,
-			rule_id: draft.id
-		};
+		const request = currentRequest();
 		timer = setTimeout(async () => {
 			try {
 				const response = await api.previewOrganizeRule(request);
@@ -80,6 +88,8 @@
 	});
 
 	const change = $derived(preview?.would_change ?? 0);
+	const runsOnly = $derived(draft.actions.some((a) => !['add_to_collection', 'add_tags'].includes(a.action)));
+	const named = $derived((preview?.sample ?? []).filter((s) => s.name).slice(0, 5));
 </script>
 
 <div class="space-y-3" data-testid="rule-preview">
@@ -106,6 +116,21 @@
 				existing {preview.matched === 1 ? noun.singular : noun.plural} match
 			</p>
 		</div>
+		{#if named.length > 0}
+			<ul class="space-y-1" data-testid="preview-sample">
+				{#each named as item (item.item_id)}
+					<li class="flex items-center gap-2 text-[12px] text-fg-muted">
+						<Icon name={subjectIcon(draft.subject)} className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
+						<span class="min-w-0 truncate font-mono text-fg">{item.name}</span>
+					</li>
+				{/each}
+			</ul>
+			{#if preview.matched > named.length}
+				<Button size="sm" variant="secondary" icon="list" onclick={() => (matchesOpen = true)}>
+					Show all {preview.matched}
+				</Button>
+			{/if}
+		{/if}
 		{#if preview.already_handled > 0}
 			<p class="text-xs text-fg-subtle">{preview.already_handled} already handled by this rule.</p>
 		{/if}
@@ -122,14 +147,20 @@
 					size="sm"
 					class="mt-0.5"
 					testid="apply-existing"
-					label="Also add the {change} existing {change === 1 ? noun.singular : noun.plural} when I save"
+					label={runsOnly
+						? `Also run it on the ${change} existing ${change === 1 ? noun.singular : noun.plural} when I save`
+						: `Also add the ${change} existing ${change === 1 ? noun.singular : noun.plural} when I save`}
 					bind:checked={applyExisting}
 				/>
 				<div class="min-w-0">
 					<p class="text-sm text-fg">
-						Also add the {change} existing {change === 1 ? noun.singular : noun.plural} when I save
+						{runsOnly ? 'Also run it on the' : 'Also add the'} {change} existing {change === 1 ? noun.singular : noun.plural} when I save
 					</p>
-					<p class="mt-0.5 text-xs text-fg-subtle">Rules only add. You can undo any run from Activity.</p>
+					<p class="mt-0.5 text-xs text-fg-subtle">
+						{runsOnly
+							? 'Runs in the background, a few models at a time. You can stop it, and undo what it changed from Activity where undo exists.'
+							: 'Rules only add. You can undo any run from Activity.'}
+					</p>
 				</div>
 			</div>
 		{:else}
@@ -143,3 +174,7 @@
 		<div class="flex items-center gap-2 text-sm text-fg-muted"><Spinner size="sm" /> Counting</div>
 	{/if}
 </div>
+
+{#if matchesOpen && preview}
+	<MatchesDialog request={currentRequest()} total={preview.matched} onclose={() => (matchesOpen = false)} />
+{/if}

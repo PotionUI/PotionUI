@@ -2,13 +2,15 @@
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Input, Switch, IconButton } from '$lib/components/ui';
-	import { api } from '$lib/services/api';
+	import { useOrganizeApi } from '$lib/organize/scope';
 	import { effectiveKind, isListOperator } from '$lib/organize/draft';
 	import { mediaKindIcon } from '$lib/organize/icons';
 	import type { OrganizeFactSpec, OrganizeOption, OrganizeSubject } from '$lib/types/organize';
 	import FactModelPicker from './FactModelPicker.svelte';
 	import TagNamesInput from './TagNamesInput.svelte';
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
+
+	const api = useOrganizeApi();
 
 	let {
 		spec,

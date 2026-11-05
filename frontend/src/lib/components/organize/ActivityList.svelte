@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { Badge, Button, EmptyState, LoadErrorState, Spinner } from '$lib/components/ui';
-	import { api } from '$lib/services/api';
+	import { useOrganizeApi } from '$lib/organize/scope';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { toasts } from '$lib/stores/toast';
-	import { runKindLabel, runSummary, runTitle, undoMessage } from '$lib/organize/activity';
+	import { hasOutcomes, outcomesOf, runKindLabel, runSummary, runTitle, undoMessage } from '$lib/organize/activity';
 	import { parseOrganizeError } from '$lib/organize/errors';
 	import { timeAgo } from '$lib/utils/relativeTime';
+	import RunDetailsDialog from './RunDetailsDialog.svelte';
 	import type { OrganizeRun, OrganizeSubject } from '$lib/types/organize';
+
+	const api = useOrganizeApi();
 
 	let {
 		subject,
@@ -26,6 +29,7 @@
 	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
 	let undoing = $state<string | null>(null);
+	let detailsRun = $state<OrganizeRun | null>(null);
 	let loadedKey = '';
 
 	async function load(more = false) {
@@ -74,7 +78,8 @@
 			const response = await api.undoOrganizeRun(run.id);
 			if (response.success && response.data) {
 				runs = runs.map((r) => (r.id === run.id ? response.data!.run : r));
-				toasts.success(`Undid this run for ${response.data.items} ${response.data.items === 1 ? 'item' : 'items'}`);
+				const what = run.subject === 'model' ? 'model' : 'item';
+				toasts.success(`Undid this run for ${response.data.items} ${response.data.items === 1 ? what : `${what}s`}`);
 				onundone?.(response.data.run);
 			} else {
 				toasts.error(response.message || 'The run could not be undone.');
@@ -122,16 +127,38 @@
 								<li>{line}</li>
 							{/each}
 						</ul>
+						{#if hasOutcomes(run)}
+							{@const outcomes = outcomesOf(run)}
+							<ul class="mt-1 space-y-0.5 text-sm" data-testid="run-outcomes">
+								{#each outcomes.waitingLines as line (line.code)}
+									<li class="flex items-start gap-2 text-warning">
+										<span class="mt-[7px] h-1.5 w-1.5 flex-shrink-0 rounded-sm bg-warning"></span>
+										<span>{line.count} waiting: {line.label}</span>
+									</li>
+								{/each}
+								{#each outcomes.skippedLines as line (line.code)}
+									<li class="flex items-start gap-2 text-fg-muted">
+										<span class="mt-[7px] h-1.5 w-1.5 flex-shrink-0 rounded-sm bg-fg-subtle"></span>
+										<span>{line.count} skipped: {line.label}</span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
 						<p class="mt-1.5 font-mono text-xs tabular-nums text-fg-subtle">
-							{timeAgo(run.started_at)}
+							{timeAgo(run.started_at)}{#if run.started_by_name} · by {run.started_by_name}{/if}
 							{#if run.undone > 0 && run.status !== 'undone'} · {run.undone} undone{/if}
 						</p>
 					</div>
-					{#if run.can_undo}
-						<Button size="sm" variant="secondary" icon="undo" loading={undoing === run.id} onclick={() => undo(run)}>
-							Undo
-						</Button>
-					{/if}
+					<div class="flex flex-shrink-0 items-center gap-2">
+						{#if hasOutcomes(run)}
+							<Button size="sm" variant="ghost" icon="list" onclick={() => (detailsRun = run)}>Details</Button>
+						{/if}
+						{#if run.can_undo}
+							<Button size="sm" variant="secondary" icon="undo" loading={undoing === run.id} onclick={() => undo(run)}>
+								Undo
+							</Button>
+						{/if}
+					</div>
 				</div>
 			</li>
 		{/each}
@@ -141,4 +168,8 @@
 			<Button size="sm" variant="secondary" loading={loadingMore} onclick={() => load(true)}>Show older</Button>
 		</div>
 	{/if}
+{/if}
+
+{#if detailsRun}
+	<RunDetailsDialog run={detailsRun} onclose={() => (detailsRun = null)} onretried={() => load()} />
 {/if}

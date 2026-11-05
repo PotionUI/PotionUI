@@ -111,3 +111,71 @@ export const attributeOptionsFixture: OrganizeAttributeOption[] = [
 	{ value: 'style', label: 'Style', meta: { type: 'enum', type_label: 'Choice', field_type: 'select', model_types: ['checkpoint'], choices: [{ value: 'anime', label: 'Anime' }, { value: 'photo', label: 'Photo' }] } },
 	{ value: 'shareable', label: 'Safe to share', meta: { type: 'bool', type_label: 'Yes or no', field_type: 'checkbox', model_types: ['checkpoint'] } }
 ];
+
+export const instanceCatalogFixture: OrganizeCatalog = {
+	...modelCatalogFixture,
+	scope: 'instance',
+	subjects: catalogFixture.subjects.filter((s) => s.key === 'model'),
+	facts: [
+		{ key: 'name', label: 'Name', subjects: ['model'], kind: 'text', operators: TEXT_OPERATORS, picker: { placeholder: 'part of the name' }, options: null, has_options_endpoint: false, description: '', source: 'core', component: null, previewable: true, ignore_separators: true },
+		{ key: 'model_type', label: 'Model type', subjects: ['model'], kind: 'enum', operators: ['is', 'is_any_of', 'is_not'], picker: { multi: true }, options: [{ value: 'checkpoint', label: 'Checkpoint' }, { value: 'lora', label: 'LoRA' }], has_options_endpoint: false, description: '', source: 'core', component: null, previewable: true },
+		{ key: 'source', label: 'Source', subjects: ['model'], kind: 'enum', operators: ['is', 'is_any_of', 'is_not'], picker: { multi: true }, options: [{ value: 'local', label: 'Local' }, { value: 'civitai', label: 'CivitAI' }], has_options_endpoint: false, description: '', source: 'core', component: null, previewable: true }
+	],
+	actions: [
+		{ key: 'assign_model_group', label: 'Give a user group access', subjects: ['model'], config_schema: [{ key: 'group_id', kind: 'user_group', label: 'User group', required: true }], requires_admin: false, undoable: true, source: 'core', component: null, description: 'Adds the model to a user group, so every member sees and can use it.', scope: 'instance', notes: [], needs: [], done_label: 'Gave a group access', paced: false },
+		{ key: 'add_model_tags', label: 'Add model tags', subjects: ['model'], config_schema: [{ key: 'tags', kind: 'tag_list', label: 'Tags', required: true }], requires_admin: false, undoable: true, source: 'core', component: null, description: 'Adds tags to the model. Model tags are shared by everyone.', scope: 'instance', notes: [], needs: [], done_label: 'Added model tags', paced: false },
+		{ key: 'set_model_type', label: 'Set model type', subjects: ['model'], config_schema: [{ key: 'model_type', kind: 'enum', label: 'Model type', required: true, options: [{ value: 'checkpoint', label: 'checkpoint' }, { value: 'lora', label: 'lora' }, { value: 'vae', label: 'vae' }] }], requires_admin: false, undoable: true, source: 'core', component: null, description: 'Sets the type of models that have none.', scope: 'instance', notes: [], needs: ['digest'], done_label: 'Set the model type', paced: false },
+		{ key: 'civitai-provider.fetch_info', label: 'Fetch CivitAI data', subjects: ['model'], config_schema: [], requires_admin: false, undoable: false, source: 'civitai-provider', component: null, description: 'Looks the model up on CivitAI by its file hash and fills in its empty description, trigger words, tags and previews.', scope: 'instance', notes: ['Only an exact SHA-256 match is accepted, so a wrong model is never filled in.', 'A model that is not on CivitAI is skipped, one that could not be reached is tried again.'], needs: ['digest'], done_label: 'Fetched CivitAI data', paced: true }
+	]
+};
+
+export function instanceRuleFixture(over: Partial<OrganizeRule> = {}): OrganizeRule {
+	return ruleFixture({
+		id: 'ir1',
+		name: 'Krea-2 models to krea-2',
+		subject: 'model',
+		trigger: 'model_added',
+		conditions: [{ fact: 'name', operator: 'contains', value: 'krea2', ignore_separators: true }],
+		actions: [{ action: 'assign_model_group', config: { group_id: 'g1' } }],
+		targets: { collections: [], groups: [{ id: 'g1', name: 'krea-2', exists: true }] },
+		filed_count: 14,
+		scope: 'instance',
+		created_by: 'u1',
+		created_by_name: 'mira',
+		updated_by: 'u1',
+		updated_by_name: 'mira',
+		waiting_count: 0,
+		skipped_count: 0,
+		...over
+	});
+}
+
+export function instanceRunFixture(over: Record<string, unknown> = {}) {
+	return {
+		id: 'run-civ',
+		rule_id: 'ir2',
+		rule_name: 'Fetch CivitAI data',
+		rule_deleted: false,
+		subject: 'model',
+		kind: 'backfill',
+		status: 'completed',
+		started_at: '2026-11-05T09:12:00+00:00',
+		finished_at: '2026-11-05T09:12:09+00:00',
+		matched: 31,
+		applied: 19,
+		undone: 0,
+		can_undo: false,
+		scope: 'instance',
+		started_by: 'u2',
+		started_by_name: 'ola',
+		undone_by: null,
+		undone_by_name: null,
+		outcomes: { updated: 19, skipped: 3, waiting: 9 },
+		reasons: [
+			{ outcome: 'waiting', code: 'unreachable', detail: 'CivitAI could not be reached', count: 9 },
+			{ outcome: 'skipped', code: 'hash_mismatch', detail: 'CivitAI answered with a different file, so the answer was ignored', count: 3 }
+		],
+		changes: { collections: [], tags: [], groups: [], other: [{ action: 'civitai-provider.fetch_info', label: 'Fetch CivitAI data', done_label: 'Fetched CivitAI data', count: 19, live: 19 }] },
+		...over
+	};
+}

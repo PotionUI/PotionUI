@@ -12,7 +12,9 @@ const PAUSE_NOTICES: Record<string, string> = {
 	rate_limited: 'It filed a lot of items in an hour, so it was paused. Check it and switch it back on.',
 	collection_missing: 'Its collection is gone, so it was paused. Pick a collection and switch it back on.',
 	model_restricted: 'It uses a model you can no longer use, so it was paused. Change the model and switch it back on.',
-	admin_paused: 'Auto-organize is paused by an administrator.'
+	admin_paused: 'Auto-organize is paused by an administrator.',
+	group_missing: 'Its user group is gone, so it was paused. Pick a group and switch it back on.',
+	provider_unavailable: 'The provider it uses is not set up, so it was paused. Set it up in Providers, then switch it back on.'
 };
 
 export function ruleStatusInfo(rule: Pick<OrganizeRule, 'status' | 'paused_reason' | 'issues'>): RuleStatusInfo {

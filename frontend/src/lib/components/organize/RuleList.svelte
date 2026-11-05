@@ -149,6 +149,15 @@
 					<span class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-xs tabular-nums text-fg-subtle">
 						<span>Filed {rule.filed_count} {rule.filed_count === 1 ? 'item' : 'items'}</span>
 						<span>{rule.last_run_at ? `Last run ${timeAgo(rule.last_run_at)}` : 'Not run yet'}</span>
+						{#if (rule.waiting_count ?? 0) > 0}
+							<span class="text-warning" data-testid="rule-waiting">{rule.waiting_count} waiting</span>
+						{/if}
+						{#if (rule.skipped_count ?? 0) > 0}
+							<span data-testid="rule-skipped">{rule.skipped_count} skipped</span>
+						{/if}
+						{#if rule.updated_by_name}
+							<span data-testid="rule-changed-by">Changed by {rule.updated_by_name} {timeAgo(rule.updated_at)}</span>
+						{/if}
 					</span>
 				</button>
 				<div class="relative flex-shrink-0">
@@ -164,6 +173,12 @@
 			{#if info.notice}
 				<div class="px-3 pb-3">
 					<Alert variant="warning" density="compact" icon>{info.notice}</Alert>
+				</div>
+			{:else if (rule.waiting_count ?? 0) > 0}
+				<div class="px-3 pb-3">
+					<Alert variant="warning" density="compact" icon>
+						{rule.waiting_count} {rule.waiting_count === 1 ? 'model is' : 'models are'} waiting and will be tried again on their own.
+					</Alert>
 				</div>
 			{/if}
 		</li>

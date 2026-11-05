@@ -2,7 +2,7 @@
 	import { DetailHeader, DetailBody, DetailFooter, DetailLayout, DetailSection } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Alert, Input, Switch } from '$lib/components/ui';
-	import { api } from '$lib/services/api';
+	import { useOrganizeApi } from '$lib/organize/scope';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { toasts } from '$lib/stores/toast';
 	import {
@@ -14,12 +14,14 @@
 	} from '$lib/organize/draft';
 	import { subjectIcon } from '$lib/organize/icons';
 	import { parseOrganizeError, problemMessage } from '$lib/organize/errors';
-	import { awaitsTagging, triggerSentence } from '$lib/organize/sentence';
+	import { awaitsDigest, awaitsTagging, triggerSentence } from '$lib/organize/sentence';
 	import type { OrganizeCatalog, OrganizeJob, OrganizePreview, OrganizeRule } from '$lib/types/organize';
 	import ActionBuilder from './ActionBuilder.svelte';
 	import ConditionBuilder from './ConditionBuilder.svelte';
 	import JobProgress from './JobProgress.svelte';
 	import RulePreview from './RulePreview.svelte';
+
+	const api = useOrganizeApi();
 
 	let {
 		initial,
@@ -152,7 +154,11 @@
 						<Icon name={subjectIcon(draft.subject)} className="w-3.5 h-3.5 text-fg-muted" />
 						{triggerSentence(draft.subject, catalog)}
 					</span>
-					{#if awaitsTagging(draft.conditions, catalog)}
+					{#if awaitsDigest(draft.actions, catalog)}
+						<p class="mt-1 text-xs text-fg-subtle" data-testid="rule-trigger-note">
+							Runs once the model file is verified, because it is looked up by its SHA-256.
+						</p>
+					{:else if awaitsTagging(draft.conditions, catalog)}
 						<p class="mt-1 text-xs text-fg-subtle" data-testid="rule-trigger-note">Runs after Media Tagging finishes</p>
 					{/if}
 				</DetailSection>
@@ -193,12 +199,14 @@
 							class="mt-3 text-sm text-fg-muted underline-offset-2 hover:text-fg hover:underline"
 							onclick={handleApplyNow}
 						>
-							Add the existing items now
+							{draft.actions.some((a) => !['add_to_collection', 'add_tags'].includes(a.action))
+								? 'Run it on the existing models now'
+								: 'Add the existing items now'}
 						</button>
 					{/if}
 				</DetailSection>
 				{#if job}
-					<DetailSection label="Existing items" icon="folder-plus">
+					<DetailSection label={draft.subject === 'model' && job.scope === 'instance' ? 'Existing models' : 'Existing items'} icon="folder-plus">
 						<JobProgress {job} onviewactivity={onViewActivity} />
 					</DetailSection>
 				{/if}

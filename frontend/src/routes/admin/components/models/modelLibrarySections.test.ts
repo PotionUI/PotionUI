@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { MODELS_AUTO_ORGANIZE_SECTION } from '$lib/model-auto-organize/section';
 import {
 	MODELS_ALL_SECTION,
 	MODELS_ATTRIBUTES_SECTION,
@@ -10,13 +11,25 @@ import {
 } from './modelLibrarySections';
 
 describe('MODEL_LIBRARY_SECTIONS', () => {
-	it('is All models, then Attributes, then Folders', () => {
+	it('is All models, Attributes, Folders, then Auto-organize', () => {
 		expect(MODEL_LIBRARY_SECTIONS.map((s) => s.id)).toEqual([
 			MODELS_ALL_SECTION,
 			MODELS_ATTRIBUTES_SECTION,
-			MODELS_FOLDERS_SECTION
+			MODELS_FOLDERS_SECTION,
+			MODELS_AUTO_ORGANIZE_SECTION
 		]);
-		expect(MODEL_LIBRARY_SECTIONS.map((s) => s.label)).toEqual(['All models', 'Attributes', 'Folders']);
+		expect(MODEL_LIBRARY_SECTIONS.map((s) => s.label)).toEqual([
+			'All models',
+			'Attributes',
+			'Folders',
+			'Auto-organize'
+		]);
+	});
+
+	it('keeps Auto-organize as its own shell section and counts it only once loaded', () => {
+		expect(modelLibraryShellSection(MODELS_AUTO_ORGANIZE_SECTION)).toBe(MODELS_AUTO_ORGANIZE_SECTION);
+		expect(modelLibrarySectionCounts([], 0)[MODELS_AUTO_ORGANIZE_SECTION]).toBeUndefined();
+		expect(modelLibrarySectionCounts([], 0, 3)[MODELS_AUTO_ORGANIZE_SECTION]).toBe(3);
 	});
 });
 

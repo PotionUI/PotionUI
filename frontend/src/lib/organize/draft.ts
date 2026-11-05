@@ -19,6 +19,7 @@ export interface DraftCondition {
 	fact: string;
 	operator: string;
 	value: unknown;
+	ignore_separators?: boolean;
 }
 
 export interface DraftAction {
@@ -190,6 +191,7 @@ export function newAction(spec: OrganizeActionSpec): DraftAction {
 		else if (field.kind === 'tag_list') config[field.key] = [];
 		else if (field.kind === 'bool') config[field.key] = false;
 		else if (field.kind === 'text' || field.kind === 'collection') config[field.key] = field.kind === 'text' ? '' : null;
+		else if (field.kind === 'user_group' || field.kind === 'enum') config[field.key] = null;
 	}
 	return { uid: nextUid(), action: spec.key, config };
 }
@@ -311,7 +313,24 @@ export function actionTargetFilled(action: DraftAction): boolean {
 		const tags = action.config.tags;
 		return Array.isArray(tags) && tags.length > 0;
 	}
+	const required = REQUIRED_CONFIG[action.action];
+	if (required) {
+		const value = action.config[required];
+		return Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value !== '';
+	}
 	return true;
+}
+
+const REQUIRED_CONFIG: Record<string, string> = {
+	assign_model_group: 'group_id',
+	add_model_tags: 'tags',
+	set_model_type: 'model_type'
+};
+
+export const SEPARATOR_OPERATORS: readonly string[] = ['contains', 'not_contains', 'starts_with', 'ends_with', 'is', 'is_not'];
+
+export function canIgnoreSeparators(spec: OrganizeFactSpec | undefined, operator: string): boolean {
+	return !!spec?.ignore_separators && SEPARATOR_OPERATORS.includes(operator);
 }
 
 export function draftProblems(draft: RuleDraft, catalog: OrganizeCatalog | null): string[] {

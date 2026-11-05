@@ -423,6 +423,10 @@ fp8 quant equivalence, and the eviction accounting are pure functions (`tests/co
 `tests/core/native/test_fp8_quant.py`). The wall-clock A/B (streamed-bf16 vs partial-residency vs
 fp8-auto, in s/step) is measured on GPU via `tests/manual/native_smoke.py --tier-vram <GB>`.
 
+**System RAM** (`src/platform/runtime/system_memory.py`) is psutil's reading, capped by cgroup v2 on the process's folder and
+its parents from `/proc/self/cgroup`, or a passthrough without a limit: `total` by the smallest `memory.max`,
+`available` by the smallest `memory.max - (memory.current - inactive_file)`, since `memory.current` counts page cache.
+
 ### Running out of VRAM, and the driver-error OOM
 
 What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a

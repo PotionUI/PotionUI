@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Button, SegmentedControl } from '$lib/components/ui';
+	import { Alert, Button, Pagination, SegmentedControl } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import InlineChipEditor from '$lib/components/InlineChipEditor.svelte';
@@ -16,7 +16,7 @@
 	import { Spinner } from '$lib/components/ui';
 	import { filesInput } from '$lib/elixirs/filesInput';
 	import { acceptFor, uploadSummary, type UploadItem } from '$lib/elixirs/filesUpload';
-	import { DRAWER_ROWS_STEP } from '$lib/elixirs/mosaic';
+	import { DRAWER_PAGE_SIZE } from '$lib/elixirs/mosaic';
 	import type { OutputEntry } from '$lib/elixirs/types';
 	import NodeSettingsForm from './NodeSettingsForm.svelte';
 	import NodeRequestPreview from './NodeRequestPreview.svelte';
@@ -140,7 +140,24 @@
 	let writerVariables = $derived(node.variables ?? NO_VARIABLES);
 	let writerVariableCount = $derived(Object.keys(writerVariables).length);
 	let dropping = $state(false);
-	let mosaicRows = $state(DRAWER_ROWS_STEP);
+	let filePage = $state(1);
+	let fileTotalPages = $derived(Math.max(1, Math.ceil(node.assets.length / DRAWER_PAGE_SIZE)));
+	let fileCurrentPage = $derived(Math.min(filePage, fileTotalPages));
+	let fileOffset = $derived((fileCurrentPage - 1) * DRAWER_PAGE_SIZE);
+	let filePageAssets = $derived(node.assets.slice(fileOffset, fileOffset + DRAWER_PAGE_SIZE));
+
+	let filePageNode = untrack(() => node.id);
+
+	$effect(() => {
+		const id = node.id;
+		if (id === filePageNode) return;
+		filePageNode = id;
+		filePage = 1;
+	});
+
+	function changeFilePage(page: number) {
+		filePage = page;
+	}
 	let fileInput = $state<HTMLInputElement>();
 	let uploadState = $derived(upload ? uploadSummary(upload) : null);
 	let variablesOpen = $state(false);
@@ -645,16 +662,16 @@
 					</div>
 				{/if}
 				{#if node.assets.length > 0}
-					<MediaMosaic
-						entries={node.assets as OutputEntry[]}
-						label="Selected files"
-						maxRows={mosaicRows}
-						openerScope="panel:{node.id}"
-						onopen={(_entry, index, shown) => onopenfile?.(shown, index)}
-						onremove={onremoveasset}
-						moreLabel={(shown, total) => `Show more · ${shown.toLocaleString('en-US')} of ${total.toLocaleString('en-US')}`}
-						onmore={() => (mosaicRows += DRAWER_ROWS_STEP)}
-					/>
+					<div>
+						<MediaMosaic
+							entries={filePageAssets as OutputEntry[]}
+							label="Selected files"
+							openerScope="panel:{node.id}"
+							onopen={(_entry, index) => onopenfile?.(node.assets as OutputEntry[], fileOffset + index)}
+							onremove={(index) => onremoveasset(fileOffset + index)}
+						/>
+					</div>
+					<Pagination class="mt-4 justify-center" currentPage={fileCurrentPage} totalPages={fileTotalPages} onPageChange={changeFilePage} />
 				{:else if onupload}
 					<p class="drop-note">Drop images or videos here, or paste them, to add them to your Library and this step.</p>
 				{/if}

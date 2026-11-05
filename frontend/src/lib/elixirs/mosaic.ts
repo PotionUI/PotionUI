@@ -5,7 +5,7 @@ import { tileKey } from './tiles';
 export const MOSAIC_GAP = 4;
 export const FALLBACK_WIDTH = 320;
 export const CARD_ROWS = 3;
-export const DRAWER_ROWS_STEP = 8;
+export const DRAWER_PAGE_SIZE = 24;
 
 export interface MosaicTile {
 	entry: OutputEntry;

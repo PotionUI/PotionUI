@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
+import { reactiveProps } from '../stubs/reactiveProps.svelte';
 
 const { default: NodePanel } = await import('$lib/components/elixirs/NodePanel.svelte');
 const { default: NodeCard } = await import('$lib/components/elixirs/NodeCard.svelte');
@@ -123,17 +124,75 @@ it('the random pick still dims undrawn files and brings the drawn ones into a lo
 	expect(target.textContent).toContain('Random 1 of 500');
 });
 
-it('the drawer shows more files as the admin asks for them', () => {
-	renderPanel(files(1000));
-	const before = tiles().length;
+const nav = () => target.querySelector('nav[aria-label="Pagination"]');
+const goTo = (label: string) => {
+	[...target.querySelectorAll<HTMLButtonElement>('nav[aria-label="Pagination"] button')].find((button) => (button.getAttribute('aria-label') ?? button.textContent?.trim()) === label)!.click();
+	flushSync();
+};
+const names = () => [...target.querySelectorAll('[role="listitem"] img')].map((img) => img.getAttribute('src'));
 
-	expect(before).toBeLessThan(120);
-	const more = [...target.querySelectorAll('button')].find((button) => button.textContent?.includes('Show more'))!;
-	expect(more.textContent).toContain('1,000');
-	more.click();
+it('the drawer pages a long list instead of offering to show more', () => {
+	renderPanel(files(60));
+
+	expect(nav()).not.toBeNull();
+	expect(tiles()).toHaveLength(24);
+	expect(names()[0]).toBe('/m/f0.png');
+	expect(target.textContent).not.toContain('Show more');
+	goTo('Next page');
+	expect(tiles()).toHaveLength(24);
+	expect(names()[0]).toBe('/m/f24.png');
+	goTo('Next page');
+	expect(tiles()).toHaveLength(12);
+	expect(names()[0]).toBe('/m/f48.png');
+});
+
+it('the drawer has no pagination when one page holds every file', () => {
+	renderPanel(files(24));
+
+	expect(nav()).toBeNull();
+	expect(tiles()).toHaveLength(24);
+});
+
+it('the drawer removes by the position in the whole list and opens the whole list', () => {
+	const onremoveasset = vi.fn();
+	const onopenfile = vi.fn();
+	renderPanel(files(30), { onremoveasset, onopenfile });
+	goTo('Next page');
+
+	target.querySelector<HTMLButtonElement>('button[aria-label="Remove f26.png"]')!.click();
+	expect(onremoveasset).toHaveBeenCalledWith(26);
+	target.querySelector<HTMLButtonElement>('[role="listitem"] button:not([aria-label^="Remove"])')?.click();
+	expect(onopenfile).toHaveBeenCalledTimes(1);
+	expect(onopenfile.mock.calls[0][0]).toHaveLength(30);
+	expect(onopenfile.mock.calls[0][1]).toBe(24);
+});
+
+it('the drawer steps back a page when the last file of the last page goes', () => {
+	const live = reactiveProps<Record<string, unknown>>({
+		node: node(files(25)),
+		client: {},
+		label: 'Photos',
+		presets: [],
+		onrename: () => {},
+		onsettingschange: () => {},
+		onchoosepreset: () => {},
+		onpickmedia: () => {},
+		onremoveasset: () => {},
+		onupload: () => {}
+	});
+	target = document.createElement('div');
+	document.body.appendChild(target);
+	component = mount(NodePanel, { target, props: live.props as never });
+	flushSync();
+	goTo('Next page');
+	expect(tiles()).toHaveLength(1);
+
+	live.set({ node: node(files(24)) });
 	flushSync();
 
-	expect(tiles().length).toBeGreaterThan(before);
+	expect(nav()).toBeNull();
+	expect(tiles()).toHaveLength(24);
+	expect(names()[0]).toBe('/m/f0.png');
 });
 
 it('the drawer removes the file at the tile position', () => {

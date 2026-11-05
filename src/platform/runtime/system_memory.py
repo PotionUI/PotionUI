@@ -2,24 +2,7 @@
 
 ``psutil.virtual_memory()`` reports the HOST's RAM — even from inside a
 memory-limited container (``docker run --memory``, a k8s
-``resources.limits.memory``, ...). Every admission decision in this codebase
-that budgets against "how much system RAM is there" (model-lifecycle LRU
-eviction headroom, standalone-upscale RAM floor, ...) reads through
-``psutil.virtual_memory()`` directly, so inside a memory-limited container
-those decisions overshoot the real ceiling: they keep loading/caching until
-the HOST looks full, at which point the container's cgroup — not the
-model-lifecycle admission control — is what stops it, via the OOM killer.
-
-This is exactly the failure mode the Docker rig-simulation harness
-(``docker/``) exists to catch, and it is a real bug on the eventual 0.0.2
-Docker distribution too, not just a test aid: any user running PotionUI in a
-memory-capped container hits it.
-
-``get_system_memory()`` is the one shared seam: it returns ``psutil``'s
-reading clamped to the cgroup v2 limit (``/sys/fs/cgroup/memory.max`` +
-``memory.current``) when one is present, and is a plain passthrough
-otherwise (no cgroup v2, or an unlimited ``"max"`` limit) — call sites that
-route through it are unaffected outside a memory-limited container.
+``resources.limits.memory``, ...).
 
 Cgroup v1 is deliberately out of scope: v2 is the default (and effectively
 universal) on every distro Docker/containerd ship today.
@@ -35,14 +18,16 @@ import psutil
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CGROUP_MEMORY_MAX_PATH = Path("/sys/fs/cgroup/memory.max")
-DEFAULT_CGROUP_MEMORY_CURRENT_PATH = Path("/sys/fs/cgroup/memory.current")
+DEFAULT_CGROUP_ROOT = Path("/sys/fs/cgroup")
+DEFAULT_PROC_CGROUP_PATH = Path("/proc/self/cgroup")
 
 _UNLIMITED = "max"
 
 # Logged once per process the first time a real cgroup limit is found, so a
 # capped container run is visible in logs without spamming every call site.
 _warned_once = False
+
+_warned_unreadable_stat: set[Path] = set()
 
 
 @dataclass(frozen=True)
@@ -74,37 +59,89 @@ def _read_int_file(path: Path) -> Optional[int]:
         return None
 
 
+def _inactive_file_bytes(stat_path: Path) -> int | None:
+    try:
+        lines = stat_path.read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        name, _, value = line.partition(" ")
+        if name == "inactive_file":
+            try:
+                return int(value)
+            except ValueError:
+                return None
+    return None
+
+
+def _used_bytes(folder: Path, usage: int) -> int:
+    stat_path = folder / "memory.stat"
+    inactive = _inactive_file_bytes(stat_path)
+    if inactive is None:
+        if stat_path not in _warned_unreadable_stat:
+            _warned_unreadable_stat.add(stat_path)
+            logger.warning(
+                "[SYSTEM_MEMORY] no usable inactive_file in %s: "
+                "this cgroup's page cache counts as used RAM",
+                stat_path,
+            )
+        return usage
+    return max(0, usage - inactive)
+
+
+def _own_cgroup(proc_cgroup_path: Path) -> str | None:
+    try:
+        lines = proc_cgroup_path.read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if line.startswith("0::"):
+            return line[3:]
+    return None
+
+
+def _levels(mount: Path, own: str | None) -> list[Path]:
+    levels = [mount]
+    parts = [part for part in (own or "").split("/") if part]
+    if ".." in parts:
+        return levels
+    for depth in range(1, len(parts) + 1):
+        folder = mount.joinpath(*parts[:depth])
+        levels.append(folder)
+    return levels
+
+
+def _tightest(levels: list[Path], available: int) -> tuple[int, int] | None:
+    found: tuple[int, int] | None = None
+    for folder in levels:
+        limit = _read_int_file(folder / "memory.max")
+        if limit is None:
+            continue
+        usage = _read_int_file(folder / "memory.current")
+        headroom = available if usage is None else max(0, limit - _used_bytes(folder, usage))
+        if found is None:
+            found = (limit, headroom)
+        else:
+            found = (min(found[0], limit), min(found[1], headroom))
+    return found
+
+
 def get_system_memory(
     *,
-    cgroup_max_path: Path = DEFAULT_CGROUP_MEMORY_MAX_PATH,
-    cgroup_current_path: Path = DEFAULT_CGROUP_MEMORY_CURRENT_PATH,
+    cgroup_root: Path = DEFAULT_CGROUP_ROOT,
+    proc_cgroup_path: Path = DEFAULT_PROC_CGROUP_PATH,
 ) -> SystemMemory:
-    """``(total, available)`` system RAM in bytes, cgroup-v2-aware.
-
-    - No cgroup v2 limit visible (path missing/unreadable, or the limit is
-      the literal string ``"max"``/unlimited) -> returns
-      ``psutil.virtual_memory()``'s ``total``/``available`` unchanged.
-    - A numeric cgroup v2 limit is present -> ``total`` is clamped to that
-      limit, and ``available`` is clamped to ``limit - memory.current``
-      (the cgroup's own live usage counter) when readable, else to
-      ``min(psutil available, capped total)``. Either way the result is
-      never larger than what psutil itself reported.
-    """
     vm = psutil.virtual_memory()
     total = vm.total
     available = vm.available
 
-    limit = _read_int_file(cgroup_max_path)
-    if limit is None:
+    found = _tightest(_levels(cgroup_root, _own_cgroup(proc_cgroup_path)), available)
+    if found is None:
         return SystemMemory(total=total, available=available)
 
+    limit, headroom = found
     capped_total = min(total, limit)
-    current = _read_int_file(cgroup_current_path)
-    if current is not None:
-        capped_available = max(0, limit - current)
-    else:
-        capped_available = available
-    capped_available = min(capped_available, capped_total, available)
+    capped_available = min(headroom, capped_total, available)
 
     global _warned_once
     if not _warned_once:

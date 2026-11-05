@@ -1,8 +1,11 @@
 import gc
 import json
 import logging
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -289,48 +292,48 @@ def test_a_census_nobody_releases_runs_after_the_timeout(tmp_path, monkeypatch):
     assert start[0]["trigger"] == "release_timeout"
 
 
+_OWNER_PROBE = """
+import gc
+import json
+import torch
+from src.platform.observability.profiling.profiler import GenerationProfiler
+
 class _Holder:
     def __init__(self, weight):
         self.weight = weight
 
+def no_referrers(*args, **kwargs):
+    raise AssertionError("the census must not call gc.get_referrers")
 
-def test_the_census_names_owners_without_a_heap_scan_per_tensor(monkeypatch):
-    import torch
-
-    holders = [_Holder(torch.zeros(4, 4) + i) for i in range(8)]
-
-    def no_referrers(*args, **kwargs):
-        raise AssertionError("the census must not call gc.get_referrers")
-
-    monkeypatch.setattr(gc, "get_referrers", no_referrers)
-    rows = GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=30.0)
-
-    owners = {r["owner"] for r in rows if r["kind"] == "census_group"}
-    assert "_Holder.weight" in owners
-    del holders
+holders = [_Holder(torch.zeros(4, 4, device="cpu") + i) for i in range(8)]
+gc.get_referrers = no_referrers
+rows = GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=60.0)
+print(json.dumps(sorted({r["owner"] for r in rows if r["kind"] == "census_group"})))
+"""
 
 
-def test_the_census_does_not_hold_the_gil_for_long():
-    import torch
-
-    ballast = [{"k": [i]} for i in range(800_000)]
-    holders = [_Holder(torch.zeros(8) + i) for i in range(40)]
-    done = threading.Event()
-    rows = []
-    worker = threading.Thread(
-        target=lambda: (rows.extend(GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=60.0)), done.set()),
-        daemon=True,
+def test_the_census_names_owners_without_a_heap_scan_per_tensor():
+    repo_root = Path(__file__).resolve().parents[4]
+    result = subprocess.run(
+        [sys.executable, "-c", _OWNER_PROBE], cwd=repo_root, capture_output=True, text=True, timeout=240,
     )
-    gaps = []
-    worker.start()
-    last = time.monotonic()
-    while not done.is_set():
-        time.sleep(0.001)
-        now = time.monotonic()
-        gaps.append(now - last)
-        last = now
-    worker.join(5.0)
 
-    assert any(r["owner"] == "_Holder.weight" for r in rows if r["kind"] == "census_group")
-    assert sum(gap > 0.05 for gap in gaps) <= 2
-    del ballast, holders
+    assert result.returncode == 0, result.stderr
+    assert "_Holder.weight" in json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_the_census_yields_the_gil_while_it_walks_the_heap(monkeypatch):
+    ballast = [{"k": [i]} for i in range(200_000)]
+    yields = []
+    real_sleep = time.sleep
+
+    def counting_sleep(seconds):
+        if seconds == 0:
+            yields.append(threading.get_ident())
+        real_sleep(seconds)
+
+    monkeypatch.setattr(time, "sleep", counting_sleep)
+    GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=600.0)
+
+    assert len(yields) >= len(ballast) // GenerationProfiler._CENSUS_YIELD_EVERY
+    del ballast

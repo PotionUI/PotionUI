@@ -98,6 +98,7 @@ class TestMediaStore:
     def mock_upload_repo(self):
         """Create mock upload repository."""
         repo = Mock(spec=UploadRepository)
+        repo.create.return_value = Upload(id="up_1", user_id="user123", filename="stored.bin", media_type="image")
         return repo
 
     @pytest.fixture

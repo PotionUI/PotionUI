@@ -19,7 +19,8 @@ class _TrackedDit:
         self.compute_dtype = torch.float32
         self.estimated_vram_gb = 11.4
         self._streamer = None
-        self.module = SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True))
+        self.module = SimpleNamespace(config=SimpleNamespace(
+            causal_temporal_positioning=True, has_prompt_adaln=False, use_cross_timestep=False, inner_dim=4096))
 
     def move_to(self, device):
         self.log.append(("move_to", str(device)))

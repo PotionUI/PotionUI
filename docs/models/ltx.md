@@ -100,6 +100,23 @@ falls back to a tiled decode whose tile size is sized to the same VRAM budget
 `native_ltx_decode_tile_frames` settings, Admin → Backends → *backend* → Optimizations → Memory →
 "LTX decode tile size" / "LTX decode tile length"; 0, the default, keeps the automatic sizing).
 
+The conv decoder's budget (`_MAX_CHUNK_BYTES`, 128 MiB) sets how many chunks a
+block's output is cut into along time, and a chunk can come out larger. It does
+not bound the decode: a block keeps its whole output alive while its chunks run
+further down, and the finished pixels stay on the device, through their
+concatenation and after it. The conv decoder has no estimate and no tiles, only
+`decode_with_oom_retry`'s one evict-and-retry rung. A streaming cache (`CausalConv3d`,
+`_add_exchange_cache`) copies the frames it replays, as the Wan VAEs do: a slice
+would pin the whole tensor it was cut from until the next call. A trace of live
+storages on `meta`, on the LTX-2.5 conv config without its weights, gives a
+*logical* peak of 5,818 MiB at 1920×1024 and 73 frames, and 8,470 MiB at 241
+frames. *Logical* leaves out the allocator, cuDNN and an operator's own
+temporaries, so it is not what a card reads: on one 12 GB card under WSL2, alone
+in a fresh process, the same decode reads 7,924 MiB allocated and 9,438 reserved
+at 73 frames, and failed at 241 in the one run played. The detailer keeps its DiT
+on the device across this decode, and `estimate_decode_reserve_gb` reads only the
+shape: 1,316 MiB at 768×768 and 65 frames, for a logical peak of 2,163 MiB.
+
 ## Presets & modes
 
 The family ships **two** presets, split by checkpoint layout — pick the one that matches the files you have:

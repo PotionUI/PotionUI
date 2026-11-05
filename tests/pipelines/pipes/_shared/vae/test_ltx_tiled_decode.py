@@ -311,9 +311,7 @@ class TestLadder:
 
 
 class TestConvPathOomRetry:
-    """The conv (2.0/2.3) decoder self-chunks its OWN activations, but a
-    caller that keeps other large models resident on the same device (e.g.
-    the detailer's DiT) can still OOM here -- one evict-and-retry rung, not
+    """The conv (2.0/2.3) decoder can still OOM here -- one evict-and-retry rung, not
     the full whole-clip/tiled ladder (which the conv decoder doesn't have)."""
 
     @staticmethod

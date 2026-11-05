@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 import torch
 
+from src.platform.runtime.native.lora import apply as apply_mod
 from src.platform.runtime.native.lora.apply import apply_loras, remove_loras, temporarily_applied_loras
 from src.platform.runtime.native.kernels import pick_operations
 
@@ -155,3 +156,25 @@ def test_a_scoped_lora_that_matches_nothing_warns(caplog):
     assert len(records) == 1
     assert records[0].levelname == "WARNING"
     assert "matched 0 weights" in records[0].getMessage()
+
+
+def test_a_stack_that_dies_landing_leaves_no_delta_on_the_module(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    m = _build(pick_operations(torch.float16, torch.float32))
+    qkv = m.double_blocks[0].img_attn.qkv
+    landed = []
+    real_stage = apply_mod._stage_runtime_deltas
+
+    def oom_on_the_second_adapter(deltas, device):
+        if landed:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory.")
+        landed.append(True)
+        return real_stage(deltas, device)
+
+    stack = [(_kohya_lora(seed=1), 1.0), (_kohya_lora(seed=2), 1.0)]
+    with patch.object(apply_mod, "_stage_runtime_deltas", oom_on_the_second_adapter):
+        with pytest.raises(torch.cuda.OutOfMemoryError):
+            with temporarily_applied_loras(m, stack, runtime_only=True):
+                pass
+    assert landed
+    assert not qkv.lora_deltas

@@ -90,10 +90,11 @@ separate mask:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import tempfile
 from dataclasses import dataclass, field, replace
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import torch
 
@@ -111,12 +112,15 @@ from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon, ProgressGenerationOutput
 from src.platform.runtime.device import clear_gpu_memory
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.dit_placement import (
+    _release_idle_pool,
     dit_is_fully_resident,
     guard_sampling_oom,
     hand_off_dit,
+    make_room_for_lora_stack,
     place_dit_for_sequence,
     sequence_fit,
 )
@@ -145,6 +149,7 @@ from src.pipelines.pipes._shared.video.frames import load_video_frames, probe_vi
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes._shared.video.ltx_common import (
     decode_ltx_video,
+    ltx_reserve_terms,
     parse_explicit_sigmas,
     snap_ltx_geometry,
     validate_ltx_schedule_config,
@@ -225,6 +230,28 @@ def _end_anchored_latent_index(clip_frames: int, frames: int) -> int:
     return max(0, t_lat - 1 - span)
 
 
+def _own_models(bundle: Any) -> Tuple[Any, ...]:
+    return tuple(m for m in (bundle.dit, bundle.vae, bundle.audio_vae, bundle.vocoder) if m is not None)
+
+
+@contextmanager
+def _scoped_loras_on_card(dit: Any, device: str, stack: List[Any], own_models: Tuple[Any, ...]) -> Iterator[None]:
+    make_room_for_lora_stack(device, stack, own_models)
+    for last_try in (False, True):
+        landed = False
+        try:
+            with temporarily_applied_loras(dit.module, stack, runtime_only=True):
+                landed = True
+                yield
+            return
+        except RuntimeError as exc:
+            if landed or last_try or not retry_after_cuda_oom(exc):
+                raise
+        logger.warning("[GENERATOR VIDEO-LTX] scoped LoRA deltas OOM'd landing; unloading the DiT and retrying")
+        dit.offload()
+        _release_idle_pool(device)
+
+
 def _matched_clip_index(placements: List[dict]) -> Optional[int]:
     clips = [p for p in placements if p.get("source") == "video"]
     clip = next((p for p in clips if p.get("role", "keyframe") == "keyframe"), clips[0] if clips else None)
@@ -250,6 +277,7 @@ class _VideoLtxCtx:
     audio_mode: str = "none"          # "none" | "generate" | "file" | "passthrough"
     audio_file: Optional[Any] = None  # str/Path (file) or an already-decoded AudioTrack (passthrough)
     audio_tokens: int = 0
+    reference_scales: Tuple[int, int] = (1, 1)
     t_lat: int = 0
     h_lat: int = 0
     w_lat: int = 0
@@ -307,13 +335,13 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                            "descending, used VERBATIM (unlike manual_sigmas, the head is not forced to "
                            "1.0) -- required when 'initial_latent' is connected", required=False),
             PipeConfigSpec("stage2_loras", list, [],
-                           "LoRAs applied ONLY around this call's sampling, ADDED on top of the "
+                           "LoRAs applied ONLY around this call's placement and sampling, ADDED on top of the "
                            "generation LoRA stack already baked/resident on the shared DiT (e.g. the "
                            "distilled LoRA for a two-stage refine). Only meaningful when 'initial_latent' "
                            "is connected (a stage-2 refine call) -- ignored with a warning otherwise",
                            required=False),
             PipeConfigSpec("scoped_loras", list, [],
-                           "LoRAs applied ONLY around this call's sampling, on every call (not just a "
+                           "LoRAs applied ONLY around this call's clip plan, placement and sampling, on every call (not just a "
                            "refine), and removed again afterwards so the next stage sees the DiT without "
                            "them. The Director's IC-LoRAs ride here so a stage-2 refine runs without "
                            "them unless asked to keep them", required=False),
@@ -515,10 +543,15 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
     def _plan_clip(self, dit: Any, device: str, clip_frames: int, width: int, height: int, fps: float,
                    placements: List[dict], reference_scales: Tuple[int, int], audio_mode: str,
-                   overlap: Optional[int], refine_scale: float = 1.0) -> Tuple[int, List[int]]:
+                   overlap: Optional[int], refine_scale: float = 1.0,
+                   own_models: Tuple[Any, ...] = ()) -> Tuple[int, List[int]]:
         total = max(1, min(clip_frames, MAX_FRAMES))
         one = snap_frames_up(total)
-        fit = sequence_fit(dit, device)
+        fit = sequence_fit(
+            dit, device, own_models=own_models,
+            **ltx_reserve_terms(dit, per_token_timestep=True, per_token_frames_broken=reference_scales[0] != 1,
+                                generates_audio=audio_mode == "generate"),
+        )
         if fit is None:
             return one, [0]
         sizes = [(width, height)]
@@ -668,6 +701,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         from_clip = clip_length and not initial_latents
         if clip_length and initial_latents:
             total_frames = min(frames, clip_frames)
+        scoped_lora_stack = _load_lora_stack(scoped_loras_cfg) if scoped_loras_cfg else []
         if from_clip:
             if clip_frames > MAX_FRAMES:
                 logger.warning("[GENERATOR VIDEO-LTX] input clip has %d frames; only the first %d are used",
@@ -675,10 +709,12 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             windowed = (as_flag(self.config.get("windows", False)) and bool(self.config.get("decode", True))
                         and placements and audio_mode != "generate"
                         and all(p.get("source") == "video" and p.get("role") == "reference" for p in placements))
-            frames, window_starts = self._plan_clip(
-                bundle.dit, device, clip_frames, width, height, fps, placements, reference_scales, audio_mode,
-                int(self.config.get("window_overlap", 16)) if windowed else None,
-                float(self.config.get("refine_scale") or 1.0))
+            own_models = _own_models(bundle)
+            with _scoped_loras_on_card(bundle.dit, device, scoped_lora_stack, own_models):
+                frames, window_starts = self._plan_clip(
+                    bundle.dit, device, clip_frames, width, height, fps, placements, reference_scales, audio_mode,
+                    int(self.config.get("window_overlap", 16)) if windowed else None,
+                    float(self.config.get("refine_scale") or 1.0), own_models)
             total_frames = min(clip_frames, MAX_FRAMES, window_starts[-1] + frames)
         pad_video = _matched_clip_index(placements) if clip_length else None
         conditions = self._build_conditions(placements, images, videos, frames, reference_scales,
@@ -740,8 +776,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             else:
                 stage2_lora_stack = _load_lora_stack(stage2_loras_cfg)
 
-        scoped_lora_stack = _load_lora_stack(scoped_loras_cfg) if scoped_loras_cfg else []
-
         spec = bundle.spec
         # APG: read straight out of sampling_settings by _make_guidance. No
         # SLG -- LTXAVModel.forward has no skip_layers kwarg (Wan-only).
@@ -775,6 +809,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 width=width, height=height, frames=frames, fps=fps,
                 device=device, dtype=dtype, spec=spec,
                 audio_mode=audio_mode, audio_file=audio_file, audio_tokens=audio_tokens,
+                reference_scales=reference_scales,
                 t_lat=t_lat, h_lat=h_lat, w_lat=w_lat,
                 initial_latents=initial_latents, has_conditions=bool(conditions),
                 stage2_lora_stack=stage2_lora_stack, scoped_lora_stack=scoped_lora_stack,
@@ -892,11 +927,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             noise_a = torch.randn((1, c.audio_tokens, 128), generator=gen, device=c.device, dtype=c.dtype)
             x = torch.cat([x, noise_a], dim=1)
 
-        # Sequence-length-aware placement -- see
-        # dit_placement.py's module docstring. video_tokens covers base +
-        # appended conditioning tokens (media keyframes / IC-LoRA references);
-        # audio_tokens covers the appended audio stream when audio generation
-        # is on -- both ride the same packed sampler state ``x``.
         # `replace(c, prepared=prepared)`, NOT `c` itself: `c` (ctx.extra) is
         # SHARED across every seed of this process() call (BaseGeneratorPipe's
         # seed loop calls generate_one once per seed against the same ctx) --
@@ -907,11 +937,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         preview_hook = None
         if self.config.get("preview", True):
             preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, latent_transform=forward.unpack_base, decoder_path=self.config.get("preview_decoder") or None)
-        placement = place_dit_for_sequence(
-            c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
-            own_models=tuple(m for m in (c.bundle.dit, c.bundle.vae, c.bundle.audio_vae, c.bundle.vocoder) if m is not None),
-            preview_reserve_gb=preview_reserve_gb([preview_hook], (1, LTX_LATENT_CHANNELS, c.t_lat, c.h_lat, c.w_lat)),
-        )
 
         # MultiModalGuider (quality recipe): build from pipe config; when
         # active, supply video_tokens boundary in cond for per-slice combine.
@@ -945,19 +970,21 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         if preview_hook is not None:
             hooks.append(preview_hook)
 
-        # `stage2_lora_stack` (built once in build_context) is applied ONLY
-        # around this call -- the entire denoise loop, every per-step DiT
-        # forward, but NOT the VAE decode below -- and restored exactly on
-        # exit (including on an exception), additive with whatever LoRA
-        # stack the model loader already baked/resident onto this shared DiT
-        # (project rule: refinement shares the generation LoRA chain, this
-        # only ADDS to it). Empty stack (no stage2_loras, or not a refine
-        # call) -> no-op, byte-identical to before this feature existed.
-        sample_forward = guard_sampling_oom(
-            forward, dit=c.bundle.dit, device=c.device, decision=placement,
-        )
-        with temporarily_applied_loras(
-                c.bundle.dit.module, [*c.scoped_lora_stack, *c.stage2_lora_stack], runtime_only=True):
+        own_models = _own_models(c.bundle)
+        with _scoped_loras_on_card(
+                c.bundle.dit, c.device, [*c.scoped_lora_stack, *c.stage2_lora_stack], own_models):
+            placement = place_dit_for_sequence(
+                c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
+                own_models=own_models,
+                preview_reserve_gb=preview_reserve_gb([preview_hook], (1, LTX_LATENT_CHANNELS, c.t_lat, c.h_lat, c.w_lat)),
+                **ltx_reserve_terms(
+                    c.bundle.dit, per_token_timestep=True, per_token_frames_broken=c.reference_scales[0] != 1,
+                    generates_audio=c.audio_mode == "generate",
+                ),
+            )
+            sample_forward = guard_sampling_oom(
+                forward, dit=c.bundle.dit, device=c.device, decision=placement,
+            )
             x = denoise_prenoised(
                 sample_forward, x, cond, uncond,
                 steps=c.steps, sampler_name=c.sampler,

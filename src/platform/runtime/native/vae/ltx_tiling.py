@@ -104,11 +104,7 @@ axis, i.e. no splitting at all -- mask is all-ones everywhere, weights are
 all-ones, so the divide is a no-op and the "tiled" path degenerates to
 exactly one call to :meth:`encode`.
 
-**Scope: ENCODE only.** Decode doesn't need tiling here -- ``Decoder.forward``
-already self-chunks by a fixed memory budget (see ``ltx_causal_video.py``'s
-``_MAX_CHUNK_BYTES`` machinery), which is a materially different problem
-(bounding one big call's peak activations) from what this module solves
-(the encoder has no such internal chunking at all).
+**Scope: ENCODE only.**
 """
 
 from __future__ import annotations

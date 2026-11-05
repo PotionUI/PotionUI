@@ -17,8 +17,9 @@ no actual device).
 from __future__ import annotations
 
 import logging
+import math
 import types
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -34,34 +35,47 @@ from src.platform.runtime.native.io.quant_formats import quantize_nvfp4_dynamic
 from src.platform.settings import runtime_flags
 from src.platform.runtime.native.kernels.lora_math import _add_lora_output_branch, _lora_output_branch
 
+from src.platform.runtime.native.arch.ltx.config import LTXAVConfig
+from src.platform.runtime.native.arch.ltx.model import LTXAVModel
 from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
-from src.platform.runtime.native.kernels import Fp8ScaledLinear, FastPathKind, fast_path, fp8_ops, gemm
+from src.platform.runtime.native.io.quant_formats import build_convrot_hadamard
+from src.platform.runtime.native.kernels import (
+    Fp8ScaledLinear, FastPathKind, fast_path, fp8_ops, gemm, pick_operations,
+)
 from src.platform.runtime.native.kernels.fp8_linear import _quantize_fp8_dynamic
 from src.platform.runtime.native.kernels import activation_quant_chunk_rows
 from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear
 from src.platform.runtime.native.memory.partial import plan_residency_split
+from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
     _ACTIVATION_SAFETY_MARGIN,
     _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
     _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
+    _dit_dequant_transient_bytes,
     _dit_lora_profile,
     _dit_quant_scratch,
+    _ensure_room_for,
     _ffn_transient_bytes_per_token,
     _LTX_INNER_DIM,
+    _release_idle_pool,
     DitLoraProfile,
     DitPlacementDecision,
     QuantScratch,
     QuantWidth,
     SamplingOutOfMemory,
     choose_seq_chunk_rows,
+    dequant_transient_reserve_gb,
     estimate_activation_reserve_gb,
     guard_sampling_oom,
     hand_off_dit,
+    make_room_for_lora_stack,
     place_dit_for_sequence,
     sequence_fit,
 )
+from src.pipelines.pipes._shared.video.ltx_common import ltx_reserve_terms
 from src.platform.runtime.native.errors import is_cuda_oom
+from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
 from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, fake_capabilities
 from tests.fixtures.kernel_gemm import installed_gemm_verdicts
@@ -142,6 +156,7 @@ def test_place_dit_for_sequence_threads_inner_dim_into_the_reserve(monkeypatch):
     monkeypatch.setattr(f"{_MOD}.minimum_inference_memory_gb", lambda: 0.0)
     manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
     monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
+    monkeypatch.setattr(f"{_MOD}.torch.cuda.empty_cache", lambda: None)
 
     calls = []
     dit = SimpleNamespace(
@@ -543,6 +558,9 @@ class _FakeResidencyRegistry:
         self.ensure_free_calls = []
         self.offload_all_calls = []
 
+    def resident_gb(self, device=None, *, exclude=()):
+        return 0.0
+
     def ensure_free(self, device, need_gb, current_free_gb, *, exclude=()):
         self.ensure_free_calls.append((device, need_gb, current_free_gb, tuple(exclude)))
         return []
@@ -596,6 +614,7 @@ class _free_vram:
         self._patchers = (
             patch(f"{_MOD}.free_vram_gb", return_value=raw_gb),
             patch(f"{_MOD}.effective_free_vram_gb", return_value=effective_gb),
+            patch(f"{_MOD}.torch.cuda.empty_cache"),
         )
 
     def __enter__(self):
@@ -1996,13 +2015,13 @@ class _LiveBytes(TorchDispatchMode):
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         self.live = {key: entry for key, entry in self.live.items() if not entry[0].expired()}
-        inputs = {t.untyped_storage().data_ptr() for t in tree_flatten((args, kwargs))[0]
+        inputs = {t.untyped_storage()._cdata for t in tree_flatten((args, kwargs))[0]
                   if isinstance(t, torch.Tensor)}
         out = func(*args, **(kwargs or {}))
         for t in tree_flatten(out)[0]:
             if isinstance(t, torch.Tensor):
                 storage = t.untyped_storage()
-                key = storage.data_ptr()
+                key = storage._cdata
                 if key not in inputs and key not in self.live:
                     self.live[key] = (StorageWeakRef(storage), storage.nbytes())
         self.peak = max(self.peak, sum(nbytes for _ref, nbytes in self.live.values()))
@@ -2109,6 +2128,7 @@ def _cuda_placement_reserve(monkeypatch, layer, *, free_gb=26.0):
     manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
     monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
     monkeypatch.setattr(f"{_MOD}.maybe_compile_dit", lambda *a, **k: None)
+    monkeypatch.setattr(f"{_MOD}.torch.cuda.empty_cache", lambda: None)
     return place_dit_for_sequence(_dit_with(layer), "cuda", video_tokens=31_620)
 
 
@@ -2559,3 +2579,714 @@ def test_a_driver_error_in_the_chunked_attention_prep_retry_is_not_retried():
          pytest.raises(RuntimeError, match="invalid argument"):
         guarded(seq_chunk_rows=0)
     assert seen == [0, 0, 73_274]
+
+
+class _TensorOnCuda(torch.Tensor):
+    @property
+    def device(self):
+        return torch.device("cuda", 0)
+
+
+def _dit_with_deltas_on_the_card(delta_gb, estimated_vram_gb=23.3):
+    dit, _ = _dit(estimated_vram_gb)
+    side = int((delta_gb * 1024 ** 3 / 4) ** 0.5)
+    linear = nn.Linear(4, 4)
+    linear.lora_deltas = [SimpleNamespace(
+        down=torch.empty(side, side, dtype=torch.bfloat16, device="meta").as_subclass(_TensorOnCuda),
+        up=torch.empty(side, side, dtype=torch.bfloat16, device="meta").as_subclass(_TensorOnCuda),
+    )]
+    dit.module = nn.Sequential(linear)
+    return dit, _dit_lora_profile(dit).delta_gb
+
+
+@pytest.mark.parametrize("tokens, mode", [(60_000, "resident"), (70_000, "partial")])
+def test_a_cold_and_a_warm_dit_read_the_same_card_the_same_way_under_deltas_already_on_it(tokens, mode):
+    card_gb = 31.0
+    decisions = []
+    fits = []
+    for device in ("cpu", "cuda"):
+        dit, delta_gb = _dit_with_deltas_on_the_card(1.25)
+        dit.device = device
+        dit.offload = lambda dit=dit: setattr(dit, "device", "cpu")
+
+        def free(_device, dit=dit, delta_gb=delta_gb):
+            return card_gb - delta_gb - (dit.estimated_vram_gb if dit.device == "cuda" else 0.0)
+
+        with patch(f"{_MOD}.free_vram_gb", side_effect=free), patch(f"{_MOD}.effective_free_vram_gb", side_effect=free), \
+                patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+                patch(f"{_MOD}.get_residency_registry", return_value=_FakeResidencyRegistry()), \
+                patch(f"{_MOD}.torch.cuda.empty_cache"):
+            fits.append(sequence_fit(dit, "cuda"))
+            decisions.append(place_dit_for_sequence(dit, "cuda", video_tokens=tokens))
+    cold, warm = decisions
+    assert cold.mode == warm.mode == mode
+    assert cold.weight_budget_gb == pytest.approx(warm.weight_budget_gb)
+    assert cold.dit_weight_gb == warm.dit_weight_gb == pytest.approx(23.3)
+    assert cold.lora_weight_gb == warm.lora_weight_gb == pytest.approx(delta_gb)
+    assert fits[0].free_gb == pytest.approx(fits[1].free_gb)
+    assert fits[0].resident(tokens) == fits[1].resident(tokens) == (mode == "resident")
+
+
+def test_a_delta_still_off_the_card_counts_in_the_weight_to_place():
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    linear = nn.Linear(4, 4)
+    linear.lora_deltas = [SimpleNamespace(
+        down=torch.empty(32768, 16384, dtype=torch.bfloat16, device="meta"),
+        up=torch.empty(32768, 16384, dtype=torch.bfloat16, device="meta"),
+    )]
+    dit.module = nn.Sequential(linear)
+    patches, _ = _patched(free_gb=31.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert decision.lora_weight_gb == pytest.approx(2.0)
+    assert decision.dit_weight_gb == pytest.approx(12.0)
+
+
+def test_room_for_a_lora_stack_is_its_bytes_plus_the_inference_minimum():
+    stack = [({"down": torch.empty(16384, 32768, dtype=torch.bfloat16, device="meta")}, 1.0)]
+    own = (object(),)
+    patches, manager = _patched(free_gb=0.5, min_reserve=1.0)
+    with patches[0], patches[1], patches[2]:
+        make_room_for_lora_stack("cuda", stack, own)
+    assert manager.ensure_free_calls == [("cuda", pytest.approx(2.0), 0.5, own)]
+
+
+def test_room_for_a_lora_stack_is_judged_once_the_allocator_pool_is_handed_back():
+    released = []
+    manager = _FakeResidencyRegistry()
+    stack = [({"down": torch.empty(16384, 32768, dtype=torch.bfloat16, device="meta")}, 1.0)]
+    with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: 12.0 if released else 4.0), \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.device"), \
+            patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=lambda: released.append(True)):
+        make_room_for_lora_stack("cuda", stack, ())
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+
+
+def test_an_empty_lora_stack_evicts_nothing():
+    patches, manager = _patched(free_gb=0.5)
+    with patches[0], patches[1], patches[2]:
+        make_room_for_lora_stack("cuda", [], ())
+    assert manager.ensure_free_calls == []
+    assert manager.offload_all_calls == []
+
+
+def test_cold_placement_hands_the_allocator_pool_back_before_judging_what_to_evict():
+    released = []
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: 12.0 if released else 4.0), \
+            patch(f"{_MOD}.effective_free_vram_gb", return_value=12.0), \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.device"), \
+            patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=lambda: released.append(True)):
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+    assert decision.mode == "resident"
+
+
+def test_a_warm_dit_that_no_longer_fits_hands_the_pool_back_after_its_offload():
+    offloaded = []
+    released = []
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    dit.device = "cuda"
+    dit.offload = lambda: offloaded.append(True)
+    manager = _FakeResidencyRegistry()
+
+    def release():
+        if offloaded:
+            released.append(True)
+
+    with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: 12.0 if released else 4.0), \
+            patch(f"{_MOD}.effective_free_vram_gb", return_value=0.0), \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.device"), \
+            patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=release):
+        place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert offloaded
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+
+
+class _TwoCards:
+    def __init__(self):
+        self.current = "cuda:0"
+        self.idle_gb = {"cuda:0": 3.0, "cuda:1": 8.0}
+
+    @contextmanager
+    def selected(self, device):
+        previous, self.current = self.current, str(device)
+        try:
+            yield
+        finally:
+            self.current = previous
+
+    def empty_cache(self):
+        self.idle_gb[self.current] = 0.0
+
+    def free_gb(self, device):
+        return 12.0 - self.idle_gb[str(device)]
+
+    def installed(self, manager):
+        stack = ExitStack()
+        for patcher in (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.device", self.selected),
+            patch("torch.cuda.empty_cache", self.empty_cache),
+            patch(f"{_MOD}.free_vram_gb", side_effect=self.free_gb),
+            patch(f"{_MOD}.effective_free_vram_gb", return_value=12.0),
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0),
+            patch(f"{_MOD}.get_residency_registry", return_value=manager),
+        ):
+            stack.enter_context(patcher)
+        return stack
+
+
+_LORA_STACK_2GB = [({"down": torch.empty(16384, 32768, dtype=torch.bfloat16, device="meta")}, 1.0)]
+
+
+def test_a_cold_placement_on_a_second_card_empties_that_cards_pool_before_judging_what_to_evict():
+    cards, manager = _TwoCards(), _FakeResidencyRegistry()
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    with cards.installed(manager):
+        decision = place_dit_for_sequence(dit, "cuda:1", video_tokens=1_000)
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+    assert cards.idle_gb["cuda:1"] == 0.0
+    assert cards.current == "cuda:0"
+    assert decision.mode == "resident"
+
+
+@pytest.mark.parametrize("device", ["cuda:1", torch.device("cuda:1")], ids=["str", "torch_device"])
+def test_room_for_a_lora_stack_on_a_second_card_is_judged_once_that_cards_pool_is_handed_back(device):
+    cards, manager = _TwoCards(), _FakeResidencyRegistry()
+    with cards.installed(manager):
+        make_room_for_lora_stack(device, _LORA_STACK_2GB, ())
+    assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
+    assert cards.idle_gb["cuda:1"] == 0.0
+    assert cards.current == "cuda:0"
+
+
+def test_an_eviction_on_a_second_card_hands_that_cards_pool_back():
+    cards = _TwoCards()
+    manager = SimpleNamespace(ensure_free=lambda *a, **k: True)
+    with cards.installed(manager):
+        _ensure_room_for("cuda:1", 5.0, ())
+    assert cards.idle_gb["cuda:1"] == 0.0
+    assert cards.current == "cuda:0"
+
+
+def test_an_eviction_that_offloaded_nothing_keeps_the_cards_pool():
+    cards = _TwoCards()
+    manager = SimpleNamespace(ensure_free=lambda *a, **k: False)
+    with cards.installed(manager):
+        _ensure_room_for("cuda:1", 5.0, ())
+    assert cards.idle_gb == {"cuda:0": 3.0, "cuda:1": 8.0}
+
+
+@pytest.mark.parametrize("device", ["cpu", torch.device("cpu")], ids=["str", "torch_device"])
+def test_a_cpu_device_touches_no_card_on_a_machine_that_has_one(device):
+    manager = _FakeResidencyRegistry()
+    with patch("torch.cuda.is_available", return_value=True), \
+            patch("torch.cuda.empty_cache") as empty, \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=manager):
+        make_room_for_lora_stack(device, _LORA_STACK_2GB, ())
+        _ensure_room_for(device, 5.0, ())
+    assert not empty.called
+    assert manager.ensure_free_calls == []
+
+
+@pytest.mark.parametrize("device, selected", [
+    ("cuda:1", 1), (torch.device("cuda:1"), 1), ("cuda", 0), (torch.device("cuda"), 0),
+], ids=["str_index", "torch_device_index", "str_current", "torch_device_current"])
+def test_emptying_the_pool_selects_the_card_and_restores_the_current_one_even_when_it_raises(device, selected):
+    exchanges = []
+
+    def exchange(index):
+        exchanges.append(index)
+        return 0
+
+    with patch("torch.cuda.is_available", return_value=True), \
+            patch("torch.cuda.current_device", return_value=0), \
+            patch("torch.cuda._exchange_device", side_effect=exchange), \
+            patch("torch.cuda._maybe_exchange_device", side_effect=exchange), \
+            patch("torch.cuda.empty_cache", side_effect=RuntimeError("driver")):
+        with pytest.raises(RuntimeError, match="driver"):
+            _release_idle_pool(device)
+    assert exchanges == [selected, 0]
+
+
+def test_placement_evicts_for_the_reserve_as_well_as_the_weight():
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    patches, manager = _patched(free_gb=4.0, min_reserve=1.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000, reserve_gb=5.0)
+    assert decision.activation_reserve_gb + decision.extra_reserve_gb > 1.0
+    assert [need for _device, need, _free, _exclude in manager.ensure_free_calls] == [
+        pytest.approx(10.0 + decision.activation_reserve_gb + decision.extra_reserve_gb)]
+
+
+def test_placement_keeps_the_inference_minimum_over_a_smaller_reserve():
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    patches, manager = _patched(free_gb=4.0, min_reserve=3.0)
+    with patches[0], patches[1], patches[2]:
+        place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert [need for _device, need, _free, _exclude in manager.ensure_free_calls] == [pytest.approx(13.0)]
+
+
+class _ForeignResident:
+    def offload(self):
+        pass
+
+
+def test_a_foreign_resident_is_evicted_for_a_reserve_that_would_otherwise_stream_the_dit():
+    registry = GpuResidencyRegistry()
+    foreign = _ForeignResident()
+    registry.note_resident(foreign, "cuda", 7.0)
+    dit, calls = _dit(estimated_vram_gb=20.0)
+
+    def free(_device):
+        return 31.0 - registry.resident_gb("cuda")
+
+    with patch(f"{_MOD}.free_vram_gb", side_effect=free), patch(f"{_MOD}.effective_free_vram_gb", side_effect=free), \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=registry), \
+            patch(f"{_MOD}.maybe_compile_dit"), patch(f"{_MOD}.torch.cuda.empty_cache"):
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000, reserve_gb=4.0)
+    assert decision.mode == "resident"
+    assert calls["move_to"] == ["cuda"]
+    assert registry.resident_gb("cuda") == 0.0
+
+
+def test_the_warm_fast_path_keeps_the_allocator_pool():
+    dit, calls = _dit(estimated_vram_gb=19.6)
+    dit.device = "cuda"
+    patches, manager = _patched(free_gb=2.0, effective_gb=10.0)
+    with patches[0], patches[1], patches[2], \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.empty_cache") as empty, \
+            patch(f"{_MOD}.maybe_compile_dit"):
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=5.0)
+    assert decision.kept_resident is True
+    assert not empty.called
+
+
+_H3_FC1 = (5376, 28672)
+_H3_FC1_DEQUANT_BYTES = 2 * 5376 * 28672 * 2
+
+
+def test_an_int8_linear_costs_two_dequantised_copies_of_its_weight():
+    dit = SimpleNamespace(module=nn.Sequential(_int8_layer(5376, 21504), _int8_layer(*_H3_FC1)))
+    assert _dit_dequant_transient_bytes(dit) == _H3_FC1_DEQUANT_BYTES
+
+
+def test_an_int8_linear_dequantises_even_with_the_fp8_gemm_gate_on(machine):
+    machine(fp8=True)
+    dit = SimpleNamespace(module=nn.Sequential(_int8_layer(*_H3_FC1)))
+    assert _dit_dequant_transient_bytes(dit) == _H3_FC1_DEQUANT_BYTES
+
+
+def test_an_fp8_linear_on_the_gemm_fast_path_has_no_dequant_transient(machine):
+    dit = SimpleNamespace(module=nn.Sequential(_fp8_layer(4096, 4096)))
+    machine(fp8=True)
+    assert _dit_dequant_transient_bytes(dit) == 0
+    machine(fp8=False)
+    assert _dit_dequant_transient_bytes(dit) == 2 * 4096 * 4096 * 2
+
+
+def test_unquantized_linears_and_bare_doubles_have_no_dequant_transient():
+    assert _dit_dequant_transient_bytes(SimpleNamespace(module=nn.Sequential(nn.Linear(8, 8)))) == 0
+    assert _dit_dequant_transient_bytes(SimpleNamespace(module=lambda x: x)) == 0
+    assert _dit_dequant_transient_bytes(_dit()[0]) == 0
+
+
+def test_the_dequant_transient_is_a_flat_term_not_a_per_token_one():
+    dims = dict(inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM)
+    added = [
+        estimate_activation_reserve_gb(tokens, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims)
+        - estimate_activation_reserve_gb(tokens, **dims)
+        for tokens in (8_000, 50_000)
+    ]
+    assert added[0] == pytest.approx(added[1])
+    assert added[0] == pytest.approx(_H3_FC1_DEQUANT_BYTES / 1024 ** 3 * _ACTIVATION_SAFETY_MARGIN)
+
+
+def test_the_flat_reserve_set_aside_for_a_dit_is_what_its_transient_adds_to_the_estimate():
+    dit = SimpleNamespace(module=nn.Sequential(_int8_layer(*_H3_FC1)))
+    dims = dict(inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM)
+    added = estimate_activation_reserve_gb(8_000, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims) \
+        - estimate_activation_reserve_gb(8_000, **dims)
+    assert dequant_transient_reserve_gb(dit) == pytest.approx(added)
+
+
+@pytest.mark.parametrize("tokens", [19_284, 39_800])
+def test_the_dequant_transient_rides_on_top_of_a_chunked_ffn_phase(tokens):
+    dims = dict(inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM)
+    rows = default_ffn_chunk_rows(tokens, _H3_HIDDEN_SIZE, _H3_FFN_DIM)
+    chunked = estimate_activation_reserve_gb(tokens, ffn_chunk_rows=rows, **dims)
+    with_transient = estimate_activation_reserve_gb(
+        tokens, ffn_chunk_rows=rows, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims,
+    )
+    assert rows
+    assert with_transient - chunked == pytest.approx(_H3_FC1_DEQUANT_BYTES / 1024 ** 3 * _ACTIVATION_SAFETY_MARGIN)
+    assert with_transient < estimate_activation_reserve_gb(tokens, **dims)
+
+
+def test_placement_charges_the_dits_own_dequant_transient():
+    calls = []
+    dit = SimpleNamespace(
+        module=nn.Sequential(_int8_layer(*_H3_FC1)), estimated_vram_gb=19.61, device="cpu",
+        move_to=lambda d: calls.append(("resident", d)),
+        stream_to=lambda d, budget: calls.append(("partial", d, budget)),
+    )
+    patches, manager = _patched(free_gb=10.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=8_000, audio_tokens=244, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        )
+    expected = estimate_activation_reserve_gb(
+        8_000, 244, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES,
+    )
+    assert decision.activation_reserve_gb == pytest.approx(expected)
+    assert calls == [("partial", "cuda", pytest.approx(10.0 - expected))]
+
+
+_LTX25_FFN = (4096, 16384)
+_LTX25_FFN_DEQUANT_BYTES = 2 * 4096 * 16384 * 2
+
+
+@pytest.mark.parametrize("in_features, out_features", [_LTX25_FFN, _H3_FC1], ids=["ltx_ffn", "h3_fc1"])
+def test_a_convrot_unrotate_leaves_two_weight_copies_as_the_live_peak(in_features, out_features):
+    layer = _int8_layer(in_features, out_features)
+    layer.weight_scale = torch.ones(out_features, 1, device="meta")
+    layer.convrot_hadamard = build_convrot_hadamard(256, "cpu", torch.float32).to("meta")
+    layer.convrot_groupsize = 256
+    with torch.no_grad(), _LiveBytes() as tracker:
+        layer._prepare_dequant_operand(torch.bfloat16, torch.device("meta"))
+    one_copy = in_features * out_features * 2
+    assert 2 * one_copy <= tracker.peak <= 2 * one_copy + 256 * 256 * 2
+
+
+_LTX25_BLOCKS = {
+    "image_model": "ltxav", "in_channels": 128, "num_attention_heads": 32, "attention_head_dim": 128,
+    "cross_attention_dim": 4096, "caption_channels": 3840, "num_layers": 2, "has_caption_projection": False,
+    "use_embeddings_connector": False, "blocks_gated": True, "has_prompt_adaln": True, "use_cross_timestep": True,
+    "ff_bias": False, "use_prompt_adaln_single": False,
+}
+_LTX2_19B_BLOCKS = {**_LTX25_BLOCKS, "blocks_gated": False, "has_prompt_adaln": False, "use_cross_timestep": False}
+_LTX_FORMS = [_LTX25_BLOCKS, _LTX2_19B_BLOCKS]
+_LTX_FORM_IDS = ["ltx25", "ltx2_19b"]
+_LTX25_GRIDS = [(14, 11, 20), (19, 15, 26), (16, 22, 40), (32, 34, 60), (126, 22, 40), (122, 34, 60)]
+_LTX25_GRID_IDS = [str(math.prod(grid)) for grid in _LTX25_GRIDS]
+_LTX_AUDIO_CLIPS = [((14, 11, 20), 109), ((19, 15, 26), 151), ((16, 22, 40), 126), ((32, 34, 60), 259)]
+_LTX_REDUCED_REFERENCE_CLIPS = [
+    ((11, 18, 30), 11 * 9 * 15), ((11, 22, 40), 11 * 11 * 20), ((17, 22, 40), 17 * 11 * 20),
+]
+
+
+def _ltx25_streamed_int8_dit(estimated_vram_gb=20.0, *, blocks=_LTX25_BLOCKS):
+    with torch.device("meta"):
+        module = LTXAVModel.from_config(blocks, pick_operations(torch.float8_e4m3fn, torch.bfloat16))
+    module.eval().requires_grad_(False)
+    hadamard = build_convrot_hadamard(256, "cpu", torch.float32).to("meta")
+    for layer in module.transformer_blocks.modules():
+        if isinstance(layer, Fp8ScaledLinear):
+            layer.weight = nn.Parameter(
+                torch.empty(layer.out_features, layer.in_features, dtype=torch.int8, device="meta"),
+                requires_grad=False,
+            )
+            layer.weight_scale = torch.ones(layer.out_features, 1, device="meta")
+            layer.convrot_hadamard = hadamard
+            layer.convrot_groupsize = 256
+    dit, calls = _dit(estimated_vram_gb=estimated_vram_gb)
+    dit.module = module
+    return dit, calls
+
+
+def _attention_output(q, k, v, *, heads=None, mask=None, **_):
+    return q.new_empty(*q.shape[:-1], v.shape[-1])
+
+
+def _ltx_forward_peak_gb(module, grid, *, per_token, audio_tokens=0, extra_video_tokens=0):
+    frames, height, width = grid
+    with patch("src.platform.runtime.native.arch.ltx.model._dispatch_attention", _attention_output), \
+            torch.no_grad(), _LiveBytes() as tracker:
+        latent = torch.empty(1, 128, frames, height, width, dtype=torch.bfloat16, device="meta")
+        context = torch.empty(1, 1024, 6144, dtype=torch.bfloat16, device="meta")
+        sigma = torch.empty(1, device="meta")
+        streams = [latent]
+        if audio_tokens:
+            streams.append(torch.empty(1, 8, audio_tokens, 16, dtype=torch.bfloat16, device="meta"))
+        extra = {}
+        if extra_video_tokens:
+            extra = {
+                "extra_video_tokens": torch.empty(1, extra_video_tokens, 128, dtype=torch.bfloat16, device="meta"),
+                "extra_video_pixel_coords": torch.empty(1, 3, extra_video_tokens, 2, device="meta"),
+            }
+        if per_token:
+            tokens = math.prod(grid) + extra_video_tokens
+            timestep = (torch.empty(1, tokens, dtype=torch.bfloat16, device="meta"), sigma)
+            module(streams, timestep, context, attention_mask=None, frame_rate=24.0, sigma=sigma, audio_sigma=sigma,
+                   **extra)
+        else:
+            module(streams, sigma, context, attention_mask=None, frame_rate=24.0, **extra)
+    module.release_derived_caches()
+    return tracker.peak / 1024 ** 3
+
+
+@pytest.mark.parametrize("per_token", [False, True], ids=["scalar_timestep", "per_token_timestep"])
+@pytest.mark.parametrize("grid", _LTX25_GRIDS, ids=_LTX25_GRID_IDS)
+def test_the_ltx_reserve_covers_the_forward_peak_with_room_for_the_allocator(grid, per_token):
+    dit, _ = _ltx25_streamed_int8_dit()
+    peak = _ltx_forward_peak_gb(dit.module, grid, per_token=per_token)
+    reserve = estimate_activation_reserve_gb(
+        math.prod(grid), dequant_transient_bytes=_dit_dequant_transient_bytes(dit),
+        **ltx_reserve_terms(dit, per_token_timestep=per_token),
+    )
+    assert _ACTIVATION_SAFETY_MARGIN * peak <= reserve <= 1.3 * peak
+
+
+@pytest.mark.parametrize("blocks", _LTX_FORMS, ids=_LTX_FORM_IDS)
+@pytest.mark.parametrize("grid, audio_tokens", _LTX_AUDIO_CLIPS, ids=[str(math.prod(g)) for g, _ in _LTX_AUDIO_CLIPS])
+def test_the_ltx_reserve_covers_the_forward_peak_with_a_generated_audio_stream(grid, audio_tokens, blocks):
+    dit, _ = _ltx25_streamed_int8_dit(blocks=blocks)
+    peak = _ltx_forward_peak_gb(dit.module, grid, per_token=True, audio_tokens=audio_tokens)
+    reserve = estimate_activation_reserve_gb(
+        math.prod(grid), audio_tokens, dequant_transient_bytes=_dit_dequant_transient_bytes(dit),
+        **ltx_reserve_terms(dit, per_token_timestep=True, generates_audio=True),
+    )
+    assert _ACTIVATION_SAFETY_MARGIN * peak <= reserve <= 1.3 * peak
+
+
+@pytest.mark.parametrize("blocks", _LTX_FORMS, ids=_LTX_FORM_IDS)
+@pytest.mark.parametrize(
+    "grid, extra_tokens", _LTX_REDUCED_REFERENCE_CLIPS,
+    ids=[str(math.prod(g) + extra) for g, extra in _LTX_REDUCED_REFERENCE_CLIPS],
+)
+def test_the_ltx_reserve_covers_the_forward_peak_of_a_timestep_broken_by_a_reduced_reference(grid, extra_tokens, blocks):
+    dit, _ = _ltx25_streamed_int8_dit(blocks=blocks)
+    peak = _ltx_forward_peak_gb(dit.module, grid, per_token=True, extra_video_tokens=extra_tokens)
+    reserve = estimate_activation_reserve_gb(
+        math.prod(grid) + extra_tokens, dequant_transient_bytes=_dit_dequant_transient_bytes(dit),
+        **ltx_reserve_terms(dit, per_token_timestep=True, per_token_frames_broken=True),
+    )
+    assert _ACTIVATION_SAFETY_MARGIN * peak <= reserve <= 1.3 * peak
+
+
+def test_the_ltx_reserve_stays_above_the_peak_of_a_19b_with_audio_and_a_reduced_reference():
+    grid, extra_tokens = _LTX_REDUCED_REFERENCE_CLIPS[-1]
+    dit, _ = _ltx25_streamed_int8_dit(blocks=_LTX2_19B_BLOCKS)
+    peak = _ltx_forward_peak_gb(dit.module, grid, per_token=True, audio_tokens=200, extra_video_tokens=extra_tokens)
+    reserve = estimate_activation_reserve_gb(
+        math.prod(grid) + extra_tokens, 200, dequant_transient_bytes=_dit_dequant_transient_bytes(dit),
+        **ltx_reserve_terms(dit, per_token_timestep=True, per_token_frames_broken=True, generates_audio=True),
+    )
+    assert peak < reserve <= _ACTIVATION_SAFETY_MARGIN * peak
+
+
+@pytest.mark.parametrize("margin_gb, mode", [(-0.01, "partial"), (0.01, "resident")])
+@pytest.mark.parametrize("grid", _LTX25_GRIDS[:2], ids=_LTX25_GRID_IDS[:2])
+def test_a_streamed_int8_ltx_dit_with_a_lora_reserves_more_than_its_forward_peak(grid, margin_gb, mode):
+    dit, calls = _ltx25_streamed_int8_dit()
+    layers = [
+        layer for block in dit.module.transformer_blocks for layer in (
+            block.attn1.to_q, block.attn1.to_k, block.attn1.to_v, block.attn1.to_out[0],
+            block.attn2.to_q, block.attn2.to_k, block.attn2.to_v, block.attn2.to_out[0],
+            block.ff.net[0].proj, block.ff.net[2],
+        )
+    ]
+    for layer in layers:
+        layer.lora_deltas = [LoraDelta(
+            down=torch.empty((128, layer.in_features), dtype=torch.bfloat16, device="meta"),
+            up=torch.empty((layer.out_features, 128), dtype=torch.bfloat16, device="meta"),
+            alpha=128.0,
+        )]
+    lora_bytes = sum((layer.in_features + layer.out_features) * 128 * 2 for layer in layers)
+    lora_gb = lora_bytes / 1024 ** 3
+    peak = _ltx_forward_peak_gb(dit.module, grid, per_token=True)
+    terms = ltx_reserve_terms(dit, per_token_timestep=True)
+    reserve = estimate_activation_reserve_gb(
+        math.prod(grid), lora=_dit_lora_profile(dit), dequant_transient_bytes=_dit_dequant_transient_bytes(dit), **terms,
+    )
+    patches, _ = _patched(free_gb=dit.estimated_vram_gb + lora_gb + reserve + margin_gb)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.maybe_compile_dit"):
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=math.prod(grid), **terms)
+    assert decision.mode == mode
+    assert decision.lora_weight_gb == pytest.approx(lora_gb)
+    assert decision.activation_reserve_gb == pytest.approx(reserve)
+    assert reserve > peak
+    if mode == "partial":
+        assert calls["stream_to"] == [("cuda", pytest.approx(dit.estimated_vram_gb + lora_gb + margin_gb))]
+    else:
+        assert calls["move_to"] == ["cuda"]
+
+
+@pytest.mark.parametrize("per_token, mode, budget_gb", [(False, "resident", 25.11), (True, "partial", 22.57)])
+def test_a_fifteen_second_clip_on_a_32gb_card_streams_only_under_a_per_token_timestep(per_token, mode, budget_gb):
+    dit, _ = _ltx25_streamed_int8_dit(estimated_vram_gb=23.3)
+    patches, _ = _patched(free_gb=32.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=_video_tokens_for(15), **ltx_reserve_terms(dit, per_token_timestep=per_token),
+        )
+    assert decision.mode == mode
+    assert decision.weight_budget_gb == pytest.approx(budget_gb, abs=0.01)
+
+
+@pytest.mark.parametrize("resident", [False, True])
+@pytest.mark.parametrize("seconds", [1, 5, 10, 20])
+def test_sequence_fit_with_the_ltx_terms_and_a_dequant_transient_predicts_the_placement_mode(resident, seconds):
+    tokens = _video_tokens_for(seconds)
+    free = 32.0 - (23.3 if resident else 0.0)
+    probe, _ = _ltx25_streamed_int8_dit(estimated_vram_gb=23.3)
+    placed, _ = _ltx25_streamed_int8_dit(estimated_vram_gb=23.3)
+    if resident:
+        probe.device = placed.device = "cuda"
+    terms = ltx_reserve_terms(probe, per_token_timestep=True)
+    patches, _ = _patched(free_gb=free)
+    with patches[0], patches[1], patches[2]:
+        fit = sequence_fit(probe, "cuda", **terms)
+        decision = place_dit_for_sequence(placed, "cuda", video_tokens=tokens, **terms)
+    assert fit.terms.dequant_transient_bytes == _LTX25_FFN_DEQUANT_BYTES
+    assert fit.resident(tokens) == (decision.mode == "resident")
+    assert fit.reserve_gb(tokens) == pytest.approx(decision.activation_reserve_gb)
+
+
+def _ltx_dit_with_config(**config):
+    return SimpleNamespace(module=SimpleNamespace(config=LTXAVConfig.from_detect_config({**_LTX25_BLOCKS, **config})))
+
+
+@pytest.mark.parametrize("blocks", _LTX_FORMS, ids=_LTX_FORM_IDS)
+def test_the_ffn_width_the_reserve_charges_is_the_gelu_output_of_the_built_dit(blocks):
+    dit, _ = _ltx25_streamed_int8_dit(blocks=blocks)
+    built = {block.ff.net[0].proj.out_features for block in dit.module.transformer_blocks}
+    assert built == {ltx_reserve_terms(dit, per_token_timestep=False)["gelu_ffn_dim"]} == {16384}
+
+
+def test_ltx_reserve_terms_read_the_ffn_width_from_the_dits_own_config():
+    narrow = _ltx_dit_with_config(num_attention_heads=16)
+    assert narrow.module.config.inner_dim == 2048
+    assert ltx_reserve_terms(narrow, per_token_timestep=False)["gelu_ffn_dim"] == 8192
+
+
+@pytest.mark.parametrize("module", [
+    SimpleNamespace(),
+    SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False, use_cross_timestep=False)),
+], ids=["no_config", "config_without_inner_dim"])
+def test_ltx_reserve_terms_refuse_a_dit_without_a_config_rather_than_guess_its_width(module):
+    with pytest.raises(AttributeError):
+        ltx_reserve_terms(SimpleNamespace(module=module), per_token_timestep=False)
+
+
+def test_ltx_reserve_terms_charge_the_modulation_rows_a_block_keeps_alive():
+    prompt_adaln = _ltx_dit_with_config(has_prompt_adaln=True)
+    plain = _ltx_dit_with_config(has_prompt_adaln=False)
+    assert ltx_reserve_terms(prompt_adaln, per_token_timestep=True) == {"gelu_ffn_dim": 16384, "modulation_rows": 7}
+    assert ltx_reserve_terms(plain, per_token_timestep=True) == {"gelu_ffn_dim": 16384, "modulation_rows": 5}
+    assert ltx_reserve_terms(prompt_adaln, per_token_timestep=False) == {"gelu_ffn_dim": 16384, "modulation_rows": 0}
+
+
+@pytest.mark.parametrize("config, flags, rows", [
+    (dict(has_prompt_adaln=True, use_cross_timestep=True), dict(generates_audio=True), 8),
+    (dict(has_prompt_adaln=False, use_cross_timestep=False), dict(generates_audio=True), 11),
+    (dict(has_prompt_adaln=True, use_cross_timestep=True), dict(per_token_frames_broken=True), 17),
+    (dict(has_prompt_adaln=False, use_cross_timestep=False), dict(per_token_frames_broken=True), 17),
+    (dict(has_prompt_adaln=True, use_cross_timestep=True), dict(generates_audio=True, per_token_frames_broken=True), 18),
+    (dict(has_prompt_adaln=False, use_cross_timestep=False), dict(generates_audio=True, per_token_frames_broken=True), 23),
+])
+def test_ltx_reserve_terms_add_the_rows_generated_audio_and_a_broken_timestep_keep_alive(config, flags, rows):
+    dit = _ltx_dit_with_config(**config)
+    assert ltx_reserve_terms(dit, per_token_timestep=True, **flags)["modulation_rows"] == rows
+    assert ltx_reserve_terms(dit, per_token_timestep=False, **flags)["modulation_rows"] == 0
+
+
+def test_below_the_crossover_the_gelu_output_rides_beside_the_dequantised_fc2_weight():
+    tokens = 4_000
+    with_gelu = estimate_activation_reserve_gb(
+        tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES, gelu_ffn_dim=_LTX25_FFN[1])
+    without = estimate_activation_reserve_gb(tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES)
+    assert with_gelu - without == pytest.approx(tokens * _LTX25_FFN[1] * 2 * _ACTIVATION_SAFETY_MARGIN / 1024 ** 3)
+
+
+def test_past_the_crossover_the_fc1_output_beside_its_gelu_replaces_the_dequant_transient():
+    tokens = 20_000
+    with_gelu = estimate_activation_reserve_gb(
+        tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES, gelu_ffn_dim=_LTX25_FFN[1])
+    without = estimate_activation_reserve_gb(tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES)
+    expected = (2 * tokens * _LTX25_FFN[1] * 2 - _LTX25_FFN_DEQUANT_BYTES) * _ACTIVATION_SAFETY_MARGIN / 1024 ** 3
+    assert with_gelu - without == pytest.approx(expected)
+
+
+def test_the_fp8_gemm_path_does_not_stack_the_fc1_output_on_the_quantisers_buffers():
+    tokens = 28_160
+    quant = _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT * _LTX25_FFN[1]
+    scratch = QuantScratch((QuantWidth(_FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT, _LTX25_FFN[1], None),))
+    reserve = estimate_activation_reserve_gb(tokens, quant_scratch=scratch, gelu_ffn_dim=_LTX25_FFN[1])
+    plain = estimate_activation_reserve_gb(tokens)
+    assert reserve - plain == pytest.approx(
+        tokens * (quant + _LTX25_FFN[1] * 2) * _ACTIVATION_SAFETY_MARGIN / 1024 ** 3)
+
+
+def test_a_dit_on_the_fp8_gemm_path_keeps_a_dequantising_layers_transient(machine):
+    machine(fp8=True)
+    dit = _dit_with(_fp8_layer(16384, 4096), _int8_layer(*_LTX25_FFN))
+    dit.module.config = LTXAVConfig.from_detect_config(_LTX25_BLOCKS)
+    terms = ltx_reserve_terms(dit, per_token_timestep=False)
+    patches, _ = _patched(free_gb=31.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=28_160, **terms)
+    scratch = _dit_quant_scratch(dit)
+    assert scratch.widths
+    assert decision.activation_reserve_gb == pytest.approx(estimate_activation_reserve_gb(
+        28_160, quant_scratch=scratch,
+        dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES, **terms,
+    ))
+    assert decision.activation_reserve_gb < estimate_activation_reserve_gb(
+        28_160, quant_scratch=scratch,
+    ) + (28_160 * 2 * _LTX25_FFN[1] * 2) * _ACTIVATION_SAFETY_MARGIN / 1024 ** 3
+
+
+def test_modulation_is_charged_on_video_tokens_only():
+    video_only = estimate_activation_reserve_gb(7_410, 0, modulation_rows=7)
+    with_audio = estimate_activation_reserve_gb(7_410, 100, modulation_rows=7)
+    assert with_audio - video_only == pytest.approx(
+        estimate_activation_reserve_gb(7_410, 100) - estimate_activation_reserve_gb(7_410, 0))
+    assert video_only - estimate_activation_reserve_gb(7_410) == pytest.approx(
+        7_410 * 7 * _LTX_INNER_DIM * 2 * _ACTIVATION_SAFETY_MARGIN / 1024 ** 3)
+
+
+def test_sequence_fit_credits_what_placement_would_evict_and_not_the_pipes_own_models():
+    registry = GpuResidencyRegistry()
+    foreign, own_vae = _ForeignResident(), _ForeignResident()
+    registry.note_resident(foreign, "cuda", 7.0)
+    registry.note_resident(own_vae, "cuda", 3.0)
+    dit, _ = _dit(estimated_vram_gb=20.0)
+    with patch(f"{_MOD}.effective_free_vram_gb", return_value=10.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=registry):
+        fit = sequence_fit(dit, "cuda", own_models=(dit, own_vae))
+    assert fit.free_gb == pytest.approx(17.0)
+
+
+def test_sequence_fit_never_credits_the_dit_itself_as_evictable():
+    registry = GpuResidencyRegistry()
+    dit = _ForeignResident()
+    dit.estimated_vram_gb, dit.device = 20.0, "cuda"
+    registry.note_resident(dit, "cuda", 20.0)
+    with patch(f"{_MOD}.effective_free_vram_gb", return_value=10.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=registry):
+        fit = sequence_fit(dit, "cuda")
+    assert fit.free_gb == pytest.approx(30.0)
+
+
+def test_the_reserve_a_fit_charges_carries_every_term_of_the_placement():
+    dit, _ = _dit(estimated_vram_gb=20.0)
+    patches, _ = _patched(free_gb=31.0)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.maybe_compile_dit"):
+        fit = sequence_fit(dit, "cuda", gelu_ffn_dim=16384, modulation_rows=7)
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=7_410, gelu_ffn_dim=16384, modulation_rows=7)
+    assert fit.reserve_gb(7_410) == pytest.approx(decision.activation_reserve_gb)

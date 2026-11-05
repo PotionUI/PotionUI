@@ -313,13 +313,14 @@ class GpuResidencyRegistry:
                 )
         model.offload()
 
-    def resident_gb(self, device: str | torch.device | None = None) -> float:
+    def resident_gb(self, device: str | torch.device | None = None, *, exclude: Iterable[Any] = ()) -> float:
         idx = device_index(device) if device is not None else None
+        exclude_ids = {id(m) for m in exclude}
         with self._lock:
             self._prune_dead()
             return sum(
-                e.size_gb for e in self._entries.values()
-                if idx is None or device_index(e.device) == idx
+                e.size_gb for key, e in self._entries.items()
+                if key not in exclude_ids and (idx is None or device_index(e.device) == idx)
             )
 
     def _prune_dead(self) -> None:

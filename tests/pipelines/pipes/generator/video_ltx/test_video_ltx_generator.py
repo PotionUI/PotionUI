@@ -12,6 +12,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
+import torch.nn as nn
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.video_ltx.audio import audio_token_count, unpack_audio_tokens
@@ -21,13 +22,19 @@ from src.pipelines.pipes.generator.video_ltx.conditioning import (
     prepare_ltx_conditions,
     reference_token_count,
 )
+from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDecision, estimate_activation_reserve_gb
+from src.pipelines.pipes._shared.video.ltx_common import ltx_reserve_terms
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes.generator.video_ltx.main import (
     MAX_FRAMES,
     GeneratorLtxVideoPipe,
     _VideoLtxCtx,
     _resolve_latent_index,
+    _scoped_loras_on_card,
 )
+from src.platform.runtime.native.kernels import manual_cast
+from src.platform.runtime.native.lora import temporarily_applied_loras
+from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.platform.runtime.native.sampling import conditioned_sigmas, denoise_prenoised
 
 
@@ -459,7 +466,10 @@ def _bundle(family="ltx", audio=False, te_cache_key=None):
             decode=lambda z: torch.zeros(1, 3, z.shape[2], z.shape[3] * 32, z.shape[4] * 32)),
     )
     dit = SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
-                          module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True)))
+                          module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True,
+                                                                        has_prompt_adaln=False,
+                                                                        use_cross_timestep=False,
+                                                                        inner_dim=4096)))
     extras = {}
     if audio:
         extras = {"audio_vae": SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None,
@@ -691,8 +701,13 @@ class _FakeFit:
         return video_tokens + audio_tokens <= self.activation_tokens
 
 
+class _Resident:
+    def offload(self):
+        pass
+
+
 def _fit_tokens(monkeypatch, resident_tokens, activation_tokens=None):
-    monkeypatch.setattr(f"{_MAIN}.sequence_fit", lambda dit, device: _FakeFit(resident_tokens, activation_tokens))
+    monkeypatch.setattr(f"{_MAIN}.sequence_fit", lambda dit, device, **_: _FakeFit(resident_tokens, activation_tokens))
 
 
 def _tokens_64(frames):
@@ -768,7 +783,8 @@ def test_a_clip_longer_than_the_frame_limit_is_cut_there_with_the_trim_notice(tm
 
 
 def _real_fit_plan(free_gb, clip_frames=136, *, overlap=24, resident=False):
-    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cuda:0" if resident else "cpu")
+    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cuda:0" if resident else "cpu",
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False, inner_dim=4096)))
     with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
         return _pipe()._plan_clip(dit, "cuda:0", clip_frames, 1280, 704, 24.0, _CLIP_REFERENCE, (1, 1),
                                   "file", overlap)
@@ -779,7 +795,7 @@ def test_the_real_memory_model_runs_the_whole_clip_in_one_pass_on_a_roomy_card()
 
 
 def test_the_real_memory_model_splits_into_two_balanced_windows_when_one_pass_does_not_fit():
-    assert _real_fit_plan(19.5) == (81, [0, 55])
+    assert _real_fit_plan(22.5) == (81, [0, 55])
 
 
 def test_the_real_memory_model_credits_a_resident_dit_its_own_weight():
@@ -805,16 +821,85 @@ _LAYOUT_PLACEMENTS = [
 
 @pytest.mark.parametrize(("free_gb", "refine_scale", "expected"), [
     (30.0, 1.0, (481, [0])),
-    (30.0, 2.0, (481, [0])),
-    (10.0, 1.0, (481, [0])),
-    (10.0, 2.0, (193, [0])),
-    (12.0, 2.0, (233, [0])),
+    (30.0, 2.0, (265, [0])),
+    (10.0, 1.0, (361, [0])),
+    (10.0, 2.0, (81, [0])),
+    (12.0, 2.0, (97, [0])),
 ])
 def test_a_two_stage_clip_is_planned_so_the_upscaled_refine_fits_too(free_gb, refine_scale, expected):
-    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cpu")
+    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cpu",
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False, inner_dim=4096)))
     with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
         assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",
                                   None, refine_scale) == expected
+
+
+@pytest.mark.parametrize(("free_gb", "frames"), [(10.7, 81), (12.0, 89), (23.0, 185), (31.0, 257)])
+def test_a_two_stage_clip_of_a_prompt_adaln_dit_is_planned_under_its_modulation_rows(free_gb, frames):
+    dit = SimpleNamespace(estimated_vram_gb=20.0, device="cpu",
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True, inner_dim=4096)))
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
+        assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",
+                                  None, 2.0) == (frames, [0])
+
+
+def _ltx2_19b_shaped_dit():
+    return SimpleNamespace(estimated_vram_gb=20.0, device="cpu", module=SimpleNamespace(
+        config=SimpleNamespace(has_prompt_adaln=False, use_cross_timestep=False, inner_dim=4096)))
+
+
+def _plan_on_exactly_the_reserve_of_121_frames(reference_scales, audio_mode, **flags):
+    dit = _ltx2_19b_shaped_dit()
+    pipe = _pipe()
+    video = pipe._sequence_tokens(_LAYOUT_PLACEMENTS, 121, 960, 544, reference_scales)
+    audio = audio_token_count(121, 24.0) if audio_mode == "generate" else 0
+    reserve = estimate_activation_reserve_gb(video, audio, **ltx_reserve_terms(dit, per_token_timestep=True, **flags))
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=reserve + 1e-6):
+        return pipe._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, reference_scales, audio_mode, None)
+
+
+def test_the_plan_charges_generated_audio_its_own_rows_and_leaves_it_out_of_the_video_tokens():
+    assert _plan_on_exactly_the_reserve_of_121_frames((1, 1), "generate", generates_audio=True) == (121, [0])
+
+
+def test_the_plan_charges_a_reference_at_a_reduced_scale_the_whole_adaln_table():
+    assert _plan_on_exactly_the_reserve_of_121_frames((2, 1), "none", per_token_frames_broken=True) == (121, [0])
+
+
+def test_a_foreign_resident_placement_would_evict_does_not_shorten_the_plan():
+    dit = _ltx2_19b_shaped_dit()
+    registry = GpuResidencyRegistry()
+    foreign, own_vae = _Resident(), _Resident()
+    registry.note_resident(foreign, "cuda:0", 12.0)
+    registry.note_resident(own_vae, "cuda:0", 3.0)
+
+    def plan(own):
+        return _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none", None, 2.0, own)
+
+    with patch(f"{_PLACEMENT}.get_residency_registry", return_value=registry):
+        with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=16.0):
+            crediting_the_foreign_one = plan((dit, own_vae))
+            crediting_both = plan((dit,))
+        with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=28.0):
+            with patch.object(registry, "resident_gb", return_value=0.0):
+                on_a_free_card = plan((dit, own_vae))
+    assert crediting_the_foreign_one == on_a_free_card
+    assert crediting_both[0] > crediting_the_foreign_one[0]
+
+
+def test_the_clip_plan_leaves_the_pipes_own_models_out_of_what_it_credits(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    seen = {}
+
+    def spy_fit(dit, device, **terms):
+        seen.update(terms)
+        return _FakeFit(10_000)
+
+    monkeypatch.setattr(f"{_MAIN}.sequence_fit", spy_fit)
+    bundle = _bundle(audio=True)
+    _pipe(match_video=True, media_placements=_CLIP_REFERENCE).build_context(
+        _pipe_input(videos=[str(clip)], bundle=bundle))
+    assert seen["own_models"] == (bundle.dit, bundle.vae, bundle.audio_vae, bundle.vocoder)
 
 
 def test_a_two_stage_first_pass_trims_to_what_its_refine_can_hold(tmp_path, monkeypatch):
@@ -1712,7 +1797,9 @@ def _bundle_with_encode_fill(fill: float):
             decode=lambda z: torch.zeros(1, 3, z.shape[2], z.shape[3] * 32, z.shape[4] * 32)),
     )
     dit = SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
-                          module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True)))
+                          module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True,
+                                                                        has_prompt_adaln=False,
+                                                                        inner_dim=4096)))
     return SimpleNamespace(dit=dit, vae=vae, spec=_FakeSpec(family="ltx"),
                            projections={}, audio_vae=None, vocoder=None)
 
@@ -2211,6 +2298,176 @@ def test_stage2_loras_wraps_with_empty_stack_on_a_plain_generation(caplog):
     assert calls == [[]]
 
 
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+def test_the_dit_is_placed_inside_the_scoped_lora_block():
+    calls = []
+
+    @contextmanager
+    def fake_ctx(module, stack, runtime_only=False):
+        calls.append(("enter", runtime_only))
+        yield
+        calls.append(("exit",))
+
+    def fake_place(dit, device, *, video_tokens, audio_tokens=0, own_models=(), **_terms):
+        calls.append(("place",))
+        return DitPlacementDecision("cpu", 0.0, 0.0, 0.0, video_tokens, audio_tokens)
+
+    def fake_denoise(fwd, x, cond, uncond, **kw):
+        calls.append(("denoise",))
+        return x
+
+    with patch("src.pipelines.pipes.generator.video_ltx.main.temporarily_applied_loras", fake_ctx), \
+         patch("src.pipelines.pipes.generator.video_ltx.main.place_dit_for_sequence", fake_place), \
+         patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", fake_denoise):
+        _pipe(resolution="64x64", frames=17).process(_pipe_input(), lambda o: None)
+
+    assert calls == [("enter", True), ("place",), ("denoise",), ("exit",)]
+
+
+_SCOPED_STACK = [({"lora.weight": torch.zeros(1)}, 1.0)]
+
+
+def _landing_scoped_block(events, *, ooms_landing=0, landing_error=None):
+    remaining = [ooms_landing]
+
+    @contextmanager
+    def fake_ctx(module, stack, runtime_only=False):
+        events.append("land")
+        if landing_error is not None:
+            raise landing_error
+        if remaining[0]:
+            remaining[0] -= 1
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory.")
+        yield
+
+    dit = SimpleNamespace(module=object(), offload=lambda: events.append("offload"))
+    return dit, fake_ctx
+
+
+def test_a_scoped_stack_gets_room_for_its_deltas_before_they_land():
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events)
+    own = (dit,)
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), \
+            patch(f"{_MAIN}.make_room_for_lora_stack",
+                  lambda device, stack, own_models: events.append(("room", device, stack, own_models))):
+        with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, own):
+            events.append("body")
+    assert events == [("room", "cuda", _SCOPED_STACK, own), "land", "body"]
+
+
+@pytest.mark.parametrize("device", ["cuda", "cuda:1"])
+def test_an_oom_landing_the_deltas_unloads_the_warm_dit_and_empties_the_placement_device_before_it_retries_once(device):
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events, ooms_landing=1)
+
+    @contextmanager
+    def selected(card):
+        events.append(("selected", card))
+        yield
+
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), patch(f"{_MAIN}.make_room_for_lora_stack"), \
+            patch(f"{_MAIN}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MAIN}.torch.cuda.device", selected), \
+            patch(f"{_MAIN}.torch.cuda.empty_cache", side_effect=lambda: events.append("release")):
+        with _scoped_loras_on_card(dit, device, _SCOPED_STACK, (dit,)):
+            events.append("body")
+    assert events == ["land", "offload", ("selected", device), "release", "land", "body"]
+
+
+def test_a_second_oom_landing_the_deltas_reaches_the_caller():
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events, ooms_landing=2)
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), patch(f"{_MAIN}.make_room_for_lora_stack"), \
+            patch(f"{_MAIN}.torch.cuda.empty_cache"):
+        with pytest.raises(torch.cuda.OutOfMemoryError):
+            with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, (dit,)):
+                events.append("body")
+    assert events == ["land", "offload", "land"]
+
+
+def test_an_oom_inside_the_scoped_block_unloads_nothing_and_reaches_the_caller():
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events)
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), patch(f"{_MAIN}.make_room_for_lora_stack"):
+        with pytest.raises(torch.cuda.OutOfMemoryError):
+            with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, (dit,)):
+                events.append("body")
+                raise torch.cuda.OutOfMemoryError("CUDA out of memory.")
+    assert events == ["land", "body"]
+
+
+def test_a_landing_error_that_is_not_an_oom_is_not_retried():
+    events = []
+    dit, fake_ctx = _landing_scoped_block(events, landing_error=RuntimeError("shape mismatch"))
+    with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), patch(f"{_MAIN}.make_room_for_lora_stack"):
+        with pytest.raises(RuntimeError, match="shape mismatch"):
+            with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, (dit,)):
+                events.append("body")
+    assert events == ["land"]
+
+
+def test_the_dit_placement_and_the_scoped_block_name_the_same_own_models():
+    bundle = _bundle(audio=True)
+    seen = {}
+
+    def fake_place(dit, device, *, video_tokens, audio_tokens=0, own_models=(), **_terms):
+        seen["placement"] = own_models
+        return DitPlacementDecision("cpu", 0.0, 0.0, 0.0, video_tokens, audio_tokens)
+
+    with patch(f"{_MAIN}.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path), \
+            patch(f"{_MAIN}.make_room_for_lora_stack",
+                  lambda device, stack, own_models: seen.__setitem__("room", own_models)), \
+            patch(f"{_MAIN}.place_dit_for_sequence", fake_place), \
+            patch(f"{_MAIN}.denoise_prenoised", lambda fwd, x, c, u, **k: x):
+        _pipe(resolution="64x64", frames=17).process(_pipe_input(bundle=bundle), lambda o: None)
+    assert seen["room"] == seen["placement"] == (bundle.dit, bundle.vae, bundle.audio_vae, bundle.vocoder)
+
+
+@pytest.mark.parametrize("prompt_adaln, rows", [(False, 5), (True, 7)])
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", lambda fwd, x, c, u, **k: x)
+def test_the_video_pipe_reserves_what_its_per_token_timestep_keeps_alive(prompt_adaln, rows):
+    bundle = _bundle()
+    bundle.dit.module.config.has_prompt_adaln = prompt_adaln
+    decision = DitPlacementDecision("cpu", 0.0, 0.0, 0.0, 0, 0)
+    with patch("src.pipelines.pipes.generator.video_ltx.main.place_dit_for_sequence", return_value=decision) as place:
+        _pipe(resolution="64x64", frames=17).process(_pipe_input(bundle=bundle), lambda o: None)
+    assert place.call_args.kwargs["gelu_ffn_dim"] == 16384
+    assert place.call_args.kwargs["modulation_rows"] == rows
+    assert place.call_args.kwargs["video_tokens"] == 3 * 2 * 2
+    assert place.call_args.kwargs["audio_tokens"] == 0
+
+
+@pytest.mark.parametrize("use_cross_timestep, rows", [(False, 11), (True, 6)])
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", lambda fwd, x, c, u, **k: x)
+def test_generated_audio_stays_out_of_the_video_tokens_and_adds_the_rows_it_keeps_alive(use_cross_timestep, rows):
+    bundle = _bundle(audio=True)
+    bundle.dit.module.config.use_cross_timestep = use_cross_timestep
+    decision = DitPlacementDecision("cpu", 0.0, 0.0, 0.0, 0, 0)
+    with patch(f"{_MAIN}.place_dit_for_sequence", return_value=decision) as place, \
+            patch(f"{_MAIN}.decode_generated_audio", lambda *a: None):
+        _pipe(resolution="64x64", frames=17, audio=True, audio_source="generate").process(
+            _pipe_input(bundle=bundle), lambda o: None)
+    assert place.call_args.kwargs["video_tokens"] == 3 * 2 * 2
+    assert place.call_args.kwargs["audio_tokens"] == audio_token_count(17, 25.0)
+    assert place.call_args.kwargs["modulation_rows"] == rows
+
+
+@pytest.mark.parametrize("scales, rows", [((1, 1), 5), ((2, 1), 17)])
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", lambda fwd, x, c, u, **k: x)
+def test_a_reference_at_a_reduced_scale_adds_the_rows_of_the_whole_adaln_table(tmp_path, scales, rows):
+    clip = _reference_clip(tmp_path, n_frames=9, size=64)
+    decision = DitPlacementDecision("cpu", 0.0, 0.0, 0.0, 0, 0)
+    with patch(f"{_MAIN}.place_dit_for_sequence", return_value=decision) as place, \
+            patch(f"{_MAIN}.resolve_reference_scales", return_value=scales):
+        _pipe(resolution="128x128", frames=9, media_placements=_CLIP_REFERENCE).process(
+            _pipe_input(videos=[str(clip)]), lambda o: None)
+    assert place.call_args.kwargs["modulation_rows"] == rows
+
+
 # -- TE eviction --------------------------------------------------------------
 # This pipe never touches the TE itself (conditioning is already-encoded by
 # `prompt_encoder`, upstream of every LTX preset pipeline) -- see
@@ -2397,6 +2654,70 @@ def test_scoped_loras_load_on_a_plain_generation_and_on_a_refine(mock_load):
     refine = _pipe(resolution="64x64", frames=17, refine_sigmas="0.9, 0.0",
                    scoped_loras=_IC).build_context(refine_input)
     assert refine.extra.scoped_lora_stack is stack
+
+
+def test_the_clip_plan_is_judged_with_the_scoped_loras_on_the_dit(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    stack = [({"ic.weight": torch.zeros(1)}, 1.0)]
+    calls = []
+
+    @contextmanager
+    def fake_ctx(module, loras, runtime_only=False):
+        calls.append(("enter", loras, runtime_only))
+        yield
+        calls.append(("exit",))
+
+    def fake_fit(dit, device, **terms):
+        calls.append(("fit",))
+        return _FakeFit(10_000)
+
+    monkeypatch.setattr(f"{_MAIN}.sequence_fit", fake_fit)
+    with patch(f"{_MAIN}._load_lora_stack", return_value=stack), \
+            patch(f"{_MAIN}.resolve_reference_scales", return_value=(1, 1)), \
+            patch(f"{_MAIN}.make_room_for_lora_stack"), \
+            patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx):
+        ctx = _pipe(match_video=True, scoped_loras=_IC, media_placements=_CLIP_REFERENCE).build_context(
+            _pipe_input(videos=[str(clip)]))
+
+    assert calls == [("enter", stack, True), ("fit",), ("exit",)]
+    assert ctx.extra.scoped_lora_stack is stack
+
+
+def test_a_scoped_stack_on_the_dit_moves_the_window_the_plan_keeps_resident(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    module = nn.Module()
+    module.proj = manual_cast.Linear(64, 32)
+    module.config = SimpleNamespace(has_prompt_adaln=False, inner_dim=4096)
+    lora = {"diffusion_model.proj.lora_A.weight": torch.zeros(4, 64),
+            "diffusion_model.proj.lora_B.weight": torch.zeros(32, 4)}
+    delta_gb = (4 * 64 + 32 * 4) * 4 / 1024 ** 3
+    dit = SimpleNamespace(module=module, estimated_vram_gb=17.4, device="cpu")
+    pipe = _pipe()
+    window = pipe._sequence_tokens(_CLIP_REFERENCE, 81, 1280, 704, (1, 1))
+    free_gb = 17.4 + estimate_activation_reserve_gb(window, **ltx_reserve_terms(dit, per_token_timestep=True)) + delta_gb / 2
+
+    def plan():
+        return pipe._plan_clip(dit, "cuda:0", 136, 1280, 704, 24.0, _CLIP_REFERENCE, (1, 1), "file", 24)
+
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
+        bare = plan()
+        with temporarily_applied_loras(module, [(lora, 1.0)], runtime_only=True):
+            under_the_stack = plan()
+        after = plan()
+    assert bare[0] == 81
+    assert under_the_stack[0] < 81
+    assert after == bare
+
+
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize(("free_gb", "frames"), [(10.7, 73), (12.0, 81), (23.0, 177), (31.0, 241)])
+def test_deltas_already_on_the_card_shorten_a_two_stage_plan_by_what_they_hold(free_gb, frames, warm):
+    dit = SimpleNamespace(estimated_vram_gb=20.0, device="cuda:0" if warm else "cpu",
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True, inner_dim=4096)))
+    reading = free_gb - 1.22 - (20.0 if warm else 0.0)
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=reading):
+        assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",
+                                  None, 2.0) == (frames, [0])
 
 
 def test_no_scoped_loras_means_an_empty_stack():

@@ -14,6 +14,7 @@ from src.pipelines.outputs import GalleryGenerationOutput
 from src.platform.runtime.native.errors import DecodeNumericsError
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDecision
 from src.pipelines.pipes.generator.txt2vid_ltx.main import _LTXCtx, GeneratorLtxTxt2VidPipe
 from src.pipelines.pipes._shared.video.ltx_common import decode_ltx_video
 from src.pipelines.pipes._shared.video.ltx_common import snap_ltx_geometry
@@ -45,6 +46,13 @@ class _FakeSpec:
     sampling_settings: dict = field(default_factory=lambda: {"prediction": "const", "shift": 2.37, "guidance": "cfg"})
 
 
+class _Dit:
+    config = SimpleNamespace(inner_dim=4096)
+
+    def __call__(self, x_list, sigma, ctx, **kw):
+        return torch.zeros_like(x_list[0])
+
+
 def _bundle(family="ltx", te_cache_key=None):
     vae = SimpleNamespace(
         compute_dtype=torch.float32,
@@ -52,7 +60,7 @@ def _bundle(family="ltx", te_cache_key=None):
         module=SimpleNamespace(decode=lambda z: torch.zeros(1, 3, z.shape[2], z.shape[3] * 32, z.shape[4] * 32)),
     )
     dit = SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
-                           module=lambda x_list, sigma, ctx, **kw: torch.zeros_like(x_list[0]))
+                           module=_Dit())
     return SimpleNamespace(dit=dit, vae=vae, spec=_FakeSpec(family=family), projections={},
                            te=SimpleNamespace(module=None), te_cache_key=te_cache_key)
 
@@ -175,7 +183,7 @@ def test_model_forward_wraps_single_element_list_with_frame_rate(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None):
             seen["x_list_len"] = len(x_list)
             seen["frame_rate"] = frame_rate
@@ -230,6 +238,16 @@ def test_emitted_videos_carry_live_resolution():
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)][0]
     # 1000x540 -> 32px grid (992x544), same snap this pipe's build_context applies.
     assert [v.resolution for v in gallery.videos] == [(992, 544), (992, 544)]
+
+
+@patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise", lambda mf, latents, c, u, **k: latents)
+def test_placement_reserves_the_ffn_output_and_no_modulation_under_a_scalar_timestep():
+    decision = DitPlacementDecision("cpu", 0.0, 0.0, 0.0, 0, 0)
+    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.place_dit_for_sequence", return_value=decision) as place:
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
+    assert place.call_args.kwargs["gelu_ffn_dim"] == 16384
+    assert place.call_args.kwargs["modulation_rows"] == 0
 
 
 # -- decode math ---------------------------------------------------------------
@@ -363,7 +381,7 @@ def test_step_cache_absent_no_kwarg_reaches_dit_module_forward(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None, **kwargs):
             seen["kwargs"] = kwargs
             return torch.zeros_like(x_list[0])
@@ -392,7 +410,7 @@ def test_step_cache_present_in_conditioning_reaches_dit_module_forward(mock_deno
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None, **kwargs):
             seen["kwargs"] = kwargs
             return torch.zeros_like(x_list[0])
@@ -506,7 +524,7 @@ def test_nag_context_and_params_reach_dit_module_forward(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None, **kwargs):
             seen["kwargs"] = kwargs
             return torch.zeros_like(x_list[0])
@@ -535,7 +553,7 @@ def test_nag_off_no_extra_kwargs_reach_dit_module_forward(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None, **kwargs):
             seen["kwargs"] = kwargs
             return torch.zeros_like(x_list[0])

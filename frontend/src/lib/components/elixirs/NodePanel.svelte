@@ -537,9 +537,13 @@
 							</Button>
 						</div>
 					{/if}
-					{#key `${node.preset_id}:${node.mode}:${(node.session_source as { imported_at?: string } | null | undefined)?.imported_at}:${formKey}`}
-						<NodeSettingsForm {node} onchange={onsettingschange} />
-					{/key}
+					{#if node.preset_id && node.mode}
+						{#key `${node.preset_id}:${node.mode}:${(node.session_source as { imported_at?: string } | null | undefined)?.imported_at}:${formKey}`}
+							<NodeSettingsForm {node} onchange={onsettingschange} />
+						{/key}
+					{:else}
+						<p class="text-sm text-fg-subtle">Pick a preset and mode to see its settings.</p>
+					{/if}
 				</section>
 				{/if}
 

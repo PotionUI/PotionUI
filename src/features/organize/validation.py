@@ -10,6 +10,7 @@ MAX_TEXT = 200
 MAX_NAME = 120
 MAX_TAG_NAME = 100
 MAX_SIDE = 32768
+SEPARATOR_OPERATORS = ("contains", "not_contains", "starts_with", "ends_with", "is", "is_not")
 
 Problem = Dict[str, str]
 
@@ -146,7 +147,19 @@ def validate_conditions(registry: OrganizeRegistry, subject: str, conditions: An
         if error:
             problems.append(problem(f"{path}.value", "bad_value", error))
             continue
-        cleaned.append({"fact": fact.key, "operator": operator, "value": value})
+        entry = {"fact": fact.key, "operator": operator, "value": value}
+        ignore = condition.get("ignore_separators")
+        if ignore is not None and not isinstance(ignore, bool):
+            problems.append(problem(f"{path}.ignore_separators", "bad_value", "Choose yes or no"))
+            continue
+        if ignore:
+            if not fact.ignore_separators or operator not in SEPARATOR_OPERATORS:
+                problems.append(problem(
+                    f"{path}.ignore_separators", "bad_value", f"{fact.label} cannot ignore dashes and underscores that way"
+                ))
+                continue
+            entry["ignore_separators"] = True
+        cleaned.append(entry)
     return cleaned, problems
 
 
@@ -162,7 +175,7 @@ def _validate_config(schema, config: Dict[str, Any], path: str) -> Tuple[Dict[st
                 problems.append(problem(f"{path}.{key}", "bad_config", f"{field_def.get('label', key)} is required"))
             cleaned[key] = field_def.get("default") if raw is None else raw
             continue
-        if kind in ("collection", "text"):
+        if kind in ("collection", "text", "user_group"):
             value = _clean_str(raw, MAX_TEXT)
         elif kind == "tag_list":
             value = _clean_str_list(raw, MAX_TAG_NAME, 20)
@@ -183,7 +196,7 @@ def _validate_config(schema, config: Dict[str, Any], path: str) -> Tuple[Dict[st
 
 
 def validate_actions(registry: OrganizeRegistry, subject: str, actions: Any,
-                     is_admin: bool) -> Tuple[List[Dict[str, Any]], List[Problem]]:
+                     is_admin: bool, scope: str = "user") -> Tuple[List[Dict[str, Any]], List[Problem]]:
     problems: List[Problem] = []
     if not isinstance(actions, list) or not actions:
         return [], [problem("actions", "no_actions", "Add at least one thing for the rule to do")]
@@ -202,6 +215,9 @@ def validate_actions(registry: OrganizeRegistry, subject: str, actions: Any,
         if subject not in definition.subjects:
             problems.append(problem(f"{path}.action", "action_subject", f"{definition.label} is not available here"))
             continue
+        if scope not in definition.scopes:
+            problems.append(problem(f"{path}.action", "action_scope", f"{definition.label} is not available here"))
+            continue
         if definition.requires_admin and not is_admin:
             problems.append(problem(f"{path}.action", "action_admin_only", f"Only an admin can use {definition.label}"))
             continue
@@ -219,10 +235,13 @@ def validate_actions(registry: OrganizeRegistry, subject: str, actions: Any,
 
 def validate_rule_shape(registry: OrganizeRegistry, subject: Any, match: Any, conditions: Any, actions: Any,
                         is_admin: bool, require_actions: bool = True,
-                        attribute_specs: Optional[AttributeSpecs] = None) -> Tuple[Dict[str, Any], List[Problem]]:
+                        attribute_specs: Optional[AttributeSpecs] = None,
+                        scope: str = "user") -> Tuple[Dict[str, Any], List[Problem]]:
     problems: List[Problem] = []
     if subject not in SUBJECTS:
         return {}, [problem("subject", "bad_value", "Pick generations, library uploads or models")]
+    if scope == "instance" and subject != "model":
+        return {}, [problem("subject", "bad_value", "Instance rules are for models")]
     if match not in ("all", "any"):
         problems.append(problem("match", "bad_value", "Match must be all or any"))
     cleaned_conditions, condition_problems = validate_conditions(
@@ -231,7 +250,7 @@ def validate_rule_shape(registry: OrganizeRegistry, subject: Any, match: Any, co
     problems.extend(condition_problems)
     cleaned_actions: List[Dict[str, Any]] = []
     if require_actions or actions:
-        cleaned_actions, action_problems = validate_actions(registry, subject, actions, is_admin)
+        cleaned_actions, action_problems = validate_actions(registry, subject, actions, is_admin, scope)
         problems.extend(action_problems)
     return {"subject": subject, "match": match, "conditions": cleaned_conditions, "actions": cleaned_actions}, problems
 

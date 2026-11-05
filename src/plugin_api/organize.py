@@ -8,6 +8,8 @@ from src.platform.plugins.organize import (
     SQL_ALIASES,
     SUBJECTS,
     OrganizeActionBlocked,
+    OrganizeActionRetry,
+    OrganizeActionSkipped,
     OrganizeChange,
     OrganizeItem,
 )
@@ -21,6 +23,8 @@ __all__ = [
     "SQL_ALIASES",
     "SUBJECTS",
     "OrganizeActionBlocked",
+    "OrganizeActionRetry",
+    "OrganizeActionSkipped",
     "OrganizeChange",
     "OrganizeItem",
     "compare",

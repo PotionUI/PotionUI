@@ -26,7 +26,7 @@ TAG_TYPES = {
 @dataclass
 class Rule:
     id: str
-    user_id: str
+    user_id: Optional[str]
     name: str
     subject: str
     trigger: str
@@ -41,6 +41,8 @@ class Rule:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     last_run_at: Optional[datetime] = None
+    created_by: Optional[str] = None
+    updated_by: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> "Rule":
@@ -61,6 +63,8 @@ class Rule:
             created_at=dt_column(row["created_at"]),
             updated_at=dt_column(row["updated_at"]),
             last_run_at=dt_column(row["last_run_at"]),
+            created_by=row_get(row, "created_by", None),
+            updated_by=row_get(row, "updated_by", None),
         )
 
 
@@ -69,7 +73,7 @@ class Run:
     id: str
     rule_id: str
     rule_name: str
-    user_id: str
+    user_id: Optional[str]
     subject: str
     kind: str
     status: str
@@ -79,6 +83,8 @@ class Run:
     finished_at: Optional[datetime] = None
     undone_at: Optional[datetime] = None
     rule_deleted: bool = False
+    started_by: Optional[str] = None
+    undone_by: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> "Run":
@@ -96,6 +102,8 @@ class Run:
             finished_at=dt_column(row["finished_at"]),
             undone_at=dt_column(row["undone_at"]),
             rule_deleted=bool(row_get(row, "rule_deleted", 0)),
+            started_by=row_get(row, "started_by", None),
+            undone_by=row_get(row, "undone_by", None),
         )
 
     def base_dict(self) -> Dict[str, Any]:
@@ -111,6 +119,9 @@ class Run:
             "finished_at": dt_iso(self.finished_at),
             "matched": self.matched,
             "applied": self.applied,
+            "scope": "user" if self.user_id else "instance",
+            "started_by": self.started_by,
+            "undone_by": self.undone_by,
         }
 
 
@@ -119,7 +130,7 @@ class Application:
     id: str
     run_id: str
     rule_id: str
-    user_id: str
+    user_id: Optional[str]
     item_type: str
     item_id: str
     action_kind: str
@@ -154,3 +165,32 @@ class Controls:
     paused: bool = False
     rule_cap: Optional[int] = None
     hourly_limit: Optional[int] = None
+
+
+@dataclass
+class Outcome:
+    rule_id: str
+    item_type: str
+    item_id: str
+    outcome: str
+    code: str
+    detail: str = ""
+    run_id: Optional[str] = None
+    attempts: int = 0
+    next_try_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    @classmethod
+    def from_row(cls, row) -> "Outcome":
+        return cls(
+            rule_id=row["rule_id"],
+            item_type=row["item_type"],
+            item_id=row["item_id"],
+            outcome=row["outcome"],
+            code=row["code"],
+            detail=row["detail"] or "",
+            run_id=row["run_id"],
+            attempts=row["attempts"],
+            next_try_at=dt_column(row["next_try_at"]),
+            updated_at=dt_column(row["updated_at"]),
+        )

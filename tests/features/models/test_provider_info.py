@@ -16,7 +16,10 @@ from src.features.models import operations
 from src.features.models.provider_info import MAX_PROVIDER_PREVIEW_MEDIA, ProviderInfoFetcher, _infer_preview_type
 from src.features.providers.base_provider import (
     ProviderConnectionError,
+    ProviderError,
+    ProviderHashMismatchError,
     ProviderModelInfo,
+    ProviderNotFoundError,
     ProviderRateLimitError,
 )
 from src.platform.filesystem.storage_driver import LocalFileStorageDriver
@@ -301,12 +304,13 @@ class TestFetchModelInfoWithRetry:
         )
 
         with patch("src.features.models.provider_info.asyncio.sleep", AsyncMock()) as mock_sleep:
-            result, reason = asyncio.run(
+            result, reason, code = asyncio.run(
                 self.fetcher._fetch_model_info_with_retry(fake_registry, "civitai", "a" * 64)
             )
 
         assert result is info
         assert reason is None
+        assert code is None
         assert fake_registry.get_model_by_hash.await_count == 2
         mock_sleep.assert_awaited_once_with(0.01)
 
@@ -317,22 +321,57 @@ class TestFetchModelInfoWithRetry:
         )
 
         with patch("src.features.models.provider_info.asyncio.sleep", AsyncMock()):
-            result, reason = asyncio.run(
+            result, reason, code = asyncio.run(
                 self.fetcher._fetch_model_info_with_retry(fake_registry, "civitai", "a" * 64)
             )
 
         assert result is None
         assert reason == "upstream unavailable"
+        assert code == "unreachable"
         assert fake_registry.get_model_by_hash.await_count == 3
 
     def test_a_genuine_not_found_is_returned_without_any_retry(self):
         fake_registry = Mock()
         fake_registry.get_model_by_hash = AsyncMock(return_value=None)
 
-        result, reason = asyncio.run(
+        result, reason, code = asyncio.run(
             self.fetcher._fetch_model_info_with_retry(fake_registry, "civitai", "a" * 64)
         )
 
         assert result is None
         assert reason == "Not found on Civitai"
+        assert code == "not_found"
         assert fake_registry.get_model_by_hash.await_count == 1
+
+    def test_a_hash_mismatch_is_typed_and_never_retried(self):
+        fake_registry = Mock()
+        fake_registry.get_model_by_hash = AsyncMock(side_effect=ProviderHashMismatchError("different file"))
+
+        result, reason, code = asyncio.run(
+            self.fetcher._fetch_model_info_with_retry(fake_registry, "civitai", "a" * 64)
+        )
+
+        assert (result, reason, code) == (None, "different file", "hash_mismatch")
+        assert fake_registry.get_model_by_hash.await_count == 1
+
+    def test_exhausted_rate_limits_are_typed_rate_limited(self):
+        fake_registry = Mock()
+        fake_registry.get_model_by_hash = AsyncMock(side_effect=ProviderRateLimitError("slow down", retry_after=0.01))
+
+        with patch("src.features.models.provider_info.asyncio.sleep", AsyncMock()):
+            result, reason, code = asyncio.run(
+                self.fetcher._fetch_model_info_with_retry(fake_registry, "civitai", "a" * 64)
+            )
+
+        assert (result, reason, code) == (None, "slow down", "rate_limited")
+
+    def test_a_not_found_error_and_any_other_provider_error_are_typed(self):
+        for error, expected in ((ProviderNotFoundError("gone"), "not_found"), (ProviderError("odd"), "error")):
+            fake_registry = Mock()
+            fake_registry.get_model_by_hash = AsyncMock(side_effect=error)
+
+            _result, _reason, code = asyncio.run(
+                self.fetcher._fetch_model_info_with_retry(fake_registry, "civitai", "a" * 64)
+            )
+
+            assert code == expected

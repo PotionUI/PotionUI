@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 SUBSCRIBER_ID = "organize_engine"
 QUEUE_SIZE = 10000
 PRUNE_EVERY_S = 6 * 3600
+SWEEP_EVERY_S = 300
 
 HOOK_EVENTS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "generation.after_complete": ("generation_completed", ("generation_id", "status")),
@@ -18,7 +19,7 @@ HOOK_EVENTS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "media_index.after_tags_written": ("generation_detected_tags_changed", ("generation_id",)),
     "media.after_record": ("upload_created", ("upload_id", "purpose")),
     "model_index.after_index": ("models_indexed", ()),
-    "model_index.after_digests": ("models_indexed", ()),
+    "model_index.after_digests": ("models_verified", ("model_ids",)),
     "model_index.after_download": ("model_added", ("model_id",)),
     "model_index.after_assign": ("model_added", ("model_id", "user_id")),
     "model_index.after_update_tags": ("model_tags_changed", ("model_id",)),
@@ -31,9 +32,13 @@ _STOP = object()
 class OrganizeWorker:
 
     def __init__(self, handle: Callable[[str, Dict[str, Any]], None], prune: Optional[Callable[[], Any]] = None,
-                 maxsize: int = QUEUE_SIZE):
+                 maxsize: int = QUEUE_SIZE, sweep: Optional[Callable[[], Any]] = None,
+                 busy: Optional[Callable[[], bool]] = None):
         self._handle = handle
         self._prune = prune
+        self._sweep = sweep
+        self._busy = busy
+        self._last_sweep = time.monotonic()
         self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=maxsize)
         self._thread: Optional[threading.Thread] = None
         self._last_prune = -float(PRUNE_EVERY_S)
@@ -104,6 +109,7 @@ class OrganizeWorker:
     def _loop(self) -> None:
         while True:
             self._maybe_prune()
+            self._maybe_sweep()
             try:
                 entry = self._queue.get(timeout=60)
             except queue.Empty:
@@ -111,6 +117,17 @@ class OrganizeWorker:
             if entry is _STOP:
                 return
             self._dispatch(entry)
+
+    def _maybe_sweep(self) -> None:
+        if self._sweep is None or time.monotonic() - self._last_sweep < SWEEP_EVERY_S:
+            return
+        if self._busy is not None and self._busy():
+            return
+        self._last_sweep = time.monotonic()
+        try:
+            self._sweep()
+        except Exception:
+            logger.warning("Auto-organize retry pass failed", exc_info=True)
 
     def _maybe_prune(self) -> None:
         if self._prune is None or time.monotonic() - self._last_prune < PRUNE_EVERY_S:

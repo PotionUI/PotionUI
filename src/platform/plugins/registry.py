@@ -876,6 +876,11 @@ class PluginRegistry:
                 description=entry.get('description', ''),
                 component=_plugin_asset(manifest.id, entry.get('component'), None),
                 source=manifest.id,
+                scopes=(entry.get('scope') or 'user',),
+                notes=tuple(entry.get('notes') or ()),
+                needs=tuple(entry.get('needs') or ()),
+                done_label=entry.get('done_label') or '',
+                paced=bool(entry.get('paced', False)),
             ), DuplicateOrganizeEntryError, InvalidOrganizeEntryError)
             if error:
                 return error

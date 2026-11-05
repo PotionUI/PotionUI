@@ -106,6 +106,7 @@ def test_a_file_that_cannot_be_hashed_is_a_reported_failure_and_the_rest_carry_o
     assert result["errors"][0] == {
         "model_id": unreadable.id,
         "reason": "The file could not be read, so no SHA256 hash could be made for it",
+        "code": "no_hash",
     }
     assert result["failed"] == 2
 
@@ -126,5 +127,31 @@ def test_without_a_digest_service_a_model_with_no_digest_is_reported_as_unreadab
     result = _fetch(ProviderInfoFetcher(model_repo, OpenPlugins()), FakeProviders(), [pending.id])
 
     assert result["errors"] == [
-        {"model_id": pending.id, "reason": "The file could not be read, so no SHA256 hash could be made for it"}
+        {
+            "model_id": pending.id,
+            "reason": "The file could not be read, so no SHA256 hash could be made for it",
+            "code": "no_hash",
+        }
     ]
+
+
+class MismatchProviders:
+    async def get_model_by_hash(self, provider, sha256, raise_errors=False):
+        from src.features.providers import ProviderHashMismatchError
+
+        if sha256 == SHA_A:
+            raise ProviderHashMismatchError("CivitAI answered with a different file")
+        return None
+
+
+def test_each_failed_lookup_reports_a_typed_code_next_to_its_reason(mock_db, fetcher_for):
+    mismatched = _model("a.safetensors", sha256=SHA_A)
+    missing = _model("b.safetensors", sha256=SHA_B)
+
+    result = _fetch(fetcher_for(None), MismatchProviders(), [mismatched.id, missing.id])
+
+    by_model = {e["model_id"]: e for e in result["errors"]}
+    assert by_model[mismatched.id]["code"] == "hash_mismatch"
+    assert by_model[mismatched.id]["reason"] == "CivitAI answered with a different file"
+    assert by_model[missing.id]["code"] == "not_found"
+    assert result["failed"] == 2

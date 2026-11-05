@@ -188,6 +188,38 @@ class OrganizeWriteRepository:
                 self._bump(cursor, user_id)
         return removed
 
+    def ensure_model_tag(self, name: str) -> Tuple[str, str]:
+        with _db().get_cursor() as cursor:
+            cursor.execute(
+                "SELECT id, name FROM tags WHERE LOWER(name) = LOWER(?) AND type = 'MODEL' AND user_id IS NULL "
+                "ORDER BY created_at, id LIMIT 1",
+                (name,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return row["id"], row["name"]
+            tag_id = generate_ulid()
+            cursor.execute(
+                "INSERT INTO tags (id, name, type, user_id, created_at) VALUES (?, ?, 'MODEL', NULL, ?)",
+                (tag_id, name, now_iso()),
+            )
+        return tag_id, name
+
+    def attach_model_tag(self, model_id: str, tag_id: str) -> bool:
+        with _db().get_cursor() as cursor:
+            cursor.execute(
+                "INSERT OR IGNORE INTO model_tags (model_id, tag_id, created_at) "
+                "SELECT m.id, t.id, CURRENT_TIMESTAMP FROM models m JOIN tags t ON t.id = ? AND t.type = 'MODEL' "
+                "WHERE m.id = ?",
+                (tag_id, model_id),
+            )
+            return cursor.rowcount > 0
+
+    def detach_model_tag(self, model_id: str, tag_id: str) -> bool:
+        with _db().get_cursor() as cursor:
+            cursor.execute("DELETE FROM model_tags WHERE model_id = ? AND tag_id = ?", (model_id, tag_id))
+            return cursor.rowcount > 0
+
     def bump_history(self, user_id: str) -> None:
         with _db().get_cursor() as cursor:
             self._bump(cursor, user_id)

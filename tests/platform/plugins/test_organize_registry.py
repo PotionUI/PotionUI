@@ -160,3 +160,79 @@ def test_a_plugin_fact_colliding_with_another_plugin_fails_to_enable(plugin_regi
 
     assert registry.enable_plugin("organize-example") is False
     assert organize.fact("example.labels").source == "someone-else"
+
+
+def test_actions_default_to_the_user_scope_with_no_waiting_or_pacing():
+    registry = OrganizeRegistry()
+    registry.register_action(action())
+
+    found = registry.action("example.send")
+
+    assert (found.scopes, found.notes, found.needs, found.done_label, found.paced) == (("user",), (), (), "", False)
+
+
+@pytest.mark.parametrize("extra", [
+    {"scopes": ()},
+    {"scopes": ("everyone",)},
+    {"scopes": ("instance",)},
+    {"needs": ("magic",)},
+    {"needs": ("digest",)},
+])
+def test_invalid_scopes_and_needs_are_rejected(extra):
+    with pytest.raises(InvalidOrganizeEntryError):
+        OrganizeRegistry().register_action(action(**extra))
+
+
+def test_an_instance_model_action_that_needs_the_digest_is_accepted():
+    registry = OrganizeRegistry()
+
+    registry.register_action(OrganizeActionDefinition(
+        key="example.fetch", label="Fetch", subjects=("model",), apply=lambda *a: [], source="example",
+        scopes=("instance",), needs=("digest",), paced=True, notes=("n",), done_label="Fetched",
+    ))
+
+    assert registry.action("example.fetch").scopes == ("instance",)
+
+
+def test_the_user_group_config_kind_is_known():
+    registry = OrganizeRegistry()
+
+    registry.register_action(action(config_schema=({"key": "group_id", "kind": "user_group"},)))
+
+
+def test_manifest_actions_take_scope_notes_needs_done_label_and_paced():
+    entry = {
+        "key": "p.fetch", "label": "Fetch", "subjects": ["model"], "handler": "m.f", "scope": "instance",
+        "notes": ["a", "b"], "needs": ["digest"], "done_label": "Fetched", "paced": True,
+    }
+
+    schema = PluginManifestSchema.model_validate({**BASE, "organize_actions": [entry]})
+
+    parsed = schema.organize_actions[0]
+    assert (parsed.scope, parsed.notes, parsed.needs, parsed.done_label, parsed.paced) == (
+        "instance", ["a", "b"], ["digest"], "Fetched", True
+    )
+    for bad in ({"scope": "world"}, {"needs": ["gpu"]}):
+        with pytest.raises(Exception):
+            PluginManifestSchema.model_validate({**BASE, "organize_actions": [{**entry, **bad}]})
+
+
+def test_a_plugin_instance_action_is_registered_with_its_manifest_fields(plugin_registry):
+    registry, organize, marketplace = plugin_registry
+    target = marketplace / "organize-example"
+    shutil.copytree(EXAMPLE, target)
+    manifest = yaml.safe_load((target / "manifest.yml").read_text())
+    manifest["organize_actions"].append({
+        "key": "example.fetch", "label": "Fetch", "subjects": ["model"], "handler": "organize.notify_webhook",
+        "scope": "instance", "notes": ["careful"], "needs": ["digest"], "done_label": "Fetched", "paced": True,
+    })
+    (target / "manifest.yml").write_text(yaml.safe_dump(manifest))
+    registry.discover_plugins()
+
+    assert registry.enable_plugin("organize-example") is True
+
+    fetch = organize.action("example.fetch")
+    assert (fetch.scopes, fetch.notes, fetch.needs, fetch.done_label, fetch.paced) == (
+        ("instance",), ("careful",), ("digest",), "Fetched", True
+    )
+    assert organize.action("example.notify_webhook").scopes == ("user",)

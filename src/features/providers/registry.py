@@ -21,6 +21,7 @@ from src.features.providers import (
     ProviderCapability,
     ProviderConnectionError,
     ProviderError,
+    ProviderHashMismatchError,
     ProviderMetadata,
     ProviderModelInfo,
     ProviderSearchResult,
@@ -271,6 +272,11 @@ class ProviderRegistry:
 
         try:
             return await provider.get_model_by_hash(sha256)
+        except ProviderHashMismatchError as e:
+            logger.warning(f"Provider {provider_id} answered a hash lookup with a different file: {e}")
+            if raise_errors:
+                raise
+            return None
         except ProviderError as e:
             logger.error(f"Provider error from {provider_id}: {e}")
             if raise_errors:

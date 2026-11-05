@@ -351,6 +351,40 @@ class OrganizeItemRepository:
                 found.update(row["id"] for row in cursor.fetchall())
         return found
 
+    def model_labels(self, model_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        ids = list(dict.fromkeys(model_ids))
+        labels: Dict[str, Dict[str, Any]] = {}
+        with _db().get_cursor() as cursor:
+            for chunk in _chunks(ids):
+                placeholders = ",".join("?" * len(chunk))
+                cursor.execute(f"SELECT id, filename, model_type FROM models WHERE id IN ({placeholders})", chunk)
+                for row in cursor.fetchall():
+                    labels[row["id"]] = {
+                        "name": model_stem(row["filename"], row["model_type"]) or row["filename"],
+                        "filename": row["filename"],
+                        "model_type": row["model_type"],
+                    }
+        return labels
+
+    def models_of_type(self, model_ids: Iterable[str], model_type: str) -> Set[str]:
+        ids = list(dict.fromkeys(model_ids))
+        found: Set[str] = set()
+        with _db().get_cursor() as cursor:
+            for chunk in _chunks(ids):
+                placeholders = ",".join("?" * len(chunk))
+                cursor.execute(
+                    f"SELECT id FROM models WHERE LOWER(model_type) = LOWER(?) AND id IN ({placeholders})",
+                    (model_type, *chunk),
+                )
+                found.update(row["id"] for row in cursor.fetchall())
+        return found
+
+    def model_sha(self, model_id: str) -> Optional[str]:
+        with _db().get_cursor() as cursor:
+            cursor.execute("SELECT sha256 FROM models WHERE id = ?", (model_id,))
+            row = cursor.fetchone()
+        return (row["sha256"] or None) if row else None
+
     def nsfw_model_ids(self, model_ids: Iterable[str]) -> Set[str]:
         ids = list(dict.fromkeys(model_ids))
         found: Set[str] = set()
@@ -426,6 +460,12 @@ class OrganizeItemRepository:
                         f"WHERE collection_id = ? AND upload_id IN ({placeholders})",
                         (collection_id, *chunk),
                     )
+                elif scope == "user_group":
+                    cursor.execute(
+                        f"SELECT model_id AS item_id FROM user_group_models "
+                        f"WHERE group_id = ? AND model_id IN ({placeholders})",
+                        (collection_id, *chunk),
+                    )
                 else:
                     cursor.execute(
                         f"SELECT model_id AS item_id FROM model_collection_members "
@@ -441,7 +481,11 @@ class OrganizeItemRepository:
         if not lowered:
             return set(ids)
         found: Set[str] = set()
-        link, column = ("generation_tags", "generation_id") if subject == "generation" else ("upload_tags", "upload_id")
+        link, column = {
+            "generation": ("generation_tags", "generation_id"),
+            "upload": ("upload_tags", "upload_id"),
+            "model": ("model_tags", "model_id"),
+        }[subject]
         name_placeholders = ",".join("?" * len(lowered))
         with _db().get_cursor() as cursor:
             for chunk in _chunks(ids):

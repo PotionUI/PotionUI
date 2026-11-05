@@ -41,7 +41,11 @@ OPERATOR_LABELS: Mapping[str, str] = MappingProxyType({
     "has_not": "does not have",
 })
 
-CONFIG_FIELD_KINDS = ("collection", "tag_list", "text", "bool", "enum", "number")
+CONFIG_FIELD_KINDS = ("collection", "tag_list", "text", "bool", "enum", "number", "user_group")
+
+ACTION_SCOPES = ("user", "instance")
+
+ACTION_NEEDS = ("digest",)
 
 FACT_TRIGGERS = ("item_created", "tags_changed", "metadata_changed", "detected_tags_changed")
 
@@ -60,12 +64,25 @@ class OrganizeActionBlocked(Exception):
         self.code = code
         self.message = message
 
+class OrganizeActionSkipped(Exception):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+class OrganizeActionRetry(Exception):
+    def __init__(self, code: str, message: str, after_s: Optional[float] = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.after_s = after_s
+
 
 @dataclass(frozen=True)
 class OrganizeItem:
     subject: str
     item_id: str
-    user_id: str
+    user_id: Optional[str]
     data: Mapping[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -100,6 +117,7 @@ class OrganizeFactDefinition:
     triggers: Tuple[str, ...] = ("item_created",)
     component: Optional[str] = None
     source: str = "core"
+    ignore_separators: bool = False
 
     def allowed_operators(self) -> Tuple[str, ...]:
         return self.operators or FACT_KINDS[self.kind]
@@ -117,6 +135,11 @@ class OrganizeActionDefinition:
     description: str = ""
     component: Optional[str] = None
     source: str = "core"
+    scopes: Tuple[str, ...] = ("user",)
+    notes: Tuple[str, ...] = ()
+    needs: Tuple[str, ...] = ()
+    done_label: str = ""
+    paced: bool = False
 
 
 def _check_subjects(key: str, subjects: Sequence[str]) -> None:
@@ -147,6 +170,15 @@ def validate_fact(definition: OrganizeFactDefinition) -> None:
 
 def validate_action(definition: OrganizeActionDefinition) -> None:
     _check_subjects(definition.key, definition.subjects)
+    if not definition.scopes or any(scope not in ACTION_SCOPES for scope in definition.scopes):
+        raise InvalidOrganizeEntryError(f"Auto-organize action '{definition.key}' has unknown scopes {list(definition.scopes)}")
+    if "instance" in definition.scopes and tuple(definition.subjects) != ("model",):
+        raise InvalidOrganizeEntryError(f"Auto-organize action '{definition.key}' can only be an instance action for models")
+    unknown_needs = [n for n in definition.needs if n not in ACTION_NEEDS]
+    if unknown_needs:
+        raise InvalidOrganizeEntryError(f"Auto-organize action '{definition.key}' has unknown needs {unknown_needs}")
+    if definition.needs and "model" not in definition.subjects:
+        raise InvalidOrganizeEntryError(f"Auto-organize action '{definition.key}' needs a file digest, which only models have")
     for entry in definition.config_schema:
         if entry.get("kind") not in CONFIG_FIELD_KINDS:
             raise InvalidOrganizeEntryError(

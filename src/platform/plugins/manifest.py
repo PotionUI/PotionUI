@@ -896,6 +896,11 @@ class OrganizeActionSpec(BaseModel):
     requires_admin: bool = False
     description: str = ""
     component: Optional[str] = None
+    scope: Literal["user", "instance"] = "user"
+    notes: List[str] = Field(default_factory=list)
+    needs: List[Literal["digest"]] = Field(default_factory=list)
+    done_label: str = ""
+    paced: bool = False
 
 
 class LimitKindSpec(BaseModel):

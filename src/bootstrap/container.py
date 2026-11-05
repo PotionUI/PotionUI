@@ -1955,6 +1955,12 @@ def build_container() -> AppContainer:
         notification_manager,
         lambda: [(p["id"], p["name"]) for p in file_preset_repository.list_all_presets()],
         notification_types=_organize_notification_types,
+        groups=user_group_repository,
+        plugins=plugin_registry,
+        types=model_index_manager.types,
+        busy=local_generation_probe(
+            generation_status_tracker, lambda: local_native_backend_ids(backend_registry)
+        ),
     )
     organize_manager = organize.manager
     organize_controller = organize.controller

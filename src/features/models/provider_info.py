@@ -14,7 +14,13 @@ from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.metadata_editor import ModelMetadataEditor
 from src.features.models.records import ModelInfo
 from src.features.models.repository import ModelRepository
-from src.features.providers import ProviderConnectionError, ProviderError, ProviderRateLimitError
+from src.features.providers import (
+    ProviderConnectionError,
+    ProviderError,
+    ProviderHashMismatchError,
+    ProviderNotFoundError,
+    ProviderRateLimitError,
+)
 from src.platform.http.tls import aiohttp_connector
 from src.platform.filesystem.storage_driver import FileStorageDriver, LocalFileStorageDriver
 from src.platform.plugins import PluginRegistry
@@ -162,11 +168,12 @@ class ProviderInfoFetcher:
                     errors.append({
                         "model_id": model.id,
                         "reason": "The file could not be read, so no SHA256 hash could be made for it",
+                        "code": "no_hash",
                     })
                     continue
 
                 try:
-                    model_info, failure_reason = await self._fetch_model_info_with_retry(
+                    model_info, failure_reason, failure_code = await self._fetch_model_info_with_retry(
                         provider_registry, provider, model.sha256
                     )
                     if model_info:
@@ -199,11 +206,12 @@ class ProviderInfoFetcher:
                         errors.append({
                             "model_id": model.id,
                             "reason": failure_reason or f"Not found on {provider.title()}",
+                            "code": failure_code or "not_found",
                         })
                 except Exception as e:
                     logger.error(f"Error fetching info for model {model.id}: {e}")
                     failed += 1
-                    errors.append({"model_id": model.id, "reason": str(e)})
+                    errors.append({"model_id": model.id, "reason": str(e), "code": "error"})
 
             logger.info(f"Provider fetch completed: {successful} successful, {failed} failed")
             if errors:
@@ -225,35 +233,42 @@ class ProviderInfoFetcher:
 
         except Exception as e:
             logger.error(f"Error during background provider fetch: {e}")
-            return {"successful": 0, "failed": len(model_ids or []), "errors": [{"reason": str(e)}]}
+            return {"successful": 0, "failed": len(model_ids or []), "errors": [{"reason": str(e), "code": "error"}]}
 
     async def _fetch_model_info_with_retry(
         self,
         provider_registry: Any,
         provider: str,
         sha256: str,
-    ) -> Tuple[Optional[Any], Optional[str]]:
+    ) -> Tuple[Optional[Any], Optional[str], Optional[str]]:
         reason: Optional[str] = None
+        code = "unreachable"
         for attempt in range(_MAX_FETCH_ATTEMPTS):
             try:
                 info = await provider_registry.get_model_by_hash(provider, sha256, raise_errors=True)
                 if info is not None:
-                    return info, None
-                return None, f"Not found on {provider.title()}"
+                    return info, None, None
+                return None, f"Not found on {provider.title()}", "not_found"
             except ProviderRateLimitError as e:
                 reason = str(e)
+                code = "rate_limited"
                 if attempt == _MAX_FETCH_ATTEMPTS - 1:
                     break
                 wait_seconds = min(e.retry_after or _RETRY_BACKOFF_SECONDS[attempt], _MAX_RATE_LIMIT_WAIT_SECONDS)
                 await asyncio.sleep(wait_seconds)
             except ProviderConnectionError as e:
                 reason = str(e)
+                code = "unreachable"
                 if attempt == _MAX_FETCH_ATTEMPTS - 1:
                     break
                 await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt])
+            except ProviderHashMismatchError as e:
+                return None, str(e), "hash_mismatch"
+            except ProviderNotFoundError as e:
+                return None, str(e), "not_found"
             except ProviderError as e:
-                return None, str(e)
-        return None, reason
+                return None, str(e), "error"
+        return None, reason, code
 
     def _fill_trigger_words(self, model: Any, trigger_words: List[str]) -> None:
         if self.metadata_editor is None:

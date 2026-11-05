@@ -229,6 +229,26 @@ report["elixirs_wiring"] = {
     "the_assistant_writes_sessions_into_the_container_repository": c.chat_runtime.tool_services.elixirs.session_writer.session_repository is c.session_repository,
 }
 import src.platform.plugins.runtime_registries as runtime_registries
+report["organize_instance_routes"] = sorted(
+    f"{method} {route.path}"
+    for route in elixir_app.routes
+    if getattr(route, "path", "").startswith("/api/admin/organize/instance")
+    for method in route.methods
+)
+organize_registry = c.organize_registry
+report["organize_instance_wiring"] = {
+    "the_manager_can_reach_groups_and_types": c.organize_manager.c.ops is not None,
+    "the_three_core_instance_actions_are_registered": all(
+        organize_registry.action(key) is not None and organize_registry.action(key).scopes == ("instance",)
+        for key in ("assign_model_group", "add_model_tags", "set_model_type")
+    ),
+    "the_worker_sweeps_waiting_items": c.organize_worker._sweep == c.organize_manager.retry_waiting,
+    "the_sweep_pauses_while_generating": callable(c.organize_worker._busy),
+    "digests_reach_the_verified_trigger": any(
+        pid == "organize_engine"
+        for pid, _ in c.plugin_registry.hook_chain._handlers.get("model_index.after_digests", [])
+    ),
+}
 report["recipe_smoke_wiring"] = {
     "the_smoke_asks_the_registry_for_the_app_loop": c.recipe_runner._executor_registry.get_executor("generation.smoke").app_loop is runtime_registries.get_app_loop,
 }
@@ -317,6 +337,22 @@ def test_chat_turns_are_stored_durably_by_the_one_container_store(report):
 
 def test_organize_listens_to_the_tags_the_media_indexer_announces(report):
     assert report["detected_tags_wired"] is True
+
+def test_instance_organize_is_composed_with_groups_types_and_the_retry_sweep(report):
+    assert [k for k, v in report["organize_instance_wiring"].items() if not v] == []
+
+def test_the_instance_organize_api_is_mounted_for_admins(report):
+    routes = report["organize_instance_routes"]
+    assert {
+        "GET /api/admin/organize/instance/catalog",
+        "GET /api/admin/organize/instance/rules",
+        "POST /api/admin/organize/instance/rules",
+        "POST /api/admin/organize/instance/preview/matches",
+        "GET /api/admin/organize/instance/runs/{run_id}/items",
+        "POST /api/admin/organize/instance/runs/{run_id}/retry",
+        "POST /api/admin/organize/instance/runs/{run_id}/undo",
+        "PUT /api/admin/organize/instance/controls",
+    } <= set(routes)
 
 
 def test_elixirs_are_composed_from_the_container_and_listen_to_their_hooks(report):

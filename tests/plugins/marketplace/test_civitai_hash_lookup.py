@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.features.providers import ProviderHashMismatchError
+
 _provider_dir = Path(__file__).resolve().parents[3] / "content" / "plugins" / "marketplace" / "civitai-provider"
 sys.path.insert(0, str(_provider_dir))
 _mod = importlib.import_module("provider.civitai_provider")
@@ -63,7 +65,7 @@ def _with_session(provider, dispatch):
 
 
 @pytest.mark.asyncio
-async def test_returns_none_when_no_file_matches_the_requested_hash(provider):
+async def test_raises_a_typed_mismatch_when_no_file_matches_the_requested_hash(provider):
     by_hash = _by_hash_data(files=[{"primary": True, "downloadUrl": "https://x", "hashes": {"SHA256": "0" * 64}}])
     calls = []
 
@@ -72,10 +74,19 @@ async def test_returns_none_when_no_file_matches_the_requested_hash(provider):
         return _FakeResponse(by_hash)
 
     with _with_session(provider, dispatch):
-        result = await provider.get_model_by_hash(SHA)
+        with pytest.raises(ProviderHashMismatchError):
+            await provider.get_model_by_hash(SHA)
 
-    assert result is None
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_plain_404_is_still_a_clean_none_and_not_a_mismatch(provider):
+    def dispatch(url, params=None, timeout=None, headers=None):
+        return _FakeResponse({}, status=404)
+
+    with _with_session(provider, dispatch):
+        assert await provider.get_model_by_hash(SHA) is None
 
 
 @pytest.mark.asyncio

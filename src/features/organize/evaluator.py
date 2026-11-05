@@ -51,6 +51,17 @@ def _fold(value: Any) -> str:
     return str(value).casefold()
 
 
+SEPARATORS = str.maketrans("", "", "-_")
+
+
+class SeparatorInsensitive(str):
+    pass
+
+
+def strip_separators(value: Any) -> str:
+    return str(value).translate(SEPARATORS)
+
+
 TEXT_TESTS = {
     "contains": lambda text, needle: needle in text,
     "starts_with": lambda text, needle: text.startswith(needle),
@@ -61,12 +72,13 @@ TEXT_TESTS = {
 NEGATED_TEXT = {"not_contains": "contains", "is_not": "is"}
 
 
-def _compare_text(operator: str, actual: Any, expected: Any) -> bool:
-    needle = _fold(expected or "")
+def _compare_text(operator: str, actual: Any, expected: Any, ignore_separators: bool = False) -> bool:
+    fold = (lambda value: strip_separators(_fold(value))) if ignore_separators else _fold
+    needle = fold(expected or "")
     test = TEXT_TESTS.get(NEGATED_TEXT.get(operator, operator))
     if not needle or test is None:
         return False
-    found = any(test(_fold(v), needle) for v in as_list(actual) if isinstance(v, str))
+    found = any(test(fold(v), needle) for v in as_list(actual) if isinstance(v, str))
     return not found if operator in NEGATED_TEXT else found
 
 
@@ -109,7 +121,7 @@ def _compare_attribute(operator: str, actual: Any, expected: Any) -> bool:
     return False
 
 
-def compare(kind: str, operator: str, actual: Any, expected: Any) -> bool:
+def compare(kind: str, operator: str, actual: Any, expected: Any, ignore_separators: bool = False) -> bool:
     if kind in ("model_ref", "enum"):
         normalize = str if kind == "model_ref" else _fold
         present = {normalize(v) for v in as_list(actual)}
@@ -146,7 +158,7 @@ def compare(kind: str, operator: str, actual: Any, expected: Any) -> bool:
             return any(v <= target for v in values)
         return False
     if kind == "text":
-        return _compare_text(operator, actual, expected)
+        return _compare_text(operator, actual, expected, ignore_separators)
     if kind == "attribute":
         return _compare_attribute(operator, actual, expected)
     if kind == "tag_list":
@@ -170,7 +182,10 @@ def evaluate_condition(fact: OrganizeFactDefinition, condition: Dict[str, Any], 
     except Exception:
         logger.warning("Auto-organize fact '%s' failed for %s %s", fact.key, item.subject, item.item_id, exc_info=True)
         return False
-    return compare(fact.kind, condition.get("operator", ""), actual, condition.get("value"))
+    return compare(
+        fact.kind, condition.get("operator", ""), actual, condition.get("value"),
+        ignore_separators=bool(condition.get("ignore_separators")) and fact.ignore_separators,
+    )
 
 
 def evaluate(registry: OrganizeRegistry, match: str, conditions: Sequence[Dict[str, Any]], item: OrganizeItem) -> bool:
@@ -200,7 +215,10 @@ def sql_filter(registry: OrganizeRegistry, subject: str, match: str,
         built = None
         if fact is not None and fact.sql is not None:
             try:
-                built = fact.sql(condition.get("operator", ""), condition.get("value"), alias)
+                value = condition.get("value")
+                if condition.get("ignore_separators") and fact.ignore_separators and isinstance(value, str):
+                    value = SeparatorInsensitive(value)
+                built = fact.sql(condition.get("operator", ""), value, alias)
             except Exception:
                 logger.warning("Auto-organize fact '%s' SQL predicate failed", fact.key, exc_info=True)
                 built = None
@@ -221,6 +239,10 @@ def sql_filter(registry: OrganizeRegistry, subject: str, match: str,
 
 def canonical_conditions(conditions: Iterable[Dict[str, Any]]) -> List[Tuple[str, str, str]]:
     return sorted(
-        (c.get("fact", ""), c.get("operator", ""), json.dumps(c.get("value"), sort_keys=True))
+        (
+            c.get("fact", ""),
+            c.get("operator", ""),
+            json.dumps(c.get("value"), sort_keys=True) + (":ignore_separators" if c.get("ignore_separators") else ""),
+        )
         for c in conditions
     )

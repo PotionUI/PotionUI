@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 from src.features.organize import errors
 from src.features.organize.manager import DEFAULT_HOURLY_LIMIT, OrganizeManager
 from src.features.organize.records import Controls
-from src.features.organize.rule_repository import GLOBAL_SCOPE
+from src.features.organize.rule_repository import GLOBAL_SCOPE, INSTANCE_SCOPE
 from src.platform.database.rows import dt_iso
 
 
@@ -41,7 +41,33 @@ class OrganizeAdmin:
             "hourly_limit": controls.hourly_limit or DEFAULT_HOURLY_LIMIT,
             "totals": totals,
             "users": users,
+            "instance": self.instance_row(),
         }
+
+    def instance_row(self) -> Dict[str, Any]:
+        total, enabled, paused, last_run_at = self.o.c.rules.instance_counts()
+        controls = self.o.c.rules.controls(INSTANCE_SCOPE)
+        return {
+            "rules": total,
+            "enabled_rules": enabled,
+            "paused_rules": paused,
+            "paused": controls.paused,
+            "rule_cap": controls.rule_cap,
+            "effective_rule_cap": self.o.effective_cap(None),
+            "last_run_at": dt_iso(last_run_at),
+            "running_jobs": sum(1 for job in self.o.jobs.for_user(None, True)),
+        }
+
+    def instance_controls(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        controls = self.o.c.rules.controls(INSTANCE_SCOPE)
+        if payload.get("paused") is not None:
+            controls.paused = bool(payload["paused"])
+        if "rule_cap" in payload:
+            controls.rule_cap = None if payload["rule_cap"] is None else int(payload["rule_cap"])
+        self.o.c.rules.save_controls(INSTANCE_SCOPE, controls)
+        if controls.paused:
+            self.o.jobs.cancel_for_user(None)
+        return self.instance_row()
 
     def _row(self, user_id: str, username: str, counts: Optional[tuple], controls: Optional[Controls],
                    filed: Optional[Dict[str, int]], default_cap: int) -> Dict[str, Any]:

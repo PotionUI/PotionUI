@@ -55,3 +55,17 @@ settings:
     default: 10
     min: 1
     max: 50
+
+organize_actions:
+  - key: "civitai-provider.fetch_info"
+    label: "Fetch CivitAI data"
+    subjects: ["model"]
+    scope: "instance"
+    handler: "organize_actions.fetch_info"
+    description: "Looks the model up on CivitAI by its file hash and fills in its empty description, trigger words, tags and previews."
+    notes:
+      - "Only an exact SHA-256 match is accepted. CivitAI sometimes answers with a different file's record, and PotionUI ignores it."
+      - "What you wrote yourself is never overwritten, and fetched data cannot be undone."
+    needs: ["digest"]
+    done_label: "Fetched CivitAI data"
+    paced: true

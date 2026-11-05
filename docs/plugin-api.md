@@ -71,7 +71,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Downloads** — queueing a download and following it | `.downloads` | `queue_model_download(url, *, filename=None, model_type=None, subdir=None, tags=None, checksum_sha256=None, provider_id=None, created_by=None, destination_backend_id=None)` (async; the queued download as a dict; raises `DownloadQueueException`, or its `UnsafeFilenameException` and `DownloadDestinationInvalid` subtypes - the latter when the subfolder, directory or remote backend cannot be used, as opposed to a queue that is blocked), `get_download(download_id)` (the download's current state, or `None`), `DownloadNotFoundException`. Declare the `download.after_complete` hook to be told when a download has landed (`download_id`, `created_by` ...; `model_id` or `duplicate_of` only for a plain local model download, the one kind indexed on completion) |
 | **User groups** — groups, membership, and the NSFW policy a user gets | `.groups` | `list_groups()`, `get_user_groups(user_id)`, `group_member_ids(group_id)` (groups are `{"id", "name", "is_system", "content_policy"}` dicts), `effective_content_policy(user_id)` (`"allowed"`, `"blur"` or `"blocked"`: the instance setting made stricter by the user's groups), `assign_models_to_group(group_id, model_ids, acting_user)` (the ids newly assigned, through the group operation and its hooks in that admin's name; `ValueError` for a non-admin actor or an unknown group) |
 | **Notifications** — telling users something happened | `.notifications` | `notify(*, source, title, message="", user_id=None, type="", level="info", category="plugin", metadata=None, transient=False, show_toast=True)` (how many users received it; `user_id=None` broadcasts; a registered `type` respects each user's preferences), `register_notification_types(registry, specs)` (from a `notification_type.register` handler; returns the keys it added), `NotificationTypeSpec`, `NotificationTypeRegistry`, `DuplicateNotificationTypeError` |
-| **Auto-organize** — contributing rule conditions and actions | `.organize` | `OrganizeItem`, `OrganizeChange`, `OrganizeActionBlocked`, `compare`, `FACT_KINDS`, `OPERATOR_LABELS`, `CONFIG_FIELD_KINDS`, `FACT_TRIGGERS`, `SQL_ALIASES`, `SUBJECTS` |
+| **Auto-organize** — contributing rule conditions and actions | `.organize` | `OrganizeItem`, `OrganizeChange`, `OrganizeActionBlocked`, `OrganizeActionSkipped`, `OrganizeActionRetry`, `compare`, `FACT_KINDS`, `OPERATOR_LABELS`, `CONFIG_FIELD_KINDS`, `FACT_TRIGGERS`, `SQL_ALIASES`, `SUBJECTS` |
 | **Limits** — contributing a plan limit kind, and reading where a user stands | `.limits` | `LimitKind`, `Usage`, `Refusal`, `MeasureContext`, `RefusalContext`, `AdmissionRequest`, `LimitEvents` (`record(user_id, kind, units=1, ref_id=None)`, `refund(ref_id)`), `LimitEventsView`, `LimitExceeded`, `limit_status(user_id, kind)` (a `LimitStatus`: `limit` (None when nothing limits the user for that kind), `used` in the current window, `exempt`, `resets_at`, `contact_line`, plus `limited` and `remaining`; for a plugin that admits its own operations against a kind it measures itself) |
 | **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
 | **Sampling** — contributing a step algorithm or a sigma schedule | `.sampling` | `SamplerDefinition`, `ScheduleDefinition`, `ScheduleContext`, `OptionSpec`, `GuidanceStrategy`, `SamplingCancelled`, `run_hooks`, `sample_euler`, `sampler_registry`, `schedule_registry` |
@@ -744,7 +744,17 @@ organize_actions:
     undo_handler: organize.undo_notify       # optional
     config_schema:
       - {key: channel, kind: text, label: Channel, required: true}
+    scope: user
+    notes: []
+    needs: []
+    done_label: ""
+    paced: false
 ```
+
+`scope` is `user` (the default) or `instance`, `notes` are lines the editor shows in one
+info box, `needs` is `[digest]` to wait for a model's file hash, `done_label` is the
+summary of a finished run and `paced` marks an action that reaches an outside service;
+the last four are explained under "Instance actions".
 
 Import only from `src.plugin_api.organize`. The reference implementation used by the
 tests lives at `tests/fixtures/organize_example_plugin/`.
@@ -757,7 +767,7 @@ tests lives at `tests/fixtures/organize_example_plugin/`.
 | `enum` | `is`, `is_any_of`, `is_not` | a string, or a list for `is_any_of` | chips or a select; autocomplete when there is an `options_handler` | `multi` |
 | `size` | `is`, `at_least`, `at_most` | `{"width": 1344, "height": 768}` | resolution presets + custom | `presets` |
 | `number` | `is`, `at_least`, `at_most` | a number | stepper | `min`, `max`, `step`, `unit` |
-| `text` | `contains`, `not_contains`, `starts_with`, `ends_with`, `is`, `is_not` | a string, matched case-insensitively | text input | `placeholder` |
+| `text` | `contains`, `not_contains`, `starts_with`, `ends_with`, `is`, `is_not` | a string, matched case-insensitively; a core fact such as a model's name can also store `ignore_separators: true` on the condition to compare without `-` and `_` | text input | `placeholder` |
 | `tag_list` | `has` (every listed value), `has_not` (none of them) | a list of strings | tag autocomplete | - |
 | `bool` | `is` | `true` / `false` | toggle | - |
 | `attribute` | per attribute type, see below | `{"key", "type", "label", "value"}` | attribute picker, then the type's operators and control | `operators_by_type` |
@@ -826,6 +836,34 @@ Set `picker: {operators_by_type: {...}}` only to narrow the operators per type.
 - **Action `undo_handler(item, change, user_id) -> bool`** reverses one recorded change.
   Without it, undoing a run leaves that plugin's changes in place and counts them as
   skipped.
+- **Outcomes.** A handler that returns normally has done its job (an empty list means
+  there was nothing new). It can say more by raising:
+  `OrganizeActionBlocked(code, message)` stops the rule and pauses it with a notice;
+  `OrganizeActionSkipped(code, message)` is permanent for this item: the item counts as
+  done, the other actions of the rule still run, and the run lists the item as
+  *skipped* with the message; `OrganizeActionRetry(code, message, after_s=None)` is
+  transient: the item is **not** done, the rule's remaining actions are not run for it,
+  and the run lists it as *waiting*. The host tries a waiting item again after 5, 15,
+  60 and 240 minutes (or `after_s` seconds), and after five attempts turns it into a
+  skip with the code `gave_up`. Any other exception counts as a retry with the code
+  `error`; it never marks the item done.
+
+### Instance actions
+
+`scope: instance` makes an action part of the instance-wide rules admins keep under
+Admin, Models, Auto-organize (`/api/admin/organize/instance/...`). Such a rule belongs to
+nobody: the handler gets `user_id=None`, runs as the system, and the run records which
+admin started it. An instance action is never offered to users, and a user action is
+never offered to instance rules. Instance actions are for the `model` subject only.
+
+- `needs: [digest]` makes the host call the handler only once the model's `sha256` is
+  known. Until then the model is recorded as waiting (`unverified`) and the host runs the
+  action when `model_index.after_digests` reports the file; the host never hashes a file
+  to satisfy it.
+- `paced: true` marks an action that calls an outside service. Such a rule is exempt
+  from the hourly "filed N items" pause, and a run applies it in small steps so progress
+  moves per item. Keep the handler idempotent and raise `OrganizeActionRetry` for outages.
+- `notes` and `done_label` are text for the editor and the run summary.
 
 `triggers` says when the fact's value can first be known: `item_created`, or also
 `tags_changed` for a value that arrives later (an auto-tagger), or `metadata_changed`

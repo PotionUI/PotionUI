@@ -1,5 +1,6 @@
 import json
-from typing import Any, Dict, List, Optional
+from types import SimpleNamespace
+from typing import Any, Callable, Dict, List, Optional
 
 import pytest
 
@@ -7,14 +8,16 @@ from src.features.organize.admin import OrganizeAdmin
 from src.features.organize.backfill import BackfillManager
 from src.features.organize.core_actions import register_core_actions
 from src.features.organize.core_facts import register_core_facts
+from src.features.organize.instance_ops import InstanceModelOps
 from src.features.organize.item_repository import OrganizeItemRepository
-from src.features.organize.manager import OrganizeCollaborators, OrganizeManager
+from src.features.organize.manager import OrganizeCollaborators, OrganizeManager, instance_viewer
 from src.features.organize.rule_repository import OrganizeRuleRepository
 from src.features.organize.run_repository import OrganizeRunRepository
 from src.features.organize.worker import OrganizeWorker
 from src.features.organize.write_repository import OrganizeWriteRepository
+from src.features.user_groups.repository import UserGroupRepository
 from src.features.users.repository import UserRepository
-from src.platform.plugins.organize import OrganizeRegistry
+from src.platform.plugins.organize import OrganizeActionDefinition, OrganizeChange, OrganizeRegistry
 from src.platform.security.user import AccountType, User
 from src.platform.util.ids import generate_ulid
 from tests.fixtures.seed import seed_user
@@ -269,3 +272,87 @@ def rule_body(subject="generation", conditions=None, actions=None, name="Krea la
     body = {"name": name, "subject": subject, "match": match, "conditions": conditions or [], "actions": actions or []}
     body.update(extra)
     return body
+
+
+class FakePlugins:
+    def __init__(self):
+        self.vetoed = set()
+        self.fired: List[Any] = []
+
+    def execute_hook(self, hook, initial_data=None):
+        data = dict(initial_data or {})
+        self.fired.append((hook, data))
+        if str(hook).endswith("before_assign_resource") and data.get("resource_id") in self.vetoed:
+            data["blocked"] = True
+            data["block_reason"] = "refused"
+        return SimpleNamespace(data=data), None
+
+
+class FakeTypes:
+    def __init__(self, seed):
+        self.seed = seed
+        self.set_calls: List[Any] = []
+        self.reset_calls: List[str] = []
+        self.pending = False
+        self.error = None
+
+    def set_admin_type(self, model_id, model_type, user_id):
+        if self.error is not None:
+            raise self.error
+        if self.pending:
+            return {"state": "queued"}
+        self.set_calls.append((model_id, model_type, user_id))
+        self.seed._exec("UPDATE models SET model_type = ? WHERE id = ?", (model_type, model_id))
+        return None
+
+    def reset_admin_type(self, model_id):
+        self.reset_calls.append(model_id)
+
+
+class Fetch:
+    def __init__(self):
+        self.calls: List[Any] = []
+        self.behavior: Callable[[Any], List[OrganizeChange]] = lambda item: [
+            OrganizeChange(target_type="plugin", target_id=item.item_id, target_name="CivitAI")
+        ]
+
+    def __call__(self, item, config, user_id):
+        self.calls.append((item.item_id, user_id))
+        return self.behavior(item)
+
+
+@pytest.fixture
+def world(mock_db, seed):
+    registry = OrganizeRegistry()
+    items = OrganizeItemRepository()
+    writer = OrganizeWriteRepository()
+    users = UserRepository()
+    plugins = FakePlugins()
+    types = FakeTypes(seed)
+    ops = InstanceModelOps(UserGroupRepository(), plugins, types, items)
+    register_core_facts(registry, items, users, lambda: [])
+    register_core_actions(registry, writer, ops)
+    fetch = Fetch()
+    registry.register_action(OrganizeActionDefinition(
+        key="test.fetch", label="Fetch data", subjects=("model",), apply=fetch, scopes=("instance",),
+        needs=("digest",), paced=True, notes=("Exact match only",), done_label="Fetched data", source="test-plugin",
+        description="Looks the model up",
+    ))
+    notices = NoticeRecorder()
+    executor = InlineExecutor()
+    manager = OrganizeManager(
+        OrganizeCollaborators(
+            rules=OrganizeRuleRepository(), runs=OrganizeRunRepository(), items=items, writer=writer, users=users,
+            registry=registry, visibility=FakeVisibility(), notify=notices, ops=ops,
+        ),
+        executor=executor,
+    )
+    admin = seed.user("root", admin=True)
+    known = {"u1": seed.user("u1")}
+    ns = SimpleNamespace(user=known.get,
+        seed=seed, registry=registry, manager=manager, backfill=BackfillManager(manager), ops=ops, plugins=plugins,
+        types=types, fetch=fetch, notices=notices, executor=executor, admin_user=admin, viewer=instance_viewer(admin),
+        admin_ops=OrganizeAdmin(manager),
+    )
+    yield ns
+    manager._options_pool.shutdown(wait=False)

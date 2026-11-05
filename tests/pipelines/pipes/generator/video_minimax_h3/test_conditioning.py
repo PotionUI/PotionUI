@@ -227,16 +227,65 @@ def test_already_canvas_sized_image_passes_through_unchanged():
 
 # -- ref2va reference own-resolution fit -------------------------------------
 
-def test_reference_image_is_upscaled_to_its_own_short_edge():
-    # A small square image has no canvas to fit onto (unlike a keyframe) --
-    # it is scaled up so its short edge reaches REFERENCE_IMAGE_SHORT_EDGE,
-    # rounded to canvas_multiple, with NO upper pixel cap.
-    image = Image.new("RGB", (100, 200))  # short edge = 100
-    fitted = normalize_reference_image(image, canvas_multiple=32, short_edge=256)
-    scale = 256 / 100
-    expected_width = round(100 * scale / 32) * 32
-    expected_height = round(200 * scale / 32) * 32
-    assert fitted.size == (expected_width, expected_height)
+def test_reference_image_below_its_short_edge_is_not_enlarged():
+    fitted = normalize_reference_image(Image.new("RGB", (100, 200)), canvas_multiple=32, short_edge=256)
+    assert fitted.size == (96, 192)
+
+
+class _SizedPicture:
+    def __init__(self, size):
+        self.size = size
+
+    def resize(self, size, _resampling):
+        return _SizedPicture(size)
+
+
+def _picture_sizes():
+    fine = range(1, 300, 7)
+    coarse = range(300, 8193, 47)
+    return [
+        (width, height)
+        for sides in (fine, coarse)
+        for width in sides
+        for height in sides
+        if max(width, height) <= 4 * min(width, height)
+    ]
+
+
+def _released_picture_size(width, height):
+    scale = REFERENCE_IMAGE_SHORT_EDGE / min(width, height)
+    return round(width * scale / 32) * 32, round(height * scale / 32) * 32
+
+
+@pytest.mark.parametrize("canvas_multiple", [16, 32, 64])
+def test_reference_image_never_exceeds_its_source_except_to_reach_one_tile(canvas_multiple):
+    for width, height in _picture_sizes():
+        fitted = normalize_reference_image(_SizedPicture((width, height)), canvas_multiple=canvas_multiple)
+        assert fitted.size[0] <= max(width, canvas_multiple)
+        assert fitted.size[1] <= max(height, canvas_multiple)
+        assert fitted.size[0] % canvas_multiple == 0
+        assert fitted.size[1] % canvas_multiple == 0
+
+
+def test_reference_image_at_or_below_its_short_edge_keeps_its_own_size_on_the_grid():
+    for width, height in _picture_sizes():
+        if min(width, height) <= REFERENCE_IMAGE_SHORT_EDGE:
+            fitted = normalize_reference_image(_SizedPicture((width, height)), canvas_multiple=32)
+            assert fitted.size == (max(32, width // 32 * 32), max(32, height // 32 * 32))
+
+
+def test_a_large_photo_keeps_the_released_size_unless_that_size_exceeds_the_source():
+    kept = 0
+    for width, height in _picture_sizes():
+        if min(width, height) >= 2032:
+            released = _released_picture_size(width, height)
+            fitted = normalize_reference_image(_SizedPicture((width, height)), canvas_multiple=32)
+            if released[0] <= width and released[1] <= height:
+                assert fitted.size == released
+                kept += 1
+            else:
+                assert fitted.size == (min(released[0], width // 32 * 32), min(released[1], height // 32 * 32))
+    assert kept > 1000
 
 
 def test_reference_image_already_at_target_size_passes_through_unchanged():
@@ -265,7 +314,7 @@ def test_reference_image_outside_1_to_4_is_padded_out_to_the_limit(size, padded)
     assert pad_reference_to_aspect_range(Image.new("RGB", size)).size == padded
 
 
-@pytest.mark.parametrize("size", [(500, 100), (100, 500)])
+@pytest.mark.parametrize("size", [(2000, 400), (400, 2000)])
 def test_reference_image_outside_1_to_4_normalizes_to_exactly_1_to_4(size):
     fitted = normalize_reference_image(Image.new("RGB", size), canvas_multiple=32, short_edge=256)
     assert sorted(fitted.size) == [256, 1024]
@@ -279,7 +328,7 @@ def test_reference_image_within_1_to_4_is_not_padded(size):
 
 def test_reference_image_within_1_to_4_resizes_exactly_as_before():
     rng = np.random.default_rng(0)
-    image = Image.fromarray(rng.integers(0, 256, (60, 40, 4), dtype=np.uint8), mode="RGBA")
+    image = Image.fromarray(rng.integers(0, 256, (360, 240, 4), dtype=np.uint8), mode="RGBA")
     fitted = normalize_reference_image(image, canvas_multiple=16, short_edge=80)
     assert fitted.mode == "RGBA"
     assert fitted.tobytes() == image.resize((80, 128), Image.Resampling.LANCZOS).tobytes()
@@ -296,10 +345,7 @@ def test_reference_image_aspect_ratio_exactly_4_to_1_accepted():
 
 
 def test_reference_image_uses_no_upper_pixel_cap_unlike_fl2va_canvas():
-    # An extreme short edge upscale has no area cap to hit -- fl2va's target
-    # canvas is bounded by CANVAS_MAX_PIXELS, a ref2va reference is not.
-    image = Image.new("RGB", (32, 32))
-    fitted = normalize_reference_image(image, canvas_multiple=32, short_edge=4096)
+    fitted = normalize_reference_image(_SizedPicture((8192, 8192)), canvas_multiple=32, short_edge=4096)
     assert fitted.size == (4096, 4096)
 
 
@@ -328,7 +374,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     validate_references,
     visual_references_need_encode,
 )
-from src.pipelines.pipes.generator.video_minimax_h3.geometry import video_latent_num_frames
+from src.pipelines.pipes.generator.video_minimax_h3.geometry import resolve_canvas_size, video_latent_num_frames
 from src.pipelines.pipes.generator.video_minimax_h3.layout import ReferenceBlock, build_ref2va_packed_sequence
 
 AUDIO_LATENT_CHANNELS = 8
@@ -429,6 +475,90 @@ def test_reference_video_already_normalized_passes_through_untouched():
     # No resample and no rescale: the frames come back as a view on the very
     # buffer they went in as, not a re-encoded copy.
     assert np.shares_memory(got, frames)
+
+
+def test_reference_video_on_the_grid_below_its_canvas_passes_through_untouched():
+    frames = _frames(5, height=64, width=96)
+    got = normalize_reference_video(frames, fps=24.0, num_frames=5)
+    assert np.shares_memory(got, frames)
+
+
+def test_reference_video_off_the_grid_below_its_canvas_is_rescaled_down_to_it():
+    got = normalize_reference_video(_frames(5, height=100, width=200), fps=24.0, num_frames=5)
+    assert got.shape[1:3] == (96, 192)
+
+
+class _Rescaled(Exception):
+    pass
+
+
+class _SizedFrame:
+    def resize(self, size, _resampling):
+        raise _Rescaled(size)
+
+
+@pytest.fixture
+def sized_frames(monkeypatch):
+    monkeypatch.setattr(Image, "fromarray", lambda _frame: _SizedFrame())
+
+
+def _video_sizes():
+    fine = range(1, 300, 7)
+    coarse = range(300, 4097, 37)
+    return [
+        (width, height)
+        for sides in (fine, coarse)
+        for width in sides
+        for height in sides
+        if max(width, height) <= 4 * min(width, height)
+    ]
+
+
+def _normalized_video_size(width, height):
+    frames = np.zeros((1, height, width, 3), dtype=np.uint8)
+    try:
+        return normalize_reference_video(frames, fps=24.0, num_frames=1).shape[1:3]
+    except _Rescaled as rescaled:
+        rescaled_width, rescaled_height = rescaled.args[0]
+        return rescaled_height, rescaled_width
+
+
+@pytest.mark.usefixtures("sized_frames")
+def test_reference_video_never_exceeds_its_source_except_to_reach_one_tile():
+    for width, height in _video_sizes():
+        got_height, got_width = _normalized_video_size(width, height)
+        assert got_height <= max(height, 32)
+        assert got_width <= max(width, 32)
+        assert got_height % 32 == 0
+        assert got_width % 32 == 0
+
+
+@pytest.mark.usefixtures("sized_frames")
+def test_reference_video_below_its_canvas_keeps_its_own_size_on_the_grid():
+    for width, height in _video_sizes():
+        canvas_height, canvas_width = resolve_canvas_size(width, height)
+        if height < canvas_height and width < canvas_width:
+            own_size = (max(32, height // 32 * 32), max(32, width // 32 * 32))
+            assert _normalized_video_size(width, height) == own_size
+
+
+@pytest.mark.usefixtures("sized_frames")
+def test_reference_video_at_least_as_large_as_1344_by_768_gets_the_released_canvas():
+    for width, height in _video_sizes():
+        if max(width, height) >= 1344 and min(width, height) >= 768:
+            assert _normalized_video_size(width, height) == resolve_canvas_size(width, height)
+
+
+def test_normalize_references_keeps_a_small_image_and_a_small_video_at_their_own_size():
+    normalized = normalize_references(
+        [
+            ReferenceMedia(kind="image", image=Image.new("RGB", (832, 480))),
+            ReferenceMedia(kind="video", frames=_frames(22, height=480, width=832), fps=24.0),
+        ],
+        num_frames=22,
+    )
+    assert normalized[0].image.size == (832, 480)
+    assert normalized[1].frames.shape[1:3] == (480, 832)
 
 
 def test_reference_video_accepts_a_chw_float_tensor():

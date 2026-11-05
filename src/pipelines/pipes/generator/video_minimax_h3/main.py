@@ -382,7 +382,7 @@ def _load_reference_video(video_path: Any, max_seconds: Optional[float] = None) 
 
     `media_loader` hands videos over as PATHS (it decodes only images), so the
     decode lands here. The frames are RAW: `normalize_references` is what puts
-    them on H3's 24 fps and canvas, and it needs the source rate to do it.
+    them on H3's 24 fps, and it needs the source rate to do it.
     """
     frames, fps = read_video_frames(video_path, max_seconds=max_seconds)
     return ReferenceMedia(kind="video", frames=frames, fps=float(fps))
@@ -1290,12 +1290,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             ),
             PipeConfigSpec(
                 "reference_short_edge", int, REFERENCE_IMAGE_SHORT_EDGE,
-                "Short edge, in pixels, every reference PICTURE is resized to before it is encoded "
-                "(each axis then rounded to the 32px canvas grid, aspect ratio kept). The default is "
+                "Short edge, in pixels (each axis rounded to the 32px canvas grid). The default is "
                 "the released checkpoint's own. An encoded picture costs one token per 32x32 block, "
                 "and every token of every reference is attended to on every step, so a lower value "
                 "shortens the sequence and speeds each step up, at the price of fine detail in the "
-                "reference. Reference videos are not affected: they follow the canvas rule.",
+                "reference. Reference videos are not affected.",
                 required=False, min_value=CANVAS_MULTIPLE,
             ),
             PipeConfigSpec(
@@ -1329,8 +1328,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                           is_array=True),
             PipeInputSpec("reference_videos", IOType.VIDEO, False, "ref2va reference video(s), packed "
                           "after every image reference. Each contributes one visual condition latent "
-                          "(a frame stack, so 5*n+2 latent frames rather than 1) at the canvas its own "
-                          "aspect ratio resolves to", is_array=True),
+                          "(a frame stack, so 5*n+2 latent frames rather than 1)", is_array=True),
             PipeInputSpec("reference_audios", IOType.AUDIO, False, "ref2va reference audio track(s), "
                           "packed after every video reference. Each contributes CLEAN audio condition "
                           "rows and no visual latent at all, and cannot be the only reference kind on a "

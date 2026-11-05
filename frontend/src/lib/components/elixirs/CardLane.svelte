@@ -53,6 +53,7 @@
 	let dragging = $state<{ index: number; x: number; start: number; pointer: number } | null>(null);
 
 	let nodes = $derived(new Map(definition.nodes.map((node) => [node.id, node] as const)));
+	let startRoots = $derived(!phone && !readOnly ? tree.roots.filter((id) => startable(id)) : []);
 	let columns = $derived(Array.from({ length: Math.max(1, tree.columns) }, (_, index) => index));
 
 	function width(index: number) {
@@ -187,6 +188,14 @@
 					{#each columns as index (index)}
 						<span class="col" style="width: {width(index)}px">
 							<span class="col-name font-mono" aria-hidden="true">{index === 0 ? 'Start' : 'Then'}</span>
+							{#if index === 0 && startRoots.length === 1}
+								<Tooltip text={`Add a step before ${labelOf(startRoots[0])}`}>
+									<button type="button" class="ghost col-before" aria-label="Add a step before {labelOf(startRoots[0])}" aria-haspopup="menu" onclick={(event) => onbefore?.(event.currentTarget, startRoots[0])}>
+										<Icon name="plus" className="h-3.5 w-3.5" />
+										Add step before
+									</button>
+								</Tooltip>
+							{/if}
 							<span class="col-rule" aria-hidden="true"></span>
 							<span class="resize" class:active={dragging?.index === index}>
 								<Tooltip text="Drag to resize column" wrapperClass="flex h-full">
@@ -225,7 +234,7 @@
 				<div class="roots">
 					{#each tree.roots as id (id)}
 						<div class="root">
-							{#if !phone && !readOnly && startable(id)}
+							{#if startRoots.length > 1 && startRoots.includes(id)}
 								<span class="before">
 									<Tooltip text={`Add a step before ${labelOf(id)}`}>
 										<button type="button" class="ins-button" aria-label="Add a step before {labelOf(id)}" aria-haspopup="menu" onclick={(event) => onbefore?.(event.currentTarget, id)}>
@@ -331,6 +340,14 @@
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: rgb(var(--fg-subtle));
+	}
+	.col-before {
+		height: 24px;
+		margin: 0 6px;
+		padding: 0 8px;
+		font-size: 12px;
+		letter-spacing: 0;
+		text-transform: none;
 	}
 	.col-rule {
 		height: 1px;

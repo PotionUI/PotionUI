@@ -425,6 +425,7 @@ for (const viewport of [
 				await select.selectOption({ label: 'Auto-organize' });
 			} else {
 				const entries = page.getByRole('listbox', { name: 'Models sections' }).getByRole('option');
+				await expect(entries).toHaveCount(4, { timeout: 30000 });
 				await expect(entries.last()).toContainText('Auto-organize');
 				await entries.last().click();
 			}

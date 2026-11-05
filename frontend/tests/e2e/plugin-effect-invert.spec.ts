@@ -139,9 +139,9 @@ test('a plugin effect appears in the Video editor once the plugin is enabled, pr
 	const card = editor.locator(`[data-effect-card="${TOOL}"]`);
 	await expect(card).toBeVisible({ timeout: 10000 });
 	await expect(card).not.toContainText(/plugin|e2e-effects/i);
-	await card.locator('button').first().click();
+	await editor.locator(`[data-tray-item="${TOOL}"]`).click();
 	await editor.locator('[data-options-apply]').click();
-	await expect(editor.locator('[data-options-apply]')).toContainText('Update Invert');
+	await expect(editor.locator('[data-options-apply]')).toHaveCount(0);
 	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Invert' })).toBeVisible();
 
 	const canvas = editor.locator('[data-live-preview]');

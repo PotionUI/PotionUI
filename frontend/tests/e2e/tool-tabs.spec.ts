@@ -85,7 +85,7 @@ test.describe('tool tabs on desktop', () => {
 		await page.getByRole('button', { name: 'Add new tab' }).click();
 		const menu = page.getByRole('menu', { name: 'New tab' });
 		await expect(menu).toBeVisible();
-		await expect(menu.getByRole('menuitem')).toHaveText([/New generation/, /Image editor/, /Video editor/]);
+		await expect(menu.getByRole('menuitem')).toHaveText([/New generation/, /Image editor/, /Video editor/, /Elixir/]);
 		await expect(menu).not.toContainText(/plugin/i);
 		await screenshot(page, JOURNEY, 'plus-menu-1440');
 
@@ -190,7 +190,7 @@ test.describe('tool tabs on desktop', () => {
 
 		await page.getByRole('button', { name: 'Add new tab' }).click();
 		const menu = page.getByRole('menu', { name: 'New tab' });
-		await expect(menu.getByRole('menuitem')).toHaveText([/New generation/, /Image editor/, /Video editor/, /Stamp tool/]);
+		await expect(menu.getByRole('menuitem')).toHaveText([/New generation/, /Image editor/, /Video editor/, /Elixir/, /Stamp tool/]);
 		await expect(menu).not.toContainText(/plugin/i);
 		await screenshot(page, JOURNEY, 'plus-menu-plugin-1440');
 		await menu.getByRole('menuitem', { name: /Stamp tool/ }).click();
@@ -220,7 +220,7 @@ test.describe('tool tabs on a phone', () => {
 		const sheet = page.getByRole('dialog', { name: 'Tabs' });
 		await expect(sheet).toBeVisible();
 		await expect(sheet.getByTestId('tabs-sheet-row')).toHaveCount(1);
-		await expect(sheet.getByTestId('tabs-sheet-new').getByRole('button')).toHaveText(['Generation', 'Image editor', 'Video editor']);
+		await expect(sheet.getByTestId('tabs-sheet-new').getByRole('button')).toHaveText(['Generation', 'Image editor', 'Video editor', 'Elixir']);
 		await expect(sheet).not.toContainText(/plugin/i);
 		await screenshot(page, JOURNEY, 'tabs-sheet-generation-390');
 

@@ -142,15 +142,15 @@ async function openPicture(page: Page, from: 'library' | 'history', buffer = sol
 async function editThrough(page: Page, label: string) {
 	await expectPicture(page, `${label} opened`, { width: 1920, height: 1072 });
 
-	await page.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
+	await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 	await page.locator('[data-options-apply]').click();
 	await expect(stackRows(page)).toHaveCount(2);
 	await expectPicture(page, `${label} crop`, { width: 1072, height: 1072 });
 	await screenshot(page, JOURNEY, `${label}-01-crop`);
 
 	await rail(page, 'effects').click();
-	await expect(page.locator('[data-look="reel"]')).toBeVisible({ timeout: 15000 });
-	await page.locator('[data-look="reel"]').click();
+	await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
+	await page.locator('[data-tray-item="reel"]').click();
 	await page.locator('[data-options-apply]').click();
 	await expect(stackRows(page)).toHaveCount(3);
 	await expectPicture(page, `${label} look`, { width: 1072, height: 1072 });
@@ -229,11 +229,11 @@ test.describe('the Image editor against the real backend', () => {
 		const trace = watch(page);
 		await loginAsOwner(page);
 		await openPicture(page, 'library');
-		await page.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
+		await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 		await page.locator('[data-options-apply]').click();
 		await rail(page, 'effects').click();
-		await expect(page.locator('[data-look="reel"]')).toBeVisible({ timeout: 15000 });
-		await page.locator('[data-look="reel"]').click();
+		await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
+		await page.locator('[data-tray-item="reel"]').click();
 		await page.locator('[data-options-apply]').click();
 		await expect(stackRows(page)).toHaveCount(3);
 		await expectPicture(page, 'before the loss', { width: 1072, height: 1072 });

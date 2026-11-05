@@ -196,7 +196,7 @@ test.describe('live effect preview on desktop', () => {
 		const panel = editor.locator('[data-options-body]');
 		await expect(panel.locator('[data-effect-card]')).toHaveCount(4);
 		await expect(panel).not.toContainText(/plugin|retro-tape/i);
-		await panel.locator('[data-effect-card="fix_colors"] button').first().click();
+		await editor.locator('[data-tray-item="fix_colors"]').click();
 		await editor.locator('[data-options-apply]').click();
 		await expect.poll(() => mocks.analysis.length, { timeout: 5000 }).toBe(1);
 		expect(mocks.analysis[0]).toMatchObject({ input: { item_id: 'item-1' }, step_index: 1 });
@@ -204,7 +204,7 @@ test.describe('live effect preview on desktop', () => {
 		await expect(editor.locator('[data-live-preview]')).toBeVisible();
 		await expect(editor.locator('[data-live-chips]')).not.toContainText('Measuring');
 
-		await panel.locator('[data-effect-card="retro-tape.wobble"] button').first().click();
+		await editor.locator('[data-tray-item="retro-tape.wobble"]').click();
 		await editor.locator('[data-options-apply]').click();
 		await expect(editor.locator('[data-live-chips]')).toContainText('Tape wobble shows when paused');
 		await expect(editor.locator('[data-preview-clip]')).toBeVisible();

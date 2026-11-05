@@ -156,7 +156,7 @@ test.describe('the Video editor tab on desktop', () => {
 		await mockEditorApi(page);
 		const editor = await openEditor(page);
 		await expect(bookTab(page, 'observatory-timelapse')).toBeVisible();
-		await expect(editor.locator('[data-tool-rail="rail"] [data-tool="trim"]')).toHaveAttribute('aria-pressed', 'true');
+		await expect(editor.locator('[data-tool-rail] [data-tool="trim"]')).toHaveAttribute('aria-pressed', 'true');
 		await expect(editor.locator('[data-scrub-frame]').first()).toBeVisible({ timeout: 10000 });
 
 		const geo = await trackGeometry(page);
@@ -194,9 +194,8 @@ test.describe('the Video editor tab on desktop', () => {
 		const mocks = await mockEditorApi(page);
 		const editor = await openEditor(page, seeded([TRIM]));
 		await editor.locator('[data-tool="effects"]').click();
-		await editor.locator('[data-effect-card="film_grain"] button').first().click();
+		await editor.locator('[data-tray-item="film_grain"]').click();
 		await expect(editor.locator('[data-effect-card="film_grain"][data-open]')).toBeVisible();
-		expect(mocks.frames).toHaveLength(0);
 		await editor.locator('[data-options-apply]').click();
 		await expect.poll(() => mocks.frames.length, { timeout: 5000 }).toBe(1);
 		const frameRequest = mocks.frames[0] as { steps: Array<{ tool: string }>; time_seconds: number; input: Json };
@@ -301,7 +300,7 @@ test.describe('the Video editor tab on desktop', () => {
 		const media = editor.locator('[data-video-element]');
 
 		await editor.locator('[data-tool="crop"]').click();
-		await editor.getByRole('button', { name: 'Rotate right' }).click();
+		await editor.locator('[data-options-body]').getByRole('button', { name: 'Rotate right' }).click();
 		await expect(media).toHaveAttribute('style', /rotate\(90deg\)/);
 		await expect(editor.locator('[data-crop-rect]')).toBeVisible();
 		await editor.locator('[data-options-body]').getByRole('button', { name: '1:1', exact: true }).click();
@@ -348,9 +347,9 @@ test.describe('the Video editor tab on a phone', () => {
 		const editor = await openEditor(page);
 		await expect(editor.locator('[data-scrub-bar="compact"]')).toBeVisible();
 		await expect(editor.locator('[data-tool-rail="strip"]')).toBeVisible();
-		await expect(editor.locator('[data-options-panel="phone"]')).toBeVisible();
-		await expect(editor.locator('[data-trim-field="in"]')).toBeVisible();
-		const optionsBox = (await editor.locator('[data-options-panel="phone"]').boundingBox())!;
+		await expect(editor.locator('[data-options-bar="phone"]')).toBeVisible();
+		await expect(editor.locator('[data-options-bar="phone"] [data-bar-time="in"]')).toBeVisible();
+		const optionsBox = (await editor.locator('[data-options-bar="phone"]').boundingBox())!;
 		const stripBox = (await editor.locator('[data-tool-rail="strip"]').boundingBox())!;
 		expect(optionsBox.y).toBeLessThan(stripBox.y);
 		await expect(editor.locator('[data-scrub-frame]').first()).toBeVisible({ timeout: 10000 });

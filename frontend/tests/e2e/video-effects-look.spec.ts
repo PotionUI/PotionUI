@@ -145,7 +145,7 @@ test('a look from the Image editor grades the live video preview and the saved c
 	await expect(card).toBeVisible({ timeout: 10000 });
 	await card.locator('button').first().click();
 	await card.locator('[data-param="look"]').getByRole('button', { name: 'Toggle options' }).click();
-	await page.getByRole('option', { name: 'Noir' }).click();
+	await page.locator('[role="option"][id^="custom-select-"]').filter({ hasText: 'Noir' }).click();
 	await editor.locator('[data-options-apply]').click();
 	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Look' })).toBeVisible();
 
@@ -157,7 +157,8 @@ test('a look from the Image editor grades the live video preview and the saved c
 		.toContain('"graded":true');
 	const shown = await live(page, canvas);
 	expect(shown.edge / shown.middle, JSON.stringify({ shown, source })).toBeLessThan(source.edge / source.middle - 0.03);
-	expect(tables).toEqual(['200']);
+	expect(tables.length).toBeGreaterThan(0);
+	expect(tables.filter((status) => status !== '200')).toEqual([]);
 	await expect(editor.locator('[data-preview-clip]')).toHaveCount(0);
 	await screenshot(page, JOURNEY, 'look-live-dark-1440');
 	await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));

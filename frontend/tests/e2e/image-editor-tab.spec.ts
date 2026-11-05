@@ -219,8 +219,8 @@ async function openDusk(page: Page, shoot = false) {
 }
 
 async function cropSquare(page: Page, shoot = false) {
-	await page.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
-	await expect(page.locator('[data-crop-output]')).toHaveText('480×480');
+	await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
+	await expect(page.locator('[data-options-panel] [data-crop-output]')).toHaveText('480×480');
 	await expect(rail(page, 'crop').locator('[data-tool-pending]')).toBeVisible();
 	if (shoot) await screenshot(page, JOURNEY, '02-crop-1440');
 	await page.locator('[data-options-apply]').click();
@@ -229,8 +229,8 @@ async function cropSquare(page: Page, shoot = false) {
 
 async function applyReel(page: Page, shoot = false) {
 	await rail(page, 'effects').click();
-	await expect(page.locator('[data-look="reel"]')).toBeVisible({ timeout: 15000 });
-	await page.locator('[data-look="reel"]').click();
+	await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
+	await page.locator('[data-tray-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
 	await page.locator('[data-frame-compare]').click();
 	await expect(page.locator('[data-canvas-divider]')).toBeVisible();
@@ -412,8 +412,8 @@ test.describe('the Image editor tab on a phone', () => {
 		await phone.locator('[data-options-apply]').click();
 		await expect(phone.locator('[data-frame-edits]')).toContainText('1 edit');
 		await phone.locator('[data-tool-rail="strip"] button[data-tool="effects"]').click();
-		await expect(phone.locator('[data-look="reel"]')).toBeVisible({ timeout: 15000 });
-		await phone.locator('[data-look="reel"]').click();
+		await expect(phone.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
+		await phone.locator('[data-tray-item="reel"]').click();
 		await screenshot(page, JOURNEY, '08-phone-effects-390');
 
 		const overflowX = await page.evaluate(() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth);

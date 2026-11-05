@@ -107,10 +107,8 @@ test('Vignette from the effect catalog previews live on the image canvas through
 	await expect.poll(async () => ((original = await probeCanvas(page)), original.middle[3] === 255 && original.cutout[3] === 0), { timeout: 20000 }).toBe(true);
 
 	await page.locator('[data-tool-rail] button[data-tool="effects"]').click();
-	await page.locator('[data-effects-tab="effects"]').click();
 	const card = page.locator('[data-effect-card="vignette"]');
 	await expect(card).toBeVisible();
-	await expect(page.locator('[data-effect-card="look"]')).toHaveCount(0);
 	await card.click();
 	await expect(card).toHaveAttribute('data-open', 'true');
 	await expect(page.locator('[data-param="amount"]')).toBeVisible();

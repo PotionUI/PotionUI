@@ -54,7 +54,7 @@ def blackwell(**overrides) -> DeviceCapabilities:
     return fake_device(BLACKWELL_CAPABILITY, **overrides)
 
 
-def fake_capabilities(*devices: DeviceCapabilities) -> Capabilities:
+def fake_capabilities(*devices: DeviceCapabilities, triton: bool = False) -> Capabilities:
     from src.platform.runtime.native.kernels import SDPA, Capabilities, DeviceCapabilities
 
     cpu = DeviceCapabilities(
@@ -65,7 +65,7 @@ def fake_capabilities(*devices: DeviceCapabilities) -> Capabilities:
         vendor="none",
     )
     placed = tuple(dataclasses.replace(device, index=index) for index, device in enumerate(devices))
-    return Capabilities(devices=placed, cpu=cpu)
+    return Capabilities(devices=placed, cpu=cpu, triton=triton)
 
 
 def cpu_only() -> Capabilities:

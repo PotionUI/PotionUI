@@ -270,6 +270,13 @@ def test_snapshot_carries_total_memory_per_device(monkeypatch):
     assert capabilities().cpu.total_memory == 0
 
 
+def test_snapshot_reports_triton_only_when_the_probe_finds_it(monkeypatch):
+    _environment(monkeypatch, devices=[(12, 0)], modules={"triton"})
+    assert capabilities().triton is True
+    _environment(monkeypatch, devices=[(12, 0)], modules=set())
+    assert refresh_capabilities().triton is False
+
+
 def test_snapshot_vendor_is_cuda_without_hip(monkeypatch):
     _environment(monkeypatch, devices=[(8, 9)])
     assert capabilities().device(0).vendor == "cuda"

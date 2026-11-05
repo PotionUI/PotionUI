@@ -55,7 +55,7 @@ def _nvfp4_gemm(exc):
 
 def _nvfp4_activation_quant(exc):
     lin = _nvfp4_layer()
-    with patch.object(nvfp4_linear, "quantize_nvfp4_dynamic", side_effect=exc):
+    with patch.object(nvfp4_linear, "quantize_nvfp4_activation", side_effect=exc):
         return lin._forward_nvfp4_scaled_mm(torch.randn(1, 32, dtype=torch.bfloat16))
 
 

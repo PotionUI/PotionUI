@@ -321,7 +321,7 @@ def test_the_setting_on_without_fp4_gemm_support_warns_with_the_probe_reason(mon
 def test_a_failed_fast_path_attempt_warns_once_with_its_cause(attempt, reason, caplog):
     lin = _nvfp4_layer()
     x = torch.randn(1, 32, dtype=torch.bfloat16)
-    quant = patch.object(nvfp4_linear, "quantize_nvfp4_dynamic", side_effect=ValueError("bad activations")) \
+    quant = patch.object(nvfp4_linear, "quantize_nvfp4_activation", side_effect=ValueError("bad activations")) \
         if attempt == "activation" else patch("torch.nn.functional.scaled_mm", side_effect=RuntimeError("no kernel image"))
     with quant, caplog.at_level("WARNING"):
         for _ in range(3):

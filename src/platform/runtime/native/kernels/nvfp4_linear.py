@@ -15,12 +15,12 @@ from ..io.quant_formats import (
     dequant_values,
     nvfp4_activation_amax,
     precompute_nvfp4_scale,
-    quantize_nvfp4_dynamic,
     scale_values,
 )
 from .casting import cast_to
 from .fp8_linear import Fp8ScaledLinear
 from .gemm import gemm_support
+from .nvfp4_quant import quantize_nvfp4_activation
 from .row_chunks import ChunkedGemmFailed, gemm_in_row_chunks
 from .lora_math import (
     _add_lora_output_branch,
@@ -256,7 +256,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
         tensor_amax: torch.Tensor | None,
     ) -> torch.Tensor:
         try:
-            x_packed, x_block, x_global = quantize_nvfp4_dynamic(x2d, tensor_amax=tensor_amax)
+            x_packed, x_block, x_global = quantize_nvfp4_activation(x2d, tensor_amax=tensor_amax)
         except Exception as exc:
             if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
                 raise

@@ -35,6 +35,7 @@ from .linear import (
     sync_nvfp4_dequant_tables,
 )
 from .lora_math import invalidate_lora_fused_cache, log_lora_path_summary, partition_output_branch_deltas
+from .nvfp4_quant import nvfp4_quant_disabled_reason, quantize_nvfp4_activation
 from .operations import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, pick_operations
 from .row_chunks import QUANT_TILE_ROWS, activation_quant_chunk_rows
 
@@ -76,8 +77,10 @@ __all__ = [
     "norm_modulate",
     "nvfp4_dequant_table_bytes",
     "nvfp4_path_summary",
+    "nvfp4_quant_disabled_reason",
     "partition_output_branch_deltas",
     "pick_operations",
+    "quantize_nvfp4_activation",
     "refresh_capabilities",
     "reset_backend_cache",
     "CastWeightBiasOp",

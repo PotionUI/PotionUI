@@ -10,7 +10,13 @@ from src.platform.runtime.native.io.quant_formats import (
     nvfp4_activation_amax,
     quantize_nvfp4_dynamic,
 )
-from src.platform.runtime.native.kernels import QUANT_TILE_ROWS, activation_quant_chunk_rows, nvfp4_linear, row_chunks
+from src.platform.runtime.native.kernels import (
+    QUANT_TILE_ROWS,
+    activation_quant_chunk_rows,
+    nvfp4_linear,
+    quantize_nvfp4_activation,
+    row_chunks,
+)
 from src.platform.runtime.native.kernels.nvfp4_linear import reset_nvfp4_fast_path_rejection_log
 
 from .test_nvfp4_linear_matmul import _nvfp4_layer
@@ -43,7 +49,7 @@ def _activations(rows, seed=3):
 
 def _quant_calls(oom_above_rows=None):
     calls = []
-    real = quantize_nvfp4_dynamic
+    real = quantize_nvfp4_activation
 
     def quantize(x2d, tensor_amax=None):
         calls.append(x2d.shape[0])
@@ -57,7 +63,7 @@ def _quant_calls(oom_above_rows=None):
 def _forward(lin, x, *, chunk_elements, oom_above_rows=None, scaled_mm=_reference_scaled_mm):
     calls, quantize = _quant_calls(oom_above_rows)
     with patch.object(row_chunks, "QUANT_CHUNK_ELEMENTS", chunk_elements), \
-         patch.object(nvfp4_linear, "quantize_nvfp4_dynamic", side_effect=quantize), \
+         patch.object(nvfp4_linear, "quantize_nvfp4_activation", side_effect=quantize), \
          patch("torch.nn.functional.scaled_mm", side_effect=scaled_mm):
         return lin._forward_nvfp4_scaled_mm(x), calls
 
@@ -134,7 +140,7 @@ def test_a_non_oom_quantiser_error_falls_back_without_retrying():
         calls.append(x2d.shape[0])
         raise ValueError("bad activations")
 
-    with patch.object(nvfp4_linear, "quantize_nvfp4_dynamic", side_effect=broken), \
+    with patch.object(nvfp4_linear, "quantize_nvfp4_activation", side_effect=broken), \
          patch("torch.nn.functional.scaled_mm", side_effect=AssertionError("must not run")):
         assert lin._forward_nvfp4_scaled_mm(_activations(512)) is None
     assert calls == [512]

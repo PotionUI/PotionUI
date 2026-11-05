@@ -47,6 +47,7 @@ class DeviceCapabilities:
 class Capabilities:
     devices: tuple[DeviceCapabilities, ...]
     cpu: DeviceCapabilities
+    triton: bool = False
 
     def device(self, index: int | torch.device | str | None = None) -> DeviceCapabilities:
         resolved = _resolve_index(index) if self.devices else None
@@ -184,7 +185,7 @@ def _build() -> Capabilities:
         attention_backends=frozenset({SDPA}),
         vendor=VENDOR_NONE,
     )
-    return Capabilities(devices=tuple(devices), cpu=cpu)
+    return Capabilities(devices=tuple(devices), cpu=cpu, triton="triton" in modules)
 
 
 _lock = threading.Lock()

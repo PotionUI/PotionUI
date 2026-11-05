@@ -2334,15 +2334,23 @@ def test_a_scoped_stack_gets_room_for_its_deltas_before_they_land():
     assert events == [("room", "cuda", _SCOPED_STACK, own), "land", "body"]
 
 
-def test_an_oom_landing_the_deltas_unloads_the_warm_dit_and_retries_once():
+@pytest.mark.parametrize("device", ["cuda", "cuda:1"])
+def test_an_oom_landing_the_deltas_unloads_the_warm_dit_and_empties_the_placement_device_before_it_retries_once(device):
     events = []
     dit, fake_ctx = _landing_scoped_block(events, ooms_landing=1)
+
+    @contextmanager
+    def selected(card):
+        events.append(("selected", card))
+        yield
+
     with patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx), patch(f"{_MAIN}.make_room_for_lora_stack"), \
             patch(f"{_MAIN}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MAIN}.torch.cuda.device", selected), \
             patch(f"{_MAIN}.torch.cuda.empty_cache", side_effect=lambda: events.append("release")):
-        with _scoped_loras_on_card(dit, "cuda", _SCOPED_STACK, (dit,)):
+        with _scoped_loras_on_card(dit, device, _SCOPED_STACK, (dit,)):
             events.append("body")
-    assert events == ["land", "offload", "release", "land", "body"]
+    assert events == ["land", "offload", ("selected", device), "release", "land", "body"]
 
 
 def test_a_second_oom_landing_the_deltas_reaches_the_caller():

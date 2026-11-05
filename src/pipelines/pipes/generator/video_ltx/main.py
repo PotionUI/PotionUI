@@ -115,6 +115,7 @@ from src.platform.runtime.native.errors import retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.dit_placement import (
+    _release_idle_pool,
     dit_is_fully_resident,
     guard_sampling_oom,
     make_room_for_lora_stack,
@@ -245,8 +246,7 @@ def _scoped_loras_on_card(dit: Any, device: str, stack: List[Any], own_models: T
                 raise
         logger.warning("[GENERATOR VIDEO-LTX] scoped LoRA deltas OOM'd landing; unloading the DiT and retrying")
         dit.offload()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        _release_idle_pool(device)
 
 
 def _matched_clip_index(placements: List[dict]) -> Optional[int]:

@@ -11,7 +11,7 @@
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
 	import { historyStore } from '$lib/stores/history';
-	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
 	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
 	import type { GenerationHistoryItem } from '$lib/types/history';
@@ -103,7 +103,7 @@
 		try {
 			await historyStore.deleteGrid(target);
 		} catch (error) {
-			toasts.error(getErrorMessage(error));
+			toasts.error(getApiErrorMessage(error));
 		}
 	}
 

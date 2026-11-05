@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
+	import { toasts } from '$lib/stores/toast';
 	import { historyStore } from '$lib/stores/history';
 	import { bulkDeleteMessage, planBulkDelete } from '$lib/utils/historyDeleteCopy';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
@@ -26,6 +27,7 @@
 			onClose();
 		} catch (error) {
 			logger.error('Failed to bulk delete generations:', error);
+			toasts.error(getApiErrorMessage(error));
 			attempt += 1;
 		} finally {
 			bulkDeleting = false;

@@ -322,21 +322,37 @@ def test_the_census_names_owners_without_a_heap_scan_per_tensor():
     assert "_Holder.weight" in json.loads(result.stdout.strip().splitlines()[-1])
 
 
-def test_the_census_yields_the_gil_while_it_walks_the_heap(monkeypatch):
-    ballast = [{"k": [i]} for i in range(200_000)]
-    yields = []
-    real_sleep = time.sleep
+_YIELD_PROBE = """
+import threading
+import time
+from src.platform.observability.profiling.profiler import GenerationProfiler
 
-    def counting_sleep(seconds):
-        if seconds == 0:
-            yields.append(threading.get_ident())
-        real_sleep(seconds)
+ballast = [{"k": [i]} for i in range(200_000)]
+yields = []
+real_sleep = time.sleep
 
-    monkeypatch.setattr(time, "sleep", counting_sleep)
-    GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=600.0)
 
-    assert len(yields) >= len(ballast) // GenerationProfiler._CENSUS_YIELD_EVERY
-    del ballast
+def counting_sleep(seconds):
+    if seconds == 0:
+        yields.append(threading.get_ident())
+    real_sleep(seconds)
+
+
+time.sleep = counting_sleep
+GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=600.0)
+print(len(yields), len(ballast) // GenerationProfiler._CENSUS_YIELD_EVERY)
+"""
+
+
+def test_the_census_yields_the_gil_while_it_walks_the_heap():
+    repo_root = Path(__file__).resolve().parents[4]
+    result = subprocess.run(
+        [sys.executable, "-c", _YIELD_PROBE], cwd=repo_root, capture_output=True, text=True, timeout=240,
+    )
+
+    assert result.returncode == 0, result.stderr
+    yielded, expected = map(int, result.stdout.strip().splitlines()[-1].split())
+    assert yielded >= expected
 
 
 _ASYNCIO_PROBE = """

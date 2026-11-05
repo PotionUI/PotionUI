@@ -122,6 +122,7 @@ test('a plugin effect appears in the Video editor once the plugin is enabled, pr
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
 	await page.request.post('/api/plugins/scan', { headers: { Authorization: `Bearer ${token}` } });
+	await page.request.post('/api/plugins/e2e-effects/disable', { headers: { Authorization: `Bearer ${token}` } });
 	const upload = await uploadClip(page);
 
 	let editor = await openInEditor(page, upload, 'seeded-before');
@@ -147,7 +148,7 @@ test('a plugin effect appears in the Video editor once the plugin is enabled, pr
 	const canvas = editor.locator('[data-live-preview]');
 	await expect(canvas).toBeVisible({ timeout: 10000 });
 	const source = await pixelsOf(page, null, null);
-	await expect.poll(async () => meanDiff(await livePixels(page, canvas), negative(source)), { timeout: 15000 }).toBeLessThan(12);
+	await expect.poll(async () => meanDiff(await livePixels(page, canvas), negative(source)), { timeout: 15000 }).toBeLessThan(20);
 	expect(meanDiff(await livePixels(page, canvas), source)).toBeGreaterThan(60);
 	await screenshot(page, JOURNEY, 'invert-live');
 

@@ -18,9 +18,14 @@ export async function selectFolderView(page: Page, view: string | RegExp) {
 	const phone = (page.viewportSize()?.width ?? 1440) < 768;
 	if (phone) {
 		const select = page.getByLabel('Folder', { exact: true });
-		const options = await select.locator('option').allTextContents();
-		const match = options.find((o) => (typeof view === 'string' ? o.startsWith(view) : view.test(o)));
-		if (!match) throw new Error(`no Folder option for ${String(view)}`);
+		const find = (options: string[]) => options.find((o) => (typeof view === 'string' ? o.startsWith(view) : view.test(o)));
+		await expect
+			.poll(async () => find(await select.locator('option').allTextContents()) ?? '', {
+				message: `no Folder option for ${String(view)}`,
+				timeout: 15000
+			})
+			.not.toBe('');
+		const match = find(await select.locator('option').allTextContents())!;
 		await select.selectOption({ label: match });
 		return;
 	}

@@ -121,6 +121,9 @@ export function stripTab(page: Page, name: string | RegExp): Locator {
 	return page.locator('.book-tab-wrapper').filter({ hasText: name });
 }
 
+export const settingsPanel = (page: Page) =>
+	page.getByTestId('elixir-drawer').getByRole('complementary', { name: /settings$/ });
+
 export const brewStatus = (editor: Locator) => editor.getByRole('status', { name: 'Brew status' });
 
 export const problems = (editor: Locator) => editor.getByRole('button', { name: /problem/ });

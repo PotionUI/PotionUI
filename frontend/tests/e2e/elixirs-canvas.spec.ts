@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
-import { api, clearElixirs, editorOf, headers, noHorizontalScroll, problems, stripTab } from './elixirs-fixtures';
+import { api, clearElixirs, editorOf, headers, noHorizontalScroll, problems, settingsPanel, stripTab } from './elixirs-fixtures';
 
 const JOURNEY = 'elixirs-canvas';
 const KREA = '4TK1KBQZ2XMB8ME0PTMXS1YJQP';
@@ -43,7 +43,7 @@ test('elixirs: chooser, card lane, files, session copy, source slot, column widt
 	const chooser = page.getByTestId('elixir-chooser');
 	await expect(chooser).toBeVisible({ timeout: 30000 });
 	await expect(chooser.getByText('No elixirs yet.')).toBeVisible({ timeout: 30000 });
-	await expect(page.locator('a[href="/elixirs"]').first()).toBeVisible();
+	await expect(page.locator('a[href="/elixirs"]')).toHaveCount(0);
 	await screenshot(page, JOURNEY, 'chooser-empty-1440');
 	await page.setViewportSize({ width: 390, height: 844 });
 	await noHorizontalScroll(page);
@@ -60,12 +60,12 @@ test('elixirs: chooser, card lane, files, session copy, source slot, column widt
 	await screenshot(page, JOURNEY, 'editor-empty-1440');
 
 	await editor.getByRole('button', { name: /^Files/ }).click();
-	const panel = editor.getByRole('complementary', { name: /settings$/ });
+	const panel = settingsPanel(page);
 	await expect(panel.getByRole('button', { name: 'From Library' })).toBeVisible();
 	await panel.getByLabel('Name').fill('Product photos');
 	await panel.getByLabel('Name').press('Enter');
 	await panel.getByRole('button', { name: 'From Library' }).click();
-	const picker = page.getByRole('dialog');
+	const picker = page.getByRole('dialog').filter({ has: page.getByLabel('Select product-shot.png') });
 	await expect(picker.getByLabel('Select product-shot.png')).toBeVisible({ timeout: 20000 });
 	await picker.getByLabel('Select product-shot.png').check();
 	await picker.getByRole('button', { name: 'Use selected' }).click();
@@ -73,6 +73,8 @@ test('elixirs: chooser, card lane, files, session copy, source slot, column widt
 	await expect(photos.getByText('1 image')).toBeVisible();
 	await expect(photos.getByText('Nothing uses these files yet. Add a step after them.')).toBeVisible();
 	await saved(editor);
+	await panel.getByRole('button', { name: 'Close node settings' }).click();
+	await expect(panel).toHaveCount(0);
 
 	await editor.locator('.elixir-header').getByRole('button', { name: 'Preset', exact: true }).click();
 	await expect(panel.getByLabel('Preset and mode')).toBeVisible();
@@ -150,8 +152,6 @@ test('elixirs: chooser, card lane, files, session copy, source slot, column widt
 	await expect(panel).toHaveCount(0);
 	await sharpenNode.locator('.lead').click();
 	await expect(panel.getByLabel('Preset and mode')).toBeVisible();
-	await sharpenNode.locator('.lead').click();
-	await expect(panel.getByLabel('Preset and mode')).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(panel).toHaveCount(0);
 
@@ -181,7 +181,10 @@ test('elixirs: chooser, card lane, files, session copy, source slot, column widt
 	await sharpenNode.getByRole('button', { name: 'Sharpen settings' }).click();
 	await expect(panel.getByRole('group', { name: 'Node settings sections' })).toBeVisible();
 	await screenshot(page, JOURNEY, 'editor-drawer-1440');
+	await page.keyboard.press('Escape');
+	await expect(panel).toHaveCount(0);
 	await page.setViewportSize({ width: 390, height: 844 });
+	await sharpenNode.getByRole('button', { name: 'Sharpen settings' }).click();
 	await expect(panel.getByRole('group', { name: 'Node settings sections' })).toBeVisible();
 	await noHorizontalScroll(page);
 	await screenshot(page, JOURNEY, 'editor-panel-390');

@@ -8,6 +8,7 @@ import {
 	openElixir,
 	prepare,
 	problems,
+	settingsPanel,
 	FAKE_PRESET
 } from './elixirs-fixtures';
 
@@ -118,10 +119,10 @@ test('a prompt writer looks at each image and its prompts reach the preset', asy
 	await expect(render).toBeVisible({ timeout: 30000 });
 	await render.getByRole('button', { name: /^Prompt: a potion/ }).click();
 	await page.getByRole('menu', { name: 'Prompt' }).getByRole('menuitem', { name: /Write with AI/ }).click();
-	const panel = editor.getByRole('complementary', { name: /settings$/ });
+	const panel = settingsPanel(page);
 	await expect(panel.getByText('prompt writer', { exact: true })).toBeVisible();
 	await panel.getByLabel('Name').fill('Describe');
-	await panel.getByLabel('Instruction').fill(INSTRUCTION);
+	await panel.getByTestId('elixir-node-instruction').getByRole('textbox').fill(INSTRUCTION);
 	await panel.getByLabel('Name').press('Enter');
 	await expect(panel.getByText('Follows the prompt style of Potion render and the model in its session.')).toBeVisible();
 	await page.keyboard.press('Escape');
@@ -130,16 +131,18 @@ test('a prompt writer looks at each image and its prompts reach the preset', asy
 	await expect(writer.getByText(INSTRUCTION)).toBeVisible();
 	await expect(render.getByRole('button', { name: /^Prompt: Describe/ })).toBeVisible();
 	await expect(writer.locator('[data-card-id="render"]')).toHaveCount(0);
-	await expect(editor.locator('[data-lane-node]').filter({ has: writer }).locator('[data-card-id="render"]')).toHaveCount(1);
+	await expect(editor.locator('[data-lane-node]').filter({ has: page.getByRole('article', { name: 'Describe, prompt writer' }) }).locator('[data-card-id="render"]')).toHaveCount(1);
 
 	await writer.getByRole('button', { name: /^Looks at: Nothing: writes once/ }).click();
 	const looks = page.getByRole('menu', { name: 'Looks at' });
-	await expect(looks.getByRole('menuitem', { name: /Potion render/ })).toHaveAttribute('aria-disabled', 'true');
+	const afterWriter = looks.getByRole('menuitem', { name: /Potion render/ });
+	await expect(afterWriter.first()).toBeVisible();
+	await expect(afterWriter.and(page.locator('[aria-disabled="true"]'))).toHaveCount(await afterWriter.count());
 	await looks.getByRole('menuitemradio', { name: /Potion photos/ }).click();
 	await expect(writer.getByRole('button', { name: /^Looks at: Potion photos/ })).toBeVisible();
 	await saved(editor);
 	await expect(problems(editor)).toContainText('0', { timeout: 15000 });
-	await expect(editor.locator('[data-lane-node]').filter({ has: editor.getByRole('article', { name: 'Potion photos, files' }) }).locator('[data-card-id="render"]')).toHaveCount(1);
+	await expect(editor.locator('[data-lane-node]').filter({ has: page.getByRole('article', { name: 'Potion photos, files' }) }).locator('[data-card-id="render"]')).toHaveCount(1);
 	await themed(page, 'dark', 'lane-ready');
 	await themed(page, 'light', 'lane-ready');
 	await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));

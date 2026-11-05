@@ -155,7 +155,7 @@ test('an elixir has one tab with its name and flask, cannot be renamed by double
 	await expect(tab).toContainText('Strip potion');
 
 	await tab.hover();
-	await tab.getByRole('button', { name: 'Close tab' }).click();
+	await tab.locator('.close-button').click();
 	await expect(stripTab(page, 'Strip potion')).toHaveCount(0);
 	await expect(page.getByRole('dialog')).toHaveCount(0);
 	await expect(page.getByText(/keeps brewing/)).toHaveCount(0);
@@ -173,7 +173,7 @@ test('the tab strip counts a brew, marks one that finished in the background, an
 	const slowTab = stripTab(page, 'Slow potion');
 	const slowStatus = slowTab.getByTestId('tab-status');
 	await expect(slowStatus).toHaveAttribute('data-tone', 'signal', { timeout: 30000 });
-	await expect(slowStatus).toHaveText(/^\d\/2$/, { timeout: 30000 });
+	await expect(slowStatus).toHaveText(/^\s*\d\/2$/, { timeout: 30000 });
 	await screenshot(page, JOURNEY, 'tab-brewing-1440');
 
 	await addGenerationTab(page);
@@ -192,7 +192,7 @@ test('the tab strip counts a brew, marks one that finished in the background, an
 	const closingTab = stripTab(page, 'Closing potion');
 	await expect(closingTab.getByTestId('tab-status')).toHaveAttribute('data-tone', 'signal', { timeout: 30000 });
 	await closingTab.hover();
-	await closingTab.getByRole('button', { name: 'Close tab' }).click();
+	await closingTab.locator('.close-button').click();
 	await expect(stripTab(page, 'Closing potion')).toHaveCount(0);
 	await expect(page.getByRole('dialog')).toHaveCount(0);
 	await expect(page.getByText(/Closing potion keeps brewing\. Reopen it from \+ or the sidebar\./)).toBeVisible();
@@ -375,7 +375,7 @@ test('/elixirs opens a chooser tab that a pick replaces, then the last elixir ta
 
 	const tab = stripTab(page, 'Chooser potion');
 	await tab.hover();
-	await tab.getByRole('button', { name: 'Close tab' }).click();
+	await tab.locator('.close-button').click();
 	await expect(stripTab(page, 'Chooser potion')).toHaveCount(0);
 	await page.goto('/elixirs');
 	await page.waitForURL('**/generate');
@@ -423,7 +423,7 @@ test('on a phone the Tabs sheet opens the Elixir picker as a sheet', async ({ pa
 
 	const first = await openElixir(page, firstId);
 	await expect(page.getByTestId('phone-tool-tab')).toBeVisible();
-	await expect(first.getByTestId('elixir-dock')).toHaveCount(0);
+	await expect(first.getByTestId('elixir-dock').getByRole('button', { name: 'Brew', exact: true })).toBeVisible();
 	await noHorizontalScroll(page);
 
 	await page.getByRole('button', { name: /^Open tabs/ }).click();

@@ -9,6 +9,7 @@ import {
 	prepare,
 	problems,
 	seedElixir,
+	settingsPanel,
 	setKnobs
 } from './elixirs-fixtures';
 
@@ -72,7 +73,7 @@ test('an automatic brew runs the photo, sends it into the edit and shows both re
 	await expect(strip).toContainText('Brew 1');
 	await expect(editor.getByRole('article', { name: 'Blue restyle, preset step' }).getByText('Waiting for Potion photo')).toBeVisible();
 	await screenshot(page, JOURNEY, 'automatic-brewing-1440');
-	await expect(strip).toContainText(/Brew 1 · \d\/2/);
+	await expect(strip).toContainText(/Brew 1\s*·\s*\d\/2/);
 	await headerShots(page, editor, 'brewing');
 	await expect(brewStatus(editor)).toHaveText('Done', { timeout: 90000 });
 
@@ -80,7 +81,7 @@ test('an automatic brew runs the photo, sends it into the edit and shows both re
 	const restyleNode = editor.getByRole('article', { name: 'Blue restyle, preset step' });
 	await expect(photo.getByText('Done · 1 image')).toBeVisible();
 	await expect(restyleNode.getByText('Done · 1 image')).toBeVisible();
-	await expect(strip).toContainText(/Brew 1 · 2\/2 · \d\d:\d\d/);
+	await expect(strip).toContainText(/Brew 1\s*·\s*2\/2\s*·\s*\d\d:\d\d/);
 	await expect(restyleNode.locator('button.pick').first()).toContainText('Potion photo');
 	await expect(editor.locator('[data-lane-node="photo"] [data-card-id="restyle"]')).toHaveCount(1);
 	const restyleOutputs = editor.getByRole('list', { name: 'Blue restyle outputs' });
@@ -128,7 +129,7 @@ test('choosing outputs between presets happens on the cards and waits for Contin
 	await expect(brewStatus(editor)).toHaveText('Waiting for your choice', { timeout: 90000 });
 
 	const photo = editor.getByRole('article', { name: 'Potion photo, preset step' });
-	await expect(editor.getByRole('complementary', { name: /settings$/ })).toHaveCount(0);
+	await expect(settingsPanel(page)).toHaveCount(0);
 	await expect(photo.getByText('Waiting for your choice')).toBeVisible();
 	await expect(photo.getByText('Pick for')).toBeVisible();
 	await expect(photo.getByRole('group', { name: 'Which step you are picking for' }).getByRole('button', { name: 'Blue restyle 1/1' })).toHaveAttribute('aria-pressed', 'true');

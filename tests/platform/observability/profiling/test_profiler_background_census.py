@@ -337,3 +337,38 @@ def test_the_census_yields_the_gil_while_it_walks_the_heap(monkeypatch):
 
     assert len(yields) >= len(ballast) // GenerationProfiler._CENSUS_YIELD_EVERY
     del ballast
+
+
+_ASYNCIO_PROBE = """
+import _asyncio
+import asyncio
+import gc
+import time
+from src.platform.observability.profiling.profiler import GenerationProfiler
+
+
+async def hop():
+    await asyncio.sleep(0)
+
+
+async def main():
+    await asyncio.gather(hop(), hop())
+
+
+asyncio.run(main())
+index, truncated = GenerationProfiler()._scan_referrers(
+    [_asyncio, _asyncio.__dict__], {id(_asyncio.__dict__): _asyncio.__dict__}, time.monotonic() + 60, None,
+)
+gc.collect()
+print("collected", len(index[id(_asyncio.__dict__)]))
+"""
+
+
+def test_the_referrer_scan_leaves_the_asyncio_extension_module_alone():
+    repo_root = Path(__file__).resolve().parents[4]
+    result = subprocess.run(
+        [sys.executable, "-c", _ASYNCIO_PROBE], cwd=repo_root, capture_output=True, text=True, timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().endswith("collected 1")

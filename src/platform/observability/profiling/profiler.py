@@ -39,6 +39,7 @@ import json
 import logging
 import threading
 import time
+import types
 import warnings
 from pathlib import Path
 from typing import Any, Optional
@@ -770,6 +771,7 @@ class GenerationProfiler:
         found: dict[int, list] = {}
         cap = self._CENSUS_MAX_REFERRERS
         get_referents = gc.get_referents
+        module_type = types.ModuleType
         for i, obj in enumerate(objects):
             if i and i % self._CENSUS_YIELD_EVERY == 0:
                 if cancel is not None and cancel.is_set():
@@ -778,7 +780,7 @@ class GenerationProfiler:
                     return found, True
                 time.sleep(0)
             try:
-                referents = get_referents(obj)
+                referents = (obj.__dict__,) if type(obj) is module_type else get_referents(obj)
             except Exception:
                 continue
             for ref in referents:

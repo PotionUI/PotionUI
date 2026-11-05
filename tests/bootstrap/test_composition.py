@@ -58,6 +58,8 @@ report = {
         "runtime_plugins": r.plugins is c.plugin_registry,
         "prompt_writer_plugins": c.prompt_enhancement_manager.plugins is c.plugin_registry,
         "indexer_plugins": indexer.plugins is c.plugin_registry,
+        "generation_hooks_fire_through_the_container_plugins": c.generation_orchestrator.plugin_registry is c.plugin_registry,
+        "generation_prompt_transforms_use_the_container_plugins": c.generation_orchestrator._prompt_expander.plugin_registry is c.plugin_registry,
         "llm_provider_registry": c.llm_service.types.provider_registry is c.plugin_registry.llm_provider_registry,
         "llm_profile_resolver": c.llm_controller.profile_resolver is c.llm_service.profiles,
         "facade_repo": c.generation_history_facade.generation_repo is c.generation_repository,

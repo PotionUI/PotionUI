@@ -1313,6 +1313,7 @@ def build_container() -> AppContainer:
         output_broadcaster=output_broadcaster,
         limit_guard=limit_guard,
         prompt_resource_source_registry=prompt_resource_source_registry,
+        plugin_registry=plugin_registry,
     )
 
     # Initialize generation history manager

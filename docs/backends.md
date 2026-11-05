@@ -262,7 +262,7 @@ grouped by engine. For each one you set:
 - connection fields, if the engine has any.
 - for a `native` backend (local or a remote native worker), the engine switches on its
   **Optimizations** tab, in three sections: Speed (`native_fp8_matmul`, `native_nvfp4_matmul`,
-  `native_lora_fused`, `native_torch_compile`, `native_qwen3_te_bf16`, `native_sol_attn_backend`),
+  `native_fused_elementwise`, `native_lora_fused`, `native_torch_compile`, `native_qwen3_te_bf16`, `native_sol_attn_backend`),
   Memory (`native_stream_prefetch`, `native_fp8_quantize`, `native_min_inference_memory_gb`,
   `native_ltx_decode_tile_px`, `native_ltx_decode_tile_frames`) and Debug logging
   (`native_sol_attn_debug`), plus the existing attention pin (`native_attention_backend`). They are

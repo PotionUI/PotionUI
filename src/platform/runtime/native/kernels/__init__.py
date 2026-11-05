@@ -9,7 +9,14 @@ from .dispatch import (
     reset_backend_cache,
 )
 from .fp8_linear import Fp8ScaledLinear
-from .fused_elementwise import ActGate, act_gate, gated_residual, norm_args, norm_modulate
+from .fused_elementwise import (
+    ActGate,
+    act_gate,
+    fused_elementwise_disabled_reason,
+    gated_residual,
+    norm_args,
+    norm_modulate,
+)
 from .gemm import GemmSupport, gemm_support
 from .hardware import (
     FLASH,
@@ -66,6 +73,7 @@ __all__ = [
     "disable_weight_init",
     "fast_path",
     "fp8_ops",
+    "fused_elementwise_disabled_reason",
     "gated_residual",
     "gemm_support",
     "get_attention_backend",

@@ -108,8 +108,9 @@ reads a GEMM capability itself.
 | `fp8_linear.py`, `nvfp4_linear.py` | `Fp8ScaledLinear` (and `Nvfp4Linear`, reached as `fp8_ops.Linear`) | The scaled-fp8, int8 and ConvRot layer, and the nvfp4 layer, with their dequant-on-forward and GEMM forwards. |
 | `operations.py` | `pick_operations`, `detect_quant_format`, `fp8_ops`, `QUANT_FP8_SCALED` | Chooses the layer namespace from a checkpoint's storage dtype and quant format. |
 | `lora_math.py` | `partition_output_branch_deltas`, `invalidate_lora_fused_cache`, `log_lora_path_summary` | The runtime LoRA delta math the layers apply on forward. |
+| `fused_elementwise.py`, `fused_elementwise_triton.py` | `norm_modulate`, `gated_residual`, `act_gate`, `ActGate`, `norm_args`, `fused_elementwise_disabled_reason` (also on every `operations` namespace) | The adaLN norm + modulate, gated residual and FFN activation every DiT family calls. With `native_fused_elementwise` off, or on a machine, dtype or layout the Triton kernels do not take, they run the per-family eager code bit for bit. With it on, a CUDA bf16/fp16 call runs one Triton kernel (fp32 math, one rounding), registered with `torch.library.triton_op` so `torch.compile` traces through it; a kernel that fails to load turns the path off for the process. |
 
-Live runtime flags (`native_fp8_matmul`, `native_nvfp4_matmul`, `native_lora_fused`,
+Live runtime flags (`native_fp8_matmul`, `native_nvfp4_matmul`, `native_fused_elementwise`, `native_lora_fused`,
 `native_attention_backend`) are read at call time, never frozen into the snapshot. Tests fake the
 hardware with the `install_capabilities` fixture (`tests/fixtures/kernel_capabilities.py`) instead of a GPU.
 

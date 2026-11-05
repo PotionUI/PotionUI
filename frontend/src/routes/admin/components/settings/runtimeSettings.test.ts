@@ -72,6 +72,7 @@ describe('runtimeSettingKeys', () => {
 		expect(runtimeSettingKeys('backend')).toEqual([
 			'native_fp8_matmul',
 			'native_nvfp4_matmul',
+			'native_fused_elementwise',
 			'native_lora_fused',
 			'native_torch_compile',
 			'native_qwen3_te_bf16',

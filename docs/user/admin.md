@@ -98,6 +98,7 @@ Every native backend, the local one and each remote native worker, has its own *
 
 - **fp8 fast multiply** (`native_fp8_matmul`, off) — run fp8 checkpoints on fp8 tensor cores (RTX 40/50 and newer). Next generation.
 - **nvfp4 fast multiply** (`native_nvfp4_matmul`, off) — run nvfp4 checkpoints on fp4 tensor cores (RTX 50 and newer). Next generation.
+- **Fused block steps** (`native_fused_elementwise`, off) — run the norm, modulation, gate and activation steps of each diffusion block as single combined GPU operations (NVIDIA GPUs with Triton). Can change the output slightly. Next generation.
 - **Fuse LoRAs into the model** (`native_lora_fused`, on) — apply a layer's LoRAs in one fused step; off is only for comparison. Next generation.
 - **Compile the model (torch.compile)** (`native_torch_compile`, off) — compile the model's repeated block when it is fully on the GPU. Next model load.
 - **Qwen3 text encoder in bf16** (`native_qwen3_te_bf16`, off) — run the Qwen3 text encoder in bf16 instead of fp32. Next generation.

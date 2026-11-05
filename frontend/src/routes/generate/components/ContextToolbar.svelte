@@ -263,6 +263,13 @@
 	</span>
 {/snippet}
 
+{#snippet sessionStep()}
+	<div class="ctx-step flex min-w-0 shrink {stepPad}" data-context-step>
+		<span id="{uid}-session" class={labelClass} data-context-label>Session</span>
+		<SessionControl session={session!} actions={actions!} {fieldLabels} compact={fit.compact} labelId="{uid}-session" />
+	</div>
+{/snippet}
+
 {#snippet divider()}
 	<span class="mx-1 h-5 w-px flex-shrink-0 bg-line-strong" aria-hidden="true"></span>
 {/snippet}
@@ -283,6 +290,10 @@
 			<div class="flex min-w-0 flex-shrink items-center gap-2 pl-3 pr-2 sm:pl-4" data-context-step data-testid="context-leading">
 				{@render leading()}
 			</div>
+			{#if showSession}
+				{@render cut()}
+				{@render sessionStep()}
+			{/if}
 		{:else}
 		<div class="ctx-step flex flex-shrink-0 {stepPad}" data-context-step>
 			<span id="{uid}-preset" class={labelClass} data-context-label>Preset</span>
@@ -406,10 +417,7 @@
 
 		{#if showSession}
 			{@render cut()}
-			<div class="ctx-step flex min-w-0 shrink {stepPad}" data-context-step>
-				<span id="{uid}-session" class={labelClass} data-context-label>Session</span>
-				<SessionControl session={session!} actions={actions!} {fieldLabels} compact={fit.compact} labelId="{uid}-session" />
-			</div>
+			{@render sessionStep()}
 		{/if}
 		{/if}
 	</div>

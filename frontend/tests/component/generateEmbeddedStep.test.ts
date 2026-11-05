@@ -146,9 +146,13 @@ describe('Generate page while an Elixir step is open in preset mode', () => {
 		const target = mountPage();
 		await until(() => target.textContent?.includes(MARKER) ?? false, 'the step form');
 		const bar = target.querySelector('[data-testid="context-bar"]')!;
-		expect(bar.textContent).toContain('Saved automatically');
+		expect(bar.textContent).not.toContain('Saved automatically');
 		expect(bar.querySelector('[data-testid="step-edit-actions"]')).toBeNull();
 		expect(bar.querySelector('[data-testid="context-tools"]')).not.toBeNull();
+		expect(bar.querySelector('[data-testid="context-leading"] [data-testid="step-edit-bar"]')).not.toBeNull();
+		const session = bar.querySelector('[data-testid="context-zone"] [aria-labelledby], [data-testid="context-zone"] [data-testid^="session"]');
+		expect(bar.textContent).toContain('Session');
+		expect(session).not.toBeNull();
 	});
 
 	it('shows the lane and not the form until the Elixir tab has taken the step over', async () => {

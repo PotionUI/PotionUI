@@ -61,56 +61,45 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-describe('the edit bar on desktop', () => {
-	it('is the one header: Back, Editing, switcher, note, Discard and Save to elixir', () => {
+const sessionState = {
+	sessionControlsEnabled: true,
+	currentSession: { id: 's1', name: 'Bottle orbit' },
+	hasUnsavedChanges: false,
+	isQuickSaving: false
+};
+const sessionActions = {};
+
+const removed = ['Editing', 'Following', 'Saved automatically', 'Test runs go to History', 'Steps'];
+
+function expectNoLeadExtras() {
+	const text = document.body.textContent ?? '';
+	for (const word of removed) expect(text).not.toContain(word);
+	expect(document.body.querySelector('[data-testid="step-follow-chip"]')).toBeNull();
+	expect(document.body.querySelector('[data-testid="step-autosaved"]')).toBeNull();
+	expect(document.body.querySelector('[data-testid="step-history-note"]')).toBeNull();
+	expect(byLabel('Previous step')).toBeNull();
+	expect(byLabel('Next step')).toBeNull();
+}
+
+describe('the edit bar on desktop in copy mode', () => {
+	it('is Back plus Discard and Save to elixir, with nothing else', () => {
 		renderDesktop(model());
-		const text = document.body.textContent ?? '';
 		expect(document.body.querySelectorAll('[data-testid="step-edit-bar"]')).toHaveLength(1);
-		expect(text).toContain('Back to Potion study');
-		expect(text).toContain('Editing');
-		expect(text).toContain('Orbit left');
-		expect(text).toContain('1/3');
-		expect(text).toContain('Steps');
-		expect(text).toContain('Test runs go to History');
+		expect(document.body.textContent).toContain('Back to Potion study');
 		expect(byText('Discard')).toBeTruthy();
 		expect(byText('Save to elixir')).toBeTruthy();
+		expectNoLeadExtras();
 	});
 
 	it('routes the buttons to the model', () => {
 		const m = model();
 		renderDesktop(m);
-		byLabel('Next step')!.click();
-		expect(m.go).toHaveBeenCalledWith('b');
 		byText('Save to elixir')!.click();
 		expect(m.save).toHaveBeenCalled();
 		byText('Discard')!.click();
 		expect(m.back).toHaveBeenCalled();
-	});
-
-	it('disables Previous on the first step and Next on the last', () => {
-		renderDesktop(model());
-		expect(byLabel('Previous step')!.disabled).toBe(true);
-		expect(byLabel('Next step')!.disabled).toBe(false);
-		unmount(instance!);
-		for (const item of extra.splice(0)) unmount(item);
-		document.body.innerHTML = '';
-		renderDesktop(model({ index: 2 }));
-		expect(byLabel('Next step')!.disabled).toBe(true);
-		expect(byLabel('Previous step')!.disabled).toBe(false);
-	});
-
-	it('lists every step with its preset in the Steps menu and switches on pick', () => {
-		const m = model();
-		renderDesktop(m);
-		const trigger = buttons().find((button) => button.textContent?.includes('Steps'))!;
-		trigger.click();
-		flushSync();
-		const items = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
-		expect(items).toHaveLength(3);
-		expect(items[1].textContent).toContain('Krea 2 · Text to image');
-		expect(items[0].getAttribute('aria-checked')).toBe('true');
-		items[2].click();
-		expect(m.go).toHaveBeenCalledWith('c');
+		byText('Back to Potion study')!.click();
+		expect(m.back).toHaveBeenCalledTimes(2);
 	});
 
 	it('shows Unsaved once there are edits', () => {
@@ -121,52 +110,40 @@ describe('the edit bar on desktop', () => {
 	it('locks the controls while saving', () => {
 		renderDesktop(model({ saving: true }));
 		expect(byText('Discard')!.disabled).toBe(true);
-		expect(byLabel('Next step')!.disabled).toBe(true);
+		expect(byText('Back to Potion study')!.disabled).toBe(true);
 	});
 });
 
 describe('the edit bar for a followed step', () => {
-	it('shows the session and Saved automatically, with no Save or Discard', () => {
+	it('is only Back, with no Save, Discard or Unsaved', () => {
 		renderDesktop(model({ follow: true, sessionName: 'Bottle orbit', stepLabel: 'Close-up reveal', index: 1 }));
-		expect(document.body.querySelector('[data-testid="step-follow-chip"]')?.textContent).toContain('Following Bottle orbit');
-		expect(document.body.querySelector('[data-testid="step-autosaved"]')?.textContent).toContain('Saved automatically');
+		expect(document.body.textContent).toContain('Back to Potion study');
 		expect(byText('Save to elixir')).toBeUndefined();
 		expect(byText('Discard')).toBeUndefined();
 		expect(document.body.querySelector('[data-testid="step-unsaved"]')).toBeNull();
+		expectNoLeadExtras();
 	});
 });
 
 describe('the edit bar on a phone', () => {
-	it('is one row: back arrow, Editing, menu and Save', () => {
+	it('in copy mode is Back and Save only', () => {
 		const m = model();
 		render(StepEditBar, { model: m, part: 'phone' });
 		expect(byLabel('Back to Potion study')).toBeTruthy();
-		expect(document.body.textContent).toContain('Editing');
-		expect(byLabel('Steps')).toBeTruthy();
 		expect(byText('Save')).toBeTruthy();
-		expect(document.body.textContent).not.toContain('Test runs go to History');
+		expect(byLabel('Steps')).toBeNull();
+		expectNoLeadExtras();
 		byText('Save')!.click();
 		expect(m.save).toHaveBeenCalled();
 	});
 
-	it('opens a Steps sheet with the steps and Discard changes', () => {
-		const m = model();
-		render(StepEditBar, { model: m, part: 'phone' });
-		byLabel('Steps')!.click();
-		flushSync();
-		expect(document.body.querySelector('.lane-menu.sheet')).not.toBeNull();
-		const items = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
-		expect(items).toHaveLength(3);
-		const discard = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.includes('Discard changes'));
-		expect(discard).toBeTruthy();
-		discard!.click();
-		expect(m.back).toHaveBeenCalled();
-	});
-
-	it('has no Save and no Discard for a followed step', () => {
-		render(StepEditBar, { model: model({ follow: true }), part: 'phone' });
-		expect(byText('Save')).toBeUndefined();
-		expect(document.body.querySelector('[data-testid="step-follow-chip"]')).not.toBeNull();
+	it('for a followed step is Back and the session control, with no Save', () => {
+		render(StepEditBar, { model: model({ follow: true }), part: 'phone', session: sessionState, actions: sessionActions });
+		expect(byLabel('Back to Potion study')).toBeTruthy();
+		expect(byText('Save to elixir')).toBeUndefined();
+		expect(document.body.querySelector('[data-testid="step-session"] [data-testid="session-save"]')).not.toBeNull();
+		expect(document.body.querySelector('[data-testid="step-session"]')?.textContent).toContain('Bottle orbit');
+		expectNoLeadExtras();
 	});
 });
 

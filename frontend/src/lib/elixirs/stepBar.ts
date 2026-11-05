@@ -35,11 +35,3 @@ export function publishStepBar(toolTabId: string, model: StepBarModel | null): v
 		return { ...current, [toolTabId]: model };
 	});
 }
-
-export function stepNeighbours(steps: StepOption[], index: number): { previous: StepOption | null; next: StepOption | null; label: string } {
-	return {
-		previous: index > 0 ? steps[index - 1] : null,
-		next: index >= 0 && index < steps.length - 1 ? steps[index + 1] : null,
-		label: `${index + 1}/${steps.length}`
-	};
-}

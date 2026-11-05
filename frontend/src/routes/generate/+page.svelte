@@ -11,6 +11,7 @@
 	import { allElixirsOpen } from '$lib/elixirs/events';
 	import { stepBars } from '$lib/elixirs/stepBar';
 	import StepEditBar from '$lib/components/elixirs/StepEditBar.svelte';
+	import SessionScope from '$lib/components/session/SessionScope.svelte';
 	import StepDialogs from '$lib/components/elixirs/StepDialogs.svelte';
 	import PhoneToolTabView from '$lib/tool-tabs/PhoneToolTabView.svelte';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
@@ -1840,7 +1841,22 @@
 
 	{#if embeddedActive && stepBar}
 		{#if $isMobile}
-			<StepEditBar model={stepBar} part="phone" />
+			{#if stepBar.follow && $activeTab}
+				<SessionScope
+					presetId={$activeTab.selectedPreset}
+					currentMode={$activeTab.selectedMode}
+					tabId={$activeTab.id}
+					presetVersion={presets.find((p) => p.id === $activeTab.selectedPreset)?.version}
+					availableModes={modesPerTab[$activeTab.id] || []}
+					let:session
+					let:actions
+					let:fieldLabels
+				>
+					<StepEditBar model={stepBar} part="phone" {session} {actions} {fieldLabels} />
+				</SessionScope>
+			{:else}
+				<StepEditBar model={stepBar} part="phone" />
+			{/if}
 		{/if}
 		<StepDialogs model={stepBar} />
 	{/if}

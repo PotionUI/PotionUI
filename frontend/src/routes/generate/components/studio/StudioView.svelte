@@ -10,7 +10,6 @@
 	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import type { PresetStyle } from '$lib/services/api/index';
 	import { representativeDirectorPrompt } from '$lib/utils/videoDirector';
-	import SessionScope from '$lib/components/session/SessionScope.svelte';
 	import StudioCanvas from './StudioCanvas.svelte';
 	import StudioTopBar from './StudioTopBar.svelte';
 	import StudioDock from './StudioDock.svelte';
@@ -116,16 +115,6 @@
 		{onMoveToWorkbench}
 	/>
 </div>
-
-{#if tab.embedded?.persistence === 'session'}
-	<SessionScope
-		presetId={tab.selectedPreset}
-		currentMode={tab.selectedMode}
-		tabId={tab.id}
-		presetVersion={presets.find((p) => p.id === tab.selectedPreset)?.version}
-		{availableModes}
-	/>
-{/if}
 
 {#if openSheet !== 'settings'}
 	<GenerationFormSeed {tab} {videoDirectorActive} {onFormDataChange} />

@@ -15,6 +15,7 @@ from ..io.quant_formats import (
     parse_comfy_quant,
 )
 from . import stream_wait as _stream_wait
+from .fused_elementwise import ActGate, act_gate, gated_residual, norm_args, norm_modulate
 from .lora_math import _note_lora_path, linear_with_lora_deltas
 
 
@@ -64,6 +65,12 @@ class CastWeightBiasOp:
 
 
 class disable_weight_init:
+    norm_modulate = staticmethod(norm_modulate)
+    gated_residual = staticmethod(gated_residual)
+    act_gate = staticmethod(act_gate)
+    norm_args = staticmethod(norm_args)
+    ActGate = ActGate
+
     class Linear(torch.nn.Linear, CastWeightBiasOp):
         def reset_parameters(self) -> None:
             return None

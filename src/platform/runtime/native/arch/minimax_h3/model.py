@@ -346,9 +346,8 @@ class MiniMaxH3Attention(nn.Module):
         return q_full, k_full, v_full
 
 
-def _swiglu(fc1, fc2, x: Tensor) -> Tensor:
-    gate, value = fc1(x).chunk(2, dim=-1)
-    return fc2(F.silu(gate) * value)
+def _swiglu(ops, fc1, fc2, x: Tensor) -> Tensor:
+    return fc2(ops.act_gate(fc1(x), mode="swiglu"))
 
 
 class MiniMaxH3MLP(nn.Module):
@@ -369,6 +368,7 @@ class MiniMaxH3MLP(nn.Module):
         super().__init__()
         self.fc1 = operations.Linear(hidden_size, 2 * ffn_dim, bias=False, dtype=dtype, device=device)
         self.fc2 = operations.Linear(ffn_dim, hidden_size, bias=False, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor, seq_chunk_rows: int = 0) -> Tensor:
         if seq_chunk_rows and seq_chunk_rows < x.shape[-2]:
@@ -381,10 +381,10 @@ class MiniMaxH3MLP(nn.Module):
                 for x_chunk in x.split(seq_chunk_rows, dim=-2):
                     rows = x_chunk.shape[-2]
                     with lora_row_window(start, rows):
-                        out.narrow(-2, start, rows).copy_(_swiglu(fc1, fc2, x_chunk))
+                        out.narrow(-2, start, rows).copy_(_swiglu(self.operations, fc1, fc2, x_chunk))
                     start += rows
             return out
-        return _swiglu(self.fc1, self.fc2, x)
+        return _swiglu(self.operations, self.fc1, self.fc2, x)
 
 
 class MiniMaxH3RefinerBlock(nn.Module):
@@ -438,6 +438,7 @@ class MiniMaxH3Block(nn.Module):
         self.mlp = MiniMaxH3MLP(hidden_size, ffn_dim, operations, dtype=dtype, device=device)
         self.adaln_proj = MiniMaxH3AdalnProj(t_dim, hidden_size, 6, MINIMAX_H3_MODALITY_NUM, apply_silu,
                                               operations, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor, temb: Tensor, adaln_indices: Tensor, rotary_emb: tuple[Tensor, Tensor],
                 sparse_attn: SolAttnContext | SlaAttnContext | None = None,
@@ -452,26 +453,18 @@ class MiniMaxH3Block(nn.Module):
             m.to(x.dtype) for m in self.adaln_proj(temb)
         )
 
-        # The modulation multiply/add below is per-row and elementwise (not
-        # the memory cost seq_chunk_rows targets, see model.py's forward-stage
-        # docstring), so it stays a plain full-tensor op; only attn/mlp's own
-        # internal transients get chunked.
-        residual = x
-        h = self.norm1(x)
-        h = h * (1.0 + scale_msa.index_select(0, adaln_indices)) + shift_msa.index_select(0, adaln_indices)
+        ops = self.operations
+        h = ops.norm_modulate(x, **ops.norm_args(self.norm1), scale=scale_msa, shift=shift_msa, index=adaln_indices)
         # Only the VDN wrapper takes a layout; the dense attention has no such
         # parameter, so a layout is passed rather than defaulted through.
         h = (self.attn(h, rotary_emb, sparse_attn, seq_chunk_rows, vdn_layout)
              if vdn_layout is not None
              else self.attn(h, rotary_emb, sparse_attn, seq_chunk_rows))
-        x = residual + gate_msa.index_select(0, adaln_indices) * h
+        x = ops.gated_residual(x, h, gate_msa, index=adaln_indices)
 
-        residual = x
-        h = self.norm2(x)
-        h = h * (1.0 + scale_mlp.index_select(0, adaln_indices)) + shift_mlp.index_select(0, adaln_indices)
+        h = ops.norm_modulate(x, **ops.norm_args(self.norm2), scale=scale_mlp, shift=shift_mlp, index=adaln_indices)
         h = self.mlp(h, effective_mlp_chunk_rows(seq_chunk_rows, ffn_chunk_rows))
-        x = residual + gate_mlp.index_select(0, adaln_indices) * h
-        return x
+        return ops.gated_residual(x, h, gate_mlp, index=adaln_indices)
 
 
 class MiniMaxH3FinalLayer(nn.Module):
@@ -489,6 +482,7 @@ class MiniMaxH3FinalLayer(nn.Module):
         super().__init__()
         self.norm = operations.RMSNorm(hidden_size, eps=eps, dtype=dtype, device=device)
         self.adaln_proj = MiniMaxH3AdalnProj(t_dim, hidden_size, 2, 1, apply_silu, operations, dtype=dtype, device=device)
+        self.operations = operations
         # The output heads are one of this checkpoint's fp32 islands.
         self.video_out = operations.Linear(hidden_size, video_dim, bias=True, dtype=torch.float32, device=device)
         self.audio_out = operations.Linear(hidden_size, audio_dim, bias=True, dtype=torch.float32, device=device)
@@ -496,9 +490,9 @@ class MiniMaxH3FinalLayer(nn.Module):
     def forward(self, x: Tensor, temb: Tensor, timestep_indices: Tensor) -> tuple[Tensor, Tensor]:
         # split shift-then-scale, indexed by TIMESTEP only (not modality).
         shift, scale = self.adaln_proj(temb)
-        shift = shift.index_select(0, timestep_indices)
-        scale = scale.index_select(0, timestep_indices)
-        h = self.norm(x) * (1.0 + scale) + shift
+        h = self.operations.norm_modulate(
+            x, **self.operations.norm_args(self.norm), scale=scale, shift=shift, index=timestep_indices,
+        )
         h = _cast_to(h, self.video_out)
         return self.video_out(h), self.audio_out(h)
 

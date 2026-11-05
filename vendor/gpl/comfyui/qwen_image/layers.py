@@ -26,7 +26,6 @@ from typing import Callable
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 
 from vendor.gpl.comfyui.flux.math_ops import apply_rope1
@@ -97,9 +96,10 @@ class _GELU(nn.Module):
     def __init__(self, dim_in, dim_out, operations, dtype=None, device=None):
         super().__init__()
         self.proj = operations.Linear(dim_in, dim_out, bias=True, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x):
-        return F.gelu(self.proj(x), approximate="tanh")
+        return self.operations.act_gate(self.proj(x), mode="gelu_tanh")
 
 
 class _FeedForward(nn.Module):
@@ -183,32 +183,29 @@ class _Block(nn.Module):
         self.txt_norm2 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype, device=device)
         self.txt_mlp = _FeedForward(dim, operations, dtype=dtype, device=device)
         self.attn = _JointAttention(dim, head_dim, heads, operations, dtype=dtype, device=device)
+        self.operations = operations
 
     @staticmethod
-    def _modulate(x, mod, timestep_zero_index=None):
+    def _modulate(ops, x, mod, timestep_zero_index=None, *, norm=None, eps=1e-6):
         shift, scale, gate = torch.chunk(mod, 3, dim=-1)
         if timestep_zero_index is None:
-            return torch.addcmul(shift.unsqueeze(1), x, 1 + scale.unsqueeze(1)), gate.unsqueeze(1)
-        # ``mod`` was computed from a batch-doubled temb (real timestep rows
-        # followed by the zeroed-timestep rows, see QwenImageDiT.forward) — the
-        # two halves modulate two different SPANS of the same token sequence:
-        # shift[:actual_batch] is the real-token modulation (applied to
-        # x[:, :timestep_zero_index]), the other half is the zero-timestep
-        # modulation (applied to the reference-token span, x[:, timestep_zero_index:]).
+            return ops.norm_modulate(
+                x, norm=norm, eps=eps, scale=scale.unsqueeze(1), shift=shift.unsqueeze(1), addcmul=True,
+            ), gate.unsqueeze(1)
         actual_batch = shift.shape[0] // 2
-        shift, shift_zero = shift[:actual_batch], shift[actual_batch:]
-        scale, scale_zero = scale[:actual_batch], scale[actual_batch:]
-        gate, gate_zero = gate[:actual_batch], gate[actual_batch:]
-        real = torch.addcmul(shift.unsqueeze(1), x[:, :timestep_zero_index], 1 + scale.unsqueeze(1))
-        zero = torch.addcmul(shift_zero.unsqueeze(1), x[:, timestep_zero_index:], 1 + scale_zero.unsqueeze(1))
-        return torch.cat([real, zero], dim=1), (gate.unsqueeze(1), gate_zero.unsqueeze(1))
+        out = ops.norm_modulate(
+            x, norm=norm, eps=eps, addcmul=True,
+            spans=(timestep_zero_index, x.shape[1] - timestep_zero_index),
+            scale=(scale[:actual_batch].unsqueeze(1), scale[actual_batch:].unsqueeze(1)),
+            shift=(shift[:actual_batch].unsqueeze(1), shift[actual_batch:].unsqueeze(1)),
+        )
+        return out, (gate[:actual_batch].unsqueeze(1), gate[actual_batch:].unsqueeze(1))
 
     @staticmethod
-    def _apply_gate(x, y, gate, timestep_zero_index=None):
+    def _apply_gate(ops, x, y, gate, timestep_zero_index=None):
         if timestep_zero_index is None:
-            return torch.addcmul(y, gate, x)
-        gate_real, gate_zero = gate
-        return y + torch.cat([x[:, :timestep_zero_index] * gate_real, x[:, timestep_zero_index:] * gate_zero], dim=1)
+            return ops.gated_residual(y, x, gate, addcmul=True)
+        return ops.gated_residual(y, x, gate, spans=(timestep_zero_index, x.shape[1] - timestep_zero_index))
 
     def forward(self, img, txt, mask, temb, rope, timestep_zero_index=None):
         img_mod_params = self.img_mod(temb)
@@ -220,17 +217,18 @@ class _Block(nn.Module):
         img_mod1, img_mod2 = img_mod_params.chunk(2, dim=-1)
         txt_mod1, txt_mod2 = txt_mod_params.chunk(2, dim=-1)
 
-        img_m, img_gate1 = self._modulate(self.img_norm1(img), img_mod1, timestep_zero_index)
-        txt_m, txt_gate1 = self._modulate(self.txt_norm1(txt), txt_mod1)
+        ops = self.operations
+        img_m, img_gate1 = self._modulate(ops, img, img_mod1, timestep_zero_index, norm="layer", eps=self.img_norm1.eps)
+        txt_m, txt_gate1 = self._modulate(ops, txt, txt_mod1, norm="layer", eps=self.txt_norm1.eps)
         img_attn, txt_attn = self.attn(img_m, txt_m, mask, rope)
 
-        img = self._apply_gate(img_attn, img, img_gate1, timestep_zero_index)
-        txt = torch.addcmul(txt, txt_gate1, txt_attn)
+        img = self._apply_gate(ops, img_attn, img, img_gate1, timestep_zero_index)
+        txt = ops.gated_residual(txt, txt_attn, txt_gate1, addcmul=True)
 
-        img_m2, img_gate2 = self._modulate(self.img_norm2(img), img_mod2, timestep_zero_index)
-        img = self._apply_gate(self.img_mlp(img_m2), img, img_gate2, timestep_zero_index)
-        txt_m2, txt_gate2 = self._modulate(self.txt_norm2(txt), txt_mod2)
-        txt = torch.addcmul(txt, txt_gate2, self.txt_mlp(txt_m2))
+        img_m2, img_gate2 = self._modulate(ops, img, img_mod2, timestep_zero_index, norm="layer", eps=self.img_norm2.eps)
+        img = self._apply_gate(ops, self.img_mlp(img_m2), img, img_gate2, timestep_zero_index)
+        txt_m2, txt_gate2 = self._modulate(ops, txt, txt_mod2, norm="layer", eps=self.txt_norm2.eps)
+        txt = ops.gated_residual(txt, self.txt_mlp(txt_m2), txt_gate2, addcmul=True)
         return txt, img
 
 
@@ -240,7 +238,10 @@ class _LastLayer(nn.Module):
         self.silu = nn.SiLU()
         self.linear = operations.Linear(dim, dim * 2, bias=True, dtype=dtype, device=device)
         self.norm = operations.LayerNorm(dim, eps=eps, elementwise_affine=False, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x, cond):
         scale, shift = torch.chunk(self.linear(self.silu(cond)), 2, dim=1)
-        return torch.addcmul(shift[:, None, :], self.norm(x), (1 + scale)[:, None, :])
+        return self.operations.norm_modulate(
+            x, norm="layer", eps=self.norm.eps, scale=scale[:, None, :], shift=shift[:, None, :], addcmul=True,
+        )

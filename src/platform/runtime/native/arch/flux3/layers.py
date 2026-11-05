@@ -32,24 +32,6 @@ def rmsnorm_rope(x: Tensor, scale: Tensor, rope: Rope, eps: float = 1e-6) -> Ten
     return rotated.reshape(b, h, n, d).to(x.dtype)
 
 
-def modulate(normed: Tensor, segments: list[Modulation]) -> Tensor:
-    parts = []
-    start = 0
-    for length, shift, scale, _ in segments:
-        parts.append(torch.addcmul(shift, 1.0 + scale, normed[:, start : start + length]))
-        start += length
-    return parts[0] if len(parts) == 1 else torch.cat(parts, dim=1)
-
-
-def apply_gate(out: Tensor, segments: list[Modulation]) -> Tensor:
-    parts = []
-    start = 0
-    for length, _, _, gate in segments:
-        parts.append(out[:, start : start + length] * gate)
-        start += length
-    return parts[0] if len(parts) == 1 else torch.cat(parts, dim=1)
-
-
 class RMSNormScale(nn.Module):
     def __init__(self, dim: int, dtype=None, device=None) -> None:
         super().__init__()
@@ -89,6 +71,7 @@ class ModeModulation(nn.Module):
 class LastLayer(nn.Module):
     def __init__(self, hidden: int, out_channels: int, operations, dtype=None, device=None) -> None:
         super().__init__()
+        self.operations = operations
         self.linear = operations.Linear(hidden, out_channels, bias=False, dtype=dtype, device=device)
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
@@ -97,8 +80,9 @@ class LastLayer(nn.Module):
 
     def forward(self, x: Tensor, vec: Tensor) -> Tensor:
         shift, scale = self.adaLN_modulation(vec).chunk(2, dim=-1)
-        normed = F.layer_norm(x, (x.shape[-1],), eps=1e-6)
-        return self.linear(torch.addcmul(shift[:, None], 1.0 + scale[:, None], normed))
+        return self.linear(self.operations.norm_modulate(
+            x, norm="layer", eps=1e-6, scale=scale[:, None], shift=shift[:, None], addcmul=True,
+        ))
 
 
 class Block(nn.Module):
@@ -108,6 +92,7 @@ class Block(nn.Module):
         super().__init__()
         self.heads = heads
         self.fused_qkv = fused_qkv
+        self.operations = operations
         if fused_qkv:
             self.qkv = operations.Linear(hidden, hidden * 3, bias=False, dtype=dtype, device=device)
         else:
@@ -124,8 +109,12 @@ class Block(nn.Module):
         return t.reshape(b, n, self.heads, -1).transpose(1, 2)
 
     def forward(self, x: Tensor, rope: Rope, segments: list[Modulation]) -> Tensor:
-        normed = F.layer_norm(x, (x.shape[-1],), eps=1e-6)
-        x_mod = modulate(normed, segments)
+        ops = self.operations
+        spans = [length for length, _, _, _ in segments]
+        x_mod = ops.norm_modulate(
+            x, norm="layer", eps=1e-6, spans=spans, addcmul=True,
+            scale=[scale for _, _, scale, _ in segments], shift=[shift for _, shift, _, _ in segments],
+        )
         if self.fused_qkv:
             q, k, v = self.qkv(x_mod).chunk(3, dim=-1)
         else:
@@ -135,6 +124,5 @@ class Block(nn.Module):
         attn = _attention(q, k, v, heads=self.heads)
         b, _, n, _ = attn.shape
         attn = attn.transpose(1, 2).reshape(b, n, -1)
-        gate_in, up = self.mlp_in(x_mod).chunk(2, dim=-1)
-        out = self.attn_out(attn) + self.mlp_out(F.silu(gate_in) * up)
-        return x + apply_gate(out, segments)
+        out = self.attn_out(attn) + self.mlp_out(ops.act_gate(self.mlp_in(x_mod), mode="swiglu"))
+        return ops.gated_residual(x, out, [gate for _, _, _, gate in segments], spans=spans)

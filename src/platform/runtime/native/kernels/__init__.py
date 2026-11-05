@@ -9,6 +9,7 @@ from .dispatch import (
     reset_backend_cache,
 )
 from .fp8_linear import Fp8ScaledLinear
+from .fused_elementwise import ActGate, act_gate, gated_residual, norm_args, norm_modulate
 from .gemm import GemmSupport, gemm_support
 from .hardware import (
     FLASH,
@@ -38,6 +39,7 @@ from .operations import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, pick_ope
 from .row_chunks import QUANT_TILE_ROWS, activation_quant_chunk_rows
 
 __all__ = [
+    "ActGate",
     "BACKEND_PRIORITY",
     "FLASH",
     "SAGE",
@@ -54,6 +56,7 @@ __all__ = [
     "GpuGeneration",
     "QuantFormat",
     "activation_quant_chunk_rows",
+    "act_gate",
     "attention",
     "available_backends",
     "capabilities",
@@ -62,12 +65,15 @@ __all__ = [
     "disable_weight_init",
     "fast_path",
     "fp8_ops",
+    "gated_residual",
     "gemm_support",
     "get_attention_backend",
     "get_backend_override",
     "known_backends",
     "log_lora_path_summary",
     "manual_cast",
+    "norm_args",
+    "norm_modulate",
     "nvfp4_dequant_table_bytes",
     "nvfp4_path_summary",
     "partition_output_branch_deltas",

@@ -21,6 +21,10 @@ class RMSNorm(nn.Module):
         return normed.to(x.dtype) * self.weight
 
 
+def rms_args(norm: RMSNorm) -> dict:
+    return {"norm": "rms_fp32", "eps": EPS, "weight": norm.weight, "weight_cast": False}
+
+
 def situ(hidden: Tensor, gate: Tensor) -> Tensor:
     return (4.0 * torch.tanh(gate / 4.0) * torch.sigmoid(gate)) * (25.0 * torch.tanh(hidden / 25.0))
 
@@ -108,6 +112,7 @@ class Block(nn.Module):
         self.norm2 = RMSNorm(dim, **kw)
         self.q_norm = RMSNorm(dim // heads, **kw)
         self.k_norm = RMSNorm(dim // heads, **kw)
+        self.operations = operations
         self.proj = nn.ModuleDict({
             "qkv": operations.Linear(dim, 3 * dim, bias=False, **kw),
             "o": operations.Linear(dim, dim, bias=False, **kw),
@@ -116,12 +121,13 @@ class Block(nn.Module):
         })
 
     def forward(self, x: Tensor, rope: Tensor, modulation: Tensor) -> Tensor:
+        ops = self.operations
         shift_a, scale_a, gate_a, shift_f, scale_f, gate_f = modulation.unbind(1)
-        y = self.norm1(x) * (1 + scale_a[:, None]) + shift_a[:, None]
+        y = ops.norm_modulate(x, **rms_args(self.norm1), scale=scale_a[:, None], shift=shift_a[:, None])
         q, k, v = self.proj["qkv"](y).chunk(3, -1)
         q = self.q_norm(q.unflatten(-1, (self.heads, -1))).flatten(2)
         k = self.k_norm(k.unflatten(-1, (self.heads, -1))).flatten(2)
-        x = x + self.proj["o"](attend(q, k, v, rope, self.heads)) * gate_a[:, None]
-        y = self.norm2(x) * (1 + scale_f[:, None]) + shift_f[:, None]
+        x = ops.gated_residual(x, self.proj["o"](attend(q, k, v, rope, self.heads)), gate_a[:, None])
+        y = ops.norm_modulate(x, **rms_args(self.norm2), scale=scale_f[:, None], shift=shift_f[:, None])
         hidden, gate = self.proj["ffn_up_gate"](y).chunk(2, -1)
-        return x + self.proj["ffn_down"](situ(hidden, gate)) * gate_f[:, None]
+        return ops.gated_residual(x, self.proj["ffn_down"](situ(hidden, gate)), gate_f[:, None])

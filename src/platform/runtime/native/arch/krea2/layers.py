@@ -273,6 +273,10 @@ class RMSNorm(nn.Module):
         return out.to(dtype)
 
 
+def _rms_args(norm: RMSNorm) -> dict:
+    return {"norm": "rms", "eps": norm.eps, "weight": norm.scale, "weight_offset": 1.0}
+
+
 class SimpleModulation(nn.Module):
     """Diffusers' ``Krea2FinalLayer``'s inline ``scale_shift_table`` (2, dim)
     add-then-chunk, split into its own module (checkpoint key
@@ -361,9 +365,10 @@ class SwiGLU(nn.Module):
         self.down = operations.Linear(mlpdim, features, bias=bias, dtype=dtype, device=device)
         self.features = features
         self.mlpdim = mlpdim
+        self.operations = operations
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.down(F.silu(self.gate(x)) * self.up(x))
+        return self.down(self.operations.act_gate(self.gate(x), mode="swiglu_split", up=self.up(x)))
 
 
 class Attention(nn.Module):
@@ -450,13 +455,14 @@ class LastLayer(nn.Module):
         self.norm = RMSNorm(features)
         self.linear = operations.Linear(features, patch * patch * channels, bias=True, dtype=dtype, device=device)
         self.modulation = SimpleModulation(features)
+        self.operations = operations
 
     def forward(self, x: Tensor, tvec: Tensor) -> Tensor:
         scale, shift = self.modulation(tvec)
         dt = x.dtype
-        x = self.norm(x)
-        x = x * (scale.to(dt) + 1) + shift.to(dt)
-        return self.linear(x)
+        return self.linear(self.operations.norm_modulate(
+            x, **_rms_args(self.norm), scale=scale.to(dt), shift=shift.to(dt),
+        ))
 
 
 class TextFusionBlock(nn.Module):
@@ -526,6 +532,7 @@ class SingleStreamBlock(nn.Module):
         self.postnorm = RMSNorm(features)
         self.attn = Attention(features, heads, kvheads, bias, operations=operations, dtype=dtype, device=device)
         self.mlp = SwiGLU(features, multiplier, bias, operations=operations, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor, vec: Tensor, freqs: Tensor, mask: Tensor | None = None,
                 nag_fused: Tensor | None = None, nag_freqs: Tensor | None = None,
@@ -546,7 +553,8 @@ class SingleStreamBlock(nn.Module):
         if ref_vec is not None and ref_span is not None:
             return self._forward_ref_t0(x, (prescale, preshift, pregate, postscale, postshift, postgate),
                                         tuple(m.to(dt) for m in self.mod(ref_vec)), ref_span, freqs, mask, txt_len)
-        h = self.prenorm(x) * (prescale + 1) + preshift
+        ops = self.operations
+        h = ops.norm_modulate(x, **_rms_args(self.prenorm), scale=prescale, shift=preshift)
         # NAG (see Attention.forward above): ``nag_fused`` is the STATIC fused
         # negative-text representation (never evolved through blocks, matching
         # Wan/LTX's static uncond context); re-normalize/modulate it with THIS
@@ -556,27 +564,27 @@ class SingleStreamBlock(nn.Module):
         # normalizing the concatenated [nag_fused | image] sequence directly.
         nag_ctx = None
         if nag_fused is not None and _nag_active(nag):
-            nag_ctx = self.prenorm(nag_fused.to(dt)) * (prescale + 1) + preshift
-        x = x + self.attn(h, freqs, mask, nag_ctx=nag_ctx, nag_freqs=nag_freqs,
-                           nag_mask=nag_mask, nag=nag, txt_len=txt_len) * pregate
-        h = self.postnorm(x) * (postscale + 1) + postshift
-        x = x + self.mlp(h) * postgate
-        return x
+            nag_ctx = ops.norm_modulate(nag_fused.to(dt), **_rms_args(self.prenorm), scale=prescale, shift=preshift)
+        x = ops.gated_residual(x, self.attn(h, freqs, mask, nag_ctx=nag_ctx, nag_freqs=nag_freqs,
+                                            nag_mask=nag_mask, nag=nag, txt_len=txt_len), pregate)
+        h = ops.norm_modulate(x, **_rms_args(self.postnorm), scale=postscale, shift=postshift)
+        return ops.gated_residual(x, self.mlp(h), postgate)
 
     def _forward_ref_t0(self, x: Tensor, main: tuple[Tensor, ...], ref: tuple[Tensor, ...],
                         span: tuple[int, int], freqs: Tensor, mask: Tensor | None,
                         txt_len: int | None) -> Tensor:
         a, b = span
+        ops = self.operations
+        spans = (a, b - a, x.shape[1] - b)
 
-        def modulate(h: Tensor, scale: int, shift: int) -> Tensor:
-            return torch.cat((
-                h[:, :a] * (main[scale] + 1) + main[shift],
-                h[:, a:b] * (ref[scale] + 1) + ref[shift],
-                h[:, b:] * (main[scale] + 1) + main[shift],
-            ), dim=1)
+        def modulate(h: Tensor, norm: RMSNorm, scale: int, shift: int) -> Tensor:
+            return ops.norm_modulate(
+                h, **_rms_args(norm), spans=spans,
+                scale=(main[scale], ref[scale], main[scale]), shift=(main[shift], ref[shift], main[shift]),
+            )
 
-        def gate(y: Tensor, index: int) -> Tensor:
-            return torch.cat((y[:, :a] * main[index], y[:, a:b] * ref[index], y[:, b:] * main[index]), dim=1)
+        def gate(x: Tensor, y: Tensor, index: int) -> Tensor:
+            return ops.gated_residual(x, y, (main[index], ref[index], main[index]), spans=spans)
 
-        x = x + gate(self.attn(modulate(self.prenorm(x), 0, 1), freqs, mask, txt_len=txt_len), 2)
-        return x + gate(self.mlp(modulate(self.postnorm(x), 3, 4)), 5)
+        x = gate(x, self.attn(modulate(x, self.prenorm, 0, 1), freqs, mask, txt_len=txt_len), 2)
+        return gate(x, self.mlp(modulate(x, self.postnorm, 3, 4)), 5)

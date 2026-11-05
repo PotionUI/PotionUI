@@ -24,7 +24,6 @@ from typing import Callable
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 
 from vendor.gpl.comfyui.flux.math_ops import apply_rope
@@ -131,9 +130,10 @@ class _FeedForward(nn.Module):
         self.w1 = operations.Linear(cfg.dim, hidden, bias=False, dtype=dtype, device=device)
         self.w2 = operations.Linear(hidden, cfg.dim, bias=False, dtype=dtype, device=device)
         self.w3 = operations.Linear(cfg.dim, hidden, bias=False, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+        return self.w2(self.operations.act_gate(self.w1(x), mode="swiglu_split", up=self.w3(x)))
 
 
 class _JointTransformerBlock(nn.Module):
@@ -142,6 +142,7 @@ class _JointTransformerBlock(nn.Module):
     def __init__(self, cfg, operations, modulation: bool, dtype=None, device=None) -> None:
         super().__init__()
         self.modulation = modulation
+        self.operations = operations
         dim = cfg.dim
         self.attention = _JointAttention(cfg, operations, dtype=dtype, device=device)
         self.feed_forward = _FeedForward(cfg, operations, dtype=dtype, device=device)
@@ -157,12 +158,17 @@ class _JointTransformerBlock(nn.Module):
 
     def forward(self, x: Tensor, rope: Tensor, adaln_input: Tensor | None) -> Tensor:
         if self.modulation:
+            ops = self.operations
             scale_msa, gate_msa, scale_mlp, gate_mlp = self.adaLN_modulation(adaln_input).chunk(4, dim=1)
-            x = x + gate_msa.unsqueeze(1).tanh() * self.attention_norm2(
-                self.attention(self.attention_norm1(x) * (1 + scale_msa.unsqueeze(1)), rope)
+            x = ops.gated_residual(
+                x,
+                self.attention(ops.norm_modulate(x, **ops.norm_args(self.attention_norm1), scale=scale_msa.unsqueeze(1)), rope),
+                gate_msa.unsqueeze(1), gate_fn="tanh", **ops.norm_args(self.attention_norm2),
             )
-            x = x + gate_mlp.unsqueeze(1).tanh() * self.ffn_norm2(
-                self.feed_forward(self.ffn_norm1(x) * (1 + scale_mlp.unsqueeze(1)))
+            x = ops.gated_residual(
+                x,
+                self.feed_forward(ops.norm_modulate(x, **ops.norm_args(self.ffn_norm1), scale=scale_mlp.unsqueeze(1))),
+                gate_mlp.unsqueeze(1), gate_fn="tanh", **ops.norm_args(self.ffn_norm2),
             )
         else:
             x = x + self.attention_norm2(self.attention(self.attention_norm1(x), rope))
@@ -175,6 +181,7 @@ class _FinalLayer(nn.Module):
         super().__init__()
         dim = cfg.dim
         self.norm_final = operations.LayerNorm(dim, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
+        self.operations = operations
         self.linear = operations.Linear(dim, cfg.patch_size * cfg.patch_size * cfg.in_channels, bias=True, dtype=dtype, device=device)
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
@@ -183,4 +190,4 @@ class _FinalLayer(nn.Module):
 
     def forward(self, x: Tensor, c: Tensor) -> Tensor:
         scale = self.adaLN_modulation(c)
-        return self.linear(self.norm_final(x) * (1 + scale.unsqueeze(1)))
+        return self.linear(self.operations.norm_modulate(x, norm="layer", eps=self.norm_final.eps, scale=scale.unsqueeze(1)))

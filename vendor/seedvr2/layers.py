@@ -135,9 +135,11 @@ class AdaSingle(nn.Module):
     """Per-token shift/scale/gate: an emb-derived term (split from the 6*dim
     timestep embedding) plus a learned per-layer parameter."""
 
-    def __init__(self, dim: int, emb_dim: int, layers: List[str], modes: Tuple[str, ...] = ("in", "out")) -> None:
+    def __init__(self, dim: int, emb_dim: int, layers: List[str], operations,
+                 modes: Tuple[str, ...] = ("in", "out")) -> None:
         assert emb_dim == 6 * dim, "AdaSingle requires emb_dim == 6 * dim"
         super().__init__()
+        self.operations = operations
         self.dim = dim
         self.emb_dim = emb_dim
         self.layers = list(layers)
@@ -173,7 +175,9 @@ class AdaSingle(nn.Module):
             gateB = gateB.to(hid.dtype)
 
         if mode == "in":
-            return hid.mul_(scaleA + scaleB).add_(shiftA + shiftB)
+            return self.operations.norm_modulate(
+                hid, scale=scaleA + scaleB, shift=shiftA + shiftB, scale_offset=0.0, inplace=True,
+            )
         if mode == "out":
             return hid.mul_(gateA + gateB) if gateB is not None else hid.mul_(gateA)
         raise NotImplementedError(mode)
@@ -188,9 +192,10 @@ class SwiGLUMLP(nn.Module):
         self.proj_in_gate = operations.Linear(dim, hidden, bias=False, dtype=dtype, device=device)
         self.proj_out = operations.Linear(hidden, dim, bias=False, dtype=dtype, device=device)
         self.proj_in = operations.Linear(dim, hidden, bias=False, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.proj_out(F.silu(self.proj_in_gate(x)) * self.proj_in(x))
+        return self.proj_out(self.operations.act_gate(self.proj_in_gate(x), mode="swiglu_split", up=self.proj_in(x)))
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +376,7 @@ class NaMMSRTransformerBlock(nn.Module):
             shared_weights=shared, vid_only=is_last,
         )
         self.ada = MMModule(
-            lambda: AdaSingle(dim, cfg.emb_dim, ["attn", "mlp"]),
+            lambda: AdaSingle(dim, cfg.emb_dim, ["attn", "mlp"], operations),
             shared_weights=shared, vid_only=is_last,
         )
 

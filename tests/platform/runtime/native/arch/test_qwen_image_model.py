@@ -650,7 +650,7 @@ def test_block_modulate_splits_real_and_zero_timestep_spans():
     mod_zero = torch.tensor([[shift_zero] * dim + [scale_zero] * dim + [gate_zero] * dim])
     mod = torch.cat([mod_real, mod_zero], dim=0)  # (2B, 3*dim)
 
-    out, gate = _Block._modulate(x, mod, timestep_zero_index=real_tokens)
+    out, gate = _Block._modulate(fp32_ops(), x, mod, timestep_zero_index=real_tokens)
 
     expected_real = shift_real + x[:, :real_tokens] * (1 + scale_real)
     expected_zero = shift_zero + x[:, real_tokens:] * (1 + scale_zero)
@@ -662,7 +662,7 @@ def test_block_modulate_splits_real_and_zero_timestep_spans():
     assert torch.allclose(gate_z, torch.full_like(gate_z, gate_zero))
 
     y = torch.zeros_like(x)
-    applied = _Block._apply_gate(x, y, gate, timestep_zero_index=real_tokens)
+    applied = _Block._apply_gate(fp32_ops(), x, y, gate, timestep_zero_index=real_tokens)
     torch.testing.assert_close(applied[:, :real_tokens], x[:, :real_tokens] * gate_real)
     torch.testing.assert_close(applied[:, real_tokens:], x[:, real_tokens:] * gate_zero)
 
@@ -676,7 +676,7 @@ def test_block_modulate_none_index_matches_pre_be111_behavior():
     dim = 4
     x = torch.randn(1, 5, dim)
     mod = torch.randn(1, 3 * dim)
-    out, gate = _Block._modulate(x, mod, timestep_zero_index=None)
+    out, gate = _Block._modulate(fp32_ops(), x, mod, timestep_zero_index=None)
     shift, scale, expected_gate = torch.chunk(mod, 3, dim=-1)
     expected_out = torch.addcmul(shift.unsqueeze(1), x, 1 + scale.unsqueeze(1))
     torch.testing.assert_close(out, expected_out)

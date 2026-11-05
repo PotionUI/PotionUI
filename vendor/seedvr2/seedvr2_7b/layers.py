@@ -43,7 +43,7 @@ class MLP(nn.Module):
     def __init__(self, dim: int, hidden: int, operations, dtype=None, device=None) -> None:
         super().__init__()
         self.proj_in = operations.Linear(dim, hidden, dtype=dtype, device=device)
-        self.act = nn.GELU(approximate="tanh")
+        self.act = operations.ActGate("gelu_tanh")
         self.proj_out = operations.Linear(hidden, dim, dtype=dtype, device=device)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -152,7 +152,7 @@ class NaMMSRTransformerBlock(nn.Module):
             lambda: MLP(dim, cfg.mlp_hidden, operations, dtype=dtype, device=device),
         )
         self.ada = MMModule(
-            lambda: AdaSingle(dim, cfg.emb_dim, ["attn", "mlp"]),
+            lambda: AdaSingle(dim, cfg.emb_dim, ["attn", "mlp"], operations),
         )
 
     def forward(self, vid: Tensor, txt: Tensor, vid_shape: Tensor, txt_shape: Tensor,

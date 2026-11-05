@@ -198,6 +198,7 @@ class WanAttentionBlock(nn.Module):
         self.qk_norm = qk_norm
         self.cross_attn_norm = cross_attn_norm
         self.eps = eps
+        self.operations = operations
 
         self.norm1 = operations.LayerNorm(dim, eps, elementwise_affine=False, device=device, dtype=dtype)
         self.self_attn = WanSelfAttention(dim, num_heads, window_size, qk_norm, eps,
@@ -208,7 +209,7 @@ class WanAttentionBlock(nn.Module):
         self.norm2 = operations.LayerNorm(dim, eps, elementwise_affine=False, device=device, dtype=dtype)
         self.ffn = nn.Sequential(
             operations.Linear(dim, ffn_dim, device=device, dtype=dtype),
-            nn.GELU(approximate="tanh"),
+            operations.ActGate("gelu_tanh"),
             operations.Linear(ffn_dim, dim, device=device, dtype=dtype),
         )
         self.modulation = nn.Parameter(torch.empty(1, 6, dim, device=device, dtype=dtype))
@@ -219,17 +220,21 @@ class WanAttentionBlock(nn.Module):
         else:
             e = (_cast(self.modulation, x).unsqueeze(0) + e).unbind(2)
 
+        ops = self.operations
         x = x.contiguous()
-        y = self.self_attn(torch.addcmul(repeat_e(e[0], x), self.norm1(x), 1 + repeat_e(e[1], x)), freqs)
-        x = torch.addcmul(x, y, repeat_e(e[2], x))
+        y = self.self_attn(ops.norm_modulate(
+            x, norm="layer", eps=self.norm1.eps, scale=repeat_e(e[1], x), shift=repeat_e(e[0], x), addcmul=True,
+        ), freqs)
+        x = ops.gated_residual(x, y, repeat_e(e[2], x), addcmul=True)
         del y
 
         x = x + self.cross_attn(self.norm3(x), context, context_img_len=context_img_len,
                                  nag_context=nag_context, nag=nag)
 
-        y = self.ffn(torch.addcmul(repeat_e(e[3], x), self.norm2(x), 1 + repeat_e(e[4], x)))
-        x = torch.addcmul(x, y, repeat_e(e[5], x))
-        return x
+        y = self.ffn(ops.norm_modulate(
+            x, norm="layer", eps=self.norm2.eps, scale=repeat_e(e[4], x), shift=repeat_e(e[3], x), addcmul=True,
+        ))
+        return ops.gated_residual(x, y, repeat_e(e[5], x), addcmul=True)
 
 
 class Head(nn.Module):
@@ -239,6 +244,7 @@ class Head(nn.Module):
         self.out_dim = out_dim
         self.patch_size = patch_size
         self.eps = eps
+        self.operations = operations
         out_dim = math.prod(patch_size) * out_dim
         self.norm = operations.LayerNorm(dim, eps, elementwise_affine=False, device=device, dtype=dtype)
         self.head = operations.Linear(dim, out_dim, device=device, dtype=dtype)
@@ -249,7 +255,9 @@ class Head(nn.Module):
             e = (_cast(self.modulation, x) + e.unsqueeze(1)).chunk(2, dim=1)
         else:
             e = (_cast(self.modulation, x).unsqueeze(0) + e.unsqueeze(2)).unbind(2)
-        return self.head(torch.addcmul(repeat_e(e[0], x), self.norm(x), 1 + repeat_e(e[1], x)))
+        return self.head(self.operations.norm_modulate(
+            x, norm="layer", eps=self.norm.eps, scale=repeat_e(e[1], x), shift=repeat_e(e[0], x), addcmul=True,
+        ))
 
 
 class MLPProj(nn.Module):

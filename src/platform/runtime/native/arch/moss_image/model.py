@@ -13,7 +13,7 @@ from ...base import NativeArchModule
 from ...cancellation import raise_if_cancelled
 from ...errors import NativeEngineUnsupportedError
 from .config import TEXT_BLOCKS, MossImageConfig
-from .layers import Block, RMSNorm, TextProjection, rope_bands, rope_table
+from .layers import Block, RMSNorm, TextProjection, rms_args, rope_bands, rope_table
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,7 @@ class MossImage(NativeArchModule):
     def __init__(self, cfg: MossImageConfig, operations, dtype=None, device=None) -> None:
         super().__init__()
         self.cfg = cfg
+        self.operations = operations
         self.patch_size = 1
         self.params = SimpleNamespace(in_channels=cfg.in_channels)
         kw = {"dtype": dtype, "device": device}
@@ -149,8 +150,10 @@ class MossImage(NativeArchModule):
                 raise_if_cancelled(index)
                 if index not in skip:
                     stream = self.layers[index](stream, ropes[i], mod[i : i + 1])
-            out = self.final_norm_video(stream[:, :video_len])
-            out = out * (1 + head[i : i + 1, 1, None]) + head[i : i + 1, 0, None]
+            out = self.operations.norm_modulate(
+                stream[:, :video_len], **rms_args(self.final_norm_video),
+                scale=head[i : i + 1, 1, None], shift=head[i : i + 1, 0, None],
+            )
             out = self.final_linear_video(out)
             outputs.append(out.transpose(1, 2).reshape(1, -1, height, width))
         result = torch.cat(outputs)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import weakref
 from pathlib import Path
 
 import pytest
@@ -203,6 +204,26 @@ def test_an_encoder_cache_holds_only_the_frames_it_replays_at_every_call_of_a_cl
 
     assert held
     assert all(stored == replayed for stored, replayed in held)
+
+
+def test_the_decoder_releases_its_finished_chunks_before_it_unpatchifies(monkeypatch):
+    monkeypatch.setattr(ltx_causal_video, "_MAX_CHUNK_BYTES", 1)
+    vae = _build_tiny()
+    finished = []
+    vae.decoder.conv_out.register_forward_hook(lambda _module, _args, out: finished.append(weakref.ref(out)))
+    alive_at_unpatchify = []
+    unpatchify = ltx_causal_video._unpatchify
+
+    def count_then_unpatchify(*args):
+        alive_at_unpatchify.append(sum(ref() is not None for ref in finished))
+        return unpatchify(*args)
+
+    monkeypatch.setattr(ltx_causal_video, "_unpatchify", count_then_unpatchify)
+    with torch.no_grad():
+        vae.decode(torch.randn(1, vae.latent_channels, 6, 4, 4))
+
+    assert len(finished) > 1
+    assert alive_at_unpatchify == [0]
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])

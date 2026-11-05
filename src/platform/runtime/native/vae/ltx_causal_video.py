@@ -564,6 +564,7 @@ class Decoder(nn.Module):
 
         run_up(0, x, True)
         out = torch.cat(output, dim=2)
+        output.clear()
         return _unpatchify(out, self.patch_size, 1)
 
 

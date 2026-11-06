@@ -25,15 +25,20 @@ def _reserve(shape):
 
 
 class _Card:
-    def __init__(self, total_gb, pool_gb=0.0):
+    def __init__(self, total_gb, pool_gb=0.0, stuck_gb=0.0):
         self.total_gb = total_gb
         self.pool_gb = pool_gb
+        self.stuck_gb = stuck_gb
+        self.floor_gb = 1.0
         self.registry = GpuResidencyRegistry()
         self.free_reads = []
 
     def free_gb(self, device):
         self.free_reads.append(self.pool_gb)
-        return self.total_gb - self.registry.resident_gb(device) - self.pool_gb
+        return self.total_gb - self.registry.resident_gb(device) - self.pool_gb - self.stuck_gb
+
+    def effective_free_gb(self, device):
+        return self.total_gb - self.registry.resident_gb(device)
 
     def empty_cache(self):
         self.pool_gb = 0.0
@@ -80,9 +85,11 @@ class _Expert:
 
 @pytest.fixture
 def card(monkeypatch):
-    def install(total_gb, pool_gb=0.0):
-        installed = _Card(total_gb, pool_gb)
+    def install(total_gb, pool_gb=0.0, stuck_gb=0.0):
+        installed = _Card(total_gb, pool_gb, stuck_gb)
         monkeypatch.setattr(wan_experts, "free_vram_gb", installed.free_gb)
+        monkeypatch.setattr(wan_experts, "effective_free_vram_gb", installed.effective_free_gb)
+        monkeypatch.setattr(wan_experts, "minimum_inference_memory_gb", lambda: installed.floor_gb)
         monkeypatch.setattr(wan_experts, "get_residency_registry", lambda: installed.registry)
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
         monkeypatch.setattr(torch.cuda, "device", lambda device: nullcontext())
@@ -172,6 +179,18 @@ def test_the_budget_counts_what_the_eviction_freed(card):
     assert budget == pytest.approx(c.total_gb - _reserve(_5B_480P_5S))
 
 
+def test_what_the_eviction_leaves_in_the_pool_is_handed_back_before_the_expert_lands(card):
+    c = card(10.1)
+    encoder = _TextEncoder(c)
+    expert = _Expert(c, 9.31)
+    router = ExpertRouter(expert, None, 0.875, _DEVICE, latents_shape=_5B_480P_5S)
+
+    router._weights_budget_gb(expert)
+
+    assert encoder.offloaded == 1
+    assert c.pool_gb == 0.0
+
+
 def test_an_unreadable_free_returns_the_demand_and_evicts_nothing(card, monkeypatch):
     c = card(10.1)
     encoder = _TextEncoder(c)
@@ -199,7 +218,7 @@ def test_the_eviction_is_logged_at_debug_with_what_left_and_for_how_much(card, c
     assert [r.levelno for r in lines] == [logging.DEBUG]
     assert lines[0].getMessage() == (
         "[GENERATOR WAN] evicted _TextEncoder for 2.64GB of expert weights + "
-        f"{_reserve(_480P_5S):.2f}GB activation reserve ({c.total_gb - _UMT5_GB:.2f}GB free)"
+        f"{_reserve(_480P_5S):.2f}GB reserve ({c.total_gb - _UMT5_GB:.2f}GB free)"
     )
 
 
@@ -213,3 +232,38 @@ def test_nothing_is_logged_when_nothing_is_evicted(card, caplog):
 
     assert encoder.offloaded == 0
     assert not [r for r in caplog.records if "evicted" in r.getMessage()]
+
+
+def test_the_inference_floor_over_a_small_reserve_sends_the_encoder_away(card):
+    c = card(10.27)
+    c.floor_gb = 2.0
+    encoder = _TextEncoder(c)
+    expert = _Expert(c, 2.64)
+    free = c.total_gb - _UMT5_GB
+    assert expert.estimated_vram_gb + _reserve(_TINY) < free < expert.estimated_vram_gb + c.floor_gb
+
+    _run(ExpertRouter(expert, None, 0.875, _DEVICE, latents_shape=_TINY), 0.95)
+
+    assert encoder.offloaded == 1
+    assert expert.moved == [_DEVICE]
+
+
+def test_the_budget_follows_the_effective_free_memory(card):
+    c = card(10.1, stuck_gb=1.5)
+    expert = _Expert(c, 9.31)
+    router = ExpertRouter(expert, None, 0.875, _DEVICE, latents_shape=_5B_480P_5S)
+
+    budget = router._weights_budget_gb(expert)
+
+    assert budget == pytest.approx(c.total_gb - _reserve(_5B_480P_5S))
+
+
+def test_an_expert_of_unknown_size_evicts_nothing(card):
+    c = card(10.1)
+    encoder = _TextEncoder(c)
+    expert = _Expert(c, 0.0)
+
+    _run(ExpertRouter(expert, None, 0.875, _DEVICE, latents_shape=_480P_5S), 0.95)
+
+    assert encoder.offloaded == 0
+    assert expert.streamed == [(_DEVICE, 0.0)]

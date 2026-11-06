@@ -4,7 +4,12 @@ from typing import Any
 import numpy as np
 import torch
 from src.platform.runtime.native.errors import DecodeNumericsError, retry_after_cuda_oom
-from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
+from src.platform.runtime.native.memory.residency import (
+    effective_free_vram_gb,
+    free_vram_gb,
+    get_residency_registry,
+    minimum_inference_memory_gb,
+)
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
@@ -76,12 +81,14 @@ class ExpertRouter:
         shape = self.latents_shape
         frames = shape[2] if len(shape) == 5 else 1
         headroom = sampling_headroom_gb((shape[-2], shape[-1]), latent_frames=frames)
-        evicted = get_residency_registry().ensure_free(self.device, need + headroom, free, exclude=self._own_experts())
+        reserve = max(minimum_inference_memory_gb(), headroom)
+        target = need + reserve if need > 0.0 else 0.0
+        evicted = get_residency_registry().ensure_free(self.device, target, free, exclude=self._own_experts())
         if evicted:
-            logger.debug("[GENERATOR WAN] evicted %s for %.2fGB of expert weights + %.2fGB activation reserve "
-                         "(%.2fGB free)", ", ".join(type(m).__name__ for m in evicted), need, headroom, free)
+            logger.debug("[GENERATOR WAN] evicted %s for %.2fGB of expert weights + %.2fGB reserve (%.2fGB free)",
+                         ", ".join(type(m).__name__ for m in evicted), need, reserve, free)
             _release_idle_pool(self.device)
-        free = free_vram_gb(self.device) or 0.0
+        free = effective_free_vram_gb(self.device) or 0.0
         return max(0.0, free - headroom)
 
     def _place_expert(self, dit) -> None:

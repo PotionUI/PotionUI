@@ -106,8 +106,8 @@ The 14B dual-expert pair keeps one **14B expert resident at a time** — two DiT
 
 **Expert placement** (`ExpertRouter`, `pipes/_shared/video/wan_experts.py`):
 
-- Each expert is budgeted against one sampling forward: `budget = free VRAM - sampling_headroom_gb` for the clip's latent, and the part of the expert over that budget streams from pinned RAM.
-- Before it reads free VRAM, the router hands the allocator's idle pool back: the previous expert's weights, the previous steps' activations. It then evicts foreign residents, the UMT5 text encoder included, for the expert's weights plus that reserve, hands back what they leave in the pool and reads free VRAM again. Its own two experts are never evicted.
+- Each expert is budgeted against one sampling forward: `budget = effective free VRAM - sampling_headroom_gb` for the clip's latent, and the part of the expert over that budget streams from pinned RAM.
+- Before it reads free VRAM, the router hands the allocator's idle pool back: the previous expert's weights, the previous steps' activations. It then evicts foreign residents, the UMT5 text encoder included, for `weights + max(minimum_inference_memory_gb, reserve)`, the same rule as the DiT placement in `place_dit_for_sequence`, hands back what they leave in the pool and reads the effective free VRAM. An expert of unknown size evicts nothing. Its own two experts are never evicted.
 - On a large card the encoder leaves the card more often than with an eviction for the weights alone, and the next prompt encode moves it back from host RAM. In exchange more of each expert stays resident, the low-noise one included once the high-noise one has left.
 - When the reserve alone exceeds the whole card, as for the 1.3B and the 14B at 832×480 and 81 frames on 12 GB, the encoder still leaves and the expert still streams in full: the room it frees goes to the stages after sampling, the VAE decode first.
 - The eviction logs one DEBUG line that names what left, with the expert's weights and the reserve.

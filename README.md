@@ -273,7 +273,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 ## Install
 
 > [!WARNING]
-> PotionUI is in **alpha**: expect rough edges and breaking changes between
+> PotionUI is in **beta**: expect rough edges and breaking changes between
 > releases. Back up anything you care about, and report what breaks — issues
 > and Discord reports steer what gets fixed next.
 

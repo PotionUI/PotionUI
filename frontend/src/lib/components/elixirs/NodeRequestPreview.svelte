@@ -1,4 +1,4 @@
-<script module>
+<script module lang="ts">
 	const varsCache = new Map<string, Record<string, unknown>>();
 </script>
 

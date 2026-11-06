@@ -20,6 +20,7 @@
 		cancelling,
 		failure,
 		blocked,
+		reserveMessage = false,
 		onMode,
 		onCancel,
 		onApply,
@@ -39,6 +40,7 @@
 		cancelling: boolean;
 		failure: string | null;
 		blocked: string | null;
+		reserveMessage?: boolean;
 		onMode: (mode: MediaToolOutputMode) => void;
 		onCancel: () => void;
 		onApply: () => void;
@@ -58,6 +60,8 @@
 		<p class="text-sm text-danger" role="alert" data-tool-failure>{failure}</p>
 	{:else if blocked && !working}
 		<p class="text-sm text-warning" data-tool-blocked>{blocked}</p>
+	{:else if reserveMessage}
+		<p class="invisible text-sm" aria-hidden="true" data-tool-message-space>&nbsp;</p>
 	{/if}
 
 	<div class="flex flex-wrap items-center gap-2">

@@ -8,6 +8,9 @@ from src.platform.runtime.native.arch.krea2.model import Krea2
 from src.platform.runtime.native.arch.ltx.model import CrossAttention, LTXAVModel
 from src.platform.runtime.native.arch.minimax_h3.config import MiniMaxH3Config
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Attention, MiniMaxH3Model
+from src.platform.runtime.native.arch.moss_image.config import MossImageConfig
+from src.platform.runtime.native.arch.moss_image.layers import Block as MossBlock, TextBlock as MossTextBlock, rope_bands, rope_table
+from src.platform.runtime.native.arch.moss_image.model import MossImage
 from src.platform.runtime.native.arch.seedvr2.config import SeedVR2Config
 from src.platform.runtime.native.arch.seedvr2.model import SeedVR2
 from src.platform.runtime.native.arch.z_image.model import ZImageDiT
@@ -18,6 +21,7 @@ from vendor.gpl.comfyui.ltx.rope import interleaved_freqs_cis, split_freqs_cis
 from .test_flux_model import TINY_FLUX2
 from .test_krea2_model import TINY as KREA2_TINY
 from .test_ltx_forward import TINY_19B as LTX_TINY_19B, TINY_23 as LTX_TINY_23, _av_inputs
+from .test_moss_image_parity import CONFIG as MOSS_TINY, _inputs as _moss_inputs
 from .test_minimax_h3_model import TINY_FULL as H3_TINY, _fbcache_forward, _fbcache_inputs, _tiny_layout
 from .test_seedvr2_model import TINY_3B as SEEDVR2_TINY
 from .test_z_image_model import ZTINY
@@ -214,4 +218,63 @@ def test_an_ltx_attention_with_fused_full_width_qk_norm_rope_matches_the_unfused
     layouts = _rope_layouts(monkeypatch)
     fused, unfused, _ = _on_and_off(monkeypatch, lambda: attn(x, pe=pe))
     assert layouts == {"half_cos_sin" if split else "pair_rotate"}
+    _assert_close_to_unfused(fused, unfused)
+
+
+def _moss_weights(module, seed, scale):
+    g = torch.Generator().manual_seed(seed)
+    return {
+        k: (torch.randn(v.shape, generator=g) * (scale if v.dim() > 1 else 0.1) + (1.0 if v.dim() == 1 else 0.0)).to(v.dtype)
+        for k, v in module.state_dict().items()
+    }
+
+
+def _act_modes(monkeypatch):
+    modes = set()
+    real = fused_elementwise._run_fused
+
+    def recording(name, *args):
+        if name == "fused_act_gate":
+            modes.add(fused_elementwise.ACT_MODES[args[-1]])
+        return real(name, *args)
+
+    monkeypatch.setattr(fused_elementwise, "_run_fused", recording)
+    return modes
+
+
+@pytest.mark.parametrize("text", [False, True], ids=["image block", "text block"])
+def test_a_moss_image_block_ffn_with_fused_situ_matches_the_unfused_one(monkeypatch, text):
+    dim, ffn, heads, height, width, text_len = 256, 768, 4, 12, 10, 16
+    ops = pick_operations(torch.bfloat16, torch.bfloat16)
+    cls = MossTextBlock if text else MossBlock
+    block = cls(dim, ffn, heads, ops, dtype=torch.bfloat16)
+    block.load_state_dict(_moss_weights(block, 14, 0.06))
+    block = block.eval().to("cuda")
+    tokens = text_len if text else height * width + text_len
+    x = torch.randn(2, tokens, dim, device="cuda").to(torch.bfloat16)
+    rope = rope_table(height, width, text_len, rope_bands(dim // heads, 10000.0), "cuda").to(torch.bfloat16)
+    if text:
+        rope = rope[:, -text_len:]
+        run = lambda: block(x, rope)
+    else:
+        modulation = (torch.randn(2, 6, dim, device="cuda") * 0.3).to(torch.bfloat16)
+        run = lambda: block(x, rope, modulation)
+    modes = _act_modes(monkeypatch)
+    fused, unfused, _ = _on_and_off(monkeypatch, run)
+    assert modes == {"situ_split" if text else "situ"}
+    _assert_close_to_unfused(fused - x.float(), unfused - x.float())
+
+
+def test_a_moss_image_forward_with_fused_situ_matches_the_unfused_one(monkeypatch):
+    model = MossImage(MossImageConfig.from_detect_config(MOSS_TINY), pick_operations(torch.bfloat16, torch.bfloat16),
+                      dtype=torch.bfloat16)
+    model.load_state_dict(_moss_weights(model, 12, 0.05))
+    model = model.eval().to("cuda")
+    x, context, _ = (t.to("cuda") for t in _moss_inputs(13, 6, 5, [7, 3]))
+    sigma = torch.full((2,), 0.37, device="cuda")
+    modes = _act_modes(monkeypatch)
+    fused, unfused, routed = _on_and_off(
+        monkeypatch, lambda: model(x.to(torch.bfloat16), sigma, context.to(torch.bfloat16)),
+    )
+    assert modes == {"situ", "situ_split"}
     _assert_close_to_unfused(fused, unfused)

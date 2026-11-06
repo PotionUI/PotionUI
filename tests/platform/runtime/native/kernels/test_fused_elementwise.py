@@ -325,6 +325,8 @@ def test_activation_module_rejects_the_two_input_mode_and_unknown_modes():
     with pytest.raises(ValueError):
         ActGate("swiglu_split")
     with pytest.raises(ValueError):
+        ActGate("situ_split")
+    with pytest.raises(ValueError):
         ActGate("relu")
     with pytest.raises(ValueError):
         act_gate(torch.ones(2), mode="relu")
@@ -584,3 +586,16 @@ def test_anima_per_head_rms_and_half_split_matrix_rope_are_bit_exact(dtype):
     t_out = rope[..., 0] * t_[..., 0] + rope[..., 1] * t_[..., 1]
     expected = t_out.movedim(-1, -2).reshape(*h.shape).type_as(h)
     _exact(qk_norm_rope(x, **norm_args(norm), freqs=rope, layout="half_matrix"), expected)
+
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_moss_situ_packed_and_split_are_bit_exact(dtype):
+    h = _t(B, L, 2 * D, dtype=dtype) * 40.0
+    hidden, gate = h.chunk(2, -1)
+    expected = (4.0 * torch.tanh(gate / 4.0) * torch.sigmoid(gate)) * (25.0 * torch.tanh(hidden / 25.0))
+    _exact(act_gate(h, mode="situ"), expected)
+    _exact(ActGate("situ")(h), expected)
+    gate, hidden = _t(B, L, D, dtype=dtype, seed=1) * 40.0, _t(B, L, D, dtype=dtype, seed=2) * 40.0
+    expected = (4.0 * torch.tanh(gate / 4.0) * torch.sigmoid(gate)) * (25.0 * torch.tanh(hidden / 25.0))
+    _exact(act_gate(gate, mode="situ_split", up=hidden), expected)

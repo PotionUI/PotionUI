@@ -25,10 +25,6 @@ def rms_args(norm: RMSNorm) -> dict:
     return {"norm": "rms_fp32", "eps": EPS, "weight": norm.weight, "weight_cast": False}
 
 
-def situ(hidden: Tensor, gate: Tensor) -> Tensor:
-    return (4.0 * torch.tanh(gate / 4.0) * torch.sigmoid(gate)) * (25.0 * torch.tanh(hidden / 25.0))
-
-
 def rope_bands(head_dim: int, base: float) -> Tensor:
     bands = head_dim // 8
     exponent = torch.arange(bands, device="cpu", dtype=torch.float32) / bands
@@ -77,7 +73,7 @@ class TextBlock(nn.Module):
         k = ops.qk_norm_rope(k.unflatten(-1, (self.heads, -1)), **rms_args(self.k_norm), freqs=rope, layout="rotate_half")
         x = x + self.proj(attend(q, k, v, self.heads))
         y = self.norm2(x)
-        return x + self.ffn_down(situ(self.ffn_up(y), self.ffn_gate(y)))
+        return x + self.ffn_down(ops.act_gate(self.ffn_gate(y), mode="situ_split", up=self.ffn_up(y)))
 
 
 class TextProjection(nn.Module):
@@ -122,5 +118,5 @@ class Block(nn.Module):
         k = ops.qk_norm_rope(k.unflatten(-1, (self.heads, -1)), **rms_args(self.k_norm), freqs=rope, layout="rotate_half")
         x = ops.gated_residual(x, self.proj["o"](attend(q, k, v, self.heads)), gate_a[:, None])
         y = ops.norm_modulate(x, **rms_args(self.norm2), scale=scale_f[:, None], shift=shift_f[:, None])
-        hidden, gate = self.proj["ffn_up_gate"](y).chunk(2, -1)
-        return ops.gated_residual(x, self.proj["ffn_down"](situ(hidden, gate)), gate_f[:, None])
+        situ = ops.act_gate(self.proj["ffn_up_gate"](y), mode="situ")
+        return ops.gated_residual(x, self.proj["ffn_down"](situ), gate_f[:, None])

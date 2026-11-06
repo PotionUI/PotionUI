@@ -8,6 +8,7 @@ from torch.library import triton_op, wrap_triton
 from triton.language.extra import libdevice
 
 ACT_SWIGLU = 0
+ACT_SITU = 4
 ACT_BLOCK = 1024
 
 
@@ -94,17 +95,27 @@ def _gated_residual_kernel(
 
 
 @triton.jit
+def _sigmoid(x):
+    e = libdevice.exp(-tl.abs(x))
+    return tl.where(x >= 0, 1.0 / (1.0 + e), e / (1.0 + e))
+
+
+@triton.jit
 def _act_kernel(h_ptr, up_ptr, out_ptr, width, h_row, MODE: tl.constexpr, BLOCK: tl.constexpr):
     r = tl.program_id(0).to(tl.int64)
     cols = tl.program_id(1) * BLOCK + tl.arange(0, BLOCK)
     mask = cols < width
     a = tl.load(h_ptr + r * h_row + cols, mask=mask, other=0.0).to(tl.float32)
-    if MODE == 0:
+    if MODE == 0 or MODE == 4:
         b = tl.load(h_ptr + r * h_row + width + cols, mask=mask, other=0.0).to(tl.float32)
-        out = a / (1.0 + libdevice.exp(-a)) * b
-    elif MODE == 1:
+    elif MODE == 1 or MODE == 5:
         b = tl.load(up_ptr + r * width + cols, mask=mask, other=0.0).to(tl.float32)
+    if MODE == 0 or MODE == 1:
         out = a / (1.0 + libdevice.exp(-a)) * b
+    elif MODE == 4:
+        out = 4.0 * libdevice.tanh(b / 4.0) * _sigmoid(b) * (25.0 * libdevice.tanh(a / 25.0))
+    elif MODE == 5:
+        out = 4.0 * libdevice.tanh(a / 4.0) * _sigmoid(a) * (25.0 * libdevice.tanh(b / 25.0))
     elif MODE == 2:
         inner = 0.7978845608028654 * (a + 0.044715 * a * a * a)
         out = 0.5 * a * (1.0 + libdevice.tanh(inner))
@@ -190,7 +201,7 @@ def fused_gated_residual(*args) -> Tensor:
 
 
 def _act_gate(launch, h: Tensor, up: Tensor | None, mode: int) -> Tensor:
-    width = h.shape[-1] // 2 if mode == ACT_SWIGLU else h.shape[-1]
+    width = h.shape[-1] // 2 if mode in (ACT_SWIGLU, ACT_SITU) else h.shape[-1]
     out = torch.empty((*h.shape[:-1], width), dtype=h.dtype, device=h.device)
     launch(_act_kernel)[(out.numel() // width, triton.cdiv(width, ACT_BLOCK))](
         h, up if up is not None else h, out, width, h.shape[-1], MODE=mode, BLOCK=ACT_BLOCK, num_warps=4,
@@ -205,7 +216,7 @@ def _act_gate_op(h: Tensor, up: Tensor | None, mode: int) -> Tensor:
 
 @_act_gate_op.register_fake
 def _(h, up, mode):
-    width = h.shape[-1] // 2 if mode == ACT_SWIGLU else h.shape[-1]
+    width = h.shape[-1] // 2 if mode in (ACT_SWIGLU, ACT_SITU) else h.shape[-1]
     return torch.empty((*h.shape[:-1], width), dtype=h.dtype, device=h.device)
 
 

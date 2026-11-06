@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 NORM_KINDS = ("layer", "rms", "rms_fp32")
 GATE_FNS = ("tanh",)
-ACT_MODES = ("swiglu", "swiglu_split", "gelu_tanh", "gelu")
+ACT_MODES = ("swiglu", "swiglu_split", "gelu_tanh", "gelu", "situ", "situ_split")
 ROPE_LAYOUTS = (
     "pair_matrix", "pair_matrix_inplace", "pair_cos_sin", "rotate_half",
     "pair_rotate", "half_rotate", "half_cos_sin", "half_matrix",
@@ -29,7 +29,7 @@ FUSED_MAX_NORM_WIDTH = 16384
 SPAN_INDEX_CACHE_SIZE = 64
 
 _NORM_CODES = {None: 0, "layer": 1, "rms": 2, "rms_fp32": 2}
-_ACT_CODES = {"swiglu": 0, "swiglu_split": 1, "gelu_tanh": 2, "gelu": 3}
+_ACT_CODES = {"swiglu": 0, "swiglu_split": 1, "gelu_tanh": 2, "gelu": 3, "situ": 4, "situ_split": 5}
 _disabled_reason: str | None = None
 _kernels = None
 _span_indices: dict[tuple, Tensor] = {}
@@ -357,9 +357,9 @@ def _fused_qk_norm_rope(x, freqs, layout, norm, eps, weight, weight_offset, weig
 def _fused_act_gate(h: Tensor, mode: str, up: Tensor | None) -> Tensor | None:
     if not _fused_eligible(h) or mode not in _ACT_CODES or not h.is_contiguous():
         return None
-    if mode == "swiglu" and h.shape[-1] % 2:
+    if mode in ("swiglu", "situ") and h.shape[-1] % 2:
         return None
-    if mode == "swiglu_split":
+    if mode.endswith("_split"):
         if not isinstance(up, Tensor) or up.shape != h.shape or up.dtype != h.dtype or not up.is_contiguous():
             return None
         if up.device != h.device:
@@ -606,6 +606,10 @@ def norm_args(module: nn.Module) -> dict:
     }
 
 
+def _situ(hidden: Tensor, gate: Tensor) -> Tensor:
+    return (4.0 * torch.tanh(gate / 4.0) * torch.sigmoid(gate)) * (25.0 * torch.tanh(hidden / 25.0))
+
+
 def act_gate(h: Tensor, *, mode: str, up: Tensor | None = None) -> Tensor:
     fused = _fused_act_gate(h, mode, up)
     if fused is not None:
@@ -619,14 +623,20 @@ def act_gate(h: Tensor, *, mode: str, up: Tensor | None = None) -> Tensor:
         return F.gelu(h, approximate="tanh")
     if mode == "gelu":
         return F.gelu(h)
+    if mode == "situ":
+        hidden, gate = h.chunk(2, dim=-1)
+        return _situ(hidden, gate)
+    if mode == "situ_split":
+        return _situ(up, h)
     raise ValueError(f"unknown activation mode {mode!r}; expected one of {ACT_MODES}")
 
 
 class ActGate(nn.Module):
     def __init__(self, mode: str) -> None:
         super().__init__()
-        if mode not in ACT_MODES or mode == "swiglu_split":
-            raise ValueError(f"ActGate takes one input; mode must be one of {ACT_MODES[:1] + ACT_MODES[2:]}")
+        if mode not in ACT_MODES or mode.endswith("_split"):
+            single = tuple(m for m in ACT_MODES if not m.endswith("_split"))
+            raise ValueError(f"ActGate takes one input; mode must be one of {single}")
         self.mode = mode
 
     def forward(self, x: Tensor) -> Tensor:

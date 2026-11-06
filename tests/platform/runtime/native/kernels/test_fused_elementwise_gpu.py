@@ -514,3 +514,30 @@ def test_each_new_rope_layout_launches_exactly_one_kernel():
                                             layout="half_matrix"),
     }
     assert {name: _kernels_launched(fn) for name, fn in calls.items()} == {name: 1 for name in calls}
+
+
+def _situ_ref(hidden, gate):
+    g, h = gate.double(), hidden.double()
+    return 4.0 * torch.tanh(g / 4.0) * torch.sigmoid(g) * (25.0 * torch.tanh(h / 25.0))
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("width", [3072, 13824])
+def test_moss_situ_packed_and_split(dtype, width):
+    h = _t(37, 2 * width, dtype=dtype, scale=30.0)
+    hidden, gate = h.chunk(2, dim=-1)
+    ref = _situ_ref(hidden, gate)
+    _assert_one_rounding(act_gate(h, mode="situ"), ref, ref.abs(), dtype)
+    gate, hidden = _t(37, width, dtype=dtype, seed=1, scale=30.0), _t(37, width, dtype=dtype, seed=2, scale=30.0)
+    ref = _situ_ref(hidden, gate)
+    _assert_one_rounding(act_gate(gate, mode="situ_split", up=hidden), ref, ref.abs(), dtype)
+
+
+def test_each_situ_call_launches_exactly_one_kernel():
+    h = _t(2, 300, 2 * 3072, dtype=torch.bfloat16)
+    gate, hidden = _t(2, 300, 3072, dtype=torch.bfloat16, seed=1), _t(2, 300, 3072, dtype=torch.bfloat16, seed=2)
+    calls = {
+        "situ": lambda: act_gate(h, mode="situ"),
+        "situ split": lambda: act_gate(gate, mode="situ_split", up=hidden),
+    }
+    assert {name: _kernels_launched(fn) for name, fn in calls.items()} == {name: 1 for name in calls}

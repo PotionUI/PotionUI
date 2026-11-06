@@ -39,7 +39,7 @@ class FakeKernels:
         return self._record("qk_norm_rope", locals(), out)
 
     def fused_act_gate(self, h, up, mode):
-        width = h.shape[-1] // 2 if mode == 0 else h.shape[-1]
+        width = h.shape[-1] // 2 if mode in (0, 4) else h.shape[-1]
         return self._record("act_gate", locals(), torch.full((*h.shape[:-1], width), 7.0, dtype=h.dtype))
 
 
@@ -171,6 +171,10 @@ def _case(name):
         return lambda: act_gate(_t(3, 2 * D + 1), mode="swiglu")
     if name == "split swiglu with another dtype":
         return lambda: act_gate(_t(3, D), mode="swiglu_split", up=_t(3, D, dtype=torch.float16))
+    if name == "odd situ width":
+        return lambda: act_gate(_t(3, 2 * D + 1), mode="situ")
+    if name == "split situ with another shape":
+        return lambda: act_gate(_t(3, D), mode="situ_split", up=_t(3, 2 * D))
     if name == "non-contiguous activation":
         return lambda: act_gate(_t(2 * D, 3).t(), mode="gelu")
     if name == "unknown gate function":
@@ -183,6 +187,7 @@ CASES = [
     "per-token span table", "row wider than the norm limit", "layout that needs three strides", "non-contiguous input",
     "non-contiguous residual branch", "index of the wrong length", "non-broadcastable table",
     "odd swiglu width", "split swiglu with another dtype", "non-contiguous activation", "unknown gate function",
+    "odd situ width", "split situ with another shape",
 ]
 
 
@@ -407,3 +412,12 @@ def test_unsupported_rope_geometry_stays_on_the_bit_exact_eager_code(name, kerne
     got = qk_norm_rope(x, **kwargs)
     assert kernels.calls == []
     assert torch.equal(got, _eager(qk_norm_rope, x, **kwargs))
+
+
+def test_situ_routes_packed_and_split_with_its_own_mode_codes(kernels):
+    h, gate, hidden = _t(3, 2 * D), _t(3, D, seed=1), _t(3, D, seed=2)
+    assert act_gate(h, mode="situ").shape == (3, D)
+    act_gate(gate, mode="situ_split", up=hidden)
+    (_, packed), (_, split) = kernels.calls
+    assert (packed["mode"], packed["up"], packed["h"]) == (4, None, h)
+    assert split["mode"] == 5 and split["h"] is gate and split["up"] is hidden

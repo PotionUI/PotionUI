@@ -27,6 +27,8 @@ vi.mock('$lib/services/adminWebsocket', () => ({
 }));
 
 const adminApi = await import('$lib/services/admin-api');
+const { api } = await import('$lib/services/api');
+vi.spyOn(api, 'getIndexingStatus').mockResolvedValue({ success: true, data: null });
 const { default: BackendsTab } = await import('../../src/routes/admin/components/BackendsTab.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 

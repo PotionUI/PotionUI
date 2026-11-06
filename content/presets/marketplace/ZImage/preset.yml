@@ -100,7 +100,6 @@ negative_prompt:
 
 modes:
   - txt2img
-  - img2img
   - enhance
   - inpaint
   - control

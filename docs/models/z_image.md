@@ -35,9 +35,8 @@ A `z_image_modulation` flag in the checkpoint distinguishes a Z-Image checkpoint
 
 ## Presets & modes
 
-The shipped Z-Image preset ships `txt2img`, `img2img` (shown as Restyle), `enhance`, `inpaint` and `control` (shown as Structure).
+The shipped Z-Image preset ships `txt2img`, `enhance`, `inpaint` and `control` (shown as Structure).
 
-- **Restyle** re-renders a picture with a prompt and a Strength slider. The generator runs `mode: "img2img"`, so the output takes the picture's shape (up to about one megapixel) and Strength is the fraction of the schedule walked.
 - **Enhance** upscales a picture by 1.5x, 2x or 3x and redraws it at a low strength set by *Added detail* (Subtle 0.12, Balanced 0.2, Strong 0.35), then optionally runs the face detailer on the result. It is the same `img2img` generator with `img2img_scale`, followed by `detailer/native`.
 - **Inpaint** repaints a painted area. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). The area is grown by *Grow*, cropped with its surroundings, repainted and composited back with a *Feather* seam that fades out beyond the painted edge; the repainted area itself is never blended with the old content. The prompt is optional; blank asks for the surroundings continued. Paint where a cast shadow should fall: a shadow can only be repainted inside the painted area. Strength 1.0 repaints from noise.
 - **Structure** generates a new image that keeps the pose, depth, outlines or a loose sketch of a guide picture. See below.

@@ -487,10 +487,10 @@ The three most recent releases; older history lives in the
   and its edit modes read the picture in the layout the loaded checkpoint was trained with;
   Qwen-Image 2.1 gets Inpaint, a Turbo profile (8 steps at CFG 1 with an optional LoRA) and a
   prompt-only Photo task in Restyle, and its Combine images, like Qwen-Image Edit, takes an Output
-  size with a crop or pad fit; Z-Image gets Restyle, Enhance, Structure (Fun ControlNet Union 2.1)
-  and Inpaint, and MOSS-Image gets Inpaint, every Inpaint repainting a painted area with grow,
-  feather and strength and blending it into the source; Z-Image, MOSS-Image and Qwen-Image 2.1 get
-  the Krea-2 styles worded for each model, with typography styles for MOSS-Image and Qwen-Image 2.1.
+  size with a crop or pad fit; Z-Image gets Enhance, Structure (Fun ControlNet Union 2.1) and
+  Inpaint, and MOSS-Image gets Inpaint, every Inpaint repainting a painted area with grow, feather
+  and strength and blending it into the source; Z-Image, MOSS-Image and Qwen-Image 2.1 get the
+  Krea-2 styles worded for each model, with typography styles for MOSS-Image and Qwen-Image 2.1.
 - Live previews: MiniMax-H3, LTX, Wan and Qwen-Image modes take an optional Preview decoder, a tiny
   TAEHV decoder from the model catalog, that shows the live preview in real colour; while a video
   samples, the Workbench, the floating Workbench and the phone canvas loop a short low-resolution

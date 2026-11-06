@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 NORM_KINDS = ("layer", "rms", "rms_fp32")
 GATE_FNS = ("tanh",)
 ACT_MODES = ("swiglu", "swiglu_split", "gelu_tanh", "gelu")
+ROPE_LAYOUTS = ("pair_matrix", "pair_matrix_inplace", "pair_cos_sin", "rotate_half")
 FUSED_ELEMENTWISE_FLAG = "native_fused_elementwise"
 FUSED_DTYPES = (torch.bfloat16, torch.float16)
 FUSED_OPERAND_DTYPES = (torch.bfloat16, torch.float16, torch.float32)
@@ -60,10 +61,12 @@ def _triton_kernels():
     return _kernels
 
 
-def _fused_eligible(x: Tensor) -> bool:
+def _fused_eligible(x: Tensor, contiguous: bool = True) -> bool:
     if _disabled_reason is not None or not runtime_flag(FUSED_ELEMENTWISE_FLAG):
         return False
-    if x.dtype not in FUSED_DTYPES or x.dim() < 2 or x.numel() == 0 or not x.is_contiguous():
+    if x.dtype not in FUSED_DTYPES or x.dim() < 2 or x.numel() == 0:
+        return False
+    if not x.is_contiguous() if contiguous else x.stride(-1) != 1:
         return False
     caps = capabilities()
     if not caps.triton:
@@ -249,6 +252,84 @@ def _fused_gated_residual(x: Tensor, y: Tensor, gate, gate_fn, norm, eps, weight
     )
 
 
+def _broadcast_lead(t: Tensor, lead: int, target: Sequence[int]) -> list[int] | None:
+    shape, strides = t.shape[:lead], t.stride()[:lead]
+    if len(shape) > len(target):
+        return None
+    out = [0] * (len(target) - len(shape))
+    for n, s, want in zip(shape, strides, target[len(target) - len(shape):]):
+        if n == want:
+            out.append(s)
+        elif n == 1:
+            out.append(0)
+        else:
+            return None
+    return out
+
+
+def _rope_tables(freqs, layout: str, x: Tensor):
+    half = x.shape[-1] // 2
+    target = list(x.shape[:-1])
+    if layout in ("pair_matrix", "pair_matrix_inplace"):
+        if not isinstance(freqs, Tensor) or freqs.dim() < 3:
+            return None
+        table = freqs[:, None, :, :, :] if layout == "pair_matrix_inplace" else freqs
+        if tuple(table.shape[-3:]) != (half, 2, 2) or tuple(table.stride()[-2:]) != (2, 1):
+            return None
+        lead = _broadcast_lead(table, table.dim() - 3, target)
+        return None if lead is None else (table, None, lead, table.stride(-3), None)
+    if layout == "pair_cos_sin":
+        if not isinstance(freqs, (tuple, list)) or len(freqs) != 2:
+            return None
+        cos, sin = freqs
+        if not all(isinstance(t, Tensor) and t.shape[-1] == half and t.stride(-1) == 1 for t in (cos, sin)):
+            return None
+        lead_cos, lead_sin = _broadcast_lead(cos, cos.dim() - 1, target), _broadcast_lead(sin, sin.dim() - 1, target)
+        return None if lead_cos is None or lead_sin is None else (cos, sin, lead_cos, 1, lead_sin)
+    if layout == "rotate_half":
+        if not isinstance(freqs, Tensor) or freqs.shape[-1] != 2 * half:
+            return None
+        table = freqs.unsqueeze(-2)
+        lead = _broadcast_lead(table, table.dim() - 1, target)
+        return None if lead is None else (table, None, lead, table.stride(-1), None)
+    return None
+
+
+def _fused_qk_norm_rope(x, freqs, layout, norm, eps, weight, weight_offset, weight_cast, cast_to, out_dtype):
+    if norm not in (None, "rms", "rms_fp32", "rms_fp32_chain") or not _fused_eligible(x, False):
+        return None
+    d = x.shape[-1]
+    if x.dim() != 4 or d < 4 or d > 1024 or d & (d - 1):
+        return None
+    tables = _rope_tables(freqs, layout, x)
+    ok, w = _fused_weight(weight, x)
+    if tables is None or not ok or any(t is not None and t.device != x.device for t in tables[:2]):
+        return None
+    t0, t1, lead0, pair_stride, lead1 = tables
+    h_dtype = torch.float32 if norm == "rms_fp32_chain" else _normed_dtype(x, norm, w, weight_cast)
+    h_dtype = cast_to or h_dtype
+    if layout == "pair_cos_sin":
+        h_dtype = torch.promote_types(torch.promote_types(h_dtype, t0.dtype), t1.dtype)
+    elif layout == "rotate_half":
+        h_dtype = torch.promote_types(h_dtype, t0.dtype)
+    final = out_dtype or h_dtype
+    if layout == "pair_matrix_inplace" and norm is None:
+        if final != x.dtype:
+            return None
+        out = x
+    else:
+        out = torch.empty(x.shape, dtype=final, device=x.device)
+    layout_args = [
+        x.shape[1], x.shape[2], *x.stride()[:3], *out.stride()[:3], *lead0, pair_stride, *(lead1 or lead0),
+    ]
+    code = {"pair_matrix": 0, "pair_matrix_inplace": 1, "pair_cos_sin": 2, "rotate_half": 3}[layout]
+    chain = norm == "rms_fp32_chain"
+    return _run_fused(
+        "fused_qk_norm_rope", x, out, w, t0, t1, layout_args, 0 if norm is None else 1, _fused_eps(eps, x),
+        0.0 if chain else float(weight_offset), bool(weight_cast and w is not None and not chain), code,
+    )
+
+
 def _fused_act_gate(h: Tensor, mode: str, up: Tensor | None) -> Tensor | None:
     if not _fused_eligible(h) or mode not in _ACT_CODES or not h.is_contiguous():
         return None
@@ -391,6 +472,68 @@ def gated_residual(
         parts.append(y[:, start : start + length] * _gate(g, gate_fn))
         start += length
     return x + (parts[0] if len(parts) == 1 else torch.cat(parts, dim=1))
+
+
+def _rope(x: Tensor, freqs, layout: str) -> Tensor:
+    if layout == "pair_matrix":
+        x_ = x.to(dtype=freqs.dtype).reshape(*x.shape[:-1], -1, 1, 2)
+        out = freqs[..., 0] * x_[..., 0]
+        out = out.addcmul(freqs[..., 1], x_[..., 1])
+        return out.reshape(*x.shape).type_as(x)
+    if layout == "pair_matrix_inplace":
+        table = freqs[:, None, :, :, :]
+        cos = table[..., 0, 0].to(x.dtype)
+        sin = table[..., 1, 0].to(x.dtype)
+        x_pair = x.reshape(*x.shape[:-1], -1, 2)
+        x0 = x_pair[..., 0].clone()
+        x1 = x_pair[..., 1]
+        x_pair[..., 0].mul_(cos).sub_(x1 * sin)
+        x_pair[..., 1].mul_(cos).add_(x0 * sin)
+        return x
+    if layout == "pair_cos_sin":
+        cos, sin = freqs
+        b, h, n, d = x.shape
+        pairs = x.reshape(b, h, n, d // 2, 2)
+        first, second = pairs[..., 0], pairs[..., 1]
+        return torch.stack((cos * first - sin * second, sin * first + cos * second), dim=-1).reshape(b, h, n, d)
+    if layout == "rotate_half":
+        sin, cos = freqs.chunk(2, -1)
+        sin = torch.cat((sin, sin), -1).unsqueeze(-2)
+        cos = torch.cat((cos, cos), -1).unsqueeze(-2)
+        first, second = x.chunk(2, -1)
+        return x * cos + torch.cat((-second, first), -1) * sin
+    raise ValueError(f"unknown rope layout {layout!r}; expected one of {ROPE_LAYOUTS}")
+
+
+def apply_rope(x: Tensor, freqs, *, layout: str) -> Tensor:
+    return _rope(x, freqs, layout)
+
+
+def qk_norm_rope(
+    x: Tensor,
+    *,
+    freqs,
+    layout: str,
+    norm: str | None = None,
+    eps: float | None = 1e-6,
+    weight: Tensor | None = None,
+    weight_offset: float = 0.0,
+    weight_cast: bool = True,
+    cast_to: torch.dtype | None = None,
+    out_dtype: torch.dtype | None = None,
+) -> Tensor:
+    fused = _fused_qk_norm_rope(x, freqs, layout, norm, eps, weight, weight_offset, weight_cast, cast_to, out_dtype)
+    if fused is not None:
+        return fused
+    if norm == "rms_fp32_chain":
+        x_f = x.float()
+        h = x_f * x_f.pow(2).mean(-1, keepdim=True).add(eps).rsqrt() * weight.float()
+    else:
+        h = _normalize(x, norm, eps, weight, weight_offset, weight_cast)
+    if cast_to is not None:
+        h = h.to(cast_to)
+    out = h if freqs is None else _rope(h, freqs, layout)
+    return out if out_dtype is None else out.to(out_dtype)
 
 
 def norm_args(module: nn.Module) -> dict:

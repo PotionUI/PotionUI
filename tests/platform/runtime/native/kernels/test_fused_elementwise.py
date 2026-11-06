@@ -357,8 +357,117 @@ def test_every_operations_namespace_carries_the_fused_functions(ops):
     assert ops.act_gate is act_gate
     assert ops.norm_args is norm_args
     assert ops.ActGate is ActGate
+    assert ops.qk_norm_rope is kernels.qk_norm_rope
+    assert ops.apply_rope is kernels.apply_rope
 
 
 def test_the_fused_functions_are_public_kernel_exports():
-    for name in ("norm_modulate", "gated_residual", "act_gate", "norm_args", "ActGate"):
+    for name in ("norm_modulate", "gated_residual", "act_gate", "norm_args", "ActGate", "qk_norm_rope", "apply_rope"):
         assert name in kernels.__all__
+
+
+def _apply_rope1(x, freqs_cis):
+    x_ = x.to(dtype=freqs_cis.dtype).reshape(*x.shape[:-1], -1, 1, 2)
+    x_out = freqs_cis[..., 0] * x_[..., 0]
+    x_out = x_out.addcmul(freqs_cis[..., 1], x_[..., 1])
+    return x_out.reshape(*x.shape).type_as(x)
+
+
+def _rope_matrix(*lead, half, seed=40):
+    angle = _t(*lead, half, seed=seed) * 3.0
+    return torch.stack([angle.cos(), -angle.sin(), angle.sin(), angle.cos()], dim=-1).reshape(*lead, half, 2, 2)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_flux_per_stream_qk_norm_and_rope_match_rope_after_the_concat(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    hd, txt, img = 32, 5, 9
+    scale = _t(hd, seed=1)
+    tq, iq, v = _t(B, 2, txt, hd, dtype=dtype, seed=2), _t(B, 2, img, hd, dtype=dtype, seed=3), _t(1, dtype=dtype)
+    pe = _rope_matrix(1, 1, txt + img, half=hd // 2)
+
+    def old_norm(x):
+        weight = scale.to(dtype=x.dtype, device=x.device)
+        return F.rms_norm(x, weight.shape, weight=weight, eps=1e-6).to(v)
+
+    expected = _apply_rope1(torch.cat((old_norm(tq), old_norm(iq)), dim=2), pe)
+    args = dict(norm="rms", eps=1e-6, weight=scale, cast_to=v.dtype, layout="pair_matrix")
+    got = torch.cat((
+        qk_norm_rope(tq, freqs=pe[:, :, :txt], **args), qk_norm_rope(iq, freqs=pe[:, :, txt:], **args),
+    ), dim=2)
+    _exact(got, expected)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_flux3_fp32_chained_qk_norm_and_cos_sin_rope_are_bit_exact(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, scale = _t(B, 3, L, 64, dtype=dtype), _t(64, dtype=dtype, seed=1)
+    angle = _t(1, 1, L, 32, seed=2) * 3.0
+    cos, sin = angle.cos(), angle.sin()
+    b, h, n, d = x.shape
+    x_f = x.float()
+    normed = x_f * x_f.pow(2).mean(-1, keepdim=True).add(1e-6).rsqrt() * scale.float()
+    pairs = normed.reshape(b, h, n, d // 2, 2)
+    first, second = pairs[..., 0], pairs[..., 1]
+    expected = torch.stack((cos * first - sin * second, sin * first + cos * second), dim=-1).reshape(b, h, n, d).to(x.dtype)
+    got = qk_norm_rope(x, norm="rms_fp32_chain", eps=1e-6, weight=scale, freqs=(cos, sin), layout="pair_cos_sin", out_dtype=x.dtype)
+    _exact(got, expected)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_krea2_offset_weight_qk_norm_and_in_place_rope_are_bit_exact(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, scale = _t(B, 2, L, 32, dtype=dtype), _t(32, seed=1) * 0.1
+    freqs = _rope_matrix(B, L, half=16)
+    h = F.rms_norm(x, (32,), eps=1e-5, weight=(scale + 1.0).to(dtype)).to(dtype)
+    table = freqs[:, None, :, :, :]
+    cos, sin = table[..., 0, 0].to(h.dtype), table[..., 1, 0].to(h.dtype)
+    pair = h.reshape(*h.shape[:-1], -1, 2)
+    x0, x1 = pair[..., 0].clone(), pair[..., 1]
+    pair[..., 0].mul_(cos).sub_(x1 * sin)
+    pair[..., 1].mul_(cos).add_(x0 * sin)
+    got = qk_norm_rope(x, norm="rms", eps=1e-5, weight=scale, weight_offset=1.0, freqs=freqs, layout="pair_matrix_inplace")
+    _exact(got, h)
+
+
+@pytest.mark.parametrize("ops", [disable_weight_init, manual_cast])
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_operations_rms_qk_norm_and_matrix_rope_like_z_image_and_qwen_are_bit_exact(ops, dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    norm = ops.RMSNorm(64, eps=1e-6, elementwise_affine=True, dtype=dtype)
+    with torch.no_grad():
+        norm.weight.copy_(_t(64, seed=1))
+    x = _t(B, L, 4, 64, dtype=dtype)
+    pe = _rope_matrix(B, L, 1, half=32)
+    got = qk_norm_rope(x, **norm_args(norm), freqs=pe, layout="pair_matrix")
+    _exact(got, _apply_rope1(norm(x), pe))
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_moss_fp32_rms_and_rotate_half_rope_are_bit_exact(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, weight = _t(B, L, 4, 32, dtype=dtype), _t(32, dtype=dtype, seed=1)
+    rope = torch.cat((_t(1, L, 16, seed=2).sin(), _t(1, L, 16, seed=3).cos()), -1)
+    xf = x.float()
+    normed = (xf * torch.rsqrt(xf.square().mean(-1, keepdim=True) + 1e-6)).to(x.dtype) * weight
+    sin, cos = rope.chunk(2, -1)
+    sin = torch.cat((sin, sin), -1).unsqueeze(-2)
+    cos = torch.cat((cos, cos), -1).unsqueeze(-2)
+    first, second = normed.chunk(2, -1)
+    expected = normed * cos + torch.cat((-second, first), -1) * sin
+    got = qk_norm_rope(x, norm="rms_fp32", eps=1e-6, weight=weight, weight_cast=False, freqs=rope, layout="rotate_half")
+    _exact(got, expected)
+
+
+def test_qk_norm_rope_without_a_table_is_just_the_norm_and_unknown_layouts_are_rejected():
+    from src.platform.runtime.native.kernels import apply_rope, qk_norm_rope
+
+    x = _t(B, 2, L, 32, dtype=torch.bfloat16)
+    _exact(qk_norm_rope(x, norm="rms", eps=1e-6, freqs=None, layout="pair_matrix"), F.rms_norm(x, (32,), eps=1e-6))
+    with pytest.raises(ValueError):
+        apply_rope(x, _t(1), layout="spiral")

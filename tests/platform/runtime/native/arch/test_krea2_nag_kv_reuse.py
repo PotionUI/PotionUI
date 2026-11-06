@@ -25,13 +25,11 @@ from src.platform.runtime.native.arch.krea2.layers import (
     _nag_active,
     _sdpa_gqa,
     apply_nag,
-    apply_rope_inplace,
-    ropeapply,
 )
 from src.platform.runtime.native.arch.krea2.model import Krea2
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
-from src.platform.runtime.native.kernels import pick_operations
+from src.platform.runtime.native.kernels import apply_rope, pick_operations
 import torch.nn.functional as F
 from .._native_ops import fp32_ops
 
@@ -54,7 +52,7 @@ def _old_attention_forward(self, x, freqs=None, mask=None, nag_ctx=None, nag_fre
     q = self.qknorm.qnorm(q)
     k = self.qknorm.knorm(k)
     if freqs is not None:
-        q, k = ropeapply(q, k, freqs)
+        q, k = (apply_rope(t, freqs, layout="pair_matrix_inplace") for t in (q, k))
     out = _sdpa_gqa(q, k, v, self.heads, self.kvheads, mask)
     if nag_ctx is not None and _nag_active(nag):
         img_len = x.shape[1] - txt_len
@@ -64,7 +62,7 @@ def _old_attention_forward(self, x, freqs=None, mask=None, nag_ctx=None, nag_fre
         v_neg = rearrange(self.wv(x_neg), "B L (H D) -> B H L D", H=self.kvheads)
         k_neg = self.qknorm.knorm(k_neg)
         if nag_freqs is not None:
-            k_neg = apply_rope_inplace(k_neg, nag_freqs)
+            k_neg = apply_rope(k_neg, nag_freqs, layout="pair_matrix_inplace")
         neg_img = _sdpa_gqa(q_img, k_neg, v_neg, self.heads, self.kvheads, nag_mask)
         pos_img = out[:, -img_len:, :]
         blended = apply_nag(pos_img, neg_img, nag["scale"], nag.get("tau", 3.5), nag.get("alpha", 0.5))

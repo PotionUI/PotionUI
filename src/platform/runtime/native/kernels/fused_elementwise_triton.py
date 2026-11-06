@@ -213,3 +213,98 @@ def fused_act_gate(*args) -> Tensor:
     if torch.compiler.is_compiling():
         return _act_gate_op(*args)
     return _act_gate(_direct, *args)
+
+
+@triton.jit
+def _qk_norm_rope_kernel(
+    x_ptr, out_ptr, w_ptr, t0_ptr, t1_ptr,
+    n1, n2, xs0, xs1, xs2, os0, os1, os2, ts0, ts1, ts2, tp, us0, us1, us2,
+    eps, weight_offset,
+    NORM: tl.constexpr, HAS_W: tl.constexpr, W_ROUND: tl.constexpr, LAYOUT: tl.constexpr, HALF: tl.constexpr,
+):
+    eps = eps.to(tl.float32)
+    weight_offset = weight_offset.to(tl.float32)
+    r = tl.program_id(0).to(tl.int64)
+    i2 = r % n2
+    t = r // n2
+    i1 = t % n1
+    i0 = t // n1
+    p = tl.arange(0, HALF)
+    if LAYOUT == 3:
+        first, second = p, HALF + p
+    else:
+        first, second = 2 * p, 2 * p + 1
+    x_row = x_ptr + i0 * xs0 + i1 * xs1 + i2 * xs2
+    a = tl.load(x_row + first).to(tl.float32)
+    b = tl.load(x_row + second).to(tl.float32)
+    if NORM:
+        inv = libdevice.rsqrt((tl.sum(a * a, axis=0) + tl.sum(b * b, axis=0)) / (2 * HALF) + eps)
+        a = a * inv
+        b = b * inv
+    if HAS_W:
+        wa = tl.load(w_ptr + first).to(tl.float32) + weight_offset
+        wb = tl.load(w_ptr + second).to(tl.float32) + weight_offset
+        if W_ROUND:
+            wa = wa.to(x_ptr.dtype.element_ty).to(tl.float32)
+            wb = wb.to(x_ptr.dtype.element_ty).to(tl.float32)
+        a = a * wa
+        b = b * wb
+    t_row = t0_ptr + i0 * ts0 + i1 * ts1 + i2 * ts2
+    if LAYOUT == 0:
+        f00 = tl.load(t_row + p * tp).to(tl.float32)
+        f01 = tl.load(t_row + p * tp + 1).to(tl.float32)
+        f10 = tl.load(t_row + p * tp + 2).to(tl.float32)
+        f11 = tl.load(t_row + p * tp + 3).to(tl.float32)
+        out_a = f00 * a + f01 * b
+        out_b = f10 * a + f11 * b
+    elif LAYOUT == 1:
+        cos = tl.load(t_row + p * tp).to(x_ptr.dtype.element_ty).to(tl.float32)
+        sin = tl.load(t_row + p * tp + 2).to(x_ptr.dtype.element_ty).to(tl.float32)
+        out_a = a * cos - b * sin
+        out_b = b * cos + a * sin
+    elif LAYOUT == 2:
+        cos = tl.load(t_row + p * tp).to(tl.float32)
+        sin = tl.load(t1_ptr + i0 * us0 + i1 * us1 + i2 * us2 + p * tp).to(tl.float32)
+        out_a = cos * a - sin * b
+        out_b = sin * a + cos * b
+    else:
+        sin = tl.load(t_row + p * tp).to(tl.float32)
+        cos = tl.load(t_row + (HALF + p) * tp).to(tl.float32)
+        out_a = a * cos - b * sin
+        out_b = b * cos + a * sin
+    o_row = out_ptr + i0 * os0 + i1 * os1 + i2 * os2
+    tl.store(o_row + first, out_a.to(out_ptr.dtype.element_ty))
+    tl.store(o_row + second, out_b.to(out_ptr.dtype.element_ty))
+
+
+def _qk_norm_rope(
+    launch, x: Tensor, out: Tensor, weight: Tensor | None, t0: Tensor, t1: Tensor | None,
+    layout_args: list[int], norm: int, eps: float, weight_offset: float, weight_round: bool, rope_layout: int,
+) -> Tensor:
+    half = x.shape[-1] // 2
+    rows = x.numel() // x.shape[-1]
+    launch(_qk_norm_rope_kernel)[(rows,)](
+        x, out, weight if weight is not None else x, t0, t1 if t1 is not None else t0,
+        *layout_args, eps, weight_offset,
+        NORM=norm, HAS_W=weight is not None, W_ROUND=weight_round, LAYOUT=rope_layout, HALF=half,
+        num_warps=1 if half <= 64 else 2,
+    )
+    return out
+
+
+@triton_op("potionui::fused_qk_norm_rope", mutates_args=("out",))
+def _qk_norm_rope_op(
+    x: Tensor, out: Tensor, weight: Tensor | None, t0: Tensor, t1: Tensor | None,
+    layout_args: list[int], norm: int, eps: float, weight_offset: float, weight_round: bool, rope_layout: int,
+) -> None:
+    _qk_norm_rope(wrap_triton, x, out, weight, t0, t1, layout_args, norm, eps, weight_offset, weight_round, rope_layout)
+
+
+def fused_qk_norm_rope(
+    x: Tensor, out: Tensor, weight: Tensor | None, t0: Tensor, t1: Tensor | None,
+    layout_args: list[int], norm: int, eps: float, weight_offset: float, weight_round: bool, rope_layout: int,
+) -> Tensor:
+    if torch.compiler.is_compiling():
+        _qk_norm_rope_op(x, out, weight, t0, t1, layout_args, norm, eps, weight_offset, weight_round, rope_layout)
+        return out
+    return _qk_norm_rope(_direct, x, out, weight, t0, t1, layout_args, norm, eps, weight_offset, weight_round, rope_layout)

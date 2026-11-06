@@ -12,10 +12,12 @@ from .fp8_linear import Fp8ScaledLinear
 from .fused_elementwise import (
     ActGate,
     act_gate,
+    apply_rope,
     fused_elementwise_disabled_reason,
     gated_residual,
     norm_args,
     norm_modulate,
+    qk_norm_rope,
 )
 from .gemm import GemmSupport, gemm_support
 from .hardware import (
@@ -65,6 +67,7 @@ __all__ = [
     "QuantFormat",
     "activation_quant_chunk_rows",
     "act_gate",
+    "apply_rope",
     "attention",
     "available_backends",
     "capabilities",
@@ -88,6 +91,7 @@ __all__ = [
     "nvfp4_quant_disabled_reason",
     "partition_output_branch_deltas",
     "pick_operations",
+    "qk_norm_rope",
     "quantize_nvfp4_activation",
     "refresh_capabilities",
     "reset_backend_cache",

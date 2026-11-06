@@ -28,7 +28,6 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from vendor.gpl.comfyui.flux.math_ops import apply_rope1
 
 # Injected by src at import time (see the module docstring). None until then —
 # calling _JointAttention.forward before wiring raises rather than silently
@@ -123,6 +122,7 @@ class _JointAttention(nn.Module):
         super().__init__()
         inner = dim_head * heads
         self.heads = heads
+        self.operations = operations
         self.norm_q = operations.RMSNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype, device=device)
         self.norm_k = operations.RMSNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype, device=device)
         self.norm_added_q = operations.RMSNorm(dim_head, eps=eps, dtype=dtype, device=device)
@@ -145,14 +145,16 @@ class _JointAttention(nn.Module):
 
         iq, ik, iv = split(self.to_q(img)), split(self.to_k(img)), split(self.to_v(img))
         tq, tk, tv = split(self.add_q_proj(txt)), split(self.add_k_proj(txt)), split(self.add_v_proj(txt))
-        iq, ik = self.norm_q(iq), self.norm_k(ik)
-        tq, tk = self.norm_added_q(tq), self.norm_added_k(tk)
+        ops = self.operations
+        rope_txt, rope_img = rope.narrow(-4, 0, seq_txt), rope.narrow(-4, seq_txt, seq_img)
+        iq = ops.qk_norm_rope(iq, **ops.norm_args(self.norm_q), freqs=rope_img, layout="pair_matrix")
+        ik = ops.qk_norm_rope(ik, **ops.norm_args(self.norm_k), freqs=rope_img, layout="pair_matrix")
+        tq = ops.qk_norm_rope(tq, **ops.norm_args(self.norm_added_q), freqs=rope_txt, layout="pair_matrix")
+        tk = ops.qk_norm_rope(tk, **ops.norm_args(self.norm_added_k), freqs=rope_txt, layout="pair_matrix")
 
         q = torch.cat([tq, iq], dim=2)
         k = torch.cat([tk, ik], dim=2)
         v = torch.cat([tv, iv], dim=2)
-        q = apply_rope1(q, rope)
-        k = apply_rope1(k, rope)
 
         attn_mask = None
         if mask is not None:

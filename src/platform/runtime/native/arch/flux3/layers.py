@@ -21,17 +21,6 @@ def rope_tables(ids: Tensor, axes_dim: tuple[int, ...], theta: int) -> Rope:
     return torch.cos(angle).float()[None, None], torch.sin(angle).float()[None, None]
 
 
-def rmsnorm_rope(x: Tensor, scale: Tensor, rope: Rope, eps: float = 1e-6) -> Tensor:
-    b, h, n, d = x.shape
-    x_f = x.float()
-    normed = x_f * x_f.pow(2).mean(-1, keepdim=True).add(eps).rsqrt() * scale.float()
-    pairs = normed.reshape(b, h, n, d // 2, 2)
-    cos, sin = rope
-    first, second = pairs[..., 0], pairs[..., 1]
-    rotated = torch.stack((cos * first - sin * second, sin * first + cos * second), dim=-1)
-    return rotated.reshape(b, h, n, d).to(x.dtype)
-
-
 class RMSNormScale(nn.Module):
     def __init__(self, dim: int, dtype=None, device=None) -> None:
         super().__init__()
@@ -43,9 +32,6 @@ class QKNorm(nn.Module):
         super().__init__()
         self.query_norm = RMSNormScale(dim, dtype=dtype, device=device)
         self.key_norm = RMSNormScale(dim, dtype=dtype, device=device)
-
-    def forward(self, q: Tensor, k: Tensor, rope: Rope) -> tuple[Tensor, Tensor]:
-        return rmsnorm_rope(q, self.query_norm.scale, rope), rmsnorm_rope(k, self.key_norm.scale, rope)
 
 
 class MLPEmbedder(nn.Module):
@@ -119,7 +105,13 @@ class Block(nn.Module):
             q, k, v = self.qkv(x_mod).chunk(3, dim=-1)
         else:
             q, k, v = self.q_proj(x_mod), self.k_proj(x_mod), self.v_proj(x_mod)
-        q, k = self.norm(self._split(q), self._split(k), rope)
+        q, k = (
+            ops.qk_norm_rope(
+                self._split(t), norm="rms_fp32_chain", eps=1e-6, weight=norm.scale, freqs=rope,
+                layout="pair_cos_sin", out_dtype=t.dtype,
+            )
+            for t, norm in ((q, self.norm.query_norm), (k, self.norm.key_norm))
+        )
         v = self._split(v).to(q.dtype)
         attn = _attention(q, k, v, heads=self.heads)
         b, _, n, _ = attn.shape

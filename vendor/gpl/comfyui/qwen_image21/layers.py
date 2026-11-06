@@ -28,7 +28,6 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from vendor.gpl.comfyui.flux.layers import timestep_embedding
-from vendor.gpl.comfyui.flux.math_ops import apply_rope1
 
 _attention_backend: "Callable[..., Tensor] | None" = None
 
@@ -147,6 +146,7 @@ class _Attention(nn.Module):
         self.to_out = nn.ModuleList([operations.Linear(inner_dim, dim, bias=False, dtype=dtype, device=device)])
         self.norm_q = operations.RMSNorm(dim_head, eps=eps, dtype=dtype, device=device)
         self.norm_k = operations.RMSNorm(dim_head, eps=eps, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(
         self, x: Tensor, pe: Tensor, mask: Tensor | None, prefix_len: int,
@@ -159,9 +159,9 @@ class _Attention(nn.Module):
             return t.view(b, n, self.heads, -1).transpose(1, 2)
 
         q, k, v = split(self.to_q(x)), split(self.to_k(x)), split(self.to_v(x))
-        q, k = self.norm_q(q), self.norm_k(k)
-        q = apply_rope1(q, pe)
-        k = apply_rope1(k, pe)
+        ops = self.operations
+        q = ops.qk_norm_rope(q, **ops.norm_args(self.norm_q), freqs=pe, layout="pair_matrix")
+        k = ops.qk_norm_rope(k, **ops.norm_args(self.norm_k), freqs=pe, layout="pair_matrix")
 
         if _attention_backend is None:
             raise RuntimeError(

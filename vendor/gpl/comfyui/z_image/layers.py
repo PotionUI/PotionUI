@@ -26,7 +26,6 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from vendor.gpl.comfyui.flux.math_ops import apply_rope
 
 # Injected by src at import time (see the module docstring). None until then —
 # calling _JointAttention.forward before wiring raises rather than silently
@@ -84,6 +83,7 @@ class _JointAttention(nn.Module):
 
     def __init__(self, cfg, operations, dtype=None, device=None) -> None:
         super().__init__()
+        self.operations = operations
         self.n_heads = cfg.n_heads
         self.n_kv_heads = cfg.n_kv_heads
         self.head_dim = cfg.head_dim
@@ -106,9 +106,9 @@ class _JointAttention(nn.Module):
         q = q.view(b, s, self.n_heads, self.head_dim)
         k = k.view(b, s, self.n_kv_heads, self.head_dim)
         v = v.view(b, s, self.n_kv_heads, self.head_dim)
-        q = self.q_norm(q)
-        k = self.k_norm(k)
-        q, k = apply_rope(q, k, rope)
+        ops = self.operations
+        q = ops.qk_norm_rope(q, **ops.norm_args(self.q_norm), freqs=rope, layout="pair_matrix")
+        k = ops.qk_norm_rope(k, **ops.norm_args(self.k_norm), freqs=rope, layout="pair_matrix")
         if self.n_rep > 1:
             k = k.unsqueeze(3).repeat(1, 1, 1, self.n_rep, 1).flatten(2, 3)
             v = v.unsqueeze(3).repeat(1, 1, 1, self.n_rep, 1).flatten(2, 3)

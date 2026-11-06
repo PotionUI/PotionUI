@@ -72,7 +72,7 @@ def test_a_flux2_forward_with_fused_kernels_matches_the_unfused_one(monkeypatch)
     x = torch.randn(1, 16, 16, 16, device="cuda").to(torch.bfloat16)
     ctx = torch.randn(1, 7, 32, device="cuda").to(torch.bfloat16)
     fused, unfused, routed = _on_and_off(monkeypatch, lambda: model(x, torch.tensor([0.5], device="cuda"), ctx))
-    assert {"fused_norm_modulate", "fused_gated_residual", "fused_act_gate"} <= set(routed)
+    assert {"fused_norm_modulate", "fused_gated_residual", "fused_act_gate", "fused_qk_norm_rope"} <= set(routed)
     _assert_close_to_unfused(fused, unfused)
 
 
@@ -82,7 +82,7 @@ def test_a_z_image_forward_with_fused_kernels_matches_the_unfused_one(monkeypatc
     ctx = torch.randn(2, 7, ZTINY["cap_feat_dim"], device="cuda").to(torch.bfloat16)
     t = torch.full((2,), 0.5, device="cuda")
     fused, unfused, routed = _on_and_off(monkeypatch, lambda: model(x, t, ctx))
-    assert {"fused_norm_modulate", "fused_gated_residual", "fused_act_gate"} <= set(routed)
+    assert {"fused_norm_modulate", "fused_gated_residual", "fused_act_gate", "fused_qk_norm_rope"} <= set(routed)
     _assert_close_to_unfused(fused, unfused)
 
 
@@ -95,5 +95,5 @@ def test_a_krea2_reference_forward_with_fused_spans_matches_the_unfused_one(monk
     fused, unfused, routed = _on_and_off(
         monkeypatch, lambda: model(x, t, te, ref_latents=ref, ref_timestep_zero=True),
     )
-    assert {"fused_norm_modulate", "fused_gated_residual", "fused_act_gate"} <= set(routed)
+    assert {"fused_norm_modulate", "fused_gated_residual", "fused_act_gate", "fused_qk_norm_rope"} <= set(routed)
     _assert_close_to_unfused(fused, unfused)

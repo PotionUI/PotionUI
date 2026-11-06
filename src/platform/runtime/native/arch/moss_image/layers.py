@@ -46,19 +46,10 @@ def rope_table(height: int, width: int, text_length: int, bands: Tensor, device)
     return torch.cat((phase.sin(), phase.cos()), -2).flatten(-2).unsqueeze(0)
 
 
-def rotate(x: Tensor, rope: Tensor) -> Tensor:
-    sin, cos = rope.chunk(2, -1)
-    sin = torch.cat((sin, sin), -1).unsqueeze(-2)
-    cos = torch.cat((cos, cos), -1).unsqueeze(-2)
-    first, second = x.chunk(2, -1)
-    return x * cos + torch.cat((-second, first), -1) * sin
-
-
-def attend(q: Tensor, k: Tensor, v: Tensor, rope: Tensor, heads: int) -> Tensor:
-    shape = (*q.shape[:2], heads, q.shape[-1] // heads)
-    q = rotate(q.reshape(shape), rope).transpose(1, 2)
-    k = rotate(k.reshape(shape), rope).transpose(1, 2)
-    v = v.reshape(shape).transpose(1, 2)
+def attend(q: Tensor, k: Tensor, v: Tensor, heads: int) -> Tensor:
+    q = q.transpose(1, 2)
+    k = k.transpose(1, 2)
+    v = v.reshape(*v.shape[:2], heads, v.shape[-1] // heads).transpose(1, 2)
     out = _attention(q.to(v.dtype), k.to(v.dtype), v, heads=heads)
     return out.transpose(1, 2).flatten(2)
 
@@ -77,12 +68,14 @@ class TextBlock(nn.Module):
         self.ffn_gate = operations.Linear(dim, ffn_dim, **kw)
         self.ffn_up = operations.Linear(dim, ffn_dim, **kw)
         self.ffn_down = operations.Linear(ffn_dim, dim, **kw)
+        self.operations = operations
 
     def forward(self, x: Tensor, rope: Tensor) -> Tensor:
+        ops = self.operations
         q, k, v = self.qkv(self.norm1(x)).chunk(3, -1)
-        q = self.q_norm(q.unflatten(-1, (self.heads, -1))).flatten(2)
-        k = self.k_norm(k.unflatten(-1, (self.heads, -1))).flatten(2)
-        x = x + self.proj(attend(q, k, v, rope, self.heads))
+        q = ops.qk_norm_rope(q.unflatten(-1, (self.heads, -1)), **rms_args(self.q_norm), freqs=rope, layout="rotate_half")
+        k = ops.qk_norm_rope(k.unflatten(-1, (self.heads, -1)), **rms_args(self.k_norm), freqs=rope, layout="rotate_half")
+        x = x + self.proj(attend(q, k, v, self.heads))
         y = self.norm2(x)
         return x + self.ffn_down(situ(self.ffn_up(y), self.ffn_gate(y)))
 
@@ -125,9 +118,9 @@ class Block(nn.Module):
         shift_a, scale_a, gate_a, shift_f, scale_f, gate_f = modulation.unbind(1)
         y = ops.norm_modulate(x, **rms_args(self.norm1), scale=scale_a[:, None], shift=shift_a[:, None])
         q, k, v = self.proj["qkv"](y).chunk(3, -1)
-        q = self.q_norm(q.unflatten(-1, (self.heads, -1))).flatten(2)
-        k = self.k_norm(k.unflatten(-1, (self.heads, -1))).flatten(2)
-        x = ops.gated_residual(x, self.proj["o"](attend(q, k, v, rope, self.heads)), gate_a[:, None])
+        q = ops.qk_norm_rope(q.unflatten(-1, (self.heads, -1)), **rms_args(self.q_norm), freqs=rope, layout="rotate_half")
+        k = ops.qk_norm_rope(k.unflatten(-1, (self.heads, -1)), **rms_args(self.k_norm), freqs=rope, layout="rotate_half")
+        x = ops.gated_residual(x, self.proj["o"](attend(q, k, v, self.heads)), gate_a[:, None])
         y = ops.norm_modulate(x, **rms_args(self.norm2), scale=scale_f[:, None], shift=shift_f[:, None])
         hidden, gate = self.proj["ffn_up_gate"](y).chunk(2, -1)
         return ops.gated_residual(x, self.proj["ffn_down"](situ(hidden, gate)), gate_f[:, None])

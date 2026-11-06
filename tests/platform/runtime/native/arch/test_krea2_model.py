@@ -359,7 +359,8 @@ def test_config_rope_axes_sum_to_headdim():
 from vendor.gpl.comfyui.flux.math_ops import apply_rope1 as _vendored_apply_rope1
 from vendor.gpl.comfyui.flux.math_ops import rope as _vendored_flux_rope
 
-from src.platform.runtime.native.arch.krea2.layers import apply_rope_inplace, rope
+from src.platform.runtime.native.arch.krea2.layers import rope
+from src.platform.runtime.native.kernels import apply_rope
 
 
 @pytest.mark.parametrize("dim,theta,ntk", [(128, 1e4, 1.0), (128, 100.0, 1.0), (64, 1e4, 2.5), (48, 1e4, 1.0)])
@@ -389,7 +390,7 @@ def test_krea2_apply_rope_inplace_vs_vendored_flux_not_bitexact(dim, dtype):
         freqs_b = freqs[:, None, :, :, :]            # broadcast over heads, like apply_rope_inplace does internally
         x = torch.randn(2, 4, 17, dim, dtype=dtype, generator=gen)
 
-        ours = apply_rope_inplace(x.clone(), freqs)
+        ours = apply_rope(x.clone(), freqs, layout="pair_matrix_inplace")
         vendored = _vendored_apply_rope1(x.clone(), freqs_b)
 
         # rtol term: cast-order noise scales with |x| (bf16 ~0.4% relative),

@@ -56,7 +56,7 @@
 #         now a thin wrapper over the vendored function rather than a
 #         reimplementation, with `ntk` composed at the call site instead of
 #         forking a whole function for one extra parameter.
-#       - `apply_rope_inplace`/`ropeapply` are NOT bit-exact against the
+#       - the in-place `pair_matrix_inplace` rope layout is NOT bit-exact against the
 #         vendored `math_ops.apply_rope1`
 #         (`test_krea2_apply_rope_inplace_vs_vendored_flux_not_bitexact`
 #         proves the divergence, up to ~1.5e-2 at bf16) because they
@@ -120,37 +120,6 @@ def rope(pos: Tensor, dim: int, theta: float = 1e4, ntk: float = 1.0) -> Tensor:
     exactly equivalent to the old fork's extra multiply — proven bit-exact
     (``torch.equal``) by ``test_krea2_rope_matches_vendored_flux_rope``."""
     return _flux_rope(pos, dim, theta * ntk)
-
-
-def apply_rope_inplace(x: Tensor, freqs: Tensor) -> Tensor:
-    """In-place variant of the vendored Flux/ComfyUI rotation
-    (``vendor/gpl/comfyui/flux/math_ops.apply_rope1``): same 2x2-rotation-
-    matrix convention (``cos``/``sin`` read straight off the matrix's first
-    column, matching ``apply_rope1``'s column-vector formulation), but
-    mutates ``x`` in place and casts the (small) ``cos``/``sin`` tensors down
-    to the activation dtype instead of upcasting the (large) activation
-    tensor to the freqs dtype — a memory/perf variant of the SAME math, not a
-    different convention. NOT bit-exact against the vendored out-of-place
-    function (``test_krea2_apply_rope_inplace_vs_vendored_flux_not_bitexact``
-    proves the divergence, up to ~1.5e-2 at bf16, entirely attributable to
-    the different cast order), so it is kept as its own function rather than
-    imported."""
-    freqs = freqs[:, None, :, :, :]
-    cos = freqs[..., 0, 0].to(x.dtype)
-    sin = freqs[..., 1, 0].to(x.dtype)
-    x_pair = x.reshape(*x.shape[:-1], -1, 2)
-    x0 = x_pair[..., 0].clone()
-    x1 = x_pair[..., 1]
-    x_pair[..., 0].mul_(cos).sub_(x1 * sin)
-    x_pair[..., 1].mul_(cos).add_(x0 * sin)
-    return x
-
-
-def ropeapply(xq: Tensor, xk: Tensor, freqs: Tensor) -> tuple[Tensor, Tensor]:
-    """Applies :func:`apply_rope_inplace` to both q and k — the two-tensor
-    convenience wrapper diffusers' ``Krea2AttnProcessor.__call__`` inlines at
-    its call site instead of naming separately."""
-    return apply_rope_inplace(xq, freqs), apply_rope_inplace(xk, freqs)
 
 
 def temb(t: Tensor, dim: int, period: float = 1e4, tfactor: float = 1e3,
@@ -396,6 +365,7 @@ class Attention(nn.Module):
         self.gate = operations.Linear(dim, dim, bias=bias, dtype=dtype, device=device)
         self.qknorm = QKNorm(self.headdim)
         self.wo = operations.Linear(dim, dim, bias=bias, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor, freqs: Tensor | None = None, mask: Tensor | None = None,
                 nag_ctx: Tensor | None = None, nag_freqs: Tensor | None = None,
@@ -404,10 +374,9 @@ class Attention(nn.Module):
         q = rearrange(self.wq(x), "B L (H D) -> B H L D", H=self.heads)
         k = rearrange(self.wk(x), "B L (H D) -> B H L D", H=self.kvheads)
         v = rearrange(self.wv(x), "B L (H D) -> B H L D", H=self.kvheads)
-        q = self.qknorm.qnorm(q)
-        k = self.qknorm.knorm(k)
-        if freqs is not None:
-            q, k = ropeapply(q, k, freqs)
+        ops = self.operations
+        q = ops.qk_norm_rope(q, **_rms_args(self.qknorm.qnorm), freqs=freqs, layout="pair_matrix_inplace")
+        k = ops.qk_norm_rope(k, **_rms_args(self.qknorm.knorm), freqs=freqs, layout="pair_matrix_inplace")
         out = _sdpa_gqa(q, k, v, self.heads, self.kvheads, mask)
         # NAG (arXiv:2505.21179; mirrors src/platform/runtime/native/arch/wan/model.py's
         # WanT2VCrossAttention and arch/ltx/model.py's CrossAttention). Krea-2's block is
@@ -431,9 +400,10 @@ class Attention(nn.Module):
             q_img = q[:, :, -img_len:, :]
             k_txt = rearrange(self.wk(nag_ctx), "B L (H D) -> B H L D", H=self.kvheads)
             v_txt = rearrange(self.wv(nag_ctx), "B L (H D) -> B H L D", H=self.kvheads)
-            k_txt = self.qknorm.knorm(k_txt)
-            if nag_freqs is not None:
-                k_txt = apply_rope_inplace(k_txt, nag_freqs[:, :neg_txt_len])
+            k_txt = ops.qk_norm_rope(
+                k_txt, **_rms_args(self.qknorm.knorm), layout="pair_matrix_inplace",
+                freqs=None if nag_freqs is None else nag_freqs[:, :neg_txt_len],
+            )
             k_neg = torch.cat([k_txt, k[:, :, -img_len:, :]], dim=2)
             v_neg = torch.cat([v_txt, v[:, :, -img_len:, :]], dim=2)
             neg_img = _sdpa_gqa(q_img, k_neg, v_neg, self.heads, self.kvheads, nag_mask)

@@ -93,11 +93,14 @@ class QKNorm(nn.Module):
         super().__init__()
         self.query_norm = RMSNorm(dim, dtype=dtype, device=device, operations=operations)
         self.key_norm = RMSNorm(dim, dtype=dtype, device=device, operations=operations)
+        self.operations = operations
 
-    def forward(self, q: Tensor, k: Tensor, v: Tensor) -> tuple[Tensor, Tensor]:
-        q = self.query_norm(q)
-        k = self.key_norm(k)
-        return q.to(v), k.to(v)
+    def forward(self, q: Tensor, k: Tensor, v: Tensor, pe: Tensor | None = None) -> tuple[Tensor, Tensor]:
+        rope = self.operations.qk_norm_rope
+        return (
+            rope(q, norm="rms", eps=1e-6, weight=self.query_norm.scale, cast_to=v.dtype, freqs=pe, layout="pair_matrix"),
+            rope(k, norm="rms", eps=1e-6, weight=self.key_norm.scale, cast_to=v.dtype, freqs=pe, layout="pair_matrix"),
+        )
 
 
 class SelfAttention(nn.Module):
@@ -192,7 +195,8 @@ class DoubleStreamBlock(nn.Module):
         del img_modulated
         img_q, img_k, img_v = img_qkv.view(img_qkv.shape[0], img_qkv.shape[1], 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         del img_qkv
-        img_q, img_k = self.img_attn.norm(img_q, img_k, img_v)
+        txt_len = txt.shape[1]
+        img_q, img_k = self.img_attn.norm(img_q, img_k, img_v, None if pe is None else pe[:, :, txt_len:])
 
         txt_modulated = ops.norm_modulate(txt, norm="layer", eps=self.txt_norm1.eps,
                                           scale=txt_mod1.scale, shift=txt_mod1.shift, addcmul=True)
@@ -200,7 +204,7 @@ class DoubleStreamBlock(nn.Module):
         del txt_modulated
         txt_q, txt_k, txt_v = txt_qkv.view(txt_qkv.shape[0], txt_qkv.shape[1], 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         del txt_qkv
-        txt_q, txt_k = self.txt_attn.norm(txt_q, txt_k, txt_v)
+        txt_q, txt_k = self.txt_attn.norm(txt_q, txt_k, txt_v, None if pe is None else pe[:, :, :txt_len])
 
         # run attention over concatenated txt+img sequence
         q = torch.cat((txt_q, img_q), dim=2)
@@ -209,7 +213,7 @@ class DoubleStreamBlock(nn.Module):
         del txt_k, img_k
         v = torch.cat((txt_v, img_v), dim=2)
         del txt_v, img_v
-        attn = attention(q, k, v, pe=pe, mask=attn_mask)
+        attn = attention(q, k, v, pe=None, mask=attn_mask)
         del q, k, v
         txt_attn, img_attn = attn[:, : txt.shape[1]], attn[:, txt.shape[1]:]
 
@@ -277,9 +281,9 @@ class SingleStreamBlock(nn.Module):
         )
         q, k, v = qkv.view(qkv.shape[0], qkv.shape[1], 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         del qkv
-        q, k = self.norm(q, k, v)
+        q, k = self.norm(q, k, v, pe)
 
-        attn = attention(q, k, v, pe=pe, mask=attn_mask)
+        attn = attention(q, k, v, pe=None, mask=attn_mask)
         del q, k, v
         mlp = self.mlp_act(mlp)
         output = self.linear2(torch.cat((attn, mlp), 2))

@@ -262,7 +262,10 @@ def test_each_fused_call_launches_exactly_one_kernel():
     assert {name: _kernels_launched(fn) for name, fn in calls.items()} == {name: 1 for name in calls}
 
 
-def test_the_fused_ops_trace_into_torch_compile_without_graph_breaks():
+def test_the_fused_ops_trace_into_torch_compile_without_graph_breaks(monkeypatch):
+    import torch._inductor.config as inductor_config
+
+    monkeypatch.setattr(inductor_config, "compile_threads", 1)
     x = _t(1, 64, 3072, dtype=torch.bfloat16)
     scale, shift = _t(1, 1, 3072, dtype=torch.bfloat16, seed=1), _t(1, 1, 3072, dtype=torch.bfloat16, seed=2)
 
@@ -273,3 +276,120 @@ def test_the_fused_ops_trace_into_torch_compile_without_graph_breaks():
     torch._dynamo.reset()
     compiled = torch.compile(block, fullgraph=True)
     torch.testing.assert_close(compiled(x), block(x), rtol=0, atol=0)
+
+
+def _qk_ref(x, weight, offset, eps, norm, round_weight):
+    xd = x.double()
+    if norm:
+        xd = xd * torch.rsqrt(xd.square().mean(-1, keepdim=True) + eps)
+    if weight is not None:
+        w = weight.float() + offset
+        xd = xd * (w.to(x.dtype) if round_weight else w).double()
+    return xd
+
+
+def _pairs_rotated(h, cos, sin):
+    a, b = h[..., 0::2], h[..., 1::2]
+    out, mag = torch.empty_like(h), torch.empty_like(h)
+    out[..., 0::2] = a * cos - b * sin
+    out[..., 1::2] = b * cos + a * sin
+    mag[..., 0::2] = (a * cos).abs() + (b * sin).abs()
+    mag[..., 1::2] = (b * cos).abs() + (a * sin).abs()
+    return out, mag
+
+
+def _matrix(lead, half, seed):
+    angle = _t(*lead, half, seed=seed) * 3.0
+    return torch.stack([angle.cos(), -angle.sin(), angle.sin(), angle.cos()], dim=-1).reshape(*lead, half, 2, 2)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("head_dim", [64, 128])
+def test_matrix_rope_after_rms_like_flux_and_z_image(dtype, head_dim):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    weight = _t(head_dim, seed=1)
+    for shape, lead in (((2, 24, 300, head_dim), (1, 1, 300)), ((2, 300, 24, head_dim), (2, 300, 1))):
+        x = _t(*shape, dtype=dtype, scale=4.0)
+        pe = _matrix(lead, head_dim // 2, 2)
+        out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, cast_to=dtype, freqs=pe, layout="pair_matrix")
+        h = _qk_ref(x, weight, 0.0, 1e-6, True, True)
+        ref, mag = _pairs_rotated(h, pe[..., 0, 0].double(), pe[..., 1, 0].double())
+        _assert_one_rounding(out, ref, mag, dtype)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_a_strided_head_split_input_like_qwen_image21(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x = _t(2, 77, 12, 128, dtype=dtype).transpose(1, 2)
+    weight, pe = _t(128, dtype=dtype, seed=1), _matrix((1, 1, 77), 64, 2)
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=pe, layout="pair_matrix")
+    ref, mag = _pairs_rotated(_qk_ref(x, weight, 0.0, 1e-6, True, True), pe[..., 0, 0].double(), pe[..., 1, 0].double())
+    _assert_one_rounding(out, ref, mag, dtype)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_in_place_rope_with_rounded_tables_like_krea2(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x = _t(2, 16, 200, 128, dtype=dtype)
+    weight, freqs = _t(128, seed=1) * 0.1, _matrix((2, 200), 64, 2)
+    out = qk_norm_rope(x, norm="rms", eps=1e-5, weight=weight, weight_offset=1.0, freqs=freqs, layout="pair_matrix_inplace")
+    table = freqs[:, None]
+    cos, sin = table[..., 0, 0].to(dtype).double(), table[..., 1, 0].to(dtype).double()
+    ref, mag = _pairs_rotated(_qk_ref(x, weight, 1.0, 1e-5, True, True), cos, sin)
+    _assert_one_rounding(out, ref, mag, dtype)
+    plain = x.clone()
+    result = qk_norm_rope(plain, freqs=freqs, layout="pair_matrix_inplace")
+    ref, mag = _pairs_rotated(x.double(), cos, sin)
+    assert result.data_ptr() == plain.data_ptr()
+    _assert_one_rounding(result, ref, mag, dtype)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_fp32_chain_with_cos_sin_tables_like_flux3(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, weight = _t(1, 24, 333, 128, dtype=dtype, scale=3.0), _t(128, dtype=dtype, seed=1)
+    angle = _t(1, 1, 333, 64, seed=2) * 3.0
+    cos, sin = angle.cos(), angle.sin()
+    out = qk_norm_rope(
+        x, norm="rms_fp32_chain", eps=1e-6, weight=weight, freqs=(cos, sin), layout="pair_cos_sin", out_dtype=dtype,
+    )
+    ref, mag = _pairs_rotated(_qk_ref(x, weight, 0.0, 1e-6, True, False), cos.double(), sin.double())
+    _assert_one_rounding(out, ref, mag, dtype)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_rotate_half_with_an_fp32_table_like_moss(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, weight = _t(1, 250, 16, 128, dtype=dtype), _t(128, dtype=dtype, seed=1)
+    angle = _t(1, 250, 64, seed=2) * 3.0
+    rope = torch.cat((angle.sin(), angle.cos()), -1)
+    out = qk_norm_rope(x, norm="rms_fp32", eps=1e-6, weight=weight, weight_cast=False, freqs=rope, layout="rotate_half")
+    h = _qk_ref(x, weight, 0.0, 1e-6, True, False)
+    sin, cos = angle.sin().double().unsqueeze(-2), angle.cos().double().unsqueeze(-2)
+    a, b = h[..., :64], h[..., 64:]
+    ref = torch.cat((a * cos - b * sin, b * cos + a * sin), -1)
+    mag = torch.cat(((a * cos).abs() + (b * sin).abs(), (b * cos).abs() + (a * sin).abs()), -1)
+    _assert_one_rounding(out, ref, mag, torch.float32)
+
+
+def test_each_qk_norm_rope_call_launches_exactly_one_kernel():
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, weight = _t(2, 24, 300, 128, dtype=torch.bfloat16), _t(128, dtype=torch.bfloat16, seed=1)
+    pe = _matrix((1, 1, 300), 64, 2)
+    angle = _t(1, 1, 300, 64, seed=3)
+    cos, sin = angle.cos(), angle.sin()
+    per_sample = _matrix((2, 300), 64, 4)
+    calls = {
+        "matrix": lambda: qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=pe, layout="pair_matrix"),
+        "cos sin": lambda: qk_norm_rope(x, norm="rms_fp32_chain", eps=1e-6, weight=weight, freqs=(cos, sin),
+                                        layout="pair_cos_sin", out_dtype=torch.bfloat16),
+        "in place": lambda: qk_norm_rope(x, norm="rms", eps=1e-5, weight=weight, weight_offset=1.0,
+                                         freqs=per_sample, layout="pair_matrix_inplace"),
+    }
+    assert {name: _kernels_launched(fn) for name, fn in calls.items()} == {name: 1 for name in calls}

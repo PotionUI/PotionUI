@@ -35,6 +35,9 @@ class FakeKernels:
     def fused_gated_residual(self, x, y, gate, weight, index, layout, norm, eps, w_round, tanh, out_dtype):
         return self._record("gated_residual", locals(), torch.full(x.shape, 7.0, dtype=out_dtype))
 
+    def fused_qk_norm_rope(self, x, out, weight, t0, t1, layout, norm, eps, w_offset, w_round, rope):
+        return self._record("qk_norm_rope", locals(), out)
+
     def fused_act_gate(self, h, up, mode):
         width = h.shape[-1] // 2 if mode == 0 else h.shape[-1]
         return self._record("act_gate", locals(), torch.full((*h.shape[:-1], width), 7.0, dtype=h.dtype))
@@ -253,3 +256,65 @@ def test_a_missing_triton_install_turns_the_path_off(kernels, monkeypatch):
     x = _t(2, 5, D)
     assert torch.equal(norm_modulate(x, **_flux_args()), _eager(norm_modulate, x, **_flux_args()))
     assert "ModuleNotFoundError" in fused_elementwise.fused_elementwise_disabled_reason()
+
+
+def _pe(lead, half):
+    angle = _t(*lead, half, dtype=torch.float32, seed=9)
+    return torch.stack([angle.cos(), -angle.sin(), angle.sin(), angle.cos()], dim=-1).reshape(*lead, half, 2, 2)
+
+
+def test_a_flux_qk_norm_rope_routes_with_its_table_strides(kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, weight, pe = _t(2, 3, 5, 16), _t(16, seed=1), _pe((1, 1, 5), 8)
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, cast_to=torch.bfloat16, freqs=pe, layout="pair_matrix")
+    (name, args), = kernels.calls
+    assert name == "qk_norm_rope" and out is args["out"] and out.dtype == torch.bfloat16 and out is not x
+    assert (args["rope"], args["norm"], args["w_round"], args["t0"], args["t1"]) == (0, 1, True, pe, None)
+    assert args["layout"] == [3, 5, 240, 80, 16, 240, 80, 16, 0, 0, 32, 4, 0, 0, 32]
+
+
+def test_an_unnormalised_in_place_rope_writes_into_its_input_like_krea2(kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x = _t(2, 3, 5, 16)
+    out = qk_norm_rope(x, freqs=_pe((2, 5), 8), layout="pair_matrix_inplace")
+    (_, args), = kernels.calls
+    assert out is x and args["rope"] == 1 and args["norm"] == 0
+
+
+def test_flux3_and_moss_tables_route_with_their_eager_output_dtypes(kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, weight = _t(1, 2, 5, 16), _t(16, seed=1)
+    angle = _t(1, 1, 5, 8, dtype=torch.float32, seed=2)
+    qk_norm_rope(x, norm="rms_fp32_chain", eps=1e-6, weight=weight, freqs=(angle.cos(), angle.sin()),
+                 layout="pair_cos_sin", out_dtype=torch.bfloat16)
+    qk_norm_rope(_t(1, 5, 2, 16), norm="rms_fp32", eps=1e-6, weight=weight, weight_cast=False,
+                 freqs=_t(1, 5, 16, dtype=torch.float32), layout="rotate_half")
+    (_, chain), (_, moss) = kernels.calls
+    assert chain["rope"] == 2 and chain["out"].dtype == torch.bfloat16 and chain["w_round"] is False
+    assert moss["rope"] == 3 and moss["out"].dtype == torch.float32 and moss["w_round"] is False
+
+
+@pytest.mark.parametrize("name", ["no table", "three dims", "odd head dim", "layer norm", "strided table pairs", "flag off"])
+def test_unsupported_qk_calls_stay_on_the_bit_exact_eager_code(name, kernels, monkeypatch):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, pe = _t(2, 3, 5, 16), _pe((1, 1, 5), 8)
+    kwargs = dict(norm="rms", eps=1e-6, freqs=pe, layout="pair_matrix")
+    if name == "no table":
+        kwargs["freqs"] = None
+    elif name == "three dims":
+        x = _t(3, 5, 16)
+    elif name == "odd head dim":
+        x, kwargs["freqs"] = _t(2, 3, 5, 24), _pe((1, 1, 5), 12)
+    elif name == "layer norm":
+        kwargs["norm"] = "layer"
+    elif name == "strided table pairs":
+        kwargs["freqs"] = _pe((1, 1, 5), 8).transpose(-1, -2)
+    elif name == "flag off":
+        monkeypatch.setitem(runtime_flag_values(), "native_fused_elementwise", False)
+    got = qk_norm_rope(x, **kwargs)
+    assert kernels.calls == []
+    assert torch.equal(got, _eager(qk_norm_rope, x, **kwargs))

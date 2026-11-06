@@ -10,6 +10,7 @@ import {
 	isNoop,
 	isVideoOp,
 	playbackPreview,
+	settlePending,
 	railToolOf,
 	summarize,
 	type VideoOp,
@@ -160,5 +161,27 @@ describe('step helpers', () => {
 		expect(hasPixelEffects([{ tool: 'rotate', params: {} }, { tool: 'mute', params: {} }])).toBe(false);
 		expect(hasPixelEffects([{ tool: 'film_grain', params: {} }])).toBe(true);
 		expect(hasPixelEffects([{ tool: 'retro-tape.scanlines', params: {} }])).toBe(true);
+	});
+});
+
+describe('settling a pending edit when the tool changes', () => {
+	const kept = { start: 0, end: 8 };
+
+	it('discards a split that was never applied', () => {
+		const state = beginEdit(createStack<VideoParams>(), draftFor('split', { at: 4 }, effects));
+		const settled = settlePending(state, true, clip, kept);
+		expect(settled.pending).toBeNull();
+		expect(appliedSteps(settled)).toHaveLength(0);
+	});
+
+	it('keeps a split that was applied', () => {
+		expect(appliedSteps(stackOf(['split', { at: 4 }])).map((step) => step.tool)).toEqual(['split']);
+	});
+
+	it('still applies a meaningful pending trim', () => {
+		const state = beginEdit(createStack<VideoParams>(), draftFor('trim', { start: 1, end: 5 }, effects));
+		const settled = settlePending(state, true, clip, kept);
+		expect(settled.pending).toBeNull();
+		expect(appliedSteps(settled).map((step) => step.tool)).toEqual(['trim']);
 	});
 });

@@ -1,4 +1,4 @@
-import type { EditStep, StepDraft } from '$lib/tool-tabs/frame/editStack';
+import { apply, discardPending, type EditStackState, type EditStep, type StepDraft } from '$lib/tool-tabs/frame/editStack';
 import type { RailGroup } from '$lib/tool-tabs/frame/types';
 import type { MediaToolInputRef, MediaToolStep } from '$lib/media-tools/types';
 import {
@@ -458,6 +458,13 @@ export function playbackPreview(steps: readonly EditStep<unknown>[], clip: ClipI
 	}
 	const rate = chain.ops.reduce((value, op) => (op.kind === 'speed' ? value * safeSpeed(op.speed) : value), 1);
 	return { ops: chain.ops, duration: chain.duration, rate, muted, gain: Math.max(0, gain), crop, size: chain.size };
+}
+
+export function settlePending(state: EditStackState<VideoParams>, ready: boolean, clip: ClipInfo, kept: { start: number; end: number }): EditStackState<VideoParams> {
+	const current = state.pending;
+	if (!current) return state;
+	if (current.tool !== 'split' && isVideoOp(current.tool) && ready && (current.target || !isNoop(current.tool, current.params, clip, kept))) return apply(state);
+	return discardPending(state);
 }
 
 export function isNoop(op: VideoOp, params: VideoParams, clip: ClipInfo, kept: { start: number; end: number }): boolean {

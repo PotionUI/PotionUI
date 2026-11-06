@@ -4,6 +4,7 @@
 	import { registerLiveSyncAnchor } from '$lib/stores/liveSyncAnchors';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { findGenerationTab } from '$lib/types/tabs';
+	import { previewSyncValue } from '$lib/session/sessionMerge';
 	import LiveSyncChoice from './LiveSyncChoice.svelte';
 
 	let {
@@ -40,6 +41,7 @@
 	{#if conflict && tabId}
 		<LiveSyncChoice
 			label={conflict.label}
+			preview={previewSyncValue(conflict.key, conflict.remote)}
 			onTheirs={() => sessionLiveSync.resolve(tabId, conflict.id, 'theirs')}
 			onMine={() => sessionLiveSync.resolve(tabId, conflict.id, 'mine')}
 		/>

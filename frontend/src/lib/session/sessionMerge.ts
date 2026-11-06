@@ -391,6 +391,14 @@ const FIELD_NAMES: Record<string, string> = {
 	musicDirector: 'Music Director'
 };
 
+export function previewSyncValue(key: string, value: unknown): string {
+	if (value === undefined || value === null) return '(removed)';
+	const segment = parseSegmentKey(key);
+	const raw = segment ? (value as Segment).content : value;
+	const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+	return text?.trim() ? text : '(empty)';
+}
+
 export function describeSyncField(key: string, value?: unknown): string {
 	const segment = parseSegmentKey(key);
 	if (segment) {

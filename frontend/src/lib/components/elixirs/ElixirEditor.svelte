@@ -45,6 +45,8 @@
 	import { tileKey } from '$lib/elixirs/tiles';
 	import { openOutputView, type OutputViewHandle } from '$lib/elixirs/outputView';
 	import { prepareNodeRequest } from '$lib/elixirs/requests';
+	import { completeModelSlots } from '$lib/elixirs/modelSlots';
+	import { findInstalledModel, loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
 	import { directorIssues } from '$lib/elixirs/director';
 	import { FOLLOW_ISSUE_CODES, cardMarker, effectiveSettings, sessionHashes, sessionMode, staleReasonText, uniqueSessionName } from '$lib/elixirs/follow';
 	import { brewName, isActive, isCurrentRun, isPolling, newIdempotencyKey, nodeRunView, runLabel } from '$lib/elixirs/runs';
@@ -1194,7 +1196,16 @@
 		const prepared = prepareNodeRequest(node, vars, undefined, { promptConnected: promptConnected(definition!, node.id), followed: followed[node.id] });
 		if (!prepared) return { error: `${label}: it needs a preset and settings first.` };
 		if (!prepared.ok) return { error: `${label}: ${prepared.message}` };
-		return { request: prepared.request as unknown as Record<string, unknown> };
+		const request = prepared.request;
+		const completed = await completeModelSlots(
+			request.preset_id,
+			request.mode ?? (node.mode as string),
+			request.form_name,
+			request.form_data,
+			{ loadSchema: loadPresetFormSchema, search: searchAutopickSlot, findInstalled: findInstalledModel }
+		);
+		if (!completed.ok) return { error: `${label}: ${completed.message}` };
+		return { request: { ...request, form_data: completed.formData } as unknown as Record<string, unknown> };
 	}
 
 	async function sessionChanged() {

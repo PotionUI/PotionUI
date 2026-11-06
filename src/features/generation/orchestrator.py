@@ -93,7 +93,12 @@ from src.features.generation.status_tracker import (
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.backends.base_backend import BaseBackend
 from src.features.generation.routing.contracts import RoutingRequest
-from src.features.models.form_refs import collect_model_ids, is_model_ref, model_id_of, resolve_form_model_refs
+from src.features.models.form_refs import (
+    collect_model_ids,
+    is_model_ref,
+    model_id_of,
+    resolve_form_model_refs,
+)
 from src.features.models.exceptions import ModelAccessDeniedException
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, Progress, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
@@ -123,6 +128,7 @@ from src.features.music_director import (
     compile_sections_to_lyrics,
     normalize_music_director,
 )
+from src.features.backends.backend_config import NATIVE_ENGINE
 from src.features.cloud.contracts import CLOUD_ENGINE
 from src.features.cloud.director import director_overlay
 from src.platform.security.user_ref import cloud_user_ref
@@ -521,6 +527,7 @@ class GenerationOrchestrator:
         model_locator: Optional['ModelLocator'] = None,
         content_safety: Optional['ContentSafetyManager'] = None,
         cloud_capabilities: Optional['CloudCapabilities'] = None,
+        model_filename_resolver: Optional[Callable[[str, List[str]], Optional[str]]] = None,
         cloud_policy: Optional['CloudGenerationPolicy'] = None,
         output_broadcaster: Optional['GenerationOutputBroadcaster'] = None,
         limit_guard: Optional['LimitGuard'] = None,
@@ -578,6 +585,7 @@ class GenerationOrchestrator:
         self.preset_template_loader = preset_template_loader
         self.backend_registry = backend_registry
         self.model_locator = model_locator
+        self.model_filename_resolver = model_filename_resolver
         self.prompt_resource_source_registry = prompt_resource_source_registry or prompt_resource_sources()
         self.content_safety = content_safety
         self._content_tally: Dict[str, Dict[str, int]] = {}
@@ -752,6 +760,8 @@ class GenerationOrchestrator:
         if capabilities is not None and preset_template.engine == CLOUD_ENGINE:
             backend_id = backend.backend_id if backend is not None else None
             cloud_args["cloud_capabilities"] = lambda model_id, driver: capabilities.spec_for(model_id, driver, backend_id)
+        if self.model_filename_resolver is not None and preset_template.engine == NATIVE_ENGINE:
+            cloud_args["model_resolver"] = self.model_filename_resolver
         return bind_form(
             preset_template,
             mode,

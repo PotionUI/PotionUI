@@ -74,6 +74,7 @@ from src.features.recipes.mode_plans import ModePlanner
 from src.features.recipes.removal import ModeFileRemoval
 from src.features.recipes.targets import InstallTargets
 from src.features.models.availability_repository import model_availability_repo
+from src.features.models.form_refs import resolve_installed_model_filename
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
 from src.features.chat import ChatRuntime, ResponseProcessor
 from src.features.downloads import DownloadQueue, DownloadRepository
@@ -1311,6 +1312,7 @@ def build_container() -> AppContainer:
         scheduling_policy_for=_scheduling_policy_for,
         content_safety=content_safety,
         cloud_capabilities=cloud_capabilities,
+        model_filename_resolver=resolve_installed_model_filename,
         cloud_policy=cloud_policy,
         output_broadcaster=output_broadcaster,
         limit_guard=limit_guard,

@@ -185,6 +185,7 @@ class BoundForm:
 
 
 CapabilityResolver = Callable[[str, Optional[str]], Any]
+ModelFilenameResolver = Callable[[str, List[str]], Optional[str]]
 
 
 def bind_form(
@@ -197,6 +198,7 @@ def bind_form(
     storage_dir: Optional[str] = None,
     field_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     cloud_capabilities: Optional[CapabilityResolver] = None,
+    model_resolver: Optional[ModelFilenameResolver] = None,
 ) -> BoundForm:
     """Bind `raw_form_data` against `preset_template`'s form for `mode`.
 
@@ -302,6 +304,8 @@ def bind_form(
         value = values[name]
         value = _resolve_template_marker(value, spec, name, preset_template, coercions)
         value = _coerce_leniently(value, spec, name, coercions)
+        if model_resolver is not None and spec.type == "model":
+            value = _resolve_filename_model(value, spec, name, model_resolver, coercions)
         hidden = name in hidden_fields
         validation = _reaction_validation(spec, values, preset_id=preset_id, mode=mode, field_name=name)
         required_override = _required_by_reactions(spec, values, preset_id=preset_id, mode=mode, field_name=name)
@@ -961,6 +965,27 @@ def override_default_problem(field: FieldTemplate, value: Any, preset_template: 
 def usable_override_default(field: FieldTemplate, value: Any, preset_template: Any) -> Tuple[bool, Any]:
     problem, usable = override_default_problem(field, value, preset_template)
     return problem is None, usable
+
+
+def _model_types_of(spec: FieldTemplate) -> List[str]:
+    config = spec.configuration or {}
+    types = config.get("model_types")
+    if isinstance(types, list) and types:
+        return [str(item) for item in types]
+    single = config.get("model_type")
+    return [str(single)] if single else []
+
+
+def _resolve_filename_model(
+    value: Any, spec: FieldTemplate, path: str, resolver: ModelFilenameResolver, coercions: List[str]
+) -> Any:
+    if not isinstance(value, str) or not value.strip() or is_model_ref(value):
+        return value
+    ref = resolver(value, _model_types_of(spec))
+    if ref is None:
+        return value
+    coercions.append(f"{path}: {value!r} -> {ref!r} (installed model)")
+    return ref
 
 
 def _resolve_template_marker(

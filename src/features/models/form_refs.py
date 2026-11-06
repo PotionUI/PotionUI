@@ -17,7 +17,7 @@ saved sessions, preset defaults (bare filenames) and legacy path values working.
 See docs/models.md.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from src.platform.observability.logger import logger
 from src.features.models.availability import has_authoritative_listing
@@ -58,6 +58,19 @@ def make_model_ref(model_id: str) -> str:
 def model_id_of(value: str) -> str:
     return value[len(MODEL_REF_PREFIX):]
 
+
+def resolve_installed_model_filename(value: str, model_types: List[str]) -> Optional[str]:
+    from src.features.models.repository import model_repo
+
+    filename = value.replace("\\", "/").rsplit("/", 1)[-1]
+    if not filename:
+        return None
+    matches = [
+        model
+        for model in model_repo.get_by_filename(filename)
+        if getattr(model, "is_available", True) and (not model_types or model.model_type in model_types)
+    ]
+    return make_model_ref(matches[0].id) if len(matches) == 1 else None
 
 def collect_model_ids(form_data: Any) -> List[str]:
     """Every model referenced anywhere in the form, in first-seen order.

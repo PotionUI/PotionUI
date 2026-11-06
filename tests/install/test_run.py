@@ -255,3 +255,10 @@ def test_parse_args_unknown_profile_is_not_validated_here(tmp_path):
     # documents that parse_args itself doesn't reject it.
     args = install_run.parse_args(["--root", str(tmp_path), "--profiles", "bogus"])
     assert args.profiles == "bogus"
+
+
+def test_profile_env_drops_the_invoking_pythonpath_so_start_installs_into_its_own_venv(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYTHONPATH", "/somewhere/venv/lib/python3.12/site-packages:.")
+    env = install_run.profile_env(tmp_path)
+    assert "PYTHONPATH" not in env
+    assert env["PIP_CACHE_DIR"] == str(tmp_path / "pip-cache")

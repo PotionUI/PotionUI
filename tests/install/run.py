@@ -579,13 +579,19 @@ def stop_worker_process(worker_proc_holder: dict) -> None:
 # Orchestration
 # ---------------------------------------------------------------------------
 
+def profile_env(root: Path) -> dict:
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    env["PIP_CACHE_DIR"] = str(root / "pip-cache")
+    return env
+
+
 def run_profile(profile: str, root: Path, port_start: int, args) -> ProfileReport:
     checkout_dir = root / f"checkout-{profile}"
     log_dir = root / f"logs-{profile}"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    env = os.environ.copy()
-    env["PIP_CACHE_DIR"] = str(root / "pip-cache")
+    env = profile_env(root)
 
     worker_proc_holder: Optional[dict] = None
     if profile == "worker":

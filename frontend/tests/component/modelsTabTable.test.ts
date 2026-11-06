@@ -13,6 +13,7 @@ const mockGetAttributeDefinitions = vi.fn();
 const mockGetEnabledBackends = vi.fn();
 const mockGetModelAssignmentSummary = vi.fn();
 const mockClientGet = vi.fn();
+const mockGetIndexingStatus = vi.fn();
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -24,7 +25,17 @@ vi.mock('$lib/services/api/index', () => ({
 		getTags: (...args: unknown[]) => mockGetTags(...args),
 		getUnindexedModelsCount: (...args: unknown[]) => mockGetUnindexedModelsCount(...args),
 		getAttributeDefinitions: (...args: unknown[]) => mockGetAttributeDefinitions(...args),
+		getIndexingStatus: (...args: unknown[]) => mockGetIndexingStatus(...args),
 		getClient: () => ({ get: (...args: unknown[]) => mockClientGet(...args) })
+	}
+}));
+
+vi.mock('$lib/services/adminWebsocket', () => ({
+	adminWebSocket: {
+		onIndexingStatus: () => () => {},
+		onConnected: () => () => {},
+		isConnected: () => true,
+		connectAsync: async () => {}
 	}
 }));
 
@@ -105,6 +116,7 @@ beforeEach(() => {
 	mockGetTags.mockResolvedValue({ success: true, data: { tags: [] } });
 	mockGetUnindexedModelsCount.mockResolvedValue({ success: true, data: { total: 0 } });
 	mockGetAttributeDefinitions.mockResolvedValue({ success: true, data: { definitions: DEFINITIONS } });
+	mockGetIndexingStatus.mockResolvedValue({ success: true, data: null });
 	mockGetEnabledBackends.mockResolvedValue({ success: true, data: [] });
 	mockGetModelAssignmentSummary.mockResolvedValue({ success: true, data: {} });
 	mockClientGet.mockImplementation((url: string) => {

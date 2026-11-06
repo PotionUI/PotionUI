@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from src.features.recipes.executors.base import GrantRequest, LintContext, StepContext, StepResult
@@ -78,6 +79,10 @@ class ModesPlanExecutor:
 
     def preview(self, context: StepContext, target: Optional[str] = None) -> Dict[str, Any]:
         assessment = self._assess(context, target=target, probe_remote=True)
+        if not preselected_modes(context):
+            unready = [m for m in assessment.offered if not self.planner.mode_ready(assessment, m)]
+            if unready:
+                assessment = replace(assessment, selected=list(dict.fromkeys([*assessment.selected, *unready])))
         payload = self.planner.consent_payload(assessment)
         ready = sum(1 for m in payload["modes"] if m["ready"])
         return {

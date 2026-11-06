@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from torch import Tensor, nn
 
-from ..model import MiniMaxH3Attention, _apply_rotary_emb
+from ..model import MiniMaxH3Attention
 from .layout import VdnLayout
 from .linear_branch import MiniMaxH3LinearBranch
 from .window import covers_all_frames, windowed_softmax
@@ -58,6 +58,7 @@ class MiniMaxH3VdnAttention(MiniMaxH3Attention):
         self.q_norm = base.q_norm
         self.k_norm = base.k_norm
         self.out_proj = base.out_proj
+        self.operations = base.operations
         self._sdpa_min_rows = base._sdpa_min_rows
         self.anchor_frames = anchor_frames
         self.backend = backend
@@ -106,8 +107,8 @@ class MiniMaxH3VdnAttention(MiniMaxH3Attention):
         k_raw = k_raw.view(b, s, self.heads, self.head_dim)
         v_raw = v_raw.view(b, s, self.heads, self.head_dim)
         cos, sin = rotary_emb if rotary_emb is not None else (None, None)
-        query = _apply_rotary_emb(self.q_norm(q_raw), cos, sin).squeeze(0)
-        key = _apply_rotary_emb(self.k_norm(k_raw), cos, sin).squeeze(0)
+        query, key = self._norm_rope(q_raw, k_raw, cos, sin)
+        query, key = query.squeeze(0), key.squeeze(0)
         q_raw, k_raw, v_raw = q_raw.squeeze(0), k_raw.squeeze(0), v_raw.squeeze(0)
 
         window_out = windowed_softmax(

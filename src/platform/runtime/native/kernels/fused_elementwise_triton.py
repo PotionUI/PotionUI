@@ -218,9 +218,10 @@ def fused_act_gate(*args) -> Tensor:
 @triton.jit
 def _qk_norm_rope_kernel(
     x_ptr, out_ptr, w_ptr, t0_ptr, t1_ptr,
-    n1, n2, xs0, xs1, xs2, os0, os1, os2, ts0, ts1, ts2, tp, us0, us1, us2,
+    n1, n2, xs0, xs1, xs2, os0, os1, os2, ts0, ts1, ts2, tp, us0, us1, us2, th, uh,
     eps, weight_offset,
-    NORM: tl.constexpr, HAS_W: tl.constexpr, W_ROUND: tl.constexpr, LAYOUT: tl.constexpr, HALF: tl.constexpr,
+    NORM: tl.constexpr, HAS_W: tl.constexpr, W_ROUND: tl.constexpr, LAYOUT: tl.constexpr,
+    HEADS: tl.constexpr, HEAD_DIM: tl.constexpr, ROT: tl.constexpr, BLOCK_P: tl.constexpr, BLOCK_Q: tl.constexpr,
 ):
     eps = eps.to(tl.float32)
     weight_offset = weight_offset.to(tl.float32)
@@ -229,65 +230,97 @@ def _qk_norm_rope_kernel(
     t = r // n2
     i1 = t % n1
     i0 = t // n1
-    p = tl.arange(0, HALF)
-    if LAYOUT == 3:
-        first, second = p, HALF + p
+    p = tl.arange(0, BLOCK_P)
+    pm = p < HEADS * (ROT // 2)
+    h = p // (ROT // 2)
+    j = p % (ROT // 2)
+    if LAYOUT == 3 or LAYOUT >= 5:
+        ca, cb = j, ROT // 2 + j
     else:
-        first, second = 2 * p, 2 * p + 1
+        ca, cb = 2 * j, 2 * j + 1
+    first = h * HEAD_DIM + ca
+    second = h * HEAD_DIM + cb
     x_row = x_ptr + i0 * xs0 + i1 * xs1 + i2 * xs2
-    a = tl.load(x_row + first).to(tl.float32)
-    b = tl.load(x_row + second).to(tl.float32)
+    a = tl.load(x_row + first, mask=pm, other=0.0).to(tl.float32)
+    b = tl.load(x_row + second, mask=pm, other=0.0).to(tl.float32)
+    if HEAD_DIM > ROT:
+        q = tl.arange(0, BLOCK_Q)
+        qm = q < HEADS * (HEAD_DIM - ROT)
+        cols = q // (HEAD_DIM - ROT) * HEAD_DIM + ROT + q % (HEAD_DIM - ROT)
+        c = tl.load(x_row + cols, mask=qm, other=0.0).to(tl.float32)
     if NORM:
-        inv = libdevice.rsqrt((tl.sum(a * a, axis=0) + tl.sum(b * b, axis=0)) / (2 * HALF) + eps)
+        squares = tl.sum(a * a, axis=0) + tl.sum(b * b, axis=0)
+        if HEAD_DIM > ROT:
+            squares += tl.sum(c * c, axis=0)
+        inv = libdevice.rsqrt(squares / (HEADS * HEAD_DIM) + eps)
         a = a * inv
         b = b * inv
+        if HEAD_DIM > ROT:
+            c = c * inv
     if HAS_W:
-        wa = tl.load(w_ptr + first).to(tl.float32) + weight_offset
-        wb = tl.load(w_ptr + second).to(tl.float32) + weight_offset
+        wa = tl.load(w_ptr + first, mask=pm, other=0.0).to(tl.float32) + weight_offset
+        wb = tl.load(w_ptr + second, mask=pm, other=0.0).to(tl.float32) + weight_offset
         if W_ROUND:
             wa = wa.to(x_ptr.dtype.element_ty).to(tl.float32)
             wb = wb.to(x_ptr.dtype.element_ty).to(tl.float32)
         a = a * wa
         b = b * wb
-    t_row = t0_ptr + i0 * ts0 + i1 * ts1 + i2 * ts2
-    if LAYOUT == 0:
-        f00 = tl.load(t_row + p * tp).to(tl.float32)
-        f01 = tl.load(t_row + p * tp + 1).to(tl.float32)
-        f10 = tl.load(t_row + p * tp + 2).to(tl.float32)
-        f11 = tl.load(t_row + p * tp + 3).to(tl.float32)
+        if HEAD_DIM > ROT:
+            wc = tl.load(w_ptr + cols, mask=qm, other=0.0).to(tl.float32) + weight_offset
+            if W_ROUND:
+                wc = wc.to(x_ptr.dtype.element_ty).to(tl.float32)
+            c = c * wc
+    t_row = t0_ptr + i0 * ts0 + i1 * ts1 + i2 * ts2 + h * th
+    u_row = t1_ptr + i0 * us0 + i1 * us1 + i2 * us2 + h * uh
+    if LAYOUT == 0 or LAYOUT == 7:
+        f00 = tl.load(t_row + j * tp, mask=pm, other=0.0).to(tl.float32)
+        f01 = tl.load(t_row + j * tp + 1, mask=pm, other=0.0).to(tl.float32)
+        f10 = tl.load(t_row + j * tp + 2, mask=pm, other=0.0).to(tl.float32)
+        f11 = tl.load(t_row + j * tp + 3, mask=pm, other=0.0).to(tl.float32)
         out_a = f00 * a + f01 * b
         out_b = f10 * a + f11 * b
     elif LAYOUT == 1:
-        cos = tl.load(t_row + p * tp).to(x_ptr.dtype.element_ty).to(tl.float32)
-        sin = tl.load(t_row + p * tp + 2).to(x_ptr.dtype.element_ty).to(tl.float32)
+        cos = tl.load(t_row + j * tp, mask=pm, other=0.0).to(x_ptr.dtype.element_ty).to(tl.float32)
+        sin = tl.load(t_row + j * tp + 2, mask=pm, other=0.0).to(x_ptr.dtype.element_ty).to(tl.float32)
         out_a = a * cos - b * sin
         out_b = b * cos + a * sin
-    elif LAYOUT == 2:
-        cos = tl.load(t_row + p * tp).to(tl.float32)
-        sin = tl.load(t1_ptr + i0 * us0 + i1 * us1 + i2 * us2 + p * tp).to(tl.float32)
+    elif LAYOUT == 2 or LAYOUT == 6:
+        cos = tl.load(t_row + j * tp, mask=pm, other=0.0).to(tl.float32)
+        sin = tl.load(u_row + j * tp, mask=pm, other=0.0).to(tl.float32)
         out_a = cos * a - sin * b
         out_b = sin * a + cos * b
-    else:
-        sin = tl.load(t_row + p * tp).to(tl.float32)
-        cos = tl.load(t_row + (HALF + p) * tp).to(tl.float32)
+    elif LAYOUT == 3:
+        sin = tl.load(t_row + j * tp, mask=pm, other=0.0).to(tl.float32)
+        cos = tl.load(t_row + (ROT // 2 + j) * tp, mask=pm, other=0.0).to(tl.float32)
         out_a = a * cos - b * sin
         out_b = b * cos + a * sin
+    else:
+        cos_a = tl.load(t_row + ca * tp, mask=pm, other=0.0).to(tl.float32)
+        sin_a = tl.load(u_row + ca * tp, mask=pm, other=0.0).to(tl.float32)
+        cos_b = tl.load(t_row + cb * tp, mask=pm, other=0.0).to(tl.float32)
+        sin_b = tl.load(u_row + cb * tp, mask=pm, other=0.0).to(tl.float32)
+        out_a = a * cos_a - b * sin_a
+        out_b = b * cos_b + a * sin_b
     o_row = out_ptr + i0 * os0 + i1 * os1 + i2 * os2
-    tl.store(o_row + first, out_a.to(out_ptr.dtype.element_ty))
-    tl.store(o_row + second, out_b.to(out_ptr.dtype.element_ty))
+    tl.store(o_row + first, out_a.to(out_ptr.dtype.element_ty), mask=pm)
+    tl.store(o_row + second, out_b.to(out_ptr.dtype.element_ty), mask=pm)
+    if HEAD_DIM > ROT:
+        tl.store(o_row + cols, c.to(out_ptr.dtype.element_ty), mask=qm)
 
 
 def _qk_norm_rope(
     launch, x: Tensor, out: Tensor, weight: Tensor | None, t0: Tensor, t1: Tensor | None,
     layout_args: list[int], norm: int, eps: float, weight_offset: float, weight_round: bool, rope_layout: int,
 ) -> Tensor:
-    half = x.shape[-1] // 2
-    rows = x.numel() // x.shape[-1]
-    launch(_qk_norm_rope_kernel)[(rows,)](
+    heads, head_dim, rot = layout_args[-3:]
+    block_p = triton.next_power_of_2(heads * (rot // 2))
+    launch(_qk_norm_rope_kernel)[(x.numel() // (heads * head_dim),)](
         x, out, weight if weight is not None else x, t0, t1 if t1 is not None else t0,
-        *layout_args, eps, weight_offset,
-        NORM=norm, HAS_W=weight is not None, W_ROUND=weight_round, LAYOUT=rope_layout, HALF=half,
-        num_warps=1 if half <= 64 else 2,
+        *layout_args[:-3], eps, weight_offset,
+        NORM=norm, HAS_W=weight is not None, W_ROUND=weight_round, LAYOUT=rope_layout,
+        HEADS=heads, HEAD_DIM=head_dim, ROT=rot, BLOCK_P=block_p,
+        BLOCK_Q=triton.next_power_of_2(max(heads * (head_dim - rot), 1)),
+        num_warps=1 if block_p <= 64 else 2 if block_p <= 128 else 4 if block_p <= 1024 else 8,
     )
     return out
 

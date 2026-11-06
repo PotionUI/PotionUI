@@ -18,7 +18,10 @@ logger = logging.getLogger(__name__)
 NORM_KINDS = ("layer", "rms", "rms_fp32")
 GATE_FNS = ("tanh",)
 ACT_MODES = ("swiglu", "swiglu_split", "gelu_tanh", "gelu")
-ROPE_LAYOUTS = ("pair_matrix", "pair_matrix_inplace", "pair_cos_sin", "rotate_half")
+ROPE_LAYOUTS = (
+    "pair_matrix", "pair_matrix_inplace", "pair_cos_sin", "rotate_half",
+    "pair_rotate", "half_rotate", "half_cos_sin", "half_matrix",
+)
 FUSED_ELEMENTWISE_FLAG = "native_fused_elementwise"
 FUSED_DTYPES = (torch.bfloat16, torch.float16)
 FUSED_OPERAND_DTYPES = (torch.bfloat16, torch.float16, torch.float32)
@@ -267,48 +270,64 @@ def _broadcast_lead(t: Tensor, lead: int, target: Sequence[int]) -> list[int] | 
     return out
 
 
-def _rope_tables(freqs, layout: str, x: Tensor):
-    half = x.shape[-1] // 2
-    target = list(x.shape[:-1])
-    if layout in ("pair_matrix", "pair_matrix_inplace"):
+def _rope_tables(freqs, layout: str, view: Sequence[int]):
+    d = view[-1]
+    target = list(view[:-1])
+    if layout in ("pair_matrix", "pair_matrix_inplace", "half_matrix"):
         if not isinstance(freqs, Tensor) or freqs.dim() < 3:
             return None
         table = freqs[:, None, :, :, :] if layout == "pair_matrix_inplace" else freqs
-        if tuple(table.shape[-3:]) != (half, 2, 2) or tuple(table.stride()[-2:]) != (2, 1):
+        if d % 2 or tuple(table.shape[-3:]) != (d // 2, 2, 2) or tuple(table.stride()[-2:]) != (2, 1):
             return None
         lead = _broadcast_lead(table, table.dim() - 3, target)
-        return None if lead is None else (table, None, lead, table.stride(-3), None)
-    if layout == "pair_cos_sin":
+        return None if lead is None else (table, None, lead, lead, table.stride(-3), d)
+    if layout in ("pair_cos_sin", "half_cos_sin", "pair_rotate", "half_rotate"):
         if not isinstance(freqs, (tuple, list)) or len(freqs) != 2:
             return None
         cos, sin = freqs
-        if not all(isinstance(t, Tensor) and t.shape[-1] == half and t.stride(-1) == 1 for t in (cos, sin)):
+        if not all(isinstance(t, Tensor) and t.dim() > 0 and t.stride(-1) == 1 for t in (cos, sin)):
+            return None
+        width = cos.shape[-1]
+        rot = 2 * width if layout.endswith("cos_sin") else width
+        if sin.shape[-1] != width or rot % 2 or not 0 < rot <= d or (layout.endswith("cos_sin") and rot != d):
             return None
         lead_cos, lead_sin = _broadcast_lead(cos, cos.dim() - 1, target), _broadcast_lead(sin, sin.dim() - 1, target)
-        return None if lead_cos is None or lead_sin is None else (cos, sin, lead_cos, 1, lead_sin)
+        return None if lead_cos is None or lead_sin is None else (cos, sin, lead_cos, lead_sin, 1, rot)
     if layout == "rotate_half":
-        if not isinstance(freqs, Tensor) or freqs.shape[-1] != 2 * half:
+        if not isinstance(freqs, Tensor) or d % 2 or freqs.shape[-1] != d:
             return None
         table = freqs.unsqueeze(-2)
         lead = _broadcast_lead(table, table.dim() - 1, target)
-        return None if lead is None else (table, None, lead, table.stride(-1), None)
+        return None if lead is None else (table, None, lead, lead, table.stride(-1), d)
     return None
 
 
-def _fused_qk_norm_rope(x, freqs, layout, norm, eps, weight, weight_offset, weight_cast, cast_to, out_dtype):
+def _head_view(x: Tensor, heads: int | None) -> list[int] | None:
+    if heads is None:
+        return list(x.shape)
+    if heads < 1 or x.shape[-1] % heads:
+        return None
+    return [*x.shape[:-1], heads, x.shape[-1] // heads]
+
+
+def _padded(values: Sequence[int], fill: int) -> list[int]:
+    return [fill] * (3 - len(values)) + list(values)
+
+
+def _fused_qk_norm_rope(x, freqs, layout, norm, eps, weight, weight_offset, weight_cast, cast_to, out_dtype, heads):
     if norm not in (None, "rms", "rms_fp32", "rms_fp32_chain") or not _fused_eligible(x, False):
         return None
-    d = x.shape[-1]
-    if x.dim() != 4 or d < 4 or d > 1024 or d & (d - 1):
+    view = _head_view(x, heads)
+    if view is None or x.dim() > 4 or x.shape[-1] > FUSED_MAX_NORM_WIDTH:
         return None
-    tables = _rope_tables(freqs, layout, x)
+    tables = _rope_tables(freqs, layout, view)
     ok, w = _fused_weight(weight, x)
     if tables is None or not ok or any(t is not None and t.device != x.device for t in tables[:2]):
         return None
-    t0, t1, lead0, pair_stride, lead1 = tables
+    t0, t1, lead0, lead1, pair_stride, rot = tables
     h_dtype = torch.float32 if norm == "rms_fp32_chain" else _normed_dtype(x, norm, w, weight_cast)
     h_dtype = cast_to or h_dtype
-    if layout == "pair_cos_sin":
+    if t1 is not None:
         h_dtype = torch.promote_types(torch.promote_types(h_dtype, t0.dtype), t1.dtype)
     elif layout == "rotate_half":
         h_dtype = torch.promote_types(h_dtype, t0.dtype)
@@ -319,14 +338,19 @@ def _fused_qk_norm_rope(x, freqs, layout, norm, eps, weight, weight_offset, weig
         out = x
     else:
         out = torch.empty(x.shape, dtype=final, device=x.device)
+    th0, th1 = (0, 0) if heads is None else (lead0[-1], lead1[-1])
+    if heads is not None:
+        lead0, lead1 = lead0[:-1], lead1[:-1]
+    n = _padded(x.shape[:-1], 1)
     layout_args = [
-        x.shape[1], x.shape[2], *x.stride()[:3], *out.stride()[:3], *lead0, pair_stride, *(lead1 or lead0),
+        n[1], n[2], *_padded(x.stride()[:-1], 0), *_padded(out.stride()[:-1], 0), *_padded(lead0, 0), pair_stride,
+        *_padded(lead1, 0), th0, th1, view[-2] if heads is not None else 1, view[-1], rot,
     ]
-    code = {"pair_matrix": 0, "pair_matrix_inplace": 1, "pair_cos_sin": 2, "rotate_half": 3}[layout]
     chain = norm == "rms_fp32_chain"
     return _run_fused(
         "fused_qk_norm_rope", x, out, w, t0, t1, layout_args, 0 if norm is None else 1, _fused_eps(eps, x),
-        0.0 if chain else float(weight_offset), bool(weight_cast and w is not None and not chain), code,
+        0.0 if chain else float(weight_offset), bool(weight_cast and w is not None and not chain),
+        ROPE_LAYOUTS.index(layout),
     )
 
 
@@ -502,6 +526,29 @@ def _rope(x: Tensor, freqs, layout: str) -> Tensor:
         cos = torch.cat((cos, cos), -1).unsqueeze(-2)
         first, second = x.chunk(2, -1)
         return x * cos + torch.cat((-second, first), -1) * sin
+    if layout in ("pair_rotate", "half_rotate"):
+        cos, sin = freqs
+        width = cos.shape[-1]
+        rot = x[..., :width]
+        if layout == "pair_rotate":
+            first, second = rot.unflatten(-1, (-1, 2)).unbind(-1)
+            turned = torch.stack((-second, first), -1).flatten(-2)
+        else:
+            first, second = rot.chunk(2, -1)
+            turned = torch.cat((-second, first), -1)
+        out = rot * cos + turned * sin
+        return out if width == x.shape[-1] else torch.cat((out, x[..., width:]), -1)
+    if layout == "half_cos_sin":
+        cos, sin = freqs
+        halves = x.unflatten(-1, (2, -1))
+        out = halves * cos.unsqueeze(-2)
+        out[..., :1, :].addcmul_(-sin.unsqueeze(-2), halves[..., 1:, :])
+        out[..., 1:, :].addcmul_(sin.unsqueeze(-2), halves[..., :1, :])
+        return out.flatten(-2)
+    if layout == "half_matrix":
+        x_ = x.reshape(*x.shape[:-1], 2, -1).movedim(-2, -1).unsqueeze(-2).float()
+        out = freqs[..., 0] * x_[..., 0] + freqs[..., 1] * x_[..., 1]
+        return out.movedim(-1, -2).reshape(*x.shape).type_as(x)
     raise ValueError(f"unknown rope layout {layout!r}; expected one of {ROPE_LAYOUTS}")
 
 
@@ -521,8 +568,11 @@ def qk_norm_rope(
     weight_cast: bool = True,
     cast_to: torch.dtype | None = None,
     out_dtype: torch.dtype | None = None,
+    heads: int | None = None,
 ) -> Tensor:
-    fused = _fused_qk_norm_rope(x, freqs, layout, norm, eps, weight, weight_offset, weight_cast, cast_to, out_dtype)
+    fused = _fused_qk_norm_rope(
+        x, freqs, layout, norm, eps, weight, weight_offset, weight_cast, cast_to, out_dtype, heads,
+    )
     if fused is not None:
         return fused
     if norm == "rms_fp32_chain":
@@ -532,7 +582,12 @@ def qk_norm_rope(
         h = _normalize(x, norm, eps, weight, weight_offset, weight_cast)
     if cast_to is not None:
         h = h.to(cast_to)
-    out = h if freqs is None else _rope(h, freqs, layout)
+    if freqs is None:
+        out = h
+    elif heads is None:
+        out = _rope(h, freqs, layout)
+    else:
+        out = _rope(h.unflatten(-1, (heads, -1)), freqs, layout).flatten(-2)
     return out if out_dtype is None else out.to(out_dtype)
 
 

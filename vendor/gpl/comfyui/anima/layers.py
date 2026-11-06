@@ -245,6 +245,7 @@ class _Attention(nn.Module):
         inner_dim = head_dim * n_heads
         self.n_heads = n_heads
         self.head_dim = head_dim
+        self.operations = operations
         self.q_proj = operations.Linear(query_dim, inner_dim, bias=False, device=device, dtype=dtype)
         self.q_norm = operations.RMSNorm(head_dim, eps=1e-6, device=device, dtype=dtype)
         self.k_proj = operations.Linear(context_dim, inner_dim, bias=False, device=device, dtype=dtype)
@@ -257,11 +258,13 @@ class _Attention(nn.Module):
         q = rearrange(self.q_proj(x), "b s (h d) -> b s h d", h=self.n_heads, d=self.head_dim)
         k = rearrange(self.k_proj(context), "b s (h d) -> b s h d", h=self.n_heads, d=self.head_dim)
         v = rearrange(self.v_proj(context), "b s (h d) -> b s h d", h=self.n_heads, d=self.head_dim)
-        q = self.q_norm(q)
-        k = self.k_norm(k)
         if self.is_selfattn and rope_emb is not None:
-            q = _cosmos_apply_rotary_pos_emb(q, rope_emb)
-            k = _cosmos_apply_rotary_pos_emb(k, rope_emb)
+            ops = self.operations
+            q = ops.qk_norm_rope(q, **ops.norm_args(self.q_norm), freqs=rope_emb, layout="half_matrix")
+            k = ops.qk_norm_rope(k, **ops.norm_args(self.k_norm), freqs=rope_emb, layout="half_matrix")
+        else:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
         # (B, S, H, D) -> (B, H, S, D) for the attention dispatcher -> back.
         out = _call_attention_backend(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2))
         out = out.transpose(1, 2).reshape(*x.shape[:-1], -1)

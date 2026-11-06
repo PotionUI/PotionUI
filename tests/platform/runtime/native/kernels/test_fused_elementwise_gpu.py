@@ -393,3 +393,124 @@ def test_each_qk_norm_rope_call_launches_exactly_one_kernel():
                                          freqs=per_sample, layout="pair_matrix_inplace"),
     }
     assert {name: _kernels_launched(fn) for name, fn in calls.items()} == {name: 1 for name in calls}
+
+
+def _rotated(h, first, second, cos_a, sin_a, cos_b, sin_b):
+    a, b = h[..., first], h[..., second]
+    out, mag = h.clone(), h.abs()
+    out[..., first] = a * cos_a - b * sin_a
+    out[..., second] = b * cos_b + a * sin_b
+    mag[..., first] = (a * cos_a).abs() + (b * sin_a).abs()
+    mag[..., second] = (b * cos_b).abs() + (a * sin_b).abs()
+    return out, mag
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_partial_rotate_half_with_pass_through_channels_like_minimax_h3(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x = _t(2, 300, 3 * 8, 128, dtype=dtype, scale=3.0)[:, :, ::3]
+    weight = _t(128, dtype=dtype, seed=1)
+    angle = _t(300, 96, seed=2) * 3.0
+    cos, sin = angle.cos().to(dtype)[None, :, None], angle.sin().to(dtype)[None, :, None]
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=(cos, sin), layout="half_rotate")
+    c, s = cos.double(), sin.double()
+    ref, mag = _rotated(_qk_ref(x, weight, 0.0, 1e-6, True, True), slice(0, 48), slice(48, 96),
+                        c[..., :48], s[..., :48], c[..., 48:], s[..., 48:])
+    _assert_one_rounding(out, ref, mag, dtype)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_interleaved_rope_over_a_full_width_norm_like_ltx(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, weight = _t(1, 333, 2048, dtype=dtype, scale=2.0), _t(2048, dtype=dtype, seed=1)
+    angle = _t(1, 333, 2048, seed=2) * 3.0
+    cos, sin = angle.cos(), angle.sin()
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=(cos, sin), layout="pair_rotate")
+    c, s = cos.double(), sin.double()
+    ref, mag = _rotated(_qk_ref(x, weight, 0.0, 1e-6, True, True), slice(0, None, 2), slice(1, None, 2),
+                        c[..., 0::2], s[..., 0::2], c[..., 1::2], s[..., 1::2])
+    _assert_one_rounding(out, ref, mag, torch.float32)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_per_head_split_rope_over_a_full_width_norm_like_ltx(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    heads, hd = 16, 128
+    x, weight = _t(2, 200, heads * hd, dtype=dtype, scale=2.0), _t(heads * hd, dtype=dtype, seed=1)
+    angle = (_t(1, 200, heads * hd // 2, seed=2) * 3.0).to(dtype)
+    cos = angle.float().cos().to(dtype).reshape(1, 200, heads, hd // 2).swapaxes(1, 2)
+    sin = angle.float().sin().to(dtype).reshape(1, 200, heads, hd // 2).swapaxes(1, 2)
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=(cos.transpose(1, 2), sin.transpose(1, 2)),
+                       layout="half_cos_sin", heads=heads)
+    h = _qk_ref(x, weight, 0.0, 1e-6, True, True).unflatten(-1, (heads, hd))
+    c, s = cos.transpose(1, 2).double(), sin.transpose(1, 2).double()
+    ref, mag = _rotated(h, slice(0, hd // 2), slice(hd // 2, None), c, s, c, s)
+    _assert_one_rounding(out, ref.flatten(-2), mag.flatten(-2), dtype)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_per_head_matrix_rope_over_a_full_width_norm_like_wan(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    heads, hd = 40, 128
+    x, weight = _t(1, 250, heads * hd, dtype=dtype, scale=2.0), _t(heads * hd, seed=1)
+    pe = _matrix((1, 250, 1), hd // 2, 2)
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=pe, layout="pair_matrix", heads=heads)
+    h = _qk_ref(x, weight, 0.0, 1e-6, True, True).unflatten(-1, (heads, hd))
+    ref, mag = _pairs_rotated(h, pe[..., 0, 0].double(), pe[..., 1, 0].double())
+    _assert_one_rounding(out, ref.flatten(-2), mag.flatten(-2), dtype)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_fp32_partial_interleaved_rope_cast_back_like_seedvr2(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x = _t(300, 3, 8, 128, dtype=dtype, scale=3.0).unbind(1)[0]
+    weight = _t(128, dtype=dtype, seed=1)
+    angle = (_t(300, 63, seed=2) * 3.0).repeat_interleave(2, dim=-1)
+    cos, sin = angle.cos()[:, None], angle.sin()[:, None]
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=(cos, sin), layout="pair_rotate",
+                       cast_to=torch.float32, out_dtype=dtype)
+    c, s = cos.double(), sin.double()
+    ref, mag = _rotated(_qk_ref(x, weight, 0.0, 1e-6, True, True), slice(0, 126, 2), slice(1, 126, 2),
+                        c[..., 0::2], s[..., 0::2], c[..., 1::2], s[..., 1::2])
+    _assert_one_rounding(out, ref, mag, dtype)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_half_split_matrix_rope_like_anima(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, weight = _t(1, 256, 16, 128, dtype=dtype, scale=3.0), _t(128, dtype=dtype, seed=1)
+    pe = _matrix((1, 256, 1), 64, 2)
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=pe, layout="half_matrix")
+    c, s = pe[..., 0, 0].double(), pe[..., 1, 0].double()
+    ref, mag = _rotated(_qk_ref(x, weight, 0.0, 1e-6, True, True), slice(0, 64), slice(64, None), c, s, c, s)
+    _assert_one_rounding(out, ref, mag, dtype)
+
+
+def test_each_new_rope_layout_launches_exactly_one_kernel():
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    dtype = torch.bfloat16
+    x, weight = _t(2, 300, 24, 128, dtype=dtype), _t(128, dtype=dtype, seed=1)
+    flat, flat_weight = _t(2, 300, 2048, dtype=dtype), _t(2048, dtype=dtype, seed=1)
+    angle = _t(1, 300, 1, 96, seed=2)
+    partial = (angle.cos().to(dtype), angle.sin().to(dtype))
+    row = (_t(1, 300, 2048, seed=3).cos(), _t(1, 300, 2048, seed=3).sin())
+    split = (_t(1, 300, 16, 64, seed=4).cos(), _t(1, 300, 16, 64, seed=4).sin())
+    matrix = _matrix((1, 300, 1), 64, 5)
+    calls = {
+        "partial rotate half": lambda: qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=partial,
+                                                    layout="half_rotate"),
+        "interleaved row": lambda: qk_norm_rope(flat, norm="rms", eps=1e-6, weight=flat_weight, freqs=row,
+                                                layout="pair_rotate"),
+        "split heads": lambda: qk_norm_rope(flat, norm="rms", eps=1e-6, weight=flat_weight, freqs=split,
+                                            layout="half_cos_sin", heads=16),
+        "half matrix": lambda: qk_norm_rope(x, norm="rms", eps=1e-6, weight=weight, freqs=matrix,
+                                            layout="half_matrix"),
+    }
+    assert {name: _kernels_launched(fn) for name, fn in calls.items()} == {name: 1 for name in calls}

@@ -12,10 +12,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from src.platform.runtime.native.arch.minimax_h3.model import (
-    MiniMaxH3Attention,
-    _apply_rotary_emb,
-)
+from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Attention
 from src.platform.runtime.native.arch.minimax_h3.vdn import (
     MiniMaxH3LinearBranch,
     MiniMaxH3VdnAttention,
@@ -165,8 +162,7 @@ def test_hybrid_output_equals_the_two_branches_composed_by_hand():
         q_raw = q_raw.view(1, layout.seq_len, heads, head_dim)
         k_raw = k_raw.view(1, layout.seq_len, heads, head_dim)
         v_raw = v_raw.view(1, layout.seq_len, heads, head_dim)
-        query = _apply_rotary_emb(attn.q_norm(q_raw), *rotary).squeeze(0)
-        key = _apply_rotary_emb(attn.k_norm(k_raw), *rotary).squeeze(0)
+        query, key = (t.squeeze(0) for t in attn._norm_rope(q_raw, k_raw, *rotary))
         q_raw, k_raw, v_raw = q_raw.squeeze(0), k_raw.squeeze(0), v_raw.squeeze(0)
 
         window = windowed_softmax(query, key, v_raw, layout, heads=heads, anchor_frames="both")

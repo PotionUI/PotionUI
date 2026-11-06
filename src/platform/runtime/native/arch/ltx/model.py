@@ -59,7 +59,7 @@ from torch import Tensor
 
 from vendor.gpl.comfyui.ltx import rope
 from vendor.gpl.comfyui.ltx.patchifier import AudioPatchifier, SymmetricPatchifier, latent_to_pixel_coords
-from vendor.gpl.comfyui.ltx.rope import CompressedTimestep, apply_rotary_emb
+from vendor.gpl.comfyui.ltx.rope import CompressedTimestep
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
@@ -185,6 +185,7 @@ class CrossAttention(nn.Module):
         context_dim = query_dim if context_dim is None else context_dim
         self.heads = heads
         self.dim_head = dim_head
+        self.operations = operations
         # q/k RMSNorm eps is config-driven (norm_eps, default 1e-6, matching the
         # LTX 2.3 checkpoint config and diffusers transformer_ltx2.py line 350).
         self.q_norm = operations.RMSNorm(inner_dim, eps=norm_eps, dtype=dtype, device=device)
@@ -205,13 +206,10 @@ class CrossAttention(nn.Module):
                 pe=None, k_pe=None, context_neg: Tensor | None = None, nag: dict | None = None,
                 mask_neg: Tensor | None = None) -> Tensor:
         # q/k RMSNorm act on the FULL projection (inner_dim), BEFORE the head split.
-        q = self.q_norm(self.to_q(x))
         context = x if context is None else context
-        k = self.k_norm(self.to_k(context))
+        q = self._norm_rope(self.q_norm, self.to_q(x), pe)
+        k = self._norm_rope(self.k_norm, self.to_k(context), pe if k_pe is None else k_pe)
         v = self.to_v(context)
-        if pe is not None:
-            q = apply_rotary_emb(q, pe)
-            k = apply_rotary_emb(k, pe if k_pe is None else k_pe)
         out = _ltx_attention(q, k, v, self.heads, mask=mask)
         # NAG (arXiv:2505.21179): run the same queries against the NEGATIVE
         # context's K/V (through the same to_k/to_v/k_norm weights) and blend
@@ -232,10 +230,8 @@ class CrossAttention(nn.Module):
         # shorter. Use ``mask_neg`` (the negative context's own mask,
         # ``None`` by default) instead — never fall back to ``mask``.
         if context_neg is not None and _nag_active(nag):
-            k_neg = self.k_norm(self.to_k(context_neg))
+            k_neg = self._norm_rope(self.k_norm, self.to_k(context_neg), pe if k_pe is None else k_pe)
             v_neg = self.to_v(context_neg)
-            if pe is not None:
-                k_neg = apply_rotary_emb(k_neg, pe if k_pe is None else k_pe)
             neg = _ltx_attention(q, k_neg, v_neg, self.heads, mask=mask_neg)
             out = apply_nag(out, neg, nag["scale"], nag.get("tau", 3.5), nag.get("alpha", 0.5))
         if hasattr(self, "to_gate_logits"):
@@ -248,6 +244,20 @@ class CrossAttention(nn.Module):
             b, lq, _ = out.shape
             out = (out.view(b, lq, self.heads, self.dim_head) * gate.unsqueeze(-1)).reshape(b, lq, -1)
         return self.to_out(out)
+
+    def _norm_rope(self, norm: nn.Module, x: Tensor, pe) -> Tensor:
+        if pe is None:
+            return norm(x)
+        ops = self.operations
+        cos, sin = pe[0], pe[1]
+        if not (len(pe) > 2 and pe[2]):
+            return ops.qk_norm_rope(x, **ops.norm_args(norm), freqs=(cos, sin), layout="pair_rotate")
+        if x.dim() != 4 and cos.dim() == 4:
+            return ops.qk_norm_rope(
+                x, **ops.norm_args(norm), freqs=(cos.transpose(1, 2), sin.transpose(1, 2)), layout="half_cos_sin",
+                heads=cos.shape[1],
+            )
+        return ops.qk_norm_rope(x, **ops.norm_args(norm), freqs=(cos, sin), layout="half_cos_sin")
 
 
 class BasicTransformerBlock1D(nn.Module):

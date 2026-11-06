@@ -250,6 +250,12 @@ class NaPatchOut(nn.Module):
 def _cu_seqlens(all_len: Tensor) -> Tensor:
     return F.pad(all_len.cumsum(0), (1, 0)).int()
 
+def norm_rope(operations, norm: MMModule, branch: str, x: Tensor, freqs: Tuple[Tensor, Tensor]) -> Tensor:
+    module = norm.all if norm.shared_weights else getattr(norm, branch)
+    return operations.qk_norm_rope(
+        x, **operations.norm_args(module), freqs=freqs, layout="pair_rotate", cast_to=torch.float32, out_dtype=x.dtype,
+    )
+
 
 class NaSwinAttention(nn.Module):
     def __init__(self, dim: int, heads: int, head_dim: int, qk_bias: bool, norm_eps: float,
@@ -278,6 +284,7 @@ class NaSwinAttention(nn.Module):
             shared_weights=shared_weights,
         )
         self.rope = get_na_rope(rope_type, rope_dim)
+        self.operations = operations
 
     def forward(self, vid: Tensor, txt: Tensor, vid_shape: Tensor, txt_shape: Tensor, cache: Cache) -> Tuple[Tensor, Tensor]:
         vid_qkv, txt_qkv = self.proj_qkv(vid, txt)
@@ -297,8 +304,9 @@ class NaSwinAttention(nn.Module):
         vid_q, vid_k, vid_v = vid_qkv_win.unbind(1)
         txt_q, txt_k, txt_v = txt_qkv.unbind(1)
 
-        vid_q, txt_q = self.norm_q(vid_q, txt_q)
-        vid_k, txt_k = self.norm_k(vid_k, txt_k)
+        if self.rope is None:
+            vid_q, txt_q = self.norm_q(vid_q, txt_q)
+            vid_k, txt_k = self.norm_k(vid_k, txt_k)
 
         txt_len = cache("txt_len", lambda: txt_shape.prod(-1))
         vid_len_win = cache_win("vid_len", lambda: window_shape.prod(-1))
@@ -321,11 +329,14 @@ class NaSwinAttention(nn.Module):
                 flat, shape = na.flatten(parts)
                 return rearrange(flat, "l (h d) -> l h d", h=num_h), shape
 
-            txt_q_rep, txt_shape_rep = repeat_per_window(txt_q)
-            txt_k_rep, _ = repeat_per_window(txt_k)
-            vid_q, vid_k, txt_q, txt_k = self.rope(
-                vid_q, vid_k, window_shape, txt_q_rep, txt_k_rep, txt_shape_rep, cache_win
-            )
+            txt_q, txt_shape_rep = repeat_per_window(txt_q)
+            txt_k, _ = repeat_per_window(txt_k)
+            vid_freqs, txt_freqs = self.rope.tables(window_shape, txt_shape_rep, cache_win)
+            ops = self.operations
+            vid_q = norm_rope(ops, self.norm_q, "vid", vid_q, vid_freqs)
+            vid_k = norm_rope(ops, self.norm_k, "vid", vid_k, vid_freqs)
+            txt_q = norm_rope(ops, self.norm_q, "txt", txt_q, txt_freqs)
+            txt_k = norm_rope(ops, self.norm_k, "txt", txt_k, txt_freqs)
 
         geometry = cache_win(
             "varlen_geometry", lambda: VarlenGeometry(_cu_seqlens(all_len_win))

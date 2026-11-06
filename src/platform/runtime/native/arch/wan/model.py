@@ -10,8 +10,9 @@ Adaptations from upstream:
     (matching the Flux vendoring), the fp8/manual_cast seam;
   * ``optimized_attention`` is routed through the native attention dispatcher
     (:func:`src.platform.runtime.native.kernels.attention`);
-  * ``EmbedND`` and ``apply_rope1`` are reused from the Flux arch (upstream Wan
-    imports the very same RoPE utilities from ``comfy.ldm.flux``);
+  * ``EmbedND`` is reused from the Flux arch (upstream Wan imports the very same
+    RoPE utilities from ``comfy.ldm.flux``); qk-norm + ``apply_rope1`` run as the
+    shared ``qk_norm_rope`` (``pair_matrix``, norm over the full width);
   * ComfyUI's ``transformer_options`` / patcher-extension / block-replace hooks
     are dropped (no ComfyUI runtime here);
   * ``comfy.model_management.cast_to`` -> plain ``.to(dtype, device)``.
@@ -53,7 +54,7 @@ from ...cancellation import raise_if_cancelled
 from ...nag import apply_nag
 from ...ops.padding import pad_to_patch
 from vendor.gpl.comfyui.flux.layers import EmbedND
-from vendor.gpl.comfyui.flux.math_ops import apply_rope1, rope
+from vendor.gpl.comfyui.flux.math_ops import rope
 from .config import WanParams
 
 # Wan 2.1/2.2's official max training length is 81 pixel frames (5s @ 16fps);
@@ -111,11 +112,13 @@ class WanSelfAttention(nn.Module):
         self.o = operations.Linear(dim, dim, device=device, dtype=dtype)
         self.norm_q = operations.RMSNorm(dim, eps=eps, elementwise_affine=True, device=device, dtype=dtype) if qk_norm else nn.Identity()
         self.norm_k = operations.RMSNorm(dim, eps=eps, elementwise_affine=True, device=device, dtype=dtype) if qk_norm else nn.Identity()
+        self.operations = operations
 
     def forward(self, x, freqs):
-        b, s, n, d = *x.shape[:2], self.num_heads, self.head_dim
-        q = apply_rope1(self.norm_q(self.q(x)).view(b, s, n, d), freqs).reshape(b, s, n * d)
-        k = apply_rope1(self.norm_k(self.k(x)).view(b, s, n, d), freqs).reshape(b, s, n * d)
+        ops = self.operations
+        rope = dict(freqs=freqs, layout="pair_matrix", heads=self.num_heads)
+        q = ops.qk_norm_rope(self.q(x), **(ops.norm_args(self.norm_q) if self.qk_norm else {}), **rope)
+        k = ops.qk_norm_rope(self.k(x), **(ops.norm_args(self.norm_k) if self.qk_norm else {}), **rope)
         v = self.v(x)
         x = wan_attention(q, k, v, heads=self.num_heads)
         return self.o(x)

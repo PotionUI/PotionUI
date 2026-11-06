@@ -108,29 +108,6 @@ def _cached_tensor_bytes(value: tuple[Tensor, Tensor] | None) -> int:
     return sum(t.numel() * t.element_size() for t in value)
 
 
-def _apply_rotary_emb(x: Tensor, cos: Tensor | None, sin: Tensor | None) -> Tensor:
-    """Rotate the leading ``rotary_dim`` channels of every head; pass the rest through.
-
-    ``x``: ``(B, S, H, D)``. ``cos``/``sin``: ``(S, rotary_dim)`` or ``None`` (no-op,
-    used by the token refiner, which carries no rotary embedding at all).
-
-    ``_prepare_positional_embeddings`` already returns the tables in the packed
-    stream's dtype, so the ``.to`` below returns them unchanged on the hot path;
-    it stays as the correct fallback for a caller whose activations arrive at
-    some other precision.
-    """
-    if cos is None:
-        return x
-    rotary_dim = cos.shape[-1]
-    x_rot, x_pass = x[..., :rotary_dim], x[..., rotary_dim:]
-    cos = cos.to(x.dtype)[None, :, None, :]
-    sin = sin.to(x.dtype)[None, :, None, :]
-    x1, x2 = x_rot.chunk(2, dim=-1)
-    x_rotated = torch.cat((-x2, x1), dim=-1)
-    x_rot = x_rot * cos + x_rotated * sin
-    return torch.cat((x_rot, x_pass), dim=-1)
-
-
 def _cast_to(x: Tensor, linear: nn.Module) -> Tensor:
     """Align an activation with a mixed-precision boundary Linear's own dtype."""
     return x.to(linear.weight.dtype)
@@ -210,6 +187,7 @@ class MiniMaxH3Attention(nn.Module):
         self.q_norm = operations.RMSNorm(head_dim, eps=qk_norm_eps, dtype=dtype, device=device)
         self.k_norm = operations.RMSNorm(head_dim, eps=qk_norm_eps, dtype=dtype, device=device)
         self.out_proj = operations.Linear(inner_dim, hidden_size, bias=False, dtype=dtype, device=device)
+        self.operations = operations
         if gate_compress:
             self.to_gate_compress = operations.Linear(hidden_size, inner_dim, bias=False, dtype=dtype, device=device)
         # Sticky OOM marker: sequence lengths >= this skip the normal dispatch
@@ -228,11 +206,7 @@ class MiniMaxH3Attention(nn.Module):
             k = k.view(b, s, self.heads, self.head_dim)
             v = v.view(b, s, self.heads, self.head_dim)
             # Per-head RMSNorm BEFORE RoPE — order matters (dossier §A.5).
-            q = self.q_norm(q)
-            k = self.k_norm(k)
-            cos, sin = rotary_emb if rotary_emb is not None else (None, None)
-            q = _apply_rotary_emb(q, cos, sin)
-            k = _apply_rotary_emb(k, cos, sin)
+            q, k = self._norm_rope(q, k, *(rotary_emb if rotary_emb is not None else (None, None)))
         # sparse_attention dispatches on the context's own type (Sol-Attn or
         # SLA) and consumes this pre-transpose BTHD layout directly. It
         # returns None whenever it did not run (off, dense-forced step,
@@ -302,6 +276,15 @@ class MiniMaxH3Attention(nn.Module):
             return result
         return self.out_proj(out.reshape(b, s, -1))
 
+    def _norm_rope(self, q: Tensor, k: Tensor, cos: Tensor | None, sin: Tensor | None) -> tuple[Tensor, Tensor]:
+        if cos is None:
+            return self.q_norm(q), self.k_norm(k)
+        ops = self.operations
+        freqs = (cos.to(q.dtype)[None, :, None, :], sin.to(q.dtype)[None, :, None, :])
+        q = ops.qk_norm_rope(q, **ops.norm_args(self.q_norm), freqs=freqs, layout="half_rotate")
+        k = ops.qk_norm_rope(k, **ops.norm_args(self.k_norm), freqs=freqs, layout="half_rotate")
+        return q, k
+
     def _chunked_qkv(self, x: Tensor, rotary_emb: tuple[Tensor, Tensor] | None,
                       chunk_rows: int) -> tuple[Tensor, Tensor, Tensor]:
         """Row-chunked qkv projection + per-head RMSNorm(q,k) + RoPE.
@@ -333,12 +316,11 @@ class MiniMaxH3Attention(nn.Module):
                 n = x_chunk.shape[1]
                 with lora_row_window(start, n):
                     q_c, k_c, v_c = proj(x_chunk).chunk(3, dim=-1)
-                q_c = self.q_norm(q_c.view(b, n, self.heads, self.head_dim))
-                k_c = self.k_norm(k_c.view(b, n, self.heads, self.head_dim))
+                q_c, k_c = self._norm_rope(
+                    q_c.view(b, n, self.heads, self.head_dim), k_c.view(b, n, self.heads, self.head_dim),
+                    *((None, None) if cos is None else (cos[start:start + n], sin[start:start + n])),
+                )
                 v_c = v_c.view(b, n, self.heads, self.head_dim)
-                if cos is not None:
-                    q_c = _apply_rotary_emb(q_c, cos[start:start + n], sin[start:start + n])
-                    k_c = _apply_rotary_emb(k_c, cos[start:start + n], sin[start:start + n])
                 q_full[:, start:start + n] = q_c
                 k_full[:, start:start + n] = k_c
                 v_full[:, start:start + n] = v_c
@@ -729,11 +711,11 @@ class MiniMaxH3Model(NativeArchModule):
     def _prepare_positional_embeddings(self, position_ids: Tensor, dtype: torch.dtype) -> tuple[Tensor, Tensor]:
         """Build (or reuse) the ``(cos, sin)`` rotary tables for ``position_ids``,
         returned in ``dtype`` -- the dtype the packed stream (and so every q/k
-        reaching ``_apply_rotary_emb``) is carried at.
+        reaching ``_norm_rope``) is carried at.
 
         The angles are always computed in fp32; only the cast to the consumed
         dtype is cached. Handing the blocks an fp32 pair instead would push that
-        cast into ``_apply_rotary_emb``, which runs twice (q, k) per block per
+        cast into ``_norm_rope``, which runs twice (q, k) per block per
         step -- ~200 casts of the full tables per forward on the real model,
         each re-materialising them. The values are unchanged either way: one
         fp32->dtype rounding, hoisted.

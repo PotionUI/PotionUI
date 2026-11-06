@@ -271,7 +271,7 @@ def test_a_flux_qk_norm_rope_routes_with_its_table_strides(kernels):
     (name, args), = kernels.calls
     assert name == "qk_norm_rope" and out is args["out"] and out.dtype == torch.bfloat16 and out is not x
     assert (args["rope"], args["norm"], args["w_round"], args["t0"], args["t1"]) == (0, 1, True, pe, None)
-    assert args["layout"] == [3, 5, 240, 80, 16, 240, 80, 16, 0, 0, 32, 4, 0, 0, 32]
+    assert args["layout"] == [3, 5, 240, 80, 16, 240, 80, 16, 0, 0, 32, 4, 0, 0, 32, 0, 0, 1, 16, 16]
 
 
 def test_an_unnormalised_in_place_rope_writes_into_its_input_like_krea2(kernels):
@@ -297,7 +297,7 @@ def test_flux3_and_moss_tables_route_with_their_eager_output_dtypes(kernels):
     assert moss["rope"] == 3 and moss["out"].dtype == torch.float32 and moss["w_round"] is False
 
 
-@pytest.mark.parametrize("name", ["no table", "three dims", "odd head dim", "layer norm", "strided table pairs", "flag off"])
+@pytest.mark.parametrize("name", ["no table", "three dims", "five dims", "layer norm", "strided table pairs", "flag off"])
 def test_unsupported_qk_calls_stay_on_the_bit_exact_eager_code(name, kernels, monkeypatch):
     from src.platform.runtime.native.kernels import qk_norm_rope
 
@@ -307,14 +307,103 @@ def test_unsupported_qk_calls_stay_on_the_bit_exact_eager_code(name, kernels, mo
         kwargs["freqs"] = None
     elif name == "three dims":
         x = _t(3, 5, 16)
-    elif name == "odd head dim":
-        x, kwargs["freqs"] = _t(2, 3, 5, 24), _pe((1, 1, 5), 12)
+    elif name == "five dims":
+        x = _t(1, 2, 3, 5, 16)
     elif name == "layer norm":
         kwargs["norm"] = "layer"
     elif name == "strided table pairs":
         kwargs["freqs"] = _pe((1, 1, 5), 8).transpose(-1, -2)
     elif name == "flag off":
         monkeypatch.setitem(runtime_flag_values(), "native_fused_elementwise", False)
+    got = qk_norm_rope(x, **kwargs)
+    assert kernels.calls == []
+    assert torch.equal(got, _eager(qk_norm_rope, x, **kwargs))
+
+
+def _cos_sin(*shape, seed=9, dtype=torch.float32):
+    angle = _t(*shape, dtype=torch.float32, seed=seed)
+    return angle.cos().to(dtype), angle.sin().to(dtype)
+
+
+def test_a_partial_rotate_half_rope_like_minimax_h3_routes_with_its_pass_through_width(kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x = _t(2, 7, 3, 64)[..., :40]
+    cos, sin = _cos_sin(1, 7, 1, 18, dtype=torch.bfloat16)
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=_t(40, seed=1), freqs=(cos, sin), layout="half_rotate")
+    (_, args), = kernels.calls
+    assert args["rope"] == 5 and out.dtype == torch.bfloat16 and args["t0"] is cos and args["t1"] is sin
+    assert args["layout"] == [7, 3, 1344, 192, 64, 840, 120, 40, 0, 18, 0, 1, 0, 18, 0, 0, 0, 1, 40, 18]
+
+
+def test_a_full_width_norm_with_per_head_split_tables_like_ltx_routes_as_one_row_of_heads(kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x = _t(2, 5, 4 * 16)
+    cos, sin = (t.reshape(1, 5, 4, 8).swapaxes(1, 2) for t in _cos_sin(1, 5, 32))
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=_t(64, seed=1), freqs=(cos.transpose(1, 2), sin.transpose(1, 2)),
+                       layout="half_cos_sin", heads=4)
+    (_, args), = kernels.calls
+    assert args["rope"] == 6 and out.shape == x.shape and out.dtype == torch.float32
+    assert args["layout"] == [2, 5, 0, 320, 64, 0, 320, 64, 0, 0, 32, 1, 0, 0, 32, 8, 8, 4, 16, 16]
+
+
+def test_an_interleaved_rope_over_the_whole_row_like_ltx_routes_three_dim_input(kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x = _t(2, 5, 64)
+    cos, sin = _cos_sin(2, 5, 64)
+    qk_norm_rope(x, norm="rms", eps=1e-6, weight=_t(64, seed=1), freqs=(cos, sin), layout="pair_rotate")
+    (_, args), = kernels.calls
+    assert args["rope"] == 4 and args["layout"][-3:] == [1, 64, 64]
+    assert args["layout"][:5] == [2, 5, 0, 320, 64] and args["layout"][8:11] == [0, 320, 64]
+
+
+def test_a_full_width_norm_with_a_shared_matrix_table_like_wan_routes_with_a_zero_head_stride(kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, pe = _t(1, 5, 3 * 16), _pe((1, 5, 1), 8)
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=_t(48, seed=1), freqs=pe, layout="pair_matrix", heads=3)
+    (_, args), = kernels.calls
+    assert args["rope"] == 0 and out.dtype == torch.bfloat16 and args["norm"] == 1
+    assert args["layout"][-5:] == [0, 0, 3, 16, 16] and args["layout"][8:12] == [0, 160, 32, 4]
+
+
+def test_an_fp32_rope_cast_back_like_seedvr2_routes_with_its_requested_dtype(kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x = _t(7, 3, 16)
+    cos, sin = (t[:, None] for t in _cos_sin(7, 14))
+    out = qk_norm_rope(x, norm="rms", eps=1e-6, weight=_t(16, seed=1), freqs=(cos, sin), layout="pair_rotate",
+                       cast_to=torch.float32, out_dtype=torch.bfloat16)
+    (_, args), = kernels.calls
+    assert args["rope"] == 4 and out.dtype == torch.bfloat16 and args["layout"][-3:] == [1, 16, 14]
+
+
+def test_a_half_split_matrix_rope_like_anima_routes_without_promoting(kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    out = qk_norm_rope(_t(1, 5, 2, 16), norm="rms", eps=1e-6, weight=_t(16, seed=1), freqs=_pe((1, 5, 1), 8),
+                       layout="half_matrix")
+    (_, args), = kernels.calls
+    assert args["rope"] == 7 and out.dtype == torch.bfloat16
+
+
+@pytest.mark.parametrize("name", ["odd rotary width", "five dims", "strided cos table", "row over the norm cap"])
+def test_unsupported_rope_geometry_stays_on_the_bit_exact_eager_code(name, kernels):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    x, kwargs = _t(2, 5, 3, 16), dict(norm="rms", eps=1e-6, layout="half_rotate", freqs=_cos_sin(1, 5, 1, 12))
+    if name == "odd rotary width":
+        kwargs["freqs"] = _cos_sin(1, 5, 1, 11)
+    elif name == "five dims":
+        x = _t(2, 2, 5, 3, 16)
+    elif name == "strided cos table":
+        cos, sin = _cos_sin(1, 5, 1, 12, 2)
+        kwargs["freqs"] = (cos[..., 0], sin[..., 0])
+    elif name == "row over the norm cap":
+        x, kwargs["layout"] = _t(1, 2, 16386), "pair_rotate"
+        kwargs["freqs"] = _cos_sin(1, 2, 16386)
     got = qk_norm_rope(x, **kwargs)
     assert kernels.calls == []
     assert torch.equal(got, _eager(qk_norm_rope, x, **kwargs))

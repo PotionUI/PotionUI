@@ -471,3 +471,116 @@ def test_qk_norm_rope_without_a_table_is_just_the_norm_and_unknown_layouts_are_r
     _exact(qk_norm_rope(x, norm="rms", eps=1e-6, freqs=None, layout="pair_matrix"), F.rms_norm(x, (32,), eps=1e-6))
     with pytest.raises(ValueError):
         apply_rope(x, _t(1), layout="spiral")
+
+
+def _rms(width, dtype, ops=disable_weight_init, seed=1):
+    norm = ops.RMSNorm(width, eps=1e-6, elementwise_affine=True, dtype=dtype)
+    with torch.no_grad():
+        norm.weight.copy_(_t(width, seed=seed))
+    return norm
+
+
+@pytest.mark.parametrize("ops", [disable_weight_init, manual_cast])
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_minimax_h3_per_head_rms_and_partial_rotate_half_rope_are_bit_exact(ops, dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    norm = _rms(40, dtype, ops)
+    x = _t(B, L, 2, 40, dtype=dtype)
+    angle = torch.cat((_t(L, 9, seed=2),) * 2, -1) * 3.0
+    cos, sin = angle.cos().to(dtype), angle.sin().to(dtype)
+    h = norm(x)
+    rotary_dim = cos.shape[-1]
+    x_rot, x_pass = h[..., :rotary_dim], h[..., rotary_dim:]
+    c, s = cos.to(h.dtype)[None, :, None, :], sin.to(h.dtype)[None, :, None, :]
+    x1, x2 = x_rot.chunk(2, dim=-1)
+    expected = torch.cat((x_rot * c + torch.cat((-x2, x1), dim=-1) * s, x_pass), dim=-1)
+    got = qk_norm_rope(x, **norm_args(norm), freqs=(cos[None, :, None, :], sin[None, :, None, :]), layout="half_rotate")
+    _exact(got, expected)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_ltx_full_width_rms_and_interleaved_rope_are_bit_exact(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    norm = _rms(32, dtype)
+    x = _t(B, L, 32, dtype=dtype)
+    angle = _t(B, L, 15, seed=2) * 3.0
+    cos = torch.cat((torch.ones(B, L, 2), angle.cos().repeat_interleave(2, dim=-1)), -1)
+    sin = torch.cat((torch.zeros(B, L, 2), angle.sin().repeat_interleave(2, dim=-1)), -1)
+    h = norm(x)
+    t1, t2 = h.unflatten(-1, (-1, 2)).unbind(dim=-1)
+    expected = h * cos + torch.stack((-t2, t1), dim=-1).flatten(-2) * sin
+    _exact(qk_norm_rope(x, **norm_args(norm), freqs=(cos, sin), layout="pair_rotate"), expected)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_ltx_full_width_rms_and_per_head_split_rope_are_bit_exact(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    heads, hd = 4, 16
+    norm = _rms(heads * hd, dtype)
+    x = _t(B, L, heads * hd, dtype=dtype)
+    angle = _t(B, L, heads * hd // 2, seed=2) * 3.0
+    cos = angle.cos().reshape(B, L, heads, hd // 2).swapaxes(1, 2)
+    sin = angle.sin().reshape(B, L, heads, hd // 2).swapaxes(1, 2)
+    split = norm(x).reshape(B, L, heads, -1).swapaxes(1, 2).unflatten(-1, (2, -1))
+    first_half, second_half = split[..., :1, :], split[..., 1:, :]
+    output = split * cos.unsqueeze(-2)
+    output[..., :1, :].addcmul_(-sin.unsqueeze(-2), second_half)
+    output[..., 1:, :].addcmul_(sin.unsqueeze(-2), first_half)
+    expected = output.flatten(-2).swapaxes(1, 2).reshape(B, L, -1)
+    got = qk_norm_rope(
+        x, **norm_args(norm), freqs=(cos.transpose(1, 2), sin.transpose(1, 2)), layout="half_cos_sin", heads=heads,
+    )
+    _exact(got, expected)
+
+
+@pytest.mark.parametrize("qk_norm", [True, False])
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_wan_full_width_rms_and_per_head_matrix_rope_are_bit_exact(qk_norm, dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    heads, hd = 3, 16
+    norm = _rms(heads * hd, dtype, manual_cast)
+    x = _t(B, L, heads * hd, dtype=dtype)
+    pe = _rope_matrix(1, L, 1, half=hd // 2)
+    h = norm(x) if qk_norm else x
+    expected = _apply_rope1(h.view(B, L, heads, hd), pe).reshape(B, L, heads * hd)
+    got = qk_norm_rope(x, **(norm_args(norm) if qk_norm else {}), freqs=pe, layout="pair_matrix", heads=heads)
+    _exact(got, expected)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_seedvr2_fp32_partial_interleaved_rope_is_bit_exact(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    norm = _rms(16, dtype)
+    x = _t(L, 3, 16, dtype=dtype)
+    freqs = (_t(L, 7, seed=2) * 3.0).repeat_interleave(2, dim=-1)
+    t = norm(x).transpose(0, 1)
+    t_float = t.float()
+    t_mid, t_right = t_float[..., :14], t_float[..., 14:]
+    pairs = t_mid.unflatten(-1, (-1, 2))
+    turned = torch.stack((-pairs[..., 1], pairs[..., 0]), dim=-1).flatten(-2)
+    t_mid = ((t_mid * freqs.cos() * 1.0) + (turned * freqs.sin() * 1.0)).to(t_float.dtype)
+    expected = torch.cat((t_mid, t_right), dim=-1).to(t.dtype).transpose(0, 1)
+    got = qk_norm_rope(
+        x, **norm_args(norm), freqs=(freqs.cos()[:, None], freqs.sin()[:, None]), layout="pair_rotate",
+        cast_to=torch.float32, out_dtype=x.dtype,
+    )
+    _exact(got, expected)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_anima_per_head_rms_and_half_split_matrix_rope_are_bit_exact(dtype):
+    from src.platform.runtime.native.kernels import qk_norm_rope
+
+    norm = _rms(32, dtype)
+    x = _t(B, L, 2, 32, dtype=dtype)
+    rope = _rope_matrix(1, L, 1, half=16)
+    h = norm(x)
+    t_ = h.reshape(*h.shape[:-1], 2, -1).movedim(-2, -1).unsqueeze(-2).float()
+    t_out = rope[..., 0] * t_[..., 0] + rope[..., 1] * t_[..., 1]
+    expected = t_out.movedim(-1, -2).reshape(*h.shape).type_as(h)
+    _exact(qk_norm_rope(x, **norm_args(norm), freqs=rope, layout="half_matrix"), expected)

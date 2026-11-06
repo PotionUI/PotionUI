@@ -1242,7 +1242,7 @@ def test_rotary_tables_are_cached_in_the_packed_stream_dtype():
 
 def test_bf16_forward_is_identical_to_the_per_call_cast_path():
     """The hoist moves WHERE the fp32->bf16 cast happens, nothing else: the
-    same forward fed fp32 tables (so ``_apply_rotary_emb`` casts them itself,
+    same forward fed fp32 tables (so ``_norm_rope`` casts them itself,
     once per q and per k of every block -- the pre-hoist path) must produce
     bit-identical output."""
     m = _build_ready(TINY_FULL, dtype=torch.bfloat16)

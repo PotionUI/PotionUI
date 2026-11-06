@@ -16,7 +16,7 @@ fields:
     type: "select"
     label: "Reference detail budget"
     default: "0"
-    ai_hint: "Caps how much of each reference the text encoder's vision tower reads — the VAE-encoded reference rows are unaffected and always run at the picked Resolution. Uncapped reads up to 16MP per image and is paid for by area, which with nine references is the slowest part of the request. '0' (uncapped) is the right answer when the user cares about likeness. Suggest 2x once there are more than three or four references, or 1x when encoding is slow and the references are large photos. Values are multiples of the output canvas AREA, not edge length."
+    ai_hint: "Caps how much of each reference the text encoder's vision tower reads — the VAE-encoded reference rows are unaffected. Uncapped reads up to 16MP per image and is paid for by area, which with nine references is the slowest part of the request. '0' (uncapped) is the right answer when the user cares about likeness. Suggest 2x once there are more than three or four references, or 1x when encoding is slow and the references are large photos. Values are multiples of the output canvas AREA, not edge length."
     configuration:
       options:
         - { label: "Uncapped (model default)", value: "0" }

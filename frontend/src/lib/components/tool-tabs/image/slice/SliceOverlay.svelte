@@ -308,12 +308,12 @@
 				{#if !phone && !locked}
 					{@const pair = line.pairs[i]}
 					<div
-						class="absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded bg-danger-solid p-[3px] pl-2 shadow-floating"
-						style="left:{pct(line.axis === 'v' ? (line.a + line.b) / 2 : (seg.lo + seg.hi) / 2)};top:{pct(line.axis === 'v' ? (seg.lo + seg.hi) / 2 : (line.a + line.b) / 2)}"
+						class="pointer-events-none absolute z-10 flex items-center gap-1 rounded bg-danger-solid p-[3px] pl-2 shadow-floating {line.axis === 'v' ? '-translate-y-1/2' : '-translate-x-1/2'}"
+						style="left:{line.axis === 'v' ? `calc(${pct(line.b)} + 14px)` : pct((seg.lo + seg.hi) / 2)};top:{line.axis === 'v' ? pct((seg.lo + seg.hi) / 2) : `calc(${pct(line.b)} + 14px)`}"
 						data-slice-cut
 					>
 						<span class="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-sm uppercase tracking-[0.08em] text-scrim-on"><Icon name="warning" className="h-3.5 w-3.5" />Cuts a panel</span>
-						<Button variant="primary" size="xs" class="h-6" onclick={() => mergePair(pair)} attrs={{ 'data-slice-cut-merge': '' }}>Merge {numbers.get(pair[0]) ?? '—'} + {numbers.get(pair[1]) ?? '—'}</Button>
+						<Button variant="primary" size="xs" class="pointer-events-auto h-6" onclick={() => mergePair(pair)} attrs={{ 'data-slice-cut-merge': '' }}>Merge {numbers.get(pair[0]) ?? '—'} + {numbers.get(pair[1]) ?? '—'}</Button>
 					</div>
 				{/if}
 			{:else if line.snapped}

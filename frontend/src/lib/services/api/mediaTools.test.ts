@@ -113,3 +113,51 @@ describe('previewMediaTool', () => {
 		expect(result).toBe(blob);
 	});
 });
+
+describe('editor endpoints', () => {
+	it('lists my runs from the envelope', async () => {
+		const get = vi.fn().mockResolvedValue({
+			data: { success: true, data: { runs: [{ run_id: 'r1', kind: 'preview' }] } }
+		});
+		const runs = await createMediaToolsApi(client({ get })).listMediaToolRuns();
+		expect(get).toHaveBeenCalledWith('/api/media-tools/runs');
+		expect(runs.map((run) => run.run_id)).toEqual(['r1']);
+	});
+
+	it('reads a frame preview as a blob and reports a cache hit', async () => {
+		const blob = new Blob(['x']);
+		const post = vi.fn().mockResolvedValue({ data: blob, headers: { 'x-preview-cache': 'hit' } });
+		const body = { input: { item_id: 'v1' }, steps: [{ tool: 'film_grain', params: {}, hidden: true }] };
+
+		const result = await createMediaToolsApi(client({ post })).previewFrame(body);
+
+		expect(post).toHaveBeenCalledWith('/api/media-tools/preview/frame', body, {
+			responseType: 'blob',
+			signal: undefined
+		});
+		expect(result).toEqual({ blob, cached: true });
+	});
+
+	it('returns a cached clip without a run id', async () => {
+		const preview = { id: 'p', url: '/api/media-tools/previews/p', mime_type: 'video/mp4' };
+		const post = vi.fn().mockResolvedValue({ data: { success: true, data: { run_id: null, preview } } });
+		const started = await createMediaToolsApi(client({ post })).startClipPreview({
+			input: { item_id: 'v1' },
+			steps: []
+		});
+		expect(post).toHaveBeenCalledWith('/api/media-tools/preview/clip', { input: { item_id: 'v1' }, steps: [] });
+		expect(started).toEqual({ run_id: null, preview });
+	});
+
+	it('uploads a helper file as form data and returns its id', async () => {
+		const post = vi.fn().mockResolvedValue({ data: { success: true, data: { id: 'a1', media_type: 'image' } } });
+		const file = new File(['png'], 'layer.png', { type: 'image/png' });
+
+		const artifact = await createMediaToolsApi(client({ post })).uploadMediaToolArtifact(file);
+
+		const [url, form] = post.mock.calls[0];
+		expect(url).toBe('/api/media-tools/artifacts');
+		expect((form as FormData).get('file')).toBeInstanceOf(File);
+		expect(artifact.id).toBe('a1');
+	});
+});

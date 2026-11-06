@@ -294,7 +294,7 @@ describe('Tools menu: Edit and Effects on both pages', () => {
 			'frame',
 			'concat'
 		]);
-		expect(byLabel(groups, 'Edit')!.subs.frame).toBe('Saves one image');
+		expect(byLabel(groups, 'Edit')!.subs.frame).toBe('');
 		expect(byLabel(groups, 'Edit')!.subs.concat).toBe('Select 2 to 8 items');
 		expect(byLabel(groups, 'Effects')).toBeUndefined();
 	});
@@ -308,6 +308,7 @@ describe('Tools menu: Edit and Effects on both pages', () => {
 			'rotate',
 			'flip',
 			'fit_canvas',
+			'slice_sheet',
 			'color_key',
 			'crop_subject'
 		]);
@@ -407,11 +408,11 @@ describe('Tools menu: Edit and Effects on both pages', () => {
 describe('Tools menu: the Edit and Effects submenus at the top level', () => {
 	const rowsNow = () => topRows().map((entry) => [entry.id, entry.label, entry.count]);
 
-	it('Library, image: an Edit row of 7 and an Effects row of 1 stand in for the eight tools', async () => {
+	it('Library, image: an Edit row of 8 and an Effects row of 1 stand in for the nine tools', async () => {
 		const groups = await libraryMenu('image');
 
 		expect(rowsNow()).toEqual([
-			['edit', 'Edit', 7],
+			['edit', 'Edit', 8],
 			['effects', 'Effects', 1]
 		]);
 		expect(byLabel(groups, 'Edit')!.count).toBe(byLabel(groups, 'Edit')!.tools.length);
@@ -457,7 +458,7 @@ describe('card menu: the same submenus', () => {
 		await libraryCardMenu('image');
 
 		expect(rowsNow()).toEqual([
-			['edit', 'Edit', 7],
+			['edit', 'Edit', 8],
 			['effects', 'Effects', 1]
 		]);
 		const order = Array.from(
@@ -498,7 +499,7 @@ describe('card menu: the same submenus', () => {
 		const card = await reopened(() => libraryCardMenu('video'));
 
 		expect(byLabel(card, 'Edit')!.tools).toEqual(byLabel(bar, 'Edit')!.tools.filter((id) => id !== 'concat'));
-		expect(byLabel(card, 'Edit')!.subs.frame).toBe('Saves one image');
+		expect(byLabel(card, 'Edit')!.subs.frame).toBe('');
 	});
 
 	it('shows recent looks in the Effects submenu of a card, on both pages', async () => {

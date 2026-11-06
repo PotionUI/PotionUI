@@ -2,12 +2,11 @@ import type { ComponentType } from 'svelte';
 import { recentLooks } from '$lib/filters/recentLooks';
 import { registerMediaTool } from '$lib/tools/tools';
 import { registerEntryTools } from '$lib/tools/entryTools';
-import HistoryApplyLookModal from '../components/HistoryApplyLookModal.svelte';
 import HistoryCompareModal from '../components/HistoryCompareModal.svelte';
-import HistoryEditImageModal from '../components/HistoryEditImageModal.svelte';
 import HistoryExportZipModal from '../components/HistoryExportZipModal.svelte';
 import HistoryStitchModal from '../components/HistoryStitchModal.svelte';
-import { applyLookAvailability, editImageAvailability } from './editImage';
+import { applyLookAvailability, editMediaAvailability, editMediaLabel, sliceSheetAvailability } from '$lib/tools/editMedia';
+import { SLICE_ACTION } from '$lib/tool-tabs/shortcuts';
 import { syncRecentLookTools } from './recentLookTools';
 
 let registered = false;
@@ -71,31 +70,44 @@ export function registerCoreHistoryTools(): void {
 
 	registerMediaTool({
 		id: 'edit-image',
-		label: 'Edit image',
-		description: 'Open the selected image in the image editor',
-		icon: 'paint-brush',
+		label: 'Open in editor',
+		description: 'Open the selection in the Image or Video editor',
+		icon: 'sliders',
 		category: 'compose',
 		shortcut: 'E',
 		source: 'core',
 		scopes: ['history', 'library'],
-		selection: { min: 1, max: 1 },
+		selection: { min: 1 },
+		kinds: ['image', 'video'],
+		labelFor: editMediaLabel,
+		applies: editMediaAvailability
+	});
+
+	registerMediaTool({
+		id: SLICE_ACTION,
+		label: 'Slice into references',
+		description: 'Cut a sheet into separate images',
+		icon: 'editor-slice',
+		category: 'edit',
+		source: 'core',
+		scopes: ['history', 'library'],
+		selection: { min: 1 },
 		kinds: ['image'],
-		applies: editImageAvailability,
-		component: HistoryEditImageModal as unknown as ComponentType
+		after: 'fit_canvas',
+		applies: sliceSheetAvailability
 	});
 
 	registerMediaTool({
 		id: 'apply-look',
 		label: 'Apply a look…',
-		description: 'Pick a look for this image in the image editor',
+		description: 'Pick a look in the Image editor',
 		icon: 'palette',
 		category: 'effects',
 		source: 'core',
 		scopes: ['history', 'library'],
 		selection: { min: 1 },
 		kinds: ['image'],
-		applies: applyLookAvailability,
-		component: HistoryApplyLookModal as unknown as ComponentType
+		applies: applyLookAvailability
 	});
 
 	recentLooks.subscribe(syncRecentLookTools);

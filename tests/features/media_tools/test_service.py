@@ -34,6 +34,50 @@ class TestServiceApi(MediaToolsTestBase):
     def user(self):
         return self.make_user(self.user_id)
 
+    def test_a_tool_that_saves_elsewhere_completes_with_its_summary_and_no_library_item(self):
+        from src.platform.media_tools import MediaTool, ToolSpec
+
+        class SavesElsewhere(MediaTool):
+            def run(self, inputs, params, ctx):
+                ctx.summarize("Saved hero to the model folder", [("Open models", "/models?model=m-1")])
+                return []
+
+        self.registry.register(ToolSpec(
+            id="acme.save", label="Save elsewhere", accepts=("image",), cardinality="many_to_one",
+            selection={"min": 1}, source="acme", impl=SavesElsewhere(),
+        ))
+        item = self.image_item()
+        before = len(self.upload_rows())
+
+        run = self.finish([{"tool": "acme.save"}], [{"item_id": item.id}])
+
+        self.assertEqual(run.status, "completed")
+        self.assertEqual(run.items, [])
+        self.assertEqual(run.summary.message, "Saved hero to the model folder")
+        self.assertEqual([(link.label, link.href) for link in run.summary.links], [("Open models", "/models?model=m-1")])
+        self.assertEqual(len(self.upload_rows()), before)
+        body = self.client.get(f"/api/media-tools/runs/{run.run_id}").json()["data"]
+        self.assertEqual(body["summary"]["message"], "Saved hero to the model folder")
+        self.assertEqual(body["items"], [])
+
+    def test_a_run_hands_its_tool_the_running_user_id(self):
+        from unittest.mock import patch
+        from tests.features.media_tools.support import Stack
+
+        seen = []
+        original = Stack.run
+
+        def recording(tool, inputs, params, ctx):
+            seen.append(ctx.user_id)
+            return original(tool, inputs, params, ctx)
+
+        first, second = self.image_item(), self.image_item(name="two.png")
+        with patch.object(Stack, "run", recording):
+            run = self.finish([{"tool": "stack"}], [{"item_id": first.id}, {"item_id": second.id}])
+
+        self.assertEqual(run.status, "completed")
+        self.assertEqual(seen, [self.user_id])
+
     def test_catalog_returns_tool_dtos_with_remembered_params(self):
         item = self.image_item()
         self.finish([{"tool": "shrink", "params": {"size": 9}}], [{"item_id": item.id}])

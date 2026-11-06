@@ -8,11 +8,18 @@ describe('readBatchProgress', () => {
 		).toEqual({ label: 'Prompt 2 of 3', percent: 40 });
 	});
 
-	it('falls back to the image position when there is no prompt batch', () => {
-		expect(readBatchProgress({ item_index: 1, item_count: 3, item_progress: 0.5 })).toEqual({
-			label: 'Image 2 of 3',
-			percent: 50
-		});
+	it('names the item after the preset media kind when there is no prompt batch', () => {
+		const progress = { item_index: 1, item_count: 3, item_progress: 0.5 };
+		expect(readBatchProgress(progress, 'image')).toEqual({ label: 'Image 2 of 3', percent: 50 });
+		expect(readBatchProgress(progress, 'video')?.label).toBe('Video 2 of 3');
+		expect(readBatchProgress(progress, 'audio')?.label).toBe('Audio 2 of 3');
+	});
+
+	it('uses a neutral noun when the media kind is unknown', () => {
+		const progress = { item_index: 1, item_count: 3 };
+		expect(readBatchProgress(progress)?.label).toBe('Item 2 of 3');
+		expect(readBatchProgress(progress, null)?.label).toBe('Item 2 of 3');
+		expect(readBatchProgress(progress, '3d')?.label).toBe('Item 2 of 3');
 	});
 
 	it('keeps the label with an unknown percent while the stage has no fraction', () => {

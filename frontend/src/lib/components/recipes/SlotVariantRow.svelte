@@ -1,4 +1,5 @@
 <script lang="ts">
+	import GatedModelLink from '$lib/components/models/GatedModelLink.svelte';
 	import { Badge, Button } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -84,9 +85,7 @@
 	{#if variant.gated}
 		<div class="flex items-center gap-1 text-sm text-warning">
 			<span>Licence required</span>
-			{#if variant.license_url}
-				<a href={variant.license_url} target="_blank" rel="noreferrer" class="underline decoration-dotted">licence</a>
-			{/if}
+			<GatedModelLink source={variant} />
 		</div>
 	{/if}
 	{#if busy}
@@ -98,6 +97,9 @@
 		</div>
 	{:else if download.phase === 'failed'}
 		<span class="text-sm text-danger">{download.error || 'Download failed'}</span>
+		{#if download.gated && !variant.gated}
+			<GatedModelLink source={{ ...variant, gated_repo: download.gatedRepo }} />
+		{/if}
 	{:else if download.phase === 'forbidden'}
 		<span class="text-sm text-fg-subtle">Admin permission required to download this model.</span>
 	{/if}

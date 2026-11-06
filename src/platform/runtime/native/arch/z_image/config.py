@@ -42,6 +42,8 @@ class ZImageConfig:
     norm_eps: float = 1e-5
     pad_tokens_multiple: int = 32
     time_scale: float = 1000.0
+    control_layers: int = 0
+    control_in_dim: int = 0
 
     @property
     def head_dim(self) -> int:
@@ -76,4 +78,6 @@ class ZImageConfig:
             norm_eps=float(config.get("norm_eps", 1e-5)),
             pad_tokens_multiple=int(config.get("pad_tokens_multiple", 32)),
             time_scale=float(config.get("time_scale", 1000.0)),
+            control_layers=int((config.get("fun_control") or {}).get("num_blocks", 0)),
+            control_in_dim=int((config.get("fun_control") or {}).get("control_in_dim", 0)),
         )

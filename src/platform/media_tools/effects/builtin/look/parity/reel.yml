@@ -1,0 +1,7 @@
+name: Reel
+intensity: 80
+steps:
+  - { op: curves, master: [[0, 0.03], [0.3, 0.26], [0.7, 0.76], [1, 0.97]] }
+  - { op: split_tone, shadow_hue: 195, shadow_sat: 22, highlight_hue: 42, highlight_sat: 20 }
+  - { op: vignette, amount: 40, midpoint: 35, feather: 50 }
+  - { op: grain, amount: 30, size: 1.5, seed: 7 }

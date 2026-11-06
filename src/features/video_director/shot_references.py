@@ -2,8 +2,15 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.features.presets.schema import PROMPT_RESOURCE_INDEX_PLACEHOLDER
-from src.features.prompt.resources import RESOURCE_MARKER_RE, media_item_keys, spec_for_item, specs_by_field
-from src.platform.filesystem.media_kinds import MEDIA_KINDS, media_item_kind
+from src.features.prompt.reference_pool import (
+    BundlePoolMember,
+    build_reference_pool,
+    bundle_field_sources,
+    pool_entry_keys,
+)
+from src.features.prompt.resource_sources import BundleMembersResolver, source_label
+from src.features.prompt.resources import RESOURCE_MARKER_RE, spec_for_item, specs_by_field
+from src.platform.filesystem.media_kinds import media_item_kind
 
 
 @dataclass(frozen=True)
@@ -14,24 +21,32 @@ class ShotReferences:
     problems: List[str]
 
 
-def packed_reference_pool(reference_fields: Sequence[str], form_data: Mapping[str, Any]) -> List[Tuple[str, Any]]:
-    pool: List[Tuple[str, Any]] = []
-    for field in reference_fields:
-        raw = form_data.get(field)
-        items = raw if isinstance(raw, list) else ([] if raw is None or raw == "" else [raw])
-        pool.extend((field, item) for item in items if media_item_keys(item))
-    return sorted(pool, key=lambda entry: _kind_rank(media_item_kind(entry[1])))
+def packed_reference_pool(
+    reference_fields: Sequence[str],
+    form_data: Mapping[str, Any],
+    prompt_resources: Sequence[Mapping[str, Any]] = (),
+    bundle_members: Optional[BundleMembersResolver] = None,
+) -> List[Tuple[str, Any]]:
+    return build_reference_pool(reference_fields, form_data, prompt_resources, bundle_members)[0]
 
 
-def _kind_rank(kind: Optional[str]) -> int:
-    return MEDIA_KINDS.index(kind) if kind in MEDIA_KINDS else len(MEDIA_KINDS)
+def _pool_indices(pool: Sequence[Tuple[str, Any]], field: str, item_key: str) -> List[int]:
+    return [
+        index for index, entry in enumerate(pool)
+        if entry[0] == field and item_key in pool_entry_keys(entry)
+    ]
 
 
-def _pool_index(pool: Sequence[Tuple[str, Any]], field: str, item_key: str) -> Optional[int]:
-    for index, (pool_field, item) in enumerate(pool):
-        if pool_field == field and item_key in media_item_keys(item):
-            return index
-    return None
+def _entry_spec(specs: Dict[str, List[Mapping[str, Any]]], entry: Tuple[str, Any]) -> Optional[Mapping[str, Any]]:
+    field, item = entry
+    if isinstance(item, BundlePoolMember):
+        return next((spec for spec in specs.get(field, []) if spec.get("kind") == item.kind), None)
+    return spec_for_item(specs[field], item)
+
+
+def _entry_kind_name(entry: Tuple[str, Any]) -> str:
+    item = entry[1]
+    return item.kind if isinstance(item, BundlePoolMember) else (media_item_kind(item) or "unrecognised")
 
 
 def derive_shot_references(
@@ -40,6 +55,7 @@ def derive_shot_references(
     prompt_resources: Sequence[Mapping[str, Any]],
 ) -> ShotReferences:
     specs = specs_by_field(prompt_resources)
+    bundle_sources = bundle_field_sources(prompt_resources)
     problems: List[str] = []
     cited: set = set()
 
@@ -55,24 +71,28 @@ def derive_shot_references(
             if field not in specs:
                 note(f"the prompt references '{field}', which this mode's prompt cannot reference")
                 continue
-            index = _pool_index(pool, field, item_key)
-            if index is None:
+            matches = _pool_indices(pool, field, item_key)
+            if not matches:
                 note(f"the prompt references an item that was removed from this field ({item_key})")
                 continue
-            if spec_for_item(specs[field], pool[index][1]) is None:
-                note(
-                    f"the prompt references a {media_item_kind(pool[index][1]) or 'unrecognised'} item "
-                    f"({item_key}), which this field's prompt cannot reference"
+            unsupported = [index for index in matches if _entry_spec(specs, pool[index]) is None]
+            if unsupported:
+                kind = _entry_kind_name(pool[unsupported[0]])
+                article = "an" if kind[:1] in "aeiou" else "a"
+                what = (
+                    f"{source_label(bundle_sources[field])} with {article} {kind} member"
+                    if field in bundle_sources else f"{kind} item"
                 )
+                note(f"the prompt references a {what} ({item_key}), which this field's prompt cannot reference")
                 continue
-            cited.add(index)
+            cited.update(matches)
 
     indices = sorted(cited)
     kinds: List[str] = []
     positions: Dict[int, int] = {}
     per_kind: Dict[str, int] = {}
     for index in indices:
-        spec = spec_for_item(specs[pool[index][0]], pool[index][1])
+        spec = _entry_spec(specs, pool[index])
         kind = str(spec.get("kind") or pool[index][0])
         per_kind[kind] = per_kind.get(kind, 0) + 1
         positions[index] = per_kind[kind]
@@ -80,11 +100,13 @@ def derive_shot_references(
 
     def replace(match: Any) -> str:
         field, item_key = match.group(1), match.group(2)
-        index = _pool_index(pool, field, item_key) if field in specs else None
-        if index is None or index not in positions:
+        matches = [index for index in _pool_indices(pool, field, item_key) if index in positions] if field in specs else []
+        if not matches:
             return match.group(0)
-        spec = spec_for_item(specs[field], pool[index][1])
-        return str(spec["token"]).replace(PROMPT_RESOURCE_INDEX_PLACEHOLDER, str(positions[index]))
+        return " ".join(
+            str(_entry_spec(specs, pool[index])["token"]).replace(PROMPT_RESOURCE_INDEX_PLACEHOLDER, str(positions[index]))
+            for index in matches
+        )
 
     resolved = [
         RESOURCE_MARKER_RE.sub(replace, text) if isinstance(text, str) and "@[" in text else text

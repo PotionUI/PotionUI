@@ -212,6 +212,7 @@
                 "golden positive prompt"
               ]
             ],
+            [],
             [
               "steps",
               4
@@ -253,6 +254,10 @@
     },
     {
       "config": {
+        "audio_sigma_shift": {
+          "type": "float",
+          "value": 3.0
+        },
         "audio_source": {
           "type": "str",
           "value": "generate"
@@ -363,6 +368,10 @@
           "type": "bool",
           "value": true
         },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
         "quantity": {
           "type": "int",
           "value": 1
@@ -418,6 +427,10 @@
         "steps": {
           "type": "int",
           "value": 4
+        },
+        "video_sigma_shift": {
+          "type": "float",
+          "value": 12.0
         }
       },
       "enabled": {

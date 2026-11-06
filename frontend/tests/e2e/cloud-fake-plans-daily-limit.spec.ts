@@ -49,9 +49,17 @@ async function openFakeStudio(page: Page) {
 }
 
 async function pickModel(page: Page, label: string) {
-	const swap = field(page, 'model').locator('button:visible', { hasText: 'Swap' }).first();
-	if (await swap.isVisible().catch(() => false)) await swap.click();
-	await field(page, 'model').locator('input').first().click();
+	const model = field(page, 'model');
+	const swap = model.locator('button:visible', { hasText: 'Swap' }).first();
+	const selected = await swap.waitFor({ state: 'visible', timeout: 15000 }).then(
+		() => true,
+		() => false
+	);
+	if (selected) {
+		if (await model.getByText(label, { exact: true }).first().isVisible()) return;
+		await swap.click();
+	}
+	await model.locator('input').first().click();
 	await page.getByText(label, { exact: true }).last().click();
 }
 
@@ -137,7 +145,7 @@ test.describe('a daily generation limit', () => {
 	test('the usage view and the account menu show the used limit', async ({ page }) => {
 		test.setTimeout(60000);
 		await loginAsOwner(page);
-		await page.goto('/settings');
+		await page.goto('/settings#plan');
 		const section = page.locator('#plan');
 		await expect(section).toContainText('Generations today', { timeout: 15000 });
 		await expect(section).toContainText(/Generations today\s*(\d+) \/ \1/);

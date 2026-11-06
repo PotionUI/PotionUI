@@ -142,14 +142,14 @@ class RemoteNativeBackend(BaseBackend):
     async def list_models(self):
         """The worker depot's own listing, not the host's - mirrors how
         ComfyUIBackend reports its own server's models."""
-        from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE
+        from src.platform.filesystem.model_types import directory_to_type
 
         from .model_listing import BackendModel, deduplicate
 
         entries = await self._transport().list_models()
         models = [
             BackendModel(
-                model_type=DIRECTORY_TO_MODEL_TYPE.get(
+                model_type=directory_to_type().get(
                     entry["relative_path"].split("/", 1)[0], entry["relative_path"].split("/", 1)[0],
                 ),
                 filename=entry["relative_path"].rsplit("/", 1)[-1],
@@ -236,6 +236,7 @@ class RemoteNativeBackend(BaseBackend):
             "cpu_count": caps.cpu_count,
             "total_memory_bytes": caps.total_memory_bytes,
             "torch_version": caps.torch_version,
+            "free_disk_bytes": caps.free_disk_bytes,
             "cuda_version": caps.cuda_version,
         }
 

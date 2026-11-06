@@ -2,6 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 
 export type FieldToolId =
 	| 'edit'
+	| 'open-in-editor'
 	| 'crop'
 	| 'mask'
 	| 'clear-mask'

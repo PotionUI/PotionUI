@@ -245,6 +245,7 @@ class _Attention(nn.Module):
         inner_dim = head_dim * n_heads
         self.n_heads = n_heads
         self.head_dim = head_dim
+        self.operations = operations
         self.q_proj = operations.Linear(query_dim, inner_dim, bias=False, device=device, dtype=dtype)
         self.q_norm = operations.RMSNorm(head_dim, eps=1e-6, device=device, dtype=dtype)
         self.k_proj = operations.Linear(context_dim, inner_dim, bias=False, device=device, dtype=dtype)
@@ -257,11 +258,13 @@ class _Attention(nn.Module):
         q = rearrange(self.q_proj(x), "b s (h d) -> b s h d", h=self.n_heads, d=self.head_dim)
         k = rearrange(self.k_proj(context), "b s (h d) -> b s h d", h=self.n_heads, d=self.head_dim)
         v = rearrange(self.v_proj(context), "b s (h d) -> b s h d", h=self.n_heads, d=self.head_dim)
-        q = self.q_norm(q)
-        k = self.k_norm(k)
         if self.is_selfattn and rope_emb is not None:
-            q = _cosmos_apply_rotary_pos_emb(q, rope_emb)
-            k = _cosmos_apply_rotary_pos_emb(k, rope_emb)
+            ops = self.operations
+            q = ops.qk_norm_rope(q, **ops.norm_args(self.q_norm), freqs=rope_emb, layout="half_matrix")
+            k = ops.qk_norm_rope(k, **ops.norm_args(self.k_norm), freqs=rope_emb, layout="half_matrix")
+        else:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
         # (B, S, H, D) -> (B, H, S, D) for the attention dispatcher -> back.
         out = _call_attention_backend(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2))
         out = out.transpose(1, 2).reshape(*x.shape[:-1], -1)
@@ -271,7 +274,7 @@ class _Attention(nn.Module):
 class _GPT2FeedForward(nn.Module):
     def __init__(self, d_model: int, d_ff: int, operations, device=None, dtype=None) -> None:
         super().__init__()
-        self.activation = nn.GELU()
+        self.activation = operations.ActGate("gelu")
         self.layer1 = operations.Linear(d_model, d_ff, bias=False, device=device, dtype=dtype)
         self.layer2 = operations.Linear(d_ff, d_model, bias=False, device=device, dtype=dtype)
 
@@ -294,6 +297,7 @@ class _Block(nn.Module):
                  use_adaln_lora: bool, adaln_lora_dim: int, operations, device=None, dtype=None) -> None:
         super().__init__()
         self.use_adaln_lora = use_adaln_lora
+        self.operations = operations
         self.layer_norm_self_attn = nn.LayerNorm(x_dim, elementwise_affine=False, eps=1e-6)
         self.self_attn = _Attention(x_dim, None, num_heads, x_dim // num_heads, operations, device=device, dtype=dtype)
         self.layer_norm_cross_attn = nn.LayerNorm(x_dim, elementwise_affine=False, eps=1e-6)
@@ -318,8 +322,7 @@ class _Block(nn.Module):
         def to_1_1(v):
             return rearrange(v, "b t d -> b t 1 1 d")
 
-        def modulate(x, norm, scale, shift):
-            return norm(x) * (1 + scale) + shift
+        ops = self.operations
 
         s_sa, sc_sa, g_sa = self._mod(self.adaln_modulation_self_attn, emb_B_T_D, adaln_lora_B_T_3D)
         s_ca, sc_ca, g_ca = self._mod(self.adaln_modulation_cross_attn, emb_B_T_D, adaln_lora_B_T_3D)
@@ -328,19 +331,18 @@ class _Block(nn.Module):
         s_ca, sc_ca, g_ca = to_1_1(s_ca), to_1_1(sc_ca), to_1_1(g_ca)
         s_mlp, sc_mlp, g_mlp = to_1_1(s_mlp), to_1_1(sc_mlp), to_1_1(g_mlp)
 
-        normed = modulate(x_B_T_H_W_D, self.layer_norm_self_attn, sc_sa, s_sa)
+        normed = ops.norm_modulate(x_B_T_H_W_D, **ops.norm_args(self.layer_norm_self_attn), scale=sc_sa, shift=s_sa)
         attn = self.self_attn(rearrange(normed, "b t h w d -> b (t h w) d"), None, rope_emb=rope_emb)
         attn = rearrange(attn, "b (t h w) d -> b t h w d", t=T, h=H, w=W)
-        x_B_T_H_W_D = x_B_T_H_W_D + g_sa * attn
+        x_B_T_H_W_D = ops.gated_residual(x_B_T_H_W_D, attn, g_sa)
 
-        normed = modulate(x_B_T_H_W_D, self.layer_norm_cross_attn, sc_ca, s_ca)
+        normed = ops.norm_modulate(x_B_T_H_W_D, **ops.norm_args(self.layer_norm_cross_attn), scale=sc_ca, shift=s_ca)
         attn = self.cross_attn(rearrange(normed, "b t h w d -> b (t h w) d"), crossattn_emb, rope_emb=None)
         attn = rearrange(attn, "b (t h w) d -> b t h w d", t=T, h=H, w=W)
-        x_B_T_H_W_D = attn * g_ca + x_B_T_H_W_D
+        x_B_T_H_W_D = ops.gated_residual(x_B_T_H_W_D, attn, g_ca)
 
-        normed = modulate(x_B_T_H_W_D, self.layer_norm_mlp, sc_mlp, s_mlp)
-        x_B_T_H_W_D = x_B_T_H_W_D + g_mlp * self.mlp(normed)
-        return x_B_T_H_W_D
+        normed = ops.norm_modulate(x_B_T_H_W_D, **ops.norm_args(self.layer_norm_mlp), scale=sc_mlp, shift=s_mlp)
+        return ops.gated_residual(x_B_T_H_W_D, self.mlp(normed), g_mlp)
 
 
 class _FinalLayer(nn.Module):
@@ -354,6 +356,7 @@ class _FinalLayer(nn.Module):
         )
         self.hidden_size = hidden_size
         self.use_adaln_lora = use_adaln_lora
+        self.operations = operations
         self.adaln_modulation = _adaln(hidden_size, adaln_lora_dim, use_adaln_lora, 2, operations, device, dtype)
 
     def forward(self, x_B_T_H_W_D: Tensor, emb_B_T_D: Tensor, adaln_lora_B_T_3D: Optional[Tensor]) -> Tensor:
@@ -363,7 +366,7 @@ class _FinalLayer(nn.Module):
         shift, scale = mod.chunk(2, dim=-1)
         shift = rearrange(shift, "b t d -> b t 1 1 d")
         scale = rearrange(scale, "b t d -> b t 1 1 d")
-        x = self.layer_norm(x_B_T_H_W_D) * (1 + scale) + shift
+        x = self.operations.norm_modulate(x_B_T_H_W_D, **self.operations.norm_args(self.layer_norm), scale=scale, shift=shift)
         return self.linear(x)
 
 

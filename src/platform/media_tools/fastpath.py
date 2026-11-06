@@ -9,9 +9,9 @@ from PIL import Image, ImageOps
 
 from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.media_tools.types import (
+    EmptyOutput,
     FilterFragment,
     ToolContext,
-    ToolFailed,
     ToolMedia,
     UnsupportedMedia,
 )
@@ -39,6 +39,21 @@ OPAQUE_ONLY_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".bmp")
 LOSSY_IMAGE_QUALITY = 95
 EVEN_CROP = "crop=trunc(iw/2)*2:trunc(ih/2)*2"
 SQUARE_PIXELS = "setsar=1"
+YUV_MATRIX = "bt709"
+RGB_IN = ("scale=in_color_matrix=auto:in_range=auto", "format=gbrp")
+RGB_OUT = f"scale=out_color_matrix={YUV_MATRIX}:out_range=tv"
+COLOR_TAGS = (
+    "-colorspace", YUV_MATRIX, "-color_primaries", YUV_MATRIX, "-color_trc", YUV_MATRIX, "-color_range", "tv",
+)
+
+
+@dataclass
+class StageGroup:
+    at: int
+    stages: list
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration: Optional[float] = None
 
 
 @dataclass
@@ -53,6 +68,13 @@ class MergedPlan:
     width: Optional[int] = None
     height: Optional[int] = None
     duration: Optional[float] = None
+    copy_video: bool = False
+    rgb: bool = False
+    groups: list[StageGroup] = field(default_factory=list)
+
+    def segments(self) -> list[list[str]]:
+        cuts = [0, *(group.at for group in self.groups), len(self.vf)]
+        return [self.vf[low:high] for low, high in zip(cuts, cuts[1:])]
 
 
 def advance_media(media: ToolMedia, fragment: FilterFragment) -> ToolMedia:
@@ -97,6 +119,11 @@ def merge_fragments(media: ToolMedia, fragments: Sequence[FilterFragment]) -> Me
                 video_trim, audio_trim = _trim_filters(start, fragment.end)
                 plan.vf.extend(video_trim)
                 plan.af.extend(audio_trim)
+        if (fragment.rgb or fragment.stage is not None) and not plan.rgb:
+            plan.vf.extend(RGB_IN)
+            plan.rgb = True
+        if fragment.stage is not None:
+            _add_stage(plan, fragment.stage, current)
         plan.vf.extend(fragment.vf)
         plan.af.extend(fragment.af)
         plan.drop_audio = plan.drop_audio or fragment.drop_audio
@@ -106,7 +133,18 @@ def merge_fragments(media: ToolMedia, fragments: Sequence[FilterFragment]) -> Me
             plan.frames = fragment.frames if plan.frames is None else min(plan.frames, fragment.frames)
         current = advance_media(current, fragment)
     plan.width, plan.height, plan.duration = current.width, current.height, current.duration
+    plan.copy_video = bool(fragments) and all(fragment.copy_video for fragment in fragments)
     return plan
+
+
+def _add_stage(plan: MergedPlan, stage, media: ToolMedia) -> None:
+    last = plan.groups[-1] if plan.groups else None
+    if last is not None and last.at == len(plan.vf):
+        last.stages.append(stage)
+        return
+    plan.groups.append(StageGroup(
+        at=len(plan.vf), stages=[stage], width=media.width, height=media.height, duration=media.duration,
+    ))
 
 
 def video_output_suffix(media: ToolMedia) -> str:
@@ -119,7 +157,7 @@ def audio_output_suffix(media: ToolMedia) -> str:
     return suffix if suffix in AUDIO_OUTPUT_SUFFIXES else FALLBACK_AUDIO_SUFFIX
 
 
-def _seek_args(plan: MergedPlan) -> list[str]:
+def seek_args(plan: MergedPlan) -> list[str]:
     args: list[str] = []
     if plan.seek_start:
         args += ["-ss", f"{plan.seek_start:.6f}"]
@@ -154,7 +192,7 @@ def lossless_audio_args(media: ToolMedia, suffix: str) -> list[str]:
     return []
 
 
-def _audio_codec_args(suffix: str, reencode: bool) -> list[str]:
+def audio_codec_args(suffix: str, reencode: bool) -> list[str]:
     if not reencode:
         return ["-c:a", "copy"]
     if suffix in OPUS_SUFFIXES:
@@ -181,37 +219,28 @@ def video_encoder_args(suffix: str, crf: Optional[int]) -> list[str]:
 
 def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list[str]:
     suffix = out_path.suffix.lower()
-    args = _seek_args(plan)
+    args = seek_args(plan)
     args += ["-i", str(media.path)]
-    reencode_audio = (
-        bool(plan.af)
-        or plan.seek_start is not None
-        or plan.seek_end is not None
-        or suffix != media.path.suffix.lower()
-    )
+    reencode_audio = reencodes_audio(media, plan, suffix)
 
     if media.kind == "audio":
         args += ["-vn"]
         if plan.af:
             args += ["-af", ",".join(plan.af)]
-        args += lossless_audio_args(media, suffix) or _audio_codec_args(suffix, True)
+        args += lossless_audio_args(media, suffix) or audio_codec_args(suffix, True)
         args += [str(out_path)]
         return args
 
-    video_filters = list(plan.vf)
-    even = plan.width is not None and plan.height is not None and plan.width % 2 == 0 and plan.height % 2 == 0
-    if not even:
-        video_filters.extend([EVEN_CROP, SQUARE_PIXELS])
+    if plan.copy_video and suffix == media.path.suffix.lower():
+        return args + _copied_video_args(media, plan, suffix, reencode_audio) + [str(out_path)]
+
+    video_filters = output_filters(plan, plan.vf)
     args += ["-map", "0:v:0"]
-    if plan.drop_audio:
-        args += ["-an"]
-    else:
-        args += ["-map", "0:a:0?"]
-        if plan.af and media.has_audio is not False:
-            args += ["-af", ",".join(plan.af)]
-        args += _audio_codec_args(suffix, reencode_audio)
+    args += audio_map_args(media, plan, "0:a:0?", suffix, reencode_audio)
     if video_filters:
         args += ["-vf", ",".join(video_filters)]
+    if plan.rgb:
+        args += list(COLOR_TAGS)
     if plan.frames is not None:
         args += ["-fps_mode", "passthrough", "-frames:v", str(plan.frames)]
     args += video_encoder_args(suffix, plan.crf)
@@ -219,14 +248,71 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
     return args
 
 
+def output_filters(plan: MergedPlan, filters: Sequence[str]) -> list[str]:
+    video_filters = list(filters)
+    if plan.rgb:
+        video_filters.append(RGB_OUT)
+    even = plan.width is not None and plan.height is not None and plan.width % 2 == 0 and plan.height % 2 == 0
+    if not even:
+        video_filters.extend([EVEN_CROP, SQUARE_PIXELS])
+    return video_filters
+
+
+def audio_map_args(media: ToolMedia, plan: MergedPlan, stream: str, suffix: str, reencode: bool) -> list[str]:
+    if plan.drop_audio:
+        return ["-an"]
+    args = ["-map", stream]
+    if plan.af and media.has_audio is not False:
+        args += ["-af", ",".join(plan.af)]
+    return args + audio_codec_args(suffix, reencode)
+
+
+def reencodes_audio(media: ToolMedia, plan: MergedPlan, suffix: str) -> bool:
+    return (
+        bool(plan.af)
+        or plan.seek_start is not None
+        or plan.seek_end is not None
+        or suffix != media.path.suffix.lower()
+    )
+
+
+def _copied_video_args(media: ToolMedia, plan: MergedPlan, suffix: str, reencode_audio: bool) -> list[str]:
+    args = ["-map", "0:v:0"]
+    if plan.drop_audio:
+        args += ["-an"]
+    else:
+        args += ["-map", "0:a:0?"]
+        if plan.af and media.has_audio is not False:
+            args += ["-af", ",".join(plan.af)]
+        args += audio_codec_args(suffix, reencode_audio)
+    args += ["-c:v", "copy"]
+    if suffix in FASTSTART_SUFFIXES:
+        args += ["-movflags", "+faststart"]
+    return args
+
+
+def encode_to(
+    ctx: ToolContext, args: Sequence[str], out_path: Path, kind: str, duration: Optional[float] = None
+) -> ToolMedia:
+    try:
+        ctx.ffmpeg(list(args), duration=duration)
+        if not out_path.is_file() or out_path.stat().st_size == 0:
+            raise EmptyOutput()
+        return ctx.probe(out_path, kind)
+    except BaseException:
+        out_path.unlink(missing_ok=True)
+        raise
+
+
 def run_fragments(media: ToolMedia, fragments: Sequence[FilterFragment], ctx: ToolContext) -> ToolMedia:
     plan = merge_fragments(media, fragments)
     suffix = audio_output_suffix(media) if media.kind == "audio" else video_output_suffix(media)
     out_path = ctx.new_path(suffix, stem=media.path.stem[:40] or "out")
-    ctx.ffmpeg(build_timed_args(media, plan, out_path), duration=plan.duration)
-    if not out_path.is_file() or out_path.stat().st_size == 0:
-        raise ToolFailed("The encoder produced an empty file")
-    return ctx.probe(out_path, media.kind)
+    if plan.groups:
+        from src.platform.media_tools.streaming import stream_segments
+
+        return stream_segments(media, plan, ctx, out_path)
+    return encode_to(ctx, build_timed_args(media, plan, out_path), out_path, media.kind, plan.duration)
 
 
 def prepare_image(path: Path) -> Image.Image:

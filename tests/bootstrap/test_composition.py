@@ -56,7 +56,10 @@ report = {
         "controller_turns": c.chat_controller.turn_registry is c.chat_turn_registry,
         "plugin_registry": c.plugin_controller.registry is c.plugin_registry,
         "runtime_plugins": r.plugins is c.plugin_registry,
+        "prompt_writer_plugins": c.prompt_enhancement_manager.plugins is c.plugin_registry,
         "indexer_plugins": indexer.plugins is c.plugin_registry,
+        "generation_hooks_fire_through_the_container_plugins": c.generation_orchestrator.plugin_registry is c.plugin_registry,
+        "generation_prompt_transforms_use_the_container_plugins": c.generation_orchestrator._prompt_expander.plugin_registry is c.plugin_registry,
         "llm_provider_registry": c.llm_service.types.provider_registry is c.plugin_registry.llm_provider_registry,
         "llm_profile_resolver": c.llm_controller.profile_resolver is c.llm_service.profiles,
         "facade_repo": c.generation_history_facade.generation_repo is c.generation_repository,
@@ -189,7 +192,72 @@ report["digest_wiring"] = {
     "the_recipe_plan_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.plan")._digests is digests,
     "the_recipe_fetch_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.fetch")._digests is digests,
 }
+from fastapi import FastAPI
+from src.bootstrap.routers import register_routers
+elixir_app = FastAPI()
+register_routers(elixir_app, c)
+report["elixir_routes"] = sorted(
+    f"{method} {route.path}"
+    for route in elixir_app.routes
+    if getattr(route, "path", "").startswith("/api/elixirs")
+    for method in route.methods
+)
+elixir_port = c.elixirs.coordinator.port
+elixir_hooks = (
+    "generation.after_complete", "generation.before_delete", "generation.before_bulk_delete",
+    "session.after_update", "session.after_delete",
+)
+report["elixirs_wiring"] = {
+    "every_hook_reaches_the_runtime": all(
+        any(pid == "elixirs_engine" for pid, _ in c.plugin_registry.hook_chain._handlers.get(name, []))
+        for name in elixir_hooks
+    ),
+    "the_runtime_drives_the_routes_coordinator": c.elixirs.runtime.coordinator is c.elixirs.coordinator,
+    "the_runtime_is_not_running_until_the_lifespan_starts_it": c.elixirs.runtime.running is False,
+    "brews_submit_through_the_container_orchestrator": elixir_port.orchestrator is c.generation_orchestrator,
+    "brews_read_history_through_the_container_facade": elixir_port.history is c.generation_history_facade,
+    "brews_resolve_library_files_through_the_container_media_store": elixir_port.media_store is c.media_store,
+    "prompts_are_written_by_the_container_prompt_writer": elixir_port.prompt_writer is c.prompt_enhancement_manager,
+    "owners_are_looked_up_in_the_container_users": elixir_port.users is c.user_repository,
+    "sessions_are_read_from_the_container_repositories": (
+        c.elixirs.sessions.sessions is c.session_repository
+        and c.elixirs.sessions.versions is c.session_version_repository
+    ),
+    "follows_read_sessions_through_the_same_reader": c.elixirs.runtime.follows.reader == c.elixirs.sessions.get_session,
+    "the_limits_come_from_the_seeded_settings": c.elixirs.limits().max_nodes == 24,
+    "the_chat_assistant_edits_the_container_elixirs": c.chat_runtime.tool_services.elixirs.components is c.elixirs,
+    "the_assistant_writes_sessions_into_the_container_repository": c.chat_runtime.tool_services.elixirs.session_writer.session_repository is c.session_repository,
+}
+conversation_mode = c.chat_runtime.chat_mode_registry.get("conversation")
+report["conversation_mode"] = {
+    "registered": conversation_mode is not None,
+    "offers_no_tool_even_a_global_one": (
+        conversation_mode is not None
+        and any(t.modes is None for t in c.chat_runtime.tool_executor.tool_registry.get_all())
+        and c.chat_runtime.tool_executor.tool_registry.get_for_mode(conversation_mode) == []
+    ),
+}
 import src.platform.plugins.runtime_registries as runtime_registries
+report["organize_instance_routes"] = sorted(
+    f"{method} {route.path}"
+    for route in elixir_app.routes
+    if getattr(route, "path", "").startswith("/api/admin/organize/instance")
+    for method in route.methods
+)
+organize_registry = c.organize_registry
+report["organize_instance_wiring"] = {
+    "the_manager_can_reach_groups_and_types": c.organize_manager.c.ops is not None,
+    "the_three_core_instance_actions_are_registered": all(
+        organize_registry.action(key) is not None and organize_registry.action(key).scopes == ("instance",)
+        for key in ("assign_model_group", "add_model_tags", "set_model_type")
+    ),
+    "the_worker_sweeps_waiting_items": c.organize_worker._sweep == c.organize_manager.retry_waiting,
+    "the_sweep_pauses_while_generating": callable(c.organize_worker._busy),
+    "digests_reach_the_verified_trigger": any(
+        pid == "organize_engine"
+        for pid, _ in c.plugin_registry.hook_chain._handlers.get("model_index.after_digests", [])
+    ),
+}
 report["recipe_smoke_wiring"] = {
     "the_smoke_asks_the_registry_for_the_app_loop": c.recipe_runner._executor_registry.get_executor("generation.smoke").app_loop is runtime_registries.get_app_loop,
 }
@@ -278,6 +346,57 @@ def test_chat_turns_are_stored_durably_by_the_one_container_store(report):
 
 def test_organize_listens_to_the_tags_the_media_indexer_announces(report):
     assert report["detected_tags_wired"] is True
+
+def test_instance_organize_is_composed_with_groups_types_and_the_retry_sweep(report):
+    assert [k for k, v in report["organize_instance_wiring"].items() if not v] == []
+
+def test_the_instance_organize_api_is_mounted_for_admins(report):
+    routes = report["organize_instance_routes"]
+    assert {
+        "GET /api/admin/organize/instance/catalog",
+        "GET /api/admin/organize/instance/rules",
+        "POST /api/admin/organize/instance/rules",
+        "POST /api/admin/organize/instance/preview/matches",
+        "GET /api/admin/organize/instance/runs/{run_id}/items",
+        "POST /api/admin/organize/instance/runs/{run_id}/retry",
+        "POST /api/admin/organize/instance/runs/{run_id}/undo",
+        "PUT /api/admin/organize/instance/controls",
+    } <= set(routes)
+
+
+def test_elixirs_are_composed_from_the_container_and_listen_to_their_hooks(report):
+    assert [k for k, v in report["elixirs_wiring"].items() if not v] == []
+
+
+def test_the_conversation_mode_is_registered_without_tools(report):
+    assert [k for k, v in report["conversation_mode"].items() if not v] == []
+
+
+def test_the_elixirs_api_is_mounted_on_the_app(report):
+    routes = report["elixir_routes"]
+    assert {
+        "GET /api/elixirs",
+        "POST /api/elixirs",
+        "GET /api/elixirs/presets",
+        "GET /api/elixirs/{elixir_id}",
+        "PUT /api/elixirs/{elixir_id}",
+        "DELETE /api/elixirs/{elixir_id}",
+        "POST /api/elixirs/{elixir_id}/validate",
+        "GET /api/elixirs/{elixir_id}/followed-sessions",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/session",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/session/follow",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/session/copy",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/session/new",
+        "POST /api/elixirs/{elixir_id}/runs",
+        "GET /api/elixirs/{elixir_id}/runs",
+        "POST /api/elixirs/{elixir_id}/nodes/{node_id}/runs",
+        "GET /api/elixirs/runs/{run_id}",
+        "POST /api/elixirs/runs/{run_id}/cancel",
+        "POST /api/elixirs/runs/{run_id}/edges/{edge_id}/continue",
+        "PUT /api/elixirs/runs/{run_id}/edges/{edge_id}/selection",
+        "PUT /api/elixirs/runs/{run_id}/texts/{text_id}",
+        "POST /api/elixirs/runs/{run_id}/nodes/{node_id}/retry-failed",
+    } <= set(routes)
 
 
 def test_admin_failure_alerts_listen_to_generation_failed(report):

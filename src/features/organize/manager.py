@@ -3,28 +3,39 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from src.features.generation.policy import GenerationPolicy
 from src.features.organize import errors
-from src.features.organize.core_actions import ADD_TAGS, ADD_TO_COLLECTION, resolve_collection
+from src.features.organize.core_actions import (
+    ADD_MODEL_TAGS,
+    ADD_TAGS,
+    ADD_TO_COLLECTION,
+    ASSIGN_MODEL_GROUP,
+    SET_MODEL_TYPE,
+    resolve_collection,
+)
 from src.features.organize.evaluator import as_list, canonical_conditions, evaluate, sql_filter
 from src.features.organize.item_repository import OrganizeItemRepository
 from src.features.organize.jobs import JobBook
-from src.features.organize.records import COLLECTION_SCOPES, SUBJECT_TRIGGERS, Controls, Rule, Run
-from src.features.organize.rule_repository import GLOBAL_SCOPE, OrganizeRuleRepository, RuleCapReached
+from src.features.organize.outcome_repository import OrganizeOutcomeRepository
+from src.features.organize.records import COLLECTION_SCOPES, SUBJECT_TRIGGERS, Controls, Outcome, Rule, Run
+from src.features.organize.rule_repository import GLOBAL_SCOPE, INSTANCE_SCOPE, OrganizeRuleRepository, RuleCapReached
 from src.features.organize.run_repository import OrganizeRunRepository
 from src.features.organize.templates import list_templates
 from src.features.organize.validation import problem, validate_name, validate_rule_shape
 from src.features.organize.visibility import OrganizeVisibility
 from src.features.organize.write_repository import OrganizeWriteRepository
 from src.features.users.repository import UserRepository
-from src.platform.database.rows import dt_column, dt_iso
+from src.platform.database.rows import dt_column, dt_iso, now_utc
 from src.platform.plugins.organize import (
     FACT_KINDS,
     OPERATOR_LABELS,
     OrganizeActionBlocked,
+    OrganizeActionRetry,
+    OrganizeActionSkipped,
     OrganizeChange,
     OrganizeItem,
     OrganizeRegistry,
@@ -33,6 +44,13 @@ from src.platform.plugins.organize import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_RULE_CAP = 50
+DEFAULT_INSTANCE_RULE_CAP = 100
+MAX_ATTEMPTS = 5
+RETRY_BACKOFF_MINUTES = (5, 15, 60, 240)
+SWEEP_PER_RULE = 25
+SWEEP_TOTAL = 200
+PACED_CHUNK = 25
+UNVERIFIED = "unverified"
 DEFAULT_HOURLY_LIMIT = 200
 BACKFILL_CHUNK = 500
 PREVIEW_SCAN_CAP = 5000
@@ -58,9 +76,14 @@ PAUSE_MESSAGES = {
     "rate_limited": "\"{name}\" filed more than {limit} items in an hour, so it was paused. Check it and switch it back on.",
     "collection_missing": "\"{name}\" was paused because the collection it adds to no longer exists.",
     "model_restricted": "\"{name}\" was paused because it uses a model your account can no longer use.",
+    "group_missing": "\"{name}\" was paused because the user group it gives access to no longer exists.",
+    "provider_unavailable": "\"{name}\" was paused because the provider it uses is not set up.",
 }
 
-BLOCKING_CODES = {"fact_unavailable", "action_unavailable", "collection_missing", "model_restricted"}
+BLOCKING_CODES = {
+    "fact_unavailable", "action_unavailable", "collection_missing", "model_restricted", "group_missing",
+}
+PAUSING_CODES = ("model_restricted", "group_missing")
 
 
 @dataclass
@@ -73,18 +96,48 @@ class OrganizeCollaborators:
     registry: OrganizeRegistry
     visibility: OrganizeVisibility
     notify: Optional[Callable[..., Any]] = None
+    outcomes: OrganizeOutcomeRepository = field(default_factory=OrganizeOutcomeRepository)
+    ops: Optional[Any] = None
 
 
 @dataclass
 class Viewer:
-    id: str
+    id: Optional[str]
     is_admin: bool
+    actor: Optional[str] = None
+
+    @property
+    def scope(self) -> str:
+        return "instance" if self.id is None else "user"
+
+
+@dataclass
+class ApplyResult:
+    changed: int = 0
+    skipped: int = 0
+    waiting: bool = False
+    blocked: Optional[str] = None
+
+
+@dataclass
+class RetryTotals:
+    processed: int = 0
+    changed: int = 0
+    skipped: int = 0
+    waiting: int = 0
+    blocked: Optional[str] = None
 
 
 def viewer_of(user: Any) -> Viewer:
+    if isinstance(user, Viewer):
+        return user
     account_type = getattr(user, "account_type", None)
     value = getattr(account_type, "value", account_type)
-    return Viewer(id=user.id, is_admin=str(value).upper() == "ADMIN")
+    return Viewer(id=user.id, is_admin=str(value).upper() == "ADMIN", actor=user.id)
+
+
+def instance_viewer(admin: Any) -> Viewer:
+    return Viewer(id=None, is_admin=True, actor=getattr(admin, "id", None))
 
 
 class OrganizeManager:
@@ -112,15 +165,35 @@ class OrganizeManager:
         cap = self.global_controls().rule_cap
         return DEFAULT_RULE_CAP if cap is None else cap
 
-    def effective_cap(self, user_id: str) -> int:
+    def effective_cap(self, user_id: Optional[str]) -> int:
+        if user_id is None:
+            instance_cap = self.c.rules.controls(INSTANCE_SCOPE).rule_cap
+            return DEFAULT_INSTANCE_RULE_CAP if instance_cap is None else instance_cap
         user_cap = self.c.rules.controls(user_id).rule_cap
         return self.default_cap() if user_cap is None else user_cap
 
-    def is_paused_for(self, user_id: str) -> bool:
-        return self.global_controls().paused or self.c.rules.controls(user_id).paused
+    def is_paused_for(self, user_id: Optional[str]) -> bool:
+        return self.global_controls().paused or self.c.rules.controls(user_id or INSTANCE_SCOPE).paused
+
+    def _restricted(self, user_id: Optional[str]) -> bool:
+        return False if user_id is None else bool(self.c.visibility.is_restricted(user_id))
+
+    def _is_admin_of(self, user_id: Optional[str]) -> bool:
+        return True if user_id is None else GenerationPolicy.is_admin(self.c.users.get_by_id(user_id))
+
+    def _recipient(self, rule: Rule) -> Optional[str]:
+        return rule.user_id or rule.updated_by or rule.created_by
+
+    def _group_names(self, group_ids: Iterable[str]) -> Dict[str, str]:
+        ids = [g for g in dict.fromkeys(group_ids) if g]
+        if not ids or self.c.ops is None:
+            return {}
+        return self.c.ops.group_names(ids)
 
     def catalog(self, user: Any, subject: Optional[str] = None) -> Dict[str, Any]:
         viewer = viewer_of(user)
+        if viewer.id is None:
+            subject = "model"
         facts = [
             {
                 "key": f.key,
@@ -136,6 +209,7 @@ class OrganizeManager:
                 "component": f.component,
                 "previewable": f.sql is not None,
                 "triggers": list(f.triggers),
+                "ignore_separators": f.ignore_separators,
             }
             for f in self.c.registry.facts(subject)
         ]
@@ -144,15 +218,20 @@ class OrganizeManager:
                 "key": a.key,
                 "label": a.label,
                 "subjects": list(a.subjects),
-                "config_schema": [dict(entry) for entry in a.config_schema],
+                "config_schema": self._catalog_schema(a),
                 "requires_admin": a.requires_admin,
                 "undoable": a.undo is not None,
                 "description": a.description,
                 "source": a.source,
                 "component": a.component,
+                "scope": viewer.scope,
+                "notes": list(a.notes),
+                "needs": list(a.needs),
+                "done_label": a.done_label,
+                "paced": a.paced,
             }
             for a in self.c.registry.actions(subject)
-            if viewer.is_admin or not a.requires_admin
+            if viewer.scope in a.scopes and (viewer.is_admin or not a.requires_admin)
         ]
         subjects = [
             {
@@ -164,8 +243,10 @@ class OrganizeManager:
                 "supports_tags": supports_tags,
             }
             for key, (label, trigger_label, supports_tags) in SUBJECT_LABELS.items()
+            if viewer.id is not None or key == "model"
         ]
         return {
+            "scope": viewer.scope,
             "subjects": subjects,
             "kinds": {kind: {"operators": list(ops)} for kind, ops in FACT_KINDS.items()},
             "operators": dict(OPERATOR_LABELS),
@@ -173,7 +254,17 @@ class OrganizeManager:
             "actions": actions,
         }
 
+    def _catalog_schema(self, action: Any) -> List[Dict[str, Any]]:
+        schema = [dict(entry) for entry in action.config_schema]
+        if action.key == SET_MODEL_TYPE and self.c.ops is not None:
+            options = [{"value": t, "label": t} for t in self.c.ops.assignable_types()]
+            for entry in schema:
+                if entry.get("key") == "model_type":
+                    entry["options"] = options
+        return schema
+
     def fact_options(self, user: Any, key: str, subject: Optional[str], query: str, limit: int) -> List[Dict[str, str]]:
+        viewer = viewer_of(user)
         fact = self.c.registry.fact(key)
         if fact is None:
             raise errors.OrganizeError("fact_not_found", "That field is not available", 404)
@@ -188,7 +279,7 @@ class OrganizeManager:
                 for o in fact.options
                 if needle in str(o.get("label", "")).casefold() or needle in str(o.get("value", "")).casefold()
             ][:limit]
-        return self._handler_options(fact, user.id, subject, query)[:limit]
+        return self._handler_options(fact, viewer.id, subject, query)[:limit]
 
     def _handler_options(self, fact: Any, user_id: str, subject: str, query: str) -> List[Dict[str, Any]]:
         try:
@@ -226,8 +317,13 @@ class OrganizeManager:
 
         return specs
 
-    def templates(self, subject: Optional[str]) -> List[Dict[str, Any]]:
-        return copy.deepcopy(list_templates(subject))
+    def templates(self, subject: Optional[str], scope: str = "user") -> List[Dict[str, Any]]:
+        available = []
+        for template in list_templates(subject, scope):
+            keys = [a.get("action") for a in template["rule"].get("actions", [])]
+            if all(self.c.registry.action(key) is not None for key in keys):
+                available.append(template)
+        return copy.deepcopy(available)
 
     def summary(self, user: Any) -> Dict[str, Any]:
         viewer = viewer_of(user)
@@ -272,6 +368,7 @@ class OrganizeManager:
             id="", user_id=viewer.id, name=name, subject=subject, trigger=SUBJECT_TRIGGERS[subject],
             match=payload.get("match") or "all", conditions=conditions, actions=actions,
             enabled=bool(payload.get("enabled", True)), stop_after=bool(payload.get("stop_after", False)),
+            created_by=viewer.actor, updated_by=viewer.actor,
         )
         if self.c.rules.count_for_user(viewer.id) >= cap:
             raise errors.rule_cap_reached(cap)
@@ -305,6 +402,7 @@ class OrganizeManager:
         rule.stop_after = bool(merged["stop_after"])
         rule.paused_reason = None
         rule.paused_at = None
+        rule.updated_by = viewer.actor
         updated = self.c.rules.update(rule, reset_handled=reset)
         if updated is None:
             raise errors.rule_not_found()
@@ -325,6 +423,7 @@ class OrganizeManager:
             if rule.enabled:
                 rule.paused_reason = None
                 rule.paused_at = None
+        rule.updated_by = viewer.actor
         updated = self.c.rules.update(rule)
         if updated is None:
             raise errors.rule_not_found()
@@ -351,7 +450,7 @@ class OrganizeManager:
         copy_rule = Rule(
             id="", user_id=viewer.id, name=f"{rule.name} (copy)"[:120], subject=rule.subject, trigger=rule.trigger,
             match=rule.match, conditions=copy.deepcopy(rule.conditions), actions=copy.deepcopy(rule.actions),
-            enabled=False, stop_after=rule.stop_after,
+            enabled=False, stop_after=rule.stop_after, created_by=viewer.actor, updated_by=viewer.actor,
         )
         try:
             created = self.c.rules.create(copy_rule, cap)
@@ -374,6 +473,7 @@ class OrganizeManager:
         shape, shape_problems = validate_rule_shape(
             self.c.registry, subject, payload.get("match") or "all", payload.get("conditions") or [],
             payload.get("actions"), viewer.is_admin, attribute_specs=self._attribute_specs_for(viewer),
+            scope=viewer.scope,
         )
         problems.extend(shape_problems)
         if not problems:
@@ -396,7 +496,7 @@ class OrganizeManager:
         if not refs:
             return []
         ids = [model_id for _, model_id in refs]
-        restricted = self.c.visibility.is_restricted(viewer.id)
+        restricted = self._restricted(viewer.id)
         visible = self.c.items.visible_model_ids(viewer.id, ids, viewer.is_admin, restricted)
         existing = self.c.items.existing_model_ids(ids)
         kept = {model_id for _, model_id in self._model_refs(previous.conditions)} if previous else set()
@@ -413,6 +513,18 @@ class OrganizeManager:
         scope = COLLECTION_SCOPES[subject]
         problems = []
         for index, action in enumerate(actions):
+            if action["action"] == ASSIGN_MODEL_GROUP and self.c.ops is not None:
+                if self.c.ops.group_name(action["config"].get("group_id")) is None:
+                    problems.append(problem(
+                        f"actions.{index}.config.group_id", "group_not_found", "That user group does not exist"
+                    ))
+                continue
+            if action["action"] == SET_MODEL_TYPE and self.c.ops is not None:
+                if action["config"].get("model_type") not in self.c.ops.assignable_types():
+                    problems.append(problem(
+                        f"actions.{index}.config.model_type", "bad_config", "A model cannot be set to that type"
+                    ))
+                continue
             if action["action"] != ADD_TO_COLLECTION:
                 continue
             config = action["config"]
@@ -448,24 +560,34 @@ class OrganizeManager:
         if not rules:
             return []
         admin_paused = self.is_paused_for(viewer.id)
-        restricted = self.c.visibility.is_restricted(viewer.id)
+        restricted = self._restricted(viewer.id)
         collection_ids: Dict[str, Set[str]] = {}
+        group_ids: Set[str] = set()
         model_ids: Set[str] = set()
         for rule in rules:
             for action in rule.actions:
                 if action.get("action") == ADD_TO_COLLECTION and action.get("config", {}).get("collection_id"):
                     collection_ids.setdefault(COLLECTION_SCOPES[rule.subject], set()).add(action["config"]["collection_id"])
+                if action.get("action") == ASSIGN_MODEL_GROUP and action.get("config", {}).get("group_id"):
+                    group_ids.add(action["config"]["group_id"])
             model_ids.update(model_id for _, model_id in self._model_refs(rule.conditions))
         names = {
             scope: self.c.writer.collection_names(scope, ids, viewer.id) for scope, ids in collection_ids.items()
         }
+        group_names = self._group_names(group_ids)
+        outcome_counts = self.c.outcomes.counts_by_rule([r.id for r in rules])
+        actors = self.c.rules.usernames(
+            [a for r in rules for a in (r.created_by, r.updated_by) if a]
+        )
         existing_models = self.c.items.existing_model_ids(model_ids) if model_ids else set()
         nsfw = self.c.items.nsfw_model_ids(model_ids) if model_ids and restricted else set()
         model_names = self.c.items.model_names(model_ids) if model_ids else {}
         filed = self.c.runs.filed_counts(viewer.id, [r.id for r in rules])
         described = []
         for rule in rules:
-            issues = self._issues(viewer, rule, names.get(COLLECTION_SCOPES[rule.subject], {}), existing_models, nsfw, model_names)
+            issues = self._issues(
+                viewer, rule, names.get(COLLECTION_SCOPES[rule.subject], {}), existing_models, nsfw, model_names, group_names
+            )
             paused_reason = rule.paused_reason
             if paused_reason is None and admin_paused and rule.enabled:
                 paused_reason = "admin_paused"
@@ -488,6 +610,16 @@ class OrganizeManager:
                         "name": current or config.get("collection_name") or "",
                         "exists": current is not None,
                     })
+            groups = [
+                {
+                    "id": action["config"].get("group_id"),
+                    "name": group_names.get(action["config"].get("group_id"), ""),
+                    "exists": action["config"].get("group_id") in group_names,
+                }
+                for action in rule.actions
+                if action.get("action") == ASSIGN_MODEL_GROUP
+            ]
+            counts = outcome_counts.get(rule.id, {})
             described.append({
                 "id": rule.id,
                 "name": rule.name,
@@ -503,16 +635,23 @@ class OrganizeManager:
                 "paused_reason": paused_reason,
                 "paused_at": dt_iso(rule.paused_at),
                 "issues": issues,
-                "targets": {"collections": targets},
+                "targets": {"collections": targets, "groups": groups},
                 "filed_count": filed.get(rule.id, 0),
+                "waiting_count": counts.get("waiting", 0),
+                "skipped_count": counts.get("skipped", 0),
                 "last_run_at": dt_iso(rule.last_run_at),
                 "created_at": dt_iso(rule.created_at),
                 "updated_at": dt_iso(rule.updated_at),
+                "scope": viewer.scope,
+                "created_by": rule.created_by,
+                "created_by_name": actors.get(rule.created_by),
+                "updated_by": rule.updated_by,
+                "updated_by_name": actors.get(rule.updated_by),
             })
         return described
 
     def _issues(self, viewer: Viewer, rule: Rule, collection_names: Dict[str, str], existing_models: Set[str],
-                nsfw: Set[str], model_names: Dict[str, str]) -> List[Dict[str, Any]]:
+                nsfw: Set[str], model_names: Dict[str, str], group_names: Dict[str, str]) -> List[Dict[str, Any]]:
         issues = []
         for index, condition in enumerate(rule.conditions):
             fact = self.c.registry.fact(condition.get("fact", ""))
@@ -534,8 +673,12 @@ class OrganizeManager:
         for index, action in enumerate(rule.actions):
             definition = self.c.registry.action(action.get("action", ""))
             path = f"actions.{index}"
-            if definition is None or (definition.requires_admin and not viewer.is_admin):
+            if definition is None or (definition.requires_admin and not viewer.is_admin) or viewer.scope not in definition.scopes:
                 issues.append({"code": "action_unavailable", "message": "Something this rule does is no longer available",
+                               "blocking": True, "path": path})
+                continue
+            if definition.key == ASSIGN_MODEL_GROUP and action.get("config", {}).get("group_id") not in group_names:
+                issues.append({"code": "group_missing", "message": "The user group this rule gives access to no longer exists",
                                "blocking": True, "path": path})
                 continue
             if definition.key == ADD_TO_COLLECTION:
@@ -551,14 +694,18 @@ class OrganizeManager:
                                        "blocking": True, "path": path})
         return issues
 
-    def blocking_reason(self, rule: Rule, user_id: str, is_admin: bool, restricted: bool) -> Optional[str]:
+    def blocking_reason(self, rule: Rule, user_id: Optional[str], is_admin: bool, restricted: bool) -> Optional[str]:
+        scope = "instance" if rule.user_id is None else "user"
         for condition in rule.conditions:
             if self.c.registry.fact(condition.get("fact", "")) is None:
                 return "fact_unavailable"
         for action in rule.actions:
             definition = self.c.registry.action(action.get("action", ""))
-            if definition is None or (definition.requires_admin and not is_admin):
+            if definition is None or (definition.requires_admin and not is_admin) or scope not in definition.scopes:
                 return "action_unavailable"
+            if definition.key == ASSIGN_MODEL_GROUP and self.c.ops is not None:
+                if self.c.ops.group_name(action.get("config", {}).get("group_id")) is None:
+                    return "group_missing"
         if restricted:
             refs = [model_id for _, model_id in self._model_refs(rule.conditions)]
             if refs and self.c.items.nsfw_model_ids(refs):
@@ -571,12 +718,12 @@ class OrganizeManager:
         rule.paused_reason = reason
         message = PAUSE_MESSAGES.get(reason, "\"{name}\" was paused.").format(name=rule.name, limit=self.hourly_limit())
         self.notify(
-            user_id=rule.user_id, level="warning", title="Auto-organize paused a rule", message=message,
+            user_id=self._recipient(rule), level="warning", title="Auto-organize paused a rule", message=message,
             type=NOTICE_RULE_PAUSED, metadata={"rule_id": rule.id, "reason": reason},
         )
 
     def notify(self, **kwargs: Any) -> None:
-        if self.c.notify is None:
+        if self.c.notify is None or kwargs.get("user_id") is None:
             return
         try:
             self.c.notify(category="organize", **kwargs)
@@ -597,8 +744,24 @@ class OrganizeManager:
             rows = self.c.items.models(user_id, ids, is_admin, restricted)
         return [OrganizeItem(subject=subject, item_id=r["id"], user_id=user_id, data=r) for r in rows]
 
-    def _run_actions(self, rule: Rule, item: OrganizeItem, bump: bool) -> Tuple[List[Tuple[str, OrganizeChange]], Optional[str]]:
+    def _rule_needs_digest(self, rule: Rule) -> bool:
+        for action in rule.actions:
+            definition = self.c.registry.action(action.get("action", ""))
+            if definition is not None and "digest" in definition.needs:
+                return True
+        return False
+
+    def rule_is_paced(self, rule: Rule) -> bool:
+        for action in rule.actions:
+            definition = self.c.registry.action(action.get("action", ""))
+            if definition is not None and definition.paced:
+                return True
+        return False
+
+    def _run_actions(self, rule: Rule, item: OrganizeItem, bump: bool):
         applied: List[Tuple[str, OrganizeChange]] = []
+        skips: List[Tuple[str, str, str]] = []
+        retry: Optional[Tuple[str, str, str, Optional[float]]] = None
         config_changed = False
         stored_actions = copy.deepcopy(rule.actions)
         blocked = None
@@ -606,6 +769,9 @@ class OrganizeManager:
             definition = self.c.registry.action(action.get("action", ""))
             if definition is None:
                 continue
+            if "digest" in definition.needs and item.subject == "model" and not item.get("sha256"):
+                retry = (definition.key, UNVERIFIED, "The file is not verified yet", None)
+                break
             config = copy.deepcopy(action.get("config") or {})
             try:
                 if definition.source == "core":
@@ -615,9 +781,16 @@ class OrganizeManager:
             except OrganizeActionBlocked as exc:
                 blocked = exc.code
                 break
+            except OrganizeActionSkipped as exc:
+                skips.append((definition.key, exc.code, exc.message))
+                continue
+            except OrganizeActionRetry as exc:
+                retry = (definition.key, exc.code, exc.message, exc.after_s)
+                break
             except Exception:
                 logger.warning("Auto-organize action '%s' failed for %s", definition.key, item.item_id, exc_info=True)
-                continue
+                retry = (definition.key, "error", "The action failed and will be tried again", None)
+                break
             if definition.source == "core" and config != action.get("config"):
                 action["config"] = config
                 config_changed = True
@@ -625,10 +798,10 @@ class OrganizeManager:
         if config_changed:
             self.c.rules.store_actions(rule.user_id, rule.id, stored_actions)
             rule.actions = stored_actions
-        return applied, blocked
+        return applied, skips, retry, blocked
 
-    def apply(self, rule: Rule, item: OrganizeItem, run_for: Callable[[], Run], bump: bool) -> Optional[int]:
-        applied, blocked = self._run_actions(rule, item, bump)
+    def apply(self, rule: Rule, item: OrganizeItem, run_for: Callable[[], Run], bump: bool) -> ApplyResult:
+        applied, skips, retry, blocked = self._run_actions(rule, item, bump)
         if applied:
             run = run_for()
             for action_key, change in applied:
@@ -638,24 +811,56 @@ class OrganizeManager:
                 )
         if blocked:
             self._pause(rule, blocked)
-            return None
+            return ApplyResult(changed=len(applied), blocked=blocked)
         run = run_for()
-        self.c.runs.bump_run(rule.user_id, run.id, 1, 1 if applied else 0)
+        previous = self.c.outcomes.get(rule.id, item.subject, item.item_id)
+        counted = 0 if previous is not None else 1
+        if retry is not None:
+            action_key, code, message, after_s = retry
+            attempts = (previous.attempts if previous else 0) + (0 if code == UNVERIFIED else 1)
+            if attempts >= MAX_ATTEMPTS:
+                skips.append((action_key, "gave_up", f"Gave up after {MAX_ATTEMPTS} tries: {message}"))
+                retry = None
+            else:
+                next_try = None
+                if code != UNVERIFIED:
+                    delay = timedelta(seconds=after_s) if after_s else timedelta(
+                        minutes=RETRY_BACKOFF_MINUTES[min(attempts, len(RETRY_BACKOFF_MINUTES)) - 1]
+                    )
+                    next_try = now_utc() + delay
+                self.c.outcomes.upsert(Outcome(
+                    rule_id=rule.id, item_type=item.subject, item_id=item.item_id, outcome="waiting", code=code,
+                    detail=message, run_id=run.id, attempts=attempts, next_try_at=next_try,
+                ))
+                self.c.runs.bump_run(rule.user_id, run.id, counted, 1 if applied else 0)
+                return ApplyResult(changed=len(applied), skipped=len(skips), waiting=True)
+        if skips:
+            _key, code, message = skips[0]
+            self.c.outcomes.upsert(Outcome(
+                rule_id=rule.id, item_type=item.subject, item_id=item.item_id, outcome="skipped", code=code,
+                detail=message, run_id=run.id, attempts=previous.attempts if previous else 0,
+            ))
+        elif previous is not None:
+            self.c.outcomes.clear(rule.id, item.subject, item.item_id)
+        self.c.runs.bump_run(rule.user_id, run.id, counted, 1 if applied else 0)
         self.c.rules.mark_handled(rule.id, item.subject, item.item_id)
         self.c.rules.touch_run(rule.user_id, rule.id)
-        return len(applied)
+        return ApplyResult(changed=len(applied), skipped=len(skips))
 
-    def process_item(self, subject: str, user_id: str, item_id: str, trigger: str = "item_created",
-                     only_rules_older_than_item: bool = False) -> int:
+    def process_item(self, subject: str, user_id: Optional[str], item_id: str, trigger: str = "item_created",
+                     only_rules_older_than_item: bool = False, force_rules: Collection[str] = ()) -> int:
         if self.is_paused_for(user_id):
             return 0
         rules = [r for r in self.c.rules.live_rules(user_id, subject) if not r.paused_reason]
         if trigger == "item_created":
             rules = [r for r in rules if not self._awaits_event(r)]
-        if not rules or (trigger != "item_created" and not any(self._listens_to(r, trigger) for r in rules)):
+        elif trigger == "model_verified":
+            rules = [r for r in rules if r.id in force_rules or self._rule_needs_digest(r)]
+        generic = trigger in ("item_created", "model_verified")
+        if not rules or (not generic and not any(self._listens_to(r, trigger) for r in rules)):
             return 0
-        is_admin = GenerationPolicy.is_admin(self.c.users.get_by_id(user_id))
-        restricted = self.c.visibility.is_restricted(user_id)
+        is_admin = self._is_admin_of(user_id)
+        restricted = self._restricted(user_id)
         items = self.load_items(subject, user_id, [item_id], is_admin, restricted)
         if not items:
             return 0
@@ -663,29 +868,30 @@ class OrganizeManager:
         item_created = dt_column(item.get("created_at"))
         filed = 0
         for rule in rules:
-            if only_rules_older_than_item and item_created and rule.created_at and item_created < rule.created_at:
+            if only_rules_older_than_item and rule.id not in force_rules and item_created and rule.created_at \
+                    and item_created < rule.created_at:
                 continue
             if item.item_id in self.c.rules.handled_ids(rule.id, subject, [item.item_id]):
                 if rule.stop_after:
                     break
                 continue
-            if trigger != "item_created" and not self._listens_to(rule, trigger):
+            if not generic and not self._listens_to(rule, trigger):
                 continue
             reason = self.blocking_reason(rule, user_id, is_admin, restricted)
             if reason:
-                if reason == "model_restricted":
+                if reason in PAUSING_CODES:
                     self._pause(rule, reason)
                 continue
             if not evaluate(self.c.registry, rule.match, rule.conditions, item):
                 continue
-            if self.c.runs.live_items_last_hour(user_id, rule.id) >= self.hourly_limit():
+            if not self.rule_is_paced(rule) and self.c.runs.live_items_last_hour(user_id, rule.id) >= self.hourly_limit():
                 self._pause(rule, "rate_limited")
                 continue
             result = self.apply(rule, item, self._live_run_factory(rule), bump=True)
-            if result is None:
+            if result.blocked:
                 continue
-            filed += 1 if result else 0
-            if rule.stop_after:
+            filed += 1 if result.changed else 0
+            if rule.stop_after and not result.waiting:
                 break
         return filed
 
@@ -713,6 +919,12 @@ class OrganizeManager:
                 return True
         return False
 
+    def _model_owners(self, include_instance: bool = True) -> List[Optional[str]]:
+        owners: List[Optional[str]] = list(self.c.rules.users_with_live_rules("model"))
+        if include_instance:
+            owners.append(None)
+        return owners
+
     def handle_event(self, kind: str, payload: Dict[str, Any]) -> None:
         if kind in ("generation_completed", "generation_tags_changed", "generation_detected_tags_changed"):
             if kind == "generation_completed" and payload.get("status") != "completed":
@@ -733,34 +945,118 @@ class OrganizeManager:
             model_id = payload.get("model_id")
             if not model_id:
                 return
-            users = [payload["user_id"]] if payload.get("user_id") else self.c.rules.users_with_live_rules("model")
-            for user_id in users:
-                self.process_item("model", user_id, model_id)
+            owners = [payload["user_id"]] if payload.get("user_id") else self._model_owners()
+            for owner in owners:
+                self.process_item("model", owner, model_id)
         elif kind == "models_indexed":
-            for user_id in self.c.rules.users_with_live_rules("model"):
-                rules = self.c.rules.live_rules(user_id, "model")
+            for owner in self._model_owners():
+                rules = self.c.rules.live_rules(owner, "model")
                 stamps = [r.created_at for r in rules if r.created_at]
                 if not stamps:
                     continue
                 for model_id in self.c.items.models_created_since(dt_iso(min(stamps))):
-                    self.process_item("model", user_id, model_id, only_rules_older_than_item=True)
+                    self.process_item("model", owner, model_id, only_rules_older_than_item=True)
+        elif kind == "models_verified":
+            model_ids = [m for m in payload.get("model_ids") or [] if m]
+            self.handle_event("models_indexed", {})
+            forced: Dict[str, Set[str]] = {}
+            for waiting in self.c.outcomes.waiting_for_items("model", model_ids):
+                forced.setdefault(waiting.item_id, set()).add(waiting.rule_id)
+            owners = self._model_owners()
+            for model_id in model_ids:
+                for owner in owners:
+                    self.process_item(
+                        "model", owner, model_id, "model_verified", only_rules_older_than_item=True,
+                        force_rules=forced.get(model_id, ()),
+                    )
         elif kind == "model_tags_changed":
             model_id = payload.get("model_id")
             if not model_id:
                 return
-            for user_id in self.c.rules.users_with_live_rules("model"):
-                self.process_item("model", user_id, model_id, "tags_changed")
+            for owner in self._model_owners():
+                self.process_item("model", owner, model_id, "tags_changed")
         elif kind == "model_metadata_changed":
             model_id = payload.get("model_id")
             if not model_id:
                 return
-            users = [payload["user_id"]] if payload.get("user_id") else self.c.rules.users_with_live_rules("model")
-            for user_id in users:
-                self.process_item("model", user_id, model_id, "metadata_changed")
+            owners = [payload["user_id"]] if payload.get("user_id") else self._model_owners()
+            for owner in owners:
+                self.process_item("model", owner, model_id, "metadata_changed")
+
+    def retry_items(self, rule: Rule, item_ids: Sequence[str], run_for: Callable[[], Run],
+                    progress: Optional[Callable[[RetryTotals], None]] = None,
+                    cancelled: Optional[Callable[[], bool]] = None) -> RetryTotals:
+        totals = RetryTotals()
+        is_admin = self._is_admin_of(rule.user_id)
+        restricted = self._restricted(rule.user_id)
+        loaded = {i.item_id: i for i in self.load_items(rule.subject, rule.user_id, list(item_ids), is_admin, restricted)}
+        handled = self.c.rules.handled_ids(rule.id, rule.subject, item_ids)
+        for item_id in item_ids:
+            if cancelled is not None and cancelled():
+                break
+            item = loaded.get(item_id)
+            totals.processed += 1
+            if item is None or item_id in handled or not evaluate(self.c.registry, rule.match, rule.conditions, item):
+                self.c.outcomes.clear(rule.id, rule.subject, item_id)
+            else:
+                result = self.apply(rule, item, run_for, bump=False)
+                if result.blocked:
+                    totals.blocked = result.blocked
+                    break
+                totals.changed += 1 if result.changed else 0
+                totals.skipped += result.skipped
+                totals.waiting += 1 if result.waiting else 0
+            if progress is not None:
+                progress(totals)
+        return totals
+
+    def retry_waiting(self, limit: int = SWEEP_TOTAL, per_rule: int = SWEEP_PER_RULE) -> int:
+        due = self.c.outcomes.due(now_utc(), limit)
+        by_rule: Dict[str, List[str]] = {}
+        for outcome in due:
+            bucket = by_rule.setdefault(outcome.rule_id, [])
+            if len(bucket) < per_rule:
+                bucket.append(outcome.item_id)
+        processed = 0
+        for rule_id, item_ids in by_rule.items():
+            rule = self.c.rules.get_by_id(rule_id)
+            if rule is None or not rule.enabled or rule.paused_reason or self.is_paused_for(rule.user_id):
+                continue
+            if self.blocking_reason(rule, rule.user_id, self._is_admin_of(rule.user_id), self._restricted(rule.user_id)):
+                continue
+            totals = self.retry_items(rule, item_ids, self._live_run_factory(rule))
+            processed += totals.processed
+        return processed
+
+    def run_items(self, user: Any, run_id: str, status: Optional[str], page: int, page_size: int) -> Dict[str, Any]:
+        viewer = viewer_of(user)
+        run = self.c.runs.get_run(viewer.id, run_id)
+        if run is None:
+            raise errors.OrganizeError("run_not_found", "Run not found", 404)
+        page = max(1, page)
+        page_size = max(1, min(page_size, 100))
+        wanted = status if status in ("updated", "skipped", "waiting") else None
+        found = self.c.outcomes.run_items(viewer.id, run_id, wanted, page_size, (page - 1) * page_size)
+        labels = self.c.items.model_labels([r["item_id"] for r in found["rows"]]) if run.subject == "model" else {}
+        items = []
+        for row in found["rows"]:
+            label = labels.get(row["item_id"], {})
+            items.append({
+                "item_type": row["item_type"],
+                "item_id": row["item_id"],
+                "name": label.get("name") or row["item_id"],
+                "model_type": label.get("model_type"),
+                "status": row["status"],
+                "code": row["code"] if row["status"] != "updated" else None,
+                "detail": row["detail"] if row["status"] != "updated" else (row["detail"] or ""),
+                "attempts": row["attempts"],
+                "next_try_at": row["next_try_at"],
+            })
+        return {"run": run.base_dict(), "items": items, "total": found["total"], "page": page, "page_size": page_size}
 
     def matching_ids(self, viewer: Viewer, subject: str, match: str, conditions: List[Dict[str, Any]],
                       cap: Optional[int]) -> Tuple[List[str], bool]:
-        restricted = self.c.visibility.is_restricted(viewer.id)
+        restricted = self._restricted(viewer.id)
         where, params, complete = sql_filter(self.c.registry, subject, match, conditions)
         if complete:
             ids = self.c.items.candidate_ids(subject, viewer.id, where, params, viewer.is_admin, restricted)
@@ -781,36 +1077,89 @@ class OrganizeManager:
                     matched.append(item.item_id)
         return matched, approximate
 
-    def preview(self, user: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
-        viewer = viewer_of(user)
-        subject = payload.get("subject")
+    def _preview_shape(self, viewer: Viewer, payload: Dict[str, Any]) -> Dict[str, Any]:
         shape, problems = validate_rule_shape(
-            self.c.registry, subject, payload.get("match") or "all", payload.get("conditions") or [],
+            self.c.registry, payload.get("subject"), payload.get("match") or "all", payload.get("conditions") or [],
             payload.get("actions"), viewer.is_admin, require_actions=False,
-            attribute_specs=self._attribute_specs_for(viewer),
+            attribute_specs=self._attribute_specs_for(viewer), scope=viewer.scope,
         )
         if problems:
             raise errors.invalid_rule(problems)
         rule_id = payload.get("rule_id")
         if rule_id:
             self.require_rule(viewer.id, rule_id)
+        return shape
+
+    def _classify(self, viewer: Viewer, shape: Dict[str, Any], rule_id: Optional[str]) -> Dict[str, Any]:
+        subject = shape["subject"]
         ids, approximate = self.matching_ids(viewer, subject, shape["match"], shape["conditions"], PREVIEW_SCAN_CAP)
         handled = self.c.rules.handled_ids(rule_id, subject, ids) if rule_id else set()
         remaining = [i for i in ids if i not in handled]
         changing = self._would_change(viewer, subject, shape["actions"], remaining)
+        return {"ids": ids, "approximate": approximate, "handled": handled, "changing": changing}
+
+    def preview(self, user: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
+        viewer = viewer_of(user)
+        shape = self._preview_shape(viewer, payload)
+        subject = shape["subject"]
+        rule_id = payload.get("rule_id")
+        found = self._classify(viewer, shape, rule_id)
+        ids = found["ids"]
         duplicates = [
             {"rule_id": r.id, "name": r.name}
             for r in self.c.rules.list_for_user(viewer.id, subject)
             if r.id != rule_id and r.match == shape["match"]
             and canonical_conditions(r.conditions) == canonical_conditions(shape["conditions"])
         ]
+        labels = self.c.items.model_labels(ids[:SAMPLE_SIZE]) if subject == "model" else {}
+        sample = []
+        for item_id in ids[:SAMPLE_SIZE]:
+            entry = {"item_type": subject, "item_id": item_id}
+            if item_id in labels:
+                entry["name"] = labels[item_id]["name"]
+                entry["model_type"] = labels[item_id]["model_type"]
+            sample.append(entry)
         return {
             "matched": len(ids),
-            "already_handled": len(handled),
-            "would_change": len(changing),
-            "approximate": approximate,
-            "sample": [{"item_type": subject, "item_id": i} for i in ids[:SAMPLE_SIZE]],
+            "already_handled": len(found["handled"]),
+            "would_change": len(found["changing"]),
+            "approximate": found["approximate"],
+            "sample": sample,
             "duplicates": duplicates,
+        }
+
+    def preview_matches(self, user: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
+        viewer = viewer_of(user)
+        shape = self._preview_shape(viewer, payload)
+        subject = shape["subject"]
+        found = self._classify(viewer, shape, payload.get("rule_id"))
+        changing = found["changing"]
+        statuses = {i: ("would_change" if i in changing else "already_done") for i in found["ids"]}
+        wanted = payload.get("status")
+        ids = [i for i in found["ids"] if wanted not in ("would_change", "already_done") or statuses[i] == wanted]
+        page = max(1, int(payload.get("page") or 1))
+        page_size = max(1, min(int(payload.get("page_size") or 25), 100))
+        window = ids[(page - 1) * page_size:page * page_size]
+        labels = self.c.items.model_labels(window) if subject == "model" else {}
+        return {
+            "total": len(ids),
+            "page": page,
+            "page_size": page_size,
+            "approximate": found["approximate"],
+            "counts": {
+                "would_change": sum(1 for v in statuses.values() if v == "would_change"),
+                "already_done": sum(1 for v in statuses.values() if v == "already_done"),
+            },
+            "items": [
+                {
+                    "item_type": subject,
+                    "item_id": i,
+                    "name": labels.get(i, {}).get("name") or i,
+                    "model_type": labels.get(i, {}).get("model_type"),
+                    "status": statuses[i],
+                }
+                for i in window
+            ],
         }
 
     def _would_change(self, viewer: Viewer, subject: str, actions: List[Dict[str, Any]], ids: List[str]) -> Set[str]:
@@ -828,6 +1177,17 @@ class OrganizeManager:
                 changing |= remaining - self.c.items.members_of(scope, collection_id, list(remaining))
             elif action["action"] == ADD_TAGS:
                 changing |= remaining - self.c.items.items_with_all_tags(subject, list(remaining), config.get("tags") or [])
+            elif action["action"] == ASSIGN_MODEL_GROUP:
+                group_id = config.get("group_id")
+                if not group_id:
+                    return remaining
+                changing |= remaining - self.c.items.members_of("user_group", group_id, list(remaining))
+            elif action["action"] == ADD_MODEL_TAGS:
+                changing |= remaining - self.c.items.items_with_all_tags("model", list(remaining), config.get("tags") or [])
+            elif action["action"] == SET_MODEL_TYPE:
+                if not config.get("model_type"):
+                    return remaining
+                changing |= remaining - self.c.items.models_of_type(list(remaining), config["model_type"])
             else:
                 return remaining
         return changing
@@ -840,16 +1200,23 @@ class OrganizeManager:
         run_ids = [r.id for r in runs]
         summary = self.c.runs.run_change_summary(viewer.id, run_ids)
         undone = self.c.runs.run_undone_items(viewer.id, run_ids)
+        outcome_counts = self.c.outcomes.counts_by_run(run_ids)
+        reasons = self.c.outcomes.reasons_by_run(run_ids)
         current_names = {r.id: r.name for r in self.c.rules.list_for_user(viewer.id)}
+        actors = self.c.rules.usernames([a for r in runs for a in (r.started_by, r.undone_by) if a])
         scopes: Dict[str, Set[str]] = {}
+        group_ids: Set[str] = set()
         for run in runs:
             for row in summary.get(run.id, []):
                 if row["target_type"] in ("collection", "model_collection"):
                     scopes.setdefault(COLLECTION_SCOPES[run.subject], set()).add(row["target_id"])
+                elif row["target_type"] == "user_group":
+                    group_ids.add(row["target_id"])
         names = {scope: self.c.writer.collection_names(scope, ids, viewer.id) for scope, ids in scopes.items()}
+        group_names = self._group_names(group_ids)
         entries = []
         for run in runs:
-            collections, tags, other = [], [], []
+            collections, tags, groups, other = [], [], [], []
             pending = 0
             for row in summary.get(run.id, []):
                 live = row["total"] - row["undone"]
@@ -860,16 +1227,27 @@ class OrganizeManager:
                                         "count": row["total"], "live": live, "created": bool(row["created"])})
                 elif row["target_type"] == "tag":
                     tags.append({"id": row["target_id"], "name": row["target_name"], "count": row["total"], "live": live})
+                elif row["target_type"] == "user_group":
+                    groups.append({"id": row["target_id"], "name": group_names.get(row["target_id"]) or row["target_name"],
+                                   "count": row["total"], "live": live})
                 else:
                     definition = self.c.registry.action(row["action_kind"])
                     other.append({"action": row["action_kind"],
                                   "label": definition.label if definition else row["action_kind"],
+                                  "done_label": definition.done_label if definition else "",
                                   "count": row["total"], "live": live})
+            counts = outcome_counts.get(run.id, {})
             entry = run.base_dict()
             entry["rule_name"] = current_names.get(run.rule_id, run.rule_name)
             entry["undone"] = undone.get(run.id, 0)
             entry["can_undo"] = pending > 0 and not (run.status == "running" and run.kind == "backfill")
-            entry["changes"] = {"collections": collections, "tags": tags, "other": other}
+            entry["changes"] = {"collections": collections, "tags": tags, "groups": groups, "other": other}
+            entry["outcomes"] = {
+                "updated": run.applied, "skipped": counts.get("skipped", 0), "waiting": counts.get("waiting", 0),
+            }
+            entry["reasons"] = reasons.get(run.id, [])
+            entry["started_by_name"] = actors.get(run.started_by)
+            entry["undone_by_name"] = actors.get(run.undone_by)
             entries.append(entry)
         return {"runs": entries, "next_before": runs[-1].id if len(runs) == limit else None}
 
@@ -900,7 +1278,7 @@ class OrganizeManager:
             done_ids.append(application.id)
         self.c.runs.mark_undone(viewer.id, done_ids)
         if not self.c.runs.pending_applications(viewer.id, run_id):
-            self.c.runs.mark_run_undone(viewer.id, run_id)
+            self.c.runs.mark_run_undone(viewer.id, run_id, viewer.actor)
         entries = self.activity(user, None, run.rule_id, None, 200)["runs"]
         current = next((e for e in entries if e["id"] == run_id), None)
         return {"undone": undone, "items": len(undone_items), "skipped": skipped, "run": current}

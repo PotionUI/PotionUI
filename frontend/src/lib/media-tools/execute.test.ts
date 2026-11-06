@@ -12,7 +12,7 @@ vi.mock('$lib/services/api/mediaTools', () => ({
 
 import { toasts } from '$lib/stores/toast';
 import { resetMediaToolCatalog, toolById } from './catalog';
-import { announceOutcome, executeMediaTool } from './execute';
+import { announceOutcome, executeMediaTool, summaryOf } from './execute';
 import { SAVED_TO_LIBRARY_ANNOUNCE } from './announce';
 import { createMediaToolRuns, type RunsApi } from './runs';
 import type { MediaToolRun, ToolDTO } from './types';
@@ -192,6 +192,50 @@ describe('announceOutcome', () => {
 	});
 });
 
+const summary = { message: 'Saved hero to the model folder.', links: [{ label: 'Open models', href: '/models?model=m-1' }] };
+
+describe('a run that saved somewhere other than the Library', () => {
+	it('shows its own summary with a link instead of a Library message', () => {
+		announceOutcome({ status: 'completed', items: [], replaced: false, summary }, SAVED_TO_LIBRARY_ANNOUNCE);
+		const [toast] = get(toasts);
+		expect(toastMessages()).toEqual(['Done|Saved hero to the model folder.']);
+		expect(toast.action?.label).toBe('Open models');
+		toast.action?.onClick();
+		expect(goto).toHaveBeenCalledWith('/models?model=m-1');
+	});
+
+	it('shows the summary even when the host keeps success quiet', () => {
+		announceOutcome({ status: 'completed', items: [], replaced: false, summary }, {}, true);
+		expect(toastMessages()).toEqual(['Done|Saved hero to the model folder.']);
+	});
+
+	it('shows the summary for a run started without announcements', async () => {
+		const { runs } = setup(completed({ items: [], summary }));
+		const handle = await executeMediaTool({
+			label: 'Save elsewhere',
+			steps: [{ tool: 'acme.save', params: {} }],
+			sources,
+			refs: [{ item_id: 'row-1' }],
+			mode: 'new',
+			runs
+		});
+		await expect(handle.done).resolves.toMatchObject({ status: 'completed', items: [], summary });
+		expect(toastMessages()).toEqual(['Done|Saved hero to the model folder.']);
+	});
+
+	it.each(['/\\evil.com', 'https://x', '//x', 'javascript:alert(1)'])('drops a link that leaves the app: %s', (href) => {
+		announceOutcome({ status: 'completed', items: [], replaced: false, summary: { message: 'Saved.', links: [{ label: 'Open', href }] } });
+		const [toast] = get(toasts);
+		expect(toast.message).toBe('Saved.');
+		expect(toast.action).toBeUndefined();
+	});
+
+	it('keeps the Library message when the run also made items', () => {
+		announceOutcome({ status: 'completed', items: [item], replaced: false, summary });
+		expect(toastMessages()).toEqual(['Saved as new|clip-speed.mp4 is in your library.']);
+	});
+});
+
 describe('a cancel that races with completion', () => {
 	function setupCancel(answer: MediaToolRun) {
 		const start = vi.fn().mockResolvedValue({ run_id: 'run-1' });
@@ -320,5 +364,20 @@ describe('announce settings', () => {
 		const success = get(toasts).filter((entry) => entry.type === 'success');
 		expect(success[0].title).toBe('Original replaced');
 		expect(success[0].action).toBeUndefined();
+	});
+});
+
+describe('summaryOf', () => {
+	it('is null for a completed outcome that carries no items and no summary', () => {
+		expect(summaryOf({ status: 'completed' } as never)).toBeNull();
+	});
+
+	it('returns the summary of a completed outcome with an empty item list', () => {
+		const summary = { message: 'Done', links: [] };
+		expect(summaryOf({ status: 'completed', items: [], summary } as never)).toBe(summary);
+	});
+
+	it('is null when the outcome has items', () => {
+		expect(summaryOf({ status: 'completed', items: [item], summary: { message: 'x', links: [] } } as never)).toBeNull();
 	});
 });

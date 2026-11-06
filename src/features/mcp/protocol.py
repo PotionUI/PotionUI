@@ -77,6 +77,7 @@ class _McpToolScope:
     tool_names: Optional[List[str]] = field(default_factory=lambda: [
         "add_prompt", "edit_prompt", "delete_prompt", "manage_collections", "organize_gallery",
     ])
+    offers_tools: bool = True
 
 
 _MCP_SCOPE = _McpToolScope()

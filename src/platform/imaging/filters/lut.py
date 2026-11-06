@@ -193,3 +193,66 @@ def apply_lut(rgb: np.ndarray, lut: Lut) -> np.ndarray:
         mapped = _tetra(data, n, part / 255 * (n - 1))
         out[start:start + CHUNK] = round_half_up(np.clip(mapped, 0.0, 1.0) * 255).astype(np.uint8)
     return out.reshape(shape)
+
+
+BAKE_SIZE = 33
+
+
+def trilinear_sample(data: np.ndarray, n: int, pos: np.ndarray) -> np.ndarray:
+    out = np.empty((pos.shape[0], 3), dtype=data.dtype)
+    nn = n * n
+    for start in range(0, pos.shape[0], CHUNK):
+        p = np.clip(pos[start:start + CHUNK], 0, n - 1)
+        base = np.minimum(np.floor(p).astype(np.int64), n - 2)
+        f = (p - base).astype(data.dtype)
+        index = base[:, 0] + base[:, 1] * n + base[:, 2] * nn
+        fr, fg, fb = f[:, 0:1], f[:, 1:2], f[:, 2:3]
+        c00 = data[index] * (1 - fr) + data[index + 1] * fr
+        c10 = data[index + n] * (1 - fr) + data[index + n + 1] * fr
+        c01 = data[index + nn] * (1 - fr) + data[index + nn + 1] * fr
+        c11 = data[index + nn + n] * (1 - fr) + data[index + nn + n + 1] * fr
+        out[start:start + CHUNK] = (c00 * (1 - fg) + c10 * fg) * (1 - fb) + (c01 * (1 - fg) + c11 * fg) * fb
+    return out
+
+
+def _shaped(cube: Cube, c: np.ndarray) -> np.ndarray:
+    if cube.shaper is None:
+        return c
+    low, high = cube.shaper_range
+    shaper = cube.shaper.astype(np.float64)
+    count = shaper.shape[0]
+    x = np.clip((c - low) / (high - low), 0.0, 1.0) * (count - 1)
+    base = np.minimum(np.floor(x).astype(np.int64), count - 2)
+    f = x - base
+    return np.stack(
+        [shaper[base[:, k], k] * (1 - f[:, k]) + shaper[base[:, k] + 1, k] * f[:, k] for k in range(3)], axis=1
+    )
+
+
+def bake_cube(cube: Cube, size: Optional[int] = None) -> Cube:
+    n = size or (max(cube.size, BAKE_SIZE) if cube.shaper is not None else cube.size)
+    c = _shaped(cube, lattice(n))
+    dmin = np.asarray(cube.domain_min, dtype=np.float64)
+    dmax = np.asarray(cube.domain_max, dtype=np.float64)
+    u = np.clip((c - dmin) / (dmax - dmin), 0.0, 1.0) * (cube.size - 1)
+    data = trilinear_sample(cube.data.astype(np.float64), cube.size, u)
+    return Cube(size=n, data=np.clip(data, 0.0, 1.0).astype(np.float32), title=cube.title)
+
+
+def mix_cube(cube: Cube, strength: float) -> Cube:
+    ident = lattice(cube.size)
+    k = min(max(float(strength), 0.0), 1.0)
+    data = ident + k * (cube.data.astype(np.float64) - ident)
+    return Cube(size=cube.size, data=data.astype(np.float32), title=cube.title)
+
+
+def serialize_cube(cube: Cube) -> str:
+    rows = "\n".join(f"{r:.6f} {g:.6f} {b:.6f}" for r, g, b in cube.data.astype(np.float64))
+    return f"LUT_3D_SIZE {cube.size}\n{rows}\n"
+
+
+def apply_cube(rgb: np.ndarray, cube: Cube) -> np.ndarray:
+    shape = rgb.shape
+    flat = rgb.reshape(-1, 3).astype(np.float32)
+    mapped = trilinear_sample(cube.data.astype(np.float32), cube.size, flat * np.float32((cube.size - 1) / 255))
+    return np.clip(np.floor(mapped * np.float32(255)), 0, 255).astype(np.uint8).reshape(shape)

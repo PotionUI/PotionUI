@@ -145,4 +145,20 @@ describe('ToolFooter', () => {
 		expect(flush.target.querySelector('[data-tool-footer]')?.className).not.toContain('px-4');
 		flushSync();
 	});
+
+	it('keeps a line for the message once it clears when asked to, so the footer does not change height', () => {
+		const blocked = mountComponent(ToolFooter, props({ blocked: 'Paint over the area to repaint.', reserveMessage: true }));
+		const cleared = mountComponent(ToolFooter, props({ blocked: null, reserveMessage: true }));
+		expect(blocked.target.querySelector('[data-tool-blocked]')).not.toBeNull();
+		expect(cleared.target.querySelector('[data-tool-blocked]')).toBeNull();
+		const space = cleared.target.querySelector('[data-tool-message-space]');
+		expect(space).not.toBeNull();
+		expect(space?.className).toContain('text-sm');
+		expect(space?.className).toContain('invisible');
+	});
+
+	it('reserves no line by default', () => {
+		const { target } = mountComponent(ToolFooter, props({ blocked: null }));
+		expect(target.querySelector('[data-tool-message-space]')).toBeNull();
+	});
 });

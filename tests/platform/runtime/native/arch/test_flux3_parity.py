@@ -39,13 +39,13 @@ def _load_reference(shrink: bool):
 
 
 @pytest.fixture(scope="module")
-def refmod():
+def upstream_module():
     return _load_reference(shrink=True)
 
 
-def _build_reference(refmod, flow_map):
+def _build_reference(upstream_module, flow_map):
     torch.manual_seed(0)
-    ref = refmod.DiT(flow_map=flow_map)
+    ref = upstream_module.DiT(flow_map=flow_map)
     for name, param in ref.named_parameters():
         if name.endswith("norm.query_norm.scale") or name.endswith("norm.key_norm.scale"):
             param.data.uniform_(0.5, 1.5)
@@ -73,8 +73,8 @@ def _text_ids(length):
     return torch.stack([torch.zeros_like(positions)] * 3 + [positions], dim=-1).float()
 
 
-def _pack(refmod, samples):
-    modes = refmod.MODES
+def _pack(upstream_module, samples):
+    modes = upstream_module.MODES
     data = {m: [] for m in modes}
     ids = {m: [] for m in modes}
     mode_indices = {m: [] for m in modes}
@@ -92,7 +92,7 @@ def _pack(refmod, samples):
     data = {m: cat(data[m], width[m]) for m in modes}
     ids = {m: cat(ids[m], 4) for m in modes}
     timesteps = {m: torch.zeros(data[m].shape[0]) for m in modes}
-    return refmod.Packed(data=data, ids=ids, timesteps=timesteps, mode_indices=mode_indices)
+    return upstream_module.Packed(data=data, ids=ids, timesteps=timesteps, mode_indices=mode_indices)
 
 
 def _tokens(latent):
@@ -108,11 +108,11 @@ def _reference_cond(refs):
     )
 
 
-def _reference_forward(ref, refmod, x, context, t, refs=(), target=None):
+def _reference_forward(ref, upstream_module, x, context, t, refs=(), target=None):
     h, w = x.shape[-2:]
     text = (context[0], _text_ids(context.shape[1]))
     image = (_tokens(x), _grid_ids(h, w))
-    packed = _pack(refmod, [[text, _reference_cond(list(refs)), image]])
+    packed = _pack(upstream_module, [[text, _reference_cond(list(refs)), image]])
     packed.timesteps["image"].fill_(t)
     with torch.no_grad():
         out = ref(packed, timesteps_ref=target)
@@ -131,32 +131,32 @@ def _refs(seed, shapes):
     return [torch.randn(1, IN_CH, h, w, generator=generator) for h, w in shapes]
 
 
-def test_state_dict_keys_match_reference_one_to_one(refmod):
+def test_state_dict_keys_match_reference_one_to_one(upstream_module):
     for flow_map in (False, True):
-        ref = _build_reference(refmod, flow_map)
+        ref = _build_reference(upstream_module, flow_map)
         with torch.device("meta"):
             ours = Flux3.from_config({**CONFIG, "flow_map": flow_map}, pick_operations(torch.float32, torch.float32))
         expected = {k: tuple(v.shape) for k, v in ref.state_dict().items()}
         assert {k: tuple(v.shape) for k, v in ours.state_dict().items()} == expected
 
 
-def test_txt2img_matches_reference_on_a_non_square_grid(refmod):
-    ref = _build_reference(refmod, False)
+def test_txt2img_matches_reference_on_a_non_square_grid(upstream_module):
+    ref = _build_reference(upstream_module, False)
     ours = _build_ours(ref.state_dict(), False)
     x, context = _inputs(1, 3, 5, 16)
-    expected = _reference_forward(ref, refmod, x, context, 0.37)
+    expected = _reference_forward(ref, upstream_module, x, context, 0.37)
     with torch.no_grad():
         actual = ours(x, torch.tensor([0.37]), context)
     assert expected.abs().mean() > 1e-3
     torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
 
 
-def test_edit_with_two_references_of_different_sizes_matches_reference(refmod):
-    ref = _build_reference(refmod, False)
+def test_edit_with_two_references_of_different_sizes_matches_reference(upstream_module):
+    ref = _build_reference(upstream_module, False)
     ours = _build_ours(ref.state_dict(), False)
     x, context = _inputs(2, 4, 3, 11)
     refs = _refs(3, [(2, 3), (4, 2)])
-    expected = _reference_forward(ref, refmod, x, context, 0.62, refs)
+    expected = _reference_forward(ref, upstream_module, x, context, 0.62, refs)
     with torch.no_grad():
         actual = ours(x, torch.tensor([0.62]), context, ref_latents=refs)
         without = ours(x, torch.tensor([0.62]), context)
@@ -164,26 +164,26 @@ def test_edit_with_two_references_of_different_sizes_matches_reference(refmod):
     assert (actual - without).abs().max() > 1e-4
 
 
-def test_reference_order_changes_the_output_like_the_reference(refmod):
-    ref = _build_reference(refmod, False)
+def test_reference_order_changes_the_output_like_the_reference(upstream_module):
+    ref = _build_reference(upstream_module, False)
     ours = _build_ours(ref.state_dict(), False)
     x, context = _inputs(4, 3, 3, 7)
     refs = _refs(5, [(2, 2), (3, 2)])
     with torch.no_grad():
         forward = ours(x, torch.tensor([0.5]), context, ref_latents=refs)
         swapped = ours(x, torch.tensor([0.5]), context, ref_latents=refs[::-1])
-    expected = _reference_forward(ref, refmod, x, context, 0.5, refs[::-1])
+    expected = _reference_forward(ref, upstream_module, x, context, 0.5, refs[::-1])
     assert (forward - swapped).abs().max() > 1e-4
     torch.testing.assert_close(swapped, expected, atol=1e-5, rtol=1e-5)
 
 
-def test_flow_map_matches_reference(refmod):
-    ref = _build_reference(refmod, True)
+def test_flow_map_matches_reference(upstream_module):
+    ref = _build_reference(upstream_module, True)
     ours = _build_ours(ref.state_dict(), True)
     x, context = _inputs(6, 3, 4, 9)
     refs = _refs(7, [(2, 2)])
     target = torch.tensor([0.21])
-    expected = _reference_forward(ref, refmod, x, context, 0.55, refs, target=target)
+    expected = _reference_forward(ref, upstream_module, x, context, 0.55, refs, target=target)
     with torch.no_grad():
         actual = ours(x, torch.tensor([0.55]), context, ref_latents=refs, flow_map_target=target)
         other = ours(x, torch.tensor([0.55]), context, ref_latents=refs, flow_map_target=torch.tensor([0.4]))
@@ -192,8 +192,8 @@ def test_flow_map_matches_reference(refmod):
 
 
 @pytest.mark.parametrize("flow_map", [False, True])
-def test_flow_map_target_is_required_by_and_only_by_a_flow_map_model(refmod, flow_map):
-    ref = _build_reference(refmod, flow_map)
+def test_flow_map_target_is_required_by_and_only_by_a_flow_map_model(upstream_module, flow_map):
+    ref = _build_reference(upstream_module, flow_map)
     ours = _build_ours(ref.state_dict(), flow_map)
     x, context = _inputs(8, 2, 2, 4)
     kwargs = {} if flow_map else {"flow_map_target": torch.tensor([0.1])}
@@ -201,15 +201,15 @@ def test_flow_map_target_is_required_by_and_only_by_a_flow_map_model(refmod, flo
         ours(x, torch.tensor([0.5]), context, **kwargs)
 
 
-def test_two_sample_cfg_pack_equals_two_single_forwards(refmod):
-    ref = _build_reference(refmod, False)
+def test_two_sample_cfg_pack_equals_two_single_forwards(upstream_module):
+    ref = _build_reference(upstream_module, False)
     ours = _build_ours(ref.state_dict(), False)
     x, cond_ctx = _inputs(9, 3, 3, 10)
     uncond_ctx = torch.randn(1, 10, CTX, generator=torch.Generator().manual_seed(10))
     refs = _refs(11, [(2, 3)])
     image = (_tokens(x), _grid_ids(3, 3))
     cond = _reference_cond(refs)
-    packed = _pack(refmod, [
+    packed = _pack(upstream_module, [
         [(uncond_ctx[0], _text_ids(10)), cond, image],
         [(cond_ctx[0], _text_ids(10)), cond, image],
     ])
@@ -223,8 +223,8 @@ def test_two_sample_cfg_pack_equals_two_single_forwards(refmod):
     torch.testing.assert_close(as_tokens(ours_c), conditional, atol=1e-5, rtol=1e-5)
 
 
-def test_batched_forward_equals_per_sample_forwards(refmod):
-    ref = _build_reference(refmod, False)
+def test_batched_forward_equals_per_sample_forwards(upstream_module):
+    ref = _build_reference(upstream_module, False)
     ours = _build_ours(ref.state_dict(), False)
     generator = torch.Generator().manual_seed(12)
     x = torch.randn(3, IN_CH, 3, 2, generator=generator)
@@ -237,8 +237,8 @@ def test_batched_forward_equals_per_sample_forwards(refmod):
     torch.testing.assert_close(batched, singles, atol=1e-5, rtol=1e-5)
 
 
-def test_text_attention_mask_is_ignored_like_the_reference(refmod):
-    ref = _build_reference(refmod, False)
+def test_text_attention_mask_is_ignored_like_the_reference(upstream_module):
+    ref = _build_reference(upstream_module, False)
     ours = _build_ours(ref.state_dict(), False)
     x, context = _inputs(13, 2, 3, 8)
     mask = torch.zeros(1, 8)

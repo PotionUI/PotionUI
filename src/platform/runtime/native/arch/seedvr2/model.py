@@ -89,7 +89,7 @@ class SeedVR2(NativeArchModule):
         self.vid_out_norm = None
         if cfg.vid_out_norm:
             self.vid_out_norm = operations.RMSNorm(cfg.vid_dim, eps=cfg.norm_eps, elementwise_affine=True, dtype=dtype, device=device)
-            self.vid_out_ada = AdaSingle(cfg.vid_dim, cfg.emb_dim, ["out"], modes=("in",))
+            self.vid_out_ada = AdaSingle(cfg.vid_dim, cfg.emb_dim, ["out"], operations, modes=("in",))
         self.vid_out = NaPatchOut(cfg.vid_out_channels, cfg.patch_size, cfg.vid_dim, operations, dtype=dtype, device=device)
 
         # Engine helpers read latent geometry off ``.params``.

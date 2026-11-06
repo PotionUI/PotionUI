@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { openModeInstall } from '$lib/stores/modeInstall';
+	import { onModelInstalled } from '$lib/stores/modelInstalls';
 	import { api } from '$lib/services/api/index';
 	import { logger } from '$lib/utils/logger';
 	import { timeAgo } from '$lib/utils/relativeTime';
@@ -135,6 +137,7 @@
 
 	onMount(() => {
 		load('initial');
+		return onModelInstalled(() => void load('refresh'));
 	});
 
 	function selectBackend(id: string) {
@@ -177,7 +180,11 @@
 	}
 
 	function runAction(action: NonNullable<RequirementResultInfo['action']>) {
-		if (action.kind === 'open_downloader') {
+		if (action.kind === 'install_mode') {
+			const recipeId = action.payload?.recipe_id;
+			const mode = action.payload?.mode;
+			if (typeof recipeId === 'string') openModeInstall(recipeId, typeof mode === 'string' ? [mode] : []);
+		} else if (action.kind === 'open_downloader') {
 			void goto('/admin?tab=downloads');
 		} else if (action.kind === 'open_backends') {
 			void goto('/admin?tab=backends');
@@ -187,13 +194,14 @@
 	}
 
 	function actionLabel(kind: string): string {
+		if (kind === 'install_mode') return 'Install mode';
 		if (kind === 'open_downloader') return 'Open Downloader';
 		if (kind === 'open_backends') return 'Open Backends';
 		return 'Open link';
 	}
 
 	function actionIcon(kind: string): string {
-		if (kind === 'open_downloader') return 'download';
+		if (kind === 'install_mode' || kind === 'open_downloader') return 'download';
 		if (kind === 'open_backends') return 'server';
 		return 'external-link';
 	}

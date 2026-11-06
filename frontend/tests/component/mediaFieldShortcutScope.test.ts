@@ -116,7 +116,16 @@ afterEach(() => {
 });
 
 describe('media field shortcuts vs global shortcuts', () => {
-	it('runs only the crop tool when C is pressed over the field', async () => {
+	it('opens the chat and not the crop tool when C is pressed over the field', async () => {
+		field.dispatchEvent(new MouseEvent('mouseenter'));
+		pressC();
+		await settle();
+		expect(chat).toHaveBeenCalledTimes(1);
+		expect(cropOpen()).toBe(false);
+	});
+
+	it('runs the crop tool over the field when no global shortcut claims C', async () => {
+		keybindingsStore.unregisterHandler('open_chat');
 		field.dispatchEvent(new MouseEvent('mouseenter'));
 		pressC();
 		await settle();

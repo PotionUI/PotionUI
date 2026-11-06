@@ -81,9 +81,10 @@
 // checked after every `await` in this module, including immediately before
 // `onSubscribe` -- a late response must never subscribe on, or write into,
 // a tab/store that has already been torn down.
+import { findGenerationTab } from '$lib/types/tabs';
 import { get } from 'svelte/store';
 import type { Readable } from 'svelte/store';
-import type { Tab, GenerationState, QueuedGeneration } from '$lib/types/tabs';
+import type { Tab, GenerationTab, GenerationState, QueuedGeneration } from '$lib/types/tabs';
 import type { APIResponse, GenerationStatus } from '$lib/types/api';
 import { mapGenerationFiles, type RestoredGenerationData } from '$lib/utils/generationOrchestrator';
 import { parseServerDate } from '$lib/utils/relativeTime';
@@ -102,7 +103,7 @@ import { sleep } from '$lib/utils/time';
 /** Minimal surface `reconcileTabGenerations` needs from `tabsStore` -- the
  *  real store (`$lib/stores/tabs`) satisfies this as-is. */
 export interface ReconcileTabsStore extends Readable<{ tabs: Tab[]; activeTabId: string }> {
-	updateTab(tabId: string, updates: Partial<Tab>): void;
+	updateTab(tabId: string, updates: Partial<GenerationTab>): void;
 }
 
 export interface ReconcileApi {
@@ -189,7 +190,7 @@ export function generationTimestampMs(value?: string | number | null): number | 
  *  blindly. See the file header for why none of the sources subsumes
  *  another. */
 export function collectInFlightGenerationIds(
-	tab: Pick<Tab, 'activeGenerationId' | 'directorRuns' | 'directorRunLinks'> & {
+	tab: Pick<GenerationTab, 'activeGenerationId' | 'directorRuns' | 'directorRunLinks'> & {
 		queue?: QueuedGeneration[];
 		extraCandidateIds?: string[];
 	}
@@ -291,7 +292,7 @@ async function fetchOutputs(
 
 /** Mirrors the shared-display patch `restoreActiveGenerations` used to build
  *  inline for a generation that finished while this tab was disconnected. */
-function buildActiveCompletionPatch(
+export function buildActiveCompletionPatch(
 	generationId: string,
 	outputs: RestoredGenerationData | null
 ): Partial<GenerationState> {
@@ -389,7 +390,7 @@ function wasTrackedAtStart(seed: SeedTracking, generationId: string): boolean {
 
 /** True when NOTHING on the tab currently claims `generationId` any more --
  *  not the active display, not a Director link, not a queue entry. */
-function hasLiveClaim(tab: Tab, generationId: string): boolean {
+function hasLiveClaim(tab: GenerationTab, generationId: string): boolean {
 	if (tab.activeGenerationId === generationId) return true;
 	if (directorShotIdsFor(tab, generationId) !== null) return true;
 	if ((tab.generation.queue || []).some((q) => q.generation_id === generationId)) return true;
@@ -404,7 +405,7 @@ function hasLiveClaim(tab: Tab, generationId: string): boolean {
  *  `generation_complete`/`generation_error` arriving while this pass's HTTP
  *  lookup was still in flight) -- re-adding its routing/display here would
  *  resurrect a run that is, in fact, done. */
-function isRetiredKeep(tab: Tab, generationId: string, seed: SeedTracking): boolean {
+function isRetiredKeep(tab: GenerationTab, generationId: string, seed: SeedTracking): boolean {
 	if (!wasTrackedAtStart(seed, generationId)) return false;
 	return !hasLiveClaim(tab, generationId);
 }
@@ -476,7 +477,7 @@ export async function reconcileTabGenerations(
 	const subscriptionOwner = options.subscriptionOwner;
 	const signal = options.signal;
 
-	const readTab = (): Tab | undefined => get(tabsStore).tabs.find((t) => t.id === tabId);
+	const readTab = (): GenerationTab | undefined => findGenerationTab(get(tabsStore).tabs, tabId);
 
 	if (signal?.aborted) return;
 	const seedTab = readTab();
@@ -531,7 +532,7 @@ export async function reconcileTabGenerations(
 	function applyMissing(generationId: string): void {
 		const tab = readTab();
 		if (!tab) return;
-		const patch: Partial<Tab> = {
+		const patch: Partial<GenerationTab> = {
 			generation: { ...tab.generation, queue: withoutQueueEntry(tab.generation.queue, generationId) }
 		};
 		if (tab.activeGenerationId === generationId) {
@@ -580,7 +581,7 @@ export async function reconcileTabGenerations(
 	): void {
 		const tab = readTab();
 		if (!tab) return;
-		const patch: Partial<Tab> = {
+		const patch: Partial<GenerationTab> = {
 			generation: { ...tab.generation, queue: withoutQueueEntry(tab.generation.queue, generationId) }
 		};
 		if (tab.activeGenerationId === generationId) {

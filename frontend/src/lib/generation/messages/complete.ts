@@ -63,12 +63,14 @@ generationMessageRegistry.register('generation_complete', {
 							current_audio: output.current_audio,
 							current_mesh: output.current_mesh,
 							file_type: output.file_type,
-							preview_suppressed: false
+							preview_suppressed: false,
+							preview_clip: null
 						}
 					: {
 							...targetTab.generation.currentGeneration,
 							status: 'completed',
-							preview_suppressed: false
+							preview_suppressed: false,
+							preview_clip: null
 						},
 				currentProgress: null,
 				...(cancelNotice ? { cancelNotice } : {}),

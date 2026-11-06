@@ -70,6 +70,7 @@ from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
 from ...cancellation import raise_if_cancelled
 from ...errors import retry_after_cuda_oom
+from ...ops.dtype import warn_below_reference
 from ...ops.embedding import sinusoidal_embedding
 from ...lora.row_mask import FULL, ROWS, SKIP, RowMaskTarget, lora_row_mask, lora_row_window
 from ...sampling.step_cache import GroupedProbe
@@ -105,29 +106,6 @@ def _cached_tensor_bytes(value: tuple[Tensor, Tensor] | None) -> int:
     if value is None:
         return 0
     return sum(t.numel() * t.element_size() for t in value)
-
-
-def _apply_rotary_emb(x: Tensor, cos: Tensor | None, sin: Tensor | None) -> Tensor:
-    """Rotate the leading ``rotary_dim`` channels of every head; pass the rest through.
-
-    ``x``: ``(B, S, H, D)``. ``cos``/``sin``: ``(S, rotary_dim)`` or ``None`` (no-op,
-    used by the token refiner, which carries no rotary embedding at all).
-
-    ``_prepare_positional_embeddings`` already returns the tables in the packed
-    stream's dtype, so the ``.to`` below returns them unchanged on the hot path;
-    it stays as the correct fallback for a caller whose activations arrive at
-    some other precision.
-    """
-    if cos is None:
-        return x
-    rotary_dim = cos.shape[-1]
-    x_rot, x_pass = x[..., :rotary_dim], x[..., rotary_dim:]
-    cos = cos.to(x.dtype)[None, :, None, :]
-    sin = sin.to(x.dtype)[None, :, None, :]
-    x1, x2 = x_rot.chunk(2, dim=-1)
-    x_rotated = torch.cat((-x2, x1), dim=-1)
-    x_rot = x_rot * cos + x_rotated * sin
-    return torch.cat((x_rot, x_pass), dim=-1)
 
 
 def _cast_to(x: Tensor, linear: nn.Module) -> Tensor:
@@ -209,6 +187,7 @@ class MiniMaxH3Attention(nn.Module):
         self.q_norm = operations.RMSNorm(head_dim, eps=qk_norm_eps, dtype=dtype, device=device)
         self.k_norm = operations.RMSNorm(head_dim, eps=qk_norm_eps, dtype=dtype, device=device)
         self.out_proj = operations.Linear(inner_dim, hidden_size, bias=False, dtype=dtype, device=device)
+        self.operations = operations
         if gate_compress:
             self.to_gate_compress = operations.Linear(hidden_size, inner_dim, bias=False, dtype=dtype, device=device)
         # Sticky OOM marker: sequence lengths >= this skip the normal dispatch
@@ -227,11 +206,7 @@ class MiniMaxH3Attention(nn.Module):
             k = k.view(b, s, self.heads, self.head_dim)
             v = v.view(b, s, self.heads, self.head_dim)
             # Per-head RMSNorm BEFORE RoPE — order matters (dossier §A.5).
-            q = self.q_norm(q)
-            k = self.k_norm(k)
-            cos, sin = rotary_emb if rotary_emb is not None else (None, None)
-            q = _apply_rotary_emb(q, cos, sin)
-            k = _apply_rotary_emb(k, cos, sin)
+            q, k = self._norm_rope(q, k, *(rotary_emb if rotary_emb is not None else (None, None)))
         # sparse_attention dispatches on the context's own type (Sol-Attn or
         # SLA) and consumes this pre-transpose BTHD layout directly. It
         # returns None whenever it did not run (off, dense-forced step,
@@ -287,24 +262,28 @@ class MiniMaxH3Attention(nn.Module):
                     [_dispatch_attention(qc, kT, vT, heads=self.heads, backend=SDPA) for qc in qT.split(chunk, dim=2)],
                     dim=2,
                 )
-            out = out.transpose(1, 2).reshape(b, s, -1)
+            out = out.transpose(1, 2)
         if seq_chunk_rows and seq_chunk_rows < s:
-            # One prepared operand for the whole loop (see prepared_linear):
-            # a quantised out_proj otherwise re-dequantises (or, with the fp8
-            # GEMM gate on, re-stages) the SAME weight on every chunk, even
-            # though nothing about it changes between chunks -- only the
-            # chunk-dependent input quantisation/output branch repeats.
-            # Released the moment the `with` block exits, before the caller's
-            # next op runs.
+            result = None
             with self.out_proj.prepared_linear(out) as proj:
-                chunks = []
-                start = 0
-                for c in out.split(seq_chunk_rows, dim=1):
-                    with lora_row_window(start, c.shape[1]):
-                        chunks.append(proj(c))
-                    start += c.shape[1]
-                return torch.cat(chunks, dim=1)
-        return self.out_proj(out)
+                for start in range(0, s, seq_chunk_rows):
+                    n = min(seq_chunk_rows, s - start)
+                    with lora_row_window(start, n):
+                        rows = proj(out[:, start:start + n].reshape(b, n, -1))
+                    if result is None:
+                        result = rows.new_empty(b, s, rows.shape[-1])
+                    result[:, start:start + n] = rows
+            return result
+        return self.out_proj(out.reshape(b, s, -1))
+
+    def _norm_rope(self, q: Tensor, k: Tensor, cos: Tensor | None, sin: Tensor | None) -> tuple[Tensor, Tensor]:
+        if cos is None:
+            return self.q_norm(q), self.k_norm(k)
+        ops = self.operations
+        freqs = (cos.to(q.dtype)[None, :, None, :], sin.to(q.dtype)[None, :, None, :])
+        q = ops.qk_norm_rope(q, **ops.norm_args(self.q_norm), freqs=freqs, layout="half_rotate")
+        k = ops.qk_norm_rope(k, **ops.norm_args(self.k_norm), freqs=freqs, layout="half_rotate")
+        return q, k
 
     def _chunked_qkv(self, x: Tensor, rotary_emb: tuple[Tensor, Tensor] | None,
                       chunk_rows: int) -> tuple[Tensor, Tensor, Tensor]:
@@ -337,12 +316,11 @@ class MiniMaxH3Attention(nn.Module):
                 n = x_chunk.shape[1]
                 with lora_row_window(start, n):
                     q_c, k_c, v_c = proj(x_chunk).chunk(3, dim=-1)
-                q_c = self.q_norm(q_c.view(b, n, self.heads, self.head_dim))
-                k_c = self.k_norm(k_c.view(b, n, self.heads, self.head_dim))
+                q_c, k_c = self._norm_rope(
+                    q_c.view(b, n, self.heads, self.head_dim), k_c.view(b, n, self.heads, self.head_dim),
+                    *((None, None) if cos is None else (cos[start:start + n], sin[start:start + n])),
+                )
                 v_c = v_c.view(b, n, self.heads, self.head_dim)
-                if cos is not None:
-                    q_c = _apply_rotary_emb(q_c, cos[start:start + n], sin[start:start + n])
-                    k_c = _apply_rotary_emb(k_c, cos[start:start + n], sin[start:start + n])
                 q_full[:, start:start + n] = q_c
                 k_full[:, start:start + n] = k_c
                 v_full[:, start:start + n] = v_c
@@ -350,9 +328,8 @@ class MiniMaxH3Attention(nn.Module):
         return q_full, k_full, v_full
 
 
-def _swiglu(fc1, fc2, x: Tensor) -> Tensor:
-    gate, value = fc1(x).chunk(2, dim=-1)
-    return fc2(F.silu(gate) * value)
+def _swiglu(ops, fc1, fc2, x: Tensor) -> Tensor:
+    return fc2(ops.act_gate(fc1(x), mode="swiglu"))
 
 
 class MiniMaxH3MLP(nn.Module):
@@ -373,6 +350,7 @@ class MiniMaxH3MLP(nn.Module):
         super().__init__()
         self.fc1 = operations.Linear(hidden_size, 2 * ffn_dim, bias=False, dtype=dtype, device=device)
         self.fc2 = operations.Linear(ffn_dim, hidden_size, bias=False, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor, seq_chunk_rows: int = 0) -> Tensor:
         if seq_chunk_rows and seq_chunk_rows < x.shape[-2]:
@@ -385,10 +363,10 @@ class MiniMaxH3MLP(nn.Module):
                 for x_chunk in x.split(seq_chunk_rows, dim=-2):
                     rows = x_chunk.shape[-2]
                     with lora_row_window(start, rows):
-                        out.narrow(-2, start, rows).copy_(_swiglu(fc1, fc2, x_chunk))
+                        out.narrow(-2, start, rows).copy_(_swiglu(self.operations, fc1, fc2, x_chunk))
                     start += rows
             return out
-        return _swiglu(self.fc1, self.fc2, x)
+        return _swiglu(self.operations, self.fc1, self.fc2, x)
 
 
 class MiniMaxH3RefinerBlock(nn.Module):
@@ -442,6 +420,7 @@ class MiniMaxH3Block(nn.Module):
         self.mlp = MiniMaxH3MLP(hidden_size, ffn_dim, operations, dtype=dtype, device=device)
         self.adaln_proj = MiniMaxH3AdalnProj(t_dim, hidden_size, 6, MINIMAX_H3_MODALITY_NUM, apply_silu,
                                               operations, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor, temb: Tensor, adaln_indices: Tensor, rotary_emb: tuple[Tensor, Tensor],
                 sparse_attn: SolAttnContext | SlaAttnContext | None = None,
@@ -456,26 +435,18 @@ class MiniMaxH3Block(nn.Module):
             m.to(x.dtype) for m in self.adaln_proj(temb)
         )
 
-        # The modulation multiply/add below is per-row and elementwise (not
-        # the memory cost seq_chunk_rows targets, see model.py's forward-stage
-        # docstring), so it stays a plain full-tensor op; only attn/mlp's own
-        # internal transients get chunked.
-        residual = x
-        h = self.norm1(x)
-        h = h * (1.0 + scale_msa.index_select(0, adaln_indices)) + shift_msa.index_select(0, adaln_indices)
+        ops = self.operations
+        h = ops.norm_modulate(x, **ops.norm_args(self.norm1), scale=scale_msa, shift=shift_msa, index=adaln_indices)
         # Only the VDN wrapper takes a layout; the dense attention has no such
         # parameter, so a layout is passed rather than defaulted through.
         h = (self.attn(h, rotary_emb, sparse_attn, seq_chunk_rows, vdn_layout)
              if vdn_layout is not None
              else self.attn(h, rotary_emb, sparse_attn, seq_chunk_rows))
-        x = residual + gate_msa.index_select(0, adaln_indices) * h
+        x = ops.gated_residual(x, h, gate_msa, index=adaln_indices)
 
-        residual = x
-        h = self.norm2(x)
-        h = h * (1.0 + scale_mlp.index_select(0, adaln_indices)) + shift_mlp.index_select(0, adaln_indices)
+        h = ops.norm_modulate(x, **ops.norm_args(self.norm2), scale=scale_mlp, shift=shift_mlp, index=adaln_indices)
         h = self.mlp(h, effective_mlp_chunk_rows(seq_chunk_rows, ffn_chunk_rows))
-        x = residual + gate_mlp.index_select(0, adaln_indices) * h
-        return x
+        return ops.gated_residual(x, h, gate_mlp, index=adaln_indices)
 
 
 class MiniMaxH3FinalLayer(nn.Module):
@@ -493,6 +464,7 @@ class MiniMaxH3FinalLayer(nn.Module):
         super().__init__()
         self.norm = operations.RMSNorm(hidden_size, eps=eps, dtype=dtype, device=device)
         self.adaln_proj = MiniMaxH3AdalnProj(t_dim, hidden_size, 2, 1, apply_silu, operations, dtype=dtype, device=device)
+        self.operations = operations
         # The output heads are one of this checkpoint's fp32 islands.
         self.video_out = operations.Linear(hidden_size, video_dim, bias=True, dtype=torch.float32, device=device)
         self.audio_out = operations.Linear(hidden_size, audio_dim, bias=True, dtype=torch.float32, device=device)
@@ -500,9 +472,9 @@ class MiniMaxH3FinalLayer(nn.Module):
     def forward(self, x: Tensor, temb: Tensor, timestep_indices: Tensor) -> tuple[Tensor, Tensor]:
         # split shift-then-scale, indexed by TIMESTEP only (not modality).
         shift, scale = self.adaln_proj(temb)
-        shift = shift.index_select(0, timestep_indices)
-        scale = scale.index_select(0, timestep_indices)
-        h = self.norm(x) * (1.0 + scale) + shift
+        h = self.operations.norm_modulate(
+            x, **self.operations.norm_args(self.norm), scale=scale, shift=shift, index=timestep_indices,
+        )
         h = _cast_to(h, self.video_out)
         return self.video_out(h), self.audio_out(h)
 
@@ -551,6 +523,8 @@ class PreparedTextContext:
 class MiniMaxH3Model(NativeArchModule):
     """MiniMax-H3 packed-sequence DiT (construction + load path + forward)."""
 
+    _fp16_stream_warned = False
+
     def __init__(self, config: MiniMaxH3Config, operations, dtype=None, device=None) -> None:
         super().__init__()
         self.config = config
@@ -597,6 +571,8 @@ class MiniMaxH3Model(NativeArchModule):
         # 5. The block stack. gate_compress (FastH3 only) reaches the main
         # blocks alone -- the token refiner's checkpoint keys never carry it.
         apply_silu = not config.pruned
+        self.control_branch = None
+        self.control_info = None
         self.blocks = nn.ModuleList([
             MiniMaxH3Block(hidden_size, config.num_attention_heads, config.attention_head_dim, config.ffn_dim,
                             config.time_embed_dim, apply_silu, config.norm_eps, config.qk_norm_eps,
@@ -623,7 +599,7 @@ class MiniMaxH3Model(NativeArchModule):
         self._pe_cache_sources: tuple[Tensor, Tensor] | None = None
 
     def lora_row_mask_target(self, stem: str) -> RowMaskTarget:
-        if stem in _AUDIO_ONLY_LINEARS or stem.startswith("time_embedder."):
+        if stem in _AUDIO_ONLY_LINEARS or stem.startswith(("time_embedder.", "control_branch.")):
             return SKIP
         parts = stem.split(".")
         if parts[0] != "blocks" or len(parts) < 3:
@@ -681,9 +657,12 @@ class MiniMaxH3Model(NativeArchModule):
         audio_embeds = self.audio_patch_proj(_cast_to(audio_hidden_states, self.audio_patch_proj))
         return video_embeds, audio_embeds
 
-    def _prepare_context(self, encoder_hidden_states: Tensor) -> Tensor:
+    def _stream_dtype(self) -> torch.dtype:
+        return self.compute_dtype or self.condition_proj.weight.dtype
+
+    def _prepare_context(self, encoder_hidden_states: Tensor, dtype: torch.dtype | None = None) -> Tensor:
         text_embeds = self.condition_proj(_cast_to(encoder_hidden_states, self.condition_proj))
-        return self.token_refiner(text_embeds)
+        return self.token_refiner(text_embeds.to(dtype or self._stream_dtype()))
 
     def prepare_text_context(self, encoder_hidden_states: Tensor, weight_revision: Any = None) -> "PreparedTextContext":
         """Run ``condition_proj`` + ``token_refiner`` once and hand back a
@@ -732,11 +711,11 @@ class MiniMaxH3Model(NativeArchModule):
     def _prepare_positional_embeddings(self, position_ids: Tensor, dtype: torch.dtype) -> tuple[Tensor, Tensor]:
         """Build (or reuse) the ``(cos, sin)`` rotary tables for ``position_ids``,
         returned in ``dtype`` -- the dtype the packed stream (and so every q/k
-        reaching ``_apply_rotary_emb``) is carried at.
+        reaching ``_norm_rope``) is carried at.
 
         The angles are always computed in fp32; only the cast to the consumed
         dtype is cached. Handing the blocks an fp32 pair instead would push that
-        cast into ``_apply_rotary_emb``, which runs twice (q, k) per block per
+        cast into ``_norm_rope``, which runs twice (q, k) per block per
         step -- ~200 casts of the full tables per forward on the real model,
         each re-materialising them. The values are unchanged either way: one
         fp32->dtype rounding, hoisted.
@@ -776,6 +755,7 @@ class MiniMaxH3Model(NativeArchModule):
                                      step_cache=None,
                                      sparse_attn: SolAttnContext | SlaAttnContext | None = None,
                                      seq_chunk_rows: int = 0, vdn_layout=None, ffn_chunk_rows: int = 0,
+                                     control_stream=None,
                                      ) -> tuple[Tensor, Tensor | None, bool]:
         """Run the block stack, optionally gated by FBCache (see
         ``sampling/step_cache.py``).
@@ -813,8 +793,12 @@ class MiniMaxH3Model(NativeArchModule):
         probe = None
         for i, block in enumerate(self.blocks):
             raise_if_cancelled(i)
+            if control_stream is not None:
+                control_stream.before(i, temb, adaln_indices, rotary_emb, seq_chunk_rows, ffn_chunk_rows)
             hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn,
                                   seq_chunk_rows, vdn_layout, ffn_chunk_rows)
+            if control_stream is not None:
+                hidden_states = control_stream.after(i, hidden_states)
             if i == 0 and step_cache is not None:
                 probe = GroupedProbe(
                     video=hidden_states.index_select(1, generated_video_indices),
@@ -941,7 +925,7 @@ class MiniMaxH3Model(NativeArchModule):
         weight_revision = kwargs.pop("weight_revision", None)
         compute_dtype = kwargs.pop("compute_dtype", None)
         if compute_dtype is None:
-            compute_dtype = self.condition_proj.weight.dtype
+            compute_dtype = self._stream_dtype()
         compute_device = kwargs.pop("compute_device", None)
         if compute_device is None:
             compute_device = self.condition_proj.weight.device
@@ -950,11 +934,13 @@ class MiniMaxH3Model(NativeArchModule):
         ):
             text_embeds = prepared_context.text_embeds
         else:
-            text_embeds = self._prepare_context(encoder_hidden_states)
+            text_embeds = self._prepare_context(encoder_hidden_states, compute_dtype)
 
         # The text stream sets the packed buffer's dtype (matches diffusers'
         # own contract for this scatter).
         hidden_dtype = text_embeds.dtype
+        if not self._fp16_stream_warned:
+            self._fp16_stream_warned = warn_below_reference("MiniMax-H3 block stack", torch.bfloat16, hidden_dtype)
         packed = text_embeds.new_zeros((text_embeds.shape[0], seq_len, self.config.hidden_size))
         packed = packed.index_copy(1, text_indices, text_embeds)
         packed = packed.index_copy(1, video_indices, video_embeds.to(hidden_dtype))
@@ -987,6 +973,16 @@ class MiniMaxH3Model(NativeArchModule):
                 )
         num_condition_video_rows = int(kwargs.pop("num_condition_video_rows", 0))
         num_condition_audio_rows = int(kwargs.pop("num_condition_audio_rows", 0))
+        control = kwargs.pop("control", None)
+        control_stream = None
+        if control is not None and control.scale != 0.0:
+            if self.control_branch is None:
+                raise ValueError("control was passed but this model carries no control branch")
+            if vdn_layout is not None:
+                raise ValueError("a control branch cannot run together with the VDN hybrid attention")
+            control_stream = self.control_branch.stream(
+                control, packed, video_indices, audio_indices, num_condition_video_rows,
+            )
         row_mask = torch.ones(seq_len, dtype=torch.bool, device=packed.device)
         row_mask[audio_indices] = False
         with lora_row_mask(row_mask):
@@ -995,6 +991,7 @@ class MiniMaxH3Model(NativeArchModule):
                 video_indices[num_condition_video_rows:], audio_indices[num_condition_audio_rows:],
                 step_cache=step_cache, sparse_attn=sparse_attn_ctx,
                 seq_chunk_rows=seq_chunk_rows, vdn_layout=vdn_layout, ffn_chunk_rows=ffn_chunk_rows,
+                control_stream=control_stream,
             )
         if skipped:
             return step_cache.record_skip()

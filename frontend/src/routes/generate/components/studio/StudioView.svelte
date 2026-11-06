@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { modeDescription } from '$lib/utils/modeDescription';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
@@ -15,12 +15,14 @@
 	import StudioDock from './StudioDock.svelte';
 	import StudioPromptSheet from './StudioPromptSheet.svelte';
 	import StudioSettingsSheet from './StudioSettingsSheet.svelte';
+	import SessionScope from '$lib/components/session/SessionScope.svelte';
 	import StudioPresetSessionSheet from './StudioPresetSessionSheet.svelte';
 	import GenerationFormSeed from '../GenerationFormSeed.svelte';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
+	import TabsSheet from '$lib/tool-tabs/TabsSheet.svelte';
 	import { modeLabel as resolveModeLabel } from '$lib/utils/modeLabel.svelte';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 	export let tabHandlers: {
 		handlePresetChange: (presetId: string) => void;
 		handleModeChange: (mode: string) => void;
@@ -63,7 +65,7 @@
 		return () => observer.disconnect();
 	});
 
-	type SheetName = 'prompt' | 'settings' | 'preset';
+	type SheetName = 'prompt' | 'settings' | 'preset' | 'tabs';
 	let openSheet: SheetName | null = null;
 	function closeSheet() {
 		openSheet = null;
@@ -76,7 +78,8 @@
 		sourcePlugin: m.source_plugin,
 		description: modeDescription(m),
 		icon: m.icon,
-		requirementsMissing: m.requirements_missing
+		requirementsMissing: m.requirements_missing,
+		install: m.install
 	}));
 	$: presetName = presets.find((p: any) => p.id === tab.selectedPreset)?.name;
 	$: modeLabel = resolveModeLabel(tab.selectedMode, availableModes.find((m) => m.id === tab.selectedMode)?.label) || undefined;
@@ -89,16 +92,29 @@
 		'';
 </script>
 
+<SessionScope
+	presetId={tab.selectedPreset}
+	currentMode={tab.selectedMode}
+	tabId={tab.id}
+	presetVersion={presets.find((p) => p.id === tab.selectedPreset)?.version}
+	availableModes={availableModes.map((m) => ({ id: m.id, variants: m.variants }))}
+	let:session
+	let:actions
+	let:fieldLabels
+>
 <div class="relative h-full w-full overflow-hidden" bind:this={rootEl}>
 	<StudioCanvas {tab} />
 
-	<StudioTopBar
-		tabName={tab.name}
-		{presetName}
-		{modeLabel}
-		onOpenPresetSheet={() => (openSheet = 'preset')}
-		onOpenChatSheet={() => chatPanelStore.open()}
-	/>
+	{#if !tab.embedded}
+		<StudioTopBar
+			tabName={tab.name}
+			{presetName}
+			{modeLabel}
+			onOpenPresetSheet={() => (openSheet = 'preset')}
+			onOpenTabsSheet={() => (openSheet = 'tabs')}
+			onOpenChatSheet={() => chatPanelStore.open()}
+		/>
+	{/if}
 
 	<StudioDock
 		{tab}
@@ -142,6 +158,8 @@
 		{dynamicFormRefs}
 		onClose={closeSheet}
 	/>
+{:else if openSheet === 'tabs'}
+	<TabsSheet onClose={closeSheet} />
 {:else if openSheet === 'preset'}
 	<StudioPresetSessionSheet
 		{tab}
@@ -156,5 +174,9 @@
 		{onReload}
 		onClose={closeSheet}
 		onFormulaApplied={() => (openSheet = 'settings')}
+		{session}
+		{actions}
+		{fieldLabels}
 	/>
 {/if}
+</SessionScope>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import json
 import re
 import subprocess
@@ -14,6 +15,7 @@ from src.platform.observability.logger import logger
 from src.platform.util.video_transcode import find_ffmpeg, find_ffprobe
 
 _ABORT_WAIT_TIMEOUT = 10
+_KILL_REAP_TIMEOUT = 3
 _STDERR_TAIL_BYTES = 8192
 _MUX_TIMEOUT = 600
 _PROBE_TIMEOUT = 10
@@ -205,13 +207,21 @@ class StreamingMp4Writer:
     def __init__(self, out_path: Union[str, Path], width: int, height: int,
                  fps: float, codec: str = "libx264", crf: int = 18):
         ffmpeg = require_ffmpeg()
+        self._out_path = Path(out_path)
         self.width = int(width)
         self.height = int(height)
         if self.width % 2 or self.height % 2:
             raise ValueError(
                 f"StreamingMp4Writer needs even dimensions for yuv420p, got {self.width}x{self.height}"
             )
-        cmd = [
+        cmd = self._command(ffmpeg, out_path, fps, codec, crf)
+        self._proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        )
+        self._stderr_tail = _StderrTail(self._proc.stderr)
+
+    def _command(self, ffmpeg: str, out_path: Union[str, Path], fps: float, codec: str, crf: int) -> list:
+        return [
             ffmpeg, "-y",
             "-f", "rawvideo", "-pix_fmt", "rgb24",
             "-s", f"{self.width}x{self.height}", "-r", str(fps),
@@ -220,10 +230,6 @@ class StreamingMp4Writer:
             "-movflags", "+faststart",
             str(out_path),
         ]
-        self._proc = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-        )
-        self._stderr_tail = _StderrTail(self._proc.stderr)
 
     def write(self, frame_rgb: np.ndarray) -> None:
         arr = np.ascontiguousarray(frame_rgb, dtype=np.uint8)
@@ -251,18 +257,22 @@ class StreamingMp4Writer:
             raise RuntimeError(f"ffmpeg encode failed (exit {returncode}): {msg}")
 
     def abort(self) -> None:
-        if self._proc.poll() is None:
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=_ABORT_WAIT_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
+        was_running = self._proc.poll() is None
+        if was_running and self._proc.poll() is None:
+            self._proc.kill()
         self._reap()
         self._finalize_streams()
+        failed = was_running or (self._proc.returncode not in (0, None))
+        out_path = getattr(self, "_out_path", None)
+        if failed and out_path is not None:
+            try:
+                out_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _reap(self) -> None:
         try:
-            self._proc.wait(timeout=_ABORT_WAIT_TIMEOUT)
+            self._proc.wait(timeout=_KILL_REAP_TIMEOUT)
         except subprocess.TimeoutExpired:
             pass
 
@@ -305,3 +315,40 @@ class StreamingMp4Writer:
         else:
             self.abort()
 
+
+class StreamingAlphaWebmWriter(StreamingMp4Writer):
+
+    def __init__(self, out_path: Union[str, Path], width: int, height: int, fps: float, crf: int = 24):
+        require_vp9_encoder()
+        super().__init__(out_path, width, height, fps, codec="libvpx-vp9", crf=crf)
+
+    def _command(self, ffmpeg: str, out_path: Union[str, Path], fps: float, codec: str, crf: int) -> list:
+        return [
+            ffmpeg, "-y",
+            "-f", "rawvideo", "-pix_fmt", "rgba",
+            "-s", f"{self.width}x{self.height}", "-r", str(fps),
+            "-i", "-", "-an",
+            "-c:v", codec, "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", str(crf),
+            "-auto-alt-ref", "0", "-row-mt", "1",
+            str(out_path),
+        ]
+
+
+@functools.lru_cache(maxsize=4)
+def _has_encoder(ffmpeg: str, name: str) -> bool:
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-hide_banner", "-encoders"], capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return name in result.stdout.decode("utf-8", errors="replace").split()
+
+
+def require_vp9_encoder() -> None:
+    ffmpeg = require_ffmpeg()
+    if not _has_encoder(ffmpeg, "libvpx-vp9"):
+        raise FFmpegNotFoundError(
+            "The ffmpeg on this machine cannot write transparent WebM (it lacks the libvpx-vp9 encoder). "
+            "Install a full ffmpeg build or the bundled imageio-ffmpeg package."
+        )

@@ -233,6 +233,9 @@ def resolve_backend_launch(repo_root: Path) -> Tuple[str, Optional[Path]]:
 # ---------------------------------------------------------------------------
 
 
+COPIED_DEPOT_SUFFIXES = frozenset({".cube"})
+
+
 def mirror_models_dir_readonly(source: Path, dest: Path) -> None:
     """Recreate `source`'s directory tree under `dest`, symlinking every file
     in place rather than copying it.
@@ -265,7 +268,10 @@ def mirror_models_dir_readonly(source: Path, dest: Path) -> None:
             if dst_file.exists() or dst_file.is_symlink():
                 continue
             try:
-                os.symlink(src_file, dst_file)
+                if src_file.suffix.lower() in COPIED_DEPOT_SUFFIXES:
+                    shutil.copyfile(src_file, dst_file)
+                else:
+                    os.symlink(src_file, dst_file)
                 file_count += 1
             except OSError as exc:
                 raise StageError(

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import DesktopWorkspace from '../../../src/routes/generate/components/DesktopWorkspace.svelte';
 	import GenerationPanels from '../../../src/routes/generate/components/GenerationPanels.svelte';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import type { PresetInfo } from '$lib/services/api/index';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 	export let presets: PresetInfo[] = [];
 	export let availableModes: Array<{ id: string; label: string }> = [];
 

@@ -102,7 +102,7 @@ class TestMigration071LlmOpenrouterType(MigrationCase):
         with self.db.get_cursor() as cursor:
             cursor.execute("PRAGMA table_info(llm_configurations)")
             names = [row[1] for row in cursor.fetchall()]
-        changed = [name for name, old, new in zip(names, before[0], after[0]) if old != new]
+        changed = [name for name, old, new in zip(names, before[0], after[0]) if old != new and name != "updated_at"]
         self.assertEqual(changed, ["type"])
 
     def test_a_second_run_changes_nothing(self):

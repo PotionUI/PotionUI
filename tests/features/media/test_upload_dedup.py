@@ -160,7 +160,7 @@ class TestUploadDedup:
             data, "a.bin", "application/octet-stream", user_id=user_id, purpose="user_upload"
         )
         derived = await manager.upload_media(
-            data, "a.bin", "application/octet-stream", user_id=user_id, purpose="derived_artifact"
+            data, "a.bin", "image/png", user_id=user_id, purpose="derived_artifact"
         )
 
         assert derived.filename != library_upload.filename

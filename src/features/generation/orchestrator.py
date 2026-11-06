@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from src.features.generation.grids.dto import GridCellRef
 
 from src.platform.util.ids import generate_ulid
+from src.platform.observability.profiling import get_profiler
 from src.platform.database.rows import dt_iso
 from src.features.media_index.indexer import PASS_TAGS
 from src.features.media_index.mesh_thumbnails import render_and_store_mesh_thumbnail
@@ -92,7 +93,12 @@ from src.features.generation.status_tracker import (
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.backends.base_backend import BaseBackend
 from src.features.generation.routing.contracts import RoutingRequest
-from src.features.models.form_refs import collect_model_ids, is_model_ref, model_id_of, resolve_form_model_refs
+from src.features.models.form_refs import (
+    collect_model_ids,
+    is_model_ref,
+    model_id_of,
+    resolve_form_model_refs,
+)
 from src.features.models.exceptions import ModelAccessDeniedException
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, Progress, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
@@ -122,11 +128,14 @@ from src.features.music_director import (
     compile_sections_to_lyrics,
     normalize_music_director,
 )
+from src.features.backends.backend_config import NATIVE_ENGINE
 from src.features.cloud.contracts import CLOUD_ENGINE
 from src.features.cloud.director import director_overlay
 from src.platform.security.user_ref import cloud_user_ref
 from src.features.generation.output_types import output_type_registry
 from src.features.forms.binding import bind_form, FormBindingError
+from src.features.prompt.resource_sources import BundleMembersResolver, member_kinds_resolver, prompt_resource_sources
+from src.platform.plugins.prompt_resource_sources import PromptResourceCaller, PromptResourceSourceRegistry
 from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
 from src.features.generation.memory_advisory import (
     _WEIGHT_LOAD_MARGIN,
@@ -208,6 +217,7 @@ def _prepare_director_form_data(
     user_id: Optional[str],
     settings: Settings,
     model_overlay: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
+    bundle_members: Optional[BundleMembersResolver] = None,
 ) -> Dict[str, Any]:
     """Pure Video/Music Director canonicalization, shared by `start_generation`
     and `GenerationOrchestrator.preview_memory` so a preview's active loader
@@ -257,6 +267,7 @@ def _prepare_director_form_data(
 
         normalized_doc = normalize_video_director(
             raw_doc, capabilities, storage_dir, form_data, mode_prompt_resources(preset_template, mode),
+            bundle_members=bundle_members,
         )
 
         # A capability-declared `timing` block names a sibling FORM FIELD --
@@ -516,9 +527,11 @@ class GenerationOrchestrator:
         model_locator: Optional['ModelLocator'] = None,
         content_safety: Optional['ContentSafetyManager'] = None,
         cloud_capabilities: Optional['CloudCapabilities'] = None,
+        model_filename_resolver: Optional[Callable[[str, List[str]], Optional[str]]] = None,
         cloud_policy: Optional['CloudGenerationPolicy'] = None,
         output_broadcaster: Optional['GenerationOutputBroadcaster'] = None,
         limit_guard: Optional['LimitGuard'] = None,
+        prompt_resource_source_registry: Optional[PromptResourceSourceRegistry] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -572,6 +585,8 @@ class GenerationOrchestrator:
         self.preset_template_loader = preset_template_loader
         self.backend_registry = backend_registry
         self.model_locator = model_locator
+        self.model_filename_resolver = model_filename_resolver
+        self.prompt_resource_source_registry = prompt_resource_source_registry or prompt_resource_sources()
         self.content_safety = content_safety
         self._content_tally: Dict[str, Dict[str, int]] = {}
         self._prompt_batches: Dict[str, PromptBatch] = {}
@@ -745,6 +760,8 @@ class GenerationOrchestrator:
         if capabilities is not None and preset_template.engine == CLOUD_ENGINE:
             backend_id = backend.backend_id if backend is not None else None
             cloud_args["cloud_capabilities"] = lambda model_id, driver: capabilities.spec_for(model_id, driver, backend_id)
+        if self.model_filename_resolver is not None and preset_template.engine == NATIVE_ENGINE:
+            cloud_args["model_resolver"] = self.model_filename_resolver
         return bind_form(
             preset_template,
             mode,
@@ -755,6 +772,14 @@ class GenerationOrchestrator:
             field_overrides=field_overrides,
             **cloud_args,
         )
+
+    def _bundle_members(self, user_id: Optional[str]) -> Optional[BundleMembersResolver]:
+        if self.model_locator is None:
+            return None
+        caller = PromptResourceCaller(
+            user_id=user_id, is_admin=self._is_admin_user(user_id), model_file=self.model_locator.path_for_model,
+        )
+        return member_kinds_resolver(caller, self.prompt_resource_source_registry)
 
     def _director_model_overlay(self, preset_template) -> Optional[Callable[[Any], Optional[Dict[str, Any]]]]:
         capabilities = self.cloud_capabilities
@@ -838,6 +863,7 @@ class GenerationOrchestrator:
             prepared_form_data = _prepare_director_form_data(
                 preset_template, mode, bound.values, user_id, self.settings,
                 model_overlay=self._director_model_overlay(preset_template),
+                bundle_members=self._bundle_members(user_id),
             )
             built = self.pipeline_builder.build_pipeline(
                 preset_id=preset_template,
@@ -1150,6 +1176,7 @@ class GenerationOrchestrator:
                 request.form_data = _prepare_director_form_data(
                     preset_template, mode, request.form_data, user_id, self.settings,
                     model_overlay=self._director_model_overlay(preset_template),
+                    bundle_members=self._bundle_members(user_id),
                 )
 
             # LTX two-stage upscale geometry: fail fast, before the (expensive)
@@ -1254,6 +1281,7 @@ class GenerationOrchestrator:
                 getattr(request, 'prompts', None),
                 getattr(request, 'segments', None),
                 request.form_data or {},
+                self._bundle_members(user_id),
             )
 
             # Rewrite each model reference into the engine-native string the selected
@@ -1790,6 +1818,7 @@ class GenerationOrchestrator:
             if record.backend_id:
                 await self._queue_dispatcher.release(record.backend_id, generation_id)
             self._queue_dispatcher.prune_finished()
+            self._settle_profiler_census(generation_id)
 
     async def _split_prompt_batch(self, generation_id: str, prompt_batch: Optional[PromptBatch]) -> List[str]:
         if prompt_batch is None:
@@ -2054,6 +2083,7 @@ class GenerationOrchestrator:
         await self.status_tracker.transition_async(generation_id, GenerationState.CANCELLED)
         if orphaned and record.backend_id:
             await self._queue_dispatcher.release(record.backend_id, generation_id)
+            self._settle_profiler_census(generation_id)
         self._queue_dispatcher.prune_finished()
         logger.debug(f"Updated status to cancelled for {generation_id}")
 
@@ -2077,6 +2107,16 @@ class GenerationOrchestrator:
     def _output_bridge_alive(self, generation_id: str) -> bool:
         task = self._bridge_tasks.get(generation_id)
         return task is not None and not task.done() and not task.get_loop().is_closed()
+
+    def _settle_profiler_census(self, generation_id: str) -> None:
+        try:
+            profiler = get_profiler()
+            if self._queue_dispatcher.is_idle():
+                profiler.release_census(generation_id)
+            else:
+                profiler.skip_census(generation_id, "queue_busy")
+        except Exception:
+            logger.debug("[ORCHESTRATOR] profiler census settle failed for %s", generation_id, exc_info=True)
 
     def _forget_run(self, generation_id: str) -> None:
         self._run_backends.pop(generation_id, None)

@@ -4,9 +4,13 @@ from .base_field import BaseField
 from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
 from src.features.presets.configuration import resolve_field_filter_tags, resolve_reactions_filter_tags
 from src.features.presets.form_lookups import current_form_lookups
-from src.platform.filesystem.model_types import PICKABLE_MODEL_TYPES
+from src.platform.filesystem.model_types import pickable_model_types
+from src.features.models.recommendations import (
+    RECOMMENDATION_EXTENSIONS,
+    recommendation_filenames,
+    serialize_recommendation,
+)
 
-RECOMMENDATION_EXTENSIONS = ('.safetensors', '.ckpt', '.pt', '.pth', '.bin')
 
 
 class Model(BaseField):
@@ -53,8 +57,9 @@ class Model(BaseField):
         if not isinstance(raw, (list, tuple)):
             return []
         cleaned: List[str] = []
+        pickable = pickable_model_types()
         for item in raw:
-            if item in PICKABLE_MODEL_TYPES and item not in cleaned:
+            if item in pickable and item not in cleaned:
                 cleaned.append(item)
         return cleaned
 
@@ -79,7 +84,7 @@ class Model(BaseField):
 
         serialized = []
         for rec in visible:
-            entry = dict(rec)
+            entry = serialize_recommendation(rec)
             entry['installed'] = bool(
                 rec.get('name') and existing.intersection(Model._recommendation_filenames(rec['name']))
             )
@@ -89,7 +94,7 @@ class Model(BaseField):
 
     @staticmethod
     def _recommendation_filenames(name: str) -> List[str]:
-        return [name, *(f"{name}{ext}" for ext in RECOMMENDATION_EXTENSIONS)]
+        return recommendation_filenames(name)
 
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:
@@ -100,7 +105,7 @@ class Model(BaseField):
                 param_type=str,
                 default="checkpoint",
                 description="Type of model to filter by",
-                choices=list(PICKABLE_MODEL_TYPES),
+                choices=list(pickable_model_types()),
                 example="lora"
             ),
             FieldConfigSpec(

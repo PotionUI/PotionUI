@@ -17,7 +17,9 @@ from typing import Protocol, Sequence, runtime_checkable
 
 import torch
 
-from ..errors import SamplingCancelled, SamplingNumericsError
+from src.platform.runtime.cuda_allocator import is_driver_oom
+
+from ..errors import SamplingCancelled, SamplingNumericsError, retry_after_cuda_oom
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +217,9 @@ def run_hooks(hooks: Sequence[StepHook], method: str, *args) -> None:
             fn(*args)
         except SamplingNumericsError:
             raise
-        except Exception:  # noqa: BLE001 — hook isolation is the whole point
+        except Exception as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.exception("step hook %r failed in %s; continuing", hook, method)
 
 
@@ -229,7 +233,9 @@ def apply_latent_filters(hooks: Sequence[StepHook], step_index: int, total_steps
             filtered = fn(step_index, total_steps, x, sigma)
         except SamplingNumericsError:
             raise
-        except Exception:
+        except Exception as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.exception("latent filter %r failed at step %d; continuing", hook, step_index)
             continue
         if filtered is not None:

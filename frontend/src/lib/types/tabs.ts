@@ -23,7 +23,8 @@ export type GenerationLayoutMode = 'two' | 'three';
 // exists (`tabs.ts`'s `createTabsStore`), so a tab with a `selectedSessionId`
 // still gets overwritten by the server's copy once `restoreTabSessions` runs
 // — these fields are only load-bearing for the unsaved-tab path.
-export interface PersistedTab {
+export interface PersistedGenerationTab {
+	kind?: 'generation';
 	id: string;
 	name: string;
 	selectedPreset: string | null;
@@ -85,9 +86,29 @@ export interface PersistedTab {
 	directorRunLinks?: DirectorRunLinks;
 }
 
+export interface PersistedToolTab {
+	kind: 'tool';
+	id: string;
+	name: string;
+	color?: string | null;
+	tool: string;
+	source: MediaRef | null;
+	state: unknown;
+	run?: RunRef | null;
+	activeTool?: string | null;
+	dirty?: number;
+	thumbnail?: string | null;
+	renamed?: boolean;
+	key?: string | null;
+	status?: ToolTabStatus | null;
+}
+
+export type PersistedTab = PersistedGenerationTab | PersistedToolTab;
+
 export interface PersistedTabsState {
 	tabs: PersistedTab[];
 	activeTabId: string;
+	lastGenerationTabId?: string;
 }
 
 /**
@@ -334,6 +355,11 @@ export interface MediaRef {
 	 *  `multi: true`) - other systems (e.g. a `<Picture N>` prompt binding)
 	 *  reference an item by this, so it's absent, not empty, when unset. */
 	label?: string;
+	item_id?: string;
+	generation_file_id?: string;
+	artifact_id?: string;
+	width?: number;
+	height?: number;
 }
 
 export interface PromptRelayImageSegment {
@@ -364,9 +390,54 @@ export interface PromptRelayValue {
 	timeline: PromptRelayTimeline;
 }
 
-export interface Tab {
+export interface TabBase {
 	id: string;
 	name: string;
+	color?: string | null;
+}
+
+export interface RunRef {
+	runId: string;
+	progress?: number | null;
+}
+
+export type ToolTabStatusTone = 'signal' | 'danger' | 'success';
+
+export interface ToolTabStatus {
+	tone: ToolTabStatusTone;
+	label: string;
+	count?: [number, number] | null;
+	pulse?: boolean;
+	ring?: boolean;
+}
+
+export interface ToolTabHint {
+	look?: string;
+	effect?: string;
+	orientation?: 'rotate' | 'flip';
+	sendTo?: { tabId: string; field: string };
+	detect?: boolean;
+	suggestSlice?: boolean;
+}
+
+export interface ToolTab extends TabBase {
+	kind: 'tool';
+	tool: string;
+	source: MediaRef | null;
+	state: unknown;
+	run?: RunRef | null;
+	activeTool?: string | null;
+	hint?: ToolTabHint | null;
+	dirty?: number;
+	thumbnail?: string | null;
+	renamed?: boolean;
+	epoch?: number;
+	key?: string | null;
+	status?: ToolTabStatus | null;
+}
+
+export interface GenerationTab extends TabBase {
+	kind: 'generation';
 	selectedPreset: string | null;
 	selectedMode: string | null;
 	/** Name of the selected mode's preset variant (form). Also persisted to
@@ -384,6 +455,7 @@ export interface Tab {
 	 * rehydrates a selected session from the server.
 	 */
 	savedSessionSignature?: string | null;
+	sessionVersion?: number | null;
 	/** One-shot marker, deliberately absent from PersistedTab. */
 	sessionBaselineAwaitingFormNormalization?: boolean;
 	formPublished?: boolean;
@@ -447,6 +519,7 @@ export interface Tab {
 	modeStateByMode?: Record<string, ModeState>;
 	seed?: number;
 	activeGenerationId?: string | null;
+	embedded?: EmbeddedTabRef;
 	/** Library prompt (src/features/prompt_database) applied to this tab from the
 	 *  Prompt Library's "Generate with this" — rides onto GenerationRequest.source_prompt_id.
 	 *  Cleared on preset change; deliberately absent from PersistedTab, same tier as
@@ -507,4 +580,57 @@ export interface Tab {
 	soundOnComplete?: boolean;
 	soundOnError?: boolean;
 	color?: string | null;
+}
+
+export interface EmbeddedBaseline {
+	values: Record<string, unknown>;
+	form: Record<string, unknown>;
+	capturedAt: number;
+	revision: number;
+	print: string;
+}
+
+export interface EmbeddedTabRef {
+	toolTabId: string;
+	nodeId: string;
+	persistence: 'local' | 'session';
+	returnTo: string | null;
+	baseline?: EmbeddedBaseline | null;
+}
+
+export type Tab = GenerationTab | ToolTab;
+
+export function isToolTab(tab: Tab | null | undefined): tab is ToolTab {
+	return !!tab && tab.kind === 'tool';
+}
+
+export function isGenerationTab(tab: Tab | null | undefined): tab is GenerationTab {
+	return !!tab && tab.kind !== 'tool';
+}
+
+export function generationTabs(tabs: readonly Tab[]): GenerationTab[] {
+	return tabs.filter(isGenerationTab);
+}
+
+export function isEmbeddedTab(tab: Tab | null | undefined): tab is GenerationTab & { embedded: EmbeddedTabRef } {
+	return isGenerationTab(tab) && !!tab.embedded;
+}
+
+export function visibleTabs(tabs: readonly Tab[]): Tab[] {
+	return tabs.filter((tab) => !isEmbeddedTab(tab));
+}
+
+export function userGenerationTabs(tabs: readonly Tab[]): GenerationTab[] {
+	return tabs.filter((tab): tab is GenerationTab => isGenerationTab(tab) && !tab.embedded);
+}
+
+export function embeddedTabFor(tabs: readonly Tab[], toolTabId: string | null | undefined): (GenerationTab & { embedded: EmbeddedTabRef }) | null {
+	if (!toolTabId) return null;
+	return tabs.find((tab): tab is GenerationTab & { embedded: EmbeddedTabRef } => isEmbeddedTab(tab) && tab.embedded.toolTabId === toolTabId) ?? null;
+}
+
+export function findGenerationTab(tabs: readonly Tab[], id: string | null | undefined): GenerationTab | undefined {
+	if (!id) return undefined;
+	const tab = tabs.find((candidate) => candidate.id === id);
+	return isGenerationTab(tab) ? tab : undefined;
 }

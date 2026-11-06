@@ -205,6 +205,10 @@ class TestComfy:
         result = self._run(tmp_path, "c:\n    base_path: /x\n    geometry_estimation: models/geometry_estimation\n")
         assert result.paths == {"geometry_estimation": ["/x/models/geometry_estimation"]}
 
+    def test_vae_approx_maps_to_preview_decoder(self, tmp_path):
+        result = self._run(tmp_path, "c:\n    base_path: /x\n    vae_approx: models/vae_approx\n")
+        assert result.paths == {"preview_decoder": ["/x/models/vae_approx"]}
+
     def test_bom_is_tolerated(self, tmp_path):
         (tmp_path / "extra_model_paths.yaml").write_bytes(b"\xef\xbb\xbfc:\n    base_path: /x\n    vae: v\n")
         assert run_reader("comfyui_extra_model_paths", tmp_path, translator=POSIX).paths == {"vae": ["/x/v"]}

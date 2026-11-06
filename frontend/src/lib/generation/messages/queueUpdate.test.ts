@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -7,11 +8,11 @@ import { dispatchGenerationMessage } from '$lib/stores/generation';
 // side effect, which registers the queue_update handler under test.
 
 function defaultTabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function seedQueue(tabId: string, queue: { generation_id: string; queue_position: number | null; status: 'pending' | 'running' }[]) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, { generation: { ...tab.generation, queue } });
 }
 
@@ -33,7 +34,7 @@ describe('queue_update message handler', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.generation.queue).toEqual([
 			{ generation_id: 'gen-1', queue_position: null, status: 'running' }
 		]);
@@ -57,7 +58,7 @@ describe('queue_update message handler', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.generation.queue).toEqual([
 			{ generation_id: 'gen-a', queue_position: 0, status: 'running' },
 			{ generation_id: 'gen-b', queue_position: 1, status: 'pending' }
@@ -79,7 +80,7 @@ describe('queue_update message handler', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.generation.queue).toEqual([
 			{ generation_id: 'gen-c', queue_position: null, status: 'running' }
 		]);
@@ -87,7 +88,7 @@ describe('queue_update message handler', () => {
 
 	it('routes to the tab that owns the generation via generation.queue, not just currentGeneration', () => {
 		tabsStore.addTab();
-		const [firstTabId, secondTabId] = get(tabsStore).tabs.map((t) => t.id);
+		const [firstTabId, secondTabId] = generationTabs(get(tabsStore).tabs).map((t) => t.id);
 		seedQueue(secondTabId, [{ generation_id: 'gen-second-tab', queue_position: 2, status: 'pending' }]);
 
 		dispatchGenerationMessage(
@@ -101,7 +102,7 @@ describe('queue_update message handler', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tabs = get(tabsStore).tabs;
+		const tabs = generationTabs(get(tabsStore).tabs);
 		const first = tabs.find((t) => t.id === firstTabId)!;
 		const second = tabs.find((t) => t.id === secondTabId)!;
 		expect(first.generation.queue).toEqual([]);

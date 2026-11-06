@@ -23,6 +23,7 @@ from ..io.quant_formats import (
 )
 from .casting import cast_bias_weight, cast_to, manual_cast
 from .gemm import gemm_support
+from .row_chunks import ChunkedGemmFailed, gemm_in_row_chunks
 from .lora_math import (
     _add_lora_output_branch,
     _deltas_output_branch_ok,
@@ -120,9 +121,13 @@ def reset_scaled_mm_fast_path_rejection_log() -> None:
     _scaled_mm_fast_path_reject_reasons_logged.clear()
 
 
+def fp8_activation_scale(x2d: torch.Tensor) -> torch.Tensor:
+    amax = torch.linalg.vector_norm(x2d.detach(), ord=float("inf")).clamp(min=1e-8).to(torch.float32)
+    return amax / E4M3_MAX
+
+
 def _quantize_fp8_dynamic(x2d: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    amax = x2d.detach().abs().amax().clamp(min=1e-8).to(torch.float32)
-    scale = amax / E4M3_MAX
+    scale = fp8_activation_scale(x2d)
     return _quantize_fp8(x2d, scale), scale
 
 
@@ -398,26 +403,42 @@ class Fp8ScaledLinear(manual_cast.Linear):
 
         orig_shape = input.shape
         x2d = input.reshape(-1, orig_shape[-1]).contiguous()
-        x_scale_t = self.input_scale
-        if x_scale_t is not None:
-            x_scale = self._cached_scaled_mm_scale("input", x_scale_t, device)
-            if x_scale is None:
+        static_scale = None
+        if self.input_scale is not None:
+            static_scale = self._cached_scaled_mm_scale("input", self.input_scale, device)
+            if static_scale is None:
                 return None
-            x_fp8 = _quantize_fp8(x2d, x_scale)
-        else:
-            x_fp8, x_scale = _quantize_fp8_dynamic(x2d)
         weight = weight if weight.is_contiguous() else weight.contiguous()
         bias = self.bias.to(device=device, dtype=input.dtype) if self.bias is not None else None
+
+        def run_rows(rows: torch.Tensor, scale: "torch.Tensor | None") -> torch.Tensor:
+            try:
+                x_scale = scale if scale is not None else static_scale
+                if x_scale is None:
+                    x_scale = fp8_activation_scale(rows)
+                x_fp8 = _quantize_fp8(rows, x_scale)
+            except RuntimeError as exc:
+                if not retry_after_cuda_oom(exc):
+                    raise
+                raise ChunkedGemmFailed(f"activation quant failed ({type(exc).__name__})", exc) from exc
+            try:
+                return torch._scaled_mm(
+                    x_fp8, weight.t(), scale_a=x_scale, scale_b=w_scale, out_dtype=input.dtype, bias=bias,
+                )
+            except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
+                if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                    raise
+                raise ChunkedGemmFailed(f"scaled_mm rejected operands ({type(exc).__name__})", exc) from exc
+
         try:
-            out = torch._scaled_mm(
-                x_fp8, weight.t(),
-                scale_a=x_scale, scale_b=w_scale,
-                out_dtype=input.dtype, bias=bias,
+            out = gemm_in_row_chunks(
+                x2d, self.out_features, run_rows,
+                (lambda _rows: static_scale) if static_scale is not None else fp8_activation_scale,
             )
-        except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
-            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
-                raise
-            logger.debug("fp8 matmul: _scaled_mm rejected operands; using dequant path", exc_info=True)
+        except ChunkedGemmFailed as failed:
+            logger.debug("fp8 matmul: %s; using dequant path", failed.reason, exc_info=failed.cause)
+            if failed.out_of_memory:
+                _log_scaled_mm_fast_path_rejection(failed.reason)
             return None
         if self.lora_deltas:
             if _lora_fused_enabled():

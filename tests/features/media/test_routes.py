@@ -325,13 +325,15 @@ class TestMediaController:
             relative_path="uploads/unique-id.png",
             filename="unique-id.png",
             size=len(sample_image),
-            url="/api/media/uploads/unique-id.png"
+            url="/api/media/uploads/unique-id.png",
+            id="up1",
         ))
 
         result = await controller.upload_media(mock_file, mock_current_user)
 
         assert result.success is True
         assert "path" in result.data
+        assert result.data["id"] == "up1"
 
     @pytest.mark.asyncio
     async def test_upload_size_precheck_runs_off_the_event_loop_thread(self, controller, mock_media_manager):

@@ -22,7 +22,8 @@ function session(id: string, name: string, daysAgo: number): Session {
 		name,
 		data: {},
 		created_at: at(daysAgo),
-		updated_at: at(daysAgo)
+		updated_at: at(daysAgo),
+		version: 1
 	};
 }
 

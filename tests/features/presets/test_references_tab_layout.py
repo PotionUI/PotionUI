@@ -43,10 +43,9 @@ from tests.fixtures.form_lookup import all_field_names
 
 MEDIA_TYPES = {"image", "video", "audio", "media"}
 
-# Plugins that either ship preset roots (`presets:`) or contribute a mode onto
-# someone else's preset (`preset_modes:`). Loading them is what puts the
-# comfyui-backend presets and krea2-edit's contributed `edit` mode in scope.
-PLUGIN_IDS = {"comfyui-backend", "krea2-edit", "trellis2", "stable-audio"}
+# Plugins that ship preset roots (`presets:`) or contribute a mode onto
+# someone else's preset (`preset_modes:`).
+PLUGIN_IDS = {"comfyui-backend", "trellis2", "stable-audio"}
 
 # (preset path suffix, mode, media field names expected on the References tab)
 CASES = [
@@ -56,6 +55,7 @@ CASES = [
     ("presets/marketplace/QwenImage", "edit", {"source_image"}),
     ("presets/marketplace/QwenImage-2.1", "edit", {"source_image"}),
     ("presets/marketplace/Krea2", "enhance", {"source_image"}),
+    ("presets/marketplace/Krea2", "upscale", {"source_image"}),
     ("presets/marketplace/Krea2", "edit", {"source_image", "source_image_b"}),
     ("presets/marketplace/SDXL", "inpaint", {"source_image"}),
     ("presets/marketplace/TRELLIS2", "img2mesh", {"source_image"}),
@@ -70,6 +70,8 @@ CASES = [
     ("presets/marketplace/MiniMax-H3-Fast", "refine_faces", {"input_video"}),
     ("presets/marketplace/MiniMax-H3-Fast", "extend", {"source_video"}),
     ("presets/marketplace/LTX-2", "upscale", {"input_video"}),
+    ("presets/marketplace/LTX-2", "motion_transfer", {"input_video", "input_image"}),
+    ("presets/marketplace/LTX-2", "follow_motion", {"input_video", "input_image"}),
     ("presets/marketplace/LTX-2.5", "extend", {"input_video"}),
     ("presets/marketplace/LTX-2.5", "upscale", {"input_video"}),
     ("presets/marketplace/LTX-2.5", "refine_faces", {"input_video"}),
@@ -79,7 +81,11 @@ CASES = [
     ("presets/marketplace/LTX-2.5", "add_water", {"input_video"}),
     ("presets/marketplace/LTX-2.5", "remove_object", {"input_video"}),
     ("presets/marketplace/LTX-2.5", "layout_to_render", {"input_video", "style_image"}),
+    ("presets/marketplace/LTX-2.5", "motion_transfer", {"input_video", "input_image"}),
     ("presets/marketplace/LTX-2.5", "cinemagraph", {"input_image"}),
+    ("presets/marketplace/LTX-2.5", "transition", {"first_image", "last_image"}),
+    ("presets/marketplace/LTX-2.5", "follow_motion", {"input_video", "input_image"}),
+    ("presets/marketplace/LTX-2.5", "transparent_video", {"input_video"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),
     ("comfyui-backend/presets/QwenImage", "img2img", {"source_image", "ref_image_2", "ref_image_3"}),
 ]
@@ -142,10 +148,6 @@ def _tabs(loader, serializer, suffix, mode):
     """The tab list exactly as the form endpoint serves it, in order."""
     preset = _preset(loader, suffix)
     if mode not in preset.modes:
-        # A mode absent here (rather than the whole preset, which `_preset`
-        # already skips on) means a `preset_modes:`-contributing plugin from
-        # PLUGIN_IDS - e.g. krea2-edit's `edit` mode on the core Krea2 preset
-        # - isn't installed, same as a missing preset.
         pytest.skip(f"{suffix} has no mode {mode} (contributing plugin not present)")
     schema = serializer.process_form_fields(preset.modes[mode].forms[0], preset.id)
     container = schema["properties"].get("tabs")
@@ -244,7 +246,7 @@ def test_no_tab_body_file_is_orphaned():
     # scanning for orphaned tab bodies.
     best_root_by_id: dict[str, str] = {}
     for manifest in glob.glob("content/plugins/*/*/manifest.yml"):
-        text = Path(manifest).read_text()
+        text = Path(manifest).read_text(encoding="utf-8")
         if "presets:" not in text and "preset_modes:" not in text:
             continue
         id_match = re.search(r'^id:\s*"?([\w.-]+)"?\s*$', text, re.MULTILINE)
@@ -272,7 +274,7 @@ def test_no_tab_body_file_is_orphaned():
         ):
             # `children:` is a Jinja path; only `{{ paths.preset }}` is
             # substituted, and textually (see docs/presets.md).
-            for ref in re.findall(r'children:\s*"([^"]+)"', Path(form).read_text()):
+            for ref in re.findall(r'children:\s*"([^"]+)"', Path(form).read_text(encoding="utf-8")):
                 composed.add(posixpath.normpath(ref.replace("{{ paths.preset }}", preset_dir)))
         if posixpath.normpath(tab_file) not in composed:
             orphans.append(tab_file)

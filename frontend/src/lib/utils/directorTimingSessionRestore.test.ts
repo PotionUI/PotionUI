@@ -7,7 +7,7 @@
 // session's `svi_motion_latent_count` reaches it through the SAME
 // live-form-value branch a fresh session uses.
 import { describe, it, expect } from 'vitest';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import { collectTabSessionData } from './sessionTabState';
 import { buildSessionRestoreTabPatch } from './sessionRestore';
 import { resolveDirectorTimingProfile, resolveDirectorCapabilities, buildDirectorSubmission } from './videoDirector';
@@ -79,7 +79,7 @@ function wan808080Doc(): VideoDirectorValue {
 	};
 }
 
-function tab(overrides: Partial<Tab> = {}): Tab {
+function tab(overrides: Partial<GenerationTab> = {}): GenerationTab {
 	return {
 		id: 'tab-a',
 		name: 'Tab A',
@@ -113,7 +113,7 @@ function tab(overrides: Partial<Tab> = {}): Tab {
 		layoutMode: 'three',
 		promptPanelWidth: 420,
 		...overrides
-	} as Tab;
+	} as GenerationTab;
 }
 
 describe('a saved-and-restored Wan tab resolves the SAME timing profile through the real session machinery', () => {

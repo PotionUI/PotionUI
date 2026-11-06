@@ -105,7 +105,7 @@ GENERATION_HOOKS = hooks_registry.declare(
                 "user_id": {"type": "str", "description": "User requesting the deletion (ownership already verified)"},
                 "preset_id": {"type": "Optional[str]", "description": "Preset the generation used"},
             },
-            "mutable": ["blocked", "block_reason"],
+            "mutable": ["blocked", "block_reason", "block_details"],
             "use_when": [
                 "Veto deletion of a generation that is referenced elsewhere (e.g. pinned in a gallery)",
             ],
@@ -127,7 +127,7 @@ GENERATION_HOOKS = hooks_registry.declare(
                 "user_id": {"type": "str", "description": "User requesting the deletion"},
                 "count": {"type": "int", "description": "Number of generations targeted"},
             },
-            "mutable": ["blocked", "block_reason"],
+            "mutable": ["blocked", "block_reason", "block_details"],
             "use_when": ["Block a bulk delete above a size threshold, or one touching protected generations"],
         },
         "after_bulk_delete": {

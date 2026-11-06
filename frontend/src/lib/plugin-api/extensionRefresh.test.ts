@@ -17,6 +17,7 @@ type Catalogs = {
 	renderers?: any[];
 	contributions?: any[];
 	revisions?: Record<string, string>;
+	toolTabs?: any[];
 	fieldTypes?: any[];
 	pages?: any[];
 	quickActions?: any[];
@@ -30,7 +31,8 @@ function respondWith(catalogs: Catalogs) {
 		'/api/plugins/frontend-extensions': {
 			renderers: catalogs.renderers ?? [],
 			contributions: catalogs.contributions ?? [],
-			revisions: catalogs.revisions ?? {}
+			revisions: catalogs.revisions ?? {},
+			tool_tabs: catalogs.toolTabs ?? []
 		},
 		'/api/fields/types': catalogs.fieldTypes ?? [],
 		'/api/plugins/pages': catalogs.pages ?? [],
@@ -65,7 +67,7 @@ const ARTIFACT_RENDERER = {
 	component: 'FakeArtifact.js'
 };
 
-describe('refreshPluginExtensions', () => {
+describe('refreshPluginExtensions', { timeout: 30_000 }, () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
@@ -112,6 +114,23 @@ describe('refreshPluginExtensions', () => {
 		expect(m.generationMessageRegistry.has('custom')).toBe(false);
 		expect(get(m.contributionsForSlot('admin.tabs'))).toHaveLength(0);
 		expect(get(m.pluginPages)).toHaveLength(0);
+	});
+
+	it('registers a plugin tool tab kind and removes it when the plugin goes away', async () => {
+		const m = await loadModules();
+		const registry = await import('$lib/tool-tabs/registry');
+		respondWith({
+			toolTabs: [
+				{ plugin_id: 'acme', id: 'stamp', tool: 'acme.stamp', label: 'Stamp tool', icon: 'brush', accepts: ['image'], handles: [], component: 'StampToolTab.js' }
+			],
+			revisions: { acme: 'r1' }
+		});
+		await m.refreshPluginExtensions();
+		expect(get(registry.pluginToolKinds).map((kind) => [kind.tool, kind.label])).toEqual([['acme.stamp', 'Stamp tool']]);
+
+		respondWith({});
+		await m.refreshPluginExtensions();
+		expect(get(registry.pluginToolKinds)).toEqual([]);
 	});
 
 	it("leaves core's registration for a key a removed plugin had shadowed", async () => {

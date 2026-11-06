@@ -4,6 +4,7 @@ Module-level function, `PresetCollaborators` as its leading arg - same shape
 as `src.features.presets.operations.query`.
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from src.features.presets.collaborators import PresetCollaborators
@@ -22,6 +23,8 @@ from src.features.presets.requirements.evaluator import (
     evaluate_preset_requirements_for_backends,
 )
 from src.platform.plugins.requirement_checkers import requirement_checker_registry
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_chosen_backend(
@@ -71,6 +74,18 @@ def _build_result_items(
     return items
 
 
+def _form_overrides(collaborators: PresetCollaborators, preset_id: str) -> Dict[str, Any]:
+    db_repo = getattr(collaborators, "db_repo", None)
+    if db_repo is None:
+        return {}
+    try:
+        overrides = db_repo.get_preset_form_overrides(preset_id)
+    except Exception:
+        logger.warning("Reading form overrides for '%s' failed; admin defaults are ignored for its requirements", preset_id)
+        return {}
+    return overrides if isinstance(overrides, dict) else {}
+
+
 async def get_preset_requirements(
     collaborators: PresetCollaborators,
     preset_id: str,
@@ -96,20 +111,23 @@ async def get_preset_requirements(
     if not preset:
         raise PresetNotFoundException(preset_id)
 
+    overrides = _form_overrides(collaborators, preset_id)
     host_ctx = build_requirement_context(
-        preset, collaborators.model_index, collaborators.gpu_monitor, collaborators.backend_registry
+        preset, collaborators.model_index, collaborators.gpu_monitor, collaborators.backend_registry,
+        form_overrides=overrides,
     )
     backend_infos = backend_infos_for_engine(collaborators.backend_registry, preset.engine)
     backend_ctxs = {
         info.id: build_requirement_context_for_backend(
-            preset, collaborators.model_index, collaborators.gpu_monitor, info
+            preset, collaborators.model_index, collaborators.gpu_monitor, info, form_overrides=overrides,
         )
         for info in backend_infos
     }
 
     if collaborators.requirements_cache is not None:
+        changed = collaborators.requirements_cache.inputs_changed(preset.id, overrides)
         evaluation = await collaborators.requirements_cache.get_or_evaluate_for_backends(
-            requirement_checker_registry, preset, host_ctx, backend_ctxs, refresh=refresh,
+            requirement_checker_registry, preset, host_ctx, backend_ctxs, refresh=refresh or changed,
         )
     else:
         evaluation = await evaluate_preset_requirements_for_backends(

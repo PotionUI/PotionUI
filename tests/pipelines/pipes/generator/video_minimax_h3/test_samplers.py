@@ -25,12 +25,14 @@ from src.pipelines.pipes.generator.video_minimax_h3.samplers import (
     DPMPP_2M,
     ER_SDE,
     EULER,
+    LCM,
     RES_MULTISTEP,
     SA_SOLVER,
     SAMPLERS,
     DPMPlusPlus2MStepper,
     ERSDEStepper,
     EulerStepper,
+    LCMStepper,
     ResMultistepStepper,
     SASolverStepper,
     make_stepper,
@@ -54,7 +56,8 @@ def _velocity(denoised: torch.Tensor, sample: torch.Tensor, timestep: float) -> 
     return (denoised - sample) / (1.0 - timestep)
 
 
-_DETERMINISTIC_SAMPLERS = tuple(sampler for sampler in SAMPLERS if sampler != ER_SDE)
+_STOCHASTIC_SAMPLERS = (ER_SDE, LCM)
+_DETERMINISTIC_SAMPLERS = tuple(sampler for sampler in SAMPLERS if sampler not in _STOCHASTIC_SAMPLERS)
 
 
 def _run(sampler: str, sigmas, denoised_fn, x_start: torch.Tensor, *, generator=None) -> torch.Tensor:
@@ -126,7 +129,7 @@ def _curved_errors_deterministic_only(sigmas) -> dict:
     trajectory's error meaningless without averaging over seeds, which the
     order/refinement tests below have no need for since they only compare
     the DETERMINISTIC samplers against Euler."""
-    return {sampler: error for sampler, error in _curved_errors(sigmas).items() if sampler != ER_SDE}
+    return {sampler: error for sampler, error in _curved_errors(sigmas).items() if sampler not in _STOCHASTIC_SAMPLERS}
 
 
 @pytest.mark.parametrize("shift", (VIDEO_SHIFT, AUDIO_SHIFT))
@@ -444,3 +447,56 @@ def test_sa_solver_matches_the_diffusers_reference_scheduler():
 
     got = _run(SA_SOLVER, sigmas, _curved_denoised, x_start)
     torch.testing.assert_close(got, ref_x, rtol=0, atol=1e-5)
+
+
+def test_lcm_terminal_step_returns_the_data_estimate_exactly():
+    velocity = torch.tensor([0.3, -0.7])
+    sample = torch.tensor([1.0, 2.0])
+    got = LCMStepper(torch.Generator().manual_seed(0)).step(velocity, 0.9, sample, 0.1, 0.0)
+    torch.testing.assert_close(got, data_estimate(velocity, 0.9, sample), rtol=0, atol=0)
+
+
+def test_lcm_non_terminal_step_renoises_the_data_estimate_to_the_next_sigma():
+    velocity = torch.tensor([0.3, -0.7, 0.2])
+    sample = torch.tensor([1.0, 2.0, -0.5])
+    sigma_next = 0.4
+    got = LCMStepper(torch.Generator().manual_seed(7)).step(velocity, 0.2, sample, 0.8, sigma_next)
+    noise = torch.randn(sample.shape, generator=torch.Generator().manual_seed(7))
+    expected = (1.0 - sigma_next) * data_estimate(velocity, 0.2, sample) + sigma_next * noise
+    torch.testing.assert_close(got, expected, rtol=0, atol=1e-6)
+
+
+def test_lcm_consumes_the_generator_so_consecutive_steps_draw_different_noise():
+    stepper = LCMStepper(torch.Generator().manual_seed(1))
+    velocity = torch.zeros(4)
+    sample = torch.zeros(4)
+    first = stepper.step(velocity, 0.2, sample, 0.8, 0.5)
+    second = stepper.step(velocity, 0.2, sample, 0.8, 0.5)
+    assert not torch.equal(first, second)
+
+
+def test_lcm_is_reproducible_for_the_same_seed():
+    velocity = torch.tensor([0.1, 0.2])
+    sample = torch.tensor([0.5, -0.5])
+    a = LCMStepper(torch.Generator().manual_seed(3)).step(velocity, 0.2, sample, 0.8, 0.5)
+    b = LCMStepper(torch.Generator().manual_seed(3)).step(velocity, 0.2, sample, 0.8, 0.5)
+    torch.testing.assert_close(a, b, rtol=0, atol=0)
+
+
+def test_lcm_keeps_half_precision_dtype():
+    sample = torch.tensor([1.0, 2.0], dtype=torch.bfloat16)
+    got = LCMStepper(torch.Generator().manual_seed(0)).step(torch.zeros(2, dtype=torch.bfloat16), 0.2, sample, 0.8, 0.5)
+    assert got.dtype == torch.bfloat16
+
+
+def test_make_stepper_refuses_lcm_without_a_generator():
+    with pytest.raises(ValueError, match="Generator"):
+        make_stepper(LCM)
+    assert isinstance(make_stepper(LCM, generator=torch.Generator()), LCMStepper)
+
+
+def test_lcm_terminal_step_draws_no_noise():
+    generator = torch.Generator().manual_seed(5)
+    before = generator.get_state()
+    LCMStepper(generator).step(torch.zeros(3), 0.9, torch.zeros(3), 0.1, 0.0)
+    assert torch.equal(generator.get_state(), before)

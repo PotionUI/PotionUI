@@ -51,6 +51,7 @@ from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     preview_config_spec,
+    preview_decoder_config_spec,
     seed_config_spec,
 )
 
@@ -73,10 +74,13 @@ class GeneratorQwenPipe(QwenEditMixin, FlowMatchGeneratorPipe):
             PipeConfigSpec("sampler", str, "euler", "Sampler: any key registered on the sampler registry "
                            "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "1024x1024", "Resolution (WxH)", required=False),
+            PipeConfigSpec("fit", str, "match", "Edit output size: match the first image, or render at the resolution (image_fit crops or pads the first image)",
+                           required=False, choices=["match", "crop", "pad"]),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec(),
+            preview_decoder_config_spec(),
             *schedule_settings_config_specs(),
             # Only txt2img engages this (see NativeGenerator._plan_warm_start) --
             # img2img/edit always pass init_latent and silently fall back to a

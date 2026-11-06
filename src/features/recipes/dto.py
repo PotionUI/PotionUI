@@ -11,7 +11,7 @@ plain.
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -104,6 +104,16 @@ class StartRecipeRunRequest(BaseModel):
     means "whatever the catalog serves right now"."""
 
     recipe_version: Optional[int] = None
+    preselect_modes: List[str] = Field(default_factory=list)
+
+
+class RecipePlanRequest(BaseModel):
+    preselect_modes: List[str] = Field(default_factory=list)
+    target: Optional[str] = None
+
+
+class ModeRemovalRequest(BaseModel):
+    model_ids: List[str] = Field(default_factory=list)
 
 
 class RecipeRunActionRequest(BaseModel):
@@ -117,10 +127,16 @@ class RecipeRunActionRequest(BaseModel):
     action: Optional[str] = None
     step_key: Optional[str] = None
     selections: Optional[Dict[str, str]] = None
+    modes: Optional[List[str]] = None
+    extras: Optional[List[str]] = None
+    target: Optional[str] = None
 
 
 class GrantConsentRequest(BaseModel):
     selections: Dict[str, str] = Field(default_factory=dict)
+    modes: Optional[List[str]] = None
+    extras: Optional[List[str]] = None
+    target: Optional[str] = None
 
 
 class VariantDownloadRequest(BaseModel):
@@ -288,15 +304,27 @@ class RecipeRunView(BaseModel):
 # --- catalog DTOs ----------------------------------------------------------
 
 
+def recipe_fetched_artifacts(recipe: Recipe) -> list:
+    referenced = {
+        artifact_id
+        for step in recipe.steps
+        if step.kind in ("artifacts.plan", "artifacts.fetch")
+        for artifact_id in step.params.get("artifact_ids") or []
+    }
+    if not referenced:
+        return list(recipe.artifacts)
+    return [a for a in recipe.artifacts if a.id in referenced]
+
+
 def recipe_total_download_bytes(recipe: Recipe) -> Optional[int]:
-    sizes = [a.size_bytes for a in recipe.artifacts if a.size_bytes is not None]
-    return sum(sizes) if sizes and len(sizes) == len(recipe.artifacts) else None
+    artifacts = recipe_fetched_artifacts(recipe)
+    sizes = [a.size_bytes for a in artifacts if a.size_bytes is not None]
+    return sum(sizes) if sizes and len(sizes) == len(artifacts) else None
 
 
-def recipe_source_hosts(recipe: Recipe) -> List[str]:
+def recipe_source_hosts(recipe: Recipe, planned: Sequence[str] = ()) -> List[str]:
     hosts: List[str] = []
-    for artifact in recipe.artifacts:
-        host = artifact.source_host
+    for host in [*(a.source_host for a in recipe.artifacts), *planned]:
         if host and host not in hosts:
             hosts.append(host)
     return hosts
@@ -340,6 +368,11 @@ class RecipeSummary(BaseModel):
     # marks it "Installed" (with a "Run again" action) instead of offering
     # "Start" as if nothing had happened yet.
     last_completed_at: Optional[datetime] = None
+    preset_id: Optional[str] = None
+    modes_total: Optional[int] = None
+    modes_ready: Optional[int] = None
+    missing_bytes: Optional[int] = None
+    installed_bytes: Optional[int] = None
 
     @classmethod
     def from_recipe(
@@ -350,8 +383,16 @@ class RecipeSummary(BaseModel):
         last_completed_at: Optional[datetime] = None,
         min_vram_gb: Optional[int] = None,
         recommended_vram_gb: Optional[int] = None,
+        modes_summary: Optional[Dict[str, Any]] = None,
     ) -> "RecipeSummary":
+        modes_summary = modes_summary or {}
+        derived_preset = recipe.presets[0].preset_id if recipe.source == "derived" and recipe.presets else None
         return cls(
+            preset_id=derived_preset,
+            modes_total=modes_summary.get("modes_total"),
+            modes_ready=modes_summary.get("modes_ready"),
+            missing_bytes=modes_summary.get("missing_bytes"),
+            installed_bytes=modes_summary.get("installed_bytes"),
             id=recipe.id,
             name=recipe.name,
             summary=recipe.summary,
@@ -363,11 +404,13 @@ class RecipeSummary(BaseModel):
             presets=list(presets or []),
             source=recipe.source,
             plugin_id=recipe.plugin_id,
-            total_download_bytes=recipe_total_download_bytes(recipe),
+            total_download_bytes=(
+                modes_summary.get("total_bytes") if modes_summary else recipe_total_download_bytes(recipe)
+            ),
             blurb=recipe.blurb,
             min_vram_gb=min_vram_gb,
             recommended_vram_gb=recommended_vram_gb,
-            sources=recipe_source_hosts(recipe),
+            sources=recipe_source_hosts(recipe, modes_summary.get("sources") or ()),
             first_run=recipe.first_run,
             last_completed_at=last_completed_at,
         )
@@ -413,6 +456,8 @@ class RecipeArtifactView(BaseModel):
     required: bool = True
     gated: bool = False
     license_url: Optional[str] = None
+    source: Optional[str] = None
+    repo_id: Optional[str] = None
     variants: List[RecipeArtifactVariantView] = Field(default_factory=list)
 
 
@@ -424,10 +469,23 @@ class RecipeSmokeView(BaseModel):
     timeout_seconds: int = DEFAULT_SMOKE_TIMEOUT_SECONDS
 
 
+class RecipeModeView(BaseModel):
+    id: str
+    label: str
+    short_description: Optional[str] = None
+    ready: bool = False
+    size_bytes: Optional[int] = None
+    own_bytes: Optional[int] = None
+    missing_bytes: Optional[int] = None
+    removable: bool = False
+    shares_with: List[str] = Field(default_factory=list)
+
+
 class RecipeDetail(RecipeSummary):
     """A recipe with everything it declares - what Admin -> Recipes renders
     before an admin decides to run it."""
 
+    modes: List[RecipeModeView] = Field(default_factory=list)
     steps: List[RecipeStepView] = Field(default_factory=list)
     artifacts: List[RecipeArtifactView] = Field(default_factory=list)
     smoke: Optional[RecipeSmokeView] = None
@@ -444,6 +502,7 @@ class RecipeDetail(RecipeSummary):
         load_errors: Optional[List[str]] = None,
         min_vram_gb: Optional[int] = None,
         recommended_vram_gb: Optional[int] = None,
+        modes_summary: Optional[Dict[str, Any]] = None,
     ) -> "RecipeDetail":
         summary = RecipeSummary.from_recipe(
             recipe,
@@ -451,9 +510,11 @@ class RecipeDetail(RecipeSummary):
             last_completed_at=last_completed_at,
             min_vram_gb=min_vram_gb,
             recommended_vram_gb=recommended_vram_gb,
+            modes_summary=modes_summary,
         )
         return cls(
             **summary.model_dump(),
+            modes=[RecipeModeView(**mode) for mode in (modes_summary or {}).get("modes") or []],
             steps=[
                 RecipeStepView(
                     key=s.key, kind=s.kind, title=s.title, onboarding_only=s.onboarding_only
@@ -471,6 +532,8 @@ class RecipeDetail(RecipeSummary):
                     required=a.required,
                     gated=a.gated,
                     license_url=a.license_url,
+                    source=(a.provider_hint or {}).get("source"),
+                    repo_id=(a.provider_hint or {}).get("model_id"),
                     variants=[
                         RecipeArtifactVariantView(
                             id=v.id,

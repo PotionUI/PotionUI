@@ -33,7 +33,7 @@ def _stand_in_user(context: ToolContext) -> User:
 
 
 class ListPresetsTool(BaseTool):
-    modes = ["generation"]
+    modes = ["generation", "elixirs"]
     icon = "layout-grid"
     context_group = "library"
 
@@ -131,7 +131,7 @@ class ListPresetsTool(BaseTool):
 class GetPresetInfoTool(BaseTool):
     """Gets information about the current preset configuration."""
 
-    modes = ["generation"]
+    modes = ["generation", "elixirs"]
     icon = "settings-2"
     context_group = "library"
 

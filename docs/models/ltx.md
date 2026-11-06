@@ -130,6 +130,50 @@ Pointing the 2.0/2.3 preset at a transformer-only 2.5 DiT is rejected up front b
 
 Both presets carry the same two modes — a `video`/Director mode (first-frame/last-frame/arbitrary-keyframe conditioning, IC-LoRA reference videos, an optional jointly-generated or muxed-in audio track, and an in-flow two-stage latent upscale) and a standalone `upscale` mode that refines an existing clip. With Upscale on, a Director IC-LoRA and its reference apply to the first pass only unless "Use IC-LoRA in the refine pass" is on. See [Video Director](../video-director.md) for the keyframe/IC-LoRA/audio composition contract. What genuinely differs between them, beyond the pickers, is the stage-1 sampler and schedule — see [Sampling](#sampling).
 
+### Motion transfer
+
+Both presets ship a `motion_transfer` mode: a picture of a person plus a video of someone moving, and the person from the picture performs the moves. The look, clothing and background come from the picture; only the movement comes from the video.
+
+The pipeline is `media_loader` (video) and `media_loader` (picture) → `control_video` → `model_loader/ltx` → `prompt_encoder` → `generator/video_ltx` stage 1 → `latent_upscaler/ltx` → `generator/video_ltx` refine.
+
+- `control_video` (`type: pose`, see [Pose guide](../pose-guide.md)) renders a whole-body skeleton guide. With the picture wired in (`match_picture`) the skeleton is retargeted onto the person in the picture, so the guide is drawn in the picture's own frame. `ease_in` (Advanced → Motion guide, default 0.5 s) blends from the picture's pose into the video's moves, so frame 0 agrees with the picture used as the first frame. `save_guide` also saves the skeleton video to the gallery.
+- Stage 1 and the refine take the guide as an IC-LoRA reference (`{source: video, role: reference}`) and the picture as the first-frame keyframe (`{source: image, frame: first, role: keyframe}`). The video's own soundtrack is muxed in (`audio_source: file`).
+- The IC-LoRA is `Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control`, file `ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors` (pose, depth and canny in one LoRA). It is passed as a `scoped_loras` entry, so it is applied around the generator calls and never baked into the shared DiT. The mode lists it as its recommended LoRA; "Follow strength" is its weight.
+- `ref0.5` encodes the reference at half resolution, so the generation width and height must be multiples of 64. The guide is rendered with `size_multiple: 64` and a 522240-pixel budget (the same 960×544-class budget as Layout to render), `match_video` takes that size for stage 1, and the generator snaps to 32 × the LoRA's `reference_downscale_factor`, so the two never disagree.
+- The length follows the driving video up to what one pass fits in free VRAM (the same rule as the other reference-video modes; the form says about the first 5 seconds). The picture's person should be alone, front-facing and well lit; crowds, motion blur and side profiles are where the pose reading fails.
+- The refine keeps the reference (`refine_reference: true` on the final `generator/video_ltx`, the same default as Layout to render). Lightricks' own pipeline refines without it; flipping that single line in `modes/motion_transfer/pipeline.yml` turns it off.
+
+The LoRA was trained on LTX-2.3. It is the native pairing for the `LTX-2 / 2.3` preset. The `LTX-2.5` preset reuses it unchanged: Lightricks states that most LTX-2.3 LoRAs run on 2.5, and that structural IC-LoRAs need the distilled checkpoint, which is why the mode defaults to the Distilled speed profile. No 2.5-trained Union-Control LoRA exists yet.
+
+### Transition
+
+The `LTX-2.5` preset ships a `transition` mode: a First picture and a Last picture in, the video between them out. It is the focused form of the Video mode's first-frame and last-frame keyframes, with a length in seconds and nothing else to set.
+
+- One `generator/video_ltx` pass with two `role: keyframe` placements: the First picture at `frame: first` and the Last picture at `frame: last`, both at strength 1.0. The length is `duration * 24` frames, snapped by the generator to 1 + 8k.
+- The prompt is optional. Empty, the caption is "A smooth cinematic transition from the first picture to the last picture".
+- The optional Transition LoRA (`valiantcat/LTX-2.3-Transition-LORA`, `ltx2.3-transition.safetensors`, 390 MB, Apache-2.0) rides `scoped_loras`. Its card names first-to-last-frame generation as a core use and asks for the trigger word `zhuanchang` at the end of the prompt; the mode appends it only when the LoRA is selected. Without the LoRA nothing is scoped and the caption is untouched.
+- The LoRA was trained on LTX-2.3. Its card does not say whether it loads on 2.5, so it stays optional; the mode works without it.
+
+### Transparent video
+
+The `LTX-2.5` preset ships a `transparent_video` mode: a clip in, the same clip with the background cut out and the transparency kept, out. It runs `Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen` (beta, `ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors`, 1.31 GB, LTX-2 community licence, gated).
+
+- The LoRA is a video-to-video IC-LoRA. The clip is its only guide (an `{source: video, role: reference}` placement, empty prompt) and the generated video is a black and white alpha matte of the same length and size: white is the subject, black is background, grey is partial transparency. The mode declares `prompt: none`. Lightricks recommends the distilled checkpoint for structural IC-LoRAs, so the speed profile is Distilled or Custom.
+- Long clips run in overlapping windows (`windows: true`) like the other clip-in modes. Size is 720p or 1080p of pixel budget (`match_video`).
+- `alpha_video` then combines the original clip and the matte into a WebM (VP9, `yuva420p`) with a real alpha channel. The matte is resized to the clip, read by luminance and passed through the Advanced "Clear below" and "Solid above" levels. Pixels with alpha 0 are written black so the Library thumbnails, which are decoded without alpha, show the subject on black.
+- The browser plays the WebM with transparency in Chromium and Firefox on Linux and Windows. Safari has no VP9 alpha, so by default the pipe also writes an MP4 of the cut-out over a checkerboard (the "Also save a checkerboard preview" option), next to the WebM in the gallery. "Also save the black and white matte" adds the raw matte.
+- The WebM needs an ffmpeg with `libvpx-vp9`. The bundled `imageio-ffmpeg` build has it; a system ffmpeg without it makes the run fail with a message naming the missing encoder.
+- A PNG sequence export is not offered: the gallery has no archive output type, and hundreds of loose PNG frames would flood it.
+
+### Follow motion
+
+Both presets ship a `follow_motion` mode: a Video with the camera moves and layout you want, a First Frame picture and a prompt for the new scene, and the result is the new scene moving the way the video does. It reuses the Motion transfer pipeline and its Union-Control LoRA, and only changes the guide.
+
+- `control_video` runs with `type: depth` (default) or `type: edges`, chosen by the Follow field. Depth is Video Depth Anything Small and keeps camera and layout loosely; edges is canny and keeps outlines closely. Neither reads the picture, so the guide keeps the video's own frame; the picture is the first-frame keyframe and is cover-cropped onto it.
+- Stage 1 and the refine take the guide as the IC-LoRA reference and the picture as the first frame, exactly as in Motion transfer. The video's soundtrack is not carried over, since the scene is new.
+- The Generation tab and the Union-Control LoRA are the Motion transfer ones (`modes/motion_transfer/tabs/generation.yml` is included, not copied). The LoRA was trained on LTX-2.3: native on `LTX-2 / 2.3`, reused unchanged on `LTX-2.5`. The Distilled speed profile is the default, as structural IC-LoRAs need the distilled checkpoint.
+- Advanced has "Save guide" to put the depth or edge video in the gallery, which is the quickest way to see what the model is following. See [Pose guide](../pose-guide.md#depth-and-edges) for the guide itself.
+
 ### Latent upscalers: spatial and temporal
 
 `latent_upscaler/ltx` runs one upsample in latent space, between two generation stages. Its `mode` config picks which checkpoint it runs, and each has its own model-loader slot, because a pipeline can need both files resident at once:

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import { factIcon } from '$lib/organize/icons';
-	import { Button, IconButton, SegmentedControl } from '$lib/components/ui';
+	import { Button, IconButton, SegmentedControl, Switch } from '$lib/components/ui';
 	import {
+		canIgnoreSeparators,
 		coerceValue,
 		defaultValue,
 		effectiveKind,
@@ -40,11 +41,20 @@
 		const cond = draft.conditions[index];
 		const spec = specOf(cond.fact);
 		const kind = effectiveKind(spec);
-		draft.conditions[index] = {
+		const next = {
 			...cond,
 			operator,
 			value: coerceValue(kind, operator, cond.value ?? defaultValue(kind, operator, spec), spec)
 		};
+		if (!canIgnoreSeparators(spec, operator)) delete next.ignore_separators;
+		draft.conditions[index] = next;
+	}
+
+	function changeIgnoreSeparators(index: number, next: boolean) {
+		const cond = { ...draft.conditions[index] };
+		if (next) cond.ignore_separators = true;
+		else delete cond.ignore_separators;
+		draft.conditions[index] = cond;
 	}
 
 	function changeValue(index: number, value: unknown) {
@@ -129,6 +139,17 @@
 			{/if}
 			<IconButton icon="close" label="Remove condition" onclick={() => removeCondition(index)} />
 		</div>
+		{#if spec && canIgnoreSeparators(spec, cond.operator)}
+			<div class="flex items-center gap-2 sm:pl-12" data-testid="ignore-separators">
+				<Switch
+					size="sm"
+					label="Ignore dashes and underscores"
+					checked={cond.ignore_separators === true}
+					onchange={(next) => changeIgnoreSeparators(index, next)}
+				/>
+				<span class="text-xs text-fg-muted">Ignore dashes and underscores</span>
+			</div>
+		{/if}
 	{/each}
 
 	<div class="flex flex-wrap items-center gap-3">

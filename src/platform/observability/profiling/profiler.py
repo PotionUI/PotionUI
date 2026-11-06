@@ -39,6 +39,7 @@ import json
 import logging
 import threading
 import time
+import types
 import warnings
 from pathlib import Path
 from typing import Any, Optional
@@ -204,6 +205,20 @@ _LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 
 # -- profiler -------------------------------------------------------------------
 
+class _CensusTicket:
+    def __init__(self, generation_id: str) -> None:
+        self.generation_id = generation_id
+        self.release = threading.Event()
+        self.cancel = threading.Event()
+        self.reason: Optional[str] = None
+
+    def skip(self, reason: str) -> None:
+        if self.reason is None:
+            self.reason = reason
+        self.cancel.set()
+        self.release.set()
+
+
 class GenerationProfiler:
     """Samples process/system/VRAM stats at a fixed interval on a daemon
     thread for the duration of one generation, plus records named events on
@@ -226,8 +241,8 @@ class GenerationProfiler:
         self._log_handler: Optional[logging.Handler] = None
         self._census_lock = threading.Lock()
         self._census_thread: Optional[threading.Thread] = None
-        self._census_cancel: Optional[threading.Event] = None
-        self._census_generation_id: Optional[str] = None
+        self._census_ticket: Optional[_CensusTicket] = None
+        self._census_verdict: Optional[tuple[str, Optional[str]]] = None
 
     def start(self, generation_id: str, out_dir: str | Path) -> None:
         self._cancel_pending_census(generation_id)
@@ -306,18 +321,41 @@ class GenerationProfiler:
         thread.join(timeout)
         return not thread.is_alive()
 
+    def release_census(self, generation_id: str) -> None:
+        self._settle_census(generation_id, None)
+
+    def skip_census(self, generation_id: str, reason: str) -> None:
+        self._settle_census(generation_id, reason)
+
+    def _settle_census(self, generation_id: str, reason: Optional[str]) -> None:
+        with self._census_lock:
+            ticket = self._census_ticket
+            if ticket is None or ticket.generation_id != generation_id:
+                self._census_verdict = (generation_id, reason)
+                return
+        if reason is not None:
+            ticket.skip(reason)
+        else:
+            ticket.release.set()
+
     def _start_census(self, generation_id: str, fh: Any) -> None:
-        cancel = threading.Event()
+        ticket = _CensusTicket(generation_id)
         thread = threading.Thread(
             target=self._run_census,
-            args=(generation_id, fh, cancel),
+            args=(ticket, fh),
             name=f"gen-profiler-census-{generation_id}",
             daemon=True,
         )
         with self._census_lock:
+            verdict = self._census_verdict
+            self._census_verdict = None
             self._census_thread = thread
-            self._census_cancel = cancel
-            self._census_generation_id = generation_id
+            self._census_ticket = ticket
+        if verdict is not None and verdict[0] == generation_id:
+            if verdict[1] is not None:
+                ticket.skip(verdict[1])
+            else:
+                ticket.release.set()
         try:
             thread.start()
         except Exception:
@@ -326,41 +364,49 @@ class GenerationProfiler:
 
     def _cancel_pending_census(self, next_generation_id: str) -> None:
         with self._census_lock:
-            thread, cancel, census_id = self._census_thread, self._census_cancel, self._census_generation_id
-        if thread is None or cancel is None or not thread.is_alive():
+            thread, ticket = self._census_thread, self._census_ticket
+        if thread is None or ticket is None or not thread.is_alive():
             return
-        cancel.set()
+        ticket.skip("next_generation_started")
         logger.info(
             "profiler: skipping the memory census for %s because generation %s is starting",
-            census_id, next_generation_id,
+            ticket.generation_id, next_generation_id,
         )
 
-    def _run_census(self, generation_id: str, fh: Any, cancel: threading.Event) -> None:
+    def _run_census(self, ticket: _CensusTicket, fh: Any) -> None:
         try:
-            if cancel.wait(self._CENSUS_DELAY_S):
-                self._write_census_skipped(fh)
+            waited_from = time.monotonic()
+            released = ticket.release.wait(self._CENSUS_RELEASE_TIMEOUT_S)
+            if ticket.cancel.is_set() or ticket.cancel.wait(self._CENSUS_DELAY_S):
+                self._write_census_event(fh, "census.skipped", reason=ticket.reason)
                 return
+            self._write_census_event(
+                fh, "census.start",
+                trigger="released" if released else "release_timeout",
+                waited_s=round(time.monotonic() - waited_from, 3),
+            )
             rows = self._collect_tensor_census(
-                ("cpu", "cuda"), budget_s=self._CENSUS_BACKGROUND_BUDGET_S, cancel=cancel,
+                ("cpu", "cuda"), budget_s=self._CENSUS_BACKGROUND_BUDGET_S, cancel=ticket.cancel,
             )
             if rows is None:
-                self._write_census_skipped(fh)
+                self._write_census_event(fh, "census.skipped", reason=ticket.reason)
                 return
             for row in rows:
                 fh.write(json.dumps(row) + "\n")
         except Exception:
-            logger.debug("profiler: census for %s failed", generation_id, exc_info=True)
+            logger.debug("profiler: census for %s failed", ticket.generation_id, exc_info=True)
         finally:
             self._finish_census(threading.current_thread(), fh)
 
-    def _write_census_skipped(self, fh: Any) -> None:
+    def _write_census_event(self, fh: Any, event: str, **fields: Any) -> None:
         try:
             row = self._snapshot(include_cpu=False)
             row["kind"] = "event"
-            row["event"] = "census.skipped"
+            row["event"] = event
+            row.update(fields)
             fh.write(json.dumps(row) + "\n")
         except Exception:
-            logger.debug("profiler: census.skipped row write failed", exc_info=True)
+            logger.debug("profiler: %s row write failed", event, exc_info=True)
 
     def _finish_census(self, thread: threading.Thread, fh: Any) -> None:
         try:
@@ -371,8 +417,7 @@ class GenerationProfiler:
         with self._census_lock:
             if self._census_thread is thread:
                 self._census_thread = None
-                self._census_cancel = None
-                self._census_generation_id = None
+                self._census_ticket = None
 
     def census_now(self, tag: str) -> None:
         """Fire an ad-hoc grouped tensor census AT A COARSE POINT MID-GENERATION,
@@ -555,6 +600,8 @@ class GenerationProfiler:
     _CENSUS_TIME_BUDGET_S = 2.0
     _CENSUS_BACKGROUND_BUDGET_S = 6.0
     _CENSUS_DELAY_S = 1.0
+    _CENSUS_RELEASE_TIMEOUT_S = 60.0
+    _CENSUS_YIELD_EVERY = 2000
     _CENSUS_MAX_OWNER_DEPTH = 3
     _CENSUS_MAX_REFERRERS = 20
     _CENSUS_MAX_GROUP_ROWS = 200
@@ -571,6 +618,7 @@ class GenerationProfiler:
             return []
         try:
             start = time.monotonic()
+            deadline = start + budget_s
             try:
                 objects = gc.get_objects()
             except Exception:
@@ -578,18 +626,18 @@ class GenerationProfiler:
                 return []
 
             wanted = frozenset(device_kinds)
-            detail_rows: list[dict] = []
-            groups: dict[tuple, dict] = {}
-            owner_cache: dict[Any, str] = {}
-            seen_storage: set = set()
+            found: list[tuple] = []
+            roots: dict[Any, Any] = {}
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                for obj in objects:
-                    if cancel is not None and cancel.is_set():
-                        return None
-                    if time.monotonic() - start > budget_s:
-                        break
+                for i, obj in enumerate(objects):
+                    if i and i % self._CENSUS_YIELD_EVERY == 0:
+                        if cancel is not None and cancel.is_set():
+                            return None
+                        if time.monotonic() > deadline:
+                            break
+                        time.sleep(0)
                     try:
                         if not isinstance(obj, _torch.Tensor):
                             continue
@@ -612,39 +660,54 @@ class GenerationProfiler:
                             is_pinned = None
 
                     storage_key = (device_kind, _tensor_storage_key(obj))
-                    first_sighting = storage_key not in seen_storage
+                    first_sighting = storage_key not in roots
                     if first_sighting:
-                        seen_storage.add(storage_key)
+                        roots[storage_key] = obj
+                    found.append((obj, device_kind, nbytes, is_pinned, storage_key, first_sighting))
 
-                    owner = owner_cache.get(storage_key)
-                    if owner is None:
-                        owner = self._describe_owner(obj, start, budget_s)
-                        owner_cache[storage_key] = owner
+                if cancel is not None and cancel.is_set():
+                    return None
+                index, truncated = self._referrer_index(objects, list(roots.values()), deadline, cancel)
+                if index is None:
+                    return None
+                del objects
+                lookup = index.get
+                owners = {
+                    key: self._describe_owner(
+                        tensor, start, budget_s,
+                        referrers_of=lambda o: lookup(id(o), []), truncated=truncated,
+                    )
+                    for key, tensor in roots.items()
+                }
 
-                    if first_sighting:
-                        storage_bytes = _storage_nbytes(obj, nbytes)
-                        group_key = (device_kind, str(obj.dtype), owner, is_pinned)
-                        g = groups.setdefault(group_key, {
-                            "device": device_kind,
-                            "dtype": str(obj.dtype),
-                            "owner": owner,
-                            "is_pinned": is_pinned,
-                            "count": 0,
-                            "nbytes": 0,
-                        })
-                        g["count"] += 1
-                        g["nbytes"] += storage_bytes
+            detail_rows: list[dict] = []
+            groups: dict[tuple, dict] = {}
+            for obj, device_kind, nbytes, is_pinned, storage_key, first_sighting in found:
+                owner = owners[storage_key]
+                if first_sighting:
+                    storage_bytes = _storage_nbytes(obj, nbytes)
+                    group_key = (device_kind, str(obj.dtype), owner, is_pinned)
+                    g = groups.setdefault(group_key, {
+                        "device": device_kind,
+                        "dtype": str(obj.dtype),
+                        "owner": owner,
+                        "is_pinned": is_pinned,
+                        "count": 0,
+                        "nbytes": 0,
+                    })
+                    g["count"] += 1
+                    g["nbytes"] += storage_bytes
 
-                    if nbytes >= self._CENSUS_MIN_BYTES:
-                        detail_rows.append({
-                            "device": device_kind,
-                            "shape": list(obj.shape),
-                            "dtype": str(obj.dtype),
-                            "nbytes_gb": round(nbytes / _BYTES_PER_GB, 4),
-                            "is_pinned": is_pinned,
-                            "owner": owner,
-                        })
-            del objects
+                if nbytes >= self._CENSUS_MIN_BYTES:
+                    detail_rows.append({
+                        "device": device_kind,
+                        "shape": list(obj.shape),
+                        "dtype": str(obj.dtype),
+                        "nbytes_gb": round(nbytes / _BYTES_PER_GB, 4),
+                        "is_pinned": is_pinned,
+                        "owner": owner,
+                    })
+            del found, roots, owners, index
 
             base = self._snapshot(include_cpu=False)
             rows: list[dict] = []
@@ -680,7 +743,58 @@ class GenerationProfiler:
             logger.debug("profiler: tensor census failed", exc_info=True)
             return []
 
-    def _describe_owner(self, tensor: Any, start_time: float, budget_s: Optional[float] = None) -> str:
+    def _referrer_index(
+        self, objects: list, roots: list, deadline: float, cancel: Optional[threading.Event],
+    ) -> tuple[Optional[dict[int, list]], bool]:
+        index: dict[int, list] = {}
+        targets = {id(o): o for o in roots}
+        for _ in range(self._CENSUS_MAX_OWNER_DEPTH + 1):
+            if not targets:
+                break
+            level, truncated = self._scan_referrers(objects, targets, deadline, cancel)
+            if level is None:
+                return None, True
+            index.update(level)
+            if truncated:
+                return index, True
+            following: dict[int, Any] = {}
+            for refs in level.values():
+                for ref in refs:
+                    if isinstance(ref, (dict, list, tuple, set)) and id(ref) not in index:
+                        following[id(ref)] = ref
+            targets = following
+        return index, False
+
+    def _scan_referrers(
+        self, objects: list, targets: dict[int, Any], deadline: float, cancel: Optional[threading.Event],
+    ) -> tuple[Optional[dict[int, list]], bool]:
+        found: dict[int, list] = {}
+        cap = self._CENSUS_MAX_REFERRERS
+        get_referents = gc.get_referents
+        module_type = types.ModuleType
+        for i, obj in enumerate(objects):
+            if i and i % self._CENSUS_YIELD_EVERY == 0:
+                if cancel is not None and cancel.is_set():
+                    return None, True
+                if time.monotonic() > deadline:
+                    return found, True
+                time.sleep(0)
+            try:
+                referents = (obj.__dict__,) if type(obj) is module_type else get_referents(obj)
+            except Exception:
+                continue
+            for ref in referents:
+                key = id(ref)
+                if key in targets and targets[key] is ref:
+                    bucket = found.setdefault(key, [])
+                    if len(bucket) < cap and (not bucket or bucket[-1] is not obj):
+                        bucket.append(obj)
+        return found, False
+
+    def _describe_owner(
+        self, tensor: Any, start_time: float, budget_s: Optional[float] = None,
+        referrers_of: Optional[Any] = None, truncated: bool = False,
+    ) -> str:
         """Best-effort name for whatever is keeping ``tensor`` alive.
 
         Walks ``gc.get_referrers`` up a few levels looking for a dict/list/set
@@ -703,12 +817,13 @@ class GenerationProfiler:
         try:
             import gc
             budget = self._CENSUS_TIME_BUDGET_S if budget_s is None else budget_s
+            get_referrers = gc.get_referrers if referrers_of is None else referrers_of
             current: Any = tensor
             for _ in range(self._CENSUS_MAX_OWNER_DEPTH):
                 if time.monotonic() - start_time > budget:
                     return "unknown (budget)"
                 try:
-                    referrers = gc.get_referrers(current)
+                    referrers = get_referrers(current)
                 except Exception:
                     return "unknown"
 
@@ -721,7 +836,7 @@ class GenerationProfiler:
                                 name = k
                                 break
                         try:
-                            owners = gc.get_referrers(ref)
+                            owners = get_referrers(ref)
                         except Exception:
                             owners = []
                         for o in owners[: self._CENSUS_MAX_REFERRERS]:
@@ -733,7 +848,7 @@ class GenerationProfiler:
                         next_container = ref
                     elif isinstance(ref, (list, tuple, set)):
                         try:
-                            owners = gc.get_referrers(ref)
+                            owners = get_referrers(ref)
                         except Exception:
                             owners = []
                         matched = False
@@ -759,7 +874,7 @@ class GenerationProfiler:
                 if next_container is None:
                     break
                 current = next_container
-            return "unknown"
+            return "unknown (budget)" if truncated else "unknown"
         except Exception:
             return "unknown"
 

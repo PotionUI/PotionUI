@@ -28,7 +28,6 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from vendor.gpl.comfyui.flux.layers import timestep_embedding
-from vendor.gpl.comfyui.flux.math_ops import apply_rope1
 
 _attention_backend: "Callable[..., Tensor] | None" = None
 
@@ -101,10 +100,10 @@ class _SwiGLUFeedForward(nn.Module):
         super().__init__()
         self.gate_up = operations.Linear(dim, 2 * hidden_dim, bias=False, dtype=dtype, device=device)
         self.out = operations.Linear(hidden_dim, dim, bias=False, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor) -> Tensor:
-        gate, up = self.gate_up(x).chunk(2, dim=-1)
-        return self.out(F.silu(gate) * up)
+        return self.out(self.operations.act_gate(self.gate_up(x), mode="swiglu"))
 
 
 class _Attention(nn.Module):
@@ -147,6 +146,7 @@ class _Attention(nn.Module):
         self.to_out = nn.ModuleList([operations.Linear(inner_dim, dim, bias=False, dtype=dtype, device=device)])
         self.norm_q = operations.RMSNorm(dim_head, eps=eps, dtype=dtype, device=device)
         self.norm_k = operations.RMSNorm(dim_head, eps=eps, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(
         self, x: Tensor, pe: Tensor, mask: Tensor | None, prefix_len: int,
@@ -159,9 +159,9 @@ class _Attention(nn.Module):
             return t.view(b, n, self.heads, -1).transpose(1, 2)
 
         q, k, v = split(self.to_q(x)), split(self.to_k(x)), split(self.to_v(x))
-        q, k = self.norm_q(q), self.norm_k(k)
-        q = apply_rope1(q, pe)
-        k = apply_rope1(k, pe)
+        ops = self.operations
+        q = ops.qk_norm_rope(q, **ops.norm_args(self.norm_q), freqs=pe, layout="pair_matrix")
+        k = ops.qk_norm_rope(k, **ops.norm_args(self.norm_k), freqs=pe, layout="pair_matrix")
 
         if _attention_backend is None:
             raise RuntimeError(
@@ -186,22 +186,16 @@ class _Attention(nn.Module):
         return (result, captured) if capture_prefix else result
 
 
-def _modulated_norm(norm, x: Tensor, scale: tuple[Tensor, Tensor], prefix_len: int) -> Tensor:
-    """LayerNorm scaled by the shared modulation: rows before ``prefix_len``
-    (text + condition images) use the ``t = 0`` scale, the rest (the target
-    image) use their own sample's scale."""
-    s_prefix, s_target = scale
-    out = norm(x)
+def _modulated_norm(ops, norm, x: Tensor, scale: tuple[Tensor, Tensor], prefix_len: int) -> Tensor:
     if prefix_len:
-        return torch.cat([out[:, :prefix_len] * (1 + s_prefix), out[:, prefix_len:] * (1 + s_target)], dim=1)
-    return out * (1 + s_target)
+        return ops.norm_modulate(x, norm="layer", eps=norm.eps, scale=scale, spans=(prefix_len, x.shape[1] - prefix_len))
+    return ops.norm_modulate(x, norm="layer", eps=norm.eps, scale=scale[1])
 
 
-def _gated_residual(x: Tensor, y: Tensor, gate: tuple[Tensor, Tensor], prefix_len: int) -> Tensor:
-    g_prefix, g_target = gate
+def _gated_residual(ops, x: Tensor, y: Tensor, gate: tuple[Tensor, Tensor], prefix_len: int) -> Tensor:
     if prefix_len:
-        return x + torch.cat([y[:, :prefix_len] * g_prefix, y[:, prefix_len:] * g_target], dim=1)
-    return x + y * g_target
+        return ops.gated_residual(x, y, gate, spans=(prefix_len, y.shape[1] - prefix_len))
+    return ops.gated_residual(x, y, gate[1])
 
 
 class _Block(nn.Module):
@@ -215,20 +209,22 @@ class _Block(nn.Module):
         self.attn = _Attention(dim, heads, head_dim, operations, eps=eps, dtype=dtype, device=device)
         self.img_norm2 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype, device=device)
         self.img_mlp = _SwiGLUFeedForward(dim, dim * mlp_ratio, operations, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(
         self, x: Tensor, mod, pe: Tensor, mask: Tensor | None, prefix_len: int,
         target_key_mask: Tensor | None = None, prefix_kv: tuple[Tensor, Tensor] | None = None,
         capture_prefix: bool = False,
     ) -> Tensor | tuple[Tensor, tuple[Tensor, Tensor] | None]:
+        ops = self.operations
         scale1, gate1, scale2, gate2 = mod
         attn_result = self.attn(
-            _modulated_norm(self.img_norm1, x, scale1, prefix_len), pe, mask, prefix_len,
+            _modulated_norm(ops, self.img_norm1, x, scale1, prefix_len), pe, mask, prefix_len,
             target_key_mask, prefix_kv, capture_prefix,
         )
         attn_out, captured = attn_result if capture_prefix else (attn_result, None)
-        x = _gated_residual(x, attn_out, gate1, prefix_len)
-        x = _gated_residual(x, self.img_mlp(_modulated_norm(self.img_norm2, x, scale2, prefix_len)), gate2, prefix_len)
+        x = _gated_residual(ops, x, attn_out, gate1, prefix_len)
+        x = _gated_residual(ops, x, self.img_mlp(_modulated_norm(ops, self.img_norm2, x, scale2, prefix_len)), gate2, prefix_len)
         if x.dtype == torch.float16:
             x = x.clip(-65504, 65504)
         return (x, captured) if capture_prefix else x
@@ -241,7 +237,8 @@ class _LastLayer(nn.Module):
         super().__init__()
         self.linear = operations.Linear(dim, dim, bias=False, dtype=dtype, device=device)
         self.norm = operations.LayerNorm(dim, eps=eps, elementwise_affine=False, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor, temb: Tensor) -> Tensor:
         scale = self.linear(F.silu(temb)).unsqueeze(1)
-        return self.norm(x) * (1 + scale)
+        return self.operations.norm_modulate(x, norm="layer", eps=self.norm.eps, scale=scale)

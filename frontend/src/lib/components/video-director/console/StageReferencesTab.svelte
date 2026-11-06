@@ -2,7 +2,9 @@
 	import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { collectFormMediaOptions, formMediaOptionKeys } from '$lib/utils/videoDirector';
-	import { shotReferenceOverview, withMarkerAppendedToShot, type ShotReferenceEntry } from '$lib/utils/shotReferences';
+	import { shotReferenceCounts, shotReferenceOverview, withMarkerAppendedToShot, type ShotReferenceEntry } from '$lib/utils/shotReferences';
+	import { bundleRefs } from '$lib/utils/bundleResources';
+	import { bundleDirectories, loadBundles } from '$lib/stores/bundleDirectory';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaThumb from '$lib/components/media/MediaThumb.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -27,7 +29,11 @@
 
 	let referencePool = $derived(collectFormMediaOptions(formData).filter((o) => caps.referenceFields.includes(o.field)));
 	let referencePoolKeys = $derived(formMediaOptionKeys(referencePool));
-	let overview = $derived(shotReferenceOverview(doc, caps, shotId, formData, promptResources));
+	$effect(() => {
+		loadBundles(bundleRefs(promptResources, formData));
+	});
+	let overview = $derived(shotReferenceOverview(doc, caps, shotId, formData, promptResources, $bundleDirectories));
+	let counts = $derived(shotReferenceCounts(doc, caps, shotId, formData, { specs: promptResources, directories: $bundleDirectories }));
 	let poolSize = $derived(overview.used.length + overview.unused.length);
 
 	const WAVE_BARS = [30, 55, 80, 45, 95, 60, 35, 70, 90, 50, 25, 65, 85, 40, 60, 30];
@@ -85,7 +91,7 @@
 			<StageCard>
 				{#snippet title()}
 					<span class="text-xs font-semibold text-fg">Used in this shot</span>
-					<span class="font-mono text-xs tabular-nums text-fg-subtle">{overview.used.length} of {poolSize}</span>
+					<span class="font-mono text-xs tabular-nums text-fg-subtle">{counts.used} of {counts.total}</span>
 				{/snippet}
 				{#if overview.used.length === 0}
 					<p class="text-xs leading-5 text-fg-muted" data-testid="shot-references-empty">
@@ -97,7 +103,7 @@
 							<div class="flex min-w-0 flex-col gap-1.5" data-testid="shot-reference-used" data-marker={entry.marker}>
 								{@render tile(entry, 'lg')}
 								<div class="flex items-center justify-between gap-2">
-									{#if entry.handle}<Badge variant="signal">{entry.handle}</Badge>{/if}
+									{#if entry.handle}<Badge variant="signal">{entry.handle}</Badge>{:else if entry.badge}<Badge>{entry.badge}</Badge>{/if}
 									<span class="font-mono text-xs tabular-nums text-fg-muted" data-testid="shot-reference-count">×{entry.count}</span>
 								</div>
 								<Tooltip text={entry.name} position="bottom" wrapperClass="flex min-w-0">
@@ -122,6 +128,7 @@
 								<Tooltip text={entry.name} position="bottom" wrapperClass="flex min-w-0 flex-1">
 									<span class="truncate text-xs text-fg-muted">{entry.name}</span>
 								</Tooltip>
+								{#if entry.badge}<Badge>{entry.badge}</Badge>{/if}
 								<Tooltip text="Insert reference into this shot's prompt" position="top">
 									<IconButton icon="plus" label="Insert @{entry.name}" size="sm" onclick={() => insert(entry)} />
 								</Tooltip>

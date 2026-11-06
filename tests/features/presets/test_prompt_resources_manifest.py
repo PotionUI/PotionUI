@@ -5,6 +5,7 @@ import pytest
 from src.features.presets.linter import PresetLinter
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.presets.schema import validate_manifest
+from tests.fixtures.prompt_source_plugin import FAKE_SOURCE, fake_prompt_source
 
 _BASE = {
     "schema": 1,
@@ -18,6 +19,10 @@ _BASE = {
 
 _FORM = """name: "custom"
 fields:
+  - name: "reference_kits"
+    type: "lora_picker"
+    configuration:
+      model_type: "lora"
   - name: "references"
     type: "image"
     configuration:
@@ -116,6 +121,35 @@ class TestPromptResourcesSchema:
         assert errors == []
         assert [entry.kind for entry in manifest.prompt_resources["refs"]] == ["image", "video", "audio"]
 
+    def test_a_bundle_source_is_accepted_per_kind(self, fake_prompt_source):
+        manifest, errors = _manifest({"refs": [
+            {"field": "reference_kits", "source": FAKE_SOURCE, "kind": "image", "token": "<Picture @>"},
+            {"field": "reference_kits", "source": FAKE_SOURCE, "kind": "audio", "token": "<Audio @>"},
+        ]})
+        assert errors == []
+        assert {entry.source for entry in manifest.prompt_resources["refs"]} == {FAKE_SOURCE}
+
+    def test_one_field_cannot_mix_media_and_bundle_sources(self, fake_prompt_source):
+        manifest, errors = _manifest({"refs": [
+            {"field": "references", "kind": "image", "token": "<Picture @>"},
+            {"field": "references", "source": FAKE_SOURCE, "kind": "audio", "token": "<Audio @>"},
+        ]})
+        assert manifest is None
+        assert any(f"mixes source 'media' with '{FAKE_SOURCE}'" in error for error in errors)
+
+    def test_an_unknown_source_is_rejected(self):
+        manifest, errors = _manifest({"refs": [
+            {"field": "references", "source": "lora", "kind": "image", "token": "<Picture @>"},
+        ]})
+        assert manifest is None
+        assert any("names unknown source 'lora'" in error for error in errors)
+
+    def test_a_source_a_plugin_registers_is_accepted_only_while_it_is_registered(self, fake_prompt_source):
+        entries = {"refs": [{"field": "bundles", "source": FAKE_SOURCE, "kind": "image", "token": "<Picture @>"}]}
+        manifest, errors = _manifest(entries)
+        assert errors == []
+        assert manifest.prompt_resources["refs"][0].source == FAKE_SOURCE
+
     def test_unknown_entry_key_is_rejected(self):
         manifest, _ = _manifest({"refs": [
             {"field": "references", "kind": "image", "token": "<Picture @>", "index": 1},
@@ -162,6 +196,73 @@ class TestPromptResourcesLint:
         assert len(errors) == 1
         assert "accepts ['image', 'video']" in errors[0]
         assert "kind 'audio'" in errors[0]
+
+    def test_an_unknown_source_is_a_lint_error(self, tmp_path):
+        _write_preset(tmp_path, """  refs:
+    - field: "reference_kits"
+      source: "bundle"
+      kind: "image"
+      token: "<Picture @>"
+""")
+        assert any("names unknown source 'bundle'" in error for error in _resource_errors(tmp_path))
+
+    def test_a_plugin_source_is_checked_against_its_own_field_type(self, tmp_path, fake_prompt_source):
+        _write_preset(tmp_path, f"""  refs:
+    - field: "reference_kits"
+      source: "{FAKE_SOURCE}"
+      kind: "image"
+      token: "<Picture @>"
+    - field: "references"
+      source: "{FAKE_SOURCE}"
+      kind: "image"
+      token: "<Picture @>"
+""")
+        errors = _resource_errors(tmp_path)
+        assert len(errors) == 1
+        assert f"field 'references' has type ['image']; a '{FAKE_SOURCE}' source needs a lora_picker field" in errors[0]
+
+    def test_a_source_a_linted_plugin_declares_is_known_without_enabling_it(self, tmp_path):
+        import yaml
+
+        from src.platform.plugins.loader import PluginLoader
+
+        plugin_dir = tmp_path / "plugins" / "declares-source"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "manifest.yml").write_text(yaml.safe_dump({
+            "id": "declares-source", "name": "d", "version": "1.0.0", "description": "d", "author": "a",
+            "type": "backend-only",
+            "prompt_resource_sources": [
+                {"id": "declared-stack", "field_type": "media", "label": "Stack", "badge": "Stack", "members": "s.members"},
+            ],
+        }))
+        _write_preset(tmp_path, """  refs:
+    - field: "anything"
+      source: "declared-stack"
+      kind: "image"
+      token: "<Picture @>"
+    - field: "reference_kits"
+      source: "declared-stack"
+      kind: "image"
+      token: "<Picture @>"
+""")
+        manifests = PluginLoader(str(tmp_path / "plugins"), str(tmp_path / "none")).discover_plugins()
+        errors = [
+            issue.message for issue in PresetLinter([str(tmp_path / "presets")], plugin_manifests=manifests).lint()
+            if issue.level == "error" and "prompt_resources" in issue.message
+        ]
+        assert errors == [
+            "preset.yml: prompt_resources.refs: field 'reference_kits' has type ['lora_picker']; "
+            "a 'declared-stack' source needs a media field"
+        ]
+        assert any("names unknown source 'declared-stack'" in error for error in _resource_errors(tmp_path))
+
+    def test_a_lora_picker_without_a_source_is_still_error(self, tmp_path):
+        _write_preset(tmp_path, """  refs:
+    - field: "reference_kits"
+      kind: "image"
+      token: "<Picture @>"
+""")
+        assert "only media picker fields" in _resource_errors(tmp_path)[0]
 
     def test_unknown_field_is_error(self, tmp_path):
         _write_preset(tmp_path, """  refs:

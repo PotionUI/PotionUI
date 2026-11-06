@@ -1,4 +1,5 @@
-import { kindLabel, mediaItemKey, type PromptResourceKind } from './promptResources';
+import { bundleBadge, bundleInfo, bundleName, bundlePrimaryKind, type BundleDirectories } from './bundleResources';
+import { kindLabel, mediaItemKey, type PromptResourceKind, type PromptResourceSpec } from './promptResources';
 
 export interface ResourceMenuEntry {
 	id: string;
@@ -32,6 +33,28 @@ export function resourceMenuEntries(items: readonly unknown[], kind: PromptResou
 			value: kindLabel(kind),
 			kind,
 			url: typeof url === 'string' ? url : undefined,
+			order
+		});
+	});
+	return entries;
+}
+
+export function bundleMenuEntries(
+	rows: readonly unknown[],
+	spec: PromptResourceSpec,
+	directories: BundleDirectories
+): ResourceMenuEntry[] {
+	const entries: ResourceMenuEntry[] = [];
+	rows.forEach((row, order) => {
+		const id = mediaItemKey(row);
+		if (!id) return;
+		const info = bundleInfo(directories, spec, id);
+		entries.push({
+			id,
+			label: bundleName(id, info),
+			value: bundleBadge(info, spec),
+			kind: bundlePrimaryKind(info),
+			url: undefined,
 			order
 		});
 	});

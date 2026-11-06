@@ -285,9 +285,9 @@ async def test_clip_and_text_encoders_folders_merge_into_text_encoder_type():
 
 def test_every_folder_maps_to_a_core_model_type():
     from backend.comfyui_backend import FOLDER_TO_MODEL_TYPE
-    from src.plugin_api.models import MODEL_TYPES
+    from src.plugin_api.models import model_types
 
-    assert set(FOLDER_TO_MODEL_TYPE.values()) <= set(MODEL_TYPES)
+    assert set(FOLDER_TO_MODEL_TYPE.values()) <= set(model_types())
 
 
 @pytest.mark.asyncio

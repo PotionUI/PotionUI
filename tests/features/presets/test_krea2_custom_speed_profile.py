@@ -28,7 +28,6 @@ with one declaration.
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -36,12 +35,9 @@ import pytest
 from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
-from src.platform.plugins.loader import PluginLoader
 from src.platform.templating.processor import TemplateProcessor
 
 from ._bound_form import bound_form_data
-
-KREA2_EDIT_PLUGIN_ID = "krea2-edit"
 
 _UNTOUCHED = object()
 
@@ -68,19 +64,9 @@ def krea2_template():
 
 
 @pytest.fixture(scope="module")
-def krea2_with_edit_mode():
-    manifest = next(
-        (m for m in PluginLoader().discover_plugins() if m.id == KREA2_EDIT_PLUGIN_ID), None
-    )
-    if manifest is None:
-        pytest.skip("krea2-edit plugin not present")
-    registry = SimpleNamespace(get_enabled_plugins=lambda: [manifest])
-    loader = PresetTemplateLoader(["content/presets"], plugin_registry=registry)
-    loader.load_presets()
-    template = next((p for p in loader.presets if "marketplace/Krea2" in Path(p.path).as_posix()), None)
-    if template is None or "edit" not in template.modes:
-        pytest.skip("krea2-edit's edit mode not contributed")
-    return template
+def krea2_with_edit_mode(krea2_template):
+    assert "edit" in krea2_template.modes
+    return krea2_template
 
 
 def _fields(template, mode):
@@ -282,7 +268,7 @@ def test_custom_keeps_the_distilled_fixed_mu_schedule(krea2_template):
     assert _pipe(base, "generator")["config"]["mu_schedule"] == "dynamic"
 
 
-def test_custom_renders_the_contributed_edit_mode(krea2_with_edit_mode):
+def test_custom_renders_the_edit_mode(krea2_with_edit_mode):
     # Bound rather than hand-built: several of this mode's pipeline entries read
     # grounding fields with no `| default()` guard, so they rely on the
     # server-owned defaults bind_form applies in the real request path.
@@ -290,6 +276,7 @@ def test_custom_renders_the_contributed_edit_mode(krea2_with_edit_mode):
         **_BASE_FORM,
         "speed_profile": "custom",
         "source_image": "/storage/uploads/scene.png",
+        "edit_lora": "/models/krea2_general_edit_v2.safetensors",
         "steps": _OFF_PROFILE["steps"],
         "sampler": _OFF_PROFILE["sampler"],
     })

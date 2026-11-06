@@ -20,6 +20,7 @@ class Fail:
     message: Union[None, str, Callable[[Exception], str]] = None
     status: Union[None, int, Callable[[Exception], int]] = None
     detail: Optional[Detail] = None
+    extra: Optional[Callable[[Exception], Mapping]] = None
 
 
 ErrorTable = Mapping[ErrorKinds, Fail]
@@ -63,7 +64,10 @@ def translate(controller, exc: Exception, table: ErrorTable, fallback: Optional[
     status = _value(fail.status, exc)
     if status is None:
         return APIResponse(success=False, error=code, message=message)
-    raise HTTPException(status_code=status, detail=APIError(error=code, message=message).model_dump())
+    body = APIError(error=code, message=message).model_dump()
+    if fail.extra is not None:
+        body = {**(fail.extra(exc) or {}), **body}
+    raise HTTPException(status_code=status, detail=body)
 
 
 def guarded(table: Optional[ErrorTable] = None, fallback: Optional[Fail] = None, admin: Optional[str] = None,

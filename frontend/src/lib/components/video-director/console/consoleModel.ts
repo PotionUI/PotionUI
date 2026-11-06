@@ -122,7 +122,7 @@ import {
 	type DirectorShotIdentityContext,
 	type DirectorGenerationContext
 } from '$lib/utils/directorInputIdentity';
-import { shotReferenceOverview } from '$lib/utils/shotReferences';
+import { shotReferenceCounts, type ShotReferenceContext } from '$lib/utils/shotReferences';
 
 // ─── Public types (verbatim from W1-BRIEF.md's contract) ───────────────────
 
@@ -220,14 +220,17 @@ function referencesPoolCount(caps: DirectorCapabilities, formData: Record<string
 	return collectFormMediaOptions(formData).filter((o) => caps.referenceFields.includes(o.field)).length;
 }
 
+const NO_REFERENCE_CONTEXT: ShotReferenceContext = { specs: [], directories: {} };
+
 function referencesTabLabel(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	formData: Record<string, unknown> | null | undefined,
-	shotId: string
+	shotId: string,
+	references: ShotReferenceContext
 ): string {
-	const used = shotReferenceOverview(doc, caps, shotId, formData, []).used.length;
-	return `References · ${used} of ${referencesPoolCount(caps, formData)}`;
+	const { used, total } = shotReferenceCounts(doc, caps, shotId, formData, references);
+	return `References · ${used} of ${total}`;
 }
 
 /** `references: 'whole'` shots have no per-shot selection at all -- every
@@ -455,7 +458,8 @@ function buildChainShots(
 	rail: RailModel,
 	formData: Record<string, unknown> | null | undefined,
 	runs: Record<string, DirectorRunState> | null | undefined,
-	generationContext: DirectorGenerationContext
+	generationContext: DirectorGenerationContext,
+	references: ShotReferenceContext
 ): ConsoleShot[] {
 	const dc = caps.modes.director;
 	const identityCtx: DirectorShotIdentityContext = { caps, formData, generationContext };
@@ -467,7 +471,7 @@ function buildChainShots(
 			tabs.push({ id: 'loras', label: `LoRAs · ${count}` });
 		}
 		if (caps.references === 'per_shot') {
-			tabs.push({ id: 'references', label: referencesTabLabel(doc, caps, formData, segment.id) });
+			tabs.push({ id: 'references', label: referencesTabLabel(doc, caps, formData, segment.id, references) });
 		} else if (caps.references === 'whole') {
 			tabs.push({ id: 'references', label: referencesWholeTabLabel(caps, formData) });
 		}
@@ -621,7 +625,8 @@ function buildTimelineShots(
 	caps: DirectorCapabilities,
 	formData: Record<string, unknown> | null | undefined,
 	runs: Record<string, DirectorRunState> | null | undefined,
-	generationContext: DirectorGenerationContext
+	generationContext: DirectorGenerationContext,
+	references: ShotReferenceContext
 ): ConsoleShot[] {
 	const dc = caps.modes.director;
 	const shots = doc.timeline.shots;
@@ -636,7 +641,7 @@ function buildTimelineShots(
 
 		const tabs: ConsoleShot['tabs'] = [{ id: 'selection', label: 'Selection' }];
 		if (caps.references === 'per_shot') {
-			tabs.push({ id: 'references', label: referencesTabLabel(doc, caps, formData, shot.id) });
+			tabs.push({ id: 'references', label: referencesTabLabel(doc, caps, formData, shot.id, references) });
 		} else if (caps.references === 'whole') {
 			tabs.push({ id: 'references', label: referencesWholeTabLabel(caps, formData) });
 		}
@@ -756,7 +761,8 @@ export function deriveConsoleModel(
 	 * `EMPTY_GENERATION_CONTEXT`, which still participates in the identity
 	 * (a real value showing up later is itself a change, correctly read as
 	 * `stale`/`unverified` rather than silently reproducing old behaviour). */
-	generationContext?: DirectorGenerationContext | null
+	generationContext?: DirectorGenerationContext | null,
+	references?: ShotReferenceContext | null
 ): ConsoleModel {
 	// Wan's family geometry needs the live/resolved timing profile
 	// (`resolveDirectorTimingProfile`) to compute real emitted durations --
@@ -768,7 +774,7 @@ export function deriveConsoleModel(
 	const resolvedGenerationContext = generationContext ?? EMPTY_GENERATION_CONTEXT;
 
 	if (rail.routing === 'chain') {
-		const shots = buildChainShots(doc, caps, rail, formData, runs, resolvedGenerationContext);
+		const shots = buildChainShots(doc, caps, rail, formData, runs, resolvedGenerationContext, references ?? NO_REFERENCE_CONTEXT);
 		const joins = buildChainJoins(doc, rail, caps, runs, checked);
 		return {
 			header: buildHeader(doc, caps, rail, shots.length, rail.totalSeconds, runs),
@@ -781,7 +787,7 @@ export function deriveConsoleModel(
 		};
 	}
 
-	const shots = buildTimelineShots(doc, caps, formData, runs, resolvedGenerationContext);
+	const shots = buildTimelineShots(doc, caps, formData, runs, resolvedGenerationContext, references ?? NO_REFERENCE_CONTEXT);
 	const joins = buildTimelineJoins(doc.timeline.shots, runs, checked);
 	const totalSeconds = shots.reduce((sum, s) => sum + s.durationSeconds, 0);
 	return {

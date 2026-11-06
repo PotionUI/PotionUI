@@ -44,7 +44,7 @@ Three tiers, each a superset of the one before it: **config** is the database, t
 ### Diagnostics
 
 - **Record a performance profile for each generation** (`profiling_enabled`, off) — replaces the `POTIONUI_PROFILE` environment variable. Each generation writes `profiles/<generation id>/profile.jsonl` and `generation.log` under file storage: stage timings, the time of each sampling step (with its attention mode, step-cache skips and the wait for weights streamed from RAM), RAM and VRAM over time, and model events. Admins open a profile from the workbench's **Resource profile** button, which shows the report and offers both files for download; `scripts/profile_report.py <profile.jsonl>` prints the same report as text.
-- **Include a memory census at the end of each run** (`profiling_census`, on) — adds a count of every live tensor, on the CPU and the GPU, to each profile. It runs in the background about a second after the generation reports complete, so it doesn't delay results. If another generation starts first, the census is skipped and the profile records a `census.skipped` event instead.
+- **Include a memory census at the end of each run** (`profiling_census`, on) — adds a count of every live tensor, on the CPU and the GPU, to each profile. It runs in the background once the generation has fully finished and nothing else is queued, so it never delays results or the next generation. If another generation is queued or starts first, the census is skipped and the profile records a `census.skipped` event with the reason instead.
 
 Both take effect on the next generation without a restart. On the first start after updating, profiling is switched on once if `POTIONUI_PROFILE` was set; after that the variable is ignored.
 
@@ -98,6 +98,7 @@ Every native backend, the local one and each remote native worker, has its own *
 
 - **fp8 fast multiply** (`native_fp8_matmul`, off) — run fp8 checkpoints on fp8 tensor cores (RTX 40/50 and newer). Next generation.
 - **nvfp4 fast multiply** (`native_nvfp4_matmul`, off) — run nvfp4 checkpoints on fp4 tensor cores (RTX 50 and newer). Next generation.
+- **Fused block steps** (`native_fused_elementwise`, off) — run the norm, modulation, gate and activation steps of each diffusion block as single combined GPU operations (NVIDIA GPUs with Triton). Can change the output slightly. Next generation.
 - **Fuse LoRAs into the model** (`native_lora_fused`, on) — apply a layer's LoRAs in one fused step; off is only for comparison. Next generation.
 - **Compile the model (torch.compile)** (`native_torch_compile`, off) — compile the model's repeated block when it is fully on the GPU. Next model load.
 - **Qwen3 text encoder in bf16** (`native_qwen3_te_bf16`, off) — run the Qwen3 text encoder in bf16 instead of fp32. Next generation.

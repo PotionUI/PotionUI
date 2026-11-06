@@ -302,6 +302,9 @@ class GenerationQueue:
                 return index
         return None
 
+    def is_idle(self) -> bool:
+        return not self._pending and not self._busy
+
     def running_generation_ids(self, backend_id: str) -> List[str]:
         return list(self._busy.get(backend_id, ()))
 

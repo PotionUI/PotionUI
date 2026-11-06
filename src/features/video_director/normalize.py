@@ -29,7 +29,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame
-from src.features.video_director.shot_references import derive_shot_references, packed_reference_pool
+from src.features.prompt.reference_pool import build_reference_pool
+from src.features.prompt.resource_sources import BundleMembersResolver
+from src.features.video_director.shot_references import derive_shot_references
 from src.platform.util.latents import generate_seed
 from src.platform.util.path_resolution import (
     apply_preset_mode_overlay,
@@ -170,6 +172,7 @@ def normalize_video_director(
     storage_dir: str,
     form_data: Optional[Dict[str, Any]] = None,
     prompt_resources: Optional[Sequence[Mapping[str, Any]]] = None,
+    bundle_members: Optional[BundleMembersResolver] = None,
 ) -> Dict[str, Any]:
     """
     Validate `document` against `capabilities` and return a NEW canonical dict.
@@ -194,7 +197,9 @@ def normalize_video_director(
     routing_enabled = bool(capabilities.get("segment_routing"))
     references_capability = capabilities.get("references")
     reference_fields = capabilities.get("reference_fields") or []
-    reference_pool = packed_reference_pool(reference_fields, form_data)
+    reference_pool, reference_pool_problems = build_reference_pool(
+        reference_fields, form_data, prompt_resources or [], bundle_members,
+    )
     storage_path = Path(storage_dir).resolve()
 
     out: Dict[str, Any] = {
@@ -226,6 +231,8 @@ def normalize_video_director(
         raise VideoDirectorValidationError(errors)
 
     mode_caps = modes.get(mode) or {}
+    if mode == "director" and references_capability == "per_shot":
+        errors.extend(reference_pool_problems)
     # The "director" sub-mode's shape comes from capabilities, not its name: a
     # preset declaring segment_routing runs it as a routed multi-segment chain
     # (Wan), one that doesn't as a single keyframe/audio timeline generation

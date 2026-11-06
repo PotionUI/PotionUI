@@ -5,7 +5,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.platform.filesystem.model_types import HEADER_CLASSIFIED_TYPES, MODEL_TYPES
+from src.platform.filesystem.model_types import header_classified_types, model_types
 
 SUPPORTED_SCHEMA_VERSIONS = (1,)
 
@@ -255,8 +255,8 @@ def _validate_folders(issues: List[str], value: Any) -> None:
         _check_unknown(issues, entry, _FOLDER_KEYS, f"{where}.")
         path_ok = _check_path(issues, f"{where}.path", entry.get("path"))
         model_type = entry.get("model_type")
-        if not isinstance(model_type, str) or model_type not in MODEL_TYPES:
-            _err(issues, f"{where}.model_type", f"must be one of {list(MODEL_TYPES)}, got {model_type!r}")
+        if not isinstance(model_type, str) or model_type not in model_types():
+            _err(issues, f"{where}.model_type", f"must be one of {list(model_types())}, got {model_type!r}")
             model_type = None
         for text_key in ("key", "label"):
             if text_key in entry and (not isinstance(entry[text_key], str) or not entry[text_key].strip()):
@@ -269,11 +269,11 @@ def _validate_folders(issues: List[str], value: Any) -> None:
         _check_bool(issues, entry, "optional", f"{where}.")
         _check_bool(issues, entry, "scan_headers", f"{where}.")
         _check_int(issues, entry, "weight", f"{where}.", 1, 10)
-        if entry.get("scan_headers") is True and model_type and model_type not in HEADER_CLASSIFIED_TYPES:
+        if entry.get("scan_headers") is True and model_type and model_type not in header_classified_types():
             _err(
                 issues,
                 f"{where}.scan_headers",
-                f"only allowed for {sorted(HEADER_CLASSIFIED_TYPES)}, not '{model_type}'",
+                f"only allowed for {sorted(header_classified_types())}, not '{model_type}'",
             )
         if entry.get("write") is True and model_type:
             writers[model_type] = writers.get(model_type, 0) + 1

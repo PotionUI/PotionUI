@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import { prepareRequest } from './prepareRequest';
@@ -7,11 +8,11 @@ import { buildModeSwitchPatch, modeStateFromSessionData } from '$lib/utils/modeS
 import { createBlankEditorSegment } from '$lib/utils/richSegments';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
 import { tabHasUnsavedSessionChanges } from '$lib/utils/unsavedChangesGuard';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 
 const STALE = 'best quality, score_7, 1girl, solo, sitting, looking at viewer';
 
-function request(tab: Partial<Tab>, optional = true) {
+function request(tab: Partial<GenerationTab>, optional = true) {
 	return prepareRequest({
 		tab: {
 			selectedMode: 'talk',
@@ -40,19 +41,19 @@ function request(tab: Partial<Tab>, optional = true) {
 	} as never);
 }
 
-function sent(tab: Partial<Tab>): string[] {
+function sent(tab: Partial<GenerationTab>): string[] {
 	const result = request(tab);
 	if (!result.ok) throw new Error(result.code);
 	return (result.request.prompts ?? []).map((p) => p.positive);
 }
 
-function visible(tab: Pick<Tab, 'promptSegments'>): string {
+function visible(tab: Pick<GenerationTab, 'promptSegments'>): string {
 	return resolvePromptSegments(tab.promptSegments || []).trim();
 }
 
-function activeTab(): Tab {
+function activeTab(): GenerationTab {
 	const state = get(tabsStore);
-	return state.tabs.find((t) => t.id === state.activeTabId)!;
+	return generationTabs(state.tabs).find((t) => t.id === state.activeTabId)!;
 }
 
 describe('the request carries what the prompt editor shows', () => {

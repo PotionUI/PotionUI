@@ -12,14 +12,11 @@ from src.features.models.exceptions import (
 from src.features.models.type_repository import ModelTypeRepository
 from src.features.models.type_resolution import folder_type_of
 from src.platform.database.rows import now_iso
-from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, MODEL_TYPES, VIRTUAL_MODEL_TYPES
+from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, VIRTUAL_MODEL_TYPES, assignable_model_types
 
 SOURCE_ADMIN = "admin"
 SOURCE_RECIPE = "recipe"
 SOURCE_DOWNLOAD = "download"
-
-NOT_ASSIGNABLE_TYPES = frozenset({"llm"})
-
 
 @dataclass(frozen=True)
 class AssertionOutcome:
@@ -29,7 +26,7 @@ class AssertionOutcome:
 
 
 def assignable_types() -> List[str]:
-    return [t for t in MODEL_TYPES if t not in NOT_ASSIGNABLE_TYPES]
+    return list(assignable_model_types())
 
 
 def build_type_info(

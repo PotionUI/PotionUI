@@ -316,6 +316,14 @@ class RequirementsCache:
         self._lock = Lock()
         self._by_key: Dict[Tuple[str, str, str], _CacheEntry] = {}
         self._host_by_key: Dict[Tuple[str, str], _CacheEntry] = {}
+        self._inputs: Dict[str, str] = {}
+
+    def inputs_changed(self, preset_id: str, inputs: Any) -> bool:
+        digest = hashlib.sha256(json.dumps(inputs or {}, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+        with self._lock:
+            changed = self._inputs.get(preset_id) != digest
+            self._inputs[preset_id] = digest
+        return changed
 
     @staticmethod
     def _key(preset: PresetTemplate, backend_id: Optional[str]) -> Tuple[str, str, str]:

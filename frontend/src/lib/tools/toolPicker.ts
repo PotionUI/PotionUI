@@ -1,5 +1,6 @@
 import { openMediaTool, type MediaToolResultInfo } from '$lib/media-tools/open';
 import type { MediaToolItem as ToolResultItem } from '$lib/media-tools/types';
+import { openToolShortcut } from '$lib/tool-tabs/openShortcut';
 import type { MediaTool, MediaToolContext } from './tools';
 
 export interface ToolPickHandlers {
@@ -12,6 +13,7 @@ export interface ToolPickHandlers {
 }
 
 export function pickTool(tool: MediaTool, context: MediaToolContext, handlers: ToolPickHandlers): void {
+	if (tool.source === 'core' && openToolShortcut(tool.id, context.items)) return;
 	if (!tool.catalogToolId) {
 		handlers.mount(tool, context);
 		return;

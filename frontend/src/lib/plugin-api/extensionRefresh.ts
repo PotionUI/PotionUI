@@ -63,9 +63,12 @@ import {
 	unregisterFieldComponent
 } from '$lib/fields/registry';
 import { pluginOwner } from '$lib/registries/registry';
+import { refreshModelTypes } from '$lib/stores/modelTypesLoader';
 import { setContributions, type SlotContribution } from '$lib/extensions/extensionSlots';
 import { setPluginRevisions } from '$lib/plugin-api/componentResolver';
 import { parseComponentRef } from '$lib/plugin-api/componentRef';
+import { describePluginToolTab } from '$lib/tool-tabs/pluginToolTabs';
+import type { PluginToolTabEntry } from '$lib/tool-tabs/types';
 import {
 	frontendHooks,
 	pluginPages,
@@ -96,6 +99,7 @@ interface ExtensionSnapshot {
 	renderers: FrontendExtensionRenderer[];
 	contributions: SlotContribution[];
 	revisions: Record<string, string>;
+	toolTabs: PluginToolTabEntry[];
 	fieldTypes: FieldTypeManifestEntry[];
 	pages: PluginPage[];
 	quickActions: PluginQuickAction[];
@@ -132,7 +136,8 @@ async function fetchSnapshot(): Promise<ExtensionSnapshot> {
 		fetchCatalog('/api/plugins/frontend-extensions', (data) => ({
 			renderers: (data?.renderers || []) as FrontendExtensionRenderer[],
 			contributions: (data?.contributions || []) as SlotContribution[],
-			revisions: (data?.revisions || {}) as Record<string, string>
+			revisions: (data?.revisions || {}) as Record<string, string>,
+			toolTabs: (Array.isArray(data?.tool_tabs) ? data.tool_tabs : []) as PluginToolTabEntry[]
 		})),
 		fetchCatalog('/api/fields/types', (data) => (data || []) as FieldTypeManifestEntry[]),
 		fetchCatalog('/api/plugins/pages', (data) => (Array.isArray(data) ? data : []) as PluginPage[]),
@@ -244,6 +249,10 @@ function describeSnapshot(snapshot: ExtensionSnapshot): RegistrationDescriptor[]
 		const descriptor = describeFieldType(entry, revisionOf);
 		if (descriptor) descriptors.push(descriptor);
 	}
+	for (const entry of snapshot.toolTabs) {
+		const descriptor = describePluginToolTab(entry, revisionOf(entry.plugin_id));
+		if (descriptor) descriptors.push(descriptor);
+	}
 	return descriptors;
 }
 
@@ -282,6 +291,7 @@ function applySnapshot(snapshot: ExtensionSnapshot): void {
 }
 
 async function runRefresh(): Promise<void> {
+	const typesRefreshed = refreshModelTypes();
 	try {
 		applySnapshot(await fetchSnapshot());
 	} catch (err) {
@@ -289,6 +299,7 @@ async function runRefresh(): Promise<void> {
 		// extensions, and the previously applied snapshot stays live.
 		logger.error('Failed to refresh plugin frontend extensions:', err);
 	}
+	await typesRefreshed;
 }
 
 /**

@@ -12,6 +12,8 @@ const mockGetUnindexedModelsCount = vi.fn();
 const mockGetAttributeDefinitions = vi.fn();
 const mockGetEnabledBackends = vi.fn();
 const mockGetModelAssignmentSummary = vi.fn();
+const mockClientGet = vi.fn();
+const mockGetIndexingStatus = vi.fn();
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -22,7 +24,18 @@ vi.mock('$lib/services/api/index', () => ({
 		getModelTypes: (...args: unknown[]) => mockGetModelTypes(...args),
 		getTags: (...args: unknown[]) => mockGetTags(...args),
 		getUnindexedModelsCount: (...args: unknown[]) => mockGetUnindexedModelsCount(...args),
-		getAttributeDefinitions: (...args: unknown[]) => mockGetAttributeDefinitions(...args)
+		getAttributeDefinitions: (...args: unknown[]) => mockGetAttributeDefinitions(...args),
+		getIndexingStatus: (...args: unknown[]) => mockGetIndexingStatus(...args),
+		getClient: () => ({ get: (...args: unknown[]) => mockClientGet(...args) })
+	}
+}));
+
+vi.mock('$lib/services/adminWebsocket', () => ({
+	adminWebSocket: {
+		onIndexingStatus: () => () => {},
+		onConnected: () => () => {},
+		isConnected: () => true,
+		connectAsync: async () => {}
 	}
 }));
 
@@ -34,6 +47,8 @@ vi.mock('$lib/services/admin-api', () => ({
 const page = (await import('$app/stores')).page as unknown as PageStore;
 const { default: ModelsTab } = await import('../../src/routes/admin/components/ModelsTab.svelte');
 const { createClassComponent } = await import('svelte/legacy');
+const { setModelTypes, resetModelTypes } = await import('$lib/stores/modelTypes.svelte');
+const { coreModelTypeDefinitions } = await import('$lib/stores/modelTypesFixture');
 
 function model(overrides: Record<string, unknown> = {}) {
 	return {
@@ -90,6 +105,7 @@ function mountTab() {
 }
 
 beforeEach(() => {
+	setModelTypes(coreModelTypeDefinitions());
 	vi.clearAllMocks();
 	page.set({ url: new URL('http://localhost/admin?tab=models') });
 	mockGetModels.mockResolvedValue({ success: true, data: { models: MODELS, total: MODELS.length, availability_indexed: false } });
@@ -100,17 +116,74 @@ beforeEach(() => {
 	mockGetTags.mockResolvedValue({ success: true, data: { tags: [] } });
 	mockGetUnindexedModelsCount.mockResolvedValue({ success: true, data: { total: 0 } });
 	mockGetAttributeDefinitions.mockResolvedValue({ success: true, data: { definitions: DEFINITIONS } });
+	mockGetIndexingStatus.mockResolvedValue({ success: true, data: null });
 	mockGetEnabledBackends.mockResolvedValue({ success: true, data: [] });
 	mockGetModelAssignmentSummary.mockResolvedValue({ success: true, data: {} });
+	mockClientGet.mockImplementation((url: string) => {
+		const data = url.endsWith('/catalog') ? { scope: 'instance', subjects: [], kinds: {}, operators: {}, facts: [], actions: [] } : [];
+		return Promise.resolve({ data: { success: true, data } });
+	});
 });
 
 afterEach(() => {
+	resetModelTypes();
 	component?.$destroy();
 	target?.remove();
 	component = undefined;
 });
 
 describe('ModelsTab', () => {
+	describe('paging', () => {
+		function pagedResponse() {
+			return { success: true, data: { models: MODELS, total: 100, availability_indexed: false } };
+		}
+
+		function pageButton(label: string) {
+			return target.querySelector<HTMLButtonElement>(`nav[aria-label="Pagination"] button[aria-label="${label}"]`)!;
+		}
+
+		it('stays on the chosen page and requests that offset', async () => {
+			mockGetModels.mockResolvedValue(pagedResponse());
+			mountTab();
+			await flush();
+			flushSync();
+			expect(mockGetModels.mock.calls.at(-1)?.[0]).toMatchObject({ limit: 30, offset: 0 });
+
+			pageButton('Page 2').click();
+			await flush();
+			flushSync();
+			await flush();
+
+			expect(mockGetModels.mock.calls.at(-1)?.[0]).toMatchObject({ limit: 30, offset: 30 });
+			expect(pageButton('Page 2').getAttribute('aria-current')).toBe('page');
+			const callsAfter = mockGetModels.mock.calls.length;
+			await flush();
+			expect(mockGetModels.mock.calls.length).toBe(callsAfter);
+		});
+
+		it('returns to the first page when the section changes', async () => {
+			mockGetModels.mockResolvedValue(pagedResponse());
+			mountTab();
+			await flush();
+			flushSync();
+			pageButton('Page 2').click();
+			await flush();
+			flushSync();
+			expect(pageButton('Page 2').getAttribute('aria-current')).toBe('page');
+
+			const loraRow = Array.from(target.querySelectorAll('[data-pane-row]')).find((el) =>
+				el.textContent?.trim().startsWith('LoRA')
+			) as HTMLElement;
+			loraRow.click();
+			await flush();
+			flushSync();
+			await flush();
+
+			expect(mockGetModels.mock.calls.at(-1)?.[0]).toMatchObject({ model_type: 'lora', offset: 0 });
+			expect(pageButton('Page 1').getAttribute('aria-current')).toBe('page');
+		});
+	});
+
 	it('renders models rows and the by-type/attributes sidebar counts', async () => {
 		mountTab();
 		await flush();
@@ -190,6 +263,32 @@ describe('ModelsTab', () => {
 
 		expect(target.textContent).toContain('Strength');
 		expect(target.textContent).toContain('Trigger Words');
+		expect(target.textContent).not.toContain('base.safetensors');
+	});
+
+	it('lists Auto-organize as the last section and opens the instance rules without querying models', async () => {
+		mountTab();
+		await flush();
+		flushSync();
+
+		const sections = Array.from(target.querySelectorAll('[role="option"]')).map((el) => el.textContent ?? '');
+		const names = ['All models', 'Attributes', 'Folders', 'Auto-organize'];
+		const positions = names.map((name) => sections.findIndex((text) => text.includes(name)));
+		expect(positions.every((index) => index >= 0)).toBe(true);
+		expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+
+		mockGetModels.mockClear();
+		const autoRow = Array.from(target.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('Auto-organize'))!;
+		(autoRow as HTMLElement).click();
+		await flush();
+		flushSync();
+		page.set({ url: new URL('http://localhost/admin?tab=models&view=auto-organize') });
+		await flush(20);
+		flushSync();
+
+		expect(target.querySelector('[data-testid="model-auto-organize"]')).not.toBeNull();
+		expect(mockClientGet.mock.calls.map((c) => c[0])).toContain('/api/admin/organize/instance/rules');
+		expect(mockGetModels.mock.calls.some((c) => c[0]?.model_type === 'auto-organize')).toBe(false);
 		expect(target.textContent).not.toContain('base.safetensors');
 	});
 

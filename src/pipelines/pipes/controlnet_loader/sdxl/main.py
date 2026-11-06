@@ -2,7 +2,12 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 import torch
 
-from src.pipelines.outputs import ProgressGenerationOutput, ModelGenerationOutput, ModelsGenerationOutput
+from src.pipelines.outputs import (
+    GenerationExecutionError,
+    ModelGenerationOutput,
+    ModelsGenerationOutput,
+    ProgressGenerationOutput,
+)
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
     PipeInput,
@@ -12,6 +17,41 @@ from src.pipelines.contracts import (
     PipeOutputSpec,
     PipeConfigSpec,
 )
+
+
+ASSETS = Path(__file__).resolve().parent / "assets"
+SDXL_MARKER_KEY = "add_embedding.linear_1.weight"
+LARGE_MARKER_KEY = "down_blocks.1.attentions.0.transformer_blocks.0.attn1.to_k.weight"
+MID_MARKER_KEY = "down_blocks.1.attentions.0.norm.weight"
+LDM_PREFIX = "control_model."
+LDM_SDXL_MARKER_KEY = "label_emb.0.0.weight"
+LDM_LARGE_MARKER_KEY = "input_blocks.4.1.transformer_blocks.0.attn1.to_k.weight"
+LDM_MID_MARKER_KEY = "input_blocks.4.1.norm.weight"
+
+
+def controlnet_layout_folder(keys) -> str:
+    names = {key[len(LDM_PREFIX):] if key.startswith(LDM_PREFIX) else key for key in keys}
+    if SDXL_MARKER_KEY in names:
+        large, mid = LARGE_MARKER_KEY, MID_MARKER_KEY
+    elif LDM_SDXL_MARKER_KEY in names:
+        large, mid = LDM_LARGE_MARKER_KEY, LDM_MID_MARKER_KEY
+    else:
+        raise ValueError("it is not an SDXL ControlNet")
+    if large in names:
+        return "large"
+    if mid in names:
+        return "mid"
+    return "small"
+
+
+def controlnet_config_dir(file_path: str) -> str:
+    if Path(file_path).suffix.lower() != ".safetensors":
+        return str(ASSETS / "large")
+    from safetensors import safe_open
+
+    with safe_open(file_path, framework="pt") as handle:
+        keys = list(handle.keys())
+    return str(ASSETS / controlnet_layout_folder(keys))
 
 
 class ControlNetLoaderSDXLPipe(BasePipe):
@@ -43,7 +83,7 @@ class ControlNetLoaderSDXLPipe(BasePipe):
             PipeOutputSpec("controlnet", IOType.CONTROLNET, "Loaded ControlNet model(s)", is_array=True),
         ]
 
-    def _load_controlnet(self, file_path: str, controlnet_config: Dict[str, Any]) -> Optional[Any]:
+    def _load_controlnet(self, file_path: str, controlnet_config: Dict[str, Any]) -> Any:
         """Load a single ControlNet model"""
         try:
             from diffusers import ControlNetModel
@@ -68,8 +108,10 @@ class ControlNetLoaderSDXLPipe(BasePipe):
             # Load ControlNet from single file
             controlnet = ControlNetModel.from_single_file(
                 file_path,
+                config=controlnet_config_dir(file_path),
                 torch_dtype=dtype,
                 use_safetensors=True,
+                local_files_only=True,
             )
 
             # Validate that this is an SDXL-compatible ControlNet
@@ -108,7 +150,10 @@ class ControlNetLoaderSDXLPipe(BasePipe):
 
         except Exception as e:
             logger.error(f"[CONTROLNET LOADER SDXL] Error loading ControlNet {file_path}: {e}")
-            return None
+            raise GenerationExecutionError(
+                f"The ControlNet file {file_path} could not be loaded: {e}",
+                detail=repr(e),
+            ) from e
 
     def process(
             self,
@@ -141,8 +186,7 @@ class ControlNetLoaderSDXLPipe(BasePipe):
 
                 # Check if file exists
                 if not Path(file_path).exists():
-                    logger.warning(f"[CONTROLNET LOADER SDXL] ControlNet file not found: {file_path}")
-                    continue
+                    raise GenerationExecutionError(f"The ControlNet file {file_path} was not found")
 
                 # Load the ControlNet
                 controlnet_data = self._load_controlnet(file_path, cn_config)

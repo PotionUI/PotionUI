@@ -77,6 +77,14 @@ export function toolsForMode(tools: ChatToolInfo[], modeId: string): ChatToolInf
 	return tools.filter((t) => (t.modes ? t.modes.includes(modeId) : !t.mode || t.mode === modeId));
 }
 
+export function modeOffersTools(modeId: string, modes: ChatMode[]): boolean {
+	return modes.find((m) => m.id === modeId)?.offers_tools !== false;
+}
+
+export function modeReadsAppContext(modeId: string, modes: ChatMode[]): boolean {
+	return modes.find((m) => m.id === modeId)?.app_context !== false;
+}
+
 /** Display name for a mode id, falling back to the id itself if unknown. */
 export function resolveModeName(modeId: string, modes: ChatMode[]): string {
 	return modes.find((m) => m.id === modeId)?.name || modeId;

@@ -33,6 +33,7 @@ class LibraryItem(BaseModel):
     is_favorite: bool = False
     has_alpha: Optional[bool] = None
     source_generation_id: Optional[str] = None
+    provenance: Optional[Dict[str, Any]] = None
 
 
 class LibraryListResult(BaseModel):

@@ -48,10 +48,10 @@ def test_without_strict_a_missing_controlnet_aux_still_passes_through(monkeypatc
 
 def test_strict_refuses_a_guide_that_found_nothing(monkeypatch):
     monkeypatch.setattr(main_module, "CONTROLNET_AUX_AVAILABLE", True)
-    monkeypatch.setattr(ControlNetPreprocessorPipe, "_resolve_annotators", staticmethod(lambda assets, config: "/annotators"))
+    monkeypatch.setattr(ControlNetPreprocessorPipe, "_resolve_pose_estimator", staticmethod(lambda pipe_input, config: object()))
     monkeypatch.setattr(
         ControlNetPreprocessorPipe, "_preprocess_openpose",
-        lambda self, image, params, annotators: Image.new("RGB", (8, 8), (0, 0, 0)),
+        lambda self, image, params, estimator: Image.new("RGB", (8, 8), (0, 0, 0)),
     )
     with pytest.raises(GenerationExecutionError) as refused:
         _process([{"type": "openpose", "enabled": True}], [Image.new("RGB", (8, 8), (40, 40, 40))], strict=True,
@@ -64,10 +64,10 @@ def test_strict_refuses_a_guide_that_found_nothing(monkeypatch):
 
 def test_a_guide_with_content_passes(monkeypatch):
     monkeypatch.setattr(main_module, "CONTROLNET_AUX_AVAILABLE", True)
-    monkeypatch.setattr(ControlNetPreprocessorPipe, "_resolve_annotators", staticmethod(lambda assets, config: "/annotators"))
+    monkeypatch.setattr(ControlNetPreprocessorPipe, "_resolve_pose_estimator", staticmethod(lambda pipe_input, config: object()))
     pose = Image.new("RGB", (8, 8), (0, 0, 0))
     pose.putpixel((3, 3), (255, 0, 0))
-    monkeypatch.setattr(ControlNetPreprocessorPipe, "_preprocess_openpose", lambda self, image, params, annotators: pose)
+    monkeypatch.setattr(ControlNetPreprocessorPipe, "_preprocess_openpose", lambda self, image, params, estimator: pose)
     result = _process([{"type": "openpose", "enabled": True}], [Image.new("RGB", (8, 8))], strict=True)
     assert result.output["image"] == [pose]
 

@@ -13,6 +13,8 @@
 	mount, so there is no separate "is this visible" bookkeeping here.
 -->
 <script lang="ts">
+	import { openModeInstall } from '$lib/stores/modeInstall';
+	import { isDerivedRecipeId } from '$lib/components/recipes/modeInstall/modeInstallModel';
 	import { onDestroy, onMount } from 'svelte';
 	import axios from 'axios';
 	import { logger } from '$lib/utils/logger';
@@ -25,6 +27,7 @@
 	import Tooltip from '../Tooltip.svelte';
 	import { loadPresets as loadPresetCatalog } from '$lib/stores/presetsCatalog';
 	import ModelResultRow from './ModelResultRow.svelte';
+	import GatedModelLink from '$lib/components/models/GatedModelLink.svelte';
 	import ModelCollectionBrowser from './ModelCollectionBrowser.svelte';
 	import PickerVariantSuggestions from '../recipes/PickerVariantSuggestions.svelte';
 	import VariantAttributionNote from '../recipes/VariantAttributionNote.svelte';
@@ -124,7 +127,7 @@
 		: visibleModels.map((model) => ({ kind: 'model' as const, model }));
 
 	$: downloadEntries =
-		pickerView === 'global' && fetchedOnce && !loading
+		pickerView === 'global' && isAdmin && fetchedOnce && !loading
 			? pickerEntries.flatMap((e) => (e.kind === 'recommended-download' ? [e] : []))
 			: [];
 	$: listEntries = pickerEntries.flatMap((e) => (e.kind === 'recommended-download' ? [] : [e]));
@@ -431,10 +434,6 @@
 			schedulePollRecommendationDownload(recommendation, response.data.download_id, op);
 		} catch (error: any) {
 			if (!owns()) return;
-			if (error?.response?.status === 403) {
-				setDownloadState(recommendation, reduceModelDownloadState(downloadStateFor(recommendation), { type: 'forbidden' }));
-				return;
-			}
 			logger.error('[ModelBrowserPanel] Failed to start model download:', error);
 			setDownloadState(
 				recommendation,
@@ -464,10 +463,17 @@
 					schedulePollRecommendationDownload(recommendation, downloadId, op);
 					return;
 				}
-				const { status, progress, error } = response.data;
+				const { status, progress, error, gated, gated_repo } = response.data;
 				setDownloadState(
 					recommendation,
-					reduceModelDownloadState(downloadStateFor(recommendation), { type: 'poll', status, progress, error })
+					reduceModelDownloadState(downloadStateFor(recommendation), {
+						type: 'poll',
+						status,
+						progress,
+						error,
+						gated,
+						gatedRepo: gated_repo
+					})
 				);
 				if (status === 'completed' || status === 'failed') {
 					delete pollTimeouts[key];
@@ -514,9 +520,15 @@
 			<p class="min-w-0 flex-1 text-sm text-fg-muted">No model installed for this preset.</p>
 			<AdminOnlyMark />
 			<Tooltip text={setupRecipe.name}>
-				<Button size="xs" variant="primary" href="/admin?tab=recipes&id={encodeURIComponent(setupRecipe.id)}">
-					Set up with recipe
-				</Button>
+				{#if isDerivedRecipeId(setupRecipe.id)}
+					<Button size="xs" variant="primary" icon="download" onclick={() => openModeInstall(setupRecipe.id)}>
+						Install modes
+					</Button>
+				{:else}
+					<Button size="xs" variant="primary" href="/admin?tab=recipes&id={encodeURIComponent(setupRecipe.id)}">
+						Set up with recipe
+					</Button>
+				{/if}
 			</Tooltip>
 		{:else}
 			<p class="min-w-0 flex-1 text-sm text-fg-muted">No model installed yet. An admin can set it up.</p>
@@ -571,7 +583,7 @@
 				{/if}
 				{#if downloadState.phase === 'completed'}
 					<Badge variant="success" class="shrink-0">Downloaded</Badge>
-				{:else if downloadState.phase !== 'forbidden'}
+				{:else}
 					<Button
 						size="xs"
 						variant="secondary"
@@ -587,6 +599,12 @@
 					</Button>
 				{/if}
 			</div>
+			{#if recommendation.gated && downloadState.phase !== 'failed'}
+				<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-warning" data-recommended-gated>
+					<span>Gated model. Accept the license on Hugging Face and set a token in Admin &rarr; Plugins.</span>
+					<GatedModelLink source={recommendation} />
+				</div>
+			{/if}
 			{#if downloading}
 				<div class="flex items-center gap-2">
 					<div class="h-1 flex-1 bg-surface-3 rounded-sm overflow-hidden">
@@ -600,9 +618,12 @@
 					</span>
 				</div>
 			{:else if downloadState.phase === 'failed'}
-				<div class="text-xs text-danger">{downloadState.error || 'Download failed'}</div>
-			{:else if downloadState.phase === 'forbidden'}
-				<div class="text-xs text-fg-subtle">Admin permission required to download this model.</div>
+				<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+					<span class="text-danger">{downloadState.error || 'Download failed'}</span>
+					{#if downloadState.gated || recommendation.gated}
+						<GatedModelLink source={{ ...recommendation, gated_repo: downloadState.gatedRepo }} />
+					{/if}
+				</div>
 			{/if}
 		</div>
 	{/each}

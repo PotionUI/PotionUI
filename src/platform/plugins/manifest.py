@@ -257,6 +257,10 @@ class ModelLayoutsRootSpec(PluginRelativePathSpec):
 class FiltersRootSpec(PluginRelativePathSpec):
     pass
 
+
+class EffectsRootSpec(PluginRelativePathSpec):
+    pass
+
 class LLMProfilesRootSpec(PluginRelativePathSpec):
     pass
 
@@ -325,6 +329,40 @@ class PresetModeContributionSpec(BaseModel):
     modes_root: str
 
 
+class PresetExtensionSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: str
+    modes: List[str]
+    file: str
+
+    @field_validator("target")
+    @classmethod
+    def _non_empty_target(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must name a preset id")
+        return value
+
+    @field_validator("modes")
+    @classmethod
+    def _named_modes(cls, value: List[str]) -> List[str]:
+        if not value:
+            raise ValueError("must name at least one mode")
+        if any(not isinstance(mode, str) or not mode.strip() for mode in value):
+            raise ValueError("mode names must be non-empty strings")
+        if len(set(value)) != len(value):
+            raise ValueError("names a mode more than once")
+        return value
+
+    @field_validator("file")
+    @classmethod
+    def _contained_file(cls, value: str) -> str:
+        normalized = value.replace("\\", "/")
+        if not value or normalized.startswith("/") or ":" in value or ".." in normalized.split("/"):
+            raise ValueError("must be a relative path inside the plugin, without '..'")
+        return value
+
+
 class AdminTabSpec(BaseModel):
     """A plugin-contributed tab on its own Admin -> Plugins detail panel:
     `admin_tabs[]`.
@@ -353,6 +391,25 @@ class PageSpec(BaseModel):
     component: str
     label: str
     icon: Optional[str] = None
+
+
+class ToolTabSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    label: str
+    component: str
+    icon: Optional[str] = None
+    accepts: List[Literal["image", "video", "audio"]] = Field(default_factory=list)
+    handles: List[str] = Field(default_factory=list)
+
+    @field_validator("component")
+    @classmethod
+    def _component_stays_in_dist(cls, value: str) -> str:
+        parts = value.split("/")
+        if not value or "\\" in value or value.startswith("/") or ":" in value or ".." in parts:
+            raise ValueError("component must be a relative path inside frontend/dist")
+        return value
 
 
 class SidebarItemSpec(BaseModel):
@@ -520,6 +577,16 @@ class PromptImporterSpec(BaseModel):
     label: str
     component: str
     backend: str
+
+
+class PromptResourceSourceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    field_type: str
+    label: str
+    badge: str
+    members: str
 
 
 class PhrasebookOpSpec(BaseModel):
@@ -829,6 +896,11 @@ class OrganizeActionSpec(BaseModel):
     requires_admin: bool = False
     description: str = ""
     component: Optional[str] = None
+    scope: Literal["user", "instance"] = "user"
+    notes: List[str] = Field(default_factory=list)
+    needs: List[Literal["digest"]] = Field(default_factory=list)
+    done_label: str = ""
+    paced: bool = False
 
 
 class LimitKindSpec(BaseModel):
@@ -852,6 +924,20 @@ class LimitKindSpec(BaseModel):
     admin_only_values: Optional[bool] = None
     warn_at: float = Field(default=0.8, gt=0, le=1)
     icon: str = ""
+
+
+class ModelTypeSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    folder: str = Field(min_length=1)
+    purpose: str = ""
+    aliases: List[str] = Field(default_factory=list)
+    extensions: List[str] = Field(default_factory=list)
+    layout: Literal["file", "directory"] = "file"
+    header_classified: bool = False
+    assignable: bool = True
 
 
 class PluginManifestSchema(BaseModel):
@@ -894,12 +980,14 @@ class PluginManifestSchema(BaseModel):
     # Modes this plugin contributes to OTHER (already-installed) presets - see
     # PresetModeContributionSpec.
     preset_modes: List[PresetModeContributionSpec] = Field(default_factory=list)
+    preset_extensions: List[PresetExtensionSpec] = Field(default_factory=list)
     # Recipe roots this plugin contributes, scanned like the core
     # content/recipes/ tree - see RecipesRootSpec.
     recipes: List[RecipesRootSpec] = Field(default_factory=list)
     model_layouts: List[ModelLayoutsRootSpec] = Field(default_factory=list)
     llm_profiles: List[LLMProfilesRootSpec] = Field(default_factory=list)
     filters: List[FiltersRootSpec] = Field(default_factory=list)
+    effects: List[EffectsRootSpec] = Field(default_factory=list)
     filter_ops: List[FilterOpSpec] = Field(default_factory=list)
     # Recipe step kinds this plugin contributes - see RecipeStepSpec.
     recipe_steps: List[RecipeStepSpec] = Field(default_factory=list)
@@ -908,6 +996,7 @@ class PluginManifestSchema(BaseModel):
     samplers: List[SamplerSpec] = Field(default_factory=list)
     schedules: List[ScheduleSpec] = Field(default_factory=list)
     model_classifiers: List[ModelClassifierSpec] = Field(default_factory=list)
+    model_types: List[ModelTypeSpec] = Field(default_factory=list)
 
     # Frontend components
     frontend: Optional[str] = None  # Path to a frontend entry point, if any
@@ -916,6 +1005,7 @@ class PluginManifestSchema(BaseModel):
     # Tabs this plugin contributes to its own Admin -> Plugins detail panel,
     # alongside the core Overview/Settings tabs - see AdminTabSpec.
     admin_tabs: List[AdminTabSpec] = Field(default_factory=list)
+    tool_tabs: List[ToolTabSpec] = Field(default_factory=list)
     quick_actions: List[QuickActionSpec] = Field(default_factory=list)
     sidebar_widgets: List[SidebarWidgetSpec] = Field(default_factory=list)
     settings: List[SettingSpec] = Field(default_factory=list)
@@ -946,6 +1036,8 @@ class PluginManifestSchema(BaseModel):
     # Prompt library import sources
     prompt_importers: List[PromptImporterSpec] = Field(default_factory=list)
 
+    prompt_resource_sources: List[PromptResourceSourceSpec] = Field(default_factory=list)
+
     # Phrasebook batch tools
     phrasebook_ops: List[PhrasebookOpSpec] = Field(default_factory=list)
 
@@ -965,6 +1057,15 @@ class PluginManifestSchema(BaseModel):
             if op.id in seen:
                 raise ValueError(f"filter_ops id '{op.id}' is declared twice")
             seen.add(op.id)
+        return self
+
+    @model_validator(mode="after")
+    def _tool_tab_ids_are_unique(self) -> "PluginManifestSchema":
+        seen = set()
+        for tab in self.tool_tabs:
+            if tab.id in seen:
+                raise ValueError(f"tool_tabs id '{tab.id}' is declared twice")
+            seen.add(tab.id)
         return self
 
     @model_validator(mode="after")

@@ -62,7 +62,7 @@ def list_app_directories(settings: Optional[Any] = None, resolver: Optional[Any]
     each of its existing subdirectories (checkpoints, loras, vae, ...),
     the storage dir, the outputs dir, and a final "Custom path..." choice.
     """
-    from src.platform.filesystem.model_types import MODEL_TYPES
+    from src.platform.filesystem.model_types import model_types
 
     settings = settings or _default_settings()
     resolver = resolver or _default_model_roots()
@@ -72,7 +72,7 @@ def list_app_directories(settings: Optional[Any] = None, resolver: Optional[Any]
     seen_paths: Set[str] = set()
     type_dirs = [
         type_dir
-        for model_type in MODEL_TYPES
+        for model_type in model_types()
         for type_dir in resolver.type_dirs(model_type, online_only=False)
     ]
     for type_dir in sorted(type_dirs, key=lambda td: (root_labels.get(td.root_id, td.root_id), td.model_type)):

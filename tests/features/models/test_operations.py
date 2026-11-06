@@ -9,8 +9,7 @@ from datetime import datetime
 from src.features.models import operations
 from src.features.models.collaborators import build_model_index_collaborators
 from src.features.models.catalog import ListModelsParams
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY as TYPE_DIR_MAP
-from src.features.models.indexer import ModelScanner
+from src.platform.filesystem.model_types import model_types, type_to_directory
 from src.features.models.exceptions import (
     ModelAlreadyAssignedException,
     ModelNotFoundException,
@@ -215,15 +214,11 @@ class TestGetModelTypes:
     """Tests for get_model_types, in particular the include_empty zero-count injection."""
 
     def _stub_scanner_mapping(self, collaborators, tmp_path):
-        # The `collaborators` fixture replaces the catalog's scanner with a bare
-        # MagicMock; MODEL_TYPE_MAPPING must be stubbed explicitly to the real
-        # class attribute so get_model_types can read the known-types superset.
-        collaborators.catalog.scanner.MODEL_TYPE_MAPPING = ModelScanner.MODEL_TYPE_MAPPING
         models_dir = tmp_path / 'models'
 
         def _write_dir(model_type):
             entry = Mock()
-            entry.path = models_dir / TYPE_DIR_MAP.get(model_type, model_type)
+            entry.path = models_dir / type_to_directory().get(model_type, model_type)
             return entry
 
         collaborators.catalog.scanner.resolver.write_dir.side_effect = _write_dir
@@ -238,7 +233,7 @@ class TestGetModelTypes:
         result = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=False, include_empty=True)
 
         types_by_name = {t['type']: t for t in result['types']}
-        known_types = set(ModelScanner.MODEL_TYPE_MAPPING.values())
+        known_types = set(model_types())
         expected_empty = known_types - {'checkpoint', 'lora'}
 
         assert expected_empty  # sanity: mapping has more types than the two with rows
@@ -248,7 +243,7 @@ class TestGetModelTypes:
             assert entry['size_bytes'] == 0
             assert entry['size_mb'] == 0
             assert entry['size_gb'] == 0
-            assert entry['directory'] == str(tmp_path / 'models' / TYPE_DIR_MAP.get(model_type, model_type))
+            assert entry['directory'] == str(tmp_path / 'models' / type_to_directory().get(model_type, model_type))
             assert entry['subdirectories'] == []
 
         # Existing non-empty types are untouched.
@@ -307,13 +302,13 @@ class TestGetModelTypes:
         result = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=False, include_empty=True)
 
         assert result['total_types'] == len(result['types'])
-        assert result['total_types'] == len(set(ModelScanner.MODEL_TYPE_MAPPING.values()))
+        assert result['total_types'] == len(set(model_types()))
 
     async def test_subdirectories_lists_nested_dirs_sorted_excluding_hidden(
         self, collaborators, mock_model_repository, mock_admin_user, tmp_path
     ):
         self._stub_scanner_mapping(collaborators, tmp_path)
-        lora_dir = tmp_path / 'models' / TYPE_DIR_MAP['lora']
+        lora_dir = tmp_path / 'models' / type_to_directory()['lora']
         lora_dir.mkdir(parents=True)
         (lora_dir / 'sdxl' / 'characters').mkdir(parents=True)
         (lora_dir / 'flux').mkdir()

@@ -9,6 +9,8 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from src.platform.security.failure_text import failure_detail
 from src.features.chat import projection
+from src.features.chat.apply_tags import ApplyTargets, normalize_apply_tags
+from src.features.chat.context_builder import empty_memory_result
 from src.features.chat.decisions import rejections_for_reply
 from src.features.chat.dto import MessageResponse, SessionResponse, SendMessageResponse
 from src.features.chat.exceptions import (
@@ -191,6 +193,10 @@ class ConversationRunner:
             if context_metadata is None:
                 context_metadata = continued_context
 
+        if not self._mode_reads_app_context(session.mode):
+            context_metadata = self._attachments_only(context_metadata)
+            resources = None
+
         step_records = run.step_records
 
         if resources:
@@ -295,27 +301,29 @@ class ConversationRunner:
                 },
             }
 
-        memory_start = time.monotonic()
-        yield {"event": "status", "data": {"step": "loading_memory", "state": "started"}}
-        memory_result = self._m._context.inject_memory_block(
-            injected, context_metadata, user_id,
-            write_memory_available="write_memory" in (allowed_tools or []),
-            mode_id=session.mode,
-        )
-        step_records.append({"step": "loading_memory", "duration_ms": int((time.monotonic() - memory_start) * 1000)})
-        yield {
-            "event": "status",
-            "data": {
-                "step": "loading_memory",
-                "state": "completed",
-                "detail": {
-                    "note_count": len(memory_result["note_ids"]),
-                    "by_scope": memory_result["by_scope"],
-                    "by_scope_dropped": memory_result.get("by_scope_dropped"),
-                    "injected_chars": memory_result.get("injected_chars"),
+        memory_result = empty_memory_result()
+        if mode.app_context:
+            memory_start = time.monotonic()
+            yield {"event": "status", "data": {"step": "loading_memory", "state": "started"}}
+            memory_result = self._m._context.inject_memory_block(
+                injected, context_metadata, user_id,
+                write_memory_available="write_memory" in (allowed_tools or []),
+                mode_id=session.mode,
+            )
+            step_records.append({"step": "loading_memory", "duration_ms": int((time.monotonic() - memory_start) * 1000)})
+            yield {
+                "event": "status",
+                "data": {
+                    "step": "loading_memory",
+                    "state": "completed",
+                    "detail": {
+                        "note_count": len(memory_result["note_ids"]),
+                        "by_scope": memory_result["by_scope"],
+                        "by_scope_dropped": memory_result.get("by_scope_dropped"),
+                        "injected_chars": memory_result.get("injected_chars"),
+                    },
                 },
-            },
-        }
+            }
 
         history_info = self._apply_history_budget(injected)
         if continuing:
@@ -486,7 +494,8 @@ class ConversationRunner:
         usage = outcome.usage if outcome.model_generated else None
         steps = list(outcome.steps)
         cleaned_content, parsed_content = self._m.response_processor.process(
-            projection.segment_text(steps), mode=session.mode,
+            normalize_apply_tags(projection.segment_text(steps), ApplyTargets.from_context(context_metadata)),
+            mode=session.mode,
         )
 
         extra: Dict[str, Any] = {
@@ -561,7 +570,8 @@ class ConversationRunner:
 
         logger.debug(f"Message exchange complete in session {session_id}")
         run.title_task = self._start_title_task(session, session_id)
-        self._start_reflection_task(session_id, form_state)
+        if mode.app_context:
+            self._start_reflection_task(session_id, form_state)
 
         run.done = {
             "assistant_message": self._presented(assistant_row, turn_id).model_dump(),
@@ -569,6 +579,15 @@ class ConversationRunner:
             "resolved_message": resolved_message,
         }
         yield {"event": "done", "data": run.done}
+
+    def _mode_reads_app_context(self, mode_id: str) -> bool:
+        mode = self._m.chat_mode_registry.get(mode_id)
+        return mode is None or mode.app_context
+
+    @staticmethod
+    def _attachments_only(context_metadata: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        image_url = (context_metadata or {}).get("image_url")
+        return {"image_url": image_url} if image_url else None
 
     def _presented(self, row: MessageResponse, turn_id: str) -> MessageResponse:
         store = self._m.turn_engine.store

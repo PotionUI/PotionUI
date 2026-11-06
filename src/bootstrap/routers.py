@@ -18,6 +18,7 @@ from src.features.users.routes import build_router as build_user_router
 from src.features.sessions.routes import build_router as build_session_router
 from src.features.filters.routes import build_router as build_filter_router
 from src.features.formulas.routes import build_router as build_formula_router
+from src.features.elixirs.routes import build_router as build_elixirs_router
 from src.features.organize.routes import build_admin_router as build_organize_admin_router
 from src.features.organize.routes import build_router as build_organize_router
 from src.features.plans.routes import build_admin_router as build_plans_admin_router
@@ -85,6 +86,7 @@ from src.features.providers.routes import build_router as build_provider_router
 from src.features.settings.admin_websocket import build_router as build_admin_ws_router
 from src.features.keybindings.routes import build_router as build_keybinding_router
 from src.features.prompt_database.routes import build_router as build_prompt_database_router
+from src.features.prompt.routes import build_router as build_prompt_resource_router
 from src.features.media_index.routes import build_router as build_media_index_router
 from src.features.content_safety.routes import build_router as build_content_safety_router
 from src.features.notifications.routes import (
@@ -110,6 +112,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_filter_router(container))
     app.include_router(build_organize_router(container))
     app.include_router(build_organize_admin_router(container))
+    app.include_router(build_elixirs_router(container))
     app.include_router(build_plans_router(container))
     app.include_router(build_plans_admin_router(container))
     app.include_router(build_workspace_router(container))  # Workspace management routes
@@ -164,6 +167,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_admin_ws_router(container))  # Admin WebSocket endpoint
     app.include_router(build_keybinding_router(container))  # Keybinding management endpoints
     app.include_router(build_prompt_database_router(container))  # Prompt database endpoints
+    app.include_router(build_prompt_resource_router(container))
     app.include_router(build_media_index_router(container))  # Media index (system tags) admin endpoints
     app.include_router(build_content_safety_router(container))
     app.include_router(build_notification_router(container))  # Notification endpoints

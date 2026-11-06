@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
 	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
 	import type { SessionPanelActions, SessionPanelState } from '$lib/session/sessionDialogs';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import type { PresetInfo } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import Icon from '$lib/components/Icon.svelte';
@@ -14,6 +14,7 @@
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
 	import { Kbd, Menu, Spinner } from '$lib/components/ui';
 	import { formAudienceStore } from '$lib/stores/formAudience';
+	import { authStore } from '$lib/stores/auth';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { formFoldStates, toggleFormPane } from '$lib/stores/generationLayout';
 	import { shortcutLabels } from '$lib/stores/keybindings';
@@ -52,29 +53,33 @@
 		isLoading = false,
 		isReloading = false,
 		availableModes = [],
-		session,
-		actions,
+		session = null,
+		actions = null,
 		fieldLabels = {},
 		onPresetChange,
 		onModeChange,
 		onVariantChange,
 		onReload,
-		onFormulaApplied = undefined
+		onFormulaApplied = undefined,
+		leading = undefined,
+		trailing = undefined
 	}: {
-		tab: Tab;
+		tab: GenerationTab;
 		presets?: PresetInfo[];
 		readiness?: ReadinessReport | null;
 		isLoading?: boolean;
 		isReloading?: boolean;
 		availableModes?: PresetModeChoice[];
-		session: SessionPanelState;
-		actions: SessionPanelActions;
+		session?: SessionPanelState | null;
+		actions?: SessionPanelActions | null;
 		fieldLabels?: FieldLabels;
 		onPresetChange: (presetId: string) => void;
 		onModeChange: (mode: string) => void;
 		onVariantChange: (variant: string) => void;
 		onReload: () => void;
 		onFormulaApplied?: () => void;
+		leading?: Snippet;
+		trailing?: Snippet;
 	} = $props();
 
 	const uid = $props.id();
@@ -86,7 +91,7 @@
 	let fitToken = 0;
 
 	let presetInfo = $derived(presets.find((preset) => preset.id === tab.selectedPreset));
-	let modeOptions = $derived(presetModeOptions(availableModes));
+	let modeOptions = $derived(presetModeOptions(availableModes, { admin: $authStore.user?.account_type === 'ADMIN' }));
 	let currentModeLabel = $derived(modeLabel(tab.selectedMode, availableModes.find((mode) => mode.id === tab.selectedMode)?.label));
 	let variants = $derived(sortVariants(availableModes.find((mode) => mode.id === tab.selectedMode)?.variants));
 	let variantOptions = $derived(variants.map((variant) => ({ value: variant.name, label: variant.label, description: variant.description })));
@@ -94,7 +99,7 @@
 	let hasPreset = $derived(!!tab.selectedPreset);
 	let showMode = $derived(hasPreset && modeOptions.length > 1);
 	let showVariant = $derived(hasPreset && variantOptions.length > 1);
-	let showSession = $derived(hasPreset && !!tab.selectedMode);
+	let showSession = $derived(hasPreset && !!tab.selectedMode && !!session && !!actions);
 	let showTools = $derived(contextToolsAvailable(tab));
 	let disclosureKey = $derived([showTools, showMode, showVariant, showSession].join('|'));
 
@@ -177,8 +182,8 @@
 			tab.selectedPreset,
 			tab.selectedMode,
 			selectedVariant,
-			session.currentSession?.name,
-			session.sessionControlsEnabled,
+			session?.currentSession?.name,
+			session?.sessionControlsEnabled,
 			disclosureKey,
 			presetInfo?.name,
 			...tools.map((tool) => tool.text)
@@ -258,6 +263,13 @@
 	</span>
 {/snippet}
 
+{#snippet sessionStep()}
+	<div class="ctx-step flex min-w-0 shrink {stepPad}" data-context-step>
+		<span id="{uid}-session" class={labelClass} data-context-label>Session</span>
+		<SessionControl session={session!} actions={actions!} {fieldLabels} compact={fit.compact} labelId="{uid}-session" />
+	</div>
+{/snippet}
+
 {#snippet divider()}
 	<span class="mx-1 h-5 w-px flex-shrink-0 bg-line-strong" aria-hidden="true"></span>
 {/snippet}
@@ -274,6 +286,15 @@
 		aria-label="Generation context"
 		data-testid="context-zone"
 	>
+		{#if leading}
+			<div class="flex min-w-0 flex-shrink items-center gap-2 pl-3 pr-2 sm:pl-4" data-context-step data-testid="context-leading">
+				{@render leading()}
+			</div>
+			{#if showSession}
+				{@render cut()}
+				{@render sessionStep()}
+			{/if}
+		{:else}
 		<div class="ctx-step flex flex-shrink-0 {stepPad}" data-context-step>
 			<span id="{uid}-preset" class={labelClass} data-context-label>Preset</span>
 			<div class="flex min-w-0" data-testid="preset-header-picker">
@@ -396,10 +417,8 @@
 
 		{#if showSession}
 			{@render cut()}
-			<div class="ctx-step flex min-w-0 shrink {stepPad}" data-context-step>
-				<span id="{uid}-session" class={labelClass} data-context-label>Session</span>
-				<SessionControl {session} {actions} {fieldLabels} compact={fit.compact} labelId="{uid}-session" />
-			</div>
+			{@render sessionStep()}
+		{/if}
 		{/if}
 	</div>
 
@@ -489,6 +508,12 @@
 					{/snippet}
 				</Menu>
 			{/if}
+		</div>
+	{/if}
+
+	{#if trailing}
+		<div class="flex flex-shrink-0 items-center gap-2 pl-1 pr-3 sm:pr-4" data-testid="context-trailing">
+			{@render trailing()}
 		</div>
 	{/if}
 </div>

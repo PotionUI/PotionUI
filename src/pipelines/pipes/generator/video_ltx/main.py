@@ -105,6 +105,7 @@ from src.platform.runtime.native.sampling import (
     conditioned_sigmas,
     denoise_prenoised,
     make_preview_hook,
+    preview_reserve_gb,
 )
 from src.platform.runtime.native.sampling.step_profile import StepPlanHook
 from src.pipelines.contracts import logger
@@ -118,6 +119,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     _release_idle_pool,
     dit_is_fully_resident,
     guard_sampling_oom,
+    hand_off_dit,
     make_room_for_lora_stack,
     place_dit_for_sequence,
     sequence_fit,
@@ -180,6 +182,7 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     nag_config_specs,
     preview_config_spec,
+    preview_decoder_config_spec,
     seed_config_spec,
 )
 
@@ -392,6 +395,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec("Emit live latent previews during sampling"),
+            preview_decoder_config_spec(),
             PipeConfigSpec("media_placements", list, [],
                            "Media conditioning placements: [{source: image|video, index, frame: int|first|last|end, "
                            "strength, role: keyframe|reference}]. Empty with image inputs present = image[0] as "
@@ -502,6 +506,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         if not match and extend <= 0:
             return width, height, fps, frames, 0
         index = _matched_clip_index(placements)
+        if (index is None or index >= len(videos)) and latent is not None and extend <= 0:
+            return (int(latent.shape[-1]) * LTX_SPATIAL_DOWNSCALE, int(latent.shape[-2]) * LTX_SPATIAL_DOWNSCALE,
+                    fps, frames, 0)
         if index is None or index >= len(videos):
             raise ValueError("generator/video_ltx: 'match_video'/'extend_seconds' need a video clip in 'media_placements'")
         clip_width, clip_height, clip_fps, clip_frames = probe_video_stream(videos[index])
@@ -833,7 +840,10 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
     def _decode_fits_beside_dit(self, c: _VideoLtxCtx, video_latent: Tensor) -> bool:
         if c.audio_mode == "generate" or not dit_is_fully_resident(c.bundle.dit, c.device):
             return False
-        return decode_fits_beside(c.bundle.vae, video_latent, effective_free_vram_gb(c.device))
+        return decode_fits_beside(
+            c.bundle.vae, video_latent, effective_free_vram_gb(c.device),
+            beside_gb=float(getattr(c.bundle.dit, "estimated_vram_gb", None) or 0.0),
+        )
 
     def _generate(self, ctx: GeneratorContext, c: _VideoLtxCtx, index: int, seed: int, progress,
                   frames_only: bool = False, window: Tuple[int, int] = (0, 1)) -> Any:
@@ -924,6 +934,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         # above from the pristine `c.prepared`, never written back into it),
         # not a mutated shared copy a previous seed left behind.
         forward = ConditionedAVForward(c.bundle.dit.module, replace(c, prepared=prepared))
+        preview_hook = None
+        if self.config.get("preview", True):
+            preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, latent_transform=forward.unpack_base, decoder_path=self.config.get("preview_decoder") or None)
 
         # MultiModalGuider (quality recipe): build from pipe config; when
         # active, supply video_tokens boundary in cond for per-slice combine.
@@ -954,10 +967,8 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                     index + 1, ctx.quantity, seed, tuple(x.shape),
                     prepared.base_tokens, prepared.n_extra, c.audio_tokens)
         hooks = [ProgressHook(on_progress), StepPlanHook(lambda i, n: {"attn": "dense"})]
-        if self.config.get("preview", True):
-            preview_hook = make_preview_hook(c.spec, progress.preview, latent_transform=forward.unpack_base)
-            if preview_hook is not None:
-                hooks.append(preview_hook)
+        if preview_hook is not None:
+            hooks.append(preview_hook)
 
         own_models = _own_models(c.bundle)
         with _scoped_loras_on_card(
@@ -965,6 +976,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             placement = place_dit_for_sequence(
                 c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
                 own_models=own_models,
+                preview_reserve_gb=preview_reserve_gb([preview_hook], (1, LTX_LATENT_CHANNELS, c.t_lat, c.h_lat, c.w_lat)),
                 **ltx_reserve_terms(
                     c.bundle.dit, per_token_timestep=True, per_token_frames_broken=c.reference_scales[0] != 1,
                     generates_audio=c.audio_mode == "generate",
@@ -990,9 +1002,12 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             )
         video_latent = forward.unpack_base(x)
         decode = bool(self.config.get("decode", True))
-        keep_dit = (frames_only or decode) and self._decode_fits_beside_dit(c, video_latent)
-        if not keep_dit:
-            c.bundle.dit.offload()
+        if frames_only or decode:
+            keep_dit = self._decode_fits_beside_dit(c, video_latent)
+            if not keep_dit:
+                c.bundle.dit.offload()
+        else:
+            keep_dit = hand_off_dit(c.bundle.dit, c.device, needs_room=c.audio_mode == "generate")
         clear_gpu_memory()
         keep_resident = (c.bundle.dit,) if keep_dit else ()
 
@@ -1015,12 +1030,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         self._audio_results.append(audio_track)
 
         if not decode:
-            # Hand the raw latent to a downstream latent_upscaler/refine stage --
-            # no VAE decode/mp4-encode round trip (audio, above, already ran).
-            # See txt2vid_ltx's identical branch for the restore_dit_best_effort
-            # reasoning.
-            if index == ctx.quantity - 1:
-                restore_dit_best_effort(c.bundle.dit, c.device)
             return video_latent
 
         frames_np = decode_ltx_video(c.bundle.vae, c.device, video_latent, seed, keep_resident=keep_resident)

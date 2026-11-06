@@ -38,6 +38,7 @@ from .cfg import EmbeddedGuidance, FlowMapGuidance, GuidanceStrategy, NoCFG, Ski
 from .flow_schedule import build_sigmas
 from .registry import sampler_registry
 from .hooks import with_numerics_watchdog
+from .latent_mask import LatentMaskGuidance, restore_kept_latents, validate_latent_mask
 from ..cancellation import cancellation_scope
 from .step_cache import StepCacheSet
 from .step_profile import cache_skip_probe, with_step_profile
@@ -345,6 +346,7 @@ def denoise(
     guidance_override: GuidanceStrategy | None = None,
     sigmas: Tensor | None = None,
     expert_boundary: float | None = None,
+    latent_mask: Tensor | None = None,
 ) -> Tensor:
     """Denoise ``latents`` to a clean latent and return it.
 
@@ -467,6 +469,11 @@ def denoise(
         guidance = make_guidance(sampling_settings, guidance_scale, cfg_zero_star, zero_init_steps, sigmas=sigmas)
 
     guidance, cache_set = wrap_step_cache(guidance, step_cache_options, model_forward, len(sigmas) - 1)
+    if latent_mask is not None:
+        if resume is not None:
+            raise ValueError("latent_mask cannot be combined with a trajectory resume")
+        latent_mask = validate_latent_mask(latent_mask, latents)
+        guidance = LatentMaskGuidance(guidance, latents, latent_mask, len(sigmas) - 1)
 
     logger.debug(
         "denoise: sampler=%s steps=%d guidance=%s sigma0=%.5f denoise=%.3f",
@@ -516,6 +523,9 @@ def denoise(
         )
 
     log_step_cache_totals(logger, cache_set)
+
+    if latent_mask is not None:
+        latent = restore_kept_latents(latent_mask, latent, latents, len(sigmas) - 1)
 
     # Cast the final latent back to the original dtype (one final rounding, same as
     # the reference's decode-boundary cast). Downstream decode contracts unchanged.

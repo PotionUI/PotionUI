@@ -17,7 +17,7 @@
 // reactive block re-validates it once modes load, see its own comment).
 
 import type { SessionData } from '$lib/types/api';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 
 export interface SessionRestoreFallback {
 	/** Current tab value to fall back to when the saved session doesn't specify one. */
@@ -31,7 +31,7 @@ const DEFAULT_PROMPT_PANEL_WIDTH = 420;
 export function buildSessionRestoreTabPatch(
 	modeData: SessionData,
 	fallback: SessionRestoreFallback = {}
-): Partial<Tab> {
+): Partial<GenerationTab> {
 	return {
 		prompt: modeData.prompt || '',
 		negativePrompt: modeData.negativePrompt || '',

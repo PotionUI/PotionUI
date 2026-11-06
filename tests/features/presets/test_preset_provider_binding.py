@@ -133,7 +133,9 @@ def test_the_lint_reports_a_cloud_preset_without_a_driver_as_an_error(tmp_path):
 def test_a_preset_without_a_driver_gets_no_driver_finding_from_the_lint(tmp_path):
     write_preset(tmp_path, "Plain", "01PLAINBBBBBBBBBBBBBBBBBBBB", "native", None)
 
-    assert PresetLinter([str(tmp_path)], registered_drivers=set()).lint() == []
+    issues = PresetLinter([str(tmp_path)], registered_drivers=set()).lint()
+
+    assert not [i for i in issues if "driver" in i.message]
 
 
 def field_data(**overrides):

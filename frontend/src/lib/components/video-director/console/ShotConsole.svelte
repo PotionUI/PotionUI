@@ -29,7 +29,7 @@
 	import { resolvePromptSegments } from '$lib/utils/promptSegments';
 	import { deriveConsoleModel, type ConsoleHeader as ConsoleHeaderModel } from './consoleModel';
 	import { deriveShotRail, railTimeFromFraction, shotRailIsInteractive } from './shotRailModel';
-	import type { ConsoleSelection } from './consoleSelection';
+	import { resolveConsoleSelection, type ConsoleSelection } from './consoleSelection';
 	import {
 		deriveRailModel,
 		withChainKeyframeAt,
@@ -68,6 +68,8 @@
 	import ShotStage from './ShotStage.svelte';
 	import JoinConnector from './JoinConnector.svelte';
 	import OverridesDisclosure from './OverridesDisclosure.svelte';
+	import { bundleDirectories, loadBundles } from '$lib/stores/bundleDirectory';
+	import { bundleRefs } from '$lib/utils/bundleResources';
 
 	let {
 		value,
@@ -202,7 +204,15 @@
 	let checked: Set<string> = $state(new Set());
 
 	let generationContext = $derived({ presetId: presetId || null, variant: selectedVariant, mode: selectedMode });
-	let model = $derived(deriveConsoleModel(doc, capabilities, { activeShotId: activeShotId ?? null }, formData, runs, checked, generationContext));
+	$effect(() => {
+		loadBundles(bundleRefs(promptResources, formData));
+	});
+	let model = $derived(
+		deriveConsoleModel(doc, capabilities, { activeShotId: activeShotId ?? null }, formData, runs, checked, generationContext, {
+			specs: promptResources,
+			directories: $bundleDirectories
+		})
+	);
 	// The MAX affordance's target -- null hides it entirely (no cap of either
 	// kind); shared by every shot card since it depends only on the doc/caps,
 	// not on which shot is active.
@@ -233,8 +243,9 @@
 	// gets no default -- nothing selected there is a real, meaningful state.
 	$effect(() => {
 		if (!effectiveActiveShotId) return;
-		if (selection && selection.shotId === effectiveActiveShotId) return;
-		if (capabilities.segmentRouting) selection = { shotId: effectiveActiveShotId, kind: 'beat', id: effectiveActiveShotId };
+		const rail = deriveShotRail(doc, capabilities, effectiveActiveShotId, formData);
+		const next = resolveConsoleSelection(selection, effectiveActiveShotId, rail, capabilities.segmentRouting);
+		if (next !== selection) selection = next;
 	});
 	// The three mirror effects here (`onChange` above, header and checked
 	// below) call their callback under `untrack`: the callbacks arrive through

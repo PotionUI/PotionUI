@@ -100,16 +100,17 @@ reads a GEMM capability itself.
 
 | Module | Public names | Role |
 |---|---|---|
-| `hardware.py` | `capabilities()`, `refresh_capabilities()`, `Capabilities`, `DeviceCapabilities`, `GpuGeneration`, the backend names `SDPA`/`FLASH`/`SAGE`/`SAGE2`/`SAGE3`/`SPARGE` | A per-process snapshot of every visible GPU (compute capability, name, generation, which attention backends are importable and eligible), built lazily once, allocation-free, cached. `Capabilities.device(index)` returns the entry for one device; an unknown or CUDA-less device answers with a CPU entry of capability `(0, 0)`, and a probe that fails never raises. `refresh_capabilities()` rebuilds it after an in-process install of an attention package. The only place in `src/` that calls `torch.cuda.get_device_capability`; the vendored `sol_attn` keeps its own probe because `vendor/` cannot import `src`. |
+| `hardware.py` | `capabilities()`, `refresh_capabilities()`, `Capabilities`, `DeviceCapabilities`, `GpuGeneration`, the backend names `SDPA`/`FLASH`/`SAGE`/`SAGE2`/`SAGE3`/`SPARGE` | A per-process snapshot of every visible GPU (compute capability, name, generation, total VRAM, vendor `cuda`/`hip`, which attention backends are importable and eligible), built lazily once, allocation-free, cached. `Capabilities.device(index)` returns the entry for one device; an unknown or CUDA-less device answers with a CPU entry of capability `(0, 0)`, and a probe that fails never raises. `refresh_capabilities()` rebuilds it after an in-process install of an attention package. The only place in `src/` that calls `torch.cuda.get_device_capability`; the vendored `sol_attn` keeps its own probe because `vendor/` cannot import `src`. |
 | `gemm.py` | `gemm_support(device)`, `GemmSupport` | Whether `torch._scaled_mm` (fp8) and `torch._scaled_mm_v2` (nvfp4) work on a device, with a reason string when not. Probed lazily per device and cached; the nvfp4 trial GEMM runs only on the first ask. The live flags `native_fp8_matmul` / `native_nvfp4_matmul` are not part of it. |
 | `linear.py` | `fast_path(layer)`, `quant_format(layer)`, `FastPath`, `FastPathKind`, `QuantFormat` | The static answer to "which path will this quantised linear take": the layer's format, `gemm_support` for its device and the live flags combined into a kind (`fp8_scaled_mm` / `nvfp4_gemm` / `dequant`), whether runtime LoRA output branches are fused, and the reason when the fast kind is not taken. `None` for layers that are not quantised linears. Value-dependent conditions (zero, NaN or negative scales) are outside the static answer. |
-| `dispatch.py` | `attention(q, k, v, ...)`, `available_backends`, `get_attention_backend`, `get_backend_override`, `known_backends`, `reset_backend_cache`, `BACKEND_PRIORITY` | The one attention call every arch module shares: a uniform `(B, H, L, D)` contract over sdpa/flash/sage/sage2/sage3 (sparge by pin only), picked by availability from the snapshot, with grouped-KV and mask handling. |
+| `dispatch.py` | `attention(q, k, v, ...)`, `available_backends`, `get_attention_backend`, `get_backend_override`, `known_backends`, `reset_backend_cache`, `BACKEND_PRIORITY` | The one attention call every arch module shares: a uniform `(B, H, L, D)` contract over sdpa/flash/sage/sage2/sage3 (sparge by pin only), picked by availability from the snapshot, with grouped-KV and mask handling, an optional softmax `scale` forwarded to every backend that takes one, and a per-backend `head_dim` gate (sage/sage2/sage3 up to 128, flash up to 256, sparge 64 or 128). A call a backend cannot serve (mask, dtype, head_dim, or a `scale` on sage3) runs on sdpa inside the dispatcher and is logged once. |
 | `casting.py` | `disable_weight_init`, `manual_cast`, `CastWeightBiasOp`, `cast_to` | The plain and cast-on-forward layer namespaces every arch module is built from. |
 | `fp8_linear.py`, `nvfp4_linear.py` | `Fp8ScaledLinear` (and `Nvfp4Linear`, reached as `fp8_ops.Linear`) | The scaled-fp8, int8 and ConvRot layer, and the nvfp4 layer, with their dequant-on-forward and GEMM forwards. |
 | `operations.py` | `pick_operations`, `detect_quant_format`, `fp8_ops`, `QUANT_FP8_SCALED` | Chooses the layer namespace from a checkpoint's storage dtype and quant format. |
 | `lora_math.py` | `partition_output_branch_deltas`, `invalidate_lora_fused_cache`, `log_lora_path_summary` | The runtime LoRA delta math the layers apply on forward. |
+| `fused_elementwise.py`, `fused_elementwise_triton.py` | `norm_modulate`, `gated_residual`, `act_gate`, `ActGate`, `norm_args`, `fused_elementwise_disabled_reason` (also on every `operations` namespace) | The adaLN norm + modulate, gated residual and FFN activation every DiT family calls. With `native_fused_elementwise` off, or on a machine, dtype or layout the Triton kernels do not take, they run the per-family eager code bit for bit. With it on, a CUDA bf16/fp16 call runs one Triton kernel (fp32 math, one rounding), registered with `torch.library.triton_op` so `torch.compile` traces through it; a kernel that fails to load turns the path off for the process. |
 
-Live runtime flags (`native_fp8_matmul`, `native_nvfp4_matmul`, `native_lora_fused`,
+Live runtime flags (`native_fp8_matmul`, `native_nvfp4_matmul`, `native_fused_elementwise`, `native_lora_fused`,
 `native_attention_backend`) are read at call time, never frozen into the snapshot. Tests fake the
 hardware with the `install_capabilities` fixture (`tests/fixtures/kernel_capabilities.py`) instead of a GPU.
 
@@ -418,6 +419,59 @@ Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 | **12–16 GB** | fp8-resident (auto) or bf16 partial residency for the 9–14B families; VAE offloaded, TE co-resident only when it fits. |
 | **≥ 16 GB** | Fully resident where the fit test allows, phase-offloading TE/VAE only under pressure; a long clip still streams part of its DiT or plans a shorter pass, because the activation reserve grows with its tokens. The 32GB dev card is the luxury case. |
 
+### Sequence-length activation reserve (DiT placement)
+
+Video DiTs are placed per sampling call by `dit_placement.place_dit_for_sequence`, which keeps
+`free − reserve` GB of weights resident and streams the rest. For `S` tokens (video plus audio) and
+attention width `d` (4096 for LTX, 7168 for MiniMax-H3):
+
+```
+reserve_gb = max(0.5, 1.15 × (S × B(d) + quant_scratch(S) + LoRA terms) / 2^30)
+B(d)       = 6·d·2 (attention transient) + 3·(d/2)·4 (RoPE fp32 build) + 2·(d/2)·2 (bf16 cos/sin) + d·2 (hidden)
+           = 90,112 bytes/token for LTX
+```
+
+`quant_scratch(S)` is the widest activation quantiser any fast-path linear runs. Both GEMM fast paths
+quantise their input in row chunks against one tensor-wide scale (`kernels/row_chunks.py`), so the
+scratch is `per_element · k · min(S, rows(k))` bytes, with `rows(k) = ⌊2²⁶ / k⌋` rounded down to the
+128-row scale tile: 12 bytes per element for nvfp4, 5 for fp8. For a 16,384-wide input that is at
+most 0.75 GiB (nvfp4) whatever the sequence length. If a chunk still runs out of memory, the layer
+retries with half the rows, down to 128, and only then dequantizes that one call. int8 and int8
+ConvRot layers always dequantize, so they quantise no activations.
+
+| Family | Tokens | Reserve before (per-token quant copy) | Reserve now |
+|---|---|---|---|
+| LTX | 21,780 | 6.69 GB | 2.97 GB |
+| LTX | 87,120 | 26.75 GB | 9.27 GB |
+| MiniMax-H3 (nvfp4) | 145,793 + 754 | 51.75 GB | 25.61 GB |
+
+A DiT that takes `seq_chunk_rows` (MiniMax-H3; LTX does not) gets its attention prep chunked automatically when the reserve does not fit: `S·B(d)` becomes `max(6·d·2·S, 4·d·2·S + rows·B(d))`, which is 14.36 GB for the clip above. The MiniMax-H3 page has the details.
+
+A live preview decoder also takes VRAM during sampling, so placement holds it back too. When the
+sampling hooks include a preview decoder, `sampling.preview_reserve_gb(hooks, latents_shape)` returns:
+
+```
+preview_reserve_gb = resident + transient
+resident           = (parameter + buffer elements of the loaded decoder) × 2 bytes (fp16 on CUDA)
+transient          = peak live bytes of one preview decode at this latent size
+```
+
+The transient comes from running the decoder's own decode functions once on the `meta` device and
+recording the largest set of tensors alive at one time. It covers both decodes a step can run: the
+middle-frame window at the 512 px preview cap, and, for a hook that sends clips, the whole clip at the
+384 px clip cap. The result is cached per decoder architecture and latent size. For `taeh3`, the
+resident part is 0.021 GB. A 124-frame 768×1344 MiniMax-H3 clip (37 × 48 × 84 latent) adds a
+0.536 GB transient, so placement reserves 0.557 GB. If the estimate fails, it reserves only the
+weights and logs a warning.
+
+The BYO-loop families (MiniMax-H3, LTX) build their hooks before placement and pass this value to
+`place_dit_for_sequence(preview_reserve_gb=...)`. It is added to `extra_reserve_gb`, and the
+over-commit warning, the fit hint and the sampling OOM detail each report it separately. The Wan
+expert router takes it from its `preview_reserve_gb` attribute. `NativeGenerator.sample` computes it
+from its own `hooks`, so every image family that passes a decoder hook is covered without extra
+wiring. Without a decoder hook (the colour projection or previews off) the reserve is 0.0 and
+placement does not change.
+
 All of the above is unit-testable without a GPU: the fit math, the deterministic layer split, the
 fp8 quant equivalence, and the eviction accounting are pure functions (`tests/core/native/memory/`,
 `tests/core/native/test_fp8_quant.py`). The wall-clock A/B (streamed-bf16 vs partial-residency vs
@@ -606,6 +660,47 @@ still no branch on family name.
 > `process_in`/`process_out` (which read `self.latents_mean`/`self.latents_std`) but its own
 > `__init__` never sets them -- verified by reading the class, not assumed. Wan 2.2 normalization
 > is plain `scale_factor=1.0` (a no-op), nothing per-channel.
+
+## Live previews
+
+Sampling streams a preview of the running `x0` estimate to the workbench every fifth step (the first
+and last step always). Two sources produce it:
+
+- **Latent colour projection** (default). A per-family `C x 3` linear map from ComfyUI's
+  `latent_formats.py`, applied at latent resolution (`sampling/preview.py`). It costs one matmul and
+  shows only the first frame of a video. MiniMax-H3 has no trained table, so its colours are a
+  placeholder.
+- **Preview decoder.** A TAEHV tiny decoder ([madebyollin/taehv](https://github.com/madebyollin/taehv),
+  MIT, vendored under `vendor/taehv/`). It decodes the running latent to real colour, under 0.5 GB of
+  VRAM and several times faster than the full VAE, and the preview shows the middle frame of the clip.
+
+The decoder is an ordinary model slot, not a setting. A preset declares an optional `preview_decoder`
+model field (`model_type: preview_decoder`, depot folder `vae_approx/`, the same folder ComfyUI uses),
+admins can set its default or hide it like any other model field, and nothing is downloaded behind the
+user's back: the weights come from the field's recommendation or the `src/std/models/preview_decoders.yml`
+catalog. When the field is empty, missing, unreadable or built for another latent width than the model
+samples, the hook silently keeps the colour projection.
+
+| Weights | Latent | Use with |
+|---|---|---|
+| `taeh3` | 24 ch | MiniMax-H3 |
+| `taeltx_2` | 128 ch | LTX-2 |
+| `taeltx2_3` | 128 ch | LTX-2.3, LTX-2.5 |
+| `taew2_1` | 16 ch | Wan 2.1, Wan 2.2 14B, Qwen-Image |
+| `taew2_2` | 48 ch | Wan 2.2 5B |
+
+The architecture is read from the weights (latent width and layer shapes), never from the file name, so
+a renamed file still loads. A decoder is loaded once through `ModelLifecycle` under the key
+`native/preview_decoder/<path>`, runs in fp16 on CUDA and fp32 on CPU, and goes back to the CPU when the
+sampling loop ends. To keep the cost flat on long clips, a step decodes a window of three latent frames
+around the middle one, at the smallest spatial scale that still reaches the 512 px preview cap.
+Its weights and one decode are reserved before DiT placement (see *Sequence-length activation reserve*).
+`sampling/preview_decoder.py` also exposes `decode_clip`, which decodes every frame of a latent
+(optionally at reduced spatial scale) for callers that want the whole low-resolution clip.
+
+To add the slot to another mode, copy the `preview_decoder` field into that mode's Models section and
+add `preview_decoder: "{{ form.preview_decoder | default('') }}"` to each generator pipe's
+`configuration:`.
 
 ## Verification approach
 

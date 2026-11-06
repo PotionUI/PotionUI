@@ -6,7 +6,7 @@ shapes over and over.
 """
 from typing import Optional
 
-from src.pipelines.outputs import ProgressGenerationOutput, ImageGenerationOutput
+from src.pipelines.outputs import ProgressGenerationOutput, ImageGenerationOutput, PreviewClipGenerationOutput
 from src.pipelines.outputs import Progress, Icon
 
 
@@ -79,8 +79,26 @@ class ProgressEmitter:
         """Emit a temporary (workbench-only) image preview."""
         self.emit(ImageGenerationOutput(image=image, temporary=True, **meta))
 
+    def preview_clip(self, clip) -> None:
+        self.emit(PreviewClipGenerationOutput(
+            sprite=clip.sprite,
+            encoded=clip.encoded,
+            frames=clip.frames,
+            columns=clip.columns,
+            frame_width=clip.frame_width,
+            frame_height=clip.frame_height,
+            fps=clip.fps,
+            step=clip.step,
+            total_steps=clip.total_steps,
+            source_indices=clip.source_indices,
+            long_edge=clip.long_edge,
+            update_index=clip.update_index,
+            updates_max=clip.updates_max,
+            every=clip.every,
+        ))
 
-def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview: bool = True, extra=()):
+
+def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview: bool = True, decoder_path=None, extra=()):
     """Sampler hook list for a native generator: progress + (optional) preview.
 
     Every native generator wires the same ``[ProgressHook(on_progress)]``; this
@@ -100,7 +118,7 @@ def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview:
     hooks = [ProgressHook(on_progress)]
     spec = getattr(gen, "spec", None)
     if preview and spec is not None:
-        preview_hook = make_preview_hook(spec, progress.preview)
+        preview_hook = make_preview_hook(spec, progress.preview, decoder_path=decoder_path)
         if preview_hook is not None:
             hooks.append(preview_hook)
     hooks.extend(extra)

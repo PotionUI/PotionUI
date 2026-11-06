@@ -30,11 +30,12 @@ from src.platform.filesystem.model_roots import (
     root_path_key,
 )
 from src.platform.filesystem.model_types import (
-    DIRECTORY_TO_MODEL_TYPE,
     HEADER_EXTENSIONS,
-    MODEL_TYPES,
-    SUPPORTED_MODEL_EXTENSIONS,
     UNDEFINED_MODEL_TYPE,
+    directory_layout_types,
+    extensions_for,
+    model_types,
+    supported_extensions,
 )
 from src.platform.runtime.model_headers import (
     HeaderStatus,
@@ -108,12 +109,6 @@ class HeaderUnreadable(Exception):
 
 
 class ModelScanner:
-    SUPPORTED_EXTENSIONS = SUPPORTED_MODEL_EXTENSIONS
-
-    MODEL_TYPE_MAPPING = DIRECTORY_TO_MODEL_TYPE
-
-    DIRECTORY_MODEL_TYPES = {'llm'}
-
     def __init__(
         self,
         resolver: ModelRootResolver,
@@ -166,7 +161,7 @@ class ModelScanner:
 
     def _scanned_bindings(self) -> List[str]:
         binding_ids: List[str] = []
-        for model_type in MODEL_TYPES:
+        for model_type in model_types():
             for type_dir in self.resolver.type_dirs(model_type, online_only=True):
                 binding_ids.append(type_dir.binding_id)
         return binding_ids
@@ -174,9 +169,10 @@ class ModelScanner:
     def scan_roots(self) -> List[FoundFile]:
         found: List[FoundFile] = []
         claimed: Set[str] = set()
-        for model_type in MODEL_TYPES:
+        directory_types = directory_layout_types()
+        for model_type in model_types():
             for type_dir in self.resolver.type_dirs(model_type, online_only=True):
-                if model_type in self.DIRECTORY_MODEL_TYPES:
+                if model_type in directory_types:
                     entries = self._find_hf_dir_entries(type_dir)
                 else:
                     entries = self._walk_type_dir_entries(type_dir)
@@ -201,6 +197,7 @@ class ModelScanner:
         if not base.is_dir():
             return out
 
+        extensions = extensions_for(type_dir.model_type)
         visited_real_dirs: Set[str] = set()
         for root, dirnames, filenames in os.walk(base, followlinks=True):
             real_root = os.path.realpath(root)
@@ -212,7 +209,7 @@ class ModelScanner:
 
             for filename in filenames:
                 file_path = Path(root) / filename
-                if file_path.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
+                if file_path.suffix.lower() not in extensions:
                     continue
                 try:
                     stat = file_path.stat()
@@ -228,6 +225,7 @@ class ModelScanner:
         if not base.is_dir():
             return out
 
+        extensions = extensions_for(type_dir.model_type)
         for child in sorted(base.iterdir()):
             if not child.is_dir():
                 continue
@@ -236,7 +234,7 @@ class ModelScanner:
             try:
                 shard_files = [
                     f for f in child.iterdir()
-                    if f.is_file() and f.suffix.lower() in self.SUPPORTED_EXTENSIONS
+                    if f.is_file() and f.suffix.lower() in extensions
                 ]
                 if not shard_files:
                     continue
@@ -258,7 +256,7 @@ class ModelScanner:
             shard_entries = sorted(
                 (f.name, f.stat().st_size)
                 for f in path.iterdir()
-                if f.is_file() and f.suffix.lower() in self.SUPPORTED_EXTENSIONS
+                if f.is_file() and f.suffix.lower() in supported_extensions()
             )
             for name, size in shard_entries:
                 hasher.update(f"{name}:{size}".encode("utf-8"))
@@ -1288,7 +1286,7 @@ class ModelScanner:
                     'size_bytes': type_sizes.get(model_type, 0),
                     'size_mb': round(type_sizes.get(model_type, 0) / (1024 * 1024), 2) if type_sizes.get(model_type, 0) > 0 else 0
                 }
-                for model_type in (*self.MODEL_TYPE_MAPPING.values(), UNDEFINED_MODEL_TYPE)
+                for model_type in (*model_types(), UNDEFINED_MODEL_TYPE)
             },
             'models_missing_hashes': len(model_repo.get_models_missing_hashes()),
             'models_without_provider_info': len(model_repo.get_models_without_provider_info())

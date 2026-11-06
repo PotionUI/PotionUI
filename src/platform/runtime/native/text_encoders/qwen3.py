@@ -586,14 +586,18 @@ class Qwen3VLTextEncoder(NativeTextEncoder):
     def encode(
         self, texts: list[str], images: list[torch.Tensor] | None = None,
         grounding_px: int = 768, system_prompt: str | None = None,
+        picture_labels: bool = False, grounding_area: int = 0,
     ) -> dict[str, torch.Tensor]:
         if images:
-            return self._post_encode(self._encode_with_images(texts, images, grounding_px, system_prompt))
+            return self._post_encode(
+                self._encode_with_images(texts, images, grounding_px, system_prompt, picture_labels, grounding_area)
+            )
         ids, mask, _prefix_len = self.tokenizer(texts, device=self._device)
         return self._post_encode(self._encode_ids(ids, mask))
 
     def _encode_with_images(
         self, texts: list[str], images: list[torch.Tensor], grounding_px: int, system_prompt: str | None,
+        picture_labels: bool = False, grounding_area: int = 0,
     ) -> dict[str, torch.Tensor]:
         """Splice per-image vision-tower embeddings (+ DeepStack taps) into the
         token embedding sequence in place of each image's ``<|vision_start|>
@@ -623,10 +627,11 @@ class Qwen3VLTextEncoder(NativeTextEncoder):
 
         ids, mask, prefix_len = self.tokenizer.tokenize_with_images(
             texts[0], num_images=len(images), device=self._device, system_prompt=system_prompt,
+            picture_labels=picture_labels,
         )
         inputs, new_mask, _image_spans = splice_vision_inputs(
             self.module, ids, mask, images, device=self._device, grounding_px=grounding_px,
-            image_pad_token=_KREA2VL_IMAGE_PAD_TOKEN,
+            image_pad_token=_KREA2VL_IMAGE_PAD_TOKEN, grounding_area=grounding_area,
         )
 
         stacked = self.module(
@@ -783,13 +788,8 @@ def _sample_reference_video_frames(
         if not indices or round(cursor) > indices[-1]:
             indices.append(round(cursor))
         cursor += stride
-    if len(indices) < temporal_patch:
-        minimum = round((temporal_patch - 1) * stride) + 1
-        raise ValueError(
-            f"a reference video is read at {sample_fps:g} fps and its sampled frames are merged in groups of "
-            f"{temporal_patch}, so it must run at least {minimum} frames at {fps:g} fps "
-            f"({minimum / fps:.2g} seconds), got {num_frames}"
-        )
+    if not indices:
+        raise ValueError(f"a reference video must carry at least one frame, got {num_frames}")
 
     timestamps = [index / sample_fps for index in range(len(indices))]
     timestamps += [timestamps[-1]] * (-len(timestamps) % temporal_patch)

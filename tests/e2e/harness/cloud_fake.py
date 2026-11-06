@@ -17,7 +17,7 @@ PLUGINS_ROOT = REPO_ROOT / "tests" / "e2e" / "plugins"
 PLUGIN_ID = "e2e-cloud-fake"
 DRIVER = "cloud.fake"
 EXTRA_PLUGIN_DIRS_ENV = "POTIONUI_EXTRA_PLUGIN_DIRS"
-SPEC_PREFIXES = ("cloud-fake-", "xy-compare-", "compare-followups")
+SPEC_PREFIXES = ("cloud-fake-", "elixirs-", "xy-compare-", "compare-followups", "prompt-source-")
 
 PRESET_ID = "01M3SVA35XT0E7CG5JZTS9P21S"
 PRESET_NAME = "Fake Studio"

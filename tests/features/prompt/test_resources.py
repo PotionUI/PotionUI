@@ -349,3 +349,61 @@ class TestMergedFieldMarkers:
 
         assert pairs[0].positive == "<Video 1> near <Picture 1>"
         assert segments[0].text == "<Video 1>"
+
+
+MOD_RESOURCES = [
+    {"field": "references", "kind": "image", "token": "<Picture @>"},
+    {"field": "references", "kind": "audio", "token": "<Audio @>"},
+    {"field": "reference_kits", "source": "kit", "kind": "image", "token": "<Picture @>"},
+    {"field": "reference_kits", "source": "kit", "kind": "audio", "token": "<Audio @>"},
+]
+MOD_FORM = {
+    "references": [_upload("storage/uploads/a.png"), _upload("storage/uploads/b.png")],
+    "reference_kits": [
+        {"model": "model:face", "strength": 1.0, "copies": 1},
+        {"model": "model:pair", "strength": 1.0, "copies": 2},
+        {"model": "model:off", "strength": 0.0, "copies": 1},
+    ],
+}
+MOD_MEMBERS = {"model:face": ["image"], "model:pair": ["image", "audio"], "model:off": ["image"]}
+
+
+def _mod_members(source, key):
+    assert source == "kit"
+    return MOD_MEMBERS[key]
+
+
+def test_a_plain_prompt_kit_names_every_member_after_all_native_references_of_its_kind():
+    text, problems = resolve_prompt_resources(
+        "@[reference_kits:model:pair] beside @[references:storage/uploads/b.png]", MOD_RESOURCES, MOD_FORM,
+        _mod_members,
+    )
+    assert problems == {}
+    assert text == "<Picture 4> <Picture 5> <Audio 1> <Audio 2> beside <Picture 2>"
+
+
+def test_a_plain_prompt_kit_at_zero_strength_is_a_removed_item():
+    text, problems = resolve_prompt_resources(
+        "@[reference_kits:model:off]", MOD_RESOURCES, MOD_FORM, _mod_members,
+    )
+    assert text == "@[reference_kits:model:off]"
+    assert "removed from this field (model:off)" in problems["reference_kits"][0]
+
+
+def test_a_plain_prompt_kit_that_cannot_be_read_says_why():
+    def members(source, key):
+        raise ValueError(f"the kit {key} is not available: no present location")
+
+    _text, problems = resolve_prompt_resources("@[reference_kits:model:face]", MOD_RESOURCES, MOD_FORM, members)
+    assert problems["reference_kits"] == ["reference_kits: the kit model:face is not available: no present location"]
+
+
+def test_describe_leaves_kit_resources_out_of_the_native_item_list():
+    lines = describe_prompt_resources(MOD_RESOURCES, MOD_FORM)
+    assert not any("reference_kits" in line for line in lines)
+
+
+def test_a_plain_prompt_citing_a_kit_that_cannot_be_matched_fails_the_submission():
+    pair = PromptPair(positive="a lighthouse with @[reference_kits:model:gone]", negative="")
+    with pytest.raises(FormBindingError, match="removed from this field \\(model:gone\\)"):
+        resolve_prompt_pairs([pair], MOD_RESOURCES, MOD_FORM, _mod_members)

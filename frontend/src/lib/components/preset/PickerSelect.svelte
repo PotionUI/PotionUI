@@ -7,12 +7,15 @@
 		marker?: string;
 		markerLabel?: string;
 		issue?: string;
+		notice?: string;
+		action?: { label: string; onclick: () => void };
 	}
 </script>
 
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
 	import DropdownShell from '$lib/components/drawer/DropdownShell.svelte';
 	import DrawerHeader from '$lib/components/drawer/DrawerHeader.svelte';
 	import { isMobile } from '$lib/stores/viewport';
@@ -96,63 +99,91 @@
 		<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1.5" role="listbox" aria-label={label} id="{uid}-list">
 			{#each options as option (option.value)}
 				{@const current = option.value === value}
-				<button
-					type="button"
-					role="option"
-					aria-selected={current}
-					data-nav
-					data-autofocus={current ? '' : undefined}
-					class="picker-row mx-1.5 flex w-[calc(100%-0.75rem)] items-center gap-3 rounded px-2 py-2 text-left"
-					class:is-current={current}
-					onclick={() => choose(option.value)}
-				>
-					{#if option.icon}<Icon name={option.icon} className="w-4 h-4 flex-shrink-0 {current ? 'text-signal' : 'text-fg-muted'}" />{/if}
-					<span class="flex min-w-0 flex-1 flex-col gap-0.5">
-						<span class="flex min-w-0 items-center gap-1.5">
-							<span class="truncate text-base font-medium leading-[18px] text-fg">{option.label}</span>
-							{#if option.marker}
-								<span class="flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{option.marker}</span>
+				<div class="picker-item mx-1.5 w-[calc(100%-0.75rem)] rounded">
+					<button
+						type="button"
+						role="option"
+						aria-selected={current}
+						data-nav
+						data-autofocus={current ? '' : undefined}
+						class="picker-row flex w-full items-center gap-3 rounded px-2 pt-2 text-left {option.action ? 'pb-1' : 'pb-2'}"
+						class:is-current={current}
+						onclick={() => choose(option.value)}
+					>
+						{#if option.icon}<Icon name={option.icon} className="w-4 h-4 flex-shrink-0 {current ? 'text-signal' : 'text-fg-muted'}" />{/if}
+						<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+							<span class="flex min-w-0 items-center gap-1.5">
+								<span class="truncate text-base font-medium leading-[18px] text-fg">{option.label}</span>
+								{#if option.marker}
+									<span class="flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{option.marker}</span>
+								{/if}
+								{#if option.markerLabel}
+									<span class="sr-only">{option.markerLabel}</span>
+								{/if}
+							</span>
+							{#if option.description}
+								<span class="line-clamp-2 text-sm leading-4 text-fg-subtle">{option.description}</span>
 							{/if}
-							{#if option.markerLabel}
-								<span class="sr-only">{option.markerLabel}</span>
+							{#if option.issue}
+								<span class="flex min-w-0 items-center gap-1.5 text-sm leading-4 text-warning" data-option-issue>
+									<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-current" aria-hidden="true"></span>
+									<span class="truncate">{option.issue}</span>
+								</span>
+							{/if}
+							{#if option.notice}
+								<span class="flex min-w-0 items-center gap-1.5 text-sm leading-4 text-fg-subtle" data-option-notice>
+									<Icon name="lock" className="h-3.5 w-3.5 flex-shrink-0" />
+									<span>{option.notice}</span>
+								</span>
 							{/if}
 						</span>
-						{#if option.description}
-							<span class="line-clamp-2 text-sm leading-4 text-fg-subtle">{option.description}</span>
+						{#if current}
+							<Icon name="check" className="h-3.5 w-3.5 flex-shrink-0 text-signal" />
 						{/if}
-						{#if option.issue}
-							<span class="flex min-w-0 items-center gap-1.5 text-sm leading-4 text-warning" data-option-issue>
-								<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-current" aria-hidden="true"></span>
-								<span class="truncate">{option.issue}</span>
-							</span>
-						{/if}
-					</span>
-					{#if current}
-						<Icon name="check" className="h-3.5 w-3.5 flex-shrink-0 text-signal" />
+					</button>
+					{#if option.action}
+						{@const action = option.action}
+						<div class={option.icon ? 'pb-2 pl-9 pr-2' : 'pb-2 pl-2 pr-2'}>
+							<Button
+								size="xs"
+								icon="download"
+								class="border border-line-strong font-mono tabular-nums"
+								attrs={{ 'data-nav': '', 'data-option-action': '' }}
+								onclick={() => {
+									open = false;
+									action.onclick();
+								}}
+							>
+								{action.label}
+							</Button>
+						</div>
 					{/if}
-				</button>
+				</div>
 			{/each}
 		</div>
 	</DropdownShell>
 {/if}
 
 <style>
-	.picker-row:hover {
+	.picker-row:focus-visible {
+		outline: none;
+	}
+
+	.picker-item:hover {
 		background: rgb(var(--surface-2));
 	}
 
-	.picker-row:focus-visible {
-		outline: none;
+	.picker-item:has(.picker-row:focus-visible) {
 		background: rgb(var(--surface-3));
 	}
 
-	.picker-row.is-current {
+	.picker-item:has(.picker-row.is-current) {
 		background: rgb(var(--signal) / 0.1);
 		box-shadow: inset 2px 0 0 rgb(var(--signal));
 	}
 
-	.picker-row.is-current:hover,
-	.picker-row.is-current:focus-visible {
+	.picker-item:has(.picker-row.is-current):hover,
+	.picker-item:has(.picker-row.is-current:focus-visible) {
 		background: rgb(var(--signal) / 0.16);
 	}
 </style>

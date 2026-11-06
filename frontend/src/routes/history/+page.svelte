@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { showDeleteError } from '$lib/elixirs/openBrew';
 	import { onMount, onDestroy } from 'svelte';
 	import { generationIdOf } from '$lib/generation/messages/wire';
 	import { goto } from '$app/navigation';
@@ -52,7 +53,7 @@
 	import { plainLetter, pageOwnsKeys } from '$lib/utils/shortcutGuard';
 	import { gridShortcutTarget } from '$lib/tools/gridShortcut';
 	import { buildHistoryToolContext, listTools } from '$lib/tools/tools';
-	import { editImageAvailability } from './tools/editImage';
+	import { editMediaAvailability } from '$lib/tools/editMedia';
 	import type { EditedMediaItem } from '$lib/services/api/media';
 	import type { MediaTool, MediaToolContext } from '$lib/tools/tools';
 	import type { GenerationHistoryItem } from '$lib/types/history';
@@ -213,7 +214,7 @@
 		if (!id) return;
 		const context = buildHistoryToolContext(currentState.generations, [id], null);
 		const tool = listTools('history').find((candidate) => candidate.id === 'edit-image');
-		if (!tool || !editImageAvailability(context).enabled) return;
+		if (!tool || !editMediaAvailability(context).enabled) return;
 		event.preventDefault();
 		handleToolSelect(tool, context);
 	}
@@ -378,7 +379,7 @@
 			try {
 				await historyStore.deleteGrid(target.grid.id);
 			} catch (error) {
-				toasts.error(getErrorMessage(error));
+				showDeleteError(error);
 			}
 			return;
 		}
@@ -388,6 +389,7 @@
 			generationToDelete = null;
 		} catch (error) {
 			logger.error('Failed to delete generation:', error);
+			showDeleteError(error);
 		}
 	}
 

@@ -2,14 +2,17 @@
 	import { onMount } from 'svelte';
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, IconButton, Input, Switch } from '$lib/components/ui';
-	import { api } from '$lib/services/api';
+	import { Alert, Button, IconButton, Input, Switch } from '$lib/components/ui';
+	import { getUserGroups } from '$lib/services/admin-api';
+	import { useOrganizeApi } from '$lib/organize/scope';
 	import { actionsForSubject, newAction, supportsTags, type RuleDraft, type DraftAction } from '$lib/organize/draft';
 	import { actionIcon } from '$lib/organize/icons';
 	import { collectionOptions, loadCollections, type PlainCollection } from '$lib/organize/collections';
 	import { scopeFromSubject } from '$lib/organize/subjects';
 	import type { OrganizeActionSpec, OrganizeCatalog, OrganizeCollectionScope, OrganizeOption } from '$lib/types/organize';
 	import TagNamesInput from './TagNamesInput.svelte';
+
+	const api = useOrganizeApi();
 
 	let {
 		draft = $bindable(),
@@ -34,6 +37,36 @@
 		)
 	);
 	const options = $derived(collectionOptions(collections));
+	const usesCollections = $derived(specs.some((s) => s.config_schema.some((f) => f.kind === 'collection')));
+
+	interface GroupRow {
+		id: string;
+		name: string;
+		member_count?: number;
+	}
+	let groups = $state<GroupRow[]>([]);
+	let groupsLoaded = $state(false);
+	const groupOptions = $derived(
+		groups.map((g) => ({
+			value: g.id,
+			label: g.member_count === undefined ? g.name : `${g.name} · ${g.member_count} ${g.member_count === 1 ? 'member' : 'members'}`
+		}))
+	);
+	const needsGroups = $derived(
+		draft.actions.some((a) => specOf(a.action)?.config_schema.some((f) => f.kind === 'user_group'))
+	);
+
+	$effect(() => {
+		if (groupsLoaded || !needsGroups) return;
+		groupsLoaded = true;
+		void getUserGroups()
+			.then((response) => {
+				groups = response.success ? ((response.data ?? []) as GroupRow[]) : [];
+			})
+			.catch(() => {
+				groups = [];
+			});
+	});
 
 	function reload(scope: OrganizeCollectionScope) {
 		void loadCollections(scope)
@@ -53,6 +86,10 @@
 		loadedScope = scope;
 		loaded = false;
 		unresolved = '';
+		if (!usesCollections) {
+			loaded = true;
+			return;
+		}
 		reload(scope);
 	});
 
@@ -120,7 +157,7 @@
 		{@const spec = specOf(action.action)}
 		<div class="rounded-lg border border-line bg-surface-2 p-3" data-testid="action-row" data-action={action.action}>
 			<div class="flex items-start gap-3">
-				<span class="w-12 flex-shrink-0 pt-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">
+				<span class="hidden w-12 flex-shrink-0 pt-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle sm:block">
 					{index === 0 ? 'Then' : 'And'}
 				</span>
 				<div class="min-w-0 flex-1 space-y-2">
@@ -164,19 +201,34 @@
 							<span class="text-xs text-fg-muted">Create it again if it goes missing</span>
 						</div>
 					{:else}
-						<p class="flex items-center gap-2 pt-1.5 text-sm font-medium text-fg">
+						<p class="flex flex-wrap items-center gap-2 pt-1.5 text-sm font-medium text-fg">
 							<Icon name={actionIcon(action.action)} className="w-3.5 h-3.5 text-fg-muted" />
 							{spec.label}
+							{#if spec.source !== 'core'}
+								<span class="font-mono text-[12px] font-normal text-fg-subtle" data-testid="action-origin">{spec.source}</span>
+							{/if}
 						</p>
+						{#if spec.description}
+							<p class="text-[12px] text-fg-muted" data-testid="action-description">{spec.description}</p>
+						{/if}
 						{#each spec.config_schema as field (field.key)}
 							<div class="space-y-1">
 								{#if field.kind !== 'bool'}
 									<span class="block text-xs text-fg-muted">{field.label}</span>
 								{/if}
-								{#if field.kind === 'tag_list'}
+								{#if field.kind === 'user_group'}
+									<CustomSelect
+										value={(action.config[field.key] as string) ?? ''}
+										searchable
+										placeholder={groupsLoaded && groups.length === 0 ? 'No user groups yet' : 'Choose a user group'}
+										options={groupOptions}
+										on:change={(event) => setConfig(action, field.key, event.detail)}
+									/>
+									<p class="text-[12px] text-fg-subtle">Members of the group see these models in their model lists.</p>
+								{:else if field.kind === 'tag_list'}
 									<TagNamesInput
 										value={Array.isArray(action.config[field.key]) ? (action.config[field.key] as string[]) : []}
-										loadOptions={action.action === 'add_tags' ? tagLoader() : undefined}
+										loadOptions={action.action === 'add_tags' || action.action === 'add_model_tags' ? tagLoader() : undefined}
 										onchange={(next) => setConfig(action, field.key, next)}
 									/>
 								{:else if field.kind === 'collection'}
@@ -223,6 +275,15 @@
 								{/if}
 							</div>
 						{/each}
+						{#if spec.notes && spec.notes.length > 0}
+							<Alert variant="info" icon density="compact" live="off">
+								<span class="block space-y-1" data-testid="action-notes">
+									{#each spec.notes as note (note)}
+										<span class="block">{note}</span>
+									{/each}
+								</span>
+							</Alert>
+						{/if}
 					{/if}
 				</div>
 				<IconButton icon="close" label="Remove action" onclick={() => removeAction(index)} />

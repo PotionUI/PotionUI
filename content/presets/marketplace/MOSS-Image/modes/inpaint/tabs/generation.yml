@@ -1,0 +1,114 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "base"
+    configuration:
+      options:
+        - { label: "Base", value: "base", sub_label: "50 steps, CFG 3.0" }
+        - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+      - name: "denoise"
+        type: "slider"
+        formula: "speed"
+        label: "Strength"
+        default: 1.0
+        ai_hint: "How far the painted area is redrawn. Full strength replaces it with something new; lower keeps more of its colours and shapes."
+        configuration: {min: 0.2, max: 1.0, step: 0.05}
+
+      - name: "mask_grow"
+        type: "slider"
+        label: "Grow"
+        default: 4
+        ai_hint: "Widens the painted area so no edge of the old content is left behind."
+        configuration: {min: 0, max: 20, step: 1}
+
+      - name: "mask_feather"
+        type: "slider"
+        label: "Feather"
+        default: 12
+        ai_hint: "Softens the seam where the new area meets the untouched picture, in percent of the area's size."
+        configuration: {min: 0, max: 30, step: 1}
+
+      - name: "region_context"
+        type: "select"
+        label: "Surroundings"
+        audience: "advanced"
+        default: "0.5"
+        ai_hint: "How much of the picture around the painted area the model sees. Wide helps the new content match large neighbouring shapes."
+        configuration:
+          options:
+            - { label: "Tight", value: "0.25" }
+            - { label: "Balanced", value: "0.5" }
+            - { label: "Wide", value: "1.0" }
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select a MOSS-Image checkpoint (SFT or Base, bf16 or int8)..."
+          filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "moss_image_sft_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/diffusion_models/moss_image_sft_bf16.safetensors"
+              size: "9.47 GB"
+              sha256: "f96738d8116d78b7316b57c663d8c98591ddafab7488f48e3099b7655e34ab6f"
+              description: "SFT checkpoint, bf16."
+            - name: "moss_image_sft_int8_convrot_attn.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/diffusion_models/moss_image_sft_int8_convrot_attn.safetensors"
+              size: "5.04 GB"
+              sha256: "b4d1475bc7eeffd7b809e82ea13a1fba1fb85c4e18365af3813722faa5c0fe4f"
+              description: "SFT checkpoint, int8 ConvRot - half the VRAM."
+            - name: "moss_image_base_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/diffusion_models/moss_image_base_bf16.safetensors"
+              size: "9.47 GB"
+              sha256: "cacd158728a1fb9e57c408a922b54752ec71fceb566b3821269927964e62b41f"
+              description: "Base checkpoint, bf16."
+            - name: "moss_image_base_int8_convrot_attn.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/diffusion_models/moss_image_base_int8_convrot_attn.safetensors"
+              size: "5.04 GB"
+              sha256: "f601c1e1161915fb3fea003da0c1782e374dd960fbb3978bc0e4e3fa1f2d8e6f"
+              description: "Base checkpoint, int8 ConvRot - half the VRAM."
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3.5-9B)"
+        required: true
+        configuration:
+          model_type: "text_encoder"
+          placeholder: "Select the Qwen3.5-9B text encoder..."
+          filter_tags: "@config:text_encoder_tags"
+          recommendations:
+            - name: "qwen3.5_9b_int8_convrot.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_int8_convrot.safetensors"
+              size: "9.08 GB"
+              sha256: "32e3787472f708fa5f83624acbf5ef23f7fc89c439e05065ea57cfe5a97f025a"
+              description: "Qwen3.5-9B encoder, int8 ConvRot."
+
+      - name: "vae"
+        type: "model"
+        label: "VAE (FLUX 2)"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select the flux2-vae.safetensors VAE..."
+          filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "flux2-vae.safetensors"
+              link: "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-9b/resolve/main/split_files/vae/flux2-vae.safetensors"
+              size: "320.6 MB"
+              sha256: "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+              description: "Flux2 VAE - the same file for every Flux2-architecture DiT."

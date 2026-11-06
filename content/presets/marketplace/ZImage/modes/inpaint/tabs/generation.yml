@@ -1,0 +1,56 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "turbo"
+    configuration:
+      options:
+        - { label: "Turbo", value: "turbo", sub_label: "8 steps, distilled checkpoint" }
+        - { label: "Base", value: "base", sub_label: "30 steps" }
+        - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+      - name: "denoise"
+        type: "slider"
+        formula: "speed"
+        label: "Strength"
+        default: 1.0
+        ai_hint: "How far the painted area is redrawn. Full strength replaces it with something new; lower keeps more of its colours and shapes."
+        configuration: {min: 0.2, max: 1.0, step: 0.05}
+
+      - name: "mask_grow"
+        type: "slider"
+        label: "Grow"
+        default: 4
+        ai_hint: "Widens the painted area so no edge of the old content is left behind."
+        configuration: {min: 0, max: 20, step: 1}
+
+      - name: "mask_feather"
+        type: "slider"
+        label: "Feather"
+        default: 12
+        ai_hint: "Softens the seam where the new area meets the untouched picture, in percent of the area's size."
+        configuration: {min: 0, max: 30, step: 1}
+
+      - name: "region_context"
+        type: "select"
+        label: "Surroundings"
+        audience: "advanced"
+        default: "0.5"
+        ai_hint: "How much of the picture around the painted area the model sees. Wide helps the new content match large neighbouring shapes."
+        configuration:
+          options:
+            - { label: "Tight", value: "0.25" }
+            - { label: "Balanced", value: "0.5" }
+            - { label: "Wide", value: "1.0" }
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models.yml"

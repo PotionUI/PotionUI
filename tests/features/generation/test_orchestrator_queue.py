@@ -579,3 +579,31 @@ class TestCancellingARunningGeneration:
 
         assert orchestrator.status_tracker.get('gen_p').state == GenerationState.CANCELLED
         backends['native'].cancel_generation.assert_awaited_once_with('gen_p')
+
+
+@pytest.mark.asyncio
+class TestTheProfilerCensusWaitsForCompletion:
+    async def test_an_idle_queue_releases_the_census_after_the_slot_is_freed(self, orchestrator, backends, repo):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        profiler = Mock()
+        seen = []
+        profiler.release_census = Mock(side_effect=lambda gid: seen.append(
+            (gid, orchestrator.queue.running_generation_ids('native_1'), orchestrator.status_tracker.get(gid).state)
+        ))
+
+        with patch('src.features.generation.orchestrator.get_profiler', return_value=profiler):
+            await orchestrator._handle_generation_completion('gen_1', None)
+
+        assert seen == [('gen_1', [], GenerationState.COMPLETED)]
+        profiler.skip_census.assert_not_called()
+
+    async def test_a_queued_generation_skips_the_census(self, orchestrator, backends, repo):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        await _start(orchestrator, 'tab_b', 'gen_2')
+        profiler = Mock()
+
+        with patch('src.features.generation.orchestrator.get_profiler', return_value=profiler):
+            await orchestrator._handle_generation_completion('gen_1', None)
+
+        profiler.skip_census.assert_called_once_with('gen_1', 'queue_busy')
+        profiler.release_census.assert_not_called()

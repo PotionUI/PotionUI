@@ -45,6 +45,7 @@ from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from src.features.models.locator import ModelLocator
 from src.features.models.roots import ModelRootsManager
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe, ensure_home_bindings
+from src.platform.filesystem.model_types import ModelTypeRegistry, model_type_registry as _shared_model_type_registry
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.installer import PipeInstaller
@@ -69,6 +70,11 @@ from src.features.recipes.catalog import RecipeCatalog
 from src.features.model_layouts.catalog import ModelLayoutCatalog
 from src.features.recipes.preset_links import RecipePresetLinks
 from src.features.recipes.slot_variants import RecipeSlotVariants
+from src.features.recipes.mode_plans import ModePlanner
+from src.features.recipes.removal import ModeFileRemoval
+from src.features.recipes.targets import InstallTargets
+from src.features.models.availability_repository import model_availability_repo
+from src.features.models.form_refs import resolve_installed_model_filename
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
 from src.features.chat import ChatRuntime, ResponseProcessor
 from src.features.downloads import DownloadQueue, DownloadRepository
@@ -77,6 +83,8 @@ from src.platform.plugins.prompt_importers import (
     PromptImporterRegistry,
     prompt_importer_registry as _shared_prompt_importer_registry,
 )
+from src.platform.plugins.prompt_resource_sources import PromptResourceSourceRegistry
+from src.features.prompt.resource_sources import prompt_resource_sources
 from src.platform.plugins.phrasebook_ops import (
     PhrasebookOperationRegistry,
     phrasebook_operation_registry as _shared_phrasebook_operation_registry,
@@ -99,6 +107,7 @@ from src.platform.plugins.limit_kinds import (
     limit_kind_registry as _shared_limit_kind_registry,
 )
 from src.platform.media_tools import MediaToolRegistry
+from src.platform.media_tools.effects.runtime import EffectRuntime, LifecycleGpuPolicy
 from src.platform.media_tools.ops import register_core_tools as register_core_media_tools
 from src.features.fields.builtin import register_builtin_fields
 from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
@@ -171,6 +180,8 @@ from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.chat.modes import (
     ChatModeRegistry,
+    build_conversation_mode,
+    build_elixirs_mode,
     build_generation_mode,
     build_history_mode,
     build_models_mode,
@@ -288,10 +299,13 @@ from src.features.formulas.repository import FormulaRepository
 from src.features.formulas.routes import FormulaController
 from src.features.formulas.sources import ModelRepositoryRefChecker, PresetFormSource
 from src.features.filters.catalog import FilterCatalog
+from src.features.filters.looks import FilterLooks
 from src.features.filters.collaborators import FilterCollaborators
 from src.features.filters.repository import UserFilterRepository
 from src.features.filters.routes import FilterController
 from src.features.organize.components import build_organize
+from src.features.elixirs.assistant import ElixirAssistant, SessionWriter
+from src.features.elixirs.components import ElixirsComponents, build_elixirs
 from src.features.workspaces.repository import WorkspaceRepository
 from src.features.workspaces.routes import WorkspaceController
 from src.features.user_groups.routes import UserGroupController
@@ -346,6 +360,7 @@ class AppContainer:
     user_model_attribute_repository: "UserModelAttributeRepository"
     model_attributes_manager: "ModelAttributeDefinitionsEditor"
     prompt_importer_registry: PromptImporterRegistry
+    prompt_resource_source_registry: PromptResourceSourceRegistry
     phrasebook_operation_registry: PhrasebookOperationRegistry
     requirement_checker_registry: RequirementCheckerRegistry
     recipe_step_kind_registry: RecipeStepKindRegistry
@@ -363,6 +378,7 @@ class AppContainer:
     memory_advisor: MemoryAdvisor
     model_lifecycle: ModelLifecycle
     model_roots: ModelRootResolver
+    model_type_registry: ModelTypeRegistry
     model_roots_manager: ModelRootsManager
     model_locator: ModelLocator
     pipe_catalog: PipeCatalog
@@ -412,6 +428,9 @@ class AppContainer:
     model_layout_catalog: ModelLayoutCatalog
     recipe_preset_links: RecipePresetLinks
     recipe_slot_variants: RecipeSlotVariants
+    install_targets: InstallTargets
+    mode_planner: ModePlanner
+    mode_file_removal: ModeFileRemoval
     user_controller: "UserController"
 
     # Downloads
@@ -554,6 +573,7 @@ class AppContainer:
     organize_manager: "OrganizeManager"
     organize_controller: "OrganizeController"
     organize_worker: "OrganizeWorker"
+    elixirs: ElixirsComponents
     limit_kind_registry: LimitKindRegistry
     plans: "PlansComponents"
     limit_guard: "LimitGuard"
@@ -608,6 +628,11 @@ def _sync_enabled_plugins(registry: PluginRegistry, plugin_repo: PluginRepositor
         logger.error(f"Error syncing enabled plugins: {e}")
 
 
+def _bind_model_types(repository: ModelRootRepository, resolver: ModelRootResolver, settings: Settings) -> None:
+    ensure_home_bindings(repository, settings.get_setting("models_dir", "models"), base_dir=Path.cwd())
+    resolver.invalidate()
+
+
 def build_container() -> AppContainer:
     # Initialize settings repository and manager first
     setting_repository = SettingRepository()
@@ -618,6 +643,11 @@ def build_container() -> AppContainer:
     ensure_home_bindings(model_root_repository, settings.get_setting("models_dir", "models"), base_dir=Path.cwd())
     model_root_probe = RootProbe()
     model_roots = ModelRootResolver(model_root_repository, model_root_probe, Path.cwd())
+    model_type_registry = _shared_model_type_registry
+    model_type_registry.set_listener(
+        "model_roots",
+        functools.partial(_bind_model_types, model_root_repository, model_roots, settings),
+    )
     model_locator = ModelLocator(model_roots)
 
     # Where saved bytes actually live - local disk by default, optionally S3
@@ -683,7 +713,9 @@ def build_container() -> AppContainer:
     # first so a plugin colliding with a builtin fails plugin enable.
 
     media_tool_registry = MediaToolRegistry()
-    register_core_media_tools(media_tool_registry)
+    effects_runtime = EffectRuntime()
+    register_core_media_tools(media_tool_registry, effects_runtime)
+    effects_runtime.use_asset_dirs(lambda kind: [entry.path for entry in model_roots.type_dirs(kind)])
 
     tool_registry = ToolRegistry()
     _rr._global_tool_registry = tool_registry
@@ -696,6 +728,8 @@ def build_container() -> AppContainer:
         build_models_mode(),
         build_phrasebook_mode(),
         build_prompts_mode(),
+        build_elixirs_mode(),
+        build_conversation_mode(),
     ]
     for mode in builtin_modes:
         chat_mode_registry.register(mode)
@@ -722,6 +756,7 @@ def build_container() -> AppContainer:
     # registered during `_sync_enabled_plugins` below. There are no builtin
     # importers, so this starts empty.
     prompt_importer_registry = _shared_prompt_importer_registry
+    prompt_resource_source_registry = prompt_resource_sources()
 
     # Phrasebook batch tools - core's replace/set_active/move/delete register
     # first so a plugin colliding with one of them fails its enable.
@@ -762,12 +797,14 @@ def build_container() -> AppContainer:
         automation_node_registry=automation_node_type_registry,
         automation_template_registry=automation_template_registry,
         prompt_importer_registry=prompt_importer_registry,
+        prompt_resource_source_registry=prompt_resource_source_registry,
         phrasebook_operation_registry=phrasebook_operation_registry,
         requirement_checker_registry=requirement_checker_registry,
         recipe_step_kind_registry=recipe_step_kind_registry,
         llm_provider_registry=llm_provider_registry,
         limit_kind_registry=limit_kind_registry,
         media_tool_registry=media_tool_registry,
+        effect_runtime=effects_runtime,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -821,6 +858,7 @@ def build_container() -> AppContainer:
     system_monitor = SystemMonitor()
     memory_advisor = MemoryAdvisor(gpu_monitor=gpu_monitor, settings=settings)
     model_lifecycle = ModelLifecycle(gpu_monitor=gpu_monitor, settings=settings, roots=model_roots)
+    effects_runtime.use_gpu_policy(LifecycleGpuPolicy(model_lifecycle))
     pipe_catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom", plugin_registry=plugin_registry)
     pipe_install_runner = PipeInstallRunner(pipe_catalog, PipeInstaller(pipe_catalog))
     from src.features.user_groups.repository import UserGroupRepository
@@ -1274,9 +1312,12 @@ def build_container() -> AppContainer:
         scheduling_policy_for=_scheduling_policy_for,
         content_safety=content_safety,
         cloud_capabilities=cloud_capabilities,
+        model_filename_resolver=resolve_installed_model_filename,
         cloud_policy=cloud_policy,
         output_broadcaster=output_broadcaster,
         limit_guard=limit_guard,
+        prompt_resource_source_registry=prompt_resource_source_registry,
+        plugin_registry=plugin_registry,
     )
 
     # Initialize generation history manager
@@ -1547,6 +1588,8 @@ def build_container() -> AppContainer:
         media_type_resolver=media_type_resolver,
         storage_driver=storage_driver,
         limit_guard=limit_guard,
+        artifact_store=media_store,
+        collection_repository=collection_repository,
     )
     media_tool_controller = MediaToolController(media_tool_service)
     automation_services.media_tool_service = media_tool_service
@@ -1619,11 +1662,36 @@ def build_container() -> AppContainer:
     )
     preset_lookup = functools.partial(preset_operations.get_preset, preset_collaborators)
     preset_form_schema_lookup = functools.partial(preset_operations.get_form_schema, preset_collaborators)
+    recipe_catalog.attach_presets(preset_template_loader)
+    install_targets = InstallTargets(
+        backend_registry=backend_registry,
+        model_roots=model_roots,
+        download_repository=download_repository,
+    )
+    mode_planner = ModePlanner(
+        preset_template_loader,
+        model_repository,
+        preset_db_repo=database_preset_repository,
+        targets=install_targets,
+        digests=model_index_manager.digests,
+        type_manager=model_index_manager.types,
+        availability_repository=model_availability_repo,
+    )
+    mode_file_removal = ModeFileRemoval(
+        recipe_catalog,
+        mode_planner,
+        model_repository,
+        model_locator,
+        model_roots,
+        preset_db_repo=database_preset_repository,
+        preset_loader=preset_template_loader,
+    )
     recipe_preset_links = RecipePresetLinks(
         recipe_catalog,
         recipe_runner,
         preset_loader=preset_template_loader,
         preset_db_repo=database_preset_repository,
+        mode_planner=mode_planner,
     )
     recipe_slot_variants = RecipeSlotVariants(
         recipe_catalog,
@@ -1669,6 +1737,8 @@ def build_container() -> AppContainer:
         type_manager=model_index_manager.types,
         app_loop=_rr.get_app_loop,
         digests=model_index_manager.digests,
+        mode_planner=mode_planner,
+        install_targets=install_targets,
     )
     # `workspace.activate` is the first-run wizard's own step, so setup - not
     # recipes - contributes it. Recipes mark it `onboarding_only`, so an admin
@@ -1721,6 +1791,7 @@ def build_container() -> AppContainer:
         llm_memory_repository=llm_memory_repository,
         feedback_repository=enhancement_feedback_repository,
         preset_collaborators=preset_collaborators,
+        plugins=plugin_registry,
     )
 
     # MCP (Model Context Protocol): per-user tokens exposing the same tool
@@ -1729,6 +1800,39 @@ def build_container() -> AppContainer:
     # database/generation/memory/media managers) is available — the same
     # ordering constraint that puts `build_chat` below.
     from src.features.mcp.protocol import McpToolCollaborators
+
+    from src.features.sessions.repository import SessionRepository
+    from src.platform.websocket.notification_connection_hub import notification_connection_hub as elixir_hub
+
+    session_repository = SessionRepository()
+    session_version_repository = SessionVersionRepository()
+    elixirs = build_elixirs(
+        users=user_repository,
+        orchestrator=generation_orchestrator,
+        broadcaster=output_broadcaster,
+        generations=generation_repository,
+        generation_files=file_repo,
+        history=generation_history_facade,
+        file_service=file_service,
+        media_store=media_store,
+        prompt_writer=prompt_enhancement_manager,
+        presets=file_preset_repository,
+        settings=settings,
+        setting_repository=setting_repository,
+        session_repository=session_repository,
+        session_version_repository=session_version_repository,
+        phrasebook_values=phrasebook_value_repo,
+        prompt_batch=backend_registry.engine_supports_prompt_batch,
+    )
+    elixirs.runtime.subscribe(plugin_registry.hook_chain)
+    elixir_assistant = ElixirAssistant(
+        elixirs,
+        session_writer=SessionWriter(
+            session_repository, plugin_registry, session_version_repository, file_preset_repository, notifier=elixir_hub
+        ),
+        notifier=elixir_hub,
+        storage_root=settings.get_file_storage_directory,
+    )
 
     mcp_token_repository = McpTokenRepository()
     tool_services = ToolServices(
@@ -1754,6 +1858,7 @@ def build_container() -> AppContainer:
         library_collaborators=library_collaborators,
         tab_drafts=tab_draft_manager,
         media_tool_service=media_tool_service,
+        elixirs=elixir_assistant,
     )
     mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,
@@ -1810,21 +1915,20 @@ def build_container() -> AppContainer:
     )
 
     # Session components
-    from src.features.sessions.repository import SessionRepository
-
-    session_repository = SessionRepository()
     # --- Session history (versions) ---
     # Appends an immutable snapshot on every save; `sessions` itself stays the
     # "current" state. `file_preset_repository` resolves a preset id's on-disk
     # display name, denormalized into each version's `summary` column at write
     # time (see migration 092 / SessionVersionRepository).
 
-    session_version_repository = SessionVersionRepository()
+    from src.platform.websocket.notification_connection_hub import notification_connection_hub as session_hub
+
     session_controller = SessionController(
         session_repository=session_repository,
         plugin_registry=plugin_registry,
         session_version_repository=session_version_repository,
         file_preset_repository=file_preset_repository,
+        notifier=session_hub,
     )
 
 
@@ -1841,9 +1945,11 @@ def build_container() -> AppContainer:
         os.getenv("POTIONUI_FILTERS_DIR", "content/filters"),
         plugin_registry=plugin_registry,
     )
+    user_filter_repository = UserFilterRepository()
     filter_controller = FilterController(
-        FilterCollaborators(repository=UserFilterRepository(), catalog=filter_catalog)
+        FilterCollaborators(repository=user_filter_repository, catalog=filter_catalog)
     )
+    effects_runtime.use_looks(FilterLooks(filter_catalog, user_filter_repository))
 
     from src.features.notifications.types import notification_type_registry as _organize_notification_types
 
@@ -1853,11 +1959,18 @@ def build_container() -> AppContainer:
         notification_manager,
         lambda: [(p["id"], p["name"]) for p in file_preset_repository.list_all_presets()],
         notification_types=_organize_notification_types,
+        groups=user_group_repository,
+        plugins=plugin_registry,
+        types=model_index_manager.types,
+        busy=local_generation_probe(
+            generation_status_tracker, lambda: local_native_backend_ids(backend_registry)
+        ),
     )
     organize_manager = organize.manager
     organize_controller = organize.controller
     organize_worker = organize.worker
     organize_worker.subscribe(plugin_registry.hook_chain)
+
 
     # Workspace components
 

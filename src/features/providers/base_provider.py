@@ -50,6 +50,9 @@ class ProviderNotFoundError(ProviderError):
     """Raised when requested resource is not found on provider."""
     pass
 
+class ProviderHashMismatchError(ProviderNotFoundError):
+    pass
+
 
 @dataclass
 class ProviderMetadata:

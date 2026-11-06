@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { findGenerationTab } from '$lib/types/tabs';
 	import { get } from 'svelte/store';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
@@ -21,7 +22,7 @@
 		if (!grid) return;
 		const result = cellFormPatch(grid, grid.cells[index]);
 		const { skipped } = result;
-		const tab = get(tabsStore).tabs.find((candidate) => candidate.id === tabId);
+		const tab = findGenerationTab(get(tabsStore).tabs, tabId);
 		if (!tab) return;
 		const updates = cellTabUpdates(tab, result);
 		tabsStore.updateTab(tabId, updates);

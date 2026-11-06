@@ -11,13 +11,6 @@ export function orderedRoots(roots: ModelRoot[]): ModelRoot[] {
 	return [...roots].sort((a, b) => (a.kind === 'home' ? -1 : b.kind === 'home' ? 1 : 0));
 }
 
-export function bindingsSummary(root: ModelRoot): { files: number; bytes: number } {
-	return root.bindings.reduce(
-		(acc, b) => ({ files: acc.files + b.indexed_files, bytes: acc.bytes + b.size_bytes }),
-		{ files: 0, bytes: 0 }
-	);
-}
-
 export function mergeDetectionSuggestions(
 	detection: ModelRootDetection | null
 ): ModelRootDetectionSuggestion[] {
@@ -43,10 +36,6 @@ export function bindingSupportsHeaderScan(binding: Pick<ModelRootBinding, 'model
 	return HEADER_SCAN_TYPES.includes(binding.model_type);
 }
 
-export function bindingScanKey(rootId: string, binding: Pick<ModelRootBinding, 'model_type' | 'subdir'>): string {
-	return `${rootId}:${binding.model_type}:${binding.subdir}`;
-}
-
 export const GENERIC_PROFILE_ID = 'generic';
 
 export function suggestionKey(suggestion: Pick<ModelRootDetectionSuggestion, 'model_type' | 'subdir'>): string {
@@ -66,12 +55,6 @@ export function groupSuggestionsByType(suggestions: readonly ModelRootDetectionS
 		else groups.push({ model_type: suggestion.model_type, items: [suggestion] });
 	}
 	return groups;
-}
-
-export function initialTicks(suggestions: readonly ModelRootDetectionSuggestion[]): Record<string, boolean> {
-	const ticks: Record<string, boolean> = {};
-	for (const suggestion of suggestions) ticks[suggestionKey(suggestion)] = true;
-	return ticks;
 }
 
 export function initialWriteChoices(suggestions: readonly ModelRootDetectionSuggestion[]): Record<string, string> {
@@ -169,21 +152,6 @@ export function pendingExtraPaths(
 	done: Record<string, boolean>
 ): string[] {
 	return extras.filter((e) => ticks[e.path] && !done[e.path]).map((e) => e.path);
-}
-
-export interface BindingGroup {
-	model_type: string;
-	items: ModelRootBinding[];
-}
-
-export function groupBindingsByType(bindings: readonly ModelRootBinding[]): BindingGroup[] {
-	const groups: BindingGroup[] = [];
-	for (const binding of bindings) {
-		const group = groups.find((g) => g.model_type === binding.model_type);
-		if (group) group.items.push(binding);
-		else groups.push({ model_type: binding.model_type, items: [binding] });
-	}
-	return groups;
 }
 
 export function bindingTitle(binding: Pick<ModelRootBinding, 'subdir' | 'folder'>): string {

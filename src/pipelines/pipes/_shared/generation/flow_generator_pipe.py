@@ -285,6 +285,10 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
         if img2img is not None:
             return img2img
 
+        inpaint = self.maybe_inpaint(gen, conditioning_obj, ctx, index, seed, progress)
+        if inpaint is not None:
+            return inpaint
+
         # gen.latent_shape_for is the single owner of the per-family VAE-latent
         # math (4D 8x/16x for Flux, 5D causal-3D for Qwen/Krea-2/Anima, ...).
         latents_shape = gen.latent_shape_for(width, height)
@@ -306,6 +310,7 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
             schedule_settings=ctx.extra.get("schedule_settings"),
             warm_start=ctx.extra.get("iterate_mode", False),
             hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True),
+                                    decoder_path=self.config.get("preview_decoder") or None,
                                     extra=self.extra_step_hooks()),
             is_cancelled=ctx.is_cancelled,
         )

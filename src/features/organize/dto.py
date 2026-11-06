@@ -32,6 +32,12 @@ class PreviewBody(BaseModel):
     rule_id: Optional[str] = None
 
 
+class MatchesBody(PreviewBody):
+    status: Optional[str] = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=25, ge=1, le=100)
+
+
 class ApplyExistingBody(BaseModel):
     pass
 

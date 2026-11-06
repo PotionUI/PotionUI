@@ -119,5 +119,41 @@ STARTER_TEMPLATES: List[Dict[str, Any]] = [
 ]
 
 
-def list_templates(subject: Optional[str] = None) -> List[Dict[str, Any]]:
-    return [t for t in STARTER_TEMPLATES if subject is None or t["subject"] == subject]
+INSTANCE_TEMPLATES: List[Dict[str, Any]] = [
+    {
+        "id": "instance-name-to-group",
+        "title": "Give a group access to models by name",
+        "description": "Models whose name contains a word are made visible to a user group.",
+        "subject": "model",
+        "scope": "instance",
+        "needs": ["conditions.0.value", "actions.0.config.group_id"],
+        "rule": {
+            "name": "Name to group",
+            "match": "all",
+            "conditions": [{"fact": "name", "operator": "contains", "value": None, "ignore_separators": True}],
+            "actions": [{"action": "assign_model_group", "config": {"group_id": None}}],
+        },
+    },
+    {
+        "id": "instance-fetch-civitai",
+        "title": "Fetch CivitAI data for new models",
+        "description": "Models that are not linked to CivitAI yet are looked up by their file hash once it is verified.",
+        "subject": "model",
+        "scope": "instance",
+        "needs": [],
+        "rule": {
+            "name": "Fetch CivitAI data",
+            "match": "all",
+            "conditions": [
+                {"fact": "source", "operator": "is_not", "value": "civitai"},
+                {"fact": "model_type", "operator": "is_any_of", "value": ["checkpoint", "lora"]},
+            ],
+            "actions": [{"action": "civitai-provider.fetch_info", "config": {}}],
+        },
+    },
+]
+
+
+def list_templates(subject: Optional[str] = None, scope: str = "user") -> List[Dict[str, Any]]:
+    pool = INSTANCE_TEMPLATES if scope == "instance" else STARTER_TEMPLATES
+    return [t for t in pool if subject is None or t["subject"] == subject]

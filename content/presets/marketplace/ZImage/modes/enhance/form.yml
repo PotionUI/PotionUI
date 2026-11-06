@@ -1,0 +1,42 @@
+name: "custom"
+mode_label: "Enhance"
+short_description: "Upscale a picture and add detail, with an optional face pass."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/enhance/tabs/generation.yml"
+      - type: "tab"
+        anchor: "image"
+        label: "Image"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/enhance/tabs/image.yml"
+      - type: "tab"
+        anchor: "faces"
+        label: "Faces"
+        configuration:
+          icon: "face"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/enhance/tabs/faces.yml"
+      - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths._shared }}/tabs/lora.yml"
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"

@@ -1,0 +1,153 @@
+pipeline:
+  - name: "model_loader/krea2"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      vision: "{{ form.vision_grounded_encode | default(true) }}"
+      loras:
+        "@loop":
+          items: "{{ ([{'model': form.edit_lora, 'strength': form.edit_lora_strength | default(1.0)}] if form.edit_lora else []) + (form.loras | default([])) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            step_start: "{{ item.step_start | default(none) }}"
+            step_end: "{{ item.step_end | default(none) }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "media_loader"
+    id: "media_loader_b"
+    enabled: true
+    configuration:
+      media:
+        "@loop":
+          items: "{{ [form.source_image_b] if form.source_image_b else [] }}"
+          template:
+            type: "image"
+            path: "{{ item }}"
+
+  - name: "media_loader"
+    id: "mask_loader"
+    enabled: true
+    configuration:
+      media:
+        "@loop":
+          items: "{{ [form.source_image_inpaint_mask] if (form.source_image_inpaint_mask | default('')) else [] }}"
+          template:
+            type: "image"
+            path: "{{ item }}"
+
+  - name: "media_loader"
+    id: "mask_loader_b"
+    enabled: true
+    configuration:
+      media:
+        "@loop":
+          items: "{{ [form.source_image_b_inpaint_mask] if (form.source_image_b_inpaint_mask | default('')) else [] }}"
+          template:
+            type: "image"
+            path: "{{ item }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/krea2", "text_encoder"]
+      - ["image", "{% if form.vision_grounded_encode | default(true) %}media_loader{% else %}vision_grounding_disabled{% endif %}", "image"]
+    enabled: true
+    configuration:
+      grounding_px: "{{ form.grounding_px | default(768) }}"
+      system_prompt: "{{ form.grounding_system_prompt or '' }}"
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      guidance_scale: "{{ form.cfg | default(1.0) }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ (([{'model': form.edit_lora, 'strength': form.edit_lora_strength | default(1.0)}] if form.edit_lora else []) + (form.loras | default([]))) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(1.0) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["resolution", "{{ form.resolution }}"]
+
+  - name: "generator/krea2_edit"
+    input:
+      - ["model", "model_loader/krea2", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "media_loader", "image"]
+      - ["image_b", "media_loader_b", "image"]
+      - ["mask", "mask_loader", "image"]
+      - ["mask_b", "mask_loader_b", "image"]
+    enabled: true
+    configuration:
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      guidance: "{{ form.cfg | default(1.0) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      resolution: "{{ form.resolution }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      match_source: "{{ form.match_source | default(true) }}"
+      fit_mode: "{{ form.fit_mode | default('fit') }}"
+      ref_boost: "{{ form.ref_boost if (form.ref_boost | default(0.0)) else (2.0 if (form.edit_task | default('edit')) == 'person' else 4.0) }}"
+      ref_boost_a: "{{ form.ref_boost_a | default(1.0) }}"
+      ref_position: "{{ (('beside' if (form.edit_task | default('edit')) == 'person' else 'aligned') if (form.ref_position | default('auto')) == 'auto' else form.ref_position) }}"
+      ref_position_a: "{{ form.ref_position_a | default('aligned') }}"
+
+  - name: "gallery"
+    input:
+      - ["image", "generator/krea2_edit", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

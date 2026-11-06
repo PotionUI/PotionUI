@@ -27,6 +27,7 @@ from src.platform.runtime.native.lora.adaln_translate import (
     adaln_curve_timesteps,
     apply_bias_delta,
     apply_bias_deltas,
+    bias_diff_deltas,
     dense_silu_grid,
     fit_affine_grid,
     translate_adaln_lora,
@@ -288,3 +289,41 @@ def test_apply_bias_delta_refuses_unpatchable_bias_storage():
 def test_fit_affine_grid_rejects_a_grid_too_short_to_determine_the_fit():
     with pytest.raises(ValueError, match="grid rows"):
         fit_affine_grid(torch.randn(PRUNED_DIM, DENSE_DIM), torch.randn(PRUNED_DIM, PRUNED_DIM))
+
+
+def test_bias_diffs_map_onto_the_pruned_adaln_biases_whatever_the_prefix():
+    model = _pruned_model()
+    block_diff = torch.randn(OUT_FEATURES)
+    final_diff = torch.randn(2 * HIDDEN)
+    lora_sd = {
+        "diffusion_model.blocks.0.adaln_proj.linear.diff_b": block_diff,
+        "blocks.1.adaln_proj.linear.diff_b": block_diff * 2,
+        "diffusion_model.final_layer.adaln_proj.linear.diff_b": final_diff,
+        "diffusion_model.blocks.0.adaln_proj.linear.diff": torch.randn(OUT_FEATURES, PRUNED_DIM),
+        "diffusion_model.blocks.9.adaln_proj.linear.diff_b": block_diff,
+        "diffusion_model.condition_proj.diff_b": torch.randn(HIDDEN + 1),
+    }
+
+    deltas, consumed = bias_diff_deltas(lora_sd, model)
+
+    assert set(deltas) == {"blocks.0.adaln_proj.linear", "blocks.1.adaln_proj.linear", "final_layer.adaln_proj.linear"}
+    assert torch.equal(deltas["blocks.1.adaln_proj.linear"], block_diff * 2)
+    assert set(consumed) == {
+        "diffusion_model.blocks.0.adaln_proj.linear.diff_b",
+        "blocks.1.adaln_proj.linear.diff_b",
+        "diffusion_model.final_layer.adaln_proj.linear.diff_b",
+    }
+
+
+def test_a_bias_diff_shifts_the_pruned_adaln_output_by_exactly_the_diff_at_every_timestep():
+    model = _pruned_model()
+    linear = model.blocks[0].adaln_proj.linear
+    diff = torch.randn(OUT_FEATURES)
+    table = torch.randn(5, PRUNED_DIM)
+    with torch.no_grad():
+        before = linear(table)
+        deltas, _ = bias_diff_deltas({"diffusion_model.blocks.0.adaln_proj.linear.diff_b": diff}, model)
+        apply_bias_deltas(model, deltas, strength=0.5)
+        after = linear(table)
+
+    torch.testing.assert_close(after - before, (0.5 * diff).expand_as(before), rtol=1e-5, atol=1e-5)

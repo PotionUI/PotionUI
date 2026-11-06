@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from src.features.downloads.queue import DownloadQueue
 from src.features.models.routes import ModelController, build_router
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import type_to_directory
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from tests.fixtures.model_roots import make_roots
@@ -107,7 +107,7 @@ async def _queue(client, repo, body):
 
 
 def _type_dir(depot):
-    return depot / MODEL_TYPE_TO_DIRECTORY["detection_segm"]
+    return depot / type_to_directory()["detection_segm"]
 
 
 @pytest.mark.asyncio
@@ -197,3 +197,31 @@ async def test_windows_reserved_characters_in_the_name_are_replaced(client, repo
     download = await _queue(client, repo, _body('Matte: "v2".safetensors'))
 
     assert download.filename == "Matte_ _v2_.safetensors"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "gated, gated_repo",
+    [(True, "org/name"), (False, None)],
+)
+async def test_the_status_reports_whether_a_failure_was_a_gated_repo(client, repo, gated, gated_repo):
+    from src.features.downloads.models import Download, DownloadStatus
+
+    repo.get_by_id.return_value = Download(
+        id="d1",
+        url=RESOLVED_URL,
+        filename="model.safetensors",
+        destination_path="/models/model.safetensors",
+        status=DownloadStatus.FAILED,
+        error_message="Access denied (HTTP 403)",
+        gated=gated,
+        gated_repo=gated_repo,
+    )
+
+    async with client:
+        response = await client.get("/api/models/downloads/d1")
+
+    data = response.json()["data"]
+    assert data["status"] == "failed"
+    assert data["gated"] is gated
+    assert data["gated_repo"] == gated_repo

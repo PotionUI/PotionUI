@@ -33,6 +33,7 @@ class PipeTemplate:
     enabled: bool = True
     configuration: Dict[str, Any] = None
     input: List[Tuple[str, str, str]] = None  # [param_name, provider_pipe, provider_output_var]
+    source_plugin: Optional[str] = None
 
 
 @dataclass
@@ -75,6 +76,8 @@ class FieldTemplate:
     # Read by base_field.py's get_field_info/create_base_schema to emit
     # `readonly: true` on the rendered schema.
     readonly: bool = False
+    anchor: Optional[str] = None
+    source_plugin: Optional[str] = None
 
 
 @dataclass

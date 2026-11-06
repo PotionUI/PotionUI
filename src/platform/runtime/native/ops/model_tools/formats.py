@@ -10,9 +10,9 @@ from ...io.quant_formats import (
     build_convrot_hadamard,
     convrot_unrotate_weight,
     dequantize_nvfp4,
-    quantize_nvfp4_dynamic,
 )
 from ...io.safetensors_loader import CONVROT_W4A4, unpack_int4
+from ...kernels import quantize_nvfp4_activation
 from ..fp8_quant import quantize_tensor_to_fp8_scaled
 from .errors import UnsupportedFormatError
 from .format import SCALE2_SUFFIX, SCALE_SUFFIX, WEIGHT_SUFFIX
@@ -174,7 +174,7 @@ class Nvfp4Format(QuantFormat):
         ]
 
     def quantize(self, weight: torch.Tensor) -> list[tuple[str, torch.Tensor]]:
-        packed, block, tensor_scale = quantize_nvfp4_dynamic(_f32(weight))
+        packed, block, tensor_scale = quantize_nvfp4_activation(_f32(weight))
         return [
             (WEIGHT_SUFFIX, packed.contiguous()),
             (SCALE_SUFFIX, block.contiguous()),

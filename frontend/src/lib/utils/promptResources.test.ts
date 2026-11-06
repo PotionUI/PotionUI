@@ -326,3 +326,42 @@ describe('a field that carries several kinds', () => {
 		expect(findSpecByGroupKey(mixedSpecs, 'refs')).toBeUndefined();
 	});
 });
+
+describe('kit specs', () => {
+	const refSpecs: PromptResourceSpec[] = [
+		{ field: 'reference_kits', kind: 'image', label: 'Kits', token: '<Picture @>', source: 'kit' },
+		{ field: 'reference_kits', kind: 'video', label: 'Kits', token: '<Video @>', source: 'kit' }
+	];
+	const values = { reference_kits: [{ model: 'model:01X', strength: 1 }, { model: 'model:01Z', strength: 0 }] };
+
+	it('keys a row by its model and groups every kind under one menu key', () => {
+		expect(mediaItemKey(values.reference_kits[0])).toBe('model:01X');
+		expect(resourceGroupKey(refSpecs, refSpecs[0])).toBe('reference_kits');
+		expect(resourceGroupKey(refSpecs, refSpecs[1])).toBe('reference_kits');
+		expect(specItems(refSpecs, refSpecs[0], values.reference_kits)).toHaveLength(1);
+	});
+
+	it('resolves a marker to a chip state and leaves the marker in the text', () => {
+		const ref = { field: 'reference_kits', item_key: 'model:01X' };
+		expect(resourceMarkerState(ref, refSpecs, values).dangling).toBe(false);
+		expect(resourceMarkerState({ ...ref, item_key: 'model:01Z' }, refSpecs, values).dangling).toBe(true);
+		const text = 'a @[reference_kits:model:01X]';
+		expect(resolveResourceMarkers(text, refSpecs, values)).toBe(text);
+	});
+});
+
+describe('specs of any prompt resource source', () => {
+	const stackSpecs: PromptResourceSpec[] = [
+		{ field: 'stacks', kind: 'image', token: '<Picture @>', source: 'stack', source_label: 'Stack', source_badge: 'Stk' },
+		{ field: 'stacks', kind: 'audio', token: '<Audio @>', source: 'stack', source_label: 'Stack', source_badge: 'Stk' }
+	];
+	const values = { stacks: [{ model: 'model:01X', strength: 1 }, { model: 'model:01Z', strength: 0 }] };
+
+	it('group, cite and stay unresolved in the editor exactly like the core source', () => {
+		expect(resourceGroupKey(stackSpecs, stackSpecs[1])).toBe('stacks');
+		expect(specItems(stackSpecs, stackSpecs[0], values.stacks)).toHaveLength(1);
+		expect(resourceMarkerState({ field: 'stacks', item_key: 'model:01Z' }, stackSpecs, values).dangling).toBe(true);
+		const text = 'a @[stacks:model:01X]';
+		expect(resolveResourceMarkers(text, stackSpecs, values)).toBe(text);
+	});
+});

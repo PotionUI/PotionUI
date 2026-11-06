@@ -97,6 +97,13 @@ export interface PresetModeInfo {
 	 *  `preset_modes:` instead of the preset's own preset.yml. */
 	source_plugin?: string | null;
 	requirements_missing?: string[] | null;
+	install?: PresetModeInstall | null;
+}
+
+export interface PresetModeInstall {
+	recipe_id: string;
+	ready: boolean;
+	missing_bytes: number | null;
 }
 
 /** Body of a 422 response from `POST /api/generations/start` when the submitted
@@ -313,7 +320,7 @@ export interface PresetRecipeLink {
 export type RequirementStatus = 'ok' | 'missing' | 'unknown';
 
 export interface RequirementAction {
-	kind: 'open_downloader' | 'open_backends' | 'open_url';
+	kind: 'open_downloader' | 'open_backends' | 'open_url' | 'install_mode';
 	payload: Record<string, unknown>;
 }
 
@@ -421,12 +428,16 @@ export type ModelRecommendation = {
 	description?: string;
 	size?: string;
 	installed: boolean;
+	gated?: boolean;
+	license_url?: string | null;
 } & ModelRecommendationSource;
 
 export interface ModelDownloadStatus {
 	status: 'pending' | 'running' | 'completed' | 'failed';
 	progress: number | null;
 	error: string | null;
+	gated?: boolean;
+	gated_repo?: string | null;
 }
 
 // Session Management Types
@@ -500,17 +511,25 @@ export interface Session {
 	created_at: string;
 	updated_at: string;
 	pinned?: boolean;
+	version: number;
+}
+
+export interface SessionWriteOrigin {
+	kind: string;
+	label: string;
 }
 
 export interface SaveSessionRequest {
 	preset_id: string;
 	name: string;
 	data: ModeBasedSessionData;
+	base_version?: number | null;
 }
 
 export interface UpdateSessionRequest {
 	name: string;
 	data: ModeBasedSessionData;
+	base_version?: number | null;
 }
 
 // Session history ("Session history" surface) — read-only past saves of a

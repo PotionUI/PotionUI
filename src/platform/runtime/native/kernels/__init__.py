@@ -9,6 +9,16 @@ from .dispatch import (
     reset_backend_cache,
 )
 from .fp8_linear import Fp8ScaledLinear
+from .fused_elementwise import (
+    ActGate,
+    act_gate,
+    apply_rope,
+    fused_elementwise_disabled_reason,
+    gated_residual,
+    norm_args,
+    norm_modulate,
+    qk_norm_rope,
+)
 from .gemm import GemmSupport, gemm_support
 from .hardware import (
     FLASH,
@@ -34,9 +44,12 @@ from .linear import (
     sync_nvfp4_dequant_tables,
 )
 from .lora_math import invalidate_lora_fused_cache, log_lora_path_summary, partition_output_branch_deltas
+from .nvfp4_quant import nvfp4_quant_disabled_reason, quantize_nvfp4_activation
 from .operations import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, pick_operations
+from .row_chunks import QUANT_TILE_ROWS, activation_quant_chunk_rows
 
 __all__ = [
+    "ActGate",
     "BACKEND_PRIORITY",
     "FLASH",
     "SAGE",
@@ -44,6 +57,7 @@ __all__ = [
     "SAGE3",
     "SDPA",
     "SPARGE",
+    "QUANT_TILE_ROWS",
     "Capabilities",
     "DeviceCapabilities",
     "FastPath",
@@ -51,6 +65,9 @@ __all__ = [
     "GemmSupport",
     "GpuGeneration",
     "QuantFormat",
+    "activation_quant_chunk_rows",
+    "act_gate",
+    "apply_rope",
     "attention",
     "available_backends",
     "capabilities",
@@ -59,16 +76,23 @@ __all__ = [
     "disable_weight_init",
     "fast_path",
     "fp8_ops",
+    "fused_elementwise_disabled_reason",
+    "gated_residual",
     "gemm_support",
     "get_attention_backend",
     "get_backend_override",
     "known_backends",
     "log_lora_path_summary",
     "manual_cast",
+    "norm_args",
+    "norm_modulate",
     "nvfp4_dequant_table_bytes",
     "nvfp4_path_summary",
+    "nvfp4_quant_disabled_reason",
     "partition_output_branch_deltas",
     "pick_operations",
+    "qk_norm_rope",
+    "quantize_nvfp4_activation",
     "refresh_capabilities",
     "reset_backend_cache",
     "CastWeightBiasOp",

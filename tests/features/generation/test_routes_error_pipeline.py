@@ -122,3 +122,35 @@ async def test_a_validation_error_keeps_its_user_facing_message():
 
     assert caught.value.detail["message"] == "Rating must be between 0 and 5"
 
+
+
+def _blocked(reason, details):
+    error = GenerationDeleteFailedException(reason)
+    if details is not None:
+        error.block_details = details
+    return error
+
+
+@pytest.mark.parametrize("facade_call, invoke", [
+    ("delete", lambda c, u: c.delete_generation_history("g1", u)),
+    ("bulk_delete", lambda c, u: c.bulk_delete_generations(["g1", "g2"], u)),
+])
+async def test_a_blocked_delete_carries_the_block_details_next_to_its_message(facade_call, invoke):
+    details = {"blocking_runs": [{"run_id": "r1", "number": 3}]}
+    controller = _facade_controller(**{facade_call: _blocked("Brew 3 still needs this", details)})
+
+    with pytest.raises(HTTPException) as caught:
+        await invoke(controller, _user(AccountType.USER))
+
+    assert caught.value.status_code == 400
+    assert caught.value.detail["message"] == "Brew 3 still needs this"
+    assert caught.value.detail["blocking_runs"] == details["blocking_runs"]
+
+
+async def test_a_blocked_delete_without_details_keeps_the_plain_shape():
+    controller = _facade_controller(delete=_blocked("blocked", None))
+
+    with pytest.raises(HTTPException) as caught:
+        await controller.delete_generation_history("g1", _user(AccountType.USER))
+
+    assert set(caught.value.detail) == {"success", "error", "message", "code"}

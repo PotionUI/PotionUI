@@ -1,0 +1,11 @@
+- { value: "832x480", ratio: [16, 9], description: "Widescreen, Flex-trained 480p" }
+- { value: "480x832", ratio: [9, 16], description: "Vertical, Flex-trained 480p" }
+- { value: "960x416", ratio: [21, 9], description: "Ultrawide, Flex-trained 480p" }
+- { value: "416x960", ratio: [9, 21], description: "Tall vertical, Flex-trained 480p" }
+- { value: "704x480", ratio: [3, 2], description: "Landscape 3:2, Flex-trained 480p" }
+- { value: "480x704", ratio: [2, 3], description: "Portrait 2:3, Flex-trained 480p" }
+- { value: "640x480", ratio: [4, 3], description: "Landscape 4:3, Flex-trained 480p" }
+- { value: "480x640", ratio: [3, 4], description: "Portrait 3:4, Flex-trained 480p" }
+- { value: "608x480", ratio: [5, 4], description: "Landscape 5:4, Flex-trained 480p" }
+- { value: "480x608", ratio: [4, 5], description: "Portrait 4:5, Flex-trained 480p" }
+- { value: "480x480", ratio: [1, 1], description: "Square, Flex-trained 480p" }

@@ -43,7 +43,7 @@ import torch
 from src.pipelines.outputs import ParamGenerationOutput, VideoGenerationOutput
 from src.platform.runtime.native.engine import NativeEngineLoader
 from src.platform.runtime.native.errors import SamplingNumericsError
-from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
+from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
@@ -98,6 +98,7 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     nag_config_specs,
     preview_config_spec,
+    preview_decoder_config_spec,
 )
 
 _LOG_TAG = "GENERATOR WAN CHAIN"
@@ -266,6 +267,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
                            "i2v low-noise expert DiT file (Wan 2.2 dual-expert only)", required=False),
             device_config_spec(),
             preview_config_spec(),
+            preview_decoder_config_spec(),
             PipeConfigSpec("cfg_zero_star", bool, True,
                            "CFG-Zero*: rescale the uncond branch onto cond before extrapolation", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: zero velocity for the first N steps",
@@ -667,9 +669,10 @@ class GeneratorWanChainVideoPipe(BasePipe):
                             _LOG_TAG, i + 1, n, sub_type, set_name, seed_i, frames_i, shape)
                 hooks = [ProgressHook(on_progress)]
                 if self.config.get("preview", True):
-                    preview_hook = make_preview_hook(mset.spec, progress.preview)
+                    preview_hook = make_preview_hook(mset.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
                     if preview_hook is not None:
                         hooks.append(preview_hook)
+                mset.router.preview_reserve_gb = preview_reserve_gb(hooks, shape)
 
                 latent = denoise(
                     forward, latents, cond, uncond,

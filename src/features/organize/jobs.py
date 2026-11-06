@@ -12,13 +12,16 @@ KEEP_FINISHED = 200
 @dataclass
 class BackfillJob:
     id: str
-    user_id: str
+    user_id: Optional[str]
     rule_id: str
     rule_name: str
     status: str = "queued"
     total: int = 0
     processed: int = 0
     applied: int = 0
+    skipped: int = 0
+    waiting: int = 0
+    kind: str = "apply"
     run_id: Optional[str] = None
     error: Optional[str] = None
     started_at: Optional[str] = None
@@ -52,6 +55,10 @@ class BackfillJob:
             "total": self.total,
             "processed": self.processed,
             "applied": self.applied,
+            "skipped": self.skipped,
+            "waiting": self.waiting,
+            "kind": self.kind,
+            "scope": "user" if self.user_id else "instance",
             "run_id": self.run_id,
             "error": self.error,
             "started_at": self.started_at or self.created_at,
@@ -65,8 +72,8 @@ class JobBook:
         self._jobs: Dict[str, BackfillJob] = {}
         self._lock = threading.Lock()
 
-    def create(self, user_id: str, rule_id: str, rule_name: str) -> BackfillJob:
-        job = BackfillJob(id=generate_ulid(), user_id=user_id, rule_id=rule_id, rule_name=rule_name)
+    def create(self, user_id: Optional[str], rule_id: str, rule_name: str, kind: str = "apply") -> BackfillJob:
+        job = BackfillJob(id=generate_ulid(), user_id=user_id, rule_id=rule_id, rule_name=rule_name, kind=kind)
         with self._lock:
             self._jobs[job.id] = job
             finished = sorted((j for j in self._jobs.values() if j.status not in ACTIVE), key=lambda j: j.id)

@@ -286,7 +286,7 @@ def test_every_windowed_edit_mode_takes_its_frames_from_the_clip():
 
 
 OPTIONAL_PROMPT_MODES = [
-    "restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "cinemagraph",
+    "restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "motion_transfer", "cinemagraph", "transition", "follow_motion",
 ]
 PROMPT_PASS_THROUGH_MODES = ["extend", "refine_faces"]
 
@@ -302,7 +302,7 @@ def _prompt_built_from_an_empty_prompt(template, mode):
 
 def test_the_modes_with_a_built_in_sentence_take_an_optional_prompt(ltx25_template):
     assert ltx25_template.vars["optional_prompt_modes"] == OPTIONAL_PROMPT_MODES
-    assert "promptless_modes" not in ltx25_template.vars
+    assert ltx25_template.vars["promptless_modes"] == ["transparent_video"]
     assert set(OPTIONAL_PROMPT_MODES) <= set(ltx25_template.modes)
 
 
@@ -317,6 +317,7 @@ def test_the_modes_that_pass_the_prompt_straight_through_keep_requiring_it(ltx25
     assert not _prompt_built_from_an_empty_prompt(ltx25_template, mode).strip()
 
 
+NO_TRIGGER_MODES = {"motion_transfer", "transition", "follow_motion"}
 TRIGGER_WORDS = "ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION"
 MODE_GUIDE_RULES = {
     "restore": ["The Fix field picks the task", "describe the period, place, light, materials and clothing"],
@@ -328,7 +329,16 @@ MODE_GUIDE_RULES = {
         "one or two sentences describing the finished shot, matching the First Frame",
         "Never use the words clay, 3D or Unreal",
     ],
+    "motion_transfer": [
+        "makes the person in the Picture perform the moves of the Video",
+        "Describe the person and the place, never the pose or the moves",
+    ],
     "cinemagraph": ["Name exactly what moves", "everything else stays still", "there are no camera moves"],
+    "follow_motion": [
+        "puts a new scene through the camera moves and layout of the Video",
+        "Never describe the camera moves or where things sit",
+    ],
+    "transition": ["the video starts on the First picture and ends on the Last", "never describe either picture", "Never type zhuanchang"],
 }
 
 
@@ -354,8 +364,11 @@ def test_each_reference_video_mode_tells_the_prompt_writer_what_that_mode_wants(
 
     for rule in MODE_GUIDE_RULES[mode]:
         assert rule in guide
-    assert "The prompt is optional, and the mode adds the caption and trigger word itself" in guide
-    assert f"never type {TRIGGER_WORDS}" in guide
+    if mode in NO_TRIGGER_MODES:
+        assert "The prompt is optional, and the mode writes a default caption when it is empty" in guide
+    else:
+        assert "The prompt is optional, and the mode adds the caption and trigger word itself" in guide
+        assert f"never type {TRIGGER_WORDS}" in guide
     assert guide != " ".join(ltx25_template.llm["guide"].split())
 
 

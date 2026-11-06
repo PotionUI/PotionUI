@@ -26,6 +26,7 @@ const { createClassComponent } = await import('svelte/legacy');
 const FLAGS = {
 	native_fp8_matmul: false,
 	native_nvfp4_matmul: false,
+	native_fused_elementwise: false,
 	native_lora_fused: true,
 	native_torch_compile: false,
 	native_qwen3_te_bf16: false,

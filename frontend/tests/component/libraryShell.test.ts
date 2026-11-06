@@ -91,6 +91,19 @@ describe('LibraryShell', () => {
 		expect(aside.querySelector('[aria-label="Prompt Library sections"]')).not.toBeNull();
 	});
 
+	it('draws the divider after the title only when there is a toolbar', () => {
+		const toolbar = createRawSnippet(() => ({ render: () => `<div data-testid="toolbar">tools</div>` }));
+		const divider = () => target.querySelector('.w-px.bg-line-strong');
+		mountShell({ toolbar });
+		expect(divider()).not.toBeNull();
+		expect(target.querySelector('[data-testid="toolbar"]')).not.toBeNull();
+		unmount(component!);
+		component = null;
+		target.remove();
+		mountShell();
+		expect(divider()).toBeNull();
+	});
+
 	it('renders the sidebar label inside the Pane header at the 12px floor', () => {
 		mountShell({ section: 'prompts' });
 		const aside = target.querySelector('aside') as HTMLElement;

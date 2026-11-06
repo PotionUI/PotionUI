@@ -3,7 +3,10 @@ from typing import Dict, Any, List, Optional
 import numpy as np
 from PIL import Image
 
+from src.pipelines.pipes._shared.pose.estimator import acquire_pose_estimator
 from src.platform.assets import asset_subdir
+from src.platform.runtime.pose.render import RenderOptions, render_poses
+from src.platform.runtime.pose.sequence import estimate_people
 from src.pipelines.outputs import GenerationExecutionError, ProgressGenerationOutput, ImageGenerationOutput
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
@@ -27,9 +30,10 @@ ANNOTATORS_REPO = "lllyasviel/Annotators"
 # Preprocessor types whose detector loads weights; the rest (canny) are pure
 # image ops needing no fetch.
 _WEIGHTED_PREPROCESSORS = frozenset(
-    {"depth", "openpose", "normal", "scribble", "lineart", "mlsd", "hed"}
+    {"depth", "normal", "scribble", "lineart", "mlsd", "hed"}
 )
 _PLAIN_PREPROCESSORS = frozenset({"grayscale"})
+_POSE_PREPROCESSORS = frozenset({"openpose"})
 _GUIDE_LABELS = {"openpose": "Pose", "hed": "HED", "mlsd": "MLSD", "lineart": "Lineart"}
 
 
@@ -66,7 +70,7 @@ def _stub_mediapipe_face_without_solutions():
 CONTROLNET_AUX_ERROR = ""
 try:
     _stub_mediapipe_face_without_solutions()
-    from controlnet_aux import CannyDetector, HEDdetector, MLSDdetector, OpenposeDetector
+    from controlnet_aux import CannyDetector, HEDdetector, MLSDdetector
     from controlnet_aux import LineartDetector, NormalBaeDetector, MidasDetector
     CONTROLNET_AUX_AVAILABLE = True
 except Exception as e:
@@ -96,6 +100,7 @@ class ControlNetPreprocessorPipe(BasePipe):
         return [
             PipeInputSpec("image", IOType.IMAGE, True, "Input images to preprocess", is_array=True),
             PipeInputSpec("ASSETS", IOType.SERVICE, False, "Asset fetcher, to mirror the annotator weights into the depot", is_array=False),
+            PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for caching the pose models", is_array=False),
         ]
 
     @classmethod
@@ -131,6 +136,17 @@ class ControlNetPreprocessorPipe(BasePipe):
                 ANNOTATORS_REPO, subdir=asset_subdir("annotators", ANNOTATORS_REPO)
             )
         )
+
+    @staticmethod
+    def _resolve_pose_estimator(pipe_input: PipeInput, preprocessors_config: List[Dict[str, Any]]) -> Optional[Any]:
+        needed = any(
+            config.get("enabled", False)
+            and str(config.get("type", "canny")).lower() in _POSE_PREPROCESSORS
+            for config in preprocessors_config
+        )
+        if not needed:
+            return None
+        return acquire_pose_estimator(pipe_input.input.get("ASSETS"), pipe_input.input.get("MODELS"))
 
     def _preprocess_canny(self, image: Image.Image, params: Dict[str, Any]) -> Image.Image:
         """Apply Canny edge detection"""
@@ -170,26 +186,18 @@ class ControlNetPreprocessorPipe(BasePipe):
             logger.error(f"[CONTROLNET PREPROCESSOR] Depth preprocessing failed: {e}")
             return image
 
-    def _preprocess_openpose(self, image: Image.Image, params: Dict[str, Any], annotators: str) -> Image.Image:
-        """Apply OpenPose skeleton detection"""
+    def _preprocess_openpose(self, image: Image.Image, params: Dict[str, Any], estimator: Any) -> Image.Image:
         try:
-            if not CONTROLNET_AUX_AVAILABLE:
-                raise ImportError("controlnet_aux not available")
-
-            include_body = params.get('include_body', True)
-            include_hand = params.get('include_hand', False)
-            include_face = params.get('include_face', False)
-
-            detector = OpenposeDetector.from_pretrained(annotators)
-            processed = detector(
-                image,
-                include_body=include_body,
-                include_hand=include_hand,
-                include_face=include_face
+            options = RenderOptions(
+                body=bool(params.get('include_body', True)),
+                hands=bool(params.get('include_hand', False)),
+                face=bool(params.get('include_face', False)),
             )
-
-            logger.debug(f"[CONTROLNET PREPROCESSOR] OpenPose applied (body:{include_body}, hand:{include_hand}, face:{include_face})")
-            return processed
+            rgb = np.asarray(image.convert("RGB"))
+            people = estimate_people(rgb, estimator, options.min_confidence, options.detect_resolution)
+            canvas = render_poses(people, rgb.shape[1], rgb.shape[0], options)
+            logger.debug(f"[CONTROLNET PREPROCESSOR] Pose drawn for {len(people)} people (body:{options.body}, hand:{options.hands}, face:{options.face})")
+            return Image.fromarray(canvas)
 
         except Exception as e:
             logger.error(f"[CONTROLNET PREPROCESSOR] OpenPose preprocessing failed: {e}")
@@ -296,7 +304,7 @@ class ControlNetPreprocessorPipe(BasePipe):
         strict = bool(self.config.get("strict", False))
         needs_aux = any(
             config.get("enabled", False)
-            and str(config.get("type", "canny")).lower() not in _PLAIN_PREPROCESSORS
+            and str(config.get("type", "canny")).lower() not in _PLAIN_PREPROCESSORS | _POSE_PREPROCESSORS
             for config in preprocessors_config
         )
         if strict and needs_aux and not CONTROLNET_AUX_AVAILABLE:
@@ -316,6 +324,7 @@ class ControlNetPreprocessorPipe(BasePipe):
         annotators = self._resolve_annotators(
             pipe_input.input.get("ASSETS"), preprocessors_config
         )
+        pose_estimator = self._resolve_pose_estimator(pipe_input, preprocessors_config)
 
         generation_outputs(ProgressGenerationOutput(
             state=f"Preprocessing <<NUMBER:{len(images)} images:image>> for ControlNet",
@@ -350,7 +359,7 @@ class ControlNetPreprocessorPipe(BasePipe):
             elif preprocessor_type == 'depth':
                 processed = self._preprocess_depth(image, params, annotators)
             elif preprocessor_type == 'openpose':
-                processed = self._preprocess_openpose(image, params, annotators)
+                processed = self._preprocess_openpose(image, params, pose_estimator)
             elif preprocessor_type == 'normal':
                 processed = self._preprocess_normal(image, params, annotators)
             elif preprocessor_type == 'scribble':

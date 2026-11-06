@@ -15,7 +15,7 @@
 		type PromptResourceUsage,
 		type ResourceUseCounts
 	} from '$lib/utils/promptResourceUsage';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 
 	const NO_FIELD_ERRORS: Record<string, string[]> = {};
 	const NO_COUNTS: ResourceUseCounts = {};
@@ -26,7 +26,7 @@
 		formRef = $bindable(undefined),
 		videoDirectorActive = false
 	}: {
-		tab: Tab;
+		tab: GenerationTab;
 		onFormDataChange: (data: Record<string, unknown>) => void;
 		formRef?: DynamicForm | undefined;
 		videoDirectorActive?: boolean;

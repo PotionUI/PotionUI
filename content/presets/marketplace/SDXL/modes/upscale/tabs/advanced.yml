@@ -1,0 +1,92 @@
+fields:
+  - type: "section"
+    label: "Tiles"
+    formula: "enhance"
+    children:
+      - name: "td_overlap"
+        type: "slider"
+        label: "Tile overlap"
+        default: 128
+        configuration: { min: 16, max: 512, step: 16 }
+
+      - name: "td_feather_amount"
+        type: "slider"
+        label: "Tile blending"
+        default: 96
+        configuration: { min: 16, max: 512, step: 16 }
+
+      - name: "td_min_tile_size"
+        type: "slider"
+        label: "Minimum tile size"
+        default: 896
+        configuration: { min: 256, max: 2048, step: 64 }
+
+      - name: "td_detail_boost"
+        type: "slider"
+        label: "Detail boost"
+        default: 1.1
+        configuration: { min: 0.5, max: 2.0, step: 0.1 }
+
+      - name: "td_adaptive_tiles"
+        type: "checkbox_group"
+        label: "Options"
+        default: ["enable_detail_conditioning", "content_aware_denoise"]
+        configuration:
+          options:
+            - { label: "Detail-focused prompt", value: "enable_detail_conditioning", description: "Adds detail terms to the prompt for each tile" }
+            - { label: "Content-aware strength", value: "content_aware_denoise", description: "Smooth areas are changed less than textured ones" }
+
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      - name: "td_steps"
+        type: "slider"
+        label: "Steps"
+        default: 24
+        configuration: { min: 1, max: 100, step: 1 }
+
+      - name: "td_cfg"
+        type: "slider"
+        label: "CFG Scale"
+        default: 5.5
+        configuration: { min: 1.0, max: 30.0, step: 0.5 }
+
+      - name: "clip_skip"
+        type: "slider"
+        label: "Clip Skip"
+        default: 2
+        configuration: { min: 0, max: 12, step: 1 }
+
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "select"
+            label: "Sampler"
+            default: "DPMPP_2M"
+            configuration:
+              options:
+                - { label: "EULER", value: "EULER" }
+                - { label: "EULER_A", value: "EULER_A" }
+                - { label: "HEUN", value: "HEUN" }
+                - { label: "DPM2", value: "DPM2" }
+                - { label: "DPM2_A", value: "DPM2_A" }
+                - { label: "LMS", value: "LMS" }
+                - { label: "DPMPP_2S_A", value: "DPMPP_2S_A" }
+                - { label: "DPMPP_SDE", value: "DPMPP_SDE" }
+                - { label: "DPMPP_2M", value: "DPMPP_2M" }
+                - { label: "DPMPP_2M_SDE", value: "DPMPP_2M_SDE" }
+                - { label: "DPMPP_3M_SDE", value: "DPMPP_3M_SDE" }
+
+          - name: "scheduler"
+            type: "select"
+            label: "Scheduler"
+            default: "karras"
+            configuration:
+              options:
+                - { label: "Normal", value: "normal" }
+                - { label: "Karras", value: "karras" }
+                - { label: "Exponential", value: "exponential" }
+                - { label: "SGM Uniform", value: "sgm_uniform" }
+                - { label: "Simple", value: "simple" }
+                - { label: "DDIM Uniform", value: "ddim_uniform" }

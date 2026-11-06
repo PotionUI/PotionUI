@@ -55,6 +55,10 @@ RUNTIME_FLAGS: tuple[RuntimeFlag, ...] = (
         "Multiply nvfp4 checkpoints directly on fp4 tensor cores (RTX 50 and newer).",
     ),
     RuntimeFlag(
+        "native_fused_elementwise", "NATIVE_FUSED_ELEMENTWISE", "bool", False, "live", "speed", "backend",
+        "Run the norm, modulation, gate and activation steps of the diffusion blocks as fused GPU kernels.",
+    ),
+    RuntimeFlag(
         "native_lora_fused", "NATIVE_LORA_FUSED", "bool", True, "live", "speed", "backend",
         "Fold LoRA weights into the base weight once per run instead of adding them on every step.",
     ),

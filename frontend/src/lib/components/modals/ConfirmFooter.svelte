@@ -10,6 +10,7 @@
 		confirmDisabled = false,
 		hideCancel = false,
 		stackOnPhone = false,
+		splitOnPhone = false,
 		secondaryLabel,
 		secondaryIcon,
 		secondaryBusy = false,
@@ -27,6 +28,7 @@
 		confirmDisabled?: boolean;
 		hideCancel?: boolean;
 		stackOnPhone?: boolean;
+		splitOnPhone?: boolean;
 		/** An optional extra action rendered between Cancel and Confirm, e.g. "Save to Library". */
 		secondaryLabel?: string;
 		secondaryIcon?: string;
@@ -56,9 +58,9 @@
 			{/if}
 		</div>
 	{/if}
-	<div class="flex flex-shrink-0 items-center gap-3 ml-auto">
+	<div class="flex flex-shrink-0 items-center gap-3 ml-auto {splitOnPhone ? 'max-sm:w-full max-sm:basis-full' : ''}">
 		{#if !hideCancel}
-			<Button variant="secondary" disabled={anyBusy} onclick={onCancel}>
+			<Button variant="secondary" class={splitOnPhone ? 'max-sm:flex-1' : ''} disabled={anyBusy} onclick={onCancel}>
 				<span class="inline-flex items-center gap-2">
 					{cancelLabel}
 					<Kbd keys="Esc" />
@@ -78,6 +80,7 @@
 		{/if}
 		<Button
 			variant={confirmVariant}
+			class={splitOnPhone ? 'max-sm:flex-1' : ''}
 			disabled={anyBusy || confirmDisabled}
 			loading={busy}
 			initialFocus

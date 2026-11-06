@@ -13,13 +13,15 @@ from ..errors import retry_after_cuda_oom
 from ..io.quant_formats import (
     NVFP4_BLOCK,
     dequant_values,
+    nvfp4_activation_amax,
     precompute_nvfp4_scale,
-    quantize_nvfp4_dynamic,
     scale_values,
 )
 from .casting import cast_to
 from .fp8_linear import Fp8ScaledLinear
 from .gemm import gemm_support
+from .nvfp4_quant import quantize_nvfp4_activation
+from .row_chunks import ChunkedGemmFailed, gemm_in_row_chunks
 from .lora_math import (
     _add_lora_output_branch,
     _deltas_output_branch_ok,
@@ -223,34 +225,20 @@ class Nvfp4Linear(Fp8ScaledLinear):
         if not x2d.is_contiguous():
             x2d = x2d.contiguous()
 
-        try:
-            x_packed, x_block, x_global = quantize_nvfp4_dynamic(x2d)
-        except Exception as exc:
-            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
-                raise
-            logger.debug("nvfp4 matmul: activation quant failed; using dequant path", exc_info=True)
-            _log_nvfp4_fast_path_rejection(f"activation quant failed ({type(exc).__name__})", str(exc)[:300])
-            return None
-
         weight_packed = self.nvfp4_packed if self.nvfp4_packed.is_contiguous() else self.nvfp4_packed.contiguous()
-        mat_a = x_packed.view(torch.float4_e2m1fn_x2)
         mat_b = weight_packed.view(torch.float4_e2m1fn_x2).t()
         bias = self.bias.to(device=device, dtype=input.dtype) if self.bias is not None else None
 
+        w_scales = (w_block.contiguous(), w_global)
         try:
-            out = F.scaled_mm(
-                mat_a, mat_b,
-                [x_block.contiguous(), x_global], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
-                [w_block.contiguous(), w_global], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
-                swizzle_a=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
-                swizzle_b=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
-                output_dtype=input.dtype,
+            out = gemm_in_row_chunks(
+                x2d, self.out_features,
+                lambda rows, amax: self._nvfp4_gemm(rows, mat_b, w_scales, amax, bias),
+                nvfp4_activation_amax,
             )
-        except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
-            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
-                raise
-            logger.debug("nvfp4 matmul: _scaled_mm_v2 rejected operands; using dequant path", exc_info=True)
-            _log_nvfp4_fast_path_rejection(f"scaled_mm rejected operands ({type(exc).__name__})", str(exc)[:300])
+        except ChunkedGemmFailed as failed:
+            logger.debug("nvfp4 matmul: %s; using dequant path", failed.reason, exc_info=failed.cause)
+            _log_nvfp4_fast_path_rejection(failed.reason, str(failed.cause)[:300])
             return None
         if self.lora_deltas:
             if _lora_fused_enabled():
@@ -259,6 +247,29 @@ class Nvfp4Linear(Fp8ScaledLinear):
             else:
                 _note_lora_path(self, "unfused-fast")
                 out = out + _lora_output_branch(x2d, self.lora_deltas, out.dtype, self.out_features)
-        if bias is not None:
-            out = out + bias
         return out.reshape(*orig_shape[:-1], -1)
+
+    def _nvfp4_gemm(
+        self, x2d: torch.Tensor, mat_b: torch.Tensor, w_scales: tuple[torch.Tensor, torch.Tensor],
+        tensor_amax: torch.Tensor | None, bias: torch.Tensor | None,
+    ) -> torch.Tensor:
+        try:
+            x_packed, x_block, x_global = quantize_nvfp4_activation(x2d, tensor_amax=tensor_amax)
+        except Exception as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
+            raise ChunkedGemmFailed(f"activation quant failed ({type(exc).__name__})", exc) from exc
+        try:
+            return F.scaled_mm(
+                x_packed.view(torch.float4_e2m1fn_x2), mat_b,
+                [x_block.contiguous(), x_global], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
+                [w_scales[0], w_scales[1]], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
+                swizzle_a=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
+                swizzle_b=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
+                bias=bias,
+                output_dtype=x2d.dtype,
+            )
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
+            raise ChunkedGemmFailed(f"scaled_mm rejected operands ({type(exc).__name__})", exc) from exc

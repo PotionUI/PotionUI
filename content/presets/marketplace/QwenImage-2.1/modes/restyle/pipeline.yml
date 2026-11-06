@@ -13,7 +13,7 @@ pipeline:
         name: "{{ form.vae }}"
       loras:
         "@loop":
-          items: "{{ form.loras }}"
+          items: "{{ ([{'model': form.turbo_lora, 'strength': 1.0}] if form.speed_profile == 'turbo' and form.turbo_lora else []) + (form.loras or []) }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -34,7 +34,7 @@ pipeline:
     enabled: true
     configuration:
       p_prompt:
-        input: &restyle_prompt "{% set t = form.restyle_task %}{% set d = ((item.positive if item is defined else generation.prompts.first.positive) | default('', true)) | trim %}{% if t == 'background' %}Replace the background with {{ d }}. Keep the subject, its pose and its lighting unchanged.{% elif t == 'lighting' %}Change the lighting to {{ d }}. Keep the composition, subjects and colours of objects unchanged.{% elif t == 'colourise' %}Colourise this black and white photo with natural, realistic colours.{% if d %} Details: {{ d }}.{% endif %}{% elif t == 'restore' %}Restore this old photo: remove scratches, dust and fading, repair damage and sharpen detail, keeping the people and scene exactly as they are.{% if d %} Details: {{ d }}.{% endif %}{% else %}Restyle the whole image as {{ d }}. Keep the composition, subjects and layout unchanged.{% endif %}"
+        input: &restyle_prompt "{% set t = form.restyle_task %}{% set d = ((item.positive if item is defined else generation.prompts.first.positive) | default('', true)) | trim %}{% if t == 'background' %}Replace the background with {{ d }}. Keep the subject, its pose and its lighting unchanged.{% elif t == 'lighting' %}Change the lighting to {{ d }}. Keep the composition, subjects and colours of objects unchanged.{% elif t == 'colourise' %}Colourise this black and white photo with natural, realistic colours.{% if d %} Details: {{ d }}.{% endif %}{% elif t == 'photo' %}Turn this image into a realistic photograph.{% if d %} It shows {{ d }}.{% endif %} Keep the composition, subjects, layout and colours unchanged.{% elif t == 'restore' %}Restore this old photo: remove scratches, dust and fading, repair damage and sharpen detail, keeping the people and scene exactly as they are.{% if d %} Details: {{ d }}.{% endif %}{% else %}Restyle the whole image as {{ d }}. Keep the composition, subjects and layout unchanged.{% endif %}"
         output: *restyle_prompt
       n_prompt:
         input: "{{ generation.prompts.first.negative }}"
@@ -82,7 +82,7 @@ pipeline:
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
         - "@loop":
-            items: "{{ form.loras | active_loras }}"
+            items: "{{ ([{'model': form.turbo_lora}] if form.speed_profile == 'turbo' and form.turbo_lora else []) + (form.loras | active_loras) }}"
             template: ["model", "{{ item.model }}"]
         - "@loop":
             items: "{{ generation.prompts.pairs }}"

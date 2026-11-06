@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { findGenerationTab } from '$lib/types/tabs';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { onMount } from 'svelte';
 	import DrawerShell from '$lib/components/drawer/DrawerShell.svelte';
@@ -42,7 +43,7 @@
 	} = $props();
 
 	let open = $derived(isCompareDrawerOpen(tabId));
-	let tab = $derived($tabsStore.tabs.find((t) => t.id === tabId));
+	let tab = $derived(findGenerationTab($tabsStore.tabs, tabId));
 	let formData = $derived((tab?.formData ?? {}) as Record<string, unknown>);
 	let config = $derived(getCompare(tabId));
 	let candidates = $derived(getCandidates(tabId, formData));

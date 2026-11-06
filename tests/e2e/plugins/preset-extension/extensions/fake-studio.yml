@@ -1,0 +1,8 @@
+fields:
+  - into: {tab: "image"}
+    fields:
+      - name: "extension_vignette"
+        type: "checkbox"
+        label: "Vignette"
+        description: "Darken the corners."
+        default: false

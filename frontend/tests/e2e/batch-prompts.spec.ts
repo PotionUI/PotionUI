@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, addGenerationTab } from './helpers';
 import { installAndSelectImagePreset, presetOption } from './presetPreamble';
 import { makeModelFieldsOptional } from './generationMocks';
 
@@ -203,7 +203,7 @@ test('a saved session brings back every prompt and the current one', async ({ pa
 	await expect(modal).toBeHidden({ timeout: 10000 });
 	await expect(page.getByTestId('session-trigger')).toContainText(name, { timeout: 10000 });
 
-	await page.locator('button[aria-label="Add new tab"]').click();
+	await addGenerationTab(page);
 	await expect(page.locator('.book-tab')).toHaveCount(2, { timeout: 10000 });
 	await page.locator('button[aria-haspopup="dialog"]', { hasText: 'Choose a preset' }).click();
 	await presetOption(page, presetName).click();

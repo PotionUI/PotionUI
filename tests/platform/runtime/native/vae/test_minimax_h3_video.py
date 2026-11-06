@@ -490,3 +490,40 @@ class TestBatchedTileDecode:
         assert module.decode_chunk_observer is None
         with torch.no_grad():
             module.decode(_tiled_latent())
+
+
+class TestShortLatentDecode:
+    def test_real_geometry_pads_one_extra_chunk_for_one_and_two_frame_latents(self):
+        module = MiniMaxH3VideoVAE.__new__(MiniMaxH3VideoVAE)
+        module.token_drop, module.tokens_chunk_size = 3, 5
+        assert module._decode_chunking(1) == (1, 6)
+        assert module._decode_chunking(2) == (1, 5)
+        assert module._decode_chunking(3) == (1, 4)
+        assert module._decode_chunking(7) == (1, 0)
+        assert module._decode_chunking(8) == (2, 4)
+
+    def test_a_one_frame_latent_decodes_to_one_frame(self):
+        module = _build()
+        with torch.no_grad():
+            z = module.encode(torch.randn(1, 3, 1, 16, 16))
+            dec = module.decode(z)
+        assert z.shape[2] == 1
+        assert dec.shape == (1, 3, 1, z.shape[3] * 2, z.shape[4] * 2)
+        assert torch.isfinite(dec).all()
+
+    def test_a_one_frame_decode_is_the_first_frame_of_its_repeated_latent(self):
+        module = _build()
+        z = torch.randn(1, _TINY_CONFIG["latent_channels"], 1, 8, 8)
+        with torch.no_grad():
+            single = module.decode(z)
+            repeated = module.decode(z.repeat(1, 1, 5, 1, 1))
+        torch.testing.assert_close(single, repeated[:, :, :1])
+
+    def test_a_two_frame_latent_decodes_to_frames(self):
+        module = _build()
+        z = torch.randn(1, _TINY_CONFIG["latent_channels"], 2, 8, 8)
+        with torch.no_grad():
+            dec = module.decode(z)
+        assert dec.shape[:2] == (1, 3) and dec.shape[2] >= 1 and dec.shape[3:] == (16, 16)
+        assert module.decode_chunk_count(2) == 1
+        assert torch.isfinite(dec).all()

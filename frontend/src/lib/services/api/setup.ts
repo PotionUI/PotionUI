@@ -165,6 +165,8 @@ export interface SetupConsentArtifact {
 	kind: string;
 	gated: boolean;
 	license_url: string | null;
+	source?: string | null;
+	repo_id?: string | null;
 }
 
 /** A provider that would serve one or more of the pending downloads and
@@ -301,11 +303,13 @@ export function createSetupApi(client: AxiosInstance) {
 		async grantSetupRunConsent(
 			runId: string,
 			stepKey: string,
-			selections?: Record<string, string>
+			selections?: Record<string, string>,
+			extra?: { modes?: string[]; extras?: string[]; target?: string }
 		): Promise<SetupRun> {
 			const response = await client.post(`/api/setup/runs/${runId}/actions/grant_consent`, {
 				step_key: stepKey,
-				selections: selections ?? {}
+				selections: selections ?? {},
+				...(extra ?? {})
 			});
 			return response.data;
 		},

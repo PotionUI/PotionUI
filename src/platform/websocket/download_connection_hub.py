@@ -224,7 +224,9 @@ class DownloadConnectionHub(BaseConnectionHub):
         status: str,
         filename: str,
         error_message: Optional[str] = None,
-        path: Optional[str] = None
+        path: Optional[str] = None,
+        gated: bool = False,
+        gated_repo: Optional[str] = None
     ) -> None:
         """Send a download status change notification.
 
@@ -247,6 +249,10 @@ class DownloadConnectionHub(BaseConnectionHub):
             message['error'] = error_message
         if path:
             message['path'] = path
+        if gated:
+            message['gated'] = True
+            if gated_repo:
+                message['gated_repo'] = gated_repo
 
         await self.broadcast_to_download(download_id, message)
 

@@ -161,6 +161,14 @@ def _snap_without_enlarging(size: float, source: int, canvas_multiple: int) -> i
     return max(canvas_multiple, min(round(size / canvas_multiple), source // canvas_multiple) * canvas_multiple)
 
 
+def _snap_size_within_aspect_range(
+    height: float, width: float, source_height: int, source_width: int, canvas_multiple: int,
+) -> tuple[int, int]:
+    snapped_height = _snap_without_enlarging(height, source_height, canvas_multiple)
+    snapped_width = _snap_without_enlarging(width, source_width, canvas_multiple)
+    limit = int(MAX_ASPECT_RATIO)
+    return min(snapped_height, snapped_width * limit), min(snapped_width, snapped_height * limit)
+
 def normalize_reference_image(
     image: Image.Image, *, canvas_multiple: int, short_edge: int = REFERENCE_IMAGE_SHORT_EDGE,
 ) -> Image.Image:
@@ -172,8 +180,7 @@ def normalize_reference_image(
     image = pad_reference_to_aspect_range(image)
     width, height = image.size
     scale = short_edge / min(width, height)
-    target_height = _snap_without_enlarging(height * scale, height, canvas_multiple)
-    target_width = _snap_without_enlarging(width * scale, width, canvas_multiple)
+    target_height, target_width = _snap_size_within_aspect_range(height * scale, width * scale, height, width, canvas_multiple)
     if (width, height) == (target_width, target_height):
         return image
     return image.resize((target_width, target_height), Image.Resampling.LANCZOS)
@@ -221,8 +228,7 @@ def normalize_reference_video(
         frames.shape[2], frames.shape[1],
         canvas_multiple=canvas_multiple, short_edge=short_edge, max_pixels=max_pixels,
     )
-    height = _snap_without_enlarging(height, frames.shape[1], canvas_multiple)
-    width = _snap_without_enlarging(width, frames.shape[2], canvas_multiple)
+    height, width = _snap_size_within_aspect_range(height, width, frames.shape[1], frames.shape[2], canvas_multiple)
     if frames.shape[1:3] == (height, width):
         return frames
     return np.stack([
@@ -370,8 +376,8 @@ def normalize_visual_latent(latent: Tensor, *, latents_mean: Any, latents_std: A
     """Per-channel normalize an already VAE-encoded `(1, latent_channels, F,
     H, W)` RAW-space latent with the video VAE's own `latents_mean`/
     `latents_std` -- the tail of :func:`encode_keyframe_condition` split out
-    so a PRE-ENCODED latent (a RefMod's own stored latent, `_shared.
-    generation.refmods`) can reuse it without an actual `vae_module.encode()`
+    so a PRE-ENCODED latent (a `PreEncodedReference`'s
+    own latent) can reuse it without an actual `vae_module.encode()`
     call."""
     device = latent.device
     lmean = torch.as_tensor(latents_mean, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
@@ -781,7 +787,7 @@ def _noise_and_patchify_visual(
     """A CLEAN, already-normalized visual condition latent -> its noised
     (`t = KEYFRAME_NOISE_AUG`), patchified rows -- the tail of
     :func:`_encode_and_pack_visual_reference` split out so a PRE-ENCODED
-    latent (a RefMod's own stored latent, already normalized by
+    latent (a `PreEncodedReference`'s latent, already normalized by
     :func:`normalize_visual_latent`) can reuse it without an actual encode.
 
     ONE draw off `generator`, whatever the reference's frame count -- see
@@ -831,8 +837,8 @@ class ReferenceMedia:
     media at all.
 
     `latent` is a fourth, alternative source: a PRE-ENCODED, already
-    strength-mixed condition latent (a RefMod's own stored latent,
-    `_shared.generation.refmods.RefMod.latent`) in the same RAW (un-
+    strength-mixed condition latent (a
+    `PreEncodedReference.latent`) in the same RAW (un-
     normalized) space `vae_module.encode()` returns. When set, `image`/
     `frames`/`audio` are unused -- `normalize_references` passes such a
     reference through untouched (nothing to fit or resample) and
@@ -841,7 +847,7 @@ class ReferenceMedia:
     `kind="audio"`).
 
     `has_audio` is `audio is not None`, OR (`kind == "audio"` and `latent` is
-    set) -- a RefMod audio member carries no waveform, only its own
+    set) -- a pre-encoded audio reference carries no waveform, only its own
     pre-encoded latent, but it is still "this reference has a soundtrack" for
     every purpose `has_audio` gates (`validate_references`, the audio-VAE
     placement gate, `ReferenceBlock.has_audio`).
@@ -937,7 +943,7 @@ def normalize_references(
     -- `geometry.resolve_request_geometry` resolves it; references never bind
     the generated geometry, so nothing here can change it.
 
-    A `latent`-carrying reference (a RefMod, `ReferenceMedia`'s own
+    A `latent`-carrying reference (a pre-encoded one, `ReferenceMedia`'s own
     docstring) has no pixels or waveform to fit or resample -- it passes
     through UNCHANGED, still validated by the same `validate_references`
     call every other reference is.
@@ -991,7 +997,7 @@ def _reference_fit_signature(reference: ReferenceMedia) -> Optional[tuple[str, n
     misses -- `prepare_reference_conditioning`'s own loop calls this too
     rather than re-deriving the same fields inline.
 
-    `None` for a `latent`-carrying reference too (a RefMod, `ReferenceMedia`'s
+    `None` for a `latent`-carrying reference too (a pre-encoded one, `ReferenceMedia`'s
     own docstring): it has no `image`/`frames` to hash, and never reaches the
     VAE at all, so it fits this function's contract exactly.
     """
@@ -1036,7 +1042,7 @@ def visual_references_need_encode(
     has to be placed on device before `prepare_reference_conditioning` runs
     -- extends that placement gate: a reference set that hits in full needs
     the video VAE no more than an audio-only one does. A `latent`-carrying
-    visual reference (a RefMod) needs it no more than an audio one does
+    visual reference (a pre-encoded one) needs it no more than an audio one does
     either -- it never reaches `vae_module.encode()` at all.
     """
     for reference in references:

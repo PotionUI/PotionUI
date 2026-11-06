@@ -15,11 +15,10 @@ from src.features.llm.exceptions import (
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.build import user_message
 from src.features.llm.harness.events import Usage
-from src.features.llm.hooks import LLM_HOOKS
+from src.features.llm.generation_hooks import fire_after_generate, fire_before_generate
 from src.features.llm.repository import LLMRepository
 from src.features.llm.response_processor import LLMResponseProcessor
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -67,21 +66,9 @@ async def generate_response(
             "Please enable vision support in the configuration."
         )
 
-    # Execute before_generate hook
-    hook_data = run_veto_hook(
-        plugins,
-        LLM_HOOKS.before_generate,
-        {
-            "user_id": user_id,
-            "config_id": config.id,
-            "prompt": request.prompt,
-            "has_image": bool(request.image_data),
-        },
-        "Generation blocked", error=GenerationFailedException,
+    prompt = await fire_before_generate(
+        plugins, user_id, config.id, request.prompt, bool(request.image_data), GenerationFailedException
     )
-
-    # Allow hooks to modify prompt
-    prompt = hook_data.get("prompt", request.prompt)
 
     # Load and prepare image if provided
     response_processor = LLMResponseProcessor()
@@ -106,17 +93,7 @@ async def generate_response(
 
     content = completion.text
     usage = completion.usage or Usage()
-    execute_hook(
-        plugins,
-        LLM_HOOKS.after_generate,
-        {
-            "user_id": user_id,
-            "config_id": config.id,
-            "content": content,
-            "model": config.model,
-            "tokens_used": usage.total_tokens,
-        },
-    )
+    fire_after_generate(plugins, user_id, config.id, content, config.model, usage.total_tokens)
 
     return LLMGenerateResponse(
         content=content,

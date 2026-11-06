@@ -15,41 +15,46 @@ negative_prompt:
           - { field: "cfg", greater_than: 1 }
 requirements:
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors"
+    field: "pixel_spatial_lora"
     hint: "Download the Generative 2x LoRA in this mode."
     optional: true
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-refine-details-1.0.safetensors"
+    field: "refine_details_lora"
     hint: "Download the Refine details LoRA in this mode."
     optional: true
 fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "generation"
         label: "Generation"
         configuration:
           icon: "generation"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/upscale/tabs/generation.yml"
       - type: "tab"
+        anchor: "references"
         label: "References"
         configuration:
           icon: "image"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/upscale/tabs/references.yml"
       - type: "tab"
+        anchor: "lora"
         label: "LoRA"
         configuration:
           icon: "lora"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
       - type: "tab"
+        anchor: "enhance"
         label: "Enhance"
         configuration:
           icon: "sparkles"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/upscale/tabs/enhance.yml"
       - type: "tab"
+        anchor: "advanced"
         label: "Advanced"
         audience: "advanced"
         configuration:

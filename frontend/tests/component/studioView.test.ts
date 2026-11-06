@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { flushSync } from 'svelte';
-import type { GenerationState, Tab } from '$lib/types/tabs';
+import type { GenerationState, GenerationTab } from '$lib/types/tabs';
 
 const { default: StudioView } = await import('../../src/routes/generate/components/studio/StudioView.svelte');
 const { createClassComponent } = await import('svelte/legacy');
@@ -27,8 +27,8 @@ function generation(overrides: Partial<GenerationState> = {}): GenerationState {
 	};
 }
 
-function tabWith(gen: GenerationState): Tab {
-	return { id: 'tab-1', name: 'Potion still', prompt: '', formData: {}, generation: gen } as unknown as Tab;
+function tabWith(gen: GenerationState): GenerationTab {
+	return { id: 'tab-1', name: 'Potion still', prompt: '', formData: {}, generation: gen } as unknown as GenerationTab;
 }
 
 let target: HTMLElement | undefined;

@@ -11,6 +11,7 @@
 	export let allowReplace: boolean = true;
 	export let applyLabel: string = 'Apply';
 	export let note: string | null = null;
+	export let reserveMessage: boolean = false;
 	export let onCancel: () => void;
 	export let onSave: (mode: MediaEditorSaveMode) => void;
 
@@ -39,6 +40,7 @@
 	cancelling={$cancelling}
 	failure={failureMessage}
 	blocked={blockedReason}
+	{reserveMessage}
 	onMode={(next) => (mode = next)}
 	{onCancel}
 	onApply={() => onSave(allowReplace ? mode : 'new')}

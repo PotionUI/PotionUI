@@ -25,7 +25,11 @@ const FACT_ICONS: Record<string, string> = {
 
 const ACTION_ICONS: Record<string, string> = {
 	add_to_collection: 'folder-plus',
-	add_tags: 'tag'
+	add_tags: 'tag',
+	add_model_tags: 'tag',
+	assign_model_group: 'group',
+	set_model_type: 'box',
+	'civitai-provider.fetch_info': 'cloud-download'
 };
 
 const SUBJECT_ICONS: Record<OrganizeSubject, string> = {

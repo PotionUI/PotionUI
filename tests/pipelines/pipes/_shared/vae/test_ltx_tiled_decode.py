@@ -20,6 +20,8 @@ import pytest
 import torch
 
 from src.pipelines.pipes._shared.vae.ltx_tiled_decode import (
+    _tile_decode_gb,
+    decode_plan,
     DECODE_NOISE_SEED_OFFSET,
     auto_decode_tile_sizes,
     context_token_count,
@@ -645,6 +647,27 @@ class TestDecodeFitsBeside:
         need = min_decode_gb(vae.module, latent)
         assert decode_fits_beside(vae, latent, 1.5 + need / 0.75 + 1e-6) is True
         assert decode_fits_beside(vae, latent, need / 0.75 + 1e-6) is False
+
+    def test_a_model_kept_beside_the_decode_must_not_shrink_its_tiles(self):
+        vae = _build_vae()
+        vae.device = "cuda:0"
+        latent = torch.zeros(1, 8, 40, 64, 64)
+        biggest = _tile_decode_gb(vae.module, 768, 80)
+        second = _tile_decode_gb(vae.module, 512, 48)
+        assert estimate_whole_clip_decode_gb(vae.module, latent) > biggest > second
+        free = (second + biggest) / 2 / 0.75
+        room_for_the_biggest_tile = (biggest - second) / 0.75
+        assert decode_fits_beside(vae, latent, free) is True
+        assert decode_fits_beside(vae, latent, free, beside_gb=room_for_the_biggest_tile) is False
+        assert decode_fits_beside(vae, latent, free, beside_gb=room_for_the_biggest_tile / 4) is True
+
+    def test_a_model_beside_a_whole_clip_decode_that_still_fits_whole_is_kept(self):
+        vae = _build_vae()
+        vae.device = "cuda:0"
+        latent = torch.zeros(1, 8, 2, 2, 2)
+        whole = estimate_whole_clip_decode_gb(vae.module, latent)
+        assert decode_fits_beside(vae, latent, whole / 0.75 + 1e-6, beside_gb=50.0) is True
+        assert decode_plan(vae.module, latent, whole) is None
 
     def test_unknown_free_vram_or_a_conv_vae_never_fits(self):
         vae = _build_vae()

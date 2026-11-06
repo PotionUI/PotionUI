@@ -2,6 +2,8 @@ import { api } from '$lib/services/api/index';
 import { tagCatalog } from '$lib/stores/tagCatalog';
 import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
 import { getCachedSchema } from './schemaCache';
+import { buildModelSearchRequest } from '$lib/utils/modelSearchParams';
+import { findModelForValue } from '$lib/utils/modelRef';
 import { sharedCapabilityCache } from './capabilityTracker';
 import {
 	resolveSlotTagIds,
@@ -53,4 +55,19 @@ export async function loadCloudCapabilities(modelId: string): Promise<void> {
 	} catch {
 		return;
 	}
+}
+
+export async function findInstalledModel(slot: AutopickSlot, value: string): Promise<{ id?: string | null } | null> {
+	const filename = value.split('/').pop() ?? value;
+	const request = buildModelSearchRequest({
+		modelType: slot.modelType,
+		presetId: slot.presetId,
+		searchQuery: filename,
+		limit: 10,
+		modelTypes: slot.modelTypes
+	});
+	if (request.kind !== 'preset') return null;
+	const response = await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts);
+	if (!response.success || !response.data) return null;
+	return findModelForValue(value, response.data.models ?? []) ?? null;
 }

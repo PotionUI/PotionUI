@@ -18,10 +18,11 @@ from src.platform.filesystem.model_roots import (
 )
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.filesystem.model_types import (
-    HEADER_CLASSIFIED_TYPES,
-    MODEL_TYPE_TO_DIRECTORY,
-    MODEL_TYPES,
     VIRTUAL_MODEL_TYPES,
+    header_classified_types,
+    is_model_type,
+    model_types,
+    type_to_directory,
 )
 from src.platform.settings.repository import SettingRepository
 from src.platform.util.ids import generate_ulid
@@ -48,7 +49,7 @@ class ModelRootsError(Exception):
 
 
 def _require_header_type(model_type: str, subdir: str) -> None:
-    if model_type not in HEADER_CLASSIFIED_TYPES:
+    if model_type not in header_classified_types():
         raise InvalidBindingError(model_type, subdir)
 
 
@@ -214,7 +215,7 @@ class ModelRootsManager:
     def _existing_bindings(self, exclude_root_id: Optional[str] = None) -> List[Tuple[str, Path]]:
         pairs: List[Tuple[str, Path]] = []
         seen = set()
-        for model_type in MODEL_TYPES:
+        for model_type in model_types():
             for type_dir in self._resolver.type_dirs(model_type, online_only=False):
                 if type_dir.root_id == exclude_root_id:
                     continue
@@ -703,13 +704,16 @@ class ModelRootsManager:
         unindexed = unindexed or {}
         root_path = self._resolve_base(row["path"])
         binding_dicts = []
+        folders = type_to_directory()
         for binding in bindings:
+            if not is_model_type(binding["model_type"]):
+                continue
             target = self._binding_path(root_path, binding["subdir"])
             agg = aggregates.get(binding["id"], {"indexed_files": 0, "size_bytes": 0})
             binding_dicts.append({
                 "binding_id": binding["id"],
                 "model_type": binding["model_type"],
-                "folder": MODEL_TYPE_TO_DIRECTORY[binding["model_type"]],
+                "folder": folders[binding["model_type"]],
                 "subdir": binding["subdir"],
                 "path": str(target),
                 "exists": target.is_dir(),
@@ -755,14 +759,15 @@ class ModelRootsManager:
         ]
 
         types_out = []
-        for model_type in MODEL_TYPES:
+        folders = type_to_directory()
+        for model_type in model_types():
             type_bindings = sorted(
                 (b for b in bindings_rows if b["model_type"] == model_type), key=lambda b: b["position"]
             )
             write_root_id = next((b["root_id"] for b in type_bindings if b["is_write"]), None)
             types_out.append({
                 "model_type": model_type,
-                "folder": MODEL_TYPE_TO_DIRECTORY[model_type],
+                "folder": folders[model_type],
                 "order": list(dict.fromkeys(b["root_id"] for b in type_bindings)),
                 "bindings": [
                     {"root_id": b["root_id"], "subdir": b["subdir"], "binding_id": b["id"]} for b in type_bindings

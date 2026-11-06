@@ -3,6 +3,7 @@
 // stores/generation.ts) before any WS message is dispatched.
 import './status';
 import './workbenchUpdate';
+import './workbenchPreviewClip';
 import './galleryUpdate';
 import './pipeArtifact';
 import './timerUpdate';

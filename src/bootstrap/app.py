@@ -457,6 +457,12 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         if reconciled:
             logging.info(f"Reconciled {reconciled} interrupted generation(s) as failed after restart")
 
+        try:
+            if container.recipe_runner.reconcile_interrupted():
+                logging.info("Marked a recipe run interrupted by the restart as failed; it can be retried")
+        except Exception as exc:
+            logging.error(f"Reconciling interrupted recipe runs failed at startup: {exc}")
+
         container.app_loop = asyncio.get_running_loop()
         container.plugin_registry.run_ready_hooks()
         start_warm_up(app, container, warmed_up)
@@ -530,10 +536,13 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         container.organize_worker.start()
 
+        container.elixirs.runtime.start()
+
         yield
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
+        container.model_type_registry.remove_listener("model_roots")
         await asyncio.to_thread(container.model_index_manager.indexing.shutdown)
         await asyncio.to_thread(container.model_index_manager.digests.stop)
         await stop_warm_up(app)
@@ -541,6 +550,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         await container.housekeeping_worker.stop()
         container.organize_worker.stop()
         container.organize_manager.shutdown()
+        await container.elixirs.runtime.stop()
         await container.content_safety.stop()
         await container.compute_status_monitor.stop()
         await container.indexing_progress_broadcaster.stop()

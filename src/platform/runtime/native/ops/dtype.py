@@ -83,3 +83,54 @@ def pick_dtypes(
         sd_dtype, device, storage_dtype, compute_dtype,
     )
     return storage_dtype, compute_dtype
+
+
+_DTYPES_BY_NAME = {
+    "bfloat16": torch.bfloat16, "bf16": torch.bfloat16,
+    "float16": torch.float16, "fp16": torch.float16, "half": torch.float16,
+    "float32": torch.float32, "fp32": torch.float32,
+}
+
+
+def parse_dtype(value: str | torch.dtype | None) -> torch.dtype | None:
+    if value is None or isinstance(value, torch.dtype):
+        return value
+    name = str(value).strip().lower().removeprefix("torch.")
+    if name not in _DTYPES_BY_NAME:
+        raise ValueError(f"unknown dtype {value!r}; expected one of {sorted(_DTYPES_BY_NAME)}")
+    return _DTYPES_BY_NAME[name]
+
+
+def align_half_storage(
+    sd: dict[str, torch.Tensor],
+    compute_dtype: torch.dtype,
+    reference_dtype: torch.dtype | None,
+) -> int:
+    if reference_dtype is not torch.bfloat16 or compute_dtype is not torch.bfloat16:
+        return 0
+    half = {v.dtype for v in sd.values() if v.dtype in (torch.float16, torch.bfloat16)}
+    if half != {torch.float16}:
+        return 0
+    cast = 0
+    for key in list(sd):
+        tensor = sd[key]
+        if tensor.dtype is torch.float16 and not key.endswith(_SCALE_SUFFIXES):
+            sd[key] = tensor.to(compute_dtype)
+            cast += 1
+    if cast:
+        logger.info(
+            "fp16 storage in a %s-reference checkpoint: %d tensor(s) cast to %s at load",
+            reference_dtype, cast, compute_dtype,
+        )
+    return cast
+
+
+def warn_below_reference(label: str, reference_dtype: torch.dtype | None, compute_dtype: torch.dtype) -> bool:
+    if reference_dtype is not torch.bfloat16 or compute_dtype is not torch.float16:
+        return False
+    logger.warning(
+        "%s will run float16 activations but its reference dtype is torch.bfloat16; "
+        "the residual stream can overflow to inf/NaN (black output)",
+        label,
+    )
+    return True

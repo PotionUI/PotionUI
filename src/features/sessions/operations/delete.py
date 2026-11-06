@@ -60,6 +60,7 @@ def delete_session(session_repository: SessionRepository, plugin_registry: Plugi
             "preset_id": session.preset_id,
             "name": session_name,
             "user_id": user_id,
+            "version": session.version,
         },
     )
 

@@ -15,9 +15,9 @@ a preset instead of stopping at the first one.
 """
 
 import re
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple, Union
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, StrictBool, StrictStr, Tag, ValidationError, model_validator
 
 from src.features.presets.css_named_colors import CSS_NAMED_COLORS
 from src.features.presets.field_rules import configuration_error
@@ -184,6 +184,10 @@ class CapabilitySpec(BaseModel):
         return self
 
 
+ANCHORABLE_FIELD_TYPES = frozenset({"tab", "section"})
+ANCHOR_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
 class ChildrenIncludeSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -237,6 +241,21 @@ class FieldSpec(BaseModel):
     capability: Optional[CapabilitySpec] = None
     formula: Optional[Union[StrictStr, Literal[False]]] = None
     merge_from: Optional[List[str]] = None
+    anchor: Optional[StrictStr] = None
+
+    @model_validator(mode="after")
+    def _validate_anchor(self) -> "FieldSpec":
+        if self.anchor is None:
+            return self
+        if self.type not in ANCHORABLE_FIELD_TYPES:
+            raise ValueError(
+                f"field '{self.name}' ({self.type}): `anchor` is only valid on {sorted(ANCHORABLE_FIELD_TYPES)}"
+            )
+        if not ANCHOR_RE.match(self.anchor):
+            raise ValueError(
+                f"field ({self.type}): anchor '{self.anchor}' must be lowercase letters, digits, '_' or '-'"
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_merge_from(self) -> "FieldSpec":
@@ -771,6 +790,7 @@ class PromptResourceSpec(BaseModel):
 
     field: str
     kind: Literal["image", "video", "audio"]
+    source: Optional[str] = None
     label: Optional[str] = None
     token: str
 
@@ -778,6 +798,13 @@ class PromptResourceSpec(BaseModel):
     def _validate_shape(self) -> "PromptResourceSpec":
         if not self.field or not self.field.strip():
             raise ValueError("prompt_resources entry needs a non-empty field")
+        if self.source is not None:
+            from src.features.prompt.resource_sources import source_field_type
+
+            if source_field_type(self.source) is None:
+                raise ValueError(
+                    f"prompt_resources entry for field '{self.field}' names unknown source '{self.source}'"
+                )
         if PROMPT_RESOURCE_INDEX_PLACEHOLDER not in self.token:
             raise ValueError(
                 f"prompt_resources token '{self.token}' for field '{self.field}' must contain "
@@ -793,7 +820,14 @@ def _validate_prompt_resources(prompt_resources: Dict[str, List[PromptResourceSp
             problems.append("prompt_resources keys must be non-empty mode names")
             continue
         seen = set()
+        sources: Dict[str, str] = {}
         for entry in entries:
+            source = entry.source or "media"
+            if sources.setdefault(entry.field, source) != source:
+                problems.append(
+                    f"prompt_resources.{mode}: field '{entry.field}' mixes source '{sources[entry.field]}' "
+                    f"with '{source}'; every entry of one field needs the same source"
+                )
             pair = (entry.field, entry.kind)
             if pair in seen:
                 problems.append(
@@ -994,5 +1028,129 @@ def validate_field_list(data: list, prefix: str = "fields") -> Tuple[Optional[Li
 def validate_styles_file(data: dict, prefix: str = "styles.yml") -> Tuple[Optional[StylesFile], List[str]]:
     try:
         return StylesFile.model_validate(data), []
+    except ValidationError as exc:
+        return None, _format_errors(prefix, exc)
+
+
+def _contained_relative_path(value: str, what: str) -> str:
+    if not value or value.startswith(("/", "\\")) or ":" in value or ".." in value.replace("\\", "/").split("/"):
+        raise ValueError(f"{what} '{value}' must be a relative path inside the plugin, without '..'")
+    return value
+
+
+class ExtensionFieldsInto(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tab: Optional[StrictStr] = None
+    section: Optional[StrictStr] = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "ExtensionFieldsInto":
+        if (self.tab is None) == (self.section is None):
+            raise ValueError("`into` names exactly one of `tab` or `section`")
+        return self
+
+    @property
+    def kind(self) -> str:
+        return "tab" if self.tab is not None else "section"
+
+    @property
+    def anchor(self) -> str:
+        return self.tab if self.tab is not None else self.section
+
+
+class ExtensionFieldGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    into: ExtensionFieldsInto
+    after: Optional[StrictStr] = None
+    before: Optional[StrictStr] = None
+    fields: Optional[List[Any]] = None
+    file: Optional[StrictStr] = None
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "ExtensionFieldGroup":
+        if self.after is not None and self.before is not None:
+            raise ValueError("a field group takes `after` or `before`, not both")
+        if (self.fields is None) == (self.file is None):
+            raise ValueError("a field group takes exactly one of `fields` or `file`")
+        if self.file is not None:
+            _contained_relative_path(self.file, "file")
+        return self
+
+
+class ExtensionPipeAdd(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    add: PipeSpec
+    after: Optional[StrictStr] = None
+    before: Optional[StrictStr] = None
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "ExtensionPipeAdd":
+        if self.after is not None and self.before is not None:
+            raise ValueError("a pipe add takes `after` or `before`, not both")
+        if not self.add.id:
+            raise ValueError(f"added pipe '{self.add.name}' needs an `id`")
+        return self
+
+
+class ExtensionPipePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    patch: StrictStr
+    input_add: List[List[StrictStr]] = Field(default_factory=list)
+    configuration_add: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "ExtensionPipePatch":
+        if not self.input_add and not self.configuration_add:
+            raise ValueError(f"patch of '{self.patch}' adds nothing: give `input_add` or `configuration_add`")
+        for row in self.input_add:
+            if len(row) != 3:
+                raise ValueError(f"patch of '{self.patch}': input_add rows are [param, provider pipe, output]")
+        params = [row[0] for row in self.input_add]
+        if len(set(params)) != len(params):
+            raise ValueError(f"patch of '{self.patch}': input_add names a param more than once")
+        return self
+
+
+def _pipe_op_tag(value: Any) -> Optional[str]:
+    if isinstance(value, dict):
+        if "add" in value:
+            return "add"
+        if "patch" in value:
+            return "patch"
+    if isinstance(value, ExtensionPipeAdd):
+        return "add"
+    if isinstance(value, ExtensionPipePatch):
+        return "patch"
+    return None
+
+
+ExtensionPipeOp = Annotated[
+    Union[Annotated[ExtensionPipeAdd, Tag("add")], Annotated[ExtensionPipePatch, Tag("patch")]],
+    Discriminator(_pipe_op_tag, custom_error_type="pipe_op", custom_error_message="a pipe entry is `add:` or `patch:`"),
+]
+
+
+class PresetExtensionFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fields: List[ExtensionFieldGroup] = Field(default_factory=list)
+    pipes: List[ExtensionPipeOp] = Field(default_factory=list)
+    prompt_resources: List[PromptResourceSpec] = Field(default_factory=list)
+    director_reference_fields: List[StrictStr] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "PresetExtensionFile":
+        if len(set(self.director_reference_fields)) != len(self.director_reference_fields):
+            raise ValueError("director_reference_fields lists a field more than once")
+        return self
+
+
+def validate_extension_file(data: Any, prefix: str = "extension") -> Tuple[Optional[PresetExtensionFile], List[str]]:
+    try:
+        return PresetExtensionFile.model_validate(data), []
     except ValidationError as exc:
         return None, _format_errors(prefix, exc)

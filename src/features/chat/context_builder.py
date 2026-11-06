@@ -103,6 +103,15 @@ PARTIAL_TOOLS_BLOCK = (
     "Never announce an action you can't perform."
 )
 
+def empty_memory_result() -> Dict[str, Any]:
+    return {
+        "note_ids": [],
+        "by_scope": {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0},
+        "by_scope_dropped": {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0},
+        "injected_chars": 0,
+    }
+
+
 def _cap_text(text: str, limit: int, suffix: str = "…") -> str:
     text = (text or "").strip()
     if len(text) <= limit:
@@ -671,12 +680,7 @@ class ChatContextBuilder:
         visible to the model, not just to the trace). ``injected_chars`` is the
         length of the block actually inserted, 0 when nothing was read/injected.
         """
-        empty: Dict[str, Any] = {
-            "note_ids": [],
-            "by_scope": {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0},
-            "by_scope_dropped": {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0},
-            "injected_chars": 0,
-        }
+        empty = empty_memory_result()
         if not self._m.tool_services.llm_memory_repository:
             return empty
         try:

@@ -2,12 +2,14 @@
 	import tooltip from '$lib/actions/tooltip';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import LoopToggle from '$lib/components/media/LoopToggle.svelte';
+	import { loopVideos } from '$lib/stores/loopVideos';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import { Badge } from '$lib/components/ui';
 	import { libraryStore, LIBRARY_TAG_TYPE } from '$lib/stores/library';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
-	import { libraryItemDisplayName, libraryItemIcon } from '$lib/library/libraryItemMeta';
+	import { libraryItemDisplayName, libraryItemIcon, sliceOrigin, sliceOriginLabel } from '$lib/library/libraryItemMeta';
 	import { plainLetter, windowOwnsKeys } from '$lib/utils/shortcutGuard';
 	import DetailsActionBar, { type BarAction } from '$lib/media-tools/DetailsActionBar.svelte';
 	import { buildLibraryToolContext } from '$lib/tools/tools';
@@ -51,6 +53,7 @@
 	}
 
 	$: displayName = libraryItemDisplayName(item);
+	$: slicedFrom = sliceOrigin(item.provenance);
 	$: kind = (item.media_type ?? '').toLowerCase();
 	$: selectedTagIds = item.tags.map((tag) => tag.id);
 	$: audioTracks = [{ type: 'mixed' as const, url: item.url, duration: item.duration_seconds }];
@@ -88,7 +91,6 @@
 		if (!ok) toasts.error('Could not update the favorite');
 	}
 
-	let toolEditing = false;
 	let detailsRoot: HTMLElement | undefined;
 	let actionBar: DetailsActionBar | undefined;
 
@@ -150,7 +152,7 @@
 
 <svelte:window on:keydown|capture={handleKeyDown} />
 
-<BaseModal isOpen={true} size="xl" title={displayName} closeable={!toolEditing} on:close={onClose}>
+<BaseModal isOpen={true} size="xl" title={displayName} on:close={onClose}>
 	<div bind:this={detailsRoot} data-details-window>
 	<DetailsActionBar
 		bind:this={actionBar}
@@ -163,7 +165,7 @@
 		{moreActions}
 		{dangerActions}
 		onResult={handleToolResult}
-		onEditingChange={(editing) => (toolEditing = editing)}
+		onOpenedInTab={onClose}
 	/>
 	{#if backLink}
 		<div class="flex items-center gap-2 px-4 pt-3 md:px-6" data-back-to-generation>
@@ -193,9 +195,10 @@
 	<div class="p-4 md:p-6 flex flex-col gap-4">
 		<div class="relative rounded-lg border border-line-strong bg-black overflow-hidden flex items-center justify-center min-h-[16rem] max-h-[60vh]">
 			{#if kind === 'video'}
-				<video src={item.url} class="max-h-[60vh] max-w-full" controls playsinline>
+				<video src={item.url} class="max-h-[60vh] max-w-full" controls loop={$loopVideos} playsinline>
 					<track kind="captions" />
 				</video>
+				<LoopToggle class="absolute top-3 right-3 z-10" />
 			{:else if kind === 'audio'}
 				<div class="w-full p-6 bg-surface-1">
 					<AudioPlayer tracks={audioTracks} showWaveform={true} showDownload={false} />
@@ -231,7 +234,13 @@
 			</dl>
 		{/if}
 
-		<ProvenanceLine itemType="upload" itemId={item.id} />
+		{#if slicedFrom}
+			<p class="flex items-center gap-1.5 text-sm text-fg-muted" data-slice-origin>
+				<Icon name="editor-slice" className="h-3.5 w-3.5 flex-none" />
+				<span class="min-w-0 truncate">{sliceOriginLabel(slicedFrom)}</span>
+			</p>
+		{/if}
+				<ProvenanceLine itemType="upload" itemId={item.id} />
 	</div>
 	</div>
 </BaseModal>

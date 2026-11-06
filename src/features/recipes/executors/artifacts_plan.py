@@ -30,7 +30,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from src.features.models.repository import ModelRepository
 from src.features.recipes.executors._provider_credentials import (
-    credential_prompt_for_provider,
+    credential_prompts,
+    gated_warnings,
     resolve_provider_registry,
 )
 from src.features.recipes.executors.base import StepContext, StepResult
@@ -89,6 +90,8 @@ class ArtifactsPlanExecutor:
                 "kind": chosen.kind,
                 "gated": chosen.gated,
                 "license_url": chosen.license_url,
+                "source": (chosen.provider_hint or {}).get("source"),
+                "repo_id": (chosen.provider_hint or {}).get("model_id"),
             }
             if choice.variant_id in installed:
                 found = found_as(installed[choice.variant_id], chosen.filename)
@@ -143,41 +146,7 @@ class ArtifactsPlanExecutor:
         return resolve_provider_registry(self._provider_registry_factory)
 
     def _unconfigured_credential_providers(self, artifacts: List[Any]) -> List[Dict[str, Any]]:
-        sources = sorted({(a.provider_hint or {}).get("source") for a in artifacts if (a.provider_hint or {}).get("source")})
-        if not sources:
-            return []
-        registry = self._get_provider_registry()
-        if registry is None:
-            return []
-        prompts = []
-        for source in sources:
-            info = credential_prompt_for_provider(registry, source)
-            if info and not info["configured"]:
-                prompts.append(info)
-        return prompts
+        return credential_prompts(self._get_provider_registry, artifacts)
 
     def _gated_warnings(self, artifacts: List[Any]) -> List[str]:
-        """One plain-language warning per missing artifact that is `gated`
-        and whose resolved provider doesn't have a credential configured yet
-        - non-fatal (the plan still proceeds to `awaiting_consent`); the hard
-        stop for an actually-denied download is `artifacts.fetch`'s own
-        401/403 message (`src.features.downloads.worker._auth_failure_message`)."""
-        gated = [a for a in artifacts if a.gated]
-        if not gated:
-            return []
-        registry = self._get_provider_registry()
-        if registry is None:
-            return []
-        warnings: List[str] = []
-        for artifact in gated:
-            source = (artifact.provider_hint or {}).get("source")
-            info = credential_prompt_for_provider(registry, source)
-            if not info or info["configured"]:
-                continue
-            name = artifact.display_name or artifact.filename
-            sentence = f"{name} is gated on {info['name']}: accept the licence"
-            if artifact.license_url:
-                sentence += f" at {artifact.license_url}"
-            sentence += " and add your access token in Admin -> Plugins."
-            warnings.append(sentence)
-        return warnings
+        return gated_warnings(self._get_provider_registry, artifacts)

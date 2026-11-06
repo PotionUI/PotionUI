@@ -10,6 +10,7 @@ import type {
 import type { VariablesMap } from '$lib/utils/variableDefs';
 import { toasts } from './toast';
 import { tabsStore } from './tabs';
+import { userGenerationTabs as generationTabs } from '$lib/types/tabs';
 import { tabDraftOutbox, type TabDraftOutbox } from './tabDraftOutbox';
 import { diffVariables, overlayOps, sameForSync } from './tabDraftOps';
 
@@ -545,7 +546,7 @@ export function createTabDraftSync(deps: TabDraftSyncDeps) {
 
 export const tabDraftSync = createTabDraftSync({
 	tabs: {
-		subscribe: (run) => tabsStore.subscribe(run),
+		subscribe: (run) => tabsStore.subscribe((state) => run({ tabs: generationTabs(state.tabs) })),
 		setVariables: (tabId, variables) => tabsStore.updateTab(tabId, { variables })
 	},
 	api: {

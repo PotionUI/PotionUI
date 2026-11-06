@@ -13,6 +13,8 @@
 		searchEl = $bindable(undefined),
 		root = $bindable(undefined),
 		keepOpen = $bindable(false),
+		width,
+		testId,
 		header,
 		children
 	}: {
@@ -23,6 +25,8 @@
 		searchEl?: HTMLInputElement;
 		root?: HTMLElement;
 		keepOpen?: boolean;
+		width?: number;
+		testId?: string;
 		header: Snippet<[{ keepOpen: boolean; setKeepOpen: (next: boolean) => void }]>;
 		children: Snippet<[{ keepOpen: boolean }]>;
 	} = $props();
@@ -60,6 +64,8 @@
 	tabindex="-1"
 	aria-label={label}
 	aria-modal={keepOpen ? undefined : 'true'}
+	data-testid={testId}
+	style:--side-drawer-width={width === undefined ? undefined : `${width}px`}
 	bind:this={root}
 	use:portal
 	use:overlayLayer

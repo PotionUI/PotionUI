@@ -21,7 +21,7 @@ from src.plugin_api import (
     ProviderNotFoundError,
     RemoteDownloadRef,
 )
-from src.plugin_api.providers import HttpMarketplaceProvider
+from src.plugin_api.providers import HttpMarketplaceProvider, ProviderHashMismatchError
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ class CivitaiProvider(HttpMarketplaceProvider):
             raise ProviderConnectionError(f"CivitAI API error {status}: {data}")
         if self._matching_file(data.get('files', []), sha256) is None:
             logger.debug(f"CivitAI by-hash response for {sha256} has no matching file")
-            return None
+            raise ProviderHashMismatchError(f"CivitAI answered with a different file than {sha256}")
 
         info = self._parse_model_version_response(data)
         await self._enrich_model_details(info)

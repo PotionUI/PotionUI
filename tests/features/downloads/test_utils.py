@@ -93,3 +93,15 @@ class TestExtractFilenameFromUrl:
         result = extract_filename_from_url(url)
         # Path is "123456" which has no extension
         assert result is None
+
+
+class TestHubRepoFromUrl:
+    def test_resolve_url_yields_the_repo(self):
+        from src.features.downloads.utils import hub_repo_from_url
+        assert hub_repo_from_url("https://huggingface.co/org/name/resolve/main/a/b.safetensors") == "org/name"
+
+    def test_other_hosts_and_non_file_paths_yield_nothing(self):
+        from src.features.downloads.utils import hub_repo_from_url
+        assert hub_repo_from_url("https://civitai.com/org/name/resolve/main/x") is None
+        assert hub_repo_from_url("https://huggingface.co/org/name") is None
+        assert hub_repo_from_url("") is None

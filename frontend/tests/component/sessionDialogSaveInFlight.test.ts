@@ -12,7 +12,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { api } = await import('$lib/services/api/index');
 const { tabsStore } = await import('$lib/stores/tabs');
-const { default: SessionPill } = await import('$lib/components/session/SessionPill.svelte');
+const { default: SessionScopeFixture } = await import('./fixtures/SessionScopeFixture.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
 const PRESET_ID = 'preset-dialog-identity';
@@ -40,13 +40,13 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-function mountPill(tabId: string) {
+function mountSessionControl(tabId: string) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const component = createClassComponent({
-		component: SessionPill as never,
+		component: SessionScopeFixture as never,
 		target,
-		props: { presetId: PRESET_ID, currentMode: CURRENT_MODE, tabId, availableModes: [] }
+		props: { layout: 'sheet', presetId: PRESET_ID, currentMode: CURRENT_MODE, tabId, availableModes: [] }
 	});
 	// BaseModal portals its dialog to document.body, so modal content is not
 	// under the mount point, and the pill's own "Save" button would otherwise
@@ -81,7 +81,7 @@ function mountPill(tabId: string) {
 	};
 }
 
-let mounted: ReturnType<typeof mountPill> | undefined;
+let mounted: ReturnType<typeof mountSessionControl> | undefined;
 let tabId: string;
 
 afterEach(() => {
@@ -91,7 +91,7 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe('SessionPill save dialog while a save is in flight', () => {
+describe('Session sheet save dialog while a save is in flight', () => {
 	beforeEach(() => {
 		tabId = tabsStore.addTabWithData('Dialog identity tab', {
 			selectedPreset: PRESET_ID,
@@ -104,7 +104,7 @@ describe('SessionPill save dialog while a save is in flight', () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.saveSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 
 		mounted.openSaveAs();
@@ -129,7 +129,7 @@ describe('SessionPill save dialog while a save is in flight', () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.saveSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 
 		mounted.openSaveAs();

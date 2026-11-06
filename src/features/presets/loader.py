@@ -33,7 +33,10 @@ from src.platform.templating import TemplateProcessor
 from src.features.presets.children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from src.features.presets.children_refs import ChildrenRef, parse_children_ref, read_children_fragment
 from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTemplate, FormTemplate, ModeTemplate
+from src.features.presets.mode_fields import resolve_requirement_fields
+from src.features.presets.extensions import apply_preset_extensions, contained, duplicate_anchor_errors, plugin_preset_extensions
 from src.platform.filesystem.yaml_io import load_yaml_file
+from src.features.prompt.resource_sources import declared_prompt_resource_sources
 from .schema import (
     validate_manifest,
     validate_pipeline_file,
@@ -156,7 +159,7 @@ def discover_form_variants(mode_dir: Path) -> List[Tuple[str, Path]]:
 
 def _mode_scoped_requirements(mode_name: str, mode_template: ModeTemplate) -> List[Dict[str, Any]]:
     return [
-        {**spec, "mode": mode_name}
+        {**resolve_requirement_fields(spec, mode_template, mode_name), "mode": mode_name}
         for form in mode_template.forms
         for spec in form.requirements
     ]
@@ -540,6 +543,10 @@ class PresetTemplateLoader:
                     fields.extend(self._build_field_templates(field_data, preset_root, prefix))
                 except Exception as e:
                     errors.append(f"{prefix}: error building field: {e}")
+            anchor_errors = duplicate_anchor_errors(fields, prefix)
+            if anchor_errors:
+                errors.extend(anchor_errors)
+                continue
 
             forms.append(FormTemplate(
                 name=form_data.get('name', variant_name),
@@ -669,9 +676,11 @@ class PresetTemplateLoader:
                 errors.extend(self._check_fields_tags_categories(field.children, declared_config_keys, loc))
         return errors
 
-    def _build_field_templates(self, field_data: dict, preset_root: Path, prefix: str) -> List[FieldTemplate]:
+    def _build_field_templates(
+        self, field_data: dict, preset_root: Path, prefix: str, allowed_roots: Optional[List[Path]] = None
+    ) -> List[FieldTemplate]:
         if field_data.get('type') != '@loop':
-            return [self._build_field_template(field_data, preset_root, prefix)]
+            return [self._build_field_template(field_data, preset_root, prefix, allowed_roots)]
 
         config = field_data.get('configuration')
         if not config:
@@ -693,10 +702,12 @@ class PresetTemplateLoader:
             for entry in item if isinstance(item, list) else [item]:
                 if not isinstance(entry, dict):
                     raise ValueError(f"@loop template must expand to field dicts, got: {entry!r}")
-                built.extend(self._build_field_templates(entry, preset_root, prefix))
+                built.extend(self._build_field_templates(entry, preset_root, prefix, allowed_roots))
         return built
 
-    def _build_field_template(self, field_data: dict, preset_root: Path, prefix: str) -> FieldTemplate:
+    def _build_field_template(
+        self, field_data: dict, preset_root: Path, prefix: str, allowed_roots: Optional[List[Path]] = None
+    ) -> FieldTemplate:
         """Recursively convert a validated field dict into a FieldTemplate.
 
         Resolves `children:` given as an external-file path string ("{{
@@ -731,13 +742,15 @@ class PresetTemplateLoader:
         ref = parse_children_ref(children)
         if ref is not None:
             resolved_path = resolve_children_path(ref.file, preset_root, self.shared_path)
+            if allowed_roots is not None and not any(contained(resolved_path, root) for root in allowed_roots):
+                raise ValueError(f"children file '{ref.file}' resolves outside the plugin directory")
             external_fields = self._load_external_children_file(resolved_path, prefix, ref)
             field_data['children'] = [
-                built for c in external_fields for built in self._build_field_templates(c, preset_root, prefix)
+                built for c in external_fields for built in self._build_field_templates(c, preset_root, prefix, allowed_roots)
             ]
         elif isinstance(children, list):
             field_data['children'] = [
-                built for c in children for built in self._build_field_templates(c, preset_root, prefix)
+                built for c in children for built in self._build_field_templates(c, preset_root, prefix, allowed_roots)
             ]
 
         return FieldTemplate(**field_data)
@@ -785,6 +798,11 @@ class PresetTemplateLoader:
             self._notify_presets_changed()
 
     def _scan_presets(self) -> Tuple[List[PresetTemplate], Dict[str, List[str]]]:
+        manifests = self.plugin_registry.get_enabled_plugins() if self.plugin_registry is not None else []
+        with declared_prompt_resource_sources(manifests):
+            return self._scan_preset_roots()
+
+    def _scan_preset_roots(self) -> Tuple[List[PresetTemplate], Dict[str, List[str]]]:
         """Scan every preset root + apply plugin-contributed modes, returning
         a FRESH ``(presets, load_errors)`` pair.
 
@@ -830,6 +848,7 @@ class PresetTemplateLoader:
         logger.info(f"Preset loading complete. Loaded {len(presets)} presets")
 
         self._apply_preset_mode_contributions(presets, errors)
+        self._apply_preset_extensions(presets, errors)
         return presets, errors
 
     def _do_load_presets(self):
@@ -925,6 +944,10 @@ class PresetTemplateLoader:
 
                 existing = target.modes.get(mode_name)
                 if existing is not None and existing.source_plugin is None:
+                    logger.warning(
+                        f"Plugin '{contribution.plugin_id}' mode '{mode_name}' collides with the core mode of "
+                        f"preset '{contribution.target_preset_id}' - skipping the plugin's mode"
+                    )
                     errors.setdefault(error_key, []).append(
                         f"collides with a core mode already declared by preset "
                         f"'{contribution.target_preset_id}' - the core mode wins, "
@@ -947,6 +970,28 @@ class PresetTemplateLoader:
                 _apply_mode_prompting(target, mode_name, mode_template)
                 target.requirements.extend(_mode_scoped_requirements(mode_name, mode_template))
                 claimed[claim_key] = contribution.plugin_id
+
+    def _apply_preset_extensions(self, presets: List[PresetTemplate], errors: Dict[str, List[str]]) -> None:
+        if self.plugin_registry is None:
+            return
+        extensions = plugin_preset_extensions(self.plugin_registry.get_enabled_plugins())
+        if extensions:
+            apply_preset_extensions(presets, errors, extensions, self._build_extension_fields, self._extension_mode_errors)
+
+    def _build_extension_fields(
+        self, field_dicts: List[dict], root: Path, prefix: str, plugin_dir: Path
+    ) -> List[FieldTemplate]:
+        allowed_roots = [plugin_dir.resolve(), self.shared_path.resolve()]
+        return [
+            built for data in field_dicts for built in self._build_field_templates(data, root, prefix, allowed_roots)
+        ]
+
+    def _extension_mode_errors(self, target: PresetTemplate, mode_name: str, mode: ModeTemplate) -> List[str]:
+        declared = set((target.configuration or {}).keys())
+        return [
+            *self._validate_filter_tags_directives(target.id, declared, {mode_name: mode}),
+            *self._validate_tags_categories(target.id, declared, {mode_name: mode}),
+        ]
 
     def load_presets(self):
         """Load all presets from both catalogue and custom directories"""

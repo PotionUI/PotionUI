@@ -41,7 +41,10 @@ def _fake_scaled_mm_dequant_reference(lin: "fp8_ops.Linear"):
         )
         out_dtype = kwargs["output_dtype"]
         x32 = _fake.last_x2d.to(torch.float32)
-        return (x32 @ weight.to(torch.float32).t()).to(out_dtype)
+        out = x32 @ weight.to(torch.float32).t()
+        if kwargs.get("bias") is not None:
+            out = out + kwargs["bias"].to(torch.float32)
+        return out.to(out_dtype)
 
     return _fake
 

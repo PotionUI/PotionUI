@@ -64,7 +64,7 @@ from src.platform.runtime.cuda_allocator import DRIVER_OOM_POLICY_ENV, RESTART_A
 from tests.fixtures.db_template import copy_template_db
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import type_to_directory
 from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
 from src.platform.worker_protocol import ContentDigest, ModelBundleEntryV1
@@ -565,7 +565,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
         """Puts a file straight onto the worker's depot, the same shape an
         admin's model-push (`src.features.remote_execution.ops.push_models`)
         would leave behind - dispatch itself never writes here anymore."""
-        directory = MODEL_TYPE_TO_DIRECTORY.get(role, role)
+        directory = type_to_directory().get(role, role)
         entry = ModelBundleEntryV1(
             logical_id=f"{role}/{filename}", role=role, relative_path=f"{directory}/{filename}",
             digest=ContentDigest(algorithm="sha256", hex=hashlib.sha256(content).hexdigest()),
@@ -1116,7 +1116,7 @@ class TestWorkerModelDigestRejection(NativeRemoteBackendTestCase):
         # Present on the worker's depot at the right size, with corrupted
         # bytes and no sidecar - a file that changed since the last inventory
         # poll, not something `find_unstaged_entries` was ever asked about.
-        directory = MODEL_TYPE_TO_DIRECTORY.get("checkpoint", "checkpoint")
+        directory = type_to_directory().get("checkpoint", "checkpoint")
         dest = self.worker_container.model_depot.depot_dir / directory / "dit.safetensors"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"corrupted" + content[9:])

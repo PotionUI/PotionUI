@@ -1,4 +1,5 @@
 import type { LibrarySectionMeta } from '$lib/components/library/librarySection';
+import { MODELS_AUTO_ORGANIZE_SECTION } from '$lib/model-auto-organize/section';
 import { MODEL_TYPE_UNDEFINED, modelTypePresentation } from '$lib/utils/modelPresentation';
 
 export const MODELS_ALL_SECTION = 'all';
@@ -20,7 +21,8 @@ export interface ModelTypeRow {
 export const MODEL_LIBRARY_SECTIONS: readonly LibrarySectionMeta<string>[] = [
 	{ id: MODELS_ALL_SECTION, label: 'All models', icon: 'cube' },
 	{ id: MODELS_ATTRIBUTES_SECTION, label: 'Attributes', icon: 'sliders' },
-	{ id: MODELS_FOLDERS_SECTION, label: 'Folders', icon: 'folder' }
+	{ id: MODELS_FOLDERS_SECTION, label: 'Folders', icon: 'folder' },
+	{ id: MODELS_AUTO_ORGANIZE_SECTION, label: 'Auto-organize', icon: 'wand' }
 ];
 
 export function modelTypeRows(modelTypes: readonly ModelTypeCount[], selectedType?: string): ModelTypeRow[] {
@@ -38,15 +40,19 @@ export function modelTypeRows(modelTypes: readonly ModelTypeCount[], selectedTyp
 export function modelLibraryShellSection(section: string): string {
 	if (section === MODELS_ATTRIBUTES_SECTION) return MODELS_ATTRIBUTES_SECTION;
 	if (section === MODELS_FOLDERS_SECTION) return MODELS_FOLDERS_SECTION;
+	if (section === MODELS_AUTO_ORGANIZE_SECTION) return MODELS_AUTO_ORGANIZE_SECTION;
 	return MODELS_ALL_SECTION;
 }
 
 export function modelLibrarySectionCounts(
 	modelTypes: readonly ModelTypeCount[],
-	attributesCount: number
+	attributesCount: number,
+	autoOrganizeCount?: number
 ): Record<string, number> {
-	return {
+	const counts: Record<string, number> = {
 		[MODELS_ALL_SECTION]: modelTypes.reduce((sum, entry) => sum + entry.count, 0),
 		[MODELS_ATTRIBUTES_SECTION]: attributesCount
 	};
+	if (autoOrganizeCount !== undefined) counts[MODELS_AUTO_ORGANIZE_SECTION] = autoOrganizeCount;
+	return counts;
 }

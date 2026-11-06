@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 
 import torch
 
-from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
+from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
@@ -56,6 +56,7 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     nag_config_specs,
     preview_config_spec,
+    preview_decoder_config_spec,
     seed_config_spec,
 )
 
@@ -142,6 +143,7 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
             PipeConfigSpec("expert_switch_step", int, None, "Switch high->low expert at this step (wins over expert_boundary; converted to that step's sigma)", required=False,
                            min_value=0),
             preview_config_spec("Emit live latent previews (frame 0) to the workbench during sampling"),
+            preview_decoder_config_spec(),
             PipeConfigSpec("cfg_zero_star", bool, True, "CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction)", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: return a zero velocity prediction for the first N steps", required=False,
                            min_value=0, max_value=100),
@@ -307,9 +309,10 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         logger.debug("[GENERATOR WAN-I2V] video %d/%d, seed %d", index + 1, ctx.quantity, seed)
         hooks = [ProgressHook(on_progress)]
         if self.config.get("preview", True):
-            preview_hook = make_preview_hook(c.spec, progress.preview)
+            preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
             if preview_hook is not None:
                 hooks.append(preview_hook)
+        c.forward.router.preview_reserve_gb = preview_reserve_gb(hooks, shape)
         # try/finally: a partial-residency (streamed) expert pins host
         # RAM; an OOM/error mid-sampling must still tear the streamer
         # down (unpin) or the pinned pool leaks into the RAM-cached expert. See

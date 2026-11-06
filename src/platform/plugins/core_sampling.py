@@ -155,6 +155,11 @@ CORE_SCHEDULES = (
         description="Beta-CDF spacing; alpha, beta < 1 concentrates steps near both ends.",
     ),
     ScheduleDefinition(
+        "beta57", _schedule("_build_beta57_schedule"), "Beta57",
+        description="Beta(0.5, 0.7) spacing on the model's own shifted ramp, the RES4LYF "
+                    "beta57 recipe; leans steps toward the low-noise end.",
+    ),
+    ScheduleDefinition(
         "exponential", _schedule("_build_exponential_schedule"), "Exponential",
         options=(
             OptionSpec(

@@ -1,9 +1,9 @@
 from typing import Dict, Any, List
-from PIL import Image, ImageFilter
-import numpy as np
+from PIL import Image
 
 from src.pipelines.outputs import CompareImagesGenerationOutput, ProgressGenerationOutput
 from src.pipelines.contracts import BasePipe, logger
+from src.platform.imaging.film_grain import apply_film_grain
 from src.pipelines.contracts import (
     PipeInput, PipeOutput, IOType, PipeInputSpec, PipeOutputSpec, PipeConfigSpec,
 )
@@ -177,80 +177,16 @@ class FilmGrain(BasePipe):
             "blur_amount": 0.3
         }
 
-    def _create_grain_layer(self, size: tuple, intensity: float, grain_size: float) -> np.ndarray:
-        """Creates a grain noise layer with given parameters"""
-        # Create base noise
-        scale = 1 / grain_size
-        # Use height, width order for numpy arrays
-        scaled_size = (int(size[1] * scale), int(size[0] * scale))
-
-        # Generate initial noise
-        noise = np.random.normal(0, 1, scaled_size)
-
-        # Resize to target size for larger grain
-        if scale != 1:
-            noise = Image.fromarray((noise * 255).astype(np.uint8))
-            noise = noise.resize((size[0], size[1]), Image.BILINEAR)  # PIL uses (width, height)
-            noise = np.array(noise).astype(float) / 255
-
-        # Adjust contrast and intensity
-        noise = (noise - noise.mean()) / noise.std()
-        noise = noise * intensity
-
-        return noise
-
     def _apply_grain(self, image: Image.Image) -> Image.Image:
-        """Applies film grain effect to the image"""
-        # Convert image to numpy array
-        img_array = np.array(image).astype(float) / 255
-        height, width = img_array.shape[:2]
-
-        # Create grain layer matching the image dimensions
-        grain = self._create_grain_layer(
-            (width, height),  # PIL uses (width, height)
-            self.config["intensity"],
-            self.config["grain_size"]
+        return apply_film_grain(
+            image,
+            intensity=self.config["intensity"],
+            grain_size=self.config["grain_size"],
+            shadows_bias=self.config["shadows_bias"],
+            highlights_protect=self.config["highlights_protect"],
+            monochromatic=self.config["monochromatic"],
+            blur_amount=self.config["blur_amount"],
         )
-
-        # Create monochromatic or color grain
-        if self.config["monochromatic"]:
-            grain = np.expand_dims(grain, axis=-1)  # Add channel dimension
-            grain = np.repeat(grain, 3, axis=-1)    # Repeat for RGB
-        else:
-            grain = np.stack([
-                self._create_grain_layer((width, height), self.config["intensity"], self.config["grain_size"])
-                for _ in range(3)
-            ], axis=-1)
-
-        # Calculate luminance for shadows/highlights bias
-        luminance = np.mean(img_array, axis=2)
-
-        # Create masks for shadows and highlights
-        shadows_mask = 1 - (luminance ** (1 - self.config["shadows_bias"]))
-        highlights_mask = 1 - (1 - luminance) ** (1 - self.config["highlights_protect"])
-
-        # Combine masks and apply to grain
-        final_mask = shadows_mask * highlights_mask
-        final_mask = np.stack([final_mask] * 3, axis=-1)
-        grain = grain * final_mask
-
-        # Apply grain to image
-        result = img_array + grain
-
-        # Clip values to valid range
-        result = np.clip(result, 0, 1)
-
-        # Convert back to PIL Image
-        result = (result * 255).astype(np.uint8)
-        result_image = Image.fromarray(result)
-
-        # Apply slight blur if configured
-        if self.config["blur_amount"] > 0:
-            result_image = result_image.filter(
-                ImageFilter.GaussianBlur(radius=self.config["blur_amount"])
-            )
-
-        return result_image
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
         if "image" not in pipe_input.input or not pipe_input.input["image"]:

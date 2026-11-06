@@ -244,7 +244,7 @@ describe('model picker static recommendations vs. recipe variants', () => {
 	});
 
 	it('still badges and offers a download for a recommendation matching nothing installed', async () => {
-		authState.user = { account_type: 'USER' };
+		authState.user = { account_type: 'ADMIN' };
 		setup([]);
 		mounted = mountPanel({
 			recommendations: [{ name: 'krea2_raw_bf16.safetensors', installed: false, link: 'https://x', sha256: 'a' }]

@@ -7,13 +7,17 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from src.platform.runtime.native.sampling import ANCESTRAL_NOISE_SEED_OFFSET, ProgressHook, denoise, make_preview_hook
+from src.platform.runtime.native.sampling import ANCESTRAL_NOISE_SEED_OFFSET, ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon
 from src.platform.runtime.device import clear_gpu_memory
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
-from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import (
+    guard_sampling_oom,
+    hand_off_dit,
+    place_dit_for_sequence,
+)
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.freeinit import freeinit_blend, freeinit_config_specs, resolve_freeinit
 from src.pipelines.pipes._shared.generation.guidance_options import (
@@ -47,6 +51,7 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     nag_config_specs,
     preview_config_spec,
+    preview_decoder_config_spec,
     seed_config_spec,
 )
 
@@ -146,6 +151,7 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec("Emit live latent previews (frame 0) to the workbench during sampling"),
+            preview_decoder_config_spec(),
             PipeConfigSpec("cfg_zero_star", bool, True, "CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction)", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: return a zero velocity prediction for the first N steps", required=False,
                            min_value=0, max_value=100),
@@ -362,9 +368,23 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         else:
             latents = torch.zeros(shape, device=c.device, dtype=c.dtype)
 
+        def build_preview_hook():
+            if not self.config.get("preview", True):
+                return None
+            return make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
+
+        first_preview_hook = build_preview_hook()
+
+        # Sequence-length-aware placement: a plain full-pin
+        # move_to leaves a FIXED activation budget that a long clip's growing
+        # attention/RoPE/hidden-state activations can exceed and OOM on, even
+        # though the same DiT comfortably fits a short clip. See
+        # dit_placement.py's module docstring for the full reasoning; short
+        # clips see byte-identical behaviour (full pin, same call).
         placement = place_dit_for_sequence(
             c.bundle.dit, c.device, video_tokens=t_lat * h_lat * w_lat,
             own_models=(c.bundle.dit, c.vae),
+            preview_reserve_gb=preview_reserve_gb([first_preview_hook], shape),
             **ltx_reserve_terms(c.bundle.dit, per_token_timestep=False),
         )
         dit_module = c.bundle.dit.module
@@ -431,10 +451,9 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
                               state="TXT2VID", icon=Icon(name="film", effect="pulse"))
 
             hooks = [ProgressHook(on_progress)]
-            if self.config.get("preview", True):
-                preview_hook = make_preview_hook(c.spec, progress.preview)
-                if preview_hook is not None:
-                    hooks.append(preview_hook)
+            preview_hook = first_preview_hook if it == 0 else build_preview_hook()
+            if preview_hook is not None:
+                hooks.append(preview_hook)
 
             latent = denoise(
                 sample_forward, latents, cond, uncond,
@@ -463,19 +482,13 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
                 fresh_noise = torch.randn(shape, generator=gen, device=c.device, dtype=c.dtype)
                 init_noise = freeinit_blend(latent, renoise_noise, fresh_noise, cutoff=fi_cutoff, order=fi_order)
 
-        c.bundle.dit.offload()
-        clear_gpu_memory()
-
         decode = bool(self.config.get("decode", True))
+        if decode:
+            c.bundle.dit.offload()
+        else:
+            hand_off_dit(c.bundle.dit, c.device)
+        clear_gpu_memory()
         if not decode:
-            # Stage 1: hand the raw latent to a downstream
-            # latent_upscaler/refine stage -- no VAE decode/mp4-encode round
-            # trip. `restore_dit_best_effort` still runs below (harmless: the
-            # very next pipe in the chain is usually this SAME generator
-            # again for stage 2, which will just find the DiT already
-            # resident via `place_dit_for_sequence`).
-            if index == ctx.quantity - 1:
-                restore_dit_best_effort(c.bundle.dit, c.device)
             return latent
 
         frames = decode_ltx_video(c.vae, c.device, latent, seed)

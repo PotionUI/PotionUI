@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { sessionDrafts } from '$lib/stores/tabDraftSync';
+	import { sessionLiveSync } from '$lib/stores/sessionLiveSync';
 	import { logger } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
 	import { storage } from '$lib/utils/storage';
@@ -23,7 +24,15 @@
 	export let presetVersion: string | undefined = undefined;
 	export let availableModes: Array<{ id: string; variants?: PresetModeVariant[] }> = [];
 
-	const controller = createSessionController({ api, tabs: tabsStore, storage, toasts, logger, drafts: sessionDrafts });
+	const controller = createSessionController({
+		api,
+		tabs: tabsStore,
+		storage,
+		toasts,
+		logger,
+		drafts: sessionDrafts,
+		live: sessionLiveSync
+	});
 	const session = controller.state;
 	const dialogs = createSessionDialogs(controller);
 

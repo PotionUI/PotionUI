@@ -64,6 +64,34 @@ cases:
       min_outputs: 1
       not_black: true
 
+  - name: "minimax-h3-custom-8step-beta57-fast"
+    mode: "video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+      resolution: "832x480"
+      frames: 124
+      speed_profile: "custom"
+      steps: 8
+      sampler: "euler"
+      scheduler: "beta57"
+      video_sigma_shift: 12.0
+      audio_sigma_shift: 3.0
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
   # ref2va: the reference mode. TWO placeholders here, not one -- besides the
   # reference image itself, `model` has to resolve to the ref2va DiT partition,
   # a DIFFERENT file from the one the cases above pin. Nothing in the stack can
@@ -197,6 +225,108 @@ cases:
       audio_vae:
         sha256: "0000000000000000000000000000000000000000000000000000000000000000"
       upscale_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  - name: "minimax-h3-motion-transfer-fast"
+    mode: "motion_transfer"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      input_image: "PLACEHOLDER/minimax-h3-motion-picture.png"
+      input_video: "PLACEHOLDER/minimax-h3-motion-dance.mp4"
+      steps: 8
+      pose_ease_in: 0.5
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      control_model:
+        sha256: "890af58bb350f0c2f6c409b1c67ea8f4196654297d037769b72de1e6f504c612"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  - name: "minimax-h3-flex-t2va-fast"
+    mode: "video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+      resolution: "832x480"
+      frames: 124
+      speed_profile: "flex"
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      flex_adapter:
+        sha256: "cc5453aeecd6189468409003fe4cf1b57e52ff3a830a0a154b87decbe07358b7"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  - name: "minimax-h3-flex-ref2va-fast"
+    mode: "refs"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "the woman from the reference walks through a rainy street at night, neon reflections on the pavement, her footsteps and the rain"
+      resolution: "832x480"
+      frames: 124
+      speed_profile: "flex"
+      references:
+        - "PLACEHOLDER/minimax-h3-reference-1.png"
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      flex_adapter:
+        sha256: "de3745ceb7d8d5c20898dd8fa3a05f1c0b00089ccd55297b2a8bab95c766b0e0"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  - name: "minimax-h3-long-fast"
+    mode: "long"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+      resolution: "832x480"
+      total_seconds: 12
+      piece_seconds: 5
+      speed_profile: "turbo"
+      steps: 4
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
         sha256: "0000000000000000000000000000000000000000000000000000000000000000"
     checks:
       min_outputs: 1

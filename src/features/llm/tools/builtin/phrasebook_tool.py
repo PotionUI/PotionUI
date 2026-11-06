@@ -62,7 +62,7 @@ def _resolve_category_by_id_or_path(context: ToolContext, category_arg: str) -> 
 class ListPhrasebookCategoriesTool(BaseTool):
     """Lists all phrasebook categories."""
 
-    modes = ["generation", "phrasebook"]
+    modes = ["generation", "phrasebook", "elixirs"]
     icon = "list-tree"
 
     name = "list_phrasebook_categories"
@@ -112,7 +112,7 @@ class ListPhrasebookCategoriesTool(BaseTool):
         )
 
 class GetPhrasebookValuesTool(BaseTool):
-    modes = ["generation", "phrasebook"]
+    modes = ["generation", "phrasebook", "elixirs"]
     icon = "list"
 
     name = "get_phrasebook_values"

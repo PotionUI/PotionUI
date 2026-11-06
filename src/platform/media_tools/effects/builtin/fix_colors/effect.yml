@@ -1,0 +1,39 @@
+id: fix_colors
+label: Fix colours
+group: colour
+icon: wand
+description: Neutral whites and full contrast, measured over the clip
+accepts: [video]
+time: none
+params:
+  - { name: white_balance, type: checkbox, label: White balance, default: true }
+  - { name: contrast, type: checkbox, label: Normalise contrast, default: true }
+  - { name: strength, type: float, label: Strength, default: 100, min: 0, max: 100, step: 5, unit: "%" }
+analysis:
+  python: analyze.py:estimate
+  keys: [white_balance, contrast]
+  values: [gain_r, gain_g, gain_b, black, white]
+derive:
+  k: "strength / 100"
+  r: "1 + k * (gain_r - 1)"
+  g: "1 + k * (gain_g - 1)"
+  b: "1 + k * (gain_b - 1)"
+  lo: "black * k"
+  hi: "1 - (1 - white) * k"
+preview:
+  shader: preview.frag
+render:
+  - ffmpeg:
+      vf:
+        - colorchannelmixer: { rr: "{r}", gg: "{g}", bb: "{b}" }
+          when: "abs(r - 1) >= 0.004 or abs(g - 1) >= 0.004 or abs(b - 1) >= 0.004"
+        - colorlevels: { rimin: "{lo}", gimin: "{lo}", bimin: "{lo}", rimax: "{hi}", gimax: "{hi}", bimax: "{hi}" }
+          when: "lo >= 0.004 or hi <= 0.996"
+  - numpy: analyze.py:apply
+parity:
+  media: { width: 640, height: 360, fps: 24, duration: 4 }
+  analysis: { gain_r: 1.12, gain_g: 0.97, gain_b: 0.91, black: 0.04, white: 0.93 }
+  cases:
+    - { params: { strength: 100 }, frames: [0] }
+    - { params: { strength: 40, contrast: false }, frames: [0] }
+  tolerance: { max_abs: 1, mean_abs: 0.1 }

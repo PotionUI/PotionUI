@@ -17,6 +17,8 @@ _CONVROT_HADAMARD_CACHE: dict[tuple[int, str, torch.dtype], torch.Tensor] = {}
 _CONVROT_H4 = ((1, 1, 1, -1), (1, 1, -1, 1), (1, -1, 1, 1), (-1, 1, 1, 1))
 NVFP4_BLOCK = 16
 _F4_MAX = 6.0
+NVFP4_SCALE_MAX = _F4_MAX * E4M3_MAX
+NVFP4_AMAX_FLOOR = 1e-12
 
 
 def parse_comfy_quant(blob: torch.Tensor | None) -> dict | None:
@@ -43,6 +45,27 @@ def extract_convrot_config(layer_conf: dict, layer_name: str = "") -> tuple[bool
             layer_name, sorted(layer_conf), _CONVROT_DEFAULT_GROUPSIZE,
         )
     return convrot, _CONVROT_DEFAULT_GROUPSIZE
+
+
+def describe_quant_layers(sd: dict[str, torch.Tensor]) -> str | None:
+    labels: set[str] = set()
+    blobs = {bytes(t.tolist()) for k, t in sd.items() if k.endswith(".comfy_quant")}
+    for raw in blobs:
+        conf = parse_comfy_quant(torch.tensor(list(raw), dtype=torch.uint8))
+        if conf is None:
+            continue
+        label = str(conf.get("format", "unknown"))
+        if label == COMFY_QUANT_INT8_TENSORWISE:
+            convrot, groupsize = extract_convrot_config(conf)
+            if convrot:
+                label = f"{label}+convrot{groupsize}"
+        labels.add(label)
+    if not labels:
+        labels = {
+            str(t.dtype).removeprefix("torch.")
+            for k, t in sd.items() if k.endswith(".weight") and t.dtype in FP8_DTYPES
+        }
+    return ",".join(sorted(labels)) or None
 
 
 def reject_ambiguous_int8(
@@ -181,12 +204,21 @@ def dequantize_nvfp4(
     return scale_values(values, scale, out_features, in_features, num_blocks)
 
 
-def quantize_nvfp4_dynamic(x2d: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def nvfp4_activation_amax(x2d: torch.Tensor) -> torch.Tensor:
+    return torch.linalg.vector_norm(x2d.detach(), ord=float("inf"))
+
+
+def nvfp4_tensor_scale(tensor_amax: torch.Tensor) -> torch.Tensor:
+    return tensor_amax.to(torch.float32).clamp(min=NVFP4_AMAX_FLOOR) / NVFP4_SCALE_MAX
+
+
+def quantize_nvfp4_dynamic(
+    x2d: torch.Tensor, tensor_amax: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     m, k = x2d.shape
     x = x2d.detach().reshape(m, -1, NVFP4_BLOCK).to(torch.float32, copy=True)
     block_amax = x.abs().amax(-1)
-    amax = block_amax.amax().clamp(min=1e-12)
-    tensor_scale = amax / (_F4_MAX * E4M3_MAX)
+    tensor_scale = nvfp4_tensor_scale(block_amax.amax() if tensor_amax is None else tensor_amax)
     block = torch.clamp(block_amax / _F4_MAX / tensor_scale, max=E4M3_MAX).to(torch.float8_e4m3fn)
     safe_block = block.to(torch.float32).clamp(min=torch.finfo(torch.float32).tiny)
     x.div_((tensor_scale * safe_block).unsqueeze(-1))

@@ -29,13 +29,26 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 import numpy as np
 import torch
 from PIL import Image
 
+from src.platform.runtime.cuda_allocator import is_driver_oom
+
+from ..errors import retry_after_cuda_oom
 from .hooks import PreviewHook
+from .preview_clip import CLIP_MAX_FRAMES, ClipRelay, ClipSchedule, SpriteClip
+from .preview_decoder import (
+    acquire_preview_decoder,
+    decode_middle_frame,
+    decode_preview_clip,
+    decoder_resident_gb,
+    frame_to_image,
+    preview_decode_transient_gb,
+    spec_latent_channels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +330,128 @@ def latent_to_preview_image(
     return img
 
 
+class _DecoderPreviewHook(PreviewHook):
+    clip_size: Optional[int] = None
+
+    def __init__(self, decode_fn, every_n, callback, decoder, priority: int = 50, frame_size: int = PREVIEW_MAX_SIZE) -> None:
+        super().__init__(decode_fn, every_n, callback, priority=priority)
+        self._decoder = decoder
+        self._frame_size = frame_size
+
+    def vram_reserve_gb(self, latent_frames: int, latent_height: int, latent_width: int) -> float:
+        resident = decoder_resident_gb(self._decoder)
+        try:
+            transient = preview_decode_transient_gb(
+                self._decoder, latent_frames, latent_height, latent_width,
+                frame_size=self._frame_size, clip_size=self.clip_size,
+            )
+        except Exception:
+            logger.warning("preview decode VRAM could not be estimated; reserving the decoder weights only", exc_info=True)
+            return resident
+        return resident + transient
+
+    def on_end(self) -> None:
+        try:
+            self._decoder.to("cpu")
+        except Exception:
+            logger.debug("preview decoder offload failed", exc_info=True)
+
+
+CLIP_MAX_SIZE = 384
+
+
+class _ClipDecoder:
+    def __init__(self, decoder, transform, relay) -> None:
+        self._decoder = decoder
+        self._transform = transform
+        self.relay = relay
+
+    def prepare(self, x0: torch.Tensor) -> Optional[torch.Tensor]:
+        try:
+            return self._transform(x0) if self._transform is not None else x0
+        except Exception:
+            logger.debug("preview clip latent transform failed", exc_info=True)
+            return None
+
+    @staticmethod
+    def is_clip(x0: Optional[torch.Tensor]) -> bool:
+        return x0 is not None and x0.ndim == 5 and x0.shape[2] > 1
+
+    def decode(self, x0: torch.Tensor):
+        try:
+            frames, indices = decode_preview_clip(
+                self._decoder, x0, max_frames=CLIP_MAX_FRAMES, max_size=CLIP_MAX_SIZE
+            )
+        except Exception as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
+            logger.debug("preview clip decode failed; skipping update", exc_info=True)
+            return None
+        return (frames, indices) if len(frames) > 1 else None
+
+
+class _ClipPreviewHook(_DecoderPreviewHook):
+    clip_size = CLIP_MAX_SIZE
+
+    def __init__(self, decode_fn, every_n, callback, decoder, clips: _ClipDecoder, priority: int = 50, frame_size: int = PREVIEW_MAX_SIZE) -> None:
+        super().__init__(decode_fn, every_n, callback, decoder, priority=priority, frame_size=frame_size)
+        self._clips = clips
+        self._clip_latent: Optional[bool] = None
+        self._schedule = ClipSchedule()
+
+    def on_start(self, total_steps: int) -> None:
+        self._schedule.start(total_steps)
+
+    def on_step(self, step_index, total_steps, x, sigma, denoised_x0) -> None:
+        if denoised_x0 is None:
+            return
+        prepared = self._clips.prepare(denoised_x0)
+        if self._clip_latent is None:
+            self._clip_latent = self._clips.is_clip(prepared)
+        if not self._clip_latent:
+            super().on_step(step_index, total_steps, x, sigma, denoised_x0)
+            return
+        if not self._schedule.due(step_index):
+            if self._schedule.emitted == 0:
+                super().on_step(step_index, total_steps, x, sigma, denoised_x0)
+            return
+        decoded = self._clips.decode(prepared) if prepared is not None else None
+        if decoded is None:
+            return
+        frames, indices = decoded
+        self._schedule.mark_emitted()
+        self._clips.relay.submit(
+            frames,
+            indices,
+            step=step_index + 1,
+            total_steps=total_steps,
+            update_index=self._schedule.emitted,
+            every=self._schedule.every,
+        )
+
+    def on_end(self) -> None:
+        self._clips.relay.drain()
+        super().on_end()
+
+
+def _resolve_decoder(spec: Any, decoder_path: Optional[Any]):
+    if not decoder_path:
+        return None
+    try:
+        decoder = acquire_preview_decoder(decoder_path)
+    except Exception:
+        logger.warning("preview decoder %s could not be loaded; using the latent projection", decoder_path, exc_info=True)
+        return None
+    expected = spec_latent_channels(spec)
+    if expected is not None and expected != decoder.latent_channels:
+        logger.warning(
+            "preview decoder %s has %d latent channels but the model has %d; using the latent projection",
+            decoder_path, decoder.latent_channels, expected,
+        )
+        return None
+    return decoder
+
+
 def make_preview_hook(
     spec: Any,
     emit: Callable[[Image.Image], None],
@@ -325,23 +460,12 @@ def make_preview_hook(
     max_size: int = PREVIEW_MAX_SIZE,
     priority: int = 50,
     latent_transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    decoder_path: Optional[Any] = None,
+    emit_clip: Optional[Callable[[SpriteClip], None]] = None,
 ) -> Optional[PreviewHook]:
-    """Build a :class:`~.hooks.PreviewHook` for ``spec`` that emits PIL previews.
-
-    Returns ``None`` when the family has no vendored factors (``spec`` unknown or
-    latent-only-video without a table) so callers can unconditionally
-    ``if hook: hooks.append(hook)``. Decode and emit are both guarded: a preview
-    that raises is logged at debug and dropped, never surfacing to the sampler
-    (which already isolates hook failures, but the extra guard keeps a preview
-    error inert even off the sampler's ``run_hooks`` path).
-
-    ``latent_transform`` (optional) maps the sampler's x0 estimate to the
-    family's native 5D/4D latent grid before RGB projection — for samplers
-    whose working state is packed tokens (e.g. the conditioned LTX path, which
-    carries ``[B, S, C]`` tokens plus appended conditioning/audio slices).
-    """
     factors = resolve_preview_factors(spec)
-    if factors is None:
+    decoder = _resolve_decoder(spec, decoder_path)
+    if factors is None and decoder is None:
         logger.debug(
             "no preview factors for spec %s; step previews disabled",
             getattr(spec, "variant", spec),
@@ -352,8 +476,17 @@ def make_preview_hook(
         try:
             if latent_transform is not None:
                 x0 = latent_transform(x0)
+            if decoder is not None:
+                try:
+                    return frame_to_image(decode_middle_frame(decoder, x0, max_size=max_size), max_size=max_size)
+                except Exception as exc:
+                    if factors is None or (is_driver_oom(exc) and not retry_after_cuda_oom(exc)):
+                        raise
+                    logger.debug("preview decoder failed; using the latent projection", exc_info=True)
             return latent_to_preview_image(x0, factors, max_size=max_size)
-        except Exception:  # noqa: BLE001 - a preview must never break generation
+        except Exception as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.debug("latent preview decode failed; skipping frame", exc_info=True)
             return None
 
@@ -362,7 +495,21 @@ def make_preview_hook(
             return
         try:
             emit(image)
-        except Exception:  # noqa: BLE001 - as above
+        except Exception:
             logger.debug("latent preview emit failed; skipping frame", exc_info=True)
 
+    if decoder is not None and emit_clip is not None:
+        clips = _ClipDecoder(decoder, latent_transform, ClipRelay(emit_clip))
+        return _ClipPreviewHook(decode_fn, every_n, callback, decoder, clips, priority=priority, frame_size=max_size)
+    if decoder is not None:
+        return _DecoderPreviewHook(decode_fn, every_n, callback, decoder, priority=priority, frame_size=max_size)
     return PreviewHook(decode_fn, every_n, callback, priority=priority)
+
+
+def preview_reserve_gb(hooks: Iterable[Any], latents_shape: Any) -> float:
+    shape = tuple(int(d) for d in latents_shape)
+    frames = shape[2] if len(shape) == 5 else 1
+    return float(sum(
+        hook.vram_reserve_gb(frames, shape[-2], shape[-1])
+        for hook in hooks if isinstance(hook, _DecoderPreviewHook)
+    ))

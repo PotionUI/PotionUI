@@ -18,7 +18,7 @@ repo, so the tiny slice actually used is reimplemented here **bit-for-bit**:
   * per-axis angles ``outer(pos, freqs)`` interleaved ``r=2`` (``[f0,f0,f1,f1,…]``),
     broadcast across the 3 axes and concatenated → 126 rotary dims (< head_dim
     128, so the last 2 dims pass through unrotated), then
-  * ``apply_rotary_emb`` = ``x·cos + rotate_half(x)·sin`` over interleaved pairs.
+  * ``x·cos + rotate_half(x)·sin`` over interleaved pairs (``qk_norm_rope``'s ``pair_rotate``).
 
 The module nesting (``NaMMRotaryEmbedding3d.rope`` holding the ``freqs`` buffer)
 mirrors the reference so the checkpoint key ``blocks.{i}.attn.rope.rope.freqs``
@@ -30,27 +30,14 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 import torch
-from einops import rearrange, repeat
+from einops import repeat
 from torch import nn
 
 from .cache import Cache
 
 
-def rotate_half(x: torch.Tensor) -> torch.Tensor:
-    x = rearrange(x, "... (d r) -> ... d r", r=2)
-    x1, x2 = x.unbind(dim=-1)
-    x = torch.stack((-x2, x1), dim=-1)
-    return rearrange(x, "... d r -> ... (d r)")
-
-
-def apply_rotary_emb(freqs: torch.Tensor, t: torch.Tensor, start_index: int = 0, scale: float = 1.0) -> torch.Tensor:
-    rot_dim = freqs.shape[-1]
-    end_index = start_index + rot_dim
-    assert rot_dim <= t.shape[-1], f"rotary dim {rot_dim} exceeds feature dim {t.shape[-1]}"
-    t_left, t_mid, t_right = t[..., :start_index], t[..., start_index:end_index], t[..., end_index:]
-    # Compute in freqs' (fp32) precision, return in t's dtype so the cat stays uniform.
-    t_mid = ((t_mid * freqs.cos() * scale) + (rotate_half(t_mid) * freqs.sin() * scale)).to(t.dtype)
-    return torch.cat((t_left, t_mid, t_right), dim=-1)
+def cos_sin(freqs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    return freqs.cos()[:, None], freqs.sin()[:, None]
 
 
 class _LangRotary(nn.Module):
@@ -103,24 +90,12 @@ class NaMMRotaryEmbedding3d(nn.Module):
             txt_list.append(txt_freqs.repeat(1, 3).reshape(-1, vid_freqs.size(-1)))
         return torch.cat(vid_list, dim=0), torch.cat(txt_list, dim=0)
 
-    def forward(
-        self,
-        vid_q: torch.Tensor,  # L h d
-        vid_k: torch.Tensor,
-        vid_shape: torch.LongTensor,
-        txt_q: torch.Tensor,
-        txt_k: torch.Tensor,
-        txt_shape: torch.LongTensor,
-        cache: Cache,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        vid_freqs, txt_freqs = cache("mmrope_freqs_3d", lambda: self._freqs_for(vid_shape, txt_shape))
+    def tables(self, vid_shape: torch.LongTensor, txt_shape: torch.LongTensor, cache: Cache):
+        def build():
+            vid_freqs, txt_freqs = self._freqs_for(vid_shape, txt_shape)
+            return cos_sin(vid_freqs), cos_sin(txt_freqs)
 
-        def _apply(x: torch.Tensor, freqs: torch.Tensor) -> torch.Tensor:
-            x = rearrange(x, "L h d -> h L d")
-            x = apply_rotary_emb(freqs, x.float()).to(x.dtype)
-            return rearrange(x, "h L d -> L h d")
-
-        return _apply(vid_q, vid_freqs), _apply(vid_k, vid_freqs), _apply(txt_q, txt_freqs), _apply(txt_k, txt_freqs)
+        return cache("mmrope_freqs_3d", build)
 
 
 def get_na_rope(rope_type: Optional[str], dim: int) -> Optional[NaMMRotaryEmbedding3d]:

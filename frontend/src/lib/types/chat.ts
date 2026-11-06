@@ -264,6 +264,8 @@ export interface ChatMode {
 	source: string;
 	/** True for a mode only an admin account may use (e.g. an admin setup wizard). */
 	admin_only?: boolean;
+	offers_tools?: boolean;
+	app_context?: boolean;
 }
 
 /** Tool metadata from GET /api/chat/tools (mode-scoped; null mode = global). */

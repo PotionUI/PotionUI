@@ -43,6 +43,7 @@ from src.platform.runtime.native.kernels import (
     Fp8ScaledLinear, FastPathKind, fast_path, fp8_ops, gemm, pick_operations,
 )
 from src.platform.runtime.native.kernels.fp8_linear import _quantize_fp8_dynamic
+from src.platform.runtime.native.kernels import activation_quant_chunk_rows
 from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear
 from src.platform.runtime.native.memory.partial import plan_residency_split
 from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
@@ -53,17 +54,21 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
     _dit_dequant_transient_bytes,
     _dit_lora_profile,
-    _dit_quant_activation_bytes_per_token,
+    _dit_quant_scratch,
     _ensure_room_for,
     _ffn_transient_bytes_per_token,
     _LTX_INNER_DIM,
     _release_idle_pool,
     DitLoraProfile,
     DitPlacementDecision,
+    QuantScratch,
+    QuantWidth,
     SamplingOutOfMemory,
+    choose_seq_chunk_rows,
     dequant_transient_reserve_gb,
     estimate_activation_reserve_gb,
     guard_sampling_oom,
+    hand_off_dit,
     make_room_for_lora_stack,
     place_dit_for_sequence,
     sequence_fit,
@@ -455,7 +460,7 @@ def test_a_lokr_delta_sends_a_gemm_layer_to_dequant_and_costs_nothing_per_token(
     layer.lora_deltas = [_lokr_delta(5376, 28672)]
     dit = SimpleNamespace(module=nn.Sequential(layer))
     assert fast_path(layer).kind is FastPathKind.DEQUANT
-    assert _dit_quant_activation_bytes_per_token(dit) == 0
+    assert _dit_quant_scratch(dit).bytes_for(1) == 0
     profile = _dit_lora_profile(dit)
     assert profile.output_buffer_out_features == 0
     assert profile.weight_side_bytes == 2 * 28672 * 5376 * 2
@@ -498,7 +503,7 @@ def _per_token_bytes(layer, *, with_delta: bool):
     if with_delta:
         layer.lora_deltas = [_plain_delta(layer.in_features, layer.out_features)]
     dit = SimpleNamespace(module=nn.Sequential(layer))
-    return _dit_quant_activation_bytes_per_token(dit), _dit_lora_profile(dit).output_buffer_bytes_per_token
+    return _dit_quant_scratch(dit).bytes_for(1), _dit_lora_profile(dit).output_buffer_bytes_per_token
 
 
 @pytest.mark.parametrize("make, flags, quant_bytes", _ON_A_GEMM.values(), ids=list(_ON_A_GEMM))
@@ -741,6 +746,93 @@ def test_no_fit_hint_leaves_the_over_commit_warning_unchanged(caplog):
             )
     warning = "\n".join(r.getMessage() for r in caplog.records)
     assert warning.rstrip().endswith("streaming the DiT and sampling anyway.")
+
+
+def _place_h3_profile(preview_reserve_gb=None):
+    dit, calls = _dit(estimated_vram_gb=21.27)
+    patches, _manager = _patched(free_gb=27.46)
+    kwargs = {} if preview_reserve_gb is None else {"preview_reserve_gb": preview_reserve_gb}
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=51_424, audio_tokens=414,
+            inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=1.0, **kwargs,
+        )
+    return decision, calls
+
+
+def test_the_preview_reserve_shrinks_the_weight_budget_by_exactly_its_size():
+    without, _ = _place_h3_profile()
+    unchanged, _ = _place_h3_profile(0.0)
+    with_preview, calls = _place_h3_profile(0.557)
+    assert unchanged.weight_budget_gb == pytest.approx(without.weight_budget_gb)
+    assert without.weight_budget_gb - with_preview.weight_budget_gb == pytest.approx(0.557)
+    assert calls["stream_to"] == [("cuda", pytest.approx(with_preview.weight_budget_gb))]
+    assert with_preview.preview_reserve_gb == pytest.approx(0.557)
+    assert with_preview.extra_reserve_gb == pytest.approx(1.557)
+    assert without.preview_reserve_gb == 0.0
+    assert without.extra_reserve_gb == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("preview_gb,kept", [(0.0, True), (0.6, False)])
+def test_the_preview_reserve_is_part_of_the_reserve_judged_against_a_warm_dit(preview_gb, kept):
+    dit, calls = _dit(estimated_vram_gb=10.0)
+    dit.device = "cuda"
+    patches, _manager = _patched(free_gb=4.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=0, reserve_gb=3.0, preview_reserve_gb=preview_gb,
+        )
+    assert decision.kept_resident is kept
+    assert calls["offload"] == (0 if kept else 1)
+
+
+def test_the_over_commit_warning_lists_the_preview_reserve(caplog):
+    dit, _calls = _dit(estimated_vram_gb=15.65)
+    patches, _manager = _patched(free_gb=31.0)
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
+            place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21, preview_reserve_gb=0.55,
+            )
+    warning = "\n".join(r.getMessage() for r in caplog.records)
+    assert "extra 4.76GB" in warning
+    assert "preview 0.55GB" in warning
+
+
+def test_the_fit_hint_is_handed_the_preview_reserve_with_the_extra_reserve(caplog):
+    seen = {}
+
+    def hint(free_gb, *, activation_reserve_gb, extra_reserve_gb, tokens):
+        seen.update(extra_reserve_gb=extra_reserve_gb)
+        return ""
+
+    dit, _calls = _dit(estimated_vram_gb=15.65)
+    patches, _manager = _patched(free_gb=31.0)
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
+            place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21, preview_reserve_gb=0.55,
+                fit_hint=hint,
+            )
+    assert seen["extra_reserve_gb"] == pytest.approx(4.76)
+
+
+def test_the_sampling_oom_error_lists_the_preview_reserve():
+    forward, _calls = _oom_forward(99)
+    dit, _dit_calls = _dit()
+    decision = DitPlacementDecision(
+        "partial", 19.52, 17.95, 0.0, 60_896, 640, 8.22, True, 1.4, preview_reserve_gb=0.55,
+    )
+    patches, _manager = _patched(free_gb=3.5, effective_gb=4.25)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache"):
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=decision)
+            with pytest.raises(SamplingOutOfMemory) as exc_info:
+                guarded()
+    assert "extra_reserve_gb=8.22" in exc_info.value.detail
+    assert "preview_reserve_gb=0.55" in exc_info.value.detail
 
 
 def test_over_commit_does_not_evict_a_foreign_resident_owned_by_this_generation():
@@ -1906,13 +1998,13 @@ def _dit_with(*linears, estimated_vram_gb=18.5, calls=None):
 def test_nvfp4_fast_path_charges_the_quantiser_peak_of_the_widest_input(machine):
     machine(nvfp4=True)
     dit = _dit_with(_quant_linear(4096, nvfp4=True), _quant_linear(16384, nvfp4=True), _quant_linear(32768))
-    assert _dit_quant_activation_bytes_per_token(dit) == 12 * 16384
+    assert _dit_quant_scratch(dit).bytes_for(1) == 12 * 16384
 
 
 def test_fp8_fast_path_charges_the_quantiser_peak(machine):
     machine(fp8=True)
     dit = _dit_with(_quant_linear(4096, fp8=True), _quant_linear(16384, fp8=True))
-    assert _dit_quant_activation_bytes_per_token(dit) == 5 * 16384
+    assert _dit_quant_scratch(dit).bytes_for(1) == 5 * 16384
 
 
 class _LiveBytes(TorchDispatchMode):
@@ -1951,20 +2043,82 @@ def test_the_quant_reserve_matches_the_quantisers_measured_peak(quantize, per_el
 def test_no_fast_path_means_no_activation_quant_term(machine):
     machine()
     dit = _dit_with(_quant_linear(16384, nvfp4=True), _quant_linear(16384, fp8=True))
-    assert _dit_quant_activation_bytes_per_token(dit) == 0
+    assert _dit_quant_scratch(dit).bytes_for(1) == 0
 
 
 def test_a_bare_callable_dit_has_no_activation_quant_term():
-    assert _dit_quant_activation_bytes_per_token(SimpleNamespace()) == 0
+    assert _dit_quant_scratch(SimpleNamespace()).bytes_for(1) == 0
 
 
-def test_reference_run_reserve_now_covers_the_nvfp4_activation_quant_peak():
-    tokens = 31_620
+_NVFP4_CHUNK_SCRATCH_GB = 12 * 16384 * 4096 / 1024 ** 3
+
+
+@pytest.mark.parametrize("tokens, plain_gb, nvfp4_gb", [
+    (21_780, 2.10, 2.97),
+    (31_620, 3.05, 3.92),
+    (87_120, 8.41, 9.27),
+])
+def test_the_ltx_reserve_charges_one_nvfp4_quant_chunk_not_a_per_token_quant_copy(tokens, plain_gb, nvfp4_gb):
+    scratch = QuantScratch((QuantWidth(12, 16384, 4096), QuantWidth(12, 4096, 16384)))
     plain = estimate_activation_reserve_gb(tokens)
-    quant = estimate_activation_reserve_gb(tokens, quant_activation_bytes_per_token=12 * 16384)
-    assert plain == pytest.approx(3.05, abs=0.1)
-    assert quant - plain == pytest.approx(tokens * 12 * 16384 / 1024 ** 3 * 1.15, rel=1e-6)
-    assert quant == pytest.approx(9.71, abs=0.1)
+    quant = estimate_activation_reserve_gb(tokens, quant_scratch=scratch)
+    assert plain == pytest.approx(plain_gb, abs=0.01)
+    assert quant == pytest.approx(nvfp4_gb, abs=0.01)
+    assert quant - plain == pytest.approx(_NVFP4_CHUNK_SCRATCH_GB * 1.15, rel=1e-9)
+
+
+def test_a_quant_chunk_never_charges_more_rows_than_the_sequence_has():
+    scratch = QuantScratch((QuantWidth(12, 16384, 4096),))
+    assert scratch.bytes_for(1000) == 12 * 16384 * 1000
+    assert scratch.bytes_for(4096) == scratch.bytes_for(87_120) == 12 * 16384 * 4096
+
+
+def test_an_unchunked_quant_width_scales_with_every_token():
+    scratch = QuantScratch((QuantWidth(5, 16384, None),))
+    assert scratch.bytes_for(87_120) == 5 * 16384 * 87_120
+
+
+def test_the_nvfp4_chunk_the_reserve_charges_is_the_chunk_the_kernel_runs(machine):
+    machine(nvfp4=True)
+    dit = _dit_with(_quant_linear(4096, nvfp4=True), _quant_linear(16384, nvfp4=True))
+    assert _dit_quant_scratch(dit) == QuantScratch((QuantWidth(12, 4096, activation_quant_chunk_rows(4096)),
+                                                    QuantWidth(12, 16384, activation_quant_chunk_rows(16384))))
+    assert _dit_quant_scratch(dit).bytes_for(87_120) == 12 * 16384 * activation_quant_chunk_rows(16384)
+
+
+def test_the_fp8_chunk_the_reserve_charges_is_the_chunk_the_kernel_runs(machine):
+    machine(fp8=True)
+    dit = _dit_with(_quant_linear(16384, fp8=True))
+    assert _dit_quant_scratch(dit) == QuantScratch((QuantWidth(5, 16384, activation_quant_chunk_rows(16384)),))
+    assert _dit_quant_scratch(dit).bytes_for(146_547) == 5 * 16384 * 4096
+
+
+_H3_KW = {"inner_dim": 7168, "ffn_dim": 14336, "ffn_chunk_rows": 24_425}
+_H3_NVFP4 = QuantScratch(tuple(
+    QuantWidth(12, k, activation_quant_chunk_rows(k)) for k in (5376, 7168, 14336)
+))
+
+
+@pytest.mark.parametrize("video_tokens, audio_tokens, plain_gb, nvfp4_gb", [
+    (145_793, 754, 24.75, 25.61),
+    (60_000, 300, 10.18, 11.05),
+])
+def test_the_h3_reserve_charges_one_nvfp4_quant_chunk(video_tokens, audio_tokens, plain_gb, nvfp4_gb):
+    plain = estimate_activation_reserve_gb(video_tokens, audio_tokens, **_H3_KW)
+    quant = estimate_activation_reserve_gb(video_tokens, audio_tokens, quant_scratch=_H3_NVFP4, **_H3_KW)
+    assert plain == pytest.approx(plain_gb, abs=0.01)
+    assert quant == pytest.approx(nvfp4_gb, abs=0.01)
+    per_token_charge = estimate_activation_reserve_gb(
+        video_tokens, audio_tokens, quant_scratch=QuantScratch((QuantWidth(12, 14336, None),)), **_H3_KW)
+    assert quant < per_token_charge
+
+
+def test_the_profiled_h3_clip_reserve_drops_from_the_per_token_charge():
+    old = estimate_activation_reserve_gb(
+        145_793, 754, quant_scratch=QuantScratch((QuantWidth(12, 14336, None),)), **_H3_KW)
+    new = estimate_activation_reserve_gb(145_793, 754, quant_scratch=_H3_NVFP4, **_H3_KW)
+    assert old == pytest.approx(51.75, abs=0.01)
+    assert new == pytest.approx(25.61, abs=0.01)
 
 
 def _cuda_placement_reserve(monkeypatch, layer, *, free_gb=26.0):
@@ -1978,16 +2132,15 @@ def _cuda_placement_reserve(monkeypatch, layer, *, free_gb=26.0):
     return place_dit_for_sequence(_dit_with(layer), "cuda", video_tokens=31_620)
 
 
-def test_nvfp4_fast_path_forces_partial_residency_where_the_old_estimate_said_resident(machine, monkeypatch):
+def test_the_nvfp4_fast_path_adds_one_bounded_quant_chunk_and_keeps_the_dit_resident(machine, monkeypatch):
     machine()
     off = _cuda_placement_reserve(monkeypatch, _quant_linear(16384, nvfp4=True))
     assert off.mode == "resident"
 
     machine(nvfp4=True)
     on = _cuda_placement_reserve(monkeypatch, _quant_linear(16384, nvfp4=True))
-    assert on.mode == "partial"
-    assert 0.0 < on.weight_budget_gb < 18.5
-    assert on.activation_reserve_gb == pytest.approx(off.activation_reserve_gb + 6.66, abs=0.05)
+    assert on.mode == "resident"
+    assert on.activation_reserve_gb == pytest.approx(off.activation_reserve_gb + _NVFP4_CHUNK_SCRATCH_GB * 1.15, rel=1e-6)
 
 
 @pytest.mark.parametrize("make", [
@@ -2077,6 +2230,193 @@ def test_placement_and_the_window_fit_count_the_scale_tables_dequant_layers_will
     assert decision.dit_weight_gb == pytest.approx(tables_gb, abs=1e-15)
     assert fit.weight_gb == pytest.approx(tables_gb, abs=1e-15)
     assert (tables_gb > 0) is not nvfp4_matmul
+
+
+class _HandoffDit:
+    def __init__(self, device="cuda:0", streamer=None, module="module"):
+        self.device = device
+        self.module = module
+        self._streamer = streamer
+        self.offloads = 0
+
+    def offload(self):
+        self.offloads += 1
+        self.device = "cpu"
+
+
+def _hand_off(dit, **kwargs):
+    marks = []
+    profiler = SimpleNamespace(mark=lambda event, **fields: marks.append(event))
+    with patch(f"{_MOD}.get_profiler", return_value=profiler):
+        kept = hand_off_dit(dit, "cuda", **kwargs)
+    return kept, marks
+
+
+def test_a_handoff_leaves_a_fully_resident_dit_for_the_next_stage_to_place():
+    dit = _HandoffDit()
+    assert _hand_off(dit) == (True, ["dit_handoff.kept"])
+    assert dit.offloads == 0 and dit.device == "cuda:0"
+
+
+def test_a_handoff_offloads_a_dit_whose_room_the_stage_still_needs():
+    dit = _HandoffDit()
+    assert _hand_off(dit, needs_room=True) == (False, ["dit_handoff.offloaded"])
+    assert dit.offloads == 1
+
+
+def test_a_handoff_offloads_a_streamed_dit():
+    dit = _HandoffDit(streamer=SimpleNamespace(active=True))
+    assert _hand_off(dit) == (False, ["dit_handoff.offloaded"])
+    assert dit.offloads == 1
+
+
+def test_a_handoff_without_a_dit_does_nothing():
+    assert _hand_off(None) == (False, [])
+    assert _hand_off(_HandoffDit(module=None)) == (False, [])
+
+
+def _profiled_h3_reserve(seq_chunk_rows=0, video_tokens=145_793, audio_tokens=754):
+    return estimate_activation_reserve_gb(
+        video_tokens, audio_tokens, quant_scratch=_H3_NVFP4, seq_chunk_rows=seq_chunk_rows, **_H3_KW,
+    )
+
+
+def test_chunking_the_attention_prep_pins_the_profiled_h3_clip_reserve():
+    assert _profiled_h3_reserve() == pytest.approx(25.61, abs=0.01)
+    assert _profiled_h3_reserve(18_319) == pytest.approx(14.36, abs=0.01)
+    assert _profiled_h3_reserve(146_547) == _profiled_h3_reserve()
+
+
+def test_smaller_attention_prep_chunks_never_raise_the_reserve_and_floor_at_the_held_buffers():
+    reserves = [_profiled_h3_reserve(rows) for rows in (73_274, 36_637, 18_319, 9_160, 4_580)]
+    assert reserves == sorted(reserves, reverse=True)
+    assert reserves[-1] == reserves[-2]
+
+
+def test_a_fixed_seq_chunk_also_bounds_the_mlp_chunk_the_reserve_charges():
+    tokens = 100_000
+    wide = estimate_activation_reserve_gb(tokens, inner_dim=7168, ffn_dim=14336, seq_chunk_rows=1024)
+    narrow_ffn = estimate_activation_reserve_gb(
+        tokens, inner_dim=7168, ffn_dim=14336, ffn_chunk_rows=1024, seq_chunk_rows=1024)
+    assert wide == narrow_ffn
+
+
+def _chunk_reserve(table):
+    return lambda rows: table[rows]
+
+
+def test_the_chunk_choice_takes_the_fewest_chunks_that_fit():
+    table = {5000: 9.0, 2500: 6.0, 1250: 4.0}
+    assert choose_seq_chunk_rows(10_000, _chunk_reserve(table), 6.5) == 2500
+    assert choose_seq_chunk_rows(10_000, _chunk_reserve(table), 10.0) == 5000
+
+
+def test_when_no_chunk_fits_the_choice_is_the_widest_chunk_at_the_lowest_reserve():
+    table = {5000: 9.0, 2500: 7.0, 1250: 7.0}
+    assert choose_seq_chunk_rows(10_000, _chunk_reserve(table), 1.0) == 2500
+
+
+def test_a_sequence_too_short_to_split_gets_no_chunking():
+    assert choose_seq_chunk_rows(2_000, lambda rows: 0.0, 1.0) == 0
+
+
+def _h3_placement(free_gb, *, seq_chunking=True, seq_chunk_rows=0):
+    dit, calls = _dit(estimated_vram_gb=13.89)
+    patches, _ = _patched(free_gb=free_gb)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.maybe_compile_dit"):
+        return place_dit_for_sequence(
+            dit, "cuda", video_tokens=145_793, audio_tokens=754, inner_dim=7168, ffn_dim=14336,
+            ffn_chunk_rows=24_425, seq_chunking=seq_chunking, seq_chunk_rows=seq_chunk_rows,
+        )
+
+
+def test_placement_leaves_the_attention_prep_whole_when_the_reserve_fits():
+    decision = _h3_placement(40.0)
+    assert decision.seq_chunk_rows == 0 and decision.seq_chunking is True
+    assert decision.activation_reserve_gb == pytest.approx(_profiled_h3_reserve() - 0.86, abs=0.01)
+
+
+def test_placement_chunks_the_attention_prep_with_the_fewest_chunks_that_fit():
+    decision = _h3_placement(16.0)
+    assert decision.seq_chunk_rows == 36_637
+    assert decision.activation_reserve_gb <= 16.0
+    assert _h3_placement(13.0).seq_chunk_rows == 18_319
+
+
+def test_placement_never_chunks_a_dit_that_cannot_take_it():
+    assert _h3_placement(13.0, seq_chunking=False).seq_chunk_rows == 0
+
+
+def test_placement_keeps_a_configured_seq_chunk():
+    decision = _h3_placement(40.0, seq_chunk_rows=5000)
+    assert decision.seq_chunk_rows == 5000
+
+
+def test_the_fit_hint_sees_the_chunked_reserve(caplog):
+    seen = []
+
+    def hint(free_gb, *, activation_reserve_gb, extra_reserve_gb, tokens):
+        seen.append(activation_reserve_gb)
+        return ""
+
+    dit, _ = _dit(estimated_vram_gb=13.89)
+    patches, _ = _patched(free_gb=11.74)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.maybe_compile_dit"):
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=145_793, audio_tokens=754, inner_dim=7168, ffn_dim=14336,
+            ffn_chunk_rows=24_425, seq_chunking=True, fit_hint=hint,
+        )
+    assert decision.seq_chunk_rows == 18_319
+    assert seen == [decision.activation_reserve_gb]
+
+
+def _chunk_aware_forward(max_rows):
+    seen = []
+
+    def forward(*args, seq_chunk_rows=0, **kwargs):
+        seen.append(seq_chunk_rows)
+        if not seq_chunk_rows or seq_chunk_rows > max_rows:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        return "ok"
+
+    return forward, seen
+
+
+def _chunking_decision(seq_chunking=True):
+    return DitPlacementDecision(
+        "partial", 13.89, 25.61, 0.0, 145_793, 754, 0.0, seq_chunking=seq_chunking,
+    )
+
+
+def test_a_sampling_oom_retries_with_a_chunked_attention_prep_before_raising():
+    forward, seen = _chunk_aware_forward(40_000)
+    dit, dit_calls = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision())
+    with patch(f"{_MOD}.torch.cuda.is_available", return_value=False):
+        assert guarded(seq_chunk_rows=0) == "ok"
+        assert guarded(seq_chunk_rows=0) == "ok"
+    assert seen == [0, 0, 73_274, 36_637, 36_637]
+    assert dit_calls["stream_to"] == []
+
+
+def test_a_dit_that_cannot_chunk_raises_without_trying():
+    forward, seen = _chunk_aware_forward(40_000)
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision(False))
+    with patch(f"{_MOD}._sampling_oom", return_value=ValueError("raised")), \
+         patch(f"{_MOD}.torch.cuda.is_available", return_value=False), pytest.raises(ValueError):
+        guarded(seq_chunk_rows=0)
+    assert seen == [0, 0]
+
+
+def test_an_oom_at_the_smallest_chunk_still_raises():
+    forward, seen = _chunk_aware_forward(10)
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision())
+    with patch(f"{_MOD}._sampling_oom", return_value=ValueError("raised")), \
+         patch(f"{_MOD}.torch.cuda.is_available", return_value=False), pytest.raises(ValueError):
+        guarded(seq_chunk_rows=0)
+    assert seen[-1] == 1_145 and len(seen) == 9
 
 
 _DRIVER_OOM = "CUDA error: out of memory"
@@ -2204,6 +2544,41 @@ def test_a_wsl_driver_error_that_is_not_exhaustion_is_not_retried():
 
 def test_the_wsl_driver_oom_counts_as_an_oom():
     assert is_cuda_oom(_wsl_driver_oom())
+
+
+@_LADDER_OOMS
+def test_the_chunked_attention_prep_retry_treats_a_driver_level_oom_as_an_oom(oom):
+    seen = []
+
+    def forward(*args, seq_chunk_rows=0, **kwargs):
+        seen.append(seq_chunk_rows)
+        if not seq_chunk_rows or seq_chunk_rows > 40_000:
+            raise oom()
+        return "ok"
+
+    dit, dit_calls = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision())
+    with patch(f"{_MOD}.torch.cuda.is_available", return_value=False):
+        assert guarded(seq_chunk_rows=0) == "ok"
+    assert seen == [0, 0, 73_274, 36_637]
+    assert dit_calls["stream_to"] == []
+
+
+def test_a_driver_error_in_the_chunked_attention_prep_retry_is_not_retried():
+    seen = []
+
+    def forward(*args, seq_chunk_rows=0, **kwargs):
+        seen.append(seq_chunk_rows)
+        if not seq_chunk_rows:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision())
+    with patch(f"{_MOD}.torch.cuda.is_available", return_value=False), \
+         pytest.raises(RuntimeError, match="invalid argument"):
+        guarded(seq_chunk_rows=0)
+    assert seen == [0, 0, 73_274]
 
 
 class _TensorOnCuda(torch.Tensor):
@@ -2850,7 +3225,8 @@ def test_past_the_crossover_the_fc1_output_beside_its_gelu_replaces_the_dequant_
 def test_the_fp8_gemm_path_does_not_stack_the_fc1_output_on_the_quantisers_buffers():
     tokens = 28_160
     quant = _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT * _LTX25_FFN[1]
-    reserve = estimate_activation_reserve_gb(tokens, quant_activation_bytes_per_token=quant, gelu_ffn_dim=_LTX25_FFN[1])
+    scratch = QuantScratch((QuantWidth(_FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT, _LTX25_FFN[1], None),))
+    reserve = estimate_activation_reserve_gb(tokens, quant_scratch=scratch, gelu_ffn_dim=_LTX25_FFN[1])
     plain = estimate_activation_reserve_gb(tokens)
     assert reserve - plain == pytest.approx(
         tokens * (quant + _LTX25_FFN[1] * 2) * _ACTIVATION_SAFETY_MARGIN / 1024 ** 3)
@@ -2864,13 +3240,14 @@ def test_a_dit_on_the_fp8_gemm_path_keeps_a_dequantising_layers_transient(machin
     patches, _ = _patched(free_gb=31.0)
     with patches[0], patches[1], patches[2]:
         decision = place_dit_for_sequence(dit, "cuda", video_tokens=28_160, **terms)
-    assert _dit_quant_activation_bytes_per_token(dit) > 0
+    scratch = _dit_quant_scratch(dit)
+    assert scratch.widths
     assert decision.activation_reserve_gb == pytest.approx(estimate_activation_reserve_gb(
-        28_160, quant_activation_bytes_per_token=_dit_quant_activation_bytes_per_token(dit),
+        28_160, quant_scratch=scratch,
         dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES, **terms,
     ))
     assert decision.activation_reserve_gb < estimate_activation_reserve_gb(
-        28_160, quant_activation_bytes_per_token=_dit_quant_activation_bytes_per_token(dit),
+        28_160, quant_scratch=scratch,
     ) + (28_160 * 2 * _LTX25_FFN[1] * 2) * _ACTIVATION_SAFETY_MARGIN / 1024 ** 3
 
 

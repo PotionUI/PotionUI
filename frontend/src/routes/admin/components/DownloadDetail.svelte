@@ -9,6 +9,7 @@
 		type Download
 	} from '$lib/stores/downloads';
 	import { confirmDialog } from '$lib/stores/confirm';
+	import GatedModelLink from '$lib/components/models/GatedModelLink.svelte';
 	import { Badge, Button, CopyButton, IconButton } from '$lib/components/ui';
 	import { DetailHeader, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
@@ -225,6 +226,11 @@
 						<div class="font-mono text-xs leading-relaxed text-danger bg-danger/10 border border-danger/25 rounded px-3 py-2.5 whitespace-pre-wrap break-words">
 							{download.error_message || 'Unknown error'}
 						</div>
+						{#if download.gated && download.gated_repo}
+							<div class="mt-2">
+								<GatedModelLink source={{ gated_repo: download.gated_repo }} />
+							</div>
+						{/if}
 						<div class="flex items-center gap-5 mt-3 flex-wrap">
 							<div class="flex flex-col gap-0.5">
 								<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle">Retry attempts</span>

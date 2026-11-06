@@ -269,7 +269,6 @@ from src.plugin_api.phrasebook import (
 
 # Model metadata field identifiers, and a model's marketplace provider link.
 from src.plugin_api.models import (
-    MODEL_DIRECTORY_ALIASES,
     InvalidModelMetadataException,
     ModelAssignmentException,
     ModelFileUnavailable,
@@ -278,11 +277,14 @@ from src.plugin_api.models import (
     WellKnownModelMetadataField,
     assign_model_to_user,
     get_model_provider_info,
+    index_model_file,
     model_for_path,
     model_for_sha256,
     model_type_dirs,
     model_write_dir,
     resolve_model_file,
+    directory_aliases,
+    model_types,
     run_provider_fetch,
     type_for_folder_name,
     update_model_metadata,
@@ -439,6 +441,7 @@ __all__ = [
     "NativeGeneratorHandle",
     "ProgressEmitter",
     "native_step_hooks",
+    "load_native_component",
     # Presets and generation
     "DirectorBindingError",
     "FieldDescription",
@@ -505,7 +508,9 @@ __all__ = [
     # Model metadata fields, a model's marketplace provider link, and acting on catalog models
     "WellKnownModelMetadataField",
     "get_model_provider_info",
-    "MODEL_DIRECTORY_ALIASES",
+    "index_model_file",
+    "directory_aliases",
+    "model_types",
     "model_for_path",
     "model_for_sha256",
     "model_type_dirs",
@@ -551,6 +556,7 @@ _TORCH_BACKED_EXPORTS = {
     "NativeGeneratorHandle": "src.plugin_api.native",
     "ProgressEmitter": "src.plugin_api.native",
     "native_step_hooks": "src.plugin_api.native",
+    "load_native_component": "src.plugin_api.native",
     "BackgroundMattingModel": "src.plugin_api.media",
     "SamplingCancelled": "src.plugin_api.sampling",
     "sample_euler": "src.plugin_api.sampling",

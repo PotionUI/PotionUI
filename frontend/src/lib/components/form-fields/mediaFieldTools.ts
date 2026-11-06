@@ -20,6 +20,7 @@ import type { MediaKind } from './mediaLoaderConfig';
 
 export type FieldToolId =
 	| 'edit'
+	| 'open-in-editor'
 	| 'mask'
 	| 'clear-mask'
 	| 'full'
@@ -142,6 +143,17 @@ export function buildFieldToolGroups(options: FieldToolOptions): MediaToolGroup[
 
 	if (offers('paint')) {
 		edit.push(definition('edit', 'Edit image', 'paint-brush', 'edit', mediaAvailability(options, 'paint'), 'E'));
+	}
+	if (kind === 'image' || kind === 'video') {
+		edit.push(
+			definition(
+				'open-in-editor',
+				kind === 'video' ? 'Open in Video editor' : 'Open in Image editor',
+				'external-link',
+				'edit',
+				options.missing ? { enabled: false, reason: MISSING_REASON } : { enabled: true }
+			)
+		);
 	}
 	for (const entry of options.catalogTools ?? []) {
 		edit.push(catalogDefinition(entry, options));

@@ -160,3 +160,8 @@ export async function mockAdminSocket(
 		}
 	};
 }
+
+export async function addGenerationTab(page: Page): Promise<void> {
+	await page.getByRole('button', { name: 'Add new tab' }).click();
+	await page.getByRole('menuitem', { name: /New generation/ }).click();
+}

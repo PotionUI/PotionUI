@@ -36,11 +36,11 @@ import numpy as np
 import torch
 
 from .cache_identity import identity_usable, tensor_identity
-from .base import load_into_module, release_derived_caches, release_module_storage
+from .base import NativeArchModule, load_into_module, release_derived_caches, release_module_storage
 from .detect.registry import ModelSpec, match_model_spec
 from .detect.unet_detect import detect_unet_config
 from .errors import HostMemoryExhaustedError, NativeEngineUnsupportedError, retry_after_cuda_oom
-from .io.quant_formats import FP8_DTYPES
+from .io.quant_formats import FP8_DTYPES, describe_quant_layers
 from .io.safetensors_loader import load_torch_file, load_torch_file_prefixed, load_torch_file_stripped
 from .io.state_dict_utils import weight_dtype
 from .memory.device_plan import DevicePlan, make_device_plan
@@ -70,7 +70,7 @@ from .memory.tiering import (
     ref_latents_headroom_gb,
     sampling_headroom_gb,
 )
-from .ops.dtype import is_mixed_precision, pick_dtypes
+from .ops.dtype import align_half_storage, is_mixed_precision, parse_dtype, pick_dtypes, warn_below_reference
 from .ops.fp8_quant import estimate_fp8_gb, quantize_state_dict_to_fp8, should_quantize_fp8
 from .kernels import (
     QUANT_FP8_SCALED,
@@ -82,6 +82,7 @@ from .kernels import (
     sync_nvfp4_dequant_tables,
 )
 from .sampling.denoise_loop import denoise, ensure_sampler_generator
+from .sampling.preview import preview_reserve_gb
 from .text_encoders.base import NativeTextEncoder
 from .text_encoders.loader import load_text_encoder
 from .detect.vae_detect import (
@@ -205,6 +206,10 @@ _FORWARD_KWARGS = (
     "ref_boost",
     "ref_boost_a",
     "ref_boost_mask",
+    "ref_position",
+    "ref_position_a",
+    "ref_timestep_zero",
+    "ref_isolated",
     "flow_map_target",
     "text_fusion",
 )
@@ -916,7 +921,10 @@ class NativeEngineLoader:
 
     # -- per-kind ----------------------------------------------------------
 
-    def _load_dit(self, path: str | Path, model_patch: str | Path | None = None) -> NativeModel:
+    def _load_dit(
+        self, path: str | Path, model_patch: str | Path | None = None,
+        compute_dtype: str | torch.dtype | None = None,
+    ) -> NativeModel:
         sd, metadata = load_torch_file_stripped(path, device="cpu")
         get_profiler().mark("load.dit.read", est_gb=_estimated_gb(sd))
 
@@ -953,8 +961,15 @@ class NativeEngineLoader:
             sd, spec, quant_format, sd_dtype, est_gb,
         )
 
-        _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
+        compute_dtype = parse_dtype(compute_dtype)
+        if compute_dtype is None:
+            _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
+        reference_dtype = parse_dtype(spec.reference_dtype)
+        if align_half_storage(sd, compute_dtype, reference_dtype):
+            sd_dtype = weight_dtype(sd)
+        warn_below_reference(f"{spec.family}/{spec.variant}", reference_dtype, compute_dtype)
         storage_dtype = sd_dtype or compute_dtype
+        quant_layers = describe_quant_layers(sd) if quant_format else None
 
         ops = self._ops_for("dit", est_gb, storage_dtype, compute_dtype, quant_format, sd)
         # Build empty on the meta device so a multi-GB DiT never allocates real
@@ -963,7 +978,12 @@ class NativeEngineLoader:
         with torch.device("meta"):
             module = spec.resolve_model_class().from_config(config, ops)
         load_into_module(module, sd, spec)
-        get_profiler().mark("load.dit.built", est_gb=est_gb, quant_format=quant_format)
+        if isinstance(module, NativeArchModule):
+            module.compute_dtype = compute_dtype
+        get_profiler().mark(
+            "load.dit.built", est_gb=est_gb, quant_format=quant_format, quant_layers=quant_layers,
+            compute_dtype=str(compute_dtype).removeprefix("torch."),
+        )
 
         logger.debug("loaded DiT %s/%s (%.2fGB, quant=%s)", spec.family, spec.variant, est_gb, quant_format)
         return NativeModel(
@@ -1237,7 +1257,7 @@ class NativeGenerator:
                 total += sum(p.numel() * p.element_size() for p in inner.parameters())
         return total / (1024 ** 3)
 
-    def _build_placement(self, latents_shape, ref_latents=None) -> PlacementPlan | None:
+    def _build_placement(self, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> PlacementPlan | None:
         """Placement for this run: explicit override, else fit-based with the
         SAMPLING-phase headroom. Decode is phase-separated — weights are freed
         before decode and the decode tiles when its spike wouldn't fit — so the
@@ -1267,6 +1287,7 @@ class NativeGenerator:
             (latents_shape[-2], latents_shape[-1]), latent_frames=_latent_frames(latents_shape)
         )
         headroom += ref_latents_headroom_gb(self._ref_hw_frames(ref_latents))
+        headroom += max(0.0, float(preview_reserve_gb))
         return plan_placement(
             budget, sizes, self.dit.quant_format, self.device_plan,
             working_headroom_gb=headroom,
@@ -1486,7 +1507,7 @@ class NativeGenerator:
                     torch.cuda.empty_cache()
                 self.dit.stream_to(device, budget)
 
-    def _dit_weights_budget_gb(self, latents_shape, ref_latents=None) -> float:
+    def _dit_weights_budget_gb(self, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> float:
         """VRAM (GB) available for RESIDENT DiT weights under partial residency.
 
         Foreign residents are evicted first (``_ensure_room_for``); then the live
@@ -1509,9 +1530,10 @@ class NativeGenerator:
             (latents_shape[-2], latents_shape[-1]), latent_frames=_latent_frames(latents_shape)
         )
         headroom += ref_latents_headroom_gb(self._ref_hw_frames(ref_latents))
+        headroom += max(0.0, float(preview_reserve_gb))
         return max(0.0, free - headroom)
 
-    def _stream_dit_to_gpu(self, device: str, latents_shape, ref_latents=None) -> None:
+    def _stream_dit_to_gpu(self, device: str, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> None:
         """Place the DiT with partial residency for sampling.
 
         Keeps as many leaves resident as fit the weights budget and streams the
@@ -1523,7 +1545,7 @@ class NativeGenerator:
         if not str(device).startswith("cuda"):
             self.dit.move_to(device)
             return
-        budget = self._dit_weights_budget_gb(latents_shape, ref_latents=ref_latents)
+        budget = self._dit_weights_budget_gb(latents_shape, ref_latents=ref_latents, preview_reserve_gb=preview_reserve_gb)
         try:
             self.dit.stream_to(device, budget)
         except RuntimeError as exc:
@@ -1729,6 +1751,7 @@ class NativeGenerator:
         warm_start: bool = False,
         schedule_settings: dict | None = None,
         sigmas: "Sequence[float] | torch.Tensor | None" = None,
+        latent_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Denoise from seeded noise to a clean latent (model-native space).
 
@@ -1786,6 +1809,8 @@ class NativeGenerator:
         which one wins, so ``denoise_strength`` is simply inert here, matching
         ``denoise()``'s own documented contract for this kwarg).
         """
+        if latent_mask is not None and init_latent is None:
+            raise ValueError("latent_mask needs an init_latent to preserve")
         opts = guidance_options or {}
         sigmas_tensor = _validate_explicit_sigmas(sigmas) if sigmas is not None else None
         effective_steps = int(sigmas_tensor.numel() - 1) if sigmas_tensor is not None else steps
@@ -1794,11 +1819,13 @@ class NativeGenerator:
         # the same DiT forward as the main image but aren't reflected in
         # `latents_shape` at all — fold them into the placement/budget headroom
         # `cond` and `uncond` always carry the same ref_latents (see
-        # qwen_clip.py / krea2-edit's own conditioning build), so cond alone is enough.
+        # qwen_clip.py), so cond alone is enough.
         ref_latents = cond_dict.get("ref_latents")
         # Resolution-aware placement drives phase residency (esp. whether the DiT
         # must be offloaded before decode to make room for the decode spike).
-        self.placement = self._build_placement(latents_shape, ref_latents=ref_latents)
+        hooks = list(hooks or ())
+        preview_gb = preview_reserve_gb(hooks, latents_shape)
+        self.placement = self._build_placement(latents_shape, ref_latents=ref_latents, preview_reserve_gb=preview_gb)
         device = self.device_plan.dit_device
         dtype = self.dit.compute_dtype
         # Evict a prior generation's / other family's still-resident DiT before
@@ -1813,7 +1840,7 @@ class NativeGenerator:
             # per-forward weight swap is incompatible with a compiled graph.
             self._maybe_compile()
         else:
-            self._stream_dit_to_gpu(device, latents_shape, ref_latents=ref_latents)
+            self._stream_dit_to_gpu(device, latents_shape, ref_latents=ref_latents, preview_reserve_gb=preview_gb)
 
         if init_latent is not None:
             latents = init_latent.to(device=device, dtype=dtype)
@@ -1879,6 +1906,7 @@ class NativeGenerator:
                     step_cache_options=step_cache_options,
                     resume=resume,
                     sigmas=sigmas_tensor,
+                    latent_mask=latent_mask,
                 )
             finally:
                 self._release_dit_after_sampling()

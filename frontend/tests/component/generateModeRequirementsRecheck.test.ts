@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 vi.mock('$lib/services/websocket', async (importOriginal) => {
@@ -131,12 +132,12 @@ function generateButton(target: HTMLElement) {
 
 function activeTab() {
 	const state = get(tabsStore);
-	return state.tabs.find((tab) => tab.id === state.activeTabId)!;
+	return generationTabs(state.tabs).find((tab) => tab.id === state.activeTabId)!;
 }
 
 async function render() {
 	invalidatePresets();
-	tabsStore.updateTab(get(tabsStore).tabs[0].id, {
+	tabsStore.updateTab(generationTabs(get(tabsStore).tabs)[0].id, {
 		selectedPreset: 'ltx25',
 		selectedMode: 'day_to_night',
 		selectedVariant: 'fast',

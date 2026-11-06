@@ -34,7 +34,40 @@ The text encoder is Qwen3-VL-4B. The VAE is the Wan 2.1 causal-3D VAE verbatim �
 
 ## Presets & modes
 
-The shipped Krea-2 preset ships `txt2img` and `enhance`.
+The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale` and `edit`.
+
+### Upscale
+
+`upscale` enlarges an existing picture 2x, 3x or 4x and rebuilds its detail with Krea-2. It runs the family-agnostic `tiled_refiner` pipe: the picture is enlarged (an optional ESRGAN upscaler model, otherwise Lanczos), then each overlapping tile is refined by a low-denoise img2img pass and the seams are feathered. Peak memory is set by one tile (1024 px by default), not by the output size, so a 4x result refines in the same memory as a 1x one.
+
+`enhance` is the other way to refine an existing picture and is not replaced. It re-noises the whole enlarged frame and walks only the last 1 to 3 steps of Krea-2's fixed-mu 8-step schedule, which keeps the picture globally coherent but needs the whole frame resident and is marked experimental. Use `upscale` for large outputs, for low memory or when an ESRGAN model should do the enlargement; use `enhance` for a light single-pass refine at up to 2x.
+
+- **Added detail** is the per-tile denoise: Subtle 0.2, Balanced 0.3, Strong 0.45. **Calm flat areas** (content-aware) scales each tile's denoise by its texture so sky and skin cannot grow details the prompt does not describe.
+- The prompt is optional. Describing the picture keeps the added detail on target.
+- Turbo defaults: 8 steps, CFG 1, Euler. Tile size and overlap are in the Advanced tab.
+
+Not validated on GPU: the tail of Krea-2's distilled schedule under `tiled_refiner`'s denoise-truncated img2img is untested against real weights.
+
+### Edit
+
+`edit` changes a picture from a text instruction. The source picture is VAE-encoded and prepended to the target sequence as clean in-context tokens (RoPE frame 1, a second picture at frame 2), so the model reads it through a path distinct from img2img. It needs an edit LoRA trained for that sequence; a style or character LoRA does not activate editing. Generator: `generator/krea2_edit` (`src/pipelines/pipes/generator/krea2_edit/`), derived from comfyui-krea2edit by lbouaraba (Apache-2.0).
+
+| Task | Edit LoRA | Steps | CFG | Reference fidelity | Reference placement |
+| --- | --- | --- | --- | --- | --- |
+| Edit the picture (remove, recolor, relight, restyle) | General Edit v2 | 8 (turbo) | 1 | 4 (auto) | pinned |
+| Remove or delete large areas | General Edit v2 on the raw checkpoint | about 20 | 3 | 4 | pinned |
+| Place a person | Identity Edit v2 | 8 (turbo) | 1 | 2 (auto) | beside |
+
+- **Reference fidelity** (`ref_boost`) multiplies target-to-reference attention for the last picture; the first picture takes **Scene fidelity** (`ref_boost_a`). 0 means automatic from the Task. A painted Inpaint mask on the picture the dial targets restricts the boost to that region (a face, say). The mask is resampled to its picture's size, then fitted exactly as the picture is, so it stays aligned through a Fit or Crop. `fit_ref_mask` and `fit_source_image` in `generator/krea2_edit/geometry.py` are the reusable pieces.
+- **Reference placement** (`ref_position`, `ref_position_a`) sets where each picture sits in RoPE space. Pinned (the trained layout) keeps the picture's layout; Beside shifts it right of the canvas so identity flows but the layout pin is gone, which restages a person more freely. Scene pinned with the person beside gives the most natural composites. The v2 LoRAs were trained pinned only; Beside is new. The implementation is `arch/krea2/placement.py`.
+- **Read the picture** loads the text encoder's Qwen3-VL vision tower so the instruction is encoded together with the picture ("the man on the left" resolves). It is on by default because the v2 LoRAs were trained with this dual conditioning. The recommended `qwen3vl_4b_fp8_scaled` encoder ships the tower. **Reading detail** (`grounding_px`, default 768) caps the longest side the encoder sees.
+- **Source fit** `fit` resamples the whole picture into the frame; `crop` centre-crops to the output aspect ratio and is for v1 weights.
+- Generate at 2 megapixels or less.
+- Use one edit LoRA per task. Both v2 LoRAs at 1.0 together break the image; about 0.6 each is the author's combination.
+
+Licences, checked on the model card: the v2 LoRAs ship under the Krea 2 Community License plus the author's Identity Edit V2 licence, free for non-commercial use, with commercial use requiring a licence from the author (and an enterprise licence from Krea above $1M revenue). The v1.2 LoRA is under the Krea 2 Community License only.
+
+Not validated on GPU: Beside and the fidelity defaults are taken from the author's recommended-settings tables, and the CFG above 1 removal path grounds the negative prompt through the shared prompt encoder.
 
 ## Sampling
 
@@ -52,7 +85,6 @@ Turbo/Balanced stay CFG-off (`cfg=1.0`, single forward) — byte-identical to th
 **Enhance (`refine_tail`).** Enhance walks the tail of the official fixed-mu 8-step grid: Subtle is 1 step (sigma 0.311 to 0), Balanced 2 steps (0.513, 0.311, 0) and Strong 3 steps (0.655, 0.513, 0.311, 0). Because those sigmas are the distilled checkpoint's training points, the tail always runs cfg 1.0 and `euler`, whatever the CFG Scale field or the speed profile say (the standalone `enhance` mode has no speed profile and is always treated as distilled). On the Base profile the inline Enhance instead builds the tail from a 24-step resolution-anchored dynamic-mu schedule for the actual upscaled size, starting at the grid sigma closest to the turbo tail's start and never shorter than 2 steps, and keeps the profile's CFG; it raises an error when that schedule would re-noise the image almost completely (about 3072 px and up, so 4x). Subtle is not offered at 4x: the field falls back to Balanced. Running Euler at CFG 1 over the grid's own sigmas is what clears leftover noise: Subtle, Balanced and Strong finish clean in 1 to 3 steps.
 
 The Advanced tab's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `krea2`) share one row and are registry-driven: they list whatever this instance has registered — the core samplers and schedules plus any a plugin contributes — rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md). Schedule's default, `shift`, is the shift-based mu selection the table above describes; every other schedule bypasses the mu/shift math outright — `beta` and friends ignore `mu_schedule`/`fixed_mu`/`dynamic_shift` entirely, so pairing one with the Base profile has no extra effect beyond Base's own CFG change. Civitai users porting a recipe typically pair `er_sde` + Beta for photographic skin and fabric texture at the cost of losing the turbo checkpoint's tuned schedule; `euler` + `shift` stays the fastest, most-tested combination and is the right default outside a specific recipe.
-
 
 **NAG vs CFG**: `nag_scale`/`nag_tau`/`nag_alpha` (Normalized Attention Guidance) exist to give the negative prompt influence at `cfg=1.0`, when no negative-conditioned forward runs. Real CFG (`cfg>1.0`) already runs that forward pass; stacking NAG on top of it is unvalidated and likely redundant. The Turbo/Balanced-only NAG toggle resets to off when the form's speed profile switches to Quality or Base.
 

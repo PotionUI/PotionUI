@@ -1,0 +1,14 @@
+schema_version: 1
+label: "Edit"
+prompt: true
+quantity_field: "count"
+inputs:
+  references:
+    label: "Reference image"
+    media_type: "image"
+    target: {kind: "form_field", field: "references"}
+outputs:
+  images:
+    label: "Edited images"
+    media_type: "image"
+    selector: {is_final: true, is_derived: false}

@@ -5,7 +5,7 @@ container.
 """
 
 import sys
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.backends.base_backend import ExecutionDeviceEvidence
@@ -192,6 +192,7 @@ def build_requirement_context_for_backend(
     models: Optional[ModelIndexCollaborators],
     gpu_monitor: Optional[GpuMonitor],
     backend: Optional[RequirementBackendInfo],
+    form_overrides: Optional[Dict[str, Any]] = None,
 ) -> RequirementContext:
     """Same as `build_requirement_context`, but against an already-resolved
     `backend` (or `None` for a pure host context) rather than looking up the
@@ -221,6 +222,7 @@ def build_requirement_context_for_backend(
         backend=backend,
         platform=sys.platform,
         gpu_unavailable_reason=gpu_unavailable_reason,
+        form_overrides=form_overrides,
     )
 
 
@@ -229,6 +231,7 @@ def build_requirement_context(
     models: Optional[ModelIndexCollaborators],
     gpu_monitor: Optional[GpuMonitor],
     backend_registry: Optional[BackendRegistry],
+    form_overrides: Optional[Dict[str, Any]] = None,
 ) -> RequirementContext:
     """Gather everything `evaluate_preset_requirements` needs to check
     `preset.requirements` against this instance, once per evaluation -
@@ -238,4 +241,4 @@ def build_requirement_context(
     read `ctx.backend` for anything but the VRAM-reading's execution-device
     guard above."""
     backend = _resolve_backend(backend_registry, preset.engine)
-    return build_requirement_context_for_backend(preset, models, gpu_monitor, backend)
+    return build_requirement_context_for_backend(preset, models, gpu_monitor, backend, form_overrides)

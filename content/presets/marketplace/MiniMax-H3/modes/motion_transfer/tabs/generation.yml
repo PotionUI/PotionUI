@@ -1,0 +1,47 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "quality"
+    ai_hint: "Quality runs 24 steps and keeps the picture's look best; use it for anything final. Turbo runs 4 steps and has not been checked with the pose guide. Custom hands the Steps slider on the Advanced tab to the user."
+    configuration:
+      options:
+        - { label: "Quality", value: "quality", sub_label: "24 steps" }
+        - { label: "Turbo", value: "turbo", sub_label: "4 steps" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps, left alone" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "sound"
+        type: "select"
+        label: "Sound"
+        default: "generate"
+        description: "What the result sounds like."
+        ai_hint: "Generate makes new sound that fits the scene. Keep the video's sound uses the sound of the Video as it is."
+        configuration:
+          options:
+            - { label: "Generate", value: "generate" }
+            - { label: "Keep the video's sound", value: "keep" }
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models_motion_transfer.yml"

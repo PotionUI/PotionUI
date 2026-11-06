@@ -93,8 +93,10 @@ from .layers import (
     TextFusionTransformer,
     _nag_active,
     ref_attn_bias,
+    ref_isolation_bias,
     temb,
 )
+from .placement import place_refs, ref_position_modes
 from .text_fusion import enhanced_fusion, fusion_key
 
 
@@ -243,7 +245,7 @@ class Krea2(NativeArchModule):
             return list(ref_latents)
         return [ref_latents]
 
-    def _pack_tokens(self, latent: Tensor, refs: list[Tensor]) -> Tensor:
+    def _pack_tokens(self, latent: Tensor, refs: list[Tensor], ref_positions: tuple[str, ...] = ()) -> Tensor:
         """Patchify the noisy target latent, prefixed by any reference latents.
 
         The one part of the stream inputs that reads latent VALUES, so it is
@@ -260,7 +262,8 @@ class Krea2(NativeArchModule):
         ref_tokens: list[Tensor] = []
         for i, ref in enumerate(refs):
             _, _, rh, rw = ref.shape
-            if rh > h or rw > w:
+            origin = i < len(ref_positions) and ref_positions[i] == "origin"
+            if (rh > h or rw > w) and not origin:
                 raise ValueError(
                     f"krea2 ref_latents[{i}] grid {(rh, rw)} exceeds the target grid "
                     f"{(h, w)} -- fit the source to at most the target resolution before "
@@ -271,7 +274,8 @@ class Krea2(NativeArchModule):
         return torch.cat(ref_tokens + [img], dim=1)
 
     def _stream_geometry(self, latent: Tensor, txt_len: int, txt_mask: Tensor | None,
-                         refs: list[Tensor]) -> tuple[Tensor, Tensor | None]:
+                         refs: list[Tensor],
+                         ref_positions: tuple[str, ...] = ()) -> tuple[Tensor, Tensor | None]:
         """The ``(pos, mask)`` half of :meth:`build_stream_inputs`.
 
         A property of the sequence SHAPES alone (target grid, batch, text
@@ -291,7 +295,7 @@ class Krea2(NativeArchModule):
 
         # Derived from: github.com/lbouaraba/comfyui-krea2edit __init__.py
         # krea2_edit_forward (Apache-2.0) — the per-source RoPE frame index.
-        ref_pos: list[Tensor] = []
+        ref_grid_ids: list[Tensor] = []
         ref_len = 0
         for i, ref in enumerate(refs):
             gh, gw = ref.shape[-2] // p, ref.shape[-1] // p
@@ -307,7 +311,10 @@ class Krea2(NativeArchModule):
             refids[..., 0] = i + 1
             refids[..., 1] = (torch.arange(gh, device=device, dtype=torch.float32) + off_h)[:, None]
             refids[..., 2] = (torch.arange(gw, device=device, dtype=torch.float32) + off_w)[None, :]
-            ref_pos.append(repeat(refids, "h w three -> b (h w) three", b=b))
+            ref_grid_ids.append(refids)
+        if ref_positions:
+            ref_grid_ids = place_refs(ref_grid_ids, ref_positions, h_, w_)
+        ref_pos = [repeat(ids, "h w three -> b (h w) three", b=b) for ids in ref_grid_ids]
 
         pos = torch.cat([txtpos] + ref_pos + [imgpos], dim=1)
         if txt_mask is None:
@@ -326,7 +333,8 @@ class Krea2(NativeArchModule):
     def _branch_inputs(self, x: Tensor, context: Tensor, txt_mask: Tensor | None,
                        refs: list[Tensor], nag_context: Tensor | None,
                        nag_txt_mask: Tensor | None, nag: dict | None,
-                       text_fusion: dict | None = None) -> _BranchInputs:
+                       text_fusion: dict | None = None,
+                       ref_positions: tuple[str, ...] = ()) -> _BranchInputs:
         """Position ids, joint key-padding mask and fused text for one branch.
 
         Every one of them is a property of the guidance branch and the weights,
@@ -347,22 +355,24 @@ class Krea2(NativeArchModule):
         cache = getattr(self, "run_cache", None)
         nag_on = nag_context is not None and _nag_active(nag)
         fusion = fusion_key(text_fusion)
-        build = partial(self._build_branch, x, context, txt_mask, refs, nag_context, nag_txt_mask, nag_on, text_fusion)
+        build = partial(self._build_branch, x, context, txt_mask, refs, nag_context, nag_txt_mask, nag_on, text_fusion,
+                        ref_positions)
         if cache is None:
             return build()
         b, _, h, w = x.shape
         return cache.memo(
             "krea2.branch",
             (context, txt_mask, nag_context if nag_on else None, nag_txt_mask if nag_on else None),
-            (x.dtype, x.device, b, h, w, tuple(tuple(r.shape[-2:]) for r in refs), nag_on, fusion),
+            (x.dtype, x.device, b, h, w, tuple(tuple(r.shape[-2:]) for r in refs), nag_on, fusion, ref_positions),
             build,
         )
 
     def _build_branch(self, x: Tensor, context: Tensor, txt_mask: Tensor | None,
                       refs: list[Tensor], nag_context: Tensor | None,
                       nag_txt_mask: Tensor | None, nag_on: bool,
-                      text_fusion: dict | None = None) -> _BranchInputs:
-        pos, mask = self._stream_geometry(x, context.shape[1], txt_mask, refs)
+                      text_fusion: dict | None = None,
+                      ref_positions: tuple[str, ...] = ()) -> _BranchInputs:
+        pos, mask = self._stream_geometry(x, context.shape[1], txt_mask, refs, ref_positions)
         fused = self.prepare_context(context, mask, text_fusion)
         nag_fused = None
         if nag_on:
@@ -443,7 +453,7 @@ class Krea2(NativeArchModule):
                    ref_len: int = 0, attn_bias: Tensor | None = None,
                    nag_fused: Tensor | None = None, nag: dict | None = None,
                    nag_attention_mask: Tensor | None = None,
-                   rotary: dict | None = None) -> Tensor:
+                   rotary: dict | None = None, ref_vec: Tensor | None = None) -> Tensor:
         """Core DiT pass: image projection + concat + rotary embed + block
         loop + text-prefix slice + final layer — matches diffusers'
         ``self.img_in(...)``, ``cat([encoder_hidden_states, hidden_states])``,
@@ -524,10 +534,11 @@ class Krea2(NativeArchModule):
         # FBCache: block-0's joint-sequence output is the change proxy; a skip
         # reuses the last computed output and bypasses blocks 1..N + self.last.
         probe = None
+        ref_kwargs = {"ref_vec": ref_vec, "ref_span": (txtlen, txtlen + ref_len)} if ref_vec is not None and ref_len else {}
         for i, block in enumerate(self.blocks):
             raise_if_cancelled(i)
             combined = block(combined, tvec, freqs, attn_mask, nag_fused=nag_fused,
-                              nag_freqs=nag_freqs, nag_mask=nag_mask, nag=nag, txt_len=txtlen)
+                              nag_freqs=nag_freqs, nag_mask=nag_mask, nag=nag, txt_len=txtlen, **ref_kwargs)
             if i == 0 and step_cache is not None:
                 probe = combined
                 if step_cache.should_skip(probe):
@@ -538,6 +549,17 @@ class Krea2(NativeArchModule):
         if step_cache is not None and probe is not None:
             step_cache.record_compute(probe, out)
         return out
+
+    def _isolation_bias(self, txt_len: int, ref_len: int, tgt_len: int,
+                        device: torch.device, dtype: torch.dtype) -> Tensor:
+        cache = getattr(self, "run_cache", None)
+
+        def build() -> Tensor:
+            return ref_isolation_bias(txt_len, ref_len, tgt_len, device, dtype)
+
+        if cache is None:
+            return build()
+        return cache.memo("krea2.isolation", (), (txt_len, ref_len, tgt_len, dtype, device), build)
 
     def _maybe_ref_bias(self, refs: list[Tensor], txt_len: int, tgt_len: int,
                         ref_boost: float, ref_boost_a: float,
@@ -572,6 +594,8 @@ class Krea2(NativeArchModule):
                 ref_latents: Tensor | list[Tensor] | None = None,
                 ref_boost: float = 1.0, ref_boost_a: float = 1.0,
                 ref_boost_mask: Tensor | None = None,
+                ref_position: str = "aligned", ref_position_a: str = "aligned",
+                ref_timestep_zero: bool = False, ref_isolated: bool = False,
                 nag_context: Tensor | None = None, nag: dict | None = None,
                 nag_attention_mask: Tensor | None = None,
                 text_fusion: dict | None = None, **kwargs) -> Tensor:
@@ -626,18 +650,28 @@ class Krea2(NativeArchModule):
         ref_len = sum((r.shape[-2] // self.config.patch) * (r.shape[-1] // self.config.patch)
                       for r in refs)
 
-        img_tokens = self._pack_tokens(x, refs)
+        ref_positions = ref_position_modes(len(refs), ref_position, ref_position_a)
+        if all(mode == "aligned" for mode in ref_positions):
+            ref_positions = ()
+        img_tokens = self._pack_tokens(x, refs, ref_positions)
         branch = self._branch_inputs(x, context, attention_mask, refs,
-                                     nag_context, nag_attention_mask, nag, text_fusion)
+                                     nag_context, nag_attention_mask, nag, text_fusion, ref_positions)
         t_emb, tvec = self.prepare_timestep(t, x.dtype)
         p = self.config.patch
         attn_bias = self._maybe_ref_bias(
             refs, context.shape[1], (h // p) * (w // p), ref_boost, ref_boost_a, x.device, x.dtype,
             ref_boost_mask=ref_boost_mask,
         )
+        ref_vec = None
+        if refs and ref_timestep_zero:
+            _, ref_vec = self.prepare_timestep(torch.zeros_like(t), x.dtype)
+        if refs and ref_isolated:
+            isolation = self._isolation_bias(context.shape[1], ref_len, (h // p) * (w // p), x.device, x.dtype)
+            attn_bias = isolation if attn_bias is None else attn_bias.to(x.dtype) + isolation
         out = self.run_blocks(img_tokens, branch.fused, t_emb, tvec, branch.pos, branch.mask,
                                step_cache=kwargs.get("step_cache"), ref_len=ref_len,
                                attn_bias=attn_bias, nag_fused=branch.nag_fused, nag=nag,
-                               nag_attention_mask=nag_attention_mask, rotary=branch.rotary)
+                               nag_attention_mask=nag_attention_mask, rotary=branch.rotary,
+                               ref_vec=ref_vec)
         latent = self.unpatchify(out, h // self.config.patch, w // self.config.patch)
         return latent.unsqueeze(2) if video_5d else latent

@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, addGenerationTab } from './helpers';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 // Coverage for the chat tab-context strip (ChatContextStrip.svelte, driven by
@@ -66,7 +66,7 @@ test('strip follows the active tab, and its picker resolves pinned-active and pi
 	await expect(page.locator('.book-tab').filter({ hasText: 'Generation 1' })).toBeVisible({
 		timeout: 15000
 	});
-	await page.locator('button[aria-label="Add new tab"]').click();
+	await addGenerationTab(page);
 	await expect(page.locator('.book-tab').filter({ hasText: 'Generation 2' })).toBeVisible({
 		timeout: 10000
 	});

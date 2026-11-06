@@ -28,6 +28,7 @@
 		eligibleOptions,
 		buildVariablesForSubmit,
 		isVariableLinked,
+		choiceLacksOption,
 		usagesShareRoll,
 		isWhenTarget,
 		type ChoiceVariableMode,
@@ -636,6 +637,9 @@
 									{/each}
 								</div>
 							</div>
+							{#if choiceLacksOption(row.def)}
+								<p class="text-sm text-danger" data-testid="variable-options-error">Add at least one option.</p>
+							{/if}
 						</div>
 						<p class="text-sm text-fg-subtle">
 							{#if whenTarget}

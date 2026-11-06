@@ -43,6 +43,7 @@ fields:
               options:
                 - { label: "Simple (reference)", value: "simple" }
                 - { label: "Beta", value: "beta" }
+                - { label: "Beta57", value: "beta57" }
 
   - type: "section"
     label: "Refine"

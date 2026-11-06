@@ -7,10 +7,11 @@ order: 20
 
 # Plugin-Contributed Presets
 
-Two distinct ways a plugin extends the preset system: shipping a whole new preset (a
-`presets:` manifest root, scanned exactly like the core tree — see
-[Canonical layout](../presets.md#canonical-layout)), and contributing one or more MODES onto
-a preset it doesn't own (`preset_modes:`, this page).
+Three ways a plugin extends the preset system: shipping a whole new preset (a `presets:`
+manifest root, scanned exactly like the core tree — see
+[Canonical layout](../presets.md#canonical-layout)), contributing one or more MODES onto a preset
+it doesn't own (`preset_modes:`), and attaching fields, pipes and prompt resources to modes that
+already exist (`preset_extensions:`). The last two are described on this page.
 
 ## Plugin-contributed modes
 
@@ -95,9 +96,118 @@ exactly like a core mode's would, because both read from the SAME merged `Preset
 under-configured field does (no filtering, not an error) - and the same lint cross-check that
 catches an undeclared `@config:` reference on a core preset's field catches it here too.
 
-**Real example**: `content/plugins/marketplace/krea2-edit/` contributes an `edit` mode onto the native
-Krea-2 preset (`content/presets/marketplace/Krea2/`) - instruction-based image editing is a mode of Krea 2, not
-a separate model, so it ships as a contribution rather than the standalone preset it used to be.
-Its fields keep their existing `@config:checkpoint_tags`/`text_encoder_tags`/`vae_tags`/`lora_tags`
-indirection unchanged, since the native Krea2 preset already declares those same four keys.
+A contributed mode's fields may keep the `@config:checkpoint_tags`/`text_encoder_tags`/`vae_tags`/`lora_tags` indirection, which resolves against the target preset's `configuration:`.
 
+## Extending existing modes
+
+`preset_extensions:` attaches pieces to modes a preset already has, without replacing them: form
+fields go into an existing tab or section, pipes are added to or patched in the mode's pipeline,
+and prompt resources and Director reference fields are appended. Use it when a plugin adds one
+capability to a mode (an extra reference input, a post-processing pass) rather than a whole new
+mode.
+
+```yaml
+# manifest.yml
+preset_extensions:
+  - target: "4TK1KBQZ2XMB8ME0PTMXS1YJQP"   # the target preset's id
+    modes: ["txt2img"]                     # mode names on that preset, core or plugin-contributed
+    file: "extensions/krea2.yml"           # relative to the plugin root
+```
+
+### Anchors
+
+Fields are placed by a tab's or section's `anchor:`, a stable key that never changes with the
+copy. Every shipped preset tab carries one (the name of its `tabs/<anchor>.yml` file, or its label
+in lowercase when the tab is inline); a section is targetable once its preset gives it one:
+
+```yaml
+- type: "tab"
+  anchor: "advanced"
+  label: "Advanced"
+  children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"
+
+- type: "section"
+  anchor: "sampling"
+  label: "Sampling"
+```
+
+`anchor:` is valid only on `tab` and `section`, must be lowercase letters, digits, `_` or `-`, and
+must be unique per type within one form. It is not sent to the frontend and is not a form value,
+so adding one never changes a form's `form_data`.
+
+### The extension file
+
+```yaml
+fields:
+  - into: {tab: "advanced"}        # or {section: "<anchor>"}
+    after: "cfg"                   # or before: "<field name>"; neither appends to the end
+    fields:                        # or file: "fields/grain.yml" (a file with a `fields:` list)
+      - name: "grain_intensity"
+        type: "slider"
+        label: "Grain"
+        description: "Film grain amount."
+        default: 0.3
+        configuration: {min: 0.0, max: 1.0, step: 0.05}
+
+pipes:
+  - add:                           # a full pipe node, with its own id
+      name: "film_grain"
+      id: "grain"
+      enabled: "{{ form.grain_intensity > 0 }}"
+      input:
+        - ["image", "generator", "image"]
+      configuration:
+        intensity: "{{ form.grain_intensity }}"
+    after: "generator"             # or before: "<pipe id>"; neither appends to the end
+  - patch: "generator"             # a pipe id, or a name used by only one pipe
+    input_add:
+      - ["mask", "loader", "mask"]
+    configuration_add:
+      detail_strength: 0.0
+
+prompt_resources:                  # appended to each named mode's prompt_resources
+  - {field: "grain_refs", kind: "image", token: "<grain @>"}
+
+director_reference_fields: ["grain_refs"]
+```
+
+- **Fields** follow the normal schema rules of [Form Fields](forms.md): they bring their own
+  `when:`, `reactions:`, `audience:`, `hidden_when_video_director:` and so on. `after`/`before`
+  names a field anywhere inside the target tab or section, including inside one of its rows or
+  sections; the new fields go next to it in the same container. `{{ paths.preset }}` inside an
+  extension's `children:` resolves to the folder holding the extension file, `{{ paths._shared }}`
+  to the core shared tree. Each field is applied to every form variant of each named mode.
+- **Pipes** are add-only. An added pipe needs an `id` no pipe in the mode uses as its id or name,
+  and may share a `name` with an existing pipe only if nothing in the mode wires to that pipe by
+  name. A patch may only add input params and configuration keys the pipe does not set yet; a key
+  set by core or by an earlier extension is a conflict.
+- **`prompt_resources`** use the shape of `preset.yml`'s
+  [prompt resources](manifest.md#prompt-resources), and every `field` must exist in the mode.
+- **`director_reference_fields`** are appended to the Director's `reference_fields` for each named
+  mode (written to `vars.video_director.preset_mode_overrides.<mode>.reference_fields`, starting
+  from what that mode has today). The mode must be a Video Director mode, and each name must be a
+  field of the mode not already listed.
+
+### Order, conflicts and provenance
+
+- Extensions apply after `preset_modes:` contributions, so a plugin-contributed mode can be
+  extended too. They run in the same order: by plugin id, then declaration order.
+- Each extension is all-or-nothing. A missing tab, section, field or pipe, a mode the preset does
+  not have, a field name or anchor the form already has, a conflicting pipe key or prompt
+  resource, or a field that fails schema validation rejects the whole extension. The preset loads
+  unchanged, and the error is recorded in `load_errors` under
+  `plugin '<id>' preset_extensions (target '<preset>', file '<file>')`.
+- A target preset that is not installed means the extension is simply absent, not an error.
+- An extension only applies while its plugin is enabled; disabling the plugin reloads presets
+  without it.
+- Every field an extension adds carries `source_plugin: <plugin id>` in the form schema the
+  frontend receives; added pipes carry it on their `PipeTemplate`.
+
+`scripts/preset_lint.py` and `GET /api/developer/presets/lint` re-run the same merge and report a
+rejected extension as an error. They also check every added pipe's name against the pipe catalog
+(an error) and warn about configuration keys a pipe does not declare. To see the merged pipeline,
+render the mode with the plugin enabled:
+
+```bash
+python scripts/preset_render.py <preset-id> <mode> --plugin-dir <path/to/plugin>
+```

@@ -5,7 +5,7 @@ import logging
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
-from src.features.models.indexer import ModelScanner
+from src.platform.filesystem.model_types import model_types
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -40,11 +40,8 @@ class DictionaryController(BaseController):
             These types correspond to the directory structure in the models folder.
             """
             try:
-                # Get model types from the scanner's directory->type mapping
-                model_types = list(ModelScanner.MODEL_TYPE_MAPPING.values())
-
                 return self.success_response({
-                    "models": model_types
+                    "models": list(model_types())
                 })
 
             except Exception as e:

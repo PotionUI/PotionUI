@@ -7,7 +7,7 @@
 ########
 schema_version: 1
 id: "anima-starter"
-version: 1
+version: 2
 name: "Anima Starter"
 engine: "native"
 category: "image"
@@ -34,58 +34,7 @@ plugins:
 backend:
   engine: "native"
 
-artifacts:
-  - id: "anima-diffusion-model"
-    kind: "diffusion_model"
-    model_type: "diffusion_model"
-    filename: "anima-aesthetic-v1.1.safetensors"
-    display_name: "Anima Aesthetic v1.1 (DiT, bf16)"
-    required: true
-    size_bytes: 4182230656
-    checksum:
-      algorithm: "sha256"
-      value: "3c1868387a3a1ff504bbb87c33678321965ead381fcf87afbd0264daa600c082"
-    # Declared by capability, never by a concrete plugin id - core resolves a
-    # download source through whichever enabled plugin advertises this
-    # capability (see plugin manifest `capabilities:`).
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "circlestone-labs/Anima"
-      version_id: "main@split_files/diffusion_models/anima-aesthetic-v1.1.safetensors"
-
-  - id: "anima-text-encoder"
-    kind: "text_encoder"
-    model_type: "text_encoder"
-    filename: "qwen_3_06b_base.safetensors"
-    display_name: "Qwen3-0.6B text encoder"
-    required: true
-    size_bytes: 1192135096
-    checksum:
-      algorithm: "sha256"
-      value: "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "circlestone-labs/Anima"
-      version_id: "main@split_files/text_encoders/qwen_3_06b_base.safetensors"
-
-  - id: "anima-vae"
-    kind: "vae"
-    model_type: "vae"
-    filename: "qwen_image_vae.safetensors"
-    display_name: "Anima VAE (Wan 2.1 causal-3D, shared with Qwen-Image/Krea-2)"
-    required: true
-    size_bytes: 253806246
-    checksum:
-      algorithm: "sha256"
-      value: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/Qwen-Image_ComfyUI"
-      version_id: "main@split_files/vae/qwen_image_vae.safetensors"
-
+artifacts: []
 presets:
   - preset_id: "01KX5GRNWFC9S2F6T15155H41C"
     path_hint: "marketplace/Anima"
@@ -131,17 +80,21 @@ steps:
     params:
       engine: "native"
 
-  - key: "artifacts.plan"
-    kind: "artifacts.plan"
-    title: "Plan required downloads"
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
     params:
-      artifact_ids: ["anima-diffusion-model", "anima-text-encoder", "anima-vae"]
+      preset_id: "01KX5GRNWFC9S2F6T15155H41C"
+      modes: "all"
+      selected: ["txt2img"]
+      locked: ["txt2img"]
+      extras: "offer"
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the Anima model files"
+    title: "Download the files"
     params:
-      artifact_ids: ["anima-diffusion-model", "anima-text-encoder", "anima-vae"]
+      plan: "modes.plan"
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -155,12 +108,18 @@ steps:
     params:
       preset_id: "01KX5GRNWFC9S2F6T15155H41C"
 
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
+
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
       preset_id: "01KX5GRNWFC9S2F6T15155H41C"
-      mode: "txt2img"
+      plan: "modes.plan"
 
   - key: "generation.smoke"
     kind: "generation.smoke"

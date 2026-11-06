@@ -286,7 +286,10 @@ stored `references` key is ignored in every mode.
   in a disabled prompt segment (which the editor leaves out of the compiled text) does not.
   `reference_indices` lists them in the pool's PACKED order (every image across the
   `reference_fields` fields, then every video, then every audio, each kind in field and list
-  order; MiniMax-H3 lists one field, `references`, that holds all three kinds), deduplicated. A shot that cites nothing gets `reference_indices: []` and
+  order; MiniMax-H3 lists `references`, which holds all three kinds),
+  deduplicated. A field mapped with a prompt resource `source` contributes each bundle's members, once per
+  copy, after every native item of the member's kind, exactly as the generator packs them, so one
+  cited bundle adds all of its members to the shot. A bundle its source cannot read is an error. A shot that cites nothing gets `reference_indices: []` and
   runs without references. The normalizer then rewrites each marker to the preset mode's
   `prompt_resources` token numbered within that shot's own subset, per kind — the same
   numbering the text encoder gives the subset it receives, so `<Picture 2>` in a shot's

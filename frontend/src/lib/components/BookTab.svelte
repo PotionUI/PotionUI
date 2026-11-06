@@ -3,6 +3,8 @@
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import Icon from '$lib/components/Icon.svelte';
+	import type { ToolTabStatus } from '$lib/types/tabs';
 
 	export let id: string;
 	export let name: string;
@@ -11,6 +13,14 @@
 	export let isGenerating: boolean = false;
 	export let unsaved: boolean = false;
 	export let color: string | null = null;
+	export let toolIcon: string | null = null;
+	export let toolLabel: string | null = null;
+	export let thumbnail: string | null = null;
+	export let progress: number | null = null;
+	export let unsavedLabel: string = 'Unsaved changes';
+	export let remoteChange: string | null = null;
+	export let status: ToolTabStatus | null = null;
+	export let renamable: boolean = true;
 
 	const dispatch = createEventDispatcher();
 
@@ -56,7 +66,7 @@
 
 	// Handle double-click to rename
 	function handleDoubleClick() {
-		if (!isActive) return; // Only allow renaming active tab
+		if (!isActive || !renamable) return;
 		startEditing();
 	}
 
@@ -180,7 +190,17 @@
 	>
 		<!-- Tab content -->
 		<div class="tab-content">
-			{#if color}
+			{#if toolIcon}
+				<span class="tool-thumb" data-testid="tab-tool-thumb">
+					{#if thumbnail}
+						<img src={thumbnail} alt="" class="tool-thumb-image" />
+						<span class="tool-badge" aria-hidden="true"><Icon name={toolIcon} className="h-2.5 w-2.5" strokeWidth={2.25} /></span>
+					{:else}
+						<Icon name={toolIcon} className="h-3.5 w-3.5" />
+					{/if}
+				</span>
+				{#if toolLabel}<span class="sr-only">{toolLabel}:</span>{/if}
+			{:else if color}
 				<span class="color-dot" style="background-color: {color};"></span>
 			{/if}
 			{#if isEditing}
@@ -195,11 +215,35 @@
 				/>
 			{:else}
 				<span class="tab-name">{name}</span>
+				{#if progress !== null}
+					<span class="tab-progress font-mono text-xs tabular-nums" data-testid="tab-progress">{Math.round(progress)}%</span>
+				{/if}
+				{#if status}
+					<Tooltip text="{name} · {status.label}" position="bottom" delay={150} wrapperClass="flex items-center">
+						<span class="tab-status font-mono text-xs tabular-nums" data-testid="tab-status" data-tone={status.tone}>
+							<span
+								class="status-dot"
+								class:status-ring={status.ring}
+								class:status-pulse={status.pulse}
+								class:status-danger={status.tone === 'danger'}
+								class:status-success={status.tone === 'success'}
+							></span>
+							{#if status.count}<span>{status.count[0]}/{status.count[1]}</span>{/if}
+						</span>
+					</Tooltip>
+					<span class="sr-only">, {status.label}</span>
+				{/if}
+				{#if remoteChange}
+					<Tooltip text={remoteChange} position="bottom" delay={150} wrapperClass="flex items-center">
+						<span class="unsaved-mark" data-testid="tab-remote-change"><span class="remote-dot"></span></span>
+					</Tooltip>
+					<span class="sr-only">, {remoteChange.toLowerCase()}</span>
+				{/if}
 				{#if unsaved}
-					<Tooltip text="Unsaved changes" position="bottom" delay={150} wrapperClass="flex items-center">
+					<Tooltip text={unsavedLabel} position="bottom" delay={150} wrapperClass="flex items-center">
 						<span class="unsaved-mark" data-testid="tab-unsaved"><span class="unsaved-dot"></span></span>
 					</Tooltip>
-					<span class="sr-only">, unsaved changes</span>
+					<span class="sr-only">, {unsavedLabel.toLowerCase()}</span>
 				{/if}
 			{/if}
 		</div>
@@ -352,6 +396,89 @@
 		flex-shrink: 0;
 	}
 
+	.tool-thumb {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 20px;
+		flex-shrink: 0;
+		border-radius: 0.25rem;
+		background: rgb(var(--surface-3));
+		color: rgb(var(--fg-muted));
+	}
+
+	.tool-thumb-image {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		border-radius: 0.25rem;
+	}
+
+	.tool-badge {
+		position: absolute;
+		right: -3px;
+		bottom: -3px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 12px;
+		height: 12px;
+		border-radius: 0.1875rem;
+		background: rgb(var(--surface-1));
+		border: 1px solid rgb(var(--line-strong));
+		color: rgb(var(--fg));
+	}
+
+	.tab-progress {
+		font-weight: 500;
+		color: rgb(var(--signal));
+	}
+
+	.tab-status {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		color: rgb(var(--signal));
+	}
+
+	.status-dot {
+		width: 7px;
+		height: 7px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: rgb(var(--signal));
+	}
+
+	.status-ring {
+		box-shadow: 0 0 0 3px rgb(var(--signal) / 0.25);
+	}
+
+	.status-pulse {
+		animation: tab-status-pulse 1.6s ease-in-out infinite;
+	}
+
+	.status-danger {
+		background: rgb(var(--danger));
+	}
+
+	.status-success {
+		background: rgb(var(--success));
+	}
+
+	@keyframes tab-status-pulse {
+		50% {
+			opacity: 0.35;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.status-pulse {
+			animation: none;
+		}
+	}
+
 	.unsaved-mark {
 		display: flex;
 		width: 14px;
@@ -366,6 +493,13 @@
 		height: 6px;
 		border-radius: 50%;
 		background: rgb(var(--warning-solid));
+	}
+
+	.remote-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: rgb(var(--signal));
 	}
 
 	.tab-name {

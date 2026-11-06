@@ -199,6 +199,7 @@
               "max_seconds",
               14
             ],
+            [],
             [
               "steps",
               4
@@ -227,6 +228,10 @@
     },
     {
       "config": {
+        "audio_sigma_shift": {
+          "type": "float",
+          "value": 3.0
+        },
         "audio_source": {
           "type": "str",
           "value": "reference_video"
@@ -259,6 +264,10 @@
           "type": "bool",
           "value": true
         },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
         "quantity": {
           "type": "int",
           "value": 1
@@ -276,6 +285,10 @@
         "resolution": {
           "type": "str",
           "value": "auto"
+        },
+        "runtime_loras": {
+          "type": "list",
+          "value": []
         },
         "sampler": {
           "type": "str",
@@ -320,6 +333,10 @@
         "steps": {
           "type": "int",
           "value": 4
+        },
+        "video_sigma_shift": {
+          "type": "float",
+          "value": 12.0
         }
       },
       "enabled": {

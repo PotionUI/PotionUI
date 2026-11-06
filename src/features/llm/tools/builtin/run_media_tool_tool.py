@@ -15,6 +15,7 @@ from src.platform.media_tools.params import ANCHORS
 RUN_TIMEOUT_SECONDS = 600.0
 MODES = ("new", "replace")
 DESCRIPTION_LIMIT = 90
+DESCRIBED_PARAM_TYPES = ("json", "media", "string")
 MAX_RESULT_ITEMS = 20
 CALL_EXAMPLE = (
     '{"steps": [{"tool": "trim", "params": {"start": 0, "end": 5}}], '
@@ -98,7 +99,7 @@ def _param_text(param: Dict[str, Any]) -> str:
     if when:
         text += f" ({when})"
     description = " ".join(str(param.get("description") or "").split())
-    if description:
+    if description and param.get("type") in DESCRIBED_PARAM_TYPES:
         text += f" - {description[:DESCRIPTION_LIMIT]}"
     return text
 
@@ -323,11 +324,12 @@ class RunMediaToolTool(BaseTool):
             return ToolResult(success=False, data="", error=self._run_failure(result))
         total = len(result.items)
         items = [_item_payload(item) for item in result.items[:MAX_RESULT_ITEMS]]
-        message = (
-            "Replaced the original library item with the edited version."
-            if result.replaced
-            else f"Saved {total} new library item(s); the originals are unchanged."
-        )
+        if result.summary is not None and not total:
+            message = result.summary.message
+        elif result.replaced:
+            message = "Replaced the original library item with the edited version."
+        else:
+            message = f"Saved {total} new library item(s); the originals are unchanged."
         payload: Dict[str, Any] = {
             "status": "completed", "replaced": result.replaced, "count": total, "items": items, "message": message,
         }

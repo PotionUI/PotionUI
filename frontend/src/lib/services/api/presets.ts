@@ -85,6 +85,16 @@ export function createPresetsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
+		async getPromptResourceMembers(
+			source: string,
+			itemKey: string
+		): Promise<APIResponse<{ members: Array<{ kind: 'image' | 'video' | 'audio'; name: string | null }> }>> {
+			const response = await client.get(
+				`/api/prompt-resources/sources/${encodeURIComponent(source)}/members?item=${encodeURIComponent(itemKey)}`
+			);
+			return response.data;
+		},
+
 		async reloadPreset(presetId: string): Promise<APIResponse<PresetInfo>> {
 			const response = await client.post(`/api/presets/${presetId}/reload`);
 			return response.data;

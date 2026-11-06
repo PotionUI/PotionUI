@@ -22,7 +22,7 @@ from src.features.models.type_manager import build_type_info
 from src.features.tags.repository import tag_repo
 from src.features.models.availability_repository import model_availability_repo
 from src.platform.filesystem.model_roots import ModelRootError
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY, UNDEFINED_MODEL_TYPE
+from src.platform.filesystem.model_types import UNDEFINED_MODEL_TYPE, model_types, type_to_directory
 from src.platform.security.user import User, AccountType
 
 logger = logging.getLogger(__name__)
@@ -313,8 +313,7 @@ class ModelCatalog:
         assigned to the user.
 
         When `include_empty` is true - and only for an unscoped admin request -
-        the response also includes every known model type (per
-        `ModelScanner.MODEL_TYPE_MAPPING`) that has zero indexed models, with
+        the response also includes every registered model type that has zero indexed models, with
         `count: 0`. This lets callers like the "Add by URL" downloader offer a
         type that has no rows indexed yet. Synthetic zero-count types must never
         leak to a user_scoped or non-admin caller - their model access would hide
@@ -371,7 +370,7 @@ class ModelCatalog:
             })
 
         if include_empty and is_admin_unscoped:
-            known_types = set(self.scanner.MODEL_TYPE_MAPPING.values())
+            known_types = set(model_types())
             for model_type in sorted(known_types - set(type_counts.keys())):
                 types.append({
                     "type": model_type,
@@ -429,7 +428,7 @@ class ModelCatalog:
             present_count = sum(1 for loc in locations if loc.status == "present")
             model.copies = present_count
             if winner is not None:
-                type_dir = MODEL_TYPE_TO_DIRECTORY.get(winner.model_type, winner.model_type)
+                type_dir = type_to_directory().get(winner.model_type, winner.model_type)
                 model.location = {
                     "root_id": winner.root_id,
                     "root_label": winner.root_label,

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
-from src.platform.filesystem.model_types import MODEL_DIRECTORY_NAMES
+from src.platform.filesystem.model_types import directory_names
 
 ROOT = Path(__file__).resolve().parents[2]
 SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".git"}
@@ -61,10 +61,15 @@ _TYPE_DIR_LITERAL_ALLOWLIST = (
     "src/features/automation/nodes/actions.py",
 )
 
-_DIRECTORY_MAP_NAMES = ("MODEL_TYPE_TO_DIRECTORY", "DIRECTORY_TO_MODEL_TYPE", "MODEL_DIRECTORY_NAMES")
+_DIRECTORY_MAP_NAMES = (
+    "type_to_directory",
+    "directory_to_type",
+    "directory_names",
+    "CORE_MODEL_TYPE_TO_DIRECTORY",
+)
 
 _TYPE_DIR_LITERAL_RE = re.compile(
-    r"models/(?:" + "|".join(re.escape(n) for n in MODEL_DIRECTORY_NAMES) + r")/"
+    r"models/(?:" + "|".join(re.escape(n) for n in directory_names()) + r")/"
 )
 
 
@@ -147,7 +152,7 @@ def test_directory_map_import_is_allowlisted(source_index):
         if hits:
             violations.append(f"{rel_posix} imports {', '.join(sorted(set(hits)))}")
 
-    assert not violations, "MODEL_TYPE_TO_DIRECTORY/DIRECTORY_TO_MODEL_TYPE/MODEL_DIRECTORY_NAMES used outside the allowlist:\n" + "\n".join(violations)
+    assert not violations, "type_to_directory/directory_to_type/directory_names used outside the allowlist:\n" + "\n".join(violations)
 
 
 def test_models_dir_literal_is_allowlisted(source_index):
@@ -181,7 +186,7 @@ def test_type_dir_path_literal_is_allowlisted(source_index):
 def test_directory_map_import_detector_flags_a_non_allowlisted_import(tmp_path):
     bad = tmp_path / "src" / "features" / "not_allowlisted.py"
     bad.parent.mkdir(parents=True)
-    bad.write_text("from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY\n", encoding="utf-8")
+    bad.write_text("from src.platform.filesystem.model_types import type_to_directory\n", encoding="utf-8")
 
     tree = ast.parse(bad.read_text(encoding="utf-8"))
     hits = _directory_map_imports(tree)

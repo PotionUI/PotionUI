@@ -350,3 +350,50 @@ def test_the_sidecar_dimensions_come_from_its_own_tensors(tmp_path):
     assert embedder.freq_dim == FREQ_DIM
     assert embedder.proj_in.out_features == TE_HIDDEN
     assert embedder.proj_out.out_features == DENSE_T_DIM
+
+
+def _bias_diff_adapter_file(path: Path, config: dict) -> tuple[str, dict]:
+    hidden = config["hidden_size"]
+    inner = config["num_attention_heads"] * config["attention_head_dim"]
+    diffs = {f"blocks.{i}.adaln_proj.linear": torch.randn(6 * hidden * 3) for i in range(config["num_layers"])}
+    diffs["final_layer.adaln_proj.linear"] = torch.randn(2 * hidden)
+    state = {f"diffusion_model.{stem}.diff_b": diff for stem, diff in diffs.items()}
+    state["diffusion_model.blocks.0.attn.qkv_proj.lora_down.weight"] = torch.randn(RANK, hidden) * 0.02
+    state["diffusion_model.blocks.0.attn.qkv_proj.lora_up.weight"] = torch.randn(3 * inner, RANK) * 0.02
+    save_file(state, str(path))
+    return str(path), diffs
+
+
+def test_adaln_bias_diffs_land_on_the_pruned_biases_and_nothing_is_unmatched(tmp_path):
+    adapter, diffs = _bias_diff_adapter_file(tmp_path / "flash.safetensors", TINY_PRUNED)
+    baseline = _build_ready(TINY_PRUNED)
+    before = {stem: baseline.get_parameter(f"{stem}.bias").clone() for stem in diffs}
+
+    model = NativeModel("diffusion_model", baseline, estimated_vram_gb=1.0, compute_dtype=torch.float32)
+    reports, residual = loader_vdn.apply_loras_with_adaln_translation(
+        model, [{"file_path": adapter, "weight": 0.5}], "TEST", dense_time_embedder_path=None,
+    )
+
+    assert residual is None
+    assert reports[0].unmatched_keys == 0
+    assert reports[0].matched_params == 1
+    for stem, diff in diffs.items():
+        torch.testing.assert_close(baseline.get_parameter(f"{stem}.bias"), before[stem] + 0.5 * diff)
+
+
+def test_adaln_bias_diffs_kept_out_of_the_audio_spare_the_audio_rows(tmp_path):
+    adapter, diffs = _bias_diff_adapter_file(tmp_path / "flash.safetensors", TINY_PRUNED)
+    width = 6 * TINY_PRUNED["hidden_size"]
+    baseline = _build_ready(TINY_PRUNED)
+    block_bias = baseline.blocks[0].adaln_proj.linear.bias
+    before_block = block_bias.clone()
+    before_final = baseline.final_layer.adaln_proj.linear.bias.clone()
+
+    model = NativeModel("diffusion_model", baseline, estimated_vram_gb=1.0, compute_dtype=torch.float32)
+    loader_vdn.apply_loras_with_adaln_translation(
+        model, [{"file_path": adapter, "weight": 1.0, "audio": False}], "TEST", dense_time_embedder_path=None,
+    )
+
+    assert torch.equal(block_bias[2 * width:], before_block[2 * width:])
+    torch.testing.assert_close(block_bias[:2 * width], before_block[:2 * width] + diffs["blocks.0.adaln_proj.linear"][:2 * width])
+    assert torch.equal(baseline.final_layer.adaln_proj.linear.bias, before_final)

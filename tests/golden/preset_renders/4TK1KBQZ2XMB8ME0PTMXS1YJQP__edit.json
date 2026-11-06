@@ -1,0 +1,355 @@
+{
+  "mode": "edit",
+  "pipes": [
+    {
+      "config": {
+        "diffusion_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "diffusion_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "loras": {
+          "type": "list",
+          "value": [
+            {
+              "file_path": "/GOLDEN/models/edit_lora.safetensors",
+              "step_end": null,
+              "step_start": null,
+              "weight": 1.0
+            }
+          ]
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        },
+        "vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        },
+        "vision": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "model_loader/krea2"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_image.png",
+              "type": "image"
+            }
+          ]
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": []
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader_b",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": []
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "mask_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": []
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "mask_loader_b",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "grounding_px": {
+          "type": "int",
+          "value": 768
+        },
+        "guidance_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "n_prompt.input": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "negative_applied": {
+          "type": "bool",
+          "value": false
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "system_prompt": {
+          "type": "str",
+          "value": ""
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/diffusion_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/vae.safetensors"
+            ],
+            [
+              [
+                "model",
+                "/GOLDEN/models/edit_lora.safetensors"
+              ]
+            ],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
+            ],
+            [
+              "cfg",
+              1.0
+            ],
+            [
+              "steps",
+              8
+            ],
+            [
+              "sampler",
+              "euler"
+            ],
+            [
+              "resolution",
+              "1024x1024"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "fit_mode": {
+          "type": "str",
+          "value": "fit"
+        },
+        "guidance": {
+          "type": "float",
+          "value": 1.0
+        },
+        "match_source": {
+          "type": "bool",
+          "value": true
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "ref_boost": {
+          "type": "float",
+          "value": 4.0
+        },
+        "ref_boost_a": {
+          "type": "float",
+          "value": 1.0
+        },
+        "ref_position": {
+          "type": "str",
+          "value": "aligned"
+        },
+        "ref_position_a": {
+          "type": "str",
+          "value": "aligned"
+        },
+        "resolution": {
+          "type": "str",
+          "value": "1024x1024"
+        },
+        "sampler": {
+          "type": "str",
+          "value": "euler"
+        },
+        "steps": {
+          "type": "int",
+          "value": 8
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "generator/krea2_edit"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "4TK1KBQZ2XMB8ME0PTMXS1YJQP",
+  "preset_name": "Krea-2"
+}

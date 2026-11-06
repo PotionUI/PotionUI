@@ -20,11 +20,13 @@
 	import LibraryModalHost from '$lib/components/library/LibraryModalHost.svelte';
 	import ToolRunChip from '$lib/components/tools/ToolRunChip.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
+	import ModeInstallHost from '$lib/components/recipes/modeInstall/ModeInstallHost.svelte';
 	import IndexingChoiceModal from '$lib/models-location/IndexingChoiceModal.svelte';
 	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
 	import { initCrossTab } from '$lib/stores/accounts';
 	import { notifications } from '$lib/stores/notifications';
 	import { tabDraftSync } from '$lib/stores/tabDraftSync';
+	import { sessionLiveSync } from '$lib/stores/sessionLiveSync';
 	import { notificationsWebSocket } from '$lib/services/notificationsWebsocket';
 	import { themeStore } from '$lib/stores/theme';
 	import { printStartupBanner } from '$lib/utils/startupBanner';
@@ -178,10 +180,12 @@
 	$: if (mounted && $authStore.isAuthenticated && !tabDraftSyncStarted) {
 		tabDraftSyncStarted = true;
 		tabDraftSync.start();
+		sessionLiveSync.start();
 	}
 	$: if (mounted && !$authStore.isAuthenticated && tabDraftSyncStarted) {
 		tabDraftSyncStarted = false;
 		tabDraftSync.stop();
+		sessionLiveSync.stop();
 	}
 
 	function registerCoreHandlers() {
@@ -329,6 +333,7 @@
 		<LibraryModalHost />
 		<ToolRunChip />
 		<ToastContainer />
+		<ModeInstallHost />
 		<ConfirmHost />
 		<IndexingChoiceModal />
 		<AccountSwitchOverlay />

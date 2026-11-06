@@ -96,8 +96,79 @@ describe('iconSvgMarkup', () => {
 describe('mode glyphs', () => {
 	const names = getAllIconNames().filter((name) => name.startsWith('mode-'));
 
-	it('registers the eighteen mode glyphs', () => {
-		expect(names).toHaveLength(18);
+	it('registers exactly these mode glyphs', () => {
+		expect([...names].sort()).toEqual([
+			'mode-add-water',
+			'mode-camera',
+			'mode-cinemagraph',
+			'mode-colorize',
+			'mode-combine',
+			'mode-control',
+			'mode-day-night',
+			'mode-extend',
+			'mode-follow-motion',
+			'mode-layout-render',
+			'mode-long',
+			'mode-person-swap',
+			'mode-real',
+			'mode-refine-faces',
+			'mode-refs',
+			'mode-remix',
+			'mode-remove-object',
+			'mode-restore',
+			'mode-restyle',
+			'mode-talk',
+			'mode-text',
+			'mode-transition',
+			'mode-transparent',
+			'mode-upscale'
+		]);
+	});
+
+	it('draws each one as stroke-only paths, with no two sharing art', () => {
+		for (const name of names) {
+			expect([getIconPath(name)].flat().length, name).toBeGreaterThan(0);
+			expect(getFilledIconPaths(name), name).toEqual([]);
+		}
+		expect(new Set(names.map(art)).size).toBe(names.length);
+	});
+});
+
+describe('editor glyphs', () => {
+	const names = getAllIconNames().filter((name) => name.startsWith('editor-'));
+
+	it('registers exactly these editor glyphs', () => {
+		expect([...names].sort()).toEqual([
+			'editor-camera',
+			'editor-canvas',
+			'editor-color-key',
+			'editor-compare',
+			'editor-crop',
+			'editor-effects',
+			'editor-eye',
+			'editor-eye-off',
+			'editor-flip-v',
+			'editor-frame',
+			'editor-layers',
+			'editor-mask',
+			'editor-music',
+			'editor-mute',
+			'editor-paint',
+			'editor-redo',
+			'editor-replace',
+			'editor-resize',
+			'editor-rotate-left',
+			'editor-rotate-right',
+			'editor-save',
+			'editor-send',
+			'editor-slice',
+			'editor-speed',
+			'editor-split',
+			'editor-subject',
+			'editor-trim',
+			'editor-undo',
+			'editor-volume'
+		]);
 	});
 
 	it('draws each one as stroke-only paths, with no two sharing art', () => {

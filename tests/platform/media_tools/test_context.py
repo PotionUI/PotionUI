@@ -135,3 +135,44 @@ def test_default_scopes_and_unknown_defaults():
     assert spec.scopes == ("library", "history", "field")
     assert spec.source == "core" and spec.editor is None and spec.preview is False
     assert MediaToolRegistry().list() == []
+
+
+def test_a_context_has_no_user_unless_given_one(tmp_path):
+    assert ToolContext(tmp_path).user_id is None
+
+
+def test_scoped_contexts_keep_the_user_id(tmp_path):
+    context = ToolContext(tmp_path, user_id="user-7")
+    assert context.scoped(0.2, 0.4).scoped(0.0, 0.5).user_id == "user-7"
+
+
+def test_a_summary_set_in_a_scoped_context_is_the_run_s_summary(tmp_path):
+    context = ToolContext(tmp_path)
+    assert context.summary is None
+    context.scoped(0.5, 1.0).summarize("Saved hero", [("Open", "/models")])
+    assert context.summary.message == "Saved hero"
+    assert context.summary.links[0].href == "/models"
+
+
+@pytest.mark.parametrize(
+    ("message", "links"),
+    [
+        ("", ()),
+        ("Saved", [(" ", "/x")]),
+        ("Saved", [("Open", "/\\evil.com")]),
+        ("Saved", [("Open", "/\t/evil.com")]),
+        ("Saved", [("Open", "javascript:alert(1)")]),
+        ("Saved", [("Open", "https://x")]),
+        ("Saved", [("Open", "//x")]),
+        ("Saved", [("Open", "/a b")]),
+        ("Saved", [("Open", "/a\x00b")]),
+    ],
+)
+def test_a_summary_needs_a_message_and_links_inside_the_app(tmp_path, message, links):
+    with pytest.raises(ValueError):
+        ToolContext(tmp_path).summarize(message, links)
+
+
+@pytest.mark.parametrize("href", ["/models", "/models/m-1", "/models?model=m-1&tab=info", "/library#new"])
+def test_app_paths_are_accepted_as_result_links(tmp_path, href):
+    assert ToolContext(tmp_path).summarize("Saved", [("Open", href)]).links[0].href == href

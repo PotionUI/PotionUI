@@ -13,6 +13,7 @@ from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.formula_groups import resolve_formula_groups
 from src.features.presets.mode_labels import mode_display_icon, mode_display_name
 from src.features.presets.quantity import mode_quantity_fields
+from src.features.prompt.resource_sources import with_source_specs
 from src.features.presets.exceptions import (
     InvalidModeDataException,
     ModeNotFoundException,
@@ -295,7 +296,7 @@ def get_form_schema(
     result = {
         'preset_id': preset_id,
         'form_schema': form_schema,
-        'prompt_resources': list(found_preset.prompt_resources.get(mode, [])),
+        'prompt_resources': with_source_specs(found_preset.prompt_resources.get(mode, [])),
         'prompt_syntax': list(found_preset.prompt_syntax.get(mode, [])),
         'debug_info': {
             'preset_name': found_preset.name,

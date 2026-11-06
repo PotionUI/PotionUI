@@ -2,7 +2,7 @@
 type: model
 title: Qwen-Image
 family_key: qwen_image
-modes: [txt2img, img2img, edit]
+modes: [txt2img, img2img, edit, camera, real]
 spec:
   arch: dual-stream joint-attention MMDiT
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)
@@ -31,7 +31,35 @@ The text encoder is Qwen2.5-VL-7B. The VAE is the Wan 2.1 causal-3D VAE, with pe
 
 ## Presets & modes
 
-The shipped Qwen-Image preset ships `txt2img`.
+The shipped Qwen-Image preset ships `txt2img`, `img2img`, `edit`, `camera` and `real`.
+
+### Picture layout in edit modes
+
+`edit`, `real` and `camera` read the source picture through the Qwen2.5-VL vision tower, and the layout follows the loaded checkpoint. The Edit-Plus releases (2509 and 2511) get the layout they were trained with (diffusers `QwenImageEditPlusPipeline`, ComfyUI `TextEncodeQwenImageEditPlus`): the instruction reads `Picture 1: <image>` and the picture the vision tower sees is box-filtered to at most 384 x 384 pixels in area. The original Qwen-Image-Edit release keeps its single-image layout, with no label and the picture at full size. The reference latent the DiT edits stays at about 1 MP either way. For a 1200 x 1500 photo the vision tower sees about 2,300 tokens in the single-image layout and 180 in the Plus layout.
+
+2511 is recognised by its timestep-zero marker. 2508 and 2509 share every key and shape, so the original release is recognised by the values of its `proj_out` bias, cast to fp8 e4m3 and hashed so that bf16, fp16, fp32 and fp8 copies all match. Every other checkpoint gets the Plus layout. A mode can override either half with `picture_labels` and `grounding_area` on `prompt_encoder`.
+
+### Output size in edit
+
+The References tab has an **Output size** choice. **Match first image** (the default) renders at the first image's aspect at about 1 MP, as before. **Custom** shows the same resolution picker as txt2img and renders at that size (snapped to the 16px grid). The first image is the one being edited, so it is fitted to exactly that size: **Crop to fill** (default) takes the centred box of the target aspect, and **Pad to fit** scales the whole picture inside it on neutral grey (128) borders. Grey follows ComfyUI's `ImagePadForOutpaint`, which pads with 0.5 grey; edge-extended borders read as picture content that an edit keeps. The other references keep their own aspect at about 1 MP, as in diffusers' `QwenImageEditPlusPipeline`, where the output `height`/`width` are independent of the reference sizes. The generator takes this as `resolution` plus `fit` (`match`, `crop`, `pad`); `fit` defaults to `match`, which ignores `resolution`. The `image_fit` pipe fits the first image once, before both the prompt encoder and the generator, so the vision tower sees the same framing as the latent; with `match` it passes the pictures through untouched. Make it real and Camera angle keep the source composition, so they have no Output size.
+
+### Camera angle
+
+`camera` shows the same picture from another viewpoint. It is an `edit` run (the 2511 edit checkpoint with the vision tower loaded) with the fal Multiple-Angles LoRA applied, trained on 3,000+ Gaussian Splat renders over 96 camera positions. The mode is promptless: its three dials compose the LoRA trigger `<sks> [azimuth] [elevation] [distance]` and nothing the user types reaches the model.
+
+- **Turn** -135 to 180 in steps of 45 degrees. 0 is the original front view, positive goes to the subject's right, negative to its left, 180 is behind (front, front-right quarter, right side, back-right quarter, back, back-left quarter, left side, front-left quarter).
+- **Tilt** -30, 0, 30 or 60 degrees (low-angle, eye-level, elevated, high-angle).
+- **Zoom** close-up, medium shot or wide shot.
+
+The LoRA is a required `camera_lora` model field with a pinned recommendation (`qwen-image-edit-2511-multiple-angles-lora.safetensors`, 281.5 MB, Apache-2.0) and loads first, at the **Angle strength** (Advanced, default 0.9, range 0 to 2; the card recommends 0.8 to 1.0, and 0 runs the mode with the LoRA off). Any LoRAs picked on the LoRA tab load after it. Only the 2511 checkpoints are recommended: the LoRA was trained on 2511, and dx8152's 2509 Multiple-angles LoRA uses free-text camera commands instead of this trigger, so it is not wired here.
+
+**Why not Qwen-Image 2.1.** Both multi-angle LoRAs target the dual-stream layout (60 blocks, width 3072, `add_*_proj` and `txt_mlp` keys). The 2.1 DiT is single-stream with 32 blocks of width 4096. Mapping the real safetensors headers onto a meta-device 2.1 DiT matched 0 of 840 (fal) and 0 of 720 (dx8152) LoRA modules, and the same headers matched all of them on the Qwen-Image DiT.
+
+### Make it real
+
+`real` turns an illustration, anime, painting, render or 3D shot into a photograph and keeps the composition. It is an `edit` run on the 2511 checkpoint with the lrzjason Anything2Real 2601 LoRA (required `real_lora` field, pinned recommendation `anything2real_2601.safetensors`, 585.1 MB, Apache-2.0). The instruction follows the LoRA card: `change the picture 1 to realistic photograph`, with the optional prompt appended as a description (`..., a woman in a red coat on a rainy street`). The LoRA loads first at **Realism strength** (Advanced, default 1.0; the card suggests 0.75 to 1), then any LoRAs from the LoRA tab. If the result is not photographic enough the card advises changing the strength or the checkpoint before raising it further.
+
+Qwen-Image 2.1 gets the same task as the **Photo** task of its Restyle mode, prompt-only (no LoRA), see [Qwen-Image 2.1](qwen_image_21.md).
 
 ### Picture layout in edit mode
 

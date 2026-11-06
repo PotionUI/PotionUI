@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import { get } from 'svelte/store';
@@ -50,7 +51,7 @@ async function render(count: number, formData: Record<string, unknown>, canBatch
 	});
 	const target = document.createElement('div');
 	document.body.appendChild(target);
-	const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!;
 	const instance = mount(PromptSection, {
 		target,
 		props: { tab, tabHandlers: handlers, promptRelayActive: false, canBatch }
@@ -80,7 +81,7 @@ describe('PromptSection with several prompts', () => {
 		target.querySelectorAll<HTMLElement>('[data-editor-title] [role="tab"]')[0].click();
 		flushSync();
 
-		expect(get(tabsStore).tabs.find((t) => t.id === id)!.activePromptTab).toBe(0);
+		expect(generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!.activePromptTab).toBe(0);
 	});
 
 	it('adds a prompt from the plus button', async () => {
@@ -89,7 +90,7 @@ describe('PromptSection with several prompts', () => {
 		target.querySelector<HTMLButtonElement>('[data-editor-title] button[aria-label="Add prompt"]')!.click();
 		flushSync();
 
-		expect(get(tabsStore).tabs.find((t) => t.id === id)!.promptTabs).toHaveLength(4);
+		expect(generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!.promptTabs).toHaveLength(4);
 	});
 
 	it('shows a single Prompt tab and no list for one prompt', async () => {
@@ -108,7 +109,7 @@ describe('PromptSection with several prompts', () => {
 		remove.click();
 		flushSync();
 
-		expect(get(tabsStore).tabs.find((t) => t.id === id)!.promptTabs).toHaveLength(10);
+		expect(generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!.promptTabs).toHaveLength(10);
 	});
 
 	it('drops quantity to one from the over-limit alert', async () => {
@@ -117,7 +118,7 @@ describe('PromptSection with several prompts', () => {
 		[...target.querySelectorAll('button')].find((b) => b.textContent?.includes('Make 1 image per prompt'))!.click();
 		flushSync();
 
-		expect((get(tabsStore).tabs.find((t) => t.id === id)!.formData as { quantity: number }).quantity).toBe(1);
+		expect((generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!.formData as { quantity: number }).quantity).toBe(1);
 	});
 
 	it('warns that only prompt 1 runs when the preset cannot batch, without blocking', async () => {

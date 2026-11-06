@@ -61,6 +61,20 @@ export const RUNTIME_SETTINGS: RuntimeSettingDescriptor[] = [
 		defaultValue: false
 	},
 	{
+		key: 'native_fused_elementwise',
+		applies: 'live',
+		group: 'speed',
+		scope: 'backend',
+		kind: 'bool',
+		label: 'Fused block steps',
+		description:
+			'Runs the small per-step operations inside each diffusion block as single combined GPU operations.',
+		guidance:
+			'Faster on NVIDIA GPUs; others ignore it. It can change the output slightly, so turn it off if results look worse.',
+		defaultLabel: 'Off',
+		defaultValue: false
+	},
+	{
 		key: 'native_lora_fused',
 		applies: 'live',
 		group: 'speed',

@@ -15,7 +15,8 @@ _SCHEMA_CHAR_ALLOWANCES = {
     "organize_gallery": 2500,
     "start_generation": 2350,
     "add_prompt": 2200,
-    "run_media_tool": 3200,
+    "run_media_tool": 5324,
+    "edit_elixir": 2400,
 }
 
 _MAX_HINT_SHINGLE_SHARE = 0.40

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 
 const guard = vi.hoisted(() => ({ dirty: false, calls: 0 }));
 
@@ -12,8 +12,8 @@ vi.mock('$lib/utils/unsavedChangesGuard', () => ({
 
 const { tabShowsUnsavedChanges } = await import('./tabDirty');
 
-function tab(id: string): Tab {
-	return { id } as Tab;
+function tab(id: string): GenerationTab {
+	return { id } as GenerationTab;
 }
 
 beforeEach(() => {

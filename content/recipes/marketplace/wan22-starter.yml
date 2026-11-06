@@ -7,7 +7,7 @@
 ########
 schema_version: 1
 id: "wan22-starter"
-version: 1
+version: 2
 name: "Wan 2.1 / 2.2 Starter"
 engine: "native"
 category: "video"
@@ -36,71 +36,7 @@ plugins:
 backend:
   engine: "native"
 
-artifacts:
-  - id: "wan22-diffusion-model-high"
-    kind: "diffusion_model"
-    model_type: "diffusion_model"
-    filename: "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
-    display_name: "Wan 2.2 14B t2v DiT - high-noise expert (fp8-scaled)"
-    required: true
-    size_bytes: 14293923632
-    checksum:
-      algorithm: "sha256"
-      value: "cad711ae211c8b23455ec68cd6a190a33a3d874234a77eb57266d73f8f0e6c9f"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
-      version_id: "main@split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
-
-  - id: "wan22-diffusion-model-low"
-    kind: "diffusion_model"
-    model_type: "diffusion_model"
-    filename: "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"
-    display_name: "Wan 2.2 14B t2v DiT - low-noise expert (fp8-scaled)"
-    required: true
-    size_bytes: 14293923632
-    checksum:
-      algorithm: "sha256"
-      value: "e71b96d7c82e638694c5e7fb98fac4bfb0e4ddc5fbbb4b1df40da8f0f1278a97"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
-      version_id: "main@split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"
-
-  - id: "wan22-text-encoder"
-    kind: "text_encoder"
-    model_type: "text_encoder"
-    filename: "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
-    display_name: "UMT5-XXL text encoder (fp8-scaled)"
-    required: true
-    size_bytes: 6735906897
-    checksum:
-      algorithm: "sha256"
-      value: "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
-      version_id: "main@split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
-
-  - id: "wan22-vae"
-    kind: "vae"
-    model_type: "vae"
-    filename: "wan_2.1_vae.safetensors"
-    display_name: "Wan VAE (2.1 / 2.2 14B)"
-    required: true
-    size_bytes: 253815318
-    checksum:
-      algorithm: "sha256"
-      value: "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
-      version_id: "main@split_files/vae/wan_2.1_vae.safetensors"
-
+artifacts: []
 presets:
   - preset_id: "01KX47WANVIDEO0000000000TV"
     path_hint: "marketplace/Wan"
@@ -146,19 +82,22 @@ steps:
     params:
       engine: "native"
 
-  - key: "artifacts.plan"
-    kind: "artifacts.plan"
-    title: "Plan required downloads"
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
     params:
-      artifact_ids:
-        ["wan22-diffusion-model-high", "wan22-diffusion-model-low", "wan22-text-encoder", "wan22-vae"]
+      preset_id: "01KX47WANVIDEO0000000000TV"
+      modes: "all"
+      selected: ["video"]
+      locked: ["video"]
+      extras: "offer"
+      preselect_extras: ["t2v_high_noise_model", "t2v_low_noise_model"]
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the Wan 2.2 model files"
+    title: "Download the files"
     params:
-      artifact_ids:
-        ["wan22-diffusion-model-high", "wan22-diffusion-model-low", "wan22-text-encoder", "wan22-vae"]
+      plan: "modes.plan"
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -172,12 +111,18 @@ steps:
     params:
       preset_id: "01KX47WANVIDEO0000000000TV"
 
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
+
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
       preset_id: "01KX47WANVIDEO0000000000TV"
-      mode: "video"
+      plan: "modes.plan"
 
   - key: "generation.smoke"
     kind: "generation.smoke"

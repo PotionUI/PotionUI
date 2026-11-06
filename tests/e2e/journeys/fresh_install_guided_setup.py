@@ -31,6 +31,7 @@ KEPT_STEPS = (
     "artifacts.fetch",
     "models.index.downloads",
     "preset.ensure",
+    "workspace.activate",
 )
 PLUGIN_ID = "huggingface-provider"
 RUN_TIMEOUT_SECONDS = 180.0

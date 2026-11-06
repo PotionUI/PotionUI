@@ -31,6 +31,8 @@ from src.pipelines.contracts import (
     PipeOutput,
     PipeOutputSpec,
 )
+from src.pipelines.references import PreEncodedReference
+from src.features.prompt.reference_pool import MAX_BUNDLE_COPIES
 from src.pipelines.outputs import (
     AudioGenerationOutput,
     ComfyUIWorkflowGenerationOutput,
@@ -67,6 +69,7 @@ __all__ = [
     "IOType",
     "Icon",
     "ImageGenerationOutput",
+    "MAX_BUNDLE_COPIES",
     "MeshGenerationOutput",
     "OutputTypeSpec",
     "PipeConfigSpec",
@@ -74,6 +77,7 @@ __all__ = [
     "PipeInputSpec",
     "PipeOutput",
     "PipeOutputSpec",
+    "PreEncodedReference",
     "Progress",
     "ProgressGenerationOutput",
     "SerializeContext",

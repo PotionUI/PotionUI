@@ -17,6 +17,7 @@ from .base_provider import (
     ProviderConnectionError,
     ProviderRateLimitError,
     ProviderNotFoundError,
+    ProviderHashMismatchError,
 )
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     'ProviderConnectionError',
     'ProviderRateLimitError',
     'ProviderNotFoundError',
+    'ProviderHashMismatchError',
 ]

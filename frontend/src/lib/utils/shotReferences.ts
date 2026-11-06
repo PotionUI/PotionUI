@@ -4,6 +4,7 @@ import {
 	deriveResourcesFromText,
 	encodeResourceMarker,
 	findResourceSpec,
+	kindLabel,
 	mediaFieldItems,
 	mediaItemKey,
 	resourceHandleLabel,
@@ -11,6 +12,17 @@ import {
 	type PromptResourceSpec
 } from './promptResources';
 import { kindOfMediaItem } from '$lib/components/form-fields/mediaLoaderKind';
+import {
+	bundleBadge,
+	bundleCopies,
+	bundleFieldSpecs,
+	bundleInfo,
+	bundleMemberKinds,
+	bundleName,
+	bundlePrimaryKind,
+	citeableBundleRows,
+	type BundleDirectories
+} from './bundleResources';
 import { countResourceReferences, resourceUseCount, type UsageSegment } from './promptResourceUsage';
 import { resolvePromptSegments } from './promptSegments';
 import type { ResourceNumbering } from './resourceNumbering';
@@ -24,6 +36,7 @@ export interface ShotReferenceEntry {
 	count: number;
 	handle: string | null;
 	marker: string;
+	badge: string | null;
 }
 
 export interface ShotReferenceOverview {
@@ -92,7 +105,9 @@ export function shotResourcePositions(
 	const positions = new Map<string, number>();
 	const perKind: Partial<Record<PromptResourceKind, number>> = {};
 	const seen = new Set<string>();
+	const bundles = bundleFieldSpecs(specs);
 	for (const field of caps.referenceFields) {
+		if (bundles.has(field)) continue;
 		for (const item of mediaFieldItems(formData?.[field])) {
 			const itemKey = mediaItemKey(item);
 			if (!itemKey) continue;
@@ -128,25 +143,125 @@ export function shotResourceNumbering(
 	};
 }
 
+export interface ShotReferenceContext {
+	specs: readonly PromptResourceSpec[];
+	directories: BundleDirectories;
+}
+
+export interface ShotReferenceUnit {
+	field: string;
+	itemKey: string;
+	kind: PromptResourceKind;
+}
+
+export interface ShotReferenceCounts {
+	used: number;
+	total: number;
+}
+
+const KIND_RANK: readonly PromptResourceKind[] = ['image', 'video', 'audio'];
+
+export function shotReferencePool(
+	caps: DirectorCapabilities,
+	formData: Record<string, unknown> | null | undefined,
+	context: ShotReferenceContext
+): ShotReferenceUnit[] {
+	const bundles = bundleFieldSpecs(context.specs);
+	const natives: ShotReferenceUnit[] = [];
+	const members: ShotReferenceUnit[] = [];
+	for (const field of caps.referenceFields) {
+		const spec = bundles.get(field);
+		if (spec) {
+			for (const row of citeableBundleRows(formData?.[field])) {
+				const kinds = bundleMemberKinds(bundleInfo(context.directories, spec, row.model));
+				for (let copy = 0; copy < bundleCopies(row); copy++) {
+					for (const kind of kinds) members.push({ field, itemKey: row.model, kind });
+				}
+			}
+			continue;
+		}
+		for (const item of mediaFieldItems(formData?.[field])) {
+			const itemKey = mediaItemKey(item);
+			if (itemKey) natives.push({ field, itemKey, kind: itemSpec(context.specs, field, item).kind });
+		}
+	}
+	return [...natives, ...members].sort((a, b) => KIND_RANK.indexOf(a.kind) - KIND_RANK.indexOf(b.kind));
+}
+
+function citedUnits(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	shotId: string,
+	pool: readonly ShotReferenceUnit[]
+): ShotReferenceUnit[] {
+	const counts = countResourceReferences(shotReferenceSegmentGroups(doc, caps, shotId));
+	return pool.filter((unit) => resourceUseCount(counts, unit.field, unit.itemKey) > 0);
+}
+
+export function shotReferenceCounts(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	shotId: string,
+	formData: Record<string, unknown> | null | undefined,
+	context: ShotReferenceContext
+): ShotReferenceCounts {
+	const pool = shotReferencePool(caps, formData, context);
+	return { used: citedUnits(doc, caps, shotId, pool).length, total: pool.length };
+}
+
+function bundleHandles(cited: readonly ShotReferenceUnit[], bundleFieldNames: ReadonlySet<string>): Map<string, string> {
+	const perKind: Partial<Record<PromptResourceKind, number>> = {};
+	const labels = new Map<string, string[]>();
+	for (const unit of cited) {
+		const position = (perKind[unit.kind] ?? 0) + 1;
+		perKind[unit.kind] = position;
+		if (!bundleFieldNames.has(unit.field)) continue;
+		const identity = resourceIdentity(unit.field, unit.itemKey);
+		labels.set(identity, [...(labels.get(identity) ?? []), `${kindLabel(unit.kind)} ${position}`]);
+	}
+	return new Map([...labels].map(([identity, list]) => [identity, list.join(' · ')]));
+}
+
 export function shotReferenceOverview(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	shotId: string,
 	formData: Record<string, unknown> | null | undefined,
-	specs: readonly PromptResourceSpec[]
+	specs: readonly PromptResourceSpec[],
+	directories: BundleDirectories = {}
 ): ShotReferenceOverview {
 	const counts = countResourceReferences(shotReferenceSegmentGroups(doc, caps, shotId));
 	const positions = shotResourcePositions(doc, caps, shotId, formData, specs);
 	const used: ShotReferenceEntry[] = [];
 	const unused: ShotReferenceEntry[] = [];
 	const seen = new Set<string>();
+	const bundles = bundleFieldSpecs(specs);
+	const context = { specs, directories };
+	const handles = bundleHandles(citedUnits(doc, caps, shotId, shotReferencePool(caps, formData, context)), new Set(bundles.keys()));
 	for (const field of caps.referenceFields) {
-		for (const item of mediaFieldItems(formData?.[field])) {
+		const bundleSpec = bundles.get(field);
+		for (const item of bundleSpec ? citeableBundleRows(formData?.[field]) : mediaFieldItems(formData?.[field])) {
 			const itemKey = mediaItemKey(item);
 			if (!itemKey) continue;
 			const identity = resourceIdentity(field, itemKey);
 			if (seen.has(identity)) continue;
 			seen.add(identity);
+			if (bundleSpec) {
+				const info = bundleInfo(directories, bundleSpec, itemKey);
+				const bundleEntry: ShotReferenceEntry = {
+					field,
+					itemKey,
+					kind: bundlePrimaryKind(info),
+					name: bundleName(itemKey, info),
+					url: null,
+					count: resourceUseCount(counts, field, itemKey),
+					handle: handles.get(identity) ?? null,
+					marker: encodeResourceMarker(field, itemKey),
+					badge: bundleBadge(info, bundleSpec)
+				};
+				(bundleEntry.count > 0 ? used : unused).push(bundleEntry);
+				continue;
+			}
 			const { kind, spec } = itemSpec(specs, field, item);
 			const count = resourceUseCount(counts, field, itemKey);
 			const position = positions.get(identity) ?? null;
@@ -158,7 +273,8 @@ export function shotReferenceOverview(
 				url: itemUrl(item),
 				count,
 				handle: position !== null && spec ? resourceHandleLabel(spec, position) : null,
-				marker: encodeResourceMarker(field, itemKey)
+				marker: encodeResourceMarker(field, itemKey),
+				badge: null
 			};
 			if (count > 0) {
 				used.push(entry);
@@ -168,6 +284,12 @@ export function shotReferenceOverview(
 		}
 	}
 	return { used, unused };
+}
+
+export const NO_REFERENCES_HINT = 'This shot uses no references. Type @ to add one.';
+
+export function shotNeedsReferenceHint(overview: ShotReferenceOverview): boolean {
+	return overview.used.length === 0 && overview.unused.length > 0;
 }
 
 export function withMarkerAppendedToShot(

@@ -27,10 +27,12 @@ import threading
 import time
 import weakref
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Callable, Iterable
 
 import torch
 
+from src.platform.runtime.system_memory import get_system_memory
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes
 from src.platform.settings.runtime_flags import runtime_flag
 
@@ -456,6 +458,36 @@ class GpuResidencyRegistry:
             logger.info("residency: nothing resident to offload on %s", device)
         return OffloadResult(offloaded, freed_gb=freed_gb, failed=failed)
 
+    def resident_sizes(self, device: str | torch.device, *, exclude_ids: Iterable[int] = ()) -> dict[int, float]:
+        idx = device_index(device)
+        skip = set(exclude_ids)
+        with self._lock:
+            self._prune_dead()
+            return {
+                key: e.size_gb for key, e in self._entries.items()
+                if device_index(e.device) == idx and key not in skip
+            }
+
+    def offload_entry(self, key: int) -> bool | None:
+        with self._lock:
+            entry = self._entries.pop(key, None)
+            if entry is None:
+                return None
+            model = entry.model_ref()
+            if model is None:
+                return None
+            try:
+                self._reclaim(model, entry)
+            except Exception:
+                logger.warning("residency: reclaim of %r failed; leaving it resident", model, exc_info=True)
+                return False
+            del model
+            return True
+
+    def forget(self, key: int) -> None:
+        with self._lock:
+            self._entries.pop(key, None)
+
     def clear(self) -> None:
         """Drop all tracking (does not move anything). For tests."""
         with self._lock:
@@ -473,96 +505,122 @@ def get_residency_registry() -> GpuResidencyRegistry:
     return _registry
 
 
+class ClearVramMode(StrEnum):
+    OFFLOAD = "offload"
+    OFFLOAD_OR_UNLOAD = "offload_or_unload"
+    UNLOAD = "unload"
+
+
+@dataclass
 class ClearVramResult:
-    """Everything a "Clear VRAM" caller (the admin quick action, the
-    automation node) needs to report: what the residency ledger offloaded,
-    plus what the lifecycle-cache fallback swept up on top of it.
-
-    ``offloaded_count``/``freed_gb``/``failed_count`` fold both sources
-    together for a caller that only wants one number; ``swept_count`` is
-    broken out separately for a caller that wants to show *how much* of the
-    total came from the fallback sweep specifically (a component the
-    residency ledger never knew about).
-    """
-
-    def __init__(
-        self, offloaded: Iterable[Any], swept: Iterable[Any],
-        *, freed_gb: float = 0.0, failed: Iterable[Any] = (),
-    ) -> None:
-        self.offloaded = list(offloaded)
-        self.swept = list(swept)
-        self.freed_gb = freed_gb
-        self.failed = list(failed)
+    mode: ClearVramMode
+    offloaded_count: int = 0
+    offloaded_gb: float = 0.0
+    unloaded_count: int = 0
+    unloaded_gb: float = 0.0
+    failed_count: int = 0
+    failed_gb: float = 0.0
+    swept_count: int = 0
 
     @property
-    def offloaded_count(self) -> int:
-        return len(self.offloaded) + len(self.swept)
+    def freed_gb(self) -> float:
+        return self.offloaded_gb + self.unloaded_gb
 
-    @property
-    def swept_count(self) -> int:
-        return len(self.swept)
-
-    @property
-    def failed_count(self) -> int:
-        return len(self.failed)
+    def record(self, outcome: str, size_gb: float) -> None:
+        setattr(self, f"{outcome}_count", getattr(self, f"{outcome}_count") + 1)
+        setattr(self, f"{outcome}_gb", getattr(self, f"{outcome}_gb") + size_gb)
 
 
-def clear_vram(device: str | torch.device, lifecycle: Any = None) -> ClearVramResult:
-    """Offload every GPU-resident component on ``device`` — the shared "Clear
-    VRAM" implementation behind both the admin quick action
-    (``BackendController.clear_backend_vram``) and the "backend_action"
-    automation node (``_execute_backend_action``).
+def _ram_has_room(size_gb: float) -> bool:
+    from src.platform.runtime.model_lifecycle.lifecycle import host_ram_reserve_gb
 
-    Two layers:
-
-      1. ``GpuResidencyRegistry.offload_all(device, exclude=leased)`` — every
-         component the ledger was told about, except one leased by an
-         in-flight generation (``lifecycle.leased_values()``).
-      2. A registration-gap-proof fallback: ``lifecycle.cached_values()``
-         is swept for anything GPU-resident that the ledger never saw (a
-         placement path that forgot to register), skipping anything leased
-         or already offloaded by step 1 (which reads back as CPU-resident by
-         the time this runs, so it is never double-counted or double-freed).
-
-    ``lifecycle`` is duck-typed (``leased_values()``, ``cached_values()``,
-    and each cached value optionally exposing ``.device``/``.offload()``/
-    ``.estimated_vram_gb``) so this module stays decoupled from
-    ``ModelLifecycle``'s concrete type. ``None`` skips both the lease
-    exclusion and the sweep — offload_all still runs unconditionally.
-    """
-    manager = get_residency_registry()
-    leased_values = list(lifecycle.leased_values()) if lifecycle is not None else []
-    result = manager.offload_all(device, exclude=leased_values)
-
-    leased_ids = {id(v) for v in leased_values}
-    swept: list = []
-    swept_gb = 0.0
-    swept_failed: list = []
-    if lifecycle is not None:
-        for value in lifecycle.cached_values():
-            if id(value) in leased_ids:
-                continue
-            model_device = getattr(value, "device", None)
-            if model_device is None or not str(model_device).startswith("cuda"):
-                continue
-            offload = getattr(value, "offload", None)
-            if not callable(offload):
-                continue
-            size_gb = float(getattr(value, "estimated_vram_gb", None) or 0.0)
-            try:
-                offload()
-            except Exception:
-                logger.warning("clear_vram: lifecycle-cache offload failed for %r", value, exc_info=True)
-                swept_failed.append(value)
-                continue
-            swept.append(value)
-            swept_gb += size_gb
-
-    return ClearVramResult(
-        list(result), swept,
-        freed_gb=result.freed_gb + swept_gb,
-        failed=list(result.failed) + swept_failed,
+    try:
+        mem = get_system_memory()
+    except Exception:
+        logger.debug("clear_vram: system RAM read failed; treating RAM as full", exc_info=True)
+        return False
+    reserve_gb = host_ram_reserve_gb(mem.total_gb)
+    room = mem.available_gb - size_gb >= reserve_gb
+    logger.debug(
+        "clear_vram: %.2fGB component, %.2fGB RAM available, %.2fGB reserve -> %s",
+        size_gb, mem.available_gb, reserve_gb, "offload" if room else "unload",
     )
+    return room
+
+
+def _keeps_in_ram(mode: ClearVramMode, size_gb: float) -> bool:
+    if mode is ClearVramMode.OFFLOAD:
+        return True
+    if mode is ClearVramMode.UNLOAD:
+        return False
+    return _ram_has_room(size_gb)
+
+
+def _sweep_candidates(lifecycle: Any, skip_ids: set[int]) -> dict[int, Any]:
+    found: dict[int, Any] = {}
+    for value in lifecycle.cached_values():
+        if id(value) in skip_ids or id(getattr(value, "module", None)) in skip_ids:
+            continue
+        model_device = getattr(value, "device", None)
+        if model_device is None or not str(model_device).startswith("cuda"):
+            continue
+        if not callable(getattr(value, "offload", None)):
+            continue
+        found[id(value)] = value
+    return found
+
+
+def _offload_swept(value: Any) -> bool:
+    try:
+        value.offload()
+    except Exception:
+        logger.warning("clear_vram: lifecycle-cache offload failed for %r", value, exc_info=True)
+        return False
+    return True
+
+
+def clear_vram(
+    device: str | torch.device,
+    lifecycle: Any = None,
+    mode: ClearVramMode = ClearVramMode.OFFLOAD_OR_UNLOAD,
+) -> ClearVramResult:
+    manager = get_residency_registry()
+    leased_ids = {id(v) for v in lifecycle.leased_values()} if lifecycle is not None else set()
+    tracked = manager.resident_sizes(device, exclude_ids=leased_ids)
+    swept = _sweep_candidates(lifecycle, leased_ids | set(tracked)) if lifecycle is not None else {}
+    candidates = sorted(
+        [(size_gb, key, False) for key, size_gb in tracked.items()]
+        + [(float(getattr(v, "estimated_vram_gb", None) or 0.0), key, True) for key, v in swept.items()],
+        key=lambda candidate: candidate[0],
+        reverse=True,
+    )
+
+    result = ClearVramResult(mode)
+    for size_gb, key, from_sweep in candidates:
+        if _keeps_in_ram(mode, size_gb):
+            done = _offload_swept(swept.pop(key)) if from_sweep else manager.offload_entry(key)
+            if done is None:
+                continue
+            outcome = "offloaded" if done else "failed"
+        else:
+            if from_sweep:
+                del swept[key]
+            done = lifecycle is not None and lifecycle.evict_value(key) is True
+            if done and not from_sweep:
+                manager.forget(key)
+            if not done:
+                logger.warning("clear_vram: a ~%.2fGB component could not be unloaded; leaving it resident", size_gb)
+            outcome = "unloaded" if done else "failed"
+        result.record(outcome, size_gb)
+        if done and from_sweep:
+            result.swept_count += 1
+
+    logger.info(
+        "clear_vram (%s) on %s: offloaded %d (~%.2fGB), unloaded %d (~%.2fGB), failed %d (~%.2fGB)",
+        mode.value, device, result.offloaded_count, result.offloaded_gb,
+        result.unloaded_count, result.unloaded_gb, result.failed_count, result.failed_gb,
+    )
+    return result
 
 
 def free_vram_gb(device: str | torch.device) -> float | None:

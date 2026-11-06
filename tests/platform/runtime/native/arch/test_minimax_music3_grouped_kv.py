@@ -168,7 +168,7 @@ def test_lm_attention_stays_on_sdpa_whatever_the_dit_is_pinned_to(monkeypatch, i
     chosen = []
     real = att._resolve_dispatch
     monkeypatch.setattr(att, "_resolve_dispatch",
-                        lambda q, k, mask, causal, backend: chosen.append(backend) or real(q, k, mask, causal, backend))
+                        lambda q, k, mask, causal, backend, scale=None: chosen.append(backend) or real(q, k, mask, causal, backend, scale))
     monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
     install_capabilities(fake_capabilities(
         ampere(attention_backends=frozenset({att.SDPA, att.SAGE, att.SAGE2}))

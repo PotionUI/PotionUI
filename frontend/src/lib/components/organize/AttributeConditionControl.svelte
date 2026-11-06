@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
-	import { api } from '$lib/services/api';
+	import { useOrganizeApi } from '$lib/organize/scope';
 	import {
 		ATTRIBUTE_TYPES,
 		attributesForDraft,
@@ -20,6 +20,8 @@
 		OrganizeSubject
 	} from '$lib/types/organize';
 	import ConditionValueControl from './ConditionValueControl.svelte';
+
+	const api = useOrganizeApi();
 
 	let {
 		spec,

@@ -66,7 +66,7 @@ pipeline:
       # there iterates the string's CHARACTERS instead.
       loras:
         "@loop":
-          items: "{{ form.loras }}"
+          items: "{{ form.loras if form.speed_profile != 'flex' else [] }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -147,6 +147,7 @@ pipeline:
   ## instead of claiming a negative pass that never runs.
   ############
   - name: "prompt_encoder"
+    id: "prompt_encoder"
     input:
       - ["text_encoder", "model_loader/minimax_h3", "text_encoder"]
       - ["reference_image", "references", "image"]
@@ -179,12 +180,6 @@ pipeline:
       # `mode != 'director'`) still carries the shot's own duration here, and
       # the Clip length slider is not synced from it (see form.yml's header).
       reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
-      reference_mods:
-        "@loop":
-          items: "{{ form.reference_mods | default([], true) }}"
-          template:
-            file_path: "{{ item.model }}"
-            strength: "{{ item.strength }}"
 
   #############
   ## Prompt encoder, director mode: ONE conditioning per shot, presenting the
@@ -232,12 +227,6 @@ pipeline:
       image_pixel_budget: "{{ form.reference_pixel_budget }}"
       output_resolution: "{{ form.resolution }}"
       reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
-      reference_mods:
-        "@loop":
-          items: "{{ form.reference_mods | default([], true) }}"
-          template:
-            file_path: "{{ item.model }}"
-            strength: "{{ item.strength }}"
 
   #############
   ## Seed generator
@@ -286,9 +275,12 @@ pipeline:
         - ["model", "{{ form.video_vae }}"]
         - ["model", "{{ form.audio_vae }}"]
         - "@loop":
-            items: "{{ form.loras | active_loras }}"
+            items: "{{ (form.loras | active_loras) if form.speed_profile != 'flex' else [] }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - "@loop":
+            items: "{{ [form.flex_adapter] if form.speed_profile == 'flex' else [] }}"
+            template: ["model", "{{ item }}"]
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["speed_profile", "{{ form.speed_profile }}"]
         - ["resolution", "{{ form.resolution }}"]
@@ -333,12 +325,6 @@ pipeline:
       references: "{{ form.references | default([], true) | media_of_kind('image') }}"
       reference_videos: "{{ form.references | default([], true) | media_of_kind('video') }}"
       reference_audios: "{{ form.references | default([], true) | media_of_kind('audio') }}"
-      reference_mods:
-        "@loop":
-          items: "{{ form.reference_mods | default([], true) }}"
-          template:
-            file_path: "{{ item.model }}"
-            strength: "{{ item.strength }}"
       # The profile supplies the baseline; the visible Steps slider (baked to
       # the profile's exact value by the reactions in tabs/generation.yml) is
       # what actually wins once a profile is selected.
@@ -350,6 +336,7 @@ pipeline:
       # `reference_video_frames` comment above; same rule, same reason.
       frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
       quantity: "{{ form.quantity }}"
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       preview: "{{ form.preview }}"
       # H3 always samples an audio stream; this only picks which track gets
       # muxed. "generate" = the one the model just produced. The pipe's other
@@ -360,7 +347,7 @@ pipeline:
       # FBCache. The pipe's own defaults are off (threshold 0.0), so an
       # untouched Advanced tab renders exactly the pipeline it did before
       # these three controls existed.
-      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_threshold: "{{ (generation.profile.extra | default({})).step_cache_threshold | default(form.step_cache_threshold) }}"
       step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
       step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       # Sparse attention: ONE method knob (off/sol/sla). Off by default like
@@ -376,13 +363,22 @@ pipeline:
       # Solver and knot placement. The pipe's defaults (euler/simple) ARE the
       # reference schedule, so an untouched Generation tab renders exactly the
       # pipeline it did before these two controls existed.
-      sampler: "{{ form.sampler }}"
-      scheduler: "{{ form.scheduler }}"
+      sampler: "{{ generation.profile.sampler | default(form.sampler) }}"
+      scheduler: "{{ generation.profile.schedule | default(form.scheduler) }}"
+      video_sigma_shift: "{{ generation.profile.shift | default(form.video_sigma_shift) }}"
+      audio_sigma_shift: "{{ form.audio_sigma_shift }}"
       # Blank (the default) leaves the schedules computed from `steps` above;
       # a filled-in list owns the step count outright, profile included, and
       # is refused outright alongside a non-simple `scheduler`.
-      manual_sigmas: "{{ form.manual_sigmas }}"
-      manual_audio_sigmas: "{{ form.manual_audio_sigmas }}"
+      manual_sigmas: "{{ (generation.profile.extra | default({})).manual_sigmas | default(form.manual_sigmas) }}"
+      manual_audio_sigmas: "{{ (generation.profile.extra | default({})).manual_audio_sigmas | default(form.manual_audio_sigmas) }}"
+      runtime_loras:
+        "@loop":
+          items: "{{ [{'model': form.flex_adapter, 'strength': 1.0, 'audio': true}] if form.speed_profile == 'flex' else [] }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
 
   #############
   ## Gallery

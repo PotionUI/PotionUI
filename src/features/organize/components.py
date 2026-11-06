@@ -6,7 +6,9 @@ from src.features.organize.admin import OrganizeAdmin
 from src.features.organize.backfill import BackfillManager
 from src.features.organize.core_actions import register_core_actions
 from src.features.organize.core_facts import register_core_facts
+from src.features.organize.instance_ops import InstanceModelOps
 from src.features.organize.item_repository import OrganizeItemRepository
+from src.features.organize.outcome_repository import OrganizeOutcomeRepository
 from src.features.organize.manager import (
     NOTICE_JOB_FINISHED,
     NOTICE_RULE_PAUSED,
@@ -49,12 +51,14 @@ def register_notification_types(registry: NotificationTypeRegistry) -> None:
 def build_organize(registry: OrganizeRegistry, content_safety: Any, notify: Optional[Callable[..., Any]],
                    presets: Callable[[], List[Tuple[str, str]]],
                    notification_types: Optional[NotificationTypeRegistry] = None,
-                   executor: Optional[Any] = None) -> OrganizeComponents:
+                   executor: Optional[Any] = None, groups: Optional[Any] = None, plugins: Optional[Any] = None,
+                   types: Optional[Any] = None, busy: Optional[Callable[[], bool]] = None) -> OrganizeComponents:
     items = OrganizeItemRepository()
     writer = OrganizeWriteRepository()
     users = UserRepository()
+    ops = InstanceModelOps(groups, plugins, types, items) if None not in (groups, plugins, types) else None
     register_core_facts(registry, items, users, presets)
-    register_core_actions(registry, writer)
+    register_core_actions(registry, writer, ops)
     if notification_types is not None:
         register_notification_types(notification_types)
     manager = OrganizeManager(
@@ -67,9 +71,11 @@ def build_organize(registry: OrganizeRegistry, content_safety: Any, notify: Opti
             registry=registry,
             visibility=ContentSafetyVisibility(content_safety),
             notify=notify,
+            outcomes=OrganizeOutcomeRepository(),
+            ops=ops,
         ),
         executor=executor,
     )
     backfill = BackfillManager(manager)
-    worker = OrganizeWorker(manager.handle_event, prune=manager.prune)
+    worker = OrganizeWorker(manager.handle_event, prune=manager.prune, sweep=manager.retry_waiting, busy=busy)
     return OrganizeComponents(manager=manager, controller=OrganizeController(manager, backfill, OrganizeAdmin(manager)), worker=worker)

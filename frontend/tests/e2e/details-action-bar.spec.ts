@@ -34,6 +34,7 @@ const CATALOG = [
 	tool('crop', 'Crop', { icon: 'crop', accepts: ['image', 'video'], editor: 'crop' }),
 	tool('resize', 'Resize', { icon: 'shrink', accepts: ['image', 'video'], editor: 'resize' }),
 	tool('rotate', 'Rotate', { accepts: ['image', 'video'] }),
+	tool('fit_canvas', 'Fit canvas', { accepts: ['image'] }),
 	tool('crop_subject', 'Crop to subject', { accepts: ['image'], requires: { has_alpha: true } }),
 	tool('a1111-metadata-export.export-zip', 'Download with A1111 metadata', {
 		icon: 'download',
@@ -257,7 +258,7 @@ test.describe('the bar on History', () => {
 		expect(await rowLabels(download)).toEqual(['Download file', 'Export bundle']);
 		await page.keyboard.press('Escape');
 		const edit = await openMenu(page, 'Edit');
-		expect(await rowLabels(edit)).toEqual(['Trim', 'Crop', 'Resize', 'Rotate']);
+		expect(await rowLabels(edit)).toEqual(['Trim', 'Crop', 'Resize', 'Rotate', 'Open in Video editor']);
 	});
 
 	test('folds Download, Copy to Library and Reuse settings into More on a 1024 window', async ({ page }) => {
@@ -401,61 +402,20 @@ test.describe('letter shortcuts', () => {
 		await loginAsOwner(page);
 	});
 
-	const editor = (page: Page) => page.getByRole('dialog', { name: 'Edit image' });
+	const imageEditorTab = (page: Page) => page.getByTestId('tool-tab-host');
 
-	test('E in the History details closes them and opens the image editor', async ({ page }) => {
+	test('E in the History details closes them and opens an Image editor tab', async ({ page }) => {
 		await mockBackend(page);
 		await openHistoryDetails(page);
 
 		await page.keyboard.press('e');
 
 		await expect(page.getByRole('dialog', { name: 'Generation Details' })).toHaveCount(0);
-		await expect(editor(page)).toBeVisible();
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(imageEditorTab(page)).toHaveAttribute('data-tool', 'image');
 	});
 
-	test('Cancel in the editor brings the History details back with the information column where it was', async ({
-		page
-	}) => {
-		await mockBackend(page);
-		await openHistoryDetails(page);
-		const info = page.getByRole('dialog', { name: 'Generation Details' }).locator('[data-details-info]');
-		const before = await info.evaluate((node) => {
-			node.scrollTop = 140;
-			return node.scrollTop;
-		});
-
-		await page.keyboard.press('e');
-		await expect(editor(page)).toBeVisible();
-		await editor(page).getByRole('button', { name: 'Cancel', exact: true }).click();
-
-		await expect(page.getByRole('dialog', { name: 'Generation Details' })).toBeVisible();
-		await expect
-			.poll(() =>
-				page
-					.getByRole('dialog', { name: 'Generation Details' })
-					.locator('[data-details-info]')
-					.evaluate((node) => node.scrollTop)
-			)
-			.toBe(before);
-	});
-
-	test('the editor footer on a Library item says a copy is saved and the original is not changed', async ({
-		page
-	}) => {
-		await mockBackend(page);
-		await openLibraryDetails(page);
-
-		const edit = await openMenu(page, 'Edit');
-		await edit.getByRole('menuitem', { name: 'Crop', exact: true }).click();
-
-		const crop = page.getByRole('dialog', { name: 'Crop & frame' });
-		await expect(crop.getByRole('group', { name: 'Save as' })).toBeVisible();
-		await expect(crop.locator('[data-tool-note]')).toHaveText(
-			'Saves a copy. The original is not changed.'
-		);
-	});
-
-	test('F in the Library details toggles the favorite and E opens the editor', async ({ page }) => {
+	test('F in the Library details toggles the favorite and E opens an Image editor tab', async ({ page }) => {
 		const backend = await mockBackend(page);
 		await openLibraryDetails(page);
 
@@ -464,7 +424,8 @@ test.describe('letter shortcuts', () => {
 		await expect(bar(page).getByRole('button', { name: 'Favorite' })).toHaveAttribute('aria-pressed', 'true');
 
 		await page.keyboard.press('e');
-		await expect(editor(page)).toBeVisible();
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(imageEditorTab(page)).toHaveAttribute('data-tool', 'image');
 	});
 
 	test('the letters do nothing while a bar menu is open above the details', async ({ page }) => {
@@ -477,7 +438,7 @@ test.describe('letter shortcuts', () => {
 		expect(backend.writes).toEqual([]);
 	});
 
-	test('E on the History grid opens Edit image for the one selected image', async ({ page }) => {
+	test('E on the History grid opens an Image editor tab for the one selected image', async ({ page }) => {
 		await mockBackend(page);
 		await page.goto('/history');
 		const cards = page.locator('[data-generation-card]');
@@ -488,10 +449,11 @@ test.describe('letter shortcuts', () => {
 
 		await page.keyboard.press('e');
 
-		await expect(editor(page)).toBeVisible();
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(imageEditorTab(page)).toHaveAttribute('data-tool', 'image');
 	});
 
-	test('E on the Library grid opens Edit image for the one selected image', async ({ page }) => {
+	test('E on the Library grid opens an Image editor tab for the one selected image', async ({ page }) => {
 		await mockBackend(page);
 		await page.goto('/library');
 		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
@@ -500,10 +462,11 @@ test.describe('letter shortcuts', () => {
 
 		await page.keyboard.press('e');
 
-		await expect(editor(page)).toBeVisible();
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(imageEditorTab(page)).toHaveAttribute('data-tool', 'image');
 	});
 
-	test('E in an open card menu runs the Edit image row', async ({ page }) => {
+	test('E in an open card menu runs the Open in Image editor row', async ({ page }) => {
 		await mockBackend(page);
 		await page.goto('/library');
 		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
@@ -513,6 +476,7 @@ test.describe('letter shortcuts', () => {
 
 		await page.keyboard.press('e');
 
-		await expect(editor(page)).toBeVisible();
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(imageEditorTab(page)).toHaveAttribute('data-tool', 'image');
 	});
 });

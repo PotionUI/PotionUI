@@ -19,6 +19,7 @@ __all__ = [
     "SubmittedGeneration",
     "cancel_generation",
     "generation_state",
+    "get_session",
     "get_session_snapshot",
     "list_generation_files",
     "resolve_media_ref",
@@ -178,11 +179,30 @@ def resolve_media_ref(user, ref: Union[HistoryMediaRef, LibraryMediaRef]) -> Res
     return _resolve_library(container, user, ref)
 
 
-def get_session_snapshot(user, session_id: str, version: Optional[int] = None) -> Dict[str, Any]:
-    container = get_container()
+def _owned_session(container, user, session_id: str):
     session = container.session_repository.get_by_id(session_id)
     if session is None or session.user_id != getattr(user, "id", None):
         raise SessionNotFoundError(f"Session '{session_id}' not found")
+    return session
+
+
+def get_session(user, session_id: str, mode: Optional[str] = None) -> Dict[str, Any]:
+    session = _owned_session(get_container(), user, session_id)
+    data = session.data or {}
+    return {
+        "session_id": session.id,
+        "preset_id": session.preset_id,
+        "name": session.name,
+        "version": session.version,
+        "updated_at": (session.updated_at or session.created_at).isoformat(),
+        "mode": mode,
+        "data": data.get(mode) if mode is not None else data,
+    }
+
+
+def get_session_snapshot(user, session_id: str, version: Optional[int] = None) -> Dict[str, Any]:
+    container = get_container()
+    session = _owned_session(container, user, session_id)
     data = session.data
     if version is not None:
         record = container.session_version_repository.get(session_id, version)

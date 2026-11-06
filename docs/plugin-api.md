@@ -59,19 +59,19 @@ import from those — the names are identical, so it is purely a matter of taste
 | **LLM** — contributing an LLM configuration type | `.llm` | `Adapter`, `HttpAdapter`, `OpenAIChatAdapter`, `RenderRequest`, `WireRequest`, `CapabilityProfile`, `ProfileLayer`, `Settings`, `ToolSpec`, the message parts, stream events and provider errors, `LLMConfig`, `DiscoveredModel`, `DiscoveredWindow` |
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
 | **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
-| **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
-| **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
+| **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError`, `PreEncodedReference` (an already VAE-encoded reference a pipe hands to a `reference_latents` input), `MAX_BUNDLE_COPIES` (the most copies a prompt resource bundle row may ask for) |
+| **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks`, `load_native_component(path, kind)` (one component file, such as a `vae`, loaded on the CPU by the engine's own loader and returned as its wrapper: `.module`, `move_to(device)`, `unload()`) |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`; `None` when not installed), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False)` (puts a resolved image, from `resolve_media_ref`, into a single-shot Video Director document as its `first` or `last` frame, keeping the rest of the document; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot; raises `DirectorBindingError` with a `code`), `RequirementBackendInfo` (the resolved backend a `RequirementContext` carries: `id`, `engine`, `driver`, `config`) |
 | **Forms** — the field types core ships | `.forms` | `core_field_type_names()` (the names of every core non-container field type, e.g. to validate a `field_type` a form-building tool is handed) |
-| **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict` |
+| **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict` |
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `plugin_settings`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe`, `StreamingMp4Writer(out_path, width, height, fps)` (pipes RGB uint8 frames to ffmpeg into a video-only MP4; `write`, `close`, `abort`, or a `with` block; raises `FFmpegNotFoundError` when ffmpeg is missing), `has_audio_stream(path)`, `mux_audio_from_source(video_only, source, out_path)` (video of one file plus audio of another, stream-copied or AAC; returns `False` and leaves no partial file when there is no audio or ffmpeg fails) |
-| **Models** — model metadata fields, provider links, resolving a model's file/folder across roots, and acting on catalog models | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `ModelFileUnavailable` (raised by `resolve_model_file` when the model's file is not reachable), `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path(path, admin=False)`, `model_for_sha256(sha256, *, size=None, hash_candidates="background", admin=False)` (the indexed model with that hash, or `None`; pass the file's `size` in bytes and a local copy that has not been hashed yet but has exactly that size can match as well: `"background"` queues at most eight of those candidates per call at the normal, rate-capped priority and answers `None` until they are done, `"paced"` verifies at most two of them through the rate-capped pool, waiting up to 15 minutes, `"inline"` hashes up to eight of them before answering at full speed, `"never"` only looks; `ValueError` for any other mode; unscoped; both leave out the operational fields - location, file size, hash - unless `admin=True`, for a caller that has checked the user is an admin), the hook `model_index.after_digests` (payload `model_ids`, at most once every 5 seconds: files finished being hashed, so a model's `sha256` is now known), `visible_model_ids(user_id)` (the models assigned to a user, directly or through their groups), `assign_model_to_user(model_id, user_id)` (`True` when newly assigned; fires `model_index.before_assign` / `after_assign`; raises `ModelAssignmentException`), `update_model_metadata(model_id, values)` (sets some shared attribute values, validated against the type's definitions; raises `InvalidModelMetadataException`, `ModelNotFoundException`), `run_provider_fetch(provider, model_ids)` (async; hashes any model that has no digest yet, one after another, then fills empty description, triggers, tags and previews from a provider plugin; `{"successful", "failed", "errors"}`; raises `ProviderFetchException` for an unknown or uninitialised provider, or a `model_index.before_fetch_info` veto), `ProviderFetchException`, `MODEL_DIRECTORY_ALIASES`, `type_for_folder_name`, `MODEL_TYPES`, `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
+| **Models** — model metadata fields, provider links, resolving a model's file/folder across roots, and acting on catalog models | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `ModelFileUnavailable` (raised by `resolve_model_file` when the model's file is not reachable), `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path(path, admin=False)`, `model_for_sha256(sha256, *, size=None, hash_candidates="background", admin=False)` (the indexed model with that hash, or `None`; pass the file's `size` in bytes and a local copy that has not been hashed yet but has exactly that size can match as well: `"background"` queues at most eight of those candidates per call at the normal, rate-capped priority and answers `None` until they are done, `"paced"` verifies at most two of them through the rate-capped pool, waiting up to 15 minutes, `"inline"` hashes up to eight of them before answering at full speed, `"never"` only looks; `ValueError` for any other mode; unscoped; both leave out the operational fields - location, file size, hash - unless `admin=True`, for a caller that has checked the user is an admin), the hook `model_index.after_digests` (payload `model_ids`, at most once every 5 seconds: files finished being hashed, so a model's `sha256` is now known), `visible_model_ids(user_id)` (the models assigned to a user, directly or through their groups), `assign_model_to_user(model_id, user_id)` (`True` when newly assigned; fires `model_index.before_assign` / `after_assign`; raises `ModelAssignmentException`), `update_model_metadata(model_id, values)` (sets some shared attribute values, validated against the type's definitions; raises `InvalidModelMetadataException`, `ModelNotFoundException`), `run_provider_fetch(provider, model_ids)` (async; hashes any model that has no digest yet, one after another, then fills empty description, triggers, tags and previews from a provider plugin; `{"successful", "failed", "errors"}`; raises `ProviderFetchException` for an unknown or uninitialised provider, or a `model_index.before_fetch_info` veto), `ProviderFetchException`, `directory_aliases()`, `type_for_folder_name`, `model_types()` (the registered model types, plugin types included, read at call time), `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
 | **Downloads** — queueing a download and following it | `.downloads` | `queue_model_download(url, *, filename=None, model_type=None, subdir=None, tags=None, checksum_sha256=None, provider_id=None, created_by=None, destination_backend_id=None)` (async; the queued download as a dict; raises `DownloadQueueException`, or its `UnsafeFilenameException` and `DownloadDestinationInvalid` subtypes - the latter when the subfolder, directory or remote backend cannot be used, as opposed to a queue that is blocked), `get_download(download_id)` (the download's current state, or `None`), `DownloadNotFoundException`. Declare the `download.after_complete` hook to be told when a download has landed (`download_id`, `created_by` ...; `model_id` or `duplicate_of` only for a plain local model download, the one kind indexed on completion) |
 | **User groups** — groups, membership, and the NSFW policy a user gets | `.groups` | `list_groups()`, `get_user_groups(user_id)`, `group_member_ids(group_id)` (groups are `{"id", "name", "is_system", "content_policy"}` dicts), `effective_content_policy(user_id)` (`"allowed"`, `"blur"` or `"blocked"`: the instance setting made stricter by the user's groups), `assign_models_to_group(group_id, model_ids, acting_user)` (the ids newly assigned, through the group operation and its hooks in that admin's name; `ValueError` for a non-admin actor or an unknown group) |
 | **Notifications** — telling users something happened | `.notifications` | `notify(*, source, title, message="", user_id=None, type="", level="info", category="plugin", metadata=None, transient=False, show_toast=True)` (how many users received it; `user_id=None` broadcasts; a registered `type` respects each user's preferences), `register_notification_types(registry, specs)` (from a `notification_type.register` handler; returns the keys it added), `NotificationTypeSpec`, `NotificationTypeRegistry`, `DuplicateNotificationTypeError` |
-| **Auto-organize** — contributing rule conditions and actions | `.organize` | `OrganizeItem`, `OrganizeChange`, `OrganizeActionBlocked`, `compare`, `FACT_KINDS`, `OPERATOR_LABELS`, `CONFIG_FIELD_KINDS`, `FACT_TRIGGERS`, `SQL_ALIASES`, `SUBJECTS` |
+| **Auto-organize** — contributing rule conditions and actions | `.organize` | `OrganizeItem`, `OrganizeChange`, `OrganizeActionBlocked`, `OrganizeActionSkipped`, `OrganizeActionRetry`, `compare`, `FACT_KINDS`, `OPERATOR_LABELS`, `CONFIG_FIELD_KINDS`, `FACT_TRIGGERS`, `SQL_ALIASES`, `SUBJECTS` |
 | **Limits** — contributing a plan limit kind, and reading where a user stands | `.limits` | `LimitKind`, `Usage`, `Refusal`, `MeasureContext`, `RefusalContext`, `AdmissionRequest`, `LimitEvents` (`record(user_id, kind, units=1, ref_id=None)`, `refund(ref_id)`), `LimitEventsView`, `LimitExceeded`, `limit_status(user_id, kind)` (a `LimitStatus`: `limit` (None when nothing limits the user for that kind), `used` in the current window, `exempt`, `resets_at`, `contact_line`, plus `limited` and `remaining`; for a plugin that admits its own operations against a kind it measures itself) |
 | **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
 | **Sampling** — contributing a step algorithm or a sigma schedule | `.sampling` | `SamplerDefinition`, `ScheduleDefinition`, `ScheduleContext`, `OptionSpec`, `GuidanceStrategy`, `SamplingCancelled`, `run_hooks`, `sample_euler`, `sampler_registry`, `schedule_registry` |
@@ -744,7 +744,17 @@ organize_actions:
     undo_handler: organize.undo_notify       # optional
     config_schema:
       - {key: channel, kind: text, label: Channel, required: true}
+    scope: user
+    notes: []
+    needs: []
+    done_label: ""
+    paced: false
 ```
+
+`scope` is `user` (the default) or `instance`, `notes` are lines the editor shows in one
+info box, `needs` is `[digest]` to wait for a model's file hash, `done_label` is the
+summary of a finished run and `paced` marks an action that reaches an outside service;
+the last four are explained under "Instance actions".
 
 Import only from `src.plugin_api.organize`. The reference implementation used by the
 tests lives at `tests/fixtures/organize_example_plugin/`.
@@ -757,7 +767,7 @@ tests lives at `tests/fixtures/organize_example_plugin/`.
 | `enum` | `is`, `is_any_of`, `is_not` | a string, or a list for `is_any_of` | chips or a select; autocomplete when there is an `options_handler` | `multi` |
 | `size` | `is`, `at_least`, `at_most` | `{"width": 1344, "height": 768}` | resolution presets + custom | `presets` |
 | `number` | `is`, `at_least`, `at_most` | a number | stepper | `min`, `max`, `step`, `unit` |
-| `text` | `contains`, `not_contains`, `starts_with`, `ends_with`, `is`, `is_not` | a string, matched case-insensitively | text input | `placeholder` |
+| `text` | `contains`, `not_contains`, `starts_with`, `ends_with`, `is`, `is_not` | a string, matched case-insensitively; a core fact such as a model's name can also store `ignore_separators: true` on the condition to compare without `-` and `_` | text input | `placeholder` |
 | `tag_list` | `has` (every listed value), `has_not` (none of them) | a list of strings | tag autocomplete | - |
 | `bool` | `is` | `true` / `false` | toggle | - |
 | `attribute` | per attribute type, see below | `{"key", "type", "label", "value"}` | attribute picker, then the type's operators and control | `operators_by_type` |
@@ -826,6 +836,34 @@ Set `picker: {operators_by_type: {...}}` only to narrow the operators per type.
 - **Action `undo_handler(item, change, user_id) -> bool`** reverses one recorded change.
   Without it, undoing a run leaves that plugin's changes in place and counts them as
   skipped.
+- **Outcomes.** A handler that returns normally has done its job (an empty list means
+  there was nothing new). It can say more by raising:
+  `OrganizeActionBlocked(code, message)` stops the rule and pauses it with a notice;
+  `OrganizeActionSkipped(code, message)` is permanent for this item: the item counts as
+  done, the other actions of the rule still run, and the run lists the item as
+  *skipped* with the message; `OrganizeActionRetry(code, message, after_s=None)` is
+  transient: the item is **not** done, the rule's remaining actions are not run for it,
+  and the run lists it as *waiting*. The host tries a waiting item again after 5, 15,
+  60 and 240 minutes (or `after_s` seconds), and after five attempts turns it into a
+  skip with the code `gave_up`. Any other exception counts as a retry with the code
+  `error`; it never marks the item done.
+
+### Instance actions
+
+`scope: instance` makes an action part of the instance-wide rules admins keep under
+Admin, Models, Auto-organize (`/api/admin/organize/instance/...`). Such a rule belongs to
+nobody: the handler gets `user_id=None`, runs as the system, and the run records which
+admin started it. An instance action is never offered to users, and a user action is
+never offered to instance rules. Instance actions are for the `model` subject only.
+
+- `needs: [digest]` makes the host call the handler only once the model's `sha256` is
+  known. Until then the model is recorded as waiting (`unverified`) and the host runs the
+  action when `model_index.after_digests` reports the file; the host never hashes a file
+  to satisfy it.
+- `paced: true` marks an action that calls an outside service. Such a rule is exempt
+  from the hourly "filed N items" pause, and a run applies it in small steps so progress
+  moves per item. Keep the handler idempotent and raise `OrganizeActionRetry` for outages.
+- `notes` and `done_label` are text for the editor and the run summary.
 
 `triggers` says when the fact's value can first be known: `item_created`, or also
 `tags_changed` for a value that arrives later (an auto-tagger), or `metadata_changed`
@@ -996,6 +1034,44 @@ and put any admin-shaped fix in `suggested_repair`.
 Registration makes the kind both runnable and lintable: `scripts/recipe_lint.py` and the
 running catalog accept recipes using it, while an unregistered kind stays an unknown-kind
 error. Disabling the plugin takes the kind away again.
+
+A step kind may implement three optional methods next to `execute`:
+
+- `validate_params(params, recipe, lint: LintContext) -> list[str]` — param checks. The running
+  catalog rejects a recipe whose steps fail them, and `scripts/recipe_lint.py` reports them (rule
+  R7). `lint.preset_index` maps preset ids to loaded presets.
+- `preview(context) -> dict` — a side-effect-free summary for the dry run
+  (`POST /api/recipes/{id}/plan`). Return `{"summary": "...", "consent_request": {...}?}`.
+- `grant(context, consent_request, grant: GrantRequest) -> dict` — called when an admin approves a
+  step parked on `awaiting(...)`. `grant` carries `selections`, `modes`, `extras` and `target`
+  from the approval body; raise `ValueError` with a plain sentence to reject it. The returned dict is
+  stored on the approving attempt, where later steps read it through
+  `context.step_outputs[step_key]` (or `context.plans(...)` for a `plan` key).
+
+`context.is_cancelled()` turns true when an admin cancels the run while the step is still running;
+a long poll loop should check it, stop its own work and return. `report_progress(...)` also takes a
+`safe_output=` dict to show richer interim state (the download step uses it for per-file rows).
+
+A `consent_request` passed to `StepResult.awaiting(...)` is rendered by the same consent sheet as
+core's own steps. These keys are understood, all optional: `artifacts` (files with `id`,
+`display_name`, `size_bytes`, `kind`, `gated`, `license_url`), `total_bytes`, `slots` (per-slot
+variant pickers), `modes` (a mode checklist), `manifest`, `disk`, `estimate`, `providers` (missing
+credential prompts), `warnings`, `checking` and `target`. See
+`src/features/recipes/mode_plans.py` for the full `modes.plan` payload.
+
+### Installing preset modes
+
+Core's `modes.plan` step takes its files from a preset's own model-field `recommendations:`
+instead of a hand-written `artifacts:` list. It offers every mode (`modes: "all"`), pre-ticks
+`selected`, keeps `locked` modes ticked (the smoke mode), offers optional files as extras
+(`extras: offer`, pre-ticked by `preselect_extras`), and parks for consent with the mode
+checklist above. Follow it with `artifacts.fetch {plan: <step key>}` (downloads in parallel,
+re-checks free disk, writes to a remote worker when that is the target), `preset.defaults
+{plan}` (fills empty or broken form-override defaults with the downloaded files) and
+`pipeline.render {plan}` (renders every chosen mode). Every native preset with downloadable
+recommendations also gets a derived `modes-<preset>` recipe with exactly these steps, and
+`python scripts/recipe_new.py <preset>` scaffolds a starter that uses them;
+`python scripts/recipe_lint.py --explain <recipe>` prints what each mode would download.
 
 ## Contributing a model layout profile
 
@@ -1263,6 +1339,64 @@ decided keep their verdict; an admin can retype them. Disabling the plugin remov
 classifiers. `src.plugin_api.models.model_classifier_registry` is a read-only view for listing
 and looking up classifiers; there is no register call, plugins register through the manifest.
 
+## Contributing a model type
+
+A model type is a folder of model files PotionUI scans, indexes, shows in Admin -> Models and
+offers to model fields. Core registers its own types (`checkpoint`, `lora`, `vae`, ...) through
+the same registry a plugin uses. Declare yours under `model_types:`:
+
+```yaml
+model_types:
+  - id: pose_rig                  # lowercase, digits and underscores; unique across core and plugins
+    label: "Pose rig"             # shown wherever the type is named
+    purpose: "Skeleton for pose transfer"   # optional one-line description
+    folder: pose_rigs             # one folder name under each models root; downloads land here
+    aliases: [PoseRigs]           # optional other folder names that mean this type
+    extensions: [.onnx, .safetensors]       # optional; defaults to the core model file extensions
+    layout: file                  # optional; `directory` treats each subfolder with a config.json as one model
+    header_classified: false      # optional; files are typed from their headers, like checkpoints
+    assignable: true              # optional; whether an admin may move a model to this type
+```
+
+Enabling the plugin registers the type and binds `folder` under the PotionUI models root, so the
+next indexing run (a restart, or Rescan in Admin -> Models) catalogues the files in it. A model
+field with `model_type: pose_rig` lists them. An `id`, `folder` or alias that is already taken,
+by core or another plugin, fails the enable with an error naming both owners.
+
+Disabling the plugin removes the type. Its folder is no longer scanned and its files are no
+longer resolvable, but the models already indexed keep their rows: Admin -> Models shows them
+under the type id, marked as no longer available, until the plugin is enabled again.
+
+Python code reads the live set through `src.plugin_api.models.model_types()`; a frontend reads
+`window.__potionui.modelTypes` (`list()`, `get(id)`, `presentation(id)`), which follows
+`GET /api/models/type-definitions`. Both include plugin types while their plugin is enabled.
+
+## Contributing a prompt resource source
+
+A prompt resource source lets a preset's prompt cite rows of a picker field whose items are
+bundles of several references (an image and an audio member, say) rather than single media.
+A preset mode, or a [preset extension](presets/plugins.md#extending-existing-modes), maps such a field with
+`source: <id>` in `prompt_resources`; see [Prompt resources](presets/manifest.md#prompt-resources).
+Declare the source in `manifest.yml`:
+
+```yaml
+prompt_resource_sources:
+  - id: stack                 # the value prompt_resources entries put in `source`
+    field_type: lora_picker   # the field type it reads; lint rejects any other
+    label: Stack              # names an item in messages and chip tooltips
+    badge: Stack              # the @ menu badge while an item's members are unknown
+    members: sources.members  # "module.function" in your plugin
+```
+
+`members(item_key, caller)` returns the item's members as `[{"kind", "name"}]`, where `kind`
+is `image`, `video` or `audio`. `item_key` is the row's `model` value (`model:<id>`), and
+`caller` carries `user_id`, `is_admin` and `model_file(model_id)`, which returns the model's
+file path. Raise `ValueError` with a short reason when the item cannot be read; any other
+exception is reported as unreadable without its text. Core calls it at submit time for every
+cited row and from `GET /api/prompt-resources/sources/{id}/members?item=<item key>`, which first
+checks that the caller can see the model (404 otherwise, before your handler runs). Two
+plugins cannot register the same id, and disabling the plugin removes the source.
+
 ## Contributing a prompt importer
 
 Core owns file-based import: `POST /api/prompts/import` accepts `styles.csv`
@@ -1375,6 +1509,35 @@ off in the background and can hand you a registry that isn't ready yet.
 Disabling the plugin removes its importer(s) from `GET /api/prompts/importers`
 immediately; prompts already imported are unaffected.
 
+## Writing a prompt for a preset
+
+`src.plugin_api.prompts.write_prompt_for_preset(user_id, instruction, *, preset_id=None,
+mode=None, form_data=None, media=(), llm_id=None)` asks a language model to write one
+prompt that follows `instruction`, in the style of the preset it is for. It is the same
+grounding the chat's prompt enhancement uses: the preset's `llm.guide` (or the mode's
+guide), its name and description, the model selected in `form_data` with its prompting
+guidance, and the user's approved and community prompts for that model. `media` is a list
+of `{"value", "media_type"}` entries as `src.plugin_api.generation.resolve_media_ref`
+returns them; images are sent as they are and each video as a few frames. Without an
+`llm_id` it uses a language model the user can use, the way chat does: the server default
+when one is set, otherwise the user's assigned models, and when media is given the first
+of those with vision support. It returns `{"text", "model_id", "llm_id"}`.
+
+It raises `PromptWriteRefused` (with a `code` and a message you can show) when the user
+has no language model (`no_llm`), the requested model is turned off (`llm_disabled`), media
+is given and no usable model has vision (`vision_not_supported`, raised before any file is read),
+the user cannot see the preset under the same rule as the presets routes (admins see every
+preset, others their directly or group-assigned ones; `preset_not_available`, raised before
+any grounding or file is read), a file path is absolute, climbs with `..` or resolves outside
+the storage root (`media_outside_storage`), an image is over 5 MB (`media_too_large`), more
+than 4 files are given in one call (`too_much_media`), a file cannot be read
+(`media_unreadable`, `media_unsupported`), the instruction is blank (`no_instruction`) or the
+reply is empty (`empty_reply`). The instruction is cut to 4000 characters, the preset guide
+to 3000, and each video gives at most 3 frames. Transport failures of the
+language model propagate as they are. `prompt_writer_status(user_id, llm_id=None)`
+reports `{"available", "vision", "name", "code", "message"}` for that user without calling
+the model, so a plugin can warn before it runs anything.
+
 ## Contributing a phrasebook batch tool
 
 The Phrasebook's Find & replace view lets a user select values and run a tool over them.
@@ -1463,12 +1626,14 @@ Disabling the plugin removes its tools from `GET /api/phrasebook/batch-ops` imme
 ## Media tools
 
 A **media tool** is one declaration of something that edits media: trim a clip, resize an image, loop
-a video. Core ships twelve; a plugin adds its own. The Tools menu on the Library and History pages, a
+a video. Core ships nineteen; a plugin adds its own. The Tools menu on the Library and History pages, a
 media field's toolbar, presets, PotionAI chat and automation all read the same catalog, so a plugin tool
 shows up in every one of them as soon as the plugin is enabled and disappears when it is disabled.
-Tools change shape or time (trim, crop, resize, rotate, flip, speed, split, frame, concat, fit canvas,
-crop to subject, colour key) and run deterministically with no model. Looks (grain, VHS, grades) are
-photo filters, not tools: see [Contributing photo filters and filter ops](#contributing-photo-filters-and-filter-ops).
+Tools change shape, time, sound or pixels (trim, crop, resize, rotate, flip, speed, split, frame, concat, fit canvas,
+crop to subject, colour key, fix colours, film grain, mute, volume, replace audio, paint layer) and run
+deterministically with no model. Looks on
+still images (grain, VHS, grades) are photo filters, not tools: see
+[Contributing photo filters and filter ops](#contributing-photo-filters-and-filter-ops).
 
 ### Core tools
 
@@ -1484,11 +1649,72 @@ photo filters, not tools: see [Contributing photo filters and filter ops](#contr
 | `color_key` | image | same | `key_mode`, `key_color`, `tolerance`, `softness`, `despill`, `feather` |
 | `crop_subject` | image with transparency | same | `margin`, `alpha_threshold` |
 | `frame` | video | image | `time` (seconds) |
-| `split` | audio | audio, many | `part_seconds` |
+| `split` | audio, video | same, many | `mode` every / at, `part_seconds`, `at` (seconds) |
 | `concat` | video, 2 to 8 selected | video, one | `overlap`, `overlap_frames`, `fit`, `keep_audio` |
+| `cut_finder` | video | video, many | `sensitivity` 0 to 100, `min_shot_seconds` |
+| `mute` | video with sound | same | none |
+| `volume` | video, audio with sound | same | `unit` percent / db, `percent` 0 to 400, `db` -60 to 20, `fade_in`, `fade_out` (seconds) |
+| `replace_audio` | video (editor only) | same | `audio` (media), `start` (seconds into the track), `loop` |
+| `paint_layer` | image (editor only) | same | `layer` (media, a transparent PNG) |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
 transparency (a JPEG that gains an alpha channel is saved as PNG).
+
+`mute`, `volume` and `replace_audio` copy the video stream when they run alone; next to a picture or timing edit they
+share that edit's single encode. `replace_audio` keeps the video's length: the track starts `start` seconds in and, with
+`loop`, repeats until the picture ends. `split` with `mode: at` cuts at one time point into two items; video parts are
+re-encoded so the cut lands on the exact frame. Tools whose `scopes` are only `editor` (`replace_audio`, `paint_layer`)
+are left out of the Library and History menus because they need a file picked in the editor.
+
+A `media` parameter names another file: `{"item_id": "..."}` (a Library item or a helper upload) or
+`{"generation_file_id": "..."}`; a bare string is read as an `item_id`. The run checks that the caller owns it and that
+its kind is one of the parameter's `accepts`, then hands the tool a staged `ToolMedia` in its place.
+
+The Effects menu (`group: effects`) lists **effects**: tools defined by an `effect.yml` folder, with a live preview
+shader and ffmpeg, torch or numpy renders. Film grain (`film_grain`) and Fix colours (`fix_colors`) are the core ones.
+Their contract, the catalog `effect` block and the shader and analysis endpoints are in [Video Effects](effects.md).
+
+### The editor API
+
+The Image and Video editor tabs keep a stack of steps, `{tool, params, hidden?}`, and talk to these endpoints. Every
+one needs a signed-in user, answers 404 for a source, helper file, run or preview owned by someone else, and never puts
+a file path in a response.
+
+| Method and path | Body | Answer |
+|---|---|---|
+| `POST /api/media-tools/runs` | `{steps, inputs: [ref], output: {mode, target_item_id?}}` | 202 `{run_id}` |
+| `GET /api/media-tools/runs` | | `{runs: [run]}`, my runs still held (queued, running, or finished in the last 10 minutes) |
+| `GET /api/media-tools/runs/{id}` | | `run` |
+| `DELETE /api/media-tools/runs/{id}` | | `run`, cancelled |
+| `POST /api/media-tools/preview/frame` | `{input: ref, steps, time_seconds?, max_side? 1280, format? webp / png}` | the image; header `X-Preview-Cache: hit / miss` |
+| `POST /api/media-tools/preview/clip` | `{input: ref, steps, start_seconds? 0, duration_seconds? 3, height? 480}` | 202 `{run_id, preview}` |
+| `GET /api/media-tools/previews/{id}` | | the preview clip (cookie or bearer, so a `<video>` can play it) |
+| `POST /api/media-tools/artifacts` | multipart `file` | `{id, media_type, mime_type, url, width, height, duration_seconds, fps, size}` |
+| `GET /api/media-tools/effects/{tool_id}/shader` | | the effect's preview shader as `text/plain`, with an `ETag` |
+| `POST /api/media-tools/effects/analysis` | `{input: ref, steps, step_index}` | `{values, cached}`, an effect's measured values |
+
+- A `run` is `{run_id, kind: run / preview, status, progress 0..1, label, items, replaced, preview, error, summary}`. Poll it by
+  id for progress; a reload reattaches through the stored id or the run list.
+- **Saving a stack** runs it as one background run. Hidden steps are skipped and never validated; up to 64 visible steps
+  run in order. `mode: new` makes Library items, `mode: update` with `target_item_id` replaces the file of the copy a
+  first save made (one input, no split, same kind), and `mode: replace` replaces a Library source; a History source or a
+  helper upload is refused with `replace_not_allowed`. A stack with `split` saves its parts as separate items named
+  "part 1 of 2".
+- **Frame preview** renders one frame of a video, or the image, through the stack with each tool's frame path, the same
+  code the full render uses: `film_grain` seeds each frame's grain by a hash of its frame number, so the paused frame shows
+  the grain the render will put there, and `fix_colors` measures the trimmed range of the source. `time_seconds` is on
+  the source clip; trim and speed steps map it to the frame the render would show. Sound and timing steps leave the
+  picture alone. A tool with no frame path (`frame`, `concat`, most plugin tools) is refused with its `step_index`.
+  Answers are cached per user, source, time, stack and size.
+- **Clip preview** cuts `duration_seconds` from `start_seconds` (source time, clamped inside the trim), runs the stack on
+  that piece and scales it to `height` as an MP4. A split step is left out. When the same request is cached the answer
+  is `{run_id: null, preview}` at once; otherwise poll the run and read `preview` when it completes, or cancel it.
+  Fades and the replacement track's offset count from the start of the piece, not of the whole clip.
+- **Helper uploads** (`derived_artifact`) hold what an editor makes or receives: a paint layer, a mask, a dropped file,
+  a replacement track. Use the returned `id` as a run input or in a `media` parameter. They stay out of the Library but
+  count toward the plan's storage and per-file limits. They must be an image, audio or video file of at most 512 MB.
+  The announced size is checked before the body is read and the bytes are checked again after. The same rules apply
+  to `POST /api/media/upload` with `purpose=derived_artifact`.
 
 ### From chat, MCP and automation
 
@@ -1587,11 +1813,19 @@ directory afterwards, whatever happens.
 
 - **`ToolMedia`** is a frozen dataclass: `path`, `kind` (`image` | `video` | `audio`), `width`, `height`,
   `duration`, `fps`, `has_audio`, `has_alpha`. Everything except `path` and `kind` may be `None`.
-- **`ToolContext`** gives you `scratch_dir`, `new_path(suffix)` for a fresh output path,
+- **`ToolContext`** gives you `scratch_dir`, `user_id` (the user the run belongs to, `None` outside a
+  Library or History run), `new_path(suffix)` for a fresh output path,
   `progress(fraction, label="")`, `is_cancelled()`, `probe(path)` and `ffmpeg(args, duration=None)`.
   `ffmpeg` is the one cancellable runner: it adds `-y`, parses `-progress` into `ctx.progress` when you
   pass the expected output `duration`, kills the process when the run is cancelled and raises on a failure
   without ever exposing stderr or server paths. Use it instead of `subprocess` so cancel works.
+- **`ctx.summarize(message, links=())`** lets the last step of a run finish with no media: return `[]` after
+  calling it and the run completes with nothing added to the Library, showing `message` (and the first
+  `(label, href)` link: a path inside the app such as `/models`, with no backslash, whitespace or control
+  character) in place of the Library notice. The run's
+  `summary` is `{message, links: [{label, href}]}`.
+- **`ToolFailed(message)`** ends the run as failed with `message` shown to the user, and **`ToolCancelled()`**
+  ends it as cancelled; raise it when `ctx.is_cancelled()` turns true during a long loop.
 - **`check_params(params)`** is an optional override for rules that span parameters (`end` must be greater
   than `start`); raise `InvalidToolParams(field, message)`.
 - **`validate_params(spec, params)`** is what the API, presets and chat all call before running; it applies
@@ -1645,6 +1879,25 @@ generationIds, generations, onClose(), onDone() }`: `items` is the selection as
 page, and `onDone()` clears the selection once the tool finished. If it needs the backend it calls its own
 plugin API route.
 
+### Shipping effects
+
+An effect is a media tool defined by one folder (see [Video effects](effects.md)). Declare one or more roots and put
+`<name>/effect.yml` folders in them:
+
+```yaml
+effects:
+  - path: effects
+```
+
+- Each effect registers as `<plugin-id>.<id>` under the plugin's source, in the Video editor's Effects panel, the
+  Library Effects menu, presets, chat, MCP and automation. Nothing in the UI names the plugin.
+- Python renders and analyses (`render.py:fn`) may import only `numpy`, `torch` and `src.plugin_api.*`.
+- A path outside the plugin folder, a missing folder or any broken `effect.yml` fails the enable with the error, and
+  nothing of the plugin registers. Disabling the plugin removes its effects; the open editor's catalog refreshes.
+- `python scripts/effect_parity.py <plugin folder> --golden` writes the parity goldens to
+  `<plugin>/tests/effects/golden/`, and the same command without `--golden` checks every render against them.
+- `tests/e2e/effect_plugins/e2e-effects/` is a complete example (an Invert effect with a shader and a numpy render).
+
 ### The API
 
 Successful JSON responses use the usual `{success, data}` envelope. A refusal answers with `detail: {success: false, error, message, ...}`; the codes are listed per route.
@@ -1671,7 +1924,7 @@ Successful JSON responses use the usual `{success, data}` envelope. A refusal an
   `replace` swaps the thumbnails together with the file and deletes the old ones. If another run replaced the
   same item first, the later run fails with `conflict` and publishes nothing. A run that would create more
   than 500 files fails with `too_many_outputs` before anything is published.
-- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error}`.
+- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error, summary}`.
   `status` is `queued`, `running`, `completed`, `failed` or `cancelled`; `items` are the resulting Library
   items; a failed run carries `error: {code, message}` (a tool's `requires` check ends the run with
   `unsupported_media`). An unknown run id, or another user's, is a 404.
@@ -1695,13 +1948,14 @@ plugin that needs a path never joins one by hand — it goes through `src.plugin
 ```python
 from src.plugin_api.models import (
     model_type_dirs, model_write_dir, resolve_model_file, model_for_path,
-    MODEL_DIRECTORY_ALIASES, type_for_folder_name,
+    model_types, directory_aliases, type_for_folder_name,
 )
 
 model_type_dirs("lora")          # -> every online root's bound directory for this type, in order
 model_write_dir("lora")          # -> the directory a new download for this type lands in
 resolve_model_file(model_id)     # -> the winning present copy's absolute Path, or raises
 model_for_path(path)             # -> that model's catalog dict (or None), from a filesystem path
+index_model_file(path, user_id=None)  # -> {model_id, indexed, duplicate_of, warning}; catalogues a file the plugin wrote
 ```
 
 `resolve_model_file` raises `src.features.models.locator.ModelFileUnavailable` (not importable
@@ -1711,7 +1965,10 @@ exist but its root is offline. `model_type_dirs`/`model_write_dir` can raise
 `src.platform.filesystem.model_roots.ModelRootError` subclasses when no root is bound for that
 type, is read-only, or is offline — same caveat.
 
-`MODEL_DIRECTORY_ALIASES` and `type_for_folder_name(name)` are for a plugin that speaks another
+`index_model_file` takes only an existing file inside a folder some model type writes to (a `ValueError` otherwise),
+and with `user_id` assigns the new model, or the catalog model it duplicates, to that user.
+
+`directory_aliases()` and `type_for_folder_name(name)` are for a plugin that speaks another
 tool's folder vocabulary (a ComfyUI-style `loras`/`checkpoints`/… folder name) and needs the
 PotionUI model type it corresponds to, case-insensitively and including aliases.
 
@@ -1828,8 +2085,29 @@ rejected with a load error attributed to the plugin. A contributed mode inherits
 against the target, same as a core mode's) — there is no separate per-contribution mechanism for
 either. See [Plugin-Contributed Presets](presets/plugins.md) for the full contract, including how
 provenance (`source_plugin`) surfaces in `GET /api/presets/{id}/modes` and the mode picker.
-`content/plugins/marketplace/krea2-edit/` is the first shipped example: an `edit` mode contributed onto
-the native Krea-2 preset.
+
+## Extending existing preset modes
+
+A plugin can attach fields, pipes and prompt resources to modes a preset already has, instead of
+contributing a whole mode:
+
+```yaml
+preset_extensions:
+  - target: "4TK1KBQZ2XMB8ME0PTMXS1YJQP"   # the target preset's id
+    modes: ["txt2img"]                     # core or plugin-contributed modes of that preset
+    file: "extensions/krea2.yml"           # relative to the plugin root
+```
+
+The extension file holds four optional lists: `fields` (placed `into` a tab or section by its
+`anchor:`, optionally `after`/`before` a named field), `pipes` (`add` a pipe node with its own
+`id`, `after`/`before` a pipe, or `patch` a pipe with `input_add`/`configuration_add`),
+`prompt_resources` (appended per mode) and `director_reference_fields` (appended to the mode's
+Director `reference_fields`). Everything is add-only: a field name, anchor, pipe input or
+configuration key that already exists is a conflict, and any conflict or missing anchor rejects
+the whole extension with a load error naming the plugin. Extensions apply after `preset_modes:`,
+by plugin id then declaration order, only while the plugin is enabled. Added fields reach the
+frontend with `source_plugin` set. See
+[Plugin-Contributed Presets](presets/plugins.md#extending-existing-modes) for the full contract.
 
 ## Contributing a compute provisioner
 
@@ -2000,7 +2278,8 @@ history API would show them.
 | `generation_state(user, generation_id)` | The live status record, or the stored row once the process no longer tracks it |
 | `list_generation_files(user, generation_id, final_only=True)` | The generation's files in canonical order, each with its `index` in the unfiltered list (the `file_index` of a `<field>__origin` link). `final_only` leaves out intermediate and derived files |
 | `resolve_media_ref(user, ref)` | Turns `{"kind": "history", "generation_id", "file_id"}` or `{"kind": "library", "item_id"}` into `{value, media_type, original_filename, origin}`; `value` is what a media field accepts. Paths and URLs are never accepted; a bad, foreign, hidden or deleted reference raises `MediaRefError` with a `code` of `invalid_ref` or `not_found` |
-| `get_session_snapshot(user, session_id, version=None)` | The owner's session payload, or one of its saved versions; raises `SessionNotFoundError` for anyone else |
+| `get_session(user, session_id, mode=None)` | The owner's session as it is now: `{session_id, preset_id, name, version, updated_at, mode, data}`. `version` is the write counter every save bumps (layout-only saves included), so compare payloads rather than versions to tell whether settings changed. With `mode`, `data` is that mode's payload or `None`; raises `SessionNotFoundError` for anyone else |
+| `get_session_snapshot(user, session_id, version=None)` | The owner's session payload, or one of its saved versions; raises `SessionNotFoundError` for anyone else. Its `version` echoes the history version asked for, not the write counter |
 
 **Idempotent submits.** `GenerationRequest.idempotency_key` (1 to 200 characters, also accepted as the
 `idempotency_key` field of the `POST /api/generations/start` body) makes a submit safe to retry. Keys are
@@ -2055,10 +2334,10 @@ each call is a fresh roll. Submit the request with `submit_generation` (or
 Most pipes just assemble existing pipes into a pipeline. A pipe that needs to run inference
 against the native (in-process) engine itself — VAE-encode a reference image, sample, decode —
 rather than only consuming other pipes' outputs, does that through `src.plugin_api.native`
-(`content/plugins/marketplace/krea2-edit/` is the shipped example — a generator that in-context
+(`src/pipelines/pipes/generator/krea2_edit/` is the in-tree example — a generator that in-context
 edits a source image rather than generating from scratch).
 
-`GeneratorKrea2Pipe` is the concrete core Krea-2 generator pipe. Subclass it (as krea2-edit does)
+`GeneratorKrea2Pipe` is the concrete core Krea-2 generator pipe. Subclass it (as `generator/krea2_edit` does)
 to reuse its config schema and the shared seed-loop/model-acquisition machinery
 (`build_context`/`process`) instead of re-deriving Krea-2's own defaults — override
 `generate_one` for whatever your pipe does differently:
@@ -2088,10 +2367,75 @@ yourself, and you should never call anything on `gen` beyond this surface — ev
 `src.plugin_api` exists to keep you out of. If your pipe genuinely needs another `NativeGenerator`
 operation, that is a gap in this surface — ask for it, the same as any other plugin_api gap.
 
+## Contributing a tool tab
+
+A tool tab is a whole Generate tab owned by one tool, next to the core Image editor and Video
+editor tabs. It has no form pane, Workbench or deck: the tab area is your component. Declare it
+in `manifest.yml`:
+
+```yaml
+tool_tabs:
+  - id: stamp
+    label: Stamp tool
+    icon: brush
+    accepts: [image]
+    handles: []
+    component: StampToolTab.svelte
+```
+
+| Key | Meaning |
+|---|---|
+| `id` | Lowercase slug, unique within the plugin. The tab's tool kind is `<plugin id>.<id>`. |
+| `label` | Shown in the "+" menu after the Image and Video editors, in the phone Tabs sheet and as the default tab name. |
+| `icon` | An app icon name (`brush`, `sliders`, `film`, ...). Defaults to `extension`. |
+| `accepts` | Media kinds (`image`, `video`, `audio`) the tool can open. |
+| `handles` | Edit actions the tool claims, for the History and Library shortcuts. |
+| `component` | The compiled component under `frontend/dist/` (a `frontend/dist/` prefix is accepted). |
+
+The entries are served with the other manifest-declared extensions
+(`GET /api/plugins/frontend-extensions`, key `tool_tabs`) for enabled plugins only, and the
+frontend registers them through the same refresh that loads renderers and field types. A tab whose
+plugin is later disabled stays open and says the tool is not available.
+
+The component receives one prop, `host`:
+
+| Member | What it is |
+|---|---|
+| `tabId`, `tool` | The tab's id and its tool kind. |
+| `source` | The media the tab was opened on (`{ path, relative_path?, url?, name?, type? }`), or `null`. |
+| `state` | Your persisted JSON state, or `null` for a fresh tab. Keep it small: params and ids, never pixels. |
+| `activeTool` | The sub-tool the tab should open on, when it was opened from a shortcut. |
+| `hint` | A one-shot hint from the shortcut that opened the tab, or `null`. Call `clearHint()` once you have used it. |
+| `run` | The background run the tab is tracking (`{ runId, progress }`), so a reload can reattach. |
+| `phone` | `true` when the tab renders in the phone layout. |
+| `setState(next)` | Persist new state. It is saved with the tab and in Workspaces. |
+| `setDirty(edits)` | The number of unsaved edits. It drives the tab's warning dot and the close prompt. |
+| `setTitle(title)`, `setThumbnail(url)` | Name the tab (unless the user renamed it) and set its 20px thumbnail. |
+| `setSource(ref)`, `setActiveTool(id)`, `setRun(run)`, `clearHint()` | Update what the tab is open on and what it tracks. |
+| `setActions({ undo, redo, save })` | Fill the phone top bar's Undo and Save buttons (`{ label?, disabled?, run }`; `save` also takes `progress`). |
+| `openToolTab(tool, source, { activeTool, hint })` | Open another tool tab, following the same rules as the History and Library shortcuts. |
+
+The core editors use these `activeTool` ids, and the History and Library shortcuts open them with
+one of these set:
+
+| Tab (`tool`) | `activeTool` ids |
+|---|---|
+| Image editor (`image`) | `crop`, `resize`, `canvas`, `paint`, `mask`, `effects`, `colorKey`, `subject` |
+| Video editor (`video`) | `trim`, `split`, `crop`, `resize`, `speed`, `mute`, `volume`, `replace`, `effects`, `frame` |
+
+A `hint` is an object with any of `look` (an Effects look to preview), `effect` (a video effect id such
+as `film_grain` to preview), `orientation` (`rotate` or `flip`, for Crop) and `sendTo` (`{ tabId, field }`:
+the generation tab and media field the tab was opened from, so Send to a generation lists that field first).
+A hint is not persisted with the tab.
+
+Opening a tab focuses one that already holds the same item, fills an empty tab of the same kind
+next, and otherwise adds a new tab. Bitmaps your tool produces are uploaded and referenced by id;
+the tab never stores them inline.
+
 ## Extending the image editor
 
 The media loader's image editor (**Edit** on a loaded image, **Draw a new image** on an empty
-field, **Edit** on History and Library items) is built on registries a plugin frontend can
+field) is built on registries a plugin frontend can
 extend through `window.__potionui.imageEditor`. Every `register*` call returns an unregister
 function. Registrations are global and survive editor sessions, so register once when your
 plugin's frontend loads.
@@ -2143,7 +2487,9 @@ const offTool = editor.registerTool({
 - **Actions** (`registerAction`): `{id, label, run(editor)}` shown in the Canvas panel; `editor`
   offers `flatten()`, `addImage(canvas, name)` and `openImage(canvas, name)`.
 - `addImage(canvas, name)` / `openImage(canvas, name)` / `isOpen()` act on the editor that is
-  currently open and return `false` when none is.
+  currently open. `addImage` returns `false` when none is. `openImage` replaces the open
+  editor's image, and with none open it uploads the canvas as a PNG and opens an Image editor
+  tab on it (History and Library **Edit** actions open that tab too), so it always returns `true`.
 
 The editor saves a flattened PNG as a new Library upload through the normal upload API, so a
 plugin never writes files itself.
@@ -2416,7 +2762,7 @@ shipped as a file: copy what you need from `@xyflow/svelte/dist/style.css` into 
 ## Building your plugin's frontend
 
 Every plugin frontend (a `pages[].component`, a `field_types[].component`, an
-`admin_tabs[].component`, ...) compiles through the single shared toolchain in
+`admin_tabs[].component`, a `tool_tabs[].component`, ...) compiles through the single shared toolchain in
 `content/plugins/package.json` (esbuild + esbuild-svelte, pinned to the frontend's Svelte
 major), driven by `scripts/build-plugins.mjs`:
 

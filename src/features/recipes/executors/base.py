@@ -12,16 +12,17 @@ never a service locator.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Union
 
 from src.features.recipes.schema import Recipe, RecipeStep
-from src.features.recipes.records import RecipeRun
+from src.features.recipes.records import GrantRequest, LintContext, RecipeRun
 
 
 def _noop_progress(
     progress_current: Optional[int] = None,
     progress_total: Optional[int] = None,
     progress_unit: Optional[str] = None,
+    safe_output: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Default `StepContext.report_progress` for executors that never report
     interim progress - a plain no-op so nothing has to guard against a `None`
@@ -55,7 +56,17 @@ class StepContext:
     step: RecipeStep
     report_progress: Callable[..., None] = field(default=_noop_progress)
     selections: Dict[str, str] = field(default_factory=dict)
+    step_outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     is_cancelled: Callable[[], bool] = field(default=_never_cancelled)
+
+    def plans(self, refs: Union[str, Sequence[str], None]) -> List[Dict[str, Any]]:
+        keys = [refs] if isinstance(refs, str) else list(refs or [])
+        found = []
+        for key in keys:
+            plan = (self.step_outputs.get(key) or {}).get("plan")
+            if isinstance(plan, dict):
+                found.append(plan)
+        return found
 
     @property
     def owner_user_id(self) -> Optional[str]:

@@ -23,8 +23,7 @@ per axis (contrast the 3B's language ``arange(n)``), each axis expanded ``r=2`` 
 the 3 axes concatenated -> 60 rotary dims (< head_dim 128, the tail passes through).
 
 ``rotary_embedding_torch`` is not vendored, so the tiny slice used is reimplemented
-here bit-for-bit; ``rotate_half`` / ``apply_rotary_emb`` are shared verbatim with the
-3B module. The module nesting (``NaVideoRotaryEmbedding3d.rope`` holding ``freqs``)
+here bit-for-bit; the rotation is the 3B module's (``qk_norm_rope``'s ``pair_rotate``). The module nesting (``NaVideoRotaryEmbedding3d.rope`` holding ``freqs``)
 mirrors the reference so ``blocks.{i}.attn.rope.rope.freqs`` loads verbatim. RoPE is
 computed in fp32 and cast back, matching the reference.
 """
@@ -35,11 +34,11 @@ import math
 from typing import Tuple
 
 import torch
-from einops import rearrange, repeat
+from einops import repeat
 from torch import nn
 
 from ..cache import Cache
-from ..rope import apply_rotary_emb
+from ..rope import cos_sin
 
 
 class _PixelRotary(nn.Module):
@@ -94,19 +93,5 @@ class NaVideoRotaryEmbedding3d(nn.Module):
             freq_list.append(axial.reshape(-1, axial.size(-1)))
         return torch.cat(freq_list, dim=0)
 
-    def forward(
-        self,
-        q: torch.Tensor,  # L h d
-        k: torch.Tensor,  # L h d
-        shape: torch.LongTensor,
-        cache: Cache,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        freqs = cache("rope_freqs_3d", lambda: self._freqs_for(shape))
-        freqs = freqs.to(device=q.device)
-
-        def _apply(x: torch.Tensor) -> torch.Tensor:
-            x = rearrange(x, "L h d -> h L d")
-            x = apply_rotary_emb(freqs, x.float()).to(x.dtype)
-            return rearrange(x, "h L d -> L h d")
-
-        return _apply(q), _apply(k)
+    def tables(self, shape: torch.LongTensor, cache: Cache, device: torch.device):
+        return cache("rope_freqs_3d", lambda: cos_sin(self._freqs_for(shape).to(device=device)))

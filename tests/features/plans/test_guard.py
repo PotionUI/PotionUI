@@ -33,7 +33,7 @@ def daily_used(guard, user_id="u1"):
     return guard.measure(guard.registry.get("generations_per_day"), user_id).used
 
 
-def test_storage_sums_generation_files_and_library_uploads_only(seed, guard):
+def test_storage_sums_generation_files_library_uploads_and_helper_uploads(seed, guard):
     seed.user("u1")
     seed.user("u2")
     seed.generation("u1", sizes=(100, 50))
@@ -41,7 +41,7 @@ def test_storage_sums_generation_files_and_library_uploads_only(seed, guard):
     seed.upload("u1", 1000, purpose="derived_artifact")
     seed.generation("u2", sizes=(999,))
 
-    assert storage_used(guard) == 180
+    assert storage_used(guard) == 1180
 
 
 def test_deleting_a_generation_frees_storage_at_once(seed, guard):

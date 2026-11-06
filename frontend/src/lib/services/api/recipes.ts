@@ -1,4 +1,5 @@
 import type { AxiosInstance } from 'axios';
+import type { RecipeModeRow } from './recipeModes';
 import type {
 	ReadinessReport,
 	RecipePresetLink,
@@ -35,8 +36,7 @@ export interface SlotVariantDownloadRequest {
 	variant_id: string;
 }
 
-/** Where a recipe was scanned from — the same three roots presets use. */
-export type RecipeSource = 'marketplace' | 'local' | 'plugin';
+export type RecipeSource = 'marketplace' | 'local' | 'plugin' | 'derived';
 
 /** One entry of `GET /api/recipes`. */
 export interface RecipeSummary {
@@ -55,6 +55,11 @@ export interface RecipeSummary {
 	plugin_id: string | null;
 	step_count: number;
 	presets: RecipePresetLink[];
+	preset_id?: string | null;
+	modes_total?: number | null;
+	modes_ready?: number | null;
+	missing_bytes?: number | null;
+	installed_bytes?: number | null;
 }
 
 export interface RecipeStepView {
@@ -76,6 +81,8 @@ export interface RecipeArtifact {
 	/** Requires an accepted licence / access token before the source will serve it. */
 	gated: boolean;
 	license_url: string | null;
+	source?: string | null;
+	repo_id?: string | null;
 }
 
 export interface RecipeSmoke {
@@ -90,6 +97,7 @@ export interface RecipeDetail extends RecipeSummary {
 	smoke: RecipeSmoke | null;
 	/** Problems the loader hit reading this recipe, rendered as-is. */
 	load_errors: string[];
+	modes?: RecipeModeRow[];
 }
 
 /** A durable recipe run. The wizard and this tab render the same server DTO,
@@ -158,10 +166,12 @@ export function createRecipesApi(client: AxiosInstance) {
 		async grantRecipeRunConsent(
 			runId: string,
 			stepKey: string,
-			selections?: Record<string, string>
+			selections?: Record<string, string>,
+			extra?: { modes?: string[]; extras?: string[]; target?: string }
 		): Promise<RecipeRun> {
 			const response = await client.post(`/api/recipes/runs/${runId}/consent/${stepKey}`, {
-				selections: selections ?? {}
+				selections: selections ?? {},
+				...(extra ?? {})
 			});
 			return response.data;
 		},

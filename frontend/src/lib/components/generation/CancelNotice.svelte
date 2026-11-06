@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/ui';
 	import { tabsStore } from '$lib/stores/tabs';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 
-	let { tab }: { tab: Tab } = $props();
+	let { tab }: { tab: GenerationTab } = $props();
 
 	const notice = $derived(tab.generation.cancelNotice ?? null);
 

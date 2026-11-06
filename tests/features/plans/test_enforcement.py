@@ -217,6 +217,7 @@ def media_store(tmp_path, guard):
     driver.put_bytes = Mock()
     upload_repo = Mock()
     upload_repo.find_by_hash = Mock(return_value=None)
+    upload_repo.create = Mock(return_value=Upload(id="up_1", user_id="u1", filename="stored.bin", media_type="image"))
     plugins = Mock()
     plugins.execute_hook = Mock(side_effect=lambda hook, initial_data: (SimpleNamespace(data=initial_data), True))
     store = MediaStore(

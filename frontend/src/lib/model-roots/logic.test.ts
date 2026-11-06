@@ -1,21 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
 	orderedRoots,
-	bindingsSummary,
 	mergeDetectionSuggestions,
 	bindingSupportsHeaderScan,
-	bindingScanKey,
 	bindingRefKey,
 	bindingTitle,
 	buildBindings,
 	detectAgainApplies,
-	groupBindingsByType,
 	missingSuggestions,
 	profileBadgeLabel,
 	detectedLabel,
 	effectiveWriteChoices,
 	groupSuggestionsByType,
-	initialTicks,
 	initialWriteChoices,
 	layoutOptions,
 	pendingExtraPaths,
@@ -82,47 +78,6 @@ describe('orderedRoots', () => {
 	});
 });
 
-describe('bindingsSummary', () => {
-	it('sums indexed files and bytes across all bindings', () => {
-		const r = root({
-			bindings: [
-				{
-					model_type: 'lora',
-					folder: 'loras',
-					subdir: 'loras',
-					path: '/mnt/storage/models/loras',
-					exists: true,
-					position: 0,
-					is_write: true,
-					indexed_files: 3,
-					size_bytes: 1000,
-					unindexed: 0,
-					scan_headers: false
-				},
-				{
-					model_type: 'checkpoint',
-					folder: 'checkpoints',
-					subdir: 'checkpoints',
-					path: '/mnt/storage/models/checkpoints',
-					exists: true,
-					position: 0,
-					is_write: false,
-					indexed_files: 2,
-					size_bytes: 500,
-					unindexed: 0,
-					scan_headers: false
-				}
-			]
-		});
-
-		expect(bindingsSummary(r)).toEqual({ files: 5, bytes: 1500 });
-	});
-
-	it('returns zeros for a root with no bindings', () => {
-		expect(bindingsSummary(root({ bindings: [] }))).toEqual({ files: 0, bytes: 0 });
-	});
-});
-
 describe('mergeDetectionSuggestions', () => {
 	it('returns null-safe empty list when there is no detection yet', () => {
 		expect(mergeDetectionSuggestions(null)).toEqual([]);
@@ -174,16 +129,9 @@ describe('bindingSupportsHeaderScan', () => {
 	});
 });
 
-describe('bindingScanKey', () => {
-	it('separates bindings of one root by type and subdir', () => {
-		expect(bindingScanKey('r1', { model_type: 'checkpoint', subdir: 'Stable-diffusion' })).toBe(
-			'r1:checkpoint:Stable-diffusion'
-		);
-		expect(bindingScanKey('r1', { model_type: 'checkpoint', subdir: 'a' })).not.toBe(
-			bindingScanKey('r1', { model_type: 'checkpoint', subdir: 'b' })
-		);
-	});
-});
+function initialTicks(suggestions: readonly ModelRootDetectionSuggestion[]): Record<string, boolean> {
+	return Object.fromEntries(suggestions.map((s) => [suggestionKey(s), true]));
+}
 
 function sug(model_type: string, subdir: string, extra: Partial<ModelRootDetectionSuggestion> = {}): ModelRootDetectionSuggestion {
 	return { model_type, subdir, matched_by: 'profile', file_count: 1, file_count_truncated: false, ...extra };
@@ -203,13 +151,6 @@ describe('suggestion grouping', () => {
 		const groups = groupSuggestionsByType([LORA_A, CKPT, LORA_B]);
 		expect(groups.map((g) => g.model_type)).toEqual(['lora', 'checkpoint']);
 		expect(groups[0].items.map((i) => i.subdir)).toEqual(['Data/Models/Lora', 'Data/Models/LyCORIS']);
-	});
-
-	it('ticks every folder initially', () => {
-		expect(initialTicks([LORA_A, LORA_B])).toEqual({
-			'lora:Data/Models/Lora': true,
-			'lora:Data/Models/LyCORIS': true
-		});
 	});
 });
 
@@ -324,16 +265,6 @@ function bnd(model_type: string, subdir: string, extra: Record<string, unknown> 
 		...extra
 	};
 }
-
-describe('groupBindingsByType', () => {
-	it('groups several subfolders of one type together', () => {
-		const groups = groupBindingsByType([bnd('lora', 'a/Lora'), bnd('vae', 'VAE'), bnd('lora', 'a/LyCORIS')]);
-		expect(groups.map((g) => [g.model_type, g.items.length])).toEqual([
-			['lora', 2],
-			['vae', 1]
-		]);
-	});
-});
 
 describe('bindingTitle and bindingRefKey', () => {
 	it('uses the last subdir segment and falls back to the folder name', () => {

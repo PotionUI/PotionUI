@@ -98,8 +98,12 @@ async function ask(page: Page, text: string) {
 	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
 	await expect(chipInput).toHaveAttribute('contenteditable', 'true');
-	await chipInput.click();
-	await page.keyboard.type(text);
+	await expect(async () => {
+		await chipInput.click();
+		await page.keyboard.press('ControlOrMeta+a');
+		await page.keyboard.type(text);
+		await expect(chipInput).toContainText(text, { timeout: 2000 });
+	}).toPass({ timeout: 20000 });
 	await composer.locator('button[aria-label="Send message"]').click();
 }
 

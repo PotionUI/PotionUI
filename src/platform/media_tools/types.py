@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Sequence
+from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
     from src.platform.media_tools.base import MediaTool
@@ -13,6 +14,7 @@ Cardinality = Literal["one_to_one", "one_to_many", "many_to_one"]
 MEDIA_KINDS: tuple[str, ...] = ("image", "video", "audio")
 CARDINALITIES: tuple[str, ...] = ("one_to_one", "one_to_many", "many_to_one")
 DEFAULT_SCOPES: tuple[str, ...] = ("library", "history", "field")
+EDITOR_SCOPE = "editor"
 CORE_SOURCE = "core"
 
 
@@ -52,6 +54,11 @@ class ToolFailed(MediaToolError):
     code = "tool_failed"
 
 
+class EmptyOutput(ToolFailed):
+    def __init__(self, message: str = "The encoder produced an empty file"):
+        super().__init__(message)
+
+
 class FfmpegUnavailable(ToolFailed):
     code = "ffmpeg_unavailable"
 
@@ -85,9 +92,49 @@ class FilterFragment:
     duration: Optional[float] = None
     crf: Optional[int] = None
     frames: Optional[int] = None
+    copy_video: bool = False
+    rgb: bool = False
+    stage: Any = None
 
 
 ProgressCallback = Callable[[float, str], None]
+
+
+_LINK_ORIGIN = "https://app.invalid"
+
+
+def _is_app_path(href: str) -> bool:
+    if not href.startswith("/") or href.startswith("//"):
+        return False
+    if any(ch == "\\" or ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in href):
+        return False
+    parts = urlsplit(href)
+    if parts.scheme or parts.netloc:
+        return False
+    joined = urlsplit(urljoin(_LINK_ORIGIN + "/", href))
+    return f"{joined.scheme}://{joined.netloc}" == _LINK_ORIGIN
+
+
+@dataclass(frozen=True)
+class ResultLink:
+    label: str
+    href: str
+
+    def __post_init__(self) -> None:
+        if not self.label.strip():
+            raise ValueError("A result link needs a label")
+        if not _is_app_path(self.href):
+            raise ValueError("A result link must be a path inside the app")
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    message: str
+    links: tuple[ResultLink, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.message.strip():
+            raise ValueError("A result summary needs a message")
 
 
 @dataclass
@@ -109,6 +156,7 @@ class ToolSpec:
     impl: Optional["MediaTool"] = None
     description: Optional[str] = None
     name_suffix: str = ""
+    group: str = "edit"
 
     def to_dict(self) -> dict:
         return {
@@ -127,6 +175,7 @@ class ToolSpec:
             "component": self.component,
             "source": self.source,
             "description": self.description,
+            "group": self.group,
         }
 
     def output_kind(self, kind: str) -> str:
@@ -148,8 +197,10 @@ class ToolContext:
         is_cancelled: Optional[Callable[[], bool]] = None,
         runner: Any = None,
         prober: Optional[Callable[[Path], ToolMedia]] = None,
+        user_id: Optional[str] = None,
         _window: tuple[float, float] = (0.0, 1.0),
         _counter: Optional[list[int]] = None,
+        _summary: Optional[list[Optional["RunSummary"]]] = None,
     ):
         from src.platform.media_tools.ffmpeg import FfmpegRunner
         from src.platform.media_tools.probe import probe as default_probe
@@ -159,6 +210,8 @@ class ToolContext:
         self._is_cancelled = is_cancelled
         self.runner = runner if runner is not None else FfmpegRunner()
         self._prober = prober or default_probe
+        self.user_id = user_id
+        self._summary = _summary if _summary is not None else [None]
         self._window = _window
         self._counter = _counter if _counter is not None else [0]
 
@@ -172,6 +225,15 @@ class ToolContext:
         low, high = self._window
         clamped = min(1.0, max(0.0, float(fraction)))
         self._progress(low + (high - low) * clamped, label)
+
+    @property
+    def summary(self) -> Optional[RunSummary]:
+        return self._summary[0]
+
+    def summarize(self, message: str, links: Sequence[tuple[str, str]] = ()) -> RunSummary:
+        summary = RunSummary(message, tuple(ResultLink(label, href) for label, href in links))
+        self._summary[0] = summary
+        return summary
 
     def is_cancelled(self) -> bool:
         return bool(self._is_cancelled and self._is_cancelled())
@@ -192,6 +254,16 @@ class ToolContext:
         self._counter[0] += 1
         return self.scratch_dir / f"{stem}-{self._counter[0]:03d}{suffix.lower()}"
 
+    def quiet(self) -> "ToolContext":
+        return ToolContext(
+            self.scratch_dir,
+            is_cancelled=self._is_cancelled,
+            runner=self.runner,
+            prober=self._prober,
+            user_id=self.user_id,
+            _counter=self._counter,
+        )
+
     def scoped(self, low: float, high: float) -> "ToolContext":
         outer_low, outer_high = self._window
         span = outer_high - outer_low
@@ -201,6 +273,8 @@ class ToolContext:
             is_cancelled=self._is_cancelled,
             runner=self.runner,
             prober=self._prober,
+            user_id=self.user_id,
             _window=(outer_low + span * low, outer_low + span * high),
             _counter=self._counter,
+            _summary=self._summary,
         )

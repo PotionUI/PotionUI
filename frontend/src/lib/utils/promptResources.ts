@@ -1,4 +1,5 @@
 import { kindOfMediaItem } from '$lib/components/form-fields/mediaLoaderKind';
+import { citeableBundleRows, isBundleSpec } from './bundleResources';
 import type { ResourceNumbering } from './resourceNumbering';
 
 export type PromptResourceKind = 'image' | 'video' | 'audio';
@@ -8,6 +9,9 @@ export interface PromptResourceSpec {
 	kind: PromptResourceKind;
 	label?: string | null;
 	token: string;
+	source?: string;
+	source_label?: string;
+	source_badge?: string;
 }
 
 export interface ResourceRef {
@@ -34,7 +38,7 @@ export function parseResourceMarker(marker: string): ResourceRef | null {
 	return { field: match[1], item_key: match[2] };
 }
 
-const MEDIA_ITEM_KEY_FIELDS = ['relative_path', 'path', 'url'] as const;
+const MEDIA_ITEM_KEY_FIELDS = ['relative_path', 'path', 'url', 'model'] as const;
 
 export function mediaItemKey(item: unknown): string | null {
 	if (typeof item === 'string') return item || null;
@@ -81,12 +85,14 @@ export function specItems(
 	spec: PromptResourceSpec,
 	fieldValue: unknown
 ): unknown[] {
+	if (isBundleSpec(spec)) return citeableBundleRows(fieldValue);
 	const items = mediaFieldItems(fieldValue);
 	if (!fieldSharedByKinds(specs, spec.field)) return items;
 	return items.filter((item) => kindOfMediaItem(item) === spec.kind);
 }
 
 export function resourceGroupKey(specs: readonly PromptResourceSpec[], spec: PromptResourceSpec): string {
+	if (isBundleSpec(spec)) return spec.field;
 	return fieldSharedByKinds(specs, spec.field) ? `${spec.field}:${spec.kind}` : spec.field;
 }
 
@@ -133,6 +139,8 @@ function resolveMarkerSpec(
 	fieldValue: unknown
 ): { spec: PromptResourceSpec | undefined; countKind: PromptResourceKind | null } {
 	const candidates = specs.filter((spec) => spec.field === field);
+	const bundle = candidates.find(isBundleSpec);
+	if (bundle) return { spec: bundle, countKind: null };
 	if (candidates.length <= 1) return { spec: candidates[0], countKind: null };
 	const item = mediaFieldItems(fieldValue).find((entry) => mediaItemKey(entry) === itemKey);
 	const kind = item === undefined ? null : kindOfMediaItem(item);
@@ -159,6 +167,10 @@ export function resourceMarkerState(
 	if (!spec) {
 		return { field: ref.field, itemKey: ref.item_key, spec: null, position: null, dangling: true };
 	}
+	if (isBundleSpec(spec)) {
+		const cited = citeableBundleRows(formValues[ref.field]).some((row) => mediaItemKey(row) === ref.item_key);
+		return { field: ref.field, itemKey: ref.item_key, spec, position: cited ? 1 : null, dangling: !cited };
+	}
 	const position = numbering
 		? numbering.positionFor(ref.field, ref.item_key)
 		: itemPosition(formValues[ref.field], ref.item_key, countKind);
@@ -174,7 +186,7 @@ export function resolveResourceMarkers(
 	if (!text || !text.includes('@[')) return text;
 	return text.replace(resourceMarkerRegex(), (full, field: string, itemKey: string) => {
 		const { spec, countKind } = resolveMarkerSpec(specs, field, itemKey, formValues[field]);
-		if (!spec) return full;
+		if (!spec || isBundleSpec(spec)) return full;
 		const position = numbering
 			? numbering.positionFor(field, itemKey)
 			: itemPosition(formValues[field], itemKey, countKind);
@@ -212,7 +224,10 @@ export function findResourceProblems(
 			});
 			continue;
 		}
-		if (itemPosition(formValues[field], itemKey) === null) {
+		const missing = isBundleSpec(spec)
+			? !citeableBundleRows(formValues[field]).some((row) => mediaItemKey(row) === itemKey)
+			: itemPosition(formValues[field], itemKey) === null;
+		if (missing) {
 			problems.push({
 				field,
 				itemKey,

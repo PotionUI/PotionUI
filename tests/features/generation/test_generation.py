@@ -926,6 +926,8 @@ class TestGenerationEngine:
         profiler = GenerationProfiler()
 
         self._run_profiled_success("gen-fast-return", profiler)
+        assert not started.wait(0.2)
+        profiler.release_census("gen-fast-return")
 
         assert started.wait(5.0)
         assert profiler.wait_for_census(0.05) is False

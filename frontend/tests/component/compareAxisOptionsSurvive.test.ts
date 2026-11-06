@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 
@@ -147,14 +148,14 @@ function mountDrawer() {
 	cleanups.push(() => unmount(drawer));
 }
 
-const formDataOf = () => get(tabsStore).tabs.find((tab) => tab.id === tabId)!.formData as Record<string, unknown>;
+const formDataOf = () => generationTabs(get(tabsStore).tabs).find((tab) => tab.id === tabId)!.formData as Record<string, unknown>;
 
 beforeEach(() => {
 	clearSchemaCache();
 	tabsStore.reset();
 	store.resetCompareStoreForTests();
 	formAudienceStore.set('advanced');
-	tabId = get(tabsStore).tabs[0].id;
+	tabId = generationTabs(get(tabsStore).tabs)[0].id;
 	served = krea2Schema();
 	servedBefore = JSON.stringify(served);
 	vi.mocked(api.getPresetFormSchema).mockImplementation(

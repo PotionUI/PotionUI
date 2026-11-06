@@ -18,8 +18,10 @@ from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
 from src.pipelines.pipes.generator.video_minimax_h3.windows import (
     DirectorPlanError,
     build_director_plan,
+    director_default_seed,
     resolve_mux_audio,
 )
+from src.platform.templating.dict_utils import long_video_parts
 
 # One window's worth of frames, on the 17n+5 lattice and inside the released
 # 5-15 s range: 124 frames = 5.17 s, 260 frames = 10.83 s.
@@ -376,3 +378,55 @@ def test_a_condition_soundtrack_is_refused_rather_than_silently_muxed():
 
 def test_no_audio_entries_means_no_mux():
     assert build_director_plan(_document([_segment(0)]), default_seed=7).mux_audio_path is None
+
+
+def _long_document(total, part, *, prompts=None, frames=None, seed=1000):
+    count = len(prompts) if prompts else 1
+    segments = [
+        {**_segment(i, frames=frames), "frames": frames} for i in range(count)
+    ]
+    document = _document(segments, seed=seed)
+    document["settings"]["long"] = {"total_seconds": total, "part_seconds": part}
+    return document
+
+
+@pytest.mark.parametrize("total, part, expected", [
+    (10, 10, [243]),
+    (30, 10, [243, 243, 243, 56]),
+    (12, 14, [294]),
+    (5, 10, [124]),
+])
+def test_long_settings_derive_each_segments_frames(total, part, expected):
+    parts = long_video_parts(total, part, 24)
+    assert parts == expected
+    document = _long_document(total, part, prompts=["p"] * len(parts))
+    plan = build_director_plan(document, default_seed=7)
+    assert [w.frames for w in plan.windows] == expected
+    assert [w.requested_frames for w in plan.windows] == expected
+
+
+def test_long_settings_cover_the_requested_length_with_a_snug_last_part():
+    parts = long_video_parts(30, 10, 24)
+    plan = build_director_plan(_long_document(30, 10, prompts=["p"] * len(parts)), default_seed=7)
+    assert 30 * 24 <= plan.total_frames < 30 * 24 + 22
+    assert plan.windows[-1].emitted_frames < plan.windows[0].emitted_frames
+
+
+def test_a_segments_own_frames_win_over_the_long_settings():
+    document = _long_document(30, 10, prompts=["a", "b"])
+    document["segments"][1]["frames"] = 124
+    plan = build_director_plan(document, default_seed=7)
+    assert [w.frames for w in plan.windows] == [243, 124]
+
+
+def test_segments_beyond_the_derived_parts_still_need_their_own_frames():
+    document = _long_document(10, 10, prompts=["a", "b"])
+    with pytest.raises(DirectorPlanError, match="explicit frame count"):
+        build_director_plan(document, default_seed=7)
+
+
+@pytest.mark.parametrize("configured, inputs, expected", [
+    (-1, [4242], 4242), (-1, [], -1), (77, [4242], 77), (0, [4242], 0), (-1, None, -1),
+])
+def test_the_director_default_seed_rule(configured, inputs, expected):
+    assert director_default_seed(configured, inputs) == expected

@@ -1,59 +1,287 @@
-"""`DIRECTORY_TO_MODEL_TYPE` is the canonical model depot layout every scanner,
-indexer and downloader derives its own view from - these are the invariants
-that let a derived view (an inverse, a subset, a filtered copy) stay correct
-without re-checking its own literal values.
-"""
+import threading
 
+import pytest
+
+from src.platform.filesystem import model_types as mt
 from src.platform.filesystem.model_types import (
-    DIRECTORY_TO_MODEL_TYPE,
-    MODEL_DIRECTORY_NAMES,
-    MODEL_TYPE_TO_DIRECTORY,
-    MODEL_TYPES,
-    SUPPORTED_MODEL_EXTENSIONS,
+    CORE_MODEL_TYPE_DEFINITIONS,
+    CORE_MODEL_TYPE_TO_DIRECTORY,
+    CORE_MODEL_TYPES,
+    DEFAULT_MODEL_EXTENSIONS,
+    DuplicateModelTypeError,
+    InvalidModelTypeError,
+    ModelTypeDefinition,
+    ModelTypeRegistry,
+    directory_names,
+    directory_to_type,
+    model_types,
+    type_to_directory,
 )
 
 
+def _plugin_type(**overrides):
+    values = dict(id="pose_rig", label="Pose rig", folder="pose_rigs", source="fixture-plugin")
+    values.update(overrides)
+    return ModelTypeDefinition(**values)
+
+
+@pytest.fixture
+def registry():
+    return ModelTypeRegistry(CORE_MODEL_TYPE_DEFINITIONS)
+
+
+@pytest.fixture
+def shared_plugin_type():
+    mt.model_type_registry.register(_plugin_type(extensions=frozenset({".onnx"}), aliases=("PoseRigs",)))
+    yield
+    mt.model_type_registry.unregister_source("fixture-plugin")
+
+
 def test_the_inverse_map_round_trips_every_entry():
-    for directory, model_type in DIRECTORY_TO_MODEL_TYPE.items():
-        assert MODEL_TYPE_TO_DIRECTORY[model_type] == directory
+    for directory, model_type in directory_to_type().items():
+        assert type_to_directory()[model_type] == directory
 
 
-def test_no_directory_is_mapped_to_more_than_one_type():
-    assert len(set(DIRECTORY_TO_MODEL_TYPE.values())) == len(DIRECTORY_TO_MODEL_TYPE)
-
-
-def test_no_type_is_mapped_to_more_than_one_directory():
-    assert len(set(MODEL_TYPE_TO_DIRECTORY.values())) == len(MODEL_TYPE_TO_DIRECTORY)
+def test_no_directory_or_type_is_mapped_twice():
+    assert len(set(directory_to_type().values())) == len(directory_to_type())
+    assert len(set(type_to_directory().values())) == len(type_to_directory())
 
 
 def test_derived_collections_match_the_canonical_map():
-    assert set(MODEL_DIRECTORY_NAMES) == set(DIRECTORY_TO_MODEL_TYPE.keys())
-    assert set(MODEL_TYPES) == set(DIRECTORY_TO_MODEL_TYPE.values())
+    assert set(directory_names()) == set(directory_to_type().keys())
+    assert set(model_types()) == set(directory_to_type().values())
 
 
-def test_llm_is_present_for_directory_per_model_callers_to_special_case():
-    assert DIRECTORY_TO_MODEL_TYPE['llm'] == 'llm'
+def test_core_registers_every_core_type_through_the_registry_in_order():
+    assert model_types()[: len(CORE_MODEL_TYPES)] == CORE_MODEL_TYPES
+    assert all(d.source == "core" for d in CORE_MODEL_TYPE_DEFINITIONS)
+    assert dict(CORE_MODEL_TYPE_TO_DIRECTORY) == {d.id: d.folder for d in CORE_MODEL_TYPE_DEFINITIONS}
+
+
+def test_llm_is_the_directory_per_model_type_and_not_assignable():
+    assert mt.directory_layout_types() == {"llm"}
+    assert "llm" not in mt.assignable_model_types()
 
 
 def test_conditioning_encoders_have_exactly_one_home():
-    """TRELLIS.2's DINOv3 image conditioner sits in `text_encoders/` alongside
-    the text encoders. Comfy-Org ships it under `clip_vision/`; defining that as
-    a second directory would split every picker that lists an encoder."""
-    assert DIRECTORY_TO_MODEL_TYPE['text_encoders'] == 'text_encoder'
-    assert 'clip_vision' not in DIRECTORY_TO_MODEL_TYPE
+    assert directory_to_type()["text_encoders"] == "text_encoder"
+    assert "clip_vision" not in directory_to_type()
 
 
-def test_every_depot_scanner_shares_the_same_supported_extensions():
-    from src.features.models.indexer import ModelScanner
-
-    assert ModelScanner.SUPPORTED_EXTENSIONS is SUPPORTED_MODEL_EXTENSIONS
-
-
-def test_model_patches_hold_model_patch_files():
-    assert DIRECTORY_TO_MODEL_TYPE['model_patches'] == 'model_patch'
-    assert MODEL_TYPE_TO_DIRECTORY['model_patch'] == 'model_patches'
+def test_folder_aliases_resolve_case_insensitively():
+    assert mt.type_for_folder_name("Stable-diffusion") == "checkpoint"
+    assert mt.type_for_folder_name("LYCORIS") == "lora"
+    assert mt.type_for_folder_name("clip") == "text_encoder"
+    assert mt.type_for_folder_name("nothing_here") is None
 
 
-def test_geometry_estimation_holds_geometry_estimation_files():
-    assert DIRECTORY_TO_MODEL_TYPE['geometry_estimation'] == 'geometry_estimation'
-    assert MODEL_TYPE_TO_DIRECTORY['geometry_estimation'] == 'geometry_estimation'
+def test_comfyui_folders_keep_their_core_types():
+    assert directory_to_type()["model_patches"] == "model_patch"
+    assert directory_to_type()["geometry_estimation"] == "geometry_estimation"
+    assert directory_to_type()["vae_approx"] == "preview_decoder"
+
+
+def test_a_plugin_type_is_registered_with_its_folder_aliases_and_extensions(registry):
+    registry.register(_plugin_type(extensions=frozenset({".onnx"}), aliases=("PoseRigs",)))
+
+    view = registry.view
+    assert view.types[-1] == "pose_rig"
+    assert view.type_to_directory["pose_rig"] == "pose_rigs"
+    assert view.folder_lookup["poserigs"] == "pose_rig"
+    assert view.extensions_by_type["pose_rig"] == {".onnx"}
+    assert ".onnx" in view.extensions
+    assert "pose_rig" in view.assignable
+
+
+def test_unregistering_a_plugin_removes_only_its_types(registry):
+    registry.register(_plugin_type())
+    registry.register(_plugin_type(id="pose_bank", folder="pose_banks"))
+
+    assert registry.unregister_source("fixture-plugin") == 2
+    assert registry.view.types == CORE_MODEL_TYPES
+    assert registry.unregister_source("fixture-plugin") == 0
+
+
+def test_a_duplicate_id_names_both_owners(registry):
+    with pytest.raises(DuplicateModelTypeError) as error:
+        registry.register(_plugin_type(id="lora", folder="other_loras"))
+
+    assert "'lora' from 'fixture-plugin'" in str(error.value)
+    assert "'core'" in str(error.value)
+    assert registry.get("lora").source == "core"
+
+
+@pytest.mark.parametrize("folder", ["LORAS", "Stable-Diffusion"])
+def test_a_folder_already_used_by_another_type_is_rejected(registry, folder):
+    with pytest.raises(DuplicateModelTypeError) as error:
+        registry.register(_plugin_type(folder=folder))
+
+    assert "fixture-plugin" in str(error.value)
+    assert "pose_rig" not in registry.view.types
+
+
+def test_an_alias_colliding_with_another_folder_is_rejected(registry):
+    with pytest.raises(DuplicateModelTypeError):
+        registry.register(_plugin_type(aliases=("vae_approx",)))
+
+
+def test_two_plugins_cannot_claim_the_same_folder(registry):
+    registry.register(_plugin_type())
+    with pytest.raises(DuplicateModelTypeError) as error:
+        registry.register(_plugin_type(id="other_rig", source="second-plugin"))
+
+    assert "'second-plugin'" in str(error.value)
+    assert "'fixture-plugin'" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"id": "Pose-Rig"},
+        {"id": "cloud"},
+        {"id": "undefined"},
+        {"label": "  "},
+        {"folder": "models/pose_rigs"},
+        {"folder": ".."},
+        {"folder": "/etc"},
+        {"folder": "C:x"},
+        {"folder": ".hidden"},
+        {"folder": "rigs."},
+        {"folder": "rigs "},
+        {"folder": "a\\b"},
+        {"folder": "NUL"},
+        {"folder": "CON"},
+        {"folder": "com1"},
+        {"folder": "Aux.rigs"},
+        {"aliases": ("a\\b",)},
+        {"aliases": ("lpt9",)},
+        {"extensions": frozenset()},
+        {"extensions": frozenset({"onnx"})},
+        {"layout": "tree"},
+    ],
+)
+def test_invalid_definitions_are_rejected_with_the_plugin_named(registry, overrides):
+    with pytest.raises(InvalidModelTypeError) as error:
+        registry.register(_plugin_type(**overrides))
+
+    assert "fixture-plugin" in str(error.value)
+
+
+def test_extensions_are_normalized_and_default_to_the_core_set():
+    assert mt.normalize_extensions(None) == DEFAULT_MODEL_EXTENSIONS
+    assert mt.normalize_extensions(["ONNX", ".Bin"]) == {".onnx", ".bin"}
+
+
+def test_listeners_fire_on_change_and_a_named_listener_is_replaced(registry):
+    calls = []
+    registry.set_listener("roots", lambda: calls.append("first"))
+    registry.set_listener("roots", lambda: calls.append("second"))
+
+    registry.register(_plugin_type())
+    registry.unregister_source("nobody")
+    registry.unregister_source("fixture-plugin")
+    registry.remove_listener("roots")
+    registry.register(_plugin_type())
+
+    assert calls == ["second", "second"]
+
+
+def test_a_failing_listener_does_not_undo_the_registration(registry):
+    registry.set_listener("broken", lambda: 1 / 0)
+
+    registry.register(_plugin_type())
+
+    assert "pose_rig" in registry.view.types
+
+
+def test_the_catalog_serves_registered_and_virtual_types(registry):
+    registry.register(_plugin_type())
+
+    entries = {entry["id"]: entry for entry in registry.catalog()}
+    assert entries["checkpoint"]["label"] == "Base model"
+    assert entries["pose_rig"] == {
+        "id": "pose_rig",
+        "label": "Pose rig",
+        "purpose": "",
+        "folder": "pose_rigs",
+        "aliases": [],
+        "extensions": sorted(DEFAULT_MODEL_EXTENSIONS),
+        "layout": "file",
+        "header_classified": False,
+        "assignable": True,
+        "virtual": False,
+        "source": "fixture-plugin",
+    }
+    assert entries["cloud"]["virtual"] is True
+
+
+def test_module_readers_follow_the_shared_registry_at_call_time(shared_plugin_type):
+    assert "pose_rig" in model_types()
+    assert mt.type_for_folder_name("poserigs") == "pose_rig"
+    assert mt.extensions_for("pose_rig") == {".onnx"}
+    assert ".onnx" in mt.supported_extensions()
+    assert "pose_rig" in mt.pickable_model_types()
+
+
+def test_module_readers_drop_a_type_once_its_plugin_is_gone(shared_plugin_type):
+    mt.model_type_registry.unregister_source("fixture-plugin")
+
+    assert "pose_rig" not in model_types()
+    assert ".onnx" not in mt.supported_extensions()
+    assert mt.extensions_for("pose_rig") == DEFAULT_MODEL_EXTENSIONS
+
+
+def test_a_folder_name_with_inner_dots_is_still_accepted(registry):
+    registry.register(_plugin_type(folder="pose.rigs-v2"))
+
+    assert registry.view.type_to_directory["pose_rig"] == "pose.rigs-v2"
+
+
+def test_a_batch_with_one_bad_type_registers_none_of_them(registry):
+    calls = []
+    registry.set_listener("count", lambda: calls.append(1))
+
+    with pytest.raises(DuplicateModelTypeError):
+        registry.register_all([_plugin_type(), _plugin_type(id="other_rig", folder="loras")])
+
+    assert "pose_rig" not in registry.view.types
+    assert calls == []
+    registry.register_all([_plugin_type(), _plugin_type(id="other_rig", folder="other_rigs")])
+    assert calls == [1]
+
+
+def test_concurrent_readers_only_ever_see_whole_consistent_snapshots(registry):
+    batch = [_plugin_type(id=f"rig_{i}", folder=f"rigs_{i}", aliases=(f"Rigs{i}",)) for i in range(6)]
+    batch_ids = {d.id for d in batch}
+    core_ids = set(CORE_MODEL_TYPES)
+    done = threading.Event()
+    problems = []
+    snapshots = []
+
+    def read():
+        while not done.is_set():
+            view = registry.view
+            ids = set(view.types)
+            snapshots.append(len(ids))
+            if set(view.type_to_directory) != ids or set(view.directory_to_type.values()) != ids:
+                problems.append("type and folder maps disagree")
+            if any(view.directory_to_type[view.type_to_directory[i]] != i for i in ids):
+                problems.append("a type does not own its folder")
+            if set(view.extensions_by_type) != ids:
+                problems.append("extensions out of step")
+            if not core_ids <= ids or ids & batch_ids not in (set(), batch_ids):
+                problems.append(f"half-registered source: {sorted(ids & batch_ids)}")
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    try:
+        for _ in range(300):
+            registry.register_all(batch)
+            registry.unregister_source("fixture-plugin")
+    finally:
+        done.set()
+        reader.join()
+
+    assert problems == []
+    assert snapshots
+

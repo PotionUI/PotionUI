@@ -14,6 +14,7 @@ class ToolScope(Protocol):
 
     id: str
     tool_names: Optional[List[str]]
+    offers_tools: bool
 
 
 class ToolRegistry:
@@ -87,6 +88,8 @@ class ToolRegistry:
         Union of: global tools (modes is None), tools declaring the mode id in
         their ``modes`` list, and tools named in ``mode.tool_names``.
         """
+        if not mode.offers_tools:
+            return []
         included = set(mode.tool_names or [])
         return [
             tool for tool in self._tools.values()

@@ -303,4 +303,5 @@ def test_worker_listens_to_metadata_edits():
 
 
 def test_worker_re_evaluates_models_when_their_digests_arrive_like_after_an_index_pass():
-    assert HOOK_EVENTS["model_index.after_digests"] == HOOK_EVENTS["model_index.after_index"] == ("models_indexed", ())
+    assert HOOK_EVENTS["model_index.after_index"] == ("models_indexed", ())
+    assert HOOK_EVENTS["model_index.after_digests"] == ("models_verified", ("model_ids",))

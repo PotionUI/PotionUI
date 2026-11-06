@@ -79,7 +79,7 @@ import {
 	type DirectorEdgeAllowances
 } from '$lib/utils/videoDirector';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
-import { shotReferenceOverview } from '$lib/utils/shotReferences';
+import { shotReferenceCounts, type ShotReferenceContext } from '$lib/utils/shotReferences';
 import { mintId } from '../timelineCore';
 
 // ─── Gates ────────────────────────────────────────────────────────────────
@@ -509,13 +509,17 @@ function shotReferencesInfo(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	formData: Record<string, unknown> | null | undefined,
-	shotId: string
+	shotId: string,
+	references: ShotReferenceContext
 ): StageShotReferencesInfo | null {
 	const capability = caps.references;
 	if (capability == null) return null;
-	const poolCount = collectFormMediaOptions(formData).filter((o) => caps.referenceFields.includes(o.field)).length;
-	const selectedCount = capability === 'per_shot' ? shotReferenceOverview(doc, caps, shotId, formData, []).used.length : null;
-	return { capability, poolCount, selectedCount };
+	if (capability !== 'per_shot') {
+		const poolCount = collectFormMediaOptions(formData).filter((o) => caps.referenceFields.includes(o.field)).length;
+		return { capability, poolCount, selectedCount: null };
+	}
+	const { used, total } = shotReferenceCounts(doc, caps, shotId, formData, references);
+	return { capability, poolCount: total, selectedCount: used };
 }
 
 function buildShotModel(
@@ -524,7 +528,8 @@ function buildShotModel(
 	rail: RailModel,
 	shotId: string,
 	formData: Record<string, unknown> | null | undefined,
-	timelineShot: DirectorTimelineShot | null
+	timelineShot: DirectorTimelineShot | null,
+	references: ShotReferenceContext
 ): StageShotModel | null {
 	const idx = rail.shots.findIndex((s) => s.id === shotId);
 	if (idx === -1) return null;
@@ -554,7 +559,7 @@ function buildShotModel(
 			showLoras: directorCap?.perSegmentLoras === true,
 			loraSummary: loraSummary(segment.loras),
 			joinOutLabel: chainJoinOutLabel(rail.seams, block.index, rail.shots.length),
-			references: shotReferencesInfo(doc, caps, formData, segment.id)
+			references: shotReferencesInfo(doc, caps, formData, segment.id, references)
 		};
 		return {
 			kind: 'shot',
@@ -596,7 +601,7 @@ function buildShotModel(
 		showLoras: false,
 		loraSummary: 'None',
 		joinOutLabel: null,
-		references: shotReferencesInfo(doc, caps, formData, timelineShot.id)
+		references: shotReferencesInfo(doc, caps, formData, timelineShot.id, references)
 	};
 	return {
 		kind: 'shot',
@@ -912,7 +917,8 @@ export function deriveStageModel(
 	caps: DirectorCapabilities,
 	selection: RailSelectionId | null,
 	formData?: Record<string, unknown> | null,
-	timelineShotId?: string
+	timelineShotId?: string,
+	references?: ShotReferenceContext | null
 ): StageModel {
 	const rail = deriveRailModel(doc, caps, timelineShotId, resolveDirectorTimingProfile(caps, formData));
 	const timelineShot = caps.segmentRouting ? null : (doc.timeline.shots.find((s) => s.id === timelineShotId) ?? doc.timeline.shots[0] ?? null);
@@ -921,7 +927,7 @@ export function deriveStageModel(
 	if (selection) {
 		switch (selection.kind) {
 			case 'shot':
-				selected = buildShotModel(doc, caps, rail, selection.id, formData, timelineShot);
+				selected = buildShotModel(doc, caps, rail, selection.id, formData, timelineShot, references ?? { specs: [], directories: {} });
 				break;
 			case 'seam':
 				selected = buildJoinModel(doc, caps, rail, selection.id);

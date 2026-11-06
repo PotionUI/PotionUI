@@ -68,6 +68,7 @@ from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
 from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE
 from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import MiniMaxH3LatentUpsampler
 from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
+from src.pipelines.pipes.model_loader.minimax_h3 import control as _control
 from src.pipelines.pipes.model_loader.minimax_h3 import vdn as _vdn
 from src.pipelines.pipes.model_loader.minimax_h3.bundle import MiniMaxH3ModelBundle
 from src.pipelines.pipes.model_loader.minimax_h3.clip import MiniMaxH3ClipTextEncoder
@@ -112,6 +113,9 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             PipeConfigSpec("vdn_module", dict, None,
                            "Video-DeltaNet linear branch to attach to the DiT (turbo hybrid attention)",
                            required=False),
+            PipeConfigSpec("control_module", dict, None,
+                           "Pruned MiniMax-H3 Fun ControlNet Union patch (Comfy-Org model_patches) to attach to the DiT",
+                           required=False),
             PipeConfigSpec("dense_time_embedder", dict, None,
                            "Full-checkpoint time_embedder tensors, needed only to translate an "
                            "adapter's AdaLN rows onto a pruned DiT",
@@ -133,7 +137,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "MiniMax-H3 Qwen3-VL-32B text encoder (ClipTextEncoder ABC)", is_array=False),
             PipeOutputSpec("video_vae", IOType.VAE, "The SAME video VAE component already embedded in "
                            "'model' (bundle.video_vae), exposed standalone so a pipe that only needs the "
-                           "VAE -- e.g. prompt_encoder, to decode a RefMod's stored latent for the text "
+                           "VAE -- e.g. prompt_encoder, to decode a pre-encoded reference latent for the text "
                            "encoder's own presentation -- does not have to take the whole bundle",
                            is_array=False),
         ]
@@ -151,6 +155,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             ("audio_vae", "minimax_h3_audio_vae"),
             ("upscale_model", "minimax_h3_latent_upscaler"),
             ("vdn_module", "minimax_h3_vdn_branch"),
+            ("control_module", "minimax_h3_fun_control"),
             ("dense_time_embedder", "minimax_h3_time_embedder"),
         ):
             cfg = self.config.get(key)
@@ -196,12 +201,19 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         lora_fp = _lora_stack_fingerprint(loras) or "none"
         vdn_path = _path_of(self.config.get("vdn_module"))
         sidecar_path = _path_of(self.config.get("dense_time_embedder"))
+        control_path = _path_of(self.config.get("control_module"))
 
         def load_dit() -> NativeModel:
-            model = loader.load(model_path, "diffusion_model")
+            model = loader.load(model_path, "diffusion_model", compute_dtype=dtype)
             # Attached before the adapters so an adapter that targets the
             # branch's own Linears resolves against the final module tree.
+            if control_path and vdn_path:
+                raise ValueError(
+                    "model_loader/minimax_h3: a Fun ControlNet patch cannot be combined with a VDN branch"
+                )
             report = _vdn.attach_branch(model, vdn_path) if vdn_path else None
+            if control_path:
+                _control.attach_patch(model, control_path)
             applications, residual = _vdn.apply_loras_with_adaln_translation(
                 model, loras, "MODEL LOADER MINIMAX-H3", dense_time_embedder_path=sidecar_path,
             )
@@ -218,10 +230,14 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         dit_gb = file_size_gb(model_path)
         if vdn_path and dit_gb is not None:
             dit_gb += file_size_gb(vdn_path) or 0.0
+        if control_path and dit_gb is not None:
+            dit_gb += file_size_gb(control_path) or 0.0
         dit_model = lifecycle.acquire(Component(
             "DiT",
-            _vdn.dit_component_key(model_path, vdn_path),
-            _vdn.dit_fingerprint(model_path, dtype, lora_fp, vdn_path, sidecar_path),
+            _control.dit_component_key(_vdn.dit_component_key(model_path, vdn_path), control_path),
+            _control.dit_fingerprint(
+                _vdn.dit_fingerprint(model_path, dtype, lora_fp, vdn_path, sidecar_path), control_path,
+            ),
             load_dit,
             dit_gb,
         ))

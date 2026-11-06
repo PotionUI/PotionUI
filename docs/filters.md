@@ -18,6 +18,9 @@ This is the authoritative reference. The code it describes:
 - Catalog, user filters and routes: `src/features/filters/`.
 - Lint: `scripts/filter_lint.py`, shared implementation in `src/features/filters/lint.py`.
 
+Video uses the same looks through the `look` effect (see [Video Effects](effects.md#core-effects)): the colour steps
+become a 3D LUT and the `vignette` and `grain` ops run as GLSL in the live preview and as numpy in the render.
+
 ## The model
 
 ```

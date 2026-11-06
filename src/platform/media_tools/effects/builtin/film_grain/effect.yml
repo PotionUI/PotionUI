@@ -1,0 +1,27 @@
+id: film_grain
+label: Film grain
+group: texture
+icon: editor-effects
+description: Moving film grain, new on every frame
+accepts: [video, image]
+time: frame
+params:
+  - { name: amount, type: float, label: Amount, description: How strong the grain is, default: 30, min: 0, max: 100, step: 1, unit: "%" }
+  - { name: size, type: float, label: Size, description: How coarse the grain is, default: 1.5, min: 1, max: 3, step: 0.1 }
+  - { name: color, type: checkbox, label: Colour grain, description: Off for black and white grain, default: false }
+  - { name: seed, type: integer, label: Seed, description: The same seed gives the same grain, default: 0, min: 0, max: 2147483647 }
+derive:
+  strength: "amount / 100 * 0.14 * 255"
+  cell: "max(1, floor(size * min(media.width, media.height) / 1000 + 0.5))"
+preview:
+  shader: preview.frag
+render:
+  - torch: render.py:grain_torch
+  - numpy: render.py:grain_numpy
+parity:
+  media: { width: 640, height: 360, fps: 24, duration: 4 }
+  cases:
+    - { params: { amount: 60, size: 2, color: true, seed: 7 }, frames: [0, 1, 37] }
+    - { params: { amount: 100, size: 1, color: false, seed: 0 }, frames: [0, 95] }
+  metric: stats
+  tolerance: { mean_abs: 0.05, std_abs: 0.05 }

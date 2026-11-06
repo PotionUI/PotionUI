@@ -32,6 +32,7 @@ class UploadResult(BaseModel):
     filename: str
     size: int
     url: str
+    id: Optional[str] = None
     # Best-effort probed metadata. None when not determined -
     # duration_seconds/fps are always None for images.
     width: Optional[int] = None

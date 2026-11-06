@@ -119,3 +119,23 @@ fields:
               size: "1.02 GB"
               sha256: "b2b3193e68cb04b4701e1d59bec4ed5d5e3e84506d9a42d5a129d37d39823df7"
               description: "LTX-2.3 latent spatial upscaler, x1.5 - gentler step for tight VRAM."
+
+      - name: "preview_decoder"
+        type: "model"
+        label: "Preview decoder"
+        required: false
+        ai_hint: "Optional tiny decoder that turns the live preview into a true-colour frame from the middle of the clip. Leave empty to keep the fast latent colour projection."
+        configuration:
+          model_type: "preview_decoder"
+          placeholder: "Select taeltx_2.safetensors..."
+          recommendations:
+            - name: "taeltx_2.safetensors"
+              link: "https://raw.githubusercontent.com/madebyollin/taehv/62f7591f59dfbb4c3c02b7a621d180a9eeaba26c/safetensors/taeltx_2.safetensors"
+              size: "22.44 MB"
+              sha256: "6e4cc0469134213d0101a46877ea2bce1dc7cf06ff5f5aefb9e4076c03542f7b"
+              description: "LTX-2 true-colour live preview decoder (MIT)."
+            - name: "taeltx2_3.safetensors"
+              link: "https://raw.githubusercontent.com/madebyollin/taehv/62f7591f59dfbb4c3c02b7a621d180a9eeaba26c/safetensors/taeltx2_3.safetensors"
+              size: "22.44 MB"
+              sha256: "f0773b4e3e57318e6aa4dd4a35e1d16213a5f160fbc0376163f06888bbcbe246"
+              description: "LTX-2.3 and 2.5 true-colour live preview decoder (MIT)."

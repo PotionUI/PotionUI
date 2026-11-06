@@ -592,6 +592,23 @@ def test_runtime_loras_default_empty_and_declared_in_configuration():
     assert spec.required is False
 
 
+def test_the_lcm_sampler_without_a_runtime_adapter_is_refused():
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "sampler": "lcm"})
+    with pytest.raises(ValueError, match="runtime_loras"):
+        pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
+
+
+def test_the_lcm_sampler_with_a_runtime_adapter_builds_its_context():
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(), "sampler": "lcm",
+        "runtime_loras": [{"file_path": "/fake/flex.safetensors", "weight": 1.0}],
+    })
+    with patch(f"{_MAIN}._load_lora_stack") as mock_load:
+        mock_load.return_value = [({"lora.weight": torch.zeros(1)}, 1.0)]
+        ctx = pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
+    assert ctx.extra.sampler == "lcm"
+
+
 def test_runtime_loras_empty_stays_empty_stack():
     pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
     bundle = _fake_bundle()
@@ -3282,7 +3299,7 @@ def test_the_default_sampler_is_euler(monkeypatch):
 
 @pytest.mark.parametrize("key,value", [
     ("sampler", "res_multistep"), ("sampler", "dpmpp_2m"), ("sampler", "sa_solver"),
-    ("sampler", "er_sde"), ("scheduler", "beta"),
+    ("sampler", "er_sde"), ("scheduler", "beta"), ("scheduler", "beta57"), ("audio_sigma_shift", 2.0),
 ])
 def test_build_context_carries_the_solver_knobs_off_the_pipe_config(key, value):
     """The half of the chain `generate_one` cannot see: the pipe config is what
@@ -3297,6 +3314,31 @@ def test_build_context_defaults_the_solver_knobs_to_the_reference_pair():
     pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
     ctx = pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
     assert (ctx.extra.sampler, ctx.extra.scheduler) == ("euler", "simple")
+
+
+@pytest.mark.parametrize("video_shift,audio_shift", ((12.0, 3.0), (6.0, 2.0)))
+def test_the_eight_step_beta57_recipe_walks_beta57_knots_at_each_streams_own_shift(
+    video_shift, audio_shift, monkeypatch,
+):
+    from scipy.special import betaincinv
+
+    built = _recording_steppers(monkeypatch)
+    _run_generate_one({}, steps=8, ctx_overrides={
+        "sampler": "euler", "scheduler": "beta57",
+        "video_sigma_shift": video_shift, "audio_sigma_shift": audio_shift,
+    })
+
+    knots = [float(betaincinv(0.5, 0.7, 1.0 - i / 8)) for i in range(8)]
+    assert [name for name, _, _ in built] == ["euler", "euler"]
+    walked = [[sigma for _, sigma, _ in record] for _, _, record in built]
+    assert walked[0] == pytest.approx([video_shift * t / (1 + (video_shift - 1) * t) for t in knots], abs=1e-5)
+    assert walked[1] == pytest.approx([audio_shift * t / (1 + (audio_shift - 1) * t) for t in knots], abs=1e-5)
+
+
+def test_build_context_defaults_the_audio_shift_to_the_released_three():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    ctx = pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
+    assert ctx.extra.audio_sigma_shift == pytest.approx(AUDIO_SHIFT) == pytest.approx(3.0)
 
 
 def test_each_stream_gets_its_own_stepper_walking_its_own_sigmas(monkeypatch):
@@ -3696,7 +3738,7 @@ def test_build_ref2va_layout_offload_runs_only_when_placed_on_failure():
 
 # -- live preview x0 -----------------------------------------------------------
 
-def _run_generate_one_with_preview(steps: int):
+def _run_generate_one_with_preview(steps: int, config_extra=None, hook_kwargs=None):
     """Run `generate_one` with previews ON. Returns
     `(pipe, seen_forward, seen_x0, seen_previewed_steps)` where `seen_forward`
     holds the `(video rows, video timestep)` every DiT call was handed (rows
@@ -3744,6 +3786,8 @@ def _run_generate_one_with_preview(steps: int):
     real_make_preview_hook = h3_main.make_preview_hook
 
     def recording_make_preview_hook(spec, emit, **kwargs):
+        if hook_kwargs is not None:
+            hook_kwargs.append(kwargs)
         hook = real_make_preview_hook(spec, emit, **kwargs)
         assert hook is not None, "the fake 24-channel spec must resolve H3's preview factors"
         cadence_on_step, emit_callback = hook.on_step, hook._callback
@@ -3760,7 +3804,7 @@ def _run_generate_one_with_preview(steps: int):
         return hook
 
     pipe = GeneratorMinimaxH3Pipe({
-        **GeneratorMinimaxH3Pipe.get_default_config(), "preview": True, "steps": steps,
+        **GeneratorMinimaxH3Pipe.get_default_config(), "preview": True, "steps": steps, **(config_extra or {}),
     })
     pipe._audio_results = []
     progress = ProgressEmitter([].append, title="test")
@@ -3809,6 +3853,86 @@ def test_preview_cadence_and_output_survive_the_pre_update_x0():
 
     plain, _ = _run_generate_one({}, steps=steps, ctx_overrides={"decode": False})
     torch.testing.assert_close(previewed._last_result, plain._last_result, rtol=0, atol=0)
+
+
+def test_the_preview_decoder_file_reaches_the_preview_hook(tmp_path):
+    from safetensors.torch import save_file
+
+    from vendor.taehv.taehv import TAEHV
+
+    weights = tmp_path / "taeh3.safetensors"
+    save_file({k: v.contiguous() for k, v in TAEHV("taeh3").state_dict().items()}, str(weights))
+
+    kwargs: list = []
+    _run_generate_one_with_preview(4, config_extra={"preview_decoder": str(weights)}, hook_kwargs=kwargs)
+    assert [k["decoder_path"] for k in kwargs] == [str(weights)]
+
+    kwargs = []
+    _run_generate_one_with_preview(4, hook_kwargs=kwargs)
+    assert [k["decoder_path"] for k in kwargs] == [None]
+
+
+def _h3_placement_kwargs(config_extra=None):
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+
+    seen: list = []
+    real = h3_main.place_dit_for_sequence
+
+    def spy(*args, **kwargs):
+        seen.append(dict(kwargs))
+        return real(*args, **kwargs)
+
+    with patch.object(h3_main, "place_dit_for_sequence", spy):
+        _run_generate_one_with_preview(4, config_extra=config_extra)
+    return seen
+
+
+def _budget_on_a_32gb_card(placement_kwargs):
+    from src.pipelines.pipes._shared.generation.dit_placement import place_dit_for_sequence
+
+    kwargs = {k: v for k, v in placement_kwargs.items() if k not in ("own_models", "fit_hint")}
+    dit = SimpleNamespace(estimated_vram_gb=21.27, move_to=lambda d: None,
+                          stream_to=lambda d, budget: None, offload=lambda: None)
+    registry = SimpleNamespace(ensure_free=lambda *a, **k: [], offload_all=lambda *a, **k: [])
+    with patch(f"{_PLACEMENT}.free_vram_gb", return_value=27.46), \
+         patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=27.46), \
+         patch(f"{_PLACEMENT}.minimum_inference_memory_gb", return_value=1.0), \
+         patch(f"{_PLACEMENT}.get_residency_registry", return_value=registry):
+        return place_dit_for_sequence(dit, "cuda", **kwargs).weight_budget_gb
+
+
+def test_placement_reserves_the_preview_decoder_weights_and_one_preview_decode(tmp_path):
+    from safetensors.torch import save_file
+
+    from src.platform.runtime.native.sampling.preview import CLIP_MAX_SIZE, PREVIEW_MAX_SIZE
+    from src.platform.runtime.native.sampling.preview_decoder import (
+        decoder_resident_gb,
+        load_preview_decoder,
+        preview_decode_transient_gb,
+    )
+    from vendor.taehv.taehv import TAEHV
+
+    weights = tmp_path / "taeh3.safetensors"
+    save_file({k: v.contiguous() for k, v in TAEHV("taeh3").state_dict().items()}, str(weights))
+    decoder = load_preview_decoder(weights)
+    resident = decoder_resident_gb(decoder)
+    transient = preview_decode_transient_gb(
+        decoder, 2, 2, 2, frame_size=PREVIEW_MAX_SIZE, clip_size=CLIP_MAX_SIZE,
+    )
+    assert resident > 0.0 and transient > 0.0
+
+    with_decoder = _h3_placement_kwargs({"preview_decoder": str(weights)})
+    projection_only = _h3_placement_kwargs()
+    no_preview = _h3_placement_kwargs({"preview": False})
+
+    assert [k["preview_reserve_gb"] for k in with_decoder] == [pytest.approx(resident + transient)]
+    assert [k["preview_reserve_gb"] for k in projection_only] == [0.0]
+    assert [k["preview_reserve_gb"] for k in no_preview] == [0.0]
+
+    baseline = _budget_on_a_32gb_card({**no_preview[0], "preview_reserve_gb": 0.0})
+    assert _budget_on_a_32gb_card(no_preview[0]) == pytest.approx(baseline)
+    assert _budget_on_a_32gb_card(projection_only[0]) == pytest.approx(baseline)
+    assert baseline - _budget_on_a_32gb_card(with_decoder[0]) == pytest.approx(resident + transient)
 
 
 def test_the_preview_disabled_path_computes_no_x0():
@@ -3989,3 +4113,61 @@ def test_a_short_length_from_reference_video_is_decoded_whole(tmp_path):
 def test_length_from_reference_audio_and_initial_latents_stay_unbounded():
     assert _length_from_video_pipe(length_from="reference_audio")._reference_decode_seconds(None, "none", False) is None
     assert _length_from_video_pipe()._reference_decode_seconds(None, "none", True) is None
+
+
+def _window_clip_means(encodes):
+    return [float(np.asarray(call.args[0], dtype=np.float64).mean()) for call in encodes]
+
+
+def test_drift_correction_pulls_a_continuation_window_toward_the_first():
+    _, _, off_encodes, _ = _run_director(_director_document(2))
+    _, _, on_encodes, _ = _run_director(_director_document(2), config_overrides={"drift_correction": 1.0})
+    off = _window_clip_means(off_encodes)
+    on = _window_clip_means(on_encodes)
+    assert on[0] == pytest.approx(off[0])
+    assert abs(off[1] - off[0]) > 4
+    assert abs(on[1] - on[0]) < 2
+
+
+def test_drift_correction_is_off_by_default():
+    _, _, encodes, _ = _run_director(_director_document(2))
+    default_means = _window_clip_means(encodes)
+    _, _, explicit, _ = _run_director(_director_document(2), config_overrides={"drift_correction": 0.0})
+    assert default_means == _window_clip_means(explicit)
+
+
+def test_the_corrected_tail_is_what_conditions_the_next_window():
+    _, _, _, _ = _run_director(_director_document(3))
+    off_vae = _FakeKeyframeVae()
+    _run_director(_director_document(3), video_vae_module=off_vae)
+    on_vae = _FakeKeyframeVae()
+    _run_director(_director_document(3), video_vae_module=on_vae, config_overrides={"drift_correction": 1.0})
+    assert off_vae.encoded_frame_markers[1] != on_vae.encoded_frame_markers[1]
+    assert off_vae.encoded_frame_markers[0] == on_vae.encoded_frame_markers[0]
+
+
+def _plan_seeds(document, *, input_seeds, config_seed=None):
+    config = {**GeneratorMinimaxH3Pipe.get_default_config(), "document": document}
+    if config_seed is not None:
+        config["seed"] = config_seed
+    pipe = GeneratorMinimaxH3Pipe(config)
+    ctx = pipe.build_context(_pipe_input(
+        model=_fake_bundle(), conditioning=[_fake_conditioning(3)] * len(document["segments"]), seed=input_seeds,
+    ))
+    return [w.seed for w in ctx.extra.plan.windows]
+
+
+def test_a_document_without_a_seed_takes_the_request_seed():
+    document = _director_document(3)
+    document["settings"]["seed"] = None
+    assert _plan_seeds(document, input_seeds=[4242]) == [4242, 4243, 4244]
+
+
+def test_a_document_seed_still_wins_over_the_request_seed():
+    assert _plan_seeds(_director_document(2, seed=1000), input_seeds=[4242]) == [1000, 1001]
+
+
+def test_a_configured_seed_wins_over_the_request_seed_for_a_seedless_document():
+    document = _director_document(2)
+    document["settings"]["seed"] = None
+    assert _plan_seeds(document, input_seeds=[4242], config_seed=77) == [77, 78]

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeMe } from './capabilities.js';
+import { installHostModelTypes } from './testModelTypes.js';
 import {
 	baseName,
 	buildDownloadBody,
@@ -32,6 +33,8 @@ const DETAIL = { source: 'civitai', id: '58390', name: 'Detail Tweaker LoRA', mb
 const VERSION = { id: '62833', name: 'v1.0', early_access: false };
 const FILE = { id: '1', name: 'add_detail.safetensors', size_bytes: 37_861_176, auth_provider_id: 'civitai' };
 const HF_FILE = { id: 'unet/model.fp16.safetensors', name: 'unet/model.fp16.safetensors', size_bytes: 5 * 1024 ** 3 };
+
+installHostModelTypes();
 
 test('baseName and extensionOf', () => {
 	assert.equal(baseName('unet/model.fp16.safetensors'), 'model.fp16.safetensors');

@@ -155,7 +155,7 @@ class TestGetVideoDirectorToolT2v:
         assert payload["global_prompt"] == "a storm over the ocean"
         assert payload["negative_prompt"] == "blurry"
         assert len(payload["segments"]) == 1
-        assert payload["segments"][0]["prompt"] == "a storm over the ocean"
+        assert payload["segments"][0]["prompt"] == ""
         assert payload["media"] == []
         assert "capabilities" in payload
         assert payload["capabilities"]["allowed_modes"] == ["t2v", "i2v", "flf", "director"]
@@ -174,6 +174,99 @@ class TestGetVideoDirectorToolT2v:
         payload = json.loads(result.data)
         assert payload["settings"]["fps"] == 24
         assert payload["settings"]["duration"] == 5
+
+
+class TestGetVideoDirectorToolSingleShotPrompt:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["t2v", "i2v", "flf"])
+    async def test_timeline_single_shot_reports_its_own_beat_prompt_not_the_global_prompt(self, mode):
+        doc = make_timeline_doc(mode=mode)
+        doc["timeline"]["shots"][0]["segments"] = [{"id": "b1", "start": 0, "end": 10, "text": "a lighthouse at dusk"}]
+        form_state = make_form_state(doc, make_timeline_capabilities())
+        payload = json.loads((await GetVideoDirectorTool().execute(make_context(session_metadata={"form_state": form_state}))).data)
+        assert payload["segments"][0]["id"] == "seg-1"
+        assert payload["segments"][0]["prompt"] == "a lighthouse at dusk"
+        assert payload["global_prompt"] == "a storm over the ocean"
+
+    @pytest.mark.asyncio
+    async def test_chain_single_shot_reports_its_own_segment_prompt(self):
+        doc = make_timeline_doc(mode="t2v")
+        doc["chain"]["segments"] = [{"id": "chain-0", "prompt": "a lighthouse at dusk", "duration": 5}]
+        caps = make_timeline_capabilities()
+        caps["segment_routing"] = True
+        form_state = make_form_state(doc, caps)
+        payload = json.loads((await GetVideoDirectorTool().execute(make_context(session_metadata={"form_state": form_state}))).data)
+        assert payload["segments"][0]["id"] == "seg-1"
+        assert payload["segments"][0]["prompt"] == "a lighthouse at dusk"
+
+
+class TestGetVideoDirectorToolSingleShotMedia:
+    @staticmethod
+    async def _payload(doc, caps):
+        form_state = make_form_state(doc, caps)
+        return json.loads((await GetVideoDirectorTool().execute(make_context(session_metadata={"form_state": form_state}))).data)
+
+    @staticmethod
+    def _timeline(mode, keyframes):
+        doc = make_timeline_doc(mode=mode)
+        doc["ui"] = {"modeless": True}
+        doc["timeline"]["fps"] = 30
+        doc["timeline"]["shots"][0]["duration"] = 8
+        doc["timeline"]["shots"][0]["keyframes"] = keyframes
+        return doc
+
+    @staticmethod
+    def _chain(mode, **seg):
+        doc = make_timeline_doc(mode=mode)
+        doc["ui"] = {"modeless": True}
+        doc["chain"] = {"fps": 16, "segments": [{"id": "chain-0", "prompt": "p", "duration": 6, **seg}]}
+        caps = make_timeline_capabilities()
+        caps["segment_routing"] = True
+        return doc, caps
+
+    @pytest.mark.asyncio
+    async def test_timeline_t2v_has_no_media_and_takes_the_shot_length(self):
+        payload = await self._payload(self._timeline("t2v", []), make_timeline_capabilities())
+        assert payload["media"] == []
+        assert payload["settings"]["duration"] == 8
+        assert payload["settings"]["fps"] == 30
+
+    @pytest.mark.asyncio
+    async def test_timeline_i2v_reads_the_start_frame_from_the_shot(self):
+        doc = self._timeline("i2v", [{"id": "kf-first", "role": "first", "start": 0, "media": {"path": "/media/start.png"}}])
+        payload = await self._payload(doc, make_timeline_capabilities())
+        assert [(m["role"], m["path"]) for m in payload["media"]] == [("first", "/media/start.png")]
+
+    @pytest.mark.asyncio
+    async def test_timeline_flf_reads_both_edges_from_the_shot(self):
+        doc = self._timeline("flf", [
+            {"id": "kf-first", "role": "first", "start": 0, "media": {"path": "/media/a.png"}},
+            {"id": "kf-last", "role": "last", "start": 8, "media": {"path": "/media/b.png"}},
+        ])
+        payload = await self._payload(doc, make_timeline_capabilities())
+        assert [(m["role"], m["path"], m["at"]) for m in payload["media"]] == [
+            ("first", "/media/a.png", 0), ("last", "/media/b.png", 8),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_chain_t2v_has_no_media_and_takes_the_segment_length(self):
+        doc, caps = self._chain("t2v", keyframe={"path": "/media/stale.png"})
+        payload = await self._payload(doc, caps)
+        assert payload["media"] == []
+        assert payload["settings"]["duration"] == 6
+        assert payload["settings"]["fps"] == 16
+
+    @pytest.mark.asyncio
+    async def test_chain_i2v_reads_the_start_frame_from_the_segment(self):
+        doc, caps = self._chain("i2v", keyframe={"path": "/media/start.png"})
+        payload = await self._payload(doc, caps)
+        assert [(m["role"], m["path"]) for m in payload["media"]] == [("first", "/media/start.png")]
+
+    @pytest.mark.asyncio
+    async def test_chain_flf_reads_both_edges_from_the_segment(self):
+        doc, caps = self._chain("flf", keyframe={"path": "/media/a.png"}, last_keyframe={"path": "/media/b.png"})
+        payload = await self._payload(doc, caps)
+        assert [(m["role"], m["path"]) for m in payload["media"]] == [("first", "/media/a.png"), ("last", "/media/b.png")]
 
 
 class TestGetVideoDirectorToolI2v:
@@ -545,3 +638,13 @@ class TestVideoDirectorPresetModeOverlay:
         assert [s["sub_type"] for s in payload["segments"]] == ["t2v", "t2v"]
 
 
+
+
+def test_context_summary_names_each_timeline_segments_shot():
+    from src.features.llm.tools.builtin.video_director_tool import render_context_summary
+
+    doc = {"mode": "director", "timeline": {"fps": 24, "shots": [
+        {"id": "sh_a1", "duration": 4, "segments": [{"id": "seg-1", "text": "harbor", "start": 0, "end": 4}]},
+    ]}}
+    lines = render_context_summary(doc, {}, {}, None)
+    assert '    - id=seg-1 shot_id=sh_a1: "harbor" (0s-4s)' in lines

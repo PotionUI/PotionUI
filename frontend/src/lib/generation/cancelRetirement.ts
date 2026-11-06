@@ -37,9 +37,10 @@
 // `restore/subscriptions.ts` and PERF-12's cache/retired-set cleanup, so a
 // belated `generation_cancelled` for an already-manually-cancelled id found
 // no owning tab and never cleaned either up).
+import { findGenerationTab, generationTabs } from '$lib/types/tabs';
 import { get } from 'svelte/store';
 import type { Readable } from 'svelte/store';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab, Tab } from '$lib/types/tabs';
 import {
 	CANCELLED_TEXT,
 	directorShotIdsFor,
@@ -52,7 +53,7 @@ import { retireGeneration } from './messages/generationOutputs';
 /** Minimal surface `retireConfirmedCancellations` needs from `tabsStore` --
  *  the real store (`$lib/stores/tabs`) satisfies this as-is. */
 export interface CancelRetirementTabsStore extends Readable<{ tabs: Tab[]; activeTabId: string }> {
-	updateTab(tabId: string, updates: Partial<Tab>): void;
+	updateTab(tabId: string, updates: Partial<GenerationTab>): void;
 }
 
 export const LATE_CANCEL_NOTICE_WINDOW_MS = 120_000;
@@ -97,7 +98,7 @@ export function applyConfirmedCancellations(
 	const ids = confirmedIds instanceof Set ? confirmedIds : new Set(confirmedIds);
 	if (ids.size === 0) return;
 
-	const tab = get(tabsStore).tabs.find((t) => t.id === targetTabId);
+	const tab = findGenerationTab(get(tabsStore).tabs, targetTabId);
 	if (!tab) return;
 
 	const activeCancelled = tab.activeGenerationId !== null && ids.has(tab.activeGenerationId);
@@ -153,7 +154,7 @@ export function retireConfirmedCancellations(
 	const now = deps.now ?? Date.now;
 
 	for (const generationId of generationIds) {
-		const tabs = get(deps.tabsStore).tabs;
+		const tabs = generationTabs(get(deps.tabsStore).tabs);
 		const directorTab = tabs.find((tab) => directorShotIdsFor(tab, generationId) !== null);
 		if (directorTab) {
 			const shotIds = directorShotIdsFor(directorTab, generationId)!;
@@ -165,7 +166,7 @@ export function retireConfirmedCancellations(
 
 		// Re-read: the Director-link removal above (when it happened) can
 		// itself be what makes this id fully unclaimed.
-		const latestTabs = get(deps.tabsStore).tabs;
+		const latestTabs = generationTabs(get(deps.tabsStore).tabs);
 		if (latestTabs.some((tab) => tab.generation.cancelledGenerationId === generationId)) {
 			setTimeout(() => releaseLateNoticeHold(generationId, deps), LATE_CANCEL_NOTICE_WINDOW_MS);
 			continue;
@@ -178,10 +179,10 @@ export function retireConfirmedCancellations(
 }
 
 function releaseLateNoticeHold(generationId: string, deps: CancelRetirementDeps): void {
-	for (const tab of get(deps.tabsStore).tabs) {
+	for (const tab of generationTabs(get(deps.tabsStore).tabs)) {
 		if (tab.generation.cancelledGenerationId !== generationId) continue;
 		deps.tabsStore.updateTab(tab.id, { generation: { ...tab.generation, cancelledGenerationId: null } });
 	}
-	const stillClaimed = get(deps.tabsStore).tabs.some((tab) => tabClaimedGenerationIds(tab).has(generationId));
+	const stillClaimed = generationTabs(get(deps.tabsStore).tabs).some((tab) => tabClaimedGenerationIds(tab).has(generationId));
 	if (!stillClaimed) retireGeneration(generationId, deps.unsubscribe);
 }

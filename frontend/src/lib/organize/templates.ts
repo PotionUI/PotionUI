@@ -1,4 +1,4 @@
-import type { OrganizeCatalog, OrganizeSubject } from '$lib/types/organize';
+import type { OrganizeCatalog, OrganizeScope, OrganizeSubject } from '$lib/types/organize';
 import type { OrganizeStartRule } from './handoff';
 
 export interface RuleTemplate {
@@ -120,12 +120,48 @@ const TEMPLATES: Record<OrganizeSubject, RuleTemplate[]> = {
 	]
 };
 
-export function templatesFor(subject: OrganizeSubject, catalog: OrganizeCatalog | null): RuleTemplate[] {
-	const all = TEMPLATES[subject] ?? [];
-	if (!catalog) return all;
-	return all.filter((template) =>
-		template.rule.conditions.every((cond) =>
-			catalog.facts.some((fact) => fact.key === cond.fact && fact.subjects.includes(subject))
-		)
+const INSTANCE_MODEL_TEMPLATES: RuleTemplate[] = [
+	{
+		key: 'model-group-by-name',
+		title: 'Open a family to a user group',
+		description: 'Models with a word in their name, such as krea2, go to the user group that should see them.',
+		rule: {
+			subject: 'model',
+			name: 'Krea-2 models',
+			conditions: [{ fact: 'name', operator: 'contains', value: 'krea2', ignore_separators: true }],
+			actions: [{ action: 'assign_model_group', config: { group_id: null } }]
+		}
+	},
+	{
+		key: 'model-civitai',
+		title: 'Fetch CivitAI data for new models',
+		description: 'Checkpoints and LoRAs without marketplace data get their description, trigger words and previews.',
+		rule: {
+			subject: 'model',
+			name: 'Fetch CivitAI data',
+			conditions: [
+				{ fact: 'source', operator: 'is_not', value: 'civitai' },
+				{ fact: 'model_type', operator: 'is_any_of', value: ['checkpoint', 'lora'] }
+			],
+			actions: [{ action: 'civitai-provider.fetch_info', config: {} }]
+		}
+	}
+];
+
+export function templatesFor(
+	subject: OrganizeSubject,
+	catalog: OrganizeCatalog | null,
+	scope: OrganizeScope = 'user'
+): RuleTemplate[] {
+	const all = scope === 'instance' ? (subject === 'model' ? INSTANCE_MODEL_TEMPLATES : []) : (TEMPLATES[subject] ?? []);
+	if (!catalog) return scope === 'instance' ? [] : all;
+	return all.filter(
+		(template) =>
+			template.rule.conditions.every((cond) =>
+				catalog.facts.some((fact) => fact.key === cond.fact && fact.subjects.includes(subject))
+			) &&
+			(template.rule.actions ?? []).every((action) =>
+				catalog.actions.some((spec) => spec.key === action.action && spec.subjects.includes(subject))
+			)
 	);
 }

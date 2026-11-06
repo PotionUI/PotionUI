@@ -59,7 +59,7 @@ from torch import Tensor
 
 from vendor.gpl.comfyui.ltx import rope
 from vendor.gpl.comfyui.ltx.patchifier import AudioPatchifier, SymmetricPatchifier, latent_to_pixel_coords
-from vendor.gpl.comfyui.ltx.rope import CompressedTimestep, apply_rotary_emb
+from vendor.gpl.comfyui.ltx.rope import CompressedTimestep
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
@@ -154,9 +154,10 @@ class _GELUApprox(nn.Module):
     def __init__(self, dim_in: int, dim_out: int, operations, bias: bool = True, dtype=None, device=None):
         super().__init__()
         self.proj = operations.Linear(dim_in, dim_out, bias=bias, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor) -> Tensor:
-        return F.gelu(self.proj(x), approximate="tanh")
+        return self.operations.act_gate(self.proj(x), mode="gelu_tanh")
 
 
 class FeedForward(nn.Module):
@@ -184,6 +185,7 @@ class CrossAttention(nn.Module):
         context_dim = query_dim if context_dim is None else context_dim
         self.heads = heads
         self.dim_head = dim_head
+        self.operations = operations
         # q/k RMSNorm eps is config-driven (norm_eps, default 1e-6, matching the
         # LTX 2.3 checkpoint config and diffusers transformer_ltx2.py line 350).
         self.q_norm = operations.RMSNorm(inner_dim, eps=norm_eps, dtype=dtype, device=device)
@@ -204,13 +206,10 @@ class CrossAttention(nn.Module):
                 pe=None, k_pe=None, context_neg: Tensor | None = None, nag: dict | None = None,
                 mask_neg: Tensor | None = None) -> Tensor:
         # q/k RMSNorm act on the FULL projection (inner_dim), BEFORE the head split.
-        q = self.q_norm(self.to_q(x))
         context = x if context is None else context
-        k = self.k_norm(self.to_k(context))
+        q = self._norm_rope(self.q_norm, self.to_q(x), pe)
+        k = self._norm_rope(self.k_norm, self.to_k(context), pe if k_pe is None else k_pe)
         v = self.to_v(context)
-        if pe is not None:
-            q = apply_rotary_emb(q, pe)
-            k = apply_rotary_emb(k, pe if k_pe is None else k_pe)
         out = _ltx_attention(q, k, v, self.heads, mask=mask)
         # NAG (arXiv:2505.21179): run the same queries against the NEGATIVE
         # context's K/V (through the same to_k/to_v/k_norm weights) and blend
@@ -231,10 +230,8 @@ class CrossAttention(nn.Module):
         # shorter. Use ``mask_neg`` (the negative context's own mask,
         # ``None`` by default) instead — never fall back to ``mask``.
         if context_neg is not None and _nag_active(nag):
-            k_neg = self.k_norm(self.to_k(context_neg))
+            k_neg = self._norm_rope(self.k_norm, self.to_k(context_neg), pe if k_pe is None else k_pe)
             v_neg = self.to_v(context_neg)
-            if pe is not None:
-                k_neg = apply_rotary_emb(k_neg, pe if k_pe is None else k_pe)
             neg = _ltx_attention(q, k_neg, v_neg, self.heads, mask=mask_neg)
             out = apply_nag(out, neg, nag["scale"], nag.get("tau", 3.5), nag.get("alpha", 0.5))
         if hasattr(self, "to_gate_logits"):
@@ -247,6 +244,20 @@ class CrossAttention(nn.Module):
             b, lq, _ = out.shape
             out = (out.view(b, lq, self.heads, self.dim_head) * gate.unsqueeze(-1)).reshape(b, lq, -1)
         return self.to_out(out)
+
+    def _norm_rope(self, norm: nn.Module, x: Tensor, pe) -> Tensor:
+        if pe is None:
+            return norm(x)
+        ops = self.operations
+        cos, sin = pe[0], pe[1]
+        if not (len(pe) > 2 and pe[2]):
+            return ops.qk_norm_rope(x, **ops.norm_args(norm), freqs=(cos, sin), layout="pair_rotate")
+        if x.dim() != 4 and cos.dim() == 4:
+            return ops.qk_norm_rope(
+                x, **ops.norm_args(norm), freqs=(cos.transpose(1, 2), sin.transpose(1, 2)), layout="half_cos_sin",
+                heads=cos.shape[1],
+            )
+        return ops.qk_norm_rope(x, **ops.norm_args(norm), freqs=(cos, sin), layout="half_cos_sin")
 
 
 class BasicTransformerBlock1D(nn.Module):
@@ -388,6 +399,7 @@ class BasicAVTransformerBlock(nn.Module):
         # side (diffusers transformer_ltx2.py: video_mod_param_num = 9 if adaln).
         # Verified against the 22B header: [9, 4096] / [9, 2048].
         self.has_prompt_adaln = has_prompt_adaln
+        self.operations = operations
         mod_rows = 9 if has_prompt_adaln else 6
         self.scale_shift_table = nn.Parameter(torch.empty(mod_rows, v_dim, dtype=dtype, device=device))
         self.audio_scale_shift_table = nn.Parameter(torch.empty(mod_rows, a_dim, dtype=dtype, device=device))
@@ -461,10 +473,11 @@ class BasicAVTransformerBlock(nn.Module):
         run_ax = run_ax and ax.numel() > 0
         run_a2v = run_vx and a2v_cross_attn and ax.numel() > 0
         run_v2a = run_ax and v2a_cross_attn
+        ops = self.operations
 
         if run_vx:
             vshift_msa, vscale_msa = self.get_ada_values(self.scale_shift_table, vx.shape[0], v_timestep, slice(0, 2))
-            norm_vx = _rms_norm(vx) * (1 + vscale_msa) + vshift_msa
+            norm_vx = ops.norm_modulate(vx, norm="rms", eps=1e-6, scale=vscale_msa, shift=vshift_msa)
             if skip_self_attn:
                 # STG perturbation: value-projection passthrough (reference:
                 # ltx-core/model/transformer/attention.py lines 217-235, rev a2c3f24).
@@ -480,26 +493,28 @@ class BasicAVTransformerBlock(nn.Module):
             else:
                 attn1_out = self.attn1(norm_vx, pe=v_pe)
             vgate_msa = self.get_ada_values(self.scale_shift_table, vx.shape[0], v_timestep, slice(2, 3))[0]
-            vx = vx + attn1_out * vgate_msa
-            norm_vx2 = _rms_norm(vx)
+            vx = ops.gated_residual(vx, attn1_out, vgate_msa)
             if self.has_prompt_adaln:
                 vshift_tq, vscale_tq = self.get_ada_values(self.scale_shift_table, vx.shape[0], v_timestep, slice(6, 8))
-                norm_vx2 = norm_vx2 * (1 + vscale_tq) + vshift_tq
+                norm_vx2 = ops.norm_modulate(vx, norm="rms", eps=1e-6, scale=vscale_tq, shift=vshift_tq)
                 kv_shift, kv_scale = self.get_ada_values(
                     self.prompt_scale_shift_table, vx.shape[0], v_prompt_timestep, slice(0, 2), ref=vx)
-                v_context = v_context * (1 + kv_scale) + kv_shift
+                v_context = ops.norm_modulate(v_context, scale=kv_scale, shift=kv_shift)
                 if v_context_neg is not None:
-                    v_context_neg = v_context_neg * (1 + kv_scale) + kv_shift
+                    v_context_neg = ops.norm_modulate(v_context_neg, scale=kv_scale, shift=kv_shift)
+            else:
+                norm_vx2 = _rms_norm(vx)
             attn2_out = self.attn2(norm_vx2, context=v_context, mask=attention_mask,
                                     context_neg=v_context_neg, nag=nag, mask_neg=nag_attention_mask)
             if self.has_prompt_adaln:
-                attn2_out = attn2_out * self.get_ada_values(
-                    self.scale_shift_table, vx.shape[0], v_timestep, slice(8, 9))[0]
-            vx = vx + attn2_out
+                vx = ops.gated_residual(vx, attn2_out, self.get_ada_values(
+                    self.scale_shift_table, vx.shape[0], v_timestep, slice(8, 9))[0])
+            else:
+                vx = vx + attn2_out
 
         if run_ax:
             ashift_msa, ascale_msa = self.get_ada_values(self.audio_scale_shift_table, ax.shape[0], a_timestep, slice(0, 2))
-            norm_ax = _rms_norm(ax) * (1 + ascale_msa) + ashift_msa
+            norm_ax = ops.norm_modulate(ax, norm="rms", eps=1e-6, scale=ascale_msa, shift=ashift_msa)
             if skip_self_attn:
                 # STG perturbation on audio stream: same v-passthrough as video.
                 v = self.audio_attn1.to_v(norm_ax)
@@ -511,22 +526,24 @@ class BasicAVTransformerBlock(nn.Module):
             else:
                 attn1_out = self.audio_attn1(norm_ax, pe=a_pe)
             agate_msa = self.get_ada_values(self.audio_scale_shift_table, ax.shape[0], a_timestep, slice(2, 3))[0]
-            ax = ax + attn1_out * agate_msa
-            norm_ax2 = _rms_norm(ax)
+            ax = ops.gated_residual(ax, attn1_out, agate_msa)
             if self.has_prompt_adaln:
                 ashift_tq, ascale_tq = self.get_ada_values(self.audio_scale_shift_table, ax.shape[0], a_timestep, slice(6, 8))
-                norm_ax2 = norm_ax2 * (1 + ascale_tq) + ashift_tq
+                norm_ax2 = ops.norm_modulate(ax, norm="rms", eps=1e-6, scale=ascale_tq, shift=ashift_tq)
                 akv_shift, akv_scale = self.get_ada_values(
                     self.audio_prompt_scale_shift_table, ax.shape[0], a_prompt_timestep, slice(0, 2), ref=ax)
-                a_context = a_context * (1 + akv_scale) + akv_shift
+                a_context = ops.norm_modulate(a_context, scale=akv_scale, shift=akv_shift)
                 if a_context_neg is not None:
-                    a_context_neg = a_context_neg * (1 + akv_scale) + akv_shift
+                    a_context_neg = ops.norm_modulate(a_context_neg, scale=akv_scale, shift=akv_shift)
+            else:
+                norm_ax2 = _rms_norm(ax)
             attn2_out = self.audio_attn2(norm_ax2, context=a_context, mask=attention_mask,
                                           context_neg=a_context_neg, nag=nag, mask_neg=nag_attention_mask)
             if self.has_prompt_adaln:
-                attn2_out = attn2_out * self.get_ada_values(
-                    self.audio_scale_shift_table, ax.shape[0], a_timestep, slice(8, 9))[0]
-            ax = ax + attn2_out
+                ax = ops.gated_residual(ax, attn2_out, self.get_ada_values(
+                    self.audio_scale_shift_table, ax.shape[0], a_timestep, slice(8, 9))[0])
+            else:
+                ax = ax + attn2_out
 
         if run_a2v or run_v2a:
             vx_norm3 = _rms_norm(vx)
@@ -537,34 +554,34 @@ class BasicAVTransformerBlock(nn.Module):
                     self.scale_shift_table_a2v_ca_audio[:4, :], ax.shape[0], a_cross_scale_shift_timestep)[:2]
                 scale_v_a2v, shift_v_a2v = self.get_ada_values(
                     self.scale_shift_table_a2v_ca_video[:4, :], vx.shape[0], v_cross_scale_shift_timestep)[:2]
-                vx_scaled = vx_norm3 * (1 + scale_v_a2v) + shift_v_a2v
-                ax_scaled = ax_norm3 * (1 + scale_a_a2v) + shift_a_a2v
+                vx_scaled = ops.norm_modulate(vx_norm3, scale=scale_v_a2v, shift=shift_v_a2v)
+                ax_scaled = ops.norm_modulate(ax_norm3, scale=scale_a_a2v, shift=shift_a_a2v)
                 a2v_out = self.audio_to_video_attn(vx_scaled, context=ax_scaled, pe=v_cross_pe, k_pe=a_cross_pe)
                 gate_a2v = self.get_ada_values(self.scale_shift_table_a2v_ca_video[4:, :], vx.shape[0], v_cross_gate_timestep)[0]
-                vx = vx + a2v_out * gate_a2v
+                vx = ops.gated_residual(vx, a2v_out, gate_a2v)
 
             if run_v2a:  # video -> audio cross attention (Q audio, KV video)
                 scale_a_v2a, shift_a_v2a = self.get_ada_values(
                     self.scale_shift_table_a2v_ca_audio[:4, :], ax.shape[0], a_cross_scale_shift_timestep)[2:4]
                 scale_v_v2a, shift_v_v2a = self.get_ada_values(
                     self.scale_shift_table_a2v_ca_video[:4, :], vx.shape[0], v_cross_scale_shift_timestep)[2:4]
-                ax_scaled = ax_norm3 * (1 + scale_a_v2a) + shift_a_v2a
-                vx_scaled = vx_norm3 * (1 + scale_v_v2a) + shift_v_v2a
+                ax_scaled = ops.norm_modulate(ax_norm3, scale=scale_a_v2a, shift=shift_a_v2a)
+                vx_scaled = ops.norm_modulate(vx_norm3, scale=scale_v_v2a, shift=shift_v_v2a)
                 v2a_out = self.video_to_audio_attn(ax_scaled, context=vx_scaled, pe=a_cross_pe, k_pe=v_cross_pe)
                 gate_v2a = self.get_ada_values(self.scale_shift_table_a2v_ca_audio[4:, :], ax.shape[0], a_cross_gate_timestep)[0]
-                ax = ax + v2a_out * gate_v2a
+                ax = ops.gated_residual(ax, v2a_out, gate_v2a)
 
         if run_vx:
             vshift_mlp, vscale_mlp = self.get_ada_values(self.scale_shift_table, vx.shape[0], v_timestep, slice(3, 5))
-            ff_out = self.ff(_rms_norm(vx) * (1 + vscale_mlp) + vshift_mlp)
+            ff_out = self.ff(ops.norm_modulate(vx, norm="rms", eps=1e-6, scale=vscale_mlp, shift=vshift_mlp))
             vgate_mlp = self.get_ada_values(self.scale_shift_table, vx.shape[0], v_timestep, slice(5, 6))[0]
-            vx = vx + ff_out * vgate_mlp
+            vx = ops.gated_residual(vx, ff_out, vgate_mlp)
 
         if run_ax:
             ashift_mlp, ascale_mlp = self.get_ada_values(self.audio_scale_shift_table, ax.shape[0], a_timestep, slice(3, 5))
-            ff_out = self.audio_ff(_rms_norm(ax) * (1 + ascale_mlp) + ashift_mlp)
+            ff_out = self.audio_ff(ops.norm_modulate(ax, norm="rms", eps=1e-6, scale=ascale_mlp, shift=ashift_mlp))
             agate_mlp = self.get_ada_values(self.audio_scale_shift_table, ax.shape[0], a_timestep, slice(5, 6))[0]
-            ax = ax + ff_out * agate_mlp
+            ax = ops.gated_residual(ax, ff_out, agate_mlp)
 
         return vx, ax
 
@@ -1031,7 +1048,7 @@ class LTXAVModel(NativeArchModule):
         if isinstance(v_embedded, CompressedTimestep):
             v_embedded = v_embedded.expand()
         ss = self.scale_shift_table[None, None].to(vx) + v_embedded[:, :, None]
-        vx = self.norm_out(vx) * (1 + ss[:, :, 1]) + ss[:, :, 0]
+        vx = self.operations.norm_modulate(vx, norm="layer", eps=self.norm_out.eps, scale=ss[:, :, 1], shift=ss[:, :, 0])
         vx = self.proj_out(vx)
         # Appended conditioning tokens get the same norm/proj (their velocity is
         # needed for the x0-space conditioning blend) but are split off before the
@@ -1045,7 +1062,9 @@ class LTXAVModel(NativeArchModule):
             orig_shape[1] // math.prod(self.patchifier.patch_size),
         )
         a_ss = self.audio_scale_shift_table[None, None].to(a_embedded) + a_embedded[:, :, None]
-        ax = self.audio_norm_out(ax) * (1 + a_ss[:, :, 1]) + a_ss[:, :, 0]
+        ax = self.operations.norm_modulate(
+            ax, norm="layer", eps=self.audio_norm_out.eps, scale=a_ss[:, :, 1], shift=a_ss[:, :, 0],
+        )
         ax = self.audio_proj_out(ax)
         ax = self.a_patchifier.unpatchify(ax, channels=self.num_audio_channels, freq=self.audio_frequency_bins)
         out = vx if ax.numel() == 0 else [vx, ax]

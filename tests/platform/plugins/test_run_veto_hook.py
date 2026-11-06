@@ -67,3 +67,21 @@ def test_a_veto_is_logged_once(caplog):
             run_veto_hook(plugins, "x.before", {}, "denied")
 
     assert [r.getMessage() for r in caplog.records] == ["x.before blocked by plugin: stop"]
+
+
+def test_block_details_ride_on_the_raised_exception():
+    plugins = _Plugins({"blocked": True, "block_reason": "stop", "block_details": {"items": [1]}})
+
+    with pytest.raises(_CustomError) as raised:
+        run_veto_hook(plugins, "x.before", {}, "denied", error=_CustomError)
+
+    assert raised.value.block_details == {"items": [1]}
+
+
+def test_a_block_without_details_leaves_the_exception_bare():
+    plugins = _Plugins({"blocked": True, "block_reason": "stop"})
+
+    with pytest.raises(_CustomError) as raised:
+        run_veto_hook(plugins, "x.before", {}, "denied", error=_CustomError)
+
+    assert not hasattr(raised.value, "block_details")

@@ -15,6 +15,7 @@ from src.features.media.file_resolver import FilePathResolver
 from src.features.media.image_processor import ImageProcessor
 from src.features.media.store import MediaStore
 from src.features.media.media_types import MediaTypeResolver
+from src.features.media.records import Upload
 from src.features.media.routes import MediaController
 from src.features.media.upload_repository import UploadRepository
 from src.features.media.validators import UPLOAD_PURPOSE_USER
@@ -80,6 +81,9 @@ def manager(s3_driver, tmp_path):
     hook_context.data = {}
     plugin_registry.execute_hook.return_value = (hook_context, [])
 
+    upload_repo = Mock(spec=UploadRepository)
+    upload_repo.create.return_value = Upload(id="up_1", user_id="user123", filename="stored.bin", media_type="image")
+
     return MediaStore(
         file_resolver=Mock(spec=FilePathResolver),
         image_processor=Mock(spec=ImageProcessor),
@@ -89,7 +93,7 @@ def manager(s3_driver, tmp_path):
         settings=settings,
         file_service=Mock(spec=FileStore),
         plugin_registry=plugin_registry,
-        upload_repository=Mock(spec=UploadRepository),
+        upload_repository=upload_repo,
         storage_driver=s3_driver,
     )
 

@@ -434,15 +434,36 @@ export function injectToolCallChips(html: string, calls: ToolCallSpan[], isStrea
 	});
 }
 
-const TOOL_ACTION_BLOCK_RE = /<tool_action\b([^>]*)>([\s\S]*?)<\/tool_action>/g;
+const TOOL_ACTION_CLOSED = String.raw`((?:(?!<tool_action\b)[\s\S])*?)<\/tool_action\s*>`;
+const TOOL_ACTION_OPEN_ENDED = String.raw`(\s*[\s\S]*?)(?=<tool_action\b|\n[ \t]*\n`;
+const TOOL_ACTION_BLOCK_RE = new RegExp(
+	String.raw`<tool_action\b([^>]*)>(?:${TOOL_ACTION_CLOSED}|${TOOL_ACTION_OPEN_ENDED}|$))`,
+	'gi'
+);
+const TOOL_ACTION_BLOCK_PARTIAL_RE = new RegExp(
+	String.raw`<tool_action\b([^>]*)>(?:${TOOL_ACTION_CLOSED}|${TOOL_ACTION_OPEN_ENDED}))`,
+	'gi'
+);
 const FENCED_TOOL_ACTIONS_RE = /```[a-z]*\s*((?:<tool_action\b[\s\S]*?<\/tool_action>\s*)+)```/gi;
-const TOOL_ACTION_ATTRIBUTE_RE = /([a-z_]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+const TOOL_ACTION_ATTRIBUTE_RE = /([a-z_]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|\u201c([^\u201d]*)\u201d|\u2018([^\u2019]*)\u2019|([^\s"'>\/]+))/gi;
+const TOOL_ACTION_LEADING_WORD_RE = /^\s*([a-z_]+)(?![\w-])(?!\s*=)/i;
+
+export const APPLY_ACTION_TYPES = [
+	'update_segment',
+	'add_segment',
+	'delete_segment',
+	'update_director_segment',
+	...PROMPT_LIST_ACTION_TYPES
+] as const;
 
 function parseToolActionAttributes(raw: string): Record<string, string> {
 	const attributes: Record<string, string> = {};
 	for (const match of raw.matchAll(TOOL_ACTION_ATTRIBUTE_RE)) {
-		attributes[match[1].toLowerCase()] = match[2] ?? match[3] ?? '';
+		attributes[match[1].toLowerCase()] = match[2] ?? match[3] ?? match[4] ?? match[5] ?? match[6] ?? '';
 	}
+	const leading = raw.match(TOOL_ACTION_LEADING_WORD_RE)?.[1]?.toLowerCase();
+	if (attributes.type) attributes.type = attributes.type.trim().toLowerCase();
+	else if (leading && (APPLY_ACTION_TYPES as readonly string[]).includes(leading)) attributes.type = leading;
 	return attributes;
 }
 
@@ -450,11 +471,13 @@ function parseSegmentIndex(raw: string | undefined): number {
 	return raw !== undefined && /^\d+$/.test(raw) ? parseInt(raw, 10) : -1;
 }
 
-export function parseToolActions(text: string): { cleanedText: string; actions: ToolAction[] } {
+export function parseToolActions(text: string, partial = false): { cleanedText: string; actions: ToolAction[] } {
 	const actions: ToolAction[] = [];
+	const blockRe = partial ? TOOL_ACTION_BLOCK_PARTIAL_RE : TOOL_ACTION_BLOCK_RE;
 
-	const cleanedText = text.replace(FENCED_TOOL_ACTIONS_RE, '$1').replace(TOOL_ACTION_BLOCK_RE, (match, rawAttributes: string, content: string) => {
-		const attributes = parseToolActionAttributes(rawAttributes);
+	const cleanedText = text.replace(FENCED_TOOL_ACTIONS_RE, '$1').replace(blockRe, (match, rawAttributes: string, closedBody?: string, openBody?: string) => {
+		const content = closedBody ?? openBody ?? '';
+		const attributes = parseToolActionAttributes(rawAttributes.replace(/\/\s*$/, ''));
 		const type = attributes.type;
 		if (!type) return match;
 		const segmentIndex = parseSegmentIndex(attributes.segment_index);
@@ -475,9 +498,7 @@ export function parseToolActions(text: string): { cleanedText: string; actions: 
 			});
 			return '';
 		}
-		const addressed =
-			type === 'add_segment' ||
-			(type === 'delete_segment' ? segmentIndex !== -1 || segmentId !== '' : segmentIndex !== -1 && segmentId !== '');
+		const addressed = type === 'add_segment' || segmentIndex !== -1 || segmentId !== '';
 		if (!addressed) return match;
 		actions.push({
 			type,
@@ -498,10 +519,11 @@ export function parseToolActions(text: string): { cleanedText: string; actions: 
 
 export function processMarkdownWithActions(
 	text: string,
-	options: MarkdownOptions = {}
+	options: MarkdownOptions = {},
+	partial = false
 ): { html: string; actions: ToolAction[]; toolCalls: ToolCallSpan[] } {
 	const { cleanedText: withoutToolCalls, calls: toolCalls } = parseToolCalls(text);
-	const { cleanedText, actions } = parseToolActions(withoutToolCalls);
+	const { cleanedText, actions } = parseToolActions(withoutToolCalls, partial);
 	const html = processMarkdown(cleanedText, options);
 	return { html, actions, toolCalls };
 }

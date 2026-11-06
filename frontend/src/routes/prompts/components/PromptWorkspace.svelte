@@ -50,6 +50,7 @@
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { promptsCollectionsStore } from '$lib/stores/collections';
 	import { tabsStore, activeTab } from '$lib/stores/tabs';
+	import { ensureGenerationTabActive } from '$lib/tool-tabs/open';
 	import {
 		DUPLICATE_THRESHOLD_PRESETS,
 		removePromptsFromDuplicateGroup,
@@ -449,6 +450,7 @@
 		usageHintValue: string,
 		sourcePromptId: string | null
 	) {
+		ensureGenerationTabActive();
 		const tab = get(activeTab);
 		if (!tab) {
 			toasts.error('No active Generate tab to apply this prompt to');

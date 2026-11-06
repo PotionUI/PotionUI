@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import { get } from 'svelte/store';
@@ -40,7 +41,7 @@ async function render(promptCopy?: { label: string | null; placeholder: string |
 	tabsStore.updateTab(id, { selectedPreset: 'preset', selectedMode: 'text', formData: {} });
 	const target = document.createElement('div');
 	document.body.appendChild(target);
-	const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!;
 	const instance = mount(PromptSection, {
 		target,
 		props: { tab, tabHandlers: handlers, promptRelayActive: false, canBatch: false, ...(promptCopy ? { promptCopy } : {}) }

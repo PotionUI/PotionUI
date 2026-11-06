@@ -30,7 +30,7 @@ import { registerEntryTools } from './entryTools';
 import { registerCoreHistoryTools } from '../../routes/history/tools/coreTools';
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 import type { LibraryItem } from '$lib/services/api/library';
-import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, toolDto } from '../../../tests/component/fixtures/mediaToolCatalog';
+import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, FIX_COLORS_TOOL, toolDto } from '../../../tests/component/fixtures/mediaToolCatalog';
 
 registerEntryTools();
 registerCoreHistoryTools();
@@ -112,6 +112,11 @@ describe('mediaToolFromCatalog', () => {
 			builtInEditor: true
 		});
 		expect(isCatalogTool(mapped)).toBe(true);
+	});
+
+	it('files a runnable tool in the effects group under Effects', () => {
+		expect(mediaToolFromCatalog(FIX_COLORS_TOOL).category).toBe('effects');
+		expect(mediaToolFromCatalog({ ...FIX_COLORS_TOOL, runnable: false }).category).toBe('plugins');
 	});
 
 	it('files a component-only plugin tool under Plugins', () => {
@@ -301,6 +306,7 @@ describe('the Edit and Effects groups', () => {
 			'rotate',
 			'flip',
 			'fit_canvas',
+			'slice_sheet',
 			'color_key',
 			'crop_subject'
 		]);

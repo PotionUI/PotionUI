@@ -59,6 +59,7 @@ class ExpertRouter:
         self.active = None
         self.latents_shape = latents_shape
         self.riflex = riflex
+        self.preview_reserve_gb = 0.0
 
     def _select(self, sigma_val: float):
         if self.low is None or sigma_val > self.boundary:
@@ -81,6 +82,7 @@ class ExpertRouter:
         shape = self.latents_shape
         frames = shape[2] if len(shape) == 5 else 1
         headroom = sampling_headroom_gb((shape[-2], shape[-1]), latent_frames=frames)
+        headroom += max(0.0, float(self.preview_reserve_gb))
         reserve = max(minimum_inference_memory_gb(), headroom)
         target = need + reserve if need > 0.0 else 0.0
         evicted = get_residency_registry().ensure_free(self.device, target, free, exclude=self._own_experts())

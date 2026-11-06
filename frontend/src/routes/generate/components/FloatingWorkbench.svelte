@@ -6,7 +6,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import GenerationWorkbenchPane from './GenerationWorkbenchPane.svelte';
 	import { resizeFloatingWorkbench, type FloatingWorkbenchBounds } from '$lib/generation/floatingWorkbench';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 
 	// The "W" floating workbench: the same GenerationWorkbenchPane the inline
 	// right pane renders, shown as a centered window in the area above the
@@ -38,7 +38,7 @@
 		onResizeWidth,
 		closeShortcut = undefined
 	}: {
-		tab: Tab;
+		tab: GenerationTab;
 		onWorkbenchPrevious: () => void;
 		onWorkbenchNext: () => void;
 		onWorkbenchHeightChange: (event: CustomEvent<string>) => void;

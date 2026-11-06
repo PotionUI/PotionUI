@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { copyText } from '$lib/utils/clipboard';
-	import { onMount, createEventDispatcher } from 'svelte';
+	import { onMount, createEventDispatcher, getContext } from 'svelte';
 	import type {
 		ChipData,
 		Prompt,
@@ -37,6 +37,9 @@
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import { resolvedPromptStats, resolvedPromptTokens } from '$lib/utils/resolvedPrompt';
 	import PromptSegment from './PromptSegment.svelte';
+	import LiveSyncMark from '$lib/components/session/LiveSyncMark.svelte';
+	import { LIVE_SYNC_TAB_CONTEXT_KEY } from '$lib/stores/liveSyncAnchors';
+	import { segmentKey } from '$lib/session/sessionMerge';
 	import Tooltip from './Tooltip.svelte';
 	import { Button } from '$lib/components/ui';
 	import PromptLibraryMenu, { type FoldedRow } from './PromptLibraryMenu.svelte';
@@ -51,6 +54,8 @@
 
 	export let segments: Segment[] = [];
 	export let isNegative = false;
+
+	const liveSync = getContext<{ tabId: string } | undefined>(LIVE_SYNC_TAB_CONTEXT_KEY);
 	export let negativeSegments: Segment[] | undefined = undefined;
 	export let showPreview = true;
 	export let previewSegments: Segment[] | undefined = undefined;
@@ -443,38 +448,43 @@
 		<div class="segment-lane">
 		<div role="list" aria-label={mainLabel} class="segment-list">
 			{#each segments as segment, index (segment.id)}
-				<PromptSegment
-					{segment}
-					{index}
-					total={segments.length}
-					isNegative={isNegative && !paired}
-					{compact}
-					{placeholder}
-					{variables}
-					{variableRolls}
-					{conditionReaders}
-					variableUsageNumbers={usageNumbering[index] || []}
-					{onVariableDefChange}
-					{onOpenVariableManager}
-					{activeTriggerWords}
-					{promptResources}
-					{resourceFieldValues}
-					{resourceFieldLabels}
-					{promptSyntax}
-					on:change={(e) => handleSegmentUpdate('main', segment.id, e.detail)}
-					on:metadataChange={(e) => handleMetadataUpdate('main', segment.id, e.detail)}
-					on:remove={() => removeSegment('main', segment.id)}
-					on:duplicate={() => duplicateSegment('main', segment.id)}
-					on:toggleDisabled={() => toggleSegmentDisabled('main', segment.id)}
-					on:moveUp={() => moveSegment('main', segment.id, 'up')}
-					on:moveDown={() => moveSegment('main', segment.id, 'down')}
-					on:saveAsSegment={() => {
-						saveSegmentTarget = 'main';
-						saveSegmentId = segment.id;
-					}}
-					on:replaceFromSaved={() => openReplaceFromSaved('main', segment.id)}
-					on:drop={(e) => handleSegmentDrop('main', e.detail.draggedId, e.detail.targetId, e.detail.position)}
-				/>
+				<LiveSyncMark
+					tabId={liveSync?.tabId}
+					fieldKey={segmentKey(isNegative && !paired ? 'negativePromptSegments' : 'promptSegments', segment.id)}
+				>
+					<PromptSegment
+						{segment}
+						{index}
+						total={segments.length}
+						isNegative={isNegative && !paired}
+						{compact}
+						{placeholder}
+						{variables}
+						{variableRolls}
+						{conditionReaders}
+						variableUsageNumbers={usageNumbering[index] || []}
+						{onVariableDefChange}
+						{onOpenVariableManager}
+						{activeTriggerWords}
+						{promptResources}
+						{resourceFieldValues}
+						{resourceFieldLabels}
+						{promptSyntax}
+						on:change={(e) => handleSegmentUpdate('main', segment.id, e.detail)}
+						on:metadataChange={(e) => handleMetadataUpdate('main', segment.id, e.detail)}
+						on:remove={() => removeSegment('main', segment.id)}
+						on:duplicate={() => duplicateSegment('main', segment.id)}
+						on:toggleDisabled={() => toggleSegmentDisabled('main', segment.id)}
+						on:moveUp={() => moveSegment('main', segment.id, 'up')}
+						on:moveDown={() => moveSegment('main', segment.id, 'down')}
+						on:saveAsSegment={() => {
+							saveSegmentTarget = 'main';
+							saveSegmentId = segment.id;
+						}}
+						on:replaceFromSaved={() => openReplaceFromSaved('main', segment.id)}
+						on:drop={(e) => handleSegmentDrop('main', e.detail.draggedId, e.detail.targetId, e.detail.position)}
+					/>
+				</LiveSyncMark>
 			{/each}
 		</div>
 
@@ -614,38 +624,40 @@
 			<div class="segment-lane">
 			<div role="list" aria-label="Negative segments" class="segment-list negative-list">
 				{#each negativeSegments || [] as segment, index (segment.id)}
-					<PromptSegment
-						{segment}
-						{index}
-						total={(negativeSegments || []).length}
-						isNegative={true}
-						{compact}
-						placeholder="What should never appear… (# for phrasebook)"
-						{variables}
-						{variableRolls}
-						{conditionReaders}
-						variableUsageNumbers={usageNumbering[segments.length + index] || []}
-						{onVariableDefChange}
-						{onOpenVariableManager}
-						{activeTriggerWords}
-						{promptResources}
-						{resourceFieldValues}
-						{resourceFieldLabels}
-						{promptSyntax}
-						on:change={(e) => handleSegmentUpdate('negative', segment.id, e.detail)}
-						on:metadataChange={(e) => handleMetadataUpdate('negative', segment.id, e.detail)}
-						on:remove={() => removeSegment('negative', segment.id)}
-						on:duplicate={() => duplicateSegment('negative', segment.id)}
-						on:toggleDisabled={() => toggleSegmentDisabled('negative', segment.id)}
-						on:moveUp={() => moveSegment('negative', segment.id, 'up')}
-						on:moveDown={() => moveSegment('negative', segment.id, 'down')}
-						on:saveAsSegment={() => {
-							saveSegmentTarget = 'negative';
-							saveSegmentId = segment.id;
-						}}
-						on:replaceFromSaved={() => openReplaceFromSaved('negative', segment.id)}
-						on:drop={(e) => handleSegmentDrop('negative', e.detail.draggedId, e.detail.targetId, e.detail.position)}
-					/>
+					<LiveSyncMark tabId={liveSync?.tabId} fieldKey={segmentKey('negativePromptSegments', segment.id)}>
+						<PromptSegment
+							{segment}
+							{index}
+							total={(negativeSegments || []).length}
+							isNegative={true}
+							{compact}
+							placeholder="What should never appear… (# for phrasebook)"
+							{variables}
+							{variableRolls}
+							{conditionReaders}
+							variableUsageNumbers={usageNumbering[segments.length + index] || []}
+							{onVariableDefChange}
+							{onOpenVariableManager}
+							{activeTriggerWords}
+							{promptResources}
+							{resourceFieldValues}
+							{resourceFieldLabels}
+							{promptSyntax}
+							on:change={(e) => handleSegmentUpdate('negative', segment.id, e.detail)}
+							on:metadataChange={(e) => handleMetadataUpdate('negative', segment.id, e.detail)}
+							on:remove={() => removeSegment('negative', segment.id)}
+							on:duplicate={() => duplicateSegment('negative', segment.id)}
+							on:toggleDisabled={() => toggleSegmentDisabled('negative', segment.id)}
+							on:moveUp={() => moveSegment('negative', segment.id, 'up')}
+							on:moveDown={() => moveSegment('negative', segment.id, 'down')}
+							on:saveAsSegment={() => {
+								saveSegmentTarget = 'negative';
+								saveSegmentId = segment.id;
+							}}
+							on:replaceFromSaved={() => openReplaceFromSaved('negative', segment.id)}
+							on:drop={(e) => handleSegmentDrop('negative', e.detail.draggedId, e.detail.targetId, e.detail.position)}
+						/>
+					</LiveSyncMark>
 				{/each}
 			</div>
 

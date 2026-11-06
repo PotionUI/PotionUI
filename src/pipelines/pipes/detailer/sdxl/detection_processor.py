@@ -72,7 +72,15 @@ class BaseDetectionProcessor:
             return current_image
 
         # Step 2: Filter boxes by size
+        detected = len(boxes)
         boxes = self.detector.filter_boxes(boxes, image.size)
+        if len(boxes) < detected:
+            generation_outputs(
+                ProgressGenerationOutput(
+                    state=f"Skipped <<NUMBER:{detected - len(boxes)}>> {self.detection_type}(s) outside the size limits",
+                    icon=Icon(self._get_icon_name()),
+                )
+            )
         if not boxes:
             return current_image
 

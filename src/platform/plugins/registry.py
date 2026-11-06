@@ -7,6 +7,7 @@ and their integration with the hook system.
 
 import hashlib
 import threading
+from pathlib import Path
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
@@ -24,17 +25,20 @@ from src.platform.plugins.router_mounter import (
 )
 from src.platform.media_tools import MediaTool, ToolSpec
 from src.platform.media_tools.types import DEFAULT_SCOPES
+from src.platform.media_tools.effects.loader import EffectLoader, register_effects
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry
 from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.plugins.automation_nodes import NodeField, NodeTypeSpec
 from src.platform.plugins.chat_modes import ChatMode
 from src.platform.plugins.prompt_importers import PromptImporterDefinition, PromptImporterRegistry
+from src.platform.plugins.prompt_resource_sources import PromptResourceSource, PromptResourceSourceRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookBatchOperationDefinition, PhrasebookOperationRegistry
 from src.platform.plugins.recipe_steps import RecipeStepKindRegistration, RecipeStepKindRegistry
 from src.platform.plugins.llm_providers import LLMProviderRegistration, LLMProviderRegistry
 from src.platform.plugins.requirement_checkers import RequirementCheckerRegistration, RequirementCheckerRegistry
 from src.platform.plugins.sourced_registry import DuplicateRegistrationError
 from src.platform.runtime.model_headers import ModelClassifierDefinition, model_classifier_registry
+from src.platform.filesystem import model_types as _model_types
 from src.platform.plugins.organize import (
     DuplicateOrganizeEntryError,
     InvalidOrganizeEntryError,
@@ -171,6 +175,7 @@ _SOURCE_REGISTRY_ATTRS = (
     "resource_registry",
     "automation_node_registry",
     "prompt_importer_registry",
+    "prompt_resource_source_registry",
     "phrasebook_operation_registry",
     "requirement_checker_registry",
     "recipe_step_kind_registry",
@@ -203,6 +208,7 @@ class PluginRegistry:
         automation_node_registry=None,
         automation_template_registry: Optional[AutomationTemplateRegistry] = None,
         prompt_importer_registry: Optional[PromptImporterRegistry] = None,
+        prompt_resource_source_registry: Optional[PromptResourceSourceRegistry] = None,
         phrasebook_operation_registry: Optional[PhrasebookOperationRegistry] = None,
         requirement_checker_registry: Optional[RequirementCheckerRegistry] = None,
         recipe_step_kind_registry: Optional[RecipeStepKindRegistry] = None,
@@ -210,6 +216,7 @@ class PluginRegistry:
         organize_registry: Optional[OrganizeRegistry] = None,
         limit_kind_registry: Optional[LimitKindRegistry] = None,
         media_tool_registry=None,
+        effect_runtime=None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -248,6 +255,7 @@ class PluginRegistry:
         # Optional like the others - plugins declaring `prompt_importers:`
         # register into it on enable and are removed (by source) on disable.
         self.prompt_importer_registry = prompt_importer_registry
+        self.prompt_resource_source_registry = prompt_resource_source_registry
         # Phrasebook batch tools contributed by enabled plugins - same
         # register-on-enable / unregister-by-source-on-disable shape.
         self.phrasebook_operation_registry = phrasebook_operation_registry
@@ -258,6 +266,7 @@ class PluginRegistry:
         self.recipe_step_kind_registry = recipe_step_kind_registry
         self.llm_provider_registry = llm_provider_registry
         self.media_tool_registry = media_tool_registry
+        self.effect_runtime = effect_runtime
         self.organize_registry = organize_registry if organize_registry is not None else _shared_organize_registry
         self.limit_kind_registry = (
             limit_kind_registry if limit_kind_registry is not None else _shared_limit_kind_registry
@@ -527,14 +536,17 @@ class PluginRegistry:
             self._register_plugin_model_metadata_fields,
             self._register_plugin_tools,
             self._register_plugin_media_tools,
+            self._register_plugin_effects,
             self._register_plugin_chat_modes,
             self._register_plugin_resources,
             self._register_plugin_automation_nodes,
             self._register_plugin_automation_templates,
             *(partial(self._register_backend_section, section) for section in _BACKEND_SECTIONS),
+            self._register_plugin_prompt_resource_sources,
             self._register_plugin_samplers,
             self._register_plugin_schedules,
             self._register_plugin_model_classifiers,
+            self._register_plugin_model_types,
             self._register_plugin_organize_facts,
             self._register_plugin_organize_actions,
             self._register_plugin_limit_kinds,
@@ -781,6 +793,27 @@ class PluginRegistry:
                 return error
         return None
 
+    def _register_plugin_model_types(self, manifest: PluginManifest) -> Optional[str]:
+        definitions = [
+            _model_types.ModelTypeDefinition(
+                id=entry['id'],
+                label=entry['label'],
+                folder=entry['folder'],
+                purpose=entry.get('purpose', ''),
+                aliases=tuple(entry.get('aliases') or ()),
+                extensions=_model_types.normalize_extensions(entry.get('extensions')),
+                layout=entry.get('layout', _model_types.LAYOUT_FILE),
+                header_classified=bool(entry.get('header_classified', False)),
+                assignable=bool(entry.get('assignable', True)),
+                source=manifest.id,
+            )
+            for entry in manifest.model_types
+        ]
+        return self._register_entry(
+            _model_types.model_type_registry.register_all, definitions,
+            _model_types.DuplicateModelTypeError, _model_types.InvalidModelTypeError,
+        )
+
     def _load_optional_handler(self, manifest: PluginManifest, ref: Optional[str], label: str):
         if not ref:
             return None, None
@@ -843,6 +876,11 @@ class PluginRegistry:
                 description=entry.get('description', ''),
                 component=_plugin_asset(manifest.id, entry.get('component'), None),
                 source=manifest.id,
+                scopes=(entry.get('scope') or 'user',),
+                notes=tuple(entry.get('notes') or ()),
+                needs=tuple(entry.get('needs') or ()),
+                done_label=entry.get('done_label') or '',
+                paced=bool(entry.get('paced', False)),
             ), DuplicateOrganizeEntryError, InvalidOrganizeEntryError)
             if error:
                 return error
@@ -923,6 +961,7 @@ class PluginRegistry:
             sampler_registry,
             schedule_registry,
             model_classifier_registry,
+            _model_types.model_type_registry,
             login_provider_registry,
             self.organize_registry,
             self.limit_kind_registry,
@@ -992,6 +1031,36 @@ class PluginRegistry:
             if error:
                 return error
 
+        return None
+
+    def _register_plugin_prompt_resource_sources(self, manifest: PluginManifest) -> Optional[str]:
+        registry = self.prompt_resource_source_registry
+        skip, error = self._require_registry(
+            manifest.prompt_resource_sources, registry, "prompt_resource_sources", "prompt resource source"
+        )
+        if skip:
+            return error
+        for entry in manifest.prompt_resource_sources:
+            source_id = entry.get('id')
+            if not source_id:
+                return "prompt_resource_sources entry missing 'id'"
+            handler_ref = entry.get('members')
+            if not handler_ref:
+                return f"prompt_resource_sources entry '{source_id}' missing 'members'"
+            members = self.loader.load_hook_handler(manifest, handler_ref)
+            if members is None:
+                return f"Failed to load prompt resource source members handler: {handler_ref}"
+            definition = PromptResourceSource(
+                source_id=source_id,
+                field_type=entry.get('field_type') or "",
+                label=entry.get('label') or source_id,
+                badge=entry.get('badge') or entry.get('label') or source_id,
+                members=members,
+                source=manifest.id,
+            )
+            error = self._register_entry(registry.register, definition, DuplicateRegistrationError)
+            if error:
+                return error
         return None
 
     def _register_plugin_automation_nodes(self, manifest: PluginManifest) -> Optional[str]:
@@ -1174,6 +1243,27 @@ class PluginRegistry:
             except ValueError as exc:
                 return str(exc)
 
+        return None
+
+    def _register_plugin_effects(self, manifest: PluginManifest) -> Optional[str]:
+        skip, error = self._require_registry(manifest.effects, self.media_tool_registry, "effects", "effect")
+        if skip:
+            return error
+        plugin_dir = Path(manifest.manifest_path).parent.resolve()
+        for entry in manifest.effects:
+            relative = str(entry.get("path") or "")
+            root = (plugin_dir / relative).resolve()
+            if root != plugin_dir and plugin_dir not in root.parents:
+                return f"Effects path '{relative}' leaves the plugin folder"
+            if not root.is_dir():
+                return f"Effects path '{relative}' is not a folder"
+            loaded = EffectLoader().load_root(root, manifest.id)
+            if loaded.errors:
+                return "; ".join(f"Effect {name}: {message}" for name, message in loaded.errors)
+            try:
+                register_effects(self.media_tool_registry, loaded.effects, self.effect_runtime)
+            except ValueError as exc:
+                return str(exc)
         return None
 
     def _register_plugin_chat_modes(self, manifest: PluginManifest) -> Optional[str]:

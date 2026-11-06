@@ -8,8 +8,13 @@ from tests.platform.media_tools.fake_tools import make_spec
 
 CORE_IDS = [
     "trim", "crop", "resize", "rotate", "flip", "speed",
-    "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat",
+    "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "cut_finder",
+    "mute", "volume", "replace_audio", "paint_layer", "slice",
+    "fade", "film_grain", "fix_colors", "ken_burns", "look", "lut", "vignette",
 ]
+EFFECT_IDS = ("fade", "film_grain", "fix_colors", "ken_burns", "look", "lut", "vignette")
+EDITOR_ONLY = ("replace_audio", "paint_layer", "slice")
+AUDIO_GROUP = ("mute", "volume", "replace_audio")
 
 
 def plugin_spec(plugin="boomerang", tool="loop", **overrides):
@@ -18,13 +23,13 @@ def plugin_spec(plugin="boomerang", tool="loop", **overrides):
     return make_spec(f"{plugin}.{tool}", MediaTool(), **values)
 
 
-def test_core_registers_exactly_the_twelve_contract_tools_in_menu_order():
+def test_core_registers_exactly_the_contract_tools_in_menu_order():
     registry = MediaToolRegistry()
 
     register_core_tools(registry)
 
     assert [spec.id for spec in registry.list()] == CORE_IDS
-    assert len(CORE_MODULES) == 12
+    assert len(CORE_MODULES) == 18
     assert all(spec.source == "core" and "." not in spec.id for spec in registry.list())
 
 
@@ -41,8 +46,23 @@ def test_core_specs_follow_the_contract_table():
     assert by_id["crop_subject"].requires == {"has_alpha": True}
     assert by_id["frame"].produces == "image" and by_id["frame"].editor == "frame"
     assert by_id["split"].cardinality == "one_to_many" and by_id["split"].editor == "split"
+    assert by_id["split"].accepts == ("audio", "video") and by_id["split"].produces == "same"
+    assert by_id["mute"].accepts == ("video",) and by_id["mute"].requires == {"has_audio": True}
+    assert by_id["volume"].accepts == ("video", "audio") and by_id["volume"].requires == {"has_audio": True}
+    assert by_id["replace_audio"].accepts == ("video",) and by_id["paint_layer"].accepts == ("image",)
+    assert all(by_id[tool].group == "audio" for tool in AUDIO_GROUP)
+    assert all(by_id[tool].scopes == ("editor",) for tool in EDITOR_ONLY)
+    assert by_id["slice"].accepts == ("image",) and by_id["slice"].cardinality == "one_to_many"
+    assert by_id["cut_finder"].accepts == ("video",) and by_id["cut_finder"].cardinality == "one_to_many"
+    assert all(
+        spec.group == "edit"
+        for spec in by_id.values()
+        if spec.id not in AUDIO_GROUP
+    )
     assert by_id["concat"].cardinality == "many_to_one" and by_id["concat"].selection == {"min": 2, "max": 8}
-    assert all(spec.scopes == ("library", "history", "field") for spec in by_id.values())
+    assert all(
+        spec.scopes == ("library", "history", "field") for spec in by_id.values() if spec.id not in EDITOR_ONLY
+    )
     assert all(spec.impl is not None for spec in by_id.values())
 
 
@@ -58,11 +78,30 @@ def test_core_param_names_are_the_contract_names():
         "color_key": ["key_mode", "key_color", "tolerance", "softness", "despill", "feather"],
         "crop_subject": ["margin", "alpha_threshold"],
         "frame": ["time"],
-        "split": ["part_seconds"],
+        "split": ["mode", "part_seconds", "at"],
         "concat": ["overlap", "overlap_frames", "fit", "keep_audio"],
+        "cut_finder": ["sensitivity", "min_shot_seconds"],
+        "mute": [],
+        "volume": ["unit", "percent", "db", "fade_in", "fade_out"],
+        "replace_audio": ["audio", "start", "loop"],
+        "paint_layer": ["layer"],
+        "slice": ["rects", "trim", "tolerance", "padding", "aspect", "fill"],
     }
 
     assert {spec.id: [p["name"] for p in spec.params] for spec in core_specs()} == expected
+
+
+def test_core_effects_register_as_effect_tools_with_their_contract_params():
+    registry = MediaToolRegistry()
+    register_core_tools(registry)
+    by_id = {spec.id: spec for spec in registry.list() if spec.id in EFFECT_IDS}
+
+    assert by_id["fix_colors"].accepts == ("video",) and by_id["fix_colors"].group == "effects"
+    assert by_id["film_grain"].accepts == ("video", "image") and by_id["film_grain"].group == "effects"
+    assert by_id["film_grain"].cardinality == "one_to_one" and not by_id["film_grain"].preview
+    assert [p["name"] for p in by_id["fix_colors"].params] == ["white_balance", "contrast", "strength"]
+    assert [p["name"] for p in by_id["film_grain"].params] == ["amount", "size", "color", "seed"]
+    assert all(spec.scopes == ("library", "history", "field") for spec in by_id.values())
 
 
 def test_list_filters_by_kind_and_scope():
@@ -70,7 +109,9 @@ def test_list_filters_by_kind_and_scope():
     register_core_tools(registry)
     registry.register(plugin_spec(scopes=("history",)))
 
-    assert [s.id for s in registry.list(kind="audio")] == ["trim", "speed", "split"]
+    assert [s.id for s in registry.list(kind="audio")] == ["trim", "speed", "split", "volume"]
+    assert "replace_audio" not in [s.id for s in registry.list(kind="video", scope="library")]
+    assert "replace_audio" in [s.id for s in registry.list(kind="video", scope="editor")]
     assert "boomerang.loop" in [s.id for s in registry.list(kind="video", scope="history")]
     assert "boomerang.loop" not in [s.id for s in registry.list(kind="video", scope="library")]
     assert registry.list(kind="audio", scope="history")[0].id == "trim"
@@ -98,7 +139,7 @@ def test_unregister_source_removes_only_that_sources_tools():
 
     assert removed == 2
     assert registry.get("a.one") is None and registry.get("b.one") is not None
-    assert len(registry.list()) == 13
+    assert len(registry.list()) == len(CORE_IDS) + 1
     assert registry.unregister_source("a") == 0
     assert registry.sources() == {"core", "b"}
 
@@ -170,7 +211,7 @@ def test_to_dict_leaks_no_implementation_and_copies_params():
     assert spec.accepts == ("image",)
     assert set(data) == {
         "id", "label", "icon", "accepts", "produces", "cardinality", "params", "requires",
-        "selection", "scopes", "editor", "preview", "component", "source", "description",
+        "selection", "scopes", "editor", "preview", "component", "source", "description", "group",
     }
 
 

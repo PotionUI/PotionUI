@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.18 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Beta 0.1.0 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
 [Ko-fi](https://ko-fi.com/A3B325D031)*
@@ -273,12 +273,12 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 ## Install
 
 > [!WARNING]
-> PotionUI is in **alpha**: expect rough edges and breaking changes between
+> PotionUI is in **beta**: expect rough edges and breaking changes between
 > releases. Back up anything you care about, and report what breaks — issues
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.18 matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.1.0 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -322,7 +322,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.18                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.1.0                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -430,6 +430,152 @@ Start with the in-app documentation browser, or read the Markdown directly:
 
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### 0.1.0 — 2026-11-06
+
+- Editors: the Image editor and the Video editor are now tabs on Generate, opened from the + menu,
+  the phone Tabs sheet, Open in editor on a media field, the Edit shortcuts and the Edit rows and
+  card menus of History and Library, which no longer open modal editors; every edit is a step you
+  can undo, redo, hide or reorder, kept with the tab through a reload, and either editor can swap in
+  another picture or clip from Library, History, a file, recent pictures or the clipboard; the Image
+  editor crops, resizes, paints, masks, applies looks and effects and has an Adjust tool whose
+  sliders edit live, shows transparency over a checkerboard, and saves, replaces, sends to a
+  Generate field, downloads or copies the result; the Video editor scrubs, trims, splits, crops,
+  resizes, changes speed, mutes, sets the volume, replaces the audio and applies effects with live
+  previews in the browser, a frame preview and Preview 3 s, and its save runs in the background and
+  is picked up again after a reload.
+- Effects and media tools: video gets Fix colours, Film grain, Vignette, Fade, Ken Burns, LUT (a
+  .cube from the LUT model folder) and Look, which brings the Image editor's looks to video, and the
+  Image editor's Effects tool offers the image effects; effects preview live through WebGL and the
+  saved file matches the preview; Find cuts splits a clip into its shots, a video can be split at a
+  time point, and Mute, Volume, Replace audio and a paint layer join the tools; Slice cuts a sheet
+  into cells, detecting panels and snapping to gutters, and saves them as Library images or as
+  references, whose Library details name the sheet and cell they came from; videos in generation
+  details and the Library loop by default, with a loop toggle remembered per viewer.
+- Elixirs: chain presets, files and prompt writers as cards that run left to right in a brew; a
+  preset step runs a saved session of any preset mode whose inputs and outputs can be worked out
+  from the preset itself, a files step holds picks from History or the Library (up to a thousand, or
+  a seeded random draw per brew), and a prompt writer has a language model write one or several
+  prompts per input from an instruction with its own variables and phrasebook chips, the prompts for
+  one input running as one batch where the preset supports it; each elixir opens as its own tab with
+  live brew status, a step opens in the real Generate view in the same tab and follows its latest
+  brew, a single step can run again and wait for you to choose its new outputs, and Brew history
+  numbers, filters and pages brews and stops them one at a time, in a selection or all at once; an
+  Elixirs chat assistant reads the open elixir, edits its steps after approval and picks outputs at
+  a waiting step; admins set the Elixirs limits in Settings.
+- Motion transfer: LTX-2.5, LTX-2 and MiniMax-H3 get a Motion transfer mode that makes the person in
+  a picture perform the moves of a video: a pose guide tracked from the video is retargeted onto
+  that person's proportions and followed through the Union-Control LoRA on LTX or a Fun ControlNet
+  Union patch on MiniMax-H3, offered as an optional download by its starter; both LTX presets also
+  get Follow motion, which copies a video's camera and layout onto a new scene from a depth or edges
+  guide; the Pose guide of the Structure modes now draws its skeleton with the Apache-2.0 DWPose
+  estimator and draws every person in the picture.
+- Video modes: LTX-2.5 gets Transition, the video between a first and a last picture with an
+  optional Transition LoRA, and Transparent video, which turns a clip into a transparent WebM plus a
+  checkerboard MP4 for players without alpha; MiniMax-H3 gets Long video, which chains Director
+  parts into one seamless video with per-part prompts, a start picture, an optional soundtrack and a
+  colour hold against drift, a Flex speed profile that runs the Pika 6-step adapter in the Video,
+  Extend, References, Remix and Talking video modes, and a Beta57 scheduler with separate video and
+  audio shift fields in the Custom profile; H3 reference pictures are never enlarged, a reference
+  voice that is not a 32 kHz file, or is an .m4a, is decoded through ffmpeg, a reference video too
+  short for two frames is accepted, and a checkpoint stored in fp16 computes in bf16.
+- Image modes: SDXL gets Img2img / restyle, Structure (pose, sketch, depth or edges through a
+  matching ControlNet), Fix faces & hands and Upscale & refine (two to four times, re-detailed tile
+  by tile); Krea-2 gets Edit (instruction edits with source pictures, fidelity and placement dials
+  and an optional region mask, keeping the source's shape by default) and Upscale; Qwen-Image gets
+  Camera angle (turn, tilt and zoom with the Multiple-Angles LoRA) and Make it real, and its edit
+  modes read the picture in the layout the loaded checkpoint was trained with;
+  Qwen-Image 2.1 gets Inpaint, a Turbo profile (8 steps at CFG 1 with an optional LoRA) and a
+  prompt-only Photo task in Restyle, and its Combine images, like Qwen-Image Edit, takes an Output
+  size with a crop or pad fit; Z-Image gets Enhance, Structure (Fun ControlNet Union 2.1) and
+  Inpaint, and MOSS-Image gets Inpaint, every Inpaint repainting a painted area with grow, feather
+  and strength and blending it into the source; Z-Image, MOSS-Image and Qwen-Image 2.1 get the
+  Krea-2 styles worded for each model, with typography styles for MOSS-Image and Qwen-Image 2.1.
+- Live previews: MiniMax-H3, LTX, Wan and Qwen-Image modes take an optional Preview decoder, a tiny
+  TAEHV decoder from the model catalog, that shows the live preview in real colour; while a video
+  samples, the Workbench, the floating Workbench and the phone canvas loop a short low-resolution
+  clip of the sampling so far with a pause control, the progress line names the step it shows, and
+  the engine leaves room for the decoder so a preview never pushes sampling out of memory.
+- Generate and sessions: a session stays in sync wherever it is open, a change made in another
+  window, by chat or by an elixir merging field by field instead of being overwritten; a changed
+  field flashes, a clash shows the other value with Use theirs or Keep mine, and a background tab
+  shows a dot; phone Generate fills the defaults and picks installed models without opening
+  Settings, and keeps prompt edits with the Preset & session sheet closed; global shortcuts win over
+  a media field's hover keys, so C opens chat and E folds the Workbench; the batch counter names
+  videos and audio; a prompt of only spaces uses the mode's default caption.
+- Install modes: every native preset that recommends its files gets an Install modes recipe, where
+  an admin ticks modes, picks a target and per-file variants and sees download, disk and time totals
+  before starting, the files download in parallel, survive a restart and can be cancelled, and the
+  finished run offers Try it; a mode that is not ready shows Install to admins and a not set up note
+  to users in the mode picker, and the preset overview, requirements tab and model picker open the
+  same sheet; Admin > Recipes groups them with a ready count and real sizes, previews a dry run and
+  removes a mode's own files after confirming what is deleted and what is kept; the setup wizard
+  offers Add more modes, starter cards show where their files come from, and a ComfyUI target lists
+  the files to add by hand; gated models show an Open on Hugging Face link wherever they are
+  recommended or fail to download.
+- Admin and settings: Models > Folders is a master-detail view with problem badges, per-type status,
+  row actions and a details panel, and a failed change is reported instead of passing silently;
+  Auto-organize gets instance model rules that give a user group access, add model tags, set a model
+  type or fetch CivitAI data for matching models, with preview, runs, undo and retry; admin tables
+  page with numeric pagination and a per-page choice; Clear VRAM offloads a model to RAM only when
+  it fits beside the RAM reserve and unloads it otherwise, with an offload-only or unload-only
+  choice on the automation action; user Settings is split into sections (Account, Plan & usage,
+  Appearance, Content, Notifications, MCP) with links straight to each.
+- Chat: a Conversation mode talks to the model directly, with no tools, page context or memory; an
+  Apply block the model writes slightly wrong is repaired, or shown as a can't-apply note; applying
+  a Video Director shot version on a single-shot mode lands in that shot's own Prompt, and an edit
+  aimed at a guessed shot still applies; streamed thinking follows only while you are at the bottom,
+  and an opened tools-used list stays open.
+- Native engine: with nvfp4 fast multiply on, nvfp4 checkpoints run much faster on RTX 50 cards,
+  since the activation path is fixed: activations are quantised for the fp4 multiply, by one Triton
+  kernel where available, instead of falling back to dequantised weights; fp8 and nvfp4 activations
+  are quantised in chunks, so long LTX refines keep the DiT on the GPU, an LTX stage hands its DiT
+  to the next one without offloading it, and long MiniMax-H3 clips split attention into chunks
+  instead of running out of memory; a new Fused block steps switch (off by default) runs each
+  diffusion block's small per-step operations as combined GPU operations on Linux with Triton, which
+  can change the output slightly; cancelling a generation stops before the next DiT block or VAE
+  tile in every family; a text encoder too large for VRAM streams from system RAM; an attention
+  kernel that fails to load falls back to SDPA once; SDXL ControlNets load without a hub call,
+  follow the UNet's precision and stop the run with an error naming a missing file.
+- Plugins: plugins can add fields, pipes, prompt resources and Director reference fields to existing
+  preset modes, register model types with their own folders and labels, add @-citation sources, ship
+  video effects, add Generate tool tabs listed inline in the new-tab menu, ask the default language
+  model to write a prompt for a preset from an instruction and images, end a media tool run as
+  cancelled, failed or with a summary and links, and index a model file they wrote; a plugin pipe or
+  mode that collides with a core one is skipped with a warning.
+- Privacy and security: regular users no longer see a backend's host and port in live progress or
+  recommended model downloads; editor uploads must be images, audio or video of at most 512 MB and
+  count toward the plan's storage and file limits; editor frame and clip previews are served to
+  their owner only; prompt writing refuses presets the user cannot see and media outside storage; a
+  LUT is read only from inside the LUT folder.
+- Reliability: the server warms presets and backends right after a start and reports itself as
+  warming up meanwhile, so the first request no longer waits and `./potionui start` keeps waiting
+  for it; deleting a generation also removes the files, notifications, animated thumbnails and
+  folders only it used, keeping anything a model gallery or preview still shows; temporary video
+  previews are cleaned up; an in-place restart no longer carries GPU memory into the new process; a
+  driver-level out-of-memory error is reported as out of memory, and a remote worker whose GPU
+  allocator is damaged refuses GPU work and asks for a restart; system RAM is read correctly under
+  cgroup v2 limits; the LTX video VAE holds less memory; GPU readings come from CUDA when NVML is
+  missing; the Docker image builds plugin styles and keeps a compiler, so Triton and sparse
+  attention work there.
+- Fixes: on Windows, GPU readings and the VRAM budget work on drivers that ship NVML only in
+  System32; the face and hand detectors run at their trained size, so hands are found and faces are
+  no longer invented, and the SDXL hand detailer keeps small hands; Z-Image Enhance redraws less at
+  every setting; MiniMax-H3 LoRAs with bias weights apply to pruned checkpoints; MiniMax-H3
+  References shows its prompt after a start frame was picked in Video; a refused History delete says
+  why; the default LLM provider survives a restart; an unclaimed instance reaches the claim screen
+  however slowly setup status answers; the Resource profile's memory census no longer hangs the
+  server on Python 3.12; the X/Y compare time chip reads in the light theme.
+- Upgrading: new database migrations for elixirs, session sync, upload provenance, gated downloads
+  and Auto-organize instance rules run on first start and cannot be undone, so back up the database
+  first; the installer replaces nvidia-ml-py3 with NVIDIA's nvidia-ml-py and adds onnxruntime; Pose
+  in the Structure modes downloads its two DWPose files on first use and no longer loads the CMU
+  OpenPose weights; MiniMax-H3 References no longer has a picker for pre-encoded reference bundles
+  and their folder is no longer a core model type, as a separate plugin now adds them through preset
+  extensions; the Qwen-Image 2.1 control recipe is now a mode of its starter; under WSL2 and Docker
+  Desktop the first driver-level GPU out-of-memory error stops new GPU runs until Restart Backend
+  (`POTIONUI_CUDA_DRIVER_OOM=retry` keeps the old retrying); plugins that imported the fixed model
+  type and folder alias lists read them from the live registry instead.
 
 ### 0.0.18 — 2026-10-30
 
@@ -630,53 +776,6 @@ The three most recent releases; older history lives in the
   either way; prompt variables kept in the browser move to the server on first load; a stored S3
   secret key and plugin credentials saved in clear are encrypted on first start; the installer needs
   Node.js 22 or newer.
-
-### 0.0.16 — 2026-10-16
-
-- FLUX 3 Klein (experimental): the native engine runs FLUX 3 Image Klein checkpoints, base and
-  distilled, with their own text encoder and autoencoder; a new FLUX 3 Klein preset does text-to-image
-  and multi-reference edit, and its steps and CFG follow whichever checkpoint is loaded; it is
-  marked experimental until it has had wider testing.
-- Model Browser: a new marketplace plugin lets users browse CivitAI, Hugging Face and OpenModelDB
-  from PotionUI and download a model straight into the right folder; admins decide per user group
-  who may browse, download, request or approve, from which sources, which model types and up to
-  which size, and previews follow the instance's sensitive-content policy; users without the
-  download right can request a file and get notified when it is approved or declined, and admins
-  can cap files and bytes downloaded per month in Plans.
-- Prompt variables: the variables window lists every variable on the left and edits the selected
-  one on the right, marks with a tick each variable the prompt actually uses, and has no limit on
-  how many variables a prompt can have; a choice variable used several times can roll each usage
-  on its own or share one roll, and each usage chip shows which one it is.
-- Batch prompts: several prompts can run as one generation that encodes every prompt once and
-  lands as one History entry per prompt.
-- X/Y compare: running cells show real step counts; a finished grid sends one notification
-  instead of one per cell, and a grid where every cell failed says so once; History captions use
-  the axis names you picked; the LoRA axis shows the LoRA names; the Stitch window no longer jumps
-  in height while it loads, and the grid's left edge no longer shows cells when you scroll sideways.
-- Chat: approving a tool call happens in a card inside the reply and continues the same answer, so
-  an approval no longer times out, loses the conversation or ends without a reply.
-- Search: History, gallery and chat search find generations whose prompt was written in the
-  segmented prompt editor; text that only appears in the negative prompt no longer matches.
-- Sessions: you stay signed in while you use the app, a valid sign-in survives a backend restart,
-  and adding an account whose session expired switches to it.
-- Plugins: plugins get their disable signal on every teardown, including a rescan, a reload, a
-  removed folder and an uninstall, and start again cleanly after a reload; a plugin folder can be
-  a symlink or a Windows junction, and a broken link is skipped with a warning instead of stopping
-  the plugin build; new plugin API for reacting to finished downloads, queueing downloads, user
-  groups, content policy, notifications and plan limits; relative imports inside a plugin no
-  longer print a warning.
-- Native engine: a Qwen-Image 2.1 multi-reference edit with CFG no longer runs out of VRAM; LoRA
-  stages release their GPU memory once done and fp8 and nvfp4 LoRA runs need less headroom; models
-  that are no longer used give back their pinned system memory.
-- Responsiveness: uploads, edits, storage and limit checks and grid saves no longer block the
-  server; the image editor loads only when opened, and compare progress no longer redraws the
-  whole form.
-- Fixes: a plugin setting switched off in Admin > Plugins > Settings stays off after Save;
-  cancelling a Video Director run reports the stopped shots correctly; group tabs in Admin > Users
-  & Groups no longer reload in a loop after a failed load; frontend dependencies pick up patched
-  security releases.
-- Upgrading: History and gallery search now look only at prompt text, preset and model names, so
-  a seed or another form value no longer finds a generation.
 
 ## Contributing
 

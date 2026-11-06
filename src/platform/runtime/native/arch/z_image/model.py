@@ -67,6 +67,7 @@ from ...cache_identity import identity_usable, tensor_identity
 from ...cancellation import raise_if_cancelled
 from ...ops.padding import pad_to_patch
 from .config import ZImageConfig
+from .control import ZImageFunControl
 
 # vendor/gpl/comfyui/z_image/layers.py must not import src (layering guard) —
 # this is the one module that constructs ZImageDiT (and therefore the
@@ -86,6 +87,10 @@ class _RefinedCaption(NamedTuple):
 
     cap: Tensor
     context: Tensor
+
+
+def _patchify(x: Tensor, h_tok: int, w_tok: int, p: int) -> Tensor:
+    return x.reshape(x.shape[0], x.shape[1], h_tok, p, w_tok, p).permute(0, 2, 4, 3, 5, 1).flatten(3).flatten(1, 2)
 
 
 class _Geometry:
@@ -146,6 +151,11 @@ class ZImageDiT(NativeArchModule):
              for _ in range(cfg.n_layers)]
         )
         self.final_layer = _FinalLayer(cfg, operations, dtype=dtype, device=device)
+        self.fun_control = None
+        if cfg.control_layers:
+            self.fun_control = ZImageFunControl(
+                cfg, cfg.control_layers, cfg.control_in_dim, operations, dtype=dtype, device=device
+            )
         self.x_pad_token = nn.Parameter(torch.empty((1, dim), device=device, dtype=dtype))
         self.cap_pad_token = nn.Parameter(torch.empty((1, dim), device=device, dtype=dtype))
 
@@ -270,6 +280,42 @@ class ZImageDiT(NativeArchModule):
             geometry.captions[key] = _RefinedCaption(cap, context)
         return cap
 
+    # -- control ------------------------------------------------------------
+
+    def _control_inputs(self, x: Tensor, timestep: Tensor, kwargs: dict) -> tuple[Tensor, float] | None:
+        context = kwargs.get("control_context")
+        if context is None:
+            return None
+        scale = kwargs.get("control_context_scale")
+        scale = 1.0 if scale is None else float(scale)
+        if scale == 0.0:
+            return None
+        sigma_range = kwargs.get("control_sigma_range")
+        if sigma_range is not None:
+            sigma = float(timestep.flatten()[0])
+            if not float(sigma_range[1]) <= sigma <= float(sigma_range[0]):
+                return None
+        if self.fun_control is None:
+            raise ValueError("control_context needs a Fun ControlNet loaded with the diffusion model")
+        if context.shape[1] != self.fun_control.control_in_dim:
+            raise ValueError(
+                f"control_context has {context.shape[1]} channels, the Fun ControlNet takes {self.fun_control.control_in_dim}"
+            )
+        if tuple(context.shape[-2:]) != tuple(x.shape[-2:]):
+            raise ValueError(
+                f"control_context is {tuple(context.shape[-2:])} latents, the image is {tuple(x.shape[-2:])}"
+            )
+        context = context.to(device=x.device, dtype=x.dtype)
+        if context.shape[0] != x.shape[0]:
+            context = context.expand(x.shape[0], -1, -1, -1)
+        return context, scale
+
+    def _control_tokens(self, context: Tensor, h_tok: int, w_tok: int) -> Tensor:
+        p = self.patch_size
+        context = pad_to_patch(context, (p, p))
+        tokens = _patchify(context, h_tok, w_tok, p)
+        return self._pad_tokens(self.fun_control.x_embedder(tokens), self.x_pad_token)
+
     # -- forward ------------------------------------------------------------
 
     def forward(self, x: Tensor, timestep: Tensor, context: Tensor, y=None, guidance=None,
@@ -282,6 +328,7 @@ class ZImageDiT(NativeArchModule):
         _, _, ph, pw = x.shape
         h_tok, w_tok = ph // p, pw // p
         device = x.device
+        control = self._control_inputs(x, timestep, kwargs)
 
         # timestep -> adaLN vector. ComfyUI: t = 1 - sigma, embed(t * time_scale).
         t = 1.0 - timestep
@@ -295,12 +342,20 @@ class ZImageDiT(NativeArchModule):
         cap = self._refined_caption(geometry, context, bsz, cap_len, x.dtype)
 
         # image stream: patchify -> embed -> pad -> noise refiner.
-        img = x.view(bsz, self.in_channels, h_tok, p, w_tok, p).permute(0, 2, 4, 3, 5, 1).flatten(3).flatten(1, 2)
+        img = _patchify(x, h_tok, w_tok, p)
         img = self.x_embedder(img)
         img = self._pad_tokens(img, self.x_pad_token)
+        refiner_hints = []
+        control_tokens = None
+        if control is not None:
+            control_tokens = self._control_tokens(control[0], h_tok, w_tok)
+            refiner_hints, control_tokens = self.fun_control.refine(
+                control_tokens, img, geometry.img_rope, adaln_input)
         for i, layer in enumerate(self.noise_refiner):
             raise_if_cancelled(i)
             img = layer(img, geometry.img_rope, adaln_input)
+            if control is not None:
+                img = img + refiner_hints[i] * control[1]
 
         # joint stack over [caption ; image].
         joint = torch.cat((cap, img), dim=1)
@@ -309,9 +364,16 @@ class ZImageDiT(NativeArchModule):
         # reuses the last computed output and bypasses layers 1..N + final_layer.
         step_cache = kwargs.get("step_cache")
         probe = None
+        hints = None
+        injection = ()
+        if control is not None:
+            hints = self.fun_control.hints(torch.cat((cap, control_tokens), dim=1), joint, rope, adaln_input)
+            injection = self.fun_control.injection_layers(len(self.layers))
         for i, layer in enumerate(self.layers):
             raise_if_cancelled(i)
             joint = layer(joint, rope, adaln_input)
+            if i in injection:
+                joint = joint + next(hints) * control[1]
             if i == 0 and step_cache is not None:
                 probe = joint
                 if step_cache.should_skip(probe):

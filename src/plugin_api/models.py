@@ -23,7 +23,7 @@ from src.features.models.exceptions import (
     ProviderFetchException,
 )
 from src.features.models.locator import ModelFileUnavailable
-from src.platform.filesystem.model_types import MODEL_DIRECTORY_ALIASES, MODEL_TYPES, type_for_folder_name
+from src.platform.filesystem.model_types import directory_aliases, model_types, type_for_folder_name
 from src.platform.plugins.runtime_registries import get_container
 from src.platform.runtime.model_headers import (
     ClassifierMatch,
@@ -37,6 +37,7 @@ from src.platform.runtime.model_headers import (
 __all__ = [
     "WellKnownModelMetadataField",
     "get_model_provider_info",
+    "index_model_file",
     "model_type_dirs",
     "model_write_dir",
     "resolve_model_file",
@@ -51,9 +52,9 @@ __all__ = [
     "ModelFileUnavailable",
     "ModelNotFoundException",
     "ProviderFetchException",
-    "MODEL_DIRECTORY_ALIASES",
+    "directory_aliases",
     "type_for_folder_name",
-    "MODEL_TYPES",
+    "model_types",
     "HeaderView",
     "TensorInfo",
     "FamilyMatch",
@@ -88,6 +89,33 @@ def model_type_dirs(model_type: str) -> List[Path]:
 
 def model_write_dir(model_type: str) -> Path:
     return get_container().model_roots.write_dir(model_type).path
+
+
+def _write_roots(container: Any) -> List[Path]:
+    roots: List[Path] = []
+    for model_type in model_types():
+        try:
+            roots.append(Path(container.model_roots.write_dir(model_type).path).resolve())
+        except Exception:
+            continue
+    return roots
+
+
+def index_model_file(path: "str | Path", *, user_id: Optional[str] = None) -> Dict[str, Any]:
+    container = get_container()
+    target = Path(path).resolve()
+    if not target.is_file():
+        raise ValueError(f"'{Path(path).name}' is not a file")
+    if not any(target.is_relative_to(root) for root in _write_roots(container)):
+        raise ValueError(f"'{Path(path).name}' is not inside a model folder")
+    outcome = container.model_index_manager.indexing.index_path(str(target))
+    model_id = outcome.get("model_id") or (outcome.get("duplicate_of") or {}).get("id")
+    if model_id and user_id:
+        try:
+            container.model_index_manager.assignments.assign_model_to_user(model_id, user_id)
+        except ModelAlreadyAssignedException:
+            pass
+    return outcome
 
 
 def resolve_model_file(model_id: str) -> Path:

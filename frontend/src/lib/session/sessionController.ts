@@ -56,10 +56,12 @@ import type {
 	PresetModeVariant,
 	Session,
 	SessionData,
+	SessionWriteOrigin,
 	SessionVersionDetail,
 	SessionVersionSummary
 } from '$lib/types/api';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab, Tab } from '$lib/types/tabs';
+import { findGenerationTab } from '$lib/types/tabs';
 import type { VariablesMap } from '$lib/utils/variableDefs';
 import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
 import { resolveVariant } from '$lib/utils/variants';
@@ -186,14 +188,18 @@ interface ApiResult<T> {
 export interface SessionControllerApi {
 	getSessionsForPreset(presetId: string): Promise<ApiResult<Session[]>>;
 	getSessionById(sessionId: string): Promise<ApiResult<Session>>;
-	saveSession(request: {
-		preset_id: string;
-		name: string;
-		data: ModeBasedSessionData;
-	}): Promise<ApiResult<Session>>;
+	saveSession(
+		request: {
+			preset_id: string;
+			name: string;
+			data: ModeBasedSessionData;
+		},
+		clientId?: string
+	): Promise<ApiResult<Session>>;
 	updateSession(
 		sessionId: string,
-		request: { name: string; data: ModeBasedSessionData }
+		request: { name: string; data: ModeBasedSessionData; base_version?: number | null },
+		clientId?: string
 	): Promise<ApiResult<Session>>;
 	deleteSession(sessionId: string): Promise<ApiResult<{ message: string }>>;
 	setSessionPinned(sessionId: string, pinned: boolean): Promise<ApiResult<Session>>;
@@ -209,7 +215,7 @@ export interface SessionControllerApi {
 
 export interface SessionControllerTabs {
 	subscribe(run: (value: { tabs: Tab[] }) => void): () => void;
-	updateTab(tabId: string, updates: Partial<Tab>): void;
+	updateTab(tabId: string, updates: Partial<GenerationTab>): void;
 }
 
 export interface SessionControllerStorage {
@@ -237,8 +243,38 @@ export interface SessionControllerTimers {
 	clearTimeout(id: number): void;
 }
 
+export interface SessionControllerLive {
+	records: { subscribe(run: (records: Record<string, Session>) => void): () => void };
+	hasConflicts(tabId: string): boolean;
+	reconcile(
+		tabId: string,
+		session: Session,
+		origin: SessionWriteOrigin | null | undefined,
+		clientId: string | null | undefined
+	): Promise<void>;
+	onSaveRequest(listener: (tabId: string) => void): () => void;
+	clientIdFor(tabId: string): string;
+}
+
+export interface SessionVersionConflict {
+	session: Session;
+	origin: SessionWriteOrigin | null;
+	clientId: string | null;
+}
+
+export function sessionVersionConflict(err: unknown): SessionVersionConflict | null {
+	const response = (err as { response?: { status?: number; data?: { detail?: unknown } } } | null)?.response;
+	if (response?.status !== 409) return null;
+	const detail = response.data?.detail as
+		| { error?: string; session?: Session; origin?: SessionWriteOrigin | null; client_id?: string | null }
+		| undefined;
+	if (detail?.error !== 'session_version_conflict' || !detail.session) return null;
+	return { session: detail.session, origin: detail.origin ?? null, clientId: detail.client_id ?? null };
+}
+
 export interface SessionControllerDeps {
 	api: SessionControllerApi;
+	live?: SessionControllerLive;
 	tabs: SessionControllerTabs;
 	storage: SessionControllerStorage;
 	toasts: SessionControllerToasts;
@@ -338,10 +374,10 @@ const defaultTimers: SessionControllerTimers = {
 	clearTimeout: (id) => clearTimeout(id)
 };
 
-function tabDataUnchangedForDerivation(a: Tab | undefined, b: Tab | undefined): boolean {
+function tabDataUnchangedForDerivation(a: GenerationTab | undefined, b: GenerationTab | undefined): boolean {
 	if (a === b) return true;
 	if (!a || !b) return false;
-	for (const key of new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof Tab>) {
+	for (const key of new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof GenerationTab>) {
 		if (key === 'generation') continue;
 		if (a[key] !== b[key]) return false;
 	}
@@ -365,7 +401,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	let destroyed = false;
 
 	let tabs: Tab[] = [];
-	let currentTabData: Tab | undefined;
+	let currentTabData: GenerationTab | undefined;
 
 	let sessions: Session[] = [];
 	let selectedSessionId = '';
@@ -515,12 +551,17 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		if (!destroyed) store.set(snapshot());
 	}
 
-	function readTab(): Tab | undefined {
-		return tabs.find((tab) => tab.id === ctx.tabId);
+	function readTab(): GenerationTab | undefined {
+		return findGenerationTab(tabs, ctx.tabId);
 	}
 
 	const collectedBeforeFormPublished = new WeakSet<object>();
 	let firstFormPublication: Record<string, unknown> | null = null;
+
+	const unsubscribeRecords = deps.live?.records.subscribe((records) => adoptRecords(records));
+	const unsubscribeSaveRequests = deps.live?.onSaveRequest((tabId) => {
+		if (tabId === ctx.tabId && currentSession) void quickSave();
+	});
 
 	const unsubscribeTabs = deps.tabs.subscribe((value) => {
 		tabs = value.tabs;
@@ -817,7 +858,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		return data;
 	}
 
-	function recordSavedSessionData(data: ModeBasedSessionData) {
+	function recordSavedSessionData(data: ModeBasedSessionData, version?: number) {
 		let signature = JSON.stringify(data);
 		let awaiting = false;
 		if (collectedBeforeFormPublished.has(data)) {
@@ -829,15 +870,50 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 				awaiting = true;
 			}
 		}
-		recordSavedBaseline(signature, awaiting);
+		recordSavedBaseline(signature, awaiting, version);
 	}
 
-	function recordSavedBaseline(signature: string | null, awaitingFormNormalization = false) {
+	function recordSavedBaseline(signature: string | null, awaitingFormNormalization = false, version?: number) {
 		savedSessionSignature = signature;
 		deps.tabs.updateTab(ctx.tabId, {
 			savedSessionSignature: signature,
-			sessionBaselineAwaitingFormNormalization: awaitingFormNormalization
+			sessionBaselineAwaitingFormNormalization: awaitingFormNormalization,
+			...(version !== undefined ? { sessionVersion: version } : {})
 		});
+	}
+
+	function baseVersion(session: Session): number | null {
+		const tabVersion = currentTabData?.sessionVersion;
+		if (typeof tabVersion === 'number') return tabVersion;
+		return typeof session.version === 'number' ? session.version : null;
+	}
+
+	function clientId(tabId: string): string | undefined {
+		return deps.live?.clientIdFor(tabId);
+	}
+
+	async function reconcileConflict(tabId: string, err: unknown): Promise<boolean> {
+		const conflict = sessionVersionConflict(err);
+		if (!conflict || !deps.live) return false;
+		await deps.live.reconcile(tabId, conflict.session, conflict.origin, conflict.clientId);
+		return true;
+	}
+
+	function adoptRecords(records: Record<string, Session>) {
+		let changed = false;
+		sessions = sessions.map((session) => {
+			const record = records[session.id];
+			if (!record || (session.version ?? 0) >= record.version) return session;
+			changed = true;
+			return { ...record, pinned: session.pinned };
+		});
+		const record = currentSession ? records[currentSession.id] : undefined;
+		if (record && currentSession && (currentSession.version ?? 0) < record.version) {
+			currentSession = { ...record, pinned: currentSession.pinned };
+			lastSavedTime = parseServerDate(record.updated_at);
+			changed = true;
+		}
+		if (changed) publish();
 	}
 
 	function clearActiveSession() {
@@ -966,7 +1042,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		const restoredPatch = buildSessionRestoreTabPatch(modeData, {
 			promptPanelWidth: currentTabData?.promptPanelWidth
 		});
-		const reloadPatch: Partial<Tab> = {
+		const reloadPatch: Partial<GenerationTab> = {
 			formReloadGeneration: (currentTabData?.formReloadGeneration ?? 0) + 1,
 			...(options.reload
 				? {
@@ -1013,6 +1089,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			// for, so switching modes right after this load restores that mode's
 			// saved config instead of starting empty.
 			modeStateByMode: restoredModeState,
+			sessionVersion: sessionMeta.version,
 			...(options.markSaved
 				? {
 						savedSessionSignature: restoredBaseline,
@@ -1180,7 +1257,14 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	function startAutosave() {
 		stopAutosave();
 		autoSaveIntervalId = timers.setInterval(() => {
-			if (currentSession && hasUnsavedChanges && !isQuickSaving && !reloadRunning() && !reloadConfirmOpen()) {
+			if (
+				currentSession &&
+				hasUnsavedChanges &&
+				!isQuickSaving &&
+				!reloadRunning() &&
+				!reloadConfirmOpen() &&
+				!deps.live?.hasConflicts(ctx.tabId)
+			) {
 				void performAutoSave();
 			}
 		}, autoSaveInterval);
@@ -1228,6 +1312,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		}
 
 		const savingSession = currentSession;
+		const savingTabId = ctx.tabId;
 		const command = beginSessionCommand('autosave');
 		quickSaveInFlight = command;
 
@@ -1236,23 +1321,24 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			const sessionData = collectCurrentSessionData();
 			publish();
 
-			const response = await deps.api.updateSession(savingSession.id, {
-				name: savingSession.name,
-				data: sessionData
-			});
+			const response = await deps.api.updateSession(
+				savingSession.id,
+				{ name: savingSession.name, data: sessionData, base_version: baseVersion(savingSession) },
+				clientId(savingTabId)
+			);
 
 			if (response.success && response.data) {
 				sessions = sessions.map((s) => (s.id === savingSession.id ? response.data! : s));
 				if (ownsActiveState(command)) {
 					markApplied(command);
 					currentSession = response.data;
-					recordSavedSessionData(sessionData);
+					recordSavedSessionData(sessionData, response.data.version);
 					hasUnsavedChanges = false;
 					lastSavedTime = now();
 				}
 			}
 		} catch (err) {
-			deps.logger.error('Auto-save failed:', err);
+			if (!(await reconcileConflict(savingTabId, err))) deps.logger.error('Auto-save failed:', err);
 		} finally {
 			if (quickSaveInFlight === command) {
 				quickSaveInFlight = null;
@@ -1262,7 +1348,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		}
 	}
 
-	async function quickSave(): Promise<boolean> {
+	async function quickSave(retryAfterMerge = true): Promise<boolean> {
 		if (!currentSession || !ctx.presetId) return false;
 		if (reloadRunning()) return true;
 
@@ -1276,8 +1362,10 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		}
 
 		const savingSession = currentSession;
+		const savingTabId = ctx.tabId;
 		const command = beginSessionCommand('quick-save');
 		quickSaveInFlight = command;
+		let merged = false;
 
 		try {
 			isQuickSaving = true;
@@ -1286,27 +1374,32 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			const sessionData = collectCurrentSessionData();
 			publish();
 
-			const response = await deps.api.updateSession(savingSession.id, {
-				name: savingSession.name,
-				data: sessionData
-			});
+			const response = await deps.api.updateSession(
+				savingSession.id,
+				{ name: savingSession.name, data: sessionData, base_version: baseVersion(savingSession) },
+				clientId(savingTabId)
+			);
 
 			if (response.success && response.data) {
 				sessions = sessions.map((s) => (s.id === savingSession.id ? response.data! : s));
 				if (ownsActiveState(command)) {
 					markApplied(command);
 					currentSession = response.data;
-					recordSavedSessionData(sessionData);
+					recordSavedSessionData(sessionData, response.data.version);
 					hasUnsavedChanges = false;
 					lastSavedTime = now();
 				}
 			}
 		} catch (err) {
-			if (ownsActiveState(command)) {
-				markApplied(command);
-				error = err instanceof Error ? err.message : 'Failed to save session';
+			if (await reconcileConflict(savingTabId, err)) {
+				merged = ownsActiveState(command) && retryAfterMerge && !deps.live?.hasConflicts(savingTabId);
+			} else {
+				if (ownsActiveState(command)) {
+					markApplied(command);
+					error = err instanceof Error ? err.message : 'Failed to save session';
+				}
+				deps.logger.error('Failed to quick save:', err);
 			}
-			deps.logger.error('Failed to quick save:', err);
 		} finally {
 			if (quickSaveInFlight === command) {
 				quickSaveInFlight = null;
@@ -1315,6 +1408,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			publish();
 		}
 
+		if (merged) await quickSave(false);
 		return true;
 	}
 
@@ -1338,6 +1432,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		}
 
 		const command = beginSessionCommand('save-as', 'save');
+		const savingTabId = ctx.tabId;
+		const renamedSession = currentSession;
 		saveAsInFlight = command;
 		let closed = false;
 
@@ -1349,10 +1445,15 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			const sessionData = collectCurrentSessionData();
 
 			if (!isSaveAs && command.sessionId) {
-				const response = await deps.api.updateSession(command.sessionId, {
-					name: name.trim(),
-					data: sessionData
-				});
+				const response = await deps.api.updateSession(
+					command.sessionId,
+					{
+						name: name.trim(),
+						data: sessionData,
+						base_version: renamedSession ? baseVersion(renamedSession) : null
+					},
+					clientId(savingTabId)
+				);
 
 				if (response.success && response.data) {
 					// Safe under any context: an id absent from the current list is
@@ -1361,17 +1462,20 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 					if (ownsActiveState(command)) {
 						markApplied(command);
 						currentSession = response.data;
-						recordSavedSessionData(sessionData);
+						recordSavedSessionData(sessionData, response.data.version);
 						hasUnsavedChanges = false;
 						lastSavedTime = now();
 					}
 				}
 			} else {
-				const response = await deps.api.saveSession({
-					preset_id: ctx.presetId!,
-					name: name.trim(),
-					data: sessionData
-				});
+				const response = await deps.api.saveSession(
+					{
+						preset_id: ctx.presetId!,
+						name: name.trim(),
+						data: sessionData
+					},
+					clientId(savingTabId)
+				);
 
 				if (response.success && response.data) {
 					// A record created under another preset/tab/mode belongs to that
@@ -1383,7 +1487,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 						markApplied(command);
 						setSelectedSessionId(response.data.id);
 						currentSession = response.data;
-						recordSavedSessionData(sessionData);
+						recordSavedSessionData(sessionData, response.data.version);
 						hasUnsavedChanges = false;
 						lastSavedTime = now();
 
@@ -1397,11 +1501,16 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			// no later save has taken over the dialog the view is showing.
 			closed = ownsDialog(command, saveAsInFlight);
 		} catch (err) {
+			const reconciled = await reconcileConflict(savingTabId, err);
 			// A dialog the user cancelled, or a later opening of it, is not this
 			// attempt's to annotate.
 			if (ownsActiveState(command) && ownsDialog(command, saveAsInFlight)) {
 				markApplied(command);
-				nameError = err instanceof Error ? err.message : 'Failed to save session';
+				nameError = reconciled
+					? 'This session just changed elsewhere. Check the merged result, then rename again.'
+					: err instanceof Error
+						? err.message
+						: 'Failed to save session';
 			}
 			deps.logger.error('Failed to save session:', err);
 		} finally {
@@ -1650,6 +1759,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			loadSessionsRetryTimer = null;
 		}
 		unsubscribeTabs();
+		unsubscribeRecords?.();
+		unsubscribeSaveRequests?.();
 	}
 
 	return {

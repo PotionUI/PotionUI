@@ -14,6 +14,15 @@ export function formatBytes(bytes: number, decimals = 2): string {
 	return `${parseFloat(rounded)} ${BYTE_UNITS[i]}`;
 }
 
+export function formatBytesShort(bytes: number): string {
+	if (!bytes || bytes <= 0) return '0 B';
+	const gib = 1024 ** 3;
+	if (bytes < 0.25 * gib) return formatBytes(bytes, 0);
+	const value = bytes / gib;
+	if (bytes < 1024 ** 4) return `${value >= 100 ? Math.round(value) : value.toFixed(1)} GB`;
+	return formatBytes(bytes, 1);
+}
+
 export function formatDuration(ms: number): string {
 	if (!ms || ms <= 0) return '0s';
 	const seconds = ms / 1000;

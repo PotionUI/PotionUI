@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { deckStepText } from '$lib/generation/previewClip';
 	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
 	import dismiss from '$lib/actions/dismiss';
 	import { browser } from '$app/environment';
@@ -306,8 +307,9 @@
 		pipeId: generation.currentProgress?.pipe_id,
 		isAdmin
 	});
-	$: batchReading = readBatchProgress(generation.currentProgress);
-	$: stepText = stage.stepCount && /^\d+\/\d+$/.test(stage.stepCount) ? `Step ${stage.stepCount.replace('/', ' / ')}` : null;
+	$: batchReading = readBatchProgress(generation.currentProgress, preset?.category);
+	$: clipStep = isGenerating ? Number((generation.currentGeneration as any)?.preview_clip?.step ?? 0) : 0;
+	$: stepText = deckStepText(stage.stepCount, clipStep);
 
 	$: elapsedText = isGenerating ? formatDurationSeconds(elapsedSeconds) : 'none';
 	$: lastText = formatDurationMs(generation.lastDurationMs ?? null);
@@ -499,7 +501,7 @@
 					<span class="sr-only" data-deck-literal>{title.literal}</span>
 				</div>
 				<div class="deck-detail">
-					<span class="deck-detail-text">
+					<span class="deck-detail-text" class:is-wrapping={clipStep > 0}>
 						{#if isGenerating}
 							{#if batchReading}
 								<span class="font-mono tabular-nums" data-batch-progress>{batchReading.label}</span> ·

@@ -68,7 +68,7 @@ def test_ten_images_reach_the_encoder_and_generator(template):
     assert len(_paths(pipes)) == 10
     for name in ("prompt_encoder", "generator/qwen_image21"):
         image = next(i for i in pipes[name]["input"] if i["name"] == "image")
-        assert (image["provider"], image["output_var"]) == ("media_loader", "image")
+        assert (image["provider"], image["output_var"]) == ("image_fit", "image")
     assert pipes["generator/qwen_image21"]["config"]["mode"] == "edit"
     assert pipes["model_loader/qwen_image21"]["config"]["vision"] is True
 

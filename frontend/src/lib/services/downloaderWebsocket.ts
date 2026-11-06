@@ -31,6 +31,8 @@ export interface DownloadStatusUpdate {
 	filename: string;
 	error?: string;
 	path?: string;
+	gated?: boolean;
+	gated_repo?: string;
 }
 
 export const downloaderConnectionState: Writable<ConnectionState> = writable('disconnected');

@@ -10,39 +10,43 @@ negative_prompt:
       - { field: "cfg", greater_than: 1 }
 requirements:
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-restore-1.0.safetensors"
+    field: "restore_lora"
     hint: "Download the Restore LoRA in this mode."
     optional: true
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors"
+    field: "deblur_lora"
     hint: "Download the Remove blur LoRA in this mode."
     optional: true
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-decompression-0.9.safetensors"
+    field: "decompress_lora"
     hint: "Download the Remove compression LoRA in this mode."
     optional: true
 fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "generation"
         label: "Generation"
         configuration:
           icon: "generation"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/restore/tabs/generation.yml"
       - type: "tab"
+        anchor: "references"
         label: "References"
         configuration:
           icon: "image"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/restore/tabs/references.yml"
       - type: "tab"
+        anchor: "lora"
         label: "LoRA"
         configuration:
           icon: "lora"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
       - type: "tab"
+        anchor: "advanced"
         label: "Advanced"
         audience: "advanced"
         configuration:

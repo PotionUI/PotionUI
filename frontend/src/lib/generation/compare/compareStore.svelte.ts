@@ -1,3 +1,4 @@
+import { findGenerationTab, generationTabs } from '$lib/types/tabs';
 import { get, writable } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
 import { toasts } from '$lib/stores/toast';
@@ -111,7 +112,7 @@ function saveCellMs(): void {
 }
 
 function findTab(tabId: string) {
-	return get(tabsStore).tabs.find((tab) => tab.id === tabId);
+	return findGenerationTab(get(tabsStore).tabs, tabId);
 }
 
 function normalizeConfig(raw: Partial<CompareConfig> | undefined | null): CompareConfig {
@@ -134,7 +135,7 @@ function trackEstimate(tab: { id: string; selectedPreset?: string | null; genera
 tabsStore.subscribe((state) => {
 	const alive = new Set<string>();
 	let changed = false;
-	for (const tab of state.tabs) {
+	for (const tab of generationTabs(state.tabs)) {
 		alive.add(tab.id);
 		if (!(seenConfig.get(tab.id) === tab.compare && seenConfig.has(tab.id))) {
 			seenConfig.set(tab.id, tab.compare);
@@ -534,7 +535,7 @@ export async function loadGrid(tabId: string, gridId: string): Promise<ActiveGri
 }
 
 export async function restoreGrids(): Promise<void> {
-	for (const tab of get(tabsStore).tabs) {
+	for (const tab of generationTabs(get(tabsStore).tabs)) {
 		if (!tab.compareGridId || liveGrids[tab.id]?.id === tab.compareGridId) continue;
 		const grid = await loadGrid(tab.id, tab.compareGridId);
 		if (!grid) tabsStore.updateTab(tab.id, { compareGridId: null });

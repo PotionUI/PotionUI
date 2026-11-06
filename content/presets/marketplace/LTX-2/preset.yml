@@ -85,6 +85,7 @@ configuration:
     description: "Only models with any of these tags appear in the Spatial Upscaler picker."
 
 vars:
+  optional_prompt_modes: ["motion_transfer", "follow_motion"]
   distilled_sigma_recipe: "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
   default_frames: 49
   default_fps: 25
@@ -202,6 +203,23 @@ llm:
     low quality, worst quality, deformed, distorted, disfigured, motion smear,
     motion artifacts, fused fingers, bad anatomy, weird hand, ugly, transition,
     static." Trim items that don't apply and add what the shot risks.
+  modes:
+    motion_transfer:
+      guide: |
+        Motion transfer mode: an IC-LoRA makes the person in the Picture perform the moves
+        of the Video, so never write a shot list or the 4-8 sentence video paragraph.
+        Write one or two sentences describing the finished shot of the person from the
+        Picture dancing, matching the Picture's setting and clothing. Describe the person
+        and the place, never the pose or the moves; the Video supplies those.
+        The prompt is optional, and the mode writes a default caption when it is empty.
+    follow_motion:
+      guide: |
+        Follow motion mode: an IC-LoRA puts a new scene through the camera moves and layout
+        of the Video, so never write a shot list or the 4-8 sentence video paragraph.
+        Write one or two sentences describing the new scene as it should look, matching the
+        First Frame picture: place, light, materials and mood. Never describe the camera
+        moves or where things sit; the Video supplies those.
+        The prompt is optional, and the mode writes a default caption when it is empty.
 
 formulas:
   groups:
@@ -217,3 +235,5 @@ formulas:
 modes:
   - video
   - upscale
+  - motion_transfer
+  - follow_motion

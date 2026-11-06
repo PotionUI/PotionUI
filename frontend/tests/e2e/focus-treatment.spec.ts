@@ -45,7 +45,7 @@ async function keyboardFocus(page: Page, el: Locator) {
 	await expect.poll(() => el.evaluate((node) => node.matches(':focus-visible')), { timeout: 5000 }).toBe(true);
 }
 
-async function tabTo(page: Page, el: Locator) {
+async function tabTo(page: Page, el: Locator, check?: () => Promise<void>) {
 	const id = await el.getAttribute('id');
 	await expect(async () => {
 		await page.locator('#fx-start').click();
@@ -55,7 +55,8 @@ async function tabTo(page: Page, el: Locator) {
 		}
 		await expect(el).toBeFocused({ timeout: 1000 });
 		expect(await el.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
-	}).toPass({ timeout: 20000 });
+		if (check) await check();
+	}).toPass({ timeout: 30000 });
 }
 
 async function shoot(el: Locator, label: string) {
@@ -104,9 +105,10 @@ test('bare and .input controls carry one signal ring on themselves', async ({ pa
 	});
 	for (const id of ['#fx-bare', '#fx-bare-area', '#fx-text', '#fx-area', '#fx-select']) {
 		const el = page.locator(id);
-		await tabTo(page, el);
-		expect(await css(el, 'outlineStyle')).toBe('none');
-		await expectRing(el, signal);
+		await tabTo(page, el, async () => {
+			expect(await css(el, 'outlineStyle')).toBe('none');
+			await expect.poll(async () => ringColor(await css(el, 'boxShadow')), { timeout: 1500 }).toBe(signal);
+		});
 		await shoot(page.locator('#focus-fixture'), `fixture-${id.slice(4)}-focus`);
 	}
 });

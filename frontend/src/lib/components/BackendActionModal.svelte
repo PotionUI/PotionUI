@@ -9,6 +9,7 @@
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
+	import { resultSummaryFor, type ResultSummary } from '$lib/components/backendActionSummary';
 
 	// Shared confirm -> running -> (waiting) -> done/error/timeout flow for a
 	// backend's self-described quick action (Backend.quick_actions). Used by
@@ -26,81 +27,7 @@
 	let pendingBackendName = '';
 	let phase: Phase = 'confirm';
 	let errorMessage = '';
-	// Raw `data` payload from a successful action's APIResponse, rendered by
-	// resultSummaryFor() below. Schema-tolerant on purpose: the backend is an
-	// open set of engines/plugins, none of which this component knows about.
 	let resultData: Record<string, unknown> | null = null;
-
-	/** One prose part (`plain`) or one number-formatted part (`num`, rendered
-	 * mono + tabular-nums) that together read as a single sentence/line. */
-	type SummaryPart = { plain: string } | { num: string };
-	type ResultSummary = { lines: SummaryPart[][]; keys?: string[] };
-
-	/** Describes what an action's result data means, tailored to the actions
-	 * the native engine ships today, with a schema-tolerant fallback for
-	 * anything else (future actions, plugins). */
-	function resultSummaryFor(
-		action: BackendQuickAction,
-		data: Record<string, unknown> | null
-	): ResultSummary {
-		if (!data) return { lines: [[{ plain: 'Completed' }]] };
-
-		if (action.id === 'clear-vram') {
-			const offloaded = Number(data.offloaded_count ?? 0);
-			const freedGb = Number(data.freed_gb ?? 0);
-			if (offloaded === 0) {
-				return {
-					lines: [
-						[{ plain: 'Nothing was GPU-resident — VRAM was already clear.' }],
-						[
-							{
-								plain: "Models cached in RAM are unaffected; use 'Clear VRAM & Cache (RAM)' to drop those."
-							}
-						]
-					]
-				};
-			}
-			return {
-				lines: [
-					[
-						{ plain: 'Offloaded ' },
-						{ num: `${offloaded}` },
-						{ plain: ` model${offloaded === 1 ? '' : 's'}, freed ` },
-						{ num: `${freedGb.toFixed(2)} GB` },
-						{ plain: ' of VRAM' }
-					]
-				]
-			};
-		}
-
-		if (action.id === 'clear-cache') {
-			const keys = Array.isArray(data.cache_keys_cleared)
-				? (data.cache_keys_cleared as unknown[]).map(String)
-				: [];
-			return {
-				lines: [
-					[
-						{ plain: 'Evicted ' },
-						{ num: `${keys.length}` },
-						{ plain: ` cached model${keys.length === 1 ? '' : 's'}, RAM returned to the OS` }
-					]
-				],
-				keys: keys.length > 0 && keys.length <= 8 ? keys : undefined
-			};
-		}
-
-		// Generic fallback: render whatever summary-shaped fields the response
-		// has, schema-tolerant so plugin-provided actions still show something.
-		const lines: SummaryPart[][] = [];
-		if (typeof data.message === 'string' && data.message) lines.push([{ plain: data.message }]);
-		if (typeof data.freed_gb === 'number') {
-			lines.push([{ plain: 'Freed ' }, { num: `${(data.freed_gb as number).toFixed(2)} GB` }]);
-		}
-		if (typeof data.offloaded_count === 'number') {
-			lines.push([{ plain: 'Offloaded ' }, { num: `${data.offloaded_count}` }, { plain: ' item(s)' }]);
-		}
-		return { lines: lines.length > 0 ? lines : [[{ plain: 'Completed' }]] };
-	}
 
 	let resultSummary: ResultSummary;
 	$: resultSummary = pendingAction ? resultSummaryFor(pendingAction, resultData) : { lines: [] };

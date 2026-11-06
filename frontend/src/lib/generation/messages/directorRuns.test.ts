@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -16,11 +17,11 @@ import type { DirectorRunState } from '$lib/types/tabs';
 // error, gallery_update).
 
 function defaultTabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function seedDirectorRun(tabId: string, shotId: string, run: DirectorRunState, links: Record<string, string[]>) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, {
 		directorRuns: { ...(tab.directorRuns || {}), [shotId]: run },
 		directorRunLinks: { ...(tab.directorRunLinks || {}), ...links }
@@ -147,7 +148,7 @@ describe('directorRuns wiring through generation message handlers', () => {
 		const tabId = defaultTabId();
 		seedDirectorRun(tabId, 'shot-1', baseRun(), { 'gen-1': ['shot-1', 'shot-2'] });
 		seedDirectorRun(tabId, 'shot-2', baseRun(), {});
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, { generation: { ...tab0.generation, currentGeneration: { generation_id: 'gen-1' } } });
 
 		dispatchGenerationMessage(
@@ -155,7 +156,7 @@ describe('directorRuns wiring through generation message handlers', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns!['shot-1']).toMatchObject({ status: 'generating', progress: 0.5 });
 		expect(tab.directorRuns!['shot-2']).toMatchObject({ status: 'generating', progress: 0.5 });
 	});
@@ -164,7 +165,7 @@ describe('directorRuns wiring through generation message handlers', () => {
 		const tabId = defaultTabId();
 		seedDirectorRun(tabId, 'shot-1', baseRun(), { 'gen-1': ['shot-1'] });
 		// Give the unrelated generation somewhere to route to (currentGeneration).
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, { generation: { ...tab0.generation, currentGeneration: { generation_id: 'gen-other' } } });
 
 		dispatchGenerationMessage(
@@ -172,14 +173,14 @@ describe('directorRuns wiring through generation message handlers', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns!['shot-1']).toEqual(baseRun());
 	});
 
 	it('gallery_update sets the poster ahead of completion, without changing status', () => {
 		const tabId = defaultTabId();
 		seedDirectorRun(tabId, 'shot-1', baseRun({ status: 'generating', progress: 0.95 }), { 'gen-1': ['shot-1'] });
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, { generation: { ...tab0.generation, currentGeneration: { generation_id: 'gen-1' } } });
 
 		dispatchGenerationMessage(
@@ -192,7 +193,7 @@ describe('directorRuns wiring through generation message handlers', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns!['shot-1']).toMatchObject({
 			status: 'generating',
 			posterUrl: '/api/media/generations/gen-1/0.mp4'
@@ -205,12 +206,12 @@ describe('directorRuns wiring through generation message handlers', () => {
 			'gen-1': ['shot-1', 'shot-2']
 		});
 		seedDirectorRun(tabId, 'shot-2', baseRun({ status: 'generating', progress: 0.95 }), {});
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, { generation: { ...tab0.generation, currentGeneration: { generation_id: 'gen-1' } } });
 
 		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-1' } } as any, { unsubscribe: vi.fn() });
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns!['shot-1'].status).toBe('done');
 		expect(tab.directorRuns!['shot-1'].progress).toBe(1);
 		expect(typeof tab.directorRuns!['shot-1'].finishedAt).toBe('number');
@@ -220,7 +221,7 @@ describe('directorRuns wiring through generation message handlers', () => {
 	it('generation_error resolves every covered shot to failed', () => {
 		const tabId = defaultTabId();
 		seedDirectorRun(tabId, 'shot-1', baseRun({ status: 'generating', progress: 0.4 }), { 'gen-1': ['shot-1'] });
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, { generation: { ...tab0.generation, currentGeneration: { generation_id: 'gen-1' } } });
 
 		dispatchGenerationMessage(
@@ -228,14 +229,14 @@ describe('directorRuns wiring through generation message handlers', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns!['shot-1'].status).toBe('failed');
 		expect(typeof tab.directorRuns!['shot-1'].finishedAt).toBe('number');
 	});
 
 	it('a generation with no directorRunLinks entry never gains a directorRuns field at all', () => {
 		const tabId = defaultTabId();
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, { generation: { ...tab0.generation, currentGeneration: { generation_id: 'gen-plain' } } });
 
 		dispatchGenerationMessage(
@@ -243,7 +244,7 @@ describe('directorRuns wiring through generation message handlers', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns).toBeUndefined();
 	});
 
@@ -254,7 +255,7 @@ describe('directorRuns wiring through generation message handlers', () => {
 		// ...then retried as gen-b before gen-a's terminal event arrived. Retry
 		// stamps a fresh generationId on the run (buildDirectorRunEntries in
 		// +page.svelte) but never clears gen-a's link entry.
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, {
 			directorRuns: { ...(tab0.directorRuns || {}), 'shot-1': baseRun({ generationId: 'gen-b', status: 'generating', progress: 0.2 }) },
 			directorRunLinks: { ...(tab0.directorRunLinks || {}), 'gen-b': ['shot-1'] },
@@ -269,7 +270,7 @@ describe('directorRuns wiring through generation message handlers', () => {
 
 		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-a' } } as any, { unsubscribe: vi.fn() });
 
-		let tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		let tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns!['shot-1']).toMatchObject({ generationId: 'gen-b', status: 'generating', progress: 0.2 });
 		expect(tab.directorRunLinks!['gen-a']).toBeUndefined();
 		expect(tab.directorRunLinks!['gen-b']).toEqual(['shot-1']);
@@ -277,7 +278,7 @@ describe('directorRuns wiring through generation message handlers', () => {
 
 		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-b' } } as any, { unsubscribe: vi.fn() });
 
-		tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns!['shot-1']).toMatchObject({ generationId: 'gen-b', status: 'done' });
 		expect(typeof tab.directorRuns!['shot-1'].finishedAt).toBe('number');
 	});
@@ -294,7 +295,7 @@ describe('directorRuns wiring for two independent per-shot generations (LTX time
 		seedDirectorRun(tabId, 'shot-2', baseRun({ generationId: 'gen-2', status: 'generating' }), {
 			'gen-2': ['shot-2']
 		});
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, {
 			activeGenerationId: 'gen-1',
 			generation: {
@@ -329,7 +330,7 @@ describe('directorRuns wiring for two independent per-shot generations (LTX time
 		);
 		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-1' } } as any, { unsubscribe: vi.fn() });
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns!['shot-1']).toMatchObject({
 			status: 'done',
 			posterUrl: '/api/media/generations/gen-1/0.mp4'
@@ -348,7 +349,7 @@ describe('directorRuns wiring for two independent per-shot generations (LTX time
 		seedDirectorRun(tabId, 'shot-2', baseRun({ generationId: 'gen-2', status: 'generating' }), {
 			'gen-2': ['shot-2']
 		});
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, {
 			activeGenerationId: 'gen-1',
 			generation: {
@@ -383,7 +384,7 @@ describe('directorRuns wiring for two independent per-shot generations (LTX time
 		);
 		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-2' } } as any, { unsubscribe: vi.fn() });
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.directorRuns!['shot-1']).toMatchObject({
 			status: 'done',
 			posterUrl: '/api/media/generations/gen-1/0.mp4'

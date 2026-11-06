@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, screenshot, fulfillJson, mockAdminSocket } from './helpers';
+import { gotoFolders as openFoldersPage, selectFolderView } from './model-folders-nav';
 
 const JOURNEY = 'model-indexing';
 
@@ -272,9 +273,7 @@ const READINESS = {
 };
 
 async function gotoFolders(page: Page) {
-	await page.goto('/admin?tab=models&view=folders');
-	const heading = page.getByRole('heading', { name: 'Folders', level: 2 });
-	await expect(heading).toBeVisible({ timeout: 15000 });
+	await openFoldersPage(page, 'Indexing');
 	await expect(page.getByText('Model indexing', { exact: true })).toBeVisible({ timeout: 15000 });
 }
 
@@ -331,6 +330,7 @@ for (const viewport of [
 
 			expect(mock.settings).toEqual([{ policy: 'on_demand' }]);
 			expect(mock.digestRequests).toEqual([]);
+			await selectFolderView(page, 'Indexing');
 			await expect(page.getByText('472 files (1.75 TB) are not indexed yet')).toBeVisible();
 		});
 
@@ -512,7 +512,7 @@ for (const viewport of [
 			await expect(link).toBeVisible({ timeout: 15000 });
 			await expect(link).toHaveAttribute('href', '/admin?tab=models&view=folders');
 			await link.click();
-			await expect(page.getByRole('heading', { name: 'Folders', level: 2 })).toBeVisible();
+			await expect(page.locator('[data-folders-pane]')).toBeVisible();
 		});
 	});
 }

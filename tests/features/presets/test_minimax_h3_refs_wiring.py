@@ -374,7 +374,7 @@ def refs_director_capabilities(h3_template):
     return apply_preset_mode_overlay(base, "refs")
 
 
-def _director_document(capabilities, storage_dir, segments, form_data=None, prompt_resources=None):
+def _director_document(capabilities, storage_dir, segments, form_data=None, prompt_resources=None, bundle_members=None):
     return normalize_video_director({
         "schema_version": 1,
         "mode": "director",
@@ -382,7 +382,7 @@ def _director_document(capabilities, storage_dir, segments, form_data=None, prom
         "segments": segments,
         "media": [],
         "audio": [],
-    }, capabilities, storage_dir, form_data or {}, prompt_resources)
+    }, capabilities, storage_dir, form_data or {}, prompt_resources, bundle_members=bundle_members)
 
 
 def test_a_director_request_in_refs_mode_gets_one_conditioning_per_shot(h3_template, refs_director_capabilities, tmp_path):
@@ -570,3 +570,11 @@ def test_the_refs_mode_has_its_own_llm_guide(h3_template):
     # the prompt against these numbers, and they are per-picker positions.
     for label in ("<Picture 1>", "<Video 1>", "<Audio 1>"):
         assert label in guide
+
+
+def test_without_a_plugin_the_mode_conditions_on_native_references_only(h3_template):
+    fields = [node for field in _tab_fields(h3_template, "references") for node in _walk(field)]
+    assert [node.get("type") for node in fields if node.get("type") == "lora_picker"] == []
+    assert [entry.get("source") for entry in h3_template.prompt_resources["refs"] if entry.get("source")] == []
+    pipes = _process(h3_template)
+    assert [pipe["id"] for pipe in pipes if any(edge["name"] == "reference_latents" for edge in pipe["input"])] == []

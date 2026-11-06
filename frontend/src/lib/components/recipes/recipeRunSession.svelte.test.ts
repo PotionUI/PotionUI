@@ -277,4 +277,13 @@ describe('RecipeRunSession polling', () => {
 		expect(get).toHaveBeenCalledTimes(1);
 		expect(api.createRecipeRun).not.toHaveBeenCalled();
 	});
+
+	it('forwards the modes a door preselected to create', async () => {
+		const create = vi.fn().mockResolvedValue(run({ status: 'awaiting_consent' }));
+		const session = new RecipeRunSession({ api: { create, get: vi.fn(), cancel: vi.fn() } });
+		sessions.push(session);
+
+		await session.start('modes-ltx-2-5', ['cinemagraph']);
+		expect(create).toHaveBeenCalledWith('modes-ltx-2-5', ['cinemagraph']);
+	});
 });

@@ -43,3 +43,19 @@ async def test_hub_refuses_unknown_status():
     with pytest.raises(ValueError):
         await hub.send_download_status("d1", "exploding", "f.bin")
     hub.broadcast_to_download.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_failed_status_carries_the_gated_flag_and_repo_only_when_gated():
+    hub = DownloadConnectionHub()
+    hub.broadcast_to_download = AsyncMock()
+
+    await hub.send_download_status("d1", "failed", "f.bin", error_message="denied", gated=True, gated_repo="org/name")
+    gated = hub.broadcast_to_download.call_args.args[1]
+    await hub.send_download_status("d1", "failed", "f.bin", error_message="boom")
+    plain = hub.broadcast_to_download.call_args.args[1]
+
+    assert gated["gated"] is True
+    assert gated["gated_repo"] == "org/name"
+    assert "gated" not in plain
+    assert "gated_repo" not in plain

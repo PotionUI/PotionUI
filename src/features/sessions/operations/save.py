@@ -17,8 +17,50 @@ from src.platform.http.errors import AccessDeniedError, ConflictError, NotFoundE
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.sessions.hooks import SESSION_HOOKS
+from src.features.sessions.live import WriteOrigin, stored_origin
 
 logger = logging.getLogger(__name__)
+
+MAX_WRITE_ATTEMPTS = 5
+
+
+class SessionVersionConflict(ConflictError):
+    def __init__(self, session: Session):
+        super().__init__(
+            "session_version_conflict",
+            "The session changed since this copy was loaded.",
+            session=session_to_response_dict(session),
+            **stored_origin(session.last_origin),
+        )
+
+
+def _stored(origin: Optional[WriteOrigin]) -> Optional[Dict[str, Any]]:
+    return origin.stored() if origin else None
+
+
+def _check_base(session: Session, base_version: Optional[int]) -> None:
+    if base_version is not None and base_version != session.version:
+        raise SessionVersionConflict(session)
+
+
+def _named_session(session_repository: SessionRepository, user_id: str, request: SaveSessionRequest) -> Session:
+    session = session_repository.get_by_user_preset_and_name(user_id, request.preset_id, request.name)
+    if session is None:
+        raise NotFoundError("session_not_found", "Session not found")
+    return session
+
+
+def _owned_session(session_repository: SessionRepository, user_id: str, session_id: str) -> Session:
+    session = session_repository.get_by_id(session_id)
+    if not session:
+        raise NotFoundError("session_not_found", "Session not found")
+    if session.user_id != user_id:
+        raise AccessDeniedError("session_access_denied", "Access denied to this session")
+    return session
+
+
+def _contended(session_id: str) -> ConflictError:
+    return ConflictError("session_write_contended", f"Session {session_id} kept changing during the save; try again")
 
 
 def _merge_mode_data(
@@ -98,6 +140,7 @@ def _create_new_session(
     file_preset_repository: Optional[Any],
     user_id: str,
     request: SaveSessionRequest,
+    origin: Optional[WriteOrigin] = None,
 ) -> Tuple[Dict[str, Any], str]:
     """Create a new session.
 
@@ -128,7 +171,7 @@ def _create_new_session(
         data=session_data,
     )
 
-    created_session = session_repository.create(session)
+    created_session = session_repository.create(session, _stored(origin))
 
     execute_hook(
         plugin_registry,
@@ -138,6 +181,7 @@ def _create_new_session(
             "preset_id": created_session.preset_id,
             "name": created_session.name,
             "user_id": user_id,
+            "version": created_session.version,
         },
     )
 
@@ -153,10 +197,9 @@ def _update_existing_session(
     plugin_registry: PluginRegistry,
     version_repository: Optional[SessionVersionRepository],
     file_preset_repository: Optional[Any],
-    existing_session: Session,
-    new_data: Dict[str, Any],
-    mode: Optional[str],
     user_id: str,
+    request: SaveSessionRequest,
+    origin: Optional[WriteOrigin],
 ) -> Tuple[Dict[str, Any], str]:
     """Update an existing session (called from save_session when a session
     with the requested name already exists).
@@ -164,6 +207,9 @@ def _update_existing_session(
     Raises:
         ValueError: If update blocked or failed
     """
+    existing_session = _named_session(session_repository, user_id, request)
+    _check_base(existing_session, request.base_version)
+
     hook_data = run_veto_hook(
         plugin_registry,
         SESSION_HOOKS.before_update,
@@ -172,42 +218,51 @@ def _update_existing_session(
             "preset_id": existing_session.preset_id,
             "name": existing_session.name,
             "old_data": existing_session.data,
-            "new_data": new_data,
-            "mode": mode,
+            "new_data": request.data,
+            "mode": request.mode,
             "user_id": user_id,
         },
         "Session update blocked",
     )
+    new_data = hook_data.get("new_data", request.data)
 
-    new_data = hook_data.get("new_data", new_data)
-    merged_data = _merge_mode_data(existing_session.data, new_data, mode)
+    for attempt in range(MAX_WRITE_ATTEMPTS):
+        if attempt:
+            existing_session = _named_session(session_repository, user_id, request)
+            _check_base(existing_session, request.base_version)
 
-    updated_session = Session(
-        id=existing_session.id,
-        user_id=existing_session.user_id,
-        preset_id=existing_session.preset_id,
-        name=existing_session.name,
-        data=merged_data,
-        created_at=existing_session.created_at,
-    )
+        merged_data = _merge_mode_data(existing_session.data, new_data, request.mode)
 
-    result = session_repository.update(updated_session)
+        updated_session = Session(
+            id=existing_session.id,
+            user_id=existing_session.user_id,
+            preset_id=existing_session.preset_id,
+            name=existing_session.name,
+            data=merged_data,
+            created_at=existing_session.created_at,
+        )
 
-    execute_hook(
-        plugin_registry,
-        SESSION_HOOKS.after_update,
-        {
-            "session_id": result.id,
-            "preset_id": result.preset_id,
-            "name": result.name,
-            "user_id": user_id,
-        },
-    )
+        result = session_repository.update(updated_session, existing_session.version, _stored(origin))
+        if result is None:
+            continue
 
-    _record_version(version_repository, file_preset_repository, result)
+        execute_hook(
+            plugin_registry,
+            SESSION_HOOKS.after_update,
+            {
+                "session_id": result.id,
+                "preset_id": result.preset_id,
+                "name": result.name,
+                "user_id": user_id,
+                "version": result.version,
+            },
+        )
 
-    logger.info(f"Session updated: {result.name} (id: {result.id})")
-    return session_to_response_dict(result), f"Session '{result.name}' updated successfully"
+        _record_version(version_repository, file_preset_repository, result)
+
+        logger.info(f"Session updated: {result.name} (id: {result.id})")
+        return session_to_response_dict(result), f"Session '{result.name}' updated successfully"
+    raise _contended(request.name)
 
 
 def save_session(
@@ -217,6 +272,7 @@ def save_session(
     file_preset_repository: Optional[Any],
     user_id: str,
     request: SaveSessionRequest,
+    origin: Optional[WriteOrigin] = None,
 ) -> Tuple[Dict[str, Any], str]:
     """Save a new session or update an existing one with the same name.
 
@@ -237,13 +293,12 @@ def save_session(
             plugin_registry,
             version_repository,
             file_preset_repository,
-            existing_session,
-            request.data,
-            request.mode,
             user_id,
+            request,
+            origin,
         )
     return _create_new_session(
-        session_repository, plugin_registry, version_repository, file_preset_repository, user_id, request
+        session_repository, plugin_registry, version_repository, file_preset_repository, user_id, request, origin
     )
 
 
@@ -255,6 +310,7 @@ def update_session(
     user_id: str,
     session_id: str,
     request: UpdateSessionRequest,
+    origin: Optional[WriteOrigin] = None,
 ) -> Dict[str, Any]:
     """Update an existing session by ID.
 
@@ -265,13 +321,8 @@ def update_session(
     Raises:
         ValueError: If session not found, access denied, name conflict, or update blocked
     """
-    session = session_repository.get_by_id(session_id)
-
-    if not session:
-        raise NotFoundError("session_not_found", "Session not found")
-
-    if session.user_id != user_id:
-        raise AccessDeniedError("session_access_denied", "Access denied to this session")
+    session = _owned_session(session_repository, user_id, session_id)
+    _check_base(session, request.base_version)
 
     if request.name != session.name:
         existing_with_name = session_repository.get_by_user_preset_and_name(
@@ -295,33 +346,42 @@ def update_session(
         },
         "Session update blocked",
     )
-
     new_data = hook_data.get("new_data", request.data)
-    merged_data = _merge_mode_data(session.data, new_data, request.mode)
 
-    updated_session = Session(
-        id=session_id,
-        user_id=session.user_id,
-        preset_id=session.preset_id,
-        name=request.name,
-        data=merged_data,
-        created_at=session.created_at,
-    )
+    for attempt in range(MAX_WRITE_ATTEMPTS):
+        if attempt:
+            session = _owned_session(session_repository, user_id, session_id)
+            _check_base(session, request.base_version)
 
-    result = session_repository.update(updated_session)
+        merged_data = _merge_mode_data(session.data, new_data, request.mode)
 
-    execute_hook(
-        plugin_registry,
-        SESSION_HOOKS.after_update,
-        {
-            "session_id": result.id,
-            "preset_id": result.preset_id,
-            "name": result.name,
-            "user_id": user_id,
-        },
-    )
+        updated_session = Session(
+            id=session_id,
+            user_id=session.user_id,
+            preset_id=session.preset_id,
+            name=request.name,
+            data=merged_data,
+            created_at=session.created_at,
+        )
 
-    _record_version(version_repository, file_preset_repository, result)
+        result = session_repository.update(updated_session, session.version, _stored(origin))
+        if result is None:
+            continue
 
-    logger.info(f"Session updated: {result.name} (id: {result.id})")
-    return session_to_response_dict(result)
+        execute_hook(
+            plugin_registry,
+            SESSION_HOOKS.after_update,
+            {
+                "session_id": result.id,
+                "preset_id": result.preset_id,
+                "name": result.name,
+                "user_id": user_id,
+                "version": result.version,
+            },
+        )
+
+        _record_version(version_repository, file_preset_repository, result)
+
+        logger.info(f"Session updated: {result.name} (id: {result.id})")
+        return session_to_response_dict(result)
+    raise _contended(session_id)

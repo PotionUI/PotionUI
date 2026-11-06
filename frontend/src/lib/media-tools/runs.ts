@@ -9,9 +9,10 @@ import {
 import {
 	isTerminalStatus,
 	type MediaToolItem,
-	type MediaToolOutputMode,
+	type MediaToolSaveMode,
 	type MediaToolRun,
 	type MediaToolRunStatus,
+	type MediaToolRunSummary,
 	type StartMediaToolRunBody
 } from './types';
 
@@ -30,12 +31,12 @@ export interface MediaToolRunState {
 	progress: number;
 	status: MediaToolRunStatus;
 	message: string | null;
-	outputMode: MediaToolOutputMode;
+	outputMode: MediaToolSaveMode;
 	cancelling: boolean;
 }
 
 export type MediaToolRunOutcome =
-	| { status: 'completed'; items: MediaToolItem[]; replaced: boolean }
+	| { status: 'completed'; items: MediaToolItem[]; replaced: boolean; summary?: MediaToolRunSummary }
 	| { status: 'failed'; message: string; code: string | null }
 	| { status: 'cancelled' };
 
@@ -62,7 +63,7 @@ interface RunRecord {
 	toolId: string;
 	label: string;
 	keys: string[];
-	outputMode: MediaToolOutputMode;
+	outputMode: MediaToolSaveMode;
 	startedAt: number;
 	progress: number;
 	status: MediaToolRunStatus;
@@ -173,7 +174,12 @@ export function createMediaToolRuns(api: RunsApi = defaultApi): MediaToolRunsSto
 		record.status = run.status;
 		record.message = run.label || null;
 		if (run.status === 'completed') {
-			finish(record, { status: 'completed', items: run.items ?? [], replaced: run.replaced === true });
+			finish(record, {
+				status: 'completed',
+				items: run.items ?? [],
+				replaced: run.replaced === true,
+				...(run.summary ? { summary: run.summary } : {})
+			});
 		} else if (run.status === 'failed') {
 			finish(record, {
 				status: 'failed',

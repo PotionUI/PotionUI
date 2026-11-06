@@ -1,0 +1,20 @@
+id: invert
+label: Invert
+group: colour
+description: Turns the picture into its negative
+accepts: [video, image]
+time: none
+params:
+  - { name: amount, type: float, label: Amount, description: How far to invert, default: 100, min: 0, max: 100, step: 1, unit: "%" }
+derive:
+  k: "amount / 100"
+preview:
+  shader: preview.frag
+render:
+  - numpy: render.py:invert
+parity:
+  media: { width: 160, height: 90, fps: 24, duration: 1 }
+  cases:
+    - { params: { amount: 100 }, frames: [0] }
+    - { params: { amount: 30 }, frames: [0] }
+  tolerance: { max_abs: 1, mean_abs: 0.05 }

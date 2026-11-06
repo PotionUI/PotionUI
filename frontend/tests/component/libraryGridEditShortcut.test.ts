@@ -5,8 +5,9 @@ import { settle } from './helpers/settle';
 vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
 	default: (await import('./fixtures/PluginSlotStub.svelte')).default
 }));
-vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
-	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
+const openToolShortcut = vi.fn();
+vi.mock('$lib/tool-tabs/openShortcut', () => ({
+	openToolShortcut: (...args: unknown[]) => openToolShortcut(...args)
 }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('$lib/services/api/index', () => ({
@@ -63,9 +64,11 @@ async function mountPage() {
 const press = (key: string, target: EventTarget = window, init: KeyboardEventInit = {}) => {
 	target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
 };
-const editor = () => document.body.querySelector('[data-editor-stub]');
+const opened = () => openToolShortcut.mock.calls.map((call) => call[1][0].url as string);
 
 beforeEach(() => {
+	openToolShortcut.mockReset();
+	openToolShortcut.mockReturnValue(true);
 	originalResizeObserver = (globalThis as any).ResizeObserver;
 	(globalThis as any).ResizeObserver = FakeResizeObserver;
 	Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 1000 });
@@ -89,7 +92,7 @@ afterEach(() => {
 });
 
 describe('E on the Library grid', () => {
-	it('opens Edit image for the one selected image', async () => {
+	it('opens the Image editor for the one selected image', async () => {
 		await mountPage();
 		libraryStore.toggleSelect('row-2');
 		await settle(2);
@@ -97,11 +100,11 @@ describe('E on the Library grid', () => {
 		press('e');
 		await settle(3);
 
-		expect(editor()?.getAttribute('data-kind')).toBe('paint');
-		expect(editor()?.getAttribute('data-url')).toContain('row-2');
+		expect(openToolShortcut.mock.calls[0][0]).toBe('edit-image');
+		expect(opened()).toEqual(['/api/media/uploads/row-2']);
 	});
 
-	it('opens Edit image for the focused card when nothing is selected', async () => {
+	it('opens the editor for the focused card when nothing is selected', async () => {
 		await mountPage();
 		const card = document.body.querySelector<HTMLElement>('[data-library-card="row-1"] .media-zoom');
 		expect(card).not.toBeNull();
@@ -110,7 +113,7 @@ describe('E on the Library grid', () => {
 		press('e', card!);
 		await settle(3);
 
-		expect(editor()?.getAttribute('data-url')).toContain('row-1');
+		expect(opened()).toEqual(['/api/media/uploads/row-1']);
 	});
 
 	it('does nothing with no selection and no focused card', async () => {
@@ -119,7 +122,7 @@ describe('E on the Library grid', () => {
 		press('e');
 		await settle(3);
 
-		expect(editor()).toBeNull();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does nothing with several items selected', async () => {
@@ -131,10 +134,10 @@ describe('E on the Library grid', () => {
 		press('e');
 		await settle(3);
 
-		expect(editor()).toBeNull();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
-	it('does nothing for a video', async () => {
+	it('opens the Video editor for a video', async () => {
 		await mountPage();
 		libraryStore.toggleSelect('row-3');
 		await settle(2);
@@ -142,7 +145,7 @@ describe('E on the Library grid', () => {
 		press('e');
 		await settle(3);
 
-		expect(editor()).toBeNull();
+		expect(openToolShortcut.mock.calls[0][1][0]).toMatchObject({ kind: 'video' });
 	});
 
 	it('does nothing while typing in a field', async () => {
@@ -156,7 +159,7 @@ describe('E on the Library grid', () => {
 		press('e', input);
 		await settle(3);
 
-		expect(editor()).toBeNull();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does nothing while a menu or dialog is open above the page', async () => {
@@ -169,6 +172,6 @@ describe('E on the Library grid', () => {
 		await settle(3);
 		unregisterDismissLayer(layer);
 
-		expect(editor()).toBeNull();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 });

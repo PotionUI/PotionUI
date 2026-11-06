@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clickDialogSaveAndAwaitResponse, loginAsOwner, screenshot, waitForFormPublished } from './helpers';
+import { clickDialogSaveAndAwaitResponse, loginAsOwner, screenshot, waitForFormPublished, addGenerationTab } from './helpers';
 import { installAndSelectImagePreset, presetOption } from './presetPreamble';
 
 // Regression: db97094/b3ad9d3 stopped +page.svelte's own onMount from
@@ -72,7 +72,7 @@ test('editing a segment after loading a session survives switching tabs and back
 	await screenshot(page, JOURNEY, '00-dirty-before-tab-switch');
 
 	// Switch to a second tab and back - the exact repro from the bug report.
-	await page.getByRole('button', { name: 'Add new tab' }).click();
+	await addGenerationTab(page);
 	await expect(page.getByText('Generation 2', { exact: true })).toBeVisible();
 	await expect(page.locator('button.book-tab', { hasText: 'Generation 2' })).not.toContainText('unsaved changes');
 	await expect(firstTab).toContainText('unsaved changes', { timeout: 10000 });
@@ -135,7 +135,7 @@ test('loading an existing session on a second tab, then editing it, survives swi
 
 	// Tab 2: a fresh tab, same preset, load the session through the picker
 	// (not save-as-new).
-	await page.getByRole('button', { name: 'Add new tab' }).click();
+	await addGenerationTab(page);
 	await expect(page.getByText('Generation 2', { exact: true })).toBeVisible();
 
 	await pickPreset(page, imagePreset.name);

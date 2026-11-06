@@ -11,7 +11,7 @@
 
 Both files are entirely generated: every fact in them is read off the running
 code (`PipeCatalog`, `PipesDocumenter`, `TemplateFunctionsDocumenter`, the
-preset linter's injected-form-key set, `DIRECTORY_TO_MODEL_TYPE`, the
+preset linter's injected-form-key set, `CORE_MODEL_TYPE_TO_DIRECTORY`, the
 field-type registry, and `content/presets/_shared/**`) — never hand-typed
 prose. `--check` is wired into `scripts/docs_lint.py`, so drift between these
 files and the code they describe fails the build the same way a typed-doc
@@ -52,7 +52,7 @@ from src.features.developer.template_functions_documenter import (  # noqa: E402
     TemplateFunctionsDocumenter,
 )
 from src.features.presets.linter import _INJECTED_FORM_KEYS  # noqa: E402
-from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE  # noqa: E402
+from src.platform.filesystem.model_types import CORE_MODEL_TYPE_TO_DIRECTORY
 from src.platform.plugins.field_types import FieldTypeRegistry  # noqa: E402
 from src.features.fields.builtin import register_builtin_fields  # noqa: E402
 from src.platform.filesystem.yaml_io import load_yaml_file
@@ -402,14 +402,14 @@ def render_context_md(repo_root: Path) -> str:
         "",
         "## `model_type` values",
         "",
-        f"The {len(DIRECTORY_TO_MODEL_TYPE)} model types a `model`/`lora_picker` field's "
+        f"The {len(CORE_MODEL_TYPE_TO_DIRECTORY)} model types a `model`/`lora_picker` field's "
         "`configuration.model_type` may select, and the depot directory each maps to "
         "(`src/platform/filesystem/model_types.py`):",
         "",
         "| `model_type` | Directory |",
         "|---|---|",
     ]
-    for directory, model_type in sorted(DIRECTORY_TO_MODEL_TYPE.items(), key=lambda kv: kv[1]):
+    for model_type, directory in sorted(CORE_MODEL_TYPE_TO_DIRECTORY.items()):
         lines.append(f"| `{model_type}` | `{directory}/` |")
     lines.append("")
 

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { installAndSelectImagePreset } from './presetPreamble';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-prompt-feedback';
@@ -29,7 +30,12 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	const token = await ownerToken(page);
 	await seedFakeLlmConfig(page.request, BACKEND, token, fake.url);
 
-	await page.goto('/models');
+	const preset = await installAndSelectImagePreset(page);
+	if (!preset) {
+		test.skip(true, 'No native image preset available on this throwaway instance to render the prompt editor with.');
+		return;
+	}
+	await expect(page.locator('.inline-chip-editor[role="textbox"]').first()).toBeVisible({ timeout: 20000 });
 	// Sidebar.svelte's AI Chat trigger has no `title` attribute (its tooltip
 	// text comes from a wrapping <Tooltip>, not a native title) — only its
 	// accessible name, "AI Chat" (via aria-label), identifies it.
@@ -43,7 +49,7 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 		kind: 'text',
 		text:
 			'Here is a stronger prompt for your first segment:\n' +
-			`<tool_action type="update_segment" segment_index="0" segment_id="seg-e2e-1">${PROPOSED_PROMPT}</tool_action>`
+			`<tool_action type="update_segment" segment_index="0">${PROPOSED_PROMPT}</tool_action>`
 	});
 
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');

@@ -5,6 +5,7 @@ cannot express (things on disk, not inside a single YAML file).
 Used by `scripts/preset_lint.py` and `GET /api/developer/presets/lint`.
 """
 
+import copy
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,9 +24,11 @@ from src.platform.plugins.sampling import (
     schedule_registry,
 )
 from src.platform.filesystem.yaml_io import load_yaml, load_yaml_file
+from src.features.prompt.resource_sources import declared_prompt_resource_sources, source_field_type
 from .children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from .children_refs import parse_children_ref, read_children_fragment
 from .formula_groups import FORMULA_INPUT_TYPES, iter_formula_fields
+from .extensions import plugin_preset_extensions, read_extension_file, resolve_pipe
 from .loader import discover_form_variants, plugin_preset_mode_contributions, read_mode_naming
 from .mode_labels import fallback_mode_label, is_known_mode, known_icon_names
 from .schema import (
@@ -314,6 +317,10 @@ class PresetLinter:
         self._pipe_import_notes: List[LintIssue] = []
 
     def lint(self) -> List[LintIssue]:
+        with declared_prompt_resource_sources(self.plugin_manifests):
+            return self._lint_all()
+
+    def _lint_all(self) -> List[LintIssue]:
         issues: List[LintIssue] = []
         seen_ids: Dict[str, str] = {}
         # target preset id -> (preset.yml path, validated manifest) - only for
@@ -332,6 +339,7 @@ class PresetLinter:
                     loaded_manifests[manifest.id] = (preset_file, manifest)
 
         issues.extend(self._lint_preset_mode_contributions(loaded_manifests))
+        issues.extend(self._lint_preset_extensions())
         issues.extend(self._req_checker_warnings)
         issues.extend(self._pipe_import_notes)
 
@@ -528,7 +536,98 @@ class PresetLinter:
 
         issues.extend(self._lint_tests_yml(preset_file, manifest))
 
+        issues.extend(self._lint_recommendations(preset_file))
+
+        issues.extend(self._lint_elixir_contracts(preset_file))
+
         return issues, manifest
+
+    def _loaded_template(self, preset_file: Path):
+        resolved = preset_file.parent.resolve()
+        root = next(
+            (base for base in self.paths if base.exists() and resolved.is_relative_to(base.resolve())),
+            preset_file.parent.parent,
+        )
+        cache = self.__dict__.setdefault("_template_loaders", {})
+        key = str(root.resolve())
+        if key not in cache:
+            from .loader import PresetTemplateLoader
+
+            loader = PresetTemplateLoader([str(root)], shared_path=self.shared_path)
+            try:
+                loader.load_presets()
+            except Exception:
+                loader = None
+            cache[key] = {
+                Path(template.path).resolve(): template for template in (loader.presets if loader else [])
+            }
+        return cache[key].get(resolved)
+
+    def _lint_elixir_contracts(self, preset_file: Path) -> List[LintIssue]:
+        from src.features.elixirs.catalog import catalog_entry
+        from src.features.elixirs.contracts import lint_contract
+        from src.features.elixirs.derivation import preset_results
+
+        template = self._loaded_template(preset_file)
+        if template is None:
+            return []
+        preset_str = str(preset_file)
+        issues: List[LintIssue] = []
+        catalog = {template.id: catalog_entry(template)}
+        for result in preset_results(template):
+            for message in result.errors:
+                issues.append(LintIssue("error", preset_str, message))
+            if result.contract is not None and result.overridden:
+                for message in lint_contract(template.id, result.mode, result.contract, catalog):
+                    issues.append(LintIssue("error", preset_str, f"modes/{result.mode}/elixir.yml: {message}"))
+            for message in result.problems:
+                issues.append(
+                    LintIssue("info", preset_str, f"modes/{result.mode}: not offered in elixirs: {message}")
+                )
+        return issues
+
+    def _lint_recommendations(self, preset_file: Path) -> List[LintIssue]:
+        from .mode_fields import model_fields, mode_requirement_fields
+        from src.features.models.recommendations import lint_recommendations, parse_recommendations
+
+        template = self._loaded_template(preset_file)
+        if template is None:
+            return []
+        preset_str = str(preset_file)
+        issues: List[LintIssue] = []
+        seen = set()
+
+        def add(severity: str, message: str) -> None:
+            if (severity, message) not in seen:
+                seen.add((severity, message))
+                issues.append(LintIssue(severity, preset_str, message))
+
+        for mode_name, mode in (template.modes or {}).items():
+            fields = model_fields(mode)
+            own_names = {}
+            for field_name, spec in fields.items():
+                raw = (spec.configuration or {}).get("recommendations")
+                errors, warnings = lint_recommendations(raw, f"field '{field_name}' recommendations")
+                for message in errors:
+                    add("error", message)
+                for message in warnings:
+                    add("warning", message)
+                for rec in parse_recommendations(raw):
+                    own_names[rec.filename] = field_name
+            named = mode_requirement_fields(mode)
+            for field_name in list(named["required"]) + [n for group in named["any_of"] for n in group]:
+                if field_name not in fields:
+                    add("error", f"modes/{mode_name}: requirement names field '{field_name}', which is not a model field of this mode")
+            for form in mode.forms or []:
+                for spec in form.requirements or []:
+                    filename = spec.get("filename") if spec.get("type") == "model" else None
+                    if filename and filename in own_names:
+                        add(
+                            "warning",
+                            f"modes/{mode_name}: requirement 'filename: {filename}' is one of field "
+                            f"'{own_names[filename]}' recommendations; use 'field: {own_names[filename]}' so any of them satisfies it",
+                        )
+        return issues
 
     def _lint_preset_mode_contributions(
         self, loaded_manifests: Dict[str, Tuple[Path, Any]]
@@ -620,6 +719,85 @@ class PresetLinter:
                 ))
 
         return issues
+
+    def _lint_preset_extensions(self) -> List[LintIssue]:
+        extensions = plugin_preset_extensions(self.plugin_manifests)
+        if not extensions:
+            return []
+        manifests = []
+        for manifest in self.plugin_manifests:
+            clone = copy.copy(manifest)
+            clone.presets = []
+            manifests.append(clone)
+
+        from .loader import PresetTemplateLoader
+
+        loader = PresetTemplateLoader(
+            [str(p) for p in self.paths],
+            plugin_registry=SimpleNamespace(get_enabled_plugins=lambda: manifests),
+            shared_path=self.shared_path,
+        )
+        try:
+            loader.load_presets()
+        except Exception as exc:
+            return [LintIssue("error", "<preset extensions>", f"preset extensions could not be checked: {exc}")]
+
+        issues: List[LintIssue] = []
+        seen = set()
+        for extension in extensions:
+            location = extension.error_key
+            if location in seen:
+                continue
+            seen.add(location)
+            problems = loader.load_errors.get(location)
+            if problems:
+                issues.extend(LintIssue("error", location, problem) for problem in problems)
+                continue
+            target = loader.presets_by_id.get(extension.target_preset_id)
+            spec, _ = read_extension_file(extension)
+            if target is None or spec is None:
+                continue
+            for mode_name in extension.modes:
+                pipes = target.modes[mode_name].pipes
+                for pipe in pipes:
+                    if pipe.source_plugin != extension.plugin_id:
+                        continue
+                    if self._pipe_catalog().get_pipe_source(pipe.name) is None:
+                        issues.append(LintIssue(
+                            "error", location,
+                            f"modes/{mode_name}: added pipe '{pipe.id}' names '{pipe.name}', "
+                            f"which is not in the pipe catalog",
+                        ))
+                        continue
+                    issues.extend(self._extension_config_key_issues(
+                        location, mode_name, pipe.id, pipe.name, (pipe.configuration or {}).keys()
+                    ))
+                for op in spec.pipes:
+                    if not hasattr(op, "configuration_add") or not op.configuration_add:
+                        continue
+                    position, _ = resolve_pipe(pipes, op.patch)
+                    if position is not None:
+                        issues.extend(self._extension_config_key_issues(
+                            location, mode_name, op.patch, pipes[position].name, op.configuration_add.keys()
+                        ))
+        return issues
+
+    def _extension_config_key_issues(self, location: str, mode_name: str, identifier, name: str, keys) -> List[LintIssue]:
+        pipe_class = self._load_pipe_class(name)
+        if pipe_class is None:
+            return []
+        try:
+            allowed = {spec.name for spec in (pipe_class.configuration() or [])}
+        except Exception:
+            return []
+        unknown = sorted(key for key in keys if key not in allowed)
+        if not unknown:
+            return []
+        return [LintIssue(
+            "warning", location,
+            f"modes/{mode_name}: pipe '{identifier}' ({name}) gets configuration key(s) not declared "
+            f"in its PipeConfigSpec: {unknown}",
+        )]
 
     def _lint_speed_profiles(self, preset_file: Path, manifest) -> List[LintIssue]:
         """Cross-checks for `speed_profiles:` (roadmap 3.6) the schema itself
@@ -742,6 +920,19 @@ class PresetLinter:
                         "error", preset_str,
                         f"{loc}: field '{entry.field}' is not a field of any '{mode_name}' form",
                     ))
+                    continue
+                if entry.source is not None:
+                    field_type = source_field_type(entry.source)
+                    if field_type is None:
+                        issues.append(LintIssue(
+                            "error", preset_str, f"{loc}: field '{entry.field}' names unknown source '{entry.source}'",
+                        ))
+                    elif types != {field_type}:
+                        issues.append(LintIssue(
+                            "error", preset_str,
+                            f"{loc}: field '{entry.field}' has type {sorted(types)}; a '{entry.source}' source "
+                            f"needs a {field_type} field",
+                        ))
                     continue
                 non_media = sorted(t for t in types if t not in _PROMPT_RESOURCE_FIELD_TYPES)
                 if non_media:

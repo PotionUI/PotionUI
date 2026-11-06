@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
 	import { logger } from '$lib/utils/logger';
+	import { showDeleteError } from '$lib/elixirs/openBrew';
+	import { toasts } from '$lib/stores/toast';
 	import { historyStore } from '$lib/stores/history';
 	import { bulkDeleteMessage, planBulkDelete } from '$lib/utils/historyDeleteCopy';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
@@ -26,6 +28,7 @@
 			onClose();
 		} catch (error) {
 			logger.error('Failed to bulk delete generations:', error);
+			showDeleteError(error);
 			attempt += 1;
 		} finally {
 			bulkDeleting = false;

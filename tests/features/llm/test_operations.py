@@ -1,5 +1,7 @@
 """Tests for src.features.llm.operations (formerly LLMManager)."""
 
+import asyncio
+
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -288,6 +290,38 @@ class TestGenerationOperations:
         assert result.model == sample_llm_config.model
         assert result.tokens_used == 50
         assert mock_llm_service.complete.call_args.args[1][0].text() == "Hello, world!"
+
+    @pytest.mark.asyncio
+    async def test_generate_response_waits_for_blocking_hook_runs_before_the_call(self, mock_repo, mock_llm_service, mock_settings, mock_plugins, sample_llm_config):
+        from src.platform.plugins.hooks import HOOK_BLOCKING_WAITS_KEY
+
+        order = []
+
+        async def slow_run():
+            await asyncio.sleep(0.01)
+            order.append("wait-done")
+
+        async def complete(*args, **kwargs):
+            order.append("complete")
+            return Completion(
+                message=Message(
+                    id="m1", role=Role.ASSISTANT, parts=(TextPart(text="ok"),),
+                    origin=Origin(adapter="a", provider="p", model=sample_llm_config.model),
+                ),
+                usage=Usage(total_tokens=1), finish=None, finish_raw=None,
+            )
+
+        mock_llm_service.complete = complete
+        mock_repo.get_default_configuration.return_value = sample_llm_config
+        data = {"blocked": False, HOOK_BLOCKING_WAITS_KEY: [slow_run()]}
+        mock_plugins.execute_hook = Mock(return_value=(Mock(data=data), []))
+
+        await operations.generate_response(
+            mock_repo, mock_llm_service, mock_settings, mock_plugins, LLMGenerateRequest(prompt="Hi"), "user-123"
+        )
+
+        assert order == ["wait-done", "complete"]
+        assert HOOK_BLOCKING_WAITS_KEY not in data
 
     @pytest.mark.asyncio
     async def test_generate_response_no_config(self, mock_repo, mock_llm_service, mock_settings, mock_plugins):

@@ -1318,7 +1318,7 @@ class TestBackendQuickActions:
         assert by_id["clear-vram"]["method"] == "POST"
         assert by_id["clear-vram"]["poll_health_after"] is False
         assert by_id["clear-vram"]["label"] == "Clear VRAM"
-        assert "RAM cache stays warm" in by_id["clear-vram"]["confirm"]
+        assert "don't fit in free RAM are unloaded" in by_id["clear-vram"]["confirm"]
 
         assert by_id["clear-cache"]["endpoint"] == "/api/backends/native-1/actions/clear-cache"
         assert by_id["clear-cache"]["method"] == "POST"
@@ -1412,15 +1412,30 @@ class TestClearBackendVram:
         return user
 
     @pytest.fixture
-    def mock_residency_manager(self):
-        from src.platform.runtime.native.memory.residency import OffloadResult
-        mock = Mock()
-        mock.offload_all.return_value = OffloadResult(["dit", "vae"], freed_gb=8.0)
+    def residents(self):
+        from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
+        from src.platform.runtime.system_memory import SystemMemory
+
+        class Resident:
+            def __init__(self):
+                self.device = "cuda"
+
+            def offload(self):
+                self.device = "cpu"
+
+        registry = GpuResidencyRegistry()
+        components = [Resident(), Resident()]
+        for component, size_gb in zip(components, (6.0, 2.0)):
+            registry.note_resident(component, "cuda", size_gb)
+        roomy = SystemMemory(total=128 * 1024 ** 3, available=100 * 1024 ** 3)
         with patch(
             "src.platform.runtime.native.memory.residency.get_residency_registry",
-            return_value=mock,
+            return_value=registry,
+        ), patch(
+            "src.platform.runtime.native.memory.residency.get_system_memory",
+            return_value=roomy,
         ):
-            yield mock
+            yield components
 
     @pytest.mark.asyncio
     async def test_requires_authentication(self, controller):
@@ -1451,7 +1466,7 @@ class TestClearBackendVram:
 
     @pytest.mark.asyncio
     async def test_success_offloads_gpu_residents_without_evicting_cache(
-        self, controller, admin_user, native_backend, mock_model_lifecycle_manager, mock_residency_manager
+        self, controller, admin_user, native_backend, mock_model_lifecycle_manager, residents
     ):
         controller.backend_config_store.get_backend.return_value = native_backend
 
@@ -1459,14 +1474,17 @@ class TestClearBackendVram:
 
         assert response.success is True
         assert response.data["offloaded_count"] == 2
+        assert response.data["unloaded_count"] == 0
+        assert response.data["failed_count"] == 0
         assert response.data["swept_count"] == 0
-        mock_residency_manager.offload_all.assert_called_once_with(native_backend.device, exclude=[])
+        assert [component.device for component in residents] == ["cpu", "cpu"]
+        mock_model_lifecycle_manager.evict_value.assert_not_called()
         mock_model_lifecycle_manager.cleanup.assert_called_once_with(aggressive=False)
         mock_model_lifecycle_manager.invalidate.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_succeeds_without_a_model_lifecycle_manager(
-        self, admin_user, native_backend, mock_settings, mock_backend_registry, mock_residency_manager
+        self, admin_user, native_backend, mock_settings, mock_backend_registry, residents
     ):
         # cleanup() is a nice-to-have, not required - offloading GPU residents
         # is the whole point of this action and doesn't depend on it.
@@ -1476,7 +1494,8 @@ class TestClearBackendVram:
         response = await controller.clear_backend_vram("native-1", user=admin_user)
 
         assert response.success is True
-        mock_residency_manager.offload_all.assert_called_once_with(native_backend.device, exclude=[])
+        assert response.data["offloaded_count"] == 2
+        assert [component.device for component in residents] == ["cpu", "cpu"]
 
 
 class TestClearBackendCache:

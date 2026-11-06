@@ -1,0 +1,13 @@
+id: "e2e-model-types"
+name: "E2E Model Types"
+version: "1.0.0"
+description: "Test-only plugin that registers a model type. Used by the browser end-to-end tests; never shipped."
+author: "PotionUI Team"
+type: "backend-only"
+
+model_types:
+  - id: e2e_rig
+    label: "Fixture rig"
+    purpose: "Browser test model type"
+    folder: e2e_rigs
+    extensions: [.onnx]

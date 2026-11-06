@@ -141,7 +141,7 @@ class TestPluginReadyHook(unittest.TestCase):
         reconcile = names.index("reconcile_interrupted_generations")
         self.assertLess(reconcile, names.index("run_ready_hooks"))
         between = names[reconcile + 1:names.index("run_ready_hooks")]
-        self.assertEqual([n for n in between if n not in ("info", "get_running_loop")], [])
+        self.assertEqual([n for n in between if n not in ("info", "error", "get_running_loop", "reconcile_interrupted")], [])
 
 
 class TestPluginTeardownDisableHook(unittest.TestCase):

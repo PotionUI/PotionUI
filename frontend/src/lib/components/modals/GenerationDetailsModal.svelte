@@ -33,6 +33,8 @@
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
 	import { Badge, Button, Spinner, CopyButton, IconButton, Switch } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import LoopToggle from '$lib/components/media/LoopToggle.svelte';
+	import { loopVideos } from '$lib/stores/loopVideos';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
 	import ProvenanceLine from '$lib/components/organize/ProvenanceLine.svelte';
 	import { startRuleFrom } from '$lib/organize/handoff';
@@ -553,8 +555,6 @@
 
 	let showPublishModal = false;
 
-	let toolEditing = false;
-
 	$: rowContext =
 		activeGeneration && currentFile ? buildHistoryEntryContext(activeGeneration, currentFile, null) : null;
 	$: rowItems = rowContext?.items ?? [];
@@ -700,7 +700,6 @@
 	{isOpen}
 	{title}
 	sizeClass="md:w-[85vw] md:h-[85vh]"
-	closeable={!toolEditing}
 	on:close={handleClose}
 >
 	<svelte:fragment slot="headerIcon">
@@ -787,7 +786,7 @@
 						{moreActions}
 						pluginContext={pluginActionContext}
 						onLaunch={handleLaunch}
-						onEditingChange={(editing) => (toolEditing = editing)}
+						onOpenedInTab={handleClose}
 					/>
 				{/if}
 			<div data-details-stage class="relative min-h-0 flex-1 overflow-hidden bg-black">
@@ -848,10 +847,14 @@
 							src={getImageUrl(currentFile)}
 							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''}"
 							controls={!detailBlur}
+							loop={$loopVideos}
 							playsinline
 						>
 							<track kind="captions" />
 						</video>
+						{#if !detailBlur}
+							<LoopToggle class="absolute top-4 right-4 z-20" />
+						{/if}
 					{:else if isMeshFile(currentFile)}
 						<div class="absolute inset-0 h-full w-full p-3 md:p-6">
 							<MeshPreview file={{ url: getImageUrl(currentFile), originalUrl: getImageUrl(currentFile) }} />

@@ -247,6 +247,30 @@ class TestProviderRegistry(unittest.TestCase):
         self.assertIsNone(result)
 
     @patch('src.features.providers.registry.PluginRepository')
+    def test_a_hash_mismatch_is_swallowed_unless_the_caller_asks_for_errors(self, mock_plugin_repo):
+        from src.features.providers import ProviderHashMismatchError
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+        mock_provider = MockProvider()
+        mock_provider.get_model_by_hash = AsyncMock(side_effect=ProviderHashMismatchError("different file"))
+        service._providers['mock'] = mock_provider
+        service._initialized_providers.add('mock')
+
+        async def lookups():
+            quiet = await service.get_model_by_hash('mock', 'h')
+            try:
+                await service.get_model_by_hash('mock', 'h', raise_errors=True)
+            except ProviderHashMismatchError as exc:
+                return quiet, exc
+            return quiet, None
+
+        quiet, raised = asyncio.run(lookups())
+
+        self.assertIsNone(quiet)
+        self.assertIsInstance(raised, ProviderHashMismatchError)
+
+    @patch('src.features.providers.registry.PluginRepository')
     def test_get_provider_settings_schema(self, mock_plugin_repo):
         """Test getting provider settings schema"""
         from src.features.providers.registry import ProviderRegistry

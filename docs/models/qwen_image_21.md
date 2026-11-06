@@ -2,7 +2,7 @@
 type: model
 title: Qwen-Image-2.1
 family_key: qwen_image21
-modes: [txt2img, edit, control]
+modes: [txt2img, edit, combine, text, restyle, inpaint, control]
 spec:
   arch: single-stream block-causal MMDiT
   latent: 64-channel, RGBA causal-3D VAE latent (16x downscale, image-only, single frame)
@@ -36,6 +36,12 @@ The text encoder is Qwen3-VL-8B (not Qwen2.5-VL — a different encoder than 1.0
 
 The shipped Qwen-Image-2.1 preset ships `txt2img`, `edit` and `control` (see [Fun ControlNet Union](#fun-controlnet-union) below). `edit` reuses the SAME checkpoint set as `txt2img` — `model_loader/qwen_image21` loads the Qwen3-VL-8B text encoder's vision tower (`vision: true`) so the text conditioning is grounded on up to 10 reference images, and `generator/qwen_image21`'s `GeneratorQwenImage21Pipe.maybe_edit` VAE-encodes each reference (its own area-target aspect, snapped to the 16px granularity) into `ref_latents`. Each reference is spliced INTO the text run at the `image_slots` position the text encoder recorded (`QwenImage21TextEncoder._encode_with_images`), not simply appended after all the text — `QwenImage21DiT.build_sequence` honours those slots (falling back to "after the text" for any reference without one, which keeps a caller that never passes `image_slots` — e.g. a plain txt2img forward — byte-identical to the pre-edit layout).
 
+**Output size (`combine`).** The References tab has an **Output size** choice. **Match first image** (the default) renders at the first image's aspect at about 1 MP, as before. **Custom** shows the same resolution picker as txt2img and renders at that size (snapped to the 16px grid). The first image is the one being edited, so it is fitted to exactly that size: **Crop to fill** (default) takes the centred box of the target aspect, and **Pad to fit** scales the whole picture inside it on neutral grey (128) borders. Grey follows ComfyUI's `ImagePadForOutpaint`, which pads with 0.5 grey; edge-extended borders read as picture content that an edit keeps. The other references keep their own aspect at about 1 MP, as in diffusers' `QwenImageEditPlusPipeline`, where the output `height`/`width` are independent of the reference sizes. The generator takes this as `resolution` plus `fit` (`match`, `crop`, `pad`); `fit` defaults to `match`, which ignores `resolution`. The `image_fit` pipe fits the first image once, before both the prompt encoder and the generator, so the vision tower sees the same framing as the latent; with `match` it passes the pictures through untouched. Edit, Edit text and Inpaint have no Output size because a painted area is composited back onto the source; Restyle, Make it real and Camera angle keep the source composition.
+
+**Inpaint** repaints a painted area of a picture without an instruction or the vision tower. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). *Grow* widens the painted area, the area is cropped with its surroundings, repainted and composited back with a *Feather* seam that fades out beyond the painted edge; the repainted area itself is never blended with the old content. The prompt is optional; blank asks for the surroundings continued. Strength 1.0 repaints from noise; lower keeps more of the old colours. Paint where a cast shadow should fall: a shadow can only be repainted inside the painted area. It is separate from `edit`, which also accepts a painted region but changes it by instruction.
+
+**Restyle tasks.** `restyle` builds an `edit` instruction from the task picked: Style, Background, Lighting, Photo, Colourise or Restore. **Photo** turns an illustration, render or 3D shot into a photograph without a LoRA: `Turn this image into a realistic photograph. It shows <prompt>. Keep the composition, subjects, layout and colours unchanged.` The prompt is optional there. It is prompt-only because the 2509/2511 anything-to-real LoRAs cannot load on the 2.1 DiT; whether the base model alone is photographic enough is a GPU check, and `QwenImage` `real` is the LoRA route.
+
 **Output is RGBA when the checkpoint actually produced transparency, RGB otherwise.** The VAE always decodes 4 channels; `generator/qwen_image21` checks the alpha channel after decode (`drop_opaque_alpha`, `src/pipelines/pipes/_shared/imaging/alpha.py`) and drops it to a plain RGB image only when every pixel is fully opaque — byte-identical to the previous unconditional `Image.convert("RGB")` for every generation that doesn't produce transparency. A genuinely transparent decode (any pixel below full opacity) is kept as RGBA end-to-end: saved as PNG (main output) and WebP-with-alpha (thumbnails), and shown with a checkerboard backdrop in the workbench/gallery/details views. There is no separate "transparent background" toggle — like ComfyUI, whatever the VAE decodes is what gets saved; the checkpoint only produces meaningful alpha when the prompt actually asks for a subject on a transparent background.
 
 ## Fun ControlNet Union
@@ -58,7 +64,7 @@ The shipped Qwen-Image-2.1 preset ships `txt2img`, `edit` and `control` (see [Fu
 
 **Guidance and caching.** The control branch is CFG-distilled: the `Control` speed profile runs 40 steps at CFG 1.0, a single forward per step. With CFG above 1 both passes get the same control, as upstream. A controlled forward bypasses the prefix K/V cache, exactly like VideoX-Fun, so the cache never holds control-shaped prefix keys. An uncontrolled forward is unchanged.
 
-**Preprocessing.** `controlnet_preprocessor` turns a photo into the chosen map (Pose is OpenPose). It runs with `strict: true` in this mode, so a missing `controlnet-aux` package, a failed detector, or a detector that found nothing (a blank map, e.g. Pose run on an image that already is a pose skeleton) stops the generation with a plain message telling the user to turn off Extract the guide from a photo. Grayscale, and any guide with the switch off, need no extra package.
+**Preprocessing.** `controlnet_preprocessor` turns a photo into the chosen map (Pose is a DWPose skeleton, drawn without `controlnet-aux`). It runs with `strict: true` in this mode, so a missing `controlnet-aux` package, a failed detector, or a detector that found nothing (a blank map, e.g. Pose run on an image that already is a pose skeleton) stops the generation with a plain message telling the user to turn off Extract the guide from a photo. Grayscale, and any guide with the switch off, need no extra package.
 
 **Licence.** The weights are under the Qwen Research License, like the base model.
 
@@ -68,13 +74,22 @@ Default generation parameters: 40 steps, guidance 4.0 (true CFG scale), sampler 
 
 The preset's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `qwen_image21`) are registry-driven: they list whatever this instance has registered, core entries plus any a plugin contributes, rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md).
 
+## Turbo speed profile
+
+The **Turbo** speed profile runs 8 steps at CFG 1 (euler), a fifth of Balanced's 40. It is built for the community **Turbo8** step-distillation LoRA (`turbo8_lora_step2500.safetensors`, 1.36 GB, rank 128, DMD2) by chriswritescode, which covers text-to-image, text rendering, editing with up to 10 references and RGBA output. Every mode except `control` shows an optional **Turbo LoRA** model field in its Models section while Turbo is selected, with a pinned download recommendation. With a file chosen, Turbo loads it first at strength 1.0 (the card's value), ahead of the LoRAs from the LoRA tab, and records it in the generation's models. The field is ignored under Balanced and Custom, and with it empty Turbo only changes the sampling numbers, so a different 8-step LoRA can be picked on the LoRA tab instead.
+
+Turbo8 is not distributed with PotionUI. It is a derivative of Qwen-Image-2.1 under the Qwen Research License (non-commercial research and evaluation use only), the same terms as the base weights, and is fetched on demand through the model downloader. Its card reports weaker dense or long text (75% exact OCR match against 95% at 40 steps) and says more steps or CFG above 1 does not help.
+
+**Key mapping.** The LoRA targets the diffusers layout, which splits each block's MLP into `img_mlp.gate_layer` and `img_mlp.proj`, while this DiT stores them fused as `img_mlp.gate_up` (gate rows first). The LoRA key map (`build_qwen_image21_lora_key_map` in `lora/key_mapping.py`) registers both spellings as row slices of the fused weight, so every module applies. Checked against the real Turbo8 header: 195 native parameters mapped, none unmatched. Before the slice entries, only 163 mapped and the 64 MLP modules were silently dropped, which would have run the distilled schedule without its MLP deltas.
+
+**Schedule.** The LoRA was distilled with ComfyUI's `ModelSamplingFlux` (max shift 0.6935, base shift 0.5) following the image size. At 1024 squared the default resolution-dynamic shift of this preset gives the same value (mu 0.693); at other sizes, notably 2K, the two diverge and the Shift override in Advanced can be used to compare.
+
 ## Limitations
 
-- No img2img mode; only `txt2img`, `edit` and `control`.
+- No img2img mode: `inpaint` is the only mode that starts from an encoded picture; the others are `txt2img`, `edit`, `combine`, `text`, `restyle` and `control`.
 - `control` does not combine with edit references.
-- `edit` accepts up to 10 reference images; the first sets the output's size and aspect and is the image being edited, the rest condition the generation without affecting output sizing.
+- `combine` accepts up to 10 reference images; the first is the image being edited and sets the output's size and aspect unless Output size is Custom, the rest condition the generation without affecting output sizing.
 - Qwen3-VL has a different text-encoder architecture than CLIP-family encoders — there is no CLIP-skip concept for this family. A `clip_skip` setting carried over from an SDXL-style preset has no effect here.
-- No distilled/Lightning LoRA exists yet for Qwen-Image-2.1; the preset's "Turbo" speed profile (20 steps) is a proposed fast profile that expects one to be paired in on the LoRA tab for acceptable quality, same as Qwen-Image 1.0's turbo profile.
 
 ## Licence
 

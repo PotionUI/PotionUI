@@ -6,7 +6,7 @@ from src.features.generation.policy import GenerationPolicy
 from src.features.generation.prompt_text import prompt_search_sql, prompt_texts
 from src.features.models.attributes.records import ModelAttributeDefinition
 from src.features.models.attributes.well_known import WellKnownModelAttribute
-from src.features.organize.evaluator import NEGATED_TEXT, as_list
+from src.features.organize.evaluator import NEGATED_TEXT, SeparatorInsensitive, as_list, strip_separators
 from src.features.organize.item_repository import OrganizeItemRepository
 from src.features.presets.mode_labels import mode_display_name
 from src.features.users.repository import UserRepository
@@ -242,21 +242,29 @@ def _prompt_sql(operator: str, value: Any, alias: str) -> SqlResult:
 TextSource = Tuple[str, List[Any], str]
 
 
-def _text_test(expr: str, operator: str, needle: str) -> SqlResult:
+def _text_test(expr: str, operator: str, needle: str, ignore_separators: bool = False) -> SqlResult:
     template = TEXT_SQL.get(NEGATED_TEXT.get(operator, operator))
     if template is None:
         return None
     sql, count = template
+    if ignore_separators:
+        expr = f"REPLACE(REPLACE({expr}, '-', ''), '_', '')"
     return f"COALESCE({sql.format(e=expr)}, 0)", [needle] * count
 
 
 def _text_sources_sql(operator: str, value: Any, sources: Sequence[TextSource]) -> SqlResult:
     if not isinstance(value, str) or not value:
         return None
+    ignore_separators = isinstance(value, SeparatorInsensitive)
+    needle = str(value)
+    if ignore_separators:
+        needle = strip_separators(needle)
+        if not needle:
+            return None
     parts: List[str] = []
     params: List[Any] = []
     for wrapper, wrapper_params, expr in sources:
-        built = _text_test(expr, operator, value)
+        built = _text_test(expr, operator, needle, ignore_separators)
         if built is None:
             return None
         parts.append(f"COALESCE({wrapper.replace('{test}', built[0])}, 0)")
@@ -561,7 +569,7 @@ def register_core_facts(registry: OrganizeRegistry, items: OrganizeItemRepositor
         return _options(values, query, label)
 
     def attribute_options(user_id: str, subject: str, query: str) -> List[Dict[str, Any]]:
-        admin = GenerationPolicy.is_admin(users.get_by_id(user_id))
+        admin = user_id is None or GenerationPolicy.is_admin(users.get_by_id(user_id))
         needle = (query or "").casefold()
         return [
             attribute_option(d) for d in items.attribute_definitions()
@@ -659,12 +667,12 @@ def register_core_facts(registry: OrganizeRegistry, items: OrganizeItemRepositor
         OrganizeFactDefinition(
             key="filename", label="File name", subjects=("upload", "model"), kind="text",
             extract=_filename_of, sql=_filename_sql,
-            picker={"placeholder": "part of the file name"},
+            picker={"placeholder": "part of the file name"}, ignore_separators=True,
         ),
         OrganizeFactDefinition(
             key="name", label="Name", subjects=("model",), kind="text",
             extract=_model_names, sql=_name_sql, triggers=("item_created", "metadata_changed"),
-            picker={"placeholder": "part of the name"},
+            picker={"placeholder": "part of the name"}, ignore_separators=True,
         ),
         OrganizeFactDefinition(
             key="description", label="Description", subjects=("model",), kind="text",

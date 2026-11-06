@@ -2,6 +2,12 @@ import type { AxiosInstance } from 'axios';
 import { api } from '$lib/services/api/index';
 import type { APIResponse } from '$lib/types/api';
 import type {
+	ClipPreviewBody,
+	ClipPreviewStart,
+	EffectAnalysisBody,
+	FramePreviewBody,
+	FramePreviewResult,
+	MediaToolArtifact,
 	MediaToolRun,
 	PreviewMediaToolBody,
 	StartMediaToolRunBody,
@@ -58,6 +64,65 @@ export function createMediaToolsApi(client: AxiosInstance) {
 				signal
 			});
 			return response.data;
+		},
+
+		async listMediaToolRuns(): Promise<MediaToolRun[]> {
+			const response = await client.get<APIResponse<{ runs: MediaToolRun[] }>>('/api/media-tools/runs');
+			return unwrap(response.data, 'The edits in progress could not be read').runs ?? [];
+		},
+
+		async previewFrame(body: FramePreviewBody, signal?: AbortSignal): Promise<FramePreviewResult> {
+			const response = await client.post<Blob>('/api/media-tools/preview/frame', body, {
+				responseType: 'blob',
+				signal
+			});
+			const width = Number(response.headers?.['x-frame-width']);
+			const height = Number(response.headers?.['x-frame-height']);
+			const size = width > 0 && height > 0 ? { width, height } : undefined;
+			return { blob: response.data, cached: response.headers?.['x-preview-cache'] === 'hit', ...(size ? { size } : {}) };
+		},
+
+		async startClipPreview(body: ClipPreviewBody): Promise<ClipPreviewStart> {
+			const response = await client.post<APIResponse<ClipPreviewStart>>(
+				'/api/media-tools/preview/clip',
+				body
+			);
+			return unwrap(response.data, 'The preview could not be started');
+		},
+
+		async uploadMediaToolArtifact(file: File): Promise<MediaToolArtifact> {
+			const formData = new FormData();
+			formData.append('file', file);
+			const response = await client.post<APIResponse<MediaToolArtifact>>(
+				'/api/media-tools/artifacts',
+				formData
+			);
+			return unwrap(response.data, 'The file could not be saved');
+		},
+
+		async effectShader(url: string, signal?: AbortSignal): Promise<string> {
+			const response = await client.get<string>(url, { responseType: 'text', transformResponse: (data) => data, signal });
+			if (typeof response.data !== 'string') throw new Error('The effect preview could not be loaded');
+			return response.data;
+		},
+
+		async lutTable(ref: string, signal?: AbortSignal): Promise<Uint16Array> {
+			const response = await client.get<ArrayBuffer>('/api/media-tools/luts/table', { params: { ref }, responseType: 'arraybuffer', signal });
+			return new Uint16Array(response.data);
+		},
+
+		async lookTable(ref: string, signal?: AbortSignal): Promise<Uint16Array> {
+			const response = await client.get<ArrayBuffer>('/api/media-tools/looks/table', { params: { ref }, responseType: 'arraybuffer', signal });
+			return new Uint16Array(response.data);
+		},
+
+		async effectAnalysis(body: EffectAnalysisBody, signal?: AbortSignal): Promise<Record<string, number>> {
+			const response = await client.post<APIResponse<{ values: Record<string, number> }>>(
+				'/api/media-tools/effects/analysis',
+				body,
+				{ signal }
+			);
+			return unwrap(response.data, 'The clip could not be measured').values ?? {};
 		}
 	};
 }
@@ -89,4 +154,39 @@ export async function previewMediaTool(
 	signal?: AbortSignal
 ): Promise<Blob> {
 	return bound().previewMediaTool(body, signal);
+}
+
+export async function listMediaToolRuns(): Promise<MediaToolRun[]> {
+	return bound().listMediaToolRuns();
+}
+
+export async function previewFrame(
+	body: FramePreviewBody,
+	signal?: AbortSignal
+): Promise<FramePreviewResult> {
+	return bound().previewFrame(body, signal);
+}
+
+export async function startClipPreview(body: ClipPreviewBody): Promise<ClipPreviewStart> {
+	return bound().startClipPreview(body);
+}
+
+export async function uploadMediaToolArtifact(file: File): Promise<MediaToolArtifact> {
+	return bound().uploadMediaToolArtifact(file);
+}
+
+export async function effectShader(url: string, signal?: AbortSignal): Promise<string> {
+	return bound().effectShader(url, signal);
+}
+
+export async function lutTable(ref: string, signal?: AbortSignal): Promise<Uint16Array> {
+	return bound().lutTable(ref, signal);
+}
+
+export async function textureTable(texture: { source: 'lut' | 'look'; value: string }, signal?: AbortSignal): Promise<Uint16Array> {
+	return texture.source === 'look' ? bound().lookTable(texture.value, signal) : bound().lutTable(texture.value, signal);
+}
+
+export async function effectAnalysis(body: EffectAnalysisBody, signal?: AbortSignal): Promise<Record<string, number>> {
+	return bound().effectAnalysis(body, signal);
 }

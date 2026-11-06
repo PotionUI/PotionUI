@@ -23,10 +23,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from src.features.forms.binding import bind_form
 from src.features.models.form_refs import make_model_ref
 from src.features.presets.fixture_form import (
     MODEL_FIELD_TYPES,
+    bind_fixture_form,
     build_default_form_data,
     fixture_video_director_document,
     leave_reactive_defaults_to_binding,
@@ -208,7 +208,4 @@ def build_fixture_form_data(
 
     leave_reactive_defaults_to_binding(form_data, reactive_defaults, overrides or {})
 
-    bound = bind_form(
-        preset_template, mode, form_name=None, raw_form_data=form_data, user_id=None, storage_dir=None
-    )
-    return dict(bound.values)
+    return bind_fixture_form(preset_template, mode, form_data, mask_prefix=f"/{FIXTURE_TAG}/media/")

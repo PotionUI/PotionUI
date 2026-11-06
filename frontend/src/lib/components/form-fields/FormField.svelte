@@ -3,6 +3,8 @@
 	import { writable, type Writable } from 'svelte/store';
 	import { fieldOwnsErrors, resolveFieldComponent } from '$lib/fields/registry';
 	import { ACTIVE_TAB_ID_CONTEXT_KEY } from '$lib/form/activeTabContext';
+	import LiveSyncMark from '$lib/components/session/LiveSyncMark.svelte';
+	import { formKey } from '$lib/session/sessionMerge';
 	import { formulaApplied } from '$lib/stores/formulaApplied';
 	import { formatValue } from '$lib/formulas/format';
 	import {
@@ -78,64 +80,66 @@
 
 {#if isVisible && !isTabEntry}
 	<div data-field-name={name || undefined} class:formula-changed={!!appliedChange}>
-		{#if appliedChange}
-			<div class="mb-1 truncate font-mono text-xs text-fg-subtle" data-testid="formula-previous-value">
-				was <s>{formatValue(config, appliedChange.old)}</s>
-			</div>
-		{/if}
-		{#if axisRole && appliedTabId}
-			<button
-				type="button"
-				class="axis-locked block w-full rounded-lg border border-line bg-surface-1 p-3 text-left transition-colors hover:border-line-hover focus:outline-none focus-visible:ring-1 focus-visible:ring-signal"
-				data-axis-locked={axisRole.role}
-				aria-label="{axisTitle} is the {axisRole.role.toUpperCase()} axis of the comparison with {axisRole.count} values. Open compare settings."
-				on:click={() => openCompareDrawer(appliedTabId)}
-			>
-				<span class="mb-1.5 flex items-center justify-between gap-2">
-					<span class="label !mb-0 truncate">{axisTitle}</span>
-					<span class="shrink-0 rounded border border-signal/40 bg-signal/10 px-1.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wide text-signal">
-						{axisRole.role} axis
-					</span>
-				</span>
-				<span class="flex items-center justify-between gap-3 rounded border border-dashed border-line-strong bg-surface-2/40 px-3 py-2">
-					<span class="text-sm text-fg-muted">{axisRole.count} values</span>
-					<span class="min-w-0 truncate font-mono text-xs tabular-nums text-fg-subtle">{formatValue(config, value)}</span>
-				</span>
-			</button>
-		{:else}
-			{#await componentPromise then Component}
-				{#if Component}
-					<svelte:component this={Component} {name} {config} {value} {onChange} {onOriginChange} {onMaskChange} {host} {fieldPath} />
-				{:else}
-					<div class="p-2 bg-danger/10 rounded-md text-xs text-danger">
-						Unsupported field type: {fieldType}
-					</div>
-				{/if}
-			{/await}
-			{#if quantityNote}
-				<p class="mt-1 text-xs text-fg-muted" data-compare-quantity-note>Quantity is 1 per cell while Compare is on.</p>
-			{/if}
-		{/if}
-		{#if fieldErrorMessages.length > 0}
-			<div class="mt-1 space-y-1.5">
-				<div class="space-y-0.5" role="alert">
-					{#each fieldErrorMessages as msg}
-						<p class="text-xs text-danger">{msg}</p>
-					{/each}
+		<LiveSyncMark tabId={appliedTabId} fieldKey={name ? formKey(name) : null}>
+			{#if appliedChange}
+				<div class="mb-1 truncate font-mono text-xs text-fg-subtle" data-testid="formula-previous-value">
+					was <s>{formatValue(config, appliedChange.old)}</s>
 				</div>
-				{#if errorFix}
-					<button
-						type="button"
-						aria-label={formatFieldErrorFixLabel(errorFix)}
-						class="inline-flex items-center gap-1.5 rounded border border-signal/40 bg-signal/10 px-2.5 py-1 text-xs font-medium text-signal transition-colors hover:bg-signal/15 focus:outline-none focus-visible:ring-1 focus-visible:ring-signal"
-						on:click={() => applyFix(errorFix)}
-					>
-						{errorFix.verb}
-						<span class="font-mono tabular-nums">{errorFix.valueLabel}</span>
-					</button>
+			{/if}
+			{#if axisRole && appliedTabId}
+				<button
+					type="button"
+					class="axis-locked block w-full rounded-lg border border-line bg-surface-1 p-3 text-left transition-colors hover:border-line-hover focus:outline-none focus-visible:ring-1 focus-visible:ring-signal"
+					data-axis-locked={axisRole.role}
+					aria-label="{axisTitle} is the {axisRole.role.toUpperCase()} axis of the comparison with {axisRole.count} values. Open compare settings."
+					on:click={() => openCompareDrawer(appliedTabId)}
+				>
+					<span class="mb-1.5 flex items-center justify-between gap-2">
+						<span class="label !mb-0 truncate">{axisTitle}</span>
+						<span class="shrink-0 rounded border border-signal/40 bg-signal/10 px-1.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wide text-signal">
+							{axisRole.role} axis
+						</span>
+					</span>
+					<span class="flex items-center justify-between gap-3 rounded border border-dashed border-line-strong bg-surface-2/40 px-3 py-2">
+						<span class="text-sm text-fg-muted">{axisRole.count} values</span>
+						<span class="min-w-0 truncate font-mono text-xs tabular-nums text-fg-subtle">{formatValue(config, value)}</span>
+					</span>
+				</button>
+			{:else}
+				{#await componentPromise then Component}
+					{#if Component}
+						<svelte:component this={Component} {name} {config} {value} {onChange} {onOriginChange} {onMaskChange} {host} {fieldPath} />
+					{:else}
+						<div class="p-2 bg-danger/10 rounded-md text-xs text-danger">
+							Unsupported field type: {fieldType}
+						</div>
+					{/if}
+				{/await}
+				{#if quantityNote}
+					<p class="mt-1 text-xs text-fg-muted" data-compare-quantity-note>Quantity is 1 per cell while Compare is on.</p>
 				{/if}
-			</div>
-		{/if}
+			{/if}
+			{#if fieldErrorMessages.length > 0}
+				<div class="mt-1 space-y-1.5">
+					<div class="space-y-0.5" role="alert">
+						{#each fieldErrorMessages as msg}
+							<p class="text-xs text-danger">{msg}</p>
+						{/each}
+					</div>
+					{#if errorFix}
+						<button
+							type="button"
+							aria-label={formatFieldErrorFixLabel(errorFix)}
+							class="inline-flex items-center gap-1.5 rounded border border-signal/40 bg-signal/10 px-2.5 py-1 text-xs font-medium text-signal transition-colors hover:bg-signal/15 focus:outline-none focus-visible:ring-1 focus-visible:ring-signal"
+							on:click={() => applyFix(errorFix)}
+						>
+							{errorFix.verb}
+							<span class="font-mono tabular-nums">{errorFix.valueLabel}</span>
+						</button>
+					{/if}
+				</div>
+			{/if}
+		</LiveSyncMark>
 	</div>
 {/if}
 

@@ -20,6 +20,8 @@ class Session(BaseModel):
     updated_at: Optional[datetime] = None
     pinned: bool = False
     pinned_at: Optional[datetime] = None
+    version: int = 1
+    last_origin: Optional[Dict[str, Any]] = None
 
 
 class SessionResponse(BaseModel):
@@ -43,6 +45,7 @@ class SaveSessionRequest(BaseModel):
     name: str
     data: Dict[str, Any]
     mode: Optional[str] = None  # Optional mode to specify which mode data is being updated
+    base_version: Optional[int] = None
 
 
 class UpdateSessionRequest(BaseModel):
@@ -50,6 +53,7 @@ class UpdateSessionRequest(BaseModel):
     name: str
     data: Dict[str, Any]
     mode: Optional[str] = None  # Optional mode to specify which mode data is being updated
+    base_version: Optional[int] = None
 
 
 # A `SessionVersion` is an immutable snapshot appended every time a session is

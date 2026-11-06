@@ -14,6 +14,8 @@ HISTORY_MODE_ID = "history"
 MODELS_MODE_ID = "models"
 PHRASEBOOK_MODE_ID = "phrasebook"
 PROMPTS_MODE_ID = "prompts"
+ELIXIRS_MODE_ID = "elixirs"
+CONVERSATION_MODE_ID = "conversation"
 
 _STYLE = (
     "Keep replies short and concrete. Do not greet, restate these instructions, "
@@ -24,8 +26,8 @@ _TOOLS = (
     "## Tools\n\n"
     "Call tools yourself when you need live facts; answer directly when you already "
     "know. Use only the tools you were given, and never claim a change no tool made. "
-    "Make every tool call a real one: a call written as <tool_action> markup, a code "
-    "fence or JSON in your reply does not run.\n"
+    "Make every tool call a real one: a call written as text, a code fence or JSON in "
+    "your reply does not run, and a <tool_action> tag never calls a tool.\n"
 )
 
 _CONDITIONS = (
@@ -113,8 +115,9 @@ DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE = (
     "settings, the shared Direction prompt) is user-only.\n"
     "{{/if}}"
     "This tag is ONLY for offering prompt versions to pick from: one tag per version, "
-    "plain replacement text, no JSON. The user applies it; never print the text bare or "
-    "claim you changed the prompt.\n"
+    "plain replacement text, no JSON. Copy the tag exactly: type=\"...\", both "
+    "segment_index and segment_id, and a closing </tool_action>. The user applies it; "
+    "never print the text bare or claim you changed the prompt.\n"
     "{{/ifany}}"
     "{{#if prompt_batch_actions}}"
     "\n## Prompt batch\n\n"
@@ -207,6 +210,50 @@ PROMPTS_SYSTEM_PROMPT_TEMPLATE = (
     "{{#ifany get_prompt add_prompt edit_prompt}}" + _CONDITIONS + "{{/ifany}}"
 )
 
+ELIXIRS_SYSTEM_PROMPT_TEMPLATE = (
+    "You are PotionAI, the assistant in an Elixir tab. An elixir chains presets as steps that run left "
+    "to right: each step takes the files of the step to its left, a files step holds files the user "
+    "picked, and a prompt writer step writes one prompt per file for the preset step it feeds. A preset "
+    "step's session mode decides where its settings live: follow uses a saved session (a change saves "
+    "into that session, which every step and tab using it sees), copy keeps a snapshot with its own "
+    "edits, and new keeps its own settings without a session. In 'Choose outputs between presets' mode "
+    "a brew stops after a step until the user picks which outputs go on.\n\n"
+    "You edit the elixir; you never run it. A brew spends GPU time, so the user starts it with Brew and "
+    "goes on after a choice with Continue: tell them to press it.\n\n"
+    + _STYLE + _TOOLS +
+    "{{#if get_elixir}}"
+    "- Call get_elixir first and work from its step ids; never guess an id, preset or field.\n"
+    "{{/if}}"
+    "{{#if edit_elixir}}"
+    "- Put related changes in one edit_elixir call with the revision you read. When it says the elixir "
+    "changed, read it again before retrying.\n"
+    "{{/if}}"
+    "{{#if get_step_settings}}"
+    "- Read a step with get_step_settings before changing its settings.\n"
+    "{{/if}}"
+    "{{#ifany get_choice_outputs choose_outputs}}"
+    "- To pick outputs, look at them with get_choice_outputs. When you cannot see the images, ask the "
+    "user which to keep. choose_outputs only sets the pick.\n"
+    "{{/ifany}}"
+)
+
+
+def build_elixirs_mode() -> ChatMode:
+    return ChatMode(
+        id=ELIXIRS_MODE_ID,
+        name="Elixirs assistant",
+        description="Edit the open elixir's steps and settings, and pick outputs at a choice",
+        system_prompt=ELIXIRS_SYSTEM_PROMPT_TEMPLATE,
+        tool_names=[],
+        icon="flask",
+        default_route_prefixes=[],
+        resource_namespaces=[],
+        llm_options={},
+        structured_reply=False,
+        core_groups=("core", "library"),
+        source="builtin",
+    )
+
 
 def build_history_mode() -> ChatMode:
     """Build the builtin 'history' chat mode: the History page's assistant."""
@@ -275,5 +322,30 @@ def build_prompts_mode() -> ChatMode:
         resource_namespaces=[],
         llm_options={},
         core_groups=("core", "library"),
+        source="builtin",
+    )
+
+
+CONVERSATION_SYSTEM_PROMPT = (
+    "You are PotionAI, a helpful assistant. This is an open conversation: talk with the user about "
+    "whatever they bring up and answer directly. You have no tools and cannot see or change anything "
+    "in the app, so never offer to."
+)
+
+
+def build_conversation_mode() -> ChatMode:
+    return ChatMode(
+        id=CONVERSATION_MODE_ID,
+        name="Conversation",
+        description="Just talk to the model: no tools and nothing from the page",
+        system_prompt=CONVERSATION_SYSTEM_PROMPT,
+        tool_names=[],
+        icon="chat",
+        default_route_prefixes=[],
+        resource_namespaces=[],
+        llm_options={},
+        structured_reply=False,
+        offers_tools=False,
+        app_context=False,
         source="builtin",
     )

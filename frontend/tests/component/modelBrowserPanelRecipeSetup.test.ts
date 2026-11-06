@@ -89,6 +89,24 @@ describe('ModelBrowserPanel empty state for a preset with no installed model', (
 		expect(link.getAttribute('href')).toBe('/admin?tab=recipes&id=krea2-starter');
 	});
 
+	it('opens the install sheet for the preset when its recipe installs modes', async () => {
+		const { modeInstallRequest, closeModeInstall } = await import('../../src/lib/stores/modeInstall');
+		const { get } = await import('svelte/store');
+		authState.user = { account_type: 'ADMIN' };
+		setup([{ id: 'modes-krea-2', name: 'Krea-2 modes' }]);
+		mounted = mountPanel({});
+		await settle();
+
+		const hint = mounted.target.querySelector('[data-model-setup-hint]') as HTMLElement;
+		expect(hint.querySelector('a')).toBeNull();
+		const button = hint.querySelector('button') as HTMLButtonElement;
+		expect(button.textContent?.trim()).toBe('Install modes');
+		button.click();
+		expect(get(modeInstallRequest)?.recipeId).toBe('modes-krea-2');
+		expect(get(modeInstallRequest)?.modes).toEqual([]);
+		closeModeInstall();
+	});
+
 	it('tells a non-admin an admin can set it up', async () => {
 		authState.user = { account_type: 'USER' };
 		setup([]);

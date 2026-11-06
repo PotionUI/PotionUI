@@ -30,6 +30,7 @@ from .. import na
 from ..attention import VarlenGeometry, varlen_attention
 from ..cache import Cache
 from ..layers import AdaSingle, MMArg, MMModule, NaPatchIn, NaPatchOut, _cu_seqlens  # noqa: F401 — re-exported for arch/model.py
+from ..layers import norm_rope
 from ..window import get_window_op
 from .rope import NaVideoRotaryEmbedding3d
 
@@ -43,7 +44,7 @@ class MLP(nn.Module):
     def __init__(self, dim: int, hidden: int, operations, dtype=None, device=None) -> None:
         super().__init__()
         self.proj_in = operations.Linear(dim, hidden, dtype=dtype, device=device)
-        self.act = nn.GELU(approximate="tanh")
+        self.act = operations.ActGate("gelu_tanh")
         self.proj_out = operations.Linear(hidden, dim, dtype=dtype, device=device)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -77,6 +78,7 @@ class NaSwinAttention(nn.Module):
         )
         # Video-only 3D pixel RoPE (dim = head_dim // 2). Buffer key: rope.rope.freqs.
         self.rope = NaVideoRotaryEmbedding3d(dim=head_dim // 2)
+        self.operations = operations
 
     def forward(self, vid: Tensor, txt: Tensor, vid_shape: Tensor, txt_shape: Tensor, cache: Cache) -> Tuple[Tensor, Tensor]:
         vid_qkv, txt_qkv = self.proj_qkv(vid, txt)
@@ -96,11 +98,12 @@ class NaSwinAttention(nn.Module):
         vid_q, vid_k, vid_v = vid_qkv_win.unbind(1)
         txt_q, txt_k, txt_v = txt_qkv.unbind(1)
 
-        vid_q, txt_q = self.norm_q(vid_q, txt_q)
-        vid_k, txt_k = self.norm_k(vid_k, txt_k)
-
         # Video-only rope, applied within windows; text tokens are un-rotated.
-        vid_q, vid_k = self.rope(vid_q, vid_k, window_shape, cache_win)
+        vid_freqs = self.rope.tables(window_shape, cache_win, vid_q.device)
+        vid_q = norm_rope(self.operations, self.norm_q, "vid", vid_q, vid_freqs)
+        vid_k = norm_rope(self.operations, self.norm_k, "vid", vid_k, vid_freqs)
+        txt_q = self.norm_q.txt(txt_q)
+        txt_k = self.norm_k.txt(txt_k)
 
         txt_len = cache("txt_len", lambda: txt_shape.prod(-1))
         vid_len_win = cache_win("vid_len", lambda: window_shape.prod(-1))
@@ -152,7 +155,7 @@ class NaMMSRTransformerBlock(nn.Module):
             lambda: MLP(dim, cfg.mlp_hidden, operations, dtype=dtype, device=device),
         )
         self.ada = MMModule(
-            lambda: AdaSingle(dim, cfg.emb_dim, ["attn", "mlp"]),
+            lambda: AdaSingle(dim, cfg.emb_dim, ["attn", "mlp"], operations),
         )
 
     def forward(self, vid: Tensor, txt: Tensor, vid_shape: Tensor, txt_shape: Tensor,

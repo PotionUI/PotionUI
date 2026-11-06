@@ -13,7 +13,7 @@ from src.platform.filesystem.model_roots import (
     is_windows,
     root_path_key,
 )
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
+from src.platform.filesystem.model_types import CORE_MODEL_TYPE_TO_DIRECTORY, CORE_MODEL_TYPES
 from src.platform.util.ids import generate_ulid
 
 _NAME = "035_model_roots"
@@ -136,7 +136,7 @@ def _seed_home_bindings(cursor) -> int:
     write_types = {row["model_type"] for row in cursor.fetchall()}
 
     seeded = 0
-    for model_type in MODEL_TYPES:
+    for model_type in CORE_MODEL_TYPES:
         cursor.execute(
             "SELECT 1 FROM model_root_bindings WHERE root_id = ? AND model_type = ?",
             (HOME_ROOT_ID, model_type),
@@ -150,7 +150,7 @@ def _seed_home_bindings(cursor) -> int:
             INSERT OR IGNORE INTO model_root_bindings (root_id, model_type, subdir, position, is_write)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (HOME_ROOT_ID, model_type, MODEL_TYPE_TO_DIRECTORY[model_type], position, int(is_write)),
+            (HOME_ROOT_ID, model_type, CORE_MODEL_TYPE_TO_DIRECTORY[model_type], position, int(is_write)),
         )
         max_positions[model_type] = position
         if is_write:
@@ -316,7 +316,7 @@ def _backfill_locations(
         model_id = row["id"]
         model_type = row["model_type"]
         file_path = row["file_path"]
-        type_dir = MODEL_TYPE_TO_DIRECTORY.get(model_type)
+        type_dir = CORE_MODEL_TYPE_TO_DIRECTORY.get(model_type)
         if type_dir is None:
             continue
 

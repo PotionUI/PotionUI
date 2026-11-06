@@ -28,7 +28,7 @@
 	import { plainLetter, pageOwnsKeys } from '$lib/utils/shortcutGuard';
 	import { gridShortcutTarget } from '$lib/tools/gridShortcut';
 	import { buildLibraryToolContext, listTools } from '$lib/tools/tools';
-	import { editImageAvailability } from '../history/tools/editImage';
+	import { editMediaAvailability } from '$lib/tools/editMedia';
 	import type { EditedMediaItem } from '$lib/services/api/media';
 	import type { MediaTool, MediaToolContext } from '$lib/tools/tools';
 
@@ -78,7 +78,7 @@
 		if (!item) return;
 		const context = buildLibraryToolContext([item], null);
 		const tool = listTools('library').find((candidate) => candidate.id === 'edit-image');
-		if (!tool || !editImageAvailability(context).enabled) return;
+		if (!tool || !editMediaAvailability(context).enabled) return;
 		event.preventDefault();
 		handleToolSelect(tool, context);
 	}

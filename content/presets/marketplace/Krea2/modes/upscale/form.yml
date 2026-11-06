@@ -1,0 +1,42 @@
+name: "custom"
+mode_label: "Upscale"
+short_description: "Enlarge a picture 2 to 4 times and rebuild its detail, tile by tile."
+prompt_label: "What is in the picture"
+prompt_placeholder: "a close-up portrait of an old fisherman, weathered skin"
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/upscale/tabs/generation.yml"
+      - type: "tab"
+        anchor: "references"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/enhance/tabs/references.yml"
+      - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/upscale/tabs/advanced.yml"

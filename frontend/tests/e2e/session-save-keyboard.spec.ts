@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, addGenerationTab } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'session-save-keyboard';
@@ -10,7 +10,7 @@ async function setup(page: Page): Promise<boolean> {
 	if (!preset) return false;
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await expect(page.locator('div[role="list"][aria-label="Positive segments"]')).toBeVisible({ timeout: 20000 });
-	await page.locator('button[aria-label="Add new tab"]').click();
+	await addGenerationTab(page);
 	await expect(page.locator('.book-tab')).toHaveCount(2, { timeout: 10000 });
 	await page.locator('.book-tab').filter({ hasText: 'Generation 1' }).click();
 	await expect(page.locator('button[aria-label="Save as a new session"]')).toBeVisible({ timeout: 15000 });

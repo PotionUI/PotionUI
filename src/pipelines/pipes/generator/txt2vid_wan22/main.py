@@ -20,7 +20,7 @@ from typing import Any, Dict, List
 
 import torch
 
-from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
+from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon
@@ -44,6 +44,7 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     nag_config_specs,
     preview_config_spec,
+    preview_decoder_config_spec,
     seed_config_spec,
 )
 from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
@@ -132,6 +133,7 @@ class GeneratorWanTxt2VidPipe(BaseGeneratorPipe):
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec("Emit live latent previews (frame 0) to the workbench during sampling"),
+            preview_decoder_config_spec(),
         ]
 
     @classmethod
@@ -265,9 +267,10 @@ class GeneratorWanTxt2VidPipe(BaseGeneratorPipe):
 
                 hooks = [ProgressHook(on_progress)]
                 if self.config.get("preview", True):
-                    preview_hook = make_preview_hook(c.spec, progress.preview)
+                    preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
                     if preview_hook is not None:
                         hooks.append(preview_hook)
+                c.router.preview_reserve_gb = preview_reserve_gb(hooks, shape)
 
                 latent = denoise(
                     c.router, latents, cond, uncond,

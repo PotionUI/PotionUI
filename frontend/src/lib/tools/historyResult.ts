@@ -3,7 +3,6 @@ import { hasOpenDismissLayer } from '$lib/actions/layerStack';
 import { openLibraryResultModal, type LandingSource } from '$lib/library/landing';
 import { removePendingFresh, setPendingFresh } from '$lib/library/freshHandoff';
 import { libraryItemFromEdit } from '$lib/library/libraryItemEdit';
-import type { MediaEditorResult } from '$lib/media/editors/types';
 import type { EditedMediaItem } from '$lib/services/api/media';
 import { toasts } from '$lib/stores/toast';
 import { isEditableTarget } from '$lib/utils/editableTarget';
@@ -77,10 +76,4 @@ export function landOnHistoryResult(items: readonly EditedMediaItem[], options: 
 		});
 	}
 	return landing;
-}
-
-export function editorResultItems(result: MediaEditorResult): EditedMediaItem[] {
-	if (result.type === 'item') return [result.item];
-	if (result.type === 'items') return result.items;
-	return [];
 }

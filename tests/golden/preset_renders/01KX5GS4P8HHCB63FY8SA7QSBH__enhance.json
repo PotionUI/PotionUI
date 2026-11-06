@@ -1,0 +1,358 @@
+{
+  "mode": "enhance",
+  "pipes": [
+    {
+      "config": {
+        "diffusion_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "diffusion_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        },
+        "vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "model_loader/z_image"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_image.png",
+              "type": "image"
+            }
+          ]
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "guidance_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "n_prompt.input": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "negative_applied": {
+          "type": "bool",
+          "value": false
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/diffusion_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/vae.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
+            ],
+            [
+              "cfg",
+              1.0
+            ],
+            [
+              "steps",
+              8
+            ],
+            [
+              "sampler",
+              "euler"
+            ],
+            [
+              "schedule",
+              "shift"
+            ],
+            [
+              "upscale_by",
+              "2x"
+            ],
+            [
+              "enhance_detail",
+              "balanced"
+            ],
+            [
+              "face_detailer",
+              false
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "denoise": {
+          "type": "float",
+          "value": 0.2
+        },
+        "guidance": {
+          "type": "float",
+          "value": 1.0
+        },
+        "img2img_scale": {
+          "type": "float",
+          "value": 2.0
+        },
+        "mode": {
+          "type": "str",
+          "value": "img2img"
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "sampler": {
+          "type": "str",
+          "value": "euler"
+        },
+        "schedule": {
+          "type": "str",
+          "value": "shift"
+        },
+        "shift": {
+          "type": "str",
+          "value": ""
+        },
+        "step_cache.max_consecutive_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache.rel_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache.warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
+        "steps": {
+          "type": "int",
+          "value": 8
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/z_image"
+    },
+    {
+      "config": {
+        "left": {
+          "type": "str",
+          "value": "Original"
+        },
+        "mode": {
+          "type": "str",
+          "value": "compare"
+        },
+        "output": {
+          "type": "str",
+          "value": "right"
+        },
+        "right": {
+          "type": "str",
+          "value": "Enhanced"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "compare_enhance",
+      "name": "artifact"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "face_detailer",
+      "name": "detailer/native"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "compare_faces",
+      "name": "artifact"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "gallery_before_faces",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KX5GS4P8HHCB63FY8SA7QSBH",
+  "preset_name": "Z-Image"
+}

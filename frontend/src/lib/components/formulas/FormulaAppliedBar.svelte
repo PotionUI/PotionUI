@@ -5,9 +5,9 @@
 	import { appliedKey, undoApplied } from '$lib/formulas/planApply';
 	import { formulaApplied } from '$lib/stores/formulaApplied';
 	import { tabsStore } from '$lib/stores/tabs';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 
-	let { tab, compact = false }: { tab: Tab; compact?: boolean } = $props();
+	let { tab, compact = false }: { tab: GenerationTab; compact?: boolean } = $props();
 
 	let applied = $derived($formulaApplied[tab.id]);
 	let changedCount = $derived(applied ? Object.keys(applied.changed).length : 0);

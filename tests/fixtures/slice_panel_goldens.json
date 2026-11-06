@@ -1,0 +1,566 @@
+{
+  "version": 1,
+  "description": "Panel detection goldens shared by pytest and vitest. Each case is rasterised, never loaded from a file.",
+  "raster": {
+    "transparent": "when true the image is RGBA: background pixels are (0,0,0,0) and box pixels are opaque; no noise is used",
+    "order": "fill background, draw boxes in order with their colour, then add noise to every channel of every pixel and clamp to 0..255",
+    "noise": "for pixel p (row-major) and channel c: idx = p*3+c; h = ((idx*2654435761) + seed*97) mod 2^32; h = ((h xor (h >> 15)) * 2246822519) mod 2^32; h = h xor (h >> 13); offset = (h mod (2*amplitude+1)) - amplitude",
+    "box": "x0,y0 inclusive, x1,y1 exclusive, in pixels"
+  },
+  "match": "panels are compared in order; x, y, w, h are fractions of the image and must each be within epsilon",
+  "cases": [
+    {
+      "name": "regular_grid_3x2",
+      "note": "six equal panels, 20 px gutters",
+      "width": 600,
+      "height": 400,
+      "background": [
+        240,
+        230,
+        210
+      ],
+      "noise": null,
+      "transparent": false,
+      "boxes": [
+        {
+          "x0": 20,
+          "y0": 20,
+          "x1": 200,
+          "y1": 190,
+          "color": [
+            30,
+            60,
+            120
+          ]
+        },
+        {
+          "x0": 220,
+          "y0": 20,
+          "x1": 400,
+          "y1": 190,
+          "color": [
+            150,
+            40,
+            50
+          ]
+        },
+        {
+          "x0": 420,
+          "y0": 20,
+          "x1": 580,
+          "y1": 190,
+          "color": [
+            40,
+            120,
+            70
+          ]
+        },
+        {
+          "x0": 20,
+          "y0": 210,
+          "x1": 200,
+          "y1": 380,
+          "color": [
+            90,
+            50,
+            140
+          ]
+        },
+        {
+          "x0": 220,
+          "y0": 210,
+          "x1": 400,
+          "y1": 380,
+          "color": [
+            200,
+            120,
+            20
+          ]
+        },
+        {
+          "x0": 420,
+          "y0": 210,
+          "x1": 580,
+          "y1": 380,
+          "color": [
+            20,
+            110,
+            130
+          ]
+        }
+      ],
+      "tolerance": 12,
+      "epsilon": 0.004,
+      "expected": [
+        {
+          "x": 0.03333333333333333,
+          "y": 0.05,
+          "w": 0.3,
+          "h": 0.425
+        },
+        {
+          "x": 0.36666666666666664,
+          "y": 0.05,
+          "w": 0.3,
+          "h": 0.425
+        },
+        {
+          "x": 0.7,
+          "y": 0.05,
+          "w": 0.26666666666666666,
+          "h": 0.425
+        },
+        {
+          "x": 0.03333333333333333,
+          "y": 0.525,
+          "w": 0.3,
+          "h": 0.425
+        },
+        {
+          "x": 0.36666666666666664,
+          "y": 0.525,
+          "w": 0.3,
+          "h": 0.425
+        },
+        {
+          "x": 0.7,
+          "y": 0.525,
+          "w": 0.26666666666666666,
+          "h": 0.425
+        }
+      ]
+    },
+    {
+      "name": "uneven_gutters",
+      "note": "gutters of 18, 30, 34 and 22 px; second row has two panels",
+      "width": 800,
+      "height": 500,
+      "background": [
+        240,
+        230,
+        210
+      ],
+      "noise": null,
+      "transparent": false,
+      "boxes": [
+        {
+          "x0": 30,
+          "y0": 30,
+          "x1": 260,
+          "y1": 230,
+          "color": [
+            30,
+            60,
+            120
+          ]
+        },
+        {
+          "x0": 278,
+          "y0": 30,
+          "x1": 520,
+          "y1": 230,
+          "color": [
+            150,
+            40,
+            50
+          ]
+        },
+        {
+          "x0": 550,
+          "y0": 30,
+          "x1": 770,
+          "y1": 230,
+          "color": [
+            40,
+            120,
+            70
+          ]
+        },
+        {
+          "x0": 30,
+          "y0": 264,
+          "x1": 380,
+          "y1": 470,
+          "color": [
+            90,
+            50,
+            140
+          ]
+        },
+        {
+          "x0": 402,
+          "y0": 264,
+          "x1": 770,
+          "y1": 470,
+          "color": [
+            200,
+            120,
+            20
+          ]
+        }
+      ],
+      "tolerance": 12,
+      "epsilon": 0.004,
+      "expected": [
+        {
+          "x": 0.0375,
+          "y": 0.06,
+          "w": 0.2875,
+          "h": 0.4
+        },
+        {
+          "x": 0.3475,
+          "y": 0.06,
+          "w": 0.3025,
+          "h": 0.4
+        },
+        {
+          "x": 0.6875,
+          "y": 0.06,
+          "w": 0.275,
+          "h": 0.4
+        },
+        {
+          "x": 0.0375,
+          "y": 0.528,
+          "w": 0.4375,
+          "h": 0.412
+        },
+        {
+          "x": 0.5025,
+          "y": 0.528,
+          "w": 0.46,
+          "h": 0.412
+        }
+      ]
+    },
+    {
+      "name": "wide_merged_panel",
+      "note": "three panels over one full-width panel",
+      "width": 700,
+      "height": 420,
+      "background": [
+        240,
+        230,
+        210
+      ],
+      "noise": null,
+      "transparent": false,
+      "boxes": [
+        {
+          "x0": 20,
+          "y0": 20,
+          "x1": 220,
+          "y1": 180,
+          "color": [
+            30,
+            60,
+            120
+          ]
+        },
+        {
+          "x0": 240,
+          "y0": 20,
+          "x1": 450,
+          "y1": 180,
+          "color": [
+            150,
+            40,
+            50
+          ]
+        },
+        {
+          "x0": 470,
+          "y0": 20,
+          "x1": 680,
+          "y1": 180,
+          "color": [
+            40,
+            120,
+            70
+          ]
+        },
+        {
+          "x0": 20,
+          "y0": 210,
+          "x1": 680,
+          "y1": 400,
+          "color": [
+            90,
+            50,
+            140
+          ]
+        }
+      ],
+      "tolerance": 12,
+      "epsilon": 0.004,
+      "expected": [
+        {
+          "x": 0.02857142857142857,
+          "y": 0.047619047619047616,
+          "w": 0.2857142857142857,
+          "h": 0.38095238095238093
+        },
+        {
+          "x": 0.34285714285714286,
+          "y": 0.047619047619047616,
+          "w": 0.3,
+          "h": 0.38095238095238093
+        },
+        {
+          "x": 0.6714285714285714,
+          "y": 0.047619047619047616,
+          "w": 0.3,
+          "h": 0.38095238095238093
+        },
+        {
+          "x": 0.02857142857142857,
+          "y": 0.5,
+          "w": 0.9428571428571428,
+          "h": 0.4523809523809524
+        }
+      ]
+    },
+    {
+      "name": "noisy_background",
+      "note": "per-channel noise inside the tolerance",
+      "width": 400,
+      "height": 300,
+      "background": [
+        240,
+        230,
+        210
+      ],
+      "noise": {
+        "amplitude": 6,
+        "seed": 7
+      },
+      "transparent": false,
+      "boxes": [
+        {
+          "x0": 20,
+          "y0": 20,
+          "x1": 190,
+          "y1": 140,
+          "color": [
+            30,
+            60,
+            120
+          ]
+        },
+        {
+          "x0": 210,
+          "y0": 20,
+          "x1": 380,
+          "y1": 140,
+          "color": [
+            150,
+            40,
+            50
+          ]
+        },
+        {
+          "x0": 20,
+          "y0": 160,
+          "x1": 190,
+          "y1": 280,
+          "color": [
+            40,
+            120,
+            70
+          ]
+        },
+        {
+          "x0": 210,
+          "y0": 160,
+          "x1": 380,
+          "y1": 280,
+          "color": [
+            90,
+            50,
+            140
+          ]
+        }
+      ],
+      "tolerance": 12,
+      "epsilon": 0.004,
+      "expected": [
+        {
+          "x": 0.05,
+          "y": 0.06666666666666667,
+          "w": 0.425,
+          "h": 0.4
+        },
+        {
+          "x": 0.525,
+          "y": 0.06666666666666667,
+          "w": 0.425,
+          "h": 0.4
+        },
+        {
+          "x": 0.05,
+          "y": 0.5333333333333333,
+          "w": 0.425,
+          "h": 0.4
+        },
+        {
+          "x": 0.525,
+          "y": 0.5333333333333333,
+          "w": 0.425,
+          "h": 0.4
+        }
+      ]
+    },
+    {
+      "name": "speck_in_the_margin_is_dropped",
+      "note": "a 6 px speck far from every panel is not a panel",
+      "width": 500,
+      "height": 340,
+      "background": [
+        240,
+        230,
+        210
+      ],
+      "noise": null,
+      "transparent": false,
+      "boxes": [
+        {
+          "x0": 60,
+          "y0": 20,
+          "x1": 240,
+          "y1": 150,
+          "color": [
+            30,
+            60,
+            120
+          ]
+        },
+        {
+          "x0": 260,
+          "y0": 20,
+          "x1": 440,
+          "y1": 150,
+          "color": [
+            150,
+            40,
+            50
+          ]
+        },
+        {
+          "x0": 60,
+          "y0": 180,
+          "x1": 240,
+          "y1": 320,
+          "color": [
+            40,
+            120,
+            70
+          ]
+        },
+        {
+          "x0": 260,
+          "y0": 180,
+          "x1": 440,
+          "y1": 320,
+          "color": [
+            90,
+            50,
+            140
+          ]
+        },
+        {
+          "x0": 10,
+          "y0": 8,
+          "x1": 16,
+          "y1": 14,
+          "color": [
+            200,
+            120,
+            20
+          ]
+        }
+      ],
+      "tolerance": 12,
+      "epsilon": 0.004,
+      "expected": [
+        {
+          "x": 0.12,
+          "y": 0.058823529411764705,
+          "w": 0.36,
+          "h": 0.38235294117647056
+        },
+        {
+          "x": 0.52,
+          "y": 0.058823529411764705,
+          "w": 0.36,
+          "h": 0.38235294117647056
+        },
+        {
+          "x": 0.12,
+          "y": 0.5294117647058824,
+          "w": 0.36,
+          "h": 0.4117647058823529
+        },
+        {
+          "x": 0.52,
+          "y": 0.5294117647058824,
+          "w": 0.36,
+          "h": 0.4117647058823529
+        }
+      ]
+    },
+    {
+      "name": "transparent_sheet_dark_panels",
+      "note": "RGBA, background alpha 0; panel colour is within the tolerance of the background RGB, so only alpha may decide",
+      "width": 400,
+      "height": 260,
+      "background": [
+        240,
+        230,
+        210
+      ],
+      "noise": null,
+      "transparent": true,
+      "boxes": [
+        {
+          "x0": 20,
+          "y0": 20,
+          "x1": 190,
+          "y1": 240,
+          "color": [
+            10,
+            10,
+            10
+          ]
+        },
+        {
+          "x0": 210,
+          "y0": 20,
+          "x1": 380,
+          "y1": 240,
+          "color": [
+            10,
+            10,
+            10
+          ]
+        }
+      ],
+      "tolerance": 12,
+      "epsilon": 0.004,
+      "expected": [
+        {
+          "x": 0.05,
+          "y": 0.07692307692307693,
+          "w": 0.425,
+          "h": 0.8461538461538461
+        },
+        {
+          "x": 0.525,
+          "y": 0.07692307692307693,
+          "w": 0.425,
+          "h": 0.8461538461538461
+        }
+      ]
+    }
+  ]
+}

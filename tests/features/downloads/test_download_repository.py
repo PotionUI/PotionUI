@@ -101,6 +101,23 @@ class TestDownloadRepository(PersistenceTestBase):
         self.assertFalse(self.repository.get_by_id(derived.id).filename_supplied)
         self.assertTrue(self.repository.get_by_id(supplied.id).filename_supplied)
 
+    def test_mark_gated_round_trips_and_a_retry_clears_it(self):
+        self.repository.create(Download(
+            id="gated-dl", url="https://example.com/a.bin",
+            destination_path="/models/a.bin", filename="a.bin",
+        ))
+        self.assertFalse(self.repository.get_by_id("gated-dl").gated)
+
+        self.repository.mark_gated("gated-dl", "org/repo")
+        stored = self.repository.get_by_id("gated-dl")
+        self.assertTrue(stored.gated)
+        self.assertEqual(stored.to_dict()["gated_repo"], "org/repo")
+
+        self.repository.reset_for_retry("gated-dl")
+        cleared = self.repository.get_by_id("gated-dl")
+        self.assertFalse(cleared.gated)
+        self.assertIsNone(cleared.gated_repo)
+
     def test_a_destination_is_claimed_only_by_another_unfinished_row(self):
         for row_id, status in (("live", "downloading"), ("done", "completed")):
             self.repository.create(Download(

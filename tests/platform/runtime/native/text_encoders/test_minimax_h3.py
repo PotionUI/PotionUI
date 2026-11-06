@@ -922,10 +922,28 @@ def test_reference_video_timestamp_list_is_padded_by_repeating_the_last():
     assert timestamps[-1] == 2.0  # frame index 4 at 2 fps, paired with itself
 
 
-def test_reference_video_shorter_than_one_merge_group_is_rejected():
-    with pytest.raises(ValueError, match="at least 13 frames"):
+@pytest.mark.parametrize("num_frames", [1, 5, 12])
+def test_a_reference_video_with_one_sampled_frame_is_one_group_of_that_frame(num_frames):
+    indices, timestamps = _sample_reference_video_frames(
+        num_frames, fps=MINIMAX_H3_VIDEO_FPS, sample_fps=MINIMAX_H3_VIDEO_SAMPLE_FPS, temporal_patch=2,
+    )
+    assert indices == [0]
+    assert timestamps == [0.0]
+    assert f"<{timestamps[0]:.1f} seconds>" == "<0.0 seconds>"
+
+
+def test_a_reference_video_of_two_sampled_frames_is_sampled_as_before():
+    indices, timestamps = _sample_reference_video_frames(
+        13, fps=MINIMAX_H3_VIDEO_FPS, sample_fps=MINIMAX_H3_VIDEO_SAMPLE_FPS, temporal_patch=2,
+    )
+    assert indices == [0, 12]
+    assert timestamps == [0.25]
+
+
+def test_a_reference_video_without_frames_is_refused():
+    with pytest.raises(ValueError, match="at least one frame"):
         _sample_reference_video_frames(
-            12, fps=MINIMAX_H3_VIDEO_FPS, sample_fps=MINIMAX_H3_VIDEO_SAMPLE_FPS, temporal_patch=2,
+            0, fps=MINIMAX_H3_VIDEO_FPS, sample_fps=MINIMAX_H3_VIDEO_SAMPLE_FPS, temporal_patch=2,
         )
 
 
@@ -1054,6 +1072,83 @@ def test_video_reference_timestamp_text_is_tagged_text_and_the_blocks_video():
     assert torch.all(tags[label_len:label_len + stamp_len] == MINIMAX_H3_TEXT_TAG)
     block = tags[label_len + stamp_len:label_len + stamp_len + per_block + 2]
     assert torch.all(block == MINIMAX_H3_VIDEO_TAG)
+
+
+def _spied_encoder():
+    m = _tiny_h3_vl_module()
+    tok = MiniMaxH3Tokenizer()
+    enc = _SmallEncoder(m, tok, device="cpu")
+    seen: dict = {}
+    inner = enc.encode_presentation
+
+    def spy(token_ids, vision_runs=None):
+        seen["token_ids"] = token_ids
+        seen["runs"] = vision_runs
+        return inner(token_ids, vision_runs=vision_runs)
+
+    enc.encode_presentation = spy
+    return m, tok, enc, seen
+
+
+@pytest.mark.parametrize("num_frames", [5, 3, 1])
+def test_a_short_video_reference_encodes_as_one_block_of_its_first_frame_repeated(num_frames):
+    pytest.importorskip("transformers")
+    m, tok, enc, seen = _spied_encoder()
+    video = _video(num_frames)
+    _timestamps, per_block = _grid_for(m, video)
+
+    out = enc.encode_reference_request("a drifting camera", [MiniMaxH3Reference(kind="video", media=video)])
+
+    expected = (
+        tok("<Video 1>: ") + tok("<0.0 seconds>")
+        + [VISION_START_TOKEN] + [VIDEO_PAD_TOKEN] * per_block + [VISION_END_TOKEN]
+        + tok("a drifting camera")
+    )
+    assert seen["token_ids"] == expected
+    assert len(seen["runs"]) == 1
+    assert int(seen["runs"][0].grid_thw[0, 0]) == 1
+    assert out["context"].shape == (1, len(expected), _H3_TINY_CFG["hidden_size"])
+    assert torch.isfinite(out["context"]).all()
+
+
+def test_a_short_video_reference_presents_the_same_patches_as_its_first_frame_paired_with_itself():
+    pytest.importorskip("transformers")
+    m, _tok, enc, seen = _spied_encoder()
+    video = _video(5)
+    visual = m.visual
+    want, _grid = preprocess_qwen3_vl_video(
+        video[[0, 0]], **_SMALL_PX,
+        patch_size=visual.patch_size, temporal_patch_size=visual.patch_embed.temporal_patch_size,
+        merge_size=visual.spatial_merge_size,
+    )
+
+    enc.encode_reference_request("a drifting camera", [MiniMaxH3Reference(kind="video", media=video)])
+
+    assert torch.equal(seen["runs"][0].patches.cpu(), want)
+
+
+def test_short_video_references_keep_their_per_modality_label_numbers():
+    pytest.importorskip("transformers")
+    _m, tok, enc, seen = _spied_encoder()
+
+    enc.encode_reference_request("blend", [
+        MiniMaxH3Reference(kind="image", media=torch.rand(32, 32, 3)),
+        MiniMaxH3Reference(kind="video", media=_video(5)),
+        MiniMaxH3Reference(kind="video", media=_video(49)),
+        MiniMaxH3Reference(kind="video", media=_video(1)),
+    ])
+    ids = seen["token_ids"]
+
+    def first_at(label: str) -> int:
+        want = tok(label)
+        hits = [i for i in range(len(ids) - len(want) + 1) if ids[i:i + len(want)] == want]
+        assert hits, label
+        return hits[0]
+
+    order = [first_at(label) for label in ("<Picture 1>: ", "<Video 1>: ", "<Video 2>: ", "<Video 3>: ")]
+    assert order == sorted(order)
+    assert ids.count(VISION_START_TOKEN) == 1 + 1 + 3 + 1
+    assert [run.pad_token_id for run in seen["runs"]] == [IMAGE_PAD_TOKEN] + [VIDEO_PAD_TOKEN] * 3
 
 
 def test_audio_reference_is_a_label_with_no_vision_block():

@@ -17,13 +17,14 @@ beyond this surface.
 are the small, already-stable pieces the generator-pipe authoring path is
 built from. `GeneratorKrea2Pipe` is the concrete core
 Krea-2 generator pipe, re-exported so a plugin can subclass it
-(as krea2-edit does) to reuse its config schema and
+to reuse its config schema and
 the shared `build_context`/seed-loop machinery instead of re-deriving the
 family's own defaults.
 
 See docs/plugin-api.md.
 """
 
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import numpy as np
@@ -32,7 +33,7 @@ import torch
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
 from src.pipelines.pipes.generator.krea2.main import GeneratorKrea2Pipe
-from src.platform.runtime.native.engine import Conditioning
+from src.platform.runtime.native.engine import Conditioning, NativeEngineLoader, NativeModel
 
 
 @runtime_checkable
@@ -78,4 +79,9 @@ __all__ = [
     "NativeGeneratorHandle",
     "ProgressEmitter",
     "native_step_hooks",
+    "load_native_component",
 ]
+
+
+def load_native_component(path: "str | Path", kind: str) -> NativeModel:
+    return NativeEngineLoader(device="cpu").load(path, kind)

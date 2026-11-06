@@ -56,7 +56,7 @@
 #         now a thin wrapper over the vendored function rather than a
 #         reimplementation, with `ntk` composed at the call site instead of
 #         forking a whole function for one extra parameter.
-#       - `apply_rope_inplace`/`ropeapply` are NOT bit-exact against the
+#       - the in-place `pair_matrix_inplace` rope layout is NOT bit-exact against the
 #         vendored `math_ops.apply_rope1`
 #         (`test_krea2_apply_rope_inplace_vs_vendored_flux_not_bitexact`
 #         proves the divergence, up to ~1.5e-2 at bf16) because they
@@ -120,37 +120,6 @@ def rope(pos: Tensor, dim: int, theta: float = 1e4, ntk: float = 1.0) -> Tensor:
     exactly equivalent to the old fork's extra multiply — proven bit-exact
     (``torch.equal``) by ``test_krea2_rope_matches_vendored_flux_rope``."""
     return _flux_rope(pos, dim, theta * ntk)
-
-
-def apply_rope_inplace(x: Tensor, freqs: Tensor) -> Tensor:
-    """In-place variant of the vendored Flux/ComfyUI rotation
-    (``vendor/gpl/comfyui/flux/math_ops.apply_rope1``): same 2x2-rotation-
-    matrix convention (``cos``/``sin`` read straight off the matrix's first
-    column, matching ``apply_rope1``'s column-vector formulation), but
-    mutates ``x`` in place and casts the (small) ``cos``/``sin`` tensors down
-    to the activation dtype instead of upcasting the (large) activation
-    tensor to the freqs dtype — a memory/perf variant of the SAME math, not a
-    different convention. NOT bit-exact against the vendored out-of-place
-    function (``test_krea2_apply_rope_inplace_vs_vendored_flux_not_bitexact``
-    proves the divergence, up to ~1.5e-2 at bf16, entirely attributable to
-    the different cast order), so it is kept as its own function rather than
-    imported."""
-    freqs = freqs[:, None, :, :, :]
-    cos = freqs[..., 0, 0].to(x.dtype)
-    sin = freqs[..., 1, 0].to(x.dtype)
-    x_pair = x.reshape(*x.shape[:-1], -1, 2)
-    x0 = x_pair[..., 0].clone()
-    x1 = x_pair[..., 1]
-    x_pair[..., 0].mul_(cos).sub_(x1 * sin)
-    x_pair[..., 1].mul_(cos).add_(x0 * sin)
-    return x
-
-
-def ropeapply(xq: Tensor, xk: Tensor, freqs: Tensor) -> tuple[Tensor, Tensor]:
-    """Applies :func:`apply_rope_inplace` to both q and k — the two-tensor
-    convenience wrapper diffusers' ``Krea2AttnProcessor.__call__`` inlines at
-    its call site instead of naming separately."""
-    return apply_rope_inplace(xq, freqs), apply_rope_inplace(xk, freqs)
 
 
 def temb(t: Tensor, dim: int, period: float = 1e4, tfactor: float = 1e3,
@@ -230,6 +199,15 @@ def ref_attn_bias(boosts: list[float], txt_len: int, ref_lens: list[int], tgt_le
     return bias
 
 
+# Derived from: https://github.com/ostris/ComfyUI-Krea2-Ostris-Edit (MIT, nodes.py _precompute_ref_kv / _forward_with_cached_refs)
+def ref_isolation_bias(txt_len: int, ref_len: int, tgt_len: int, device: torch.device, dtype: torch.dtype) -> Tensor:
+    total = txt_len + ref_len + tgt_len
+    bias = torch.zeros((1, 1, total, total), device=device, dtype=dtype)
+    rows = slice(txt_len, txt_len + ref_len)
+    bias[:, :, rows, :txt_len] = float("-inf")
+    bias[:, :, rows, txt_len + ref_len:] = float("-inf")
+    return bias
+
 def _sdpa_gqa(q: Tensor, k: Tensor, v: Tensor, heads: int, kvheads: int, mask: Tensor | None) -> Tensor:
     """Attention over head-split tensors with GQA; returns merged ``(B, L, H*D)``.
 
@@ -262,6 +240,10 @@ class RMSNorm(nn.Module):
         # path. Values are identical within bf16 rounding tolerance.
         out = F.rms_norm(x, (self.features,), eps=self.eps, weight=(self.scale + 1.0).to(dtype))
         return out.to(dtype)
+
+
+def _rms_args(norm: RMSNorm) -> dict:
+    return {"norm": "rms", "eps": norm.eps, "weight": norm.scale, "weight_offset": 1.0}
 
 
 class SimpleModulation(nn.Module):
@@ -352,9 +334,10 @@ class SwiGLU(nn.Module):
         self.down = operations.Linear(mlpdim, features, bias=bias, dtype=dtype, device=device)
         self.features = features
         self.mlpdim = mlpdim
+        self.operations = operations
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.down(F.silu(self.gate(x)) * self.up(x))
+        return self.down(self.operations.act_gate(self.gate(x), mode="swiglu_split", up=self.up(x)))
 
 
 class Attention(nn.Module):
@@ -382,6 +365,7 @@ class Attention(nn.Module):
         self.gate = operations.Linear(dim, dim, bias=bias, dtype=dtype, device=device)
         self.qknorm = QKNorm(self.headdim)
         self.wo = operations.Linear(dim, dim, bias=bias, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor, freqs: Tensor | None = None, mask: Tensor | None = None,
                 nag_ctx: Tensor | None = None, nag_freqs: Tensor | None = None,
@@ -390,10 +374,9 @@ class Attention(nn.Module):
         q = rearrange(self.wq(x), "B L (H D) -> B H L D", H=self.heads)
         k = rearrange(self.wk(x), "B L (H D) -> B H L D", H=self.kvheads)
         v = rearrange(self.wv(x), "B L (H D) -> B H L D", H=self.kvheads)
-        q = self.qknorm.qnorm(q)
-        k = self.qknorm.knorm(k)
-        if freqs is not None:
-            q, k = ropeapply(q, k, freqs)
+        ops = self.operations
+        q = ops.qk_norm_rope(q, **_rms_args(self.qknorm.qnorm), freqs=freqs, layout="pair_matrix_inplace")
+        k = ops.qk_norm_rope(k, **_rms_args(self.qknorm.knorm), freqs=freqs, layout="pair_matrix_inplace")
         out = _sdpa_gqa(q, k, v, self.heads, self.kvheads, mask)
         # NAG (arXiv:2505.21179; mirrors src/platform/runtime/native/arch/wan/model.py's
         # WanT2VCrossAttention and arch/ltx/model.py's CrossAttention). Krea-2's block is
@@ -417,9 +400,10 @@ class Attention(nn.Module):
             q_img = q[:, :, -img_len:, :]
             k_txt = rearrange(self.wk(nag_ctx), "B L (H D) -> B H L D", H=self.kvheads)
             v_txt = rearrange(self.wv(nag_ctx), "B L (H D) -> B H L D", H=self.kvheads)
-            k_txt = self.qknorm.knorm(k_txt)
-            if nag_freqs is not None:
-                k_txt = apply_rope_inplace(k_txt, nag_freqs[:, :neg_txt_len])
+            k_txt = ops.qk_norm_rope(
+                k_txt, **_rms_args(self.qknorm.knorm), layout="pair_matrix_inplace",
+                freqs=None if nag_freqs is None else nag_freqs[:, :neg_txt_len],
+            )
             k_neg = torch.cat([k_txt, k[:, :, -img_len:, :]], dim=2)
             v_neg = torch.cat([v_txt, v[:, :, -img_len:, :]], dim=2)
             neg_img = _sdpa_gqa(q_img, k_neg, v_neg, self.heads, self.kvheads, nag_mask)
@@ -441,13 +425,14 @@ class LastLayer(nn.Module):
         self.norm = RMSNorm(features)
         self.linear = operations.Linear(features, patch * patch * channels, bias=True, dtype=dtype, device=device)
         self.modulation = SimpleModulation(features)
+        self.operations = operations
 
     def forward(self, x: Tensor, tvec: Tensor) -> Tensor:
         scale, shift = self.modulation(tvec)
         dt = x.dtype
-        x = self.norm(x)
-        x = x * (scale.to(dt) + 1) + shift.to(dt)
-        return self.linear(x)
+        return self.linear(self.operations.norm_modulate(
+            x, **_rms_args(self.norm), scale=scale.to(dt), shift=shift.to(dt),
+        ))
 
 
 class TextFusionBlock(nn.Module):
@@ -517,11 +502,13 @@ class SingleStreamBlock(nn.Module):
         self.postnorm = RMSNorm(features)
         self.attn = Attention(features, heads, kvheads, bias, operations=operations, dtype=dtype, device=device)
         self.mlp = SwiGLU(features, multiplier, bias, operations=operations, dtype=dtype, device=device)
+        self.operations = operations
 
     def forward(self, x: Tensor, vec: Tensor, freqs: Tensor, mask: Tensor | None = None,
                 nag_fused: Tensor | None = None, nag_freqs: Tensor | None = None,
                 nag_mask: Tensor | None = None, nag: dict | None = None,
-                txt_len: int | None = None) -> Tensor:
+                txt_len: int | None = None, ref_vec: Tensor | None = None,
+                ref_span: tuple[int, int] | None = None) -> Tensor:
         # The modulation vector ``vec`` (timestep-derived) is f32 and the f32
         # ``mod.lin`` keeps the scale/shift/gate f32. Applying them directly
         # would promote the bf16 residual ``x`` to f32, and since Krea-2 loads
@@ -533,7 +520,11 @@ class SingleStreamBlock(nn.Module):
         # file header for why porting it verbatim would reintroduce this).
         dt = x.dtype
         prescale, preshift, pregate, postscale, postshift, postgate = (m.to(dt) for m in self.mod(vec))
-        h = self.prenorm(x) * (prescale + 1) + preshift
+        if ref_vec is not None and ref_span is not None:
+            return self._forward_ref_t0(x, (prescale, preshift, pregate, postscale, postshift, postgate),
+                                        tuple(m.to(dt) for m in self.mod(ref_vec)), ref_span, freqs, mask, txt_len)
+        ops = self.operations
+        h = ops.norm_modulate(x, **_rms_args(self.prenorm), scale=prescale, shift=preshift)
         # NAG (see Attention.forward above): ``nag_fused`` is the STATIC fused
         # negative-text representation (never evolved through blocks, matching
         # Wan/LTX's static uncond context); re-normalize/modulate it with THIS
@@ -543,9 +534,27 @@ class SingleStreamBlock(nn.Module):
         # normalizing the concatenated [nag_fused | image] sequence directly.
         nag_ctx = None
         if nag_fused is not None and _nag_active(nag):
-            nag_ctx = self.prenorm(nag_fused.to(dt)) * (prescale + 1) + preshift
-        x = x + self.attn(h, freqs, mask, nag_ctx=nag_ctx, nag_freqs=nag_freqs,
-                           nag_mask=nag_mask, nag=nag, txt_len=txt_len) * pregate
-        h = self.postnorm(x) * (postscale + 1) + postshift
-        x = x + self.mlp(h) * postgate
-        return x
+            nag_ctx = ops.norm_modulate(nag_fused.to(dt), **_rms_args(self.prenorm), scale=prescale, shift=preshift)
+        x = ops.gated_residual(x, self.attn(h, freqs, mask, nag_ctx=nag_ctx, nag_freqs=nag_freqs,
+                                            nag_mask=nag_mask, nag=nag, txt_len=txt_len), pregate)
+        h = ops.norm_modulate(x, **_rms_args(self.postnorm), scale=postscale, shift=postshift)
+        return ops.gated_residual(x, self.mlp(h), postgate)
+
+    def _forward_ref_t0(self, x: Tensor, main: tuple[Tensor, ...], ref: tuple[Tensor, ...],
+                        span: tuple[int, int], freqs: Tensor, mask: Tensor | None,
+                        txt_len: int | None) -> Tensor:
+        a, b = span
+        ops = self.operations
+        spans = (a, b - a, x.shape[1] - b)
+
+        def modulate(h: Tensor, norm: RMSNorm, scale: int, shift: int) -> Tensor:
+            return ops.norm_modulate(
+                h, **_rms_args(norm), spans=spans,
+                scale=(main[scale], ref[scale], main[scale]), shift=(main[shift], ref[shift], main[shift]),
+            )
+
+        def gate(x: Tensor, y: Tensor, index: int) -> Tensor:
+            return ops.gated_residual(x, y, (main[index], ref[index], main[index]), spans=spans)
+
+        x = gate(x, self.attn(modulate(x, self.prenorm, 0, 1), freqs, mask, txt_len=txt_len), 2)
+        return gate(x, self.mlp(modulate(x, self.postnorm, 3, 4)), 5)

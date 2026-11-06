@@ -10,8 +10,9 @@ Adaptations from upstream:
     (matching the Flux vendoring), the fp8/manual_cast seam;
   * ``optimized_attention`` is routed through the native attention dispatcher
     (:func:`src.platform.runtime.native.kernels.attention`);
-  * ``EmbedND`` and ``apply_rope1`` are reused from the Flux arch (upstream Wan
-    imports the very same RoPE utilities from ``comfy.ldm.flux``);
+  * ``EmbedND`` is reused from the Flux arch (upstream Wan imports the very same
+    RoPE utilities from ``comfy.ldm.flux``); qk-norm + ``apply_rope1`` run as the
+    shared ``qk_norm_rope`` (``pair_matrix``, norm over the full width);
   * ComfyUI's ``transformer_options`` / patcher-extension / block-replace hooks
     are dropped (no ComfyUI runtime here);
   * ``comfy.model_management.cast_to`` -> plain ``.to(dtype, device)``.
@@ -53,7 +54,7 @@ from ...cancellation import raise_if_cancelled
 from ...nag import apply_nag
 from ...ops.padding import pad_to_patch
 from vendor.gpl.comfyui.flux.layers import EmbedND
-from vendor.gpl.comfyui.flux.math_ops import apply_rope1, rope
+from vendor.gpl.comfyui.flux.math_ops import rope
 from .config import WanParams
 
 # Wan 2.1/2.2's official max training length is 81 pixel frames (5s @ 16fps);
@@ -111,11 +112,13 @@ class WanSelfAttention(nn.Module):
         self.o = operations.Linear(dim, dim, device=device, dtype=dtype)
         self.norm_q = operations.RMSNorm(dim, eps=eps, elementwise_affine=True, device=device, dtype=dtype) if qk_norm else nn.Identity()
         self.norm_k = operations.RMSNorm(dim, eps=eps, elementwise_affine=True, device=device, dtype=dtype) if qk_norm else nn.Identity()
+        self.operations = operations
 
     def forward(self, x, freqs):
-        b, s, n, d = *x.shape[:2], self.num_heads, self.head_dim
-        q = apply_rope1(self.norm_q(self.q(x)).view(b, s, n, d), freqs).reshape(b, s, n * d)
-        k = apply_rope1(self.norm_k(self.k(x)).view(b, s, n, d), freqs).reshape(b, s, n * d)
+        ops = self.operations
+        rope = dict(freqs=freqs, layout="pair_matrix", heads=self.num_heads)
+        q = ops.qk_norm_rope(self.q(x), **(ops.norm_args(self.norm_q) if self.qk_norm else {}), **rope)
+        k = ops.qk_norm_rope(self.k(x), **(ops.norm_args(self.norm_k) if self.qk_norm else {}), **rope)
         v = self.v(x)
         x = wan_attention(q, k, v, heads=self.num_heads)
         return self.o(x)
@@ -198,6 +201,7 @@ class WanAttentionBlock(nn.Module):
         self.qk_norm = qk_norm
         self.cross_attn_norm = cross_attn_norm
         self.eps = eps
+        self.operations = operations
 
         self.norm1 = operations.LayerNorm(dim, eps, elementwise_affine=False, device=device, dtype=dtype)
         self.self_attn = WanSelfAttention(dim, num_heads, window_size, qk_norm, eps,
@@ -208,7 +212,7 @@ class WanAttentionBlock(nn.Module):
         self.norm2 = operations.LayerNorm(dim, eps, elementwise_affine=False, device=device, dtype=dtype)
         self.ffn = nn.Sequential(
             operations.Linear(dim, ffn_dim, device=device, dtype=dtype),
-            nn.GELU(approximate="tanh"),
+            operations.ActGate("gelu_tanh"),
             operations.Linear(ffn_dim, dim, device=device, dtype=dtype),
         )
         self.modulation = nn.Parameter(torch.empty(1, 6, dim, device=device, dtype=dtype))
@@ -219,17 +223,21 @@ class WanAttentionBlock(nn.Module):
         else:
             e = (_cast(self.modulation, x).unsqueeze(0) + e).unbind(2)
 
+        ops = self.operations
         x = x.contiguous()
-        y = self.self_attn(torch.addcmul(repeat_e(e[0], x), self.norm1(x), 1 + repeat_e(e[1], x)), freqs)
-        x = torch.addcmul(x, y, repeat_e(e[2], x))
+        y = self.self_attn(ops.norm_modulate(
+            x, norm="layer", eps=self.norm1.eps, scale=repeat_e(e[1], x), shift=repeat_e(e[0], x), addcmul=True,
+        ), freqs)
+        x = ops.gated_residual(x, y, repeat_e(e[2], x), addcmul=True)
         del y
 
         x = x + self.cross_attn(self.norm3(x), context, context_img_len=context_img_len,
                                  nag_context=nag_context, nag=nag)
 
-        y = self.ffn(torch.addcmul(repeat_e(e[3], x), self.norm2(x), 1 + repeat_e(e[4], x)))
-        x = torch.addcmul(x, y, repeat_e(e[5], x))
-        return x
+        y = self.ffn(ops.norm_modulate(
+            x, norm="layer", eps=self.norm2.eps, scale=repeat_e(e[4], x), shift=repeat_e(e[3], x), addcmul=True,
+        ))
+        return ops.gated_residual(x, y, repeat_e(e[5], x), addcmul=True)
 
 
 class Head(nn.Module):
@@ -239,6 +247,7 @@ class Head(nn.Module):
         self.out_dim = out_dim
         self.patch_size = patch_size
         self.eps = eps
+        self.operations = operations
         out_dim = math.prod(patch_size) * out_dim
         self.norm = operations.LayerNorm(dim, eps, elementwise_affine=False, device=device, dtype=dtype)
         self.head = operations.Linear(dim, out_dim, device=device, dtype=dtype)
@@ -249,7 +258,9 @@ class Head(nn.Module):
             e = (_cast(self.modulation, x) + e.unsqueeze(1)).chunk(2, dim=1)
         else:
             e = (_cast(self.modulation, x).unsqueeze(0) + e.unsqueeze(2)).unbind(2)
-        return self.head(torch.addcmul(repeat_e(e[0], x), self.norm(x), 1 + repeat_e(e[1], x)))
+        return self.head(self.operations.norm_modulate(
+            x, norm="layer", eps=self.norm.eps, scale=repeat_e(e[1], x), shift=repeat_e(e[0], x), addcmul=True,
+        ))
 
 
 class MLPProj(nn.Module):

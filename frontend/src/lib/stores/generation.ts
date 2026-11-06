@@ -1,4 +1,5 @@
 import { tabsStore } from './tabs';
+import { generationTabs, type GenerationTab } from '$lib/types/tabs';
 import type { WebSocketMessage } from '$lib/services/websocket';
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { retireGeneration } from '$lib/generation/messages/generationOutputs';
@@ -17,8 +18,8 @@ const warnedUnknownTypes = new Set<string>();
 function findTabForGeneration(generationId: string | undefined) {
 	if (!generationId) return null;
 
-	let currentTabs: any[] = [];
-	const unsub = tabsStore.subscribe((s) => (currentTabs = s.tabs));
+	let currentTabs: GenerationTab[] = [];
+	const unsub = tabsStore.subscribe((s) => (currentTabs = generationTabs(s.tabs)));
 	unsub();
 
 	return currentTabs.find(

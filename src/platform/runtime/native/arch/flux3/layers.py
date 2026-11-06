@@ -21,35 +21,6 @@ def rope_tables(ids: Tensor, axes_dim: tuple[int, ...], theta: int) -> Rope:
     return torch.cos(angle).float()[None, None], torch.sin(angle).float()[None, None]
 
 
-def rmsnorm_rope(x: Tensor, scale: Tensor, rope: Rope, eps: float = 1e-6) -> Tensor:
-    b, h, n, d = x.shape
-    x_f = x.float()
-    normed = x_f * x_f.pow(2).mean(-1, keepdim=True).add(eps).rsqrt() * scale.float()
-    pairs = normed.reshape(b, h, n, d // 2, 2)
-    cos, sin = rope
-    first, second = pairs[..., 0], pairs[..., 1]
-    rotated = torch.stack((cos * first - sin * second, sin * first + cos * second), dim=-1)
-    return rotated.reshape(b, h, n, d).to(x.dtype)
-
-
-def modulate(normed: Tensor, segments: list[Modulation]) -> Tensor:
-    parts = []
-    start = 0
-    for length, shift, scale, _ in segments:
-        parts.append(torch.addcmul(shift, 1.0 + scale, normed[:, start : start + length]))
-        start += length
-    return parts[0] if len(parts) == 1 else torch.cat(parts, dim=1)
-
-
-def apply_gate(out: Tensor, segments: list[Modulation]) -> Tensor:
-    parts = []
-    start = 0
-    for length, _, _, gate in segments:
-        parts.append(out[:, start : start + length] * gate)
-        start += length
-    return parts[0] if len(parts) == 1 else torch.cat(parts, dim=1)
-
-
 class RMSNormScale(nn.Module):
     def __init__(self, dim: int, dtype=None, device=None) -> None:
         super().__init__()
@@ -61,9 +32,6 @@ class QKNorm(nn.Module):
         super().__init__()
         self.query_norm = RMSNormScale(dim, dtype=dtype, device=device)
         self.key_norm = RMSNormScale(dim, dtype=dtype, device=device)
-
-    def forward(self, q: Tensor, k: Tensor, rope: Rope) -> tuple[Tensor, Tensor]:
-        return rmsnorm_rope(q, self.query_norm.scale, rope), rmsnorm_rope(k, self.key_norm.scale, rope)
 
 
 class MLPEmbedder(nn.Module):
@@ -89,6 +57,7 @@ class ModeModulation(nn.Module):
 class LastLayer(nn.Module):
     def __init__(self, hidden: int, out_channels: int, operations, dtype=None, device=None) -> None:
         super().__init__()
+        self.operations = operations
         self.linear = operations.Linear(hidden, out_channels, bias=False, dtype=dtype, device=device)
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
@@ -97,8 +66,9 @@ class LastLayer(nn.Module):
 
     def forward(self, x: Tensor, vec: Tensor) -> Tensor:
         shift, scale = self.adaLN_modulation(vec).chunk(2, dim=-1)
-        normed = F.layer_norm(x, (x.shape[-1],), eps=1e-6)
-        return self.linear(torch.addcmul(shift[:, None], 1.0 + scale[:, None], normed))
+        return self.linear(self.operations.norm_modulate(
+            x, norm="layer", eps=1e-6, scale=scale[:, None], shift=shift[:, None], addcmul=True,
+        ))
 
 
 class Block(nn.Module):
@@ -108,6 +78,7 @@ class Block(nn.Module):
         super().__init__()
         self.heads = heads
         self.fused_qkv = fused_qkv
+        self.operations = operations
         if fused_qkv:
             self.qkv = operations.Linear(hidden, hidden * 3, bias=False, dtype=dtype, device=device)
         else:
@@ -124,17 +95,26 @@ class Block(nn.Module):
         return t.reshape(b, n, self.heads, -1).transpose(1, 2)
 
     def forward(self, x: Tensor, rope: Rope, segments: list[Modulation]) -> Tensor:
-        normed = F.layer_norm(x, (x.shape[-1],), eps=1e-6)
-        x_mod = modulate(normed, segments)
+        ops = self.operations
+        spans = [length for length, _, _, _ in segments]
+        x_mod = ops.norm_modulate(
+            x, norm="layer", eps=1e-6, spans=spans, addcmul=True,
+            scale=[scale for _, _, scale, _ in segments], shift=[shift for _, shift, _, _ in segments],
+        )
         if self.fused_qkv:
             q, k, v = self.qkv(x_mod).chunk(3, dim=-1)
         else:
             q, k, v = self.q_proj(x_mod), self.k_proj(x_mod), self.v_proj(x_mod)
-        q, k = self.norm(self._split(q), self._split(k), rope)
+        q, k = (
+            ops.qk_norm_rope(
+                self._split(t), norm="rms_fp32_chain", eps=1e-6, weight=norm.scale, freqs=rope,
+                layout="pair_cos_sin", out_dtype=t.dtype,
+            )
+            for t, norm in ((q, self.norm.query_norm), (k, self.norm.key_norm))
+        )
         v = self._split(v).to(q.dtype)
         attn = _attention(q, k, v, heads=self.heads)
         b, _, n, _ = attn.shape
         attn = attn.transpose(1, 2).reshape(b, n, -1)
-        gate_in, up = self.mlp_in(x_mod).chunk(2, dim=-1)
-        out = self.attn_out(attn) + self.mlp_out(F.silu(gate_in) * up)
-        return x + apply_gate(out, segments)
+        out = self.attn_out(attn) + self.mlp_out(ops.act_gate(self.mlp_in(x_mod), mode="swiglu"))
+        return ops.gated_residual(x, out, [gate for _, _, _, gate in segments], spans=spans)

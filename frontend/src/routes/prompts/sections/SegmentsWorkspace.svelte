@@ -14,6 +14,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { tabsStore, activeTab } from '$lib/stores/tabs';
+	import { ensureGenerationTabActive } from '$lib/tool-tabs/open';
 	import { libraryTabVariables } from '$lib/prompts/libraryTabVariables';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
@@ -274,6 +275,7 @@
 	}
 
 	function insertIntoPrompt(segment: RichSegment | SavedSegment) {
+		ensureGenerationTabActive();
 		const tab = get(activeTab);
 		if (!tab) {
 			toasts.error('No active Generate tab to insert this segment into');

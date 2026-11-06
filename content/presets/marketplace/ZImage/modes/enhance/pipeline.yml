@@ -1,0 +1,191 @@
+pipeline:
+  - name: "model_loader/z_image"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/z_image", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
+        - ["upscale_by", "{{ form.upscale_by }}"]
+        - ["enhance_detail", "{{ form.enhance_detail }}"]
+        - ["face_detailer", "{{ form.face_detailer_enabled }}"]
+
+  - name: "generator/z_image"
+    id: "generator"
+    input:
+      - ["model", "model_loader/z_image", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      mode: "img2img"
+      denoise: "{{ {'subtle': 0.12, 'balanced': 0.2, 'strong': 0.35}[form.enhance_detail] }}"
+      img2img_scale: "{{ {'1_5x': 1.5, '2x': 2.0, '3x': 3.0}[form.upscale_by] }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      quantity: "{{ form.quantity }}"
+      step_cache:
+        rel_threshold: "{{ form.step_cache_threshold }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips }}"
+
+  - name: "artifact"
+    id: "compare_enhance"
+    input:
+      - ["before_image", "media_loader", "image"]
+      - ["after_image", "generator", "image"]
+    enabled: true
+    configuration:
+      mode: "compare"
+      left: "Original"
+      right: "Enhanced"
+      output: "right"
+
+  - name: "detailer/native"
+    id: "face_detailer"
+    enabled: "{{ form.face_detailer_enabled }}"
+    input:
+      - ["model", "model_loader/z_image", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "compare_enhance", "image"]
+    configuration:
+      denoise: "{{ form.face_detailer_denoise }}"
+      steps: "{{ form.face_detailer_steps }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      crop_padding: "{{ form.face_detailer_crop_padding }}"
+      crop_size: "{{ form.face_detailer_crop_size }}"
+      max_faces: "{{ form.face_detailer_max_faces }}"
+      min_face_ratio: "{{ form.face_detailer_min_face_ratio }}"
+      max_face_ratio: "{{ form.face_detailer_max_face_ratio }}"
+      feather: "{{ form.face_detailer_feather }}"
+      mask_mode: "{{ form.face_detailer_mask_mode }}"
+      mask_dilate: "{{ form.face_detailer_mask_dilate }}"
+      latent_mask: "{{ form.face_detailer_latent_mask }}"
+      colour_match: "{{ form.face_detailer_colour_match }}"
+      overlay: "{{ form.face_detailer_overlay }}"
+      loras_mode: "{{ form.face_detailer_loras }}"
+      loras:
+        "@loop":
+          items: "{{ form.face_detailer_lora_picker }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+      run_loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            step_start: "{{ item.step_start | default(none) }}"
+            step_end: "{{ item.step_end | default(none) }}"
+      detection_backend: "{{ form.face_detailer_backend }}"
+      face_model: "{{ form.face_detailer_mediapipe_model }}"
+      yolo_model: "{{ form.face_detailer_yolo_model }}"
+
+  - name: "artifact"
+    id: "compare_faces"
+    enabled: "{{ form.face_detailer_enabled }}"
+    input:
+      - ["before_image", "compare_enhance", "image"]
+      - ["after_image", "face_detailer", "image"]
+    configuration:
+      mode: "compare"
+      left: "Enhanced"
+      right: "Faces"
+      output: "right"
+
+  - name: "gallery"
+    input:
+      - ["image", "{% if form.face_detailer_enabled %}compare_faces{% else %}compare_enhance{% endif %}", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+
+  - name: "gallery"
+    id: "gallery_before_faces"
+    input:
+      - ["image", "compare_enhance", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: "{{ form.face_detailer_enabled and form.face_detailer_keep_base }}"

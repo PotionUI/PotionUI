@@ -28,7 +28,6 @@ def assign(db, model_id, user_id="u1"):
 
 def catalog_for(env):
     scanner = MagicMock()
-    scanner.MODEL_TYPE_MAPPING = {}
     scanner.get_indexing_status.return_value = {}
     return ModelCatalog(
         model_repo, ModelAccessPolicy(model_repo), scanner,

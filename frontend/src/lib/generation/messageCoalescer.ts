@@ -17,7 +17,7 @@ export interface CoalescableMessage {
  * throttling — a rapid, superseding snapshot where only the newest one
  * queued in a frame is worth applying.
  */
-const COALESCED_TYPES = new Set(['generation_status', 'workbench_update', 'timer_update']);
+const COALESCED_TYPES = new Set(['generation_status', 'workbench_update', 'workbench_preview_clip', 'timer_update']);
 
 /**
  * Fields excluded when comparing a `generation_status` message to the last

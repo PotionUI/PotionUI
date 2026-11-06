@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest';
 import type { ChainSegment, DirectorCapabilities, VideoDirectorValue } from '$lib/types/videoDirector';
 import type { Segment } from '$lib/types/segments';
 import type { PromptResourceSpec } from './promptResources';
-import { shotReferenceOverview, shotResourceNumbering, withMarkerAppendedToShot } from './shotReferences';
+import {
+	shotNeedsReferenceHint,
+	shotReferenceCounts,
+	shotReferenceOverview,
+	shotReferencePool,
+	shotResourceNumbering,
+	withMarkerAppendedToShot
+} from './shotReferences';
 
 const specs: PromptResourceSpec[] = [
 	{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
@@ -228,5 +235,143 @@ describe('shotResourceNumbering positionIfAdded', () => {
 		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png]' }])]);
 		const numbering = shotResourceNumbering(doc, chainCaps, 's1', formData, specs);
 		expect(numbering.positionIfAdded?.('references', '/pool/c.png')).toBe(2);
+	});
+});
+
+const kitSpecs: PromptResourceSpec[] = [
+	...specs,
+	{ field: 'reference_kits', kind: 'image', label: 'Kits', token: '<Picture @>', source: 'kit' },
+	{ field: 'reference_kits', kind: 'video', label: 'Kits', token: '<Video @>', source: 'kit' }
+];
+const kitCaps = {
+	...chainCaps,
+	referenceFields: ['references', 'reference_videos', 'reference_audios', 'reference_kits']
+} as unknown as DirectorCapabilities;
+const kitForm = {
+	...formData,
+	reference_kits: [
+		{ model: 'model:01X', strength: 1, copies: 1 },
+		{ model: 'model:01Z', strength: 0, copies: 1 }
+	]
+};
+const directory = { kit: { 'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } } };
+
+describe('kit rows', () => {
+	it('lists a kit by name with a badge and leaves native numbering alone', () => {
+		const doc = chainDoc([
+			segment('s1', [{ id: 'p', content: '@[reference_kits:model:01X] with @[references:/pool/c.png]' }])
+		]);
+		const { used, unused } = shotReferenceOverview(doc, kitCaps, 's1', kitForm, kitSpecs, directory);
+		const mod = used.find((e) => e.field === 'reference_kits');
+		expect(mod).toMatchObject({ itemKey: 'model:01X', name: 'Face', badge: 'Picture', handle: 'Picture 2', count: 1 });
+		expect(used.find((e) => e.itemKey === '/pool/c.png')?.handle).toBe('Picture 1');
+		expect(unused.some((e) => e.itemKey === 'model:01Z')).toBe(false);
+		const numbering = shotResourceNumbering(doc, kitCaps, 's1', kitForm, kitSpecs);
+		expect(numbering.positionFor('reference_kits', 'model:01X')).toBeNull();
+		expect(numbering.positionFor('references', '/pool/c.png')).toBe(1);
+	});
+
+	it('offers an uncited kit for insertion with a marker', () => {
+		const doc = chainDoc([segment('s1', [])]);
+		const { unused } = shotReferenceOverview(doc, kitCaps, 's1', kitForm, kitSpecs, directory);
+		const mod = unused.find((e) => e.field === 'reference_kits');
+		expect(mod?.marker).toBe('@[reference_kits:model:01X]');
+		const next = withMarkerAppendedToShot(doc, kitCaps, 's1', mod!.marker);
+		expect(next.chain.segments[0].prompt_segments[0].content).toBe('@[reference_kits:model:01X]');
+	});
+});
+
+describe('shotNeedsReferenceHint', () => {
+	it('shows when references exist but none are cited', () => {
+		const doc = chainDoc([segment('s1', [])]);
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, chainCaps, 's1', formData, specs))).toBe(true);
+	});
+
+	it('shows for a pool made only of a citeable kit', () => {
+		const doc = chainDoc([segment('s1', [])]);
+		const form = { reference_kits: [{ model: 'model:01X', strength: 1 }] };
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, kitCaps, 's1', form, kitSpecs, directory))).toBe(true);
+	});
+
+	it('hides once a reference is cited', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_kits:model:01X]' }])]);
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, kitCaps, 's1', kitForm, kitSpecs, directory))).toBe(false);
+	});
+
+	it('hides with an empty pool or only a zero-strength kit', () => {
+		const doc = chainDoc([segment('s1', [])]);
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, chainCaps, 's1', {}, specs))).toBe(false);
+		const form = { reference_kits: [{ model: 'model:01Z', strength: 0 }] };
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, kitCaps, 's1', form, kitSpecs))).toBe(false);
+	});
+});
+
+
+describe('the shot reference pool matches what the backend conditions on', () => {
+	const pictureOnly = {
+		references: [{ path: '/pool/a.png', type: 'image' }],
+		reference_kits: [{ model: 'model:01X', strength: 1 }]
+	};
+	const mixedDirectory = {
+		kit: {
+			'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] },
+			'model:01B': { name: 'Cast', members: [{ kind: 'image' as const, name: 'hero' }, { kind: 'image' as const, name: 'villain' }] },
+			'model:01S': { name: 'Stack', members: [{ kind: 'video' as const, name: null }] }
+		}
+	};
+	const context = { specs: kitSpecs, directories: mixedDirectory };
+
+	it('puts each kit member and copy after the native references of its kind, dropping strength 0', () => {
+		const form = {
+			...formData,
+			reference_kits: [
+				{ model: 'model:01S', strength: 1 },
+				{ model: 'model:01B', strength: 0.5, copies: 2 },
+				{ model: 'model:01X', strength: 0 }
+			]
+		};
+		const pool = shotReferencePool(kitCaps, form, context).map((unit) => `${unit.itemKey}:${unit.kind}`);
+		expect(pool).toEqual([
+			'/pool/a.png:image', '/pool/b.png:image', '/pool/c.png:image',
+			'model:01B:image', 'model:01B:image', 'model:01B:image', 'model:01B:image',
+			'/pool/v.mp4:video', 'model:01S:video',
+			'/pool/t.wav:audio'
+		]);
+	});
+
+	it('reads 2 of 2 for a cited picture and a cited picture kit, not 2 of 1', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png] and @[reference_kits:model:01X]' }])]);
+		expect(shotReferenceCounts(doc, kitCaps, 's1', pictureOnly, context)).toEqual({ used: 2, total: 2 });
+	});
+
+	it('reads 1 of 1 for a lone cited picture kit, not 1 of 0', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_kits:model:01X]' }])]);
+		const form = { reference_kits: [{ model: 'model:01X', strength: 1 }] };
+		expect(shotReferenceCounts(doc, kitCaps, 's1', form, context)).toEqual({ used: 1, total: 1 });
+	});
+
+	it('counts every member of a cited bundle against the full pool', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_kits:model:01B]' }])]);
+		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_kits: [{ model: 'model:01B', strength: 1 }, { model: 'model:01S', strength: 1 }] };
+		expect(shotReferenceCounts(doc, kitCaps, 's1', form, context)).toEqual({ used: 2, total: 4 });
+	});
+
+	it('gives a cited kit the labels the shot numbers it with, after the cited natives of its kind', () => {
+		const doc = chainDoc([
+			segment('s1', [{ id: 'p', content: '@[references:/pool/a.png] @[reference_kits:model:01B] @[reference_kits:model:01S]' }])
+		]);
+		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_kits: [{ model: 'model:01B', strength: 1 }, { model: 'model:01S', strength: 1 }] };
+		const { used } = shotReferenceOverview(doc, kitCaps, 's1', form, kitSpecs, mixedDirectory);
+		expect(used.map((entry) => [entry.itemKey, entry.handle])).toEqual([
+			['/pool/a.png', 'Picture 1'],
+			['model:01B', 'Picture 2 · Picture 3'],
+			['model:01S', 'Video 1']
+		]);
+	});
+
+	it('leaves an uncited kit without a label', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png]' }])]);
+		const { unused } = shotReferenceOverview(doc, kitCaps, 's1', pictureOnly, kitSpecs, mixedDirectory);
+		expect(unused.map((entry) => [entry.itemKey, entry.handle])).toEqual([['model:01X', null]]);
 	});
 });

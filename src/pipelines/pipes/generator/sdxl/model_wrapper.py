@@ -151,7 +151,7 @@ class SDXLModelWrapper:
         self.controlnet_device = None
         if self.controlnet is not None:
             self.controlnet_device = next(self.controlnet.parameters()).device
-            self.controlnet.to('cpu')
+            self.controlnet.to('cpu', dtype=self._unet_dtype())
         self.controlnet_on_gpu = False
 
         # Log conditioning statistics for CFG diagnosis.
@@ -246,16 +246,16 @@ class SDXLModelWrapper:
                 clear_gpu_memory()
             return None, None
 
-        # Move ControlNet to GPU
+        compute_dtype = self._unet_dtype()
+
         if not self.controlnet_on_gpu:
-            self.controlnet.to(self.controlnet_device)
+            self.controlnet.to(self.controlnet_device, dtype=compute_dtype)
             self.controlnet_on_gpu = True
 
-        # Prepare control image
         if isinstance(self.control_image, list):
-            control_image_input = [img.to(self.controlnet_device) for img in self.control_image]
+            control_image_input = [img.to(self.controlnet_device, compute_dtype) for img in self.control_image]
         else:
-            control_image_input = self.control_image.to(self.controlnet_device)
+            control_image_input = self.control_image.to(self.controlnet_device, compute_dtype)
 
         if self.do_classifier_free_guidance:
             if isinstance(control_image_input, list):
@@ -264,13 +264,13 @@ class SDXLModelWrapper:
                 control_image_input = torch.cat([control_image_input] * 2)
 
         controlnet_added_cond_kwargs = {
-            "text_embeds": self.add_text_embeds,
-            "time_ids": self.add_time_ids
+            "text_embeds": self.add_text_embeds.to(compute_dtype),
+            "time_ids": self.add_time_ids.to(compute_dtype)
         }
 
         down_block_res_samples, mid_block_res_sample = self.controlnet(
-            latent_model_input, timestep_cond,
-            encoder_hidden_states=self.prompt_embeds,
+            latent_model_input.to(compute_dtype), timestep_cond.to(compute_dtype),
+            encoder_hidden_states=self.prompt_embeds.to(compute_dtype),
             controlnet_cond=control_image_input,
             conditioning_scale=self.controlnet_conditioning_scale,
             added_cond_kwargs=controlnet_added_cond_kwargs,
@@ -280,7 +280,11 @@ class SDXLModelWrapper:
         del control_image_input
         clear_gpu_memory()
 
-        return down_block_res_samples, mid_block_res_sample
+        down_block_res_samples = [sample.to(compute_dtype) for sample in down_block_res_samples]
+        return down_block_res_samples, mid_block_res_sample.to(compute_dtype)
+
+    def _unet_dtype(self):
+        return next(self.unet.parameters()).dtype
 
     def apply_model(self, x, t, **kwargs):
         """

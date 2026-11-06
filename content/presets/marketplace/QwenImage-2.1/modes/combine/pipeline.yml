@@ -13,7 +13,7 @@ pipeline:
         name: "{{ form.vae }}"
       loras:
         "@loop":
-          items: "{{ form.loras }}"
+          items: "{{ ([{'model': form.turbo_lora, 'strength': 1.0}] if form.speed_profile == 'turbo' and form.turbo_lora else []) + (form.loras or []) }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -30,10 +30,19 @@ pipeline:
             type: "image"
             path: "{{ item.path | default(item) }}"
 
+  - name: "image_fit"
+    id: "image_fit"
+    input:
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      fit: "{{ form.output_fit if form.output_size == 'custom' else 'match' }}"
+      resolution: "{{ form.resolution }}"
+
   - name: "prompt_encoder"
     input:
       - ["text_encoder", "model_loader/qwen_image21", "text_encoder"]
-      - ["image", "media_loader", "image"]
+      - ["image", "image_fit", "image"]
     enabled: true
     configuration:
       p_prompt:
@@ -80,7 +89,7 @@ pipeline:
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
         - "@loop":
-            items: "{{ form.loras | active_loras }}"
+            items: "{{ ([{'model': form.turbo_lora}] if form.speed_profile == 'turbo' and form.turbo_lora else []) + (form.loras | active_loras) }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
@@ -94,7 +103,7 @@ pipeline:
       - ["model", "model_loader/qwen_image21", "model"]
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
-      - ["image", "media_loader", "image"]
+      - ["image", "image_fit", "image"]
     enabled: true
     configuration:
       mode: "edit"
@@ -103,6 +112,8 @@ pipeline:
       shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
       sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       schedule: "{{ form.schedule }}"
+      resolution: "{{ form.resolution }}"
+      fit: "{{ form.output_fit if form.output_size == 'custom' else 'match' }}"
       quantity: "{{ form.quantity }}"
       step_cache:
         rel_threshold: "{{ form.step_cache_threshold }}"

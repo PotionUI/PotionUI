@@ -7,11 +7,12 @@ import { CORE_TOOLS } from './fixtures/mediaToolCatalog';
 import { settle } from './helpers/settle';
 
 const openMediaTool = vi.fn();
+const openToolShortcut = vi.fn();
 const listMediaTools = vi.fn();
 
 vi.mock('$lib/media-tools/open', () => ({ openMediaTool: (...args: unknown[]) => openMediaTool(...args) }));
-vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
-	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
+vi.mock('$lib/tool-tabs/openShortcut', () => ({
+	openToolShortcut: (...args: unknown[]) => openToolShortcut(...args)
 }));
 vi.mock('$lib/services/api/mediaTools', () => ({
 	listMediaTools: (...args: unknown[]) => listMediaTools(...args),
@@ -115,6 +116,8 @@ beforeEach(() => {
 	widthSpy = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200);
 	libraryStore.reset();
 	openMediaTool.mockReset();
+	openToolShortcut.mockReset();
+	openToolShortcut.mockReturnValue(false);
 	listMediaTools.mockReset();
 	listMediaTools.mockResolvedValue(CORE_TOOLS);
 	resetMediaToolCatalog();
@@ -426,7 +429,28 @@ describe('Library page media tools', () => {
 		stop();
 	});
 
+	it('opens an Image editor tab for a tool picked on an image and keeps the selection', async () => {
+		openToolShortcut.mockReturnValue(true);
+		await mountPage();
+		libraryStore.toggleSelect('a');
+		libraryStore.toggleSelect('c');
+		await settle(4);
+		await openBarMenu('edit');
+
+		toolRow('crop')!.click();
+		await settle(4);
+
+		expect(openMediaTool).not.toHaveBeenCalled();
+		expect(openToolShortcut).toHaveBeenCalledTimes(1);
+		expect(openToolShortcut.mock.calls[0][0]).toBe('crop');
+		expect(openToolShortcut.mock.calls[0][1].map((entry: { id: string }) => entry.id)).toEqual(['a', 'c']);
+		let state: any;
+		libraryStore.subscribe((value) => (state = value))();
+		expect([...state.selectedIds]).toEqual(['a', 'c']);
+	});
+
 	it('opens a recent look from the bar on that look', async () => {
+		openToolShortcut.mockReturnValue(true);
 		recentLooks.set([{ id: 'noir', name: 'Noir', group: 'Black and white' }]);
 		await mountPage();
 		libraryStore.toggleSelect('a');
@@ -437,13 +461,11 @@ describe('Library page media tools', () => {
 		toolRow('look:noir')!.click();
 		await settle(4);
 
-		const stub = document.body.querySelector('[data-editor-stub]');
-		expect(stub?.getAttribute('data-kind')).toBe('paint');
-		expect(stub?.getAttribute('data-initial-tool')).toBe('filters');
-		expect(stub?.getAttribute('data-initial-filter')).toBe('noir');
+		expect(openToolShortcut.mock.calls[0][0]).toBe('look:noir');
 	});
 
 	it('opens a recent look from a card menu on that look', async () => {
+		openToolShortcut.mockReturnValue(true);
 		recentLooks.set([{ id: 'ember', name: 'Ember', group: 'Colour' }]);
 		await mountPage();
 
@@ -451,9 +473,8 @@ describe('Library page media tools', () => {
 		toolRow('look:ember')!.click();
 		await settle(4);
 
-		const stub = document.body.querySelector('[data-editor-stub]');
-		expect(stub?.getAttribute('data-initial-tool')).toBe('filters');
-		expect(stub?.getAttribute('data-initial-filter')).toBe('ember');
+		expect(openToolShortcut.mock.calls[0][0]).toBe('look:ember');
+		expect(openToolShortcut.mock.calls[0][1][0].id).toBe('c');
 	});
 
 	it('shows no recent look on a card menu for a video', async () => {

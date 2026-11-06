@@ -499,3 +499,30 @@ def test_another_users_session_and_an_unknown_one_look_the_same(world):
     for user, session_id in ((world.other, "s1"), (world.admin, "s1"), (world.owner, "nope")):
         with pytest.raises(api.SessionNotFoundError):
             api.get_session_snapshot(user, session_id)
+
+
+def test_a_session_read_carries_the_write_version_and_current_data(world):
+    world.sessions.create(Session(id="s1", user_id="owner", preset_id="p", name="mine", data={"txt2img": {"prompt": "a"}}))
+    stored = world.sessions.get_by_id("s1")
+    world.sessions.update(Session(id="s1", user_id="owner", preset_id="p", name="mine", data={"txt2img": {"prompt": "b"}}), stored.version)
+
+    current = api.get_session(world.owner, "s1")
+
+    assert (current["session_id"], current["preset_id"], current["name"], current["version"]) == ("s1", "p", "mine", 2)
+    assert current["data"] == {"txt2img": {"prompt": "b"}}
+    assert current["updated_at"]
+
+
+def test_a_session_read_can_narrow_to_one_mode(world):
+    world.sessions.create(Session(id="s1", user_id="owner", preset_id="p", name="mine", data={"txt2img": {"prompt": "a"}, "edit": {"prompt": "e"}}))
+
+    assert api.get_session(world.owner, "s1", mode="edit")["data"] == {"prompt": "e"}
+    assert api.get_session(world.owner, "s1", mode="video")["data"] is None
+
+
+def test_a_session_read_refuses_anyone_but_the_owner(world):
+    world.sessions.create(Session(id="s1", user_id="owner", preset_id="p", name="mine", data={}))
+
+    for user, session_id in ((world.other, "s1"), (world.admin, "s1"), (world.owner, "nope")):
+        with pytest.raises(api.SessionNotFoundError):
+            api.get_session(user, session_id)

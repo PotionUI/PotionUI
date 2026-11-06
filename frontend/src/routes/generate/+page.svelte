@@ -1,17 +1,26 @@
 <script lang="ts">
+	import { findGenerationTab, generationTabs } from '$lib/types/tabs';
 	import { modeDescription } from '$lib/utils/modeDescription';
 	import { modeUnavailableReason } from '$lib/utils/modeRequirements';
 	import { createModeRequirementsRecheck } from '$lib/utils/modeRequirementsRecheck';
 	import { onModelInstalled } from '$lib/stores/modelInstalls';
 	import { onMount, onDestroy } from 'svelte';
-	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
+	import { tabsStore, activeTab, activeToolTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
+	import ToolTabHost from '$lib/tool-tabs/ToolTabHost.svelte';
+	import { startToolTabWatchers } from '$lib/tool-tabs/watchers';
+	import { allElixirsOpen } from '$lib/elixirs/events';
+	import { stepBars } from '$lib/elixirs/stepBar';
+	import StepEditBar from '$lib/components/elixirs/StepEditBar.svelte';
+	import SessionScope from '$lib/components/session/SessionScope.svelte';
+	import StepDialogs from '$lib/components/elixirs/StepDialogs.svelte';
+	import PhoneToolTabView from '$lib/tool-tabs/PhoneToolTabView.svelte';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
-	import type { DirectorRunState, Tab } from '$lib/types/tabs';
+	import { isEmbeddedTab, type DirectorRunState, type GenerationTab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { submitGate, limits, limitsMeta } from '$lib/plans/store';
 	import { get } from 'svelte/store';
-	import { tabDraftSync } from '$lib/stores/tabDraftSync';
-	import { decideSessionVariables, finishDeferredSessionVariables } from '$lib/session/sessionVariablesRestore';
+	import { sessionLiveSync } from '$lib/stores/sessionLiveSync';
+	import { restoreTabSession } from '$lib/session/restoreTabSession';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import {
 		cancelGrid,
@@ -34,14 +43,7 @@
 	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import { applyIndependentUsages, mergeVariableRolls } from '$lib/utils/variableDefs';
 	import { findUndefinedVariableUsages } from '$lib/utils/promptVariables';
-	import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
-	import {
-		collectTabSessionData,
-		isSessionGoneError,
-		isSessionMissingResponse,
-		formDataPublicationPatch,
-		shouldRestoreTabSessionOnMount
-	} from '$lib/utils/sessionTabState';
+	import { formDataPublicationPatch } from '$lib/utils/sessionTabState';
 	import { WebSocketService, createGenerationSocket } from '$lib/services/websocket';
 	import type { WebSocketMessage } from '$lib/services/websocket';
 	import { dispatchGenerationMessageCoalesced } from '$lib/stores/generation';
@@ -59,6 +61,7 @@
 	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
+	import { setGenerationAttachHost } from '$lib/generation/restore/attachHost';
 	import { onToolApplied } from '$lib/chat/pageContext';
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
@@ -119,7 +122,7 @@
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { firstResourceIssue } from '$lib/utils/generationResourceReadiness';
 	import { resolveDefaultModeSelection } from '$lib/utils/modeAutoSelect';
-	import { buildModeSwitchPatch, seedModeStateFromSessionData } from '$lib/utils/modeState';
+	import { buildModeSwitchPatch } from '$lib/utils/modeState';
 	import { describePresetsEmptyState } from '$lib/utils/presetsEmptyState';
 	import { loadPresets, invalidatePresets } from '$lib/stores/presetsCatalog';
 	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
@@ -152,7 +155,7 @@
 		}
 	});
 
-	function directorOverlayFor(tab: Pick<Tab, 'formData'>): DirectorModelOverlay | null {
+	function directorOverlayFor(tab: Pick<GenerationTab, 'formData'>): DirectorModelOverlay | null {
 		const modelId = selectedCloudModelId(tab.formData);
 		return modelId ? directorOverlayFrom(sharedCapabilityCache.get(modelId)) : null;
 	}
@@ -234,7 +237,7 @@
 	 *  see `DirectorGenerationContext`'s own doc comment (directorInputIdentity.ts)
 	 *  on why this is required scope for the shot input identity, not an
 	 *  optional nicety. */
-	function directorGenerationContextFor(tab: Tab): DirectorGenerationContext {
+	function directorGenerationContextFor(tab: GenerationTab): DirectorGenerationContext {
 		return { presetId: tab.selectedPreset ?? null, variant: tab.selectedVariant ?? null, mode: tab.selectedMode ?? null };
 	}
 
@@ -281,7 +284,7 @@
 	 */
 	async function submitOneDirectorWireDoc(
 		tabId: string,
-		tab: Tab,
+		tab: GenerationTab,
 		doc: VideoDirectorValue,
 		caps: DirectorCapabilities,
 		wireDoc: VideoDirectorWireDoc,
@@ -333,7 +336,7 @@
 			if (response.success && response.data) {
 				const { generation_id, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
-				const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
+				const liveTab = findGenerationTab($tabsStore.tabs, tabId) || tab;
 				const runEntries = buildDirectorRunEntries(
 					shotsForDoc,
 					generation_id,
@@ -422,7 +425,7 @@
 			const cancel = () => settle('abandoned');
 			pendingDirectorShotWaiters.add(cancel);
 			unsubscribe = tabsStore.subscribe((state) => {
-				const liveTab = state.tabs.find((t) => t.id === tabId);
+				const liveTab = findGenerationTab(state.tabs, tabId);
 				if (!liveTab) {
 					settle('abandoned'); // tab closed -- no generationId will ever report here again
 					return;
@@ -460,7 +463,7 @@
 	 */
 	async function submitDirectorTimelinePlan(
 		tabId: string,
-		tab: Tab,
+		tab: GenerationTab,
 		doc: VideoDirectorValue,
 		caps: DirectorCapabilities,
 		shotsToSubmit: string[],
@@ -474,10 +477,10 @@
 			doc,
 			caps,
 			{
-				getRuns: () => $tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns,
-				getOutputs: () => snapshotDirectorGenerationOutputs($tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns),
+				getRuns: () => findGenerationTab($tabsStore.tabs, tabId)?.directorRuns,
+				getOutputs: () => snapshotDirectorGenerationOutputs(findGenerationTab($tabsStore.tabs, tabId)?.directorRuns),
 				submit: (shotId, predecessorFrame, predecessorRef) => {
-					const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
+					const liveTab = findGenerationTab($tabsStore.tabs, tabId) || tab;
 					const predecessorFrames = predecessorFrame ? { [shotId]: predecessorFrame } : undefined;
 					const wireDocs = buildDirectorSubmission(doc, caps, new Set([shotId]), predecessorFrames);
 					if (wireDocs.length === 0) return Promise.resolve({ ok: false, reason: 'Nothing to submit' });
@@ -518,7 +521,7 @@
 	}
 
 	async function submitVideoDirectorShots(tabId: string, shotIds: string[]): Promise<void> {
-		const tab = $tabsStore.tabs.find((t) => t.id === tabId);
+		const tab = findGenerationTab($tabsStore.tabs, tabId);
 		if (!tab || !tab.selectedPreset || shotIds.length === 0) return;
 		const caps = resolveRequestContext(presetVars[tab.selectedPreset], tab.selectedMode, directorOverlayFor(tab)).videoDirectorCaps;
 		if (!caps) return;
@@ -659,9 +662,12 @@
 	const presetVarsErrorShown = new Set<string>();
 
 	// Reactive subscriptions
-	$: tabs = $tabsStore.tabs;
-	$: activeTabId = $tabsStore.activeTabId;
+	$: tabs = generationTabs($tabsStore.tabs);
+	$: activeTabId = $activeTab.id;
 	$: currentTab = $activeTab;
+	$: stepBar = $activeToolTab ? $stepBars[$activeToolTab.id] ?? null : null;
+	$: embeddedActive = !!stepBar && !!$activeToolTab && isEmbeddedTab($activeTab) && $activeTab.embedded.toolTabId === $activeToolTab.id;
+	$: toolTabActive = !!$activeToolTab && !embeddedActive;
 	$: rewriteMergedFieldMarkers(currentTab, currentTabFieldAliases);
 
 	function rewriteMergedFieldMarkers(tab: typeof currentTab, aliases: Record<string, string>) {
@@ -779,7 +785,7 @@
 	}
 
 	function scheduleDirectorEstimate(
-		tab: Tab,
+		tab: GenerationTab,
 		active: boolean,
 		caps: DirectorCapabilities | null,
 		checkedByTab: Record<string, Set<string>>,
@@ -887,9 +893,18 @@
 		return request;
 	}
 
+	onMount(() => startToolTabWatchers());
+
 	onMount(async () => {
 		mounted = true;
-		unsubscribeModelInstalled = onModelInstalled(() => void modeRequirementsRecheck.run());
+		sessionLiveSync.configure({ segmentJoin: segmentJoinForPreset });
+		unsubscribeModelInstalled = onModelInstalled(() => {
+			void modeRequirementsRecheck.run();
+			const known = currentTab ? modesPerTab[currentTab.id] : null;
+			if (currentTab?.selectedPreset && known?.some((mode) => mode.requirements_missing?.length)) {
+				void loadModesForTab(currentTab.id, currentTab.selectedPreset, { background: true });
+			}
+		});
 
 		// One-time migration: Clear selectedMode for all tabs if no preset selected
 		tabs.forEach(tab => {
@@ -906,6 +921,19 @@
 		// keybinding, sharing no caller-supplied `deps`) -- registered once
 		// here instead, cleared in onDestroy below.
 		setGenerationUnsubscribeHandler(unsubscribeGeneration);
+		setGenerationAttachHost((tabId, generationIds) =>
+			reconcileTabGenerations(tabId, api, tabsStore, {
+				extraCandidateIds: generationIds,
+				signal: restoreController.signal,
+				subscriptionOwner: ws,
+				onSubscribe: (id) => {
+					ws?.subscribe(id, (message: WebSocketMessage) => {
+						handleGenerationMessage(message);
+					});
+				},
+				unsubscribe: unsubscribeGeneration
+			})
+		);
 		setGridRunHandlers({ enrolled: subscribeGridCells, cancelled: retireGridCells });
 		ws.onConnectionChange((connected) => {
 			disconnectBanner.changed(connected);
@@ -923,6 +951,7 @@
 
 		// Register generate-context keybinding handlers
 		keybindingsStore.registerHandler('start_generation', () => {
+			if (toolTabActive) return;
 			if (canGenerate && !isGenerating) {
 				startGeneration();
 			}
@@ -931,14 +960,16 @@
 			addTab();
 		});
 		keybindingsStore.registerHandler('close_tab', () => {
-			requestCloseTab(activeTabId);
+			requestCloseTab($tabsStore.activeTabId);
 		});
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
 			if (!contextToolsAvailable(currentTab)) return;
+			if (toolTabActive) return;
 			const patch = toggleFormPane(activeTabId, !!currentTab.leftPanelCollapsed);
 			if (patch) tabsStore.updateTab(activeTabId, patch);
 		});
 		keybindingsStore.registerHandler('toggle_workbench_panel', () => {
+			if (toolTabActive) return;
 			tabsStore.updateTab(activeTabId, { workbenchCollapsed: !currentTab.workbenchCollapsed });
 		});
 		keybindingsStore.registerHandler('toggle_last_generations', () => {
@@ -946,10 +977,12 @@
 		});
 		keybindingsStore.registerHandler('toggle_floating_form', () => {
 			if (!contextToolsAvailable(currentTab)) return;
+			if (toolTabActive) return;
 			tabsStore.updateTab(activeTabId, pressFloatingForm(currentTab));
 		});
 		keybindingsStore.registerHandler('toggle_floating_workbench', () => {
 			if (!contextToolsAvailable(currentTab)) return;
+			if (toolTabActive) return;
 			tabsStore.updateTab(activeTabId, pressFloatingWorkbench(currentTab));
 		});
 
@@ -975,111 +1008,8 @@
 	});
 
 	async function restoreTabSessions() {
-		const currentTabs = $tabsStore.tabs;
-
-		await Promise.all(currentTabs.map(async (tab) => {
-			// tabsStore is module-scope, so SPA navigation remounts this page without
-			// resetting it: a tab that already has a session baseline holds a live draft
-			// that must not be overwritten. Only a full reload (baseline undefined after
-			// localStorage rehydration) hydrates from the server.
-			if (!shouldRestoreTabSessionOnMount(tab)) return;
-			// shouldRestoreTabSessionOnMount already guarantees both are set; narrow
-			// locally so the compiler sees it too.
-			const selectedSessionId = tab.selectedSessionId!;
-			const selectedMode = tab.selectedMode!;
-
-			try {
-				const response = await api.getSessionById(selectedSessionId);
-				if (response.success && response.data) {
-					const session = response.data;
-					const modeData = session.data[selectedMode];
-
-					if (modeData) {
-						// Non-blocking notice: the mode/variant selectors re-validate against
-						// live preset data once modes/variants load (see the modesPerTab
-						// reactive block below), so an unknown saved variant just falls back
-						// to the default there rather than failing here.
-						const presetForSession = presets.find((p) => p.id === (modeData.selectedPreset || tab.selectedPreset));
-						if (modeData.presetVersion && presetForSession?.version && modeData.presetVersion !== presetForSession.version) {
-							toasts.warning(
-								`Session "${tab.name}" was saved with preset version ${modeData.presetVersion}, now at ${presetForSession.version} — some fields may have changed.`
-							);
-						}
-
-						// Restore session data to tab (keep selectedSessionId!). Shared with
-						// SessionPill's manual picker and sessions.ts's loadSession —
-						// see sessionRestore.ts's header for why (this path was the one
-						// missing `variables`, `promptTabs`, and `leftPanelCollapsed`).
-						const restoredPatch = buildSessionRestoreTabPatch(modeData, {
-							promptPanelWidth: tab.promptPanelWidth
-						});
-						const draftReady = await tabDraftSync.settled(4000);
-						const currentVariables = () => get(tabsStore).tabs.find((t) => t.id === tab.id)?.variables;
-						const variablesDecision = decideSessionVariables(draftReady, currentVariables());
-						const { variables: sessionVariables, ...patchWithoutVariables } = restoredPatch;
-						const appliedPatch = variablesDecision === 'replace' ? restoredPatch : patchWithoutVariables;
-						const restoredTab = {
-							...tab,
-							selectedPreset: modeData.selectedPreset || tab.selectedPreset,
-							selectedVariant: modeData.selectedVariant || null,
-							selectedSessionId: tab.selectedSessionId,
-							...restoredPatch,
-							modeStateByMode: seedModeStateFromSessionData(session.data, tab.selectedMode)
-						};
-
-						tabsStore.updateTab(tab.id, {
-							selectedPreset: modeData.selectedPreset || tab.selectedPreset,
-							selectedVariant: modeData.selectedVariant || null,
-							selectedSessionId: tab.selectedSessionId, // Preserve session ID
-							...appliedPatch,
-							// Seed the per-mode cache from every OTHER mode this session has
-							// data for, so a live mode switch after this restore picks up
-							// that mode's saved config instead of starting empty.
-							modeStateByMode: restoredTab.modeStateByMode,
-							// The bar is allowed to remount, but not to redefine this server
-							// snapshot as whatever draft happens to be in the tab then.
-							savedSessionSignature: JSON.stringify(
-								collectTabSessionData(restoredTab, tab.selectedMode, session.data, presetForSession?.version)
-							),
-							sessionBaselineAwaitingFormNormalization: true
-						});
-						if (variablesDecision === 'replace') tabDraftSync.replaceDraft(tab.id, sessionVariables ?? {});
-						if (variablesDecision === 'defer') {
-							void finishDeferredSessionVariables(
-								{
-									settled: () => tabDraftSync.settled(),
-									currentVariables,
-									apply: (variables) => tabsStore.updateTab(tab.id, { variables }),
-									replace: (variables) => tabDraftSync.replaceDraft(tab.id, variables)
-								},
-								sessionVariables ?? {}
-							);
-						}
-					}
-				} else if (isSessionMissingResponse(response)) {
-					console.warn(`[TabRestore] Session for tab ${tab.name} no longer exists, clearing the link.`);
-					tabsStore.updateTab(tab.id, {
-						selectedSessionId: null,
-						savedSessionSignature: null,
-						sessionBaselineAwaitingFormNormalization: false
-					});
-				}
-			} catch (error) {
-				// A thrown HTTP 404 proves the session is gone; any other failure (network
-				// error, backend still booting) must not destroy the tab's saved link -
-				// the next successful loadSessions binds it back once reachable.
-				if (isSessionGoneError(error)) {
-					console.error(`[TabRestore] Failed to restore session for tab ${tab.name}:`, error);
-					tabsStore.updateTab(tab.id, {
-						selectedSessionId: null,
-						savedSessionSignature: null,
-						sessionBaselineAwaitingFormNormalization: false
-					});
-				} else {
-					console.warn(`[TabRestore] Backend unreachable while restoring session for tab ${tab.name}, keeping the saved link:`, error);
-				}
-			}
-		}));
+		const currentTabs = generationTabs($tabsStore.tabs);
+		await Promise.all(currentTabs.map((tab) => restoreTabSession(tab, { presets })));
 	}
 
 	// Single restore/reconcile pass for every tab, run on connect AND on every
@@ -1095,7 +1025,7 @@
 	// live event racing it) already resolved as terminal, and no id is ever
 	// subscribed twice from two independent restore passes.
 	async function restoreGenerations() {
-		const currentTabs = $tabsStore.tabs;
+		const currentTabs = generationTabs($tabsStore.tabs);
 		let snapshot: GenerationQueueSnapshot | null = null;
 		try {
 			const response = await api.getGenerationQueue();
@@ -1149,6 +1079,7 @@
 	}
 
 	onDestroy(() => {
+		sessionLiveSync.configure({ segmentJoin: () => 'space' });
 		disconnectBanner.destroy();
 		overlayTracker.destroy();
 		unsubscribeModelInstalled?.();
@@ -1159,6 +1090,7 @@
 		unregisterChatRunGeneration?.();
 		unregisterChatRunGeneration = null;
 		setGenerationUnsubscribeHandler(null);
+		setGenerationAttachHost(null);
 		setGridRunHandlers(null);
 		if (ws) {
 			clearSubscriptionOwner(ws);
@@ -1235,7 +1167,7 @@
 		const request = (async () => {
 			try {
 				const response = await api.getPresetModes(presetId);
-				const currentTab = $tabsStore.tabs.find((tab) => tab.id === tabId);
+				const currentTab = findGenerationTab($tabsStore.tabs, tabId);
 				if (response.success && response.data && currentTab?.selectedPreset === presetId) {
 					const modes = response.data.modes;
 					modesPerTab[tabId] = modes;
@@ -1275,7 +1207,7 @@
 				if (!modesRetriedFor.has(requestKey)) {
 					modesRetriedFor.add(requestKey);
 					setTimeout(() => {
-						const stillOnThisPreset = $tabsStore.tabs.find((t) => t.id === tabId)?.selectedPreset === presetId;
+						const stillOnThisPreset = findGenerationTab($tabsStore.tabs, tabId)?.selectedPreset === presetId;
 						if (stillOnThisPreset) loadModesForTab(tabId, presetId);
 					}, 1500);
 				}
@@ -1358,7 +1290,7 @@
 				}
 			},
 			handleModeChange: (mode: string) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				if (!tab) return;
 				const modeInfo = (modesPerTab[tabId] || []).find((m) => m.name === mode);
 				tabsStore.updateTab(tabId, {
@@ -1371,14 +1303,14 @@
 				tabsStore.updateTab(tabId, { selectedVariant: variantName });
 			},
 			handlePromptChange: (prompt: string) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				if (!tab || tab.prompt === prompt) return;
 				tabsStore.updateTab(tabId, {
 					prompt
 				});
 			},
 			handlePromptSegmentsChange: (segments: any[]) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				const mergedPrompt = resolvePromptSegments(segments, segmentJoinForPreset(tab?.selectedPreset));
 				tabsStore.updateTab(tabId, {
 					promptSegments: segments,
@@ -1386,14 +1318,14 @@
 				});
 			},
 			handleNegativePromptChange: (prompt: string) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				if (!tab || tab.negativePrompt === prompt) return;
 				tabsStore.updateTab(tabId, {
 					negativePrompt: prompt
 				});
 			},
 			handleNegativePromptSegmentsChange: (segments: any[]) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				const mergedPrompt = resolvePromptSegments(segments, segmentJoinForPreset(tab?.selectedPreset));
 				tabsStore.updateTab(tabId, {
 					negativePromptSegments: segments,
@@ -1404,7 +1336,7 @@
 	}
 
 	function handleFormDataChange(tabId: string, formData: Record<string, unknown>) {
-		const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+		const tab = findGenerationTab($tabsStore.tabs, tabId);
 		if (!tab) return;
 
 		tabsStore.updateTab(tabId, formDataPublicationPatch(tab, formData));
@@ -1666,7 +1598,7 @@
 	async function startComparison(targetTabId: string, request: Parameters<typeof submitGrid>[1]) {
 		const summary = getCompareSummary(targetTabId, get(limits), get(limitsMeta)?.contactLine ?? undefined);
 		const resetRunning = () => {
-			const tab = get(tabsStore).tabs.find((t) => t.id === targetTabId);
+			const tab = findGenerationTab(get(tabsStore).tabs, targetTabId);
 			if (tab && !isGridRunning(targetTabId) && (tab.generation.queue ?? []).length === 0) {
 				tabsStore.updateTab(targetTabId, { generation: { ...tab.generation, isGenerating: false } });
 			}
@@ -1918,15 +1850,37 @@
 <!-- Main Layout Wrapper. Below md the shell's main reserves the fixed bottom
 	tab bar (4rem + safe-area), so this page must size itself to what's left of
 	the *visible* viewport — 100vh would overflow behind the bar. -->
-<div class="h-[calc(100dvh_-_var(--tab-bar-height))] md:h-dvh flex flex-col bg-canvas overflow-hidden">
+<div class="relative h-[calc(100dvh_-_var(--tab-bar-height))] md:h-dvh flex flex-col bg-canvas overflow-hidden">
 
 	<TabBar />
+
+	{#if embeddedActive && stepBar}
+		{#if $isMobile}
+			{#if stepBar.follow && $activeTab}
+				<SessionScope
+					presetId={$activeTab.selectedPreset}
+					currentMode={$activeTab.selectedMode}
+					tabId={$activeTab.id}
+					presetVersion={presets.find((p) => p.id === $activeTab.selectedPreset)?.version}
+					availableModes={modesPerTab[$activeTab.id] || []}
+					let:session
+					let:actions
+					let:fieldLabels
+				>
+					<StepEditBar model={stepBar} part="phone" {session} {actions} {fieldLabels} />
+				</SessionScope>
+			{:else}
+				<StepEditBar model={stepBar} part="phone" />
+			{/if}
+		{/if}
+		<StepDialogs model={stepBar} />
+	{/if}
 
 	<!-- Keep lightweight tab wrappers, but mount the expensive editor only for the active tab. -->
 	{#each tabs as tab (tab.id)}
 		{@const tabHandlers = createTabHandlers(tab.id)}
 		{@const tabModes = modesPerTab[tab.id] || []}
-		{@const isActive = tab.id === activeTabId}
+		{@const isActive = tab.id === activeTabId && !toolTabActive}
 		<div class="flex-1 flex flex-col min-h-0 pb-[var(--deck-height)] md:pb-0" style="display: {isActive ? 'flex' : 'none'}">
 			{#if isActive}
 
@@ -2016,11 +1970,12 @@
 				{:else}
 					<DesktopWorkspace
 						{tab}
+						stepBar={embeddedActive ? stepBar : null}
 						{presets}
 						{readiness}
 						{isLoading}
 						isReloading={isReloadingPreset && tab.id === activeTabId}
-						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon, requirementsMissing: m.requirements_missing }))}
+						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon, requirementsMissing: m.requirements_missing, install: m.install }))}
 						onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
 						onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
 						onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}
@@ -2085,8 +2040,32 @@
 		</div>
 	{/each}
 
+	{#if $activeToolTab}
+		{#key $activeToolTab.id}
+			<div
+				class="min-h-0 overflow-hidden {embeddedActive ? 'invisible pointer-events-none absolute inset-0' : 'flex-1'}"
+				inert={embeddedActive}
+				aria-hidden={embeddedActive ? 'true' : undefined}
+				data-testid="tool-tab-area"
+			>
+				{#if $isMobile}
+					<PhoneToolTabView tab={$activeToolTab} />
+				{:else}
+					<ToolTabHost tab={$activeToolTab} />
+				{/if}
+			</div>
+		{/key}
+	{/if}
+
+	{#if $allElixirsOpen}
+		{#await import('$lib/components/elixirs/AllElixirsDialog.svelte') then dialog}
+			<dialog.default onclose={() => allElixirsOpen.set(false)} />
+		{/await}
+	{/if}
+
 	<LimitNotice />
 
+	{#if !toolTabActive}
 	{#key currentTab.id}
 		<GenerationPanel
 			bind:this={generationPanelRef}
@@ -2127,6 +2106,7 @@
 			/>
 		</GenerationPanel>
 		{/key}
+	{/if}
 
 </div>
 

@@ -1,7 +1,7 @@
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import { combineSegmentsToString } from '$lib/utils/generationOrchestrator';
 
-type PromptTab = Pick<Tab, 'id' | 'prompt' | 'promptSegments'>;
+type PromptTab = Pick<GenerationTab, 'id' | 'prompt' | 'promptSegments'>;
 
 export function promptTextForTab(tabs: PromptTab[], tabId: string | undefined): string {
 	if (!tabId) return '';

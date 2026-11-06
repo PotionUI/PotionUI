@@ -25,6 +25,8 @@ from src.pipelines.contracts import (
 )
 from src.pipelines.pipes._shared.generation.three_component_loader import ThreeComponentLoaderPipe
 from src.pipelines.pipes._shared.generation.three_component_loader import LoaderContext
+from src.pipelines.pipes._shared.generation.loader_helpers import path_of as _path_of
+from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.text_encoders.loader import load_text_encoder
 from src.pipelines.pipes.model_loader.z_image.z_image_clip import ZImageClipTextEncoder
@@ -41,6 +43,7 @@ class ModelLoaderZImagePipe(ThreeComponentLoaderPipe):
         ("diffusion_model", "z_image_dit"),
         ("text_encoder", "z_image_text_encoder"),
         ("vae", "z_image_vae"),
+        ("control_model", "z_image_fun_control"),
     )
     clip_cls = ZImageClipTextEncoder
     te_suffix = "|zimage"
@@ -55,6 +58,7 @@ class ModelLoaderZImagePipe(ThreeComponentLoaderPipe):
             PipeConfigSpec("vae", dict, None, "Z-Image (Flux-style 2D) VAE", required=True),
             loras_config_spec("LoRA adapters (busts only the DiT cache)"),
             *cls.runtime_config_specs(),
+            PipeConfigSpec("control_model", dict, None, "Fun ControlNet Union 2.1 patch loaded with the DiT", required=False),
         ]
 
     @classmethod
@@ -70,3 +74,27 @@ class ModelLoaderZImagePipe(ThreeComponentLoaderPipe):
     def _load_te(self, ctx: LoaderContext) -> NativeModel:
         encoder = load_text_encoder(ctx.te_path, device="cpu", te_variant="zimage")
         return NativeModel("text_encoder", encoder)
+
+    def _control_path(self):
+        return _path_of(self.config.get("control_model"))
+
+    def _dit_key(self, ctx: LoaderContext) -> str:
+        control_path = self._control_path()
+        key = super()._dit_key(ctx)
+        return f"{key}+control={control_path}" if control_path else key
+
+    def _dit_fingerprint(self, ctx: LoaderContext) -> str:
+        control_path = self._control_path()
+        fp = super()._dit_fingerprint(ctx)
+        return f"{fp}|control={control_path}" if control_path else fp
+
+    def _dit_size_gb(self, ctx: LoaderContext):
+        control_path = self._control_path()
+        dit_gb = super()._dit_size_gb(ctx)
+        if control_path and dit_gb is not None:
+            dit_gb += file_size_gb(control_path) or 0.0
+        return dit_gb
+
+    def _dit_load_kwargs(self, ctx: LoaderContext):
+        control_path = self._control_path()
+        return {"model_patch": control_path} if control_path else {}

@@ -61,11 +61,11 @@ describe('RecipeArtifactCards', () => {
 		expect(card.textContent).toContain('optional');
 	});
 
-	it('renders gated and licence chips on the name line', () => {
+	it('renders the gated chip and the Hugging Face link on the name line', () => {
 		mountCards([artifact({ gated: true, license_url: 'https://example.com/licence' })]);
 		const card = target.querySelector('[data-recipe-artifact-card]') as HTMLElement;
 		expect(card.textContent).toContain('gated');
 		const link = card.querySelector('a[href="https://example.com/licence"]');
-		expect(link?.textContent?.trim()).toBe('licence');
+		expect(link?.textContent?.trim()).toBe('Open on Hugging Face');
 	});
 });

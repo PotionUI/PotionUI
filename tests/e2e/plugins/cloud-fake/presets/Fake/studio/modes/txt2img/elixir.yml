@@ -1,0 +1,9 @@
+schema_version: 1
+label: "Text to image"
+prompt: true
+quantity_field: "count"
+outputs:
+  images:
+    label: "Final images"
+    media_type: "image"
+    selector: {is_final: true, is_derived: false}

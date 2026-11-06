@@ -1,0 +1,28 @@
+id: vignette
+label: Vignette
+group: texture
+icon: editor-effects
+description: Darker edges that draw the eye in
+accepts: [video, image]
+time: none
+params:
+  - { name: amount, type: float, label: Amount, description: How dark the edges get, default: 40, min: 0, max: 100, step: 1, unit: "%" }
+  - { name: radius, type: float, label: Radius, description: Where the darkening starts, default: 50, min: 0, max: 100, step: 1, unit: "%" }
+  - { name: softness, type: float, label: Softness, description: How gradual the edge is, default: 50, min: 0, max: 100, step: 1, unit: "%" }
+derive:
+  depth: "amount / 100"
+  inner: "radius / 100"
+  outer: "radius / 100 + max(0.01, softness / 100)"
+preview:
+  shader: preview.frag
+render:
+  - torch: render.py:vignette_torch
+  - numpy: render.py:vignette_numpy
+parity:
+  media: { width: 641, height: 359, fps: 24, duration: 2 }
+  cases:
+    - { params: { amount: 0 }, frames: [0] }
+    - { params: { amount: 40, radius: 50, softness: 50 }, frames: [0] }
+    - { params: { amount: 100, radius: 0, softness: 100 }, frames: [0] }
+    - { params: { amount: 80, radius: 70, softness: 0 }, frames: [0] }
+  tolerance: { max_abs: 1, mean_abs: 0.05 }

@@ -369,11 +369,12 @@ class ReadinessAggregator:
             slot_candidate_counts,
         )
 
+        from src.features.recipes.mode_slots import recipe_required_artifacts
+
         missing = [
             artifact
-            for artifact in recipe.artifacts
-            if artifact.required
-            and find_slot_model(
+            for artifact in recipe_required_artifacts(recipe, getattr(self.preset_collaborators, "preset_loader", None))
+            if find_slot_model(
                 self.model_repository, artifact, digests=self.model_digests, hash_candidates="never"
             ) is None
         ]

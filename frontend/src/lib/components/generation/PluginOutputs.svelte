@@ -5,10 +5,10 @@
 	 * the run filter below is what keeps a completed run's output from being
 	 * shown as a result of the run that replaced it.
 	 */
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import PluginMessageRenderer from './PluginMessageRenderer.svelte';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 
 	$: current = tab.generation.currentGeneration;
 	$: runId = current?.generation_id ?? current?.id ?? null;

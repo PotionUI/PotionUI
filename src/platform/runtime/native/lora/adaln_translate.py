@@ -45,7 +45,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from .key_mapping import LoraDelta, _iter_stems
+from .key_mapping import LoraDelta, _iter_stems, _select_key_map
 
 # Storage dtypes a bias delta can be added into losslessly enough to be worth
 # doing. The released pruned repack's adaln_proj biases are F16
@@ -234,6 +234,29 @@ def translate_adaln_lora_state_dict(
             consumed.append(alpha_key)
 
     return AdalnTranslationSet(lora_sd=lora_out, bias_deltas=bias_deltas, consumed=tuple(consumed))
+
+
+_BIAS_DIFF_SUFFIX = ".diff_b"
+
+
+def bias_diff_deltas(lora_sd: dict[str, Tensor], module: nn.Module) -> tuple[dict[str, Tensor], tuple[str, ...]]:
+    key_map = _select_key_map(module)
+    biases = {name: p for name, p in module.named_parameters() if name.endswith(".bias")}
+    deltas: dict[str, Tensor] = {}
+    consumed: list[str] = []
+    for key, diff in lora_sd.items():
+        if not key.endswith(_BIAS_DIFF_SUFFIX):
+            continue
+        target = key_map.get(key[: -len(_BIAS_DIFF_SUFFIX)])
+        if target is None or target[1] is not None:
+            continue
+        stem = target[0].removesuffix(".weight")
+        bias = biases.get(f"{stem}.bias")
+        if bias is None or bias.shape != diff.shape:
+            continue
+        deltas[stem] = diff.detach().to(torch.float32)
+        consumed.append(key)
+    return deltas, tuple(consumed)
 
 
 def apply_bias_delta(linear: nn.Module, bias_delta: Tensor) -> None:

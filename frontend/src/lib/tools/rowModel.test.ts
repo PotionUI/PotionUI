@@ -8,7 +8,7 @@ import { syncCatalogTools } from './catalogTools';
 import { buildRowContext, buildRowModel, type RowTool } from './rowModel';
 import type { LibraryItem } from '$lib/services/api/library';
 import type { GenerationHistoryItem } from '$lib/types/history';
-import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS } from '../../../tests/component/fixtures/mediaToolCatalog';
+import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, FIX_COLORS_TOOL, toolDto } from '../../../tests/component/fixtures/mediaToolCatalog';
 
 registerEntryTools();
 
@@ -37,13 +37,13 @@ beforeEach(() => {
 describe('buildRowModel', () => {
 	it('lists the core Edit tools of a video in catalog order, then plugin tools last', () => {
 		const model = buildRowModel(buildRowContext('library', [item('video')]));
-		expect(ids(model.edit)).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame', 'boomerang.loop']);
+		expect(ids(model.edit)).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame', 'edit-image', 'boomerang.loop']);
 		expect(model.edit.map((entry) => entry.plugin ?? false)).toEqual([
-			false, false, false, false, false, false, false, true
+			false, false, false, false, false, false, false, false, true
 		]);
 	});
 
-	it('adds Edit image after the core tools for an image', () => {
+	it('adds Open in Image editor after the core tools for an image', () => {
 		const model = buildRowModel(buildRowContext('library', [item('image')]));
 		expect(ids(model.edit)).toEqual([
 			'crop',
@@ -117,9 +117,48 @@ describe('buildRowModel', () => {
 		expect(model).toEqual({ edit: [], effects: [], downloads: [], plugins: [] });
 	});
 
-	it('carries the note a tool shows under its label', () => {
+	it('carries the note of a tool that runs in a dialog and drops it for a row that opens a tab', () => {
+		const frame = (kind: 'video' | 'audio') =>
+			buildRowModel(buildRowContext('library', [item(kind)])).edit.find((entry) => entry.id === 'frame');
+
+		expect(frame('video')?.note).toBe('');
+		expect(frame('video')?.opens).toEqual(['video']);
+		expect(frame('video')?.label).toBe('Open frame in Image editor');
+		expect(buildRowModel(buildRowContext('library', [item('audio')])).edit.find((entry) => entry.id === 'speed')?.note).toBe('');
+	});
+});
+
+describe('catalog effects in the Effects row', () => {
+	beforeEach(() => {
+		syncCatalogTools([...CORE_TOOLS, A1111_TOOL, BOOMERANG_TOOL, FIX_COLORS_TOOL]);
+	});
+
+	it('shows Fix colours for a video and keeps it out of Edit', () => {
 		const model = buildRowModel(buildRowContext('library', [item('video')]));
-		expect(model.edit.find((entry) => entry.id === 'frame')?.note).toBe('Saves one image');
+
+		expect(ids(model.effects)).toEqual(['fix_colors']);
+		expect(ids(model.edit)).not.toContain('fix_colors');
+		expect(model.effects[0]).toMatchObject({ action: 'catalog', label: 'Fix colours', enabled: true });
+	});
+
+	it('hides it for an image, which keeps only Apply a look', () => {
+		const model = buildRowModel(buildRowContext('library', [item('image')]));
+
+		expect(ids(model.effects)).toEqual(['apply-look']);
+	});
+
+	it('lists catalog effects ahead of Apply a look and the recent looks', () => {
+		const wide = toolDto({ id: 'wide_fx', label: 'Wide', accepts: ['image', 'video'], group: 'effects' });
+		syncCatalogTools([...CORE_TOOLS, FIX_COLORS_TOOL, wide]);
+		const looks = [{ id: 'noir', name: 'Noir', group: 'Black and white' }];
+
+		const model = buildRowModel(buildRowContext('library', [item('image')]), looks);
+
+		expect(ids(model.effects)).toEqual(['wide_fx', 'apply-look', 'look:noir']);
+	});
+
+	it('offers it on History too', () => {
+		expect(ids(buildRowModel(historyContext('video')).effects)).toEqual(['fix_colors']);
 	});
 });
 

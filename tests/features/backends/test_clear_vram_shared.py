@@ -25,7 +25,18 @@ from src.features.backends.backend_config import BackendConfigStore, NATIVE_ENGI
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.settings.settings import Settings
 from src.platform.security.user import AccountType, User
-from src.platform.runtime.native.memory.residency import GpuResidencyRegistry, clear_vram
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from src.platform.runtime.native.memory.residency import ClearVramMode, GpuResidencyRegistry, clear_vram
+from src.platform.runtime.system_memory import SystemMemory
+
+GB = 1024 ** 3
+
+
+def _ram(available_gb):
+    return patch(
+        "src.platform.runtime.native.memory.residency.get_system_memory",
+        return_value=SystemMemory(total=64 * GB, available=int(available_gb * GB)),
+    )
 
 
 class FakeCachedModel:
@@ -80,13 +91,10 @@ class TestClearBackendVramSweepsLifecycleCache:
         controller = _controller(lifecycle)
         controller.backend_config_store.get_backend.return_value = native_backend
 
-        residency_registry = MagicMock()
-        residency_registry.offload_all.return_value = GpuResidencyRegistry().offload_all("cuda")  # empty OffloadResult
-
         with patch(
             "src.platform.runtime.native.memory.residency.get_residency_registry",
-            return_value=residency_registry,
-        ):
+            return_value=GpuResidencyRegistry(),
+        ), _ram(100.0):
             response = await controller.clear_backend_vram("native-1", user=admin_user)
 
         assert response.success is True
@@ -110,19 +118,49 @@ class TestClearBackendVramSweepsLifecycleCache:
         controller = _controller(lifecycle)
         controller.backend_config_store.get_backend.return_value = native_backend
 
-        residency_registry = MagicMock()
-        residency_registry.offload_all.return_value = GpuResidencyRegistry().offload_all("cuda")
+        residency_registry = GpuResidencyRegistry()
+        residency_registry.note_resident(leased_gpu, "cuda:0", 9.0)
 
         with patch(
             "src.platform.runtime.native.memory.residency.get_residency_registry",
             return_value=residency_registry,
-        ):
+        ), _ram(0.0):
             response = await controller.clear_backend_vram("native-1", user=admin_user)
 
-        residency_registry.offload_all.assert_called_once_with(native_backend.device, exclude=[leased_gpu])
         assert leased_gpu.offload_calls == 0
+        lifecycle.evict_value.assert_not_called()
+        assert residency_registry.resident_gb("cuda:0") == 9.0
         assert response.data["offloaded_count"] == 0
+        assert response.data["unloaded_count"] == 0
         assert response.data["swept_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_route_unloads_instead_of_offloading_when_ram_is_full(self, admin_user, native_backend):
+        unloads = []
+
+        class CachedModel(FakeCachedModel):
+            def unload(self):
+                unloads.append(self.estimated_vram_gb)
+
+        lifecycle = ModelLifecycle(gpu_monitor=None, settings=None)
+        with patch(
+            "src.platform.runtime.model_lifecycle.lifecycle.get_system_memory",
+            return_value=SystemMemory(total=1024 * GB, available=1000 * GB),
+        ):
+            lifecycle.acquire("dit", "fp", lambda: CachedModel("cuda:0", 12.0), estimated_vram_gb=12.0)
+        controller = _controller(lifecycle)
+        controller.backend_config_store.get_backend.return_value = native_backend
+
+        with patch(
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
+            return_value=GpuResidencyRegistry(),
+        ), _ram(4.0), patch.object(lifecycle, "cleanup"):
+            response = await controller.clear_backend_vram("native-1", user=admin_user)
+
+        assert unloads == [12.0]
+        assert not lifecycle.is_cached("dit")
+        assert response.data["offloaded_count"] == 0
+        assert response.data["unloaded_count"] == 1
 
 
 class TestClearVramSharedFunction:
@@ -155,7 +193,7 @@ class TestClearVramSharedFunction:
             "src.platform.runtime.native.memory.residency.get_residency_registry",
             return_value=manager,
         ):
-            result = clear_vram("cuda:0", lifecycle)
+            result = clear_vram("cuda:0", lifecycle, ClearVramMode.OFFLOAD)
 
         assert registered.device == "cpu"
         assert unregistered_straggler.device == "cpu"
@@ -181,7 +219,7 @@ class TestClearVramSharedFunction:
             "src.platform.runtime.native.memory.residency.get_residency_registry",
             return_value=manager,
         ):
-            result = clear_vram("cuda:0", None)
+            result = clear_vram("cuda:0", None, ClearVramMode.OFFLOAD)
 
         assert registered.device == "cpu"
         assert result.offloaded_count == 1
@@ -212,7 +250,7 @@ class TestClearVramSharedFunction:
             "src.platform.runtime.native.memory.residency.get_residency_registry",
             return_value=manager,
         ):
-            result = clear_vram("cuda:0", lifecycle)
+            result = clear_vram("cuda:0", lifecycle, ClearVramMode.OFFLOAD)
 
         assert model.offload_calls == 1
         assert result.offloaded_count == 1

@@ -52,8 +52,10 @@ from .preview import (
     latent_to_preview_image,
     latent_to_rgb,
     make_preview_hook,
+    preview_reserve_gb,
     resolve_preview_factors,
 )
+from .preview_decoder import decode_clip, load_preview_decoder
 
 __all__ = [
     "build_sigmas",
@@ -97,4 +99,7 @@ __all__ = [
     "latent_to_preview_image",
     "resolve_preview_factors",
     "make_preview_hook",
+    "preview_reserve_gb",
+    "decode_clip",
+    "load_preview_decoder",
 ]

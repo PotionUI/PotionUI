@@ -319,6 +319,7 @@
 			allowReplace={false}
 			{busy}
 			blockedReason={rejection}
+			reserveMessage
 			{failureMessage}
 			onCancel={onClose}
 			onSave={save}

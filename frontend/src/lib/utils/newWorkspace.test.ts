@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab, ToolTab } from '$lib/types/tabs';
 import {
 	decideNewWorkspaceAction,
 	hasUnsavedWorkOutsideTab,
@@ -7,7 +7,7 @@ import {
 	workspaceHasUnsavedChanges
 } from './newWorkspace';
 
-function emptyGeneration(): Tab['generation'] {
+function emptyGeneration(): GenerationTab['generation'] {
 	return {
 		isGenerating: false,
 		currentGeneration: null,
@@ -27,8 +27,9 @@ function emptyGeneration(): Tab['generation'] {
 	};
 }
 
-function pristineTab(overrides: Partial<Tab> = {}): Tab {
+function pristineTab(overrides: Partial<GenerationTab> = {}): GenerationTab {
 	return {
+		kind: 'generation',
 		id: 'tab-a',
 		name: 'Generation 1',
 		selectedPreset: null,
@@ -185,5 +186,16 @@ describe('hasUnsavedWorkOutsideTab', () => {
 			pristineTab({ id: 'other', selectedSessionId: 's2', savedSessionSignature: null })
 		];
 		expect(hasUnsavedWorkOutsideTab(tabs, 'active')).toBe(true);
+	});
+});
+
+describe('tool tabs in a new workspace', () => {
+	const toolTab = (id: string, dirty: number): ToolTab => ({ kind: 'tool', id, name: id, tool: 'video', source: null, state: null, dirty });
+
+	it('counts a tool tab with unsaved steps as unsaved work, and a clean one as not', () => {
+		expect(tabHasUnsavedWork(toolTab('clean', 0))).toBe(false);
+		expect(tabHasUnsavedWork(toolTab('dirty', 1))).toBe(true);
+		expect(decideNewWorkspaceAction([toolTab('dirty', 1)])).toBe('confirm');
+		expect(hasUnsavedWorkOutsideTab([toolTab('a', 0), toolTab('b', 2)], 'a')).toBe(true);
 	});
 });

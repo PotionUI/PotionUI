@@ -29,13 +29,14 @@ class TestCatalog(MediaToolsTestBase):
             sorted([
                 "id", "label", "icon", "accepts", "produces", "cardinality", "params", "requires",
                 "selection", "scopes", "editor", "preview", "component", "source", "description",
-                "last_params", "runnable",
+                "last_params", "runnable", "group", "effect",
             ]),
         )
         self.assertEqual(entry["accepts"], ["image"])
         self.assertEqual(entry["source"], "core")
         self.assertTrue(entry["preview"])
         self.assertIsNone(entry["last_params"])
+        self.assertIsNone(entry["effect"])
         self.assertNotIn("impl", entry)
 
     def test_runnable_is_true_for_python_tools_and_false_for_component_only_tools(self):
@@ -134,7 +135,8 @@ class TestRunHappyPaths(MediaToolsTestBase):
         self.assertEqual(response.status_code, 200)
         data = response.json()["data"]
         self.assertEqual(
-            sorted(data), sorted(["run_id", "status", "progress", "label", "items", "replaced", "error"])
+            sorted(data),
+            sorted(["run_id", "kind", "status", "progress", "label", "items", "replaced", "preview", "error", "summary"]),
         )
         self.assertEqual(data["status"], "completed")
         self.assertIsNone(data["error"])
@@ -143,7 +145,7 @@ class TestRunHappyPaths(MediaToolsTestBase):
             sorted([
                 "id", "filename", "original_filename", "media_type", "mime_type", "url", "width",
                 "height", "duration_seconds", "fps", "size", "created_at",
-                "thumbnail_small", "thumbnail_medium", "thumbnail_large", "source_generation_id",
+                "thumbnail_small", "thumbnail_medium", "thumbnail_large", "source_generation_id", "provenance",
             ]),
         )
 
@@ -462,7 +464,7 @@ class TestRunErrors(MediaToolsTestBase):
         item = self.image_item()
 
         empty = self.refused(self.start([], [{"item_id": item.id}]), 400, "invalid_params")
-        many = self.refused(self.start([shrink()] * 9, [{"item_id": item.id}]), 400, "invalid_params")
+        many = self.refused(self.start([shrink()] * 65, [{"item_id": item.id}]), 400, "invalid_params")
 
         self.assertEqual((empty["field"], many["field"]), ("steps", "steps"))
 

@@ -9,6 +9,7 @@ This controller delegates all business logic to `src.features.models.operations`
 """
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any, Optional, List, TYPE_CHECKING
 
@@ -52,7 +53,7 @@ from src.features.models import (
 )
 from src.features.downloads.exceptions import DownloadNotFoundException
 from src.features.downloads.utils import derived_download_name
-from src.features.fields.model import RECOMMENDATION_EXTENSIONS
+from src.features.models.recommendations import RECOMMENDATION_EXTENSIONS, parse_ref
 from src.features.models import operations
 from src.features.models.exceptions import (
     ModelDigestUnavailableException,
@@ -80,6 +81,8 @@ if TYPE_CHECKING:
 
 
 _NOT_FOUND = {ModelNotFoundException: Fail("model_not_found")}
+
+logger = logging.getLogger(__name__)
 
 
 class ModelController(BaseController):
@@ -724,48 +727,7 @@ class ModelController(BaseController):
 
     @staticmethod
     def _parse_ref(ref: Optional[str]):
-        """`ref` is an opaque, provider-native string (see `RecommendationDownloadRequest`).
-        Resolve it to the `(provider_model_id, provider_version_id)` pair every
-        `MarketplaceProviderBase.get_download_url` implementation expects, trying
-        three conventions in order (not a validated shape - a provider is free to
-        invent its own `ref` JSON keys; these are just the ones known providers
-        already use):
-
-        1. `{"provider_model_id", "provider_version_id"}` - already-final, generic,
-           passed straight through (e.g. civitai's ref: `{model_id, version_id}` -
-           see below - or any future provider that just hands back these two).
-        2. `{"model_id", "version_id"}` - civitai's natural shape, mapped directly
-           (`model_id`->`provider_model_id`, `version_id`->`provider_version_id`).
-        3. `{"repo", "file", "revision"?}` - huggingface's natural shape. Its
-           `get_download_url` wants `provider_version_id` as `"{revision}@{file}"`
-           (`content/plugins/marketplace/huggingface-provider/provider/huggingface_provider.py);
-           this is the one provider-specific mapping shim, since core has no
-           business knowing HF's version-id string format otherwise.
-        4. Not JSON / no dict / none of the above keys present: the whole string is
-           `provider_model_id` with no version - so a provider whose `ref` really is
-           just a bare ID still works with zero ceremony.
-        """
-        if not ref:
-            return None, None
-
-        try:
-            import json
-            parsed = json.loads(ref)
-        except (ValueError, TypeError):
-            parsed = None
-
-        if isinstance(parsed, dict):
-            if parsed.get("provider_model_id"):
-                return parsed.get("provider_model_id"), parsed.get("provider_version_id")
-            if parsed.get("model_id"):
-                return parsed.get("model_id"), parsed.get("version_id")
-            if parsed.get("repo"):
-                revision = parsed.get("revision") or "main"
-                file_path = parsed.get("file")
-                version_id = f"{revision}@{file_path}" if file_path else None
-                return parsed.get("repo"), version_id
-
-        return ref, None
+        return parse_ref(ref)
 
     @staticmethod
     def _recommendation_filename(name: str) -> Optional[str]:
@@ -779,11 +741,6 @@ class ModelController(BaseController):
         request: RecommendationDownloadRequest,
         current_user: User
     ) -> APIResponse:
-        if current_user.account_type != AccountType.ADMIN:
-            return self.error_api_response(
-                error="permission_denied", message="Admin access required"
-            )
-
         url = request.link
         if request.provider:
             from src.features.providers.registry import ensure_providers_discovered
@@ -840,6 +797,8 @@ class ModelController(BaseController):
             "status": status,
             "progress": download.progress if status != "pending" else None,
             "error": download.error_message,
+            "gated": download.gated,
+            "gated_repo": download.gated_repo,
         })
 
 
@@ -911,6 +870,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_model_stats(current_user: User = Depends(get_current_active_user)):
         """Get model indexing statistics."""
         return await controller.get_model_stats()
+
+
+    @router.get("/type-definitions", response_model=APIResponse, summary="List Model Type Definitions")
+    async def list_model_type_definitions(current_user: User = Depends(get_current_active_user)):
+        return controller.success_response(data={"types": container.model_type_registry.catalog()})
 
 
     @router.get("/types", response_model=APIResponse, summary="Get Model Types")
@@ -1170,7 +1134,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.post("/downloads", response_model=APIResponse, summary="Queue Recommendation Download")
     async def queue_recommendation_download(
         request: RecommendationDownloadRequest,
-        current_user: User = Depends(get_current_active_user)
+        current_user: User = Depends(get_current_admin_user)
     ):
         """Queue a `model` field recommendation for download (admin only). Provider-gated -
         see docs/presets.md "recommendations"."""

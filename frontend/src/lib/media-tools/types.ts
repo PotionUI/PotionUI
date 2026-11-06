@@ -15,6 +15,7 @@ export type ToolParamType =
 	| 'color'
 	| 'string'
 	| 'anchor'
+	| 'media'
 	| (string & {});
 
 export interface ToolParamOption {
@@ -37,6 +38,7 @@ export interface ToolParam {
 	description?: string;
 	widget?: string;
 	placeholder?: string;
+	accepts?: ToolMediaKind[];
 }
 
 export interface ToolRequirements {
@@ -60,11 +62,14 @@ export interface ToolDTO {
 	params: ToolParam[];
 	requires: ToolRequirements;
 	selection: ToolSelection | null;
-	scopes: ToolScope[];
+	scopes: Array<ToolScope | 'editor'>;
 	editor: string | null;
 	preview: boolean;
 	component: string | null;
 	runnable: boolean;
+	group?: 'edit' | 'effects' | 'audio';
+	description?: string;
+	effect?: Record<string, unknown> | null;
 	source: string;
 	last_params: Record<string, unknown> | null;
 }
@@ -78,16 +83,19 @@ export interface MediaToolItem extends EditedMediaItem {
 export interface MediaToolStep {
 	tool: string;
 	params: Record<string, unknown>;
+	hidden?: boolean;
 }
 
 export type MediaToolInputRef = { item_id: string } | { generation_file_id: string };
 
 export type MediaToolOutputMode = 'new' | 'replace';
 
+export type MediaToolSaveMode = MediaToolOutputMode | 'update';
+
 export interface StartMediaToolRunBody {
 	steps: MediaToolStep[];
 	inputs: MediaToolInputRef[];
-	output: { mode: MediaToolOutputMode };
+	output: { mode: MediaToolSaveMode; target_item_id?: string; collection_id?: string };
 }
 
 export type MediaToolRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -97,14 +105,27 @@ export interface MediaToolRunError {
 	message: string;
 }
 
+export interface MediaToolResultLink {
+	label: string;
+	href: string;
+}
+
+export interface MediaToolRunSummary {
+	message: string;
+	links: MediaToolResultLink[];
+}
+
 export interface MediaToolRun {
 	run_id: string;
+	kind?: 'run' | 'preview';
 	status: MediaToolRunStatus;
 	progress: number;
 	label: string;
 	items: MediaToolItem[];
 	replaced: boolean;
+	preview?: MediaToolPreviewClip | null;
 	error: MediaToolRunError | null;
+	summary?: MediaToolRunSummary | null;
 }
 
 export interface PreviewMediaToolBody {
@@ -134,4 +155,58 @@ export interface MediaToolSource {
 
 export function isTerminalStatus(status: MediaToolRunStatus): boolean {
 	return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+export interface EffectAnalysisBody {
+	input: MediaToolInputRef;
+	steps: MediaToolStep[];
+	step_index: number;
+}
+
+export interface FramePreviewBody {
+	input: MediaToolInputRef;
+	steps: MediaToolStep[];
+	time_seconds?: number;
+	max_side?: number;
+	format?: 'webp' | 'png';
+}
+
+export interface FramePreviewResult {
+	blob: Blob;
+	cached: boolean;
+	size?: { width: number; height: number };
+}
+
+export interface ClipPreviewBody {
+	input: MediaToolInputRef;
+	steps: MediaToolStep[];
+	start_seconds?: number;
+	duration_seconds?: number;
+	height?: number;
+}
+
+export interface MediaToolPreviewClip {
+	id: string;
+	url: string;
+	mime_type: string;
+	duration_seconds: number | null;
+	width: number | null;
+	height: number | null;
+}
+
+export interface ClipPreviewStart {
+	run_id: string | null;
+	preview: MediaToolPreviewClip | null;
+}
+
+export interface MediaToolArtifact {
+	id: string;
+	media_type: ToolMediaKind;
+	mime_type: string | null;
+	url: string;
+	width: number | null;
+	height: number | null;
+	duration_seconds: number | null;
+	fps: number | null;
+	size: number | null;
 }

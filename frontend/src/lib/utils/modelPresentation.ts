@@ -1,3 +1,5 @@
+import { findModelType, modelTypesLoaded } from '$lib/stores/modelTypes.svelte';
+
 export const MODEL_TYPE_UNDEFINED = 'undefined';
 
 export interface ModelTypePresentation {
@@ -5,31 +7,25 @@ export interface ModelTypePresentation {
 	purpose: string;
 }
 
-const MODEL_TYPES: Record<string, ModelTypePresentation> = {
-	checkpoint: { label: 'Base model', purpose: 'Main generation model' },
-	diffusion_model: { label: 'Diffusion model', purpose: 'Main generation model' },
-	lora: { label: 'LoRA', purpose: 'Style or concept adapter' },
-	embedding: { label: 'Embedding', purpose: 'Prompt concept or style' },
-	upscaler: { label: 'Upscaler', purpose: 'Resolution and detail enhancement' },
-	vae: { label: 'VAE', purpose: 'Image encoder and decoder' },
-	controlnet: { label: 'ControlNet', purpose: 'Structure and composition guidance' },
-	adetailer: { label: 'Detailer', purpose: 'Automatic detail refinement' },
-	text_encoder: { label: 'Text encoder', purpose: 'Converts prompts into guidance' },
-	refmod: { label: 'RefMod', purpose: 'Pre-encoded reference latents' },
-	model_patch: { label: 'Model patch', purpose: 'Add-on branch loaded with a diffusion model' },
-	geometry_estimation: { label: 'Geometry estimator', purpose: 'Estimates depth and camera from an image' },
-	[MODEL_TYPE_UNDEFINED]: { label: 'Needs a type', purpose: 'Type not recognised from the file' }
+const UNDEFINED_PRESENTATION: ModelTypePresentation = {
+	label: 'Needs a type',
+	purpose: 'Type not recognised from the file'
 };
+
+function titleCase(value: string): string {
+	return value.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+}
 
 export function modelTypePresentation(modelType?: string | null): ModelTypePresentation {
 	if (!modelType) return { label: 'Model', purpose: 'Generation resource' };
 	const normalized = modelType.toLowerCase();
-	return (
-		MODEL_TYPES[normalized] || {
-			label: normalized.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase()),
-			purpose: 'Generation resource'
-		}
-	);
+	if (normalized === MODEL_TYPE_UNDEFINED) return UNDEFINED_PRESENTATION;
+	const definition = findModelType(normalized);
+	if (definition) return { label: definition.label, purpose: definition.purpose || 'Generation resource' };
+	return {
+		label: titleCase(normalized),
+		purpose: modelTypesLoaded() ? 'Type no longer available' : 'Generation resource'
+	};
 }
 
 function readableProviderName(provider?: string | null): string {

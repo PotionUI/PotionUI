@@ -1,5 +1,5 @@
 from src.platform.database.database import db
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import CORE_MODEL_TYPE_TO_DIRECTORY
 
 _NAME = "036_native_availability_logical_refs"
 
@@ -50,7 +50,7 @@ def _rewrite(cursor):
     dropped = 0
     for row in rows:
         model_type = row["model_type"]
-        type_dir = MODEL_TYPE_TO_DIRECTORY.get(model_type)
+        type_dir = CORE_MODEL_TYPE_TO_DIRECTORY.get(model_type)
         if type_dir is None or _looks_logical(row["ref"], type_dir):
             continue
 

@@ -89,7 +89,8 @@
 
 	const change = $derived(preview?.would_change ?? 0);
 	const runsOnly = $derived(draft.actions.some((a) => !['add_to_collection', 'add_tags'].includes(a.action)));
-	const named = $derived((preview?.sample ?? []).filter((s) => s.name).slice(0, 5));
+	const conditional = $derived(draft.conditions.length > 0);
+	const named = $derived(conditional ? (preview?.sample ?? []).filter((s) => s.name).slice(0, 5) : []);
 </script>
 
 <div class="space-y-3" data-testid="rule-preview">
@@ -116,6 +117,11 @@
 				existing {preview.matched === 1 ? noun.singular : noun.plural} match
 			</p>
 		</div>
+		{#if !conditional}
+			<p class="text-sm text-fg-muted" data-testid="preview-add-condition">
+				Add a condition to see which {noun.plural} match.
+			</p>
+		{/if}
 		{#if named.length > 0}
 			<ul class="space-y-1" data-testid="preview-sample">
 				{#each named as item (item.item_id)}

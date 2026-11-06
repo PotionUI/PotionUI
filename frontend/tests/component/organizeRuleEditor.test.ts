@@ -84,6 +84,21 @@ describe('RuleEditor preview and backfill', () => {
 		expect(target.textContent).toContain('Also add the 198 existing generations when I save');
 	});
 
+	it('shows only the count and a hint until the rule has a condition, then lists matches', async () => {
+		api.previewOrganizeRule.mockResolvedValue(
+			previewResult({ matched: 1107, sample: [{ item_id: 'a', name: 'alpha.safetensors' }] })
+		);
+		render(draftFromParts('generation', { name: 'x', conditions: [], actions: [] }));
+		await advanceTimers(600);
+		expect(target.querySelector('[data-testid="preview-matched"]')!.textContent).toContain('1107');
+		expect(target.querySelector('[data-testid="preview-sample"]')).toBeNull();
+		expect(target.querySelector('[data-testid="preview-add-condition"]')).not.toBeNull();
+		render(startDraft());
+		await advanceTimers(600);
+		expect(target.querySelector('[data-testid="preview-sample"]')).not.toBeNull();
+		expect(target.querySelector('[data-testid="preview-add-condition"]')).toBeNull();
+	});
+
 	it('does not count while a condition is unfinished', async () => {
 		render(
 			draftFromParts('generation', {

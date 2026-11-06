@@ -33,7 +33,7 @@ _MODELS = {
 
 def _form(mode, over=None):
     form = dict(_MODELS)
-    if mode in ("img2img", "enhance"):
+    if mode == "enhance":
         form["source_image"] = "/uploads/source.png"
     if mode == "control":
         form["guide_image"] = "/uploads/guide.png"
@@ -70,7 +70,7 @@ def _generator(pipes):
 
 
 def test_the_modes_are_declared(template):
-    assert list(template.modes.keys()) == ["txt2img", "img2img", "enhance", "inpaint", "control"]
+    assert list(template.modes.keys()) == ["txt2img", "enhance", "inpaint", "control"]
 
 
 def test_txt2img_is_untouched(template):
@@ -78,32 +78,6 @@ def test_txt2img_is_untouched(template):
     cfg = _generator(pipes)
     assert cfg.get("mode") is None
     assert "control_model" not in _pipe(pipes, "model_loader/z_image")["config"]
-
-
-def test_img2img_re_renders_the_picture_at_the_chosen_strength(template):
-    pipes = _process(template, "img2img", {"denoise": 0.4})
-    cfg = _generator(pipes)
-    assert cfg["mode"] == "img2img"
-    assert float(cfg["denoise"]) == 0.4
-    assert "resolution" not in cfg
-    assert _providers(pipes, "generator/z_image")["image"] == "media_loader"
-    assert _pipe(pipes, "media_loader")["config"]["media"][0]["path"] == "/uploads/source.png"
-
-
-def test_img2img_strength_defaults_to_a_partial_re_render(template):
-    assert float(_generator(_process(template, "img2img"))["denoise"]) == 0.55
-
-
-def test_img2img_needs_a_picture(template):
-    with pytest.raises(FormBindingError) as refused:
-        bind_form(template, "img2img", form_name=None, raw_form_data=dict(_MODELS), user_id=None, storage_dir=None)
-    assert "source_image" in refused.value.field_errors
-
-
-def test_img2img_records_its_strength_in_the_history(template):
-    pipes = _process(template, "img2img", {"denoise": 0.4})
-    parameters = _pipe(pipes, "param_emitter")["config"]["parameters"]
-    assert ["denoise", 0.4] in [list(p) for p in parameters if p]
 
 
 @pytest.mark.parametrize("scale,factor", [("1_5x", 1.5), ("2x", 2.0), ("3x", 3.0)])
@@ -155,7 +129,7 @@ def test_the_face_pass_inherits_the_run_sampling(template):
     assert cfg["sampler"] == _generator(pipes)["sampler"]
 
 
-@pytest.mark.parametrize("mode", ["txt2img", "img2img", "enhance"])
+@pytest.mark.parametrize("mode", ["txt2img", "enhance"])
 def test_only_structure_loads_the_fun_controlnet(template, mode):
     over = {"resolution": "1024x1024"} if mode == "txt2img" else None
     assert "control_model" not in _pipe(_process(template, mode, over), "model_loader/z_image")["config"]

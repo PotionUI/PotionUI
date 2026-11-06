@@ -11,7 +11,7 @@ plain.
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -322,10 +322,9 @@ def recipe_total_download_bytes(recipe: Recipe) -> Optional[int]:
     return sum(sizes) if sizes and len(sizes) == len(artifacts) else None
 
 
-def recipe_source_hosts(recipe: Recipe) -> List[str]:
+def recipe_source_hosts(recipe: Recipe, planned: Sequence[str] = ()) -> List[str]:
     hosts: List[str] = []
-    for artifact in recipe.artifacts:
-        host = artifact.source_host
+    for host in [*(a.source_host for a in recipe.artifacts), *planned]:
         if host and host not in hosts:
             hosts.append(host)
     return hosts
@@ -411,7 +410,7 @@ class RecipeSummary(BaseModel):
             blurb=recipe.blurb,
             min_vram_gb=min_vram_gb,
             recommended_vram_gb=recommended_vram_gb,
-            sources=recipe_source_hosts(recipe),
+            sources=recipe_source_hosts(recipe, modes_summary.get("sources") or ()),
             first_run=recipe.first_run,
             last_completed_at=last_completed_at,
         )

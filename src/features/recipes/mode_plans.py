@@ -4,6 +4,7 @@ import logging
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
+from urllib.parse import urlparse
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.features.models.recommendations import format_size
@@ -626,12 +627,15 @@ class ModePlanner:
         default_modes = self.default_modes(assessment)
         default_files = self.selection_files(assessment, default_modes, assessment.preselect_extras)
         total_needed = []
+        planned_files = []
         for slot_id in self.needed_slots(assessment, default_modes, assessment.preselect_extras):
             state = assessment.slots[slot_id]
             if state.manual:
                 continue
             chosen = self._chosen_variant(state, {})
             total_needed.append(chosen.get("size_bytes") if chosen else None)
+            if chosen:
+                planned_files.append(self.file_entry(state, chosen))
         missing = [f["size_bytes"] for f in default_files]
         return {
             "preset_id": assessment.slot_plan.preset_id,
@@ -640,8 +644,23 @@ class ModePlanner:
             "installed_bytes": installed_bytes,
             "missing_bytes": sum(missing) if all(m is not None for m in missing) else None,
             "total_bytes": sum(total_needed) if all(t is not None for t in total_needed) else None,
+            "sources": self._source_hosts(planned_files),
             "modes": modes,
         }
+
+    def _source_hosts(self, files: Sequence[Dict[str, Any]]) -> List[str]:
+        hints = [f.get("provider_hint") or {} for f in files]
+        registry = self._provider_registry() if any(h.get("source") for h in hints) else None
+        hosts: List[str] = []
+        for hint in hints:
+            url = hint.get("download_url")
+            if not url and registry is not None and hint.get("source"):
+                metadata = registry.get_provider_metadata(hint["source"])
+                url = metadata.website if metadata is not None else None
+            host = urlparse(url).hostname if url else None
+            if host and host not in hosts:
+                hosts.append(host)
+        return hosts
 
     @staticmethod
     def _slot_size(state: SlotState) -> Optional[int]:

@@ -191,6 +191,45 @@ def test_summary_counts_ready_modes_and_bytes(tmp_path):
     assert planner.summary("missing") is None
 
 
+class _Registry:
+    def __init__(self, websites):
+        self.websites = websites
+
+    def get_provider_metadata(self, provider_id):
+        site = self.websites.get(provider_id)
+        return SimpleNamespace(website=site) if site else None
+
+
+def _planner_with_registry(tmp_path, websites):
+    planner = _planner(tmp_path)
+
+    async def factory():
+        return _Registry(websites)
+
+    planner.provider_registry_factory = factory
+    return planner
+
+
+def test_summary_sources_are_hosts_of_the_planned_files(tmp_path):
+    planner = _planner_with_registry(tmp_path, {"huggingface": "https://huggingface.co"})
+    assert planner.summary("VID", selected=["video"], locked=["video"])["sources"] == ["huggingface.co"]
+
+
+def test_summary_sources_empty_when_provider_unknown(tmp_path):
+    planner = _planner_with_registry(tmp_path, {})
+    assert planner.summary("VID", selected=["video"], locked=["video"])["sources"] == []
+
+
+def test_summary_sources_use_direct_link_host(tmp_path):
+    planner = _planner(tmp_path)
+    files = [
+        {"provider_hint": {"download_url": "https://cdn.example.org/a.safetensors"}},
+        {"provider_hint": {"download_url": "https://cdn.example.org/b.safetensors"}},
+        {"provider_hint": {}},
+    ]
+    assert planner._source_hosts(files) == ["cdn.example.org"]
+
+
 def test_unknown_target_is_reported(tmp_path):
     planner = _planner(tmp_path)
     with pytest.raises(PlanApprovalError, match="not a place"):

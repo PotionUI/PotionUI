@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from src.features.recipes.preset_links import RecipePresetLinks
-from src.features.recipes.schema import Recipe, RecipeArtifact, RecipePresetRef
+from src.features.recipes.schema import Recipe, RecipeArtifact, RecipePresetRef, RecipeStep
 
 
 class _Loader:
@@ -74,6 +74,37 @@ def test_sources_are_distinct_in_declaration_order():
         _artifact("c", "huggingface.co"), _artifact("d"),
     ])
     assert _summary(_links({}), recipe).sources == ["huggingface.co", "example.org"]
+
+
+class _Planner:
+    def __init__(self, sources):
+        self.sources = sources
+
+    def summary(self, preset_id, selected=(), locked=()):
+        return {"total_bytes": 5, "sources": self.sources}
+
+
+def _plan_recipe(artifacts=()):
+    return _recipe(
+        artifacts=artifacts,
+        steps=[RecipeStep(key="plan", kind="modes.plan", title="Plan", params={"preset_id": "P1"})],
+    )
+
+
+def _planned_links(sources):
+    return RecipePresetLinks(None, _Runner(), preset_loader=_Loader({}), mode_planner=_Planner(sources))
+
+
+def test_sources_come_from_the_planned_files_when_recipe_has_no_artifacts():
+    summary = _summary(_planned_links(["huggingface.co"]), _plan_recipe())
+    assert summary.sources == ["huggingface.co"]
+    assert summary.total_download_bytes == 5
+
+
+def test_sources_merge_artifacts_and_plan_without_duplicates():
+    recipe = _plan_recipe([_artifact("a", "example.org"), _artifact("b", "huggingface.co")])
+    summary = _summary(_planned_links(["huggingface.co", "cdn.test"]), recipe)
+    assert summary.sources == ["example.org", "huggingface.co", "cdn.test"]
 
 
 def test_blurb_and_first_run_pass_through():

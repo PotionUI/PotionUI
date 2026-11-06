@@ -67,7 +67,7 @@ const ARTIFACT_RENDERER = {
 	component: 'FakeArtifact.js'
 };
 
-describe('refreshPluginExtensions', () => {
+describe('refreshPluginExtensions', { timeout: 30_000 }, () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});

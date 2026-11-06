@@ -248,6 +248,36 @@ def test_the_inference_floor_over_a_small_reserve_sends_the_encoder_away(card):
     assert expert.moved == [_DEVICE]
 
 
+def test_the_preview_reserve_sends_the_encoder_away_where_the_weights_and_the_activation_reserve_fit(card):
+    c = card(10.27)
+    encoder = _TextEncoder(c)
+    expert = _Expert(c, 2.64)
+    router = ExpertRouter(expert, None, 0.875, _DEVICE, latents_shape=_TINY)
+    router.preview_reserve_gb = 1.5
+    free = c.total_gb - _UMT5_GB
+    assert expert.estimated_vram_gb + max(c.floor_gb, _reserve(_TINY)) < free
+    assert free < expert.estimated_vram_gb + _reserve(_TINY) + router.preview_reserve_gb
+
+    _run(router, 0.95)
+
+    assert encoder.offloaded == 1
+    assert expert.moved == [_DEVICE]
+
+
+def test_the_preview_reserve_comes_off_the_budget_the_expert_streams_against(card):
+    c = card(10.1)
+    expert = _Expert(c, 9.31)
+    router = ExpertRouter(expert, None, 0.875, _DEVICE, latents_shape=_5B_480P_5S)
+    router.preview_reserve_gb = 0.6
+
+    _run(router, 0.95)
+
+    assert expert.moved == []
+    [(device, budget)] = expert.streamed
+    assert device == _DEVICE
+    assert budget == pytest.approx(c.total_gb - _reserve(_5B_480P_5S) - router.preview_reserve_gb)
+
+
 def test_the_budget_follows_the_effective_free_memory(card):
     c = card(10.1, stuck_gb=1.5)
     expert = _Expert(c, 9.31)

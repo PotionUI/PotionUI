@@ -234,6 +234,7 @@ class TestFieldOverridesThreadedFromRepository:
         instance.output_broadcaster = None
         instance.router = None
         instance.cloud_capabilities = None
+        instance.model_filename_resolver = None
         instance.cloud_policy = None
         instance.limit_guard = None
         instance.status_tracker = Mock()

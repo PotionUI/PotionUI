@@ -68,6 +68,12 @@
 			.at(-1);
 		return attempt ? { stepKey: attempt.step_key, consent: extractModesConsent(attempt) } : null;
 	});
+	const planning = $derived.by(() => {
+		if (!request || session.conflict || session.error) return false;
+		if (!run) return true;
+		const planStep = run.steps?.find((step) => step.kind === 'modes.plan');
+		return !!planStep && (planStep.status === 'pending' || planStep.status === 'running');
+	});
 	const showSheet = $derived(!!request && !!awaitingModes?.consent);
 
 	async function approve(body: ModesGrantBody) {
@@ -129,18 +135,17 @@
 </script>
 
 {#if request}
-	{#if showSheet && awaitingModes?.consent && run}
-		{#key `${run.id}:${awaitingModes.stepKey}`}
-			<ModeInstallSheet
-				request={awaitingModes.consent}
-				preselect={preselectOf(run)}
-				busy={grantBusy}
-				error={grantError || cancelError}
-				onConfirm={approve}
-				onCancel={cancelAndClose}
-				onReplan={replanFor(run.recipe_id)}
-			/>
-		{/key}
+	{#if showSheet || planning}
+		<ModeInstallSheet
+			request={showSheet ? (awaitingModes?.consent ?? null) : null}
+			stepKey={run && awaitingModes ? `${run.id}:${awaitingModes.stepKey}` : ''}
+			preselect={run ? preselectOf(run) : request.modes}
+			busy={grantBusy}
+			error={grantError || cancelError}
+			onConfirm={approve}
+			onCancel={cancelAndClose}
+			onReplan={replanFor(run?.recipe_id ?? request.recipeId)}
+		/>
 	{:else}
 		<BaseModal isOpen={true} title="Install modes" size="lg" compact on:close={dismiss}>
 			<div class="space-y-3 p-5" data-mode-install-host>
@@ -170,10 +175,6 @@
 						actions={adminRecipeRunActions}
 						onRunUpdated={session.adopt}
 					/>
-				{:else}
-					<div class="flex items-center gap-3 py-6 text-sm text-fg-muted">
-						<Spinner size="sm" /> Checking your files…
-					</div>
 				{/if}
 			</div>
 		</BaseModal>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import GatedModelLink from '$lib/components/models/GatedModelLink.svelte';
 	import { untrack } from 'svelte';
+	import { Spinner } from '$lib/components/ui';
 	import { Alert, Badge } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
@@ -27,8 +28,23 @@
 		type ModeInstallState
 	} from './modeInstallModel';
 
+	const emptyRequest: ModeConsentRequest = {
+		kind: 'modes',
+		preset_id: '',
+		preset_name: '',
+		target: { backend_id: '', label: '', kind: 'local', free_bytes: null, gpu_name: null, vram_gb: null, options: [] },
+		gpu: null,
+		modes: [],
+		slots: [],
+		disk: [],
+		estimate: null,
+		providers: [],
+		warnings: []
+	};
+
 	let {
 		request,
+		stepKey = '',
 		preselect = [],
 		busy = false,
 		error = '',
@@ -36,7 +52,8 @@
 		onCancel,
 		onReplan
 	}: {
-		request: ModeConsentRequest;
+		request: ModeConsentRequest | null;
+		stepKey?: string;
 		preselect?: string[];
 		busy?: boolean;
 		error?: string;
@@ -45,8 +62,26 @@
 		onReplan?: (target: string, modes: string[]) => Promise<ModeConsentRequest | null>;
 	} = $props();
 
-	let current = $state.raw<ModeConsentRequest>(untrack(() => request));
-	let choice = $state<ModeInstallState>(untrack(() => initialInstallState(request, preselect)));
+	let current = $state.raw<ModeConsentRequest>(untrack(() => request ?? emptyRequest));
+	let choice = $state<ModeInstallState>(untrack(() => initialInstallState(request ?? emptyRequest, preselect)));
+	const loading = $derived(request === null);
+
+	let appliedKey: string | null = null;
+
+	$effect(() => {
+		const next = request;
+		const key = stepKey;
+		if (!next) {
+			appliedKey = null;
+			return;
+		}
+		untrack(() => {
+			if (appliedKey === key) return;
+			appliedKey = key;
+			current = next;
+			choice = initialInstallState(next, preselect);
+		});
+	});
 	let customizeOpen = $state(false);
 	let tokenOpen = $state(false);
 	let replanning = $state(false);
@@ -157,7 +192,7 @@
 
 <ConfirmDialog
 	isOpen={true}
-	title="Install {current.preset_name} modes"
+	title={loading ? 'Install modes' : `Install ${current.preset_name} modes`}
 	subtitle="Pick the modes you want. Files you already have are kept."
 		sizeClass="md:max-w-3xl md:w-full mode-install-dialog"
 	compact
@@ -166,11 +201,16 @@
 	subtitleWrap
 	{busy}
 	{confirmLabel}
-	confirmDisabled={!!blocker || replanning}
+	confirmDisabled={loading || !!blocker || replanning}
 	leftActions={footerNote}
 	onConfirm={confirm}
 	{onCancel}
 >
+	{#if loading}
+		<div class="flex items-center gap-3 px-5 py-10 text-sm text-fg-muted" data-mode-install-loading>
+			<Spinner size="sm" /> Checking your files…
+		</div>
+	{:else}
 	<div data-mode-install-sheet class="flex min-h-full flex-col">
 		{#if options.length > 1}
 			<div class="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3" data-mode-target>
@@ -385,7 +425,7 @@
 			{/if}
 		</div>
 	</div>
-
+	{/if}
 </ConfirmDialog>
 
 <style>

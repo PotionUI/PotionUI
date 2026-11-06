@@ -114,6 +114,28 @@ describe('ModeInstallHost', () => {
 		expect(document.body.querySelector<HTMLInputElement>('[data-mode-row="cinemagraph"] input')!.checked).toBe(false);
 	});
 
+	it('shows the sheet loading state while the plan is built and never the progress dialog', async () => {
+		let release: (value: SetupRun) => void = () => {};
+		vi.mocked(api.startRecipeModesRun).mockReturnValue(new Promise<SetupRun>((resolve) => (release = resolve)));
+		mountHost();
+		openModeInstall('modes-ltx-2-5', ['motion']);
+		await settle();
+		flushSync();
+		expect(document.body.querySelector('[data-mode-install-loading]')).not.toBeNull();
+		expect(document.body.querySelector('[data-mode-install-host]')).toBeNull();
+		const dialog = document.body.querySelector('[role="dialog"]');
+		expect(dialog).not.toBeNull();
+		expect(document.body.querySelectorAll('[role="dialog"]').length).toBe(1);
+		expect(document.body.textContent).not.toContain('Installing modes');
+		release(awaiting());
+		await settle();
+		flushSync();
+		expect(document.body.querySelector('[data-mode-install-loading]')).toBeNull();
+		expect(document.body.querySelector('[data-mode-install-sheet]')).not.toBeNull();
+		expect(document.body.querySelectorAll('[role="dialog"]').length).toBe(1);
+		expect(document.body.querySelector('[role="dialog"]')).toBe(dialog);
+	});
+
 	it('starts a plain run when no mode was preselected', async () => {
 		vi.mocked(api.createRecipeRun).mockResolvedValue(awaiting());
 		mountHost();

@@ -5,6 +5,7 @@ import { screenshot, shotPath } from './helpers';
 
 const JOURNEY = 'fresh-install-guided-setup';
 const RECIPE_NAME = process.env.E2E_FRESH_RECIPE_NAME ?? '';
+const SHIPPED_STARTERS: string[] = JSON.parse(process.env.E2E_FRESH_SHIPPED_STARTERS ?? '[]');
 const PASSWORD = 'fresh-owner-pw-7c1e44';
 
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -19,17 +20,19 @@ test('a fresh instance runs Guided setup from the real wizard', async ({ page })
 		if (calls[calls.length - 1] !== line) calls.push(line);
 	};
 	page.on('request', record);
-	await page.route('**/api/setup/machine', (route) =>
-		route.fulfill({
-			status: 200,
-			contentType: 'application/json',
-			body: JSON.stringify({
-				gpu: { name: 'NVIDIA GeForce RTX 4090', vram_bytes: 25757220864, compute_capability: '8.9', supported: true },
-				ram_total_bytes: 68719476736,
-				models_disk: null
-			})
-		})
-	);
+	const machineStatuses: number[] = [];
+	await page.route('**/api/setup/machine', async (route) => {
+		const response = await route.fetch();
+		machineStatuses.push(response.status());
+		const machine = response.ok() ? await response.json() : {};
+		await route.fulfill({
+			response,
+			json: {
+				...machine,
+				gpu: { name: 'NVIDIA GeForce RTX 4090', vram_bytes: 25757220864, compute_capability: '8.9', supported: true }
+			}
+		});
+	});
 
 	try {
 		await page.goto('/');
@@ -62,6 +65,12 @@ test('a fresh instance runs Guided setup from the real wizard', async ({ page })
 
 		await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible({ timeout: 20000 });
 		await expect(page.getByText(RECIPE_NAME)).toBeVisible({ timeout: 20000 });
+		expect(SHIPPED_STARTERS.length).toBeGreaterThan(0);
+		for (const name of SHIPPED_STARTERS) {
+			await expect(page.getByRole('radio', { name })).toBeVisible();
+		}
+		expect(machineStatuses.length).toBeGreaterThan(0);
+		expect(machineStatuses.every((status) => status === 200)).toBe(true);
 		await screenshot(page, JOURNEY, '05-starter');
 
 		await page.getByRole('radio', { name: new RegExp(RECIPE_NAME) }).click();

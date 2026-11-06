@@ -48,7 +48,7 @@ Peak-VRAM figures below marked **(32 GB-card ceiling)** are measured GPU runs on
 | Wan 2.2 (5B ti2v) | single dense model, coarser spatial granularity | not separately measured | Unvalidated | Realistic candidate — smallest Wan variant | 12 GB+ |
 | LTX-2 / 2.3 / 2.5 | ~27 GB on-disk all-in-one AV checkpoint (19–22B params) | Not GPU-validated end-to-end — DiT/TE built, AV forward + golden validation still open (`docs/native-engine.md`) | No | No | Not yet recommended at any tier — validation pending |
 | MiniMax-H3 | 20B (pruned) / 33B (full) params, per its own doc front matter | **No local weights, no GPU validation performed at all** (`docs/models/minimax_h3.md`) | No | No | Not recommended — unvalidated, and weights are territorially license-restricted (excludes EU/UK/US/KR) |
-| SeedVR2 (upscaler) | 3B fp8 **3.39 GB** / 3B fp16 6.78 GB / 7B fp8 **8.24 GB** / 7B fp16 16.48 GB (`content/presets/marketplace/SeedVR2/modes/upscale/tabs/generation.yml`) | Batch size auto-sizes to ~72% of free VRAM; halves and retries on OOM | 3B fp8 works | 7B fp8 works | Scales down cleanly to small cards — no fixed floor |
+| SeedVR2 (upscaler) | 3B fp8 **3.39 GB** / 3B fp16 6.78 GB / 7B fp8 **8.24 GB** / 7B fp16 16.48 GB (`content/presets/marketplace/SeedVR2/modes/upscale/tabs/generation.yml`) | Batch size and VAE tiles sized from live free VRAM, tile costs measured on a 12 GB card (`docs/models/seedvr2.md`); an OOM halves and retries, except the first driver-error OOM under WSL2 | 3B fp8 works | 7B fp8 works | Scales down cleanly to small cards — no fixed floor |
 
 ## Disk space
 

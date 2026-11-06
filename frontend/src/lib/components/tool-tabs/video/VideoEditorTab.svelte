@@ -82,6 +82,7 @@
 		fixed2,
 		hasPixelEffects,
 		hasSplit,
+		settlePending,
 		isEffectOp,
 		isNoop,
 		isRailToolId,
@@ -375,10 +376,7 @@
 	}
 
 	function foldPending(state: EditStackState<VideoParams>): EditStackState<VideoParams> {
-		const current = state.pending;
-		if (!current) return state;
-		if (isVideoOp(current.tool) && ready && (current.target || !isNoop(current.tool, current.params, clip, base))) return apply(state);
-		return discardPending(state);
+		return settlePending(state, ready, clip, base);
 	}
 
 	function settleLive() {

@@ -1,15 +1,4 @@
 // @vitest-environment jsdom
-//
-// handleSessionSelect assigns `selectedSessionId` optimistically BEFORE
-// awaiting api.getSessionById. Svelte flushes at that await point with
-// local=NEW but the tab store still holding OLD, and the store-mirror
-// reactive block used to read that mismatch as "the store changed" and
-// re-fetch OLD over the user's own pick — two fetches race, and whichever
-// resolves last wins (the user has to click a session two or three times
-// before it sticks). This mounts the real SessionPill against the real
-// tabsStore and drives a session switch through SessionControl's onSelect,
-// so the race is exercised through the actual reactivity graph rather than
-// through shouldHydrateSessionSelection in isolation.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { settle } from './helpers/settle';
 
@@ -23,7 +12,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { api } = await import('$lib/services/api/index');
 const { tabsStore } = await import('$lib/stores/tabs');
-const { default: SessionPill } = await import('$lib/components/session/SessionPill.svelte');
+const { default: SessionScopeFixture } = await import('./fixtures/SessionScopeFixture.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
 const PRESET_ID = 'preset-race';
@@ -42,13 +31,13 @@ function makeSession(id: string) {
 	};
 }
 
-function mountPill(tabId: string) {
+function mountSessionControl(tabId: string) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const component = createClassComponent({
-		component: SessionPill as never,
+		component: SessionScopeFixture as never,
 		target,
-		props: {
+		props: { layout: 'sheet',
 			presetId: PRESET_ID,
 			currentMode: CURRENT_MODE,
 			tabId,
@@ -79,7 +68,7 @@ function mountPill(tabId: string) {
 	};
 }
 
-let mounted: ReturnType<typeof mountPill> | undefined;
+let mounted: ReturnType<typeof mountSessionControl> | undefined;
 let tabId: string;
 
 beforeEach(() => {
@@ -106,9 +95,9 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe('SessionPill session-switch race', () => {
+describe('Session sheet session-switch race', () => {
 	it('never re-fetches the session the user just switched away from', async () => {
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 
 		mounted.openSessionMenu();
@@ -117,10 +106,6 @@ describe('SessionPill session-switch race', () => {
 		await settle(10);
 		mounted.confirmDiscard();
 
-		// Flush the microtask the optimistic assignment + in-flight fetch land
-		// on without waiting for getSessionById(NEW) to fully resolve — this is
-		// exactly the window where the unguarded mirror block used to read
-		// local=NEW / store=OLD as a store-side change and fire off OLD.
 		await Promise.resolve();
 		await Promise.resolve();
 		await settle(10);

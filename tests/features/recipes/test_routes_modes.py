@@ -114,6 +114,18 @@ def test_dry_run_returns_the_consent_payload_and_creates_no_run(file_db, tmp_pat
     assert runner.list_runs() == []
 
 
+def test_dry_run_without_preselection_plans_every_missing_mode(file_db, tmp_path):
+    client, runner, _ = _client(tmp_path, FakeModelRepo(files=BASE))
+
+    body = client.post(f"/api/recipes/{RECIPE}/plan", json={}).json()
+
+    selected = [m["id"] for m in body["consent_request"]["modes"] if m["selected"]]
+    assert selected == ["cinemagraph", "add_water", "restore", "motion"]
+    assert body["totals"]["file_count"] > 0
+    assert body["totals"]["download_bytes"] > 0
+    assert runner.list_runs() == []
+
+
 def test_start_with_preselected_modes_then_grant_modes_and_extras(file_db, tmp_path):
     client, runner, recorder = _client(tmp_path, FakeModelRepo(files=BASE))
 

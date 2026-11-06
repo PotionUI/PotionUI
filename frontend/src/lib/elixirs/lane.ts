@@ -368,9 +368,22 @@ export function addStepAfter(
 	const pending = { from: parent.id, fromHandle: handle, text: null };
 	if (!withWriter) return { definition: next, id, pending, writerId: null };
 	const writerId = newId('n', [...taken, id]);
-	next = insertNodeAt(next, blankNode('llm', writerId), id);
+	next = insertNodeAt(next, { ...blankNode('llm', writerId), target_node_id: id }, id);
 	if (handle) next = linkFiles(next, parent.id, handle, writerId, presetIndex);
 	return { definition: next, id, pending: { ...pending, text: writerId }, writerId };
+}
+
+export function savedPending(definition: Def): Record<string, Pending> {
+	const found: Record<string, Pending> = {};
+	for (const node of definition.nodes) {
+		if (node.kind !== 'llm' || !node.target_node_id) continue;
+		const target = definition.nodes.find((item) => item.id === node.target_node_id);
+		if (!target || target.kind !== 'preset' || target.preset_id || found[target.id]) continue;
+		if (definition.edges.some((edge) => edge.target === target.id)) continue;
+		const files = fileEdge(definition, node.id);
+		found[target.id] = { from: files?.source ?? null, fromHandle: files?.source_handle ?? null, text: node.id };
+	}
+	return found;
 }
 
 export function applyPending(definition: Def, nodeId: string, pending: Partial<Pending> | null | undefined, presetIndex: PresetIndex): Def {

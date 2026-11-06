@@ -1,7 +1,9 @@
 <script lang="ts">
 	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import PresetControls from '../PresetControls.svelte';
-	import SessionPill from '$lib/components/session/SessionPill.svelte';
+	import SessionControl from '$lib/components/session/SessionControl.svelte';
+	import type { SessionPanelActions, SessionPanelState } from '$lib/session/sessionDialogs';
+	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
 	import FormulasButton from '$lib/components/formulas/FormulasButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { formAudienceStore } from '$lib/stores/formAudience';
@@ -24,6 +26,9 @@
 	export let onReload: () => void;
 	export let onClose: () => void;
 	export let onFormulaApplied: (() => void) | undefined = undefined;
+	export let session: SessionPanelState;
+	export let actions: SessionPanelActions;
+	export let fieldLabels: FieldLabels = {};
 
 	$: tabs = $tabsStore.tabs;
 	$: activeTabId = $tabsStore.activeTabId;
@@ -59,13 +64,7 @@
 			{onReload}
 		/>
 
-		<SessionPill
-			presetId={tab.selectedPreset}
-			currentMode={tab.selectedMode}
-			tabId={tab.id}
-			{presetVersion}
-			availableModes={availableModes.map((m) => ({ id: m.id, variants: m.variants }))}
-		/>
+		<SessionControl {session} {actions} {fieldLabels} layout="sheet" />
 
 		<div class="flex gap-1.5" data-testid="preset-session-sheet-tools">
 			<FormulasButton

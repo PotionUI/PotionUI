@@ -223,10 +223,10 @@ def test_build_context_passes_the_reference_short_edge_to_normalize_references(o
 
 
 @pytest.mark.parametrize(("overrides", "expected_size", "expected_tokens"), [
-    ({}, (2048, 3680), 64 * 115),
+    ({}, (1056, 1920), 33 * 60),
     ({"reference_short_edge": 1024}, (1024, 1824), 32 * 57),
 ])
-def test_build_context_fits_a_reference_picture_to_the_configured_short_edge(
+def test_build_context_brings_a_reference_picture_down_to_the_configured_short_edge_without_enlarging_it(
     overrides, expected_size, expected_tokens,
 ):
     ctx = _build_reference_context(overrides, _reference_image((1072, 1920)))

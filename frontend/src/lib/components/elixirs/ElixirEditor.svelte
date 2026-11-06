@@ -27,6 +27,7 @@
 	import { restoreTabSession } from '$lib/session/restoreTabSession';
 	import { requestTabSave } from '$lib/stores/workspaceSaveRequest';
 	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
+	import { holdUnsavableVariables } from '$lib/elixirs/draft';
 	import { createStepEditor } from '$lib/elixirs/stepEditor';
 	import { stepIndex, stepOptions } from '$lib/elixirs/stepEdit';
 	import { publishStepBar } from '$lib/elixirs/stepBar';
@@ -70,6 +71,7 @@
 		laneTree,
 		moveAmongSiblings,
 		pendingNeeds,
+		savedPending,
 		presetChoices,
 		promptEdge,
 		promptMenu,
@@ -269,7 +271,8 @@
 	const varsCache = new Map<string, Record<string, unknown>>();
 
 	let presetIndex = $derived(indexPresets(presets));
-	let tree = $derived(definition ? laneTree(definition, pending) : null);
+	let stepWaits = $derived(definition ? { ...savedPending(definition), ...pending } : pending);
+	let tree = $derived(definition ? laneTree(definition, stepWaits) : null);
 	let laneOrder = $derived<string[]>(tree ? tree.roots.flatMap((root) => [root, ...preorder(root)]) : []);
 	let grouped = $derived(issuesByTarget(report));
 	let allIssues = $derived<Issue[]>(report?.issues ?? []);
@@ -642,7 +645,7 @@
 
 	function chooserOf(node: ElixirNode) {
 		if (node.preset_id) return null;
-		const needs = pendingNeeds(definition!, pending[node.id] ?? null, presetIndex);
+		const needs = pendingNeeds(definition!, stepWaits[node.id] ?? null, presetIndex);
 		const options = presetChoices(presets, needs).map((preset) => ({ ...preset, makes: mediaNoun(Object.values(preset.outputs ?? {})[0]?.media_type) }));
 		const title = needs.takes
 			? `Choose a preset for the ${mediaNoun(needs.takes)} coming in`
@@ -994,7 +997,7 @@
 	}
 
 	function chooseCardPreset(nodeId: string, presetId: string, mode: string) {
-		change(choosePendingPreset(definition!, nodeId, presetId, mode, pending[nodeId] ?? null, presetIndex), 0);
+		change(choosePendingPreset(definition!, nodeId, presetId, mode, stepWaits[nodeId] ?? null, presetIndex), 0);
 		dropPending(nodeId);
 		announce(`${labelOf(nodeId)} added`);
 		openSettings(nodeId);
@@ -1374,7 +1377,8 @@
 			clearTimeout(saveTimer);
 			if (saveState === 'conflict' || !record || destroyed) return;
 			again = false;
-			const sent = definition!;
+			const draft = definition!;
+			const sent = holdUnsavableVariables(draft, lastSaved);
 			saveState = 'saving';
 			const result = await client.updateElixir(id, {
 				expected_revision: record.revision,
@@ -1398,7 +1402,7 @@
 				saveError = result.error.message;
 				return;
 			}
-			const changed = again || definition !== sent;
+			const changed = again || definition !== draft;
 			record = result.data;
 			lastSaved = result.data.definition;
 			definition = mergeSaved(definition!, sent, result.data.definition);
@@ -1468,7 +1472,7 @@
 	function pickPreset(presetId: string, mode: string) {
 		const nodeId = settingsFor;
 		if (!nodeId) return;
-		change(choosePendingPreset(definition!, nodeId, presetId, mode, pending[nodeId] ?? null, presetIndex), 0);
+		change(choosePendingPreset(definition!, nodeId, presetId, mode, stepWaits[nodeId] ?? null, presetIndex), 0);
 		dropPending(nodeId);
 	}
 
@@ -1787,7 +1791,7 @@
 		clearTimeout(saveTimer);
 		clearTimeout(pollTimer);
 		if (saveState === 'dirty' && record && definition) {
-			client.updateElixir(id, { expected_revision: record.revision, name: name.trim() || 'Untitled elixir', run_mode: runMode, definition });
+			client.updateElixir(id, { expected_revision: record.revision, name: name.trim() || 'Untitled elixir', run_mode: runMode, definition: holdUnsavableVariables(definition, lastSaved) });
 		}
 	});
 

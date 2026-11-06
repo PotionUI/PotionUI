@@ -15,10 +15,10 @@ Both share the same encode/noise/patchify recipe (`encode_keyframe_condition`
 below); they differ only in what canvas the image is fit onto before that.
 An `fl2va` keyframe is fit onto the TARGET canvas (`fit_keyframe_to_canvas`),
 overlaying the generated frames it anchors. A `ref2va` reference keeps its
-OWN resolution (`normalize_reference_image`) -- a short-edge-2048 fit, no
-upper pixel cap, no crop -- because it is a PREFIX ahead of the generated
-rows rather than an overlay onto them (`layout.build_ref2va_packed_sequence`
-reads each reference's geometry from what was actually encoded here).
+OWN resolution (`normalize_reference_image`) -- no upper pixel cap, no crop
+-- because it is a PREFIX ahead of the generated rows rather than an overlay
+onto them (`layout.build_ref2va_packed_sequence` reads each reference's
+geometry from what was actually encoded here).
 
 `encode_vae_condition` (the reference) samples the video VAE's Gaussian
 posterior under a FIXED generator (`keyframe_encode_seed = 42`, independent
@@ -36,12 +36,10 @@ an ordered list of :class:`ReferenceMedia` mixing images, videos and audio.
 The three differ in what they contribute:
 
 - an IMAGE contributes one visual condition latent, encoded at its own
-  2048-short-edge resolution;
+  resolution;
 - a VIDEO contributes one visual condition latent -- a frame stack, so the
   VAE's temporal chunking applies and the latent carries `5 * n + 2` frames
-  rather than 1 -- at the canvas ITS OWN aspect ratio resolves to under the
-  target's canvas rule (not the 2048 image rule), plus a soundtrack if it
-  carries one;
+  rather than 1 -- plus a soundtrack if it carries one;
 - an AUDIO reference contributes only clean soundtrack rows, no visual
   latent at all.
 
@@ -159,20 +157,30 @@ def pad_reference_to_aspect_range(image: Image.Image) -> Image.Image:
     return flatten_onto(canvas)
 
 
+def _snap_without_enlarging(size: float, source: int, canvas_multiple: int) -> int:
+    return max(canvas_multiple, min(round(size / canvas_multiple), source // canvas_multiple) * canvas_multiple)
+
+
+def _snap_size_within_aspect_range(
+    height: float, width: float, source_height: int, source_width: int, canvas_multiple: int,
+) -> tuple[int, int]:
+    snapped_height = _snap_without_enlarging(height, source_height, canvas_multiple)
+    snapped_width = _snap_without_enlarging(width, source_width, canvas_multiple)
+    limit = int(MAX_ASPECT_RATIO)
+    return min(snapped_height, snapped_width * limit), min(snapped_width, snapped_height * limit)
+
 def normalize_reference_image(
     image: Image.Image, *, canvas_multiple: int, short_edge: int = REFERENCE_IMAGE_SHORT_EDGE,
 ) -> Image.Image:
-    """Put one `ref2va` image reference on its OWN resolution: short edge
-    `short_edge` (upscaling included), each axis then rounded to the nearest
-    `canvas_multiple` with a floor of `canvas_multiple`, no upper pixel cap
-    and no crop -- unlike `fit_keyframe_to_canvas`'s target-canvas fit
-    (`MiniMaxH3Ref2VASetupStep`'s image branch).
+    """Put one `ref2va` image reference on its OWN resolution: each axis
+    rounded to `canvas_multiple` with a floor of `canvas_multiple`, no upper
+    pixel cap and no crop -- unlike `fit_keyframe_to_canvas`'s target-canvas
+    fit.
     """
     image = pad_reference_to_aspect_range(image)
     width, height = image.size
     scale = short_edge / min(width, height)
-    target_height = max(canvas_multiple, round(height * scale / canvas_multiple) * canvas_multiple)
-    target_width = max(canvas_multiple, round(width * scale / canvas_multiple) * canvas_multiple)
+    target_height, target_width = _snap_size_within_aspect_range(height * scale, width * scale, height, width, canvas_multiple)
     if (width, height) == (target_width, target_height):
         return image
     return image.resize((target_width, target_height), Image.Resampling.LANCZOS)
@@ -185,14 +193,12 @@ def normalize_reference_video(
 ) -> np.ndarray:
     """Put one `ref2va` VIDEO reference on MiniMax-H3's own rate and canvas:
     `(num_frames, height, width, 3)` uint8 at `target_fps`, truncated to the
-    generated frame count, on the canvas ITS OWN aspect ratio resolves to
-    (`MiniMaxH3Ref2VASetupStep._normalize_video_condition`).
+    generated frame count.
 
-    A video reference follows the TARGET's canvas rule -- short edge 768,
-    area capped, both axes to `canvas_multiple` -- NOT the 2048-short-edge
-    uncapped rule an image reference gets (`normalize_reference_image`); only
-    the aspect ratio it is resolved from is the reference's own. It is
-    therefore capped in area where an image reference is not.
+    A video reference follows the TARGET's canvas rule -- area capped, both
+    axes to `canvas_multiple` -- NOT the 2048-short-edge uncapped rule an image
+    reference gets (`normalize_reference_image`). It is therefore capped in
+    area where an image reference is not.
 
     The two passes run in the reference's own order: the constant-frame-rate
     resample first (dropping and duplicating WHOLE frames the way `ffmpeg`'s
@@ -222,6 +228,7 @@ def normalize_reference_video(
         frames.shape[2], frames.shape[1],
         canvas_multiple=canvas_multiple, short_edge=short_edge, max_pixels=max_pixels,
     )
+    height, width = _snap_size_within_aspect_range(height, width, frames.shape[1], frames.shape[2], canvas_multiple)
     if frames.shape[1:3] == (height, width):
         return frames
     return np.stack([
@@ -923,10 +930,9 @@ def normalize_references(
     """Put every reference on MiniMax-H3's own rates and resolutions, in
     packed order (`MiniMaxH3Ref2VASetupStep.__call__`'s normalize loop).
 
-    Per modality: an image to its own `reference_short_edge` resolution, a
-    video onto `fps` and onto the canvas its own aspect ratio resolves to,
-    and ANY reference's soundtrack -- a standalone audio reference's, and a
-    video reference's alike -- onto the audio VAE's `audio_sample_rate`,
+    Per modality: an image to its own resolution, a video onto `fps`, and ANY
+    reference's soundtrack -- a standalone audio reference's, and a video
+    reference's alike -- onto the audio VAE's `audio_sample_rate`,
     truncated to the generated duration `num_frames / fps`.
 
     The soundtrack is truncated at its SOURCE rate and resampled once

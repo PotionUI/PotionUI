@@ -1,13 +1,4 @@
 // @vitest-environment jsdom
-//
-// Picking a session starts an `api.getSessionById` the user can outrun: the
-// preset can change (a new preset picked in the header, or the tab's own
-// preset swapped) while that read is still in flight. Without read ownership
-// the late payload is applied anyway, and the pill ends up showing — and the
-// tab ends up linked to — a session that belongs to a preset no longer on
-// screen. This mounts the real SessionPill and drives the pick through
-// SessionControl's menu, so the stale completion is exercised through the
-// presenter the user actually sees.
 import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
@@ -23,7 +14,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { api } = await import('$lib/services/api/index');
 const { tabsStore } = await import('$lib/stores/tabs');
-const { default: SessionPill } = await import('$lib/components/session/SessionPill.svelte');
+const { default: SessionScopeFixture } = await import('./fixtures/SessionScopeFixture.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
 const PRESET_ID = 'preset-read-ownership';
@@ -50,13 +41,13 @@ function deferred<T>() {
 	return { promise, resolve };
 }
 
-function mountPill(tabId: string) {
+function mountSessionControl(tabId: string) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const component = createClassComponent({
-		component: SessionPill as never,
+		component: SessionScopeFixture as never,
 		target,
-		props: {
+		props: { layout: 'sheet',
 			presetId: PRESET_ID,
 			currentMode: CURRENT_MODE,
 			tabId,
@@ -84,7 +75,7 @@ function mountPill(tabId: string) {
 	};
 }
 
-let mounted: ReturnType<typeof mountPill> | undefined;
+let mounted: ReturnType<typeof mountSessionControl> | undefined;
 let tabId: string;
 
 beforeEach(() => {
@@ -106,12 +97,12 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe('SessionPill session-read ownership', () => {
+describe('Session sheet session-read ownership', () => {
 	it('does not adopt a session whose load lands after the preset changed', async () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.getSessionById).mockReturnValue(pending.promise as never);
 
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 
 		mounted.openMenu();
@@ -122,8 +113,6 @@ describe('SessionPill session-read ownership', () => {
 		mounted.component.$set({ presetId: OTHER_PRESET_ID });
 		await settle(10);
 
-		// The backend finally answers the pick, with a session belonging to the
-		// preset the user has already left.
 		pending.resolve({ success: true, data: makeSession(PICKED) });
 		await settle(10);
 

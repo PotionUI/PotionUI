@@ -34,7 +34,7 @@ The text encoder is Qwen3-VL-4B. The VAE is the Wan 2.1 causal-3D VAE verbatim â
 
 ## Presets & modes
 
-The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale`, `edit` and `real`.
+The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale` and `edit`.
 
 ### Upscale
 
@@ -47,23 +47,6 @@ The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale`, `edit` and `rea
 - Turbo defaults: 8 steps, CFG 1, Euler. Tile size and overlap are in the Advanced tab.
 
 Not validated on GPU: the tail of Krea-2's distilled schedule under `tiled_refiner`'s denoise-truncated img2img is untested against real weights.
-
-### Make it real
-
-`real` turns an illustration, anime picture or 3D render into a photograph with an ai-toolkit edit LoRA. It rides `generator/krea2_edit` with `ref_style: ostris`, the reference scheme those LoRAs are trained on and the one the Edit mode's own LoRAs do not use:
-
-- the reference tokens are modulated at timestep 0 instead of the shared timestep (`ref_timestep_zero`, per-span modulation in `SingleStreamBlock`);
-- reference queries attend only to reference keys, text and target tokens attend to everything (`ref_isolated`, the additive `ref_isolation_bias`). The author's kv_cache mode computes the same thing by caching the reference K/V once; here the references are recomputed each step under the mask, which is slower but needs no cache path;
-- the instruction is encoded as `Picture N: <image>` per source with each image capped at 384 x 384 pixels in total (`picture_labels`, `grounding_area` on `prompt_encoder`), stripping only the system and user opening;
-- each reference is fit by area to at most 1 MP, snapped to 16 px, and keeps its own aspect with RoPE positions from the origin (`ref_pixels`, `ref_position: origin`). The output takes the source's shape at 1, 2 or 4 MP (`output_pixels`).
-
-The instruction always starts with the LoRA's trigger phrase, "transform the image to realistic photograph", followed by the optional extra detail. No negative prompt is offered. Turbo defaults: 8 steps, CFG 1, LoRA strength 1.0.
-
-Licence, checked on the Civitai model page: Krea2_Anything2RealCharacters V3 (model 2808492, version 3256223, SafeTensor, bf16, sha256 6455a876...) declares no licence text. Its creator permissions allow selling images, renting, selling and merging, and it is a Krea 2 derivative, so the Krea 2 Community License applies on top. The model card lists explicit anatomy keywords and its V1 lists a clothing-removal trigger; the mode uses only the neutral trigger and offers no way to add the others as a control.
-
-The same scheme is what other Krea-2 ai-toolkit edit LoRAs (for instance the inpaint edit LoRA) need; a mode for one of those sets `ref_style: ostris` and its own prompt.
-
-Not validated on GPU: the scheme is implemented from the published node pack, with tests for the modulation, the isolation and the layout, but no image has been compared against a ComfyUI run of the same LoRA.
 
 ### Edit
 

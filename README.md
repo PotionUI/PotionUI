@@ -482,9 +482,9 @@ The three most recent releases; older history lives in the
 - Image modes: SDXL gets Img2img / restyle, Structure (pose, sketch, depth or edges through a
   matching ControlNet), Fix faces & hands and Upscale & refine (two to four times, re-detailed tile
   by tile); Krea-2 gets Edit (instruction edits with source pictures, fidelity and placement dials
-  and an optional region mask, keeping the source's shape by default), Upscale and Make it real;
-  Qwen-Image gets Camera angle (turn, tilt and zoom with the Multiple-Angles LoRA) and Make it real,
-  and its edit modes read the picture in the layout the loaded checkpoint was trained with;
+  and an optional region mask, keeping the source's shape by default) and Upscale; Qwen-Image gets
+  Camera angle (turn, tilt and zoom with the Multiple-Angles LoRA) and Make it real, and its edit
+  modes read the picture in the layout the loaded checkpoint was trained with;
   Qwen-Image 2.1 gets Inpaint, a Turbo profile (8 steps at CFG 1 with an optional LoRA) and a
   prompt-only Photo task in Restyle, and its Combine images, like Qwen-Image Edit, takes an Output
   size with a crop or pad fit; Z-Image gets Enhance, Structure (Fun ControlNet Union 2.1) and

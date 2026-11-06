@@ -15,7 +15,7 @@ from src.features.presets.negative_prompt import negative_applies_when
 
 EXPECTED = {
     ("Krea2", "txt2img"), ("Krea2", "enhance"),
-    ("Krea2", "edit"), ("Krea2", "upscale"), ("Krea2", "real"),
+    ("Krea2", "edit"), ("Krea2", "upscale"),
     ("LTX-2", "video"), ("LTX-2", "upscale"), ("LTX-2", "motion_transfer"), ("LTX-2", "follow_motion"),
     ("LTX-2.5", "video"), ("LTX-2.5", "upscale"), ("LTX-2.5", "restore"), ("LTX-2.5", "colorize"),
     ("LTX-2.5", "add_water"), ("LTX-2.5", "remove_object"), ("LTX-2.5", "layout_to_render"), ("LTX-2.5", "motion_transfer"), ("LTX-2.5", "extend"), ("LTX-2.5", "refine_faces"),

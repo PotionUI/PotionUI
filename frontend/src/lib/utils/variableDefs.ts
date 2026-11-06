@@ -82,6 +82,12 @@ export function optionText(option: VariableOption): string {
 	return typeof option === 'string' ? option : option.text;
 }
 
+export function choiceLacksOption(stored: StoredVariableDef | undefined): boolean {
+	if (stored === undefined) return false;
+	const def = normalizeVariableDef(stored);
+	return def.type === 'choice' && !def.options.some((option) => optionText(option).trim().length > 0);
+}
+
 export function optionWhen(option: VariableOption): VariableOptionWhen | undefined {
 	return typeof option === 'string' ? undefined : option.when;
 }

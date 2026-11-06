@@ -21,6 +21,7 @@ import {
 	promptEdge,
 	promptMenu,
 	removeStep,
+	savedPending,
 	slotMenu
 } from './lane';
 import type { Choice, Lane } from './choice';
@@ -234,6 +235,21 @@ test('a step with a prompt writer adds the writer reading the parent first', () 
 	const chosen = choosePendingPreset(added.definition, added.id, 'wan', 'i2v', added.pending, presets);
 	expect(promptEdge(chosen, added.id)!.source).toBe(added.writerId);
 	expect(fileEdge(chosen, added.id)!.source).toBe('gold');
+});
+
+test('a step added with a writer keeps its writer and waiting state after the definition is saved and reloaded', () => {
+	const added = addStepAfter(study(), 'gold', presets, { withWriter: true });
+	const reloaded = JSON.parse(JSON.stringify(added.definition));
+	const waiting = savedPending(reloaded);
+	expect(waiting[added.id]).toStrictEqual({ from: 'gold', fromHandle: 'images', text: added.writerId });
+	expect(laneTree(reloaded, waiting).children.get(added.writerId!)).toStrictEqual([added.id]);
+	expect(pendingNeeds(reloaded, waiting[added.id], presets)).toStrictEqual({ takes: 'image', prompt: true });
+});
+
+test('a chosen preset no longer counts as waiting', () => {
+	const added = addStepAfter(study(), 'gold', presets, { withWriter: true });
+	const chosen = choosePendingPreset(added.definition, added.id, 'wan', 'i2v', added.pending, presets);
+	expect(savedPending(chosen)).toStrictEqual({});
 });
 
 test('a start has no pending parent', () => {

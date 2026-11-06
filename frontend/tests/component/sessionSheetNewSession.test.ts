@@ -17,7 +17,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { api } = await import('$lib/services/api/index');
 const { tabsStore } = await import('$lib/stores/tabs');
-const { default: SessionPill } = await import('$lib/components/session/SessionPill.svelte');
+const { default: SessionScopeFixture } = await import('./fixtures/SessionScopeFixture.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
 const PRESET_ID = 'preset-new';
@@ -65,9 +65,9 @@ beforeEach(async () => {
 	target = document.createElement('div');
 	document.body.appendChild(target);
 	component = createClassComponent({
-		component: SessionPill as never,
+		component: SessionScopeFixture as never,
 		target,
-		props: { presetId: PRESET_ID, currentMode: MODE, tabId, availableModes: [] }
+		props: { layout: 'sheet', presetId: PRESET_ID, currentMode: MODE, tabId, availableModes: [] }
 	});
 	await settle(10);
 });
@@ -80,7 +80,7 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-describe('SessionPill New', () => {
+describe('Session sheet New', () => {
 	it('unbinds the session and empties the draft without saving anything', async () => {
 		clickButton('Session');
 		await settle(10);

@@ -16,7 +16,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { api } = await import('$lib/services/api/index');
 const { tabsStore } = await import('$lib/stores/tabs');
-const { default: SessionPill } = await import('$lib/components/session/SessionPill.svelte');
+const { default: SessionScopeFixture } = await import('./fixtures/SessionScopeFixture.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { collectTabSessionData } = await import('$lib/utils/sessionTabState');
 
@@ -49,13 +49,13 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-function mountPill(tabId: string) {
+function mountSessionControl(tabId: string) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const component = createClassComponent({
-		component: SessionPill as never,
+		component: SessionScopeFixture as never,
 		target,
-		props: {
+		props: { layout: 'sheet',
 			presetId: PRESET_ID,
 			currentMode: CURRENT_MODE,
 			tabId,
@@ -109,7 +109,7 @@ function tabState(id: string) {
 	return generationTabs(get(tabsStore).tabs).find((t) => t.id === id);
 }
 
-let mounted: ReturnType<typeof mountPill> | undefined;
+let mounted: ReturnType<typeof mountSessionControl> | undefined;
 let tabId: string;
 let otherTabId: string;
 
@@ -125,14 +125,14 @@ beforeEach(() => {
 		)
 	);
 
-	tabId = tabsStore.addTabWithData('Pill ownership tab', {
+	tabId = tabsStore.addTabWithData('Sheet ownership tab', {
 		selectedPreset: PRESET_ID,
 		selectedMode: CURRENT_MODE,
 		selectedSessionId: SESSION_A,
 		savedSessionSignature,
 		promptSegments: EDITED_SEGMENTS
 	});
-	otherTabId = tabsStore.addTabWithData('Pill sessionless tab', {
+	otherTabId = tabsStore.addTabWithData('Sheet sessionless tab', {
 		selectedPreset: PRESET_ID,
 		selectedMode: CURRENT_MODE
 	});
@@ -155,16 +155,15 @@ afterEach(() => {
 	mounted = undefined;
 	tabsStore.removeTab(tabId);
 	tabsStore.removeTab(otherTabId);
-	// Return-value queues survive clearAllMocks and would leak into the next test.
 	vi.resetAllMocks();
 });
 
-describe('SessionPill save ownership', () => {
+describe('Session sheet save ownership', () => {
 	it('drops a save response for a session the user already switched away from', async () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 		expect(mounted.sessionName()).toBe('Session A');
 
@@ -200,7 +199,7 @@ describe('SessionPill save ownership', () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 
 		mounted.clickSave();
@@ -225,7 +224,7 @@ describe('SessionPill save ownership', () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 
 		mounted.clickSave();
@@ -240,19 +239,14 @@ describe('SessionPill save ownership', () => {
 		expect(tabState(tabId)?.promptSegments).toEqual(LATER_SEGMENTS);
 		expect(tabState(tabId)?.savedSessionSignature).toContain('EDITED segment');
 		expect(tabState(tabId)?.savedSessionSignature).not.toContain('EDITED AGAIN');
-		// Still dirty, so the save control is still offered.
 		expect(mounted.saveButtonLabel()).toBe('Save session');
 	});
 
 	it('reports no error for a save that failed after the user switched session', async () => {
-		// Unlike the console bar's cluster, the pill's Save control is disabled
-		// while a save is running, so a second quick save cannot overlap the
-		// first here — what a stale failure can still do is surface someone
-		// else's error against the session now selected.
 		const failing = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(failing.promise as never);
 
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 
 		mounted.clickSave();
@@ -274,7 +268,6 @@ describe('SessionPill save ownership', () => {
 
 		expect(mounted.sessionName()).toBe('Session B');
 		expect(tabState(tabId)?.savedSessionSignature).toBe(baselineForB);
-		// The saving flag is released rather than left stuck on the pill.
 		expect(mounted.saveButtonLabel()).toBe('Save session');
 
 		mounted.openSessionMenu();
@@ -288,7 +281,7 @@ describe('SessionPill save ownership', () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 		expect(mounted.saveButtonLabel()).toBe('Save session');
 
@@ -306,7 +299,7 @@ describe('SessionPill save ownership', () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountPill(tabId);
+		mounted = mountSessionControl(tabId);
 		await settle(10);
 
 		const baselineBeforeSave = tabState(tabId)?.savedSessionSignature;

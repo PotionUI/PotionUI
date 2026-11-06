@@ -15,6 +15,7 @@
 	import StudioDock from './StudioDock.svelte';
 	import StudioPromptSheet from './StudioPromptSheet.svelte';
 	import StudioSettingsSheet from './StudioSettingsSheet.svelte';
+	import SessionScope from '$lib/components/session/SessionScope.svelte';
 	import StudioPresetSessionSheet from './StudioPresetSessionSheet.svelte';
 	import GenerationFormSeed from '../GenerationFormSeed.svelte';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
@@ -91,6 +92,16 @@
 		'';
 </script>
 
+<SessionScope
+	presetId={tab.selectedPreset}
+	currentMode={tab.selectedMode}
+	tabId={tab.id}
+	presetVersion={presets.find((p) => p.id === tab.selectedPreset)?.version}
+	availableModes={availableModes.map((m) => ({ id: m.id, variants: m.variants }))}
+	let:session
+	let:actions
+	let:fieldLabels
+>
 <div class="relative h-full w-full overflow-hidden" bind:this={rootEl}>
 	<StudioCanvas {tab} />
 
@@ -163,5 +174,9 @@
 		{onReload}
 		onClose={closeSheet}
 		onFormulaApplied={() => (openSheet = 'settings')}
+		{session}
+		{actions}
+		{fieldLabels}
 	/>
 {/if}
+</SessionScope>

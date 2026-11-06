@@ -19,6 +19,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     encode_continuation_condition,
     encode_keyframe_condition,
     fit_keyframe_to_canvas,
+    _snap_size_within_aspect_range,
     normalize_reference_image,
     pad_reference_to_aspect_range,
 )
@@ -252,6 +253,10 @@ def _picture_sizes():
     ]
 
 
+def _within_four_to_one(first, second):
+    return min(first, 4 * second), min(second, 4 * first)
+
+
 def _released_picture_size(width, height):
     scale = REFERENCE_IMAGE_SHORT_EDGE / min(width, height)
     return round(width * scale / 32) * 32, round(height * scale / 32) * 32
@@ -267,11 +272,52 @@ def test_reference_image_never_exceeds_its_source_except_to_reach_one_tile(canva
         assert fitted.size[1] % canvas_multiple == 0
 
 
+_ASPECT_SWEEP = [
+    (width, height)
+    for width in (16, 31, 32, 33, 56, 64, 100, 224, 500, 1000, 2000, 4000)
+    for height in (16, 31, 32, 33, 56, 64, 100, 125, 224, 500, 1000, 2000, 4000)
+]
+
+
+@pytest.mark.parametrize("canvas_multiple", [16, 32])
+def test_reference_image_stays_within_the_aspect_range_without_enlarging(canvas_multiple):
+    for width, height in _ASPECT_SWEEP:
+        padded_width, padded_height = _padded_size(width, height)
+        for short_edge in (32, 256, 2048):
+            scale = short_edge / min(padded_width, padded_height)
+            fitted_height, fitted_width = _snap_size_within_aspect_range(
+                padded_height * scale, padded_width * scale, padded_height, padded_width, canvas_multiple,
+            )
+            assert fitted_width <= 4 * fitted_height
+            assert fitted_height <= 4 * fitted_width
+            assert fitted_width % canvas_multiple == 0 and fitted_height % canvas_multiple == 0
+            assert fitted_width <= max(padded_width, canvas_multiple)
+            assert fitted_height <= max(padded_height, canvas_multiple)
+
+
+def _padded_size(width, height):
+    if width > 4 * height:
+        return width, -(-width // 4)
+    if height > 4 * width:
+        return -(-height // 4), height
+    return width, height
+
+
+def test_a_thin_reference_picture_is_not_snapped_past_one_to_four():
+    assert normalize_reference_image(Image.new("RGB", (224, 56)), canvas_multiple=32, short_edge=2048).size == (128, 32)
+    assert normalize_reference_image(Image.new("RGB", (500, 100)), canvas_multiple=32, short_edge=2048).size == (384, 96)
+
+
+def test_a_thin_reference_video_is_not_snapped_past_one_to_four():
+    got = normalize_reference_video(_frames(2, height=56, width=224), fps=24.0, num_frames=2)
+    assert got.shape[1:3] == (32, 128)
+
+
 def test_reference_image_at_or_below_its_short_edge_keeps_its_own_size_on_the_grid():
     for width, height in _picture_sizes():
         if min(width, height) <= REFERENCE_IMAGE_SHORT_EDGE:
             fitted = normalize_reference_image(_SizedPicture((width, height)), canvas_multiple=32)
-            assert fitted.size == (max(32, width // 32 * 32), max(32, height // 32 * 32))
+            assert fitted.size == _within_four_to_one(max(32, width // 32 * 32), max(32, height // 32 * 32))
 
 
 def test_a_large_photo_keeps_the_released_size_unless_that_size_exceeds_the_source():
@@ -281,10 +327,11 @@ def test_a_large_photo_keeps_the_released_size_unless_that_size_exceeds_the_sour
             released = _released_picture_size(width, height)
             fitted = normalize_reference_image(_SizedPicture((width, height)), canvas_multiple=32)
             if released[0] <= width and released[1] <= height:
-                assert fitted.size == released
+                assert fitted.size == _within_four_to_one(*released)
                 kept += 1
             else:
-                assert fitted.size == (min(released[0], width // 32 * 32), min(released[1], height // 32 * 32))
+                snapped = (min(released[0], width // 32 * 32), min(released[1], height // 32 * 32))
+                assert fitted.size == _within_four_to_one(*snapped)
     assert kept > 1000
 
 
@@ -538,7 +585,7 @@ def test_reference_video_below_its_canvas_keeps_its_own_size_on_the_grid():
     for width, height in _video_sizes():
         canvas_height, canvas_width = resolve_canvas_size(width, height)
         if height < canvas_height and width < canvas_width:
-            own_size = (max(32, height // 32 * 32), max(32, width // 32 * 32))
+            own_size = _within_four_to_one(max(32, height // 32 * 32), max(32, width // 32 * 32))
             assert _normalized_video_size(width, height) == own_size
 
 

@@ -415,13 +415,14 @@ def _load_reference_audio(audio_path: Any) -> ReferenceMedia:
     import soundfile as sf
 
     try:
-        samples, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
+        native_rate = sf.info(str(audio_path)).samplerate
     except sf.LibsndfileError:
-        waveform, sample_rate = _decode_waveform_via_ffmpeg(audio_path)
-    else:
+        native_rate = None
+    if native_rate == AUDIO_SAMPLE_RATE:
+        samples, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
         waveform = torch.from_numpy(np.ascontiguousarray(samples.T))
-        if sample_rate != AUDIO_SAMPLE_RATE:
-            waveform, sample_rate = _decode_waveform_via_ffmpeg(audio_path)
+    else:
+        waveform, sample_rate = _decode_waveform_via_ffmpeg(audio_path)
     if waveform.shape[0] > AUDIO_CHANNELS:
         waveform = waveform.mean(dim=0, keepdim=True)
     return ReferenceMedia(kind="audio", audio=waveform, sample_rate=int(sample_rate))
@@ -447,7 +448,7 @@ def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
     wav_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
     try:
         result = subprocess.run(
-            [ffmpeg, "-y", "-i", str(path), "-vn", "-acodec", "pcm_s16le", "-ar", str(AUDIO_SAMPLE_RATE), wav_path],
+            [ffmpeg, "-y", "-i", str(path), "-vn", "-acodec", "pcm_f32le", "-ar", str(AUDIO_SAMPLE_RATE), wav_path],
             capture_output=True, timeout=120,
         )
         if result.returncode != 0:

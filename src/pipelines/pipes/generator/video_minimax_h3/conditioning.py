@@ -161,6 +161,14 @@ def _snap_without_enlarging(size: float, source: int, canvas_multiple: int) -> i
     return max(canvas_multiple, min(round(size / canvas_multiple), source // canvas_multiple) * canvas_multiple)
 
 
+def _snap_size_within_aspect_range(
+    height: float, width: float, source_height: int, source_width: int, canvas_multiple: int,
+) -> tuple[int, int]:
+    snapped_height = _snap_without_enlarging(height, source_height, canvas_multiple)
+    snapped_width = _snap_without_enlarging(width, source_width, canvas_multiple)
+    limit = int(MAX_ASPECT_RATIO)
+    return min(snapped_height, snapped_width * limit), min(snapped_width, snapped_height * limit)
+
 def normalize_reference_image(
     image: Image.Image, *, canvas_multiple: int, short_edge: int = REFERENCE_IMAGE_SHORT_EDGE,
 ) -> Image.Image:
@@ -172,8 +180,7 @@ def normalize_reference_image(
     image = pad_reference_to_aspect_range(image)
     width, height = image.size
     scale = short_edge / min(width, height)
-    target_height = _snap_without_enlarging(height * scale, height, canvas_multiple)
-    target_width = _snap_without_enlarging(width * scale, width, canvas_multiple)
+    target_height, target_width = _snap_size_within_aspect_range(height * scale, width * scale, height, width, canvas_multiple)
     if (width, height) == (target_width, target_height):
         return image
     return image.resize((target_width, target_height), Image.Resampling.LANCZOS)
@@ -221,8 +228,7 @@ def normalize_reference_video(
         frames.shape[2], frames.shape[1],
         canvas_multiple=canvas_multiple, short_edge=short_edge, max_pixels=max_pixels,
     )
-    height = _snap_without_enlarging(height, frames.shape[1], canvas_multiple)
-    width = _snap_without_enlarging(width, frames.shape[2], canvas_multiple)
+    height, width = _snap_size_within_aspect_range(height, width, frames.shape[1], frames.shape[2], canvas_multiple)
     if frames.shape[1:3] == (height, width):
         return frames
     return np.stack([

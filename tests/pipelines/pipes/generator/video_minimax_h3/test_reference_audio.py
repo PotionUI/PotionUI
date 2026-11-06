@@ -127,7 +127,6 @@ def test_a_file_neither_soundfile_nor_ffmpeg_can_read_raises_the_decode_error_na
         _load_reference_audio(path)
 
     assert "could not decode" in str(caught.value)
-    assert isinstance(caught.value.__context__, sf.LibsndfileError)
 
 
 @pytest.mark.parametrize("error", [MemoryError("no room"), RuntimeError("not soundfile's refusal")])
@@ -136,7 +135,7 @@ def test_an_error_other_than_soundfile_refusing_the_file_is_not_retried_through_
 
     def fail(*_args, **_kwargs):
         raise error
-    monkeypatch.setattr(sf, "read", fail)
+    monkeypatch.setattr(sf, "info", fail)
 
     with pytest.raises(type(error), match=str(error)):
         _load_reference_audio("voice.wav")
@@ -181,3 +180,58 @@ def test_a_temp_wav_that_cannot_be_removed_does_not_fail_a_finished_decode(tmp_p
     assert waveform.shape == (2, AUDIO_SAMPLE_RATE)
     path.return_value.unlink.assert_called_once()
     logger.warning.assert_called_once()
+
+
+def test_a_voice_off_32_khz_is_decoded_once_through_ffmpeg_and_never_read_whole(tmp_path, monkeypatch):
+    path = _write_voice(tmp_path / "voice.wav", 48000)
+    decoded = torch.zeros(2, AUDIO_SAMPLE_RATE)
+    calls = []
+
+    def read(*_args, **_kwargs):
+        raise AssertionError("soundfile read a file that ffmpeg has to decode")
+
+    def decode(source):
+        calls.append(source)
+        return decoded, AUDIO_SAMPLE_RATE
+
+    monkeypatch.setattr(sf, "read", read)
+    monkeypatch.setattr(f"{_MAIN}._decode_waveform_via_ffmpeg", decode)
+
+    media = _load_reference_audio(path)
+
+    assert calls == [path]
+    assert media.audio is decoded
+
+
+def test_a_file_soundfile_refuses_goes_straight_to_ffmpeg_without_a_read(tmp_path, monkeypatch):
+    path = tmp_path / "voice.m4a"
+    path.write_bytes(b"not something libsndfile reads")
+    decoded = torch.zeros(1, AUDIO_SAMPLE_RATE)
+
+    def read(*_args, **_kwargs):
+        raise AssertionError("soundfile read a file it cannot open")
+
+    monkeypatch.setattr(sf, "read", read)
+    monkeypatch.setattr(f"{_MAIN}._decode_waveform_via_ffmpeg", lambda source: (decoded, AUDIO_SAMPLE_RATE))
+
+    assert _load_reference_audio(path).audio is decoded
+
+
+def test_the_ffmpeg_decode_asks_for_float_samples(tmp_path):
+    out = tmp_path / "out.wav"
+    seen = {}
+
+    def run(command, **_kwargs):
+        seen["command"] = command
+        sf.write(command[-1], _tone(AUDIO_SAMPLE_RATE), AUDIO_SAMPLE_RATE, subtype="FLOAT")
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    with (
+        patch(f"{_MAIN}._require_ffmpeg_or_raise", return_value="ffmpeg"),
+        patch(f"{_MAIN}.tempfile.NamedTemporaryFile", return_value=SimpleNamespace(name=str(out))),
+        patch(f"{_MAIN}.subprocess.run", side_effect=run),
+    ):
+        _decode_waveform_via_ffmpeg("voice.m4a")
+
+    command = seen["command"]
+    assert command[command.index("-acodec") + 1] == "pcm_f32le"

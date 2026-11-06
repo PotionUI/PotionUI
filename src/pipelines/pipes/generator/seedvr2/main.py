@@ -43,6 +43,7 @@ from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
     get_residency_registry,
+    total_vram_gb,
 )
 from src.pipelines.contracts import BasePipe
 from src.pipelines.contracts import (
@@ -154,6 +155,13 @@ _SEEDVR2_DEFAULT_WEIGHTS_GB = 15.0    # 7B fp16 resident size; fallback when unk
 # into one token (mirrors SeedVR2Config.patch_size == (1, 2, 2)).
 _SEEDVR2_VAE_DOWNSAMPLE = 8
 _SEEDVR2_PATCH_HW = (2, 2)
+_SMALL_CARD_MAX_TOTAL_VRAM_GB = 12.5
+_SMALL_CARD_BATCH_SIZE = 5
+
+
+def _small_card(device: str) -> bool:
+    total = total_vram_gb(device)
+    return total is not None and total <= _SMALL_CARD_MAX_TOTAL_VRAM_GB
 
 
 def _spatial_tokens_per_latent_frame(height: int, width: int) -> int:
@@ -680,7 +688,7 @@ class GeneratorSeedVR2Pipe(BasePipe):
             PipeConfigSpec("batch_size", int, 0,
                            "Frames per temporal batch (snapped to the VAE's 4n+1 lattice: 1,5,9,…). "
                            "The temporal VRAM knob — one batch is on the GPU at a time. "
-                           "0 = auto-size to ~92% of live free VRAM at the output resolution "
+                           "0 = 5 on a GPU of 12.5 GB or less, else auto-size to ~92% of live free VRAM at the output resolution "
                            "(recommended); the OOM ladder "
                            "halves it and re-runs if a batch ever exceeds real VRAM.",
                            required=False, min_value=0, max_value=49),
@@ -874,17 +882,12 @@ class GeneratorSeedVR2Pipe(BasePipe):
 
         generator = build_native_generator(bundle, device=device)
 
-        # ``batch_size == 0`` (the form default) auto-sizes the temporal batch to
-        # ~92% of live free VRAM AT THE OUTPUT RESOLUTION -- sized only now that
-        # the resized geometry and the loaded DiT's weight size are both known, so
-        # a 4K target picks a small batch up front instead of paying a doomed
-        # oversized attempt first. Any explicit value is honoured as-is. Either
-        # way the OOM ladder below is the safety net: a batch that exceeds real
-        # VRAM is halved and re-run, so an over-estimate never fails the job.
         free_gb = free_vram_gb(device)
         spatial_tokens = _spatial_tokens_per_latent_frame(out_h, out_w)
         weights_gb = float(getattr(getattr(generator, "dit", None), "estimated_vram_gb", 0.0) or 0.0)
-        if requested_batch <= 0:
+        if requested_batch <= 0 and _small_card(device):
+            batch_size = B.snap_batch_size(_SMALL_CARD_BATCH_SIZE)
+        elif requested_batch <= 0:
             batch_size = B.snap_batch_size(_auto_batch_size(
                 free_gb, spatial_tokens_per_latent_frame=spatial_tokens, weights_gb=weights_gb,
             ))

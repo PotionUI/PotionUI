@@ -119,7 +119,7 @@ fields:
             label: "Batch Size (frames)"
             audience: "advanced"
             default: 0
-            ai_hint: "Frames per temporal batch, snapped to the VAE's 4n+1 lattice (1, 5, 9, 13, …). This is the temporal VRAM knob — one batch is on the GPU at a time. 0 = auto-size from live free VRAM at the output resolution (recommended). Larger = better temporal coherence and faster (fewer, bigger passes), more VRAM; a batch that runs out is halved and retried, except under WSL2, where the first driver out-of-memory error fails the generation."
+            ai_hint: "Frames per temporal batch, snapped to the VAE's 4n+1 lattice (1, 5, 9, 13, …). This is the temporal VRAM knob — one batch is on the GPU at a time. 0 = 5 frames on a GPU of 12.5 GB or less, else auto-sized from live free VRAM at the output resolution (recommended). Larger = better temporal coherence and faster (fewer, bigger passes), more VRAM; a batch that runs out is halved and retried, except under WSL2, where the first driver out-of-memory error fails the generation."
             configuration:
               min: 0
               max: 49

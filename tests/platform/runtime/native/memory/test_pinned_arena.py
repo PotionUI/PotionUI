@@ -406,6 +406,93 @@ def test_reapplying_with_more_resident_leaves_frees_their_segments(monkeypatch):
     assert fake.registered == {}
 
 
+def _parked_streamer(monkeypatch) -> tuple[_Tiny, ModuleStreamer, object]:
+    _fake_device_moves(monkeypatch)
+    monkeypatch.setattr(partial, "_release_idle_vram", lambda: None)
+    monkeypatch.setattr(torch.Tensor, "pin_memory", lambda self: pytest.fail("per-tensor pin_memory used"))
+    m = _Tiny(n_linear=4, dim=32)
+    leaf_bytes = 32 * 32 * 4 + 32 * 4
+    fixed_bytes = m.embed.weight.numel() * m.embed.weight.element_size()
+    plan = plan_residency_split(m, resident_budget_gb=(fixed_bytes + 2 * leaf_bytes + 64) / _GB)
+    streamer = ModuleStreamer(m, prefetch=False)
+    streamer.apply("cuda:0", plan, pin=True)
+    return m, streamer, plan
+
+
+def test_park_pins_the_resident_weights_into_a_new_arena_and_keeps_the_streamed_one(monkeypatch):
+    fake = _fake_cuda_streamer(monkeypatch)
+    m, streamer, _ = _parked_streamer(monkeypatch)
+    [streamed_arena] = streamer._arenas
+    streamed_segments = set(fake.registered)
+
+    assert streamer.park() is True
+
+    assert streamer.parked and not streamer.active
+    assert fake.unregistered() == []
+    assert streamed_segments < set(fake.registered)
+    assert streamer._arenas[0] is streamed_arena and len(streamer._arenas) == 2
+    assert all(any(arena.owns(p.data) for arena in streamer._arenas) for p in m.parameters())
+    assert streamer.parked_gb * _GB == sum(arena.pinned_bytes for arena in streamer._arenas)
+    assert all(leaf.comfy_cast_weights is False for _, leaf in iter_streamable_leaves(m))
+
+
+def test_placing_a_parked_module_again_registers_nothing_and_frees_the_resident_segments(monkeypatch):
+    fake = _fake_cuda_streamer(monkeypatch)
+    m, streamer, plan = _parked_streamer(monkeypatch)
+    streamed_segments = set(fake.registered)
+    streamer.park()
+    registers = fake.kinds().count("register")
+
+    streamer.apply("cuda:0", plan, pin=True)
+
+    assert fake.kinds().count("register") == registers
+    assert set(fake.registered) == streamed_segments
+    assert streamer.active and not streamer.parked
+    streamer.teardown()
+    assert fake.registered == {}
+
+
+@pytest.mark.parametrize("release", ["unpark", "forget_parked"])
+def test_releasing_a_parked_module_unregisters_every_segment_of_its_arenas(monkeypatch, release):
+    fake = _fake_cuda_streamer(monkeypatch)
+    m, streamer, _ = _parked_streamer(monkeypatch)
+    before = {name: p.data.clone() for name, p in m.named_parameters()}
+    streamer.park()
+    arenas = list(streamer._arenas)
+
+    getattr(streamer, release)()
+
+    assert fake.registered == {}
+    assert [arena.registered_segments for arena in arenas] == [0, 0]
+    assert streamer._arenas == [] and not streamer.parked and streamer.parked_gb == 0.0
+    for name, p in m.named_parameters():
+        assert torch.equal(p.data, before[name])
+
+
+def test_a_parked_module_whose_placement_runs_out_of_memory_leaves_nothing_pinned(monkeypatch):
+    fake = _fake_cuda_streamer(monkeypatch)
+    m, streamer, plan = _parked_streamer(monkeypatch)
+    before = {name: p.data.clone() for name, p in m.named_parameters()}
+    streamer.park()
+    real_move = partial._move_own_tensors
+
+    def _oom_on_resident(module, device, **kwargs):
+        if str(device) != "cpu":
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        real_move(module, device, **kwargs)
+
+    monkeypatch.setattr(partial, "_move_own_tensors", _oom_on_resident)
+    with pytest.raises(torch.cuda.OutOfMemoryError):
+        streamer.apply("cuda:0", plan, pin=True)
+
+    assert fake.registered == {}
+    assert streamer._arenas == []
+    assert not streamer.active and not streamer.parked and streamer.parked_gb == 0.0
+    assert all(leaf.comfy_cast_weights is False for _, leaf in iter_streamable_leaves(m))
+    for name, p in m.named_parameters():
+        assert torch.equal(p.data, before[name])
+
+
 def test_a_placement_that_fails_midway_is_still_torn_down(monkeypatch):
     fake = _fake_cuda_streamer(monkeypatch)
     m = _Tiny()

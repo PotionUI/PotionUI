@@ -3,7 +3,7 @@ native-engine pipe.
 
 `nvvfx` is a Tensor Core effect, not a diffusion model: no checkpoint, no
 prompt, no seed. One `VideoSuperRes` instance drives four intents --
-`upscale`, `upscale_highbitrate` (tuned for a compressed/lossy source),
+`upscale`, `upscale_highbitrate`,
 `denoise` and `deblur` (the last two are same-resolution enhancement, not
 upscaling) -- at four quality tiers each, selected via `nvvfx`'s
 `QualityLevel` enum. `import nvvfx` happens lazily inside `process()`, never

@@ -3,7 +3,7 @@
 Runs NVIDIA RTX Video Super Resolution (`nvidia-vfx`, `import nvvfx`) as a native-engine pipe:
 `upscaler/rtx_vsr`. This is a per-frame RTX Tensor Core effect, not a diffusion model — no
 checkpoint, no prompt, no seed. It exposes four intents (`upscale`, `upscale_highbitrate` for a
-compressed/lossy source, `denoise`, `deblur`) at four quality tiers each, for both images and
+high-bitrate or lossless source, `denoise`, `deblur`) at four quality tiers each, for both images and
 video. Denoise and deblur are same-resolution enhancement; only the two upscale intents change
 output size. The plugin ships one preset, **RTX Upscale** (`upscale` and `video_upscale` modes).
 
@@ -50,7 +50,7 @@ tab reports the package missing with the command above.
 
 | Field | Values | What it does |
 |---|---|---|
-| `intent` | `upscale`, `upscale_highbitrate`, `denoise`, `deblur` | The effect run on each frame. |
+| `intent` | `upscale`, `upscale_highbitrate`, `denoise`, `deblur` | The effect run on each frame. NVIDIA's standard upscale removes compression artifacts; its high-bitrate upscale skips that step to keep the detail of a clean source. |
 | `quality` | `low`, `medium`, `high`, `ultra` | Its tier. |
 | `scale` | 1 to 4 | Output size per side for the two upscale intents. |
 | `target_short_side` | 0, or pixels | When set, the scale that brings the short side to this size, held between 1 and 4, replaces `scale`. 1080 gives 1872×1080 from 832×480. |

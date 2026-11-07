@@ -27,9 +27,10 @@ vars:
 llm:
   guide: |
     Utility preset — no diffusion model, no prompt. NVIDIA RTX Video Super
-    Resolution runs one of four intents per frame: Upscale, Upscale for a
-    compressed/lossy source, Denoise, or Deblur — the last two enhance at the
-    SAME resolution and ignore Scale. Target Short Side, when set, replaces
+    Resolution runs one of four intents per frame: Upscale (removes
+    compression artifacts), Upscale for a clean high-bitrate source, Denoise,
+    or Deblur — the last two enhance at the SAME resolution and ignore
+    Scale. Target Short Side, when set, replaces
     Scale with the scale that reaches it. Help the user pick intent, quality
     tier and (for the two upscale intents) scale or target short side from
     the form summary below; never suggest prompt text.

@@ -4,9 +4,10 @@ NVIDIA RTX Video Super Resolution running locally as a native pipe. This is a
 Tensor Core effect, not a diffusion model — there is no checkpoint to pick and
 no prompt to write, just an image or video and four intents:
 
-- **Upscale** — increase resolution, tuned for a clean source.
-- **Upscale — compressed source** — increase resolution, tuned for a heavily
-  compressed or lossy source (streamed video, old encodes).
+- **Upscale** — increase resolution and remove compression artifacts, for
+  typical compressed video.
+- **Upscale — clean source** — increase resolution without artifact
+  suppression, for a high-bitrate or lossless source with few artifacts.
 - **Denoise** — same-resolution noise reduction.
 - **Deblur** — same-resolution sharpening of blurred detail.
 

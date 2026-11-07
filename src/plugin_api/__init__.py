@@ -196,6 +196,7 @@ from src.plugin_api.media import (
     resolve_media_ref,
     save_user_media,
     transcode_video,
+    upload_formats,
 )
 
 # Contributing a prompt import source.
@@ -501,6 +502,7 @@ __all__ = [
     "resolve_media_ref",
     "save_user_media",
     "transcode_video",
+    "upload_formats",
     # Prompt import sources
     "PromptImporter",
     "PromptImportOutcome",

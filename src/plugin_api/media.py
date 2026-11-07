@@ -31,10 +31,12 @@ import asyncio
 import io
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
 from src.features.media.validators import UPLOAD_PURPOSE_USER, UPLOAD_PURPOSES
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame as _extract_video_frame
+from src.platform.filesystem import audio_formats, visual_formats
+from src.platform.filesystem.mesh_formats import mesh_format_registry
 from src.platform.filesystem.storage_driver import local_copy, validate_key
 from src.platform.plugins.runtime_registries import get_container
 from src.platform.util.imaging import convert_image_to_base64
@@ -88,6 +90,7 @@ __all__ = [
     "resolve_media_ref",
     "save_user_media",
     "transcode_video",
+    "upload_formats",
 ]
 
 
@@ -236,3 +239,12 @@ def copy_media_file(user, ref: Union[HistoryMediaRef, LibraryMediaRef], target: 
     except BaseException:
         destination.unlink(missing_ok=True)
         raise
+
+
+def upload_formats() -> Dict[str, List[str]]:
+    return {
+        "image": sorted(visual_formats.IMAGE_EXTENSIONS),
+        "video": sorted(visual_formats.VIDEO_EXTENSIONS),
+        "audio": sorted(audio_formats.AUDIO_EXTENSIONS),
+        "model": sorted(mesh_format_registry.extensions()),
+    }

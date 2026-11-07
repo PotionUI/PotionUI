@@ -33,7 +33,7 @@ from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
 from src.platform.util.video_transcode import VideoProbe, find_ffprobe
 from src.plugin_api import generation, media
-from src.plugin_api.media import MediaRefError, copy_media_file, extract_frame, media_local_path, save_user_media
+from src.plugin_api.media import MediaRefError, copy_media_file, extract_frame, media_local_path, save_user_media, upload_formats
 from src.plugin_api.presets import bind_director_media
 from tests.features.content_safety.fakes import FakeResolver, FakeSettings, FakeTagger
 from tests.fixtures.seed import seed_user
@@ -551,8 +551,46 @@ def test_a_failed_copy_leaves_no_file_behind(world, tmp_path):
     assert not target.exists()
 
 
+def test_the_upload_formats_list_each_media_type_once_in_order():
+    formats = upload_formats()
+    extensions = [extension for listed in formats.values() for extension in listed]
+
+    assert set(formats) == {"image", "video", "audio", "model"}
+    assert all(listed and listed == sorted(listed) for listed in formats.values())
+    assert len(extensions) == len(set(extensions))
+    assert all(extension.startswith(".") and extension == extension.lower() for extension in extensions)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("media_type, extension", [
+    (media_type, extension) for media_type, listed in upload_formats().items() for extension in listed
+])
+async def test_every_listed_extension_is_stored_as_its_media_type(world, tmp_path, monkeypatch, media_type, extension):
+    monkeypatch.setattr(world.store, "_schedule_upload_video_thumbnails", lambda *args: None)
+    path = tmp_path / f"made{extension}"
+    path.write_bytes(b"made by a plugin")
+
+    stored = await save_user_media(world.owner, path)
+
+    assert stored["media_type"] == media_type
+    assert stored["value"].endswith(extension)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extension", [".txt", ".tiff", ".pdf", ""])
+async def test_an_extension_the_formats_do_not_list_is_unsupported(world, tmp_path, extension):
+    path = tmp_path / f"made{extension}"
+    path.write_bytes(b"made by a plugin")
+
+    with pytest.raises(MediaRefError) as refused:
+        await save_user_media(world.owner, path)
+
+    assert refused.value.code == "unsupported_media"
+    assert extension not in {listed for kind in upload_formats().values() for listed in kind}
+
+
 def test_the_media_names_import_from_the_root_and_the_media_module():
-    for name in ("extract_frame", "save_user_media", "StoredMedia", "media_local_path", "copy_media_file"):
+    for name in ("extract_frame", "save_user_media", "StoredMedia", "media_local_path", "copy_media_file", "upload_formats"):
         assert name in media.__all__ and name in root.__all__
         assert getattr(root, name) is getattr(media, name)
     for name in ("resolve_media_ref", "MediaRefError", "HistoryMediaRef", "LibraryMediaRef", "ResolvedMedia"):

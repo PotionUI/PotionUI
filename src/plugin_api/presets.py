@@ -65,7 +65,7 @@ from src.features.presets.schema import GalleryItem, PresetMedia
 from src.features.presets.style_previews import downscale_and_save_webp
 from src.features.presets.templates import PresetTemplate, default_form_name
 from src.features.video_director import apply_preset_mode_overlay
-from src.features.video_director.binding import DirectorBindingError
+from src.features.video_director.binding import REFERENCE_ROLE, DirectorBindingError
 from src.features.video_director.binding import bind_director_media as _bind_director_media
 from src.platform.plugins.runtime_registries import get_container
 
@@ -128,10 +128,10 @@ def _request_field(request: Any, name: str) -> Any:
     return request.get(name) if isinstance(request, Mapping) else getattr(request, name, None)
 
 
-def _preset_capabilities(request: Any) -> Optional[Dict[str, Any]]:
+def _preset_capabilities(request: Any, role: str) -> Optional[Dict[str, Any]]:
     form_data = _request_field(request, "form_data")
     document = form_data.get("video_director") if isinstance(form_data, Mapping) else None
-    if not isinstance(document, Mapping) or document.get("mode") != "director":
+    if role != REFERENCE_ROLE and (not isinstance(document, Mapping) or document.get("mode") != "director"):
         return None
     try:
         repository = get_container().file_preset_repository
@@ -154,10 +154,13 @@ def bind_director_media(
     *,
     at: Optional[float] = None,
     capabilities: Optional[Mapping[str, Any]] = None,
+    field: Optional[str] = None,
 ):
     if capabilities is None:
-        capabilities = _preset_capabilities(request)
-    return _bind_director_media(request, role, media, segment_id, promote, at=at, capabilities=capabilities)
+        capabilities = _preset_capabilities(request, role)
+    return _bind_director_media(
+        request, role, media, segment_id, promote, at=at, capabilities=capabilities, field=field,
+    )
 
 
 @dataclass(frozen=True)

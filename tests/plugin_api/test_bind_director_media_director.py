@@ -258,3 +258,118 @@ def test_without_the_application_a_director_document_is_refused_as_before():
             bind_director_media(request_with(timeline_doc()), "first", IMAGE, "s1")
 
     assert refused.value.code == "unsupported_mode"
+
+
+REFS = {
+    "segment_routing": True,
+    "references": "per_shot",
+    "reference_fields": ["references", "extra"],
+    "modes": {"t2v": {}, "i2v": {}, "flf": {}, "director": {"keyframes": None, "continuation": None}},
+    "limits": LIMITS,
+}
+
+REFS_PROMPT_RESOURCES = [
+    {"field": "references", "kind": "image", "token": "<Picture @>"},
+    {"field": "references", "kind": "video", "token": "<Video @>"},
+    {"field": "references", "kind": "audio", "token": "<Audio @>"},
+]
+
+
+def test_references_join_the_pool_once_and_are_cited_by_the_segment(storage):
+    pool = [{"relative_path": "uploads/old.png", "label": "Old"}]
+    request = request_with(chain_doc(), references=pool)
+
+    request = bind(request, "reference", [IMAGE, CLIP], "seg-1", caps=REFS)
+    bound = bind(request, "reference", IMAGE, "seg-1", caps=REFS)
+
+    form = bound.form_data
+    assert [item.get("relative_path") for item in form["references"]] == [
+        "uploads/old.png", "uploads/new.png", "uploads/clip.mp4",
+    ]
+    assert form["references"][1] == {
+        "path": "uploads/new.png", "relative_path": "uploads/new.png", "type": "image", "name": "new.png",
+    }
+    prompt = form["video_director"]["segments"][1]["prompt"]
+    assert prompt == "b @[references:uploads/new.png] @[references:uploads/clip.mp4]"
+    assert form["video_director"]["segments"][0]["prompt"] == "a"
+    normalized = normalize_video_director(form["video_director"], REFS, str(storage), form, REFS_PROMPT_RESOURCES)
+    assert normalized["segments"][1]["reference_indices"] == [1, 2]
+    assert normalized["segments"][1]["prompt"] == "b <Picture 1> <Video 1>"
+
+
+def test_a_reference_already_in_the_pool_is_only_cited():
+    request = request_with(chain_doc(), references="uploads/new.png")
+
+    bound = bind(request, "reference", IMAGE, "seg-0", caps=REFS)
+
+    assert bound.form_data["references"] == ["uploads/new.png"]
+    assert bound.form_data["video_director"]["segments"][0]["prompt"] == "a @[references:uploads/new.png]"
+
+
+def test_references_without_a_segment_only_fill_the_pool_of_the_named_field():
+    request = request_with(chain_doc())
+
+    bound = bind(request, "reference", CLIP, caps=REFS, field="extra")
+
+    assert bound.form_data["extra"] == [{"path": "uploads/clip.mp4", "relative_path": "uploads/clip.mp4", "type": "video", "name": "clip.mp4"}]
+    assert "references" not in bound.form_data
+    assert bound.form_data["video_director"] == request.form_data["video_director"]
+
+
+def test_a_single_shot_document_takes_references_into_its_pool():
+    bound = bind(request_with(single_doc()), "reference", IMAGE, caps={**REFS, "references": "whole"})
+
+    assert bound.form_data["references"][0]["relative_path"] == "uploads/new.png"
+
+
+@pytest.mark.parametrize(
+    "media, segment_id, caps, options, code",
+    [
+        (IMAGE, None, TIMELINE, {}, "references_unsupported"),
+        (IMAGE, None, {**REFS, "reference_fields": []}, {}, "references_unsupported"),
+        (IMAGE, None, None, {}, "references_unsupported"),
+        (IMAGE, None, REFS, {"field": "pictures"}, "unknown_field"),
+        ({**IMAGE, "media_type": "model"}, None, REFS, {}, "invalid_media"),
+        ({**IMAGE, "value": ""}, None, REFS, {}, "invalid_media"),
+        ([], None, REFS, {}, "invalid_media"),
+        ({**IMAGE, "value": "uploads/a]b.png"}, "seg-1", REFS, {}, "invalid_media"),
+        (IMAGE, "seg-1", {**REFS, "references": "whole"}, {}, "unsupported_mode"),
+        (IMAGE, "seg-9", REFS, {}, "unknown_segment"),
+        (IMAGE, None, REFS, {"at": 1}, "invalid_at"),
+    ],
+)
+def test_references_the_preset_cannot_take_are_refused(media, segment_id, caps, options, code):
+    with patch("src.plugin_api.presets.get_container", side_effect=RuntimeError("no container")):
+        with pytest.raises(DirectorBindingError) as refused:
+            bind_director_media(request_with(chain_doc()), "reference", media, segment_id, capabilities=caps, **options)
+
+    assert refused.value.code == code
+
+
+def test_a_reference_is_cited_per_segment_only_in_a_director_document():
+    with pytest.raises(DirectorBindingError) as refused:
+        bind(request_with(single_doc()), "reference", IMAGE, "s1", caps=REFS)
+
+    assert refused.value.code == "unsupported_mode"
+
+
+def test_the_reference_pool_defaults_to_the_presets_own_for_the_request_mode():
+    template = SimpleNamespace(vars={"video_director": {**TIMELINE, "preset_mode_overrides": {"refs": REFS}}})
+    request = request_with(chain_doc(), mode="refs")
+
+    with with_preset(template):
+        bound = bind_director_media(request, "reference", IMAGE, "seg-0")
+        with pytest.raises(DirectorBindingError) as refused:
+            bind_director_media(request_with(single_doc()), "reference", IMAGE)
+
+    assert bound.form_data["references"][0]["relative_path"] == "uploads/new.png"
+    assert refused.value.code == "references_unsupported"
+
+
+def test_a_single_shot_document_takes_references_into_the_pool_its_preset_declares():
+    template = SimpleNamespace(vars={"video_director": {**REFS, "references": "whole"}})
+
+    with with_preset(template):
+        bound = bind_director_media(request_with(single_doc()), "reference", CLIP)
+
+    assert bound.form_data["references"][0]["relative_path"] == "uploads/clip.mp4"

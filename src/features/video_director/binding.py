@@ -3,9 +3,14 @@ import math
 from typing import Any, Dict, List, Mapping, Optional, Tuple, TypeVar
 
 from src.features.generation.dto import GenerationRequest
+from src.features.prompt.markers import RESOURCE_MARKER_RE
+from src.features.prompt.resources import media_item_keys
 
 BINDABLE_ROLES = ("first", "last")
 DIRECTOR_ROLES = ("first", "last", "keyframe")
+REFERENCE_ROLE = "reference"
+REFERENCE_MEDIA_TYPES = ("image", "video", "audio")
+UNCITABLE_CHARACTERS = ("]", "\r", "\n")
 SINGLE_SHOT_MODES_FOR_ROLE = {"first": ("i2v", "flf"), "last": ("flf",)}
 PROMOTED_MODE_FOR_ROLE = {"first": {"t2v": "i2v"}, "last": {"i2v": "flf"}}
 DEFAULT_FPS = 24
@@ -238,15 +243,87 @@ def _bind_director(
     return bound
 
 
+def _reference_items(media: Any) -> List[Dict[str, Any]]:
+    items = list(media) if isinstance(media, (list, tuple)) else [media]
+    if not items:
+        raise DirectorBindingError("invalid_media", "Bind at least one reference")
+    out = []
+    for item in items:
+        value = item.get("value") if isinstance(item, Mapping) else None
+        if not isinstance(value, str) or not value:
+            raise DirectorBindingError("invalid_media", "The media to bind has no stored path")
+        kind = str(item.get("media_type") or "").lower()
+        if kind not in REFERENCE_MEDIA_TYPES:
+            raise DirectorBindingError("invalid_media", "A reference must be an image, a video or an audio track")
+        entry = {"path": value, "relative_path": value, "type": kind}
+        if item.get("original_filename"):
+            entry["name"] = item["original_filename"]
+        out.append(entry)
+    return out
+
+
+def _cite(document: Mapping[str, Any], segment_id: str, field: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    bound = dict(document)
+    segments = [dict(segment) if isinstance(segment, Mapping) else segment for segment in bound.get("segments") or []]
+    target = next((s for s in segments if isinstance(s, dict) and s.get("id") == segment_id), None)
+    if target is None:
+        raise DirectorBindingError("unknown_segment", f"The document has no segment {segment_id!r}")
+    if any(character in item["relative_path"] for item in items for character in UNCITABLE_CHARACTERS):
+        raise DirectorBindingError("invalid_media", "A reference whose path holds a ] or a line break cannot be cited in a prompt")
+    prompt = target.get("prompt") if isinstance(target.get("prompt"), str) else ""
+    cited = {(match.group(1), match.group(2)) for match in RESOURCE_MARKER_RE.finditer(prompt)}
+    markers = []
+    for item in items:
+        if (field, item["relative_path"]) not in cited:
+            cited.add((field, item["relative_path"]))
+            markers.append(f"@[{field}:{item['relative_path']}]")
+    target["prompt"] = " ".join(part for part in [prompt.rstrip(), *markers] if part)
+    bound["segments"] = segments
+    return bound
+
+
+def _bind_references(
+    form_data: Dict[str, Any],
+    document: Mapping[str, Any],
+    media: Any,
+    segment_id: Optional[str],
+    capabilities: Optional[Mapping[str, Any]],
+    field: Optional[str],
+) -> Mapping[str, Any]:
+    caps = capabilities if isinstance(capabilities, Mapping) else {}
+    fields = [name for name in caps.get("reference_fields") or [] if isinstance(name, str) and name]
+    if not caps.get("references") or not fields:
+        raise DirectorBindingError("references_unsupported", "The preset mode has no reference pool to bind into")
+    field = fields[0] if field is None else field
+    if field not in fields:
+        raise DirectorBindingError("unknown_field", f"{field!r} is not one of the reference fields ({', '.join(fields)})")
+    items = _reference_items(media)
+    if segment_id is not None and (document.get("mode") != "director" or caps.get("references") != "per_shot"):
+        raise DirectorBindingError(
+            "unsupported_mode", "Only a director document with per-shot references cites references per segment",
+        )
+    cited = document if segment_id is None else _cite(document, segment_id, field, items)
+    raw = form_data.get(field)
+    pool = list(raw) if isinstance(raw, list) else ([] if raw is None or raw == "" else [raw])
+    known = {key for entry in pool for key in media_item_keys(entry)}
+    for item in items:
+        if item["relative_path"] not in known:
+            known.add(item["relative_path"])
+            pool.append(item)
+    form_data[field] = pool
+    return cited
+
+
 def bind_director_media(
     request: RequestLike,
     role: str,
-    media: Mapping[str, Any],
+    media: Any,
     segment_id: Optional[str] = None,
     promote: bool = False,
     *,
     at: Optional[float] = None,
     capabilities: Optional[Mapping[str, Any]] = None,
+    field: Optional[str] = None,
 ) -> RequestLike:
     is_model = isinstance(request, GenerationRequest)
     data = request.model_dump() if is_model else copy.deepcopy(dict(request))
@@ -254,7 +331,11 @@ def bind_director_media(
     document = form_data.get("video_director")
     if not isinstance(document, Mapping):
         raise DirectorBindingError("no_director", "The request has no Video Director document to bind into")
-    if document.get("mode") == "director" and capabilities is not None:
+    if role == REFERENCE_ROLE:
+        if at is not None:
+            raise DirectorBindingError("invalid_at", "at only places a keyframe")
+        form_data["video_director"] = _bind_references(form_data, document, media, segment_id, capabilities, field)
+    elif document.get("mode") == "director" and capabilities is not None:
         form_data["video_director"] = _bind_director(document, role, media, segment_id, at, capabilities)
     else:
         if at is not None:

@@ -299,6 +299,19 @@ stored `references` key is ignored in every mode.
   reference to anchor a soundtrack). Single-shot modes (`t2v`/`i2v`/`flf`) keep the whole
   pool and leave their markers to the generation's own prompt resolution.
 
+A plugin adds references with `bind_director_media(request, "reference", media, segment_id=None,
+field=None)` (`src.plugin_api.presets`): `media` is one resolved media or a list of them (images,
+videos, audio tracks), each appended once to the pool field `field` (default: the first of
+`reference_fields`) as `{path, relative_path, type, name}`; an item the field already holds is not
+added again. With `segment_id` (a `director` document whose capability is `"per_shot"`), the
+segment's `prompt` also gets an `@[field:relative_path]` marker for each item it does not cite yet,
+so the shot is conditioned on them. The capabilities are read as for [`media`](#media) below.
+Refusals raise `DirectorBindingError`: `references_unsupported` for a preset mode without a
+reference pool, `unknown_field` for a `field` that is not one of its `reference_fields`,
+`unsupported_mode` for a `segment_id` outside a per-shot `director` document, `unknown_segment`,
+and `invalid_media` for a media that is not an image, a video or an audio track, or that a marker
+cannot cite (a path holding `]` or a line break).
+
 ### `media`
 
 `role` is one of `first`, `last`, `keyframe`.

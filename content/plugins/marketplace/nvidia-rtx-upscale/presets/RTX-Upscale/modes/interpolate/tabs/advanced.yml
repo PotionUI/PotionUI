@@ -1,0 +1,8 @@
+fields:
+  - name: "scene_detection"
+    type: "checkbox"
+    formula: "interpolation"
+    label: "Detect Shot Changes"
+    audience: "advanced"
+    default: true
+    ai_hint: "Let the SDK spot a cut between two frames and copy a frame there instead of blending across it. On by default; turn it off only for a clip known to have no cuts that the detector misreads."

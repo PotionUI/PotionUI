@@ -36,7 +36,7 @@ These plugins come with PotionUI. Any of them may or may not be enabled on your 
 - **Ollama** — a quick action to free VRAM held by a local Ollama LLM daemon.
 - **ComfyUI Backend** — runs presets on an external ComfyUI server and imports ComfyUI workflows as presets from Admin → Presets.
 - **RunPod Provider** — provisions a remote native worker on RunPod from Admin → Backends.
-- **NVIDIA RTX Upscale** — upscales, denoises and deblurs images and videos with NVIDIA RTX Video Super Resolution on an RTX GPU; needs the `nvidia-vfx` package from NVIDIA's index, which the preset's requirements list until it is installed.
+- **NVIDIA RTX Upscale** — upscales, denoises and deblurs images and videos with NVIDIA RTX Video Super Resolution on an RTX GPU, and raises a video's frame rate with RTX Video Frame Generation on an Ada or Blackwell GPU; needs the `nvidia-vfx` package from NVIDIA's index, which the preset's requirements list until it is installed.
 
 Because plugins can bring in new interfaces, the best way to learn a specific plugin is to open its page and explore — each provides its own controls for the job it does.
 

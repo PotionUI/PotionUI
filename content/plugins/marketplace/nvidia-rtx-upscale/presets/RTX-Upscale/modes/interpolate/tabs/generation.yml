@@ -1,0 +1,57 @@
+fields:
+  - name: "target_fps"
+    type: "select"
+    formula: "interpolation"
+    label: "Frame Rate"
+    default: 0
+    ai_hint: "Multiplier keeps the Multiplier below (source fps x 2 or x 4). A frame rate converts to exactly that rate, up or down: frames are made at the exact instants in between, the originals are kept where they fall on the new grid, and the duration and audio are unchanged."
+    configuration:
+      options:
+        - { label: "Multiplier", value: 0, sub_label: "Source frame rate times the Multiplier below." }
+        - { label: "24 fps", value: 24 }
+        - { label: "25 fps", value: 25 }
+        - { label: "30 fps", value: 30 }
+        - { label: "48 fps", value: 48 }
+        - { label: "50 fps", value: 50 }
+        - { label: "60 fps", value: 60 }
+
+  - name: "factor"
+    type: "select"
+    formula: "interpolation"
+    label: "Multiplier"
+    default: 2
+    ai_hint: "Used when Frame Rate is Multiplier: 2x inserts one frame between each source pair, 4x inserts three. The duration and audio are unchanged."
+    configuration:
+      options:
+        - { label: "2x", value: 2, sub_label: "One new frame between each source pair, e.g. 24 fps -> 48 fps." }
+        - { label: "4x", value: 4, sub_label: "Three new frames between each source pair, e.g. 24 fps -> 96 fps." }
+    reactions:
+      - when: { field: "target_fps", not_equals: 0 }
+        then: { set_disabled: true }
+
+  - name: "mode"
+    type: "select"
+    formula: "interpolation"
+    label: "Model"
+    default: "medium"
+    ai_hint: "NVIDIA's Video Frame Generation model: Low is the lightest, High the most complex. Medium is NVIDIA's default."
+    configuration:
+      options:
+        - { label: "Low", value: "low" }
+        - { label: "Medium", value: "medium", sub_label: "NVIDIA's default." }
+        - { label: "High", value: "high" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        ai_hint: "Content and duration are unchanged -- only the frame rate changes. Needs an NVIDIA Ada or Blackwell GPU and nvidia-vfx 0.2 or later."
+
+      - name: "keep_audio"
+        type: "checkbox"
+        label: "Keep Audio"
+        default: true
+        ai_hint: "Mux the source video's audio track into the output."

@@ -1,13 +1,13 @@
 id: "nvidia-rtx-upscale"
 name: "NVIDIA RTX Upscale"
 version: "0.2.0"
-description: "NVIDIA RTX Video Super Resolution (nvidia-vfx) as a native pipe: per-frame RTX Tensor Core upscaling, denoise and deblur for images and video. No diffusion checkpoint, no prompt -- a Tensor Core effect, not a generative model. Needs an NVIDIA RTX GPU (Turing or newer), a driver >= 570.190 on Linux, and the nvidia-vfx pip package from pypi.nvidia.com -- the pipe names the exact install command when it isn't there."
+description: "NVIDIA RTX Video Super Resolution and Video Frame Generation (nvidia-vfx) as native pipes: per-frame RTX Tensor Core upscaling, denoise and deblur for images and video, and frame-rate conversion for video. No diffusion checkpoint, no prompt -- Tensor Core effects, not generative models. Needs an NVIDIA RTX GPU (Turing or newer; Ada or Blackwell for frame generation), a driver >= 570.190 on Linux, and the nvidia-vfx pip package from pypi.nvidia.com (0.2 or later for frame generation) -- the pipes name the exact install command when it isn't there."
 author: "PotionUI Team"
 type: "backend-only"
 category: "steps"
 license: "MIT"
 homepage: "https://developer.nvidia.com/maxine/nvidia-vfx"
-tags: ["upscale", "video-super-resolution", "denoise", "deblur", "rtx", "nvidia", "video", "image", "local"]
+tags: ["upscale", "video-super-resolution", "frame-interpolation", "denoise", "deblur", "rtx", "nvidia", "video", "image", "local"]
 
 capabilities:
   - "pipe-provider"
@@ -19,6 +19,8 @@ capabilities:
 pipes:
   - path: "pipes/upscaler_rtx"
     register_as: "upscaler/rtx_vsr"
+  - path: "pipes/interpolator_rtx"
+    register_as: "interpolator/rtx_vfg"
 
 presets:
   - path: "presets"

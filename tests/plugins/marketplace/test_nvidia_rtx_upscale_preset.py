@@ -55,3 +55,23 @@ def test_an_upscale_mode_passes_the_short_side_and_the_strength_to_the_pipe(temp
     assert float(config["target_short_side"]) == 1080
     assert float(config["strength"]) == 0.5
     assert config["intent"] == "upscale_highbitrate"
+
+
+def test_the_interpolate_mode_sends_its_defaults_to_the_frame_generation_pipe(template):
+    config = _pipe_config(template, "interpolate", "interpolator/rtx_vfg", {"input_video": "/media/source.mp4"})
+
+    assert float(config["target_fps"]) == 0
+    assert int(float(config["factor"])) == 2
+    assert config["mode"] == "medium"
+    assert config["scene_detection"] in (True, "True", "true")
+    assert config["keep_audio"] in (True, "True", "true")
+
+
+def test_the_interpolate_mode_passes_a_target_frame_rate_and_the_model(template):
+    config = _pipe_config(template, "interpolate", "interpolator/rtx_vfg", {
+        "input_video": "/media/source.mp4", "target_fps": 60, "mode": "high", "scene_detection": False,
+    })
+
+    assert float(config["target_fps"]) == 60
+    assert config["mode"] == "high"
+    assert config["scene_detection"] in (False, "False", "false")

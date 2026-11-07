@@ -35,21 +35,25 @@ def _load_plugin_conftest() -> ModuleType:
 
 
 @pytest.fixture(scope="module")
-def pipe_module():
-    return _load_plugin_conftest().load_pipe_module()
+def pipe_classes():
+    conftest = _load_plugin_conftest()
+    return [
+        conftest.load_pipe_module().RtxUpscalePipe,
+        conftest.load_pipe_module(conftest.VFG_MAIN).RtxFrameGenerationPipe,
+    ]
 
 
-def test_the_pipe_reports_itself_uninstalled_without_nvvfx(pipe_module):
+def test_the_pipes_report_themselves_uninstalled_without_nvvfx(pipe_classes):
     if importlib.util.find_spec("nvvfx") is not None:
         pytest.skip("this host has nvvfx installed")
 
-    assert requirements_satisfied(pipe_module.RtxUpscalePipe) is False
+    for pipe in pipe_classes:
+        assert requirements_satisfied(pipe) is False, pipe.name
 
 
-def test_the_pipe_reports_itself_installed_with_nvvfx_present(pipe_module):
-    """The complement of the test above: on a host that DOES have nvvfx, the
-    catalog must report it ready rather than perpetually NOT_INSTALLED."""
+def test_the_pipes_report_themselves_installed_with_nvvfx_present(pipe_classes):
     if importlib.util.find_spec("nvvfx") is None:
         pytest.skip("this host has no nvvfx installed")
 
-    assert requirements_satisfied(pipe_module.RtxUpscalePipe) is True
+    for pipe in pipe_classes:
+        assert requirements_satisfied(pipe) is True, pipe.name

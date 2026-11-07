@@ -80,6 +80,13 @@ def _require_access(container, user, generation_id: str) -> GenerationStateView:
     return state
 
 
+def _require_available_preset(container, user, preset_id: str) -> None:
+    if GenerationPolicy.is_admin(user):
+        return
+    if preset_id not in container.preset_collaborators.db_repo.get_available_preset_ids_for_user(user.id):
+        raise PermissionError(f"Preset '{preset_id}' is not available to this user")
+
+
 async def submit_generation(
     user, request: Union[GenerationRequest, Dict[str, Any]]
 ) -> SubmittedGeneration:
@@ -87,7 +94,9 @@ async def submit_generation(
         raise PermissionError("A user is required to submit a generation")
     if not isinstance(request, GenerationRequest):
         request = GenerationRequest.model_validate(request)
-    result = await get_container().generation_orchestrator.start_generation(request, user.id)
+    container = get_container()
+    _require_available_preset(container, user, request.preset_id)
+    result = await container.generation_orchestrator.start_generation(request, user.id)
     status = result.get("status")
     return {
         "generation_id": result["generation_id"],

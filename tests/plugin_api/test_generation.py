@@ -19,9 +19,11 @@ from src.features.generation.records import File, Generation
 from src.features.generation.repository import GenerationRepository
 from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
+from src.features.presets.repository import DatabasePresetRepository
 from src.features.sessions.dto import Session
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import SessionVersionRepository
+from src.features.user_groups.repository import UserGroupRepository
 from src.platform.database.rows import now_utc
 from src.platform.plugins import runtime_registries
 from src.platform.security.user import AccountType, User
@@ -51,6 +53,10 @@ class World:
         self.uploads = UploadRepository()
         self.sessions = SessionRepository()
         self.versions = SessionVersionRepository()
+        self.presets = DatabasePresetRepository()
+        self.groups = UserGroupRepository()
+        self.presets.install_preset("p")
+        self.presets.assign_preset_to_user("p", "owner")
         settings = FakeSettings()
         self.ledger = ContentLedger(settings)
         manager = ContentSafetyManager(
@@ -82,6 +88,7 @@ class World:
             ),
             session_repository=self.sessions,
             session_version_repository=self.versions,
+            preset_collaborators=SimpleNamespace(db_repo=self.presets),
         )
 
     def generation(self, generation_id, user_id="owner"):
@@ -189,6 +196,70 @@ async def test_submit_lets_the_routes_exceptions_through(world):
 
     with pytest.raises(ValueError):
         await api.submit_generation(world.owner, GenerationRequest(preset_id="p"))
+
+
+@pytest.mark.asyncio
+async def test_submit_refuses_a_preset_that_is_not_assigned_to_the_user(world):
+    with pytest.raises(PermissionError, match="^Preset 'p' is not available to this user$"):
+        await api.submit_generation(world.other, GenerationRequest(preset_id="p"))
+
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_submit_refuses_an_unknown_preset_with_the_same_error_as_an_unassigned_one(world):
+    with pytest.raises(PermissionError, match="^Preset 'nope' is not available to this user$"):
+        await api.submit_generation(world.other, {"preset_id": "nope"})
+    with pytest.raises(PermissionError, match="^Preset '' is not available to this user$"):
+        await api.submit_generation(world.other, {"preset_id": ""})
+
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_submit_accepts_a_preset_assigned_through_one_of_the_users_groups(world):
+    world.presets.install_preset("q")
+    group = world.groups.create_group("studio")
+    world.groups.add_user_to_group(group.id, "other")
+    world.groups.assign_preset_to_group(group.id, "q")
+
+    await api.submit_generation(world.other, GenerationRequest(preset_id="q"))
+
+    assert world.orchestrator.start_generation.await_args[0][0].preset_id == "q"
+
+
+@pytest.mark.asyncio
+async def test_submit_refuses_a_preset_once_its_assignment_or_its_install_is_gone(world):
+    world.presets.install_preset("q")
+    world.presets.assign_preset_to_user("q", "other")
+    world.presets.unassign_preset_from_user("p", "owner")
+    world.presets.uninstall_preset("q")
+
+    for user, preset_id in ((world.owner, "p"), (world.other, "q")):
+        with pytest.raises(PermissionError):
+            await api.submit_generation(user, GenerationRequest(preset_id=preset_id))
+
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_an_admin_submits_a_preset_assigned_to_nobody(world):
+    world.presets.install_preset("q")
+
+    await api.submit_generation(world.admin, GenerationRequest(preset_id="q"))
+
+    assert world.orchestrator.start_generation.await_args[0][0].preset_id == "q"
+
+
+@pytest.mark.asyncio
+async def test_a_retried_idempotency_key_is_refused_once_the_preset_is_no_longer_assigned(world):
+    await api.submit_generation(world.owner, {"preset_id": "p", "idempotency_key": "k"})
+    world.presets.unassign_preset_from_user("p", "owner")
+
+    with pytest.raises(PermissionError):
+        await api.submit_generation(world.owner, {"preset_id": "p", "idempotency_key": "k"})
+
+    world.orchestrator.start_generation.assert_awaited_once()
 
 
 @pytest.mark.asyncio

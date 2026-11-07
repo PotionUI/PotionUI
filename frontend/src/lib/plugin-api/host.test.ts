@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { get } from 'svelte/store';
-import { initHostApi, type PotionUIHostApi } from './host';
+import { initHostApi, createGenerationEvents, type PotionUIHostApi, type GenerationEvent } from './host';
 import {
 	isKeyboardSuppressed,
 	suppressKeyboard,
@@ -10,6 +10,39 @@ import {
 } from '$lib/services/keyboard';
 import { iconPaths, getIconPath, iconLookup } from '$lib/utils/IconLibrary';
 import { activeConfirm, cancelAllConfirms, settleConfirm } from '$lib/stores/confirm';
+import type { WebSocketService } from '$lib/services/websocket';
+
+class FakeBrowserSocket {
+	static readonly CONNECTING = 0;
+	static readonly OPEN = 1;
+	static readonly CLOSING = 2;
+	static readonly CLOSED = 3;
+	static instances: FakeBrowserSocket[] = [];
+	readyState = FakeBrowserSocket.CONNECTING;
+	sent: Record<string, unknown>[] = [];
+	closed = false;
+	onopen: (() => void) | null = null;
+	onmessage: ((event: { data: string }) => void) | null = null;
+	onerror: ((event: Event) => void) | null = null;
+	onclose: ((event: CloseEvent) => void) | null = null;
+	constructor(readonly url: string) {
+		FakeBrowserSocket.instances.push(this);
+	}
+	open(): void {
+		this.readyState = FakeBrowserSocket.OPEN;
+		this.onopen?.();
+	}
+	receive(message: Record<string, unknown>): void {
+		this.onmessage?.({ data: JSON.stringify(message) });
+	}
+	send(data: string): void {
+		this.sent.push(JSON.parse(data));
+	}
+	close(): void {
+		this.closed = true;
+		this.readyState = FakeBrowserSocket.CLOSED;
+	}
+}
 
 function host(): PotionUIHostApi {
 	return (window as unknown as { __potionui: PotionUIHostApi }).__potionui;
@@ -158,5 +191,172 @@ describe('window.__potionui.registerIcon', () => {
 		expect(host().registerIcon('my-plugin-empty', [])).toBe(false);
 		expect(host().registerIcon('my-plugin-empty', ['M1 1h1', ''])).toBe(false);
 		expect('my-plugin-empty' in iconPaths).toBe(false);
+	});
+});
+
+describe('window.__potionui.generation.subscribe', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		FakeBrowserSocket.instances = [];
+	});
+
+	function stubSocket(): void {
+		vi.stubGlobal('WebSocket', FakeBrowserSocket);
+	}
+
+	it('keeps prepareRequest', () => {
+		expect(typeof host().generation.prepareRequest).toBe('function');
+	});
+
+	it('opens one generation socket for every subscription and subscribes each id', () => {
+		stubSocket();
+		const generation = host().generation;
+		const stopFirst = generation.subscribe('gen-1', () => {});
+		const stopSecond = generation.subscribe('gen-2', () => {});
+		expect(FakeBrowserSocket.instances).toHaveLength(1);
+		const socket = FakeBrowserSocket.instances[0];
+		expect(socket.url).toContain('/ws/generation');
+		socket.open();
+		expect(socket.sent).toEqual([
+			{ type: 'subscribe_generation', generation_id: 'gen-1' },
+			{ type: 'subscribe_generation', generation_id: 'gen-2' }
+		]);
+		const stopThird = generation.subscribe('gen-3', () => {});
+		expect(socket.sent.at(-1)).toEqual({ type: 'subscribe_generation', generation_id: 'gen-3' });
+		expect(FakeBrowserSocket.instances).toHaveLength(1);
+		stopFirst();
+		stopSecond();
+		stopThird();
+	});
+
+	it('delivers only the four generation events of the subscribed id', () => {
+		stubSocket();
+		const first: GenerationEvent[] = [];
+		const second: GenerationEvent[] = [];
+		const stopFirst = host().generation.subscribe('gen-1', (event) => first.push(event));
+		const stopSecond = host().generation.subscribe('gen-2', (event) => second.push(event));
+		const socket = FakeBrowserSocket.instances[0];
+		socket.open();
+		socket.receive({ type: 'subscribed', generation_id: 'gen-1' });
+		socket.receive({ type: 'generation_status', generation_id: 'gen-1', status: 'running', progress: 40 });
+		socket.receive({ type: 'generation_status', generation_id: 'gen-2', status: 'queued' });
+		socket.receive({ type: 'generation_complete', data: { id: 'gen-1' } });
+		socket.receive({ type: 'generation_error', data: { generation_id: 'gen-2', error: 'boom' } });
+		socket.receive({ type: 'generation_cancelled', data: { id: 'gen-1' } });
+		expect(first.map((event) => event.type)).toEqual([
+			'generation_status',
+			'generation_complete',
+			'generation_cancelled'
+		]);
+		expect(first[0]).toMatchObject({ status: 'running', progress: 40 });
+		expect(second.map((event) => event.type)).toEqual(['generation_status', 'generation_error']);
+		stopFirst();
+		stopSecond();
+	});
+
+	it('stops a handler on unsubscribe and closes the socket after the last one', () => {
+		stubSocket();
+		const kept: GenerationEvent[] = [];
+		const dropped: GenerationEvent[] = [];
+		const stopDropped = host().generation.subscribe('gen-1', (event) => dropped.push(event));
+		const stopKept = host().generation.subscribe('gen-1', (event) => kept.push(event));
+		const socket = FakeBrowserSocket.instances[0];
+		socket.open();
+		expect(socket.sent).toHaveLength(1);
+		stopDropped();
+		stopDropped();
+		socket.receive({ type: 'generation_status', generation_id: 'gen-1', status: 'running' });
+		expect(dropped).toEqual([]);
+		expect(kept).toHaveLength(1);
+		expect(socket.closed).toBe(false);
+		stopKept();
+		expect(socket.closed).toBe(true);
+		const stopAgain = host().generation.subscribe('gen-1', () => {});
+		expect(FakeBrowserSocket.instances).toHaveLength(2);
+		stopAgain();
+	});
+
+	it('keeps other handlers running when one throws', () => {
+		stubSocket();
+		const received: GenerationEvent[] = [];
+		const stopThrowing = host().generation.subscribe('gen-1', () => {
+			throw new Error('plugin bug');
+		});
+		const stopReceiving = host().generation.subscribe('gen-1', (event) => received.push(event));
+		const socket = FakeBrowserSocket.instances[0];
+		socket.open();
+		socket.receive({ type: 'generation_complete', data: { id: 'gen-1' } });
+		expect(received).toHaveLength(1);
+		stopThrowing();
+		stopReceiving();
+	});
+
+	it('revives a dropped socket when a new generation is followed', () => {
+		stubSocket();
+		const received: GenerationEvent[] = [];
+		const stopFirst = host().generation.subscribe('gen-1', (event) => received.push(event));
+		const dropped = FakeBrowserSocket.instances[0];
+		dropped.open();
+		dropped.readyState = FakeBrowserSocket.CLOSED;
+		dropped.onclose?.({ code: 1006 } as CloseEvent);
+		const stopSecond = host().generation.subscribe('gen-2', () => {});
+		expect(FakeBrowserSocket.instances).toHaveLength(2);
+		const revived = FakeBrowserSocket.instances[1];
+		revived.open();
+		expect(revived.sent).toEqual([
+			{ type: 'subscribe_generation', generation_id: 'gen-1' },
+			{ type: 'subscribe_generation', generation_id: 'gen-2' }
+		]);
+		revived.receive({ type: 'generation_complete', data: { id: 'gen-1' } });
+		expect(received).toHaveLength(1);
+		stopFirst();
+		stopSecond();
+	});
+
+	it('leaves a newer subscription alone when an old unsubscribe runs again', () => {
+		stubSocket();
+		const received: GenerationEvent[] = [];
+		const stopOld = host().generation.subscribe('gen-1', () => {});
+		stopOld();
+		const stopNew = host().generation.subscribe('gen-1', (event) => received.push(event));
+		stopOld();
+		const socket = FakeBrowserSocket.instances.at(-1)!;
+		socket.open();
+		socket.receive({ type: 'generation_complete', data: { id: 'gen-1' } });
+		expect(socket.closed).toBe(false);
+		expect(received).toHaveLength(1);
+		stopNew();
+	});
+
+	it('ignores a subscription without an id or a handler', () => {
+		stubSocket();
+		const generation = host().generation as unknown as {
+			subscribe(id: unknown, handler: unknown): () => void;
+		};
+		generation.subscribe('', () => {})();
+		generation.subscribe('gen-1', null)();
+		expect(FakeBrowserSocket.instances).toHaveLength(0);
+	});
+});
+
+describe('createGenerationEvents', () => {
+	it('forgets an id on the socket once its last handler leaves', () => {
+		const socket = {
+			connect: vi.fn(),
+			disconnect: vi.fn(),
+			subscribe: vi.fn(),
+			unsubscribe: vi.fn()
+		};
+		const createSocket = vi.fn(() => socket as unknown as WebSocketService);
+		const events = createGenerationEvents(createSocket);
+		const stopFirst = events.subscribe('gen-1', () => {});
+		const stopSecond = events.subscribe('gen-2', () => {});
+		expect(createSocket).toHaveBeenCalledTimes(1);
+		expect(socket.subscribe.mock.calls.map(([id]) => id)).toEqual(['gen-1', 'gen-2']);
+		stopFirst();
+		expect(socket.unsubscribe).toHaveBeenCalledWith('gen-1');
+		expect(socket.disconnect).not.toHaveBeenCalled();
+		stopSecond();
+		expect(socket.disconnect).toHaveBeenCalledTimes(1);
 	});
 });

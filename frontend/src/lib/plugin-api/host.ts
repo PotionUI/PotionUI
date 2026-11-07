@@ -35,6 +35,13 @@ import { modelTypePresentation, type ModelTypePresentation } from '$lib/utils/mo
 import type { ModelTypeDefinition } from '$lib/types/models';
 import { holdKeyboard, releaseKeyboardHold } from '$lib/services/keyboard';
 import { registerIcon } from '$lib/utils/IconLibrary';
+import {
+	createGenerationSocket,
+	type MessageHandler,
+	type WebSocketMessage,
+	type WebSocketService
+} from '$lib/services/websocket';
+import { logger } from '$lib/utils/logger';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -97,6 +104,21 @@ export interface PluginKeyboardApi {
 	resume(): void;
 }
 
+export type GenerationEventType =
+	| 'generation_status'
+	| 'generation_complete'
+	| 'generation_error'
+	| 'generation_cancelled';
+
+export type GenerationEvent = WebSocketMessage & { type: GenerationEventType };
+
+export type GenerationEventHandler = (event: GenerationEvent) => void;
+
+export interface PluginGenerationApi {
+	prepareRequest: typeof prepareRequestFromSession;
+	subscribe(generationId: string, handler: GenerationEventHandler): () => void;
+}
+
 export interface PluginRendererEntry {
 	pluginId: string;
 	asset: string;
@@ -136,7 +158,7 @@ export interface PotionUIHostApi {
 	keyboard: PluginKeyboardApi;
 	layers: PluginLayersApi;
 	input: PluginInputApi;
-	generation: { prepareRequest: typeof prepareRequestFromSession };
+	generation: PluginGenerationApi;
 	imageEditor: PluginImageEditorApi;
 	modelTypes: PluginModelTypesApi;
 	registerIcon: typeof registerIcon;
@@ -147,6 +169,79 @@ const TOAST_LEVELS: readonly ToastType[] = ['success', 'error', 'info', 'warning
 function toToastType(level: string): ToastType {
 	return (TOAST_LEVELS as readonly string[]).includes(level) ? (level as ToastType) : 'info';
 }
+
+const GENERATION_EVENT_TYPES: ReadonlySet<string> = new Set<GenerationEventType>([
+	'generation_status',
+	'generation_complete',
+	'generation_error',
+	'generation_cancelled'
+]);
+
+function isGenerationEvent(message: WebSocketMessage): message is GenerationEvent {
+	return GENERATION_EVENT_TYPES.has(message.type);
+}
+
+interface GenerationSubscription {
+	handlers: Set<GenerationEventHandler>;
+	listener: MessageHandler;
+}
+
+export function createGenerationEvents(
+	createSocket: () => WebSocketService = createGenerationSocket
+): Pick<PluginGenerationApi, 'subscribe'> {
+	let socket: WebSocketService | null = null;
+	const subscriptions = new Map<string, GenerationSubscription>();
+
+	function connectedSocket(): WebSocketService {
+		socket ??= createSocket();
+		socket.connect();
+		return socket;
+	}
+
+	function subscriptionFor(generationId: string): GenerationSubscription {
+		const existing = subscriptions.get(generationId);
+		if (existing) return existing;
+		const handlers = new Set<GenerationEventHandler>();
+		const listener: MessageHandler = (message) => {
+			if (!isGenerationEvent(message)) return;
+			for (const handler of [...handlers]) {
+				try {
+					handler(message);
+				} catch (error) {
+					logger.error('Plugin generation handler failed:', error);
+				}
+			}
+		};
+		const subscription = { handlers, listener };
+		subscriptions.set(generationId, subscription);
+		connectedSocket().subscribe(generationId, listener);
+		return subscription;
+	}
+
+	return {
+		subscribe(generationId, handler) {
+			if (typeof generationId !== 'string' || !generationId || typeof handler !== 'function') return () => {};
+			const subscription = subscriptionFor(generationId);
+			const entry: GenerationEventHandler = (event) => handler(event);
+			subscription.handlers.add(entry);
+			let active = true;
+			return () => {
+				if (!active) return;
+				active = false;
+				subscription.handlers.delete(entry);
+				if (subscription.handlers.size > 0) return;
+				subscriptions.delete(generationId);
+				socket?.unsubscribe(generationId);
+				if (subscriptions.size === 0) {
+					socket?.disconnect();
+					socket = null;
+				}
+			};
+		}
+	};
+}
+
+const generationEvents = createGenerationEvents();
 
 /**
  * Assemble `window.__potionui`. Idempotent - safe to call more than once
@@ -222,7 +317,8 @@ export function initHostApi(): void {
 			isEditableTarget
 		},
 		generation: {
-			prepareRequest: prepareRequestFromSession
+			prepareRequest: prepareRequestFromSession,
+			subscribe: generationEvents.subscribe
 		},
 		imageEditor: createHostImageEditorApi(),
 		modelTypes: {

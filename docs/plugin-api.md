@@ -2329,6 +2329,55 @@ is a message when there is one. Chip shuffles and shuffled variables are resolve
 each call is a fresh roll. Submit the request with `submit_generation` (or
 `POST /api/generations/start`); the server still binds and checks it like any other request.
 
+### Following a generation's progress
+
+A plugin frontend follows a running generation with
+`window.__potionui.generation.subscribe(generationId, handler)`. It returns an unsubscribe
+function; call it when the generation is over or when your page unmounts.
+
+Read the generation's current state with `GET /api/generations/{id}/status` before you
+subscribe: events start when you subscribe and what happened before is not replayed. An
+unknown id, or one that belongs to another user, produces no event at all, not even an error.
+
+```js
+const unsubscribe = window.__potionui.generation.subscribe(generationId, (event) => {
+  if (event.type === 'generation_status') {
+    showProgress(event.message, event.progress);
+    return;
+  }
+  unsubscribe();
+  if (event.type === 'generation_complete') loadResults(generationId);
+  else if (event.type === 'generation_error') showError(event.data?.message ?? event.message);
+  else showCancelled();
+});
+```
+
+`handler` receives only these four events, and only for `generationId`:
+
+| `event.type` | What it carries |
+| --- | --- |
+| `generation_status` | Progress while it runs: `generation_id`, `status` (`'running'`), `progress` (a number, or `null` while the stage has no fraction), `message`, `current_step`. |
+| `generation_complete` | `data`: the generation's status record (`data.id`, `data.status`, ...). Read the files with `list_generation_files` or the history API. |
+| `generation_error` | The failure: `data.generation_id` and `data.message`, or the same fields at the top level, depending on where it failed. |
+| `generation_cancelled` | `data`: the generation's status record. |
+
+Other messages of the generation socket (previews, artifacts, timers, the subscription
+acknowledgement or a subscription error) are not passed on. The server only streams a
+user's own generations; administrators may follow any.
+
+All plugin subscriptions share one connection to the app's generation websocket
+(`/ws/generation`), opened on the first `subscribe` and closed when the last subscriber
+unsubscribes, so subscribing to many generations does not open many sockets. The core pages
+(Generate, History) keep their own connections. The socket reconnects on its own after a drop
+and subscribes to every followed generation again. The generation protocol has no unsubscribe
+message: `unsubscribe()` stops calling your handler, and the server stops sending once the
+shared connection closes. A handler that throws is logged and does not stop the other
+handlers.
+
+`subscribe` is absent on hosts that predate it; feature-detect it with
+`window.__potionui.generation.subscribe?.(...)` and fall back to polling
+`GET /api/generations/{id}/status` if you need to.
+
 ## Working with the user's media
 
 `src.plugin_api.media` lets a plugin read the file of a media the user picked, take a frame out of

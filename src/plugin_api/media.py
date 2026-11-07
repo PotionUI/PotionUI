@@ -48,7 +48,7 @@ from src.platform.filesystem import audio_formats, visual_formats
 from src.platform.filesystem.mesh_formats import mesh_format_registry
 from src.platform.filesystem.storage_driver import local_copy, validate_key
 from src.platform.plugins.runtime_registries import get_container
-from src.platform.util import face_boxes
+from src.platform.util import face_boxes, face_identity
 from src.platform.util.imaging import convert_image_to_base64
 from src.platform.util.video_stream import (
     FFmpegNotFoundError,
@@ -98,8 +98,10 @@ __all__ = [
     "embed_images",
     "extract_frame",
     "face_detector",
+    "face_identifier",
     "find_ffmpeg",
     "has_audio_stream",
+    "identify_faces",
     "image_embedder",
     "media_local_path",
     "mux_audio_from_source",
@@ -302,8 +304,11 @@ def embed_images(images: Sequence[ImageInput]) -> List[List[float]]:
 
 FACE_MODEL = "face_detection_yunet_2023mar.onnx"
 FACE_MODEL_TYPE = "detection_bbox"
+IDENTITY_MODEL = "glintr100.onnx"
+IDENTITY_DIR = "face_recognition/auraface"
 MODEL_FILES = {
     FACE_MODEL: (232589, "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"),
+    IDENTITY_MODEL: (260694151, "a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60"),
 }
 _verified_files: set = set()
 
@@ -348,3 +353,20 @@ def detect_faces(images: Sequence[ImageInput], min_score: float = 0.5) -> List[L
     if model is None:
         raise FileNotFoundError(f"{FACE_MODEL} is not in a {FACE_MODEL_TYPE} folder of the model roots")
     return face_boxes.detect(model, list(images), min_score)
+
+
+def _identity_model() -> Optional[Path]:
+    path = get_container().model_roots.asset_dir(IDENTITY_DIR) / IDENTITY_MODEL
+    return path if _is_model_file(path) else None
+
+
+def face_identifier() -> Dict[str, Any]:
+    return {"model": IDENTITY_MODEL, "available": _identity_model() is not None and face_identity.runtime_imports()}
+
+
+def identify_faces(faces: Sequence[Any]) -> List[List[float]]:
+    model = _identity_model()
+    if model is None:
+        raise FileNotFoundError(f"{IDENTITY_MODEL} is not in {IDENTITY_DIR} of the home model root")
+    pairs = [(image, landmarks) for image, landmarks in faces]
+    return contextvars.copy_context().run(face_identity.embed, get_container().model_lifecycle, model, pairs)

@@ -40,12 +40,14 @@ See docs/presets.md.
 
 import copy
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.features.generation.dto import GenerationRequest, PromptPair
 from src.features.generation.policy import GenerationPolicy
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations as preset_operations
+from src.features.presets.children_paths import resolve_children_path
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.linter import (
     COVER_VIDEO_MAX_BYTES as PRESET_COVER_VIDEO_MAX_BYTES,
@@ -61,7 +63,7 @@ from src.features.presets.requirements.contracts import (
 )
 from src.features.presets.schema import GalleryItem, PresetMedia
 from src.features.presets.style_previews import downscale_and_save_webp
-from src.features.presets.templates import default_form_name
+from src.features.presets.templates import PresetTemplate, default_form_name
 from src.features.video_director.binding import DirectorBindingError, bind_director_media
 from src.platform.plugins.runtime_registries import get_container
 
@@ -76,7 +78,9 @@ __all__ = [
     "PRESET_COVER_VIDEO_MAX_BYTES",
     "PRESET_MEDIA_MAX_BYTES",
     "PresetDescription",
+    "PresetInstallState",
     "PresetMedia",
+    "PresetTemplate",
     "RequirementAction",
     "RequirementChecker",
     "RequirementBackendInfo",
@@ -87,8 +91,11 @@ __all__ = [
     "downscale_and_save_webp",
     "lint_preset_dir",
     "list_presets",
+    "preset_install_state",
     "preset_operations",
+    "preset_template",
     "PromptPair",
+    "resolve_preset_path",
 ]
 
 
@@ -149,6 +156,32 @@ def _describe_fields(fields: Iterable[Any], out: Dict[str, FieldDescription]) ->
             )
         if isinstance(form_field.children, list):
             _describe_fields(form_field.children, out)
+
+
+@dataclass(frozen=True)
+class PresetInstallState:
+    installed: bool
+    assigned: bool
+
+
+def preset_template(preset_id: str) -> Optional[PresetTemplate]:
+    return get_container().file_preset_repository.find_preset_by_id(preset_id)
+
+
+def resolve_preset_path(preset_id: str, reference: str) -> Optional[Path]:
+    repository = get_container().file_preset_repository
+    template = repository.find_preset_by_id(preset_id)
+    if template is None:
+        return None
+    return resolve_children_path(reference, Path(template.path), Path(repository.preset_loader.shared_path))
+
+
+def preset_install_state(preset_id: str) -> PresetInstallState:
+    summary = get_container().preset_collaborators.db_repo.get_installed_preset_summaries().get(preset_id)
+    if summary is None:
+        return PresetInstallState(installed=False, assigned=False)
+    _, users, groups = summary
+    return PresetInstallState(installed=True, assigned=users + groups > 0)
 
 
 def describe_preset(preset_id: str) -> Optional[PresetDescription]:

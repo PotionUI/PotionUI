@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest import mock
 
+import pytest
 import torch
 
 from src.platform.runtime.native.kernels import disable_weight_init
@@ -14,6 +16,9 @@ from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import (
     VAE_SPATIAL_DOWNSCALE,
     auto_tile_size,
+    causal3d_decode_overlap,
+    causal3d_decode_tile,
+    smaller_decode_tile,
     tiled_decode,
     tiled_decode_causal3d,
     tiled_encode,
@@ -231,3 +236,74 @@ def test_tiled_decode_causal3d_honours_a_16x_rgba_vae():
     assert torch.isfinite(tiled).all()
     interior = (slice(None), slice(None), slice(None), slice(64, -64), slice(64, -64))
     assert torch.allclose(tiled[interior], whole[interior], atol=5e-2)
+
+
+def test_a_latent_that_fits_one_tile_is_still_moved_to_the_accumulation_device():
+    moved = []
+    pixels = mock.Mock()
+    pixels.to = lambda device: moved.append(device) or "on the host"
+    vae = SimpleNamespace(decode=lambda latent: pixels)
+
+    out = tiled_decode_causal3d(vae, torch.zeros(1, 16, 2, 4, 4), tile_size=8, overlap=2, accumulate_device="cpu")
+
+    assert out == "on the host"
+    assert moved == ["cpu"]
+
+
+def test_the_engine_sizes_its_first_causal3d_tile_with_its_own_constants():
+    from src.platform.runtime.native import engine as engine_mod
+
+    seen = []
+    gen = engine_mod.NativeGenerator.__new__(engine_mod.NativeGenerator)
+    gen.vae = SimpleNamespace(module=None, compute_dtype=torch.float32, move_to=lambda device: None, offload=lambda: None)
+    gen.spec = SimpleNamespace(latent_format={})
+    gen._is_self_normalizing_vae = lambda: False
+    gen._spatial_downscale = lambda: 8
+    gen._resident = lambda component: True
+    gen._to_uint8 = lambda pixels: pixels
+
+    sizer = mock.Mock(side_effect=lambda hw, free, **kw: seen.append((hw, free, kw)) or 16)
+    with mock.patch.object(engine_mod, "free_vram_gb", return_value=6.0), \
+            mock.patch.object(engine_mod, "causal3d_decode_tile", sizer), \
+            mock.patch.object(engine_mod, "tiled_decode_causal3d", return_value="pixels"):
+        assert gen._decode_causal3d_tiled(torch.zeros(1, 16, 1, 8, 12), "cpu") == "pixels"
+
+    assert seen == [((8, 12), 6.0, {
+        "decode_mb_per_latent_px": engine_mod._CAUSAL3D_DECODE_MB_PER_LATENT_PX,
+        "vram_fraction": engine_mod._DECODE_TILE_VRAM_FRACTION,
+        "min_tile": engine_mod._MIN_DECODE_TILE_LATENT,
+    })]
+
+
+@pytest.mark.parametrize(
+    ("latent_hw", "free", "expected"),
+    [
+        ((78, 186), None, 88),
+        ((78, 186), 64.0, 88),
+        ((78, 186), 4.0, 40),
+        ((78, 186), 0.5, 16),
+        ((10, 12), None, 16),
+    ],
+)
+def test_the_decode_tile_is_half_the_long_axis_capped_by_free_vram(latent_hw, free, expected):
+    assert causal3d_decode_tile(latent_hw, free) == expected
+
+
+@pytest.mark.parametrize(("tile", "overlap", "smaller"), [(16, 8, 16), (40, 8, 16), (64, 8, 32), (128, 16, 64)])
+def test_the_decode_tile_overlap_and_shrink(tile, overlap, smaller):
+    assert causal3d_decode_overlap(tile) == overlap
+    assert smaller_decode_tile(tile) == smaller
+
+
+@pytest.mark.parametrize(("tile_size", "overlap"), [(8, 4), (64, 8)])
+def test_tiled_decode_causal3d_can_accumulate_on_another_device(tile_size, overlap):
+    torch.manual_seed(0)
+    vae = _tiny_causal3d_vae()
+    latent = torch.randn(1, 16, 2, 4, 12)
+
+    with torch.no_grad():
+        here = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap)
+        there = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap, accumulate_device="cpu")
+
+    assert there.device.type == "cpu"
+    assert torch.equal(here, there)

@@ -481,6 +481,41 @@ fp8-auto, in s/step) is measured on GPU via `tests/manual/native_smoke.py --tier
 its parents from `/proc/self/cgroup`, or a passthrough without a limit: `total` by the smallest `memory.max`,
 `available` by the smallest `memory.max - (memory.current - inactive_file)`, since `memory.current` counts page cache.
 
+### Video VAE decode on the Wan pipes
+
+The Wan pipes (`txt2vid_wan22`, `img2vid_wan22`, `chain_video_wan22`) decode through
+`wan_experts.decode_wan_video`, not through the engine.
+
+**Room before the decode.** `_make_room_for_decode` evicts foreign residents, never the VAE, until
+one latent frame fits: `causal3d_frame_need_gb` is the VAE's weights plus `activation_headroom_gb`
+for one latent frame (the 2 GB working base plus the per-pixel spike), over the 0.75 fraction of the
+free VRAM that every decode sizer keeps. It reads `effective_free_vram_gb` and, once something left,
+hands the idle pool back with `_release_idle_pool`. This runs on every card. A card that kept the
+text encoder or another family's components resident sends them to RAM before a decode whose frame
+needs more than its free VRAM, and the next generation that uses them reloads them from RAM.
+
+**Whole, chunked or tiled.** With the VAE on the card, `_decode_pixels` reads the effective free
+VRAM again:
+
+- When one latent frame fits, the clip decodes whole, or in temporal chunks sized by
+  `causal3d_chunk_frames` (`chunked_decode_causal3d`, one `feat_cache` across the chunks). Chunks
+  leave the pixels unchanged.
+- When it does not, the clip decodes in spatial tiles sized on the free VRAM by
+  `causal3d_decode_tile`, the function the engine's own causal-3D tiled decode calls (the decoded
+  window is the tile plus its overlap, about 1.125 tile edges wide). Each tile decodes one latent
+  frame at a time with its own `feat_cache`:
+  `tiled_decode_causal3d(chunk_latent_frames=1, accumulate_device="cpu")`. Tiles change the pixels
+  near the seams.
+- Chunks and tiles are assembled on the host. A tiled decode holds about three float32 copies of the
+  clip in host RAM: 1.2 GB for 81 frames at 832×480, 3.9 GB for 121 frames at 1280×704, 12 GB for
+  161 frames at 1920×1080.
+
+**Fallbacks.** Both go through `errors.retry_after_cuda_oom`, so under WSL2 the first driver-error
+OOM is fatal here too, at every tile size including the smallest. A whole or chunked decode that runs
+out of VRAM clears the card (`offload_all` of the foreign residents, then the idle pool) and decodes
+again one latent frame at a time. A tiled decode that runs out clears the card and halves its tile,
+down to 16 latent px, then raises.
+
 ### Running out of VRAM, and the driver-error OOM
 
 What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a

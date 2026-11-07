@@ -48,9 +48,8 @@ plug directly into that contract.
 
 **Tiling**: ``vae/tiling.py``'s ``tiled_encode_causal3d`` /
 ``tiled_decode_causal3d`` are the 3D-aware spatial encode/decode paths for this
-module -- they tile only the H/W axes of the 5D ``(B,C,T,H,W)`` tensor and pass
-the full temporal axis through each tile whole, so the ``feat_cache`` temporal
-chunking below is untouched (spatial tiling only). Encode engages on an OOM-retry
+module -- they tile only the H/W axes of the 5D ``(B,C,T,H,W)`` tensor.
+Encode engages on an OOM-retry
 in the Wan i2v generator (the untiled encode of a 480p+ start frame otherwise
 OOMs; encode costs ~2x decode). Decode engages in ``engine.decode`` -- proactively
 when the estimated fp32 3D-conv decode spike won't fit live free VRAM (it scales

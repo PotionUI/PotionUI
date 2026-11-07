@@ -13,7 +13,12 @@ import torch
 
 from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
-from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames
+from src.platform.runtime.native.vae.tiling import (
+    causal3d_chunk_frames,
+    causal3d_decode_tile,
+    causal3d_frame_need_gb,
+    smaller_decode_tile,
+)
 
 
 def _tiny_wan_vae() -> AutoEncoderCausal3D:
@@ -116,3 +121,28 @@ def test_defaults_match_engine_py_constants():
     defaults = inspect.signature(causal3d_chunk_frames).parameters
     assert defaults["decode_mb_per_latent_px"].default == engine_mod._CAUSAL3D_DECODE_MB_PER_LATENT_PX
     assert defaults["vram_fraction"].default == engine_mod._DECODE_TILE_VRAM_FRACTION
+
+
+def test_frame_need_is_the_free_vram_under_which_one_frame_overflows():
+    vae = _tiny_wan_vae()
+    latents = torch.zeros(1, 16, 9, 60, 104)
+    need = causal3d_frame_need_gb((60, 104), vae_resident_gb=0.24)
+    assert causal3d_chunk_frames(vae, latents, free_vram_gb_value=need * 1.001, vae_resident_gb=0.24) == 1
+    assert causal3d_chunk_frames(vae, latents, free_vram_gb_value=need * 0.999, vae_resident_gb=0.24) is None
+
+
+def test_one_480p_latent_frame_needs_more_than_a_12gb_card():
+    assert causal3d_frame_need_gb((60, 104)) > 12.0
+
+
+def test_the_frame_and_tile_sizers_default_to_the_engine_constants():
+    import inspect
+
+    from src.platform.runtime.native import engine as engine_mod
+
+    for sizer in (causal3d_frame_need_gb, causal3d_decode_tile):
+        defaults = inspect.signature(sizer).parameters
+        assert defaults["decode_mb_per_latent_px"].default == engine_mod._CAUSAL3D_DECODE_MB_PER_LATENT_PX
+        assert defaults["vram_fraction"].default == engine_mod._DECODE_TILE_VRAM_FRACTION
+    for sizer in (causal3d_decode_tile, smaller_decode_tile):
+        assert inspect.signature(sizer).parameters["min_tile"].default == engine_mod._MIN_DECODE_TILE_LATENT

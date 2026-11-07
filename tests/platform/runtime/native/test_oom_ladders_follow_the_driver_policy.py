@@ -84,9 +84,29 @@ def _wan_expert(op):
         router._place_expert(dit)
 
 
+def _wan_decode_ctx(op):
+    return SimpleNamespace(vae=SimpleNamespace(module=SimpleNamespace(decode=op)), device="cpu", spatial_downscale=8,
+                           spec=SimpleNamespace(latent_format={}))
+
+
+def _wan_decode(op):
+    wan_experts._decode_pixels(_wan_decode_ctx(op), torch.zeros(1, 16, 1, 8, 64))
+
+
+def _wan_tiled_decode(op):
+    with patch.object(wan_experts, "tiled_decode_causal3d", op):
+        wan_experts._decode_tiled(_wan_decode_ctx(op), torch.zeros(1, 16, 1, 8, 64), 100.0)
+
+
+def _wan_tiled_decode_at_the_smallest_tile(op):
+    with patch.object(wan_experts, "tiled_decode_causal3d", op):
+        wan_experts._decode_tiled(_wan_decode_ctx(op), torch.zeros(1, 16, 1, 8, 64), 0.001)
+
+
 LADDERS = [
     _move_resident, _move_partial, _first_forward, _native_full_move, _wan_expert,
     _ltx_encode, _wan_encode, _h3_encode, _colour_fix,
+    _wan_decode, _wan_tiled_decode, _wan_tiled_decode_at_the_smallest_tile,
 ]
 ladders = pytest.mark.parametrize("ladder", LADDERS, ids=[ladder.__name__ for ladder in LADDERS])
 

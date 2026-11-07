@@ -51,7 +51,8 @@ spatial tiling if even a single-frame chunk doesn't fit.
   clip length.
 - SeedVR2's VAE is excluded by the same detection: it self-normalizes rather than using the Wan-style
   causal feature cache, so it's never routed through temporal chunking either.
-- Temporal chunking is not combined with spatial tiling — they're mutually exclusive strategies
-  picked based on whether a single frame's full-spatial decode fits in VRAM. If it doesn't, PotionUI
-  uses spatial tiling instead, not both together.
+- When a single frame's full-spatial decode does not fit in VRAM, the Wan pipes decode in spatial
+  tiles, each tile one latent frame at a time with its own decode cache, so the two combine there.
+  Tiles change the pixels near the seams. The engine's own causal-3D decode still picks one or the
+  other.
 - No user-facing knob: you cannot force chunk size or disable this behavior from a preset or setting.

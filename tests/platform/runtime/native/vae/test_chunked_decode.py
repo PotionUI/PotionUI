@@ -18,7 +18,7 @@ from src.platform.runtime.native.vae import causal_3d
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.causal_3d_v2 import AutoEncoderCausal3D_2_2
 from src.platform.runtime.native.vae import tiling
-from src.platform.runtime.native.vae.tiling import chunked_decode_causal3d
+from src.platform.runtime.native.vae.tiling import chunked_decode_causal3d, tiled_decode_causal3d
 
 
 def _randomize_weights(module: torch.nn.Module) -> None:
@@ -260,6 +260,50 @@ def test_accumulate_device_cpu_moves_output_off_device_and_stays_exact():
 
     assert to_cpu.device.type == "cpu"
     torch.testing.assert_close(to_cpu, default.cpu(), rtol=0, atol=0)
+
+
+def test_v1_tiles_decoded_in_temporal_chunks_match_whole_tiles():
+    torch.manual_seed(31)
+    vae = _build_tiny_v1()
+    z = torch.randn(1, 16, 5, 8, 12)
+
+    with torch.no_grad():
+        whole = tiled_decode_causal3d(vae, z, tile_size=4, overlap=2)
+        chunked = tiled_decode_causal3d(vae, z, tile_size=4, overlap=2, chunk_latent_frames=1, accumulate_device="cpu")
+
+    assert chunked.device.type == "cpu"
+    torch.testing.assert_close(chunked, whole, rtol=0, atol=0)
+
+
+def test_v2_tiles_decoded_in_temporal_chunks_match_whole_tiles():
+    torch.manual_seed(32)
+    vae = _build_tiny_v2()
+    z = torch.randn(1, _V2_Z, 5, 4, 6)
+
+    with torch.no_grad():
+        whole = tiled_decode_causal3d(vae, z, tile_size=2, overlap=1, scale=16)
+        chunked = tiled_decode_causal3d(vae, z, tile_size=2, overlap=1, scale=16, chunk_latent_frames=2)
+
+    torch.testing.assert_close(chunked, whole, rtol=1e-5, atol=1e-7)
+
+
+def test_a_clip_that_fits_one_tile_is_still_decoded_in_temporal_chunks():
+    torch.manual_seed(33)
+    vae = _build_tiny_v1()
+    z = torch.randn(1, 16, 4, 4, 4)
+    frames = []
+    real_decode = vae.decode
+
+    def spy(x, **kw):
+        frames.append(x.shape[2])
+        return real_decode(x, **kw)
+
+    with mock.patch.object(vae, "decode", spy), torch.no_grad():
+        out = tiled_decode_causal3d(vae, z, tile_size=8, overlap=2, chunk_latent_frames=1)
+
+    assert frames == [1, 1, 1, 1]
+    with torch.no_grad():
+        torch.testing.assert_close(out, vae.decode(z), rtol=0, atol=0)
 
 
 def test_accumulate_device_is_applied_to_every_chunk_before_concatenation(monkeypatch):

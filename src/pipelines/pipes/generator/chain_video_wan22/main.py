@@ -127,6 +127,7 @@ class _DecodeCtx:
     vae: Any
     device: str
     latent_channels: int
+    spatial_downscale: int
 
 
 def _lora_fingerprint(loras: Optional[List[Dict[str, Any]]]) -> str:
@@ -700,7 +701,9 @@ class GeneratorWanChainVideoPipe(BasePipe):
                     n_avail = min(tail_latent_slots, latent.shape[2])
                     prev_latent_tail = latent[:, :, -n_avail:].detach().clone()
 
-                decode_ctx = _DecodeCtx(vae=mset.vae, device=device, latent_channels=lf["latent_channels"])
+                decode_ctx = _DecodeCtx(
+                    vae=mset.vae, device=device, latent_channels=lf["latent_channels"], spatial_downscale=spatial_downscale,
+                )
                 frames_px = decode_wan_video(decode_ctx, latent)
 
                 # A chain segment's front is locked to the previous segment's tail

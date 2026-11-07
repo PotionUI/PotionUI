@@ -47,10 +47,12 @@ from src.plugin_api.hooks import (
     HookSpec,
     ModelLifecycle,
     PluginRegistry,
+    get_app_loop,
     get_container,
     get_global_plugin_registry,
     get_global_tool_registry,
     hooks_registry,
+    run_on_app_loop,
 )
 
 # Talking to a model marketplace.
@@ -158,6 +160,17 @@ from src.plugin_api.presets import (
     lint_preset_dir,
     preset_operations,
     PromptPair,
+)
+
+from src.plugin_api.generation import (
+    IdempotencyKeyConflict,
+    SessionNotFoundError,
+    cancel_generation,
+    generation_state,
+    get_session,
+    get_session_snapshot,
+    list_generation_files,
+    submit_generation,
 )
 
 # Keeping data. `db` is deliberately absent here - see __getattr__ below.
@@ -373,10 +386,12 @@ __all__ = [
     "HookSpec",
     "ModelLifecycle",
     "PluginRegistry",
+    "get_app_loop",
     "get_container",
     "get_global_plugin_registry",
     "get_global_tool_registry",
     "hooks_registry",
+    "run_on_app_loop",
     # Providers
     "MarketplaceProviderBase",
     "ModelInfo",
@@ -471,6 +486,14 @@ __all__ = [
     "lint_preset_dir",
     "preset_operations",
     "PromptPair",
+    "IdempotencyKeyConflict",
+    "SessionNotFoundError",
+    "cancel_generation",
+    "generation_state",
+    "get_session",
+    "get_session_snapshot",
+    "list_generation_files",
+    "submit_generation",
     # Storage
     "PluginRepository",
     "SettingRepository",

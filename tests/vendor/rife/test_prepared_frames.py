@@ -219,7 +219,8 @@ def test_matches_rejects_a_changed_geometry():
 
 def test_matches_rejects_a_different_model_object():
     frames = _clip(n=1)
-    prepared = prepare_frame(_model(with_encoder=True), frames[0])
+    model = _model(with_encoder=True)
+    prepared = prepare_frame(model, frames[0])
 
     # A second model with the same shape and seed is still a different object:
     # its encoder weights are not the ones these features were computed with.

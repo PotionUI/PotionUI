@@ -129,8 +129,7 @@ async def _noop_report(progress):
 
 
 @pytest.fixture
-def resources(scratch_db, monkeypatch):
-    monkeypatch.setattr("src.platform.database.database.db", scratch_db)
+def resources(scratch_db):
     manager = RunPodResourceManager()
     manager.create_table()
     return manager

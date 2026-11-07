@@ -1,0 +1,374 @@
+import hashlib
+import io
+import json
+import zipfile
+from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
+import yaml
+from aiohttp import web
+from aiohttp.test_utils import TestServer
+
+from src.features.plugins import operations
+from src.features.plugins.catalog import CatalogEntry
+from src.features.plugins.operations import install as install_ops
+from src.features.plugins.operations.install import INSTALL_RECORD, STAGING_FOLDER, CatalogInstallError, CatalogItem, catalog_item
+from src.features.plugins.remote import ALLOW_LOCAL_SOURCES_ENV, FetchError
+from src.features.plugins.repository import PluginRepository
+from src.platform.plugins.registry import PluginRegistry, PluginState
+
+
+def _manifest(plugin_id: str, version: str, **extra) -> bytes:
+    manifest = {
+        "id": plugin_id,
+        "name": plugin_id,
+        "version": version,
+        "description": "Installed from a catalog",
+        "author": "Test",
+        "type": "backend-only",
+        "dependencies": {"python": ["numpy>=1.24"]},
+    }
+    manifest.update(extra)
+    return yaml.safe_dump(manifest).encode()
+
+
+def _archive(plugin_id: str, version: str, *, manifest: bytes = None, extra=()) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr(f"{plugin_id}/manifest.yml", manifest or _manifest(plugin_id, version))
+        bundle.writestr(f"{plugin_id}/README.md", f"{plugin_id} {version}\n")
+        for name, content in extra:
+            bundle.writestr(name, content)
+    return buffer.getvalue()
+
+
+def _write_plugin(folder: Path, plugin_id: str, version: str, *, record: bool) -> None:
+    folder.mkdir(parents=True)
+    (folder / "manifest.yml").write_bytes(_manifest(plugin_id, version))
+    if record:
+        (folder / INSTALL_RECORD).write_text(json.dumps({"id": plugin_id, "version": version}))
+
+
+class Catalog:
+    def __init__(self):
+        self.entries = []
+        self.archives = {}
+        self.server = None
+
+    def url(self, path: str = "/plugins.json") -> str:
+        return str(self.server.make_url(path))
+
+    def publish(self, plugin_id: str, version: str, archive: bytes = None, *, sha256: str = None, core: str = "0.1.0"):
+        archive = archive if archive is not None else _archive(plugin_id, version)
+        name = f"/releases/{plugin_id}-{version}.zip"
+        self.archives[name] = archive
+        self.entries = [entry for entry in self.entries if entry["id"] != plugin_id]
+        self.entries.append({
+            "id": plugin_id,
+            "name": plugin_id.title(),
+            "version": version,
+            "description": "",
+            "license": "GPL-3.0",
+            "requires": {"core": core, "plugin_api": None},
+            "release": {"archive": self.url(name), "sha256": sha256 or hashlib.sha256(archive).hexdigest()},
+        })
+
+    async def handle(self, request):
+        if request.path == "/plugins.json":
+            return web.json_response({"schema": 1, "plugins": self.entries})
+        if request.path in self.archives:
+            return web.Response(body=self.archives[request.path])
+        return web.Response(status=404)
+
+
+@pytest.fixture
+async def catalog(monkeypatch):
+    monkeypatch.setenv(ALLOW_LOCAL_SOURCES_ENV, "1")
+    served = Catalog()
+    app = web.Application()
+    app.router.add_get("/{tail:.*}", served.handle)
+    served.server = TestServer(app, host="127.0.0.1")
+    await served.server.start_server()
+    yield served
+    await served.server.close()
+
+
+@pytest.fixture
+def plugins(tmp_path, mock_db):
+    marketplace = tmp_path / "marketplace"
+    local = tmp_path / "local"
+    marketplace.mkdir()
+    local.mkdir()
+    registry = PluginRegistry(marketplace_dir=str(marketplace), local_dir=str(local))
+    registry.discover_plugins()
+    return registry, PluginRepository(), marketplace, local
+
+
+def _entry(plugin_id="demo", version="1.0.0", core="0.1.0", archive="https://example.com/demo.zip"):
+    return CatalogEntry(plugin_id, plugin_id, version, "", "", core, archive, "a" * 64 if archive else None)
+
+
+def test_an_entry_absent_from_this_install_is_available(plugins):
+    registry, _, _, local = plugins
+
+    assert catalog_item(_entry(), registry, local).status == "available"
+
+
+def test_an_entry_bundled_with_potionui_is_not_installable(plugins):
+    registry, _, marketplace, local = plugins
+    _write_plugin(marketplace / "demo", "demo", "1.0.0", record=False)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="2.0.0"), registry, local)
+
+    assert (item.status, item.installed_version) == ("bundled", "1.0.0")
+
+
+def test_a_hand_placed_local_folder_of_the_same_id_is_a_conflict(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=False)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="2.0.0"), registry, local)
+
+    assert item.status == "conflict"
+    assert "was not installed from a catalog" in item.reason
+
+
+def test_the_same_id_installed_under_another_folder_is_a_conflict(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo-checkout", "demo", "1.0.0", record=False)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="2.0.0"), registry, local)
+
+    assert item.status == "conflict"
+    assert "demo-checkout" in item.reason
+
+
+def test_a_folder_of_that_name_without_a_manifest_is_a_conflict(plugins):
+    registry, _, _, local = plugins
+    (local / "demo").mkdir()
+
+    assert catalog_item(_entry(), registry, local).status == "conflict"
+
+
+def test_a_catalog_install_of_the_listed_version_is_installed_and_of_another_version_can_be_updated(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True)
+    registry.discover_plugins()
+
+    assert catalog_item(_entry(version="1.0.0"), registry, local).status == "installed"
+    item = catalog_item(_entry(version="1.1.0"), registry, local)
+    assert (item.status, item.installed_version) == ("update", "1.0.0")
+
+
+def test_an_entry_without_a_release_or_for_another_core_is_not_installable(plugins):
+    registry, _, _, local = plugins
+
+    assert catalog_item(_entry(archive=None), registry, local).status == "unreleased"
+    item = catalog_item(_entry(core="9.0.0"), registry, local)
+    assert item.status == "incompatible"
+    assert "needs PotionUI >=9.0.0" in item.reason
+    assert catalog_item(_entry(core="02cce6fdd"), registry, local).status == "incompatible"
+
+
+async def test_reading_a_catalog_gives_each_entry_its_status(plugins, catalog):
+    registry, _, marketplace, _ = plugins
+    _write_plugin(marketplace / "bundled", "bundled", "1.0.0", record=False)
+    registry.discover_plugins()
+    catalog.publish("demo", "1.0.0")
+    catalog.publish("bundled", "2.0.0")
+    catalog.publish("future", "1.0.0", core=">=9")
+
+    listing = await operations.read_catalog(registry, catalog.url())
+
+    assert {item.entry.id: item.status for item in listing.items} == {
+        "demo": "available",
+        "bundled": "bundled",
+        "future": "incompatible",
+    }
+
+
+async def test_installing_puts_the_plugin_in_local_with_its_install_record_and_discovers_it_disabled(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    preset_loader = Mock()
+
+    result = await operations.install_from_catalog(repo, registry, catalog.url(), "demo", preset_loader=preset_loader)
+
+    preset_loader.reload.assert_not_called()
+
+    folder = local / "demo"
+    assert (folder / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
+    record = json.loads((folder / INSTALL_RECORD).read_text())
+    assert (record["catalog"], record["version"], record["sha256"]) == (
+        catalog.url(),
+        "1.0.0",
+        hashlib.sha256(catalog.archives["/releases/demo-1.0.0.zip"]).hexdigest(),
+    )
+    assert not (local / STAGING_FOLDER).exists()
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert (result.plugin_id, result.version, result.previous_version, result.enabled) == ("demo", "1.0.0", None, False)
+    assert result.dependencies_python == ["numpy>=1.24"]
+
+
+async def test_an_archive_whose_sha256_differs_from_the_catalog_writes_nothing(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0", sha256="0" * 64)
+
+    with pytest.raises(CatalogInstallError, match="sha256"):
+        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+
+    assert list(local.iterdir()) == []
+    assert registry.get_plugin("demo") is None
+
+
+async def test_an_archive_that_holds_another_plugin_or_version_writes_nothing(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "6.6.6")))
+
+    with pytest.raises(CatalogInstallError, match="holds demo 6.6.6"):
+        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+
+    assert list(local.iterdir()) == []
+
+
+async def test_an_archive_with_a_path_outside_its_folder_writes_nothing(plugins, catalog, tmp_path):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", extra=[("demo/../../escape.py", b"x")]))
+
+    with pytest.raises(ValueError, match="'..' part"):
+        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+
+    assert list(local.iterdir()) == []
+    assert not (tmp_path / "escape.py").exists()
+
+
+async def test_an_archive_with_an_invalid_manifest_writes_nothing(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "1.0.0", unknown_key=True)))
+
+    with pytest.raises(CatalogInstallError, match="manifest in the archive is not valid"):
+        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+
+    assert list(local.iterdir()) == []
+
+
+async def test_updating_replaces_the_catalog_install_and_keeps_the_plugin_enabled(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    preset_loader = Mock()
+
+    result = await operations.install_from_catalog(repo, registry, catalog.url(), "demo", preset_loader=preset_loader)
+
+    preset_loader.reload.assert_called_once_with()
+    assert (local / "demo" / "README.md").read_text() == "demo 1.1.0\n"
+    assert json.loads((local / "demo" / INSTALL_RECORD).read_text())["version"] == "1.1.0"
+    assert registry.get_plugin("demo").version == "1.1.0"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert (result.previous_version, result.enabled) == ("1.0.0", True)
+    assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+async def test_a_failed_update_leaves_the_installed_version_in_place(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    catalog.publish("demo", "1.1.0", _archive("demo", "1.1.0", extra=[("demo/CON", b"x")]))
+
+    with pytest.raises(ValueError):
+        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+@pytest.mark.parametrize("status", ["installed", "conflict", "bundled", "incompatible"])
+async def test_an_entry_that_is_not_installable_is_refused_with_its_reason(plugins, catalog, status):
+    registry, repo, marketplace, local = plugins
+    if status == "installed":
+        catalog.publish("demo", "1.0.0")
+        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    elif status == "conflict":
+        _write_plugin(local / "demo", "demo", "0.9.0", record=False)
+        catalog.publish("demo", "1.0.0")
+    elif status == "bundled":
+        _write_plugin(marketplace / "demo", "demo", "0.9.0", record=False)
+        catalog.publish("demo", "1.0.0")
+    else:
+        catalog.publish("demo", "1.0.0", core=">=9")
+    registry.discover_plugins()
+    before = sorted(path.name for path in local.rglob("*"))
+
+    with pytest.raises(CatalogInstallError):
+        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+
+    assert sorted(path.name for path in local.rglob("*")) == before
+
+
+async def test_a_plugin_the_catalog_does_not_list_is_refused(plugins, catalog):
+    registry, repo, _, _ = plugins
+    catalog.publish("demo", "1.0.0")
+
+    with pytest.raises(CatalogInstallError, match="lists no installable plugin 'other'"):
+        await operations.install_from_catalog(repo, registry, catalog.url(), "other")
+
+
+async def test_a_local_catalog_is_refused_without_the_explicit_setting(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    monkeypatch.delenv(ALLOW_LOCAL_SOURCES_ENV)
+
+    with pytest.raises(FetchError, match="Only https URLs"):
+        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    assert list(local.iterdir()) == []
+
+
+def test_an_update_of_a_folder_that_lost_its_install_record_replaces_nothing(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=False)
+    item = CatalogItem(_entry(version="1.1.0"), "update", installed_version="1.0.0")
+
+    with pytest.raises(CatalogInstallError, match="changed since the catalog was read"):
+        install_ops._place(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json")
+
+    assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
+    assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+def test_a_new_install_over_a_folder_that_appeared_meanwhile_replaces_nothing(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "0.1.0", record=False)
+    item = CatalogItem(_entry(), "available")
+
+    with pytest.raises(CatalogInstallError, match="appeared since the catalog was read"):
+        install_ops._place(_archive("demo", "1.0.0"), item, local, "https://example.com/plugins.json")
+
+    assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "0.1.0")
+    assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+def test_an_update_whose_move_fails_puts_the_installed_version_back(plugins, monkeypatch):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True)
+    item = CatalogItem(_entry(version="1.1.0"), "update", installed_version="1.0.0")
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(target) == local / "demo" and Path(source).name == "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(OSError, match="in use"):
+        install_ops._place(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json")
+
+    assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
+    assert [path.name for path in local.iterdir()] == ["demo"]

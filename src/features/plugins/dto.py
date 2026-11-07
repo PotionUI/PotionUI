@@ -13,6 +13,15 @@ class PluginSettingsUpdateRequest(BaseModel):
     settings: Dict[str, Any]
 
 
+class PluginCatalogRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class PluginCatalogInstallRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+    plugin_id: str = Field(min_length=1, max_length=64)
+
+
 # ========== Response DTOs ==========
 
 class PluginResponse(BaseModel):
@@ -96,3 +105,37 @@ class PluginScanResult(BaseModel):
     changed_plugin_ids: List[str] = Field(default_factory=list)
     removed_plugin_ids: List[str] = Field(default_factory=list)
     errored_plugin_ids: List[str] = Field(default_factory=list)
+
+
+class PluginCatalogEntryResponse(BaseModel):
+    id: str
+    name: str
+    version: str
+    description: str = ""
+    license: str = ""
+    requires_core: str
+    archive: Optional[str] = None
+    sha256: Optional[str] = None
+    status: str
+    reason: str = ""
+    installed_version: Optional[str] = None
+
+
+class PluginCatalogProblemResponse(BaseModel):
+    index: int
+    plugin_id: Optional[str] = None
+    reason: str
+
+
+class PluginCatalogResponse(BaseModel):
+    url: str
+    entries: List[PluginCatalogEntryResponse] = Field(default_factory=list)
+    problems: List[PluginCatalogProblemResponse] = Field(default_factory=list)
+
+
+class PluginCatalogInstallResponse(BaseModel):
+    plugin_id: str
+    version: str
+    previous_version: Optional[str] = None
+    enabled: bool
+    dependencies_python: List[str] = Field(default_factory=list)

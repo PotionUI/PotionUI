@@ -67,6 +67,8 @@ GATED = [
     ("get", "/api/plugins/p1/settings", None),
     ("put", "/api/plugins/p1/settings", {"settings": {"k": "v"}}),
     ("get", "/api/plugins/setup", None),
+    ("post", "/api/plugins/catalog", {"url": "https://example.com/plugins.json"}),
+    ("post", "/api/plugins/catalog/install", {"url": "https://example.com/plugins.json", "plugin_id": "p1"}),
 ]
 
 # Routes the normal UI needs for every authenticated user.

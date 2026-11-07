@@ -3214,6 +3214,83 @@ Two build modes:
 Both modes preserve upstream license notices (`legalComments: 'eof'`) from the bundled
 Svelte runtime and any other bundled dependency.
 
+## Publishing a plugin in a catalog
+
+A plugin that lives outside this repository installs in two ways: cloned or unpacked into
+`content/plugins/local/<id>/` by hand, then **Scan for plugins**; or from a catalog, with
+**Install from catalog** in Admin → Plugins. A catalog is a JSON file served over https:
+
+```json
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "id": "video-producer",
+      "name": "Video Producer",
+      "version": "0.1.0",
+      "description": "Storyboards, takes, editing and delivery for AI video.",
+      "license": "GPL-3.0",
+      "requires": { "core": "0.2.0" },
+      "release": {
+        "archive": "https://example.com/releases/video-producer-0.1.0.zip",
+        "sha256": "<64 lowercase hex digits>"
+      }
+    }
+  ]
+}
+```
+
+- `id` is the plugin folder name and the manifest `id`: lowercase letters, digits, `.`,
+  `_` and `-`, at most 64 characters, not ending with `.`, never a Windows device name
+  (`con`, `nul`, `com1`, ...).
+- `requires.core` is the PotionUI version the release needs: a bare version is a minimum
+  (`"0.2.0"` means `>=0.2.0`), and a range such as `">=0.2,<0.3"` is read as a Python
+  version specifier. An entry whose requirement this PotionUI does not meet, or that is not
+  a version at all, is listed as incompatible and cannot be installed. Other keys of
+  `requires`, and keys PotionUI does not know anywhere in an entry, are ignored.
+- `release` names the archive and its sha256; `null`, or both values `null`, lists the
+  plugin without a release. An entry that breaks these rules, or an id listed twice, is set
+  aside and shown with its reason; the others stay installable.
+
+The archive is a zip holding a single folder named after the id, with `manifest.yml` at
+its root and the built `frontend/dist/`: what `content/plugins/local/<id>/` should hold,
+without tests. PotionUI refuses the whole archive if an entry is outside that folder, has
+an absolute path, a `..`, `.` or empty part, a backslash or a `:`, a name Windows cannot
+hold (a device name, a trailing dot or space, a control character), is a link or a special
+file, is encrypted, differs from another only by letter case, or uses a file as a folder,
+and when the archive holds more than 10,000 entries or unpacks to more than 1 GiB. The
+manifest must be valid and carry the `id` and `version` of the catalog entry.
+
+What an install does, in order: it reads the catalog again on the server (the browser
+sends only the catalog URL and the plugin id), downloads the archive (at most 128 MiB),
+compares its sha256 with the catalog's before anything is written, unpacks it into a
+staging folder under `content/plugins/local/.potionui-install/`, checks the manifest,
+writes `.potionui-catalog.json` (the catalog URL, version, archive URL and sha256) into
+the plugin folder, moves the folder into `content/plugins/local/<id>/`, and scans for
+plugins. A new plugin is discovered disabled, like one placed by hand.
+
+The same id is never installed twice. A plugin that ships with PotionUI
+(`content/plugins/marketplace/`) is listed as bundled; a folder of that id that holds no
+`.potionui-catalog.json` (a clone, a plugin placed by hand), or the id found in another
+folder or in `POTIONUI_EXTRA_PLUGIN_DIRS`, is a conflict; neither is replaced. A plugin
+installed from a catalog whose version differs from the catalog's can be updated: the
+new folder replaces the old one whole, the old one comes back if the move fails, and an
+enabled plugin is enabled again on its new manifest, with presets, pipes and recipes
+rescanned.
+
+PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
+enable step checks it, and the install answer lists it so the admin knows what to
+install.
+
+Catalog and archive URLs must be https, to a host that resolves to public addresses
+only; every redirect is checked the same way, and the connection goes to the addresses
+that were checked. For a catalog on a local network or a test server, start PotionUI
+with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`, which also allows plain http. Installing,
+updating and reading a catalog are admin-only (`POST /api/plugins/catalog` and
+`POST /api/plugins/catalog/install`). The sha256 proves the archive is the one the
+catalog names; it says nothing about the catalog itself, so install only from catalogs
+you trust: a plugin runs with the same rights as PotionUI.
+
 ## Related
 
 - [Providers](providers.md) — writing a marketplace provider.

@@ -163,13 +163,18 @@ from src.plugin_api.presets import (
 )
 
 from src.plugin_api.generation import (
+    FormBindingError,
+    FormNotFoundException,
     IdempotencyKeyConflict,
+    NoBackendForEngineError,
+    NoEligibleBackendError,
     SessionNotFoundError,
     cancel_generation,
     generation_state,
     get_session,
     get_session_snapshot,
     list_generation_files,
+    preview_memory,
     submit_generation,
 )
 
@@ -486,13 +491,18 @@ __all__ = [
     "lint_preset_dir",
     "preset_operations",
     "PromptPair",
+    "FormBindingError",
+    "FormNotFoundException",
     "IdempotencyKeyConflict",
+    "NoBackendForEngineError",
+    "NoEligibleBackendError",
     "SessionNotFoundError",
     "cancel_generation",
     "generation_state",
     "get_session",
     "get_session_snapshot",
     "list_generation_files",
+    "preview_memory",
     "submit_generation",
     # Storage
     "PluginRepository",

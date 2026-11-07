@@ -6,13 +6,18 @@ import src.plugin_api as root
 
 REEXPORTS = {
     "src.plugin_api.generation": [
+        "FormBindingError",
+        "FormNotFoundException",
         "IdempotencyKeyConflict",
+        "NoBackendForEngineError",
+        "NoEligibleBackendError",
         "SessionNotFoundError",
         "cancel_generation",
         "generation_state",
         "get_session",
         "get_session_snapshot",
         "list_generation_files",
+        "preview_memory",
         "submit_generation",
     ],
     "src.plugin_api.hooks": ["get_app_loop", "run_on_app_loop"],

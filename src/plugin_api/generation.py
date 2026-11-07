@@ -1,19 +1,27 @@
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
+from src.features.backends.backend_registry import NoBackendForEngineError
+from src.features.forms.binding import FormBindingError
+from src.features.forms.exceptions import FormNotFoundException
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException, IdempotencyKeyConflict
 from src.features.generation.file_repository import file_repo
 from src.features.generation.policy import GenerationPolicy
+from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.generation.state_lookup import GenerationStateView, resolve_generation_state
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
+    "FormBindingError",
+    "FormNotFoundException",
     "GenerationNotFoundException",
     "GenerationRequest",
     "IdempotencyKeyConflict",
     "HistoryMediaRef",
     "LibraryMediaRef",
     "MediaRefError",
+    "NoBackendForEngineError",
+    "NoEligibleBackendError",
     "ResolvedMedia",
     "SessionNotFoundError",
     "SubmittedGeneration",
@@ -22,6 +30,7 @@ __all__ = [
     "get_session",
     "get_session_snapshot",
     "list_generation_files",
+    "preview_memory",
     "resolve_media_ref",
     "submit_generation",
 ]
@@ -103,6 +112,16 @@ async def submit_generation(
         "status": status.get("status") if isinstance(status, dict) else status,
         "queue_position": result.get("queue_position"),
     }
+
+
+async def preview_memory(user, request: Union[GenerationRequest, Dict[str, Any]]) -> Dict[str, Any]:
+    if user is None:
+        raise PermissionError("A user is required to preview a generation")
+    if not isinstance(request, GenerationRequest):
+        request = GenerationRequest.model_validate(request)
+    container = get_container()
+    _require_available_preset(container, user, request.preset_id)
+    return await container.generation_orchestrator.preview_memory(request, user.id)
 
 
 async def cancel_generation(user, generation_id: str) -> bool:

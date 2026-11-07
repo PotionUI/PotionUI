@@ -449,20 +449,127 @@ def test_park_hands_the_gpu_cache_back_once_the_resident_weights_left(monkeypatc
     assert seen == [True]
 
 
-def test_placing_a_parked_module_again_registers_nothing_and_frees_the_resident_segments(monkeypatch):
+def _resident_params(m: nn.Module, streamer: ModuleStreamer) -> list[nn.Parameter]:
+    return [p for p in m.parameters() if not any(arena.owns(p.data) for arena in streamer._arenas)]
+
+
+def _registry_events(fake: _FakeCudaHost, start: int) -> list[tuple]:
+    return [event for event in fake.events[start:] if event[0] in ("register", "unregister")]
+
+
+def test_placing_a_parked_module_again_registers_nothing_and_keeps_its_resident_segments(monkeypatch):
     fake = _fake_cuda_streamer(monkeypatch)
     m, streamer, plan = _parked_streamer(monkeypatch)
-    streamed_segments = set(fake.registered)
     streamer.park()
+    parked_segments = set(fake.registered)
     registers = fake.kinds().count("register")
 
     streamer.apply("cuda:0", plan, pin=True)
 
     assert fake.kinds().count("register") == registers
-    assert set(fake.registered) == streamed_segments
+    assert set(fake.registered) == parked_segments
     assert streamer.active and not streamer.parked
+    resident = _resident_params(m, streamer)
+    assert resident and streamer.held_gb * _GB == sum(p.numel() * p.element_size() for p in resident)
     streamer.teardown()
     assert fake.registered == {}
+
+
+def test_parking_again_copies_the_resident_weights_into_their_kept_segments(monkeypatch):
+    fake = _fake_cuda_streamer(monkeypatch)
+    m, streamer, plan = _parked_streamer(monkeypatch)
+    streamer.park()
+    streamer.apply("cuda:0", plan, pin=True)
+    resident = _resident_params(m, streamer)
+    for p in resident:
+        p.data.add_(1.0)
+    expected = [p.data.clone() for p in resident]
+    events = len(fake.events)
+
+    assert streamer.park() is True
+
+    assert _registry_events(fake, events) == []
+    assert all(any(arena.owns(p.data) for arena in streamer._arenas) for p in m.parameters())
+    assert all(torch.equal(p.data, value) for p, value in zip(resident, expected))
+    assert streamer.parked and streamer.held_gb == 0.0
+
+
+def test_tearing_down_a_module_placed_from_its_park_releases_its_kept_segments(monkeypatch):
+    fake = _fake_cuda_streamer(monkeypatch)
+    m, streamer, plan = _parked_streamer(monkeypatch)
+    streamer.park()
+    streamer.apply("cuda:0", plan, pin=True)
+    values = {name: p.data.clone() for name, p in m.named_parameters()}
+
+    streamer.teardown()
+
+    assert fake.registered == {}
+    assert streamer._arenas == [] and streamer.held_gb == 0.0
+    for name, p in m.named_parameters():
+        assert torch.equal(p.data, values[name])
+
+
+@pytest.mark.parametrize("budget_gb", [0.0, 1.0])
+def test_a_plan_change_after_a_park_registers_and_unregisters_nothing(monkeypatch, budget_gb):
+    fake = _fake_cuda_streamer(monkeypatch)
+    m, streamer, _ = _parked_streamer(monkeypatch)
+    streamer.park()
+    parked_segments = set(fake.registered)
+    events = len(fake.events)
+
+    streamer.apply("cuda:0", plan_residency_split(m, resident_budget_gb=budget_gb), pin=True)
+    assert streamer.park() is True
+
+    assert _registry_events(fake, events) == []
+    assert set(fake.registered) == parked_segments
+    assert all(any(arena.owns(p.data) for arena in streamer._arenas) for p in m.parameters())
+
+
+def test_placing_again_a_module_that_keeps_its_resident_copies_registers_nothing(monkeypatch):
+    fake = _fake_cuda_streamer(monkeypatch)
+    m, streamer, plan = _parked_streamer(monkeypatch)
+    streamer.park()
+    streamer.apply("cuda:0", plan, pin=True)
+    segments = set(fake.registered)
+    held_gb = streamer.held_gb
+    events = len(fake.events)
+
+    streamer.apply("cuda:0", plan, pin=True)
+
+    assert _registry_events(fake, events) == []
+    assert set(fake.registered) == segments
+    assert streamer.held_gb == held_gb > 0.0
+
+
+def test_a_resident_weight_whose_gpu_copy_changed_dtype_is_pinned_again_and_frees_its_old_segment(monkeypatch):
+    monkeypatch.setattr(partial, "_TEARDOWN_RELEASE_CHUNK_GB", ARENA_ALIGNMENT / _GB)
+    fake = _fake_cuda_streamer(monkeypatch)
+    m, streamer, plan = _parked_streamer(monkeypatch)
+    streamer.park()
+    streamer.apply("cuda:0", plan, pin=True)
+    weight = next(p for p in _resident_params(m, streamer) if p.numel() == 32 * 32)
+    old_segment = _segment_of(fake, streamer._held[id(weight)][1])
+    weight.data = weight.data.to(torch.float16)
+
+    assert streamer.park() is True
+
+    assert weight.data.dtype == torch.float16
+    assert any(arena.owns(weight.data) for arena in streamer._arenas)
+    assert old_segment not in fake.registered
+
+
+def test_release_unused_keeps_the_slots_it_is_told_to_keep(monkeypatch):
+    fake = _FakeCudaHost(monkeypatch)
+    params = _params(torch.randn(8, 8))
+    arena = PinnedArena(segment_bytes=1 << 20)
+    arena.pin(params)
+    params[0].data = params[0].data.clone()
+
+    arena.release_unused(keep={id(params[0])})
+    assert arena.registered_segments == 1
+
+    arena.release_unused()
+    assert arena.registered_segments == 0 and fake.registered == {}
 
 
 @pytest.mark.parametrize("release", ["unpark", "forget_parked"])

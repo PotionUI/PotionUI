@@ -755,6 +755,7 @@ class NativeModel:
         if self.module is None or streamer is None or not streamer.active or not streamer.pinned_gb:
             return False
         resident_gb = float(getattr(self.last_stream_plan, "resident_gb", 0.0) or 0.0)
+        resident_gb = max(0.0, resident_gb - streamer.held_gb)
         if resident_gb + self._STREAM_HOST_RESERVE_GB > get_system_memory().available_gb:
             return False
         if not streamer.park():

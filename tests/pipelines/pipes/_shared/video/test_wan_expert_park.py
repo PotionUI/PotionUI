@@ -289,7 +289,38 @@ def test_the_next_generation_places_the_parked_high_expert_again_without_pinning
 
     assert high.is_streaming and not high.is_parked
     assert host.registers == registers
-    assert set(host.registered) < parked_segments
+    assert set(host.registered) == parked_segments
+
+
+def test_later_generations_park_and_place_the_high_expert_in_the_memory_it_already_holds(host):
+    high, low = _experts()
+    _generate(high, low)
+    parked_segments = set(host.registered)
+    before = host.registers
+    _generate(high, low)
+    second = host.registers - before
+
+    _generate(high, low)
+
+    assert high.is_parked and not low.is_parked
+    assert set(host.registered) == parked_segments
+    assert second > 0 and host.registers - before == 2 * second
+
+
+def test_parking_the_high_expert_again_needs_free_ram_only_for_the_streaming_reserve(host, monkeypatch):
+    high, low = _experts()
+    _generate(high, low)
+    router = ExpertRouter(high, low, 0.875, _DEVICE, latents_shape=_SHAPE)
+    router(torch.zeros(_SHAPE), torch.tensor([0.95]), _CONTEXT)
+    resident_gb = high.last_stream_plan.resident_gb
+    assert high._streamer.held_gb == pytest.approx(resident_gb)
+    low.stream_to(_DEVICE, resident_gb)
+    assert low.last_stream_plan.resident_gb == pytest.approx(resident_gb)
+    tight = SystemMemory(total=64 * _GB, available=int((NativeModel._STREAM_HOST_RESERVE_GB + resident_gb / 2) * _GB))
+    monkeypatch.setattr(engine_mod, "get_system_memory", lambda: tight)
+
+    assert low.park() is False
+    assert high.park() is True
 
 
 def test_a_parked_high_expert_whose_placement_runs_out_of_memory_streams_in_full(host, monkeypatch):

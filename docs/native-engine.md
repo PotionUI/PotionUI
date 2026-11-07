@@ -234,8 +234,11 @@ close that gap:
   streamed weights stay in their arena, the resident ones are copied from the GPU into a new arena
   (per weight when no segment can be registered) and the allocator's cache is handed back to the
   driver. The next placement of a parked module registers and pins nothing, and each resident
-  weight frees its segment as it moves back to the GPU. `NativeModel.park` parks only a pinned
-  placement, and only while free host RAM covers the resident weights plus the streaming reserve;
+  weight keeps its page-locked copy while it runs on the GPU (`release_unused(keep=...)`), so the
+  next park copies it back into a segment that is already registered: only the first park of a
+  module registers new segments, and a weight whose GPU copy changed shape or dtype is pinned
+  again. `NativeModel.park` parks only a pinned placement, and only while free host RAM covers
+  the resident weights that have no such copy plus the streaming reserve;
   a parked model streamed again skips the host-RAM guard, since its weights are already
   page-locked. A full move or an offload unparks it (`unpark`: every weight back to pageable
   memory, every segment unregistered), an eviction drops its arenas (`forget_parked`), and a

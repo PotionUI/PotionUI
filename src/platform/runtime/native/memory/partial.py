@@ -36,6 +36,7 @@ order, greedy prefix resident) so it is unit-testable without a GPU.
 from __future__ import annotations
 
 import logging
+import weakref
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Sequence
 
@@ -322,6 +323,7 @@ class ModuleStreamer:
         self._pinned_bytes = 0
         self._parked = False
         self._arenas: list[PinnedArena] = []
+        self._held: dict[int, tuple[weakref.ReferenceType, torch.Tensor]] = {}
         # Prefetch toggle: ``None`` -> read ``$NATIVE_STREAM_PREFETCH`` (default off);
         # an explicit bool overrides (used by tests). ``_prefetcher`` is only built
         # when streaming on a real CUDA device with the toggle on.
@@ -391,6 +393,8 @@ class ModuleStreamer:
         streamed_ids = {id_ for id_ in map(_module_id_by_name(self.root), plan.streamed_names)}
         can_pin = pin and torch.cuda.is_available()
         self._remove_stagers()
+        from_park = self._parked or bool(self._held)
+        self._return_held()
         self._parked = False
         self._device = device
         self._streamed = []
@@ -404,6 +408,7 @@ class ModuleStreamer:
             self._drop_arenas()
         self._pinned = can_pin
         self._active = True
+        self._held = self._held_resident(modules, streamed_ids) if can_pin and from_park else {}
 
         for name, module in modules:
             if id(module) in streamed_ids and self._stages_buffers(module):
@@ -432,12 +437,12 @@ class ModuleStreamer:
         release_derived_caches(self.root)
         self._streamed_bytes = streamed_bytes
         for arena in self._arenas:
-            arena.release_unused()
+            arena.release_unused(keep=self._held)
         self._arenas = [arena for arena in self._arenas if arena.registered_segments]
         self._pinned_bytes = self._pinned_footprint(self._streamed) if can_pin else 0
         get_profiler().mark(
             "streamer.apply", streamed_gb=self.streamed_gb, pinned_gb=self.pinned_gb,
-            arena_segments=sum(arena.registered_segments for arena in self._arenas),
+            arena_segments=sum(arena.registered_segments for arena in self._arenas), held_gb=self.held_gb,
         )
         self._maybe_setup_prefetch(device, non_blocking)
         logger.debug(
@@ -466,6 +471,38 @@ class ModuleStreamer:
         for arena in self._arenas:
             arena.release()
         self._arenas = []
+
+    def _held_resident(
+        self, modules: list[tuple[str, nn.Module]], streamed_ids: set[int],
+    ) -> dict[int, tuple[weakref.ReferenceType, torch.Tensor]]:
+        held: dict[int, tuple[weakref.ReferenceType, torch.Tensor]] = {}
+        for _, module in modules:
+            if id(module) in streamed_ids:
+                continue
+            for p in module.parameters(recurse=False):
+                if self._arena_owning(p.data) is not None:
+                    held[id(p)] = (weakref.ref(p), p.data)
+        return held
+
+    def _return_held(self) -> None:
+        held, self._held = self._held, {}
+        for ref, view in held.values():
+            param = ref()
+            if param is None or param.data.data_ptr() == view.data_ptr():
+                continue
+            if param.data.shape != view.shape or param.data.dtype != view.dtype:
+                continue
+            view.copy_(param.data)
+            param.data = view
+
+    @property
+    def held_gb(self) -> float:
+        total = 0
+        for ref, view in self._held.values():
+            param = ref()
+            if param is not None and param.data.data_ptr() != view.data_ptr():
+                total += view.numel() * view.element_size()
+        return total / _BYTES_PER_GB
 
     def _arena_owning(self, data: torch.Tensor) -> PinnedArena | None:
         return next((arena for arena in self._arenas if arena.owns(data)), None)
@@ -616,6 +653,7 @@ class ModuleStreamer:
             if "stream_non_blocking" in module.__dict__:
                 del module.stream_non_blocking
         self._streamed = []
+        self._held = {}
         self._active = False
 
     @property
@@ -633,6 +671,7 @@ class ModuleStreamer:
         self._remove_stagers()
         modules = list(self.root.modules())
         try:
+            self._return_held()
             self._pin_into_arena(modules, self._device)
             for module in modules:
                 _park_own_tensors(module, self._arenas)
@@ -641,6 +680,9 @@ class ModuleStreamer:
             self._unpin_all()
             self._finish_teardown()
             return False
+        for arena in self._arenas:
+            arena.release_unused()
+        self._arenas = [arena for arena in self._arenas if arena.registered_segments]
         _release_idle_vram()
         self._finish_teardown()
         self._pinned_bytes = self._pinned_footprint(modules)

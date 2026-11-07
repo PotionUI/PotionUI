@@ -1,6 +1,3 @@
-# RIFE is deterministic and promptless: one clip in, one higher-fps clip out.
-# Everything the pipe needs fits on this tab; the only expert knob (flow
-# scale) lives on the Advanced tab.
 fields:
   - name: "input_video"
     type: "video"
@@ -13,11 +10,41 @@ fields:
     formula: "models"
     label: "Interpolation Model"
     required: true
-    ai_hint: "A RIFE 4.x IFNet checkpoint (rife46 through rife49). rife49 is the newest and the usual pick; any of the family works -- the loader detects the variant from the weights."
+    ai_hint: "A RIFE 4.x IFNet checkpoint: rife46 to rife49, or the 4.21 to 4.26 line. RIFE 4.25 is the author's default and suits AI-generated video; 4.26 is its sibling. The loader detects the variant from the weights and refuses 4.10 to 4.20, 4.24 and 4.25.lite."
     configuration:
       model_type: "vfi"
-      placeholder: "Select a RIFE checkpoint (rife46 - rife49)..."
+      placeholder: "Select a RIFE checkpoint (4.25, 4.26 or rife46 - rife49)..."
       filter_tags: "@config:vfi_tags"
+      recommendations:
+        - name: "flownet_v4.25.pth"
+          link: "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.25.pkl"
+          size: "24.6 MB"
+          description: "RIFE 4.25, the author's default for most scenes and suited to AI-generated video. MIT."
+        - name: "flownet_v4.26.pth"
+          link: "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.26.pkl"
+          size: "24.6 MB"
+          description: "RIFE 4.26, the latest release of the same network. MIT."
+        - name: "rife49.pth"
+          link: "https://huggingface.co/VMTamashii/rife49/resolve/main/rife49.pth"
+          size: "21.3 MB"
+          sha256: "e55fd00f3cc184e3c65961f4bb827a9da022e78eed36b055242c0ac30000d533"
+          description: "RIFE 4.9, the previous line. MIT."
+
+  - name: "target_fps"
+    type: "select"
+    formula: "interpolation"
+    label: "Target Frame Rate"
+    default: 0
+    ai_hint: "A fixed output rate, whatever the source rate: 16 fps to 24, 24 to 60, 25 to 50. Frames that fall on a source frame keep it; the others are synthesized at their exact instant, so the duration and the audio are unchanged. Multiply keeps the multiplier below."
+    configuration:
+      options:
+        - { label: "Multiply", value: 0, sub_label: "Use the frame rate multiplier below." }
+        - { label: "24 fps", value: 24 }
+        - { label: "25 fps", value: 25 }
+        - { label: "30 fps", value: 30 }
+        - { label: "48 fps", value: 48 }
+        - { label: "50 fps", value: 50 }
+        - { label: "60 fps", value: 60 }
 
   - name: "factor"
     type: "select"
@@ -29,6 +56,11 @@ fields:
       options:
         - { label: "2x (double fps)", value: 2, sub_label: "One synthesized frame between each source pair, e.g. 30fps -> 60fps." }
         - { label: "4x (quadruple fps)", value: 4, sub_label: "Three synthesized frames between each source pair, e.g. 30fps -> 120fps." }
+    reactions:
+      - when: { field: "target_fps", equals: 0 }
+        then: { set_disabled: false }
+      - when: { field: "target_fps", not_equals: 0 }
+        then: { set_disabled: true }
 
   - name: "keep_audio"
     type: "checkbox"

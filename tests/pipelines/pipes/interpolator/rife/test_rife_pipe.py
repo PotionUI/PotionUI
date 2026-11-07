@@ -129,7 +129,7 @@ class _FakeWriter:
 
 def test_config_spec_matches_contract():
     specs = {s.name: s for s in RifeInterpolatorPipe.configuration()}
-    assert set(specs) == {"model", "factor", "flow_scale", "keep_audio"}
+    assert set(specs) == {"model", "factor", "target_fps", "scene_detection", "flow_scale", "keep_audio"}
     assert specs["model"].param_type is dict and specs["model"].required is True
     assert specs["factor"].default == 2 and specs["factor"].choices == [2, 4]
     assert specs["flow_scale"].default == 1.0 and specs["flow_scale"].choices == [1.0, 0.5]

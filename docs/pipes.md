@@ -1949,7 +1949,7 @@ Restore inpainted region back into original full image (Fooocus-style)
 
 ### <a id="pipe-interpolator-rife"></a>`interpolator/rife`
 
-RIFE 4.x frame interpolation (2x/4x) with audio passthrough
+RIFE 4.x frame interpolation (2x/4x or a target frame rate) with audio passthrough
 
 **Inputs**
 
@@ -1970,6 +1970,8 @@ RIFE 4.x frame interpolation (2x/4x) with audio passthrough
 |---|---|---|---|---|---|---|---|
 | `model` | `dict` | — | yes | — | — | — | RIFE checkpoint ({file_path, name}) from the vfi model field |
 | `factor` | `int` | `2` | no | `2`, `4` | — | — | Interpolation factor: 2x inserts t=0.5; 4x inserts t=0.25/0.5/0.75 |
+| `target_fps` | `float` | `0.0` | no | — | 0.0 | 240.0 | Output frame rate; 0 multiplies the source rate by factor instead |
+| `scene_detection` | `bool` | `true` | no | — | — | — | With a target frame rate, hold the nearer frame instead of blending across a cut |
 | `flow_scale` | `float` | `1.0` | no | `1.0`, `0.5` | — | — | Flow-computation scale (0.5 for high-res >2K inputs) |
 | `keep_audio` | `bool` | `true` | no | — | — | — | Mux the source video's audio track into the output |
 

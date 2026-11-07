@@ -23,3 +23,20 @@ cases:
     checks:
       min_outputs: 1
       not_black: true
+
+  - name: "videotools-interpolate-60fps-fast"
+    mode: "interpolate"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      target_fps: 60
+      scene_detection: true
+      flow_scale: 1.0
+      keep_audio: true
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

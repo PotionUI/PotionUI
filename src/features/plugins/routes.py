@@ -68,7 +68,8 @@ class PluginController(BaseController):
                 icon_svg=page.icon_svg,
                 sidebar_order=page.sidebar_order,
                 show_in_sidebar=page.show_in_sidebar,
-                require_role=getattr(page, 'require_role', None)
+                require_role=getattr(page, 'require_role', None),
+                stylesheet=operations.page_stylesheet(self.registry, page.plugin_id, page.component_path),
             )
             for page in pages
         ]

@@ -34,6 +34,7 @@ from src.features.plugins.operations.frontend import (
     role_gate_open,
     get_frontend_extensions,
     get_hooks_catalog,
+    page_stylesheet,
 )
 
 __all__ = [
@@ -51,4 +52,5 @@ __all__ = [
     "role_gate_open",
     "get_frontend_extensions",
     "get_hooks_catalog",
+    "page_stylesheet",
 ]

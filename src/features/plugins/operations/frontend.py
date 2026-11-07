@@ -3,7 +3,7 @@ Manifest/registry-derived reads for the frontend: quick actions, sidebar
 widgets, renderer/extension-slot contributions, and the hooks catalog.
 """
 import hashlib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterator, List, Optional
 
 from src.features.plugins.repository import PluginRepository
@@ -131,6 +131,21 @@ def plugin_frontend_revision(manifest) -> str:
         digest.update(f"\0{path.name}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8", "replace"))
 
     return digest.hexdigest()[:16]
+
+
+def page_stylesheet(registry: PluginRegistry, plugin_id: str, component_path: str) -> Optional[str]:
+    manifest = registry.get_plugin(plugin_id)
+    if manifest is None:
+        return None
+    try:
+        stylesheet = PurePosixPath(component_path).with_suffix(".css")
+        dist = (manifest.plugin_dir / "frontend" / "dist").resolve()
+        candidate = (dist / stylesheet).resolve()
+    except (OSError, TypeError, ValueError):
+        return None
+    if not candidate.is_relative_to(dist) or not candidate.is_file():
+        return None
+    return stylesheet.as_posix()
 
 
 def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) -> Dict[str, Any]:

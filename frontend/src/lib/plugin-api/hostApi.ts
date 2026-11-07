@@ -11,6 +11,7 @@ export interface PluginFetchInit {
 	body?: unknown;
 	signal?: AbortSignal;
 	timeout?: number;
+	onUploadProgress?: (loaded: number, total: number) => void;
 }
 
 export interface PluginHostFetchApi {
@@ -46,6 +47,7 @@ export function createHostFetchApi(client: HostFetchClient): PluginHostFetchApi 
 	async function pluginFetch(path: string, init: PluginFetchInit = {}): Promise<Response> {
 		if (!SAME_ORIGIN_PATH.test(path)) throw new TypeError('Plugin requests must use a path on this app');
 		const isForm = typeof FormData !== 'undefined' && init.body instanceof FormData;
+		const onUploadProgress = init.onUploadProgress;
 		const response = await client
 			.getClient()
 			.request({
@@ -56,6 +58,7 @@ export function createHostFetchApi(client: HostFetchClient): PluginHostFetchApi 
 				signal: init.signal,
 				timeout: init.timeout ?? (isForm ? 0 : undefined),
 				withCredentials: true,
+				onUploadProgress: onUploadProgress && ((event) => onUploadProgress(event.loaded, event.total ?? 0)),
 				responseType: 'blob',
 				validateStatus: () => true
 			})

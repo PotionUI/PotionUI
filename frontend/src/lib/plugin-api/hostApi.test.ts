@@ -105,6 +105,21 @@ describe('host fetch api', () => {
 		expect(h.seen[2].timeout).toBe(0);
 	});
 
+	it('reports the upload progress of a multipart body', async () => {
+		const progress: [number, number][] = [];
+		const form = new FormData();
+		h.client.getClient().defaults.adapter = async (config) => {
+			config.onUploadProgress?.({ loaded: 5, total: 20, bytes: 5, lengthComputable: true });
+			config.onUploadProgress?.({ loaded: 20, total: undefined, bytes: 15, lengthComputable: false });
+			return { data: jsonBlob({ ok: true }), status: 200, statusText: '', headers: {}, config };
+		};
+		await h.host.json('/api/upload', { method: 'POST', body: form, onUploadProgress: (loaded, total) => progress.push([loaded, total]) });
+		expect(progress).toEqual([
+			[5, 20],
+			[20, 0]
+		]);
+	});
+
 	it('returns a Response whose blob() carries the bytes', async () => {
 		const e = harness({ status: 200, data: new Blob(['zip-bytes'], { type: 'application/zip' }) });
 		const res = await e.host.fetch('/api/export', { method: 'POST', body: '{}' });

@@ -2595,6 +2595,117 @@ itself part of this same layering system: inside a `PluginModal`, or inside an e
 using `layers.overlayLayer` as described above. Mounting it into a plain, unlayered
 `<div>` risks its own picker rendering under whatever else happens to be open.
 
+## Calling your plugin's backend from its page
+
+A plugin page (a `pages:` entry) is mounted by the host with `mountPlugin(el, props)`, or, when
+the module has no `mountPlugin`, as a Svelte component with the same props except
+`hostComponents`. The props are:
+
+- `pluginId`, `route` — your plugin's id and the page's route.
+- `api` — the HTTP client described below.
+- `user` — the signed-in user.
+- `navigate(path)` — moves the app to `path` without reloading it; `replaceUrl(path)` changes
+  the address without adding a history entry.
+- `hostComponents` — the same registry as `window.__potionui.components`.
+- `headerActions`, `setHeaderTitleHidden`, `setHeaderHidden` — see "Using the page header from
+  a plugin page" below.
+
+`api` is bound to your plugin. Paths are relative to your plugin's routes, which live under
+`/api/plugins/<plugin id>` (so `api.get('/projects')` calls `GET /api/plugins/<plugin id>/projects`).
+Every method goes through the host's authenticated client, the one behind `window.__potionui.api`
+(see "Using the app's UI components and Tailwind in a plugin frontend" below): it sends the
+current session token and the app's cookies, adopts a refreshed token, and ends the session on a
+401 as core pages do. Your routes can therefore depend on the usual authenticated user, and a
+long-lived page keeps working after the token is refreshed. `fetchFromApp` and `fetchRawFromApp`
+take a path on the app, from the site root; a URL of another host is refused with a `TypeError`
+before anything is sent.
+
+| Method | Sends | Resolves with |
+| --- | --- | --- |
+| `get(path)` | `GET` | the parsed JSON body, whatever the status |
+| `post(path, data)`, `put(path, data)` | `POST`/`PUT` with `data` as JSON | the parsed JSON body, whatever the status |
+| `delete(path)` | `DELETE` | the parsed JSON body, whatever the status |
+| `uploadFile(path, formData)` | `POST` with a `FormData` body (multipart) | the parsed JSON body, whatever the status |
+| `fetchFromApp(path)` | `GET` on an app route, `path` taken from the site root (`/api/backends`) | the parsed JSON body, whatever the status |
+| `request(method, path, data?)` | any method; `data`, when given, as JSON | the parsed body: JSON, or the text when it is not JSON, or `null` for a `204` or an empty body. Throws on an error status |
+| `patch(path, data)` | `request('PATCH', path, data)` | as `request` |
+| `fetchRaw(path, init?)` | your `init` (`method`, `headers`, `body`, `signal`, plus `timeout` and `onUploadProgress`) | the `Response` itself, for binary bodies and ranges. Never throws on a status |
+| `fetchRawFromApp(path, init?)` | as `fetchRaw`, on an app route taken from the site root (`/api/media/upload`) | as `fetchRaw` |
+| `download(path, filename?)` | `GET` through `fetchRaw`, then saves the body as a file | once the browser has been asked to save it. Throws on an error status |
+| `getToken()` | — | the current token, or `null`. HTTP calls never need it; it is only for a WebSocket you open yourself (a browser WebSocket cannot send headers, so pass it as `?token=`) |
+
+**Errors.** `get`, `post`, `put`, `delete`, `uploadFile` and `fetchFromApp` do not look at the
+HTTP status: they resolve with the parsed JSON of any response, error responses included, or
+with `null` when the body is not JSON (an HTML error page from a proxy, for example). They reject
+only when the network fails (a `TypeError`). They keep that behaviour because existing plugins
+read errors out of the body. For new code, prefer `request` and `patch`, which throw an `Error`
+(named `PluginApiError`) for any status outside 200–299 with:
+
+- `status` — the HTTP status;
+- `body` — the parsed body (JSON, text, or `null`);
+- `detail` — `body.detail` when the body has one (what FastAPI's `HTTPException` sends),
+  otherwise `undefined`;
+- `message` — `detail` when it is a string, `detail.message` when it is an object with a
+  message, otherwise `Request failed with status <status>`.
+
+A network failure rejects with a `TypeError`, and an aborted `signal` with an `AbortError`, as
+with the other methods.
+
+**Timeouts and progress.** `get`, `post`, `put`, `delete` and `fetchFromApp` time out after 30
+seconds, like `window.__potionui.api`. `uploadFile`, `request`, `patch`, `fetchRaw`,
+`fetchRawFromApp` and `download` have no timeout unless you pass `timeout` (in milliseconds) to
+`fetchRaw` or `fetchRawFromApp`; abort them with a `signal`. `onUploadProgress(loaded, total)` is
+called as the body of a `fetchRaw` or `fetchRawFromApp` goes up, which a progress bar for a
+`FormData` upload needs; `total` is `0` when the size is unknown. A `Blob` body without a
+`Content-Type` header is sent with the blob's own type. The response body is read in full before
+the `Response` resolves, so `fetchRaw` suits files and ranges, not a stream that never ends.
+
+```js
+export function mountPlugin(el, { api }) {
+  async function rename(id, name) {
+    try {
+      await api.patch(`/projects/${id}`, { name });
+    } catch (err) {
+      if (err.status === 409) showConflict(err.message);
+      else throw err;
+    }
+  }
+
+  async function exportProject(id, name) {
+    await api.download(`/projects/${id}/export.zip`, `${name}.zip`);
+  }
+
+  async function showThumbnail(img, renderId) {
+    const res = await api.fetchRaw(`/renders/${renderId}/thumbnail`);
+    if (res.ok) img.src = URL.createObjectURL(await res.blob());
+  }
+
+  async function uploadToLibrary(file, onPercent, signal) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const res = await api.fetchRawFromApp('/api/media/upload', {
+      method: 'POST',
+      body: form,
+      signal,
+      onUploadProgress: (loaded, total) => total && onPercent((loaded / total) * 100)
+    });
+    return res.json();
+  }
+  // ...
+}
+```
+
+**Downloads.** `download` fetches the file with the token, turns it into a `Blob`, clicks a
+hidden `<a download>` and removes it; the object URL is revoked a minute later. The file is
+named after `filename`, else after the response's `Content-Disposition` (`filename*=UTF-8''…`
+or `filename="…"`), else after the last segment of `path`. The whole body is held in memory
+before it is saved, which suits exports and documents rather than very large media files. A
+plain `<a href>` to your route would not work, since a link cannot carry the `Authorization`
+header.
+
+`request`, `patch`, `fetchRaw`, `fetchRawFromApp` and `download` are absent on hosts that
+predate them; check `if (api.request)` before relying on them.
+
 ## Keeping window shortcuts out of text fields
 
 A plugin page or modal that listens for keys on the window (Space to play, arrows to step,
@@ -2667,7 +2778,7 @@ message, variant?})` opens the app's confirm dialog and resolves to a boolean, a
 
 `window.__potionui.api` makes authenticated requests to the app, so a plugin never reads the
 token from `localStorage` or builds an `Authorization` header. `api.fetch(path, init?)` takes an
-absolute app path and an init of `{method, headers, body, signal, timeout}` and resolves to a
+absolute app path and an init of `{method, headers, body, signal, timeout, onUploadProgress}` and resolves to a
 standard `Response`, so `ok`, `status`, `json()` and `blob()` work as with `fetch`;
 `api.json(path, init?)` resolves to the parsed body, or `null` when the body is not JSON. A 4xx
 or 5xx answer resolves with its body rather than throwing; only a network failure rejects (a
@@ -2675,7 +2786,9 @@ or 5xx answer resolves with its body rather than throwing; only a network failur
 401 ends the session as it does for core pages (except on `/api/auth/login` and
 `/api/auth/register`), and cookies are sent. Calls time out after 30 seconds; pass `timeout: 0`
 for a long request. A `FormData` body is sent as multipart with no timeout, and a `Blob` body
-or a file download works through `api.fetch` the same way.
+or a file download works through `api.fetch` the same way. `onUploadProgress(loaded, total)` is
+called as the body goes up (`total` is `0` when the browser does not know the size). The
+response body is read in full before the `Response` resolves: there is no streaming.
 
 Because registration is automatic, the props of every component in `ui/`, `detail/` and
 `library/` are a public contract: a plugin may pass any of them, so renaming or removing one

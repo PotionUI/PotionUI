@@ -37,6 +37,7 @@
 	import PluginFiltersPopover from './plugins/PluginFiltersPopover.svelte';
 	import PluginCard from './plugins/PluginCard.svelte';
 	import PluginSetupPanel from './plugins/PluginSetupPanel.svelte';
+	import PluginCatalogModal from './plugins/PluginCatalogModal.svelte';
 	import {
 		PLUGIN_SORT_OPTIONS,
 		applyPluginFilters,
@@ -56,6 +57,8 @@
 	let scanning = $state(false);
 	let scanResult = $state<{ newPlugins: number; updatedPlugins: number } | null>(null);
 	let setupBusyStepId = $state<string | null>(null);
+	let catalogOpen = $state(false);
+	const isAdmin = $derived($authStore.user?.account_type === 'ADMIN');
 
 	const params = $derived($page.url.searchParams);
 	const section = $derived(pluginSectionFromSearchParams(params));
@@ -144,6 +147,10 @@
 				scanResult = null;
 			}, 5000);
 		}
+	}
+
+	async function refreshAfterCatalogInstall() {
+		await Promise.all([pluginStore.loadPlugins(), refreshPluginExtensions(), pluginStore.loadSetup()]);
 	}
 
 	async function togglePlugin(plugin: Plugin) {
@@ -283,6 +290,9 @@
 				<Button variant="primary" icon={scanning ? undefined : 'search'} loading={scanning} disabled={scanning} onclick={scanForPlugins}>
 					{scanning ? 'Scanning...' : 'Scan for Plugins'}
 				</Button>
+				{#if isAdmin}
+					<Button variant="secondary" icon="download" onclick={() => (catalogOpen = true)}>Install from catalog</Button>
+				{/if}
 			{/snippet}
 		</EmptyState>
 	{:else}
@@ -323,6 +333,9 @@
 				<Button variant="secondary" size="sm" icon={scanning ? undefined : 'search'} loading={scanning || $loading} disabled={scanning || $loading} onclick={scanForPlugins}>
 					{scanning ? 'Scanning...' : 'Scan for plugins'}
 				</Button>
+				{#if isAdmin}
+					<Button variant="secondary" size="sm" icon="download" onclick={() => (catalogOpen = true)}>Install from catalog</Button>
+				{/if}
 			{/snippet}
 
 			{#if detailOpen}
@@ -621,3 +634,7 @@
 		</LibraryShell>
 	{/if}
 </div>
+
+{#if isAdmin}
+	<PluginCatalogModal isOpen={catalogOpen} onClose={() => (catalogOpen = false)} onInstalled={refreshAfterCatalogInstall} />
+{/if}

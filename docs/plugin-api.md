@@ -619,9 +619,11 @@ knowing your plugin exists:
   isn't reachable through any route prefix, e.g. an admin-only setup wizard). The most
   recently declared mode wins if more than one is active; unregistering restores
   route-based resolution.
-- `onToolApplied(toolName, handler)` — runs `handler` with the parsed result of an
-  approved/confirmed call to `toolName`, before (and instead of) any core hardcoded
-  handling for that tool name.
+- `onToolApplied(toolName, handler)` — runs `handler` with the result of each call to
+  `toolName` in the conversation (its `data`, decoded from JSON): a tool that needs approval
+  once the user approves it, any other tool once the assistant's reply that ran it has
+  arrived. For an approved tool it runs before (and instead of) any core hardcoded handling
+  for that tool name. See "When `onToolApplied` runs" below.
 - `open()`, `close()`, `toggle()` — open, close or flip the global chat panel, the same
   panel the sidebar button and the keyboard shortcut drive. Pair them with
   `declareMode`/`provideContext` to open the assistant already focused on your page, for
@@ -660,6 +662,43 @@ unregisterContext();
 unregisterMode();
 unregisterTool();
 ```
+
+**When `onToolApplied` runs.** A tool declared with `requires_approval` reaches the handler
+when the user approves it; a rejected call never does. Any other tool reaches it when the
+assistant's reply that ran it is final: at the end of the streamed answer (including one the
+app reattaches to after a reload), when the app recovers a reply whose stream was cut, in the
+non-streaming fallback, and for the tools the assistant runs while it carries on after an
+approval. Such a call reaches the handler only when it succeeded and its `data` is JSON: a
+tool that returns plain text, a failed or skipped call, and a call that waits for approval or
+whose approval expired are not passed on. Nothing reaches the handler while the user has
+switched the assistant's tools off (Tools OFF in the composer).
+
+Each call reaches the handler at most once. A call is identified by its assistant message and
+its position in that message, so a reply that arrives twice (live, then again when the app
+recovers it after a dropped connection) does not run the handler again, and an approved call
+is never run a second time as an unapproved one. Opening an earlier conversation from the
+chat history does not replay its tool results, and a handler registered after a result
+arrived does not receive it.
+
+The handler may return `{status, message?}` with `status` one of `'applied'`, `'stale'`,
+`'partial'` or `'noop'`. When it reports `'stale'` or `'partial'` with a `message`, the chat
+shows that message in place of the assistant's narration for that reply, the same way it
+does for an approved tool; when one reply ran several such calls, the last message wins. It
+changes what is shown, not the stored conversation. A handler that throws is logged, and the
+reply's other calls still reach their handlers.
+
+```js
+const unregisterShot = window.__potionui.chat.onToolApplied('my_plugin_add_shot', (result) => {
+  if (result.project_id !== currentProjectId) {
+    return { status: 'stale', message: 'That shot belongs to another project; it was not added here.' };
+  }
+  timeline.insertShot(result.shot);
+  return { status: 'applied' };
+});
+```
+
+On a host that predates this, only approved calls reach the handler, and nothing on
+`window.__potionui` tells the two apart.
 
 ## Contributing an LLM configuration type
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import {
 	provideContext,
@@ -7,9 +7,21 @@ import {
 	declaredMode,
 	onToolApplied,
 	dispatchToolApplied,
+	dispatchToolResult,
+	dispatchExecutedToolResults,
+	toolResultId,
 	resetPageContext,
+	type ExecutedTool,
 	type ToolAppliedHandler
 } from './pageContext';
+
+function executed(tool_name: string, data: unknown, extra: Partial<ExecutedTool> = {}): ExecutedTool {
+	return {
+		tool_name,
+		result: { success: true, data: typeof data === 'string' ? data : JSON.stringify(data) },
+		...extra
+	};
+}
 
 describe('pageContext', () => {
 	beforeEach(() => {
@@ -130,7 +142,194 @@ describe('pageContext', () => {
 		});
 	});
 
+	describe('dispatchToolResult', () => {
+		it('parses the JSON data and runs the handlers once per result id', () => {
+			const seen: Record<string, unknown>[] = [];
+			onToolApplied('save_shot', (result) => {
+				seen.push(result);
+			});
+
+			const first = dispatchToolResult(toolResultId('m1', 0), 'save_shot', '{"shot":3}');
+			const again = dispatchToolResult(toolResultId('m1', 0), 'save_shot', '{"shot":3}');
+
+			expect(first).toEqual({ data: { shot: 3 }, outcome: true });
+			expect(again).toBeNull();
+			expect(seen).toEqual([{ shot: 3 }]);
+		});
+
+		it('hands back the parsed data when no plugin handles the tool, so core can apply it', () => {
+			expect(dispatchToolResult('m1:0', 'propose_form_changes', '{"action":"apply_form_changes"}')).toEqual({
+				data: { action: 'apply_form_changes' },
+				outcome: false
+			});
+		});
+
+		it('skips a result whose data is not JSON', () => {
+			const handler = vi.fn();
+			onToolApplied('save_shot', handler);
+
+			expect(dispatchToolResult('m1:0', 'save_shot', 'Saved shot 3.')).toBeNull();
+			expect(dispatchToolResult('m1:1', 'save_shot', undefined)).toBeNull();
+			expect(handler).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('dispatchExecutedToolResults', () => {
+		it('runs the handlers of every tool that executed without approval', () => {
+			const shots: Record<string, unknown>[] = [];
+			const scenes: Record<string, unknown>[] = [];
+			onToolApplied('save_shot', (result) => {
+				shots.push(result);
+			});
+			onToolApplied('save_scene', (result) => {
+				scenes.push(result);
+			});
+
+			const outcome = dispatchExecutedToolResults({
+				id: 'm1',
+				tool_executions: [executed('save_shot', { shot: 1 }), executed('save_scene', { scene: 2 }, { approval_status: null })]
+			});
+
+			expect(outcome).toBeNull();
+			expect(shots).toEqual([{ shot: 1 }]);
+			expect(scenes).toEqual([{ scene: 2 }]);
+		});
+
+		it('leaves out tools that wait for approval, were rejected, failed, expired, were skipped, still run or returned text', () => {
+			const handler = vi.fn();
+			onToolApplied('save_shot', handler);
+
+			dispatchExecutedToolResults({
+				id: 'm1',
+				tool_executions: [
+					executed('save_shot', { status: 'pending_approval', shot: 1 }, { approval_status: 'pending' }),
+					executed('save_shot', { shot: 2 }, { approval_status: 'rejected' }),
+					executed('save_shot', { shot: 3 }, { approval_status: 'failed' }),
+					executed('save_shot', { status: 'pending_approval', shot: 7 }, { approval_status: 'expired' }),
+					executed('save_shot', { shot: 4 }, { skipped: true }),
+					executed('save_shot', { shot: 5 }, { result: { success: false, data: '{"shot":5}' } }),
+					executed('save_shot', { shot: 6 }, { status: 'running' }),
+					executed('save_shot', 'Saved.')
+				]
+			});
+
+			expect(handler).not.toHaveBeenCalled();
+		});
+
+		it('delivers the confirmed result of a tool approved after the message was finalized', () => {
+			const handler = vi.fn();
+			onToolApplied('save_shot', handler);
+			const message = {
+				id: 'm1',
+				tool_executions: [executed('save_shot', { status: 'pending_approval', shot: 1 }, { approval_status: 'pending' })]
+			};
+
+			dispatchExecutedToolResults(message);
+			expect(handler).not.toHaveBeenCalled();
+
+			const dispatched = dispatchToolResult(toolResultId('m1', 0), 'save_shot', '{"shot":1,"version":4}');
+			expect(dispatched?.outcome).toBe(true);
+			expect(handler).toHaveBeenCalledTimes(1);
+			expect(handler).toHaveBeenCalledWith({ shot: 1, version: 4 });
+
+			dispatchExecutedToolResults({ id: 'm1', tool_executions: [executed('save_shot', { shot: 1, version: 4 }, { approval_status: 'approved' })] });
+			expect(handler).toHaveBeenCalledTimes(1);
+		});
+
+		it('delivers a tool the host approved before the message was finalized', () => {
+			const handler = vi.fn();
+			onToolApplied('save_shot', handler);
+
+			dispatchExecutedToolResults({ id: 'm1', tool_executions: [executed('save_shot', { shot: 1 }, { approval_status: 'approved' })] });
+
+			expect(handler).toHaveBeenCalledWith({ shot: 1 });
+		});
+
+		it('runs a handler once when the same message is delivered live and then recovered', () => {
+			const handler = vi.fn();
+			onToolApplied('save_shot', handler);
+			const message = { id: 'm1', tool_executions: [executed('save_shot', { shot: 1 })] };
+
+			dispatchExecutedToolResults(message);
+			dispatchExecutedToolResults({ ...message, tool_executions: [...message.tool_executions] });
+
+			expect(handler).toHaveBeenCalledTimes(1);
+		});
+
+		it('never runs an approved tool a second time', () => {
+			const handler = vi.fn();
+			onToolApplied('apply_storyboard', handler);
+			dispatchToolResult(toolResultId('m1', 1), 'apply_storyboard', '{"shots":2}');
+
+			dispatchExecutedToolResults({
+				id: 'm1',
+				tool_executions: [executed('list_shots', { shots: [] }), executed('apply_storyboard', { shots: 2 })]
+			});
+
+			expect(handler).toHaveBeenCalledTimes(1);
+		});
+
+		it('tells apart two executions of the same tool in one message', () => {
+			const handler = vi.fn();
+			onToolApplied('save_shot', handler);
+
+			dispatchExecutedToolResults({
+				id: 'm1',
+				tool_executions: [executed('save_shot', { shot: 1 }), executed('save_shot', { shot: 2 })]
+			});
+
+			expect(handler.mock.calls.map(([result]) => result)).toEqual([{ shot: 1 }, { shot: 2 }]);
+		});
+
+		it('does nothing for a message without an id', () => {
+			const handler = vi.fn();
+			onToolApplied('save_shot', handler);
+
+			expect(dispatchExecutedToolResults({ tool_executions: [executed('save_shot', { shot: 1 })] })).toBeNull();
+			expect(handler).not.toHaveBeenCalled();
+		});
+
+		it('reports the last stale or partial outcome and ignores applied and noop ones', () => {
+			onToolApplied('save_shot', () => ({ status: 'stale', message: 'The shot list changed.' }));
+			onToolApplied('save_scene', () => ({ status: 'applied' }));
+			onToolApplied('save_take', () => ({ status: 'noop' }));
+
+			const outcome = dispatchExecutedToolResults({
+				id: 'm1',
+				tool_executions: [executed('save_shot', {}), executed('save_scene', {}), executed('save_take', {})]
+			});
+
+			expect(outcome).toEqual({ status: 'stale', message: 'The shot list changed.' });
+		});
+
+		it('keeps going after a handler throws', () => {
+			const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const handler = vi.fn();
+			onToolApplied('save_shot', () => {
+				throw new Error('plugin bug');
+			});
+			onToolApplied('save_scene', handler);
+
+			dispatchExecutedToolResults({
+				id: 'm1',
+				tool_executions: [executed('save_shot', {}), executed('save_scene', { scene: 1 })]
+			});
+
+			expect(handler).toHaveBeenCalledWith({ scene: 1 });
+			expect(errors).toHaveBeenCalled();
+			errors.mockRestore();
+		});
+	});
+
 	describe('resetPageContext', () => {
+		it('forgets which tool results were already dispatched', () => {
+			dispatchToolResult('m1:0', 'save_shot', '{}');
+
+			resetPageContext();
+
+			expect(dispatchToolResult('m1:0', 'save_shot', '{}')).not.toBeNull();
+		});
+
 		it('clears providers, mode declarations, and tool handlers', () => {
 			provideContext('wizard', () => ({ step: 2 }));
 			declareMode('comfyui-import-wizard');

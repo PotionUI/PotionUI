@@ -94,6 +94,7 @@ export interface TurnControllerDeps {
 	 * non-streaming fallback — both are "the turn produced a final answer"
 	 * moments where the component clears its selected-image composer state. */
 	onAnswered?: () => void;
+	onAssistantFinalized?: (message: UnifiedChatMessageData) => void;
 }
 
 function defaultTick(): Promise<void> {
@@ -299,7 +300,8 @@ export function createStreamEventHandler(
 		if (!owned.isCurrent()) return;
 
 		if (matched) {
-			owned.updateMessages((msgs) => applyDurableRecovery(msgs, mapPersistedMessage(matched!)));
+			const recovered = mapPersistedMessage(matched);
+			if (owned.updateMessages((msgs) => applyDurableRecovery(msgs, recovered))) d.onAssistantFinalized?.(recovered);
 			return;
 		}
 
@@ -408,8 +410,8 @@ export function createStreamEventHandler(
 			// applying it would "finalize" the message on stale/partial
 			// local content right before recovery replaces it anyway.
 			// Skip straight to recovery instead of flashing that state.
-			if (!event.data?.truncated) {
-				owned.applyStreamEvent(event);
+			if (!event.data?.truncated && owned.applyStreamEvent(event) && event.data?.assistant_message) {
+				d.onAssistantFinalized?.(mapPersistedMessage(event.data.assistant_message));
 			}
 			d.onAnswered?.();
 			if (needsDurableRecovery('done', partial)) await recoverDurableMessage();
@@ -707,7 +709,23 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 				if (response.success && response.data) {
 					const userMsg = response.data.user_message;
 					const assistantMsg = response.data.assistant_message;
-					owned.updateMessages((msgs) => {
+					const assistantMessage: UnifiedChatMessageData = {
+						id: assistantMsg.id,
+						role: assistantMsg.role as 'assistant',
+						content: assistantMsg.content,
+						timestamp: assistantMsg.created_at
+							? (parseServerDate(assistantMsg.created_at)?.getTime() ?? Date.now())
+							: Date.now(),
+						tokens_used: assistantMsg.tokens_used,
+						prompt_tokens: assistantMsg.prompt_tokens,
+						completion_tokens: assistantMsg.completion_tokens,
+						tool_executions:
+							(assistantMsg as any).metadata?.tool_executions ||
+							(assistantMsg as any).tool_executions ||
+							[],
+						metadata: (assistantMsg as any).metadata || undefined
+					};
+					const added = owned.updateMessages((msgs) => {
 						const updatedMessages = msgs.map((m, idx) => {
 							if (idx === msgs.length - 1 && m.role === 'user') {
 								return {
@@ -720,26 +738,9 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 							}
 							return m;
 						});
-						return [
-							...updatedMessages,
-							{
-								id: assistantMsg.id,
-								role: assistantMsg.role as 'assistant',
-								content: assistantMsg.content,
-								timestamp: assistantMsg.created_at
-									? (parseServerDate(assistantMsg.created_at)?.getTime() ?? Date.now())
-									: Date.now(),
-								tokens_used: assistantMsg.tokens_used,
-								prompt_tokens: assistantMsg.prompt_tokens,
-								completion_tokens: assistantMsg.completion_tokens,
-								tool_executions:
-									(assistantMsg as any).metadata?.tool_executions ||
-									(assistantMsg as any).tool_executions ||
-									[],
-								metadata: (assistantMsg as any).metadata || undefined
-							}
-						];
+						return [...updatedMessages, assistantMessage];
 					});
+					if (added) d.onAssistantFinalized?.(assistantMessage);
 					d.onAnswered?.();
 				} else {
 					owned.patch({ error: response.error || 'Failed to send message' });

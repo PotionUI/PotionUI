@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { getFilledIconPaths, getIconPath } from '../utils/IconLibrary';
+	import { getFilledIconPaths, iconLookup } from '../utils/IconLibrary';
 
 	export let name: string;
 	export let className: string = 'w-5 h-5';
 	export let strokeWidth: number = 2;
 
-	$: iconPath = getIconPath(name);
+	$: iconPath = $iconLookup(name);
 	$: filledPaths = getFilledIconPaths(name);
 </script>
 

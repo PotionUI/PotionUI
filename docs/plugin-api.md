@@ -2869,6 +2869,36 @@ token classes (`bg-surface-2`, `text-fg-muted`, `border-line`, ...) and arbitrar
 in plugin markup. Rebuild the app frontend after adding new classes; the plugin's own `dist/`
 carries no Tailwind CSS. Use the token classes only, as in the app.
 
+### Adding your own icons
+
+Every host component that takes an icon name (`Icon`, `Button`, `IconButton`, the items of
+`SegmentedControl`, ...) looks the name up in the app's icon library. A plugin adds its own
+icons with `window.__potionui.registerIcon(name, paths)`:
+
+```js
+window.__potionui.registerIcon('my-plugin-clapperboard', [
+  'M4 11v8a1 1 0 001 1h14a1 1 0 001-1v-8H4z',
+  'M4 11l1.5-6 15 3.5-.9 2.5'
+]);
+```
+
+`paths` is the `d` attribute of one `<path>` (a string) or of several (an array), drawn
+like the app's own icons: a 24×24 view box, stroked with `currentColor`, no fill.
+
+`registerIcon` returns `true` when the icon was added. It returns `false` and changes nothing
+when the name already exists, whether it is one of the app's icons or one a plugin
+registered earlier, or when the name or one of the paths is empty: a plugin can never replace
+an icon the app or another plugin relies on. Prefix your names with your plugin's id to stay
+clear of names the app may add later.
+
+An icon can be registered at any time: an `Icon` already on screen under that name (showing
+the first letter of the name as its fallback) redraws itself with the new paths. The
+registration lasts until the page is reloaded, so register your icons when your plugin
+starts, for example at the top of `mountPlugin`.
+
+`registerIcon` is absent on hosts that predate it; call it as
+`window.__potionui.registerIcon?.(...)`.
+
 ### A list page like History and Models
 
 `LibraryPage` is the app's list-page frame with props only, so a plugin page looks and behaves

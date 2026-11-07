@@ -34,6 +34,7 @@ import { findModelType, modelTypeDefinitions } from '$lib/stores/modelTypes.svel
 import { modelTypePresentation, type ModelTypePresentation } from '$lib/utils/modelPresentation';
 import type { ModelTypeDefinition } from '$lib/types/models';
 import { holdKeyboard, releaseKeyboardHold } from '$lib/services/keyboard';
+import { registerIcon } from '$lib/utils/IconLibrary';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -138,6 +139,7 @@ export interface PotionUIHostApi {
 	generation: { prepareRequest: typeof prepareRequestFromSession };
 	imageEditor: PluginImageEditorApi;
 	modelTypes: PluginModelTypesApi;
+	registerIcon: typeof registerIcon;
 }
 
 const TOAST_LEVELS: readonly ToastType[] = ['success', 'error', 'info', 'warning'];
@@ -230,7 +232,8 @@ export function initHostApi(): void {
 				return definition ? { ...definition } : undefined;
 			},
 			presentation: (id) => modelTypePresentation(id)
-		}
+		},
+		registerIcon
 	};
 
 	w.__potionui = host;

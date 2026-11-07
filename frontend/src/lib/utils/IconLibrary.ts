@@ -1,3 +1,4 @@
+import { writable, type Readable } from 'svelte/store';
 import { spriteFilledGlyphs, spriteGlyphs } from './iconGlyphs';
 
 // Centralized icon library with all custom and heroicons
@@ -527,6 +528,24 @@ export function iconSvgMarkup(name: string): string {
 // Helper function to check if an icon exists
 export function hasIcon(name: string): boolean {
 	return name in iconPaths;
+}
+
+type IconLookup = (name: string | undefined) => string | string[] | null;
+
+const lookup = writable<IconLookup>(getIconPath);
+
+export const iconLookup: Readable<IconLookup> = { subscribe: lookup.subscribe };
+
+function isIconPathList(paths: unknown): paths is string | string[] {
+	if (typeof paths === 'string') return paths.length > 0;
+	return Array.isArray(paths) && paths.length > 0 && paths.every((path) => typeof path === 'string' && path.length > 0);
+}
+
+export function registerIcon(name: string, paths: string | string[]): boolean {
+	if (typeof name !== 'string' || !name || name in iconPaths || !isIconPathList(paths)) return false;
+	iconPaths[name] = typeof paths === 'string' ? paths : [...paths];
+	lookup.set((iconName) => getIconPath(iconName));
+	return true;
 }
 
 // Get all icon names (useful for documentation/debugging)

@@ -523,8 +523,11 @@ pixel (`CAUSAL3D_DECODE_MB_PER_LATENT_PX`, the value of the engine's own constan
 8× Wan 2.1 VAE, times `(spatial_downscale / 8)²`: 4.8 for an undeclared 16× VAE, an upper bound that
 errs towards tiles rather than towards an OOM, which is fatal under WSL2. The Wan 2.2 5B
 (`wan_ti2v_5b`) declares 2.6, the worst allocated cost of its later latent frames rounded up to the
-tenth. The chain pipe hands the decode the spec of the set a segment runs on, so a 5B segment is
-priced like a 5B text-to-video.
+tenth. The 8× specs that load the Wan 2.1 VAE (`wan_t2v_14b`, `wan_i2v_14b`, `wan22_i2v_14b`, the
+Wan 2.1 1.3B included) declare 0.8, measured the same way in bf16; fp16, the compute dtype of a card
+without bf16, has the same element size and is not measured. The engine's own causal-3D decode, which
+other families that load this VAE go through, keeps 1.2. The chain pipe hands the decode the spec of
+the set a segment runs on, so a 5B segment is priced like a 5B text-to-video.
 
 The declared costs are measured on a 12 GB RTX 4070 Ti under WSL 2, torch 2.12.1, with the calls of
 this page (`vae.decode`, `chunked_decode_causal3d(accumulate_device="cpu")`,
@@ -539,6 +542,9 @@ whole card and under an 8 GiB allocator cap wherever the window fits:
 | Wan 2.2 (5B) | 1280×704 whole | 3,520 | 3,280 MiB | 8,897 MiB (2.53 per px) | 9,122 MiB / out of memory under 9 GiB |
 | Wan 2.2 (5B) | 40 px tile | 1,600 | | 4,011 MiB (2.51 per px) | 4,616 / 5,690 MiB |
 | Wan 2.2 (5B) | 24 px tile | 576 | | 1,453 MiB (2.52 per px) | 1,837 / 1,916 MiB |
+| Wan 2.1 | 832×480 whole | 6,240 | 883 MiB | 4,040 MiB (0.65 per px) | 4,915 / 4,982 MiB |
+| Wan 2.1 | 40 px tile | 1,600 | | 1,026 MiB (0.64 per px) | 1,204 / 1,454 MiB |
+| Wan 2.1 | 32 px tile | 1,024 | | 657 MiB (0.64 per px) | 783 / 878 MiB |
 
 The first latent frame decodes to one pixel frame and costs a third of the later ones, which decode
 to four pixel frames each and keep the causal `feat_cache`. From the third latent frame on, the peak
@@ -549,14 +555,17 @@ The decode tiles below these free VRAM readings, with the VAE on the card (all f
 
 | VAE, cost | 832×480 | 960×544 | 1280×720 | 1488×624 | 1920×1080 |
 |---|---:|---:|---:|---:|---:|
-| 8× (Wan 2.1 VAE), 1.2 | 12.42 GB | 15.42 GB | 25.17 GB | 25.34 GB | 53.29 GB |
+| 8× (Wan 2.1 VAE), 0.8, declared | 9.17 GB | 11.17 GB | 17.67 GB | 17.78 GB | 36.42 GB |
+| 8× undeclared, 1.2 | 12.42 GB | 15.42 GB | 25.17 GB | 25.34 GB | 53.29 GB |
 
 | VAE, cost | 832×480 | 1280×704 | 1920×1088 |
 |---|---:|---:|---:|
 | 16× (Wan 2.2 VAE, 5B), 2.6 | 7.95 GB | 14.58 GB | 30.29 GB |
 
-Before the decode, the eviction targets the same frame plus the VAE's weights: at 1.2, 25.5 GB for a
-1280×720 frame and 53.6 GB for a 1920×1080 frame.
+A 12 GB card has about 9.4 GB free with the VAE on it: at 0.8 an 832×480 clip decodes in chunks of one
+latent frame, as a whole decode, and tiles from 960×544. Before the decode, the eviction targets the
+same frame plus the VAE's weights: at 0.8, 17.99 GB for a 1280×720 frame and 36.74 GB for a 1920×1080
+frame.
 
 ### Running out of VRAM, and the driver-error OOM
 

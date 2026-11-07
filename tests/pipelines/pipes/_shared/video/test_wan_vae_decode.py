@@ -500,3 +500,33 @@ def test_the_5b_decodes_a_121_frame_clip_whole_or_in_tiles_by_its_measured_cost(
     wan_experts._decode_pixels(_the_5b_conductor(Mock(spec=["new_feat_cache"])), torch.zeros(1, 48, 31, *latent_hw))
 
     assert calls == [decoded]
+
+
+@pytest.mark.parametrize("variant", ["wan_t2v_14b", "wan_i2v_14b", "wan22_i2v_14b"])
+def test_the_wan21_vae_prices_its_decode_by_the_cost_measured_for_it(monkeypatch, variant):
+    seen = _sizing_spies(monkeypatch, need_gb=100.0)
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 1.0)
+
+    decode_wan_video(_ctx(spec=arch_registry.get("wan", variant)), torch.zeros(1, 16, 1, 4, 4))
+
+    assert seen["need"]["decode_mb_per_latent_px"] == 0.8
+    assert seen["tile"]["decode_mb_per_latent_px"] == 0.8
+
+
+@pytest.mark.parametrize("free_gb,decoded", [
+    (9.4, ("whole", 1)),
+    (9.0, ("tiles", 48)),
+    (22.0, ("whole", 2)),
+])
+def test_an_81_frame_480p_wan21_clip_decodes_whole_from_a_12gb_card_by_its_measured_cost(monkeypatch, free_gb, decoded):
+    calls = []
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: free_gb)
+    monkeypatch.setattr(wan_experts, "_decode_latent",
+                        lambda vae_module, z, chunk_frames: calls.append(("whole", chunk_frames)) or z)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d",
+                        lambda vae, z, **kw: calls.append(("tiles", kw["tile_size"])) or z)
+    c = _ctx(Mock(spec=["new_feat_cache"]), spec=arch_registry.get("wan", "wan_t2v_14b"))
+
+    wan_experts._decode_pixels(c, torch.zeros(1, 16, 21, 60, 104))
+
+    assert calls == [decoded]

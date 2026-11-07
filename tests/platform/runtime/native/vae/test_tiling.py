@@ -370,3 +370,26 @@ def test_with_its_measured_cost_a_5b_frame_decodes_whole_at_832x480_on_12gb_and_
     assert causal3d_decode_tile((30, 52), 5.5, decode_mb_per_latent_px=declared) == 24
     assert causal3d_decode_tile((44, 80), 5.5, decode_mb_per_latent_px=declared) == 32
     assert causal3d_decode_tile((44, 80), 9.4, decode_mb_per_latent_px=declared) == 40
+
+
+@pytest.mark.parametrize("variant", ["wan_t2v_14b", "wan_i2v_14b", "wan22_i2v_14b"])
+def test_the_wan21_vae_specs_declare_a_measured_cost_under_the_8x_constant(variant):
+    declared = causal3d_decode_mb_per_latent_px(8, arch_registry.get("wan", variant).latent_format)
+
+    assert declared == 0.8
+    assert declared < causal3d_decode_mb_per_latent_px(8)
+
+
+_MEASURED_WAN21_FRAME_SPIKES_MIB = (
+    (1024, 660.8, 878.0),
+    (1600, 1029.9, 1454.1),
+    (6240, 4042.6, 4982.0),
+)
+
+
+@pytest.mark.parametrize("latent_px,allocated_mib,reserved_mib", _MEASURED_WAN21_FRAME_SPIKES_MIB)
+def test_the_declared_wan21_cost_covers_every_measured_decode_spike(latent_px, allocated_mib, reserved_mib):
+    declared = causal3d_decode_mb_per_latent_px(8, arch_registry.get("wan", "wan_t2v_14b").latent_format)
+
+    assert latent_px * declared >= allocated_mib
+    assert activation_headroom_gb((1, latent_px), decode_mb_per_latent_px=declared) * 1024 >= reserved_mib

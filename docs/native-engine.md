@@ -516,6 +516,48 @@ out of VRAM clears the card (`offload_all` of the foreign residents, then the id
 again one latent frame at a time. A tiled decode that runs out clears the card and halves its tile,
 down to 16 latent px, then raises.
 
+**Cost per VAE.** The sizers price the decode spike per latent pixel.
+`causal3d_decode_mb_per_latent_px(spatial_downscale, latent_format)` returns the
+`decode_mb_per_latent_px` a spec's `latent_format` declares. Otherwise it returns 1.2 MB per latent
+pixel (`CAUSAL3D_DECODE_MB_PER_LATENT_PX`, the value of the engine's own constant), calibrated on the
+8× Wan 2.1 VAE, times `(spatial_downscale / 8)²`: 4.8 for an undeclared 16× VAE, an upper bound that
+errs towards tiles rather than towards an OOM, which is fatal under WSL2. The Wan 2.2 5B
+(`wan_ti2v_5b`) declares 2.6, the worst allocated cost of its later latent frames rounded up to the
+tenth. The chain pipe hands the decode the spec of the set a segment runs on, so a 5B segment is
+priced like a 5B text-to-video.
+
+The declared costs are measured on a 12 GB RTX 4070 Ti under WSL 2, torch 2.12.1, with the calls of
+this page (`vae.decode`, `chunked_decode_causal3d(accumulate_device="cpu")`,
+`tiled_decode_causal3d(chunk_latent_frames=1, accumulate_device="cpu")`), the VAE loaded by the
+engine's loader (bf16 compute) and five random latent frames. Peaks are `max_memory_allocated` and
+`max_memory_reserved` after `reset_peak_memory_stats`, over the resident weights, the same on the
+whole card and under an 8 GiB allocator cap wherever the window fits:
+
+| VAE | Window decoded | Latent px | First latent frame, allocated | Later latent frames, allocated | Later frames, reserved (expandable segments / default allocator) |
+|---|---|---:|---:|---:|---:|
+| Wan 2.2 (5B) | 832×480 whole | 1,560 | 1,461 MiB | 3,951 MiB (2.53 per px) | 4,583 / 5,548 MiB |
+| Wan 2.2 (5B) | 1280×704 whole | 3,520 | 3,280 MiB | 8,897 MiB (2.53 per px) | 9,122 MiB / out of memory under 9 GiB |
+| Wan 2.2 (5B) | 40 px tile | 1,600 | | 4,011 MiB (2.51 per px) | 4,616 / 5,690 MiB |
+| Wan 2.2 (5B) | 24 px tile | 576 | | 1,453 MiB (2.52 per px) | 1,837 / 1,916 MiB |
+
+The first latent frame decodes to one pixel frame and costs a third of the later ones, which decode
+to four pixel frames each and keep the causal `feat_cache`. From the third latent frame on, the peak
+stops growing in the chunked and tiled paths. A 2 GB working base covers every reserved peak of the
+table under both allocators.
+
+The decode tiles below these free VRAM readings, with the VAE on the card (all frame counts):
+
+| VAE, cost | 832×480 | 960×544 | 1280×720 | 1488×624 | 1920×1080 |
+|---|---:|---:|---:|---:|---:|
+| 8× (Wan 2.1 VAE), 1.2 | 12.42 GB | 15.42 GB | 25.17 GB | 25.34 GB | 53.29 GB |
+
+| VAE, cost | 832×480 | 1280×704 | 1920×1088 |
+|---|---:|---:|---:|
+| 16× (Wan 2.2 VAE, 5B), 2.6 | 7.95 GB | 14.58 GB | 30.29 GB |
+
+Before the decode, the eviction targets the same frame plus the VAE's weights: at 1.2, 25.5 GB for a
+1280×720 frame and 53.6 GB for a 1920×1080 frame.
+
 ### Running out of VRAM, and the driver-error OOM
 
 What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a

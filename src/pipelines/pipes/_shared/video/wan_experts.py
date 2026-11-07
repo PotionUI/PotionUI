@@ -17,6 +17,7 @@ from src.platform.runtime.native.sampling.denoise_loop import schedule_from_sett
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.vae.tiling import (
     causal3d_chunk_frames,
+    causal3d_decode_mb_per_latent_px,
     causal3d_decode_overlap,
     causal3d_decode_tile,
     causal3d_frame_need_gb,
@@ -173,13 +174,18 @@ def resolve_expert_boundary(spec, config: dict, sampling_settings: dict, steps: 
     return boundary
 
 
+def _decode_mb_per_latent_px(c: Any) -> float:
+    return causal3d_decode_mb_per_latent_px(c.spatial_downscale, c.spec.latent_format)
+
+
 def _make_room_for_decode(c: Any, latent: torch.Tensor) -> None:
     if not str(c.device).startswith("cuda") or not torch.cuda.is_available():
         return
     free = effective_free_vram_gb(c.device)
     if free is None:
         return
-    need = causal3d_frame_need_gb((latent.shape[-2], latent.shape[-1]), vae_resident_gb=c.vae.estimated_vram_gb)
+    need = causal3d_frame_need_gb((latent.shape[-2], latent.shape[-1]), vae_resident_gb=c.vae.estimated_vram_gb,
+                                  decode_mb_per_latent_px=_decode_mb_per_latent_px(c))
     evicted = get_residency_registry().ensure_free(c.device, need, free, exclude=[c.vae])
     if evicted:
         logger.info("[WAN DECODE] evicted %d resident component(s) (%s) before the VAE decode: %.2fGB needed, "
@@ -201,10 +207,11 @@ def _decode_latent(vae_module, z: torch.Tensor, chunk_frames: int | None) -> tor
 
 
 def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
-    tile = causal3d_decode_tile((z.shape[-2], z.shape[-1]), free)
+    mb_per_latent_px = _decode_mb_per_latent_px(c)
+    tile = causal3d_decode_tile((z.shape[-2], z.shape[-1]), free, decode_mb_per_latent_px=mb_per_latent_px)
     scale = c.spatial_downscale
-    logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free at %dx: decoding in spatial tiles of %d "
-                "latent px, one latent frame at a time", free, scale, tile)
+    logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free (%.1f MB per latent px at %dx): decoding in "
+                "spatial tiles of %d latent px, one latent frame at a time", free, mb_per_latent_px, scale, tile)
     while True:
         try:
             return tiled_decode_causal3d(
@@ -223,9 +230,10 @@ def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
 
 def _decode_pixels(c: Any, z: torch.Tensor) -> torch.Tensor:
     free = effective_free_vram_gb(c.device)
-    if free is not None and free < causal3d_frame_need_gb((z.shape[-2], z.shape[-1])):
+    mb_per_latent_px = _decode_mb_per_latent_px(c)
+    if free is not None and free < causal3d_frame_need_gb((z.shape[-2], z.shape[-1]), decode_mb_per_latent_px=mb_per_latent_px):
         return _decode_tiled(c, z, free)
-    chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free)
+    chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free, decode_mb_per_latent_px=mb_per_latent_px)
     try:
         return _decode_latent(c.vae.module, z, chunk_frames)
     except RuntimeError as exc:

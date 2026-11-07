@@ -374,7 +374,7 @@ def test_t2v_opener_runs_on_t2v_set_without_concat_then_chain_on_i2v_set():
     assert len(captured) == 1
 
 
-def test_each_segment_decodes_with_the_spatial_factor_of_its_own_set():
+def test_each_segment_decodes_with_the_spec_and_spatial_factor_of_its_own_set():
     doc = _document(n_segments=2, start_on_seg0=False)
     pipe = _pipe(document=doc)
     t2v_bundle = _bundle(in_dim=16, dual=False, variant="wan22_t2v")
@@ -384,14 +384,14 @@ def test_each_segment_decodes_with_the_spatial_factor_of_its_own_set():
     seen = []
 
     def decode(ctx, latent):
-        seen.append(ctx.spatial_downscale)
+        seen.append((ctx.spec, ctx.spatial_downscale))
         return fake_decode(ctx, latent)
 
     p1, p2, p3, p4 = _patches(fake_decode=decode)
     with p1, p2, p3, p4, _no_stitch():
         pipe.process(pi, lambda o: None)
 
-    assert seen == [8, 8]
+    assert seen == [(t2v_bundle.spec, 8), (i2v_bundle.spec, 8)]
 
 
 def test_i2v_opener_uses_its_own_start_image_rest_continue():

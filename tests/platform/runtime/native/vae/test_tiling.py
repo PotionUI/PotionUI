@@ -9,6 +9,8 @@ import pytest
 import torch
 
 from src.platform.runtime.native.kernels import disable_weight_init
+from src.platform.runtime.native.detect.registry import arch_registry
+from src.platform.runtime.native.memory.tiering import activation_headroom_gb
 from src.platform.runtime.native.vae import ae_2d
 from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
 from src.platform.runtime.native.vae import causal_3d
@@ -16,8 +18,10 @@ from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import (
     VAE_SPATIAL_DOWNSCALE,
     auto_tile_size,
+    causal3d_decode_mb_per_latent_px,
     causal3d_decode_overlap,
     causal3d_decode_tile,
+    causal3d_frame_need_gb,
     smaller_decode_tile,
     tiled_decode,
     tiled_decode_causal3d,
@@ -307,3 +311,62 @@ def test_tiled_decode_causal3d_can_accumulate_on_another_device(tile_size, overl
 
     assert there.device.type == "cpu"
     assert torch.equal(here, there)
+
+
+def test_the_decode_cost_per_latent_px_follows_the_square_of_the_spatial_factor():
+    assert causal3d_decode_mb_per_latent_px(8) == 1.2
+    assert causal3d_decode_mb_per_latent_px(16) == pytest.approx(4.8)
+    assert causal3d_decode_mb_per_latent_px(16, {"spatial_downscale": 16, "latent_channels": 48}) == pytest.approx(4.8)
+
+
+def test_a_latent_format_that_declares_a_measured_decode_cost_is_believed():
+    assert causal3d_decode_mb_per_latent_px(16, {"decode_mb_per_latent_px": 2.0}) == 2.0
+    assert causal3d_decode_mb_per_latent_px(16, {"decode_mb_per_latent_px": 0}) == pytest.approx(4.8)
+    assert causal3d_decode_mb_per_latent_px(8, {"decode_mb_per_latent_px": None}) == 1.2
+
+
+def test_an_undeclared_16x_frame_at_1280x704_is_priced_beyond_a_12gb_card_and_its_tiles_shrink_with_the_cost():
+    dear = causal3d_decode_mb_per_latent_px(16)
+
+    assert causal3d_frame_need_gb((44, 80)) < 12.0
+    assert causal3d_frame_need_gb((44, 80), decode_mb_per_latent_px=dear) > 24.0
+    assert causal3d_decode_tile((44, 80), 6.0) == 40
+    assert causal3d_decode_tile((44, 80), 6.0, decode_mb_per_latent_px=dear) == 24
+
+
+_MEASURED_5B_FRAME_SPIKES_MIB = (
+    (576, 1455.3, 1915.6),
+    (960, 2413.4, 3171.6),
+    (1024, 2572.0, 3356.4),
+    (1560, 3954.1, 5547.6),
+    (1600, 4012.6, 5690.4),
+    (3520, 8897.2, 9122.3),
+)
+
+
+def _declared_5b_cost() -> float:
+    return causal3d_decode_mb_per_latent_px(16, arch_registry.get("wan", "wan_ti2v_5b").latent_format)
+
+
+def test_the_5b_declares_a_measured_decode_cost_between_the_8x_constant_and_the_16x_bound():
+    assert _declared_5b_cost() == 2.6
+    assert causal3d_decode_mb_per_latent_px(8) < _declared_5b_cost() < causal3d_decode_mb_per_latent_px(16)
+
+
+@pytest.mark.parametrize("latent_px,allocated_mib,reserved_mib", _MEASURED_5B_FRAME_SPIKES_MIB)
+def test_the_declared_5b_cost_covers_every_measured_decode_spike(latent_px, allocated_mib, reserved_mib):
+    declared = _declared_5b_cost()
+
+    assert latent_px * declared >= allocated_mib
+    assert activation_headroom_gb((1, latent_px), decode_mb_per_latent_px=declared) * 1024 >= reserved_mib
+
+
+def test_with_its_measured_cost_a_5b_frame_decodes_whole_at_832x480_on_12gb_and_in_tiles_otherwise():
+    declared = _declared_5b_cost()
+    need_480p = causal3d_frame_need_gb((30, 52), decode_mb_per_latent_px=declared)
+    need_704p = causal3d_frame_need_gb((44, 80), decode_mb_per_latent_px=declared)
+
+    assert 5.5 < need_480p < 9.4 < need_704p < 20.5
+    assert causal3d_decode_tile((30, 52), 5.5, decode_mb_per_latent_px=declared) == 24
+    assert causal3d_decode_tile((44, 80), 5.5, decode_mb_per_latent_px=declared) == 32
+    assert causal3d_decode_tile((44, 80), 9.4, decode_mb_per_latent_px=declared) == 40

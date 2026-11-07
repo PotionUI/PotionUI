@@ -19,6 +19,8 @@ cross-tile attention.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 import torch
 
@@ -400,6 +402,13 @@ def causal3d_frame_need_gb(
 ) -> float:
     one = activation_headroom_gb(latent_hw, decode_mb_per_latent_px=decode_mb_per_latent_px, latent_frames=1)
     return (vae_resident_gb + one) / vram_fraction
+
+
+def causal3d_decode_mb_per_latent_px(spatial_downscale: int, latent_format: Mapping[str, Any] | None = None) -> float:
+    declared = (latent_format or {}).get("decode_mb_per_latent_px")
+    if declared:
+        return float(declared)
+    return CAUSAL3D_DECODE_MB_PER_LATENT_PX * (spatial_downscale / VAE_SPATIAL_DOWNSCALE) ** 2
 
 
 def causal3d_decode_tile(

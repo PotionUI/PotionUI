@@ -128,6 +128,7 @@ class _DecodeCtx:
     device: str
     latent_channels: int
     spatial_downscale: int
+    spec: Any
 
 
 def _lora_fingerprint(loras: Optional[List[Dict[str, Any]]]) -> str:
@@ -703,6 +704,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
 
                 decode_ctx = _DecodeCtx(
                     vae=mset.vae, device=device, latent_channels=lf["latent_channels"], spatial_downscale=spatial_downscale,
+                    spec=mset.spec,
                 )
                 frames_px = decode_wan_video(decode_ctx, latent)
 

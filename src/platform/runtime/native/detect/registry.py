@@ -493,7 +493,10 @@ _VENDORED_SPECS: list[ModelSpec] = [
             "shift": 8.0,
             "guidance": "cfg",
         },
-        latent_format={"latent_channels": 48, "format": "wan22", "spatial_downscale": 16, "temporal": True},
+        latent_format={
+            "latent_channels": 48, "format": "wan22", "spatial_downscale": 16, "temporal": True,
+            "decode_mb_per_latent_px": 2.6,
+        },
         clip_targets=["umt5"],
         vae_target="wan22",
         expected_unexpected_keys=set(_SIDECAR_GLOBS),

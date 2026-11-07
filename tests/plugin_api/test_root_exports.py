@@ -41,6 +41,10 @@ REEXPORTS = {
         "preset_template",
         "resolve_preset_path",
     ],
+    "src.plugin_api.media": [
+        "embed_images",
+        "image_embedder",
+    ],
 }
 
 

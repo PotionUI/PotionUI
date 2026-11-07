@@ -28,10 +28,11 @@ the model depot's `detection_segm/` folder, the convention
 """
 
 import asyncio
+import contextvars
 import io
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence, Union
 
 from src.features.media.validators import UPLOAD_PURPOSE_USER, UPLOAD_PURPOSES
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame as _extract_video_frame
@@ -71,6 +72,8 @@ from src.plugin_api.generation import (
 )
 
 if TYPE_CHECKING:
+    from PIL import Image
+
     from src.platform.runtime.native.matting import BackgroundMattingModel
 
 __all__ = [
@@ -89,9 +92,11 @@ __all__ = [
     "VideoTranscodeError",
     "convert_image_to_base64",
     "copy_media_file",
+    "embed_images",
     "extract_frame",
     "find_ffmpeg",
     "has_audio_stream",
+    "image_embedder",
     "media_local_path",
     "mux_audio_from_source",
     "output_count",
@@ -260,3 +265,32 @@ def upload_formats() -> Dict[str, List[str]]:
         "audio": sorted(audio_formats.AUDIO_EXTENSIONS),
         "model": sorted(mesh_format_registry.extensions()),
     }
+
+
+ImageInput = Union[str, Path, "Image.Image"]
+
+
+def _embedder():
+    return get_container().media_indexer.vision_embedder
+
+
+def _embedder_weights_here(embedder) -> bool:
+    return bool(type(embedder).resolve_status(embedder.model_name, embedder.resolver)["present"])
+
+
+def image_embedder() -> Dict[str, Any]:
+    embedder = _embedder()
+    return {
+        "model": embedder.model_name,
+        "slug": embedder.embedder_slug,
+        "device": str(embedder.device),
+        "available": _embedder_weights_here(embedder),
+        "loaded": bool(embedder.is_loaded()),
+    }
+
+
+def embed_images(images: Sequence[ImageInput]) -> List[List[float]]:
+    embedder = _embedder()
+    if not _embedder_weights_here(embedder):
+        raise FileNotFoundError(f"The weights of {embedder.model_name} are not on this server")
+    return contextvars.copy_context().run(embedder.embed_images, list(images))

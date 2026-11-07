@@ -41,7 +41,7 @@ See docs/presets.md.
 import copy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from src.features.generation.dto import GenerationRequest, PromptPair
 from src.features.generation.policy import GenerationPolicy
@@ -64,7 +64,9 @@ from src.features.presets.requirements.contracts import (
 from src.features.presets.schema import GalleryItem, PresetMedia
 from src.features.presets.style_previews import downscale_and_save_webp
 from src.features.presets.templates import PresetTemplate, default_form_name
-from src.features.video_director.binding import DirectorBindingError, bind_director_media
+from src.features.video_director import apply_preset_mode_overlay
+from src.features.video_director.binding import DirectorBindingError
+from src.features.video_director.binding import bind_director_media as _bind_director_media
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
@@ -120,6 +122,42 @@ def lint_preset_dir(path: str) -> Tuple[List[str], List[str]]:
     errors = [str(issue) for issue in issues if issue.level == "error"]
     warnings = [str(issue) for issue in issues if issue.level == "warning"]
     return errors, warnings
+
+
+def _request_field(request: Any, name: str) -> Any:
+    return request.get(name) if isinstance(request, Mapping) else getattr(request, name, None)
+
+
+def _preset_capabilities(request: Any) -> Optional[Dict[str, Any]]:
+    form_data = _request_field(request, "form_data")
+    document = form_data.get("video_director") if isinstance(form_data, Mapping) else None
+    if not isinstance(document, Mapping) or document.get("mode") != "director":
+        return None
+    try:
+        repository = get_container().file_preset_repository
+    except RuntimeError:
+        return None
+    preset_id = _request_field(request, "preset_id")
+    template = repository.find_preset_by_id(preset_id) if preset_id else None
+    capabilities = (template.vars or {}).get("video_director") if template is not None else None
+    if not isinstance(capabilities, Mapping):
+        return {}
+    return apply_preset_mode_overlay(capabilities, _request_field(request, "mode"))
+
+
+def bind_director_media(
+    request,
+    role: str,
+    media: Any,
+    segment_id: Optional[str] = None,
+    promote: bool = False,
+    *,
+    at: Optional[float] = None,
+    capabilities: Optional[Mapping[str, Any]] = None,
+):
+    if capabilities is None:
+        capabilities = _preset_capabilities(request)
+    return _bind_director_media(request, role, media, segment_id, promote, at=at, capabilities=capabilities)
 
 
 @dataclass(frozen=True)

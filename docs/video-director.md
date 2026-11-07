@@ -356,6 +356,26 @@ stored `references` key is ignored in every mode.
   at all counts as an image.
 - `media.media` is resolved to an on-disk path (see [Path resolution](#path-resolution-and-traversal)).
 
+A plugin places an image with `bind_director_media(request, role, media, segment_id, at=None,
+capabilities=None)` (`src.plugin_api.presets`, `media` from `resolve_media_ref` or
+`extract_frame`). In a `director` document `segment_id` is required: `first` and `last` anchor to
+that segment, their `at` set to its start and end on the timeline, and `keyframe` takes `at` in
+seconds from the start of the segment and stores the timeline position: the segment's `start` in
+timeline style, the frames of the segments before it over `settings.fps` in chain style, plus `at`.
+Binding the same role on the same segment, or a keyframe at the same position, replaces the image.
+The roles follow the rules above: `keyframe` needs a timeline director or `keyframes: "anywhere"`,
+a chain `last` needs a `first` on its segment, a chain `first` cannot go on a segment whose
+`sub_type` is `"chain"`, and the keyframes stay within `max_keyframes`. The capabilities are the
+preset's `vars.video_director` for the request's preset mode (see [Preset mode
+overlays](#preset-mode-overlays)) unless `capabilities=` gives them; a cloud model's
+[overlay](#model-overlays) is not applied, so pass the model's capabilities to bind against them.
+Refusals raise `DirectorBindingError` with a stable `code`: `segment_required`,
+`unknown_segment`, `invalid_role`, `role_unsupported`, `unsupported_mode` (also for a preset that
+declares no `director` mode), `invalid_at`, `too_many_keyframes`, `first_frame_required`,
+`invalid_media`. A single-shot document keeps the `first` and `last` binding and the `promote`
+option described in [docs/plugin-api.md](plugin-api.md). The generation still validates the
+document when it is submitted.
+
 ### `audio`
 
 Gated purely by capability: a non-empty `audio` list requires the mode to declare

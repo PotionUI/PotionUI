@@ -24,6 +24,12 @@ REEXPORTS = {
         "submit_generation",
     ],
     "src.plugin_api.backends": ["list_backends"],
+    "src.plugin_api.cloud": [
+        "DirectorEstimateError",
+        "enabled_cloud_models",
+        "estimate_cloud_cost",
+        "resolve_cloud_model",
+    ],
     "src.plugin_api.hooks": ["get_app_loop", "run_on_app_loop"],
 }
 

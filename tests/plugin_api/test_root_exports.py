@@ -31,6 +31,7 @@ REEXPORTS = {
         "resolve_cloud_model",
     ],
     "src.plugin_api.hooks": ["get_app_loop", "run_on_app_loop"],
+    "src.plugin_api.presets": ["list_presets"],
 }
 
 

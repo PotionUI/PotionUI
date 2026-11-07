@@ -8,6 +8,7 @@ from src.plugin_api import presets as presets_api
 from src.plugin_api.presets import FieldDescription, describe_preset
 
 PRESET_ID = "01TESTDESCRIBEPRESET000000"
+BARE_ID = "01TESTDESCRIBEBAREPRESET00"
 
 PRESET_YML = f"""schema: 1
 id: "{PRESET_ID}"
@@ -15,12 +16,25 @@ name: "Describe Me"
 version: "1.0.0"
 category: "image"
 engine: "native"
+requires:
+  min_vram_gb: 12
+  recommended_vram_gb: 16
 vars:
   fps: 24
   capabilities:
     modes: ["edit"]
 modes:
   - edit
+  - txt2img
+"""
+
+BARE_YML = f"""schema: 1
+id: "{BARE_ID}"
+name: "Bare"
+version: "1.0.0"
+category: "utility"
+engine: "comfyui"
+modes:
   - txt2img
 """
 
@@ -82,6 +96,11 @@ def described(tmp_path, monkeypatch):
     _write(preset / "modes" / "edit" / "variants" / "detailed" / "form.yml", EDIT_VARIANT)
     _write(preset / "modes" / "txt2img" / "form.yml", TXT2IMG_FORM)
     _write(preset / "modes" / "txt2img" / "pipeline.yml", "pipeline: []\n")
+    bare = root / "Bare"
+    _write(bare / "preset.yml", BARE_YML)
+    _write(bare / "tests.yml", "schema: 1\ncases: []\n")
+    _write(bare / "modes" / "txt2img" / "form.yml", TXT2IMG_FORM)
+    _write(bare / "modes" / "txt2img" / "pipeline.yml", "pipeline: []\n")
     loader = PresetTemplateLoader([str(root)])
     repository = FilePresetRepository(loader)
     monkeypatch.setattr(presets_api, "get_container", lambda: SimpleNamespace(file_preset_repository=repository))
@@ -119,6 +138,29 @@ def test_vars_are_a_copy(described):
     first.vars["capabilities"]["modes"].append("changed")
 
     assert describe_preset(PRESET_ID).vars == {"fps": 24, "capabilities": {"modes": ["edit"]}}
+
+
+def test_describes_the_engine_category_and_hardware_guidance_the_preset_declares(described):
+    description = describe_preset(PRESET_ID)
+
+    assert described.load_errors == {}
+    assert description.engine == "native"
+    assert description.category == "image"
+    assert description.requires == {"min_vram_gb": 12, "recommended_vram_gb": 16}
+
+
+def test_a_preset_without_requires_reports_none_and_keeps_its_own_engine(described):
+    description = describe_preset(BARE_ID)
+
+    assert description.engine == "comfyui"
+    assert description.category == "utility"
+    assert description.requires is None
+
+
+def test_requires_is_a_copy(described):
+    describe_preset(PRESET_ID).requires["min_vram_gb"] = 1
+
+    assert describe_preset(PRESET_ID).requires["min_vram_gb"] == 12
 
 
 def test_an_unknown_preset_is_none(described):

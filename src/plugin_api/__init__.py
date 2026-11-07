@@ -166,6 +166,7 @@ from src.plugin_api.presets import (
     describe_preset,
     downscale_and_save_webp,
     lint_preset_dir,
+    list_presets,
     preset_operations,
     PromptPair,
 )
@@ -505,6 +506,7 @@ __all__ = [
     "describe_preset",
     "downscale_and_save_webp",
     "lint_preset_dir",
+    "list_presets",
     "preset_operations",
     "PromptPair",
     "FormBindingError",

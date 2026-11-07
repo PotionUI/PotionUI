@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.features.generation.dto import GenerationRequest, PromptPair
+from src.features.generation.policy import GenerationPolicy
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations as preset_operations
 from src.features.presets.file_repository import FilePresetRepository
@@ -85,6 +86,7 @@ __all__ = [
     "describe_preset",
     "downscale_and_save_webp",
     "lint_preset_dir",
+    "list_presets",
     "preset_operations",
     "PromptPair",
 ]
@@ -132,6 +134,9 @@ class PresetDescription:
     name: str
     vars: Dict[str, Any] = field(default_factory=dict)
     modes: Dict[str, ModeDescription] = field(default_factory=dict)
+    engine: Optional[str] = None
+    category: Optional[str] = None
+    requires: Optional[Dict[str, Any]] = None
 
 
 def _describe_fields(fields: Iterable[Any], out: Dict[str, FieldDescription]) -> None:
@@ -150,6 +155,22 @@ def describe_preset(preset_id: str) -> Optional[PresetDescription]:
     template = get_container().file_preset_repository.find_preset_by_id(preset_id)
     if template is None:
         return None
+    return _describe(template)
+
+
+def list_presets(user) -> List[PresetDescription]:
+    if user is None:
+        raise PermissionError("A user is required to list presets")
+    container = get_container()
+    db_repo = container.preset_collaborators.db_repo
+    if GenerationPolicy.is_admin(user):
+        offered = {preset.preset_id for preset in db_repo.get_all_installed_presets()}
+    else:
+        offered = set(db_repo.get_available_preset_ids_for_user(user.id))
+    return [_describe(template) for template in container.file_preset_repository.templates() if template.id in offered]
+
+
+def _describe(template) -> PresetDescription:
     modes = {}
     for mode_name, mode in (template.modes or {}).items():
         forms = {}
@@ -163,4 +184,7 @@ def describe_preset(preset_id: str) -> Optional[PresetDescription]:
         name=template.name,
         vars=copy.deepcopy(template.vars or {}),
         modes=modes,
+        engine=template.engine,
+        category=template.category,
+        requires=copy.deepcopy(template.requires),
     )

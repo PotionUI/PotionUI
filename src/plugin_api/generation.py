@@ -5,6 +5,7 @@ from src.features.forms.binding import FormBindingError
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException, IdempotencyKeyConflict
+from src.features.generation.failure import failure_report
 from src.features.generation.file_repository import file_repo
 from src.features.generation.policy import GenerationPolicy
 from src.features.generation.routing.contracts import NoEligibleBackendError
@@ -26,6 +27,9 @@ __all__ = [
     "SessionNotFoundError",
     "SubmittedGeneration",
     "cancel_generation",
+    "generation_active",
+    "generation_failure",
+    "generation_record",
     "generation_state",
     "get_session",
     "get_session_snapshot",
@@ -133,8 +137,28 @@ async def cancel_generation(user, generation_id: str) -> bool:
     return cancelled
 
 
+def generation_active() -> bool:
+    return not get_container().generation_orchestrator.queue.is_idle()
+
+
 def generation_state(user, generation_id: str) -> Dict[str, Any]:
     return _require_access(get_container(), user, generation_id).payload
+
+
+def generation_record(user, generation_id: str) -> Optional[Dict[str, Any]]:
+    container = get_container()
+    _require_access(container, user, generation_id)
+    row = container.generation_repository.get_by_id(generation_id)
+    return None if row is None else row.to_dict()
+
+
+def generation_failure(user, generation_id: str) -> Optional[Dict[str, Any]]:
+    if not GenerationPolicy.is_admin(user):
+        raise PermissionError("Only an administrator can read the detail of a failure")
+    row = get_container().generation_repository.get_by_id(generation_id)
+    if row is None or row.status != "failed":
+        return None
+    return failure_report(row)
 
 
 def _visible_files(container, user, generation_id: str) -> List[Dict[str, Any]]:

@@ -18,6 +18,7 @@ from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException
 from src.features.generation.file_repository import FileRepository
 from src.features.generation.history_query import GenerationHistoryQuery
+from src.features.generation.queue import GenerationQueue, QueuedGeneration
 from src.features.generation.records import File, Generation
 from src.features.generation.repository import GenerationRepository
 from src.features.generation.routing.contracts import NoEligibleBackendError
@@ -85,6 +86,7 @@ class World:
             }),
             cancel_generation=AsyncMock(return_value=True),
             preview_memory=AsyncMock(return_value=PREVIEW),
+            queue=GenerationQueue(dispatch=AsyncMock()),
         )
         self.hub = SimpleNamespace(broadcast_to_generation=AsyncMock())
         self.container = SimpleNamespace(
@@ -459,6 +461,83 @@ def test_state_of_a_live_failed_generation_never_carries_the_detail(world):
     assert state["status"] == "failed"
     assert state["error_code"] == "missing_model_file"
     _assert_no_leak(state)
+
+
+def test_the_stored_row_of_a_live_generation_is_read_beside_its_live_state(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+    world.live["g1"] = SimpleNamespace(user_id="owner", model_dump=lambda: {"id": "g1", "status": "running"})
+
+    record = api.generation_record(world.owner, "g1")
+
+    assert api.generation_state(world.owner, "g1")["status"] == "running"
+    assert record["status"] == "failed"
+    assert record["error_code"] == "missing_model_file"
+
+
+def test_a_live_generation_not_yet_stored_has_no_record(world):
+    world.live["g1"] = SimpleNamespace(user_id="owner", model_dump=lambda: {"id": "g1", "status": "pending"})
+
+    assert api.generation_record(world.owner, "g1") is None
+
+
+def test_the_record_of_someone_elses_or_an_unknown_generation_is_not_found(world):
+    world.generation("g1")
+
+    for user, generation_id in ((world.other, "g1"), (None, "g1"), (world.owner, "nope")):
+        with pytest.raises(GenerationNotFoundException):
+            api.generation_record(user, generation_id)
+    assert api.generation_record(world.admin, "g1")["id"] == "g1"
+
+
+def test_a_record_never_carries_the_raw_detail_of_a_failure(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+
+    for user in (world.owner, world.admin):
+        record = api.generation_record(user, "g1")
+        assert "error_detail" not in record
+        _assert_no_leak(record)
+
+
+def test_an_administrator_reads_the_raw_detail_of_a_failure(world):
+    world.generation("g1")
+    world.generation("g2")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+
+    report = api.generation_failure(world.admin, "g1")
+
+    assert report["error_code"] == "missing_model_file"
+    assert report["detail"] == world.generations.get_by_id("g1").error_detail
+    assert "loader.py" in report["detail"]
+    assert api.generation_failure(world.admin, "g2") is None
+    assert api.generation_failure(world.admin, "nope") is None
+
+
+def test_no_one_but_an_administrator_reads_a_failure_not_even_its_owner(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+
+    for user in (world.owner, world.other, None):
+        with pytest.raises(PermissionError, match="^Only an administrator can read the detail of a failure$"):
+            api.generation_failure(user, "g1")
+
+
+@pytest.mark.asyncio
+async def test_a_generation_of_any_user_is_active_while_it_is_pending_or_running(world):
+    queue = world.orchestrator.queue
+    assert api.generation_active() is False
+
+    await queue.enqueue(QueuedGeneration(generation_id="g1", backend_id="native", user_id="other"))
+    await queue.enqueue(QueuedGeneration(generation_id="g2", backend_id="native", user_id="other"))
+    assert queue.position("g2") == 0
+    assert api.generation_active() is True
+
+    await queue.release("native", "g1")
+    assert api.generation_active() is True
+
+    await queue.release("native", "g2")
+    assert api.generation_active() is False
 
 
 def test_files_come_in_canonical_order_with_their_unfiltered_index(world):

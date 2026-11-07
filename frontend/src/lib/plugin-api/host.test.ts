@@ -9,6 +9,7 @@ import {
 	releaseAllKeyboardHolds
 } from '$lib/services/keyboard';
 import { iconPaths, getIconPath, iconLookup } from '$lib/utils/IconLibrary';
+import { activeConfirm, cancelAllConfirms, settleConfirm } from '$lib/stores/confirm';
 
 function host(): PotionUIHostApi {
 	return (window as unknown as { __potionui: PotionUIHostApi }).__potionui;
@@ -16,6 +17,18 @@ function host(): PotionUIHostApi {
 
 beforeAll(() => {
 	initHostApi();
+});
+
+describe('window.__potionui.confirm', () => {
+	afterEach(() => cancelAllConfirms());
+
+	it('passes the button labels to the app dialog and resolves false on cancel', async () => {
+		const pending = host().confirm({ message: 'Discard the storyboard?', confirmLabel: 'Discard', cancelLabel: 'Keep it' });
+		const request = get(activeConfirm);
+		expect(request).toMatchObject({ message: 'Discard the storyboard?', confirmLabel: 'Discard', cancelLabel: 'Keep it' });
+		settleConfirm(request!.id, false);
+		await expect(pending).resolves.toBe(false);
+	});
 });
 
 describe('window.__potionui.keyboard', () => {

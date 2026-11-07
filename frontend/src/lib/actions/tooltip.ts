@@ -6,7 +6,7 @@ export interface TooltipOptions {
 	text?: string | null;
 	position?: 'top' | 'bottom' | 'left' | 'right';
 	delay?: number;
-	kbd?: string;
+	kbd?: string | string[];
 	truncateOnly?: boolean;
 	wrap?: boolean;
 	focusSelf?: boolean;

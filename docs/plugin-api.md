@@ -2813,7 +2813,9 @@ dropped into one of those folders is registered automatically. `DynamicForm` ren
 form outside the Generate page: pass `presetId`, `mode`, `variant`, `initialData` and
 `onFormDataChange(data)`, and optionally `audience` (`'simple'` or `'advanced'`) to show that
 audience's fields without changing the user's own Simple/Advanced choice. `window.__potionui.confirm({title?,
-message, variant?})` opens the app's confirm dialog and resolves to a boolean, and
+message, variant?, confirmLabel?, cancelLabel?})` opens the app's confirm dialog and resolves to a
+boolean: `true` from the confirm button, `false` from the cancel button, Escape or the backdrop.
+`confirmLabel` and `cancelLabel` rename the two buttons (`'Confirm'` and `'Cancel'` by default).
 `window.__potionui.notifications.toast(level, message)` shows a toast.
 
 `window.__potionui.api` makes authenticated requests to the app, so a plugin never reads the
@@ -2835,8 +2837,9 @@ Because registration is automatic, the props of every component in `ui/`, `detai
 breaks plugins that use it. Treat such a change as an API change and note it in the changelog;
 a component that must stay private belongs outside those folders.
 
-`Button` no longer takes a `title` prop and `IconButton` no longer sets a native `title`: wrap
-the control in the host `Tooltip` (`props={{ text }}`) to show a hover hint. `IconButton`
+`Button` no longer takes a `title` prop and `IconButton` sets no native `title`: an `IconButton`
+shows its `label` in the host tooltip by itself (see "Icon buttons with a tooltip" below), and any
+other control is wrapped in the host `Tooltip` (`props={{ text }}`) to show a hover hint. `IconButton`
 accepts `variant: 'overlay'` for controls that sit over media and forwards extra attributes
 such as `data-*` to its button. `Tooltip` also opens on keyboard focus, closes on Escape,
 describes its trigger with `aria-describedby` while open, and takes `truncateOnly: true` to
@@ -2898,6 +2901,31 @@ starts, for example at the top of `mountPlugin`.
 
 `registerIcon` is absent on hosts that predate it; call it as
 `window.__potionui.registerIcon?.(...)`.
+
+### Icon buttons with a tooltip
+
+Each `HostUi` is its own Svelte root, so a host `IconButton` mounted inside a host `Tooltip`
+through two `HostUi` does not know it is inside one: it shows its own `label` tooltip and the
+user gets two. Give the tooltip to the `IconButton` itself instead:
+
+```svelte
+<HostUi
+  name="IconButton"
+  props={{ icon: 'film', label: 'Render', tooltip: 'Render the selected take', kbd: ['Shift', 'R'], onclick: render }}
+/>
+```
+
+- `tooltip` — the tooltip text. Without it the tooltip shows `label`.
+- `kbd` — a keyboard shortcut shown in the tooltip, as one string (`'Ctrl+K'`) or one string per
+  key (`['Shift', 'R']`). It is only displayed: handling the keys is up to your page (see
+  "Keyboard shortcuts on a plugin page"). A screen reader reads it after the tooltip text, the
+  keys joined with `+`.
+
+Both props are consumed by the button: unlike other extra props (`data-*`), they never reach the
+DOM as attributes. The tooltip attaches to the button itself, with no wrapper element, so `class`
+and layout apply to the button as usual, and `label` stays its accessible name (`aria-label`).
+Inside a `Tooltip` of the same Svelte tree, an `IconButton` shows no tooltip of its own, so
+`tooltip` and `kbd` are not shown there either.
 
 ### A list page like History and Models
 

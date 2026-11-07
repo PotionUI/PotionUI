@@ -23,6 +23,7 @@ REEXPORTS = {
         "preview_memory",
         "submit_generation",
     ],
+    "src.plugin_api.backends": ["list_backends"],
     "src.plugin_api.hooks": ["get_app_loop", "run_on_app_loop"],
 }
 

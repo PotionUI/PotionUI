@@ -431,9 +431,22 @@ def test_park_pins_the_resident_weights_into_a_new_arena_and_keeps_the_streamed_
     assert fake.unregistered() == []
     assert streamed_segments < set(fake.registered)
     assert streamer._arenas[0] is streamed_arena and len(streamer._arenas) == 2
+    assert streamer._arenas[1]._device == torch.device("cuda:0")
     assert all(any(arena.owns(p.data) for arena in streamer._arenas) for p in m.parameters())
     assert streamer.parked_gb * _GB == sum(arena.pinned_bytes for arena in streamer._arenas)
     assert all(leaf.comfy_cast_weights is False for _, leaf in iter_streamable_leaves(m))
+
+
+def test_park_hands_the_gpu_cache_back_once_the_resident_weights_left(monkeypatch):
+    _fake_cuda_streamer(monkeypatch)
+    m, streamer, _ = _parked_streamer(monkeypatch)
+    seen = []
+    monkeypatch.setattr(partial, "_release_idle_vram",
+                        lambda: seen.append(all(any(arena.owns(p.data) for arena in streamer._arenas) for p in m.parameters())))
+
+    streamer.park()
+
+    assert seen == [True]
 
 
 def test_placing_a_parked_module_again_registers_nothing_and_frees_the_resident_segments(monkeypatch):

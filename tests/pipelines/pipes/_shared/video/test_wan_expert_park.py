@@ -157,6 +157,23 @@ def test_inside_a_memory_limited_cgroup_the_share_is_taken_of_the_cgroup_limit(c
     assert lines[0].getMessage().endswith("over 0.60GB (60% of total RAM)")
 
 
+def test_the_lora_deltas_of_both_experts_count_toward_the_limit(card, caplog, monkeypatch):
+    card(host_ram_gb=50.0)
+    monkeypatch.setattr(wan_experts, "_dit_lora_delta_gb", lambda dit: 1.0)
+    events = []
+
+    lines = _switch(_Expert(events, "high"), _Expert(events, "low"), caplog)
+
+    assert events == ["offload high", "stream low"]
+    assert lines[0].getMessage().startswith("[GENERATOR WAN] high expert torn down: up to 30.58GB pinned")
+
+
+def test_parking_is_a_live_memory_setting_of_the_backend_on_by_default():
+    flag = runtime_flags.RUNTIME_FLAG_BY_KEY["native_park_experts"]
+
+    assert (flag.default, flag.kind, flag.applies, flag.group, flag.scope, flag.env_var) == (True, "bool", "live", "memory", "backend", None)
+
+
 def test_no_expert_is_parked_when_parking_is_off(card, caplog):
     card(parking=False)
     events = []

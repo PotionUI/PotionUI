@@ -97,12 +97,21 @@ describe('window.__potionui.chat', () => {
 });
 
 describe('window.__potionui.chat composer', () => {
-	function fakeComposer(): ChatComposer & { prefills: Array<[string, boolean]> } {
+	function fakeComposer(send: (text: string) => Promise<void> = async () => {}): ChatComposer & {
+		prefills: Array<[string, boolean]>;
+		sends: string[];
+	} {
 		const prefills: Array<[string, boolean]> = [];
+		const sends: string[] = [];
 		return {
 			prefills,
+			sends,
 			prefill: (text, replace) => {
 				prefills.push([text, replace]);
+			},
+			send: (text) => {
+				sends.push(text);
+				return send(text);
 			}
 		};
 	}
@@ -160,6 +169,72 @@ describe('window.__potionui.chat composer', () => {
 		const composer = fakeComposer();
 		detach = chatPanelStore.attachComposer(composer);
 		expect(composer.prefills).toEqual([]);
+	});
+
+	it('opens the panel on send and resolves once the chat has sent the message', async () => {
+		const pending = host().chat.send('Make the intro shorter');
+		expect(host().chat.isOpen()).toBe(true);
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		await expect(pending).resolves.toBeUndefined();
+		expect(composer.sends).toEqual(['Make the intro shorter']);
+	});
+
+	it('passes on the rejection of a chat that cannot send', async () => {
+		detach = chatPanelStore.attachComposer(fakeComposer(() => Promise.reject(new Error('No chat model is configured'))));
+		await expect(host().chat.send('hello')).rejects.toThrow('No chat model is configured');
+	});
+
+	it('turns a chat that throws while sending into a rejection', async () => {
+		detach = chatPanelStore.attachComposer(
+			fakeComposer(() => {
+				throw new Error('The chat broke');
+			})
+		);
+		await expect(host().chat.send('hello')).rejects.toThrow('The chat broke');
+	});
+
+	it('rejects a queued send when the chat throws as it takes it', async () => {
+		const pending = host().chat.send('hello');
+		detach = chatPanelStore.attachComposer(
+			fakeComposer(() => {
+				throw new Error('The chat broke');
+			})
+		);
+		await expect(pending).rejects.toThrow('The chat broke');
+	});
+
+	it('rejects an empty text without opening the panel', async () => {
+		await expect(host().chat.send('   ')).rejects.toThrow(TypeError);
+		expect(host().chat.isOpen()).toBe(false);
+	});
+
+	it('rejects a send when the panel is closed before the chat is ready', async () => {
+		const pending = host().chat.send('hello');
+		host().chat.close();
+		await expect(pending).rejects.toThrow('closed');
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.sends).toEqual([]);
+	});
+
+	it('rejects a send when the chat never becomes ready', async () => {
+		vi.useFakeTimers();
+		const pending = host().chat.send('hello');
+		const settled = expect(pending).rejects.toThrow('The chat is not available');
+		vi.advanceTimersByTime(CHAT_READY_TIMEOUT_MS);
+		await settled;
+	});
+
+	it('sends a message queued after the chat panel detached to the next chat', async () => {
+		const first = fakeComposer();
+		chatPanelStore.attachComposer(first)();
+		const pending = host().chat.send('later');
+		expect(first.sends).toEqual([]);
+		const second = fakeComposer();
+		detach = chatPanelStore.attachComposer(second);
+		await pending;
+		expect(second.sends).toEqual(['later']);
 	});
 
 	it('queues again once the chat panel has detached', () => {

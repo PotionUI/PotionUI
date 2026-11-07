@@ -109,6 +109,33 @@ describe('sendMessage: control (unchanged turn, real functions)', () => {
 	});
 });
 
+describe('sendMessage: onDispatched', () => {
+	it('fires once, after the user message landed and before the request is issued', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		const order: string[] = [];
+		await sendMessage(
+			deps({
+				sendChatMessageStream: async (_sid, _payload, onEvent) => {
+					order.push('stream');
+					await onEvent!({ type: 'done', data: { assistant_message: { id: 'a1', content: 'ok' } } });
+				}
+			}),
+			{
+				...basicSendParams('hi'),
+				onDispatched: () => order.push(`dispatched:${get(chatSession).messages[0]?.content}`)
+			}
+		);
+		expect(order).toEqual(['dispatched:hi', 'stream']);
+	});
+
+	it('never fires when the session could not be created', async () => {
+		let dispatched = 0;
+		await sendMessage(deps(), { ...basicSendParams('hi'), onDispatched: () => (dispatched += 1) });
+		expect(dispatched).toBe(0);
+		expect(get(chatSession).error).toBe('Failed to create chat session');
+	});
+});
+
 describe('sendMessage: continuation after a resolved action', () => {
 	it('streams without adding a user message and sends continue_from', async () => {
 		chatSession.patch({ sessionId: 'A' });

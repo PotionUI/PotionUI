@@ -635,15 +635,36 @@ knowing your plugin exists:
   pass `{replace: true}` to overwrite it. Called while the panel is still loading, the text
   lands as soon as the chat is ready; it is dropped if the panel is closed first or the chat
   is not ready within 15 seconds.
+- `send(text)` — sends `text` as the user's message, as if they had typed it, in the mode
+  the page resolves (the route-prefix match, or your `declareMode`), opening the panel if it
+  is closed. The user does not confirm it: the message appears in the conversation as theirs
+  and the assistant answers it; a tool declared with `requires_approval` still waits for their
+  approval as usual. When the open conversation is in another mode, a new conversation is
+  started in the page's mode; the previous one stays in the chat history. Your
+  `provideContext` providers run for this message like for any other, and the draft in the
+  composer is left alone. Returns a promise that resolves once the message is on its way (not
+  when the assistant has answered) and rejects with an `Error` when the chat is unavailable:
+  no chat model configured, the assistant still answering the previous message, the
+  conversation could not be created, the panel closed before the chat was ready, or the chat
+  not ready within 15 seconds. An empty `text` rejects with a `TypeError`. Prefer `prefill`
+  when the user should read the message before it goes.
 
-`open`, `close`, `toggle`, `isOpen` and `prefill` are absent on hosts that predate them:
-feature-detect them before offering a button that relies on them, or call them as
+`open`, `close`, `toggle`, `isOpen`, `prefill` and `send` are absent on hosts that predate
+them: feature-detect them before offering a button that relies on them, or call them as
 `window.__potionui.chat.open?.()`.
 
 ```js
 const chat = window.__potionui.chat;
 draftButton.hidden = !chat.prefill;
 draftButton.onclick = () => chat.prefill('Plan the shots for this storyboard');
+sendButton.hidden = !chat.send;
+sendButton.onclick = async () => {
+  try {
+    await chat.send('Add a closing shot to the storyboard');
+  } catch (error) {
+    window.__potionui.notifications.toast('error', error.message);
+  }
+};
 ```
 
 ```js

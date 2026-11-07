@@ -104,6 +104,7 @@ export interface PluginChatApi {
 	toggle(): void;
 	isOpen(): boolean;
 	prefill(text: string, options?: ChatPrefillOptions): void;
+	send(text: string): Promise<void>;
 }
 
 export interface PluginKeyboardApi {
@@ -313,7 +314,8 @@ export function initHostApi(): void {
 			close: () => chatPanelStore.close(),
 			toggle: () => chatPanelStore.toggle(),
 			isOpen: () => get(isChatPanelOpen),
-			prefill: (text, options) => chatPanelStore.prefill(text, options)
+			prefill: (text, options) => chatPanelStore.prefill(text, options),
+			send: (text) => chatPanelStore.send(text)
 		},
 		keyboard: {
 			suppress: () => holdKeyboard(),

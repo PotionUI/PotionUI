@@ -9,6 +9,8 @@ import {
 	releaseAllKeyboardHolds
 } from '$lib/services/keyboard';
 import { iconPaths, getIconPath, iconLookup } from '$lib/utils/IconLibrary';
+import { chatPanelStore, CHAT_READY_TIMEOUT_MS, type ChatComposer } from '$lib/stores/chatPanel';
+import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContext';
 import { activeConfirm, cancelAllConfirms, settleConfirm } from '$lib/stores/confirm';
 import type { WebSocketService } from '$lib/services/websocket';
 
@@ -61,6 +63,113 @@ describe('window.__potionui.confirm', () => {
 		expect(request).toMatchObject({ message: 'Discard the storyboard?', confirmLabel: 'Discard', cancelLabel: 'Keep it' });
 		settleConfirm(request!.id, false);
 		await expect(pending).resolves.toBe(false);
+	});
+});
+
+describe('window.__potionui.chat', () => {
+	afterEach(() => chatPanelStore.reset());
+
+	it('opens, closes and toggles the global chat panel', () => {
+		const chat = host().chat;
+		expect(chat.isOpen()).toBe(false);
+		chat.open();
+		expect(chat.isOpen()).toBe(true);
+		expect(get(chatPanelStore).isOpen).toBe(true);
+		chat.close();
+		expect(chat.isOpen()).toBe(false);
+		chat.toggle();
+		expect(chat.isOpen()).toBe(true);
+		chat.toggle();
+		expect(chat.isOpen()).toBe(false);
+	});
+
+	it('reflects a panel opened by the host itself', () => {
+		chatPanelStore.open();
+		expect(host().chat.isOpen()).toBe(true);
+	});
+
+	it('keeps the page context hooks', () => {
+		const chat = host().chat;
+		expect(chat.provideContext).toBe(provideContext);
+		expect(chat.declareMode).toBe(declareMode);
+		expect(chat.onToolApplied).toBe(onToolApplied);
+	});
+});
+
+describe('window.__potionui.chat composer', () => {
+	function fakeComposer(): ChatComposer & { prefills: Array<[string, boolean]> } {
+		const prefills: Array<[string, boolean]> = [];
+		return {
+			prefills,
+			prefill: (text, replace) => {
+				prefills.push([text, replace]);
+			}
+		};
+	}
+
+	let detach: (() => void) | undefined;
+
+	afterEach(() => {
+		detach?.();
+		detach = undefined;
+		chatPanelStore.reset();
+		vi.useRealTimers();
+	});
+
+	it('opens the panel on prefill and hands the text over once the chat is ready', () => {
+		host().chat.prefill('Plan five shots');
+		host().chat.prefill('Rewrite it', { replace: true });
+		expect(host().chat.isOpen()).toBe(true);
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.prefills).toEqual([
+			['Plan five shots', false],
+			['Rewrite it', true]
+		]);
+		host().chat.prefill('Again');
+		expect(composer.prefills.at(-1)).toEqual(['Again', false]);
+	});
+
+	it('ignores a prefill that is not text', () => {
+		(host().chat.prefill as (text: unknown) => void)(42);
+		expect(host().chat.isOpen()).toBe(false);
+	});
+
+	it('drops a prefill when the panel is closed before the chat is ready', () => {
+		host().chat.prefill('hello');
+		host().chat.close();
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.prefills).toEqual([]);
+	});
+
+	it('drops a prefill when the panel is toggled closed before the chat is ready', () => {
+		host().chat.prefill('hello');
+		host().chat.toggle();
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.prefills).toEqual([]);
+	});
+
+	it('drops a prefill when the chat never becomes ready', () => {
+		vi.useFakeTimers();
+		host().chat.prefill('hello');
+		vi.advanceTimersByTime(CHAT_READY_TIMEOUT_MS - 1);
+		host().chat.prefill('again');
+		vi.advanceTimersByTime(1);
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.prefills).toEqual([]);
+	});
+
+	it('queues again once the chat panel has detached', () => {
+		const first = fakeComposer();
+		chatPanelStore.attachComposer(first)();
+		host().chat.prefill('later');
+		expect(first.prefills).toEqual([]);
+		const second = fakeComposer();
+		detach = chatPanelStore.attachComposer(second);
+		expect(second.prefills).toEqual([['later', false]]);
 	});
 });
 

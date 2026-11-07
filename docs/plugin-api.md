@@ -622,6 +622,27 @@ knowing your plugin exists:
 - `onToolApplied(toolName, handler)` — runs `handler` with the parsed result of an
   approved/confirmed call to `toolName`, before (and instead of) any core hardcoded
   handling for that tool name.
+- `open()`, `close()`, `toggle()` — open, close or flip the global chat panel, the same
+  panel the sidebar button and the keyboard shortcut drive. Pair them with
+  `declareMode`/`provideContext` to open the assistant already focused on your page, for
+  example from an "Ask the assistant" button.
+- `isOpen()` — whether the panel is open right now.
+- `prefill(text, {replace?})` — puts `text` in the chat composer without sending it, opens
+  the panel if it is closed and focuses the composer, so the user reads and edits the message
+  and sends it, or not, as with one they typed. A draft the user has already typed is kept;
+  pass `{replace: true}` to overwrite it. Called while the panel is still loading, the text
+  lands as soon as the chat is ready; it is dropped if the panel is closed first or the chat
+  is not ready within 15 seconds.
+
+`open`, `close`, `toggle`, `isOpen` and `prefill` are absent on hosts that predate them:
+feature-detect them before offering a button that relies on them, or call them as
+`window.__potionui.chat.open?.()`.
+
+```js
+const chat = window.__potionui.chat;
+draftButton.hidden = !chat.prefill;
+draftButton.onclick = () => chat.prefill('Plan the shots for this storyboard');
+```
 
 ```js
 const unregisterContext = window.__potionui.chat.provideContext('comfyui_import_wizard', () => ({
@@ -632,6 +653,7 @@ const unregisterMode = window.__potionui.chat.declareMode('comfyui-import-wizard
 const unregisterTool = window.__potionui.chat.onToolApplied('import_comfyui_workflow', (result) => {
   applyImportedWorkflow(result.workflow);
 });
+askButton.onclick = () => window.__potionui.chat.open();
 
 // on unmount:
 unregisterContext();

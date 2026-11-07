@@ -10,6 +10,7 @@
  * `plugin-api/componentRegistry.ts` (`initGlobalRegistry`) - that file now
  * only owns the mountable-component map (`registerComponent`/`getRegistry`).
  */
+import { get } from 'svelte/store';
 import * as formReactions from '$lib/form/reactions';
 import { getRegistry, type MountableComponentRegistry } from '$lib/plugin-api/componentRegistry';
 import { registerHostUiComponents } from '$lib/plugin-api/hostUi';
@@ -33,6 +34,7 @@ import { createHostImageEditorApi } from '$lib/tool-tabs/canvasSource';
 import { findModelType, modelTypeDefinitions } from '$lib/stores/modelTypes.svelte';
 import { modelTypePresentation, type ModelTypePresentation } from '$lib/utils/modelPresentation';
 import type { ModelTypeDefinition } from '$lib/types/models';
+import { chatPanelStore, isChatPanelOpen, type ChatPrefillOptions } from '$lib/stores/chatPanel';
 import { holdKeyboard, releaseKeyboardHold } from '$lib/services/keyboard';
 import { registerIcon } from '$lib/utils/IconLibrary';
 import {
@@ -97,6 +99,11 @@ export interface PluginChatApi {
 	 * skipped once a handler is registered). Returns an unregister function.
 	 */
 	onToolApplied: typeof onToolApplied;
+	open(): void;
+	close(): void;
+	toggle(): void;
+	isOpen(): boolean;
+	prefill(text: string, options?: ChatPrefillOptions): void;
 }
 
 export interface PluginKeyboardApi {
@@ -301,7 +308,12 @@ export function initHostApi(): void {
 		chat: {
 			provideContext,
 			declareMode,
-			onToolApplied
+			onToolApplied,
+			open: () => chatPanelStore.open(),
+			close: () => chatPanelStore.close(),
+			toggle: () => chatPanelStore.toggle(),
+			isOpen: () => get(isChatPanelOpen),
+			prefill: (text, options) => chatPanelStore.prefill(text, options)
 		},
 		keyboard: {
 			suppress: () => holdKeyboard(),

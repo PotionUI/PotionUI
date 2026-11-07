@@ -18,6 +18,7 @@
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
+	import { chatPanelStore } from '$lib/stores/chatPanel';
 	import {
 		chatModes,
 		modeOffersTools,
@@ -587,7 +588,24 @@
 	// Load sessions after configs are loaded
 	$: if (configsLoaded && !sessionsLoadInitiated) {
 		sessionsLoadInitiated = true;
-		void loadRecentSessions(true);
+		void loadRecentSessions(true).then(attachHostComposer);
+	}
+
+	let detachHostComposer: (() => void) | null = null;
+
+	async function attachHostComposer() {
+		await tick();
+		if (destroyed || detachHostComposer) return;
+		detachHostComposer = chatPanelStore.attachComposer({ prefill: prefillFromHost });
+	}
+
+	function prefillFromHost(text: string, replace: boolean) {
+		const hasDraft = userInput.trim() !== '' || Object.keys(userResources).length > 0;
+		if (replace || !hasDraft) {
+			userInput = text;
+			userResources = {};
+		}
+		void tick().then(() => inputRef?.focus());
 	}
 
 	async function loadRecentSessions(restoreStored = false) {
@@ -888,6 +906,7 @@
 		if (stripFlashTimer) clearTimeout(stripFlashTimer);
 		if (pinnedScrollHandle !== null) cancelFrame(pinnedScrollHandle);
 		pendingCardObserver?.disconnect();
+		detachHostComposer?.();
 	});
 
 	async function handleCommand(command: string): Promise<boolean> {

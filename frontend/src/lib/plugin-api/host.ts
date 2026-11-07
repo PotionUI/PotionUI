@@ -33,6 +33,7 @@ import { createHostImageEditorApi } from '$lib/tool-tabs/canvasSource';
 import { findModelType, modelTypeDefinitions } from '$lib/stores/modelTypes.svelte';
 import { modelTypePresentation, type ModelTypePresentation } from '$lib/utils/modelPresentation';
 import type { ModelTypeDefinition } from '$lib/types/models';
+import { holdKeyboard, releaseKeyboardHold } from '$lib/services/keyboard';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -90,6 +91,11 @@ export interface PluginChatApi {
 	onToolApplied: typeof onToolApplied;
 }
 
+export interface PluginKeyboardApi {
+	suppress(): () => void;
+	resume(): void;
+}
+
 export interface PluginRendererEntry {
 	pluginId: string;
 	asset: string;
@@ -126,6 +132,7 @@ export interface PotionUIHostApi {
 	api: PluginHostFetchApi;
 	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling. */
 	chat: PluginChatApi;
+	keyboard: PluginKeyboardApi;
 	layers: PluginLayersApi;
 	input: PluginInputApi;
 	generation: { prepareRequest: typeof prepareRequestFromSession };
@@ -198,6 +205,10 @@ export function initHostApi(): void {
 			provideContext,
 			declareMode,
 			onToolApplied
+		},
+		keyboard: {
+			suppress: () => holdKeyboard(),
+			resume: () => releaseKeyboardHold()
 		},
 		layers: {
 			overlayLayer,

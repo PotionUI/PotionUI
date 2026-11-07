@@ -2753,6 +2753,46 @@ props passed to `mountPlugin` include three header hooks:
 Both setters reset whenever the page is loaded again, and are absent on hosts that predate
 them, so call them as `setHeaderTitleHidden?.(true)`.
 
+## Keyboard shortcuts on a plugin page
+
+The app's global shortcuts (listed in the Keyboard Shortcuts dialog) listen on the whole
+document. They already ignore unmodified keys typed into an input, a textarea, a select or a
+contenteditable element, so an ordinary plugin form needs nothing. A plugin page that
+handles plain keys itself, such as a timeline that uses Space, the arrow keys or letters,
+turns the global shortcuts off while it is on screen (and lets its own handlers stand down
+while the user types, with `input.isTypingInField` from "Keeping window shortcuts out of text
+fields" above):
+
+```js
+const releaseKeyboard = window.__potionui.keyboard.suppress();
+
+// on unmount:
+releaseKeyboard(); // or: window.__potionui.keyboard.resume();
+```
+
+- `suppress()` turns the global shortcuts off and returns a function that undoes this one
+  call. That function works once; calling it again does nothing.
+- `resume()` undoes one earlier `suppress()`. A `resume()` with nothing to undo does nothing.
+
+Suppressions are counted: the shortcuts come back when every `suppress()` has been matched by
+a `resume()` or by its own returned function, so two components of a page can each suppress
+and resume without switching the other's suppression off. Plugin suppressions are kept apart
+from the app's own (the paint editor, the Keyboard Shortcuts dialog): the app resuming its
+shortcuts does not cancel yours, and yours do not cancel the app's.
+
+When a plugin page is left, or replaced by another plugin's page, the host calls
+`unmountPlugin` and then drops every plugin suppression still held, including one held by a
+plugin component mounted elsewhere at that moment. A page that throws while unmounting, that
+has no `unmountPlugin`, or that forgets to resume therefore cannot leave the app without
+shortcuts. A function returned by `suppress()` before that point does nothing afterwards, so a
+late call from the old page cannot cancel the next page's suppression. Navigating between
+sub-paths of the same plugin page keeps the plugin mounted and keeps its suppressions. This
+cleanup is done by the plugin page host only: a component mounted through a plugin slot on
+another page must resume on its own unmount.
+
+The keyboard API is absent on hosts that predate it; call it as
+`window.__potionui.keyboard?.suppress()`.
+
 ## Using the app's UI components and Tailwind in a plugin frontend
 
 A plugin frontend is bundled on its own and cannot import `$lib`, but every shared UI

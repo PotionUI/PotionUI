@@ -10,6 +10,7 @@
 	import { createPageHeaderControls } from '$lib/plugin-api/pageHeader';
 	import { createHostFetchApi } from '$lib/plugin-api/hostApi';
 	import { createPluginApi as createHostPluginApi } from '$lib/plugin-api/pluginApi';
+	import { releaseAllKeyboardHolds } from '$lib/services/keyboard';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -41,6 +42,7 @@
 		}
 		pluginInstance = null;
 		unmountFn = null;
+		releaseAllKeyboardHolds();
 	}
 
 	async function loadPlugin(id: string) {

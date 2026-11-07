@@ -5,6 +5,8 @@ import { isTypingInField } from '$lib/utils/editableTarget';
 
 let initialized = false;
 let suppressGlobal = false;
+let holdCount = 0;
+let holdEpoch = 0;
 
 export function init() {
 	if (initialized) return;
@@ -24,6 +26,30 @@ export function suppressKeyboard() {
 
 export function resumeKeyboard() {
 	suppressGlobal = false;
+}
+
+export function holdKeyboard(): () => void {
+	holdCount++;
+	const epoch = holdEpoch;
+	let held = true;
+	return () => {
+		if (!held || epoch !== holdEpoch) return;
+		held = false;
+		releaseKeyboardHold();
+	};
+}
+
+export function releaseKeyboardHold(): void {
+	if (holdCount > 0) holdCount--;
+}
+
+export function releaseAllKeyboardHolds(): void {
+	holdCount = 0;
+	holdEpoch++;
+}
+
+export function isKeyboardSuppressed(): boolean {
+	return suppressGlobal || holdCount > 0;
 }
 
 export function shouldIgnoreEvent(e: KeyboardEvent): boolean {
@@ -58,7 +84,7 @@ function normalizeKey(e: KeyboardEvent): { key: string; modifiers: string } {
 }
 
 export function globalBindingFor(e: KeyboardEvent): KeybindingAction | null {
-	if (suppressGlobal || shouldIgnoreEvent(e)) return null;
+	if (isKeyboardSuppressed() || shouldIgnoreEvent(e)) return null;
 
 	const { key, modifiers } = normalizeKey(e);
 	const candidates = get(keybindingsStore).bindings.filter(

@@ -211,6 +211,15 @@ function requestRejection(err: unknown): TurnRejection | null {
 	};
 }
 
+function announceToolEnd(data: { tool_name?: unknown; success?: unknown; approval_status?: unknown } | undefined): void {
+	if (typeof window === 'undefined' || typeof data?.tool_name !== 'string') return;
+	window.dispatchEvent(
+		new CustomEvent('potionui:tool-end', {
+			detail: { tool_name: data.tool_name, success: data.success !== false, pending: data.approval_status === 'pending' }
+		})
+	);
+}
+
 export function createStreamEventHandler(
 	deps: TurnControllerDeps,
 	owned: OwnedSessionController,
@@ -387,6 +396,7 @@ export function createStreamEventHandler(
 			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'tool_end') {
 			owned.applyStreamEvent(event);
+			announceToolEnd(event.data);
 		} else if (event.type === 'status') {
 			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'replay_snapshot') {

@@ -700,6 +700,25 @@ const unregisterShot = window.__potionui.chat.onToolApplied('my_plugin_add_shot'
 On a host that predates this, only approved calls reach the handler, and nothing on
 `window.__potionui` tells the two apart.
 
+**Following a turn live.** A tool that runs without approval reaches `onToolApplied` only
+when the whole reply is final, which can be many calls later. A page whose tools save its
+document on the server can follow each call as it ends: the host dispatches a
+`potionui:tool-end` event on `window` for every tool call of a streamed turn, with
+`detail = {tool_name, success, pending}` (`pending` is true for a call that now waits for the
+user's approval). The event carries no result, so read your own state again, and keep
+`onToolApplied` for the result itself: a page that misses the event (a host that predates it,
+a reply recovered after a dropped connection) still gets the result there.
+
+```js
+const onToolEnd = (event) => {
+  const { tool_name, success, pending } = event.detail;
+  if (success && !pending && myTools.includes(tool_name)) reloadDocumentIfNewer();
+};
+window.addEventListener('potionui:tool-end', onToolEnd);
+// on unmount:
+window.removeEventListener('potionui:tool-end', onToolEnd);
+```
+
 ## Contributing an LLM configuration type
 
 A plugin can add a provider to the Type list of Admin → LLM / Assistant → Add configuration.

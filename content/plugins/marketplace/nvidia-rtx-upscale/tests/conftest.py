@@ -112,35 +112,34 @@ class _FakeQualityLevel(IntEnum):
     MEDIUM = 2
     HIGH = 3
     ULTRA = 4
-    DENOISE_LOW = 5
-    DENOISE_MEDIUM = 6
-    DENOISE_HIGH = 7
-    DENOISE_ULTRA = 8
-    DEBLUR_LOW = 9
-    DEBLUR_MEDIUM = 10
-    DEBLUR_HIGH = 11
-    DEBLUR_ULTRA = 12
-    HIGHBITRATE_LOW = 13
-    HIGHBITRATE_MEDIUM = 14
-    HIGHBITRATE_HIGH = 15
-    HIGHBITRATE_ULTRA = 16
+    DENOISE_LOW = 8
+    DENOISE_MEDIUM = 9
+    DENOISE_HIGH = 10
+    DENOISE_ULTRA = 11
+    DEBLUR_LOW = 12
+    DEBLUR_MEDIUM = 13
+    DEBLUR_HIGH = 14
+    DEBLUR_ULTRA = 15
+    HIGHBITRATE_LOW = 16
+    HIGHBITRATE_MEDIUM = 17
+    HIGHBITRATE_HIGH = 18
+    HIGHBITRATE_ULTRA = 19
+    STREAMING_MEDIUM = 21
+    STREAMING_ULTRA = 23
 
 
-@pytest.fixture
-def fake_nvvfx(monkeypatch):
-    """Installs a fake `nvvfx` module in `sys.modules` for the duration of the
-    test. `FakeVideoSuperRes.run()` deliberately reuses the SAME tensor buffer
-    across calls (overwritten in place, like the real DLPack-backed result the
-    brief describes) so a pipe that forgets `.clone()` fails a test rather than
-    the real GPU.
-    """
-
+def _fake_video_super_res(takes_strength):
     class FakeVideoSuperRes:
         QualityLevel = _FakeQualityLevel
         instances = []
+        fail_load = None
+        fail_run = None
 
-        def __init__(self, quality):
+        def __init__(self, quality=None, **kwargs):
+            if "strength" in kwargs and not takes_strength:
+                raise TypeError("__init__() got an unexpected keyword argument 'strength'")
             self.quality = quality
+            self.kwargs = dict(kwargs)
             self.output_width = None
             self.output_height = None
             self.load_calls = 0
@@ -151,9 +150,13 @@ def fake_nvvfx(monkeypatch):
 
         def load(self):
             assert self.output_width and self.output_height, "load() called before output size was set"
+            if FakeVideoSuperRes.fail_load is not None:
+                raise FakeVideoSuperRes.fail_load
             self.load_calls += 1
 
         def run(self, frame):
+            if FakeVideoSuperRes.fail_run is not None:
+                raise FakeVideoSuperRes.fail_run
             h, w = self.output_height, self.output_width
             if self._buffer is None or tuple(self._buffer.shape[-2:]) != (h, w):
                 self._buffer = torch.zeros(3, h, w)
@@ -166,8 +169,27 @@ def fake_nvvfx(monkeypatch):
         def close(self):
             self.closed = True
 
+    return FakeVideoSuperRes
+
+
+@pytest.fixture
+def fake_nvvfx(monkeypatch):
+    """Installs a fake `nvvfx` module in `sys.modules` for the duration of the
+    test. `FakeVideoSuperRes.run()` deliberately reuses the SAME tensor buffer
+    across calls (overwritten in place, like the real DLPack-backed result the
+    brief describes) so a pipe that forgets `.clone()` fails a test rather than
+    the real GPU.
+    """
     module = ModuleType("nvvfx")
-    module.VideoSuperRes = FakeVideoSuperRes
+    module.VideoSuperRes = _fake_video_super_res(takes_strength=True)
+    monkeypatch.setitem(sys.modules, "nvvfx", module)
+    return module
+
+
+@pytest.fixture
+def fake_nvvfx_without_strength(monkeypatch):
+    module = ModuleType("nvvfx")
+    module.VideoSuperRes = _fake_video_super_res(takes_strength=False)
     monkeypatch.setitem(sys.modules, "nvvfx", module)
     return module
 

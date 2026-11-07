@@ -124,8 +124,10 @@ def test_missing_nvvfx_raises_actionable_error(pipe_module, blocking_finder_cls,
         sys.meta_path.remove(finder)
 
     message = str(exc_info.value)
-    assert "pip install nvidia-vfx" in message
+    assert 'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com' in message
     assert "570.190" in message
+    assert "LD_LIBRARY_PATH=/usr/lib/wsl/lib" in message
+    assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx" in message
 
 
 # -- session: reload-on-size-change and clone-before-next-run ------------
@@ -282,3 +284,269 @@ def test_the_pipe_writes_video_through_the_shared_writer(pipe_module, monkeypatc
     writer.close()
 
     assert proc.returncode == 0
+
+
+@pytest.mark.parametrize("width,height,target,expected", [
+    (832, 480, 1080, (1872, 1080)),
+    (768, 448, 1080, (1848, 1080)),
+    (480, 832, 1080, (1080, 1872)),
+    (832, 480, 1440, (2496, 1440)),
+    (832, 480, 4000, (3328, 1920)),
+    (832, 480, 240, (832, 480)),
+])
+def test_target_short_side_sets_the_scale(pipe_module, width, height, target, expected):
+    assert pipe_module.target_size("upscale", 2.0, width, height, target) == expected
+
+
+def test_target_short_side_is_ignored_by_denoise_and_deblur(pipe_module):
+    for intent in ("denoise", "deblur"):
+        assert pipe_module.target_size(intent, 2.0, 832, 480, 1080) == (832, 480)
+
+
+def test_zero_target_short_side_keeps_the_scale(pipe_module):
+    assert pipe_module.target_size("upscale", 2.0, 832, 480, 0) == (1664, 960)
+    assert pipe_module.target_size("upscale", 2.0, 832, 480) == (1664, 960)
+
+
+@pytest.mark.parametrize("width,height", [(100, 60), (101, 57), (833, 481), (834, 482), (7, 9)])
+def test_an_upscale_never_lands_below_the_source(pipe_module, width, height):
+    out_w, out_h = pipe_module.target_size("upscale", 1.0, width, height)
+
+    assert out_w >= width and out_h >= height
+    assert out_w % 8 == 0 and out_h % 8 == 0
+    assert out_w - width < 8 and out_h - height < 8
+
+
+def test_a_side_that_rounded_down_now_rounds_up(pipe_module):
+    assert pipe_module.round_to_8(834) == 832
+    assert pipe_module.target_size("upscale", 1.0, 834, 482) == (840, 488)
+    assert pipe_module.target_size("upscale_highbitrate", 1.0, 834, 482) == (840, 488)
+
+
+def test_target_short_side_and_strength_are_declared(pipe_class):
+    specs = {spec.name: spec for spec in pipe_class.configuration()}
+    defaults = pipe_class.get_default_config()
+
+    assert (specs["target_short_side"].default, defaults["target_short_side"]) == (0, 0)
+    assert (specs["target_short_side"].min_value, specs["target_short_side"].max_value) == (0, 8192)
+    assert (specs["strength"].default, defaults["strength"]) == (1.0, 1.0)
+    assert (specs["strength"].min_value, specs["strength"].max_value) == (0.0, 1.0)
+
+
+def test_process_image_reaches_the_target_short_side(pipe_class, fake_nvvfx, no_real_cuda):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 1.0, "target_short_side": 48})
+    result = pipe.process(PipeInput(input={"image": [_rgb_image(40, 24)]}), lambda o: None)
+
+    (out_image,) = result.output["image"]
+    assert out_image.size == (80, 48)
+
+
+@pytest.mark.parametrize("strength", [1.0, "1.0", None, ""])
+def test_full_strength_is_not_sent_to_the_sdk(pipe_class, fake_nvvfx, no_real_cuda, strength):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0, "strength": strength})
+    pipe.process(PipeInput(input={"image": [_rgb_image(16, 16)]}), lambda o: None)
+
+    assert "strength" not in fake_nvvfx.VideoSuperRes.instances[-1].kwargs
+
+
+@pytest.mark.parametrize("strength", [0.4, "0.4", 0.0])
+def test_a_lower_strength_reaches_the_sdk(pipe_class, fake_nvvfx, no_real_cuda, strength):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0, "strength": strength})
+    pipe.process(PipeInput(input={"image": [_rgb_image(16, 16)]}), lambda o: None)
+
+    assert fake_nvvfx.VideoSuperRes.instances[-1].kwargs["strength"] == pytest.approx(float(strength))
+
+
+def test_strength_falls_back_when_the_sdk_takes_none(pipe_class, fake_nvvfx_without_strength, no_real_cuda, caplog):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0, "strength": 0.4})
+    with caplog.at_level("WARNING"):
+        result = pipe.process(PipeInput(input={"image": [_rgb_image(16, 16)]}), lambda o: None)
+
+    assert result.output["image"][0].size == (32, 32)
+    assert "strength" not in fake_nvvfx_without_strength.VideoSuperRes.instances[-1].kwargs
+    assert "takes no strength" in caplog.text
+
+
+def _failing_process(pipe_module, pipe_class, fake_nvvfx, error, at="load"):
+    setattr(fake_nvvfx.VideoSuperRes, f"fail_{at}", error)
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0})
+    with pytest.raises(pipe_module.GenerationExecutionError) as exc_info:
+        pipe.process(PipeInput(input={"image": [_rgb_image(40, 24)]}), lambda o: None)
+    return str(exc_info.value)
+
+
+@pytest.mark.parametrize("at", ["load", "run"])
+@pytest.mark.parametrize("sdk_message", [
+    "NvVFX_Run failed: An invalid parameter value has been supplied for this effect+selector (code -7)",
+    "NvVFX_Run failed: The specified image resolution is not supported (code -16)",
+])
+def test_a_refused_frame_size_is_explained(pipe_module, pipe_class, fake_nvvfx, no_real_cuda, at, sdk_message):
+    message = _failing_process(pipe_module, pipe_class, fake_nvvfx, RuntimeError(sdk_message), at)
+
+    assert "refused the frame size (40x24 to 80x48)" in message
+    assert sdk_message in message
+
+
+def test_an_uninitialized_effect_points_at_the_ngx_capability(pipe_module, pipe_class, fake_nvvfx, no_real_cuda):
+    message = _failing_process(pipe_module, pipe_class, fake_nvvfx, RuntimeError(
+        "NvVFX_Load failed: The effect has not been properly initialized (code -12)"))
+
+    assert "could not initialize (40x24 to 80x48)" in message
+    assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx" in message
+    assert "refused" not in message
+
+
+@pytest.mark.parametrize("code", [-17, -18, -19])
+def test_an_unsupported_gpu_or_driver_names_what_the_effect_needs(pipe_module, pipe_class, fake_nvvfx, no_real_cuda, code):
+    message = _failing_process(pipe_module, pipe_class, fake_nvvfx, RuntimeError(
+        f"NvVFX_Load failed: The GPU is not supported (code {code})"))
+
+    assert "does not run on this GPU or driver (40x24 to 80x48)" in message
+    assert "Turing or newer" in message
+    assert "570.190" in message
+
+
+@pytest.mark.parametrize("sdk_message", [
+    "NvVFX_Run failed: inference error",
+    "NvVFX_Run failed: CUDA error (code -120)",
+    "NvVFX_Run failed (code -70)",
+])
+def test_another_sdk_error_names_the_sizes(pipe_module, pipe_class, fake_nvvfx, no_real_cuda, sdk_message):
+    message = _failing_process(pipe_module, pipe_class, fake_nvvfx, RuntimeError(sdk_message), "run")
+
+    assert message == f"NVIDIA RTX Video Super Resolution failed (40x24 to 80x48): {sdk_message}"
+
+
+def test_the_effect_is_closed_after_a_failure(pipe_module, pipe_class, fake_nvvfx, no_real_cuda):
+    _failing_process(pipe_module, pipe_class, fake_nvvfx, RuntimeError("boom"), "run")
+
+    assert fake_nvvfx.VideoSuperRes.instances[-1].closed
+
+
+def test_frames_run_without_a_cuda_stream_when_cuda_is_absent(pipe_module, no_real_cuda):
+    import contextlib
+    import torch
+
+    assert isinstance(pipe_module.default_stream(torch), contextlib.nullcontext)
+
+
+def test_frames_run_on_the_default_cuda_stream(pipe_module):
+    from types import SimpleNamespace
+
+    fake_torch = SimpleNamespace(cuda=SimpleNamespace(
+        is_available=lambda: True,
+        default_stream=lambda: "stream 0",
+        stream=lambda stream: ("on", stream),
+    ))
+
+    assert pipe_module.default_stream(fake_torch) == ("on", "stream 0")
+
+
+def test_the_sdk_and_the_copies_run_inside_the_stream_context(pipe_module, fake_nvvfx, no_real_cuda, monkeypatch):
+    import contextlib
+
+    entered = []
+
+    @contextlib.contextmanager
+    def recording(torch_module):
+        entered.append("in")
+        yield
+        entered.append("out")
+
+    monkeypatch.setattr(pipe_module, "default_stream", recording)
+    session = pipe_module._RtxSession(fake_nvvfx, fake_nvvfx.VideoSuperRes.QualityLevel.ULTRA)
+    session.ensure_loaded(8, 8)
+    effect = fake_nvvfx.VideoSuperRes.instances[-1]
+    real_run = effect.run
+
+    def run(frame):
+        assert entered == ["in"]
+        return real_run(frame)
+
+    effect.run = run
+    session.process_frame(_rgb_image(8, 8))
+
+    assert entered == ["in", "out"]
+
+
+def test_an_installed_nvvfx_that_cannot_load_says_so(pipe_module, blocking_finder_cls, monkeypatch):
+    import importlib.metadata
+
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "0.2.0.0" if name == "nvidia-vfx" else None)
+    finder = blocking_finder_cls(["nvvfx"])
+    monkeypatch.delitem(sys.modules, "nvvfx", raising=False)
+    sys.meta_path.insert(0, finder)
+    try:
+        with pytest.raises(pipe_module.GenerationExecutionError) as exc_info:
+            pipe_module._import_nvvfx()
+    finally:
+        sys.meta_path.remove(finder)
+
+    message = str(exc_info.value)
+    assert message.startswith("NVIDIA RTX Video Super Resolution is installed (nvidia-vfx 0.2.0.0) but its library does not load: ")
+    assert "nvvfx is blocked by the test harness" in message
+    assert "--gpus all" in message
+    assert "not installed" not in message
+
+
+def test_a_missing_nvvfx_is_reported_not_installed(pipe_module, blocking_finder_cls, monkeypatch):
+    import importlib.metadata
+
+    def missing(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    finder = blocking_finder_cls(["nvvfx"])
+    monkeypatch.delitem(sys.modules, "nvvfx", raising=False)
+    sys.meta_path.insert(0, finder)
+    try:
+        with pytest.raises(pipe_module.GenerationExecutionError) as exc_info:
+            pipe_module._import_nvvfx()
+    finally:
+        sys.meta_path.remove(finder)
+
+    assert str(exc_info.value).startswith("NVIDIA RTX Video Super Resolution is not installed. pip install")
+
+
+def test_a_video_reaches_the_target_short_side(pipe_module, pipe_class, fake_nvvfx, no_real_cuda, tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2", reason="cv2 (or its native deps) not available", exc_type=ImportError)
+    source = tmp_path / "in.mp4"
+    writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (40, 24))
+    if not writer.isOpened():
+        pytest.skip("no writable mp4 codec available for the synthetic input")
+    for _ in range(3):
+        writer.write(np.zeros((24, 40, 3), dtype=np.uint8))
+    writer.release()
+    opened = []
+
+    class Recording:
+        def __init__(self, path, width, height, fps):
+            opened.append((width, height))
+            self.frames = 0
+
+        def write(self, frame):
+            self.frames += 1
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(pipe_module, "StreamingMp4Writer", Recording)
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 1.0, "target_short_side": 48, "keep_audio": False})
+
+    pipe.process(PipeInput(input={"video": [str(source)]}), lambda o: None)
+
+    assert opened == [(80, 48)]
+    assert fake_nvvfx.VideoSuperRes.instances[-1].run_calls == 3
+
+
+def test_an_effect_the_sdk_cannot_create_is_explained(pipe_module, pipe_class, fake_nvvfx, no_real_cuda, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise RuntimeError("NvVFX_CreateEffect failed: The GPU is not supported (code -17)")
+
+    monkeypatch.setattr(fake_nvvfx, "VideoSuperRes", type("Refusing", (), {"QualityLevel": fake_nvvfx.VideoSuperRes.QualityLevel, "__init__": refuse}))
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0})
+
+    with pytest.raises(pipe_module.GenerationExecutionError) as exc_info:
+        pipe.process(PipeInput(input={"image": [_rgb_image(16, 16)]}), lambda o: None)
+
+    assert str(exc_info.value).startswith("NVIDIA RTX Video Super Resolution does not run on this GPU or driver: it needs")

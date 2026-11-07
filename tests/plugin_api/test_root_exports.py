@@ -44,6 +44,8 @@ REEXPORTS = {
     "src.plugin_api.media": [
         "embed_images",
         "image_embedder",
+        "detect_faces",
+        "face_detector",
     ],
 }
 

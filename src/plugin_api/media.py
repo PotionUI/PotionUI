@@ -29,6 +29,7 @@ the model depot's `detection_segm/` folder, the convention
 
 import asyncio
 import contextvars
+import hashlib
 import io
 import math
 from pathlib import Path
@@ -47,6 +48,7 @@ from src.platform.filesystem import audio_formats, visual_formats
 from src.platform.filesystem.mesh_formats import mesh_format_registry
 from src.platform.filesystem.storage_driver import local_copy, validate_key
 from src.platform.plugins.runtime_registries import get_container
+from src.platform.util import face_boxes
 from src.platform.util.imaging import convert_image_to_base64
 from src.platform.util.video_stream import (
     FFmpegNotFoundError,
@@ -92,8 +94,10 @@ __all__ = [
     "VideoTranscodeError",
     "convert_image_to_base64",
     "copy_media_file",
+    "detect_faces",
     "embed_images",
     "extract_frame",
+    "face_detector",
     "find_ffmpeg",
     "has_audio_stream",
     "image_embedder",
@@ -294,3 +298,53 @@ def embed_images(images: Sequence[ImageInput]) -> List[List[float]]:
     if not _embedder_weights_here(embedder):
         raise FileNotFoundError(f"The weights of {embedder.model_name} are not on this server")
     return contextvars.copy_context().run(embedder.embed_images, list(images))
+
+
+FACE_MODEL = "face_detection_yunet_2023mar.onnx"
+FACE_MODEL_TYPE = "detection_bbox"
+MODEL_FILES = {
+    FACE_MODEL: (232589, "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"),
+}
+_verified_files: set = set()
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 22), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _is_model_file(path: Path) -> bool:
+    try:
+        stat = path.stat()
+    except OSError:
+        return False
+    stamp = (str(path), stat.st_mtime_ns, stat.st_size)
+    if stamp in _verified_files:
+        return True
+    size, digest = MODEL_FILES[path.name]
+    if not path.is_file() or stat.st_size != size or _sha256(path) != digest:
+        return False
+    _verified_files.add(stamp)
+    return True
+
+
+def _face_model() -> Optional[Path]:
+    for entry in get_container().model_roots.type_dirs(FACE_MODEL_TYPE):
+        candidate = Path(entry.path) / FACE_MODEL
+        if _is_model_file(candidate):
+            return candidate
+    return None
+
+
+def face_detector() -> Dict[str, Any]:
+    return {"model": FACE_MODEL, "available": _face_model() is not None}
+
+
+def detect_faces(images: Sequence[ImageInput], min_score: float = 0.5) -> List[List[Dict[str, Any]]]:
+    model = _face_model()
+    if model is None:
+        raise FileNotFoundError(f"{FACE_MODEL} is not in a {FACE_MODEL_TYPE} folder of the model roots")
+    return face_boxes.detect(model, list(images), min_score)

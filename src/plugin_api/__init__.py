@@ -234,6 +234,8 @@ from src.plugin_api.media import (
     upload_formats,
     embed_images,
     image_embedder,
+    detect_faces,
+    face_detector,
 )
 
 # Contributing a prompt import source.
@@ -571,6 +573,8 @@ __all__ = [
     "upload_formats",
     "embed_images",
     "image_embedder",
+    "detect_faces",
+    "face_detector",
     # Prompt import sources
     "PromptImporter",
     "PromptImportOutcome",

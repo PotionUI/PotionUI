@@ -3023,8 +3023,50 @@ updating and cleanup for you, and its markup children are projected into the hos
 Tailwind classes written in a plugin's `frontend/src/**/*.{svelte,js,ts}` (marketplace and
 local) and in `content/plugins/sdk/` are scanned by the app's Tailwind build, so the semantic
 token classes (`bg-surface-2`, `text-fg-muted`, `border-line`, ...) and arbitrary values work
-in plugin markup. Rebuild the app frontend after adding new classes; the plugin's own `dist/`
-carries no Tailwind CSS. Use the token classes only, as in the app.
+in plugin markup. Rebuild the app frontend after adding new classes. Use the token classes only,
+as in the app.
+
+### Shipping a stylesheet with a plugin page
+
+The app's Tailwind build only sees the plugins that are on disk when it runs. A plugin added
+later, to `content/plugins/local/` of a Docker image or of an install whose frontend was built
+before, finds only the classes the app happens to use itself, and its layout breaks wherever it
+uses others. Such a plugin ships its own stylesheet with its page.
+
+A page plugin whose `frontend/src/` holds `<Component>.css`, next to the `<Component>.svelte`
+that `index.js` imports, gets `frontend/dist/<Component>.css` from `scripts/build-plugins.mjs`.
+The build compiles that file with Tailwind, using the app's `frontend/tailwind.config.js` as a
+preset (same theme, tokens, type scale and `focus-visible` variants), over the plugin's own
+`frontend/src/**/*.{svelte,js,ts}` only, with Tailwind's base styles off. `@tailwind utilities;`
+is usually the whole file; plain CSS rules may follow it. A release build minifies the sheet as
+it minifies the bundle. Compiling it needs the app frontend's packages (`npm ci` in
+`frontend/`); a plugin without the file does not.
+
+The build puts every rule under the page of the plugin: `.p-4` becomes
+`[data-potionui-plugin="video-producer"] .p-4`, `:root`, `html` and `body` at the start of a
+selector become the page element itself, and keyframes keep their names. The sheet holds no
+token values: its rules read the app's CSS variables (`--surface-2`, `--fg-muted`, ...), so it
+follows the light and dark themes like the app does.
+
+`GET /api/plugins/pages/{route}` answers `stylesheet`, the path of `<Component>.css` in
+`frontend/dist/` when the file is there, `null` otherwise. The plugin page route fetches the
+sheet with the bundle, keeps only the rules that stay inside the page element, adopts the sheet
+before it mounts the page, and removes it when the page unmounts. A kept style rule has
+selectors that each start with the plugin's `[data-potionui-plugin="<id>"]` followed by nothing,
+a descendant or a child combinator; `@media`, `@supports`, `@container` and `@layer` blocks are
+looked into, `@keyframes` and `@font-face` are kept, and everything else (`@import`, `@page`,
+a selector that starts elsewhere or reaches a sibling of the page) is dropped, with a console
+warning in development. The sheet therefore applies to the plugin page only, and to nothing
+once the user leaves it.
+
+Two consequences for the plugin's markup. An element the plugin moves out of its page element,
+for example appended to `document.body`, is outside the scope: give its root the attribute
+`data-potionui-plugin` with the plugin id, or render it with the host components, which carry
+the app's own classes. And a selector cannot depend on an ancestor of the page element:
+`[data-theme='light'] .x` never matches, so use the tokens, which already follow the theme.
+
+A plugin without the file, which is every plugin in this repository, gets `stylesheet: null`
+and loads as before.
 
 ### Adding your own icons
 
@@ -3184,9 +3226,10 @@ const handle = picker.mount(el, {
 `@xyflow/svelte` is part of the plugin toolchain (`content/plugins/package.json`), at the same
 version as the app (pinned exactly in both). A plugin imports it like any other dependency
 (`import { SvelteFlow, Background } from '@xyflow/svelte'`) and it is bundled into the plugin's
-own dist (about 250 kB minified). The build writes only `.js`, so the library's stylesheet is not
-shipped as a file: copy what you need from `@xyflow/svelte/dist/style.css` into the component's
-`<style>` block, using `:global(...)` selectors.
+own dist (about 250 kB minified). The build writes only `.js` there, apart from the page
+stylesheet described above, so the library's stylesheet is not shipped as a file: copy what you
+need from `@xyflow/svelte/dist/style.css` into the component's `<style>` block, using
+`:global(...)` selectors.
 
 ## Building your plugin's frontend
 

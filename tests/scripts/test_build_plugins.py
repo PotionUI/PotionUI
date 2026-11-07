@@ -9,6 +9,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "build-plugins.mjs"
+STYLESHEET_MODULE = REPO_ROOT / "scripts" / "plugin-stylesheet.mjs"
 NODE = shutil.which("node")
 
 pytestmark = pytest.mark.skipif(NODE is None, reason="node is not on PATH")
@@ -18,6 +19,10 @@ const { appendFileSync } = require('fs');
 module.exports = {
 	build: async (options) => {
 		appendFileSync(process.env.BUILD_PLUGINS_TEST_LOG, JSON.stringify(options) + '\\n');
+	},
+	transform: async (code, options) => {
+		appendFileSync(process.env.BUILD_PLUGINS_TEST_CSS_LOG, JSON.stringify({ step: 'transform', code, options }) + '\\n');
+		return { code: `minify=${options.minify};${code}` };
 	}
 };
 """
@@ -64,6 +69,7 @@ def repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     (repo / "scripts").mkdir(parents=True)
     shutil.copy(SCRIPT, repo / "scripts" / "build-plugins.mjs")
+    shutil.copy(STYLESHEET_MODULE, repo / "scripts" / "plugin-stylesheet.mjs")
     _fake_toolchain(repo)
     local = repo / "content" / "plugins" / "local"
     local.mkdir()
@@ -77,8 +83,11 @@ def repo(tmp_path: Path) -> Path:
 def _run(repo: Path, *args: str) -> subprocess.CompletedProcess:
     log = repo / "esbuild-calls.jsonl"
     log.unlink(missing_ok=True)
+    css_log = repo / "css-calls.jsonl"
+    css_log.unlink(missing_ok=True)
     env = {k: v for k, v in os.environ.items() if k != "PLUGIN_BUILD"}
     env["BUILD_PLUGINS_TEST_LOG"] = str(log)
+    env["BUILD_PLUGINS_TEST_CSS_LOG"] = str(css_log)
     return subprocess.run(
         [NODE, str(repo / "scripts" / "build-plugins.mjs"), *args],
         cwd=repo, env=env, capture_output=True, text=True,
@@ -174,3 +183,114 @@ def test_stale_chunks_are_removed_from_dist_and_other_files_are_kept(repo, plugi
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert sorted(p.name for p in dist.iterdir()) == ["Widget.js", "chunky.js", "notchunk-X.js"]
+
+
+FAKE_TAILWIND = "module.exports = (config) => ({ postcssPlugin: 'tailwindcss', config });\n"
+FAKE_POSTCSS = """\
+const { appendFileSync } = require('fs');
+module.exports = (plugins) => ({
+	process: async (css, options) => {
+		if (css.includes('BROKEN')) throw new Error('cannot compile the stylesheet');
+		const entry = { step: 'postcss', plugins: plugins.map((p) => p.postcssPlugin), config: plugins[0].config, css, from: options.from };
+		appendFileSync(process.env.BUILD_PLUGINS_TEST_CSS_LOG, JSON.stringify(entry) + '\\n');
+		return { css: '.compiled{}' };
+	}
+});
+"""
+
+
+def _fake_frontend(repo: Path) -> None:
+    frontend = repo / "frontend"
+    (frontend / "node_modules").mkdir(parents=True)
+    (frontend / "package.json").write_text('{"name": "frontend", "private": true, "type": "module"}\n')
+    (frontend / "tailwind.config.js").write_text("export default { marker: 'host-config' };\n")
+    for name, source in (("tailwindcss", FAKE_TAILWIND), ("postcss", FAKE_POSTCSS)):
+        module = frontend / "node_modules" / name
+        module.mkdir()
+        (module / "package.json").write_text(json.dumps({"name": name, "main": "index.js"}))
+        (module / "index.js").write_text(source)
+
+
+def _stylesheet_source(repo: Path, content: bytes = b"@tailwind utilities;\n") -> Path:
+    plugin = repo / "content" / "plugins" / "local" / "plain-plugin"
+    (plugin / "frontend" / "src" / "Page.css").write_bytes(content)
+    return plugin / "frontend" / "dist"
+
+
+def _css_calls(repo: Path, step: str) -> list:
+    log = repo / "css-calls.jsonl"
+    if not log.exists():
+        return []
+    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    return [entry for entry in entries if entry["step"] == step]
+
+
+def test_a_page_plugin_with_a_stylesheet_source_gets_the_compiled_sheet_next_to_its_bundle(repo):
+    _fake_frontend(repo)
+    dist = _stylesheet_source(repo)
+
+    result = _run(repo, "plain-plugin")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (dist / "Page.css").read_text(encoding="utf-8") == "minify=true;.compiled{}"
+    assert "Page.css" in result.stdout
+
+
+def test_the_stylesheet_is_compiled_from_the_plugin_sources_with_the_app_config_and_without_base_styles(repo):
+    _fake_frontend(repo)
+    _stylesheet_source(repo)
+
+    _run(repo, "plain-plugin")
+
+    [entry] = _css_calls(repo, "postcss")
+    assert entry["plugins"] == ["tailwindcss", "potionui-plugin-scope"]
+    assert entry["config"]["presets"] == [{"marker": "host-config"}]
+    assert entry["config"]["corePlugins"] == {"preflight": False}
+    sources, excluded = entry["config"]["content"]
+    assert sources.endswith("/content/plugins/local/plain-plugin/frontend/src/**/*.{svelte,js,ts}")
+    assert excluded.startswith("!") and excluded.endswith("/content/plugins/local/plain-plugin/**/node_modules/**")
+    assert "\\" not in sources + excluded
+    assert entry["css"] == "@tailwind utilities;\n"
+
+
+def test_a_stylesheet_source_with_windows_line_endings_is_compiled_with_lf(repo):
+    _fake_frontend(repo)
+    _stylesheet_source(repo, b"@tailwind utilities;\r\n.note { margin: 0; }\r\n")
+
+    _run(repo, "plain-plugin")
+
+    [entry] = _css_calls(repo, "postcss")
+    assert entry["css"] == "@tailwind utilities;\n.note { margin: 0; }\n"
+
+
+def test_the_stylesheet_is_minified_in_release_and_kept_readable_in_debug(repo):
+    _fake_frontend(repo)
+    _stylesheet_source(repo)
+
+    _run(repo, "plain-plugin")
+    release = _css_calls(repo, "transform")
+    _run(repo, "plain-plugin", "--debug")
+    debug = _css_calls(repo, "transform")
+
+    assert [(c["options"]["loader"], c["options"]["minify"]) for c in release] == [("css", True)]
+    assert [(c["options"]["loader"], c["options"]["minify"]) for c in debug] == [("css", False)]
+
+
+def test_a_plugin_without_a_stylesheet_source_gets_no_sheet_and_needs_no_frontend_toolchain(repo):
+    result = _run(repo)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    local = repo / "content" / "plugins" / "local"
+    assert not list(local.glob("*/frontend/dist/*.css"))
+    assert _css_calls(repo, "postcss") == []
+
+
+def test_a_stylesheet_that_does_not_compile_fails_the_build_of_its_plugin(repo):
+    _fake_frontend(repo)
+    dist = _stylesheet_source(repo, b"BROKEN\n")
+
+    result = _run(repo)
+
+    assert result.returncode == 1
+    assert "plain-plugin: cannot compile the stylesheet" in result.stderr
+    assert not (dist / "Page.css").exists()

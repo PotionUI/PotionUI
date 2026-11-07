@@ -33,7 +33,7 @@ from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
 from src.platform.util.video_transcode import VideoProbe, find_ffprobe
 from src.plugin_api import generation, media
-from src.plugin_api.media import MediaRefError, extract_frame, save_user_media
+from src.plugin_api.media import MediaRefError, copy_media_file, extract_frame, media_local_path, save_user_media
 from src.plugin_api.presets import bind_director_media
 from tests.features.content_safety.fakes import FakeResolver, FakeSettings, FakeTagger
 from tests.fixtures.seed import seed_user
@@ -88,6 +88,23 @@ class Guard:
     def admit(self, request):
         if self.refusal is not None:
             raise self.refusal
+
+
+class ObjectStorage(LocalFileStorageDriver):
+    def __init__(self, base_dir, broken=False):
+        super().__init__(base_dir)
+        self.broken = broken
+        self.chunks = []
+
+    def local_path(self, key):
+        return None
+
+    def get_stream(self, key, chunk_size=65536):
+        self.chunks.append(chunk_size)
+        for index, chunk in enumerate(super().get_stream(key, 64)):
+            if self.broken and index == 1:
+                raise OSError("connection reset")
+            yield chunk
 
 
 class World:
@@ -452,8 +469,90 @@ async def test_saving_needs_a_user(world, export):
         await save_user_media(SimpleNamespace(id=None), export)
 
 
+def test_a_media_the_user_may_see_has_its_path_on_this_server(world):
+    clip = world.library_clip()
+    history = world.history_clip()
+
+    assert media_local_path(world.owner, clip) == (world.library / "uploads" / "clip-1.avi").resolve()
+    assert media_local_path(world.owner, history) == (world.outputs / "generations/2026-11-07/g1/out.avi").resolve()
+
+
+def test_a_media_the_user_may_see_is_copied_into_the_target(world, tmp_path):
+    clip = world.library_clip()
+    target = tmp_path / "copy.avi"
+
+    assert copy_media_file(world.owner, clip, target) is None
+    assert target.read_bytes() == (world.library / "uploads" / "clip-1.avi").read_bytes()
+
+
+def test_media_kept_in_object_storage_has_no_local_path_and_is_streamed_into_the_target(world, tmp_path):
+    clip = world.library_clip()
+    history = world.history_clip()
+    world.store.storage_driver = ObjectStorage(str(world.library))
+    world.container.file_service.storage_driver = ObjectStorage(str(world.outputs))
+    target = tmp_path / "copy.avi"
+
+    assert media_local_path(world.owner, clip) is None
+    assert media_local_path(world.owner, history) is None
+    copy_media_file(world.owner, history, target)
+
+    assert target.read_bytes() == (world.outputs / "generations/2026-11-07/g1/out.avi").read_bytes()
+    assert world.container.file_service.storage_driver.chunks == [1 << 20]
+
+
+@pytest.mark.parametrize("viewer", ["other", None])
+def test_another_user_or_no_user_gets_neither_the_path_nor_a_copy_of_someones_media(world, tmp_path, viewer):
+    user = world.other if viewer else None
+    target = tmp_path / "copy.avi"
+
+    for ref in (world.library_clip(), world.history_clip()):
+        for read in (lambda: media_local_path(user, ref), lambda: copy_media_file(user, ref, target)):
+            with pytest.raises(MediaRefError) as refused:
+                read()
+            assert refused.value.code == "not_found"
+    assert not target.exists()
+
+
+def test_a_restricted_user_only_reads_media_judged_safe(mock_db, tmp_path, monkeypatch, probe):
+    world = _world(mock_db, tmp_path, monkeypatch, restricted=True)
+    safe = world.history_clip("g-safe", "f-safe", score=0.01)
+    unrated = world.history_clip("g-unrated", "f-unrated", score=None)
+
+    assert media_local_path(world.owner, safe).is_file()
+    with pytest.raises(MediaRefError) as refused:
+        copy_media_file(world.owner, unrated, tmp_path / "copy.avi")
+    assert refused.value.code == "not_found"
+    assert not (tmp_path / "copy.avi").exists()
+
+
+@pytest.mark.parametrize("ref", [
+    "uploads/clip-1.avi",
+    {"kind": "library", "item_id": "clip-1", "path": "../outputs"},
+    {"kind": "uploads", "item_id": "clip-1"},
+])
+def test_only_a_media_reference_names_a_file(world, tmp_path, ref):
+    world.library_clip()
+
+    for read in (lambda: media_local_path(world.owner, ref), lambda: copy_media_file(world.owner, ref, tmp_path / "copy")):
+        with pytest.raises(MediaRefError) as refused:
+            read()
+        assert refused.value.code == "invalid_ref"
+    assert not (tmp_path / "copy").exists()
+
+
+def test_a_failed_copy_leaves_no_file_behind(world, tmp_path):
+    clip = world.library_clip()
+    world.store.storage_driver = ObjectStorage(str(world.library), broken=True)
+    target = tmp_path / "copy.avi"
+
+    with pytest.raises(OSError):
+        copy_media_file(world.owner, clip, target)
+
+    assert not target.exists()
+
+
 def test_the_media_names_import_from_the_root_and_the_media_module():
-    for name in ("extract_frame", "save_user_media", "StoredMedia"):
+    for name in ("extract_frame", "save_user_media", "StoredMedia", "media_local_path", "copy_media_file"):
         assert name in media.__all__ and name in root.__all__
         assert getattr(root, name) is getattr(media, name)
     for name in ("resolve_media_ref", "MediaRefError", "HistoryMediaRef", "LibraryMediaRef", "ResolvedMedia"):

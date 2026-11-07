@@ -78,9 +78,11 @@ __all__ = [
     "VideoProbe",
     "VideoTranscodeError",
     "convert_image_to_base64",
+    "copy_media_file",
     "extract_frame",
     "find_ffmpeg",
     "has_audio_stream",
+    "media_local_path",
     "mux_audio_from_source",
     "probe_video",
     "resolve_media_ref",
@@ -212,3 +214,25 @@ async def save_user_media(user, path: Union[str, Path], purpose: str = UPLOAD_PU
         raise MediaRefError("unsupported_media", "Only image, video, audio and 3D model files can be stored")
     data = await asyncio.to_thread(_read_admitted, store, source, user_id, purpose, content_type)
     return await _store(container, data, source.name, content_type, user_id, purpose)
+
+
+_COPY_CHUNK = 1 << 20
+
+
+def media_local_path(user, ref: Union[HistoryMediaRef, LibraryMediaRef]) -> Optional[Path]:
+    resolved = resolve_media_ref(user, ref)
+    driver, key = _stored(get_container(), ref["kind"], resolved["value"])
+    return driver.local_path(key)
+
+
+def copy_media_file(user, ref: Union[HistoryMediaRef, LibraryMediaRef], target: Union[str, Path]) -> None:
+    resolved = resolve_media_ref(user, ref)
+    driver, key = _stored(get_container(), ref["kind"], resolved["value"])
+    destination = Path(target)
+    try:
+        with destination.open("wb") as handle:
+            for chunk in driver.get_stream(key, _COPY_CHUNK):
+                handle.write(chunk)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise

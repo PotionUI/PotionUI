@@ -66,7 +66,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict` |
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `plugin_settings`, `Settings`, `SettingRepository`, `PluginRepository` |
-| **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe`, `StreamingMp4Writer(out_path, width, height, fps)` (pipes RGB uint8 frames to ffmpeg into a video-only MP4; `write`, `close`, `abort`, or a `with` block; raises `FFmpegNotFoundError` when ffmpeg is missing), `has_audio_stream(path)`, `mux_audio_from_source(video_only, source, out_path)` (video of one file plus audio of another, stream-copied or AAC; returns `False` and leaves no partial file when there is no audio or ffmpeg fails), `extract_frame(user, ref, at="last", purpose="user_upload")` and `save_user_media(user, path, purpose="user_upload")` (async; one frame of a video the user may see, or a file the plugin wrote, stored as the user's upload and returned as a `StoredMedia`; see [Working with the user's media](#working-with-the-users-media)), `StoredMedia`, and the media reference names of `.generation`: `resolve_media_ref`, `MediaRefError`, `HistoryMediaRef`, `LibraryMediaRef`, `ResolvedMedia` |
+| **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe`, `StreamingMp4Writer(out_path, width, height, fps)` (pipes RGB uint8 frames to ffmpeg into a video-only MP4; `write`, `close`, `abort`, or a `with` block; raises `FFmpegNotFoundError` when ffmpeg is missing), `has_audio_stream(path)`, `mux_audio_from_source(video_only, source, out_path)` (video of one file plus audio of another, stream-copied or AAC; returns `False` and leaves no partial file when there is no audio or ffmpeg fails), `extract_frame(user, ref, at="last", purpose="user_upload")` and `save_user_media(user, path, purpose="user_upload")` (async; one frame of a video the user may see, or a file the plugin wrote, stored as the user's upload and returned as a `StoredMedia`; see [Working with the user's media](#working-with-the-users-media)), `media_local_path(user, ref)` (the path on this server of the file of a media the user may see, or `None` when the storage keeps it elsewhere), `copy_media_file(user, ref, target)` (streams that file into a file of the plugin), `StoredMedia`, and the media reference names of `.generation`: `resolve_media_ref`, `MediaRefError`, `HistoryMediaRef`, `LibraryMediaRef`, `ResolvedMedia` |
 | **Models** — model metadata fields, provider links, resolving a model's file/folder across roots, and acting on catalog models | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `ModelFileUnavailable` (raised by `resolve_model_file` when the model's file is not reachable), `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path(path, admin=False)`, `model_for_sha256(sha256, *, size=None, hash_candidates="background", admin=False)` (the indexed model with that hash, or `None`; pass the file's `size` in bytes and a local copy that has not been hashed yet but has exactly that size can match as well: `"background"` queues at most eight of those candidates per call at the normal, rate-capped priority and answers `None` until they are done, `"paced"` verifies at most two of them through the rate-capped pool, waiting up to 15 minutes, `"inline"` hashes up to eight of them before answering at full speed, `"never"` only looks; `ValueError` for any other mode; unscoped; both leave out the operational fields - location, file size, hash - unless `admin=True`, for a caller that has checked the user is an admin), the hook `model_index.after_digests` (payload `model_ids`, at most once every 5 seconds: files finished being hashed, so a model's `sha256` is now known), `visible_model_ids(user_id)` (the models assigned to a user, directly or through their groups), `assign_model_to_user(model_id, user_id)` (`True` when newly assigned; fires `model_index.before_assign` / `after_assign`; raises `ModelAssignmentException`), `update_model_metadata(model_id, values)` (sets some shared attribute values, validated against the type's definitions; raises `InvalidModelMetadataException`, `ModelNotFoundException`), `run_provider_fetch(provider, model_ids)` (async; hashes any model that has no digest yet, one after another, then fills empty description, triggers, tags and previews from a provider plugin; `{"successful", "failed", "errors"}`; raises `ProviderFetchException` for an unknown or uninitialised provider, or a `model_index.before_fetch_info` veto), `ProviderFetchException`, `directory_aliases()`, `type_for_folder_name`, `model_types()` (the registered model types, plugin types included, read at call time), `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
 | **Downloads** — queueing a download and following it | `.downloads` | `queue_model_download(url, *, filename=None, model_type=None, subdir=None, tags=None, checksum_sha256=None, provider_id=None, created_by=None, destination_backend_id=None)` (async; the queued download as a dict; raises `DownloadQueueException`, or its `UnsafeFilenameException` and `DownloadDestinationInvalid` subtypes - the latter when the subfolder, directory or remote backend cannot be used, as opposed to a queue that is blocked), `get_download(download_id)` (the download's current state, or `None`), `DownloadNotFoundException`. Declare the `download.after_complete` hook to be told when a download has landed (`download_id`, `created_by` ...; `model_id` or `duplicate_of` only for a plain local model download, the one kind indexed on completion) |
 | **User groups** — groups, membership, and the NSFW policy a user gets | `.groups` | `list_groups()`, `get_user_groups(user_id)`, `group_member_ids(group_id)` (groups are `{"id", "name", "is_system", "content_policy"}` dicts), `effective_content_policy(user_id)` (`"allowed"`, `"blur"` or `"blocked"`: the instance setting made stricter by the user's groups), `assign_models_to_group(group_id, model_ids, acting_user)` (the ids newly assigned, through the group operation and its hooks in that admin's name; `ValueError` for a non-admin actor or an unknown group) |
@@ -2331,10 +2331,10 @@ each call is a fresh roll. Submit the request with `submit_generation` (or
 
 ## Working with the user's media
 
-`src.plugin_api.media` lets a plugin take a frame out of a video the user picked and store a file
-it made in the user's Library. Each function takes the acting user and reaches only what the
-history and Library APIs show that user: a media that is not theirs, that their content policy
-hides or whose file is gone is reported as not found, never as forbidden.
+`src.plugin_api.media` lets a plugin read the file of a media the user picked, take a frame out of
+a video and store a file it made in the user's Library. Each function takes the acting user and
+reaches only what the history and Library APIs show that user: a media that is not theirs, that
+their content policy hides or whose file is gone is reported as not found, never as forbidden.
 
 A media is named by the reference `resolve_media_ref` takes (see
 [Running generations from a plugin](#running-generations-from-a-plugin)):
@@ -2347,12 +2347,15 @@ A media is named by the reference `resolve_media_ref` takes (see
 |---|---|
 | `await extract_frame(user, ref, at="last", purpose="user_upload")` | Takes one frame of a video the user may see and stores it as their PNG upload, named after the video: `clip-frame-last.png`, `clip-frame-2.5s.png`. `at` is `"last"` or a number of seconds from the start, turned into a frame with the frame rate `probe_video` reads, so `at` in seconds needs `ffprobe` and `"last"` does not |
 | `await save_user_media(user, path, purpose="user_upload")` | Stores a file the plugin wrote, at an absolute path on this server, as the user's upload, the way `POST /api/media/upload` stores one: the `media.before_upload` hooks, the same file stored once per user and purpose, thumbnails, and the user's plan. Its extension decides what it is: an image, a video, an audio file or a 3D model |
+| `media_local_path(user, ref)` | The path on this server of the file of a media the user may see, or `None` when the storage keeps it elsewhere, such as object storage. The path is the stored file itself: read it, never write, move or delete it |
+| `copy_media_file(user, ref, target)` | Streams the file of a media the user may see into `target`, a file of the plugin, wherever the storage keeps it. A copy that fails leaves no file at `target` |
 
-Both return a `StoredMedia`: the keys of a `ResolvedMedia`, which a media field and
-`bind_director_media` take (`value`, `uploads/<file>`; `media_type`; `original_filename`; `origin`,
-`None`), plus `ref`, the `{"kind": "library", "item_id"}` reference of the stored item, and
-`width` and `height` in pixels when they could be read. `ref` is `None` only when the store could
-not write the Library row; the file is stored all the same, as with the upload route.
+`extract_frame` and `save_user_media` return a `StoredMedia`: the keys of a `ResolvedMedia`, which
+a media field and `bind_director_media` take (`value`, `uploads/<file>`; `media_type`;
+`original_filename`; `origin`, `None`), plus `ref`, the `{"kind": "library", "item_id"}`
+reference of the stored item, and `width` and `height` in pixels when they could be read. `ref` is
+`None` only when the store could not write the Library row; the file is stored all the same, as
+with the upload route.
 
 `purpose="user_upload"` makes the file a Library item the user browses. `purpose="derived_artifact"`
 keeps it servable and referenceable but out of the Library, for a helper file such as a mask; a
@@ -2362,7 +2365,7 @@ Refusals raise `MediaRefError` with a `code`:
 
 | `code` | When |
 |---|---|
-| `invalid_ref` | The reference is malformed or has other keys; `at` is not `"last"` or a finite number of seconds, 0 or more; `path` is relative |
+| `invalid_ref` | The reference is not a reference object, is malformed or has other keys; `at` is not `"last"` or a finite number of seconds, 0 or more; `path` is relative |
 | `not_found` | The media is not one the user may see, or its file is gone; `path` is not a file |
 | `not_a_video` | `extract_frame` was given an image or an audio file |
 | `extract_failed` | The frame could not be read, for example at a time past the end of the video, or the frame rate could not be read for `at` in seconds |
@@ -2372,7 +2375,9 @@ Refusals raise `MediaRefError` with a `code`:
 
 A full storage plan raises `LimitExceeded` (`src.plugin_api.limits`), as the upload route does.
 `save_user_media` checks the plan and the helper file cap against the size of the file before it
-reads it. Without a user, both raise `PermissionError`.
+reads it. Without a user, `extract_frame` and `save_user_media` raise `PermissionError`.
+`media_local_path` and `copy_media_file` raise `invalid_ref` and `not_found` only, and a copy lets
+the error of the storage through when it fails.
 
 `save_user_media` stores whatever file it is given. Give it files your plugin wrote, never a path
 taken from a request.

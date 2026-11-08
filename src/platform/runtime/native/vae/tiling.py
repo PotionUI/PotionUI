@@ -136,6 +136,7 @@ def tiled_encode_causal3d(
     pixels: torch.Tensor,
     tile_size: int = 512,
     overlap: int = 64,
+    scale: int = VAE_SPATIAL_DOWNSCALE,
 ) -> torch.Tensor:
     """Spatial tiled ``vae.encode`` for the causal-3D (Wan-shaped) VAE, with
     linear-blended seams.
@@ -155,7 +156,7 @@ def tiled_encode_causal3d(
     if h <= tile_size and w <= tile_size:
         return vae.encode(pixels)
 
-    scale = 1.0 / VAE_SPATIAL_DOWNSCALE
+    scale = 1.0 / scale
     feather = round(overlap * scale)
     step = tile_size - overlap
     ys = list(range(0, max(h - overlap, 1), step)) if h > tile_size else [0]

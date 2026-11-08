@@ -24,6 +24,9 @@ version: "1.0.0"
 engine: "native"
 tags: ["minimax", "minimax-music3", "audio", "music", "t2m", "flow-matching", "local"]
 
+requires:
+  recommended_vram_gb: 24
+
 # Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
 # these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
 configuration:

@@ -114,6 +114,24 @@ class MediaLoaderPipe(BasePipe):
                 return str(candidate)
         return file_path
 
+    def _media_ref_path(self, value, settings) -> str:
+        if isinstance(value, str) or not value:
+            return value
+        if not isinstance(value, dict):
+            raise ValueError(
+                f"[MEDIA_LOADER] A media path must be a string or a media reference, got {type(value).__name__}"
+            )
+        candidates = [value.get(key) for key in ("path", "relative_path")]
+        candidates = [c for c in candidates if isinstance(c, str) and c]
+        if not candidates:
+            raise ValueError(
+                f"[MEDIA_LOADER] This media reference has no local path: keys {sorted(value)}"
+            )
+        for candidate in candidates:
+            if Path(self._resolve_media_path(candidate, settings)).exists():
+                return candidate
+        return candidates[0]
+
     def _validate_file(self, file_path: str) -> bool:
         """Validate that a file exists and is readable"""
         try:
@@ -325,7 +343,7 @@ class MediaLoaderPipe(BasePipe):
                 # Handle different input formats
                 if isinstance(media_item, dict):
                     media_type = media_item.get("type", "unknown")
-                    file_path = media_item.get("path", "")
+                    file_path = self._media_ref_path(media_item.get("path", ""), settings)
                 elif isinstance(media_item, str):
                     # If just a string path, auto-detect type
                     file_path = media_item

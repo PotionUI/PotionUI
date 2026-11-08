@@ -45,6 +45,7 @@ from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.platform.runtime.native.arch.minimax_music3 import ar_loop, flow
 from src.platform.runtime.native.optimizations.compile import maybe_compile_music3_ar
 from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
+from src.pipelines.pipes.generator.audio_minimax_music3.lm_placement import place_lm
 
 FPS = 25.0
 DEFAULT_DURATION = 60.0
@@ -242,19 +243,22 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
                 progress.step(i, total, state="composing")
                 last_emit = i
 
-        lm_model.move_to(c.device)
+        placed = place_lm(
+            lm_model, c.device, budget_gb=getattr(bundle, "vram_budget_gb", None),
+            max_len=int(input_ids.shape[1]) + c.max_frames + 1, own_models=(bundle.dit, bundle.dav),
+        )
         try:
             # Same gated, reversible mechanism the DiT path uses
             # (optimizations/compile.py); undone automatically by
             # `lm_model.offload()` below (NativeModel.move_to("cpu") restores
             # any `_compiled` handle before the module leaves the GPU).
-            maybe_compile_music3_ar(lm_model, resident=True, is_cuda=str(c.device).startswith("cuda"))
+            maybe_compile_music3_ar(lm_model, resident=placed.resident, is_cuda=str(c.device).startswith("cuda"))
             frame_hiddens = ar_loop.generate(
                 lm_model.module, input_ids.to(c.device), generator, c.max_frames,
                 cfg_scale=c.ar_cfg_scale, top_k=c.top_k, on_frame=on_frame, is_cancelled=cancelled,
             )
         finally:
-            lm_model.offload()
+            placed.release()
 
         num_frames = int(frame_hiddens.shape[1])
         if num_frames == 0:

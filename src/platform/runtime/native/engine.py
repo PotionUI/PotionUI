@@ -819,9 +819,10 @@ def _module_moves_suppressed(modules: Sequence[torch.nn.Module]):
 
 
 class TextEncoderStreaming:
-    def __init__(self, encoder: Any) -> None:
+    def __init__(self, encoder: Any, modules: Sequence[torch.nn.Module] | None = None) -> None:
         self.encoder = encoder
-        modules = sorted(text_encoder_modules(encoder), key=module_weights_bytes)
+        found = text_encoder_modules(encoder) if modules is None else list(modules)
+        modules = sorted(found, key=module_weights_bytes)
         self.parts = [
             NativeModel(
                 "text_encoder", module,

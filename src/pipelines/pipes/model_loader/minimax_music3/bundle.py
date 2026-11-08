@@ -45,6 +45,7 @@ class MiniMaxMusic3ModelBundle:
     # before the DiT places (see module docstring). `None` for a bundle
     # built outside the MODELS cache (e.g. isolated pipe tests).
     lm_cache_key: Optional[str] = None
+    vram_budget_gb: Optional[float] = None
 
     @property
     def spec(self):

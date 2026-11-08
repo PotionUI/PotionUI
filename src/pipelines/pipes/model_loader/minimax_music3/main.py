@@ -141,6 +141,7 @@ class ModelLoaderMinimaxMusic3Pipe(BaseModelLoaderPipe):
 
         bundle = MiniMaxMusic3ModelBundle(
             dit=dit_model, lm=lm_model, dav=vae_model, lm_cache_key=lm_cache_key,
+            vram_budget_gb=vram_gb,
         )
         return PipeOutput(output={"model": bundle})
 

@@ -175,3 +175,23 @@ def test_a_ti2v_5b_set_with_a_low_noise_expert_raises():
     document = _document([_segment("seg-0")], media=[_media("seg-0", "first")])
     with pytest.raises(ValueError, match="low-noise picker empty"):
         _pipe(document).process(_inputs(1, model=bundle, image=[torch.rand(32, 32, 3)]), lambda o: None)
+
+
+def test_a_ti2v_5b_i2v_shot_makes_room_on_the_card_before_it_encodes_its_start_image():
+    encoded: List[torch.Tensor] = []
+    bundle = _ti2v_bundle(encoded)
+    order = []
+    bundle.vae.move_to = lambda d: order.append("vae.move_to")
+    encode = bundle.vae.module.encode
+    bundle.vae.module.encode = lambda px: (order.append("encode"), encode(px))[1]
+
+    def make_room(device, keep):
+        order.append("make_room")
+        kept = [id(m) for m in keep if m is not None]
+        assert kept == [id(bundle.vae), id(bundle.high_dit)]
+
+    document = _document([_segment("seg-0")], media=[_media("seg-0", "first")])
+    with patch(f"{_MAIN}.make_room_for_wan_vae_encode", side_effect=make_room):
+        _run(_pipe(document), _inputs(1, model=bundle, image=[torch.full((32, 32, 3), 0.75)]))
+
+    assert order[:3] == ["make_room", "vae.move_to", "encode"]

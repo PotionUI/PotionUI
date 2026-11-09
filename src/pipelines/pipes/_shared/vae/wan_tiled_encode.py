@@ -14,11 +14,12 @@ OOM safety net instead of a bare ``vae.module.encode`` call.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import torch
 
 from src.platform.runtime.native.errors import retry_after_cuda_oom
+from src.platform.runtime.native.memory.residency import get_residency_registry
 from src.platform.runtime.native.vae.tiling import tiled_encode_causal3d
 
 logger = logging.getLogger(__name__)
@@ -67,3 +68,12 @@ def make_wan_vae_encode(vae_module: Any, width: int, height: int, *, log_prefix:
                 logger.warning("[%s] tiled VAE encode still OOM; shrinking tile to %dpx", log_prefix, tile)
 
     return encode
+
+
+def make_room_for_wan_vae_encode(device: str, keep: Iterable[Any]) -> None:
+    if not str(device).startswith("cuda") or not torch.cuda.is_available():
+        return
+    evicted = get_residency_registry().offload_all(device, exclude=[m for m in keep if m is not None])
+    if evicted:
+        logger.info("[WAN VAE ENCODE] offloaded %d resident component(s) before the encode", len(evicted))
+    torch.cuda.empty_cache()

@@ -86,7 +86,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
-from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_wan_vae_encode
+from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_vae_encode, make_wan_vae_encode
 from src.pipelines.pipes.generator.chain_video_wan22.geometry import (
     resolve_continuation as _resolve_continuation,
     tail_frame_count as _tail_frame_count,
@@ -648,6 +648,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
                         )
                     else:
                         start = prep_start_frame(images[first_index[seg_id]], seg_height, seg_width, device, native_dtype)
+                    make_room_for_wan_vae_encode(device, keep=(mset.vae, mset.base_high, mset.base_low))
                     mset.vae.move_to(device)
                     with torch.no_grad():
                         start_latent = encode_ti2v_start_latent(

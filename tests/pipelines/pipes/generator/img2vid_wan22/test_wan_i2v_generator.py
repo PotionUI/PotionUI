@@ -582,3 +582,28 @@ def test_emitted_videos_carry_live_resolution():
 
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)][0]
     assert [v.resolution for v in gallery.videos] == [(992, 544), (992, 544)]
+
+
+def test_ti2v_5b_makes_room_on_the_card_before_it_encodes_the_start_image():
+    bundle, seen = _ti2v_bundle()
+    order = []
+    bundle.vae.move_to = lambda d: order.append("vae.move_to")
+    encode = bundle.vae.module.encode
+    bundle.vae.module.encode = lambda px: (order.append("encode"), encode(px))[1]
+
+    def make_room(device, keep):
+        order.append("make_room")
+        assert device == "cpu"
+        kept = [id(m) for m in keep if m is not None]
+        assert kept == [id(bundle.vae), id(bundle.high_dit)]
+
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode", side_effect=make_room):
+        _pipe(device="cpu", resolution="128x64", frames=9).build_context(_ti2v_input(bundle))
+
+    assert order == ["make_room", "vae.move_to", "encode"]
+
+
+def test_a14b_i2v_keeps_its_encode_without_making_room():
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode") as make_room:
+        _pipe(device="cpu").build_context(_pipe_input(in_dim=36))
+    make_room.assert_not_called()

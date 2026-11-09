@@ -113,6 +113,7 @@ from .vae.tiling import (
     tiled_decode,
     tiled_decode_causal3d,
     tiled_encode,
+    tiled_encode_causal3d,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,25 @@ _CAUSAL3D_ENCODE_MB_PER_LATENT_PX = 0.5
 # Fraction of live free VRAM the first tile guess may claim: leaves slack for
 # allocator fragmentation and the assembled fp32 output pixels.
 _DECODE_TILE_VRAM_FRACTION = 0.75
+
+_MIN_ENCODE_TILE_PX = 128
+
+
+def _causal3d_encode_tile(
+    free_gb: float, pixel_hw: tuple[int, int], align: int, max_tile: int | None = None,
+) -> tuple[int, int]:
+    align = max(8, int(align))
+    floor = max(_MIN_ENCODE_TILE_PX, align)
+    budget_latent_px = max(0.0, free_gb) * _DECODE_TILE_VRAM_FRACTION * 1024.0 / _CAUSAL3D_ENCODE_MB_PER_LATENT_PX
+    window_px = (budget_latent_px ** 0.5) * _VAE_SPATIAL_DOWNSCALE
+    tile = int(window_px / 1.125) // align * align
+    cap = (max(pixel_hw) + 1) // 2 // align * align
+    if max_tile is not None:
+        cap = min(cap, int(max_tile) // align * align)
+    tile = max(floor, min(tile, cap))
+    overlap = max(align, min(tile // 2, max(64, tile // 8)) // align * align)
+    return tile, overlap
+
 
 # Per-generation option-dict keys that ``denoise()`` reads out of
 # ``sampling_settings`` but that don't live on the ModelSpec — surfaced to presets
@@ -2442,8 +2462,9 @@ class NativeGenerator:
         self.vae.move_to(device)
         pixels = self._image_to_pixels(image).to(device=device, dtype=self.vae.compute_dtype)
         self._ensure_room_for_encode(pixels, device)
+        tile = self._causal3d_encode_tile_for(pixels, device)
         try:
-            latent = self._encode_dispatch(pixels, device, vram_free_gb)
+            latent = self._encode_dispatch(pixels, device, vram_free_gb, tile)
         except RuntimeError as exc:
             if not retry_after_cuda_oom(exc):
                 raise
@@ -2451,16 +2472,39 @@ class NativeGenerator:
                 "ref-image encode OOM'd; freeing our DiT/TE + evicting foreign residents and retrying"
             )
             self._free_for_decode_retry(device)
-            latent = self._encode_dispatch(pixels, device, vram_free_gb)
+            retry_tile = self._causal3d_encode_tile_for(
+                pixels, device, force=True, max_tile=None if tile is None else tile[0] // 2,
+            )
+            latent = self._encode_dispatch(pixels, device, vram_free_gb, retry_tile)
         # VAE is dead weight until decode; free VRAM for the DiT sampling phase.
         if str(device).startswith("cuda"):
             self.vae.offload()
         return latent
 
-    def _encode_dispatch(self, pixels: torch.Tensor, device, vram_free_gb) -> torch.Tensor:
+    def _encode_dispatch(self, pixels: torch.Tensor, device, vram_free_gb, tile=None) -> torch.Tensor:
         if self._is_causal3d_vae():
-            return self._encode_causal3d(self.vae.module, pixels, device)
+            return self._encode_causal3d(self.vae.module, pixels, device, tile)
         return self._encode_2d(self.vae.module, pixels, vram_free_gb)
+
+    def _causal3d_encode_tile_for(
+        self, pixels: torch.Tensor, device, *, force: bool = False, max_tile: int | None = None,
+    ):
+        if not str(device).startswith("cuda") or not self._is_causal3d_vae():
+            return None
+        free = free_vram_gb(device)
+        if free is None:
+            return None
+        need = self._encode_need_gb(pixels)
+        if not force and need <= free:
+            return None
+        tile, overlap = _causal3d_encode_tile(
+            free, (pixels.shape[-2], pixels.shape[-1]), self._spatial_downscale(), max_tile,
+        )
+        logger.info(
+            "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx",
+            need, free, tile, overlap,
+        )
+        return tile, overlap
 
     def _encode_need_gb(self, pixels: torch.Tensor) -> float:
         """Estimated VRAM the ref-image encode needs: VAE weights (if not already
@@ -2477,7 +2521,8 @@ class NativeGenerator:
             )
         else:
             spike = activation_headroom_gb(latent_hw)
-        vae_gb = 0.0 if self._resident("vae") else float(self.vae.estimated_vram_gb or 0.0)
+        vae_on_gpu = str(getattr(self.vae, "device", "cpu")).startswith("cuda")
+        vae_gb = 0.0 if self._resident("vae") or vae_on_gpu else float(self.vae.estimated_vram_gb or 0.0)
         return spike + vae_gb
 
     def _ensure_room_for_encode(self, pixels: torch.Tensor, device) -> None:
@@ -2520,7 +2565,21 @@ class NativeGenerator:
             vae_latent = module.encode(pixels)
         return (vae_latent - lf.get("shift_factor", 0.0)) * lf.get("scale_factor", 1.0)
 
-    def _encode_causal3d(self, module, pixels: torch.Tensor, device) -> torch.Tensor:
+    def _encode_causal3d(self, module, pixels: torch.Tensor, device, tile=None) -> torch.Tensor:
+        if tile is not None:
+            raw = tiled_encode_causal3d(
+                module, pixels.unsqueeze(2), tile_size=tile[0], overlap=tile[1], scale=self._spatial_downscale(),
+            )
+            if self._is_self_normalizing_vae():
+                return raw
+            from .vae.causal_3d import LATENTS_MEAN, LATENTS_STD
+
+            lf = self.spec.latent_format
+            mean = torch.tensor(lf.get("latents_mean", LATENTS_MEAN), device=device, dtype=raw.dtype)
+            std = torch.tensor(lf.get("latents_std", LATENTS_STD), device=device, dtype=raw.dtype)
+            view = (1, -1, 1, 1, 1)
+            return (raw - mean.view(view)) / std.view(view)
+
         # Self-normalizing VAE (SeedVR2): the module applies its own scaling in
         # encode — no wan21 per-channel normalize; just lift to 5D (B,C,1,H,W).
         if self._is_self_normalizing_vae():

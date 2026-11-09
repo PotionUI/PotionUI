@@ -107,6 +107,9 @@ vars:
     timing:
       motion_latent_count_field: "svi_motion_latent_count"
       motion_latent_count_default: 1
+      one_frame_tail:
+        model_field: "i2v_high_noise_model"
+        sha256: ["456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e"]
     preset_modes: ["video"]
     # Resolve each segment to a t2v/i2v/flf/chain sub-type and precompute the
     # needs_t2v_set/needs_i2v_set flags the pipeline branches its two model-set

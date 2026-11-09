@@ -565,7 +565,12 @@ capability (`motion_latent_count_field` naming the sibling form field to read, a
 the same fallback `pipeline.yml`'s own `{{ form.svi_motion_latent_count | default(1) }}`
 uses) and writes the resolved value onto `settings.timing_profile.motion_latent_count`
 before compiling or persisting anything, so `compile_shot_plan` and a reopened document's
-rail read the exact value the generator itself will use. A `wan`-family document with no
+rail read the exact value the generator itself will use. The capability may also carry
+`one_frame_tail` (`model_field` and a `sha256` list): it names checkpoints that continue a
+shot from one frame only, like the Wan 2.2 TI2V-5B. When the model picked in that field has
+one of those hashes in the model library and the motion field is absent or still at its form
+default, the orchestrator writes 1 to both the form value and the profile, so the planner and
+the generator run the same one-frame tail. A `wan`-family document with no
 profile attached (a preset instance that hasn't wired the `timing` capability, or a
 hand-built document) is "unqualified": it keeps the legacy raw-frame axis, which is not a
 claim that axis is correct for it, only that this module has nothing better to derive it

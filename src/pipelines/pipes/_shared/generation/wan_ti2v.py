@@ -5,10 +5,34 @@ from typing import Any, Callable, Sequence
 import torch
 
 WAN_TI2V_IN_DIM = 48
+WAN21_VAE_CHANNELS = 16
+WAN_VAE_NAMES = {
+    WAN21_VAE_CHANNELS: "the Wan 2.1 VAE (wan_2.1_vae.safetensors, 16 latent channels)",
+    WAN_TI2V_IN_DIM: "the Wan 2.2 VAE (wan2.2_vae.safetensors, 48 latent channels)",
+}
 
 
 def is_ti2v_expert(dit: Any) -> bool:
     return dit is not None and int(dit.module.in_dim) == WAN_TI2V_IN_DIM
+
+
+def wan_vae_latent_channels(vae: Any) -> int | None:
+    weight = getattr(getattr(getattr(vae, "module", None), "conv2", None), "weight", None)
+    return int(weight.shape[0]) if weight is not None else None
+
+
+def require_matching_wan_vae(vae: Any, dit: Any, *, generator: str, set_name: str, variant: str) -> None:
+    channels = wan_vae_latent_channels(vae)
+    if channels is None:
+        return
+    needed = WAN_TI2V_IN_DIM if is_ti2v_expert(dit) else WAN21_VAE_CHANNELS
+    if channels == needed:
+        return
+    raise ValueError(
+        f"{generator}: the {set_name} set holds '{variant}', which needs {WAN_VAE_NAMES[needed]}, but the VAE "
+        f"picker holds a {channels}-channel VAE. Both sets share that picker: pick {WAN_VAE_NAMES[needed]}, and "
+        f"put checkpoints of the same family in the t2v and i2v pickers."
+    )
 
 
 def require_single_ti2v_expert(low_dit: Any, *, generator: str, variant: str) -> None:

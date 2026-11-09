@@ -65,6 +65,7 @@ from src.pipelines.pipes._shared.generation.wan_ti2v import (
     is_ti2v_expert,
     pin_start_latent,
     refuse_ti2v_last_frame,
+    require_matching_wan_vae,
     require_single_ti2v_expert,
 )
 from src.pipelines.pipes._shared.generation.guidance_options import (
@@ -430,6 +431,8 @@ class GeneratorWanChainVideoPipe(BasePipe):
                     f"image-conditioned/chain shot needs a concat-i2v Wan checkpoint (in_dim=36) or the Wan 2.2 "
                     f"TI2V-5B (in_dim=48)."
                 )
+            require_matching_wan_vae(mset.vae, mset.base_high, generator="generator/chain_video_wan22",
+                                     set_name=set_name, variant=spec.variant)
             if is_ti2v_expert(mset.base_high):
                 require_single_ti2v_expert(mset.base_low, generator="generator/chain_video_wan22",
                                            variant=spec.variant)

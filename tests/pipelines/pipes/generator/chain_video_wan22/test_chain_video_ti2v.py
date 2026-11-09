@@ -195,3 +195,92 @@ def test_a_ti2v_5b_i2v_shot_makes_room_on_the_card_before_it_encodes_its_start_i
         _run(_pipe(document), _inputs(1, model=bundle, image=[torch.full((32, 32, 3), 0.75)]))
 
     assert order[:3] == ["make_room", "vae.move_to", "encode"]
+
+
+def _vae_with(channels, encoded):
+    def encode(px):
+        encoded.append(px.clone())
+        return torch.zeros(1, channels, 1, px.shape[3] // 16, px.shape[4] // 16)
+
+    return SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
+                           module=SimpleNamespace(encode=encode, conv2=SimpleNamespace(weight=torch.zeros(channels, channels, 1, 1, 1))))
+
+
+def _a14b_t2v_bundle(vae):
+    spec = SimpleNamespace(variant="wan22_t2v_14b", sampling_settings={"guidance": "cfg", "expert_boundary": 0.875},
+                           latent_format={"latent_channels": 16, "format": "wan21"})
+
+    def expert():
+        return SimpleNamespace(compute_dtype=torch.float32, spec=spec,
+                               module=SimpleNamespace(patch_size=(1, 2, 2), in_dim=16, img_emb=None),
+                               move_to=lambda d: None, offload=lambda: None)
+
+    return SimpleNamespace(high_dit=expert(), low_dit=expert(), vae=vae, is_dual_expert=True, spec=spec,
+                           loras_high=[], loras_low=[])
+
+
+def _mixed_document():
+    return _document([_segment("seg-0"), _segment("seg-1")], media=[_media("seg-1", "first")])
+
+
+def test_an_a14b_t2v_set_with_the_5b_i2v_set_and_the_wan21_vae_is_refused_naming_the_wan22_vae():
+    encoded: List[torch.Tensor] = []
+    vae = _vae_with(16, encoded)
+    five_b = _ti2v_bundle(encoded)
+    five_b.vae = vae
+    with patch(f"{_MAIN}.denoise") as mock_denoise, pytest.raises(ValueError) as refused:
+        _pipe(_mixed_document()).process(
+            _inputs(2, model=five_b, model_t2v=_a14b_t2v_bundle(vae), image=[torch.rand(32, 32, 3)]), lambda o: None,
+        )
+    message = str(refused.value)
+    assert "the i2v set holds 'wan_ti2v_5b'" in message
+    assert "wan2.2_vae.safetensors" in message
+    assert "16-channel VAE" in message
+    mock_denoise.assert_not_called()
+    assert encoded == []
+
+
+def test_an_a14b_t2v_set_with_the_5b_i2v_set_and_the_wan22_vae_is_refused_naming_the_wan21_vae():
+    encoded: List[torch.Tensor] = []
+    vae = _vae_with(48, encoded)
+    five_b = _ti2v_bundle(encoded)
+    five_b.vae = vae
+    with patch(f"{_MAIN}.denoise") as mock_denoise, pytest.raises(ValueError) as refused:
+        _pipe(_mixed_document()).process(
+            _inputs(2, model=five_b, model_t2v=_a14b_t2v_bundle(vae), image=[torch.rand(32, 32, 3)]), lambda o: None,
+        )
+    message = str(refused.value)
+    assert "the t2v set holds 'wan22_t2v_14b'" in message
+    assert "wan_2.1_vae.safetensors" in message
+    assert "48-channel VAE" in message
+    mock_denoise.assert_not_called()
+    assert encoded == []
+
+
+def test_a_5b_t2v_set_with_an_a14b_i2v_set_is_refused_naming_the_vae_the_failing_set_needs():
+    encoded: List[torch.Tensor] = []
+    vae = _vae_with(48, encoded)
+    five_b = _ti2v_bundle(encoded)
+    five_b.vae = vae
+    a14b_i2v = _a14b_t2v_bundle(vae)
+    for expert in (a14b_i2v.high_dit, a14b_i2v.low_dit):
+        expert.module.in_dim = 36
+    a14b_i2v.spec.variant = "wan22_i2v_14b"
+    with patch(f"{_MAIN}.denoise") as mock_denoise, pytest.raises(ValueError) as refused:
+        _pipe(_mixed_document()).process(
+            _inputs(2, model=a14b_i2v, model_t2v=five_b, image=[torch.rand(32, 32, 3)]), lambda o: None,
+        )
+    message = str(refused.value)
+    assert "the i2v set holds 'wan22_i2v_14b'" in message
+    assert "wan_2.1_vae.safetensors" in message
+    mock_denoise.assert_not_called()
+    assert encoded == []
+
+
+def test_a_5b_chain_with_the_wan22_vae_in_both_sets_still_runs():
+    encoded: List[torch.Tensor] = []
+    bundle = _ti2v_bundle(encoded)
+    bundle.vae = _vae_with(48, encoded)
+    runs, _, _ = _run(_pipe(_mixed_document()),
+                      _inputs(2, model=bundle, model_t2v=bundle, image=[torch.rand(32, 32, 3)]))
+    assert len(runs) == 2

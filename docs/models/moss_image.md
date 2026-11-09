@@ -45,6 +45,8 @@ The LoRA tab takes MOSS-Image LoRAs in the ComfyUI, diffusers/PEFT, ai-toolkit a
 
 The negative prompt is empty by default and only used when CFG is above 1. The Advanced tab has a Negative-branch layer skip toggle: on skips transformer block 22 on the negative pass, off runs plain CFG. The generator forces CFG-Zero\* off. The Advanced tab also has a Step cache (FBCache) section, off by default (threshold 0): it reuses a step's output when the first block's video tokens barely changed, and only the positive pass is cached because the layer-skipped negative pass always recomputes.
 
+**Regions** (`txt2img`). The prompt section's Layout view lets you draw boxes and describe what goes in each. The `regional_prompt/moss_image` pipe rewrites each image's already-expanded positive prompt into MOSS-Image's layout document: the prompt becomes `summary.caption` and every described box becomes an item with a `bbox` in pixels from the canvas centre (`abs_centralized`, `yxyx`) at the generation's width and height. Words in double quotes make an item a `text` item carrying those exact characters; every other item is an `object`. Boxes with a blank description are dropped, and with none left the prompt goes through unchanged. The negative prompt is not touched. Upstream calls the layout feature experimental.
+
 ## Sampling
 
 Resolutions are multiples of 16. The sigma shift is 5.0 unless the Advanced tab overrides it, and the default schedule (`moss_grid`) snaps the shifted ramp onto the training timestep grid, as the reference sampler does. The Sampler and Schedule pickers (family `moss_image`) list whatever the instance has registered; see [Samplers and sigma schedules](../techniques/samplers-and-schedules.md).

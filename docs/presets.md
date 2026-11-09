@@ -301,6 +301,19 @@ that names a field the mode does not have, is a lint error and the mode is not o
 Video Director targets (`kind: video_director_role`, `role: first|last`) need a mode listed in
 `vars.video_director.preset_modes`, and the media type must be `image`.
 
+## Regional prompting
+
+`vars.regional_prompt` offers the layout editor on the generate page for the listed modes:
+
+```yaml
+vars:
+  regional_prompt:
+    modes: [txt2img]
+    size_field: resolution
+```
+
+`modes` are mode ids of the preset and `size_field` is the `resolution` field the canvas takes its shape from. The option names no prompt format. The client sends `form_data.regional_prompt` as `{enabled, items: [{x, y, w, h, caption}]}` with `x`, `y`, `w`, `h` as fractions of the canvas from the top-left corner; the form binder keeps it only for a declared mode and drops it otherwise. The mode's pipeline must contain a `regional_prompt/*` stage, which turns the document into whatever the model reads; the linter reports a missing mode, a missing stage and a `size_field` that is not a `resolution` field of that mode. Wire the stage before `prompt_encoder` with `enabled: "{{ (form.regional_prompt | default({})).enabled | default(false) }}"` and feed its `pairs` output to the encoder's optional `pairs` input: the encoder falls back to its configured `pairs` when the stage did not run.
+
 ## See also
 
 - [Backends and Engines](backends.md) — `engine:`, how a preset's pipes get executed.

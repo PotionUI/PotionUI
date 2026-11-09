@@ -19,7 +19,10 @@ from src.features.llm.tools.builtin.utils import build_generation_preview
 from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.media_values import MEDIA_VALUE_FORM, preset_form_media_errors
 from src.features.llm.tools.model_values import preset_form_model_errors
+from src.features.forms.binding import FormBindingError
 from src.features.presets.operations.access import preset_available_to_user
+from src.features.presets.regional_prompt import OPTION_KEY, offers_regional_prompt, regional_prompt_modes
+from src.pipelines.pipes._shared.regional import normalize_regional_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +87,9 @@ class StartGenerationTool(BaseTool):
                     "description": (
                         "Field overrides on top of the preset's defaults (e.g. {'width': 1024, "
                         "'seed': 12345, 'batch_size': 4}). Field names must match the preset's form "
-                        f"fields (see get_preset_info). An image/video/audio/media field takes {MEDIA_VALUE_FORM}."
+                        f"fields (see get_preset_info). An image/video/audio/media field takes {MEDIA_VALUE_FORM}. "
+                        "If get_preset_info shows a 'regional_prompt' section, set 'regional_prompt' to "
+                        "{enabled: true, items: [{x, y, w, h, caption}]} (fractions, top-left origin)."
                     ),
                 },
             },
@@ -132,6 +137,29 @@ class StartGenerationTool(BaseTool):
         return pairs, None
 
     @staticmethod
+    def _regional_prompt_error(context: ToolContext, preset_id: str, mode: str, overrides: Dict[str, Any]) -> Optional[str]:
+        if OPTION_KEY not in overrides:
+            return None
+        try:
+            preset = context.preset_collaborators.file_repo.find_preset_by_id(preset_id)
+        except Exception:
+            return None
+        preset_vars = getattr(preset, "vars", None)
+        if not offers_regional_prompt(preset_vars, mode):
+            modes = regional_prompt_modes(preset_vars)
+            where = f"It is available in: {', '.join(modes)}." if modes else "This preset does not offer it."
+            return f"form_overrides.regional_prompt is not available for mode '{mode}'. {where} Remove it."
+        try:
+            normalize_regional_prompt(overrides[OPTION_KEY])
+        except ValueError as exc:
+            return (
+                f"form_overrides.regional_prompt is invalid: {exc}. Use "
+                "{enabled: true, items: [{x, y, w, h, caption}]} with x, y, w, h as fractions from 0 to 1 "
+                "and w, h above 0."
+            )
+        return None
+
+    @staticmethod
     def _build_approval_preview(kwargs: Dict[str, Any]):
         # No live form here (see the module docstring), so there is no "old"
         # value to diff a form_override against - old_form_data stays None.
@@ -174,6 +202,9 @@ class StartGenerationTool(BaseTool):
         )
         if model_errors:
             return ToolResult(success=False, data="", error="; ".join(model_errors))
+        regional_error = self._regional_prompt_error(context, preset_id, mode, overrides)
+        if regional_error:
+            return ToolResult(success=False, data="", error=regional_error)
 
         return ToolResult(
             success=True,
@@ -230,6 +261,9 @@ class StartGenerationTool(BaseTool):
         )
         if model_errors:
             return ToolResult(success=False, data="", error="; ".join(model_errors))
+        regional_error = self._regional_prompt_error(context, preset_id, mode, form_data)
+        if regional_error:
+            return ToolResult(success=False, data="", error=regional_error)
 
         try:
             from src.features.generation.dto import GenerationRequest, PromptPair
@@ -262,6 +296,12 @@ class StartGenerationTool(BaseTool):
             }))
         except PromptBatchError as e:
             return ToolResult(success=False, data="", error=str(e))
+        except FormBindingError as e:
+            return ToolResult(
+                success=False,
+                data="",
+                error=f"The form values were rejected: {e}. Fix those fields and call start_generation again.",
+            )
         except Exception as e:
             logger.error(f"Failed to start generation: {e}")
             return ToolResult(success=False, data="", error=unexpected("start_generation", "start the generation", start_failure_reason(e, context.is_admin), True))

@@ -143,6 +143,7 @@ class TestRegisterBuiltinTools:
             "update_memory",
             "delete_memory",
             "set_prompt_relay_timeline",
+            "set_regional_prompt",
             "get_video_director",
             "get_music_director",
             "update_music_director",

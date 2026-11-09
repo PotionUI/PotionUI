@@ -528,6 +528,8 @@ class PresetLinter:
 
         issues.extend(self._lint_segment_templates(preset_file, manifest))
 
+        issues.extend(self._lint_regional_prompt(preset_file, manifest))
+
         issues.extend(self._lint_prompt_resources(preset_file, manifest))
 
         issues.extend(self._lint_prompt_syntax(preset_file, manifest))
@@ -994,6 +996,66 @@ class PresetLinter:
             self._collect_field_types(frag_data.get("fields", []), preset_root, acc, accepted)
         elif isinstance(children, list):
             self._collect_field_types(children, preset_root, acc, accepted)
+
+    def _lint_regional_prompt(self, preset_file: Path, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        option = (manifest.vars or {}).get("regional_prompt")
+        if option is None:
+            return issues
+        if not isinstance(option, dict):
+            issues.append(LintIssue("error", preset_str, "vars.regional_prompt: must be a mapping"))
+            return issues
+
+        modes = option.get("modes")
+        if not isinstance(modes, list) or not modes or not all(isinstance(m, str) for m in modes):
+            issues.append(LintIssue("error", preset_str, "vars.regional_prompt.modes: must be a non-empty list of mode ids"))
+            return issues
+        size_field = option.get("size_field")
+        if not isinstance(size_field, str) or not size_field:
+            issues.append(LintIssue("error", preset_str, "vars.regional_prompt.size_field: must name a resolution field"))
+            size_field = None
+
+        for mode_name in modes:
+            loc = f"vars.regional_prompt.modes: '{mode_name}'"
+            mode_dir = preset_file.parent / "modes" / mode_name
+            if mode_name not in manifest.modes or not mode_dir.exists():
+                issues.append(LintIssue("error", preset_str, f"{loc} is not a mode of this preset"))
+                continue
+            if not self._pipeline_has_stage(mode_dir, "regional_prompt/"):
+                issues.append(LintIssue(
+                    "error", preset_str,
+                    f"{loc} has no regional_prompt/* stage in modes/{mode_name}/pipeline.yml",
+                ))
+            if size_field is None:
+                continue
+            field_types: Dict[str, set] = {}
+            for _variant_name, form_dir in discover_form_variants(mode_dir):
+                try:
+                    form_data = load_yaml_file(form_dir / "form.yml") or {}
+                except Exception:
+                    continue
+                self._collect_field_types(form_data.get("fields", []), preset_file.parent, field_types)
+            if field_types.get(size_field) != {"resolution"}:
+                issues.append(LintIssue(
+                    "error", preset_str,
+                    f"{loc}: size_field '{size_field}' is not a resolution field of the '{mode_name}' form",
+                ))
+        return issues
+
+    @staticmethod
+    def _pipeline_has_stage(mode_dir: Path, prefix: str) -> bool:
+        try:
+            data = load_yaml_file(mode_dir / "pipeline.yml")
+        except Exception:
+            return False
+        pipes = data.get("pipeline") if isinstance(data, dict) else None
+        if not isinstance(pipes, list):
+            return False
+        return any(
+            isinstance(pipe, dict) and isinstance(pipe.get("name"), str) and pipe["name"].startswith(prefix)
+            for pipe in pipes
+        )
 
     def _lint_segment_templates(self, preset_file: Path, manifest) -> List[LintIssue]:
         """Cross-checks `vars.prompt.segment_templates` and its per-mode override

@@ -34,13 +34,13 @@ speed_profiles:
 
 llm:
   guide: |
-    MOSS-Image accepts three prompt styles: natural-language prose describing the
-    subject, style and lighting; comma-separated tag lists; and JSON layout prompts that
-    place text and objects (for example a list of objects, each with a short description
-    and a position or bounding box). Prose works best for general scenes; use a JSON
-    layout when the user needs exact placement of text or objects. Put exact display text
-    in double quotes. The negative prompt is empty by default and only used when CFG is
-    above 1; keep it to a few short tags such as "blurry, low quality, watermark".
+    MOSS-Image accepts two prompt styles: natural-language prose describing the subject,
+    style and lighting, and comma-separated tag lists. Prose works best for general
+    scenes. Put exact display text in double quotes. For exact placement of objects or
+    text, use regional prompting rather than writing a JSON layout into the prompt:
+    set_regional_prompt in chat, or form_overrides.regional_prompt via start_generation.
+    The negative prompt is empty by default and only used when CFG is above 1; keep it to
+    a few short tags such as "blurry, low quality, watermark".
 
 formulas:
   groups:
@@ -52,6 +52,11 @@ formulas:
 
 negative_prompt:
   applies_when: { field: "cfg", not_equals: 1 }
+
+vars:
+  regional_prompt:
+    modes: [txt2img]
+    size_field: resolution
 
 modes:
   - txt2img

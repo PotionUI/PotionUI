@@ -10,6 +10,7 @@ from src.features.llm.tools.errors import unexpected
 from src.features.presets import operations as preset_operations
 from src.features.presets.operations.access import preset_available_to_user
 from src.features.presets.form_overrides import mode_field_inventory
+from src.features.presets.regional_prompt import regional_prompt_guide
 from src.platform.security.user import AccountType, User
 
 logger = logging.getLogger(__name__)
@@ -252,6 +253,10 @@ class GetPresetInfoTool(BaseTool):
                         field_info["options_count"] = len(options)
                     fields_summary.append(field_info)
                 summary["form_fields"] = fields_summary
+
+            regional_guide = regional_prompt_guide(getattr(found_preset, "vars", None))
+            if regional_guide:
+                summary["regional_prompt"] = regional_guide
 
             # Preset-authored prompting guide (see docs/presets.md "LLM context"),
             # replaced by the current mode's override when one is declared.

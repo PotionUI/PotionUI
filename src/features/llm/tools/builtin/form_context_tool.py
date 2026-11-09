@@ -292,6 +292,11 @@ class GetFormStateTool(BaseTool):
                 if field_name not in merged_fields:
                     merged_fields[field_name] = {"value": value}
 
+            regional = form_data.get("regional_prompt")
+            if isinstance(regional, dict) and regional.get("items"):
+                result["regional_prompt"] = regional
+                merged_fields.pop("regional_prompt", None)
+
             if merged_fields:
                 result["fields"] = merged_fields
             elif form_data:

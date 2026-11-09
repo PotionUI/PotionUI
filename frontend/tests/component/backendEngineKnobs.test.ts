@@ -33,6 +33,7 @@ const FLAGS = {
 	native_sol_attn_backend: 'flex',
 	native_attention_backend: '',
 	native_stream_prefetch: false,
+	native_park_experts: true,
 	native_fp8_quantize: 'auto',
 	native_min_inference_memory_gb: 1.0,
 	native_ltx_decode_tile_px: 0,

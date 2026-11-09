@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import weakref
-from typing import Sequence
+from typing import Collection, Sequence
 
 import torch
 import torch.nn as nn
@@ -156,11 +156,11 @@ class PinnedArena:
             self._release(segment)
         return True
 
-    def release_unused(self) -> None:
+    def release_unused(self, keep: Collection[int] = ()) -> None:
         for segment in list(self._by_storage.values()):
             for key, ref in list(segment.slots.items()):
                 param = ref()
-                if param is None or _storage_ptr(param.data) != segment.storage_ptr:
+                if param is None or (key not in keep and _storage_ptr(param.data) != segment.storage_ptr):
                     del segment.slots[key]
             if not segment.slots:
                 self._release(segment)

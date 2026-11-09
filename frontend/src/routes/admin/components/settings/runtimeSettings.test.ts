@@ -79,6 +79,7 @@ describe('runtimeSettingKeys', () => {
 			'native_sol_attn_backend',
 			'native_attention_backend',
 			'native_stream_prefetch',
+			'native_park_experts',
 			'native_fp8_quantize',
 			'native_min_inference_memory_gb',
 			'native_ltx_decode_tile_px',

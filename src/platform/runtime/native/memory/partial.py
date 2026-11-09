@@ -36,8 +36,9 @@ order, greedy prefix resident) so it is unit-testable without a GPU.
 from __future__ import annotations
 
 import logging
+import weakref
 from dataclasses import dataclass, field
-from typing import Iterator, Sequence
+from typing import Iterable, Iterator, Sequence
 
 import torch
 import torch.nn as nn
@@ -312,6 +313,7 @@ class ModuleStreamer:
         self._stream_nvfp4 = stream_nvfp4
         self._staged_leaves: list[nn.Module] = []
         self._stage_handles: list = []
+        self._device: str | torch.device = "cpu"
         # OWN-tensor bytes of the streamed leaves and whether they were actually
         # page-locked (``can_pin``). The engine reads ``pinned_gb`` after teardown
         # to decide whether the vacated pinned pool is large enough to be worth
@@ -319,7 +321,9 @@ class ModuleStreamer:
         self._streamed_bytes = 0
         self._pinned = False
         self._pinned_bytes = 0
+        self._parked = False
         self._arenas: list[PinnedArena] = []
+        self._held: dict[int, tuple[weakref.ReferenceType, torch.Tensor]] = {}
         # Prefetch toggle: ``None`` -> read ``$NATIVE_STREAM_PREFETCH`` (default off);
         # an explicit bool overrides (used by tests). ``_prefetcher`` is only built
         # when streaming on a real CUDA device with the toggle on.
@@ -389,6 +393,10 @@ class ModuleStreamer:
         streamed_ids = {id_ for id_ in map(_module_id_by_name(self.root), plan.streamed_names)}
         can_pin = pin and torch.cuda.is_available()
         self._remove_stagers()
+        from_park = self._parked or bool(self._held)
+        self._return_held()
+        self._parked = False
+        self._device = device
         self._streamed = []
         streamed_bytes = 0
         modules = list(self.root.named_modules())
@@ -400,6 +408,7 @@ class ModuleStreamer:
             self._drop_arenas()
         self._pinned = can_pin
         self._active = True
+        self._held = self._held_resident(modules, streamed_ids) if can_pin and from_park else {}
 
         for name, module in modules:
             if id(module) in streamed_ids and self._stages_buffers(module):
@@ -428,12 +437,12 @@ class ModuleStreamer:
         release_derived_caches(self.root)
         self._streamed_bytes = streamed_bytes
         for arena in self._arenas:
-            arena.release_unused()
+            arena.release_unused(keep=self._held)
         self._arenas = [arena for arena in self._arenas if arena.registered_segments]
-        self._pinned_bytes = self._pinned_footprint() if can_pin else 0
+        self._pinned_bytes = self._pinned_footprint(self._streamed) if can_pin else 0
         get_profiler().mark(
             "streamer.apply", streamed_gb=self.streamed_gb, pinned_gb=self.pinned_gb,
-            arena_segments=sum(arena.registered_segments for arena in self._arenas),
+            arena_segments=sum(arena.registered_segments for arena in self._arenas), held_gb=self.held_gb,
         )
         self._maybe_setup_prefetch(device, non_blocking)
         logger.debug(
@@ -462,6 +471,38 @@ class ModuleStreamer:
         for arena in self._arenas:
             arena.release()
         self._arenas = []
+
+    def _held_resident(
+        self, modules: list[tuple[str, nn.Module]], streamed_ids: set[int],
+    ) -> dict[int, tuple[weakref.ReferenceType, torch.Tensor]]:
+        held: dict[int, tuple[weakref.ReferenceType, torch.Tensor]] = {}
+        for _, module in modules:
+            if id(module) in streamed_ids:
+                continue
+            for p in module.parameters(recurse=False):
+                if self._arena_owning(p.data) is not None:
+                    held[id(p)] = (weakref.ref(p), p.data)
+        return held
+
+    def _return_held(self) -> None:
+        held, self._held = self._held, {}
+        for ref, view in held.values():
+            param = ref()
+            if param is None or param.data.data_ptr() == view.data_ptr():
+                continue
+            if param.data.shape != view.shape or param.data.dtype != view.dtype:
+                continue
+            view.copy_(param.data)
+            param.data = view
+
+    @property
+    def held_gb(self) -> float:
+        total = 0
+        for ref, view in self._held.values():
+            param = ref()
+            if param is not None and param.data.data_ptr() != view.data_ptr():
+                total += view.numel() * view.element_size()
+        return total / _BYTES_PER_GB
 
     def _arena_owning(self, data: torch.Tensor) -> PinnedArena | None:
         return next((arena for arena in self._arenas if arena.owns(data)), None)
@@ -495,10 +536,10 @@ class ModuleStreamer:
     def _arena_bytes(self) -> int:
         return sum(arena.pinned_bytes for arena in self._arenas)
 
-    def _pinned_footprint(self) -> int:
+    def _pinned_footprint(self, modules: Iterable[nn.Module]) -> int:
         total = self._arena_bytes()
         seen: set[int] = set()
-        for module in self._streamed:
+        for module in modules:
             tensors = [p.data for p in module.parameters(recurse=False)]
             tensors += [b for b in module.buffers(recurse=False) if b is not None]
             for data in tensors:
@@ -601,6 +642,9 @@ class ModuleStreamer:
         for arena in self._arenas:
             arena.release()
         self._arenas = []
+        self._finish_teardown()
+
+    def _finish_teardown(self) -> None:
         for module in self._streamed:
             # Revert both flags to their namespace class defaults (e.g.
             # comfy_cast_weights False for plain bf16) so a later fully-resident
@@ -609,7 +653,64 @@ class ModuleStreamer:
             if "stream_non_blocking" in module.__dict__:
                 del module.stream_non_blocking
         self._streamed = []
+        self._held = {}
         self._active = False
+
+    @property
+    def parked(self) -> bool:
+        return self._parked
+
+    @property
+    def parked_gb(self) -> float:
+        return self._pinned_bytes / _BYTES_PER_GB if self._parked else 0.0
+
+    def park(self) -> bool:
+        if not self._active or not self._pinned:
+            return False
+        self._teardown_prefetch()
+        self._remove_stagers()
+        modules = list(self.root.modules())
+        try:
+            self._return_held()
+            self._pin_into_arena(modules, self._device)
+            for module in modules:
+                _park_own_tensors(module, self._arenas)
+        except PinnedMemoryUnavailableError as exc:
+            _note_pin_fallback(exc)
+            self._unpin_all()
+            self._finish_teardown()
+            return False
+        for arena in self._arenas:
+            arena.release_unused()
+        self._arenas = [arena for arena in self._arenas if arena.registered_segments]
+        _release_idle_vram()
+        self._finish_teardown()
+        self._pinned_bytes = self._pinned_footprint(modules)
+        self._parked = True
+        return True
+
+    def unpark(self) -> None:
+        if not self._parked:
+            return
+        self._unpin_all()
+        self._parked = False
+
+    def forget_parked(self) -> None:
+        for arena in self._arenas:
+            arena.release()
+        self._arenas = []
+        self._pinned_bytes = 0
+        self._parked = False
+
+    def _unpin_all(self) -> None:
+        for module in self.root.modules():
+            _unpin_from_arenas(module, self._arenas)
+            _move_own_tensors(module, "cpu", pin=False)
+            _unpin_own_buffers(module)
+        for arena in self._arenas:
+            arena.release()
+        self._arenas = []
+        self._pinned_bytes = 0
 
     def _release_vacated_pinned(self, drained_bytes: int) -> None:
         """Return the pinned blocks the teardown sweep has vacated so far.
@@ -889,6 +990,21 @@ def _unpin_own_buffers(module: nn.Module) -> None:
         if buf is None or buf.device.type != "cpu" or not buf.is_pinned():
             continue
         module._buffers[name] = _unpinned_copy(buf)
+
+
+def _park_own_tensors(module: nn.Module, arenas: Sequence[PinnedArena]) -> None:
+    for p in module.parameters(recurse=False):
+        data = p.data
+        if any(arena.owns(data) for arena in arenas):
+            continue
+        if data.device.type != "cpu":
+            data = data.to("cpu")
+        if not data.is_pinned():
+            data = _pin(data)
+        p.data = data
+    for name, buf in list(module._buffers.items()):
+        if buf is not None and buf.device.type != "cpu":
+            module._buffers[name] = buf.to("cpu")
 
 
 def _unpin_from_arenas(module: nn.Module, arenas: list[PinnedArena]) -> None:

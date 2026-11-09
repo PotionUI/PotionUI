@@ -230,6 +230,22 @@ close that gap:
   completely (hooks, cast flags, pinned tensors). Teardown of a pinned placement empties the CUDA
   cache before it frees its first pinned block: such a block records a CUDA event when it is freed,
   and a failure there cannot be caught from Python.
+  A streamer can also **park** its module instead of tearing it down (`ModuleStreamer.park`): the
+  streamed weights stay in their arena, the resident ones are copied from the GPU into a new arena
+  (per weight when no segment can be registered) and the allocator's cache is handed back to the
+  driver. The next placement of a parked module registers and pins nothing, and each resident
+  weight keeps its page-locked copy while it runs on the GPU (`release_unused(keep=...)`), so the
+  next park copies it back into a segment that is already registered: only the first park of a
+  module registers new segments, and a weight whose GPU copy changed shape or dtype is pinned
+  again. `NativeModel.park` parks only a pinned placement, and only while free host RAM covers
+  the resident weights that have no such copy plus the streaming reserve;
+  a parked model streamed again skips the host-RAM guard, since its weights are already
+  page-locked. A full move or an offload unparks it (`unpark`: every weight back to pageable
+  memory, every segment unregistered), an eviction drops its arenas (`forget_parked`), and a
+  placement that fails is rolled back like any other, leaving nothing pinned. When the host
+  refuses to page-lock a weight while parking, the module is torn down as before. Wan 2.2's expert
+  router parks the idle high-noise expert at the expert switch (native backend setting
+  `native_park_experts`, on by default; see [Wan 2.2](models/wan.md)).
 - **On-the-fly fp8 quantise-at-load** (`ops/fp8_quant.py`). When a bf16/fp16 DiT would not fit
   resident but *would* as fp8 (e.g. Krea-2 24.5GB → ~12.5GB), the loader quantises its big 2D Linear
   weights to per-tensor scaled e4m3 (`weight` fp8 + a `weight_scale` sidecar — the exact format

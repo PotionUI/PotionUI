@@ -25,6 +25,8 @@ from src.platform.runtime.native.vae.tiling import (
     smaller_decode_tile,
     tiled_decode_causal3d,
 )
+from src.platform.runtime.system_memory import get_system_memory
+from src.platform.settings.runtime_flags import runtime_flag
 from src.pipelines.contracts import logger
 from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb, _move_resident, _release_idle_pool
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
@@ -56,6 +58,7 @@ def snap_wan_geometry(bundle, lf: dict, width: int, height: int, frames: int,
 
 
 TIMESTEP_SCALE = 1000.0
+_PARK_PINNED_SHARE = 0.6
 
 
 class ExpertRouter:
@@ -102,9 +105,40 @@ class ExpertRouter:
         free = effective_free_vram_gb(self.device) or 0.0
         return max(0.0, free - headroom)
 
+    def _expert_label(self, dit) -> str:
+        return "low" if dit is self.low and dit is not self.high else "high"
+
+    def _park_or_offload_active(self, incoming) -> None:
+        outgoing = self.active
+        if outgoing is None:
+            return
+        placed = str(getattr(outgoing, "device", "cpu")).startswith("cuda")
+        if not placed or not callable(getattr(outgoing, "park", None)):
+            outgoing.offload()
+            return
+        parked, reason = self._park(outgoing, incoming)
+        logger.debug("[GENERATOR WAN] %s expert %s: %s", self._expert_label(outgoing),
+                     "parked pinned" if parked else "torn down", reason)
+        if not parked:
+            outgoing.offload()
+
+    def _park(self, outgoing, incoming) -> tuple[bool, str]:
+        if not runtime_flag("native_park_experts"):
+            return False, "parking is off (native_park_experts)"
+        if not getattr(outgoing, "is_streaming", False):
+            return False, "it was not streamed from pinned RAM"
+        pinned_gb = sum(float(getattr(dit, "estimated_vram_gb", None) or 0.0) + _dit_lora_delta_gb(dit)
+                        for dit in (outgoing, incoming))
+        limit_gb = _PARK_PINNED_SHARE * get_system_memory().total_gb
+        if pinned_gb > limit_gb:
+            return False, (f"up to {pinned_gb:.2f}GB pinned with the next expert, over {limit_gb:.2f}GB "
+                           f"({_PARK_PINNED_SHARE:.0%} of total RAM)")
+        if not outgoing.park():
+            return False, "its placement is not pinned or free host RAM would fall under the streaming reserve"
+        return True, f"up to {pinned_gb:.2f}GB pinned with the next expert, limit {limit_gb:.2f}GB"
+
     def _place_expert(self, dit) -> None:
-        if self.active is not None:
-            self.active.offload()
+        self._park_or_offload_active(dit)
         self.active = dit
         if self.latents_shape is None or not str(self.device).startswith("cuda"):
             dit.move_to(self.device)

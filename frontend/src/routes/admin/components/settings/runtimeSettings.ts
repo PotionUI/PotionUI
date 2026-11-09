@@ -169,6 +169,20 @@ export const RUNTIME_SETTINGS: RuntimeSettingDescriptor[] = [
 		defaultValue: false
 	},
 	{
+		key: 'native_park_experts',
+		applies: 'live',
+		group: 'memory',
+		scope: 'backend',
+		kind: 'bool',
+		label: 'Keep the idle expert pinned',
+		description:
+			'Wan 2.2 14B samples with two experts. When the first one streams from RAM, it stays page-locked while the second one runs, so the next generation places it again without copying and pinning it anew.',
+		guidance:
+			'Skips re-pinning the high-noise expert at each generation, from the second generation on. While on, the high-noise expert keeps its full size in page-locked RAM from one generation to the next; turn it off if the host runs short of RAM.',
+		defaultLabel: 'On',
+		defaultValue: true
+	},
+	{
 		key: 'native_fp8_quantize',
 		applies: 'next_load',
 		group: 'memory',

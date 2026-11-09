@@ -636,6 +636,7 @@ class NativeModel:
             from .optimizations.compile import restore_compiled
 
             restore_compiled(self)
+        self._release_parked()
         # A prior partial-residency placement must be torn down before a plain
         # full move, or its streamed leaves would stay pinned on the CPU and its
         # forced cast flags would linger. Teardown is itself a big CPU-side churn
@@ -734,7 +735,8 @@ class NativeModel:
         # Refuse the placement outright if pinning this streamed set would leave
         # host RAM unable to survive it (and its teardown) — a clean generation
         # failure beats degrading into a state whose teardown OOM-kills the API.
-        self._guard_host_ram_for_streaming(plan)
+        if not self.is_parked:
+            self._guard_host_ram_for_streaming(plan)
         if self._streamer is None:
             self._streamer = ModuleStreamer(self.module, stream_nvfp4=self.stream_nvfp4)
         self._streamer.apply(device, plan, non_blocking=non_blocking)
@@ -747,6 +749,33 @@ class NativeModel:
         # those pages to the OS. Gated like `move_to`'s trim (big components only).
         if (self.estimated_vram_gb or 0.0) > 2.0:
             self._reclaim_with_marks("stream_to", "trim_host_allocator", trim_host_allocator)
+
+    def park(self) -> bool:
+        streamer = self._streamer
+        if self.module is None or streamer is None or not streamer.active or not streamer.pinned_gb:
+            return False
+        resident_gb = float(getattr(self.last_stream_plan, "resident_gb", 0.0) or 0.0)
+        resident_gb = max(0.0, resident_gb - streamer.held_gb)
+        if resident_gb + self._STREAM_HOST_RESERVE_GB > get_system_memory().available_gb:
+            return False
+        if not streamer.park():
+            return False
+        release_derived_caches(self.module)
+        get_residency_registry().note_offloaded(self)
+        self.device = "cpu"
+        get_profiler().mark("streamer.park", kind=self.kind, parked_gb=streamer.parked_gb)
+        return True
+
+    @property
+    def is_parked(self) -> bool:
+        return bool(getattr(self._streamer, "parked", False))
+
+    def _release_parked(self) -> None:
+        if not self.is_parked:
+            return
+        parked_gb = self._streamer.parked_gb
+        self._streamer.unpark()
+        self._reclaim_host_after_teardown(parked_gb)
 
     def offload(self) -> None:
         """Move back to CPU between phases (keeps the module, frees VRAM)."""
@@ -799,6 +828,10 @@ class NativeModel:
         get_residency_registry().note_offloaded(self)
         teardown_from_streamer = False
         pinned_gb = 0.0
+        if self.is_parked:
+            pinned_gb = self._streamer.parked_gb
+            self._streamer.forget_parked()
+            teardown_from_streamer = True
         if self._streamer is not None and self._streamer.active:
             try:
                 pinned_gb = self._streamer.pinned_gb

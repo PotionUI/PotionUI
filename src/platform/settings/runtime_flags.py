@@ -84,6 +84,10 @@ RUNTIME_FLAGS: tuple[RuntimeFlag, ...] = (
         "Copy the next streamed layer to the GPU while the current one computes.",
     ),
     RuntimeFlag(
+        "native_park_experts", None, "bool", True, "live", "memory", "backend",
+        "Keep the idle expert of a two-expert video model page-locked in RAM so placing it again is quick.",
+    ),
+    RuntimeFlag(
         "native_fp8_quantize", "NATIVE_FP8_QUANTIZE", "choice", "auto", "next_load", "memory", "backend",
         "Quantize a bf16 diffusion model to fp8 at load: auto (only when that makes it fit), off, or force.",
         choices=("auto", "off", "force"),

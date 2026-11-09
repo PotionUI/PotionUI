@@ -178,7 +178,7 @@ export const RUNTIME_SETTINGS: RuntimeSettingDescriptor[] = [
 		description:
 			'Wan 2.2 14B samples with two experts. When the first one streams from RAM, it stays page-locked while the second one runs, so the next generation places it again without copying and pinning it anew.',
 		guidance:
-			'Saves 11 to 18 seconds per Wan 14B generation on a 12 GB card, from the second generation on. While on, the high-noise expert keeps its full size in page-locked RAM from one generation to the next; turn it off if the host runs short of RAM.',
+			'Skips re-pinning the high-noise expert at each generation, from the second generation on. While on, the high-noise expert keeps its full size in page-locked RAM from one generation to the next; turn it off if the host runs short of RAM.',
 		defaultLabel: 'On',
 		defaultValue: true
 	},

@@ -141,7 +141,7 @@ class ExpertRouter:
             dit.stream_to(self.device, 0.0)
 
     def __call__(self, x: torch.Tensor, sigma: torch.Tensor, conditioning: dict) -> torch.Tensor:
-        dit = self._select(float(sigma.reshape(-1)[0]))
+        dit = self._select(float(sigma.max()))
         if dit is not self.active:
             self._place_expert(dit)
         extra = {}

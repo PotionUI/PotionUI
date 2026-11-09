@@ -47,10 +47,6 @@ fields:
     label: "Models"
     formula: "models"
     children:
-      # Same SeedVR2 components as the image 'upscale' mode's Generation tab,
-      # without the download recommendations (that sibling tab owns the
-      # recommendation copy). A user who has already fetched the model for
-      # image upscale reuses the identical files here.
       - name: "diffusion_model"
         type: "model"
         label: "Diffusion Model (NaDiT)"
@@ -59,6 +55,37 @@ fields:
           model_type: "diffusion_model"
           placeholder: "Select the SeedVR2 3B NaDiT checkpoint..."
           filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "SeedVR2 3B (fp16)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_3b_fp16.safetensors"
+              size: "6.78 GB"
+              sha256: "2fd0e03a3dad24e07086750360727ca437de4ecd456f769856e960ae93e2b304"
+              description: "Full-precision 3B restoration DiT. Fast and light; recommended default."
+            - name: "SeedVR2 3B (fp8 e4m3fn)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+              size: "3.39 GB"
+              sha256: "3bf1e43ebedd570e7e7a0b1b60d6a02e105978f505c8128a241cde99a8240cff"
+              description: "Quantized 3B. Roughly half the VRAM/disk of fp16, small quality trade-off."
+            - name: "SeedVR2 7B (fp16)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_fp16.safetensors"
+              size: "16.48 GB"
+              sha256: "7b8241aa957606ab6cfb66edabc96d43234f9819c5392b44d2492d9f0b0bbe4a"
+              description: "Full-precision 7B. Higher fidelity than 3B at ~2.4x the VRAM and compute."
+            - name: "SeedVR2 7B (fp8 e4m3fn)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_fp8_e4m3fn.safetensors"
+              size: "8.24 GB"
+              sha256: "1fdbf3877b7d1eb266038d3a165a977f17dbb4daa4a0f0d334d5461476963037"
+              description: "Quantized 7B. Half the footprint; known to skew slightly plastic/glossy on skin — prefer fp16 or 3B if that bothers you."
+            - name: "SeedVR2 7B Sharp (fp16)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_sharp_fp16.safetensors"
+              size: "16.48 GB"
+              sha256: "20a93e01ff24beaeebc5de4e4e5be924359606c356c9c51509fba245bd2d77dd"
+              description: "7B 'sharp' variant: crisper micro-detail; can oversharpen lightly-degraded inputs."
+            - name: "SeedVR2 7B Sharp (fp8 e4m3fn)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_sharp_fp8_e4m3fn.safetensors"
+              size: "8.24 GB"
+              sha256: "4261d18fd9c331f4c8f14b475c9148bd8c3f1512240ace55fe31a179e0a960b0"
+              description: "Quantized 7B sharp variant. Same fp8 gloss caveat as the plain 7B fp8."
 
       - name: "vae"
         type: "model"
@@ -68,6 +95,12 @@ fields:
           model_type: "vae"
           placeholder: "Select the SeedVR2 self-normalizing causal-video VAE..."
           filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "SeedVR2 causal-video VAE (fp16)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/ema_vae_fp16.safetensors"
+              size: "501 MB"
+              sha256: "20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1"
+              description: "Self-normalizing causal-video VAE paired with the SeedVR2 DiT."
 
       - name: "prompt_embedding"
         type: "model"
@@ -78,3 +111,9 @@ fields:
           model_type: "text_encoder"
           placeholder: "Select the fixed SeedVR2 prompt embedding..."
           filter_tags: "@config:text_encoder_tags"
+          recommendations:
+            - name: "SeedVR2 prompt embedding"
+              link: "https://huggingface.co/ByteDance-Seed/SeedVR2-3B/resolve/main/pos_emb.pt"
+              size: "595 kB"
+              sha256: "fa07a14844314772266b66c3b95deb0027696d8fe7065721263db5176f45d799"
+              description: "Fixed positive prompt embedding tensor (sequence x 5120). Required — there is no text encoder."

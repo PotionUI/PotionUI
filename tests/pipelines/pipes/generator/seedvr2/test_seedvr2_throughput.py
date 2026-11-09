@@ -293,6 +293,43 @@ def test_video_batch_zero_auto_sizes_from_free_vram(monkeypatch):
     assert gen.batch_calls == [_SEEDVR2_MAX_BATCH]
 
 
+@pytest.mark.parametrize("total_gb", [7.99, 11.99, 12.5])
+def test_video_batch_zero_is_five_frames_on_a_gpu_of_12_5gb_or_less(monkeypatch, total_gb):
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    monkeypatch.setattr(m, "free_vram_gb", lambda device: 24.0)
+    monkeypatch.setattr(m, "total_vram_gb", lambda device: total_gb)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=0))
+
+    pipe.process(_video_input(), lambda o: None)
+
+    assert gen.batch_calls == [5]
+
+
+def test_video_batch_zero_still_auto_sizes_on_a_16gb_gpu(monkeypatch):
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    monkeypatch.setattr(m, "free_vram_gb", lambda device: 24.0)
+    monkeypatch.setattr(m, "total_vram_gb", lambda device: 15.99)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=0))
+
+    pipe.process(_video_input(), lambda o: None)
+
+    assert gen.batch_calls == [_SEEDVR2_MAX_BATCH]
+
+
+def test_video_explicit_batch_is_kept_on_a_12gb_gpu(monkeypatch):
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    monkeypatch.setattr(m, "free_vram_gb", lambda device: 11.0)
+    monkeypatch.setattr(m, "total_vram_gb", lambda device: 11.99)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=13))
+
+    pipe.process(_video_input(), lambda o: None)
+
+    assert gen.batch_calls == [13]
+
+
 class _RecordingProfiler:
     """Captures ``mark`` calls so a test can assert which profiler events the
     video path emits (the real profiler writes to a file, not memory)."""

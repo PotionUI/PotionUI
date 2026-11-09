@@ -25,15 +25,15 @@ import torch.nn.functional as F
 from .ifnet import IFNet
 
 
-def pad_dims(h: int, w: int, flow_scale: float) -> Tuple[int, int]:
-    tmp = max(128, int(128 / flow_scale))
+def pad_dims(h: int, w: int, flow_scale: float, modulo: int = 128) -> Tuple[int, int]:
+    tmp = max(modulo, int(modulo / flow_scale))
     ph = ((h - 1) // tmp + 1) * tmp
     pw = ((w - 1) // tmp + 1) * tmp
     return ph, pw
 
 
-def _scale_list(flow_scale: float) -> List[float]:
-    return [8.0 / flow_scale, 4.0 / flow_scale, 2.0 / flow_scale, 1.0 / flow_scale]
+def _scale_list(flow_scale: float, base: Tuple[float, ...]) -> List[float]:
+    return [b / flow_scale for b in base]
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,7 @@ def prepare_frame(model: IFNet, img: torch.Tensor, flow_scale: float = 1.0) -> P
     one. The result is valid for any timestep between this frame and any other
     frame prepared under the same model, geometry and ``flow_scale``."""
     h, w = int(img.shape[-2]), int(img.shape[-1])
-    ph, pw = pad_dims(h, w, flow_scale)
+    ph, pw = pad_dims(h, w, flow_scale, model.pad_modulo)
     padded = F.pad(img, (0, pw - w, 0, ph - h))
     with torch.no_grad():
         features = model.encode(padded[:, :3]) if model.encode is not None else None
@@ -118,7 +118,7 @@ def interpolate_prepared(
         _, _, merged = model(
             torch.cat((f0.padded, f1.padded), 1),
             timestep,
-            _scale_list(flow_scale),
+            _scale_list(flow_scale, model.scale_base),
             f0=f0.features,
             f1=f1.features,
         )

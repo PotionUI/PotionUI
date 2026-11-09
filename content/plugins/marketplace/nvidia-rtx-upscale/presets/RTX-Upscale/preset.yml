@@ -14,7 +14,7 @@ schema: 1
 id: "01KXRTXUPSCALE0000000000RU"
 name: "RTX Upscale"
 category: "utility"
-version: "0.1.0"
+version: "0.2.0"
 engine: "native"
 tags: ["upscale", "rtx", "nvidia", "video-super-resolution", "denoise", "deblur", "utility", "local"]
 
@@ -27,11 +27,13 @@ vars:
 llm:
   guide: |
     Utility preset — no diffusion model, no prompt. NVIDIA RTX Video Super
-    Resolution runs one of four intents per frame: Upscale, Upscale for a
-    compressed/lossy source, Denoise, or Deblur — the last two enhance at the
-    SAME resolution and ignore Scale. Help the user pick intent, quality tier
-    and (for the two upscale intents) scale from the form summary below;
-    never suggest prompt text.
+    Resolution runs one of four intents per frame: Upscale (removes
+    compression artifacts), Upscale for a clean high-bitrate source, Denoise,
+    or Deblur — the last two enhance at the SAME resolution and ignore
+    Scale. Target Short Side, when set, replaces
+    Scale with the scale that reaches it. Help the user pick intent, quality
+    tier and (for the two upscale intents) scale or target short side from
+    the form summary below; never suggest prompt text.
 
 formulas:
   groups:
@@ -53,7 +55,7 @@ modes:
 requirements:
   - type: python_package
     name: "nvidia-vfx"
-    hint: "pip install nvidia-vfx (import name: nvvfx)"
+    hint: 'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com (import name: nvvfx)'
   - type: platform
-    os: [linux]
-    hint: "NVIDIA RTX Video Super Resolution ships a Linux-only wheel (driver >= 570.190)"
+    os: [linux, windows]
+    hint: "nvidia-vfx 0.2 ships Linux and Windows wheels (driver >= 570.190 on Linux, >= 570.65 on Windows)"

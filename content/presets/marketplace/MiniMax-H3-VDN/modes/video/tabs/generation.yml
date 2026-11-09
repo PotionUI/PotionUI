@@ -85,13 +85,6 @@ fields:
               sha256: "a32572fb90b5508b201ec7c2eddcc184b13ddfd3c6f6d2cf06a0b46535d541b4"
               description: "MiniMax-H3 first/last-frame to video+audio, pruned bf16 reference."
 
-      # No `recommendations:` on this picker or the sidecar below, deliberately:
-      # OpenVDN publishes the branch as `model.safetensors` and both adapters as
-      # `adapter_model.safetensors`, and a recommendation matches an installed
-      # model BY THAT NAME (frontend/src/lib/utils/modelRecommendations.ts).
-      # Three entries under two names that generic would badge unrelated files as
-      # already installed. The repo path is in the hint instead; rename on
-      # download.
       - name: "vdn_module"
         type: "model"
         label: "VDN branch"
@@ -110,6 +103,12 @@ fields:
           model_type: "diffusion_model"
           placeholder: "minimax_h3_vdn_linear_branch..."
           filter_tags: "@config:vdn_tags"
+          recommendations:
+            - name: "minimax_h3_vdn_linear_branch.safetensors"
+              link: "https://huggingface.co/OpenVDN/vdn-minimax-h3/resolve/main/stage-dmd-step-250/linear_branch/model.safetensors"
+              size: "3.99 GB"
+              sha256: "dec6981c7874f5b3bc92d1a02e256b673a3b3499dc1a124714bb3b19da602855"
+              description: "OpenVDN linear-attention branch. Upstream names it model.safetensors; it is saved under this name instead."
 
       - name: "dense_time_embedder"
         type: "model"

@@ -43,6 +43,7 @@ from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
     get_residency_registry,
+    total_vram_gb,
 )
 from src.pipelines.contracts import BasePipe
 from src.pipelines.contracts import (
@@ -80,28 +81,9 @@ SEEDVR2_TIMESTEP = 1000.0
 # ``decode()`` path this video loop doesn't call.
 _MIN_DECODE_TILE_LATENT = 16          # floor, latent px (mirrors engine.py)
 _MIN_ENCODE_TILE_PIXEL = 256          # floor, image px (64x the latent floor)
-#
-# Decode spike per latent px PER OUTPUT FRAME. SeedVR2's VAE is a 16-channel
-# ``[128,256,512,512]`` inflated SD3 AE, not the 128-channel LTX/Wan latent
-# engine.py's 1.2 constant assumes.
-#
-# The decode's real spike is its top up-block at full pixel resolution, whose
-# buffer is ``(1, 128, T_out, 8t, 8t)`` fp32 for a ``t``-latent-px tile — it
-# scales with the OUTPUT frame count ``T_out = 1 + 4*(T_lat - 1)``, NOT the
-# latent-frame count, so the tile sizer is fed ``T_out`` (see ``_decode_clip``);
-# feeding it ``T_lat`` under-counts the 4x temporal expansion. 0.05
-# MB/latent-px/output-frame puts the model peak at ~1.3GB for a tile=40 window
-# and ~20GB for the whole clip untiled (~2 full-res 128-ch fp32 buffers).
-_CAUSAL3D_DECODE_MB_PER_LATENT_PX = 0.05
-# The encoder's spike is its architecturally-symmetric bottom DOWN-block, at the
-# same full pixel resolution, channel width AND frame count as the decoder's top
-# block, so its cost per INPUT pixel per input frame is exactly the decoder's
-# per-latent-px-per-output-frame figure over the 8x8 spatial ratio (64 image px
-# per latent px) — an EXACT ratio for the two mirrored blocks, not a guess.
-# Being off only shrinks/grows the tile via the feathered-seam blend, never the
-# encoded/decoded values, so a miscalibration costs VRAM headroom or one extra
-# shrink-on-OOM retry, not correctness.
-_CAUSAL3D_ENCODE_MB_PER_PIXEL = _CAUSAL3D_DECODE_MB_PER_LATENT_PX / 64.0
+_CAUSAL3D_DECODE_MB_PER_LATENT_PX = 0.19
+_CAUSAL3D_ENCODE_MB_PER_PIXEL = 0.0018
+_TILE_COST_FIXED_FRAMES = 1
 _TILE_VRAM_FRACTION = 0.75             # mirrors engine.py's _DECODE_TILE_VRAM_FRACTION
 
 
@@ -173,6 +155,13 @@ _SEEDVR2_DEFAULT_WEIGHTS_GB = 15.0    # 7B fp16 resident size; fallback when unk
 # into one token (mirrors SeedVR2Config.patch_size == (1, 2, 2)).
 _SEEDVR2_VAE_DOWNSAMPLE = 8
 _SEEDVR2_PATCH_HW = (2, 2)
+_SMALL_CARD_MAX_TOTAL_VRAM_GB = 12.5
+_SMALL_CARD_BATCH_SIZE = 5
+
+
+def _small_card(device: str) -> bool:
+    total = total_vram_gb(device)
+    return total is not None and total <= _SMALL_CARD_MAX_TOTAL_VRAM_GB
 
 
 def _spatial_tokens_per_latent_frame(height: int, width: int) -> int:
@@ -541,7 +530,7 @@ class SeedVR2NativeGenerator(NativeGenerator):
         tile = _adaptive_tile_size(
             max(h, w), _MIN_ENCODE_TILE_PIXEL,
             free_vram_gb_value=effective_free_vram_gb(device),
-            mb_per_px=_CAUSAL3D_ENCODE_MB_PER_PIXEL, frames=frames,
+            mb_per_px=_CAUSAL3D_ENCODE_MB_PER_PIXEL, frames=frames + _TILE_COST_FIXED_FRAMES,
         )
         if tile_size and tile_size > 0:
             tile = min(tile, max(_MIN_ENCODE_TILE_PIXEL, (int(tile_size) // 8) * 8))
@@ -593,16 +582,12 @@ class SeedVR2NativeGenerator(NativeGenerator):
         self.vae.move_to(device)
         latent = latent.to(device=device, dtype=self.vae.compute_dtype)
         h, w = latent.shape[-2], latent.shape[-1]
-        # Decode VRAM scales with the OUTPUT frame count the top up-block
-        # materializes (``T_out = 1 + 4*(T_lat - 1)`` for the t4 VAE), not the
-        # latent-frame count — feeding the sizer T_out is what keeps the tile
-        # honest across batch sizes.
         latent_frames = latent.shape[2] if latent.ndim == 5 else 1
         frames = 1 + 4 * (latent_frames - 1) if latent_frames > 1 else 1
         tile = _adaptive_tile_size(
             max(h, w), _MIN_DECODE_TILE_LATENT,
             free_vram_gb_value=effective_free_vram_gb(device),
-            mb_per_px=_CAUSAL3D_DECODE_MB_PER_LATENT_PX, frames=frames,
+            mb_per_px=_CAUSAL3D_DECODE_MB_PER_LATENT_PX, frames=frames + _TILE_COST_FIXED_FRAMES,
         )
         if tile_size and tile_size > 0:
             tile = min(tile, max(_MIN_DECODE_TILE_LATENT, int(tile_size) // 8))
@@ -703,7 +688,7 @@ class GeneratorSeedVR2Pipe(BasePipe):
             PipeConfigSpec("batch_size", int, 0,
                            "Frames per temporal batch (snapped to the VAE's 4n+1 lattice: 1,5,9,…). "
                            "The temporal VRAM knob — one batch is on the GPU at a time. "
-                           "0 = auto-size to ~92% of live free VRAM at the output resolution "
+                           "0 = 5 on a GPU of 12.5 GB or less, else auto-size to ~92% of live free VRAM at the output resolution "
                            "(recommended); the OOM ladder "
                            "halves it and re-runs if a batch ever exceeds real VRAM.",
                            required=False, min_value=0, max_value=49),
@@ -897,17 +882,12 @@ class GeneratorSeedVR2Pipe(BasePipe):
 
         generator = build_native_generator(bundle, device=device)
 
-        # ``batch_size == 0`` (the form default) auto-sizes the temporal batch to
-        # ~92% of live free VRAM AT THE OUTPUT RESOLUTION -- sized only now that
-        # the resized geometry and the loaded DiT's weight size are both known, so
-        # a 4K target picks a small batch up front instead of paying a doomed
-        # oversized attempt first. Any explicit value is honoured as-is. Either
-        # way the OOM ladder below is the safety net: a batch that exceeds real
-        # VRAM is halved and re-run, so an over-estimate never fails the job.
         free_gb = free_vram_gb(device)
         spatial_tokens = _spatial_tokens_per_latent_frame(out_h, out_w)
         weights_gb = float(getattr(getattr(generator, "dit", None), "estimated_vram_gb", 0.0) or 0.0)
-        if requested_batch <= 0:
+        if requested_batch <= 0 and _small_card(device):
+            batch_size = B.snap_batch_size(_SMALL_CARD_BATCH_SIZE)
+        elif requested_batch <= 0:
             batch_size = B.snap_batch_size(_auto_batch_size(
                 free_gb, spatial_tokens_per_latent_frame=spatial_tokens, weights_gb=weights_gb,
             ))

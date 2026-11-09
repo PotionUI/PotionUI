@@ -764,7 +764,7 @@ def _encode_image_gen_with_dispatch(dispatch):
 def test_encode_image_reactive_retry_fires_once_then_succeeds():
     calls = {"n": 0}
 
-    def dispatch(pixels, device, vram):
+    def dispatch(pixels, device, vram, tile=None):
         calls["n"] += 1
         if calls["n"] == 1:
             raise torch.cuda.OutOfMemoryError("boom")
@@ -780,7 +780,7 @@ def test_encode_image_reactive_retry_fires_once_then_succeeds():
 def test_encode_image_reactive_retry_reraises_on_second_oom():
     calls = {"n": 0}
 
-    def dispatch(pixels, device, vram):
+    def dispatch(pixels, device, vram, tile=None):
         calls["n"] += 1
         raise torch.cuda.OutOfMemoryError("boom")
 
@@ -2308,7 +2308,7 @@ _WSL_DRIVER_OOM = "CUDA driver error: device not ready"
 def test_encode_image_retries_once_after_the_wsl_driver_oom():
     calls = {"n": 0}
 
-    def dispatch(pixels, device, vram):
+    def dispatch(pixels, device, vram, tile=None):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError(_WSL_DRIVER_OOM)
@@ -2323,7 +2323,7 @@ def test_encode_image_retries_once_after_the_wsl_driver_oom():
 def test_encode_image_does_not_retry_a_driver_error_that_is_not_exhaustion():
     calls = {"n": 0}
 
-    def dispatch(pixels, device, vram):
+    def dispatch(pixels, device, vram, tile=None):
         calls["n"] += 1
         raise RuntimeError("CUDA driver error: invalid argument")
 

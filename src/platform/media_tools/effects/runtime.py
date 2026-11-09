@@ -23,7 +23,7 @@ GpuPolicy = Callable[[], bool]
 AssetDirs = Callable[[str], Iterable[Path]]
 MAX_LISTED_ASSETS = 500
 
-_FILTER_LINE = re.compile(r"^ [T.][S.][C.] +([A-Za-z0-9_]+) +[AVN|]*->[AVN|]*", re.MULTILINE)
+_FILTER_LINE = re.compile(r"^ [T.][S.][C.]? +([A-Za-z0-9_]+) +[AVN|]*->[AVN|]*", re.MULTILINE)
 
 
 def _no_gpu() -> bool:

@@ -80,8 +80,10 @@ def test_manual_install_instructions_name_the_correct_pip_package(pipe_module):
     instructions = pipe_module.RtxUpscalePipe.manual_install_instructions()
 
     assert instructions is not None
-    assert "pip install nvidia-vfx" in instructions
+    assert 'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com' in instructions
     assert "570.190" in instructions
+    assert "LD_LIBRARY_PATH=/usr/lib/wsl/lib" in instructions
+    assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx" in instructions
 
 
 def test_pipe_defaults_survive_a_json_round_trip(pipe_module):
@@ -95,3 +97,4 @@ def test_pipe_defaults_survive_a_json_round_trip(pipe_module):
 
     for spec in pipe_module.RtxUpscalePipe.configuration() or []:
         assert json.loads(json.dumps(spec.default)) == spec.default, spec.name
+        assert defaults[spec.name] == spec.default, spec.name

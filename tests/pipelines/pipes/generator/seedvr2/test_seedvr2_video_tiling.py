@@ -23,6 +23,8 @@ from src.pipelines.pipes.generator.seedvr2.main import (
     _CAUSAL3D_ENCODE_MB_PER_PIXEL,
     _MIN_DECODE_TILE_LATENT,
     _MIN_ENCODE_TILE_PIXEL,
+    _TILE_COST_FIXED_FRAMES,
+    _TILE_VRAM_FRACTION,
 )
 
 
@@ -60,11 +62,9 @@ def test_adaptive_tile_size_never_exceeds_full_long_axis_snap():
     assert tile == 512
 
 
-# -- calibrated decision matrix --------------------------------------
-# The maintainer's profiled 5s/1080p clip: output 1872x1072 (234x134 latent),
-# 2 latent frames per 5-frame batch, ~24GB free at decode time. With the honest
-# constants the VAE encode/decode must cover it in a small number of tiles
-# (was ~15 tiny tiles at the old 1.2 decode constant + half-axis start).
+_ENCODE_PEAK_MB_PER_PIXEL_MEASURED = {1: 0.002692, 5: 0.009547, 13: 0.023217}
+_DECODE_PEAK_MB_PER_LATENT_PX_MEASURED = {1: 0.30835, 5: 1.038, 13: 2.47585}
+
 
 def _tile_count(long_axis: int, short_axis: int, tile: int) -> int:
     def n(axis: int) -> int:
@@ -76,49 +76,60 @@ def _tile_count(long_axis: int, short_axis: int, tile: int) -> int:
     return n(long_axis) * n(short_axis)
 
 
-def test_decode_tile_covers_full_hd_clip_in_few_tiles_on_24gb():
-    # Decode tiles are latent px; the profiled batch-13 clip is 234x134 latent,
-    # 13 OUTPUT frames (4 latent). Was tile=40 (~40 tiles) at the old constant.
-    tile = _adaptive_tile_size(
-        234, _MIN_DECODE_TILE_LATENT, free_vram_gb_value=24.0,
-        mb_per_px=_CAUSAL3D_DECODE_MB_PER_LATENT_PX, frames=13,
+@pytest.mark.parametrize("frames", sorted(_ENCODE_PEAK_MB_PER_PIXEL_MEASURED))
+def test_tile_cost_model_covers_the_vae_peaks_measured_on_a_12gb_card(frames):
+    encode_model = _CAUSAL3D_ENCODE_MB_PER_PIXEL * (frames + _TILE_COST_FIXED_FRAMES)
+    decode_model = _CAUSAL3D_DECODE_MB_PER_LATENT_PX * (frames + _TILE_COST_FIXED_FRAMES)
+    assert encode_model >= _ENCODE_PEAK_MB_PER_PIXEL_MEASURED[frames]
+    assert decode_model >= _DECODE_PEAK_MB_PER_LATENT_PX_MEASURED[frames]
+
+
+@pytest.mark.parametrize("free_gb", [6.0, 10.0, 16.0, 24.0])
+@pytest.mark.parametrize("frames", sorted(_ENCODE_PEAK_MB_PER_PIXEL_MEASURED))
+def test_encode_clip_tile_keeps_the_measured_peak_inside_the_vram_budget(monkeypatch, free_gb, frames):
+    monkeypatch.setattr(m, "effective_free_vram_gb", lambda device: free_gb)
+    vae = _FakeVAEModule()
+    gen = _make_generator(vae)
+
+    gen._encode_clip(np.zeros((frames, 64, 4096, 3), dtype=np.uint8), "cpu")
+
+    tile = vae.encode_calls[0][0]
+    assert _MIN_ENCODE_TILE_PIXEL < tile < 4096
+    assert tile * tile * _ENCODE_PEAK_MB_PER_PIXEL_MEASURED[frames] <= free_gb * 1024.0 * _TILE_VRAM_FRACTION
+
+
+@pytest.mark.parametrize("free_gb", [6.0, 10.0, 16.0, 24.0])
+@pytest.mark.parametrize("frames", sorted(_DECODE_PEAK_MB_PER_LATENT_PX_MEASURED))
+def test_decode_clip_tile_keeps_the_measured_peak_inside_the_vram_budget(monkeypatch, free_gb, frames):
+    monkeypatch.setattr(m, "effective_free_vram_gb", lambda device: free_gb)
+    vae = _FakeVAEModule()
+    gen = _make_generator(vae)
+    latent_frames = 1 + (frames - 1) // 4
+
+    gen._decode_clip(torch.zeros((1, 16, latent_frames, 8, 512)), "cpu")
+
+    tile = vae.decode_calls[0][0]
+    assert _MIN_DECODE_TILE_LATENT < tile < 512
+    assert tile * tile * _DECODE_PEAK_MB_PER_LATENT_PX_MEASURED[frames] <= free_gb * 1024.0 * _TILE_VRAM_FRACTION
+
+
+def test_small_batch_still_encodes_and_decodes_a_480p_clip_in_one_tile_on_24gb():
+    encode_tile = _adaptive_tile_size(
+        832, _MIN_ENCODE_TILE_PIXEL, free_vram_gb_value=24.0,
+        mb_per_px=_CAUSAL3D_ENCODE_MB_PER_PIXEL, frames=5 + _TILE_COST_FIXED_FRAMES,
     )
-    assert 1 <= _tile_count(234, 134, tile) <= 4
-
-
-def test_encode_tile_covers_full_hd_clip_in_few_tiles_on_24gb():
-    # Encode tiles are pixel px; the 1080p input is 1872x1072, 13 input frames.
-    # Was tile=256 (~40 tiles) at the old constant.
-    tile = _adaptive_tile_size(
-        1872, _MIN_ENCODE_TILE_PIXEL, free_vram_gb_value=24.0,
-        mb_per_px=_CAUSAL3D_ENCODE_MB_PER_PIXEL, frames=13,
+    decode_tile = _adaptive_tile_size(
+        104, _MIN_DECODE_TILE_LATENT, free_vram_gb_value=24.0,
+        mb_per_px=_CAUSAL3D_DECODE_MB_PER_LATENT_PX, frames=5 + _TILE_COST_FIXED_FRAMES,
     )
-    assert 1 <= _tile_count(1872, 1072, tile) <= 4
-
-
-def test_small_batch_decodes_full_hd_clip_in_one_tile_on_24gb():
-    # A short batch (5 output frames) is cheap enough that the whole 234x134
-    # clip fits in ONE tile at 24GB — the byte-identical whole-clip path.
-    tile = _adaptive_tile_size(
-        234, _MIN_DECODE_TILE_LATENT, free_vram_gb_value=24.0,
-        mb_per_px=_CAUSAL3D_DECODE_MB_PER_LATENT_PX, frames=5,
-    )
-    assert tile >= 234
-    assert _tile_count(234, 134, tile) == 1
+    assert _tile_count(832, 480, encode_tile) == 1
+    assert _tile_count(104, 60, decode_tile) == 1
 
 
 def test_decode_constant_far_below_inherited_ltx_wan_value():
     # The whole point of the recalibration: SeedVR2's 16-channel VAE spikes far
     # less per latent px than the inherited 1.2 (LTX/Wan) figure.
     assert _CAUSAL3D_DECODE_MB_PER_LATENT_PX < 0.2
-
-
-# -- module constants sanity --------------------------------------------------
-
-def test_encode_cost_constant_derived_from_decode_constant():
-    # The encoder's per-pixel spike is modeled as the decoder's per-LATENT-pixel
-    # spike divided by the 8x8 spatial downscale (64 image px per latent px).
-    assert _CAUSAL3D_ENCODE_MB_PER_PIXEL == pytest.approx(_CAUSAL3D_DECODE_MB_PER_LATENT_PX / 64.0)
 
 
 # -- _encode_clip / _decode_clip (mocked VAE module) -------------------------

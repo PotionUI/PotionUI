@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -43,10 +44,21 @@ from src.pipelines.outputs import (
 from src.platform.observability.logger import logger
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.util.video_stream import StreamingMp4Writer, mux_audio_from_source
+from src.pipelines.pipes.interpolator.rife.cadence import (
+    Slot,
+    output_count,
+    output_fps,
+    slot,
+    source_per_output,
+)
 from vendor.rife import load_ifnet
 from vendor.rife.inference import PreparedFrame, interpolate_prepared, prepare_frame
 
 _PROGRESS_EVERY = 8
+
+_CUT_SIZE = 32
+_CUT_SSIM = 0.2
+_MAX_TARGET_FPS = 240.0
 
 #: Fallback cache for isolated pipe use (no ``MODELS`` service injected, e.g.
 #: tests): at most ONE entry, keyed the same way as the ``MODELS`` path below.
@@ -141,6 +153,27 @@ def _load_model(model_path: str, device: str, models: Optional[Any] = None) -> "
         raise
 
 
+def _similarity(a: np.ndarray, b: np.ndarray) -> float:
+    import cv2
+
+    def grey(rgb: np.ndarray) -> np.ndarray:
+        small = cv2.resize(cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY), (_CUT_SIZE, _CUT_SIZE),
+                           interpolation=cv2.INTER_AREA)
+        return small.astype(np.float64) / 255.0
+
+    def blur(img: np.ndarray) -> np.ndarray:
+        return cv2.GaussianBlur(img, (11, 11), 1.5)
+
+    x, y = grey(a), grey(b)
+    mx, my = blur(x), blur(y)
+    vx = blur(x * x) - mx * mx
+    vy = blur(y * y) - my * my
+    cov = blur(x * y) - mx * my
+    c1, c2 = 0.01 ** 2, 0.03 ** 2
+    ssim = ((2 * mx * my + c1) * (2 * cov + c2)) / ((mx * mx + my * my + c1) * (vx + vy + c2))
+    return float(ssim.mean())
+
+
 def _idle_model(model: "torch.nn.Module") -> None:
     """Return ``model`` to its idle placement -- CPU, fp32, matching load
     time -- on success, failure or cancellation alike, so a cached RIFE
@@ -151,7 +184,7 @@ def _idle_model(model: "torch.nn.Module") -> None:
 
 class RifeInterpolatorPipe(BasePipe):
     name = "interpolator/rife"
-    description = "RIFE 4.x frame interpolation (2x/4x) with audio passthrough"
+    description = "RIFE 4.x frame interpolation (2x/4x or a target frame rate) with audio passthrough"
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -162,6 +195,12 @@ class RifeInterpolatorPipe(BasePipe):
             PipeConfigSpec("factor", int, 2,
                            "Interpolation factor: 2x inserts t=0.5; 4x inserts t=0.25/0.5/0.75",
                            required=False, choices=[2, 4]),
+            PipeConfigSpec("target_fps", float, 0.0,
+                           "Output frame rate; 0 multiplies the source rate by factor instead",
+                           required=False, min_value=0.0, max_value=_MAX_TARGET_FPS),
+            PipeConfigSpec("scene_detection", bool, True,
+                           "With a target frame rate, hold the nearer frame instead of blending across a cut",
+                           required=False),
             PipeConfigSpec("flow_scale", float, 1.0,
                            "Flow-computation scale (0.5 for high-res >2K inputs)",
                            required=False, choices=[1.0, 0.5]),
@@ -186,7 +225,7 @@ class RifeInterpolatorPipe(BasePipe):
 
     @staticmethod
     def output_frame_count(n_source: int, factor: int) -> int:
-        return n_source * factor if n_source > 0 else 0
+        return output_count(n_source, Fraction(1, factor))
 
     def _resolve_model_path(self) -> str:
         model_cfg = self.config.get("model")
@@ -217,9 +256,15 @@ class RifeInterpolatorPipe(BasePipe):
             video_path = videos
         video_path = str(video_path)
 
+        target_fps = float(self.config.get("target_fps") or 0.0)
+        if target_fps < 0 or target_fps > _MAX_TARGET_FPS:
+            raise ValueError(
+                f"interpolator/rife: target_fps must be 0 or up to {_MAX_TARGET_FPS:g}, got {target_fps:g}"
+            )
         factor = int(self.config.get("factor", 2))
-        if factor not in (2, 4):
+        if target_fps == 0 and factor not in (2, 4):
             raise ValueError(f"interpolator/rife: factor must be 2 or 4, got {factor}")
+        scene_detection = target_fps > 0 and bool(self.config.get("scene_detection", True))
         flow_scale = float(self.config.get("flow_scale", 1.0))
         keep_audio = bool(self.config.get("keep_audio", True))
 
@@ -261,17 +306,19 @@ class RifeInterpolatorPipe(BasePipe):
                         src_fps = cap.get(cv2.CAP_PROP_FPS)
                         src_fps = float(src_fps) if src_fps and src_fps > 0 else 24.0
                         src_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-                        out_fps = src_fps * factor
-                        out_total = self.output_frame_count(src_count, factor) if src_count > 0 else 0
+                        ratio = source_per_output(src_fps, factor, target_fps)
+                        out_fps = output_fps(src_fps, factor, target_fps)
+                        out_total = output_count(src_count, ratio) if src_count > 0 else 0
 
                         generation_outputs(ProgressGenerationOutput(
-                            state=(f"Interpolating <<NUMBER:{src_count} frames>> at <<NUMBER:{factor}x>> "
+                            state=(f"Interpolating <<NUMBER:{src_count} frames>> at <<NUMBER:{src_fps:.2f} fps>> "
                                    f"-> <<NUMBER:{out_fps:.2f} fps>>"),
                             icon=Icon(name="film", effect="pulse"),
                         ))
 
-                        timesteps = [f / factor for f in range(1, factor)]
                         written = 0
+                        next_index = 0
+                        pending: List[Tuple[int, np.ndarray]] = []
 
                         prev_rgb: Optional[np.ndarray] = None
                         prev_tensor: Optional[torch.Tensor] = None
@@ -285,6 +332,7 @@ class RifeInterpolatorPipe(BasePipe):
                             if not ret or frame_bgr is None:
                                 break
                             rgb = self._to_even_rgb(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+                            current = read_idx
                             read_idx += 1
 
                             if writer is None:
@@ -292,12 +340,17 @@ class RifeInterpolatorPipe(BasePipe):
                                 writer = StreamingMp4Writer(out_tmp, w, h, out_fps)
 
                             cur_tensor = self._to_tensor(rgb, device, model_dtype)
-                            if prev_rgb is None:
-                                writer.write(prev_rgb := rgb)
-                                prev_tensor = cur_tensor
-                                written += 1
-                                continue
+                            due: List[Slot] = []
+                            while True:
+                                upcoming = slot(next_index, ratio)
+                                if upcoming.left < current or (upcoming.left == current and upcoming.t == 0.0):
+                                    due.append(upcoming)
+                                    next_index += 1
+                                else:
+                                    break
 
+                            blended = [item for item in due if item.left < current]
+                            cut = bool(blended) and scene_detection and self._is_cut(prev_rgb, rgb)
                             # Drop the previous pair's frames BEFORE the next right frame is
                             # allocated: `prev_prepared` already holds the only one still
                             # needed (it is this pair's left frame), and releasing here is
@@ -305,14 +358,18 @@ class RifeInterpolatorPipe(BasePipe):
                             # three. Assigning through the same locals would free the old
                             # left frame only after the new right one exists.
                             f0 = f1 = None
-                            f0, f1 = self._prepare_pair(model, prev_tensor, cur_tensor,
-                                                        flow_scale, prev_prepared)
-                            for t in timesteps:
-                                mid = self._run(model, f0, f1, t, flow_scale)
-                                writer.write(mid)
-                                written += 1
-                            writer.write(rgb)
-                            written += 1
+                            if blended and not cut:
+                                f0, f1 = self._prepare_pair(model, prev_tensor, cur_tensor,
+                                                            flow_scale, prev_prepared)
+                            for item in due:
+                                if item.left == current:
+                                    frame = rgb
+                                elif cut:
+                                    frame = prev_rgb if item.t < 0.5 else rgb
+                                else:
+                                    frame = self._run(model, f0, f1, item.t, flow_scale)
+                                pending.append((item.index, frame))
+                            written += self._flush(writer, pending, output_count(read_idx, ratio))
 
                             prev_rgb = rgb
                             prev_tensor = cur_tensor
@@ -340,9 +397,10 @@ class RifeInterpolatorPipe(BasePipe):
                     if is_cancelled():
                         raise SamplingCancelled()
 
-                    # The last decoded frame owns `factor` slots at the output rate but has no
-                    # successor to interpolate toward, so it is held for the remaining ones.
-                    for _ in range(factor - 1):
+                    total = output_count(read_idx, ratio)
+                    written += self._flush(writer, pending, total)
+                    pending.clear()
+                    for _ in range(next_index, total):
                         writer.write(prev_rgb)
                         written += 1
                     writer.close()
@@ -420,6 +478,18 @@ class RifeInterpolatorPipe(BasePipe):
                 pass
 
     # -- helpers -----------------------------------------------------------
+
+    @staticmethod
+    def _flush(writer: StreamingMp4Writer, pending: List[Tuple[int, np.ndarray]], limit: int) -> int:
+        ready = [frame for index, frame in pending if index < limit]
+        for frame in ready:
+            writer.write(frame)
+        pending[:] = [(index, frame) for index, frame in pending if index >= limit]
+        return len(ready)
+
+    @staticmethod
+    def _is_cut(prev_rgb: np.ndarray, rgb: np.ndarray) -> bool:
+        return _similarity(prev_rgb, rgb) < _CUT_SSIM
 
     @staticmethod
     def _to_even_rgb(rgb: np.ndarray) -> np.ndarray:

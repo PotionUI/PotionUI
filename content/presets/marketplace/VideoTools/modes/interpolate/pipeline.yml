@@ -1,11 +1,6 @@
 # Pipeline for the 'interpolate' mode.
 #
 #   media_loader -> param_emitter -> interpolator/rife -> gallery
-#
-# RIFE is deterministic frame synthesis: no text encoder, no denoise loop, no
-# seed -- so there is no prompt_encoder or seed_generator pipe. Output fps =
-# source fps * factor (N source frames -> N*factor output frames), the duration
-# is preserved, and the source audio is muxed back when keep_audio.
 pipeline:
   #############
   ## Media Loader - Load the source video from the form file path
@@ -32,6 +27,8 @@ pipeline:
       parameters:
         - ["model", "{{ form.model }}"]
         - ["factor", "{{ form.factor }}"]
+        - ["target_fps", "{{ form.target_fps }}"]
+        - ["scene_detection", "{{ form.scene_detection }}"]
         - ["flow_scale", "{{ form.flow_scale }}"]
         - ["keep_audio", "{{ form.keep_audio }}"]
 
@@ -48,6 +45,8 @@ pipeline:
         file_path: "{{ form.model }}"
         name: "{{ form.model }}"
       factor: "{{ form.factor }}"
+      target_fps: "{{ form.target_fps }}"
+      scene_detection: "{{ form.scene_detection }}"
       flow_scale: "{{ form.flow_scale }}"
       keep_audio: "{{ form.keep_audio }}"
 

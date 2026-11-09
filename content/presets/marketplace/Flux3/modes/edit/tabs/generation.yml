@@ -43,6 +43,47 @@ fields:
           model_type: "diffusion_model"
           placeholder: "Select a FLUX 3 Image Klein checkpoint (distilled or base)..."
           filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "flux3-image-klein-bf16.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "black-forest-labs/flux-3-image-klein-comfy", "file": "diffusion_models/flux3-image-klein-bf16.safetensors", "revision": "main"}'
+              size: "10.34 GB"
+              size_bytes: 11097404512
+              precision: "bf16"
+              sha256: "c3e9813cdd049c831c836b2e9db61150e49a93fc1a4c63b256494642fee0bd7c"
+              gated: true
+              license_url: "https://huggingface.co/black-forest-labs/flux-3-image-klein"
+              description: "FLUX 3 Image Klein distilled, bf16 - the Turbo profile's checkpoint, 16 steps without CFG. Gated repo: accept the FLUX Kommunity License on Hugging Face and set a token in Admin - Plugins."
+            - name: "flux3-image-klein-base-bf16.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "black-forest-labs/flux-3-image-klein-comfy", "file": "diffusion_models/flux3-image-klein-base-bf16.safetensors", "revision": "main"}'
+              size: "10.32 GB"
+              size_bytes: 11076957072
+              precision: "bf16"
+              sha256: "5c921759dc03663dbb67df11d8e3d317d2d5b893b31b969c95dc77ebf861b19c"
+              gated: true
+              license_url: "https://huggingface.co/black-forest-labs/flux-3-image-klein"
+              description: "FLUX 3 Image Klein Base, bf16 - the Base profile's checkpoint, 50 steps with true CFG. Gated repo: accept the FLUX Kommunity License on Hugging Face and set a token in Admin - Plugins."
+            - name: "flux3-image-klein-int8-convrot.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "black-forest-labs/flux-3-image-klein-comfy", "file": "diffusion_models/flux3-image-klein-int8-convrot.safetensors", "revision": "main"}'
+              size: "5.43 GB"
+              size_bytes: 5827874779
+              precision: "int8"
+              sha256: "847d8933548afd93df4af2cac2498e70891bf28d9dae06d695f536992e168fe2"
+              gated: true
+              license_url: "https://huggingface.co/black-forest-labs/flux-3-image-klein"
+              description: "FLUX 3 Image Klein distilled, int8 ConvRot - half of bf16. Gated repo: accept the FLUX Kommunity License on Hugging Face and set a token in Admin - Plugins."
+            - name: "flux3-image-klein-base-int8-convrot.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "black-forest-labs/flux-3-image-klein-comfy", "file": "diffusion_models/flux3-image-klein-base-int8-convrot.safetensors", "revision": "main"}'
+              size: "5.41 GB"
+              size_bytes: 5807427339
+              precision: "int8"
+              sha256: "8949ecfc1bf3871b08be02cf43ec7276a4914e1a86eade6b5eb8f4204426bc92"
+              gated: true
+              license_url: "https://huggingface.co/black-forest-labs/flux-3-image-klein"
+              description: "FLUX 3 Image Klein Base, int8 ConvRot - half of bf16. Gated repo: accept the FLUX Kommunity License on Hugging Face and set a token in Admin - Plugins."
 
       - name: "text_encoder"
         type: "model"
@@ -72,3 +113,9 @@ fields:
           model_type: "vae"
           placeholder: "Select the FLUX 3 ae.safetensors VAE..."
           filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "flux2-vae.safetensors"
+              link: "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-9b/resolve/main/split_files/vae/flux2-vae.safetensors"
+              size: "320.6 MB"
+              sha256: "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+              description: "The FLUX 3 ae.safetensors under its Flux2 name - the two files are byte-identical."

@@ -27,8 +27,18 @@ the model depot's `detection_segm/` folder, the convention
 `content/plugins/marketplace/trellis2` established) - nothing is ever downloaded.
 """
 
-from typing import TYPE_CHECKING
+import asyncio
+import io
+import math
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
+from src.features.media.validators import UPLOAD_PURPOSE_USER, UPLOAD_PURPOSES
+from src.pipelines.pipes._shared.media.frame_extract import extract_frame as _extract_video_frame
+from src.platform.filesystem import audio_formats, visual_formats
+from src.platform.filesystem.mesh_formats import mesh_format_registry
+from src.platform.filesystem.storage_driver import local_copy, validate_key
+from src.platform.plugins.runtime_registries import get_container
 from src.platform.util.imaging import convert_image_to_base64
 from src.platform.util.video_stream import (
     FFmpegNotFoundError,
@@ -45,6 +55,13 @@ from src.platform.util.video_transcode import (
     probe_video,
     transcode_video,
 )
+from src.plugin_api.generation import (
+    HistoryMediaRef,
+    LibraryMediaRef,
+    MediaRefError,
+    ResolvedMedia,
+    resolve_media_ref,
+)
 
 if TYPE_CHECKING:
     from src.platform.runtime.native.matting import BackgroundMattingModel
@@ -53,16 +70,27 @@ __all__ = [
     "BackgroundMattingModel",
     "FFmpegNotFoundError",
     "FfmpegUnavailableError",
+    "HistoryMediaRef",
+    "LibraryMediaRef",
+    "MediaRefError",
+    "ResolvedMedia",
+    "StoredMedia",
     "StreamingMp4Writer",
     "TranscodeSpec",
     "VideoProbe",
     "VideoTranscodeError",
     "convert_image_to_base64",
+    "copy_media_file",
+    "extract_frame",
     "find_ffmpeg",
     "has_audio_stream",
+    "media_local_path",
     "mux_audio_from_source",
     "probe_video",
+    "resolve_media_ref",
+    "save_user_media",
     "transcode_video",
+    "upload_formats",
 ]
 
 
@@ -71,3 +99,152 @@ def __getattr__(name):
         from src.platform.runtime.native.matting import BackgroundMattingModel
         return BackgroundMattingModel
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+class StoredMedia(ResolvedMedia):
+    ref: Optional[LibraryMediaRef]
+    width: Optional[int]
+    height: Optional[int]
+
+
+def _owner_id(user) -> str:
+    user_id = getattr(user, "id", None)
+    if not user_id:
+        raise PermissionError("A user is required to store media")
+    return user_id
+
+
+def _checked_purpose(purpose: str) -> str:
+    if purpose not in UPLOAD_PURPOSES:
+        raise MediaRefError("invalid_purpose", f"purpose must be one of {', '.join(UPLOAD_PURPOSES)}")
+    return purpose
+
+
+def _seconds(at: Any) -> Optional[float]:
+    if isinstance(at, str) and at == "last":
+        return None
+    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at) or at < 0:
+        raise MediaRefError("invalid_ref", "at must be 'last' or a number of seconds from the start")
+    return float(at)
+
+
+def _stored(container, kind: str, value: str):
+    store = container.file_service if kind == "history" else container.media_store
+    return store.storage_driver, validate_key(value)
+
+
+def _frame_index(path: Path, seconds: Optional[float]) -> int:
+    if seconds is None:
+        return -1
+    probe = probe_video(path)
+    if probe is None or not probe.fps or probe.fps <= 0:
+        raise MediaRefError("extract_failed", "The frame rate of the video could not be read")
+    index = int(math.floor(seconds * probe.fps + 1e-6))
+    last = int(round(probe.duration * probe.fps)) - 1
+    if 0 <= last < index and seconds <= probe.duration:
+        return last
+    return index
+
+
+def _frame_png(container, kind: str, value: str, seconds: Optional[float]) -> bytes:
+    driver, key = _stored(container, kind, value)
+    with local_copy(driver, key, Path(key).suffix) as path:
+        index = _frame_index(path, seconds)
+        try:
+            frame = _extract_video_frame(path, index)
+        except ValueError as exc:
+            raise MediaRefError("extract_failed", "The frame could not be extracted") from exc
+    buffer = io.BytesIO()
+    frame.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _read_admitted(store, source: Path, user_id: str, purpose: str, content_type: str) -> bytes:
+    try:
+        store.check_upload_size(user_id, source.stat().st_size, purpose, content_type)
+    except ValueError as exc:
+        raise MediaRefError("upload_rejected", str(exc)) from exc
+    return source.read_bytes()
+
+
+async def _store(container, data: bytes, filename: str, content_type: str, user_id: str, purpose: str) -> StoredMedia:
+    try:
+        stored = await container.media_store.upload_media(data, filename, content_type, user_id, purpose)
+    except ValueError as exc:
+        raise MediaRefError("upload_rejected", str(exc)) from exc
+    return {
+        "value": stored.relative_path,
+        "media_type": content_type.split("/", 1)[0],
+        "original_filename": filename,
+        "origin": None,
+        "ref": None if stored.id is None else {"kind": "library", "item_id": stored.id},
+        "width": stored.width,
+        "height": stored.height,
+    }
+
+
+async def extract_frame(
+    user,
+    ref: Union[HistoryMediaRef, LibraryMediaRef],
+    at: Union[Literal["last"], float] = "last",
+    purpose: str = UPLOAD_PURPOSE_USER,
+) -> StoredMedia:
+    user_id = _owner_id(user)
+    seconds = _seconds(at)
+    purpose = _checked_purpose(purpose)
+    resolved = resolve_media_ref(user, ref)
+    if resolved["media_type"] != "video":
+        raise MediaRefError("not_a_video", "The referenced media is not a video")
+    container = get_container()
+    data = await asyncio.to_thread(_frame_png, container, ref["kind"], resolved["value"], seconds)
+    stem = Path(resolved["original_filename"] or "video").stem or "video"
+    label = "last" if seconds is None else f"{seconds:g}s"
+    return await _store(container, data, f"{stem}-frame-{label}.png", "image/png", user_id, purpose)
+
+
+async def save_user_media(user, path: Union[str, Path], purpose: str = UPLOAD_PURPOSE_USER) -> StoredMedia:
+    user_id = _owner_id(user)
+    purpose = _checked_purpose(purpose)
+    source = Path(path)
+    if not source.is_absolute():
+        raise MediaRefError("invalid_ref", "The file path must be absolute")
+    if not source.is_file():
+        raise MediaRefError("not_found", "The file does not exist")
+    container = get_container()
+    store = container.media_store
+    content_type = store.media_types.get_media_type(source.suffix)
+    if not store.media_types.is_valid_media_type(content_type):
+        raise MediaRefError("unsupported_media", "Only image, video, audio and 3D model files can be stored")
+    data = await asyncio.to_thread(_read_admitted, store, source, user_id, purpose, content_type)
+    return await _store(container, data, source.name, content_type, user_id, purpose)
+
+
+_COPY_CHUNK = 1 << 20
+
+
+def media_local_path(user, ref: Union[HistoryMediaRef, LibraryMediaRef]) -> Optional[Path]:
+    resolved = resolve_media_ref(user, ref)
+    driver, key = _stored(get_container(), ref["kind"], resolved["value"])
+    return driver.local_path(key)
+
+
+def copy_media_file(user, ref: Union[HistoryMediaRef, LibraryMediaRef], target: Union[str, Path]) -> None:
+    resolved = resolve_media_ref(user, ref)
+    driver, key = _stored(get_container(), ref["kind"], resolved["value"])
+    destination = Path(target)
+    try:
+        with destination.open("wb") as handle:
+            for chunk in driver.get_stream(key, _COPY_CHUNK):
+                handle.write(chunk)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+
+
+def upload_formats() -> Dict[str, List[str]]:
+    return {
+        "image": sorted(visual_formats.IMAGE_EXTENSIONS),
+        "video": sorted(visual_formats.VIDEO_EXTENSIONS),
+        "audio": sorted(audio_formats.AUDIO_EXTENSIONS),
+        "model": sorted(mesh_format_registry.extensions()),
+    }

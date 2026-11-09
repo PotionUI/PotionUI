@@ -5,7 +5,7 @@ fields:
     label: "Scale"
     audience: "advanced"
     default: 2.0
-    ai_hint: "Output area multiplier, up to 4x. Only applies to the Upscale intents -- hidden for Denoise/Deblur, which are same-resolution enhancement."
+    ai_hint: "Output size multiplier per side, up to 4x. Only applies to the Upscale intents -- hidden for Denoise/Deblur, which are same-resolution enhancement -- and is replaced by Target Short Side when that is set."
     configuration:
       min: 1.0
       max: 4.0
@@ -13,3 +13,32 @@ fields:
     reactions:
       - when: { field: "intent", in: ["denoise", "deblur"] }
         then: { set_visibility: false }
+      - when: { field: "target_short_side", greater_than: 0 }
+        then: { set_disabled: true }
+
+  - name: "target_short_side"
+    type: "number"
+    formula: "size"
+    label: "Target Short Side (px)"
+    audience: "advanced"
+    default: 0
+    ai_hint: "0 = use Scale. Otherwise the short side of the output in pixels (1080 for 1080p): the scale that reaches it is used, held between 1x and 4x, and the output lands on the 8px grid. Only applies to the Upscale intents."
+    configuration:
+      min: 0
+      max: 8192
+      step: 8
+    reactions:
+      - when: { field: "intent", in: ["denoise", "deblur"] }
+        then: { set_visibility: false }
+
+  - name: "strength"
+    type: "slider"
+    formula: "restoration"
+    label: "Strength"
+    audience: "advanced"
+    default: 1.0
+    ai_hint: "How strongly the RTX effect applies, from 0 to 1. 1 is NVIDIA's default and is not sent to the SDK; an nvidia-vfx whose effect takes no strength runs at full strength."
+    configuration:
+      min: 0.0
+      max: 1.0
+      step: 0.05

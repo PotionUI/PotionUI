@@ -7,11 +7,11 @@ fields:
     formula: "restoration"
     label: "Intent"
     default: "upscale"
-    ai_hint: "What the RTX effect does to the image. Upscale and Upscale (compressed source) both increase resolution by Scale (Advanced tab); Denoise and Deblur enhance at the SAME resolution and ignore Scale entirely."
+    ai_hint: "What the RTX effect does to the image. Upscale and Upscale (clean source) both increase resolution by Scale, or to Target Short Side when it is set (Advanced tab); Denoise and Deblur enhance at the SAME resolution and ignore both entirely."
     configuration:
       options:
-        - { label: "Upscale", value: "upscale", sub_label: "Increase resolution -- tuned for a clean source." }
-        - { label: "Upscale — compressed source", value: "upscale_highbitrate", sub_label: "Increase resolution -- tuned for a heavily compressed or lossy source." }
+        - { label: "Upscale", value: "upscale", sub_label: "Increase resolution -- removes compression artifacts, for typical compressed video." }
+        - { label: "Upscale — clean source", value: "upscale_highbitrate", sub_label: "Increase resolution -- keeps fine detail, for a high-bitrate or lossless source." }
         - { label: "Denoise", value: "denoise", sub_label: "Same-resolution noise reduction." }
         - { label: "Deblur", value: "deblur", sub_label: "Same-resolution sharpening of blurred detail." }
 

@@ -35,6 +35,8 @@ pipeline:
         - ["intent", "{{ form.intent | default('upscale') }}"]
         - ["quality", "{{ form.quality | default('ultra') }}"]
         - ["scale", "{{ form.scale | default(2.0) }}"]
+        - ["target_short_side", "{{ form.target_short_side | default(0) }}"]
+        - ["strength", "{{ form.strength | default(1.0) }}"]
         - ["keep_audio", "{{ form.keep_audio | default(true) }}"]
 
   #############
@@ -49,6 +51,8 @@ pipeline:
       intent: "{{ form.intent | default('upscale') }}"
       quality: "{{ form.quality | default('ultra') }}"
       scale: "{{ form.scale | default(2.0) }}"
+      target_short_side: "{{ form.target_short_side | default(0) }}"
+      strength: "{{ form.strength | default(1.0) }}"
       keep_audio: "{{ form.keep_audio | default(true) }}"
 
   #############

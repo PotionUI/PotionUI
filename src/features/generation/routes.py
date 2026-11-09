@@ -42,6 +42,7 @@ from src.features.generation.websocket_handler import WebSocketHandler
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.forms.binding import FormBindingError
 from src.features.models.exceptions import ModelNotFoundException, ModelAccessDeniedException
+from src.features.presets.exceptions import PresetNotFoundException
 from src.features.backends.backend_registry import NoBackendForEngineError
 from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.content_safety.errors import ContentPolicyRefusal
@@ -188,6 +189,12 @@ class GenerationController(BaseController):
                     "message": str(e),
                 },
             )
+        except PresetNotFoundException:
+            return self.error_response(
+                error="preset_not_found",
+                message="The selected preset is not available",
+                status_code=404
+            )
         except (ModelNotFoundException, ModelAccessDeniedException):
             # 404 (not 403/422) for a model the user may not reach - same
             # existence-concealing rationale as GenerationPolicy: a 403 (or a
@@ -248,6 +255,12 @@ class GenerationController(BaseController):
                     "stripped": e.stripped,
                     "message": str(e),
                 },
+            )
+        except PresetNotFoundException:
+            return self.error_response(
+                error="preset_not_found",
+                message="The selected preset is not available",
+                status_code=404
             )
         except ValueError as e:
             return self.error_response(

@@ -88,6 +88,18 @@ class PresetController(BaseController):
         # supplies it.
         self.model_access_policy = model_access_policy
 
+    def require_preset_access(self, preset_id: str, current_user: User) -> None:
+        try:
+            operations.require_preset_access(
+                self.collaborators.db_repo, current_user.id, preset_id, operations.is_admin_user(current_user)
+            )
+        except PresetNotFoundException:
+            self.error_response(
+                error="preset_not_found",
+                message=f"Preset '{preset_id}' not found",
+                status_code=404,
+            )
+
     def _supports_prompt_batch(self, engine: Optional[str]) -> bool:
         return self.backend_registry.engine_supports_prompt_batch(engine)
 
@@ -354,9 +366,9 @@ class PresetController(BaseController):
         return self.success_response(data=data)
 
     @_guarded("preset_configuration_get_failed", "Failed to get preset configuration")
-    async def get_preset_configuration(self, preset_id: str) -> APIResponse:
+    async def get_preset_configuration(self, preset_id: str, current_user: User) -> APIResponse:
         """Get a preset's declared configuration schema merged with its stored values."""
-        data = operations.get_preset_configuration(self.collaborators, preset_id)
+        data = operations.get_preset_configuration(self.collaborators, preset_id, current_user)
         return self.success_response(data=data)
 
     @_guarded("preset_configuration_set_failed", "Failed to set preset configuration")
@@ -398,6 +410,10 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = container.preset_controller
     router = APIRouter(prefix="/api/presets", tags=["Presets"])
 
+    def preset_access(preset_id: str, current_user: User = Depends(get_current_active_user)) -> User:
+        controller.require_preset_access(preset_id, current_user)
+        return current_user
+
     @router.get("", response_model=APIResponse, summary="List Presets")
     async def list_presets(
         include_uninstalled: bool = False,
@@ -433,7 +449,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.push_recent_preset(preset_id, current_user)
 
     @router.get("/{preset_id}", response_model=APIResponse, summary="Get Preset Details")
-    async def get_preset(preset_id: str, current_user=Depends(get_current_active_user)):
+    async def get_preset(preset_id: str, current_user=Depends(preset_access)):
         """Get detailed information about a specific preset including its configuration."""
         return await controller.get_preset(preset_id, current_user)
 
@@ -468,7 +484,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         tasks: Optional[str] = None,
         model_types: Optional[str] = None,
         unquantized_only: bool = False,
-        current_user=Depends(get_current_active_user)
+        current_user=Depends(preset_access)
     ):
         """List models loadable by this preset's engine, each badged with the backends holding it.
 
@@ -488,22 +504,22 @@ def build_router(container: "AppContainer") -> APIRouter:
         )
 
     @router.get("/{preset_id}/modes", response_model=APIResponse, summary="Get Preset Modes")
-    async def get_preset_modes(preset_id: str, current_user=Depends(get_current_active_user)):
+    async def get_preset_modes(preset_id: str, current_user=Depends(preset_access)):
         """Get available generation modes (txt2img, img2img, etc.) for a specific preset."""
         return await controller.get_available_modes(preset_id, current_user)
 
     @router.get("/{preset_id}/form", response_model=APIResponse, summary="Get Form Schema")
-    async def get_preset_form_schema(preset_id: str, mode: str = None, form_name: str = None, current_user=Depends(get_current_active_user)):
+    async def get_preset_form_schema(preset_id: str, mode: str = None, form_name: str = None, current_user=Depends(preset_access)):
         """Get the dynamic form schema for a preset, including field definitions and validation rules."""
         return await controller.get_form_schema(preset_id, mode, form_name)
 
     @router.get("/{preset_id}/pipes", response_model=APIResponse, summary="Get Pipeline Configuration")
-    async def get_preset_pipes(preset_id: str, mode: str = "txt2img", current_user=Depends(get_current_active_user)):
+    async def get_preset_pipes(preset_id: str, mode: str = "txt2img", current_user=Depends(preset_access)):
         """Get the pipeline configuration and pipe connections for a preset and mode."""
         return await controller.get_pipeline(preset_id, mode)
 
     @router.post("/{preset_id}/pipes", response_model=APIResponse, summary="Get Pipeline with Form Data")
-    async def get_preset_pipes_with_form_data(preset_id: str, request: Dict[str, Any], mode: str = "txt2img", current_user=Depends(get_current_active_user)):
+    async def get_preset_pipes_with_form_data(preset_id: str, request: Dict[str, Any], mode: str = "txt2img", current_user=Depends(preset_access)):
         """Get pipeline configuration evaluated with specific form data for dynamic pipe configuration."""
         form_data = request.get('form_data', {})
         return await controller.get_pipeline(preset_id, mode, form_data)
@@ -542,7 +558,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/{preset_id}/configuration", response_model=APIResponse, summary="Get Preset Configuration")
     async def get_preset_configuration(preset_id: str, current_user: User = Depends(get_current_active_user)):
         """Get a preset's declared `configuration:` schema merged with its stored admin-set values."""
-        return await controller.get_preset_configuration(preset_id)
+        return await controller.get_preset_configuration(preset_id, current_user)
 
     @router.put("/{preset_id}/configuration", response_model=APIResponse, summary="Set Preset Configuration")
     async def set_preset_configuration(

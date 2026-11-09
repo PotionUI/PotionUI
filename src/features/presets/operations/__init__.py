@@ -17,6 +17,11 @@ absorb an unrelated concern. Callers import from the package
 (`from src.features.presets import operations`), never from a submodule
 directly.
 """
+from src.features.presets.operations.access import (
+    is_admin_user,
+    preset_available_to_user,
+    require_preset_access,
+)
 from src.features.presets.operations.query import (
     list_presets,
     get_preset,
@@ -54,6 +59,9 @@ from src.features.presets.operations.picker_state import (
 )
 
 __all__ = [
+    "is_admin_user",
+    "preset_available_to_user",
+    "require_preset_access",
     "list_presets",
     "get_preset",
     "get_available_modes",

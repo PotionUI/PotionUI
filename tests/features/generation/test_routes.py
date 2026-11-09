@@ -250,6 +250,30 @@ class TestGenerationController:
         assert "super-secret-model-id" not in exc_info.value.detail['message']
 
     @pytest.mark.asyncio
+    async def test_start_generation_unassigned_preset_maps_to_404(self, controller, sample_generation_request, mock_current_user):
+        from src.features.presets.exceptions import PresetNotFoundException
+
+        controller.generation_orchestrator.start_generation.side_effect = PresetNotFoundException("family/variant")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.start_generation(sample_generation_request, mock_current_user)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail['error'] == "preset_not_found"
+
+    @pytest.mark.asyncio
+    async def test_preview_memory_unassigned_preset_maps_to_404(self, controller, sample_generation_request, mock_current_user):
+        from src.features.presets.exceptions import PresetNotFoundException
+
+        controller.generation_orchestrator.preview_memory = AsyncMock(side_effect=PresetNotFoundException("family/variant"))
+
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.preview_memory(sample_generation_request, mock_current_user)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail['error'] == "preset_not_found"
+
+    @pytest.mark.asyncio
     async def test_start_generation_general_error(self, controller, sample_generation_request, mock_current_user):
         """Test generation start with general error"""
         # Arrange

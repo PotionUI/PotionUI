@@ -98,6 +98,13 @@ report = {
             c.output_processor.model_file_indexer == c.model_index_manager.indexing.index_downloaded
         ),
     },
+    "preset_access_wiring": {
+        "orchestrator_reads_the_container_assignments": (
+            c.generation_orchestrator.database_preset_repository is c.database_preset_repository
+        ),
+        "orchestrator_resolves_users": c.generation_orchestrator.user_repository is c.user_repository,
+        "form_defaults_read_the_container_assignments": c.form_controller.preset_repository is c.database_preset_repository,
+    },
     "shutdownable": {
         "history_executor": hasattr(c.generation_history_facade.executor, "shutdown"),
         "trace_recorder": hasattr(c.chat_call_trace_recorder, "shutdown"),
@@ -308,6 +315,10 @@ def test_generation_outputs_go_through_one_broadcaster_and_one_hub(report):
 
 def test_the_cloud_policy_enforces_the_same_scopes_the_admin_edits(report):
     assert [k for k, v in report["cloud_wiring"].items() if not v] == []
+
+
+def test_preset_assignment_is_enforced_with_the_container_collaborators(report):
+    assert [k for k, v in report["preset_access_wiring"].items() if not v] == []
 
 
 def test_shutdown_dependent_components_are_present(report):

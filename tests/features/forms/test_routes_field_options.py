@@ -28,7 +28,7 @@ def mock_operations(monkeypatch):
 
 @pytest.fixture
 def controller(mock_operations):
-    return FormController(field_registry=Mock(), plugin_registry=Mock())
+    return FormController(field_registry=Mock(), plugin_registry=Mock(), preset_repository=Mock())
 
 
 @pytest.fixture

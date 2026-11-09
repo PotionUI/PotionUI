@@ -100,6 +100,7 @@ from src.features.models.form_refs import (
     resolve_form_model_refs,
 )
 from src.features.models.exceptions import ModelAccessDeniedException
+from src.features.presets.exceptions import PresetNotFoundException
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, Progress, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
 from src.features.generation.records import Generation
@@ -116,6 +117,7 @@ from src.platform.plugins.hooks import HookContext, await_hook_blocking_waits
 from src.platform.plugins.limit_kinds import AdmissionRequest
 from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.presets import PresetTemplateLoader
+from src.features.presets.operations.access import require_preset_access
 from src.features.presets.templates import PresetTemplate
 from src.features.video_director import (
     apply_model_overlay,
@@ -711,6 +713,16 @@ class GenerationOrchestrator:
             lambda model_id: model_repo.get_by_id(model_id, include_providers=False, include_tags=False),
         )
 
+    def _enforce_preset_access(self, preset_id: str, user_id: str) -> None:
+        if self.database_preset_repository is None or self.user_repository is None:
+            return
+        user = self.user_repository.get_by_id(user_id)
+        if user is None:
+            raise PresetNotFoundException(preset_id)
+        require_preset_access(
+            self.database_preset_repository, user_id, preset_id, GenerationPolicy.is_admin(user)
+        )
+
     def _enforce_model_access(self, bound, user_id: str) -> None:
         """Verify every `model:<id>` reference in `bound.values` is one
         `user_id` may reach, skipping references that live only under a
@@ -829,6 +841,7 @@ class GenerationOrchestrator:
             NoBackendForEngineError / NoEligibleBackendError: no backend
                 available for this preset's engine / request.
         """
+        self._enforce_preset_access(request.preset_id, user_id)
         preset_template = self.preset_template_loader.load_preset_by_id(request.preset_id)
         if not preset_template:
             raise ValueError(f"Preset '{request.preset_id}' not found")
@@ -1119,6 +1132,7 @@ class GenerationOrchestrator:
         if output_callback is None and self.output_broadcaster is not None:
             output_callback = self.output_broadcaster.handle_output
 
+        self._enforce_preset_access(request.preset_id, user_id)
         admitted_ref: Optional[str] = None
         try:
             logger.info(f"Starting generation for user={user_id}, preset={request.preset_id}")

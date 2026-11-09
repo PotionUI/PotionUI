@@ -1146,7 +1146,6 @@ def build_container() -> AppContainer:
 
     # Form components (the field-type registry was populated earlier, ahead
     # of plugin discovery, so builtin field types could be registered first)
-    form_controller = FormController(field_type_registry, plugin_registry)
 
     # Field-type registry controller
     field_controller = FieldController(field_type_registry)
@@ -1189,6 +1188,7 @@ def build_container() -> AppContainer:
     from src.features.models.repository import ModelRepository
 
     database_preset_repository = DatabasePresetRepository()
+    form_controller = FormController(field_type_registry, plugin_registry, database_preset_repository)
     file_preset_repository = FilePresetRepository(preset_template_loader)
     preset_name_resolver = PresetNameResolver(preset_template_loader)
     model_repository = ModelRepository()

@@ -19,6 +19,7 @@ from src.features.llm.tools.builtin.utils import build_generation_preview
 from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.media_values import MEDIA_VALUE_FORM, preset_form_media_errors
 from src.features.llm.tools.model_values import preset_form_model_errors
+from src.features.presets.operations.access import preset_available_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -187,9 +188,7 @@ class StartGenerationTool(BaseTool):
             return mode or "txt2img", None
         not_found = f"No preset '{preset_id}'. Call list_presets to see the preset ids you can use."
         try:
-            if not context.is_admin and preset_id not in (
-                collaborators.db_repo.get_available_preset_ids_for_user(context.user_id) or []
-            ):
+            if not preset_available_to_user(collaborators.db_repo, context.user_id, preset_id, context.is_admin):
                 return mode or "txt2img", not_found
             found = collaborators.file_repo.find_preset_by_id(preset_id)
         except Exception:

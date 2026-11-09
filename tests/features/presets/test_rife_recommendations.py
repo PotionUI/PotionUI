@@ -35,3 +35,8 @@ def test_the_425_and_426_links_point_at_the_published_pkl_files():
 
     assert links["flownet_v4.25.pth"].endswith("/flownet_v4.25.pkl")
     assert links["flownet_v4.26.pth"].endswith("/flownet_v4.26.pkl")
+
+
+def test_every_rife_recommendation_pins_its_sha256():
+    for rec in _model_field()["configuration"]["recommendations"]:
+        assert Recommendation(name=rec["name"], link=rec["link"], sha256=rec.get("sha256")).sha256, rec["name"]

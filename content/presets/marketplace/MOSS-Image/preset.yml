@@ -34,11 +34,27 @@ speed_profiles:
 
 llm:
   guide: |
-    MOSS-Image accepts two prompt styles: natural-language prose describing the subject,
-    style and lighting, and comma-separated tag lists. Prose works best for general
-    scenes. Put exact display text in double quotes. For exact placement of objects or
-    text, use regional prompting rather than writing a JSON layout into the prompt:
+    Write MOSS-Image prompts as cohesive natural-language prose; comma-separated tags also
+    work but prose is the better default. Describe what is visible: subject and action,
+    relevant appearance, setting, camera and framing, medium, lighting, materials, palette
+    and mood. Keep everything the user gave: subjects, counts, relationships, medium,
+    style, exclusions and any words to render. Fill ordinary creative gaps yourself and
+    ask only when a missing choice would change the image a lot. Do not add quality tags,
+    unrequested style changes or invented facts, and keep a minimalist brief minimalist.
+    Write descriptive prose in English unless asked otherwise. Put every word that should
+    appear in the image in double quotes, verbatim in its original language, with the
+    requested capitalisation and line breaks, and write the real copy rather than
+    placeholders such as "headline here". A quoted sentence in the user's request is not
+    always text to render: separate visible wording from reference material.
+    For designed images (posters, covers, infographics) compose text and imagery together:
+    a clear reading order, relative prominence, coherent groups, and text short enough to
+    stay readable at the chosen size.
+    For exact placement of text or objects, several panels, or controlled object
+    relationships, use regional prompting instead of writing a JSON layout into the prompt:
     set_regional_prompt in chat, or form_overrides.regional_prompt via start_generation.
+    The prompt then describes the whole image, and each region's description covers only
+    what is inside its box; quoted words in a region description are rendered as exact text.
+    A detailed image does not by itself need regions.
     The negative prompt is empty by default and only used when CFG is above 1; keep it to
     a few short tags such as "blurry, low quality, watermark".
 

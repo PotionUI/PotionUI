@@ -264,8 +264,13 @@ def _two_leaves_free_gb() -> float:
     return reserve + (fixed_bytes + 2 * leaf_bytes + 64) / _GB
 
 
-def _experts():
-    return [NativeModel("diffusion_model", _Tiny(), estimated_vram_gb=14.29) for _ in range(2)]
+@pytest.fixture
+def experts(host):
+    pair = [NativeModel("diffusion_model", _Tiny(), estimated_vram_gb=14.29) for _ in range(2)]
+    yield pair
+    for expert in pair:
+        expert.unload()
+    assert host.registered == {}
 
 
 def _generate(high, low):
@@ -275,8 +280,8 @@ def _generate(high, low):
     router.active.offload()
 
 
-def test_the_next_generation_places_the_parked_high_expert_again_without_pinning_anything(host, monkeypatch):
-    high, low = _experts()
+def test_the_next_generation_places_the_parked_high_expert_again_without_pinning_anything(host, experts, monkeypatch):
+    high, low = experts
     _generate(high, low)
     assert high.is_parked and not low.is_parked
     monkeypatch.setattr(high, "_guard_host_ram_for_streaming",
@@ -292,8 +297,8 @@ def test_the_next_generation_places_the_parked_high_expert_again_without_pinning
     assert set(host.registered) == parked_segments
 
 
-def test_later_generations_park_and_place_the_high_expert_in_the_memory_it_already_holds(host):
-    high, low = _experts()
+def test_later_generations_park_and_place_the_high_expert_in_the_memory_it_already_holds(host, experts):
+    high, low = experts
     _generate(high, low)
     parked_segments = set(host.registered)
     before = host.registers
@@ -307,8 +312,8 @@ def test_later_generations_park_and_place_the_high_expert_in_the_memory_it_alrea
     assert second > 0 and host.registers - before == 2 * second
 
 
-def test_parking_the_high_expert_again_needs_free_ram_only_for_the_streaming_reserve(host, monkeypatch):
-    high, low = _experts()
+def test_parking_the_high_expert_again_needs_free_ram_only_for_the_streaming_reserve(host, experts, monkeypatch):
+    high, low = experts
     _generate(high, low)
     router = ExpertRouter(high, low, 0.875, _DEVICE, latents_shape=_SHAPE)
     router(torch.zeros(_SHAPE), torch.tensor([0.95]), _CONTEXT)
@@ -323,8 +328,8 @@ def test_parking_the_high_expert_again_needs_free_ram_only_for_the_streaming_res
     assert high.park() is True
 
 
-def test_a_parked_high_expert_whose_placement_runs_out_of_memory_streams_in_full(host, monkeypatch):
-    high, low = _experts()
+def test_a_parked_high_expert_whose_placement_runs_out_of_memory_streams_in_full(host, experts, monkeypatch):
+    high, low = experts
     _generate(high, low)
     budgets = []
     real_stream_to = high.stream_to
@@ -344,8 +349,8 @@ def test_a_parked_high_expert_whose_placement_runs_out_of_memory_streams_in_full
     assert high.is_streaming and not high.is_parked
 
 
-def test_an_error_that_is_not_an_oom_propagates_from_a_parked_high_expert(host, monkeypatch):
-    high, low = _experts()
+def test_an_error_that_is_not_an_oom_propagates_from_a_parked_high_expert(host, experts, monkeypatch):
+    high, low = experts
     _generate(high, low)
 
     def _stream_to(device, budget, **kwargs):

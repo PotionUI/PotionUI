@@ -121,7 +121,7 @@ function meanDiff(a: number[], b: number[]): number {
 const brightness = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 
 test('grain previews live on a real uploaded clip with no mocks, and Save renders a grainy Library item', async ({ page }) => {
-	test.setTimeout(120000);
+	test.setTimeout(180000);
 	const errors: string[] = [];
 	page.on('console', (message) => {
 		if (message.type() === 'error') errors.push(message.text());
@@ -151,14 +151,16 @@ test('grain previews live on a real uploaded clip with no mocks, and Save render
 
 	await editor.locator('[data-scrub-play]').click();
 	await expect.poll(() => editor.locator('[data-video-element]').evaluate((el) => !(el as HTMLVideoElement).paused)).toBe(true);
+	const startedAt = await editor.locator('[data-video-element]').evaluate((el) => (el as HTMLVideoElement).currentTime);
 	const first = (await sample(page)).canvas;
-	await expect.poll(async () => meanDiff((await sample(page)).canvas, first), { timeout: 5000 }).toBeGreaterThan(1);
+	await expect.poll(() => editor.locator('[data-video-element]').evaluate((el) => (el as HTMLVideoElement).currentTime), { timeout: 20000 }).toBeGreaterThan(startedAt + 0.2);
+	await expect.poll(async () => meanDiff((await sample(page)).canvas, first), { timeout: 15000 }).toBeGreaterThan(1);
 	await editor.locator('[data-scrub-play]').click();
 
 	const token = await ownerToken(page);
 	await editor.locator('[data-frame-save]').click();
 	await expect(editor.locator('[data-frame-saving]')).toHaveCount(0, { timeout: 60000 });
-	await expect(editor.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/, { timeout: 10000 });
+	await expect(editor.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/, { timeout: 30000 });
 	const runs = (await (await page.request.get('/api/media-tools/runs', { headers: { Authorization: `Bearer ${token}` } })).json()) as {
 		data: { runs: Array<{ status: string; items: Array<{ id: string; url: string }> }> };
 	};

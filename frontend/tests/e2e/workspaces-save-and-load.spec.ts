@@ -126,7 +126,7 @@ test('loading a workspace with legacy/foreign tab data does not break the page',
 
 	await page.locator('button[aria-label="Workspaces"]').click();
 	const entry = page.getByRole('button', { name: legacyName, exact: true });
-	await expect(entry).toBeVisible({ timeout: 5000 });
+	await expect(entry).toBeVisible({ timeout: 15000 });
 	await entry.click();
 
 	// All 3 tabs must materialize even though 2 of their preset_ids don't

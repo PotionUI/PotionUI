@@ -17,6 +17,7 @@ import contextlib
 import importlib.metadata
 import logging
 import math
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -42,6 +43,7 @@ from src.plugin_api.pipes import (
     ProgressGenerationOutput,
     VideoGenerationOutput,
 )
+from src.plugin_api.sampling import SamplingCancelled
 
 logger = logging.getLogger(__name__)
 
@@ -401,13 +403,14 @@ class RtxUpscalePipe(BasePipe):
         keep_audio = bool(self.config.get("keep_audio", True))
         level = _quality_level(nvvfx_module, intent, quality)
 
+        cancelled = is_cancelled or (lambda: False)
         session = _RtxSession(nvvfx_module, level, strength)
         out_images: List[ImageGenerationOutput] = []
         out_videos: List[VideoGenerationOutput] = []
         try:
             for idx, image in enumerate(images):
-                if is_cancelled and is_cancelled():
-                    break
+                if cancelled():
+                    raise SamplingCancelled()
                 generation_outputs(ProgressGenerationOutput(
                     state=f"RTX {intent} <<NUMBER:{idx + 1}/{len(images)}:bolt>>",
                     icon=Icon(name="bolt"),
@@ -420,12 +423,15 @@ class RtxUpscalePipe(BasePipe):
                 out_images.append(ImageGenerationOutput(image=processed))
 
             for video_path in videos:
-                if is_cancelled and is_cancelled():
-                    break
+                if cancelled():
+                    raise SamplingCancelled()
                 out_videos.append(self._process_video(
                     session, str(video_path), intent, scale, keep_audio,
-                    generation_outputs, is_cancelled, target_short_side,
+                    generation_outputs, cancelled, target_short_side,
                 ))
+        except Exception:
+            _discard(*(str(o.video_path) for o in out_videos))
+            raise
         finally:
             session.close()
 
@@ -447,7 +453,7 @@ class RtxUpscalePipe(BasePipe):
         scale: float,
         keep_audio: bool,
         generation_outputs: callable,
-        is_cancelled: Optional[callable],
+        is_cancelled: callable,
         target_short_side: int = 0,
     ) -> VideoGenerationOutput:
         import cv2
@@ -459,49 +465,78 @@ class RtxUpscalePipe(BasePipe):
         writer: Optional[StreamingMp4Writer] = None
         written = 0
         out_tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+        owned = [out_tmp]
         try:
-            fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
-            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            try:
+                fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+                total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
-            while True:
-                if is_cancelled and is_cancelled():
-                    break
-                ret, frame_bgr = cap.read()
-                if not ret or frame_bgr is None:
-                    break
+                while True:
+                    if is_cancelled():
+                        raise SamplingCancelled()
+                    ret, frame_bgr = cap.read()
+                    if not ret or frame_bgr is None:
+                        break
 
-                rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                pil_frame = Image.fromarray(rgb)
-                out_w, out_h = target_size(intent, scale, pil_frame.width, pil_frame.height, target_short_side)
-                session.ensure_loaded(out_w, out_h, pil_frame.size)
-                processed = session.process_frame(pil_frame)
+                    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                    pil_frame = Image.fromarray(rgb)
+                    out_w, out_h = target_size(intent, scale, pil_frame.width, pil_frame.height, target_short_side)
+                    session.ensure_loaded(out_w, out_h, pil_frame.size)
+                    processed = session.process_frame(pil_frame)
 
-                if writer is None:
-                    writer = StreamingMp4Writer(out_tmp, processed.width, processed.height, fps)
-                writer.write(np.asarray(processed))
-                written += 1
+                    if writer is None:
+                        writer = StreamingMp4Writer(out_tmp, processed.width, processed.height, fps)
+                    writer.write(np.asarray(processed))
+                    written += 1
 
-                if written % 8 == 0:
-                    generation_outputs(ProgressGenerationOutput(
-                        state=f"RTX {intent}: <<NUMBER:{written}>> / <<NUMBER:{total}>> frames",
-                        icon=Icon(name="film"),
-                        progress=Progress(written, total or written),
-                    ))
-        finally:
-            cap.release()
+                    if written % 8 == 0:
+                        generation_outputs(ProgressGenerationOutput(
+                            state=f"RTX {intent}: <<NUMBER:{written}>> / <<NUMBER:{total}>> frames",
+                            icon=Icon(name="film"),
+                            progress=Progress(written, total or written),
+                        ))
+            finally:
+                cap.release()
 
-        if writer is None:
-            raise GenerationExecutionError(f"upscaler/rtx_vsr: no frames decoded from {video_path}")
-        writer.close()
+            if writer is None:
+                raise GenerationExecutionError(f"upscaler/rtx_vsr: no frames decoded from {video_path}")
+            if is_cancelled():
+                raise SamplingCancelled()
+            writer.close()
 
-        final_path = out_tmp
-        if keep_audio:
-            muxed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-            if mux_audio_from_source(out_tmp, video_path, muxed):
-                final_path = muxed
-            else:
-                logger.warning(
-                    "[UPSCALER_RTX] audio mux skipped for %s -- keeping video-only output", video_path
-                )
+            final_path = out_tmp
+            if keep_audio:
+                muxed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+                owned.append(muxed)
+                if mux_audio_from_source(out_tmp, video_path, muxed):
+                    final_path = muxed
+                    _discard(out_tmp)
+                else:
+                    _discard(muxed)
+                    logger.warning(
+                        "[UPSCALER_RTX] audio mux skipped for %s -- keeping video-only output", video_path
+                    )
+            if is_cancelled():
+                raise SamplingCancelled()
+        except Exception:
+            _cleanup_on_failure(writer, owned)
+            raise
 
         return VideoGenerationOutput(video_path=final_path, temporary=True, fps=float(fps))
+
+
+def _discard(*paths: str) -> None:
+    for path in paths:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _cleanup_on_failure(writer: Optional[StreamingMp4Writer], owned: List[str]) -> None:
+    if writer is not None:
+        try:
+            writer.abort()
+        except Exception:
+            logger.warning("[UPSCALER_RTX] writer.abort() failed during cleanup", exc_info=True)
+    _discard(*owned)

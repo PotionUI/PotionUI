@@ -7,15 +7,18 @@ is shared and busy, and nvvfx is not installed in this venv at all.
 
 import io
 import os
+import shutil
 import subprocess
 import sys
 import threading
+from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image
 
 from src.plugin_api.pipes import PipeInput
+from src.plugin_api.sampling import SamplingCancelled
 
 
 @pytest.fixture
@@ -220,22 +223,32 @@ def test_process_requires_image_or_video(pipe_module, pipe_class, fake_nvvfx):
         pipe.process(PipeInput(input={}), lambda o: None)
 
 
-def test_cancellation_stops_before_processing_later_images(pipe_class, fake_nvvfx, no_real_cuda):
-    calls = {"n": 0}
+class _CancelAfter:
+    def __init__(self, calls):
+        self.calls = calls
+        self.seen = 0
 
-    def is_cancelled():
-        calls["n"] += 1
-        return calls["n"] > 1  # let the first image through, stop before the second
+    def __call__(self):
+        self.seen += 1
+        return self.seen > self.calls
 
+
+def _galleries(outputs):
+    return [o for o in outputs if type(o).__name__ == "GalleryGenerationOutput"]
+
+
+def test_a_cancel_between_images_publishes_none_of_them(pipe_class, fake_nvvfx, no_real_cuda):
+    outputs = []
     pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0})
     images = [_rgb_image(16, 16), _rgb_image(16, 16), _rgb_image(16, 16)]
-    result = pipe.process(
-        PipeInput(input={"image": images}),
-        lambda o: None,
-        is_cancelled,
-    )
 
-    assert len(result.output["image"]) == 1
+    with pytest.raises(SamplingCancelled):
+        pipe.process(PipeInput(input={"image": images}), outputs.append, _CancelAfter(1))
+
+    effect = fake_nvvfx.VideoSuperRes.instances[-1]
+    assert effect.run_calls == 1
+    assert effect.closed
+    assert _galleries(outputs) == []
 
 
 class _ChattyFfmpeg:
@@ -550,3 +563,258 @@ def test_an_effect_the_sdk_cannot_create_is_explained(pipe_module, pipe_class, f
         pipe.process(PipeInput(input={"image": [_rgb_image(16, 16)]}), lambda o: None)
 
     assert str(exc_info.value).startswith("NVIDIA RTX Video Super Resolution does not run on this GPU or driver: it needs")
+
+
+FRAMES = 3
+
+
+def _write_input_video(path, frames=FRAMES, fps=10.0, size=(40, 24)):
+    cv2 = pytest.importorskip("cv2", reason="cv2 (or its native deps) not available", exc_type=ImportError)
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+    if not writer.isOpened():
+        pytest.skip("no writable mp4 codec available for the synthetic input")
+    for _ in range(frames):
+        writer.write(np.zeros((size[1], size[0], 3), dtype=np.uint8))
+    writer.release()
+
+
+class _RecordingWriter:
+    instances = []
+
+    def __init__(self, path, width, height, fps):
+        self.path = path
+        self.calls = []
+        _RecordingWriter.instances.append(self)
+
+    def write(self, frame):
+        self.calls.append("write")
+
+    def close(self):
+        self.calls.append("close")
+
+    def abort(self):
+        self.calls.append("abort")
+
+
+@pytest.fixture
+def private_tempdir(tmp_path, monkeypatch):
+    import tempfile
+
+    folder = tmp_path / "tmp"
+    folder.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(folder))
+    return folder
+
+
+@pytest.fixture
+def recording_writer(pipe_module, monkeypatch):
+    _RecordingWriter.instances = []
+    monkeypatch.setattr(pipe_module, "StreamingMp4Writer", _RecordingWriter)
+    return _RecordingWriter
+
+
+def _video_pipe(pipe_class, keep_audio=False):
+    return pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0, "keep_audio": keep_audio})
+
+
+@pytest.mark.parametrize("calls", [0, 1])
+def test_a_cancel_before_the_first_frame_is_a_cancel(
+    tmp_path, pipe_class, fake_nvvfx, no_real_cuda, recording_writer, private_tempdir, calls,
+):
+    source = tmp_path / "in.mp4"
+    _write_input_video(source)
+    outputs = []
+
+    with pytest.raises(SamplingCancelled):
+        _video_pipe(pipe_class).process(
+            PipeInput(input={"video": [str(source)]}), outputs.append, _CancelAfter(calls),
+        )
+
+    assert recording_writer.instances == []
+    assert fake_nvvfx.VideoSuperRes.instances[-1].run_calls == 0
+    assert fake_nvvfx.VideoSuperRes.instances[-1].closed
+    assert _galleries(outputs) == []
+    assert list(private_tempdir.iterdir()) == []
+
+
+@pytest.mark.parametrize("calls", [2, 3])
+def test_a_cancel_mid_clip_aborts_the_writer_and_publishes_nothing(
+    tmp_path, pipe_class, fake_nvvfx, no_real_cuda, recording_writer, private_tempdir, calls,
+):
+    source = tmp_path / "in.mp4"
+    _write_input_video(source)
+    outputs = []
+
+    with pytest.raises(SamplingCancelled):
+        _video_pipe(pipe_class).process(
+            PipeInput(input={"video": [str(source)]}), outputs.append, _CancelAfter(calls),
+        )
+
+    (writer,) = recording_writer.instances
+    assert writer.calls == ["write"] * (calls - 1) + ["abort"]
+    assert fake_nvvfx.VideoSuperRes.instances[-1].closed
+    assert _galleries(outputs) == []
+    assert list(private_tempdir.iterdir()) == []
+
+
+def test_a_cancel_after_the_last_frame_never_closes_the_encoder(
+    tmp_path, pipe_class, fake_nvvfx, no_real_cuda, recording_writer, private_tempdir,
+):
+    source = tmp_path / "in.mp4"
+    _write_input_video(source)
+    outputs = []
+
+    with pytest.raises(SamplingCancelled):
+        _video_pipe(pipe_class).process(
+            PipeInput(input={"video": [str(source)]}), outputs.append, _CancelAfter(FRAMES + 2),
+        )
+
+    (writer,) = recording_writer.instances
+    assert writer.calls == ["write"] * FRAMES + ["abort"]
+    assert _galleries(outputs) == []
+    assert list(private_tempdir.iterdir()) == []
+
+
+def test_a_cancel_during_the_audio_mux_publishes_nothing(
+    pipe_module, tmp_path, pipe_class, fake_nvvfx, no_real_cuda, recording_writer, private_tempdir, monkeypatch,
+):
+    source = tmp_path / "in.mp4"
+    _write_input_video(source)
+    muxed = []
+
+    def mux_then_cancel(video_only, source_path, out_path):
+        Path(out_path).write_bytes(Path(video_only).read_bytes() + b"audio")
+        muxed.append(out_path)
+        return True
+
+    monkeypatch.setattr(pipe_module, "mux_audio_from_source", mux_then_cancel)
+    outputs = []
+
+    with pytest.raises(SamplingCancelled):
+        _video_pipe(pipe_class, keep_audio=True).process(
+            PipeInput(input={"video": [str(source)]}), outputs.append, lambda: bool(muxed),
+        )
+
+    assert len(muxed) == 1
+    (writer,) = recording_writer.instances
+    assert "close" in writer.calls
+    assert _galleries(outputs) == []
+    assert list(private_tempdir.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "calls", [FRAMES + 4, FRAMES + 6], ids=["before_the_second_video", "inside_the_second_video"],
+)
+def test_a_cancel_on_the_second_video_drops_the_first_one_too(
+    tmp_path, pipe_class, fake_nvvfx, no_real_cuda, recording_writer, private_tempdir, calls,
+):
+    first, second = tmp_path / "a.mp4", tmp_path / "b.mp4"
+    _write_input_video(first)
+    _write_input_video(second)
+    outputs = []
+
+    with pytest.raises(SamplingCancelled):
+        _video_pipe(pipe_class).process(
+            PipeInput(input={"video": [str(first), str(second)]}), outputs.append, _CancelAfter(calls),
+        )
+
+    assert recording_writer.instances[0].calls == ["write"] * FRAMES + ["close"]
+    assert fake_nvvfx.VideoSuperRes.instances[-1].closed
+    assert _galleries(outputs) == []
+    assert list(private_tempdir.iterdir()) == []
+
+
+def test_a_failure_mid_clip_aborts_the_writer_and_removes_the_files(
+    pipe_module, tmp_path, pipe_class, fake_nvvfx, no_real_cuda, recording_writer, private_tempdir, monkeypatch,
+):
+    source = tmp_path / "in.mp4"
+    _write_input_video(source)
+    real_run = fake_nvvfx.VideoSuperRes.run
+
+    def run_twice(self, frame):
+        if self.run_calls == 2:
+            raise RuntimeError("boom")
+        return real_run(self, frame)
+
+    monkeypatch.setattr(fake_nvvfx.VideoSuperRes, "run", run_twice)
+    outputs = []
+
+    with pytest.raises(pipe_module.GenerationExecutionError) as exc_info:
+        _video_pipe(pipe_class).process(PipeInput(input={"video": [str(source)]}), outputs.append)
+
+    assert str(exc_info.value) == "NVIDIA RTX Video Super Resolution failed (40x24 to 80x48): boom"
+    (writer,) = recording_writer.instances
+    assert writer.calls == ["write", "write", "abort"]
+    assert _galleries(outputs) == []
+    assert list(private_tempdir.iterdir()) == []
+
+
+def test_a_failure_on_the_second_video_removes_the_first_one_too(
+    pipe_module, tmp_path, pipe_class, fake_nvvfx, no_real_cuda, recording_writer, private_tempdir,
+):
+    first = tmp_path / "a.mp4"
+    _write_input_video(first)
+    missing = tmp_path / "missing.mp4"
+    outputs = []
+
+    with pytest.raises(pipe_module.GenerationExecutionError):
+        _video_pipe(pipe_class).process(
+            PipeInput(input={"video": [str(first), str(missing)]}), outputs.append,
+        )
+
+    assert recording_writer.instances[0].calls == ["write"] * FRAMES + ["close"]
+    assert _galleries(outputs) == []
+    assert list(private_tempdir.iterdir()) == []
+
+
+def test_a_successful_mux_leaves_only_the_muxed_file(
+    pipe_module, tmp_path, pipe_class, fake_nvvfx, no_real_cuda, recording_writer, private_tempdir, monkeypatch,
+):
+    source = tmp_path / "in.mp4"
+    _write_input_video(source)
+
+    def mux(video_only, source_path, out_path):
+        Path(out_path).write_bytes(Path(video_only).read_bytes() + b"audio")
+        return True
+
+    monkeypatch.setattr(pipe_module, "mux_audio_from_source", mux)
+
+    result = _video_pipe(pipe_class, keep_audio=True).process(
+        PipeInput(input={"video": [str(source)]}), lambda o: None,
+    )
+
+    (path,) = result.output["video"]
+    assert [p.name for p in private_tempdir.iterdir()] == [Path(path).name]
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not on PATH")
+def test_a_cancel_mid_clip_with_the_real_encoder_leaves_nothing_behind(
+    tmp_path, pipe_class, fake_nvvfx, no_real_cuda, private_tempdir,
+):
+    source = tmp_path / "in.mp4"
+    _write_input_video(source)
+    outputs = []
+
+    with pytest.raises(SamplingCancelled):
+        _video_pipe(pipe_class).process(
+            PipeInput(input={"video": [str(source)]}), outputs.append, _CancelAfter(3),
+        )
+
+    assert fake_nvvfx.VideoSuperRes.instances[-1].run_calls == 2
+    assert _galleries(outputs) == []
+    assert list(private_tempdir.iterdir()) == []
+
+
+def test_a_skipped_mux_leaves_only_the_video_only_file(
+    pipe_module, tmp_path, pipe_class, fake_nvvfx, no_real_cuda, recording_writer, private_tempdir, monkeypatch,
+):
+    source = tmp_path / "in.mp4"
+    _write_input_video(source)
+    monkeypatch.setattr(pipe_module, "mux_audio_from_source", lambda video_only, source_path, out_path: False)
+
+    result = _video_pipe(pipe_class, keep_audio=True).process(
+        PipeInput(input={"video": [str(source)]}), lambda o: None,
+    )
+
+    (path,) = result.output["video"]
+    assert [p.name for p in private_tempdir.iterdir()] == [Path(path).name]

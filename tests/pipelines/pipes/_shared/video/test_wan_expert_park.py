@@ -312,6 +312,22 @@ def test_later_generations_park_and_place_the_high_expert_in_the_memory_it_alrea
     assert second > 0 and host.registers - before == 2 * second
 
 
+def test_placing_a_still_held_expert_again_keeps_its_resident_weights_in_the_memory_it_holds(host, experts):
+    high, low = experts
+    _generate(high, low)
+    router = ExpertRouter(high, low, 0.875, _DEVICE, latents_shape=_SHAPE)
+    router(torch.zeros(_SHAPE), torch.tensor([0.95]), _CONTEXT)
+    resident_gb = high.last_stream_plan.resident_gb
+    held_segments = set(host.registered)
+    registers = host.registers
+
+    high.stream_to(_DEVICE, resident_gb)
+
+    assert high._streamer.held_gb == pytest.approx(resident_gb)
+    assert set(host.registered) == held_segments
+    assert host.registers == registers
+
+
 def test_parking_the_high_expert_again_needs_free_ram_only_for_the_streaming_reserve(host, experts, monkeypatch):
     high, low = experts
     _generate(high, low)

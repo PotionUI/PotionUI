@@ -1,0 +1,20 @@
+name: "custom"
+short_description: "Raise a video's frame rate with NVIDIA RTX."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/interpolate/tabs/generation.yml"
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/interpolate/tabs/advanced.yml"

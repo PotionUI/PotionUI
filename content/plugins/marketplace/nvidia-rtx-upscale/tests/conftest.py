@@ -12,6 +12,8 @@ import torch
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 PIPE_MAIN = PLUGIN_ROOT / "pipes" / "upscaler_rtx" / "main.py"
+VFG_MAIN = PLUGIN_ROOT / "pipes" / "interpolator_rtx" / "main.py"
+PIPE_PATHS = (PIPE_MAIN, VFG_MAIN)
 
 #: The only module the pipe must not touch at import time. `PipeCatalog`
 #: imports pipe modules to discover them, and `_load_pipe_module` swallows any
@@ -80,6 +82,16 @@ def pipe_module() -> ModuleType:
     return load_pipe_module()
 
 
+@pytest.fixture(scope="session")
+def vfg_module() -> ModuleType:
+    return load_pipe_module(VFG_MAIN)
+
+
+@pytest.fixture(scope="session")
+def pipe_paths():
+    return PIPE_PATHS
+
+
 # Exposed as fixtures, not bare module-level names imported by test files:
 # other plugins in this repo cross-import their conftest as
 # `tests.plugins.<name>.conftest`, which resolves only when the main repo's
@@ -128,6 +140,12 @@ class _FakeQualityLevel(IntEnum):
     STREAMING_ULTRA = 23
 
 
+class _FakeMode(IntEnum):
+    LOW = 0
+    MEDIUM = 1
+    HIGH = 2
+
+
 def _fake_video_super_res(takes_strength):
     class FakeVideoSuperRes:
         QualityLevel = _FakeQualityLevel
@@ -172,6 +190,48 @@ def _fake_video_super_res(takes_strength):
     return FakeVideoSuperRes
 
 
+class FakeVideoFrameGeneration:
+    Mode = _FakeMode
+    instances = []
+
+    def __init__(self, mode=None, automatic_shot_change_detection_enabled=True, **kwargs):
+        self.mode = mode
+        self.scene_detection = automatic_shot_change_detection_enabled
+        self.input_width = None
+        self.input_height = None
+        self.frame_multiplier = 2
+        self.load_calls = 0
+        self.calls = []
+        self.closed = False
+        self._buffer = None
+        FakeVideoFrameGeneration.instances.append(self)
+
+    def load(self):
+        assert self.input_width and self.input_height, "load() called before input size was set"
+        self.load_calls += 1
+
+    def _blend(self, previous, current, t):
+        assert self.load_calls, "run before load()"
+        assert tuple(previous.shape) == tuple(current.shape) == (3, self.input_height, self.input_width)
+        if self._buffer is None:
+            self._buffer = torch.zeros_like(previous)
+        self._buffer.copy_(previous * (1.0 - t) + current * t)
+        return SimpleNamespace(image=self._buffer)
+
+    def run(self, previous_frame, current_frame, *, frame_index=1, shot_change=False, **kwargs):
+        assert 1 <= frame_index < self.frame_multiplier, (frame_index, self.frame_multiplier)
+        self.calls.append(("index", frame_index))
+        return self._blend(previous_frame, current_frame, frame_index / self.frame_multiplier)
+
+    def run_at_timestep(self, previous_frame, current_frame, timestep, *, shot_change=False, **kwargs):
+        assert 0.0 < timestep < 1.0, timestep
+        self.calls.append(("timestep", timestep))
+        return self._blend(previous_frame, current_frame, timestep)
+
+    def close(self):
+        self.closed = True
+
+
 @pytest.fixture
 def fake_nvvfx(monkeypatch):
     """Installs a fake `nvvfx` module in `sys.modules` for the duration of the
@@ -180,6 +240,16 @@ def fake_nvvfx(monkeypatch):
     brief describes) so a pipe that forgets `.clone()` fails a test rather than
     the real GPU.
     """
+    FakeVideoFrameGeneration.instances = []
+    module = ModuleType("nvvfx")
+    module.VideoSuperRes = _fake_video_super_res(takes_strength=True)
+    module.VideoFrameGeneration = FakeVideoFrameGeneration
+    monkeypatch.setitem(sys.modules, "nvvfx", module)
+    return module
+
+
+@pytest.fixture
+def fake_nvvfx_without_frame_generation(monkeypatch):
     module = ModuleType("nvvfx")
     module.VideoSuperRes = _fake_video_super_res(takes_strength=True)
     monkeypatch.setitem(sys.modules, "nvvfx", module)

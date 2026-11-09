@@ -49,13 +49,25 @@ def test_manifest_declares_no_dependencies_block(loaded_manifest):
     assert loaded_manifest.dependencies_binaries == []
 
 
-def test_manifest_pipe_entry_resolves_to_a_real_module_on_disk(loaded_manifest):
+def test_manifest_pipe_entries_resolve_to_real_modules_on_disk(loaded_manifest):
     assert loaded_manifest.pipes == [
-        {"path": "pipes/upscaler_rtx", "register_as": "upscaler/rtx_vsr"}
+        {"path": "pipes/upscaler_rtx", "register_as": "upscaler/rtx_vsr"},
+        {"path": "pipes/interpolator_rtx", "register_as": "interpolator/rtx_vfg"},
     ]
 
-    pipe_dir = PLUGIN_ROOT / loaded_manifest.pipes[0]["path"]
-    assert (pipe_dir / "main.py").is_file()
+    for entry in loaded_manifest.pipes:
+        assert (PLUGIN_ROOT / entry["path"] / "main.py").is_file()
+
+
+def test_the_preset_declares_the_interpolate_mode(loaded_manifest):
+    import yaml
+
+    preset_root = PLUGIN_ROOT / loaded_manifest.presets[0]["path"] / "RTX-Upscale"
+    preset = yaml.safe_load((preset_root / "preset.yml").read_text())
+    assert preset["modes"] == ["upscale", "video_upscale", "interpolate"]
+    assert "interpolate" in preset["vars"]["promptless_modes"]
+    form = yaml.safe_load((preset_root / "modes" / "interpolate" / "form.yml").read_text())
+    assert [tab["anchor"] for tab in form["fields"][0]["children"]] == ["generation", "advanced"]
 
 
 def test_manifest_preset_root_resolves_to_the_real_preset_on_disk(loaded_manifest):

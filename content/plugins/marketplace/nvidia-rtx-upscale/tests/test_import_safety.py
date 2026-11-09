@@ -30,12 +30,14 @@ def pipe_class_in(module):
     return None
 
 
-def test_pipe_module_imports_with_nvvfx_blocked(pipe_main_path, heavy_modules, load_pipe_module_fn):
+@pytest.mark.parametrize("pipe_dir", ["upscaler_rtx", "interpolator_rtx"])
+def test_pipe_module_imports_with_nvvfx_blocked(pipe_paths, heavy_modules, load_pipe_module_fn, pipe_dir):
     """The guard proper: import the pipe with `nvvfx` made unimportable, so it
     passes on a host that HAS it installed too."""
-    module = load_pipe_module_fn(pipe_main_path, blocked=heavy_modules)
+    path = next(path for path in pipe_paths if path.parent.name == pipe_dir)
+    module = load_pipe_module_fn(path, blocked=heavy_modules)
 
-    assert pipe_class_in(module) is not None, f"{pipe_main_path} defined no pipe class"
+    assert pipe_class_in(module) is not None, f"{path} defined no pipe class"
 
 
 def test_the_blocking_finder_actually_blocks(blocking_finder_cls):
@@ -50,51 +52,53 @@ def test_the_blocking_finder_actually_blocks(blocking_finder_cls):
         sys.meta_path.remove(finder)
 
 
-def test_importing_the_pipe_does_not_pull_in_nvvfx(pipe_main_path, load_pipe_module_fn):
+@pytest.mark.parametrize("pipe_dir", ["upscaler_rtx", "interpolator_rtx"])
+def test_importing_the_pipe_does_not_pull_in_nvvfx(pipe_paths, load_pipe_module_fn, pipe_dir):
     """The complement of the block: on a host where `nvvfx` IS installed,
     blocking it proves the import path avoids it, but this also catches an
     import that succeeds by loading it for real."""
+    path = next(path for path in pipe_paths if path.parent.name == pipe_dir)
     already_loaded = "nvvfx" in sys.modules
-    load_pipe_module_fn(pipe_main_path)
+    load_pipe_module_fn(path)
     newly_loaded = "nvvfx" in sys.modules and not already_loaded
 
     assert not newly_loaded, (
-        "importing upscaler_rtx loaded nvvfx - the import belongs inside "
+        f"importing {pipe_dir} loaded nvvfx - the import belongs inside "
         "process(), not at module scope"
     )
 
 
-def test_requirements_name_the_import_not_the_pip_package(pipe_module):
+def test_requirements_name_the_import_not_the_pip_package(pipe_module, vfg_module):
     """`requirements_satisfied` (src/pipelines/installer.py) checks this list
     with `importlib.import_module`, so it must be the import name (`nvvfx`),
     not the PyPI package name (`nvidia-vfx`) - the two differ."""
-    requirements = pipe_module.RtxUpscalePipe.get_requirements()
+    for pipe in (pipe_module.RtxUpscalePipe, vfg_module.RtxFrameGenerationPipe):
+        assert pipe.get_requirements()["pip"] == ["nvvfx"]
 
-    assert requirements["pip"] == ["nvvfx"]
 
-
-def test_manual_install_instructions_name_the_correct_pip_package(pipe_module):
+def test_manual_install_instructions_name_the_correct_pip_package(pipe_module, vfg_module):
     """The installer would otherwise run `pip install nvvfx` (the import-name
     entry in get_requirements()), which is not what the package is published
     as - manual_install_instructions() being non-None is what stops that."""
-    instructions = pipe_module.RtxUpscalePipe.manual_install_instructions()
+    for pipe in (pipe_module.RtxUpscalePipe, vfg_module.RtxFrameGenerationPipe):
+        instructions = pipe.manual_install_instructions()
+        assert instructions is not None
+        assert 'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com' in instructions
+        assert "570.190" in instructions
+        assert "LD_LIBRARY_PATH=/usr/lib/wsl/lib" in instructions
+        assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx" in instructions
 
-    assert instructions is not None
-    assert 'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com' in instructions
-    assert "570.190" in instructions
-    assert "LD_LIBRARY_PATH=/usr/lib/wsl/lib" in instructions
-    assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx" in instructions
 
-
-def test_pipe_defaults_survive_a_json_round_trip(pipe_module):
+def test_pipe_defaults_survive_a_json_round_trip(pipe_module, vfg_module):
     """Plugin pipes are outside the core catalog sweep (no plugin registry in
     `tests/pipelines/test_pipe_default_config_is_json.py`), so this needs its
     own copy of the guard: defaults travel to a worker as JSON."""
     import json
 
-    defaults = pipe_module.RtxUpscalePipe.get_default_config() or {}
-    assert json.loads(json.dumps(defaults)) == defaults
+    for pipe in (pipe_module.RtxUpscalePipe, vfg_module.RtxFrameGenerationPipe):
+        defaults = pipe.get_default_config() or {}
+        assert json.loads(json.dumps(defaults)) == defaults
 
-    for spec in pipe_module.RtxUpscalePipe.configuration() or []:
-        assert json.loads(json.dumps(spec.default)) == spec.default, spec.name
-        assert defaults[spec.name] == spec.default, spec.name
+        for spec in pipe.configuration() or []:
+            assert json.loads(json.dumps(spec.default)) == spec.default, spec.name
+            assert defaults[spec.name] == spec.default, spec.name

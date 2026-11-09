@@ -16,13 +16,13 @@ name: "RTX Upscale"
 category: "utility"
 version: "0.2.0"
 engine: "native"
-tags: ["upscale", "rtx", "nvidia", "video-super-resolution", "denoise", "deblur", "utility", "local"]
+tags: ["upscale", "rtx", "nvidia", "video-super-resolution", "frame-interpolation", "denoise", "deblur", "utility", "local"]
 
 # Nothing here is text-conditioned: both modes are a deterministic transform
 # of media the user supplies. Hides the prompt pane and drops the "prompt
 # required" gate on Generate (docs/presets.md `promptless_modes`).
 vars:
-  promptless_modes: [upscale, video_upscale]
+  promptless_modes: [upscale, video_upscale, interpolate]
 
 llm:
   guide: |
@@ -31,18 +31,22 @@ llm:
     compression artifacts), Upscale for a clean high-bitrate source, Denoise,
     or Deblur — the last two enhance at the SAME resolution and ignore
     Scale. Target Short Side, when set, replaces
-    Scale with the scale that reaches it. Help the user pick intent, quality
-    tier and (for the two upscale intents) scale or target short side from
-    the form summary below; never suggest prompt text.
+    Scale with the scale that reaches it. The interpolate mode runs NVIDIA
+    Video Frame Generation instead: it raises a video's frame rate by a
+    multiplier or to a target frame rate and keeps the duration. Help the
+    user pick these settings from the form summary below; never suggest
+    prompt text.
 
 formulas:
   groups:
-    restoration: { label: "Restoration" }
-    size:        { label: "Size" }
+    restoration:   { label: "Restoration" }
+    size:          { label: "Size" }
+    interpolation: { label: "Interpolation" }
 
 modes:
   - upscale
   - video_upscale
+  - interpolate
 
 # `nvidia-vfx` is checked here by its PyPI distribution name
 # (`python_package` reads `importlib.metadata`, not the import name) - the

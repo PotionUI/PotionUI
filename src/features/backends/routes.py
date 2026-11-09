@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Dict, Any, Optional
+from typing import TYPE_CHECKING, Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
@@ -60,6 +60,18 @@ def _redacted_backend_dump(backend) -> Dict[str, Any]:
         data[f"has_{name}"] = present
     data["configured"] = backend.is_configured()
     return data
+
+
+def serialize_backend(backend, default_ids: Dict[str, str]) -> Dict[str, Any]:
+    data = _redacted_backend_dump(backend)
+    data["is_default"] = default_ids.get(backend.engine) == backend.id
+    data["quick_actions"] = backend.quick_actions()
+    return data
+
+
+def enabled_backends_payload(backend_config_store) -> List[Dict[str, Any]]:
+    default_ids = backend_config_store.get_default_backend_ids()
+    return [serialize_backend(backend, default_ids) for backend in backend_config_store.get_enabled_backends()]
 
 
 def _cuda_allocated_gb() -> float:
@@ -161,10 +173,7 @@ class BackendController(BaseController):
         """Serialize a backend config, adding the persisted per-engine default flag."""
         if default_ids is None:
             default_ids = self.backend_config_store.get_default_backend_ids()
-        data = _redacted_backend_dump(backend)
-        data["is_default"] = default_ids.get(backend.engine) == backend.id
-        data["quick_actions"] = backend.quick_actions()
-        return data
+        return serialize_backend(backend, default_ids)
 
     @guarded(None, _failed("backend_list_failed", "Failed to list backends"))
     async def list_backends(self) -> APIResponse:
@@ -177,10 +186,7 @@ class BackendController(BaseController):
     @guarded(None, _failed("enabled_backends_failed", "Failed to get enabled backends"))
     async def get_enabled_backends(self) -> APIResponse:
         """Get all enabled backends sorted by priority"""
-        backends = self.backend_config_store.get_enabled_backends()
-        default_ids = self.backend_config_store.get_default_backend_ids()
-        backend_data = [self._serialize(b, default_ids) for b in backends]
-        return self.success_response(data=backend_data)
+        return self.success_response(data=enabled_backends_payload(self.backend_config_store))
 
     @guarded(None, _failed("default_backend_failed", "Failed to get default backend"))
     async def get_default_backend(self, engine: str) -> APIResponse:

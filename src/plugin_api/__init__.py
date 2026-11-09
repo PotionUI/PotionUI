@@ -47,10 +47,12 @@ from src.plugin_api.hooks import (
     HookSpec,
     ModelLifecycle,
     PluginRegistry,
+    get_app_loop,
     get_container,
     get_global_plugin_registry,
     get_global_tool_registry,
     hooks_registry,
+    run_on_app_loop,
 )
 
 # Talking to a model marketplace.
@@ -96,6 +98,14 @@ from src.plugin_api.backends import (
     InProcessBackend,
     ModelListingNotSupported,
     deduplicate,
+    list_backends,
+)
+
+from src.plugin_api.cloud import (
+    DirectorEstimateError,
+    enabled_cloud_models,
+    estimate_cloud_cost,
+    resolve_cloud_model,
 )
 
 # Provisioning rented GPU compute.
@@ -158,6 +168,25 @@ from src.plugin_api.presets import (
     lint_preset_dir,
     preset_operations,
     PromptPair,
+)
+
+from src.plugin_api.generation import (
+    FormBindingError,
+    FormNotFoundException,
+    IdempotencyKeyConflict,
+    NoBackendForEngineError,
+    NoEligibleBackendError,
+    SessionNotFoundError,
+    cancel_generation,
+    generation_active,
+    generation_failure,
+    generation_record,
+    generation_state,
+    get_session,
+    get_session_snapshot,
+    list_generation_files,
+    preview_memory,
+    submit_generation,
 )
 
 # Keeping data. `db` is deliberately absent here - see __getattr__ below.
@@ -373,10 +402,12 @@ __all__ = [
     "HookSpec",
     "ModelLifecycle",
     "PluginRegistry",
+    "get_app_loop",
     "get_container",
     "get_global_plugin_registry",
     "get_global_tool_registry",
     "hooks_registry",
+    "run_on_app_loop",
     # Providers
     "MarketplaceProviderBase",
     "ModelInfo",
@@ -410,6 +441,11 @@ __all__ = [
     "InProcessBackend",
     "ModelListingNotSupported",
     "deduplicate",
+    "list_backends",
+    "DirectorEstimateError",
+    "enabled_cloud_models",
+    "estimate_cloud_cost",
+    "resolve_cloud_model",
     # Compute provisioning
     "COMPUTE_HOOKS",
     "ComputeFieldDescriptorV1",
@@ -471,6 +507,22 @@ __all__ = [
     "lint_preset_dir",
     "preset_operations",
     "PromptPair",
+    "FormBindingError",
+    "FormNotFoundException",
+    "IdempotencyKeyConflict",
+    "NoBackendForEngineError",
+    "NoEligibleBackendError",
+    "SessionNotFoundError",
+    "cancel_generation",
+    "generation_active",
+    "generation_failure",
+    "generation_record",
+    "generation_state",
+    "get_session",
+    "get_session_snapshot",
+    "list_generation_files",
+    "preview_memory",
+    "submit_generation",
     # Storage
     "PluginRepository",
     "SettingRepository",

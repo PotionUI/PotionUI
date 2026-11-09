@@ -17,7 +17,7 @@ derives from what you set on `size`/`sha256` - it's one of `CONFIDENCE_VERIFIED`
 See docs/backends.md.
 """
 
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from src.features.backends.backend_config import (
     BaseBackendConfig,
@@ -34,8 +34,28 @@ from src.features.backends.model_listing import (
     ModelListingNotSupported,
     deduplicate,
 )
+from src.features.backends.routes import enabled_backends_payload
+from src.features.generation.memory_advisory import resolve_device_evidence
 from src.features.generation.routing.contracts import Candidate, RoutingRequest, RoutingRule
 from src.platform.plugins.hooks import HookContext
+from src.platform.plugins.runtime_registries import get_container
+
+
+def list_backends() -> List[Dict[str, Any]]:
+    container = get_container()
+    registry = container.backend_registry
+    listed = []
+    for entry in enabled_backends_payload(registry.backend_config_store):
+        backend = registry.get_backend(entry["id"])
+        device = resolve_device_evidence(backend, container.gpu_monitor)
+        listed.append({
+            **entry,
+            "execution_device": "unestablished" if backend is None else backend.resolve_execution_device().kind,
+            "max_concurrent_runs": None if backend is None else backend.max_concurrent_runs,
+            "vram_total_gb": device.total_gb,
+            "vram_free_gb": device.free_gb,
+        })
+    return listed
 
 
 def register_routing_rule(context: HookContext, rule: RoutingRule, position: Optional[str] = None) -> None:
@@ -63,5 +83,6 @@ __all__ = [
     "RoutingRequest",
     "RoutingRule",
     "deduplicate",
+    "list_backends",
     "register_routing_rule",
 ]

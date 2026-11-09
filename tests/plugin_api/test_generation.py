@@ -10,18 +10,25 @@ import pytest
 from src.features.content_safety.gate import ContentGate
 from src.features.content_safety.ledger_repository import ContentLedger
 from src.features.content_safety.manager import ContentSafetyManager
+from src.features.backends.backend_registry import NoBackendForEngineError
+from src.features.forms.binding import FormBindingError
+from src.features.forms.exceptions import FormNotFoundException
 from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException
 from src.features.generation.file_repository import FileRepository
 from src.features.generation.history_query import GenerationHistoryQuery
+from src.features.generation.queue import GenerationQueue, QueuedGeneration
 from src.features.generation.records import File, Generation
 from src.features.generation.repository import GenerationRepository
+from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
+from src.features.presets.repository import DatabasePresetRepository
 from src.features.sessions.dto import Session
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import SessionVersionRepository
+from src.features.user_groups.repository import UserGroupRepository
 from src.platform.database.rows import now_utc
 from src.platform.plugins import runtime_registries
 from src.platform.security.user import AccountType, User
@@ -30,6 +37,14 @@ from tests.features.content_safety.fakes import FakeResolver, FakeSettings, Fake
 from tests.fixtures.seed import seed_user
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+PREVIEW = {
+    "estimate": {"checkpoint_estimate_gb": 12.0},
+    "coverage": {"active_set_resolved": True},
+    "device": {"kind": "local", "free_gb": 20.0, "total_gb": 24.0, "provenance": "this host's GPU monitor"},
+    "budget": {"configured_gb": 20.0, "source": "backend gpu_max_vram + device free VRAM", "pipe_hints_gb": []},
+    "backend": {"id": "native", "name": "Local Generation", "engine": "native", "driver": "native.local"},
+}
 
 
 def _user(user_id, account_type=AccountType.USER):
@@ -51,6 +66,10 @@ class World:
         self.uploads = UploadRepository()
         self.sessions = SessionRepository()
         self.versions = SessionVersionRepository()
+        self.presets = DatabasePresetRepository()
+        self.groups = UserGroupRepository()
+        self.presets.install_preset("p")
+        self.presets.assign_preset_to_user("p", "owner")
         settings = FakeSettings()
         self.ledger = ContentLedger(settings)
         manager = ContentSafetyManager(
@@ -66,6 +85,8 @@ class World:
                 "generation_id": "g-new", "status": {"status": "pending"}, "queue_position": 2,
             }),
             cancel_generation=AsyncMock(return_value=True),
+            preview_memory=AsyncMock(return_value=PREVIEW),
+            queue=GenerationQueue(dispatch=AsyncMock()),
         )
         self.hub = SimpleNamespace(broadcast_to_generation=AsyncMock())
         self.container = SimpleNamespace(
@@ -82,6 +103,7 @@ class World:
             ),
             session_repository=self.sessions,
             session_version_repository=self.versions,
+            preset_collaborators=SimpleNamespace(db_repo=self.presets),
         )
 
     def generation(self, generation_id, user_id="owner"):
@@ -189,6 +211,133 @@ async def test_submit_lets_the_routes_exceptions_through(world):
 
     with pytest.raises(ValueError):
         await api.submit_generation(world.owner, GenerationRequest(preset_id="p"))
+
+
+@pytest.mark.asyncio
+async def test_submit_refuses_a_preset_that_is_not_assigned_to_the_user(world):
+    with pytest.raises(PermissionError, match="^Preset 'p' is not available to this user$"):
+        await api.submit_generation(world.other, GenerationRequest(preset_id="p"))
+
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_submit_refuses_an_unknown_preset_with_the_same_error_as_an_unassigned_one(world):
+    with pytest.raises(PermissionError, match="^Preset 'nope' is not available to this user$"):
+        await api.submit_generation(world.other, {"preset_id": "nope"})
+    with pytest.raises(PermissionError, match="^Preset '' is not available to this user$"):
+        await api.submit_generation(world.other, {"preset_id": ""})
+
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_submit_accepts_a_preset_assigned_through_one_of_the_users_groups(world):
+    world.presets.install_preset("q")
+    group = world.groups.create_group("studio")
+    world.groups.add_user_to_group(group.id, "other")
+    world.groups.assign_preset_to_group(group.id, "q")
+
+    await api.submit_generation(world.other, GenerationRequest(preset_id="q"))
+
+    assert world.orchestrator.start_generation.await_args[0][0].preset_id == "q"
+
+
+@pytest.mark.asyncio
+async def test_submit_refuses_a_preset_once_its_assignment_or_its_install_is_gone(world):
+    world.presets.install_preset("q")
+    world.presets.assign_preset_to_user("q", "other")
+    world.presets.unassign_preset_from_user("p", "owner")
+    world.presets.uninstall_preset("q")
+
+    for user, preset_id in ((world.owner, "p"), (world.other, "q")):
+        with pytest.raises(PermissionError):
+            await api.submit_generation(user, GenerationRequest(preset_id=preset_id))
+
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_an_admin_submits_a_preset_assigned_to_nobody(world):
+    world.presets.install_preset("q")
+
+    await api.submit_generation(world.admin, GenerationRequest(preset_id="q"))
+
+    assert world.orchestrator.start_generation.await_args[0][0].preset_id == "q"
+
+
+@pytest.mark.asyncio
+async def test_a_retried_idempotency_key_is_refused_once_the_preset_is_no_longer_assigned(world):
+    await api.submit_generation(world.owner, {"preset_id": "p", "idempotency_key": "k"})
+    world.presets.unassign_preset_from_user("p", "owner")
+
+    with pytest.raises(PermissionError):
+        await api.submit_generation(world.owner, {"preset_id": "p", "idempotency_key": "k"})
+
+    world.orchestrator.start_generation.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_preview_goes_through_the_orchestrators_memory_preview(world):
+    request = GenerationRequest(preset_id="p", form_data={"width": 1024})
+
+    result = await api.preview_memory(world.owner, request)
+
+    assert result == PREVIEW
+    world.orchestrator.preview_memory.assert_awaited_once_with(request, "owner")
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_preview_accepts_a_plain_dict(world):
+    await api.preview_memory(world.owner, {"preset_id": "p", "mode": "img2img"})
+
+    submitted = world.orchestrator.preview_memory.await_args[0][0]
+    assert isinstance(submitted, GenerationRequest)
+    assert submitted.mode == "img2img"
+
+
+@pytest.mark.asyncio
+async def test_preview_refuses_a_missing_user(world):
+    with pytest.raises(PermissionError):
+        await api.preview_memory(None, GenerationRequest(preset_id="p"))
+
+    world.orchestrator.preview_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_preview_refuses_a_preset_the_user_is_not_offered_as_submit_does(world):
+    for preset_id in ("p", "nope"):
+        with pytest.raises(PermissionError, match=f"^Preset '{preset_id}' is not available to this user$"):
+            await api.preview_memory(world.other, GenerationRequest(preset_id=preset_id))
+
+    world.orchestrator.preview_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_an_admin_previews_a_preset_assigned_to_nobody(world):
+    world.presets.install_preset("q")
+
+    await api.preview_memory(world.admin, GenerationRequest(preset_id="q"))
+
+    assert world.orchestrator.preview_memory.await_args[0][0].preset_id == "q"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("error", "caught_as"), [
+    (ValueError("Preset 'x' not found"), ValueError),
+    (FormNotFoundException("p", "txt2img", "wide"), api.FormNotFoundException),
+    (FormBindingError(["width: must be a number"], field_errors={"width": ["must be a number"]}), api.FormBindingError),
+    (NoBackendForEngineError("No enabled backend provides engine 'native'"), api.NoBackendForEngineError),
+    (NoEligibleBackendError("native", SimpleNamespace(candidates=[])), api.NoEligibleBackendError),
+])
+async def test_preview_lets_the_routes_exceptions_through_to_catch_by_their_api_name(world, error, caught_as):
+    world.orchestrator.preview_memory.side_effect = error
+
+    with pytest.raises(caught_as) as raised:
+        await api.preview_memory(world.owner, GenerationRequest(preset_id="p"))
+
+    assert raised.value is error
 
 
 @pytest.mark.asyncio
@@ -312,6 +461,156 @@ def test_state_of_a_live_failed_generation_never_carries_the_detail(world):
     assert state["status"] == "failed"
     assert state["error_code"] == "missing_model_file"
     _assert_no_leak(state)
+
+
+def test_the_stored_row_of_a_live_generation_is_read_beside_its_live_state(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+    world.live["g1"] = SimpleNamespace(user_id="owner", model_dump=lambda: {"id": "g1", "status": "running"})
+
+    record = api.generation_record(world.owner, "g1")
+
+    assert api.generation_state(world.owner, "g1")["status"] == "running"
+    assert record["status"] == "failed"
+    assert record["error_code"] == "missing_model_file"
+
+
+def test_a_live_generation_not_yet_stored_has_no_record(world):
+    world.live["g1"] = SimpleNamespace(user_id="owner", model_dump=lambda: {"id": "g1", "status": "pending"})
+
+    assert api.generation_record(world.owner, "g1") is None
+
+
+def test_the_record_of_someone_elses_or_an_unknown_generation_is_not_found(world):
+    world.generation("g1")
+
+    for user, generation_id in ((world.other, "g1"), (None, "g1"), (world.owner, "nope")):
+        with pytest.raises(GenerationNotFoundException):
+            api.generation_record(user, generation_id)
+    assert api.generation_record(world.admin, "g1")["id"] == "g1"
+
+
+def test_a_record_never_carries_the_raw_detail_of_a_failure(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+
+    for user in (world.owner, world.admin):
+        record = api.generation_record(user, "g1")
+        assert "error_detail" not in record
+        _assert_no_leak(record)
+
+
+RAW_MESSAGE = "unet.safetensors missing on backend http://10.1.2.3:8188"
+RAW_USER_MESSAGE = "Ask about unet.safetensors on http://10.1.2.3:8188"
+
+
+def _stored_failure(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure={
+        **_failure().columns(), "error_message": RAW_MESSAGE, "error_user_message": RAW_USER_MESSAGE,
+    })
+
+
+def _generic_copy():
+    from src.features.generation.failure import compose_user_message, user_failure_copy
+
+    message, hints = user_failure_copy("missing_model_file")
+    return message, compose_user_message(message, hints)
+
+
+def _assert_generic_failure_text(payload):
+    message, user_message = _generic_copy()
+    assert payload["error_message"] == message
+    assert payload["error_user_message"] == user_message
+    assert payload["error_contact_admin"] is True
+    for marker in ("unet.safetensors", "10.1.2.3", "8188"):
+        assert marker not in repr(payload), marker
+
+
+def _assert_stored_failure_text(payload):
+    assert payload["error_message"] == RAW_MESSAGE
+    assert payload["error_user_message"] == RAW_USER_MESSAGE
+    assert payload["error_contact_admin"] is False
+
+
+def test_a_record_gives_a_user_the_generic_failure_copy_and_an_admin_the_stored_text(world):
+    _stored_failure(world)
+
+    _assert_generic_failure_text(api.generation_record(world.owner, "g1"))
+    _assert_stored_failure_text(api.generation_record(world.admin, "g1"))
+
+
+def test_a_stored_failed_state_gives_a_user_the_generic_failure_copy_and_an_admin_the_stored_text(world):
+    _stored_failure(world)
+
+    _assert_generic_failure_text(api.generation_state(world.owner, "g1"))
+    _assert_stored_failure_text(api.generation_state(world.admin, "g1"))
+
+
+def test_a_live_failed_state_gives_a_user_the_generic_message_and_an_admin_the_raw_one(world):
+    from unittest.mock import patch
+
+    from src.features.generation.status_tracker import GenerationState, GenerationStatusTracker
+
+    world.generation("g1")
+    tracker = GenerationStatusTracker()
+    tracker.create(id="g1", user_id="owner")
+    with patch("src.features.generation.status_tracker.generation_repo"):
+        tracker.transition("g1", GenerationState.FAILED, _failure())
+    world.live["g1"] = tracker.get("g1")
+    raw = _failure().message
+
+    assert api.generation_state(world.owner, "g1")["message"] == _generic_copy()[0]
+    assert raw != _generic_copy()[0]
+    assert api.generation_state(world.admin, "g1")["message"] == raw
+
+
+def test_a_record_or_state_without_a_failure_is_returned_unchanged(world):
+    world.generation("g1")
+
+    for user in (world.owner, world.admin):
+        assert api.generation_record(user, "g1") == world.generations.get_by_id("g1").to_dict()
+        assert "error_contact_admin" not in api.generation_state(user, "g1")
+
+
+def test_an_administrator_reads_the_raw_detail_of_a_failure(world):
+    world.generation("g1")
+    world.generation("g2")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+
+    report = api.generation_failure(world.admin, "g1")
+
+    assert report["error_code"] == "missing_model_file"
+    assert report["detail"] == world.generations.get_by_id("g1").error_detail
+    assert "loader.py" in report["detail"]
+    assert api.generation_failure(world.admin, "g2") is None
+    assert api.generation_failure(world.admin, "nope") is None
+
+
+def test_no_one_but_an_administrator_reads_a_failure_not_even_its_owner(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+
+    for user in (world.owner, world.other, None):
+        with pytest.raises(PermissionError, match="^Only an administrator can read the detail of a failure$"):
+            api.generation_failure(user, "g1")
+
+
+@pytest.mark.asyncio
+async def test_a_generation_of_any_user_is_active_while_it_is_pending_or_running(world):
+    queue = world.orchestrator.queue
+    assert api.generation_active() is False
+
+    await queue.enqueue(QueuedGeneration(generation_id="g1", backend_id="native", user_id="other"))
+    await queue.enqueue(QueuedGeneration(generation_id="g2", backend_id="native", user_id="other"))
+    assert queue.position("g2") == 0
+    assert api.generation_active() is True
+
+    await queue.release("native", "g1")
+    assert api.generation_active() is True
+
+    await queue.release("native", "g2")
+    assert api.generation_active() is False
 
 
 def test_files_come_in_canonical_order_with_their_unfiltered_index(world):

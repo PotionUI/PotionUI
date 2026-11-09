@@ -1,27 +1,40 @@
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
+from src.features.backends.backend_registry import NoBackendForEngineError
+from src.features.forms.binding import FormBindingError
+from src.features.forms.exceptions import FormNotFoundException
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException, IdempotencyKeyConflict
+from src.features.generation.failure import failure_report, scope_generation, scope_generation_state
 from src.features.generation.file_repository import file_repo
 from src.features.generation.policy import GenerationPolicy
+from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.generation.state_lookup import GenerationStateView, resolve_generation_state
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
+    "FormBindingError",
+    "FormNotFoundException",
     "GenerationNotFoundException",
     "GenerationRequest",
     "IdempotencyKeyConflict",
     "HistoryMediaRef",
     "LibraryMediaRef",
     "MediaRefError",
+    "NoBackendForEngineError",
+    "NoEligibleBackendError",
     "ResolvedMedia",
     "SessionNotFoundError",
     "SubmittedGeneration",
     "cancel_generation",
+    "generation_active",
+    "generation_failure",
+    "generation_record",
     "generation_state",
     "get_session",
     "get_session_snapshot",
     "list_generation_files",
+    "preview_memory",
     "resolve_media_ref",
     "submit_generation",
 ]
@@ -80,6 +93,13 @@ def _require_access(container, user, generation_id: str) -> GenerationStateView:
     return state
 
 
+def _require_available_preset(container, user, preset_id: str) -> None:
+    if GenerationPolicy.is_admin(user):
+        return
+    if preset_id not in container.preset_collaborators.db_repo.get_available_preset_ids_for_user(user.id):
+        raise PermissionError(f"Preset '{preset_id}' is not available to this user")
+
+
 async def submit_generation(
     user, request: Union[GenerationRequest, Dict[str, Any]]
 ) -> SubmittedGeneration:
@@ -87,13 +107,25 @@ async def submit_generation(
         raise PermissionError("A user is required to submit a generation")
     if not isinstance(request, GenerationRequest):
         request = GenerationRequest.model_validate(request)
-    result = await get_container().generation_orchestrator.start_generation(request, user.id)
+    container = get_container()
+    _require_available_preset(container, user, request.preset_id)
+    result = await container.generation_orchestrator.start_generation(request, user.id)
     status = result.get("status")
     return {
         "generation_id": result["generation_id"],
         "status": status.get("status") if isinstance(status, dict) else status,
         "queue_position": result.get("queue_position"),
     }
+
+
+async def preview_memory(user, request: Union[GenerationRequest, Dict[str, Any]]) -> Dict[str, Any]:
+    if user is None:
+        raise PermissionError("A user is required to preview a generation")
+    if not isinstance(request, GenerationRequest):
+        request = GenerationRequest.model_validate(request)
+    container = get_container()
+    _require_available_preset(container, user, request.preset_id)
+    return await container.generation_orchestrator.preview_memory(request, user.id)
 
 
 async def cancel_generation(user, generation_id: str) -> bool:
@@ -105,8 +137,29 @@ async def cancel_generation(user, generation_id: str) -> bool:
     return cancelled
 
 
+def generation_active() -> bool:
+    return not get_container().generation_orchestrator.queue.is_idle()
+
+
 def generation_state(user, generation_id: str) -> Dict[str, Any]:
-    return _require_access(get_container(), user, generation_id).payload
+    state = _require_access(get_container(), user, generation_id)
+    return scope_generation_state(state.payload, GenerationPolicy.is_admin(user))
+
+
+def generation_record(user, generation_id: str) -> Optional[Dict[str, Any]]:
+    container = get_container()
+    _require_access(container, user, generation_id)
+    row = container.generation_repository.get_by_id(generation_id)
+    return None if row is None else scope_generation(row.to_dict(), GenerationPolicy.is_admin(user))
+
+
+def generation_failure(user, generation_id: str) -> Optional[Dict[str, Any]]:
+    if not GenerationPolicy.is_admin(user):
+        raise PermissionError("Only an administrator can read the detail of a failure")
+    row = get_container().generation_repository.get_by_id(generation_id)
+    if row is None or row.status != "failed":
+        return None
+    return failure_report(row)
 
 
 def _visible_files(container, user, generation_id: str) -> List[Dict[str, Any]]:

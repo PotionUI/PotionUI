@@ -1444,7 +1444,7 @@ Native SeedVR2 one-step restoration upscaler (no text encoder, no CFG, no denois
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `tile_size` | `int` | `2048` | no | — | 256 | 2048 | VAE encode/decode tile size ceiling (px); auto-tiles by live VRAM under this |
 | `tile_overlap` | `int` | `256` | no | — | 0 | 512 | VAE encode/decode tile overlap ceiling (px) |
-| `batch_size` | `int` | `0` | no | — | 0 | 49 | Frames per temporal batch (snapped to the VAE's 4n+1 lattice: 1,5,9,…). The temporal VRAM knob — one batch is on the GPU at a time. 0 = auto-size to ~92% of live free VRAM at the output resolution (recommended); the OOM ladder halves it and re-runs if a batch ever exceeds real VRAM. |
+| `batch_size` | `int` | `0` | no | — | 0 | 49 | Frames per temporal batch (snapped to the VAE's 4n+1 lattice: 1,5,9,…). The temporal VRAM knob — one batch is on the GPU at a time. 0 = 5 on a GPU of 12.5 GB or less, else auto-size to ~92% of live free VRAM at the output resolution (recommended); the OOM ladder halves it and re-runs if a batch ever exceeds real VRAM. |
 | `temporal_overlap` | `int` | `0` | no | — | 0 | 16 | Overlapping frames cross-faded between consecutive batches (0 = hard cut) |
 | `prepend_frames` | `int` | `0` | no | — | 0 | 16 | Reversed head frames prepended before upscaling to reduce clip-start artifacts (auto-removed from the output) |
 | `uniform_batch_size` | `bool` | `true` | no | — | — | — | Pad a short final batch up to the full batch size (avoids seam artifacts) |

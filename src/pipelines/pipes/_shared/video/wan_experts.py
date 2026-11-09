@@ -15,6 +15,7 @@ from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
 from src.platform.runtime.native.sampling.denoise_loop import schedule_from_settings
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
+from src.platform.runtime.native.vae.causal_3d_v2 import LATENTS_MEAN as WAN22_LATENTS_MEAN, LATENTS_STD as WAN22_LATENTS_STD
 from src.platform.runtime.native.vae.tiling import (
     causal3d_chunk_frames,
     causal3d_decode_mb_per_latent_px,
@@ -31,6 +32,15 @@ from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8
 
 
 WAN_TEMPORAL_DOWNSCALE = 4
+
+_WAN_LATENT_STATS = {
+    len(LATENTS_MEAN): (LATENTS_MEAN, LATENTS_STD),
+    len(WAN22_LATENTS_MEAN): (WAN22_LATENTS_MEAN, WAN22_LATENTS_STD),
+}
+
+
+def wan_latent_stats(latent_channels: int) -> tuple[tuple[float, ...], tuple[float, ...]] | None:
+    return _WAN_LATENT_STATS.get(int(latent_channels))
 
 
 _warned_snapped_resolution: set[tuple[int, int]] = set()
@@ -250,9 +260,10 @@ def decode_wan_video(c: Any, latent: torch.Tensor) -> np.ndarray:
     _make_room_for_decode(c, latent)
     c.vae.move_to(c.device)
     z = latent.to(device=c.device, dtype=c.vae.compute_dtype)
-    if c.latent_channels == len(LATENTS_MEAN):
-        mean = torch.tensor(LATENTS_MEAN, device=z.device, dtype=z.dtype).view(1, -1, 1, 1, 1)
-        std = torch.tensor(LATENTS_STD, device=z.device, dtype=z.dtype).view(1, -1, 1, 1, 1)
+    stats = wan_latent_stats(c.latent_channels)
+    if stats is not None:
+        mean = torch.tensor(stats[0], device=z.device, dtype=z.dtype).view(1, -1, 1, 1, 1)
+        std = torch.tensor(stats[1], device=z.device, dtype=z.dtype).view(1, -1, 1, 1, 1)
         z = z * std + mean
 
     with torch.no_grad():

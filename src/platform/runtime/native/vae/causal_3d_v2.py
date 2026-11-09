@@ -28,15 +28,6 @@ key (an ``Up_ResidualBlock`` inside another ``nn.Sequential`` of
 ``Up_ResidualBlock``s) is exactly the signature ``detect_causal3d_vae_config``
 already excludes Wan 2.1 detection on -- see ``detect/vae_detect.py``.
 
-**Latent format**: ComfyUI's ``comfy/latent_formats.py`` ``Wan22`` class
-*inherits* ``Wan21``'s ``process_in``/``process_out`` (which read
-``self.latents_mean``/``self.latents_std``) but its own ``__init__`` never
-sets those two attributes -- only ``scale_factor = 1.0``. There is no
-per-channel Wan 2.2 mean/std anywhere in ComfyUI to port; verified by reading
-the class, not assumed. So Wan 2.2 normalization is plain
-``latent * scale_factor`` (``scale_factor=1.0``, i.e. no-op) -- do not invent
-48-length mean/std constants to "complete" this; there aren't any upstream.
-
 **Qwen-Image-2.1**: same module shape, different hyper-parameters -- every
 class below is parametrised (``dim``/``dec_dim``/``z_dim``/``dim_mult``/
 ``num_res_blocks``/``temporal_downsample``/``image_channels``/``patch_size``/
@@ -100,12 +91,22 @@ _TEMPORAL_KERNEL = 3
 _CACHE_T = 2
 
 LATENT_CHANNELS = _Z_DIM
-# See module docstring: ComfyUI's Wan22 latent format has no per-channel
-# mean/std -- plain scale_factor normalization only. Qwen-Image-2.1's
-# per-channel latents_mean/latents_std live on the DiT's ModelSpec
-# (``latent_format``), read generically by ``engine.py`` -- not here (see
-# ``causal_3d.py``'s LATENTS_MEAN/LATENTS_STD for the sibling family that
-# HAS a fixed per-channel format; this one and Wan 2.2 don't).
+LATENTS_MEAN: tuple[float, ...] = (
+    -0.2289, -0.0052, -0.1323, -0.2339, -0.2799, 0.0174, 0.1838, 0.1557,
+    -0.1382, 0.0542, 0.2813, 0.0891, 0.1570, -0.0098, 0.0375, -0.1825,
+    -0.2246, -0.1207, -0.0698, 0.5109, 0.2665, -0.2108, -0.2158, 0.2502,
+    -0.2055, -0.0322, 0.1109, 0.1567, -0.0729, 0.0899, -0.2799, -0.1230,
+    -0.0313, -0.1649, 0.0117, 0.0723, -0.2839, -0.2083, -0.0520, 0.3748,
+    0.0152, 0.1957, 0.1433, -0.2944, 0.3573, -0.0548, -0.1681, -0.0667,
+)
+LATENTS_STD: tuple[float, ...] = (
+    0.4765, 1.0364, 0.4514, 1.1677, 0.5313, 0.4990, 0.4818, 0.5013,
+    0.8158, 1.0344, 0.5894, 1.0901, 0.6885, 0.6165, 0.8454, 0.4978,
+    0.5759, 0.3523, 0.7135, 0.6804, 0.5833, 1.4146, 0.8986, 0.5659,
+    0.7069, 0.5338, 0.4889, 0.4917, 0.4069, 0.4999, 0.6866, 0.4093,
+    0.5709, 0.6065, 0.6415, 0.4944, 0.5726, 1.2042, 0.5458, 1.6887,
+    0.3971, 1.0600, 0.3943, 0.5537, 0.5444, 0.4089, 0.7468, 0.7744,
+)
 LATENT_SCALE_FACTOR = 1.0
 
 

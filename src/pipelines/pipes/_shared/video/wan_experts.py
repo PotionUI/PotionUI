@@ -277,7 +277,15 @@ def _decode_pixels(c: Any, z: torch.Tensor) -> torch.Tensor:
                        "clearing the card and decoding one latent frame at a time",
                        chunk_frames or int(z.shape[2]), str(exc).splitlines()[0][:200])
     _clear_card_for_decode(c)
-    return _decode_latent(c.vae.module, z, 1)
+    try:
+        return _decode_latent(c.vae.module, z, 1)
+    except RuntimeError as exc:
+        if not retry_after_cuda_oom(exc):
+            raise
+        logger.warning("[WAN DECODE] VAE decode failed for lack of VRAM at one latent frame per chunk (%s); "
+                       "clearing the card and decoding in spatial tiles", str(exc).splitlines()[0][:200])
+    _clear_card_for_decode(c)
+    return _decode_tiled(c, z, effective_free_vram_gb(c.device) or 0.0)
 
 
 def decode_wan_video(c: Any, latent: torch.Tensor) -> np.ndarray:

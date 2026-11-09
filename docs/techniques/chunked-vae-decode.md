@@ -55,6 +55,12 @@ spatial tiling if even a single-frame chunk doesn't fit.
   tiles, each tile one latent frame at a time with its own decode cache, so the two combine there.
   Tiles change the pixels near the seams. The engine's own causal-3D decode still picks one or the
   other.
+- When a Wan pipe's decode still runs out of VRAM, it steps down in the same order. A whole or
+  chunked decode that fails clears the card and decodes one latent frame per chunk. If that fails
+  too, the card is cleared again and the clip is decoded in spatial tiles sized from a fresh reading
+  of free VRAM, or from the smallest tile when the card cannot be read. The tile then halves on each
+  further failure. A driver OOM that the driver policy makes fatal (`POTIONUI_CUDA_DRIVER_OOM`; by
+  default under WSL2 with expandable segments) is not retried at any of these steps.
 - The spatial tiles are blended in host RAM, not on the card. The blend keeps two full-clip
   float32 buffers (the weighted sum and the summed weights), then the division makes a third and
   the cast back to the VAE's compute dtype a fourth, so the peak is about 42 bytes per output

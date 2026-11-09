@@ -3,7 +3,15 @@ import { flushSync, tick } from 'svelte';
 import { createClassComponent } from 'svelte/legacy';
 import { api } from '$lib/services/api/index';
 import { keybindingsStore } from '$lib/stores/keybindings';
-import { init, destroy, globalBindingFor, suppressKeyboard, resumeKeyboard } from '$lib/services/keyboard';
+import {
+	init,
+	destroy,
+	globalBindingFor,
+	suppressKeyboard,
+	resumeKeyboard,
+	holdKeyboard,
+	releaseAllKeyboardHolds
+} from '$lib/services/keyboard';
 import { page } from '$app/stores';
 import type { Writable } from 'svelte/store';
 import { isEditableTarget, isTypingInField } from '$lib/utils/editableTarget';
@@ -158,6 +166,19 @@ describe('global shortcuts outside fields', () => {
 		suppressKeyboard();
 		onTestFinished(resumeKeyboard);
 		expect(globalBindingFor(c)).toBeNull();
+	});
+
+	it('stays silent while a plugin holds the keyboard, and fires again once every hold is released', () => {
+		const release = holdKeyboard();
+		onTestFinished(releaseAllKeyboardHolds);
+		expect(press(document.body, 't').defaultPrevented).toBe(false);
+		expect(globalBindingFor(new KeyboardEvent('keydown', { key: 'c' }))).toBeNull();
+		release();
+		press(document.body, 't');
+		holdKeyboard();
+		releaseAllKeyboardHolds();
+		press(document.body, 'q');
+		expect(fired).toEqual(['new_tab', 'toggle_floating_form']);
 	});
 
 	it('globalBindingFor skips a binding whose handler is gone', () => {

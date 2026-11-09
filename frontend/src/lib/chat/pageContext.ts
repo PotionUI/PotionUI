@@ -12,6 +12,7 @@
  * a stale registration from a previous user's session never lingers.
  */
 import { derived, writable } from 'svelte/store';
+import { logger } from '$lib/utils/logger';
 
 export type ContextProvider = () => Record<string, unknown> | null;
 
@@ -40,6 +41,7 @@ interface ModeDeclaration {
 
 const contextProviders = new Map<string, ContextProvider>();
 const toolAppliedHandlers = new Map<string, Set<ToolAppliedHandler>>();
+const dispatchedToolResults = new Set<string>();
 
 let nextDeclarationId = 1;
 const modeDeclarations = writable<ModeDeclaration[]>([]);
@@ -129,9 +131,74 @@ export function dispatchToolApplied(
 	return outcome ?? true;
 }
 
+export interface ExecutedTool {
+	tool_name: string;
+	result?: { success?: boolean; data?: string } | null;
+	status?: string;
+	approval_status?: string | null;
+	skipped?: boolean;
+}
+
+export interface MessageWithTools {
+	id?: string | null;
+	tool_executions?: ExecutedTool[] | null;
+}
+
+export interface DispatchedToolResult {
+	data: unknown;
+	outcome: ToolAppliedOutcome | boolean;
+}
+
+export function toolResultId(messageId: string, index: number): string {
+	return `${messageId}:${index}`;
+}
+
+export function dispatchToolResult(resultId: string, toolName: string, rawData: unknown): DispatchedToolResult | null {
+	if (dispatchedToolResults.has(resultId) || typeof rawData !== 'string') return null;
+	let data: unknown;
+	try {
+		data = JSON.parse(rawData);
+	} catch {
+		return null;
+	}
+	dispatchedToolResults.add(resultId);
+	return { data, outcome: dispatchToolApplied(toolName, data as Record<string, unknown>) };
+}
+
+function isUnapplied(outcome: ToolAppliedOutcome | boolean): outcome is ToolAppliedOutcome {
+	return isToolAppliedOutcome(outcome) && (outcome.status === 'stale' || outcome.status === 'partial');
+}
+
+function deliverable(execution: ExecutedTool | null | undefined): execution is ExecutedTool {
+	return (
+		!!execution &&
+		(execution.approval_status == null || execution.approval_status === 'approved') &&
+		!execution.skipped &&
+		execution.status !== 'running' &&
+		execution.result?.success !== false
+	);
+}
+
+export function dispatchExecutedToolResults(message: MessageWithTools): ToolAppliedOutcome | null {
+	const messageId = message.id;
+	if (!messageId) return null;
+	let unapplied: ToolAppliedOutcome | null = null;
+	for (const [index, execution] of (message.tool_executions ?? []).entries()) {
+		if (!deliverable(execution)) continue;
+		try {
+			const dispatched = dispatchToolResult(toolResultId(messageId, index), execution.tool_name, execution.result?.data);
+			if (dispatched && isUnapplied(dispatched.outcome)) unapplied = dispatched.outcome;
+		} catch (error) {
+			logger.error(`onToolApplied handler for ${execution.tool_name} failed:`, error);
+		}
+	}
+	return unapplied;
+}
+
 /** Drop all registrations. Called on SPA user switch (see `applyIdentityGuard`). */
 export function resetPageContext(): void {
 	contextProviders.clear();
 	toolAppliedHandlers.clear();
+	dispatchedToolResults.clear();
 	modeDeclarations.set([]);
 }

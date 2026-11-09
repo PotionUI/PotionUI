@@ -82,6 +82,8 @@ logger = logging.getLogger(__name__)
 # otherwise re-log the same warning constantly instead of once per process.
 _warned_hook_failures: Set[str] = set()
 
+_REPLAYED_ON_HOT_ENABLE = frozenset({"notification_type.register"})
+
 
 @dataclass
 class PluginDiscoveryChanges:
@@ -289,6 +291,9 @@ class PluginRegistry:
         # plugin_id -> fingerprint of the manifest the registrations came from,
         # so a rescan can tell an untouched plugin from a changed one.
         self._plugin_fingerprints: Dict[str, str] = {}
+
+        self._replay_payloads: Dict[str, Dict] = {}
+        self._declared_by: Dict[str, Set[str]] = {}
 
     def _ensure_discovered(self):
         """Ensure plugins are discovered (lazy loading with thread safety)"""
@@ -512,12 +517,21 @@ class PluginRegistry:
 
         self._plugin_states[plugin_id] = PluginState.ENABLED
         self._plugin_errors.pop(plugin_id, None)
+        self._replay_declarations(plugin_id)
 
         logger.info(
             f"Enabled plugin {manifest.name} ({plugin_id}) with "
             f"{len(manifest.hooks)} hooks"
         )
         return True
+
+    def _replay_declarations(self, plugin_id: str) -> None:
+        for hook_name, payload in list(self._replay_payloads.items()):
+            declared = self._declared_by.setdefault(hook_name, set())
+            if plugin_id in declared or hook_name not in self._plugin_hooks.get(plugin_id, set()):
+                continue
+            _, results = self.hook_chain.execute_for_plugin(hook_name, plugin_id, initial_data=dict(payload))
+            declared.update(result.plugin_id for result in results if result.success)
 
     def _run_enable_stages(self, manifest: PluginManifest) -> Optional[str]:
         """Register everything `manifest` contributes, in dependency order.
@@ -1475,6 +1489,9 @@ class PluginRegistry:
             Tuple of (final_context, success)
         """
         self._ensure_discovered()
+        replayed = hook_name in _REPLAYED_ON_HOT_ENABLE and initial_data is not None
+        if replayed:
+            self._replay_payloads[hook_name] = dict(initial_data)
 
         try:
             final_context, results = self.hook_chain.execute(
@@ -1482,6 +1499,10 @@ class PluginRegistry:
                 context=context,
                 initial_data=initial_data
             )
+            if replayed:
+                self._declared_by.setdefault(hook_name, set()).update(
+                    result.plugin_id for result in results if result.success
+                )
 
             # Check if any handlers failed
             any_failed = any(not result.success for result in results)

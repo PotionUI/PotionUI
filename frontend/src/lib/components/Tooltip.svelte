@@ -10,7 +10,7 @@
 	export let text: string;
 	export let position: 'top' | 'bottom' | 'left' | 'right' = 'top';
 	export let delay: number = 200;
-	export let kbd: string | undefined = undefined;
+	export let kbd: string | string[] | undefined = undefined;
 	export let wrapperClass: string = 'inline-flex items-center';
 	export let truncateOnly: boolean = false;
 

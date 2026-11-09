@@ -18,6 +18,8 @@
 		onclick,
 		ariaExpanded,
 		ariaPressed,
+		tooltip: tooltipText,
+		kbd,
 		class: className = '',
 		...rest
 	}: {
@@ -31,6 +33,8 @@
 		onclick?: (e: MouseEvent) => void;
 		ariaExpanded?: boolean;
 		ariaPressed?: boolean;
+		tooltip?: string;
+		kbd?: string | string[];
 		class?: string;
 		[key: string]: unknown;
 	} = $props();
@@ -69,7 +73,7 @@
 	aria-expanded={ariaExpanded}
 	aria-pressed={ariaPressed}
 	aria-busy={loading}
-	use:tooltip={insideTooltip ? undefined : label}
+	use:tooltip={insideTooltip ? undefined : { text: tooltipText ?? label, kbd }}
 	disabled={isDisabled}
 	{onclick}
 	{...rest}

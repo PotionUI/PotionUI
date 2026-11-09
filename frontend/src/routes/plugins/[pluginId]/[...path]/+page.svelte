@@ -9,7 +9,8 @@
 	import { PageHeader, PageTitle } from '$lib/components/ui';
 	import { createPageHeaderControls } from '$lib/plugin-api/pageHeader';
 	import { createHostFetchApi } from '$lib/plugin-api/hostApi';
-	import { createPluginPageApi } from '$lib/plugin-api/pluginPageApi';
+	import { createPluginApi as createHostPluginApi } from '$lib/plugin-api/pluginApi';
+	import { releaseAllKeyboardHolds } from '$lib/services/keyboard';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -28,7 +29,7 @@
 	});
 
 	function createPluginApi(pluginId: string) {
-		return createPluginPageApi(createHostFetchApi(api), () => api.getToken(), pluginId);
+		return createHostPluginApi(pluginId, createHostFetchApi(api), () => api.getToken());
 	}
 
 	function cleanupPlugin() {
@@ -41,6 +42,7 @@
 		}
 		pluginInstance = null;
 		unmountFn = null;
+		releaseAllKeyboardHolds();
 	}
 
 	async function loadPlugin(id: string) {

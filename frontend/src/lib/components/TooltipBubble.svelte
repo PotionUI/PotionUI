@@ -16,10 +16,12 @@
 		text: string;
 		anchor: HTMLElement;
 		position?: Position;
-		kbd?: string;
+		kbd?: string | string[];
 		wrap?: boolean;
 		id?: string;
 	} = $props();
+
+	let kbdLabel = $derived(Array.isArray(kbd) ? kbd.join('+') : kbd);
 
 	let bubble: HTMLDivElement | undefined = $state();
 	let style = $state('');
@@ -63,6 +65,7 @@
 	<span>{text}</span>
 	{#if kbd}
 		<Kbd keys={kbd} />
+		<span class="sr-only">{kbdLabel}</span>
 	{/if}
 	<div class="absolute w-2 h-2 bg-surface-3 rotate-45 {arrowClass[position]}"></div>
 </div>

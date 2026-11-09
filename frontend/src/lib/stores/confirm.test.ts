@@ -33,6 +33,11 @@ describe('confirmDialog', () => {
 		expect(head()).toMatchObject({ message: 'Remove tag', title: 'Remove', variant: 'danger' });
 	});
 
+	it('carries the button labels', () => {
+		confirmDialog({ message: 'Leave the editor?', confirmLabel: 'Leave', cancelLabel: 'Keep editing' });
+		expect(head()).toMatchObject({ confirmLabel: 'Leave', cancelLabel: 'Keep editing' });
+	});
+
 	it('shows one request at a time and queues the rest in order', async () => {
 		const first = confirmDialog({ message: 'first' });
 		const second = confirmDialog({ message: 'second' });

@@ -18,6 +18,7 @@
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
+	import { chatPanelStore } from '$lib/stores/chatPanel';
 	import {
 		chatModes,
 		modeOffersTools,
@@ -26,7 +27,13 @@
 		resolveModeName,
 		toolsForMode
 	} from '$lib/stores/chatModes';
-	import { declaredMode, collectProvidedContext, dispatchToolApplied } from '$lib/chat/pageContext';
+	import {
+		declaredMode,
+		collectProvidedContext,
+		dispatchToolResult,
+		dispatchExecutedToolResults,
+		toolResultId
+	} from '$lib/chat/pageContext';
 	import {
 		chatFormSessionId,
 		isGeneratePageContext,
@@ -587,7 +594,55 @@
 	// Load sessions after configs are loaded
 	$: if (configsLoaded && !sessionsLoadInitiated) {
 		sessionsLoadInitiated = true;
-		void loadRecentSessions(true);
+		void loadRecentSessions(true).then(attachHostComposer);
+	}
+
+	let detachHostComposer: (() => void) | null = null;
+
+	async function attachHostComposer() {
+		await tick();
+		if (destroyed || detachHostComposer) return;
+		detachHostComposer = chatPanelStore.attachComposer({ prefill: prefillFromHost, send: sendFromHost });
+	}
+
+	function prefillFromHost(text: string, replace: boolean) {
+		const hasDraft = userInput.trim() !== '' || Object.keys(userResources).length > 0;
+		if (replace || !hasDraft) {
+			userInput = text;
+			userResources = {};
+		}
+		void tick().then(() => inputRef?.focus());
+	}
+
+	function adoptPageMode() {
+		const mode = $declaredMode || resolveModeForRoute($page.url.pathname, $chatModes.modes);
+		if (mode === $chatSession.mode) return;
+		chatSession.newConversation(mode);
+		saveActiveSessionId('');
+		applyStoredDisabledToolsForMode(mode);
+	}
+
+	function sendFromHost(text: string): Promise<void> {
+		if ($chatSession.isGenerating) {
+			return Promise.reject(new Error('The assistant is still answering the previous message'));
+		}
+		if (!selectedConfigId) return Promise.reject(new Error('No chat model is configured'));
+		adoptPageMode();
+		return new Promise<void>((resolve, reject) => {
+			let dispatched = false;
+			const onDispatched = () => {
+				dispatched = true;
+				resolve();
+			};
+			sendMessage(text, { onDispatched }).then(
+				() => {
+					if (!dispatched) reject(new Error($chatSession.error || 'The message could not be sent'));
+				},
+				(error) => {
+					if (!dispatched) reject(error instanceof Error ? error : new Error(String(error)));
+				}
+			);
+		});
 	}
 
 	async function loadRecentSessions(restoreStored = false) {
@@ -741,8 +796,16 @@
 			},
 			onAnswered: () => {
 				selectedImageData = null;
-			}
+			},
+			onAssistantFinalized: handleAssistantFinalized
 		};
+	}
+
+	function handleAssistantFinalized(message: ChatMessageData) {
+		if (!enableTools || !message.id) return;
+		const replacement = dispatchExecutedToolResults(message)?.message;
+		if (!replacement) return;
+		chatSession.updateMessages((msgs) => msgs.map((m) => (m.id === message.id ? { ...m, content: replacement } : m)));
 	}
 
 	async function loadSession(id: string) {
@@ -888,6 +951,7 @@
 		if (stripFlashTimer) clearTimeout(stripFlashTimer);
 		if (pinnedScrollHandle !== null) cancelFrame(pinnedScrollHandle);
 		pendingCardObserver?.disconnect();
+		detachHostComposer?.();
 	});
 
 	async function handleCommand(command: string): Promise<boolean> {
@@ -1050,7 +1114,11 @@
 	 */
 	async function sendMessage(
 		instruction: string,
-		options: { resourceRefs?: { uri: string }[]; attachedResources?: ResourceChipData[] } = {}
+		options: {
+			resourceRefs?: { uri: string }[];
+			attachedResources?: ResourceChipData[];
+			onDispatched?: () => void;
+		} = {}
 	) {
 		if (!instruction.trim() || $chatSession.isGenerating) return;
 		if (!selectedConfigId) return;
@@ -1135,7 +1203,8 @@
 			},
 			onSettled: () => {
 				inputRef?.focus();
-			}
+			},
+			onDispatched: options.onDispatched
 		});
 	}
 
@@ -1405,28 +1474,29 @@
 		if ($chatSession.sessionId !== id || status === 'stale') return { status };
 		chatSession.updateMessages((msgs) => replaceExecution(msgs, messageId, index, execution));
 		if (status === 'already_resolved') return { status };
-		const note = status === 'approved' ? await applyApprovedExecution(execution) : null;
+		const note = status === 'approved' ? await applyApprovedExecution(messageId, index, execution) : null;
 		if (!$chatSession.isGenerating && $chatSession.sessionId === id) {
 			void continueAfterResolve(messageId, index);
 		}
 		return { status, note };
 	}
 
-	async function applyApprovedExecution(execution: ToolExecution): Promise<string | null> {
+	async function applyApprovedExecution(
+		messageId: string,
+		index: number,
+		execution: ToolExecution
+	): Promise<string | null> {
 		window.dispatchEvent(
 			new CustomEvent('potionui:tool-approved', {
 				detail: { tool_name: execution.tool_name, result: execution.result }
 			})
 		);
 		if (!enableTools) return null;
-		let resultData: any;
 		try {
-			resultData = JSON.parse(execution.result?.data || '');
-		} catch {
-			return null;
-		}
-		try {
-			const outcome = dispatchToolApplied(execution.tool_name, resultData);
+			const dispatched = dispatchToolResult(toolResultId(messageId, index), execution.tool_name, execution.result?.data);
+			if (!dispatched) return null;
+			const { outcome } = dispatched;
+			const resultData = dispatched.data as any;
 			if (outcome) {
 				if (typeof outcome === 'object' && (outcome.status === 'stale' || outcome.status === 'partial')) {
 					return outcome.message || 'Only part of this change could be applied.';

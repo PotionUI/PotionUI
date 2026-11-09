@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { chatSession } from '$lib/stores/chatSession';
 import {
@@ -106,6 +106,33 @@ describe('sendMessage: control (unchanged turn, real functions)', () => {
 		expect(state.sessionId).toBe('NEW');
 		expect(state.messages).toHaveLength(2);
 		expect(state.messages[1].content).toBe('hi there');
+	});
+});
+
+describe('sendMessage: onDispatched', () => {
+	it('fires once, after the user message landed and before the request is issued', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		const order: string[] = [];
+		await sendMessage(
+			deps({
+				sendChatMessageStream: async (_sid, _payload, onEvent) => {
+					order.push('stream');
+					await onEvent!({ type: 'done', data: { assistant_message: { id: 'a1', content: 'ok' } } });
+				}
+			}),
+			{
+				...basicSendParams('hi'),
+				onDispatched: () => order.push(`dispatched:${get(chatSession).messages[0]?.content}`)
+			}
+		);
+		expect(order).toEqual(['dispatched:hi', 'stream']);
+	});
+
+	it('never fires when the session could not be created', async () => {
+		let dispatched = 0;
+		await sendMessage(deps(), { ...basicSendParams('hi'), onDispatched: () => (dispatched += 1) });
+		expect(dispatched).toBe(0);
+		expect(get(chatSession).error).toBe('Failed to create chat session');
 	});
 });
 
@@ -1011,6 +1038,167 @@ describe('item 4: streamed token coalescing and scroll-pin (createStreamEventHan
 	});
 });
 
+describe('onAssistantFinalized: every live arrival of a final assistant message', () => {
+	const toolExecutions = [
+		{ tool_name: 'save_shot', arguments: {}, result: { success: true, data: '{"shot":1}' }, duration_ms: 3 }
+	];
+
+	function finalizedDeps(overrides: Partial<ChatApiLike>, seen: UnifiedChatMessageData[]): TurnControllerDeps {
+		return { ...deps(overrides), onAssistantFinalized: (message) => seen.push(message) };
+	}
+
+	it('reports the message a done event finalized, with its tool executions', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		const seen: UnifiedChatMessageData[] = [];
+		await sendMessage(
+			finalizedDeps(
+				{
+					sendChatMessageStream: async (_sid, _payload, onEvent) => {
+						await onEvent!({
+							type: 'done',
+							data: {
+								assistant_message: { id: 'a1', role: 'assistant', content: 'Saved.', tool_executions: toolExecutions }
+							}
+						});
+					}
+				},
+				seen
+			),
+			basicSendParams('save it')
+		);
+
+		expect(seen).toHaveLength(1);
+		expect(seen[0]).toMatchObject({ id: 'a1', role: 'assistant', tool_executions: toolExecutions });
+	});
+
+	it('reports the recovered message once when a truncated done is replaced by durable recovery', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		const seen: UnifiedChatMessageData[] = [];
+		await sendMessage(
+			finalizedDeps(
+				{
+					sendChatMessageStream: async (_sid, _payload, onEvent) => {
+						await onEvent!({ type: 'message_created', data: { user_message_id: 'u1' } });
+						await onEvent!({ type: 'done', data: { truncated: true } });
+					},
+					getChatSession: async () => ({
+						success: true,
+						data: {
+							messages: [
+								{ id: 'u1', session_id: 's', role: 'user', content: 'save it', created_at: null },
+								{
+									id: 'a1',
+									session_id: 's',
+									role: 'assistant',
+									content: 'Saved.',
+									created_at: null,
+									metadata: { tool_executions: toolExecutions }
+								}
+							]
+						}
+					} as any)
+				},
+				seen
+			),
+			basicSendParams('save it')
+		);
+
+		expect(seen.map((message) => message.id)).toEqual(['a1']);
+		expect(seen[0].tool_executions).toEqual(toolExecutions);
+	});
+
+	it('reports the same message twice when a done after a gap is followed by recovery', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		const seen: UnifiedChatMessageData[] = [];
+		await sendMessage(
+			finalizedDeps(
+				{
+					sendChatMessageStream: async (_sid, _payload, onEvent) => {
+						await onEvent!({ type: 'message_created', data: { user_message_id: 'u1' } });
+						await onEvent!({ type: 'overflow', data: {} });
+						await onEvent!({
+							type: 'done',
+							data: { assistant_message: { id: 'a1', content: 'Saved.', tool_executions: toolExecutions } }
+						});
+					},
+					getChatSession: async () => ({
+						success: true,
+						data: {
+							messages: [
+								{ id: 'u1', session_id: 's', role: 'user', content: 'save it', created_at: null },
+								{
+									id: 'a1',
+									session_id: 's',
+									role: 'assistant',
+									content: 'Saved.',
+									created_at: null,
+									metadata: { tool_executions: toolExecutions }
+								}
+							]
+						}
+					} as any)
+				},
+				seen
+			),
+			basicSendParams('save it')
+		);
+
+		expect(seen.map((message) => message.id)).toEqual(['a1', 'a1']);
+	});
+
+	it('reports the answer of the non-streaming fallback', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		const seen: UnifiedChatMessageData[] = [];
+		await sendMessage(
+			finalizedDeps(
+				{
+					sendChatMessageStream: async () => {
+						throw Object.assign(new Error('never sent'), { notStarted: true as const });
+					},
+					sendChatMessage: async () => ({
+						success: true,
+						data: {
+							user_message: { id: 'u1', session_id: 's', role: 'user', content: 'save it', created_at: null },
+							assistant_message: {
+								id: 'a1',
+								session_id: 's',
+								role: 'assistant',
+								content: 'Saved.',
+								created_at: null,
+								metadata: { tool_executions: toolExecutions }
+							},
+							modified_prompt: null
+						}
+					} as any)
+				},
+				seen
+			),
+			basicSendParams('save it')
+		);
+
+		expect(seen).toHaveLength(1);
+		expect(seen[0]).toMatchObject({ id: 'a1', content: 'Saved.', tool_executions: toolExecutions });
+	});
+
+	it('reports nothing for a turn that only streamed an error', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		const seen: UnifiedChatMessageData[] = [];
+		await sendMessage(
+			finalizedDeps(
+				{
+					sendChatMessageStream: async (_sid, _payload, onEvent) => {
+						await onEvent!({ type: 'error', data: { message: 'boom' } });
+					}
+				},
+				seen
+			),
+			basicSendParams('save it')
+		);
+
+		expect(seen).toEqual([]);
+	});
+});
+
 describe('reasoning events (createStreamEventHandler)', () => {
 	async function openStream() {
 		chatSession.patch({ sessionId: 'A' });
@@ -1093,6 +1281,27 @@ describe('reasoning events (createStreamEventHandler)', () => {
 			expect.objectContaining({ kind: 'raw', text: 'weighing', duration_ms: 1840 })
 		]);
 		expect(assistant().reasoning![0].open).toBeUndefined();
+	});
+
+	it('announces each tool that ends to the page before the turn is done', async () => {
+		const deliver = await openStream();
+		const ended: unknown[] = [];
+		const page = new EventTarget();
+		page.addEventListener('potionui:tool-end', (event) => ended.push((event as CustomEvent).detail));
+		vi.stubGlobal('window', page);
+
+		await deliver({ type: 'tool_start', data: { tool_name: 'add_shots' } });
+		await deliver({ type: 'tool_end', data: { tool_name: 'add_shots', success: true } });
+		await deliver({ type: 'tool_end', data: { tool_name: 'delete_shots', success: true, approval_status: 'pending' } });
+		await deliver({ type: 'tool_end', data: { tool_name: 'read_status', success: false } });
+		await deliver({ type: 'tool_end', data: {} });
+		vi.unstubAllGlobals();
+
+		expect(ended).toEqual([
+			{ tool_name: 'add_shots', success: true, pending: false },
+			{ tool_name: 'delete_shots', success: true, pending: true },
+			{ tool_name: 'read_status', success: false, pending: false }
+		]);
 	});
 
 	it('a reasoning_end with no streamed text records an omitted block with its duration', async () => {

@@ -28,6 +28,23 @@ fields:
           model_type: "diffusion_model"
           placeholder: "Select a Flux1 DiT..."
           filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "flux1-dev.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "black-forest-labs/FLUX.1-dev", "file": "flux1-dev.safetensors", "revision": "main"}'
+              size: "22.17 GB"
+              size_bytes: 23802932552
+              precision: "bf16"
+              sha256: "4610115bb0c89560703c892c59ac2742fa821e60ef5871b33493ba544683abd7"
+              gated: true
+              license_url: "https://huggingface.co/black-forest-labs/FLUX.1-dev"
+              description: "FLUX.1 [dev] 12B DiT, bf16 - the checkpoint this preset's guidance and step defaults are set for. Gated repo: accept the FLUX.1 [dev] Non-Commercial License on Hugging Face and set a token in Admin - Plugins."
+            - name: "flux1-schnell.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Flux-1-Schnell/resolve/main/flux1-schnell.safetensors"
+              size: "22.15 GB"
+              precision: "bf16"
+              sha256: "9403429e0052277ac2a87ad800adece5481eecefd9ed334e1f348723621d2a0a"
+              description: "FLUX.1 [schnell] 12B DiT, bf16, Apache-2.0 - timestep-distilled, so 4 steps are enough and Guidance has no effect."
 
       - name: "text_encoder"
         type: "model"
@@ -37,6 +54,19 @@ fields:
           model_type: "text_encoder"
           placeholder: "Select the T5-XXL text encoder..."
           filter_tags: "@config:text_encoder_tags"
+          recommendations:
+            - name: "t5xxl_fp16.safetensors"
+              link: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors"
+              size: "9.12 GB"
+              precision: "fp16"
+              sha256: "6e480b09fae049a72d2a8c5fbccb8d3e92febeb233bbe9dfe7256958a9167635"
+              description: "T5-XXL encoder, fp16 reference."
+            - name: "t5xxl_fp8_e4m3fn.safetensors"
+              link: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors"
+              size: "4.56 GB"
+              precision: "fp8"
+              sha256: "7d330da4816157540d6bb7838bf63a0f02f573fc48ca4d8de34bb0cbfd514f09"
+              description: "T5-XXL encoder, fp8 e4m3fn - half of fp16."
 
       - name: "clip_l"
         type: "model"
@@ -46,6 +76,12 @@ fields:
           model_type: "text_encoder"
           placeholder: "Select the CLIP-L text encoder..."
           filter_tags: "@config:text_encoder_tags"
+          recommendations:
+            - name: "clip_l.safetensors"
+              link: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors"
+              size: "234.7 MB"
+              sha256: "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd"
+              description: "CLIP-L text encoder - the pooled vector every Flux1 DiT reads."
 
       - name: "vae"
         type: "model"
@@ -55,3 +91,9 @@ fields:
           model_type: "vae"
           placeholder: "Select Flux VAE..."
           filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "ae.safetensors"
+              link: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors"
+              size: "319.8 MB"
+              sha256: "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
+              description: "Flux1 16-channel VAE - the ae.safetensors of FLUX.1 [dev] and [schnell], the same file Z-Image uses."

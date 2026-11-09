@@ -104,7 +104,17 @@ def _make_wan_ctx(router, vae):
         router=router, vae=vae, sampling_settings={}, conditioning=[],
         steps=1, cfg=1.0, sampler="unipc", width=8, height=8, frames=1,
         fps=16.0, latent_channels=16, spatial_downscale=8, device="cuda", dtype=torch.bfloat16,
+        spec=SimpleNamespace(latent_format={}),
     )
+
+
+def test_a_wan_context_without_its_spec_fails_at_construction():
+    with pytest.raises(TypeError, match="spec"):
+        _WanCtx(
+            router=None, vae=None, sampling_settings={}, conditioning=[],
+            steps=1, cfg=1.0, sampler="unipc", width=8, height=8, frames=1,
+            fps=16.0, latent_channels=16, spatial_downscale=8, device="cuda", dtype=torch.bfloat16,
+        )
 
 
 class TestWanCtxReleaseGpu:
@@ -769,6 +779,11 @@ class _FakeVaeWrapper:
         self.offloaded += 1
 
 
+def _decode_ctx(vae_module, latent_channels=16):
+    return SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=latent_channels,
+                           spatial_downscale=8, spec=SimpleNamespace(latent_format={}))
+
+
 def test_decode_video_small_clip_no_vram_query_uses_single_decode_call():
     # device="cpu" -> free_vram_gb(...) is None -> causal3d_chunk_frames must
     # return None -> the exact single .decode() call, unchanged from before
@@ -782,7 +797,7 @@ def test_decode_video_small_clip_no_vram_query_uses_single_decode_call():
         return orig_decode(z, **kw)
     vae_module.decode = counting_decode
 
-    c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
+    c = _decode_ctx(vae_module)
     latent = torch.randn(1, 16, 9, 4, 4)
     with patch("src.pipelines.pipes._shared.video.wan_experts.chunked_decode_causal3d") as mock_chunked:
         out = decode_wan_video(c, latent)
@@ -801,10 +816,10 @@ def test_decode_video_forced_chunking_matches_single_decode_output():
     vae_module = _tiny_wan_vae()
     latent = torch.randn(1, 16, 9, 4, 4)
 
-    c1 = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
+    c1 = _decode_ctx(vae_module)
     baseline = decode_wan_video(c1, latent.clone())
 
-    c2 = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
+    c2 = _decode_ctx(vae_module)
     with patch("src.pipelines.pipes._shared.video.wan_experts.causal3d_chunk_frames", return_value=3):
         chunked_out = decode_wan_video(c2, latent.clone())
 
@@ -823,7 +838,7 @@ def test_decode_video_chunked_path_receives_denormalized_latent():
         return vae.decode(z)
 
     latent = torch.randn(1, 16, 5, 4, 4)
-    c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
+    c = _decode_ctx(vae_module)
     with patch("src.pipelines.pipes._shared.video.wan_experts.causal3d_chunk_frames", return_value=2), \
          patch("src.pipelines.pipes._shared.video.wan_experts.chunked_decode_causal3d", side_effect=fake_chunked):
         decode_wan_video(c, latent.clone())
@@ -839,7 +854,7 @@ def test_decode_video_raises_on_nan_pixels_instead_of_silent_black_frame():
     # A NaN pixel must fail loudly (DecodeNumericsError), not silently clamp
     # to a black 0 via pixels_3thw_to_uint8_frames's uint8 cast.
     vae_module = _tiny_wan_vae()
-    c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
+    c = _decode_ctx(vae_module)
     latent = torch.randn(1, 16, 5, 4, 4)
     with patch("src.pipelines.pipes._shared.video.wan_experts.causal3d_chunk_frames", return_value=None), \
          patch.object(vae_module, "decode", return_value=torch.full((1, 3, 5, 4, 4), float("nan"))):
@@ -849,7 +864,7 @@ def test_decode_video_raises_on_nan_pixels_instead_of_silent_black_frame():
 
 def test_decode_video_finite_pixels_pass_through_unaffected():
     vae_module = _tiny_wan_vae()
-    c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
+    c = _decode_ctx(vae_module)
     latent = torch.randn(1, 16, 5, 4, 4)
     out = decode_wan_video(c, latent)
     assert out.dtype == np.uint8
@@ -868,7 +883,7 @@ def test_decode_video_wan22_5b_48ch_skips_normalization_in_both_paths():
         return torch.zeros(1, 3, z.shape[2], z.shape[3] * 8, z.shape[4] * 8)
 
     latent = torch.randn(1, 48, 5, 4, 4)
-    c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=48)
+    c = _decode_ctx(vae_module, latent_channels=48)
     with patch("src.pipelines.pipes._shared.video.wan_experts.causal3d_chunk_frames", return_value=2), \
          patch("src.pipelines.pipes._shared.video.wan_experts.chunked_decode_causal3d", side_effect=fake_chunked):
         decode_wan_video(c, latent.clone())

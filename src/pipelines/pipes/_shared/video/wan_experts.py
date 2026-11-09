@@ -15,7 +15,16 @@ from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
 from src.platform.runtime.native.sampling.denoise_loop import schedule_from_settings
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
-from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, chunked_decode_causal3d
+from src.platform.runtime.native.vae.tiling import (
+    causal3d_chunk_frames,
+    causal3d_decode_mb_per_latent_px,
+    causal3d_decode_overlap,
+    causal3d_decode_tile,
+    causal3d_frame_need_gb,
+    chunked_decode_causal3d,
+    smaller_decode_tile,
+    tiled_decode_causal3d,
+)
 from src.pipelines.contracts import logger
 from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb, _move_resident, _release_idle_pool
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
@@ -165,7 +174,80 @@ def resolve_expert_boundary(spec, config: dict, sampling_settings: dict, steps: 
     return boundary
 
 
+def _decode_mb_per_latent_px(c: Any) -> float:
+    return causal3d_decode_mb_per_latent_px(c.spatial_downscale, c.spec.latent_format)
+
+
+def _make_room_for_decode(c: Any, latent: torch.Tensor) -> None:
+    if not str(c.device).startswith("cuda") or not torch.cuda.is_available():
+        return
+    free = effective_free_vram_gb(c.device)
+    if free is None:
+        return
+    need = causal3d_frame_need_gb((latent.shape[-2], latent.shape[-1]), vae_resident_gb=float(c.vae.estimated_vram_gb or 0.0),
+                                  decode_mb_per_latent_px=_decode_mb_per_latent_px(c))
+    evicted = get_residency_registry().ensure_free(c.device, need, free, exclude=[c.vae])
+    if evicted:
+        logger.info("[WAN DECODE] evicted %d resident component(s) (%s) before the VAE decode: %.2fGB needed, "
+                    "%.2fGB free", len(evicted), ", ".join(type(m).__name__ for m in evicted), need, free)
+        _release_idle_pool(c.device)
+
+
+def _clear_card_for_decode(c: Any) -> None:
+    if not str(c.device).startswith("cuda") or not torch.cuda.is_available():
+        return
+    get_residency_registry().offload_all(c.device, exclude=[c.vae])
+    _release_idle_pool(c.device)
+
+
+def _decode_latent(vae_module, z: torch.Tensor, chunk_frames: int | None) -> torch.Tensor:
+    if chunk_frames is None:
+        return vae_module.decode(z)
+    return chunked_decode_causal3d(vae_module, z, chunk_latent_frames=chunk_frames, accumulate_device="cpu")
+
+
+def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
+    mb_per_latent_px = _decode_mb_per_latent_px(c)
+    tile = causal3d_decode_tile((z.shape[-2], z.shape[-1]), free, decode_mb_per_latent_px=mb_per_latent_px)
+    scale = c.spatial_downscale
+    logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free (%.1f MB per latent px at %dx): decoding in "
+                "spatial tiles of %d latent px, one latent frame at a time", free, mb_per_latent_px, scale, tile)
+    while True:
+        try:
+            return tiled_decode_causal3d(
+                c.vae.module, z, tile_size=tile, overlap=causal3d_decode_overlap(tile), scale=scale,
+                accumulate_device="cpu", chunk_latent_frames=1,
+            )
+        except RuntimeError as exc:
+            smaller = smaller_decode_tile(tile)
+            if not retry_after_cuda_oom(exc) or smaller >= tile:
+                raise
+            logger.warning("[WAN DECODE] tiled VAE decode failed for lack of VRAM at %d latent px (%s); "
+                           "clearing the card and retrying at %d", tile, str(exc).splitlines()[0][:200], smaller)
+        _clear_card_for_decode(c)
+        tile = smaller
+
+
+def _decode_pixels(c: Any, z: torch.Tensor) -> torch.Tensor:
+    free = effective_free_vram_gb(c.device)
+    mb_per_latent_px = _decode_mb_per_latent_px(c)
+    if free is not None and free < causal3d_frame_need_gb((z.shape[-2], z.shape[-1]), decode_mb_per_latent_px=mb_per_latent_px):
+        return _decode_tiled(c, z, free)
+    chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free, decode_mb_per_latent_px=mb_per_latent_px)
+    try:
+        return _decode_latent(c.vae.module, z, chunk_frames)
+    except RuntimeError as exc:
+        if not retry_after_cuda_oom(exc):
+            raise
+        logger.warning("[WAN DECODE] VAE decode failed for lack of VRAM at %s latent frame(s) per chunk (%s); "
+                       "clearing the card and decoding one latent frame at a time",
+                       chunk_frames or int(z.shape[2]), str(exc).splitlines()[0][:200])
+    _clear_card_for_decode(c)
+    return _decode_latent(c.vae.module, z, 1)
+
+
 def decode_wan_video(c: Any, latent: torch.Tensor) -> np.ndarray:
+    _make_room_for_decode(c, latent)
     c.vae.move_to(c.device)
     z = latent.to(device=c.device, dtype=c.vae.compute_dtype)
     if c.latent_channels == len(LATENTS_MEAN):
@@ -174,13 +256,7 @@ def decode_wan_video(c: Any, latent: torch.Tensor) -> np.ndarray:
         z = z * std + mean
 
     with torch.no_grad():
-        chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free_vram_gb(c.device))
-        if chunk_frames is not None:
-            pixels = chunked_decode_causal3d(
-                c.vae.module, z, chunk_latent_frames=chunk_frames, accumulate_device="cpu",
-            )
-        else:
-            pixels = c.vae.module.decode(z)
+        pixels = _decode_pixels(c, z)
     c.vae.offload()
 
     if not torch.isfinite(pixels).all():

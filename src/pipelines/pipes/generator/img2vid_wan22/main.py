@@ -94,7 +94,7 @@ class _Ctx:
     spatial_downscale: int
     device: str
     dtype: torch.dtype
-    spec: Any = None
+    spec: Any
 
     def release_gpu(self) -> None:
         """Best-effort GPU cleanup on a failed generation: offload whichever

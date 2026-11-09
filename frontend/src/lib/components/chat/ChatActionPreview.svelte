@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
-	import type { ToolExecution } from '$lib/types/chat';
+	import type { ToolApprovalRegionRow, ToolApprovalTimelineRow, ToolExecution } from '$lib/types/chat';
 	import {
 		buildApprovalDiff,
 		buildArgumentTree,
@@ -31,8 +31,11 @@
 	const kind = $derived(preview?.kind ?? null);
 	const textBlocks = $derived(kind === 'generation' || kind === 'text_edit' ? (preview?.text_blocks ?? []) : []);
 	const fields = $derived(kind === 'generation' || kind === 'text_edit' ? (preview?.fields ?? []) : []);
-	const rows = $derived(kind === 'timeline' ? (preview?.rows ?? []) : []);
-	const hasTyped = $derived(textBlocks.length > 0 || fields.length > 0 || rows.length > 0);
+	const rows = $derived(kind === 'timeline' ? ((preview?.rows ?? []) as ToolApprovalTimelineRow[]) : []);
+	const regionRows = $derived(kind === 'regions' ? ((preview?.rows ?? []) as ToolApprovalRegionRow[]) : []);
+	const hasTyped = $derived(
+		textBlocks.length > 0 || fields.length > 0 || rows.length > 0 || regionRows.length > 0
+	);
 	const changeGroups = $derived(hasTyped ? null : buildDirectorChangeGroups(preview));
 	const diff = $derived(hasTyped || changeGroups ? null : buildApprovalDiff(execution));
 	const legacy = $derived(!hasTyped && !changeGroups && !diff && preview?.action ? preview : null);
@@ -119,6 +122,20 @@
 					<span class="action-range mono">{row.range}</span>
 					<span class="action-timeline-text">
 						{#if row.op}<span class="action-op">{row.op}</span>{/if}{row.text}
+					</span>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	{#if regionRows.length}
+		<div class="action-timeline" data-testid="action-regions">
+			{#each regionRows as row, i (row.position + row.size + i)}
+				<div class="action-timeline-row">
+					<span class="action-range mono">{i + 1}</span>
+					<span class="action-timeline-text">
+						<span class="action-range mono">{row.position} · {row.size}</span>
+						<span class="block">{row.text}</span>
 					</span>
 				</div>
 			{/each}

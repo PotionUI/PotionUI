@@ -29,6 +29,7 @@
 	import type { GenerationTab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
+	import type { RegionalCaps } from '$lib/regional/regions';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import type { PresetInfo, PresetStyle } from '$lib/services/api/index';
@@ -36,6 +37,7 @@
 	export let tab: GenerationTab;
 	export let tabHandlers: any;
 	export let promptRelayActive: boolean;
+	export let regionalCaps: RegionalCaps | null = null;
 	export let videoDirectorActive: boolean = false;
 	export let videoDirectorCaps: DirectorCapabilities | null = null;
 	export let musicDirectorActive: boolean = false;
@@ -318,6 +320,7 @@
 					{tab}
 					{tabHandlers}
 					{promptRelayActive}
+					{regionalCaps}
 					{videoDirectorActive}
 					{videoDirectorCaps}
 					{musicDirectorActive}
@@ -427,6 +430,7 @@
 							{tab}
 							{tabHandlers}
 							{promptRelayActive}
+							{regionalCaps}
 							{videoDirectorActive}
 							{videoDirectorCaps}
 							{musicDirectorActive}
@@ -485,6 +489,7 @@
 							{tab}
 							{tabHandlers}
 							{promptRelayActive}
+							{regionalCaps}
 							{videoDirectorActive}
 							{videoDirectorCaps}
 							{musicDirectorActive}

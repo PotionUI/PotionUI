@@ -741,6 +741,7 @@
 	// Prompt Relay: modes (per current preset) whose prompt section uses the
 	// timeline-based Prompt Relay editor instead of the standard prompt editors.
 	$: promptRelayActive = requestContext.promptRelayActive;
+	$: regionalCaps = requestContext.regionalCaps;
 
 	// Video Director: modes (per current preset) whose prompt section uses the
 	// structured multi-mode video composition editor instead of the standard
@@ -1951,6 +1952,7 @@
 						isReloadingPreset={isReloadingPreset && tab.id === activeTabId}
 						{tabModes}
 						{promptRelayActive}
+						{regionalCaps}
 						{videoDirectorActive}
 						{videoDirectorCaps}
 						{musicDirectorActive}
@@ -1990,6 +1992,7 @@
 								{tab}
 								{tabHandlers}
 								{promptRelayActive}
+								{regionalCaps}
 								{videoDirectorActive}
 								{videoDirectorCaps}
 								{musicDirectorActive}

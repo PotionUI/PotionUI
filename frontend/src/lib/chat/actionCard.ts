@@ -124,6 +124,7 @@ export function actionCardIcon(execution: ToolExecution): string {
 	if (kind === 'generation') return 'chat-sparkles';
 	if (kind === 'text_edit') return 'chat-edit';
 	if (kind === 'timeline') return 'chat-clock';
+	if (kind === 'regions') return 'chat-sliders';
 	if (buildApprovalDiff(execution)) return 'chat-sliders';
 	return 'chat-tools';
 }

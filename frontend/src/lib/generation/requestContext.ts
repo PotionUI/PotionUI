@@ -5,6 +5,7 @@ import { parseDirectorCapabilities, resolveDirectorRaw } from '$lib/utils/videoD
 import { applyModelOverlay, type DirectorModelOverlay } from '$lib/utils/cloudDirector';
 import { resolveMusicDirectorCapabilities } from '$lib/utils/musicDirector';
 import { isOptionalPromptMode, isPromptlessMode } from '$lib/utils/promptlessMode';
+import { resolveRegionalCaps, type RegionalCaps } from '$lib/regional/regions';
 
 export interface RequestContext {
 	segmentJoin: SegmentJoin;
@@ -15,6 +16,7 @@ export interface RequestContext {
 	videoDirectorActive: boolean;
 	musicDirectorCaps: MusicDirectorCapabilities | null;
 	musicDirectorActive: boolean;
+	regionalCaps: RegionalCaps | null;
 }
 
 type PresetVars = Record<string, any> | null | undefined;
@@ -40,7 +42,8 @@ export function resolveRequestContext(
 		videoDirectorCaps,
 		videoDirectorActive: modeEnabled(videoDirectorCaps, mode),
 		musicDirectorCaps,
-		musicDirectorActive: modeEnabled(musicDirectorCaps, mode)
+		musicDirectorActive: modeEnabled(musicDirectorCaps, mode),
+		regionalCaps: resolveRegionalCaps(vars, mode)
 	};
 }
 
@@ -60,6 +63,7 @@ function contextKey(
 		vars?.prompt_relay_modes ?? null,
 		vars?.promptless_modes ?? null,
 		vars?.optional_prompt_modes ?? null,
+		vars?.regional_prompt ?? null,
 		directorOverlay
 	]);
 }

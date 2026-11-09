@@ -64,6 +64,13 @@ export interface ToolApprovalTimelineRow {
 	op?: string;
 }
 
+/** One region row inside a `kind: 'regions'` preview's `rows`. */
+export interface ToolApprovalRegionRow {
+	position: string;
+	size: string;
+	text: string;
+}
+
 /**
  * A structured, human-facing preview of an action awaiting approval, filled by
  * a `requires_approval` tool. Lets the approval surface state intent — the
@@ -83,7 +90,7 @@ export interface ToolApprovalPreview {
 	 * to `changes`, then the legacy action/target/items/note shape, then the
 	 * generic argument tree — so older previews keep rendering unchanged.
 	 */
-	kind?: 'generation' | 'timeline' | 'text_edit' | null;
+	kind?: 'generation' | 'timeline' | 'text_edit' | 'regions' | null;
 	/** One-line compact-row text. When absent the dock derives one from
 	 * whatever shape is present (action/target, or a tool-label + arg count). */
 	summary?: string | null;
@@ -91,8 +98,8 @@ export interface ToolApprovalPreview {
 	fields?: ToolApprovalField[] | null;
 	/** Prompt-style blocks for `kind: 'generation'` (plain) and `kind: 'text_edit'` (diff, via `old_text`). */
 	text_blocks?: ToolApprovalTextBlock[] | null;
-	/** Scene rows for `kind: 'timeline'`. */
-	rows?: ToolApprovalTimelineRow[] | null;
+	/** Scene rows for `kind: 'timeline'`, region rows for `kind: 'regions'`. */
+	rows?: Array<ToolApprovalTimelineRow | ToolApprovalRegionRow> | null;
 }
 
 export type ToolApprovalStatus = 'pending' | 'approved' | 'rejected' | 'failed' | 'expired';

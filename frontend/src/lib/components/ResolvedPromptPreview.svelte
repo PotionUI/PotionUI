@@ -18,6 +18,7 @@
 	export let resourceFieldValues: Record<string, unknown> = {};
 	export let promptSyntax: PromptSyntaxSpec[] = [];
 	export let variables: VariablesMap | undefined = undefined;
+	export let compilePrompt: ((resolved: string) => string) | null = null;
 
 	const resourceNumbering =
 		getContext<Readable<ResourceNumbering | null> | undefined>(RESOURCE_NUMBERING_CONTEXT_KEY) ?? EMPTY_RESOURCE_NUMBERING;
@@ -29,10 +30,11 @@
 	$: previewVariables = resolvePreviewVariables(variables);
 	$: promptConditions = previewConditions(prompt, variables);
 	$: negativeConditions = previewConditions(negativePrompt, variables);
-	$: resolvedPrompt = substituteVariables(
+	$: resolvedBase = substituteVariables(
 		resolveResourceMarkers(promptConditions.text, promptResources, resourceFieldValues, $resourceNumbering),
 		previewVariables.replacements
 	);
+	$: resolvedPrompt = compilePrompt ? compilePrompt(resolvedBase) : resolvedBase;
 	$: resolvedNegativePrompt = substituteVariables(
 		resolveResourceMarkers(negativeConditions.text, promptResources, resourceFieldValues, $resourceNumbering),
 		previewVariables.replacements

@@ -10,6 +10,7 @@
 	import type { GenerationTab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
+	import type { RegionalCaps } from '$lib/regional/regions';
 	import type { VariablesMap, VariableDef } from '$lib/utils/variableDefs';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { PresetStyle } from '$lib/types/api';
@@ -18,7 +19,7 @@
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import PromptTabs from '$lib/components/PromptTabs.svelte';
 	import { DEFAULT_PROMPT_PLACEHOLDER, NO_PROMPT_COPY, promptTitle, type PromptCopy } from '$lib/utils/promptModeCopy';
-	import { Alert, Button } from '$lib/components/ui';
+	import { Alert, Button, SegmentedControl } from '$lib/components/ui';
 	import {
 		BATCH_CAP_MESSAGE,
 		activePromptIndex,
@@ -33,6 +34,15 @@
 		selectPrompt,
 		type PromptListPatch
 	} from '$lib/generation/promptBatch';
+	import RegionalPromptEditor from '$lib/components/regional/RegionalPromptEditor.svelte';
+	import { compileMossPrompt } from '$lib/regional/compile';
+	import {
+		REGIONAL_FORM_KEY,
+		parseCanvasSize,
+		readRegionalValue,
+		regionalSwitchCount,
+		type Region
+	} from '$lib/regional/regions';
 	import PromptRelayEditor from '$lib/components/PromptRelayEditor.svelte';
 	import VideoDirectorEditor from '$lib/components/video-director/VideoDirectorEditor.svelte';
 	import MusicDirectorEditor from '$lib/components/music-director/MusicDirectorEditor.svelte';
@@ -65,6 +75,7 @@
 		tab,
 		tabHandlers,
 		promptRelayActive,
+		regionalCaps = null,
 		videoDirectorActive = false,
 		videoDirectorCaps = null,
 		directorRuns = undefined,
@@ -83,6 +94,7 @@
 		tab: GenerationTab;
 		tabHandlers: TabHandlers;
 		promptRelayActive: boolean;
+		regionalCaps?: RegionalCaps | null;
 		videoDirectorActive?: boolean;
 		videoDirectorCaps?: DirectorCapabilities | null;
 		directorRuns?: Record<string, DirectorRunState> | undefined;
@@ -135,6 +147,28 @@
 	const videoDirectorValue = $derived(tab.videoDirector);
 	const musicDirectorValue = $derived(tab.musicDirector);
 	const promptRelayValue = $derived(tab.promptRelay);
+
+	const regionalValue = $derived(regionalCaps ? readRegionalValue(tab.formData) : null);
+	const regionalOn = $derived(!!regionalCaps && !!regionalValue?.enabled);
+	const canvasSize = $derived(parseCanvasSize(regionalCaps ? tab.formData?.[regionalCaps.sizeField] : undefined));
+	const regionalCompile = $derived(
+		regionalOn && regionalValue
+			? (resolved: string) => compileMossPrompt(resolved, regionalValue.items, canvasSize.width, canvasSize.height)
+			: null
+	);
+	const regionalItems = [
+		{ id: 'text', label: 'Text' },
+		{ id: 'regional', label: 'Regional' }
+	];
+	const regionalSwitchItems = $derived(
+		regionalItems.map((item) =>
+			item.id === 'regional' && regionalValue ? { ...item, count: regionalSwitchCount(regionalValue) } : item
+		)
+	);
+
+	function writeRegional(next: { enabled: boolean; items: Region[] }) {
+		tabsStore.updateTab(tabId, { formData: { ...(tab.formData || {}), [REGIONAL_FORM_KEY]: next } });
+	}
 
 	const variableCount = $derived(Object.keys(variables).length);
 	const usageCounts = $derived(
@@ -307,6 +341,17 @@
 				on:segmentsChange={(e) => tabHandlers.handlePromptSegmentsChange(e.detail)}
 				on:negativeSegmentsChange={(e) => tabHandlers.handleNegativePromptSegmentsChange(e.detail)}
 			>
+				{#snippet afterMain()}
+					{#if regionalOn && regionalValue}
+						<div class="mt-3">
+							<RegionalPromptEditor
+								items={regionalValue.items}
+								size={canvasSize}
+								onChange={(items) => writeRegional({ enabled: true, items })}
+							/>
+						</div>
+					{/if}
+				{/snippet}
 				{#snippet titleExtra()}
 					<PromptTabs
 						{prompts}
@@ -321,7 +366,21 @@
 						onDuplicate={(index) => applyPatch(duplicatePrompt(tab, index))}
 						onDelete={(index) => applyPatch(deletePrompt(tab, index))}
 						onRename={(index, name) => applyPatch(renamePrompt(tab, index, name))}
-					/>
+					>
+						{#snippet trailing()}
+							{#if regionalCaps && regionalValue}
+								<span class="ml-1 flex flex-none items-center self-center">
+									<SegmentedControl
+										variant="toggle"
+										ariaLabel="Prompt mode"
+										items={regionalSwitchItems}
+										selected={regionalOn ? 'regional' : 'text'}
+										onSelect={(id) => writeRegional({ enabled: id === 'regional', items: regionalValue.items })}
+									/>
+								</span>
+							{/if}
+						{/snippet}
+					</PromptTabs>
 				{/snippet}
 			</SegmentedPromptEditor>
 			{#if summary.overCap}
@@ -352,6 +411,7 @@
 					{resourceFieldValues}
 					promptSyntax={promptSyntaxSpecs}
 					{variables}
+					compilePrompt={regionalCompile}
 				/>
 			</div>
 		</div>

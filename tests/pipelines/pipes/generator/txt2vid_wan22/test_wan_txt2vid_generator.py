@@ -21,6 +21,7 @@ from src.pipelines.pipes.generator.txt2vid_wan22.main import _WanCtx, GeneratorW
 from src.pipelines.pipes._shared.video.wan_experts import ExpertRouter
 from src.pipelines.pipes._shared.video.wan_experts import decode_wan_video
 from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb
+from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 
 
 class _FakeDiT:
@@ -76,6 +77,7 @@ def _expert_budget(preview_reserve_gb=None):
         router.preview_reserve_gb = preview_reserve_gb
     registry = SimpleNamespace(ensure_free=lambda *a, **k: [])
     with patch("src.pipelines.pipes._shared.video.wan_experts.free_vram_gb", return_value=24.0), \
+         patch("src.pipelines.pipes._shared.video.wan_experts.effective_free_vram_gb", return_value=24.0), \
          patch("src.pipelines.pipes._shared.video.wan_experts.get_residency_registry", return_value=registry):
         return router._weights_budget_gb(high)
 
@@ -922,6 +924,7 @@ class _FakeResidency:
 def _patch_placement(monkeypatch, free_gb):
     res = _FakeResidency()
     monkeypatch.setattr(_wan_mod, "free_vram_gb", lambda device: free_gb)
+    monkeypatch.setattr(_wan_mod, "effective_free_vram_gb", lambda device: free_gb)
     monkeypatch.setattr(_wan_mod, "get_residency_registry", lambda: res)
     return res
 
@@ -1122,7 +1125,8 @@ def test_router_weights_budget_credits_resident_lora_delta(monkeypatch):
 
     assert res.ensure_free_calls
     need, _free, _exclude = res.ensure_free_calls[0]
-    assert need == pytest.approx(20.0 + expected_delta_gb)
+    reserve = sampling_headroom_gb(_HIRES_5S[-2:], latent_frames=_HIRES_5S[2])
+    assert need == pytest.approx(20.0 + expected_delta_gb + reserve)
 
 
 def test_router_resident_placement_routes_through_guarded_move(monkeypatch):

@@ -4,7 +4,12 @@ from typing import Any
 import numpy as np
 import torch
 from src.platform.runtime.native.errors import DecodeNumericsError, retry_after_cuda_oom
-from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
+from src.platform.runtime.native.memory.residency import (
+    effective_free_vram_gb,
+    free_vram_gb,
+    get_residency_registry,
+    minimum_inference_memory_gb,
+)
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
@@ -12,7 +17,7 @@ from src.platform.runtime.native.sampling.denoise_loop import schedule_from_sett
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, chunked_decode_causal3d
 from src.pipelines.contracts import logger
-from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb, _move_resident
+from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb, _move_resident, _release_idle_pool
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
 
 
@@ -70,15 +75,23 @@ class ExpertRouter:
 
     def _weights_budget_gb(self, dit) -> float:
         need = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + _dit_lora_delta_gb(dit)
+        _release_idle_pool(self.device)
         free = free_vram_gb(self.device)
         if free is None:
             return need
-        get_residency_registry().ensure_free(self.device, need, free, exclude=self._own_experts())
-        free = free_vram_gb(self.device) or 0.0
         shape = self.latents_shape
         frames = shape[2] if len(shape) == 5 else 1
         headroom = sampling_headroom_gb((shape[-2], shape[-1]), latent_frames=frames)
-        return max(0.0, free - headroom - max(0.0, float(self.preview_reserve_gb)))
+        headroom += max(0.0, float(self.preview_reserve_gb))
+        reserve = max(minimum_inference_memory_gb(), headroom)
+        target = need + reserve if need > 0.0 else 0.0
+        evicted = get_residency_registry().ensure_free(self.device, target, free, exclude=self._own_experts())
+        if evicted:
+            logger.debug("[GENERATOR WAN] evicted %s for %.2fGB of expert weights + %.2fGB reserve (%.2fGB free)",
+                         ", ".join(type(m).__name__ for m in evicted), need, reserve, free)
+            _release_idle_pool(self.device)
+        free = effective_free_vram_gb(self.device) or 0.0
+        return max(0.0, free - headroom)
 
     def _place_expert(self, dit) -> None:
         if self.active is not None:

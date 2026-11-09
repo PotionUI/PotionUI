@@ -103,6 +103,9 @@ class IFNet(nn.Module):
     rife47-49 (feature-encoder) variants; loader.py derives the specs from a
     checkpoint's state dict."""
 
+    scale_base = (8.0, 4.0, 2.0, 1.0)
+    pad_modulo = 128
+
     def __init__(self, block_specs: List[tuple], encode_spec: Optional[tuple] = None):
         super().__init__()
         self.num_blocks = len(block_specs)

@@ -46,6 +46,14 @@
               2
             ],
             [
+              "target_fps",
+              0
+            ],
+            [
+              "scene_detection",
+              true
+            ],
+            [
               "flow_scale",
               1.0
             ],
@@ -88,6 +96,14 @@
         "model.name": {
           "type": "str",
           "value": "/GOLDEN/models/model.safetensors"
+        },
+        "scene_detection": {
+          "type": "bool",
+          "value": true
+        },
+        "target_fps": {
+          "type": "int",
+          "value": 0
         }
       },
       "enabled": {

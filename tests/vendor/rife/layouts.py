@@ -12,7 +12,9 @@ specification the loader is tested against, and generating them from the code
 under test is what let a loader that rejected every real checkpoint look green.
 """
 
+import json
 from collections import OrderedDict
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import torch
@@ -85,3 +87,8 @@ def state_dict_for(shapes: Dict[str, tuple], seed: int = 0) -> "OrderedDict[str,
         (key, torch.randn(*shape, generator=generator) * 0.02)
         for key, shape in shapes.items()
     )
+
+
+def published_head_layout(name: str) -> Dict[str, tuple]:
+    data = json.loads((Path(__file__).with_name("published_head_layouts.json")).read_text(encoding="utf-8"))
+    return OrderedDict((key, tuple(shape)) for key, shape in data[name].items())

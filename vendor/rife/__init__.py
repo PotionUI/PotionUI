@@ -2,12 +2,14 @@
 # Copyright (c) 2021 hzwer). See ifnet.py for the full provenance note.
 
 from .ifnet import IFNet
+from .ifnet_head import HeadIFNet
 from .inference import interpolate, pad_dims
 from .loader import SUPPORTED_FAMILY, load_ifnet
 from .warp import warp
 
 __all__ = [
     "IFNet",
+    "HeadIFNet",
     "load_ifnet",
     "interpolate",
     "pad_dims",

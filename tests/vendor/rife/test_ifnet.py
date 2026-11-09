@@ -111,15 +111,13 @@ def test_loader_reads_nested_state_dict_key():
 
 # -- layouts that are NOT this family are refused, not mis-built --------------
 
-def test_loader_rejects_head_style_encoder():
-    # The rife4.10+ line ships a multi-scale `Head` encoder (encode.cnn0..cnn3)
-    # and a different forward; it must be refused, not silently loaded.
+def test_loader_rejects_head_encoder_over_featureless_blocks():
     state = state_dict_for({
         **real_layout(REAL_ENCODER_BLOCKS, with_encoder=False),
         **head_style_encoder_layout(),
     })
 
-    with pytest.raises(ValueError, match="encode"):
+    with pytest.raises(ValueError, match="rife4.10 to rife4.20"):
         load_ifnet(state, "cpu")
 
 
@@ -134,7 +132,7 @@ def test_loads_real_checkpoints_from_models_dir():
     files = [
         path
         for directory in REAL_CHECKPOINT_DIRS
-        for pattern in ("*.pth", "*.safetensors")
+        for pattern in ("*.pth", "*.pkl", "*.safetensors")
         for path in sorted(Path(directory).glob(pattern))
     ]
     if not files:

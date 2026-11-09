@@ -48,11 +48,15 @@ async def test_preview_memory_refuses_an_unassigned_preset_before_loading_it():
 
 
 @pytest.mark.asyncio
-async def test_unknown_user_is_refused():
-    instance = _orchestrator(["family/variant"], user_known=False)
+@pytest.mark.parametrize("entry_point", ["start_generation", "preview_memory"])
+async def test_a_user_id_the_user_repository_cannot_resolve_is_refused(entry_point):
+    instance = _orchestrator(["setup/variant"], user_known=False)
 
     with pytest.raises(PresetNotFoundException):
-        await instance.start_generation(_request(), "u1")
+        await getattr(instance, entry_point)(_request("setup/variant"), "setup")
+
+    instance.user_repository.get_by_id.assert_called_once_with("setup")
+    instance.preset_template_loader.load_preset_by_id.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -72,9 +76,13 @@ async def test_assigned_and_admin_users_get_past_the_gate(entry_point, available
 
 
 @pytest.mark.asyncio
-async def test_an_unwired_orchestrator_does_not_gate():
+@pytest.mark.parametrize("entry_point", ["start_generation", "preview_memory"])
+@pytest.mark.parametrize("unwired", ["database_preset_repository", "user_repository"])
+async def test_an_unwired_orchestrator_does_not_gate(entry_point, unwired):
     instance = _orchestrator([])
-    instance.user_repository = None
+    setattr(instance, unwired, None)
 
     with pytest.raises(ValueError, match="not found"):
-        await instance.start_generation(_request(), "u1")
+        await getattr(instance, entry_point)(_request(), "u1")
+
+    instance.preset_template_loader.load_preset_by_id.assert_called_once_with("family/variant")

@@ -192,6 +192,42 @@ class TestExecuteConfirmed:
         assert "/srv/models/private" not in result.error
 
 
+class TestPresetAssignment:
+    @staticmethod
+    def _collaborators(assigned):
+        collaborators = MagicMock()
+        collaborators.db_repo.get_available_preset_ids_for_user.return_value = assigned
+        collaborators.file_repo.find_preset_by_id.return_value = MagicMock(modes={"txt2img": {}})
+        return collaborators
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["execute", "execute_confirmed"])
+    async def test_an_unassigned_regular_user_is_refused(self, method):
+        orchestrator = make_orchestrator()
+        ctx = make_context(generation_orchestrator=orchestrator, preset_collaborators=self._collaborators([]))
+
+        result = await getattr(StartGenerationTool(), method)(ctx, preset_id="sdxl/base")
+
+        assert result.success is False
+        assert "No preset 'sdxl/base'" in result.error
+        orchestrator.start_generation.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_an_admin_passes_without_an_assignment(self):
+        ctx = ToolContext(user_id="admin-1", is_admin=True, preset_collaborators=self._collaborators([]))
+
+        result = await StartGenerationTool().execute(ctx, preset_id="sdxl/base")
+
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_an_assigned_regular_user_passes(self):
+        ctx = make_context(preset_collaborators=self._collaborators(["sdxl/base"]))
+
+        result = await StartGenerationTool().execute(ctx, preset_id="sdxl/base")
+
+        assert result.success is True
+
 class TestMediaOverrideValidation:
     @pytest.mark.asyncio
     async def test_rejects_media_override_pointing_outside_storage_root(self, tmp_path):

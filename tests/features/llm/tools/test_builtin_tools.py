@@ -1971,6 +1971,27 @@ class TestEnhancePromptTool:
         })
         return manager
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "assigned,is_admin,succeeds",
+        [([], False, False), (["p-1"], False, True), ([], True, True)],
+        ids=["unassigned-user", "assigned-user", "admin"],
+    )
+    async def test_grounding_preset_requires_assignment(self, assigned, is_admin, succeeds):
+        manager = self._manager()
+        collaborators = MagicMock()
+        collaborators.db_repo.get_available_preset_ids_for_user.return_value = assigned
+        ctx = make_context(
+            prompt_enhancement_manager=manager, llm_id="llm-1", preset_collaborators=collaborators, is_admin=is_admin,
+        )
+
+        result = await self._tool().execute(ctx, brief="a cat", preset_id="p-1")
+
+        assert result.success is succeeds
+        assert manager.enhance.await_count == int(succeeds)
+        if not succeeds:
+            assert "No preset 'p-1'" in result.error
+
     def test_name_and_schema(self):
         tool = self._tool()
         assert tool.name == "enhance_prompt"

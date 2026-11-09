@@ -104,7 +104,17 @@ def _make_wan_ctx(router, vae):
         router=router, vae=vae, sampling_settings={}, conditioning=[],
         steps=1, cfg=1.0, sampler="unipc", width=8, height=8, frames=1,
         fps=16.0, latent_channels=16, spatial_downscale=8, device="cuda", dtype=torch.bfloat16,
+        spec=SimpleNamespace(latent_format={}),
     )
+
+
+def test_a_wan_context_without_its_spec_fails_at_construction():
+    with pytest.raises(TypeError, match="spec"):
+        _WanCtx(
+            router=None, vae=None, sampling_settings={}, conditioning=[],
+            steps=1, cfg=1.0, sampler="unipc", width=8, height=8, frames=1,
+            fps=16.0, latent_channels=16, spatial_downscale=8, device="cuda", dtype=torch.bfloat16,
+        )
 
 
 class TestWanCtxReleaseGpu:

@@ -1027,6 +1027,15 @@ def test_t2v_picker_5b_recommendation_points_image_shots_to_the_i2v_picker(wan_t
     assert "pick the same file in the i2v picker" in five_b["description"]
 
 
+def test_the_wan_preset_files_no_longer_say_the_5b_makes_text_to_video_only(wan_template):
+    root = Path(wan_template.path)
+    texts = [(root / "preset.yml").read_text(encoding="utf-8"), (root / "modes" / "video" / "pipeline.yml").read_text(encoding="utf-8")]
+    for text in texts:
+        assert "TEXT-TO-VIDEO ONLY" not in text
+        assert "5B TI2V checkpoint belongs in the t2v" not in text
+        assert "never the 5B file" not in text
+
+
 def test_i2v_mode_with_5b_checkpoint_selection_keeps_value_and_routes_to_the_i2v_generator(wan_template):
     five_b_path = "/models/wan2.2_ti2v_5B_fp16.safetensors"
     pipes = _process(wan_template, DOC_I2V, form_over={"i2v_high_noise_model": five_b_path})

@@ -184,7 +184,7 @@ def _make_room_for_decode(c: Any, latent: torch.Tensor) -> None:
     free = effective_free_vram_gb(c.device)
     if free is None:
         return
-    need = causal3d_frame_need_gb((latent.shape[-2], latent.shape[-1]), vae_resident_gb=c.vae.estimated_vram_gb,
+    need = causal3d_frame_need_gb((latent.shape[-2], latent.shape[-1]), vae_resident_gb=float(c.vae.estimated_vram_gb or 0.0),
                                   decode_mb_per_latent_px=_decode_mb_per_latent_px(c))
     evicted = get_residency_registry().ensure_free(c.device, need, free, exclude=[c.vae])
     if evicted:

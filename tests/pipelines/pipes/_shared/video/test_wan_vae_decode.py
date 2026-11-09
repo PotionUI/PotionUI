@@ -104,6 +104,17 @@ def test_making_room_counts_the_weights_of_the_vae_still_to_land(monkeypatch):
     assert encoder.offloads == 1
 
 
+def test_making_room_prices_a_vae_of_unknown_size_as_weightless(monkeypatch):
+    need = causal3d_frame_need_gb((60, 104), vae_resident_gb=0.0)
+    _registry, encoder, _released = _on_the_card(monkeypatch, need + 0.01)
+    c = _ctx(device="cuda:0")
+    c.vae.estimated_vram_gb = None
+
+    wan_experts._make_room_for_decode(c, torch.zeros(LATENT_480P_5S))
+
+    assert encoder.offloads == 0
+
+
 def test_clearing_the_card_offloads_every_foreign_resident_and_hands_the_pool_back(monkeypatch):
     registry, encoder, released = _on_the_card(monkeypatch, 20.0)
     c = _ctx(device="cuda:0")

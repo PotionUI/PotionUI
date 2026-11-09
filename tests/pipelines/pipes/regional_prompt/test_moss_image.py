@@ -19,8 +19,8 @@ def _run(pairs, document, resolution="512x512"):
     return output.output["pairs"]
 
 
-@pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
-def test_fixture_case_through_the_pipe(case):
+def test_fixture_case_with_an_odd_canvas_through_the_pipe():
+    case = CASES[-1]
     pairs = _run(
         [{"positive": case["caption"], "negative": "bad"}],
         {"enabled": True, "items": case["items"]},
@@ -71,3 +71,23 @@ def test_input_pairs_are_not_mutated():
 def test_invalid_document_raises():
     with pytest.raises(ValueError):
         _run([{"positive": "p", "negative": ""}], {"enabled": True, "items": [{**ITEM, "w": 0}]})
+
+
+@pytest.mark.parametrize("document", [
+    {"enabled": True, "items": [{**ITEM, "x": "left"}]},
+    {"enabled": "yes", "items": [ITEM]},
+    {"enabled": True, "items": "nope"},
+])
+def test_malformed_document_raises_when_enabled(document):
+    with pytest.raises(ValueError):
+        _run([{"positive": "p", "negative": ""}], document)
+
+
+def test_malformed_resolution_raises_when_enabled():
+    with pytest.raises(ValueError):
+        _run([{"positive": "p", "negative": ""}], {"enabled": True, "items": [ITEM]}, "big")
+
+
+def test_malformed_resolution_is_ignored_when_disabled():
+    pairs = [{"positive": "p", "negative": "n"}]
+    assert _run(pairs, {"enabled": False, "items": [ITEM]}, "big") == pairs

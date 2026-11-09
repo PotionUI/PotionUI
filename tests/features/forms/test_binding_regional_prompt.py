@@ -74,11 +74,20 @@ def test_valid_document_passes_unchanged():
     {"enabled": True, "items": "nope"},
     {"enabled": True, "items": [_item(x="left")]},
     {"enabled": True, "items": [_item(w=0)]},
+    {"enabled": True, "items": [_item(x=float("nan"))]},
+    {"enabled": True, "items": [_item(caption=5)]},
+    {"enabled": "yes", "items": [_item()]},
 ])
 def test_malformed_document_is_refused_with_a_field_error(document):
     with pytest.raises(FormBindingError) as caught:
         _bind_value(document)
     assert "regional_prompt" in caught.value.field_errors
+
+
+@pytest.mark.parametrize("over", [{"x": 1.5}, {"x": 0.8, "w": 0.5}, {"y": -0.2}])
+def test_out_of_range_fractions_are_clamped_not_refused(over):
+    document = {"enabled": True, "items": [_item(**over)]}
+    assert _bind_value(document).values["regional_prompt"] == document
 
 
 def test_undeclared_preset_does_not_validate_the_value():

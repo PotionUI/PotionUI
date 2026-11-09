@@ -3,15 +3,22 @@ from __future__ import annotations
 import contextlib
 import importlib.metadata
 import logging
-import math
 import os
 import re
 import tempfile
+from fractions import Fraction
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from src.plugin_api.media import StreamingMp4Writer, mux_audio_from_source
+from src.plugin_api.media import (
+    StreamingMp4Writer,
+    mux_audio_from_source,
+    output_count,
+    output_fps,
+    slot,
+    source_per_output,
+)
 from src.plugin_api.pipes import (
     BasePipe,
     GalleryGenerationOutput,
@@ -27,6 +34,7 @@ from src.plugin_api.pipes import (
     ProgressGenerationOutput,
     VideoGenerationOutput,
 )
+from src.plugin_api.sampling import SamplingCancelled
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +42,7 @@ FACTORS = (2, 4)
 MODES = ("low", "medium", "high")
 MODE_INDEX = {"low": 0, "medium": 1, "high": 2}
 MAX_TARGET_FPS = 240.0
-POSITION_EPSILON = 1e-6
-TIMESTEP_EPSILON = 1e-3
+DEFAULT_SOURCE_FPS = 24.0
 PROGRESS_EVERY = 8
 
 INSTALL_HINT = (
@@ -52,6 +59,7 @@ INSTALL_HINT = (
     "install it yourself with the command above."
 )
 
+SDK_SIZE_ERROR_CODES = (-7, -16)
 SDK_DEVICE_ERROR_CODES = (-17, -18, -19)
 
 
@@ -85,6 +93,12 @@ def _sdk_code(exc: Exception, codes: Tuple[int, ...]) -> bool:
 
 
 def sdk_error(exc: Exception, where: str) -> GenerationExecutionError:
+    if _sdk_code(exc, SDK_SIZE_ERROR_CODES) or "invalid parameter" in str(exc).lower():
+        return GenerationExecutionError(
+            f"NVIDIA RTX Video Frame Generation refused the frame size {where}: the SDK rejects an "
+            f"invalid size. Resize the video and try again. "
+            f"SDK error: {exc}"
+        )
     if _sdk_code(exc, SDK_DEVICE_ERROR_CODES):
         return GenerationExecutionError(
             f"NVIDIA RTX Video Frame Generation does not run on this GPU or driver {where}: it needs an "
@@ -94,33 +108,30 @@ def sdk_error(exc: Exception, where: str) -> GenerationExecutionError:
     return GenerationExecutionError(f"NVIDIA RTX Video Frame Generation failed {where}: {exc}")
 
 
-def output_fps(source_fps: float, factor: int, target_fps: float) -> float:
-    if target_fps and target_fps > 0:
-        return float(target_fps)
-    return float(source_fps) * int(factor)
-
-
-def output_count(source_count: int, source_fps: float, out_fps: float) -> int:
-    return max(1, int(round(source_count * out_fps / source_fps)))
-
-
-def source_position(index: int, source_fps: float, out_fps: float) -> Tuple[int, float]:
-    position = index * source_fps / out_fps
-    whole = int(math.floor(position + POSITION_EPSILON))
-    return whole, position - whole
-
-
-def plan_frame(index: int, source_count: int, source_fps: float, out_fps: float) -> Tuple[int, Optional[float]]:
-    whole, step = source_position(index, source_fps, out_fps)
-    if whole >= source_count - 1:
+def plan_frame(index: int, source_count: int, ratio: Fraction) -> Tuple[int, Optional[float]]:
+    at = slot(index, ratio)
+    if at.left >= source_count - 1:
         return source_count - 1, None
-    if step < TIMESTEP_EPSILON:
-        return max(whole, 0), None
-    return whole, step
+    if at.t == 0.0:
+        return at.left, None
+    return at.left, at.t
 
 
-def plan(source_count: int, source_fps: float, out_fps: float) -> List[Tuple[int, Optional[float]]]:
-    return [plan_frame(k, source_count, source_fps, out_fps) for k in range(output_count(source_count, source_fps, out_fps))]
+def plan(source_count: int, ratio: Fraction) -> List[Tuple[int, Optional[float]]]:
+    return [plan_frame(k, source_count, ratio) for k in range(output_count(source_count, ratio))]
+
+
+def to_even_rgb(rgb: np.ndarray) -> np.ndarray:
+    pad_h, pad_w = rgb.shape[0] % 2, rgb.shape[1] % 2
+    if pad_h or pad_w:
+        rgb = np.pad(rgb, ((0, pad_h), (0, pad_w), (0, 0)), mode="edge")
+    return np.ascontiguousarray(rgb, dtype=np.uint8)
+
+
+def _size_label(width: int, height: int, source: Optional[Tuple[int, int]]) -> str:
+    if source is None or source == (width, height):
+        return f"{width}x{height}"
+    return f"{width}x{height} (a {source[0]}x{source[1]} video padded to even sides)"
 
 
 def default_stream(torch_module):
@@ -167,7 +178,7 @@ class _VfgSession:
         self._loaded_size: Optional[Tuple[int, int]] = None
         self._tensors: Dict[int, Any] = {}
 
-    def ensure_loaded(self, width: int, height: int) -> None:
+    def ensure_loaded(self, width: int, height: int, source: Optional[Tuple[int, int]] = None) -> None:
         if self._loaded_size == (width, height):
             return
         self._effect.input_width = width
@@ -177,7 +188,7 @@ class _VfgSession:
         try:
             self._effect.load()
         except Exception as exc:
-            raise sdk_error(exc, f"for {width}x{height} frames") from exc
+            raise sdk_error(exc, f"for {_size_label(width, height, source)} frames") from exc
         self._loaded_size = (width, height)
 
     def _tensor(self, index: int, frames: Dict[int, np.ndarray]):
@@ -307,21 +318,25 @@ class RtxFrameGenerationPipe(BasePipe):
             raise GenerationExecutionError("interpolator/rtx_vfg requires a 'video' input")
 
         factor, target_fps, mode, scene_detection, keep_audio = self._settings()
+        cancelled = is_cancelled or (lambda: False)
         nvvfx_module = _import_nvvfx()
         out_videos: List[VideoGenerationOutput] = []
-        for video_path in videos:
-            if is_cancelled and is_cancelled():
-                break
-            session = _VfgSession(nvvfx_module, mode, scene_detection, None if target_fps > 0 else factor)
-            try:
-                out_videos.append(self._process_video(
-                    session, str(video_path), factor, target_fps, keep_audio, generation_outputs, is_cancelled,
-                ))
-            finally:
-                session.close()
+        try:
+            for video_path in videos:
+                if cancelled():
+                    raise SamplingCancelled()
+                session = _VfgSession(nvvfx_module, mode, scene_detection, None if target_fps > 0 else factor)
+                try:
+                    out_videos.append(self._process_video(
+                        session, str(video_path), factor, target_fps, keep_audio, generation_outputs, cancelled,
+                    ))
+                finally:
+                    session.close()
+        except Exception:
+            _discard(*(str(o.video_path) for o in out_videos))
+            raise
 
-        if out_videos:
-            generation_outputs(GalleryGenerationOutput(images=[], videos=out_videos))
+        generation_outputs(GalleryGenerationOutput(images=[], videos=out_videos))
         return PipeOutput(output={"video": [o.video_path for o in out_videos]})
 
     def _process_video(
@@ -332,7 +347,7 @@ class RtxFrameGenerationPipe(BasePipe):
         target_fps: float,
         keep_audio: bool,
         generation_outputs: callable,
-        is_cancelled: Optional[callable],
+        is_cancelled: callable,
     ) -> VideoGenerationOutput:
         import cv2
 
@@ -346,35 +361,40 @@ class RtxFrameGenerationPipe(BasePipe):
         frames: Dict[int, np.ndarray] = {}
         try:
             try:
-                source_fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+                source_fps = cap.get(cv2.CAP_PROP_FPS)
+                source_fps = float(source_fps) if source_fps and source_fps > 0 else DEFAULT_SOURCE_FPS
+                ratio = source_per_output(source_fps, factor, target_fps)
                 out_fps = output_fps(source_fps, factor, target_fps)
-                expected = output_count(int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0), source_fps, out_fps)
+                expected = output_count(int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0), ratio)
+                source_size: Optional[Tuple[int, int]] = None
                 read = 0
                 ended = False
                 index = 0
                 while True:
-                    if is_cancelled and is_cancelled():
-                        break
-                    whole, _ = source_position(index, source_fps, out_fps)
+                    if is_cancelled():
+                        raise SamplingCancelled()
+                    whole = slot(index, ratio).left
                     while not ended and read <= whole + 1:
                         ok, frame_bgr = cap.read()
                         if not ok or frame_bgr is None:
                             ended = True
                             break
-                        frames[read] = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                        if source_size is None:
+                            source_size = (frame_bgr.shape[1], frame_bgr.shape[0])
+                        frames[read] = to_even_rgb(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
                         read += 1
                     if read == 0:
                         break
-                    if ended and index >= output_count(read, source_fps, out_fps):
+                    if ended and index >= output_count(read, ratio):
                         break
-                    source, step = plan_frame(index, read, source_fps, out_fps)
+                    source, step = plan_frame(index, read, ratio)
                     if writer is None:
                         height, width = frames[source].shape[:2]
                         writer = StreamingMp4Writer(out_tmp, width, height, out_fps)
                     if step is None:
                         made = frames[source]
                     else:
-                        session.ensure_loaded(frames[source].shape[1], frames[source].shape[0])
+                        session.ensure_loaded(frames[source].shape[1], frames[source].shape[0], source_size)
                         made = session.frame_between(frames, source, step)
                     writer.write(made)
                     for key in [key for key in frames if key < source]:
@@ -392,6 +412,8 @@ class RtxFrameGenerationPipe(BasePipe):
 
             if writer is None:
                 raise GenerationExecutionError(f"interpolator/rtx_vfg: no frames decoded from {video_path}")
+            if is_cancelled():
+                raise SamplingCancelled()
             writer.close()
 
             final_path = out_tmp
@@ -404,6 +426,8 @@ class RtxFrameGenerationPipe(BasePipe):
                 else:
                     _discard(muxed)
                     logger.warning("[INTERPOLATOR_RTX] audio mux skipped for %s -- keeping video-only output", video_path)
+            if is_cancelled():
+                raise SamplingCancelled()
         except Exception:
             _cleanup_on_failure(writer, owned)
             raise

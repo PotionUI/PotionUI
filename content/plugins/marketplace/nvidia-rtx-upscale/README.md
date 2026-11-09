@@ -89,10 +89,13 @@ A caller that wants an exact size sends, for `video_upscale`: `intent: "upscale"
 | `scene_detection` | yes (default) or no | The SDK's automatic shot-change detection. |
 | `keep_audio` | yes or no | The source audio is muxed back. |
 
-**Which frames are made.** For N source frames at `src_fps` and an output at `out_fps`:
+**Which frames are made.** The schedule is the one `interpolator/rife` uses, imported from
+`src.plugin_api.media` (`source_per_output`, `output_count`, `slot`, `output_fps`), with exact
+fractions: both interpolators place the same frames, NTSC rates on long clips included. For N
+source frames, `ratio = src_fps / out_fps` (each rate as a fraction) or `1 / factor`:
 
-- the output has `max(1, round(N × out_fps / src_fps))` frames, so the duration is kept;
-- output frame k falls at source position `p = k × src_fps / out_fps`, between frame
+- the output has `max(1, round(N / ratio))` frames, so the duration is kept;
+- output frame k falls at source position `p = k × ratio`, between frame
   `i = floor(p + 1e-6)` and the next, at `t = p − i`;
 - it is source frame i itself when `t < 1e-3`, the last source frame when `i ≥ N − 1`, and
   otherwise the frame the SDK makes at `t` between frames i and i + 1;
@@ -104,18 +107,24 @@ A caller that wants an exact size sends, for `video_upscale`: `intent: "upscale"
 So 16 → 24 fps keeps one source frame in three and makes the two others at t = 1/3 and 2/3,
 24 → 60 makes four frames in five at t = 0.2, 0.4, 0.6 and 0.8, and 25 → 60 makes eleven in
 twelve. Frames are read and written as a stream: only the two source frames around the current
-output frame are held in memory. A failure mid-clip aborts the encoder and removes the partial
-file; a cancellation keeps the frames written so far, as `upscaler/rtx_vsr` does.
+output frame are held in memory. A frame with an odd width or height is padded to even sides by
+repeating its last row or column, as `interpolator/rife` does, since the H.264 encoder needs even
+sides; a size the SDK refuses (error −7 or −16) is reported with the padded and the source
+sizes. A failure mid-clip aborts the encoder and removes the partial file. A cancellation raises
+`SamplingCancelled`, before the first frame as well as mid-clip or during the audio mux: the
+encoder is aborted, the temporary files are removed, and nothing is published, not even the
+videos of the batch already finished.
 
 ## Tests
 
 `tests/` runs with a fake `nvvfx` module and never touches the GPU: the constructor with and
 without `strength`, the error explanations, the size guard and `target_short_side`; for frame
-generation, the frame plan (16 → 24, 24 → 60, 25 → 60, 25 → 24, ×2, ×4, the last frame held), the
-SDK calls, the cleanup after a failure, and a full pass over a small synthetic video with and
+generation, the frame plan (16 → 24, 24 → 60, 25 → 60, 25 → 24, ×2, ×4, the last frame held, a
+long 23.976 → 60 clip), the SDK calls, odd sizes, cancellation, the cleanup after a failure or a
+mux, and a full pass over a small synthetic video with and
 without sound (frame count, frame rate and duration through ffprobe). The manifest, the
-installer check of both pipes and the preset's form-to-pipe wiring are tested under
-`tests/plugins/marketplace/`.
+installer check of both pipes, the preset's form-to-pipe wiring and the frame schedule shared
+with `interpolator/rife` are tested under `tests/plugins/marketplace/`.
 
 ## What's bundled
 

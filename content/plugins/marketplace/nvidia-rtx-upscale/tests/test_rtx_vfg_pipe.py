@@ -7,7 +7,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from src.plugin_api import media
 from src.plugin_api.pipes import PipeInput
+from src.plugin_api.sampling import SamplingCancelled
 
 cv2 = pytest.importorskip("cv2", reason="cv2 (or its native deps) not available", exc_type=ImportError)
 
@@ -28,10 +30,29 @@ def _interpolated(entries):
     return [entry for entry in entries if entry[1] is not None]
 
 
-def test_the_frame_rate_is_the_target_or_the_multiplied_source(vfg_module):
-    assert vfg_module.output_fps(24.0, 2, 0) == 48.0
-    assert vfg_module.output_fps(24.0, 4, 0) == 96.0
-    assert vfg_module.output_fps(25.0, 2, 60) == 60.0
+def _ratio(source, target, factor=2):
+    return media.source_per_output(source, factor, target)
+
+
+def test_the_schedule_is_the_one_plugin_api_media_exports(vfg_module):
+    assert vfg_module.slot is media.slot
+    assert vfg_module.output_count is media.output_count
+    assert vfg_module.output_fps is media.output_fps
+    assert vfg_module.source_per_output is media.source_per_output
+
+
+def test_a_long_ntsc_clip_gets_the_exact_frame_count(vfg_module):
+    ratio = _ratio(24000 / 1001, 60.0)
+
+    assert ratio == Fraction(400, 1001)
+    assert vfg_module.output_count(1400, ratio) == 3504
+    assert len(vfg_module.plan(1400, ratio)) == 3504
+
+
+def test_an_instant_one_thousandth_past_a_source_frame_is_interpolated(vfg_module):
+    ratio = _ratio(23.98, 60.0)
+
+    assert vfg_module.plan_frame(2397, 10**6, ratio) == (958, pytest.approx(0.001))
 
 
 @pytest.mark.parametrize("count,source,target,expected", [
@@ -43,12 +64,12 @@ def test_the_frame_rate_is_the_target_or_the_multiplied_source(vfg_module):
     (1, 24.0, 60.0, 2),
 ])
 def test_the_output_keeps_the_duration(vfg_module, count, source, target, expected):
-    assert vfg_module.output_count(count, source, target) == expected
+    assert vfg_module.output_count(count, _ratio(source, target)) == expected
     assert abs(expected / target - count / source) <= 1 / target
 
 
 def test_sixteen_to_twenty_four_keeps_one_frame_in_three(vfg_module):
-    entries = vfg_module.plan(81, 16.0, 24.0)
+    entries = vfg_module.plan(81, _ratio(16.0, 24.0))
 
     assert entries[:7] == [
         (0, None),
@@ -64,7 +85,7 @@ def test_sixteen_to_twenty_four_keeps_one_frame_in_three(vfg_module):
 
 
 def test_twenty_four_to_sixty_makes_four_frames_in_five(vfg_module):
-    entries = vfg_module.plan(120, 24.0, 60.0)
+    entries = vfg_module.plan(120, _ratio(24.0, 60.0))
 
     assert len(entries) == 300
     assert entries[:6] == [
@@ -80,7 +101,7 @@ def test_twenty_four_to_sixty_makes_four_frames_in_five(vfg_module):
 
 
 def test_twenty_five_to_sixty_uses_eleven_instants(vfg_module):
-    entries = vfg_module.plan(125, 25.0, 60.0)
+    entries = vfg_module.plan(125, _ratio(25.0, 60.0))
     steps = {Fraction(step).limit_denominator(12) for _, step in _interpolated(entries)}
 
     assert len(entries) == 300
@@ -90,7 +111,7 @@ def test_twenty_five_to_sixty_uses_eleven_instants(vfg_module):
 
 
 def test_a_lower_target_still_walks_the_clip(vfg_module):
-    entries = vfg_module.plan(125, 25.0, 24.0)
+    entries = vfg_module.plan(125, _ratio(25.0, 24.0))
 
     assert len(entries) == 120
     indices = [index for index, _ in entries]
@@ -102,7 +123,7 @@ def test_a_lower_target_still_walks_the_clip(vfg_module):
 @pytest.mark.parametrize("factor", [2, 4])
 def test_a_multiplier_holds_the_last_frame(vfg_module, factor):
     count = 6
-    entries = vfg_module.plan(count, 24.0, vfg_module.output_fps(24.0, factor, 0))
+    entries = vfg_module.plan(count, _ratio(24.0, 0, factor))
 
     assert len(entries) == count * factor
     expected = []
@@ -114,10 +135,10 @@ def test_a_multiplier_holds_the_last_frame(vfg_module, factor):
 
 
 def test_an_instant_next_to_a_source_frame_takes_that_frame(vfg_module):
-    assert vfg_module.plan_frame(1, 10, 2.0 - 1e-9, 1.0) == (2, None)
-    assert vfg_module.plan_frame(1, 10, 2.0 + 1e-5, 1.0) == (2, None)
-    assert vfg_module.plan_frame(1, 10, 2.0 + 2e-3, 1.0) == (2, pytest.approx(2e-3))
-    assert [vfg_module.plan_frame(k, 10, 24.0, 24.0) for k in range(10)] == [(k, None) for k in range(10)]
+    assert vfg_module.plan_frame(1, 10, Fraction(2) - Fraction(1, 10**9)) == (2, None)
+    assert vfg_module.plan_frame(1, 10, Fraction(2) + Fraction(1, 10**5)) == (2, None)
+    assert vfg_module.plan_frame(1, 10, Fraction(2) + Fraction(2, 10**3)) == (2, pytest.approx(2e-3))
+    assert [vfg_module.plan_frame(k, 10, Fraction(1)) for k in range(10)] == [(k, None) for k in range(10)]
 
 
 def test_the_config_rejects_what_the_sdk_cannot_do(vfg_module, pipe_class):
@@ -480,3 +501,207 @@ def test_an_effect_the_sdk_cannot_create_is_explained(vfg_module, fake_nvvfx, mo
     assert str(exc_info.value).startswith(
         "NVIDIA RTX Video Frame Generation does not run on this GPU or driver when the effect is created: it needs an NVIDIA Ada or Blackwell GPU"
     )
+
+
+def test_odd_sides_are_padded_by_repeating_the_edge(vfg_module):
+    rgb = np.arange(3 * 5 * 3, dtype=np.uint8).reshape(3, 5, 3)
+
+    even = vfg_module.to_even_rgb(rgb)
+
+    assert even.shape == (4, 6, 3)
+    np.testing.assert_array_equal(even[:3, :5], rgb)
+    np.testing.assert_array_equal(even[3, :5], rgb[2])
+    np.testing.assert_array_equal(even[:3, 5], rgb[:, 4])
+
+
+def test_even_sides_are_left_as_they_are(vfg_module):
+    rgb = np.zeros((4, 6, 3), dtype=np.uint8)
+
+    assert vfg_module.to_even_rgb(rgb).shape == (4, 6, 3)
+
+
+@pytest.mark.parametrize("message", [
+    "NvVFX_Load failed: An invalid parameter value has been supplied for this effect+selector (code -7)",
+    "NvVFX_Load failed (code -16)",
+])
+def test_a_refused_size_is_explained_with_the_padded_and_source_sizes(vfg_module, fake_nvvfx, message):
+    session = vfg_module._VfgSession(fake_nvvfx, "medium", True, None)
+    effect = fake_nvvfx.VideoFrameGeneration.instances[-1]
+
+    def refuse():
+        raise RuntimeError(message)
+
+    effect.load = refuse
+    with pytest.raises(vfg_module.GenerationExecutionError) as exc_info:
+        session.ensure_loaded(64, 48, (63, 47))
+
+    assert str(exc_info.value).startswith(
+        "NVIDIA RTX Video Frame Generation refused the frame size for 64x48 "
+        "(a 63x47 video padded to even sides) frames: the SDK rejects an invalid size."
+    )
+
+
+def test_a_size_error_code_needs_the_whole_number(vfg_module):
+    message = str(vfg_module.sdk_error(RuntimeError("NvVFX_Run failed (code -70)"), "for 8x8 frames"))
+
+    assert "refused the frame size" not in message
+
+
+@needs_ffmpeg
+def test_an_odd_sized_clip_is_padded_to_even_sides(tmp_path, pipe_class, fake_nvvfx, no_real_cuda):
+    source = tmp_path / "in.mp4"
+    subprocess.run([
+        "ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=63x47:rate=10:duration=0.6",
+        "-c:v", "libx264", "-pix_fmt", "yuv444p", str(source),
+    ], check=True, capture_output=True)
+    capture = cv2.VideoCapture(str(source))
+    ok, first = capture.read()
+    capture.release()
+    assert ok and first.shape[:2] == (47, 63)
+    pipe = pipe_class({**pipe_class.get_default_config(), "factor": 2, "target_fps": 0, "keep_audio": False})
+
+    result = pipe.process(PipeInput(input={"video": [str(source)]}), lambda o: None)
+
+    (path,) = result.output["video"]
+    capture = cv2.VideoCapture(path)
+    try:
+        size = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    finally:
+        capture.release()
+    assert size == (64, 48)
+    effect = fake_nvvfx.VideoFrameGeneration.instances[-1]
+    assert (effect.input_width, effect.input_height) == (64, 48)
+    assert _probe(path)["frames"] == 12
+
+
+class _CancelAfter:
+    def __init__(self, calls):
+        self.calls = calls
+        self.seen = 0
+
+    def __call__(self):
+        self.seen += 1
+        return self.seen > self.calls
+
+
+def _private_tempdir(tmp_path, monkeypatch):
+    import tempfile
+
+    folder = tmp_path / "tmp"
+    folder.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(folder))
+    return folder
+
+
+def _galleries(outputs):
+    return [o for o in outputs if type(o).__name__ == "GalleryGenerationOutput"]
+
+
+def test_a_cancel_before_the_first_frame_is_a_cancel(tmp_path, pipe_class, fake_nvvfx, no_real_cuda, monkeypatch):
+    folder = _private_tempdir(tmp_path, monkeypatch)
+    source = tmp_path / "in.mp4"
+    _write_input_video(source, frames=4, fps=10.0)
+    outputs = []
+    pipe = pipe_class({**pipe_class.get_default_config(), "keep_audio": False})
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(PipeInput(input={"video": [str(source)]}), outputs.append, is_cancelled=lambda: True)
+
+    assert _galleries(outputs) == []
+    assert list(folder.iterdir()) == []
+    assert fake_nvvfx.VideoFrameGeneration.instances == []
+
+
+@pytest.mark.parametrize("calls", [2, 6])
+def test_a_cancel_mid_clip_aborts_the_writer_and_publishes_nothing(
+    vfg_module, tmp_path, pipe_class, fake_nvvfx, no_real_cuda, monkeypatch, calls,
+):
+    folder = _private_tempdir(tmp_path, monkeypatch)
+    source = tmp_path / "in.mp4"
+    _write_input_video(source, frames=8, fps=10.0)
+    _RecordingWriter.instances = []
+    monkeypatch.setattr(_RecordingWriter, "abort_error", None)
+    monkeypatch.setattr(vfg_module, "StreamingMp4Writer", _RecordingWriter)
+    outputs = []
+    pipe = pipe_class({**pipe_class.get_default_config(), "target_fps": 15, "keep_audio": False})
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(PipeInput(input={"video": [str(source)]}), outputs.append, is_cancelled=_CancelAfter(calls))
+
+    (writer,) = _RecordingWriter.instances
+    assert writer.calls[-1] == "abort"
+    assert "close" not in writer.calls
+    assert _galleries(outputs) == []
+    assert list(folder.iterdir()) == []
+    assert fake_nvvfx.VideoFrameGeneration.instances[-1].closed
+
+
+@needs_ffmpeg_binary
+def test_a_cancel_during_the_audio_mux_publishes_nothing(
+    vfg_module, tmp_path, pipe_class, fake_nvvfx, no_real_cuda, monkeypatch,
+):
+    folder = _private_tempdir(tmp_path, monkeypatch)
+    source = tmp_path / "in.mp4"
+    _write_input_video_with_audio(source, frames=12, fps=12.0)
+    cancelled = []
+    real_mux = vfg_module.mux_audio_from_source
+
+    def mux_then_cancel(*args):
+        made = real_mux(*args)
+        cancelled.append(made)
+        return made
+
+    monkeypatch.setattr(vfg_module, "mux_audio_from_source", mux_then_cancel)
+    outputs = []
+    pipe = pipe_class({**pipe_class.get_default_config(), "factor": 2, "target_fps": 0, "keep_audio": True})
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(PipeInput(input={"video": [str(source)]}), outputs.append, is_cancelled=lambda: bool(cancelled))
+
+    assert cancelled == [True]
+    assert _galleries(outputs) == []
+    assert list(folder.iterdir()) == []
+
+
+@needs_ffmpeg_binary
+def test_a_cancel_on_the_second_video_drops_the_first_one_too(
+    tmp_path, pipe_class, fake_nvvfx, no_real_cuda, monkeypatch,
+):
+    folder = _private_tempdir(tmp_path, monkeypatch)
+    first, second = tmp_path / "a.mp4", tmp_path / "b.mp4"
+    _write_input_video(first, frames=4, fps=10.0)
+    _write_input_video(second, frames=4, fps=10.0)
+    outputs = []
+    pipe = pipe_class({**pipe_class.get_default_config(), "factor": 2, "target_fps": 0, "keep_audio": False})
+
+    def cancel_once_the_first_is_done():
+        return len(fake_nvvfx.VideoFrameGeneration.instances) == 2
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(
+            PipeInput(input={"video": [str(first), str(second)]}), outputs.append,
+            is_cancelled=cancel_once_the_first_is_done,
+        )
+
+    assert fake_nvvfx.VideoFrameGeneration.instances[0].closed
+    assert _galleries(outputs) == []
+    assert list(folder.iterdir()) == []
+
+
+def test_a_successful_mux_leaves_only_the_muxed_file(vfg_module, tmp_path, pipe_class, fake_nvvfx, no_real_cuda, monkeypatch):
+    folder = _private_tempdir(tmp_path, monkeypatch)
+    source = tmp_path / "in.mp4"
+    _write_input_video(source, frames=4, fps=10.0)
+    monkeypatch.setattr(vfg_module, "StreamingMp4Writer", _RecordingWriter)
+
+    def mux(video_only, source_path, out_path):
+        Path(out_path).write_bytes(Path(video_only).read_bytes() + b"audio")
+        return True
+
+    monkeypatch.setattr(vfg_module, "mux_audio_from_source", mux)
+    pipe = pipe_class({**pipe_class.get_default_config(), "factor": 2, "target_fps": 0, "keep_audio": True})
+
+    result = pipe.process(PipeInput(input={"video": [str(source)]}), lambda o: None)
+
+    (path,) = result.output["video"]
+    assert [p.name for p in folder.iterdir()] == [Path(path).name]

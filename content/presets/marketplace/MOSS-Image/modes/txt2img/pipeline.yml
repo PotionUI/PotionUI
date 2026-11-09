@@ -23,7 +23,7 @@ pipeline:
     enabled: "{{ (form.regional_prompt | default({})).enabled | default(false) }}"
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      regional_prompt: "{{ form.regional_prompt }}"
+      regional_prompt: "{{ form.regional_prompt | default({}) }}"
       resolution: "{{ form.resolution }}"
 
   - name: "prompt_encoder"

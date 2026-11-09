@@ -5,7 +5,7 @@ from src.features.forms.binding import FormBindingError
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException, IdempotencyKeyConflict
-from src.features.generation.failure import failure_report
+from src.features.generation.failure import failure_report, scope_generation, scope_generation_state
 from src.features.generation.file_repository import file_repo
 from src.features.generation.policy import GenerationPolicy
 from src.features.generation.routing.contracts import NoEligibleBackendError
@@ -142,14 +142,15 @@ def generation_active() -> bool:
 
 
 def generation_state(user, generation_id: str) -> Dict[str, Any]:
-    return _require_access(get_container(), user, generation_id).payload
+    state = _require_access(get_container(), user, generation_id)
+    return scope_generation_state(state.payload, GenerationPolicy.is_admin(user))
 
 
 def generation_record(user, generation_id: str) -> Optional[Dict[str, Any]]:
     container = get_container()
     _require_access(container, user, generation_id)
     row = container.generation_repository.get_by_id(generation_id)
-    return None if row is None else row.to_dict()
+    return None if row is None else scope_generation(row.to_dict(), GenerationPolicy.is_admin(user))
 
 
 def generation_failure(user, generation_id: str) -> Optional[Dict[str, Any]]:

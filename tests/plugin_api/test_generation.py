@@ -500,6 +500,79 @@ def test_a_record_never_carries_the_raw_detail_of_a_failure(world):
         _assert_no_leak(record)
 
 
+RAW_MESSAGE = "unet.safetensors missing on backend http://10.1.2.3:8188"
+RAW_USER_MESSAGE = "Ask about unet.safetensors on http://10.1.2.3:8188"
+
+
+def _stored_failure(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure={
+        **_failure().columns(), "error_message": RAW_MESSAGE, "error_user_message": RAW_USER_MESSAGE,
+    })
+
+
+def _generic_copy():
+    from src.features.generation.failure import compose_user_message, user_failure_copy
+
+    message, hints = user_failure_copy("missing_model_file")
+    return message, compose_user_message(message, hints)
+
+
+def _assert_generic_failure_text(payload):
+    message, user_message = _generic_copy()
+    assert payload["error_message"] == message
+    assert payload["error_user_message"] == user_message
+    assert payload["error_contact_admin"] is True
+    for marker in ("unet.safetensors", "10.1.2.3", "8188"):
+        assert marker not in repr(payload), marker
+
+
+def _assert_stored_failure_text(payload):
+    assert payload["error_message"] == RAW_MESSAGE
+    assert payload["error_user_message"] == RAW_USER_MESSAGE
+    assert payload["error_contact_admin"] is False
+
+
+def test_a_record_gives_a_user_the_generic_failure_copy_and_an_admin_the_stored_text(world):
+    _stored_failure(world)
+
+    _assert_generic_failure_text(api.generation_record(world.owner, "g1"))
+    _assert_stored_failure_text(api.generation_record(world.admin, "g1"))
+
+
+def test_a_stored_failed_state_gives_a_user_the_generic_failure_copy_and_an_admin_the_stored_text(world):
+    _stored_failure(world)
+
+    _assert_generic_failure_text(api.generation_state(world.owner, "g1"))
+    _assert_stored_failure_text(api.generation_state(world.admin, "g1"))
+
+
+def test_a_live_failed_state_gives_a_user_the_generic_message_and_an_admin_the_raw_one(world):
+    from unittest.mock import patch
+
+    from src.features.generation.status_tracker import GenerationState, GenerationStatusTracker
+
+    world.generation("g1")
+    tracker = GenerationStatusTracker()
+    tracker.create(id="g1", user_id="owner")
+    with patch("src.features.generation.status_tracker.generation_repo"):
+        tracker.transition("g1", GenerationState.FAILED, _failure())
+    world.live["g1"] = tracker.get("g1")
+    raw = _failure().message
+
+    assert api.generation_state(world.owner, "g1")["message"] == _generic_copy()[0]
+    assert raw != _generic_copy()[0]
+    assert api.generation_state(world.admin, "g1")["message"] == raw
+
+
+def test_a_record_or_state_without_a_failure_is_returned_unchanged(world):
+    world.generation("g1")
+
+    for user in (world.owner, world.admin):
+        assert api.generation_record(user, "g1") == world.generations.get_by_id("g1").to_dict()
+        assert "error_contact_admin" not in api.generation_state(user, "g1")
+
+
 def test_an_administrator_reads_the_raw_detail_of_a_failure(world):
     world.generation("g1")
     world.generation("g2")

@@ -229,6 +229,10 @@ The host picks the first available candidate in listed order: `ffmpeg` when ever
 local ffmpeg; `torch` when torch imports (on CUDA only with at least 1 GB free and no generation running,
 otherwise on CPU); `numpy` always.
 
+The local filters are the names `ffmpeg -hide_banner -filters` lists. In ffmpeg 6 each line starts with three flags
+(`TSC`); ffmpeg 8 and 9 print two (`TS`), without the command flag. The host reads both. A listing it cannot read
+leaves no ffmpeg filter, and every effect then renders through its Python candidate.
+
 A stack whose steps all render through ffmpeg runs as one filtergraph. Steps with a Python candidate split the
 plan into ffmpeg segments joined by rgb24 pipes; neighbouring Python stages compose, 8 frames per batch. The video
 is decoded and encoded once, colour conversion is pinned (`scale=in_color_matrix=auto:in_range=auto,format=gbrp`

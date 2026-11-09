@@ -7,10 +7,11 @@ import pytest
 from PIL import Image
 
 from src.platform.media_tools import ToolContext, ToolFailed, ToolMedia, UnsupportedMedia
-from src.platform.media_tools.effects.loader import load_effect
-from src.platform.media_tools.effects.runtime import EffectRuntime, LifecycleGpuPolicy, parse_filters
+from src.platform.media_tools.effects.loader import core_effects, load_effect
+from src.platform.media_tools.effects.runtime import EffectRuntime, LifecycleGpuPolicy, ffmpeg_filters, parse_filters
 from src.platform.media_tools.effects.tool import ANALYSIS_KEY, EffectTool
 from src.platform.media_tools.timeline import Clock, StepContext
+from src.platform.util.video_transcode import find_ffmpeg
 from tests.platform.media_tools.effects.builder import effect_data, write_effect
 from tests.platform.media_tools.ops.raw_runner import RawRunner
 
@@ -99,6 +100,32 @@ def test_the_ffmpeg_filter_listing_is_parsed():
     )
 
     assert parse_filters(text) == frozenset({"colorlevels", "amovie", "vignette"})
+
+
+def test_the_ffmpeg_8_filter_listing_without_the_command_column_is_parsed():
+    text = (
+        "Filters:\n  T.. = Timeline support\n  .S. = Slice threading\n  A = Audio input/output\n"
+        "  | = Source or sink filter\n"
+        " TS colorlevels       V->V       Adjust the color levels.\n"
+        " T. afade             A->A       Fade in/out input audio.\n"
+        " .. amovie            |->N       Read audio from a movie source.\n"
+        " T. vignette          V->V       Make or reverse a vignette effect.\n"
+    )
+
+    assert parse_filters(text) == frozenset({"colorlevels", "afade", "amovie", "vignette"})
+
+
+@pytest.mark.skipif(find_ffmpeg() is None, reason="ffmpeg is not available")
+def test_the_installed_ffmpeg_lists_every_filter_the_core_effects_render_with():
+    used = {
+        name
+        for effect in core_effects()
+        for candidate in effect.render
+        if candidate.kind == "ffmpeg"
+        for name in candidate.template.filters()
+    }
+
+    assert used and used - ffmpeg_filters(find_ffmpeg()) == set()
 
 
 def test_an_ffmpeg_candidate_compiles_into_an_rgb_fragment(tmp_path):

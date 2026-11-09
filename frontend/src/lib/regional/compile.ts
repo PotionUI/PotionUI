@@ -42,7 +42,7 @@ export function mossBbox(region: Region, width: number, height: number): [number
 	const bottom = clampTo(pixelCeil((region.y + region.h) * height), height);
 	const right = clampTo(pixelCeil((region.x + region.w) * width), width);
 	if (right <= left || bottom <= top) return null;
-	return [top - height / 2, left - width / 2, bottom - height / 2, right - width / 2];
+	return [top - Math.floor(height / 2), left - Math.floor(width / 2), bottom - Math.floor(height / 2), right - Math.floor(width / 2)];
 }
 
 export function compileMossPrompt(prompt: string, items: Region[], width: number, height: number): string {

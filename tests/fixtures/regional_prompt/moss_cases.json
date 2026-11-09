@@ -70,6 +70,22 @@
         }
       ],
       "expected": "Just a prompt"
+    },
+    {
+      "name": "odd canvas size centres on the floor of half",
+      "caption": "An odd sized canvas",
+      "width": 1023,
+      "height": 767,
+      "items": [
+        {
+          "x": 0.25,
+          "y": 0.25,
+          "w": 0.5,
+          "h": 0.5,
+          "caption": "A red square"
+        }
+      ],
+      "expected": "{\"summary\": {\"caption\": \"An odd sized canvas\"}, \"items\": [{\"label\": \"object\", \"caption\": \"A red square\", \"bbox\": [-192, -256, 193, 257]}], \"bbox_coord_space\": \"abs_centralized\", \"bbox_format\": \"yxyx\"}"
     }
   ]
 }

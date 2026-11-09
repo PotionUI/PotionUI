@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import tempfile
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
 
 from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
+from src.platform.runtime.native.vae.causal_3d_v2 import LATENTS_MEAN as WAN22_LATENTS_MEAN, LATENTS_STD as WAN22_LATENTS_STD
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon
@@ -39,6 +40,14 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.generation.wan_i2v_contract import require_concat_i2v_contract_for_experts
+from src.pipelines.pipes._shared.generation.wan_ti2v import (
+    TI2VForward,
+    encode_ti2v_start_latent,
+    is_ti2v_expert,
+    pin_start_latent,
+    refuse_ti2v_last_frame,
+    require_single_ti2v_expert,
+)
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_wan_vae_encode
 from src.pipelines.pipes.generator.img2vid_wan22.concat import build_i2v_concat
@@ -79,7 +88,7 @@ class _I2VForward:
 
 @dataclass
 class _Ctx:
-    forward: _I2VForward
+    forward: Any
     vae: Any
     sampling_settings: dict
     conditioning: list
@@ -95,6 +104,7 @@ class _Ctx:
     device: str
     dtype: torch.dtype
     spec: Any
+    start_latent: Optional[torch.Tensor] = None
 
     def release_gpu(self) -> None:
         """Best-effort GPU cleanup on a failed generation: offload whichever
@@ -183,20 +193,24 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         mode_label = "flf" if end_images else "i2v"
 
         dit_in_dim = bundle.high_dit.module.in_dim
+        ti2v = is_ti2v_expert(bundle.high_dit)
+        if ti2v:
+            if end_images:
+                refuse_ti2v_last_frame(generator="generator/img2vid_wan22", variant=bundle.spec.variant)
+            require_single_ti2v_expert(bundle.low_dit, generator="generator/img2vid_wan22",
+                                       variant=bundle.spec.variant)
         if dit_in_dim == 16:
             raise ValueError(
                 f"generator/img2vid_wan22: loaded model '{bundle.spec.variant}' is a t2v Wan "
                 f"checkpoint (in_dim=16) with no image conditioning support, but the pipeline "
                 f"mode is img2vid. Pick an i2v Wan model, or use the Director's t2v sub-type."
             )
-        if dit_in_dim != 36:
+        if dit_in_dim != 36 and not ti2v:
             raise ValueError(
                 f"generator/img2vid_wan22: loaded model '{bundle.spec.variant}' has in_dim="
-                f"{dit_in_dim}, not the 36-channel concat-i2v contract this generator implements "
-                f"(e.g. the Wan 2.2 TI2V-5B checkpoint has its own built-in text+image "
-                f"conditioning that this concat path does not replicate). {mode_label} mode needs "
-                f"a Wan 2.2 A14B i2v checkpoint (in_dim=36); the 5B checkpoint only works in "
-                f"text-to-video."
+                f"{dit_in_dim}, neither the 36-channel concat-i2v contract nor the 48-channel "
+                f"TI2V-5B one this generator implements. {mode_label} mode needs a Wan 2.2 A14B "
+                f"i2v checkpoint (in_dim=36) or the Wan 2.2 TI2V-5B (in_dim=48)."
             )
 
         # Classic Wan i2v checkpoints (with or without the FLF `emb_pos` table)
@@ -258,17 +272,24 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         # path at all, not even BaseGeneratorPipe's generic release_gpu().
         try:
             with torch.no_grad():
-                concat = build_i2v_concat(
-                    start, make_wan_vae_encode(bundle.vae.module, width, height, log_prefix="GENERATOR WAN-I2V"),
-                    length=frames, height=height, width=width,
-                    latents_mean=LATENTS_MEAN, latents_std=LATENTS_STD, end_frames=end,
-                    device=device, dtype=dtype,
-                ).to(dtype)
+                if ti2v:
+                    concat = encode_ti2v_start_latent(
+                        start, bundle.vae.module.encode,
+                        latents_mean=WAN22_LATENTS_MEAN, latents_std=WAN22_LATENTS_STD,
+                    ).to(dtype)
+                else:
+                    concat = build_i2v_concat(
+                        start, make_wan_vae_encode(bundle.vae.module, width, height, log_prefix="GENERATOR WAN-I2V"),
+                        length=frames, height=height, width=width,
+                        latents_mean=LATENTS_MEAN, latents_std=LATENTS_STD, end_frames=end,
+                        device=device, dtype=dtype,
+                    ).to(dtype)
         finally:
             bundle.vae.offload()
 
-        logger.info("[GENERATOR WAN-I2V] %s: %d frame(s) @ %dx%d, %d steps, cfg %.1f, concat %s, flf=%s, dual_expert=%s",
-                    spec.variant, frames, width, height, steps, cfg, tuple(concat.shape), end is not None, bundle.is_dual_expert)
+        logger.info("[GENERATOR WAN-I2V] %s: %d frame(s) @ %dx%d, %d steps, cfg %.1f, %s %s, flf=%s, dual_expert=%s",
+                    spec.variant, frames, width, height, steps, cfg, "start latent" if ti2v else "concat",
+                    tuple(concat.shape), end is not None, bundle.is_dual_expert)
 
         # Stashed for emit_results() below: process() doesn't thread ctx through
         # to emit_results, and the (post-snap) width/height are only known here.
@@ -277,11 +298,12 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         return GeneratorContext(
             quantity=quantity, input_seeds=seeds,
             extra=_Ctx(
-                forward=_I2VForward(router, concat), vae=bundle.vae,
+                forward=TI2VForward(router, concat) if ti2v else _I2VForward(router, concat), vae=bundle.vae,
                 sampling_settings=sampling_settings, conditioning=conditioning,
                 steps=steps, cfg=cfg, sampler=sampler, width=width, height=height,
                 frames=frames, fps=fps, latent_channels=lf["latent_channels"],
                 spatial_downscale=lf.get("spatial_downscale", 8), device=device, dtype=dtype, spec=spec,
+                start_latent=concat if ti2v else None,
             ),
         )
 
@@ -302,6 +324,9 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         gen = torch.Generator(device=c.device).manual_seed(int(seed))
         noise = torch.randn(shape, generator=gen, device=c.device, dtype=c.dtype)
         latents = torch.zeros(shape, device=c.device, dtype=c.dtype)
+        if c.start_latent is not None:
+            noise = pin_start_latent(noise, c.start_latent)
+            latents = pin_start_latent(latents, c.start_latent)
 
         def on_progress(_frac, i, total):
             progress.step(i + 1, total, state="IMG2VID", icon=Icon(name="film", effect="pulse"))
@@ -335,6 +360,8 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
             if c.forward.router.active is not None:
                 c.forward.router.active.offload()
 
+        if c.start_latent is not None:
+            latent = pin_start_latent(latent, c.start_latent)
         frames = decode_wan_video(c, latent)
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         encode_frames_to_mp4(frames, out_path, fps=c.fps)

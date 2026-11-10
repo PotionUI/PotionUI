@@ -29,6 +29,7 @@
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
 	import { authStore } from '$lib/stores/auth';
+	import { shortcutLabels } from '$lib/stores/keybindings';
 	import { workbenchGallerySettingsStore } from '$lib/stores/workbenchGallerySettings';
 	import { nsfwFilterStore, isNsfwFile, type ContentFlagged } from '$lib/stores/nsfwFilter';
 	import AmbientGlow from '$lib/components/AmbientGlow.svelte';
@@ -91,6 +92,7 @@
 	export let stageTop = 0;
 	export let samplingProgress: number = 0;
 	export let samplingStep: number = 0;
+	export let onDeleteGeneration: (() => void) | null = null;
 
 	const dispatch = createEventDispatcher<{
 		previous: void;
@@ -948,6 +950,21 @@
 						>
 							<svg class={actionIconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+							</svg>
+						</button>
+						</Tooltip>
+					{/if}
+
+					{#if onDeleteGeneration}
+						<Tooltip text="Delete generation" kbd={$shortcutLabels['delete_current_generation']} position="bottom" delay={150}>
+						<button
+							on:click={() => onDeleteGeneration?.()}
+							class={actionBtnClass}
+							aria-label="Delete generation"
+							data-testid="workbench-delete-generation"
+						>
+							<svg class={actionIconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
 							</svg>
 						</button>
 						</Tooltip>

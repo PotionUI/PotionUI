@@ -26,6 +26,7 @@
 	import { loadPluginMediaTools } from '$lib/tools/pluginTools';
 	import { pickTool } from '$lib/tools/toolPicker';
 	import { plainLetter, pageOwnsKeys } from '$lib/utils/shortcutGuard';
+	import { selectionDeleteIntent } from '$lib/utils/deleteShortcut';
 	import { gridShortcutTarget } from '$lib/tools/gridShortcut';
 	import { buildLibraryToolContext, listTools } from '$lib/tools/tools';
 	import { editMediaAvailability } from '$lib/tools/editMedia';
@@ -81,6 +82,20 @@
 		if (!tool || !editMediaAvailability(context).enabled) return;
 		event.preventDefault();
 		handleToolSelect(tool, context);
+	}
+
+	function handleDeleteShortcut(event: KeyboardEvent) {
+		const intent = selectionDeleteIntent(event, pageOwnsKeys(event), $libraryStore.selectedIds);
+		if (!intent) return;
+		event.preventDefault();
+		const single = intent.kind === 'single' ? $libraryStore.items.find((item) => item.id === intent.id) : null;
+		if (single) itemToDelete = single;
+		else showBulkDeleteModal = true;
+	}
+
+	function handlePageKeys(event: KeyboardEvent) {
+		handleGridShortcut(event);
+		handleDeleteShortcut(event);
 	}
 
 	function closeTool() {
@@ -233,7 +248,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleGridShortcut} />
+<svelte:window on:keydown={handlePageKeys} />
 
 <svelte:head>
 	<title>Library · PotionUI</title>

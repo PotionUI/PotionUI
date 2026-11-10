@@ -72,6 +72,7 @@
 	export let onWorkbenchNext: () => void;
 	export let onWorkbenchHeightChange: (event: CustomEvent<string>) => void;
 	export let onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
+	export let onDeleteGeneration: ((tabId: string) => void) | null = null;
 
 	export let presets: PresetInfo[] = [];
 
@@ -396,6 +397,7 @@
 							{onWorkbenchNext}
 							{onWorkbenchHeightChange}
 							{onMoveToWorkbench}
+							{onDeleteGeneration}
 						/>
 					{/if}
 				{/if}
@@ -480,6 +482,7 @@
 								{onWorkbenchNext}
 								{onWorkbenchHeightChange}
 								{onMoveToWorkbench}
+								{onDeleteGeneration}
 							/>
 						{/if}
 					{/if}
@@ -532,6 +535,7 @@
 		{onWorkbenchNext}
 		{onWorkbenchHeightChange}
 		{onMoveToWorkbench}
+		{onDeleteGeneration}
 		onClose={closeFloatingGenerationWorkbench}
 		onResizeWidth={resizeFloatingGenerationWorkbench}
 		closeShortcut={$shortcutLabels['toggle_floating_workbench']}

@@ -849,6 +849,33 @@ async def test_an_update_that_fails_and_cannot_be_put_back_leaves_the_new_code_d
     assert str(refused.value).endswith("previous, and demo is disabled.")
 
 
+async def test_an_update_whose_move_and_move_back_both_fail_leaves_the_plugin_disabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(target) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert not (local / "demo").exists()
+    kept = list((local / STAGING_FOLDER).glob("*/previous"))
+    assert len(kept) == 1
+    assert (kept[0] / "README.md").read_text() == "demo 1.0.0\n"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert str(refused.value).endswith("/previous. The plugin demo is disabled.")
+
+
 async def test_a_failed_update_leaves_the_installed_version_in_place(plugins, catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

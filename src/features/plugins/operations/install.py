@@ -398,7 +398,10 @@ async def install_from_catalog(
         local_dir = local_plugin_dir(registry)
         try:
             placement = await asyncio.to_thread(_place, data, item, local_dir, url)
-        except Exception:
+        except Exception as error:
+            if item.status == "update" and not (local_dir / plugin_id).exists():
+                _disable(repo, registry, plugin_id, collaborators)
+                raise CatalogInstallError(f"{error} The plugin {plugin_id} is disabled.") from error
             if row_was_enabled:
                 repo.enable_plugin(plugin_id)
             raise

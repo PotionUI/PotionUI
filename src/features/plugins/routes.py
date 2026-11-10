@@ -56,7 +56,7 @@ class PluginController(BaseController):
         self.registry = plugin_registry
         # Wired in build_container() so enable/disable/delete rescan presets,
         # plugin-shipped pipes, and setup recipes live - see
-        # operations._rescan_presets_and_pipes. Untyped (Any) and duck-typed
+        # operations.rescan_presets_and_pipes. Untyped (Any) and duck-typed
         # to their reload()/rescan_plugin_pipes() methods, purely to keep this
         # module decoupled from collaborators it has no other reason to know
         # the full interface of.

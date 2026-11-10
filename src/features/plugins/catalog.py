@@ -8,6 +8,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 CATALOG_SCHEMA = 1
+INSTALL_RECORD = ".potionui-catalog.json"
 
 _PLUGIN_ID = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9_-])?")
 _SHA256 = re.compile(r"[0-9a-f]{64}")

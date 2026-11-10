@@ -6,8 +6,10 @@ holds them together. Framework-agnostic - uses ``ValueError`` for "not
 found"/"failed" (the controller converts that to an HTTP response).
 """
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
+from src.features.plugins.catalog import INSTALL_RECORD
 from src.features.plugins.dto import PluginResponse
 from src.features.plugins.mappers import plugin_to_response
 from src.features.plugins.operations.scan import register_discovered_plugin
@@ -199,6 +201,9 @@ def enable_default_plugins(
     enabled = []
     for manifest in registry.get_all_plugins():
         if not manifest.default_enabled or repo.get_plugin_by_id(manifest.id) is not None:
+            continue
+        if (Path(manifest.plugin_dir) / INSTALL_RECORD).exists():
+            logger.info(f"Plugin '{manifest.id}' was installed from a catalog; it stays disabled until an admin enables it")
             continue
         try:
             enable_plugin(repo, registry, manifest.id, **collaborators)

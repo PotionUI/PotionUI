@@ -3372,8 +3372,16 @@ writes `.potionui-catalog.json` (the catalog URL as given, query included, since
 the plugin to that catalog; the version, archive URL and sha256) into the plugin folder,
 moves the folder into `content/plugins/local/<id>/`, and scans for
 plugins. A new plugin is discovered disabled, like one placed by hand, and stays so across
-a restart even when the database still holds an enabled row for its id from a copy that
-was removed while the server was stopped.
+a restart even when its scan fails, when the database still holds an enabled row for its id
+from a copy that was removed while the server was stopped, or when such a copy was removed
+while the server ran and is still enabled in it. A manifest's `default_enabled` never enables
+a plugin installed from a catalog: at startup, a plugin with no row in the database is
+enabled by default only when its folder holds no `.potionui-catalog.json`, so a first
+install that stopped before its row was written (a cancelled request, a stopped server, a
+scan that raised) still waits for an admin. When the scan of a first install raises, or
+does not pick up the new manifest, the folder stays in place, disabled, and the answer says
+so: the catalog then lists the plugin as installed, so remove the folder to install it
+again.
 
 The same id is never installed twice. A plugin that ships with PotionUI
 (`content/plugins/marketplace/`) is listed as bundled; a folder of that id that holds no
@@ -3397,12 +3405,23 @@ enabled plugin is enabled again on its new manifest, with presets, pipes and rec
 rescanned. The old folder waits in the staging folder until the scan that follows the
 move has the plugin back up, and is never deleted before: when that scan fails (a page
 route another plugin already owns, for example), when the new version of an enabled plugin
-does not start (a missing Python package, a hook that fails to register), or when the new
-manifest of any plugin leaves it in error, the old folder goes back in place, an enabled
-plugin is enabled again on it, and the install answers with the reason. A disabled plugin
-takes the new version as it is, since nothing runs it until it is enabled. If the old
-folder cannot be moved back, or the server stops before the check, it stays in
-`content/plugins/local/.potionui-install/`, named in the answer when there is one.
+does not start (a missing Python package, a hook that fails to register), when the new
+manifest of any plugin leaves it in error, or when the scan does not pick up the new
+manifest (a folder the loader could not read, for example), the old folder goes back in
+place, an enabled plugin is enabled again on it, and the install answers with the reason.
+If the scan that follows the put-back fails in turn, the old version stays in place,
+disabled, and the answer says so. A disabled plugin whose new manifest is valid takes the
+new version as it is, since nothing runs it until it is enabled; its new code is only
+checked when it is enabled. If the old folder cannot be moved back (after a failed check,
+or when the new one cannot be moved in either), or the server stops before the check, it
+stays in `content/plugins/local/.potionui-install/`, named in the answer when there is one, and the
+plugin is left disabled: its row is disabled from the move on, and enabled again only once
+the new version, or the old one put back, is running. Once the archive is downloaded, a
+cancelled request no longer stops the install half way: the install finishes, or rolls
+back, before the cancellation goes through and before another install can start. If the
+install itself is stopped after the move (the server shutting down), the plugin is disabled
+in the running server as well. After a rollback, the modules the failed version imported
+stay loaded until PotionUI restarts, and the answer says so.
 
 PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
 enable step checks it, and the install answer lists it so the admin knows what to
@@ -3413,7 +3432,9 @@ only; every redirect is checked the same way, and the connection goes to the add
 that were checked. A host written as a number that is not a full IP address
 (`2130706433`, `127.1`, `0x7f.1`) is refused in every mode, and so is a URL with
 credentials in it. Refusals, statuses and logs name the host, never the whole URL, so a
-token in a query or a signed redirect does not end up in them. For a catalog on a local network or a test server, start PotionUI
+token in a query or a signed redirect does not end up in them. The catalog URL itself is
+written as given, query included, into the plugin folder's `.potionui-catalog.json`, so a
+token in a catalog URL is stored there in clear. For a catalog on a local network or a test server, start PotionUI
 with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`: catalog and archive URLs may then point to
 local and private addresses, and use plain http, but only to such an address. A plain http
 URL to a public address, written as one or a name with any public answer, is refused
@@ -3422,7 +3443,9 @@ unchanged. Local and private addresses include link-local ones, such as the clou
 address `169.254.169.254`, so set the variable only on a server where that is acceptable.
 Installing,
 updating and reading a catalog are admin-only (`POST /api/plugins/catalog` and
-`POST /api/plugins/catalog/install`). The sha256 proves the archive is the one the
+`POST /api/plugins/catalog/install`). One catalog install runs at a time: another one asked
+for meanwhile is refused with "Another plugin install from a catalog is in progress", not
+queued. The sha256 proves the archive is the one the
 catalog names; it says nothing about the catalog itself, so install only from catalogs
 you trust: a plugin runs with the same rights as PotionUI.
 

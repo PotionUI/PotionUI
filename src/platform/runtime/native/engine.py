@@ -146,6 +146,7 @@ _MIN_DECODE_TILE_LATENT = 16
 _CAUSAL3D_DECODE_MB_PER_LATENT_PX = 1.2
 
 _CAUSAL3D_ENCODE_MB_PER_LATENT_PX = 0.25
+_CAUSAL3D_ENCODE_MB_PER_LATENT_PX_WITHOUT_CUDNN = 0.5
 
 # Fraction of live free VRAM the first tile guess may claim: leaves slack for
 # allocator fragmentation and the assembled fp32 output pixels.
@@ -154,12 +155,19 @@ _DECODE_TILE_VRAM_FRACTION = 0.75
 _MIN_ENCODE_TILE_PX = 128
 
 
+def _causal3d_encode_mb_per_latent_px() -> float:
+    cudnn = torch.backends.cudnn
+    if torch.version.cuda and not getattr(torch.version, "hip", None) and cudnn.enabled and cudnn.is_available():
+        return _CAUSAL3D_ENCODE_MB_PER_LATENT_PX
+    return _CAUSAL3D_ENCODE_MB_PER_LATENT_PX_WITHOUT_CUDNN
+
+
 def _causal3d_encode_tile(
     free_gb: float, pixel_hw: tuple[int, int], align: int, max_tile: int | None = None,
 ) -> tuple[int, int]:
     align = max(8, int(align))
     floor = max(_MIN_ENCODE_TILE_PX, align)
-    budget_latent_px = max(0.0, free_gb) * _DECODE_TILE_VRAM_FRACTION * 1024.0 / _CAUSAL3D_ENCODE_MB_PER_LATENT_PX
+    budget_latent_px = max(0.0, free_gb) * _DECODE_TILE_VRAM_FRACTION * 1024.0 / _causal3d_encode_mb_per_latent_px()
     window_px = (budget_latent_px ** 0.5) * _VAE_SPATIAL_DOWNSCALE
     tile = int(window_px / 1.125) // align * align
     cap = (max(pixel_hw) + 1) // 2 // align * align
@@ -2526,13 +2534,13 @@ class NativeGenerator:
         resident) + the transient conv-activation peak, scaled from input pixels.
 
         Mirrors ``_decode_need_gb``'s shape with the encode-calibrated per-latent-
-        px coefficient (``_CAUSAL3D_ENCODE_MB_PER_LATENT_PX``; 2D falls back to the
+        px coefficient (``_causal3d_encode_mb_per_latent_px``; 2D falls back to the
         tiering default via ``activation_headroom_gb``)."""
         h, w = pixels.shape[-2], pixels.shape[-1]
         latent_hw = (h // _VAE_SPATIAL_DOWNSCALE, w // _VAE_SPATIAL_DOWNSCALE)
         if self._is_causal3d_vae():
             spike = activation_headroom_gb(
-                latent_hw, decode_mb_per_latent_px=_CAUSAL3D_ENCODE_MB_PER_LATENT_PX
+                latent_hw, decode_mb_per_latent_px=_causal3d_encode_mb_per_latent_px()
             )
         else:
             spike = activation_headroom_gb(latent_hw)

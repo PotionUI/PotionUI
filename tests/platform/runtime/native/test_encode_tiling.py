@@ -57,6 +57,14 @@ def _gen(module, *, latent_format=None, vae_device="cuda:0", vae_gb=0.25):
     return gen
 
 
+@pytest.fixture(autouse=True)
+def _cuda_with_cudnn(monkeypatch):
+    monkeypatch.setattr(torch.version, "cuda", "13.0", raising=False)
+    monkeypatch.setattr(torch.version, "hip", None, raising=False)
+    monkeypatch.setattr(torch.backends.cudnn, "is_available", lambda: True)
+    monkeypatch.setattr(torch.backends.cudnn, "enabled", True)
+
+
 def _shape_only(h: int, w: int) -> torch.Tensor:
     return torch.empty((1, 3, h, w), device="meta")
 

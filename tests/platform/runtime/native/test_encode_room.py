@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -75,6 +76,14 @@ def _gen(dit, pipe=None):
     gen.foreign_calls = []
     gen._ensure_room_for = lambda need, device: gen.foreign_calls.append(need)
     return gen
+
+
+@pytest.fixture(autouse=True)
+def _cuda_with_cudnn(monkeypatch):
+    monkeypatch.setattr(torch.version, "cuda", "13.0", raising=False)
+    monkeypatch.setattr(torch.version, "hip", None, raising=False)
+    monkeypatch.setattr(torch.backends.cudnn, "is_available", lambda: True)
+    monkeypatch.setattr(torch.backends.cudnn, "enabled", True)
 
 
 def _pixels(h: int = 1024, w: int = 1024) -> torch.Tensor:
@@ -189,3 +198,50 @@ def test_krea2_enhance_2048_still_tiles_on_a_cleared_12gb_card(card):
     tile = gen._causal3d_encode_tile_for(_pixels(2048, 2048), "cuda:0")
     assert tile is not None
     assert tile[0] < 2048
+
+
+def test_cuda_with_cudnn_uses_the_measured_coefficient():
+    assert engine_mod._causal3d_encode_mb_per_latent_px() == 0.25
+
+
+@pytest.mark.parametrize("path", ["cudnn_disabled", "cudnn_missing", "rocm", "no_cuda"])
+def test_every_unmeasured_conv_path_falls_back_to_the_old_coefficient(monkeypatch, path):
+    if path == "cudnn_disabled":
+        monkeypatch.setattr(torch.backends.cudnn, "enabled", False)
+    elif path == "cudnn_missing":
+        monkeypatch.setattr(torch.backends.cudnn, "is_available", lambda: False)
+    elif path == "rocm":
+        monkeypatch.setattr(torch.version, "hip", "6.4", raising=False)
+    else:
+        monkeypatch.setattr(torch.version, "cuda", None, raising=False)
+    assert engine_mod._causal3d_encode_mb_per_latent_px() == 0.5
+
+
+def test_room_tile_decision_and_tile_size_read_the_coefficient_at_call_time(card, monkeypatch, caplog):
+    gen, registry = _gen_with_registry(_Dit(), monkeypatch)
+    card(free_gb=8.0, idle_cache_gb=0.0)
+    pixels = _pixels()
+    assert gen._encode_need_gb(pixels) == pytest.approx(6.0)
+    gen._ensure_room_for_encode(pixels, "cuda:0")
+    assert registry.seen_free == []
+    assert gen._causal3d_encode_tile_for(pixels, "cuda:0") is None
+    measured_tile = engine_mod._causal3d_encode_tile(10.0, (2048, 2048), 8)
+    monkeypatch.setattr(torch.backends.cudnn, "enabled", False)
+    assert gen._encode_need_gb(pixels) == pytest.approx(10.0)
+    gen._ensure_room_for_encode(pixels, "cuda:0")
+    assert registry.seen_free == [pytest.approx(8.0)]
+    with caplog.at_level(logging.INFO, logger=engine_mod.logger.name):
+        assert gen._causal3d_encode_tile_for(pixels, "cuda:0") is not None
+    assert "needs ~10.0GB" in caplog.text
+    assert engine_mod._causal3d_encode_tile(10.0, (2048, 2048), 8) == (880, 104)
+    assert measured_tile == (1024, 128)
+
+
+@pytest.mark.parametrize(
+    ("h", "w", "peak_reserved_gb"),
+    [(512, 512, 1.74), (768, 768, 3.83), (1024, 1024, 6.80)],
+)
+def test_without_cudnn_the_estimate_keeps_a_margin_over_the_measured_vol2col_encode(monkeypatch, h, w, peak_reserved_gb):
+    monkeypatch.setattr(torch.backends.cudnn, "enabled", False)
+    gen = _gen(_Dit())
+    assert gen._encode_need_gb(_pixels(h, w)) >= 1.4 * peak_reserved_gb

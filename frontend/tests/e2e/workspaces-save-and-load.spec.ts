@@ -96,7 +96,9 @@ test('loading a workspace with legacy/foreign tab data does not break the page',
 	page.on('pageerror', (err) => unexpectedErrors.push(`pageerror: ${err.message}`));
 	page.on('console', (msg) => {
 		const draftCleanup404 = msg.location().url.includes('/api/tab-drafts/') && msg.text().includes('404');
-		if (msg.type() === 'error' && !msg.text().includes('preset_not_found') && !draftCleanup404) {
+		const missingPresetFixedPrompt404 =
+			/\/api\/presets\/DOES-NOT-EXIST-\d+\/fixed-prompt$/.test(msg.location().url) && msg.text().includes('404');
+		if (msg.type() === 'error' && !msg.text().includes('preset_not_found') && !draftCleanup404 && !missingPresetFixedPrompt404) {
 			unexpectedErrors.push(`console.error: ${msg.text()}`);
 		}
 	});

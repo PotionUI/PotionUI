@@ -32,10 +32,38 @@ class _Card:
         self.reads += 1
         return self.free_gb
 
+    def effective(self, device) -> float:
+        return self.free_gb + self.idle_cache_gb
+
     def empty_cache(self) -> None:
         self.empty_cache_calls += 1
         self.free_gb += self.idle_cache_gb
         self.idle_cache_gb = 0.0
+
+
+class _Registry:
+    def __init__(self):
+        self.seen_free = []
+        self.evicted = []
+
+    def ensure_free(self, device, need_gb, current_free_gb, *, exclude=()):
+        self.seen_free.append(current_free_gb)
+        if current_free_gb >= need_gb:
+            return []
+        self.evicted.append("foreign")
+        return ["foreign"]
+
+    def offload_all(self, device, *, exclude=()):
+        self.evicted.append("all")
+        return ["foreign"]
+
+
+def _gen_with_registry(dit, monkeypatch):
+    gen = _gen(dit)
+    del gen._ensure_room_for
+    registry = _Registry()
+    monkeypatch.setattr(engine_mod, "get_residency_registry", lambda: registry)
+    return gen, registry
 
 
 def _gen(dit, pipe=None):
@@ -58,6 +86,7 @@ def card(monkeypatch):
     def install(free_gb: float, idle_cache_gb: float) -> _Card:
         state = _Card(free_gb, idle_cache_gb)
         monkeypatch.setattr(engine_mod, "free_vram_gb", state.free)
+        monkeypatch.setattr(engine_mod, "effective_free_vram_gb", state.effective, raising=False)
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
         monkeypatch.setattr(torch.cuda, "empty_cache", state.empty_cache)
         return state
@@ -72,6 +101,35 @@ def test_the_idle_allocator_cache_is_returned_before_the_encode_is_judged(card):
     gen._ensure_room_for_encode(_pixels(), "cuda:0")
     assert state.empty_cache_calls == 1
     assert gen._causal3d_encode_tile_for(_pixels(), "cuda:0") is None
+
+
+def test_an_idle_pool_that_covers_the_encode_evicts_no_foreign_resident_and_keeps_the_dit(card, monkeypatch):
+    dit = _Dit(device="cuda:0")
+    gen, registry = _gen_with_registry(dit, monkeypatch)
+    state = card(free_gb=1.0, idle_cache_gb=9.27)
+    gen._ensure_room_for_encode(_pixels(), "cuda:0")
+    assert registry.evicted == []
+    assert dit.offload_calls == 0
+    assert dit.device == "cuda:0"
+    assert state.empty_cache_calls == 1
+    assert gen._causal3d_encode_tile_for(_pixels(), "cuda:0") is None
+
+
+def test_foreign_eviction_is_judged_on_the_room_left_after_the_pool_is_returned(card, monkeypatch):
+    gen, registry = _gen_with_registry(_Dit(), monkeypatch)
+    state = card(free_gb=1.0, idle_cache_gb=3.0)
+    gen._ensure_room_for_encode(_pixels(), "cuda:0")
+    assert registry.seen_free == [pytest.approx(4.0)]
+    assert registry.evicted == ["foreign"]
+    assert state.empty_cache_calls == 2
+
+
+def test_no_flush_when_the_allocator_holds_no_idle_pool(card, monkeypatch):
+    gen, registry = _gen_with_registry(_Dit(), monkeypatch)
+    state = card(free_gb=1.0, idle_cache_gb=0.0)
+    gen._ensure_room_for_encode(_pixels(), "cuda:0")
+    assert registry.seen_free == [pytest.approx(1.0)]
+    assert state.empty_cache_calls == 1
 
 
 def test_a_cache_that_frees_enough_keeps_a_resident_dit_warm(card):

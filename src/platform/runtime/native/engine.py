@@ -45,6 +45,7 @@ from .io.safetensors_loader import load_torch_file, load_torch_file_prefixed, lo
 from .io.state_dict_utils import weight_dtype
 from .memory.device_plan import DevicePlan, make_device_plan
 from .memory.residency import (
+    effective_free_vram_gb,
     free_vram_gb,
     total_vram_gb,
     get_residency_registry,
@@ -2542,7 +2543,7 @@ class NativeGenerator:
     def _ensure_room_for_encode(self, pixels: torch.Tensor, device) -> None:
         """Free VRAM for the ref-image encode's transient peak BEFORE it runs.
 
-        Foreign residents first (``_ensure_room_for``, never our own VAE/DiT).
+        Idle pool first, then foreign residents (``_ensure_room_for``).
         If the encode still won't fit live free VRAM, our OWN DiT is the room: a
         prior generation's kept-resident DiT (warm-reuse) parked
         here is what the encode OOMs against, and the failed run's post-generation
@@ -2554,15 +2555,15 @@ class NativeGenerator:
         if not str(device).startswith("cuda"):
             return
         need = self._encode_need_gb(pixels)
+        free = free_vram_gb(device)
+        if free is None or free >= need:
+            return
+        if (effective_free_vram_gb(device) or 0.0) > free:
+            torch.cuda.empty_cache()
         self._ensure_room_for(need, device)
         free = free_vram_gb(device)
         if free is None or free >= need:
             return
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            free = free_vram_gb(device)
-            if free is None or free >= need:
-                return
         if str(getattr(self.dit, "device", "cpu")).startswith("cuda") or self.dit.is_streaming:
             logger.debug(
                 "ref-image encode needs ~%.1fGB but only %.1fGB free; offloading the parked DiT first",

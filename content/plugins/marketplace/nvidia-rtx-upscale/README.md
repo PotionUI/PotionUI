@@ -75,6 +75,10 @@ Upscale preset's Requirements tab reports the package missing with the command a
 - An SDK failure is reported with the source and target sizes. A rejected frame size (error −7 or
   −16), an effect that cannot initialize (−12, the missing `ngx` capability) and an unsupported
   GPU or driver (−17 to −19) are each explained.
+- A failure mid-clip aborts the encoder and removes the partial files, and so does a
+  cancellation, which raises `SamplingCancelled` before an image or a frame, before the encoder
+  is closed and after the audio mux. Nothing is published on a cancel, not even the images or
+  videos of the batch already finished.
 
 A caller that wants an exact size sends, for `video_upscale`: `intent: "upscale"`,
 `quality: "ultra"`, `target_short_side: <pixels>`, `keep_audio: true` and `input_video`.
@@ -118,7 +122,8 @@ videos of the batch already finished.
 ## Tests
 
 `tests/` runs with a fake `nvvfx` module and never touches the GPU: the constructor with and
-without `strength`, the error explanations, the size guard and `target_short_side`; for frame
+without `strength`, the error explanations, the size guard, `target_short_side`, cancellation and
+the cleanup after a failure, a cancel or a mux; for frame
 generation, the frame plan (16 → 24, 24 → 60, 25 → 60, 25 → 24, ×2, ×4, the last frame held, a
 long 23.976 → 60 clip), the SDK calls, odd sizes, cancellation, the cleanup after a failure or a
 mux, and a full pass over a small synthetic video with and

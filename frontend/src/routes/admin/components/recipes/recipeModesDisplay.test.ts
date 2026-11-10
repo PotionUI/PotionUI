@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import type { RecipeSummary } from '$lib/services/api/recipes';
-import { isModesRecipe, modesBadge, modesDiskLine, modesToAdd, partitionRecipes } from './recipeModesDisplay';
+import {
+	isModesRecipe,
+	modesBadge,
+	modesDiskLine,
+	modesToAdd,
+	partitionRecipes,
+	withoutCoveredModeRecipes
+} from './recipeModesDisplay';
 
 const base = {
 	id: 'r',
@@ -39,5 +46,23 @@ describe('recipe modes display', () => {
 		const parts = partitionRecipes([starter, modes]);
 		expect(parts.modes.map((r) => r.id)).toEqual(['modes-x']);
 		expect(parts.starters.map((r) => r.id)).toEqual(['starter']);
+	});
+
+	const link = (id: string) => ({ id, name: id, cover_url: null, installed: true });
+
+	it('hides a preset\'s generated mode recipe when a starter offers the same modes', () => {
+		const starter = { ...base, id: 'x-starter', source: 'marketplace', presets: [link('p1')], modes_total: 3 } as RecipeSummary;
+		const generated = { ...base, id: 'modes-x', preset_id: 'p1', presets: [link('p1')], modes_total: 3 } as RecipeSummary;
+		expect(withoutCoveredModeRecipes([generated, starter]).map((r) => r.id)).toEqual(['x-starter']);
+	});
+
+	it('keeps the generated mode recipe when no starter covers the preset or the starter offers fewer modes', () => {
+		const generated = { ...base, id: 'modes-x', preset_id: 'p1', presets: [link('p1')], modes_total: 3 } as RecipeSummary;
+		const other = { ...base, id: 'y-starter', source: 'marketplace', presets: [link('p2')], modes_total: 3 } as RecipeSummary;
+		const narrow = { ...base, id: 'x-starter', source: 'marketplace', presets: [link('p1')], modes_total: 2 } as RecipeSummary;
+		const plain = { ...base, id: 'x-plain', source: 'marketplace', presets: [link('p1')], modes_total: null } as RecipeSummary;
+		expect(withoutCoveredModeRecipes([generated, other]).map((r) => r.id)).toEqual(['modes-x', 'y-starter']);
+		expect(withoutCoveredModeRecipes([generated, narrow]).map((r) => r.id)).toEqual(['modes-x', 'x-starter']);
+		expect(withoutCoveredModeRecipes([generated, plain]).map((r) => r.id)).toEqual(['modes-x', 'x-plain']);
 	});
 });

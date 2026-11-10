@@ -134,6 +134,21 @@ const buttonIn = (root: ParentNode, label: string) =>
 	Array.from(root.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim().startsWith(label)) as HTMLButtonElement | undefined;
 
 describe('RecipesTab modes recipes', () => {
+	it('shows one card per model when a starter offers the same modes as the generated recipe', async () => {
+		const starter = recipe({
+			presets: [{ id: 'p1', name: 'LTX-2.5', cover_url: null, installed: true }],
+			modes_total: 12,
+			modes_ready: 8,
+			installed_bytes: 35.6 * GB
+		});
+		setup([starter, { ...MODES_RECIPE, preset_id: 'p1' }]);
+		mounted = mount();
+		await settle();
+		const modesGrid = mounted.target.querySelector('[role="list"][aria-label="Mode recipes"]')!;
+		expect(modesGrid.textContent).toContain('LTX-2.5 Starter');
+		expect(modesGrid.textContent).not.toContain('LTX-2.5 modes');
+	});
+
 	it('groups mode recipes under Modes with a ready count and the real size, and starters below', async () => {
 		setup([recipe(), MODES_RECIPE]);
 		mounted = mount();

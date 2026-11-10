@@ -51,6 +51,7 @@
 	import { registerDetailsReturn } from '$lib/tools/detailsReturn';
 	import { landOnHistoryResult } from '$lib/tools/historyResult';
 	import { plainLetter, pageOwnsKeys } from '$lib/utils/shortcutGuard';
+	import { selectionDeleteIntent } from '$lib/utils/deleteShortcut';
 	import { gridShortcutTarget } from '$lib/tools/gridShortcut';
 	import { buildHistoryToolContext, listTools } from '$lib/tools/tools';
 	import { editMediaAvailability } from '$lib/tools/editMedia';
@@ -219,6 +220,20 @@
 		handleToolSelect(tool, context);
 	}
 
+	function handleDeleteShortcut(event: KeyboardEvent) {
+		const intent = selectionDeleteIntent(event, pageOwnsKeys(event), currentState.selectedGenerationIds);
+		if (!intent) return;
+		event.preventDefault();
+		const single = intent.kind === 'single' ? currentState.generations.find((gen) => gen.id === intent.id) : null;
+		if (single) handleDeleteRequest(single);
+		else showBulkDeleteModal = true;
+	}
+
+	function handlePageKeys(event: KeyboardEvent) {
+		handleGridShortcut(event);
+		handleDeleteShortcut(event);
+	}
+
 	function closeTool() {
 		activeTool = null;
 		activeToolContext = null;
@@ -385,6 +400,8 @@
 		}
 		try {
 			await historyStore.deleteGeneration(target.id);
+			const selected = get(historyStore).selectedGenerationIds;
+			if (selected.includes(target.id)) historyStore.setSelection(selected.filter((id) => id !== target.id));
 			showDeleteModal = false;
 			generationToDelete = null;
 		} catch (error) {
@@ -420,7 +437,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleGridShortcut} />
+<svelte:window on:keydown={handlePageKeys} />
 
 <div class="flex h-[100dvh] bg-canvas">
 	{#if sidebarOpen}

@@ -1,0 +1,28 @@
+name: "custom"
+mode_label: "Edit"
+short_description: "Edit a picture, guided by up to 15 more."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/edit/tabs/generation.yml"
+      - type: "tab"
+        anchor: "references"
+        label: "Pictures"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/edit/tabs/references.yml"
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"

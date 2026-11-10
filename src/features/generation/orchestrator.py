@@ -42,6 +42,8 @@ from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.features.presets.repository import DatabasePresetRepository
+    from src.features.presets.fixed_prompt_repository import PresetFixedPromptRepository
+    from src.features.generation.applied_prompt_repository import GenerationAppliedPromptRepository
     from src.features.models.access_policy import ModelAccessPolicy
     from src.features.users.repository import UserRepository
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
@@ -71,6 +73,7 @@ from src.features.generation.queue import QueuedGeneration
 from src.features.generation.queue_dispatcher import CancelledBeforeStart, QueueDispatcher
 from src.features.generation.scheduling import FAIR, SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
+from src.features.generation.fixed_prompt import FixedPromptRun, apply_fixed_prompt, fixed_prompt_applies
 from src.features.generation.notifier import GenerationNotifier
 from src.features.generation.grids.repository import grid_repo
 from src.features.generation.policy import GenerationPolicy
@@ -100,6 +103,7 @@ from src.features.models.form_refs import (
     resolve_form_model_refs,
 )
 from src.features.models.exceptions import ModelAccessDeniedException
+from src.features.presets.exceptions import PresetNotFoundException
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, Progress, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
 from src.features.generation.records import Generation
@@ -116,6 +120,7 @@ from src.platform.plugins.hooks import HookContext, await_hook_blocking_waits
 from src.platform.plugins.limit_kinds import AdmissionRequest
 from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.presets import PresetTemplateLoader
+from src.features.presets.operations.access import require_preset_access
 from src.features.presets.templates import PresetTemplate
 from src.features.video_director import (
     apply_model_overlay,
@@ -559,6 +564,8 @@ class GenerationOrchestrator:
         output_broadcaster: Optional['GenerationOutputBroadcaster'] = None,
         limit_guard: Optional['LimitGuard'] = None,
         prompt_resource_source_registry: Optional[PromptResourceSourceRegistry] = None,
+        fixed_prompt_repository: Optional['PresetFixedPromptRepository'] = None,
+        applied_prompt_repository: Optional['GenerationAppliedPromptRepository'] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -618,6 +625,9 @@ class GenerationOrchestrator:
         self._content_tally: Dict[str, Dict[str, int]] = {}
         self._prompt_batches: Dict[str, PromptBatch] = {}
         self._prompt_batch_splitter = PromptBatchSplitRepository()
+        self.fixed_prompt_repository = fixed_prompt_repository
+        self.applied_prompt_repository = applied_prompt_repository
+        self._fixed_prompt_runs: Dict[str, FixedPromptRun] = {}
         self.generation_stats_repository = generation_stats_repository
         # Cheap stateless wrapper over `preset_template_loader`, used solely to
         # resolve a preset's display name at generation_stats write time (see
@@ -736,6 +746,16 @@ class GenerationOrchestrator:
         return resolve_model_identity(
             built.pipes,
             lambda model_id: model_repo.get_by_id(model_id, include_providers=False, include_tags=False),
+        )
+
+    def _enforce_preset_access(self, preset_id: str, user_id: str) -> None:
+        if self.database_preset_repository is None or self.user_repository is None:
+            return
+        user = self.user_repository.get_by_id(user_id)
+        if user is None:
+            raise PresetNotFoundException(preset_id)
+        require_preset_access(
+            self.database_preset_repository, user_id, preset_id, GenerationPolicy.is_admin(user)
         )
 
     def _enforce_model_access(self, bound, user_id: str) -> None:
@@ -869,6 +889,7 @@ class GenerationOrchestrator:
             NoBackendForEngineError / NoEligibleBackendError: no backend
                 available for this preset's engine / request.
         """
+        self._enforce_preset_access(request.preset_id, user_id)
         preset_template = self.preset_template_loader.load_preset_by_id(request.preset_id)
         if not preset_template:
             raise ValueError(f"Preset '{request.preset_id}' not found")
@@ -1160,6 +1181,7 @@ class GenerationOrchestrator:
         if output_callback is None and self.output_broadcaster is not None:
             output_callback = self.output_broadcaster.handle_output
 
+        self._enforce_preset_access(request.preset_id, user_id)
         admitted_ref: Optional[str] = None
         try:
             logger.info(f"Starting generation for user={user_id}, preset={request.preset_id}")
@@ -1471,6 +1493,24 @@ class GenerationOrchestrator:
             generation_id, request, prompts, on_warning=on_warning
         )
 
+    def _fixed_prompt_run(
+        self,
+        generation_id: str,
+        request,
+        mode: Optional[str],
+        prompts: Optional[List[Dict[str, str]]],
+    ) -> Optional[FixedPromptRun]:
+        if self.fixed_prompt_repository is None or not prompts:
+            return None
+        fixed = self.fixed_prompt_repository.get(request.preset_id)
+        if fixed is None or fixed.is_empty:
+            return None
+        template = self.preset_template_loader.load_preset_by_id(request.preset_id)
+        if not fixed_prompt_applies(fixed, template, mode, request.form_data, prompts):
+            return None
+        parts = self._prompt_expander.expand_fixed(generation_id, request, fixed, len(prompts))
+        return apply_fixed_prompt(prompts, parts)
+
     async def _start_generation(
         self,
         generation_id: str,
@@ -1512,6 +1552,17 @@ class GenerationOrchestrator:
             batch.settle(request, prompts)
             self._prompt_batches[generation_id] = batch
 
+        try:
+            fixed_run = self._fixed_prompt_run(generation_id, request, db_generation.mode, prompts)
+        except Exception as e:
+            logger.error(f"Failed to apply the fixed prompt text: {str(e)}", exc_info=True)
+            failure = failure_from_exception(e, traceback.format_exc())
+            await self._record_failure(generation_id, failure)
+            self._queue_dispatcher.prune_finished()
+            raise
+        if fixed_run is not None:
+            prompts = fixed_run.applied
+
         if self.content_safety is not None:
             matched = await asyncio.to_thread(
                 self.content_safety.find_banned_prompt,
@@ -1542,6 +1593,10 @@ class GenerationOrchestrator:
             if batch is not None:
                 batch.apply_to_pipes(built_pipeline.pipes)
             logger.info(f"Pipeline built with {len(built_pipeline.pipes)} pipes")
+            if fixed_run is not None:
+                if self.applied_prompt_repository is not None:
+                    self.applied_prompt_repository.save(generation_id, fixed_run.records())
+                self._fixed_prompt_runs[generation_id] = fixed_run
         except Exception as e:
             logger.error(f"Failed to build pipeline: {str(e)}", exc_info=True)
             failure = failure_from_exception(e, traceback.format_exc())
@@ -1707,6 +1762,9 @@ class GenerationOrchestrator:
         prompt_batch = self._prompt_batches.get(generation_id)
         if prompt_batch is not None:
             prompt_batch.stamp(output)
+        fixed_run = self._fixed_prompt_runs.get(generation_id)
+        if fixed_run is not None:
+            fixed_run.mask(output)
 
         if output_type_registry.is_server_only(output):
             try:
@@ -1844,6 +1902,7 @@ class GenerationOrchestrator:
 
         backend = self._run_backends.pop(generation_id, None)
         prompt_batch = self._prompt_batches.pop(generation_id, None)
+        self._fixed_prompt_runs.pop(generation_id, None)
         record = self.status_tracker.get(generation_id)
         if record is None:
             return
@@ -2164,6 +2223,7 @@ class GenerationOrchestrator:
         self._run_backends.pop(generation_id, None)
         self._cancel_requested.discard(generation_id)
         self._prompt_batches.pop(generation_id, None)
+        self._fixed_prompt_runs.pop(generation_id, None)
         self._content_tally.pop(generation_id, None)
 
     async def clear_tab_queue(self, user_id: str, tab_id: str) -> List[str]:

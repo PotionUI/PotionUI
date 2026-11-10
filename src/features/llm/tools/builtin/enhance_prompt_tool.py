@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.model_info_tool import model_visible
 from src.features.llm.tools.builtin.utils import allowed_model_ids, video_director_active
+from src.features.presets.operations.access import preset_available_to_user
 
 
 class EnhancePromptTool(BaseTool):
@@ -141,9 +142,7 @@ class EnhancePromptTool(BaseTool):
             collaborators = context.preset_collaborators
             if collaborators is None:
                 return None, "Presets are not available on this server."
-            allowed = context.is_admin or preset_id in (
-                collaborators.db_repo.get_available_preset_ids_for_user(context.user_id) or []
-            )
+            allowed = preset_available_to_user(collaborators.db_repo, context.user_id, preset_id, context.is_admin)
             if not allowed or not collaborators.file_repo.find_preset_by_id(preset_id):
                 return None, f"No preset '{preset_id}'. Call list_presets to see the preset ids you can use."
             form_state["preset"] = preset_id

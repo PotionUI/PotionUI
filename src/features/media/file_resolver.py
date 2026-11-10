@@ -8,12 +8,15 @@ including security validation against directory traversal attacks.
 import logging
 import os
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 
 from src.features.generation.thumbnail_profile import SIZE_ORDER, fallback_sizes
 from src.features.media.media_types import MediaTypeResolver
 from src.platform.settings.settings import Settings
+
+if TYPE_CHECKING:
+    from src.features.presets.cover_store import PresetCoverStore
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,7 @@ logger = logging.getLogger(__name__)
 # else - preset.yml at the root, the option YAML and ComfyUI workflows under files/ -
 # is read server-side and must never be reachable over HTTP.
 PRESET_PUBLIC_ROOT = "public"
+PRESET_DISPLAY_ROOT = "display"
 
 # `.svg` is deliberately dropped from IMAGE_EXTENSIONS: an SVG served inline can
 # carry script, and preset content may come from a marketplace.
@@ -39,7 +43,8 @@ class FilePathResolver:
     def __init__(
         self,
         settings: Settings,
-        preset_loader: Optional[Any] = None
+        preset_loader: Optional[Any] = None,
+        cover_store: Optional["PresetCoverStore"] = None,
     ):
         """Initialize FilePathResolver.
 
@@ -49,6 +54,12 @@ class FilePathResolver:
         """
         self.settings = settings
         self.preset_loader = preset_loader
+        self.cover_store = cover_store
+
+    def preset_files_id(self, preset_id: str) -> str:
+        if self.preset_loader is None:
+            return preset_id
+        return self.preset_loader.files_preset_id(preset_id)
 
     def resolve_temp_file(self, filename: str, user_id: Optional[str] = None) -> Path:
         """Resolve path to a temporary file.
@@ -122,9 +133,14 @@ class FilePathResolver:
         if not preset:
             raise ValueError(f"Preset not found: {preset_id}")
 
+        posix_parts = PurePosixPath(file_path).parts
+        if posix_parts and posix_parts[0] == PRESET_DISPLAY_ROOT:
+            if self.cover_store is None:
+                raise ValueError("Preset file not found")
+            return self.cover_store.resolve(preset_id, file_path)
+
         # Everything servable lives under `public/`. preset.yml sits at the preset
         # root and is excluded by this check alone.
-        posix_parts = PurePosixPath(file_path).parts
         if not posix_parts or posix_parts[0] != PRESET_PUBLIC_ROOT:
             logger.warning(f"Preset asset outside public/: {preset_id}/{file_path}")
             raise ValueError("Preset file not found")

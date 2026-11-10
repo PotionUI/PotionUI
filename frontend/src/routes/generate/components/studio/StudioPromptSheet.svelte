@@ -4,6 +4,7 @@
 	import type { GenerationTab } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
+	import type { RegionalCaps } from '$lib/regional/regions';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import type { PresetStyle } from '$lib/services/api/index';
@@ -16,6 +17,7 @@
 		handleNegativePromptSegmentsChange: (segments: any[]) => void;
 	};
 	export let promptRelayActive: boolean;
+	export let regionalCaps: RegionalCaps | null = null;
 	export let videoDirectorActive: boolean;
 	export let videoDirectorCaps: DirectorCapabilities | null;
 	export let musicDirectorActive: boolean;
@@ -46,6 +48,7 @@
 			{tab}
 			{tabHandlers}
 			{promptRelayActive}
+			{regionalCaps}
 			{videoDirectorActive}
 			{videoDirectorCaps}
 			{musicDirectorActive}

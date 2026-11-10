@@ -33,15 +33,7 @@ def scratch_db(tmp_path):
     """A throwaway sqlite file for exactly one test - never the real app DB.
     A fresh `Database` pointed at a temp file, no migration replay (this
     plugin's table has no FOREIGN KEY on anything migration-owned)."""
-    from src.plugin_api.storage import db
+    from src.plugin_api import scratch_database, use_database
 
-    Database = type(db)
-
-    Database._instance = None
-    test_db = Database()
-    test_db.db_path = tmp_path / "test.sqlite"
-    test_db.db_path.parent.mkdir(parents=True, exist_ok=True)
-    test_db._initialized = True
-    yield test_db
-    Database.close_pool()
-    Database._instance = None
+    with use_database(scratch_database(tmp_path / "test.sqlite", core_schema=False)) as test_db:
+        yield test_db

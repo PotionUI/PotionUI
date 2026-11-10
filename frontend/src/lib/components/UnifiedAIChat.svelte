@@ -2,6 +2,7 @@
 	import { refusalMessage } from '$lib/plans/refusal';
 	import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 	import { getErrorMessage, logger } from '$lib/utils/logger';
+	import { regionalFormDataFromResult, resolveRegionalCaps } from '$lib/regional/regions';
 	import { onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import { scopedStorage } from '$lib/stores/identityScopedStorage';
@@ -1506,6 +1507,7 @@
 			if (resultData.action === 'apply_form_changes') handleFormChangesApplied(resultData.applied_changes);
 			if (resultData.action === 'apply_music_director_ops') handleMusicDirectorApplied(resultData.operations);
 			if (resultData.action === 'set_prompt_relay') handlePromptRelaySet(resultData);
+			if (resultData.action === 'set_regional_prompt') handleRegionalPromptSet(resultData.regional_prompt);
 			if (resultData.action === 'apply_segment_updates') await handleSegmentUpdatesApplied(resultData.updates);
 			return null;
 		} catch (err) {
@@ -1639,6 +1641,18 @@
 		const doc = normalizeMusicDirectorValue(tab.musicDirector, musicDirectorCaps);
 		const next = applyMusicDirectorOperations(doc, operations, musicDirectorCaps);
 		tabsStore.updateTab(tab.id, { musicDirector: normalizeMusicDirectorValue(next, musicDirectorCaps) });
+	}
+
+	$: regionalCaps = resolveRegionalCaps(
+		directorPresetVarsCache[contextTab?.selectedPreset || ''],
+		contextTab?.selectedMode
+	);
+
+	function handleRegionalPromptSet(value: unknown) {
+		const tab = contextTab;
+		if (!tab) return;
+		const formData = regionalFormDataFromResult(tab.formData, regionalCaps, value);
+		if (formData) tabsStore.updateTab(tab.id, { formData });
 	}
 
 	let _relaySegCounter = 0;

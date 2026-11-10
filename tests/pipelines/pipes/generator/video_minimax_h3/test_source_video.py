@@ -25,7 +25,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     head_frames_for_latents,
     video_latent_num_frames,
 )
-from src.pipelines.pipes.generator.video_minimax_h3.layout import patchify_video_latents
+from src.platform.runtime.native.arch.minimax_h3.packing import patchify_video_latents
 from src.pipelines.pipes.generator.video_minimax_h3.main import (
     MAX_WINDOW_FRAMES,
     GeneratorMinimaxH3Pipe,

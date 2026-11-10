@@ -17,6 +17,11 @@ absorb an unrelated concern. Callers import from the package
 (`from src.features.presets import operations`), never from a submodule
 directly.
 """
+from src.features.presets.operations.access import (
+    is_admin_user,
+    preset_available_to_user,
+    require_preset_access,
+)
 from src.features.presets.operations.query import (
     list_presets,
     get_preset,
@@ -46,6 +51,15 @@ from src.features.presets.operations.requirements import (
     get_preset_requirements,
     refresh_mode_requirements,
 )
+from src.features.presets.operations.display import (
+    get_admin_detail,
+    set_display,
+    upload_display_cover,
+)
+from src.features.presets.operations.mirrors import (
+    create_mirror,
+    set_mirror_modes,
+)
 from src.features.presets.operations.picker_state import (
     get_picker_state,
     pin_preset,
@@ -54,6 +68,9 @@ from src.features.presets.operations.picker_state import (
 )
 
 __all__ = [
+    "is_admin_user",
+    "preset_available_to_user",
+    "require_preset_access",
     "list_presets",
     "get_preset",
     "get_available_modes",
@@ -75,4 +92,9 @@ __all__ = [
     "pin_preset",
     "unpin_preset",
     "push_recent_preset",
+    "get_admin_detail",
+    "set_display",
+    "upload_display_cover",
+    "create_mirror",
+    "set_mirror_modes",
 ]

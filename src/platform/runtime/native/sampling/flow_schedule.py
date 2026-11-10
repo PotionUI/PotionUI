@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 
 import torch
 
@@ -462,6 +463,32 @@ def _build_moss_grid_schedule(ctx: ScheduleContext) -> Tensor:
     nearest = torch.where((sigmas - training[lower]).abs() <= (training[upper] - sigmas).abs(), lower, upper)
     snapped = torch.unique_consecutive(training[nearest])
     return torch.cat((snapped, snapped.new_zeros(1)))
+
+
+H3_IMAGE_PDD_SIGMAS: tuple[float, ...] = (
+    1.0, 0.9675236940383911, 0.8875485062599182, 0.75, 0.5327739119529724, 0.23200887441635132, 0.0,
+)
+
+
+def h3_image_pdd_sigmas(steps: int, grid: Sequence[float] = H3_IMAGE_PDD_SIGMAS) -> Tensor:
+    values = [float(sigma) for sigma in grid]
+    if steps < 1 or len(values) < 2 or any(b >= a for a, b in zip(values, values[1:])):
+        raise ValueError("h3_image_pdd needs at least one step and a strictly descending sigma grid")
+    ascending = torch.tensor(values[::-1], dtype=torch.float64)
+    intervals = len(values) - 1
+    positions = torch.arange(steps, -1, -1, dtype=torch.float64) * intervals / steps
+    lower = positions.floor().long().clamp(max=intervals - 1)
+    sigmas = torch.lerp(ascending[lower], ascending[lower + 1], positions - lower)
+    return sigmas.to(torch.float32)
+
+
+def _build_h3_image_pdd_schedule(ctx: ScheduleContext) -> Tensor:
+    grid = ctx.options.get("grid")
+    if grid is None or grid == "":
+        return h3_image_pdd_sigmas(ctx.steps)
+    if isinstance(grid, str):
+        grid = [float(value) for value in grid.split(",") if value.strip()]
+    return h3_image_pdd_sigmas(ctx.steps, grid)
 
 
 def _build_ltx_dynamic_schedule(ctx: ScheduleContext) -> Tensor:

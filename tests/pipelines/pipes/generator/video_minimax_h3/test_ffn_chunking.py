@@ -9,7 +9,8 @@ import torch
 
 import src.platform.runtime.native.arch.minimax_h3.model as model_module
 from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
-from src.pipelines.pipes.generator.video_minimax_h3.layout import TEXT_TAG, build_packed_sequence, build_row_timesteps
+from src.pipelines.pipes.generator.video_minimax_h3.layout import build_packed_sequence, build_row_timesteps
+from src.platform.runtime.native.arch.minimax_h3.packing import TEXT_TAG
 from src.pipelines.pipes.generator.video_minimax_h3.main import H3_FFN_DIM, H3_HIDDEN_SIZE, GeneratorMinimaxH3Pipe
 from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
 from tests.pipelines.pipes.generator.video_minimax_h3.test_main import PATCH, _BIG_LAYOUT, _run_generate_one

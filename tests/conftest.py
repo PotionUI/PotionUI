@@ -24,7 +24,7 @@ import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
-from unittest.mock import patch, Mock
+from unittest.mock import Mock
 
 
 def pytest_collection_modifyitems(config, items):
@@ -240,19 +240,13 @@ def mock_db():
     Yields:
         TestDatabase: Test database patched into global scope
     """
+    from src.platform.database.testing import use_database
+
     test_database = TestDatabase.from_template()
 
-    # Patch the database for the entire test duration. `database.db` and
-    # `migration_runner.db` cover the two names that resolve `db` fresh on
-    # every call. `SettingRepository` (and every other repository) imports
-    # `db` at call time, not at module top level, so patching these two names
-    # is enough to reach it.
-    with patch('src.platform.database.database.db', test_database), \
-         patch('src.platform.database.migration_runner.db', test_database):
-        # Yield with patch still active
+    with use_database(test_database):
         yield test_database
 
-    # Clean up after patch context exits
     test_database.close()
 
 

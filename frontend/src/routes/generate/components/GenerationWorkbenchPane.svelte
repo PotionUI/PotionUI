@@ -20,6 +20,7 @@
 	export let onWorkbenchNext: () => void;
 	export let onWorkbenchHeightChange: (event: CustomEvent<string>) => void;
 	export let onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
+	export let onDeleteGeneration: ((tabId: string) => void) | null = null;
 
 	$: generation = tab.generation;
 	$: current = generation.currentGeneration as any;
@@ -59,6 +60,7 @@
 	{stageTop}
 	samplingProgress={generation.currentProgress?.progress ?? 0}
 	samplingStep={(generation.currentProgress as { current_step_num?: number } | null)?.current_step_num ?? 0}
+	onDeleteGeneration={onDeleteGeneration ? () => onDeleteGeneration?.(tab.id) : null}
 	on:previous={onWorkbenchPrevious}
 	on:next={onWorkbenchNext}
 	on:heightChange={onWorkbenchHeightChange}

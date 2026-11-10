@@ -181,8 +181,8 @@ def test_collect_model_field_specs_recurses_into_children():
 
     specs = _collect_model_field_specs(fields)
 
-    assert {"name": "model", "model_type": "checkpoint", "recommended": set()} in specs
-    assert {"name": "upscaler_model", "model_type": "upscaler", "recommended": set()} in specs
+    assert {"name": "model", "label": "model", "model_type": "checkpoint", "recommended": set()} in specs
+    assert {"name": "upscaler_model", "label": "upscaler_model", "model_type": "upscaler", "recommended": set()} in specs
     assert len(specs) == 2
 
 
@@ -289,3 +289,73 @@ def test_two_artifacts_of_one_model_type_go_to_the_fields_that_recommend_them():
     _resolve_model_fields(fields, form_data, recipe=recipe, model_repository=repo)
 
     assert form_data == {"vae": "model:m-video-vae", "audio_vae": "model:m-audio-vae"}
+
+
+MOSS_PRESET_ID = "01M52YQH5XRAH60J82RY5NTM2V"
+MOSS_FILES = {
+    "diffusion_model": ("diffusion_model", "moss_image_sft_bf16.safetensors"),
+    "text_encoder": ("text_encoder", "qwen3.5_9b_int8_convrot.safetensors"),
+    "vae": ("vae", "flux2-vae.safetensors"),
+}
+
+
+def _mode_recipe():
+    return Recipe(id="moss-image-starter", schema_version=1, version=1, name="MOSS-Image Starter", engine="native", artifacts=[])
+
+
+def _moss_repository(skip=()):
+    return FakeModelRepository({
+        identity: FakeModel(f"m-{field}") for field, identity in MOSS_FILES.items() if field not in skip
+    })
+
+
+def test_a_recipe_that_names_no_files_takes_each_model_from_the_admin_default(loader):
+    preset = loader.load_preset_by_id(MOSS_PRESET_ID)
+
+    form_data = build_fixture_form_data(
+        preset, "txt2img",
+        recipe=_mode_recipe(), model_repository=_moss_repository(),
+        admin_defaults={field: filename for field, (_, filename) in MOSS_FILES.items()},
+    )
+
+    assert {field: form_data[field] for field in MOSS_FILES} == {
+        "diffusion_model": "model:m-diffusion_model",
+        "text_encoder": "model:m-text_encoder",
+        "vae": "model:m-vae",
+    }
+
+
+def test_an_admin_default_that_is_not_indexed_fails_naming_the_field_and_file(loader):
+    preset = loader.load_preset_by_id(MOSS_PRESET_ID)
+
+    with pytest.raises(RequiredModelMissing) as raised:
+        build_fixture_form_data(
+            preset, "txt2img",
+            recipe=_mode_recipe(), model_repository=_moss_repository(skip=("vae",)),
+            admin_defaults={field: filename for field, (_, filename) in MOSS_FILES.items()},
+        )
+
+    assert raised.value.filename == "flux2-vae.safetensors"
+    assert raised.value.display_name == "VAE (FLUX 2)"
+
+
+def test_an_admin_default_stored_as_a_model_reference_or_a_path_is_used():
+    fields = [
+        FieldTemplate(name="vae", type="model", label="VAE", configuration={"model_type": "vae"}),
+        FieldTemplate(name="model", type="model", label="Model", configuration={"model_type": "checkpoint"}),
+        FieldTemplate(name="upscaler", type="model", label="Upscaler", configuration={"model_type": "upscaler"}),
+    ]
+    form_data = {
+        "vae": "/SETUP-CHECK/models/vae.safetensors",
+        "model": "/SETUP-CHECK/models/model.safetensors",
+        "upscaler": "/SETUP-CHECK/models/upscaler.safetensors",
+    }
+
+    _resolve_model_fields(
+        fields, form_data,
+        recipe=_mode_recipe(),
+        model_repository=FakeModelRepository({("checkpoint", "base.safetensors"): FakeModel("m-base")}),
+        admin_defaults={"vae": "model:m-vae", "model": "checkpoints\\sdxl\\base.safetensors", "upscaler": None},
+    )
+
+    assert form_data == {"vae": "model:m-vae", "model": "model:m-base", "upscaler": ""}

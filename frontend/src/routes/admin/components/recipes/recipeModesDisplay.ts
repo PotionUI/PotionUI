@@ -40,3 +40,19 @@ export function partitionRecipes(recipes: readonly RecipeSummary[]): {
 	for (const recipe of recipes) (isModesRecipe(recipe) ? modes : starters).push(recipe);
 	return { modes, starters };
 }
+
+export function withoutCoveredModeRecipes(recipes: readonly RecipeSummary[]): RecipeSummary[] {
+	const covered = new Map<string, number>();
+	for (const recipe of recipes) {
+		if (recipe.source === 'derived' || !isModesRecipe(recipe)) continue;
+		for (const link of recipe.presets ?? []) {
+			covered.set(link.id, Math.max(covered.get(link.id) ?? 0, recipe.modes_total ?? 0));
+		}
+	}
+	return recipes.filter(
+		(recipe) =>
+			recipe.source !== 'derived' ||
+			!recipe.preset_id ||
+			(covered.get(recipe.preset_id) ?? 0) < (recipe.modes_total ?? 0)
+	);
+}

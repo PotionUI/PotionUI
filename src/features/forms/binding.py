@@ -79,6 +79,8 @@ from src.features.fields.segmented import Segmented
 from src.features.fields.anchor import Anchor
 from src.features.fields.color import Color
 from src.features.presets.configuration import resolve_field_tag_categories
+from src.features.presets.regional_prompt import OPTION_KEY as _REGIONAL_PROMPT_KEY, offers_regional_prompt
+from src.pipelines.pipes._shared.regional import normalize_regional_prompt
 from src.features.models.form_refs import is_model_ref, model_id_of
 from src.platform.util.path_resolution import resolve_within
 from src.features.presets.templates import (
@@ -361,12 +363,21 @@ def bind_form(
     # this set once, which silently stripped the document and let doc-less
     # renders reach the generator ("'caption' cannot be empty", 2026-08-18).
     _PASSTHROUGH_KEYS = {"video_director", "music_director", "llm", "prompt_timeline", "timeline"}
+    regional_declared = offers_regional_prompt(getattr(preset_template, "vars", None), mode)
     _ORIGIN_SUFFIX = "__origin"
     _INPAINT_MASK_SUFFIX = "_inpaint_mask"
     for key, value in raw.items():
         if key in field_index:
             continue
         if key in _PASSTHROUGH_KEYS or is_model_ref(value):
+            values[key] = value
+            continue
+        if key == _REGIONAL_PROMPT_KEY and regional_declared:
+            try:
+                normalize_regional_prompt(value)
+            except ValueError as exc:
+                errors.append(f"{key}: {exc}")
+                field_errors.setdefault(key, []).append(str(exc))
             values[key] = value
             continue
         if key.endswith(_ORIGIN_SUFFIX) and key[: -len(_ORIGIN_SUFFIX)] in field_index:

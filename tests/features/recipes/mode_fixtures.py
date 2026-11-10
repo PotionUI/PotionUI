@@ -132,9 +132,10 @@ class FakeModelRepo:
 
 
 class FakeDbRepo:
-    def __init__(self, overrides=None, installed=("VID",)):
+    def __init__(self, overrides=None, installed=("VID",), mirrors=None):
         self.overrides = {k: dict(v) for k, v in (overrides or {}).items()}
         self.installed = set(installed)
+        self.mirrors = dict(mirrors or {})
         self.writes = []
 
     def get_preset_form_overrides(self, preset_id):
@@ -148,4 +149,7 @@ class FakeDbRepo:
         return preset_id in self.installed
 
     def get_all_installed_presets(self):
-        return [SimpleNamespace(preset_id=p) for p in sorted(self.installed)]
+        return [
+            SimpleNamespace(preset_id=p, source_preset_id=self.mirrors.get(p))
+            for p in sorted(self.installed | set(self.mirrors))
+        ]

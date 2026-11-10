@@ -128,7 +128,7 @@ function presetVram(preset: PresetInfo): number {
 
 function matchesQuery(preset: PresetInfo, query: string): boolean {
 	if (!query) return true;
-	const haystack = [preset.name, preset.id, ...(preset.tags ?? [])].join(' ').toLowerCase();
+	const haystack = [preset.name, preset.file_name ?? '', preset.id, ...(preset.tags ?? [])].join(' ').toLowerCase();
 	return haystack.includes(query);
 }
 

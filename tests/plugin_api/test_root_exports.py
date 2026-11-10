@@ -41,6 +41,7 @@ REEXPORTS = {
         "preset_template",
         "resolve_preset_path",
     ],
+    "src.plugin_api.testing": ["scratch_database", "use_database"],
     "src.plugin_api.media": [
         "embed_images",
         "image_embedder",

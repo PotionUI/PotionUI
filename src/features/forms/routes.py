@@ -12,6 +12,8 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.forms.dto import FormFieldOptionsRequest, FormValidationRequest
 from src.features.forms import operations
+from src.features.presets.exceptions import PresetNotFoundException
+from src.features.presets.operations.access import is_admin_user, require_preset_access
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -21,10 +23,21 @@ if TYPE_CHECKING:
 class FormController(BaseController):
     """Controller for form operations."""
 
-    def __init__(self, field_registry, plugin_registry):
+    def __init__(self, field_registry, plugin_registry, preset_repository):
         super().__init__()
         self.field_registry = field_registry
         self.plugin_registry = plugin_registry
+        self.preset_repository = preset_repository
+
+    def require_preset_access(self, preset_id: str, current_user: "User") -> None:
+        try:
+            require_preset_access(self.preset_repository, current_user.id, preset_id, is_admin_user(current_user))
+        except PresetNotFoundException:
+            self.error_response(
+                error="preset_not_found",
+                message=f"Preset '{preset_id}' not found",
+                status_code=404,
+            )
 
     async def get_field_options(
         self, field_type: str, field_config: Dict[str, Any], current_user: Optional["User"] = None,
@@ -108,6 +121,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/defaults/{preset_id}", response_model=APIResponse, summary="Get Default Values")
     async def get_form_defaults(preset_id: str, current_user=Depends(get_current_active_user)):
         """Get the default form values for a specific preset configuration."""
+        controller.require_preset_access(preset_id, current_user)
         return await controller.get_form_defaults(preset_id)
 
     return router

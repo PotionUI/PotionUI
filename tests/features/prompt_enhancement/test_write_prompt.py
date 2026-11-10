@@ -502,3 +502,13 @@ async def test_blocking_hook_runs_finish_before_the_model_is_called():
     llm = OrderedLLM(events)
     await operations.write_prompt(with_plugins(collaborators(llm), WaitingPlugins([slow_run()])), "u-1", "a fox")
     assert [name for name, _ in events] == ["wait-done", "complete"]
+
+@pytest.mark.parametrize(
+    "assigned,is_admin,visible",
+    [((), False, False), (("flux",), False, True), ((), True, True)],
+    ids=["unassigned-user", "assigned-user", "admin"],
+)
+def test_preset_visible_follows_the_assignment_and_admins_see_all(assigned, is_admin, visible):
+    collab = collaborators(FakeLLM(), flux_preset(), assigned=assigned)
+
+    assert operations.preset_visible(collab, "u-1", "flux", is_admin) is visible

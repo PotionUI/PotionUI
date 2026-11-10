@@ -32,7 +32,15 @@ from src.platform.observability.logger import logger
 from src.platform.templating import TemplateProcessor
 from src.features.presets.children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from src.features.presets.children_refs import ChildrenRef, parse_children_ref, read_children_fragment
-from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTemplate, FormTemplate, ModeTemplate
+from src.features.presets.templates import (
+    PresetTemplate,
+    PipeTemplate,
+    FieldTemplate,
+    FormTemplate,
+    ModeTemplate,
+    files_preset_id,
+)
+from src.features.presets.overlays import PresetOverlays, apply_overlays
 from src.features.presets.mode_fields import resolve_requirement_fields
 from src.features.presets.extensions import apply_preset_extensions, contained, duplicate_anchor_errors, plugin_preset_extensions
 from src.platform.filesystem.yaml_io import load_yaml_file
@@ -259,7 +267,13 @@ class PresetTemplateLoader:
     - Cache loaded presets with thread-safe lazy loading
     """
 
-    def __init__(self, preset_files_paths: list, plugin_registry=None, shared_path=None):
+    def __init__(
+        self,
+        preset_files_paths: list,
+        plugin_registry=None,
+        shared_path=None,
+        overlay_source: Optional[Callable[[], PresetOverlays]] = None,
+    ):
         """
         Initialize the preset loader with one or more preset directories.
 
@@ -286,6 +300,12 @@ class PresetTemplateLoader:
         self.presets_by_id: Dict[str, PresetTemplate] = {}
         # path (str) -> list of "<file>: <path>: <message>" validation errors
         self.load_errors: Dict[str, List[str]] = {}
+        self.mirror_states: Dict[str, str] = {}
+        self.retired_names: Dict[str, str] = {}
+        self.overlay_source = overlay_source
+        self._scanned: Optional[List[PresetTemplate]] = None
+        self._scan_errors: Dict[str, List[str]] = {}
+        self._overlays = PresetOverlays()
         self._loaded = False
         self._lock = threading.Lock()
         self._loop_engine = None
@@ -418,6 +438,7 @@ class PresetTemplateLoader:
             prompt_syntax=prompt_syntax,
             formulas=manifest.formulas.model_dump() if manifest.formulas else None,
             negative_prompt=manifest.negative_prompt.model_dump() if manifest.negative_prompt else None,
+            file_name=manifest.name,
         )
         for mode_name, mode_template in modes_dict.items():
             _apply_mode_prompting(template, mode_name, mode_template)
@@ -854,12 +875,60 @@ class PresetTemplateLoader:
     def _do_load_presets(self):
         """Scan, then swap the result into ``self.presets``/``self.load_errors``."""
         logger.info("Starting preset loading...")
-        presets, errors = self._scan_presets()
+        self._scanned, self._scan_errors = self._scan_presets()
+        self._publish()
+
+    def _read_overlays(self) -> PresetOverlays:
+        if self.overlay_source is None:
+            return PresetOverlays()
+        try:
+            return self.overlay_source()
+        except Exception:
+            logger.exception("Reading preset display overrides and mirrors failed; keeping the last ones read")
+            return self._overlays
+
+    def _publish(self) -> None:
+        overlays = self._read_overlays()
+        errors = dict(self._scan_errors)
+        result = apply_overlays(list(self._scanned or []), overlays, errors)
         by_id: Dict[str, PresetTemplate] = {}
-        for preset in reversed(presets):
+        for preset in reversed(result.presets):
             by_id[preset.id] = preset
+        self._overlays = overlays
         self.presets_by_id = by_id
-        self.presets, self.load_errors = presets, errors
+        self.presets, self.load_errors = result.presets, errors
+        self.mirror_states = result.mirror_states
+        self.retired_names = result.retired_names
+
+    def refresh_overlays(self) -> None:
+        with self._lock:
+            if self._scanned is None:
+                self._do_load_presets()
+            else:
+                self._publish()
+            self._loaded = True
+        self._notify_presets_changed()
+
+    def files_preset_id(self, preset_id: str) -> str:
+        template = self.get(preset_id)
+        if template is not None:
+            return files_preset_id(template)
+        row = self._overlays.rows.get(preset_id)
+        if row is not None and row.source_preset_id:
+            return row.source_preset_id
+        return preset_id
+
+    def file_template(self, preset_id: Optional[str]) -> Optional[PresetTemplate]:
+        self._ensure_loaded()
+        return next((t for t in self._scanned or [] if t.id == preset_id), None)
+
+    def mirror_state(self, preset_id: str) -> Optional[str]:
+        self._ensure_loaded()
+        return self.mirror_states.get(preset_id)
+
+    def retired_name(self, preset_id: str) -> Optional[str]:
+        self._ensure_loaded()
+        return self.retired_names.get(preset_id)
 
     def _notify_presets_changed(self):
         if self.on_presets_changed is not None:
@@ -1018,6 +1087,7 @@ class PresetTemplateLoader:
         logger.info("Clearing preset cache")
         self.presets.clear()
         self.presets_by_id = {}
+        self._scanned = None
         self._loaded = False
 
     def reload(self) -> None:

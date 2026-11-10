@@ -1,0 +1,17 @@
+- { value: "2048x2048", ratio: [1, 1], description: "Square", tier: "4 MP" }
+- { value: "2368x1760", ratio: [4, 3], description: "Landscape", tier: "4 MP" }
+- { value: "1760x2368", ratio: [3, 4], description: "Portrait", tier: "4 MP" }
+- { value: "2496x1664", ratio: [3, 2], description: "Wide Landscape", tier: "4 MP" }
+- { value: "1664x2496", ratio: [2, 3], description: "Tall Portrait", tier: "4 MP" }
+- { value: "2720x1536", ratio: [16, 9], description: "Widescreen", tier: "4 MP" }
+- { value: "1536x2720", ratio: [9, 16], description: "Vertical", tier: "4 MP" }
+- { value: "2880x2880", ratio: [1, 1], description: "Square (8 MP)", tier: "8 MP" }
+- { value: "3328x2496", ratio: [4, 3], description: "Landscape (8 MP)", tier: "8 MP" }
+- { value: "2496x3328", ratio: [3, 4], description: "Portrait (8 MP)", tier: "8 MP" }
+- { value: "3840x2176", ratio: [16, 9], description: "Widescreen (8 MP)", tier: "8 MP" }
+- { value: "2176x3840", ratio: [9, 16], description: "Vertical (8 MP)", tier: "8 MP" }
+- { value: "4096x4096", ratio: [1, 1], description: "Square (16 MP)", tier: "16 MP" }
+- { value: "4704x3520", ratio: [4, 3], description: "Landscape (16 MP)", tier: "16 MP" }
+- { value: "3520x4704", ratio: [3, 4], description: "Portrait (16 MP)", tier: "16 MP" }
+- { value: "5440x3072", ratio: [16, 9], description: "Widescreen (16 MP)", tier: "16 MP" }
+- { value: "3072x5440", ratio: [9, 16], description: "Vertical (16 MP)", tier: "16 MP" }

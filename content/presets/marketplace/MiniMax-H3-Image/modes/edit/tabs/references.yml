@@ -1,0 +1,11 @@
+fields:
+  - name: "references"
+    type: "media"
+    label: "Pictures"
+    required: true
+    ai_hint: "Up to 16 pictures, numbered by their order: the first is Picture 1, the picture being edited; the rest are Picture 2, Picture 3 and so on. Reordering renumbers them. Write the prompt against those numbers, e.g. \"Put the jacket from Picture 2 on the man in Picture 1\". Each picture is read at 1024 to 2048 pixels on its short side, so many large pictures make a request much slower."
+    configuration:
+      multi: true
+      accepted_types: ["image"]
+      max_items_by_kind:
+        image: 16

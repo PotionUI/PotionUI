@@ -162,7 +162,7 @@ class PromptEncoderPipe(BasePipe):
         # Per-image expanded prompts, produced by src/features/prompt/expander.py and
         # handed in by the preset. An upstream prompt_expander owns the text when
         # it supplies one, so its output wins over the per-image pairs.
-        pairs = self.config.get("pairs") or []
+        pairs = pipe_input.input.get("pairs") or self.config.get("pairs") or []
         if p_prompt_from_input is not None or n_prompt_from_input is not None:
             pairs = []
 
@@ -712,6 +712,9 @@ class PromptEncoderPipe(BasePipe):
         """PromptEncoder requires a text encoder, optionally accepts expanded prompts"""
         return [
             PipeInputSpec("text_encoder", IOType.TEXT_ENCODER, True, "Text encoder for prompt processing", is_array=False),
+            PipeInputSpec("pairs", IOType.DICT, False,
+                          "Per-image prompt pairs that replace the configured `pairs` when connected (from regional_prompt)",
+                          is_array=True),
             PipeInputSpec("p_prompt", IOType.TEXT, False, "Positive prompt (optional, from prompt_expander)", is_array=False),
             PipeInputSpec("n_prompt", IOType.TEXT, False, "Negative prompt (optional, from prompt_expander)", is_array=False),
             PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for cross-generation reuse", is_array=False),

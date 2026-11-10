@@ -1,6 +1,10 @@
+import asyncio
 import hashlib
 import io
 import json
+import shutil
+import sqlite3
+import threading
 import zipfile
 from pathlib import Path
 from unittest.mock import Mock
@@ -360,6 +364,308 @@ async def test_a_new_install_over_an_enabled_row_left_by_a_removed_copy_stays_di
     assert registry.get_plugin_state("demo") != PluginState.ENABLED
 
 
+def _an_enabled_row_left_by_a_removed_copy(repo) -> None:
+    repo.create_plugin(
+        Plugin(
+            id="demo",
+            name="demo",
+            version="0.9.0",
+            type="backend-only",
+            enabled=True,
+            manifest_path="manifest.yml",
+            installed_at=now_utc(),
+            updated_at=now_utc(),
+        )
+    )
+
+
+async def test_a_new_install_whose_scan_raises_over_an_enabled_row_left_by_a_removed_copy_leaves_it_disabled(plugins, catalog):
+    registry, repo, _, local = plugins
+    _a_page_route_owned_by_another_plugin(repo, registry, local)
+    _an_enabled_row_left_by_a_removed_copy(repo)
+    catalog.publish("demo", "1.0.0", _archive_taking_that_route("demo", "1.0.0"))
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert isinstance(refused.value.__cause__, sqlite3.IntegrityError)
+    assert (local / "demo" / "payload.py").exists()
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert str(refused.value).startswith("demo 1.0.0 is in the folder demo, but its scan failed (IntegrityError: ")
+    assert str(refused.value).endswith("; it stays there, disabled. Remove that folder to install it again.")
+
+
+async def test_a_new_install_does_not_carry_over_the_enabled_state_of_a_copy_removed_while_running(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    _write_plugin(local / "demo", "demo", "0.9.0", record=False)
+    operations.scan_plugins(repo, registry)
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    shutil.rmtree(local / "demo")
+    catalog.publish("demo", "1.0.0")
+    real_enable = registry._enable_locked
+    started = []
+
+    def enable(plugin_id):
+        started.append(registry.get_plugin(plugin_id).version)
+        return real_enable(plugin_id)
+
+    monkeypatch.setattr(registry, "_enable_locked", enable)
+
+    result = await _install(repo, registry, catalog, "demo")
+
+    assert started == []
+    assert result.enabled is False
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
+@pytest.mark.parametrize("status", ["update", "available"])
+async def test_an_install_cancelled_once_the_new_code_is_in_place_leaves_the_plugin_disabled(plugins, catalog, monkeypatch, status):
+    registry, repo, _, local = plugins
+    if status == "update":
+        catalog.publish("demo", "1.0.0")
+        await _install(repo, registry, catalog, "demo")
+        assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+        catalog.publish("demo", "1.1.0")
+    else:
+        _an_enabled_row_left_by_a_removed_copy(repo)
+        catalog.publish("demo", "1.0.0")
+    real_place = install_ops._place
+
+    def place(*args):
+        real_place(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(install_ops, "_place", place)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == f"demo {catalog.entries[0]['version']}\n"
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+
+
+def _restarted(marketplace: Path, local: Path) -> PluginRegistry:
+    registry = PluginRegistry(marketplace_dir=str(marketplace), local_dir=str(local))
+    registry.discover_plugins()
+    return registry
+
+
+@pytest.mark.parametrize("stop", ["cancelled", "scan raises"])
+async def test_a_default_enabled_first_install_stopped_before_its_row_exists_is_not_enabled_at_the_next_start(
+    plugins, catalog, monkeypatch, stop
+):
+    registry, repo, marketplace, local = plugins
+    catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "1.0.0", default_enabled=True)))
+    if stop == "cancelled":
+        real_place = install_ops._place
+
+        def place(*args):
+            real_place(*args)
+            raise asyncio.CancelledError()
+
+        monkeypatch.setattr(install_ops, "_place", place)
+    else:
+
+        def scan(repo, registry):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(install_ops, "scan_plugins", scan)
+
+    with pytest.raises(BaseException):
+        await _install(repo, registry, catalog, "demo")
+    assert (local / "demo" / INSTALL_RECORD).exists()
+    assert repo.get_plugin_by_id("demo") is None
+    after_restart = _restarted(marketplace, local)
+
+    assert operations.enable_default_plugins(repo, after_restart) == []
+    assert after_restart.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo") is None
+
+
+def test_a_hand_placed_default_enabled_plugin_is_still_enabled_at_the_first_start(plugins):
+    registry, repo, marketplace, local = plugins
+    (local / "demo").mkdir()
+    (local / "demo" / "manifest.yml").write_bytes(_manifest("demo", "1.0.0", default_enabled=True))
+    after_restart = _restarted(marketplace, local)
+
+    assert operations.enable_default_plugins(repo, after_restart) == ["demo"]
+    assert after_restart.get_plugin_state("demo") == PluginState.ENABLED
+
+
+async def test_an_update_cancelled_once_the_new_code_is_in_place_is_not_enabled_by_the_next_scan(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    real_place = install_ops._place
+
+    def place(*args):
+        real_place(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(install_ops, "_place", place)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _install(repo, registry, catalog, "demo")
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    operations.scan_plugins(repo, registry)
+
+    assert registry.get_plugin("demo").version == "1.1.0"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
+async def test_an_update_whose_scan_raises_and_whose_put_back_is_cancelled_leaves_the_plugin_disabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    _a_page_route_owned_by_another_plugin(repo, registry, local)
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0", _archive_taking_that_route("demo", "1.1.0"))
+    real_put_back = install_ops._put_previous_back
+
+    def put_back(*args):
+        real_put_back(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(install_ops, "_put_previous_back", put_back)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
+async def test_an_update_whose_request_is_cancelled_while_the_files_move_finishes_before_it_lets_the_lock_go(
+    plugins, catalog, monkeypatch
+):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    moving, release = threading.Event(), threading.Event()
+    real_place = install_ops._place
+
+    def place(*args):
+        moving.set()
+        assert release.wait(10)
+        return real_place(*args)
+
+    monkeypatch.setattr(install_ops, "_place", place)
+    request = asyncio.ensure_future(_install(repo, registry, catalog, "demo"))
+    assert await asyncio.to_thread(moving.wait, 10)
+
+    request.cancel()
+    await asyncio.sleep(0.2)
+    assert not request.done()
+    assert install_ops._install_lock.locked()
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await request
+    assert not install_ops._install_lock.locked()
+    assert (local / "demo" / "README.md").read_text() == "demo 1.1.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo").version == "1.1.0"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+
+
+async def test_a_catalog_install_asked_for_while_another_runs_is_refused_and_changes_nothing(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+
+    async with install_ops._install_lock:
+        with pytest.raises(CatalogInstallError, match="^Another plugin install from a catalog is in progress"):
+            await asyncio.wait_for(_install(repo, registry, catalog, "demo"), timeout=5)
+
+    assert list(local.iterdir()) == []
+    assert registry.get_plugin("demo") is None
+    assert repo.get_plugin_by_id("demo") is None
+
+
+async def test_an_update_whose_row_cannot_be_disabled_after_unpacking_leaves_no_staging_folder(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+
+    def locked(plugin_id):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(repo, "disable_plugin", locked)
+
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        await _install(repo, registry, catalog, "demo")
+
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+
+
+async def test_an_update_stopped_while_the_archive_is_unpacked_leaves_the_installed_version_enabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    rows_while_unpacking = []
+    real_unpack = install_ops.unpack_plugin_archive
+
+    def unpack(*args):
+        rows_while_unpacking.append(repo.get_plugin_by_id("demo").enabled)
+        real_unpack(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(install_ops, "unpack_plugin_archive", unpack)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _install(repo, registry, catalog, "demo")
+
+    assert rows_while_unpacking == [True]
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+
+
+@pytest.mark.parametrize("status", ["update", "available"])
+async def test_an_install_whose_archive_is_refused_while_unpacking_leaves_the_folder_the_row_and_the_registry_as_they_were(
+    plugins, catalog, status
+):
+    registry, repo, _, local = plugins
+    if status == "update":
+        catalog.publish("demo", "1.0.0")
+        await _install(repo, registry, catalog, "demo")
+        assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+        catalog.publish("demo", "1.1.0", _archive("demo", "1.1.0", manifest=_manifest("demo", "6.6.6")))
+    else:
+        _an_enabled_row_left_by_a_removed_copy(repo)
+        catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "6.6.6")))
+
+    with pytest.raises(CatalogInstallError, match="holds demo 6.6.6"):
+        await _install(repo, registry, catalog, "demo")
+
+    assert repo.get_plugin_by_id("demo").enabled is True
+    if status == "update":
+        assert [path.name for path in local.iterdir()] == ["demo"]
+        assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+        assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    else:
+        assert list(local.iterdir()) == []
+        assert registry.get_plugin("demo") is None
+
+
 async def test_an_archive_whose_sha256_differs_from_the_catalog_writes_nothing(plugins, catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0", sha256="0" * 64)
@@ -438,7 +744,9 @@ async def test_an_update_that_does_not_start_puts_the_previous_version_back_and_
         await _install(repo, registry, catalog, "demo", preset_loader=preset_loader)
 
     assert "demo 1.1.0 did not start (Missing dependencies: potionui-catalog-missing-package>=1)" in str(refused.value)
-    assert "the installed 1.0.0 is back in place and running." in str(refused.value)
+    assert str(refused.value).endswith(
+        "the installed 1.0.0 is back in place and running. Restart PotionUI to unload any module 1.1.0 imported."
+    )
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert not (local / "demo" / "payload.py").exists()
     assert json.loads((local / "demo" / INSTALL_RECORD).read_text())["version"] == "1.0.0"
@@ -468,7 +776,9 @@ async def test_an_update_whose_scan_fails_puts_the_previous_version_back_and_run
         await _install(repo, registry, catalog, "demo", preset_loader=preset_loader)
 
     assert "demo 1.1.0 did not start (the scan failed: IntegrityError" in str(refused.value)
-    assert "the installed 1.0.0 is back in place and running." in str(refused.value)
+    assert str(refused.value).endswith(
+        "the installed 1.0.0 is back in place and running. Restart PotionUI to unload any module 1.1.0 imported."
+    )
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert not (local / "demo" / "payload.py").exists()
     assert registry.get_plugin("demo").version == "1.0.0"
@@ -490,6 +800,113 @@ async def test_a_disabled_plugin_takes_an_update_its_new_code_would_not_start_wi
     assert (local / "demo" / "payload.py").exists()
     assert registry.get_plugin("demo").version == "1.1.0"
     assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+def _discovery_that_skips_demo_once(registry, monkeypatch) -> None:
+    real_discover = registry.loader.discover_plugins
+    calls = []
+
+    def discover():
+        calls.append(None)
+        found = real_discover()
+        return [manifest for manifest in found if manifest.id != "demo"] if len(calls) == 1 else found
+
+    monkeypatch.setattr(registry.loader, "discover_plugins", discover)
+
+
+async def test_an_update_of_a_disabled_plugin_whose_new_manifest_the_scan_skips_puts_the_previous_version_back(
+    plugins, catalog, monkeypatch
+):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    catalog.publish("demo", "1.1.0")
+    _discovery_that_skips_demo_once(registry, monkeypatch)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert str(refused.value) == (
+        "demo 1.1.0 did not start (the scan did not find its manifest); the installed 1.0.0 is back in place."
+    )
+
+
+async def test_a_restore_takes_a_recorded_version_written_another_way_for_the_same_version(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=False)
+    (local / "demo" / INSTALL_RECORD).write_text(json.dumps({"catalog": catalog.url(), "id": "demo", "version": "1.0"}))
+    catalog.publish("demo", "1.1.0")
+    _discovery_that_skips_demo_once(registry, monkeypatch)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert str(refused.value) == (
+        "demo 1.1.0 did not start (the scan did not find its manifest); the installed 1.0 is back in place."
+    )
+    assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
+def _discovery_that_raises_once(registry, monkeypatch) -> None:
+    real_discover = registry.loader.discover_plugins
+    calls = []
+
+    def discover():
+        calls.append(None)
+        if len(calls) == 1:
+            raise PermissionError("the plugin folder cannot be listed")
+        return real_discover()
+
+    monkeypatch.setattr(registry.loader, "discover_plugins", discover)
+
+
+async def test_an_update_whose_scan_changes_nothing_puts_the_previous_version_back_and_running(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    _discovery_that_raises_once(registry, monkeypatch)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+    assert str(refused.value).startswith(
+        "demo 1.1.0 did not start (the scan did not pick up its manifest); the installed 1.0.0 is back in place and running."
+    )
+
+
+async def test_a_new_install_whose_scan_changes_nothing_says_the_folder_stays_disabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    _discovery_that_raises_once(registry, monkeypatch)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert str(refused.value) == (
+        "demo 1.0.0 is in the folder demo, but the scan did not find its manifest; it stays there, disabled. "
+        "Remove that folder to install it again."
+    )
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo") is None
+    operations.scan_plugins(repo, registry)
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
 
 
 async def test_an_update_that_does_not_start_and_cannot_be_undone_keeps_the_previous_version_in_staging(plugins, catalog, monkeypatch):
@@ -514,6 +931,184 @@ async def test_an_update_that_does_not_start_and_cannot_be_undone_keeps_the_prev
     assert len(kept) == 1
     assert (kept[0] / "README.md").read_text() == "demo 1.0.0\n"
     assert (local / "demo" / "payload.py").exists()
+
+
+def _a_page_route_owned_by_another_plugin(repo, registry, local: Path) -> None:
+    other = local / "other"
+    other.mkdir()
+    (other / "manifest.yml").write_bytes(
+        _manifest("other", "1.0.0", pages=[{"route": "shared-page", "component": "Page", "label": "Other"}])
+    )
+    operations.scan_plugins(repo, registry)
+
+
+def _archive_taking_that_route(plugin_id: str, version: str) -> bytes:
+    taken = _manifest(plugin_id, version, pages=[{"route": "shared-page", "component": "Page", "label": "Demo"}])
+    return _archive(plugin_id, version, manifest=taken, extra=[(f"{plugin_id}/payload.py", b"print('new')")])
+
+
+@pytest.mark.parametrize("failure", ["does not start", "scan raises"])
+async def test_an_update_that_fails_and_cannot_be_put_back_leaves_the_new_code_disabled(plugins, catalog, monkeypatch, failure):
+    registry, repo, _, local = plugins
+    if failure == "scan raises":
+        _a_page_route_owned_by_another_plugin(repo, registry, local)
+        new = _archive_taking_that_route("demo", "1.1.0")
+    else:
+        new = _unstartable_archive("demo", "1.1.0")
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0", new)
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(source).name == "previous" and Path(target) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "payload.py").exists()
+    assert len(list((local / STAGING_FOLDER).glob("*/previous"))) == 1
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert "could not be put back (the folder is in use); it is kept in .potionui-install/" in str(refused.value)
+    assert str(refused.value).endswith("previous, and demo is disabled.")
+
+
+async def test_an_update_whose_move_and_move_back_both_fail_leaves_the_plugin_disabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(target) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert not (local / "demo").exists()
+    kept = list((local / STAGING_FOLDER).glob("*/previous"))
+    assert len(kept) == 1
+    assert (kept[0] / "README.md").read_text() == "demo 1.0.0\n"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert str(refused.value).endswith("/previous. The plugin demo is disabled.")
+
+
+async def test_an_update_whose_first_move_fails_leaves_the_installed_version_in_place_and_running(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(source) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(OSError, match="in use"):
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+
+
+async def test_an_update_whose_restored_version_does_not_start_again_leaves_it_in_place_and_disabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0", _unstartable_archive("demo", "1.1.0"))
+    monkeypatch.setattr(registry, "enable_plugin", lambda plugin_id: False)
+
+    with pytest.raises(CatalogInstallError, match="the installed 1.0.0 is back in place, but did not start again either"):
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
+@pytest.mark.parametrize("restore", ["scan raises", "scan changes nothing"])
+async def test_an_update_whose_restore_scan_fails_leaves_the_installed_version_in_place_and_disabled(
+    plugins, catalog, monkeypatch, restore
+):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0", _unstartable_archive("demo", "1.1.0"))
+    real_discover = registry.loader.discover_plugins
+    real_scan = install_ops.scan_plugins
+    scans = []
+
+    def denied():
+        raise PermissionError("the plugin folder cannot be listed")
+
+    def scan(repo, registry):
+        scans.append(None)
+        if len(scans) == 2 and restore == "scan raises":
+            raise sqlite3.OperationalError("database is locked")
+        monkeypatch.setattr(registry.loader, "discover_plugins", denied if len(scans) == 2 else real_discover)
+        return real_scan(repo, registry)
+
+    monkeypatch.setattr(install_ops, "scan_plugins", scan)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+    if restore == "scan raises":
+        reason = "the scan that followed failed (OperationalError: database is locked)"
+    else:
+        reason = "the scan did not pick it up"
+    assert str(refused.value).endswith(f"the installed 1.0.0 is back in place, but {reason}, so demo is disabled.")
+
+
+async def test_a_new_install_that_fails_after_taking_down_an_earlier_copy_leaves_its_row_disabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    _write_plugin(local / "demo", "demo", "0.9.0", record=False)
+    operations.scan_plugins(repo, registry)
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    shutil.rmtree(local / "demo")
+    catalog.publish("demo", "1.0.0")
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(target) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(OSError, match="in use"):
+        await _install(repo, registry, catalog, "demo")
+
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
 
 
 async def test_a_failed_update_leaves_the_installed_version_in_place(plugins, catalog):
@@ -685,7 +1280,7 @@ def test_an_update_of_a_folder_that_lost_its_install_record_replaces_nothing(plu
     item = CatalogItem(_entry(version="1.1.0"), "update", installed_version="1.0.0")
 
     with pytest.raises(CatalogInstallError, match="^The folder demo changed since the catalog was read"):
-        install_ops._place(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json")
+        install_ops._place(install_ops._stage(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json"), item, local)
 
     assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
     assert [path.name for path in local.iterdir()] == ["demo"]
@@ -697,7 +1292,7 @@ def test_a_new_install_over_a_folder_that_appeared_meanwhile_replaces_nothing(pl
     item = CatalogItem(_entry(), "available")
 
     with pytest.raises(CatalogInstallError, match="^The folder demo appeared since the catalog was read"):
-        install_ops._place(_archive("demo", "1.0.0"), item, local, "https://example.com/plugins.json")
+        install_ops._place(install_ops._stage(_archive("demo", "1.0.0"), item, local, "https://example.com/plugins.json"), item, local)
 
     assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "0.1.0")
     assert [path.name for path in local.iterdir()] == ["demo"]
@@ -717,7 +1312,28 @@ def test_an_update_whose_move_fails_puts_the_installed_version_back(plugins, mon
     monkeypatch.setattr(install_ops.os, "replace", replace)
 
     with pytest.raises(OSError, match="in use"):
-        install_ops._place(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json")
+        install_ops._place(install_ops._stage(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json"), item, local)
 
     assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
     assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+def test_an_update_whose_move_and_move_back_both_fail_keeps_the_installed_version_in_staging(plugins, monkeypatch):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True)
+    item = CatalogItem(_entry(version="1.1.0"), "update", installed_version="1.0.0")
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(target) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(CatalogInstallError, match="^The folder demo could not be replaced .*in use.* nor put back .*in use.*; the installed 1.0.0 is kept in .potionui-install/.*/previous.$"):
+        install_ops._place(install_ops._stage(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json"), item, local)
+
+    kept = list((local / STAGING_FOLDER).glob("*/previous"))
+    assert len(kept) == 1
+    assert (kept[0] / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")

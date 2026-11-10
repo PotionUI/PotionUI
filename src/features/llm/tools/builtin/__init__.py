@@ -53,6 +53,7 @@ from src.features.llm.tools.builtin.memory_tool import (
     DeleteMemoryTool,
 )
 from src.features.llm.tools.builtin.prompt_relay_tool import SetPromptRelayTimelineTool
+from src.features.llm.tools.builtin.regional_prompt_tool import SetRegionalPromptTool
 from src.features.llm.tools.builtin.video_director_tool import GetVideoDirectorTool
 from src.features.llm.tools.builtin.music_director_tool import GetMusicDirectorTool, UpdateMusicDirectorTool
 from src.features.llm.tools.builtin.manage_collections_tool import ManageCollectionsTool
@@ -119,6 +120,7 @@ def register_builtin_tools(registry, media_tool_registry=None) -> None:
         UpdateMemoryTool(),
         DeleteMemoryTool(),
         SetPromptRelayTimelineTool(),
+        SetRegionalPromptTool(),
         GetVideoDirectorTool(),
         GetMusicDirectorTool(),
         UpdateMusicDirectorTool(),

@@ -37,6 +37,14 @@ def _basename(value: Any) -> Optional[str]:
     return PurePosixPath(value.replace("\\", "/")).name.lower()
 
 
+def _default_values(value: Any) -> List[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [item["model"] for item in value if isinstance(item, dict) and isinstance(item.get("model"), str)]
+    return []
+
+
 def _within(path: Path, root: Path) -> bool:
     try:
         real = Path(os.path.realpath(path))
@@ -106,11 +114,11 @@ class ModeFileRemoval:
             raise ModeRemovalError("not_local", "Files can only be removed from this computer.")
         return assessment
 
+    def _installed_rows(self) -> List[Any]:
+        return self._checked("the installed presets", self.preset_db_repo.get_all_installed_presets)
+
     def _installed_presets(self) -> List[str]:
-        return self._checked(
-            "the installed presets",
-            lambda: [p.preset_id for p in self.preset_db_repo.get_all_installed_presets()],
-        )
+        return [row.preset_id for row in self._installed_rows()]
 
     def _overrides(self, preset_id: str) -> Dict[str, Any]:
         return self._checked(
@@ -120,8 +128,9 @@ class ModeFileRemoval:
 
     def _other_preset_files(self, preset_id: str) -> Dict[str, str]:
         used: Dict[str, str] = {}
-        for other_id in self._installed_presets():
-            if other_id == preset_id:
+        for row in self._installed_rows():
+            other_id = row.preset_id
+            if other_id == preset_id or row.source_preset_id is not None:
                 continue
             preset = self._checked("the installed presets", lambda: self.preset_loader.load_preset_by_id(other_id))
             if preset is None:
@@ -143,10 +152,11 @@ class ModeFileRemoval:
                     continue
                 for entry in (fields or {}).values():
                     value = (entry or {}).get("default") if isinstance(entry, dict) else None
-                    if isinstance(value, str) and value.startswith(MODEL_REF_PREFIX):
-                        ids.add(value[len(MODEL_REF_PREFIX):])
-                    elif _basename(value):
-                        names.add(_basename(value))
+                    for ref in _default_values(value):
+                        if ref.startswith(MODEL_REF_PREFIX):
+                            ids.add(ref[len(MODEL_REF_PREFIX):])
+                        elif _basename(ref):
+                            names.add(_basename(ref))
         return names, ids
 
     def _recipe_files(self, exclude_id: str) -> Dict[str, str]:

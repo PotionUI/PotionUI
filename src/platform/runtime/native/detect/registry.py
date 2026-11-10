@@ -363,6 +363,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
             "format": "qwen_image21",
             "spatial_downscale": 16,
             "scale_factor": 1.0,
+            "tiled_encode_faithful": False,
             "latents_mean": [
                 0.5126, 0.7721, -0.0631, 1.3506, -0.7855, -2.1025, -0.3458, 1.3722,
                 1.8873, -1.7177, -0.651, 0.2732, 0.7562, -0.6163, -1.0277, 3.8363,
@@ -671,6 +672,23 @@ _VENDORED_SPECS: list[ModelSpec] = [
         # other fp8-capable spec here carries.
         expected_unexpected_keys={"*.comfy_quant", *_SIDECAR_GLOBS},
         memory_cost_gb=20.0,
+        reference_dtype="bfloat16",
+    ),
+    ModelSpec(
+        family="minimax_h3_image",
+        variant="h3_image",
+        signature={"image_model": "minimax_h3_image"},
+        model_class="src.platform.runtime.native.arch.minimax_h3.image:MiniMaxH3ImageModel",
+        state_dict_map="src.platform.runtime.native.arch.minimax_h3.image:convert_minimax_h3_image_state_dict",
+        sampling_settings={
+            "prediction": "const",
+            "guidance": "flow_map",
+            "default_steps": 6,
+            "schedule": "h3_image_pdd",
+        },
+        latent_format={"latent_channels": 24, "format": "minimax_h3", "spatial_downscale": 16},
+        expected_unexpected_keys={"*.comfy_quant", *_SIDECAR_GLOBS},
+        memory_cost_gb=21.0,
         reference_dtype="bfloat16",
     ),
     # MiniMax-Music3 flow-matching DiT + fused condition encoder (text-to-music

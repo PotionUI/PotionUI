@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 MINIMAX_H3 = "minimax_h3"
+MINIMAX_H3_IMAGE = "minimax_h3_image"
 
 # Every AdaLN modulation table (per-block and final) holds one row per
 # (distinct timestep, modality) pair; modality is always one of these three.
@@ -42,7 +43,7 @@ class MiniMaxH3Config:
     attention_head_dim: int = 128
     ffn_dim: int = 14336
     in_channels: int = 24              # video latent channels
-    audio_in_channels: int = 32
+    audio_in_channels: int | None = 32
     patch_size: tuple[int, int, int] = (1, 2, 2)
     text_dim: int = 5120                # Qwen3-VL hidden width the text encoder emits
     rope_freq_dim: int = 16
@@ -63,6 +64,8 @@ class MiniMaxH3Config:
     time_embed_hidden_dim: int = 5376   # full only: time_embedder MLP inner width
     adaln_curve_grid: int = 1025        # pruned only: adaln_t_table row count
     gate_compress: bool = False
+    pdd_steps: int = 1
+    pdd_sigmas: tuple[float, ...] = ()
 
     @property
     def inner_dim(self) -> int:
@@ -74,8 +77,9 @@ class MiniMaxH3Config:
 
     @classmethod
     def from_detect_config(cls, config: dict[str, Any]) -> "MiniMaxH3Config":
-        if config.get("image_model") != MINIMAX_H3:
+        if config.get("image_model") not in (MINIMAX_H3, MINIMAX_H3_IMAGE):
             raise ValueError(f"MiniMaxH3Config: unsupported image_model {config.get('image_model')!r}")
+        audio_in_channels = config.get("audio_in_channels", 32)
         return cls(
             hidden_size=int(config["hidden_size"]),
             num_layers=int(config["num_layers"]),
@@ -84,7 +88,7 @@ class MiniMaxH3Config:
             attention_head_dim=int(config["attention_head_dim"]),
             ffn_dim=int(config["ffn_dim"]),
             in_channels=int(config.get("in_channels", 24)),
-            audio_in_channels=int(config.get("audio_in_channels", 32)),
+            audio_in_channels=None if audio_in_channels is None else int(audio_in_channels),
             patch_size=tuple(config.get("patch_size", (1, 2, 2))),
             text_dim=int(config["text_dim"]),
             rope_freq_dim=int(config.get("rope_freq_dim", 16)),
@@ -98,4 +102,6 @@ class MiniMaxH3Config:
             time_embed_hidden_dim=int(config.get("time_embed_hidden_dim", 5376)),
             adaln_curve_grid=int(config.get("adaln_curve_grid", 1025)),
             gate_compress=bool(config.get("gate_compress", False)),
+            pdd_steps=int(config.get("pdd_steps", 1)),
+            pdd_sigmas=tuple(float(sigma) for sigma in config.get("pdd_sigmas", ())),
         )

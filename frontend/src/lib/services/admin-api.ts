@@ -1,5 +1,5 @@
 import { api } from '$lib/services/api/index';
-import type { APIResponse } from '$lib/types/api';
+import type { APIResponse, PresetUninstallData } from '$lib/types/api';
 import type { User } from '$lib/stores/auth';
 import type { MessageUsage } from '$lib/types/chat';
 import type {
@@ -474,7 +474,7 @@ export async function installPreset(presetId: string): Promise<APIResponse> {
 	return response.data;
 }
 
-export async function uninstallPreset(presetId: string): Promise<APIResponse> {
+export async function uninstallPreset(presetId: string): Promise<APIResponse<PresetUninstallData>> {
 	const response = await api.getClient().post(`/api/presets/${presetId}/uninstall`);
 	return response.data;
 }

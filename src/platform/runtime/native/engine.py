@@ -45,6 +45,7 @@ from .io.safetensors_loader import load_torch_file, load_torch_file_prefixed, lo
 from .io.state_dict_utils import weight_dtype
 from .memory.device_plan import DevicePlan, make_device_plan
 from .memory.residency import (
+    effective_free_vram_gb,
     free_vram_gb,
     total_vram_gb,
     get_residency_registry,
@@ -70,7 +71,14 @@ from .memory.tiering import (
     ref_latents_headroom_gb,
     sampling_headroom_gb,
 )
-from .ops.dtype import align_half_storage, is_mixed_precision, parse_dtype, pick_dtypes, warn_below_reference
+from .ops.dtype import (
+    align_half_storage,
+    honour_working_dtypes,
+    is_mixed_precision,
+    parse_dtype,
+    pick_dtypes,
+    warn_below_reference,
+)
 from .ops.fp8_quant import estimate_fp8_gb, quantize_state_dict_to_fp8, should_quantize_fp8
 from .kernels import (
     QUANT_FP8_SCALED,
@@ -105,6 +113,7 @@ from .vae.loader import (
     load_minimax_h3_latent_upsampler,
     load_minimax_music3_dav,
     load_yue2_vae,
+    native_vae_working_dtypes,
 )
 from .vae.tiling import (
     auto_tile_size,
@@ -144,14 +153,8 @@ _MIN_DECODE_TILE_LATENT = 16
 # the tiled-vs-untiled fit test and to size the first tile from live free VRAM.
 _CAUSAL3D_DECODE_MB_PER_LATENT_PX = 1.2
 
-# Transient-peak estimate per latent pixel for the causal-3D ref-image ENCODE.
-# Calibrated from a live trace: a ~10GB single conv3d alloc at
-# 1072x1920 (~32.2k latent px @ //8), so ~0.32 MB/latent-px for that one alloc;
-# rounded UP to 0.5 to cover the fuller working set (input + stacked activation
-# buffers), keeping it conservative so a big edit offloads the parked DiT before
-# encoding rather than OOMing against it. Encode runs in compute-dtype (bf16),
-# so it is cheaper than the fp32 decode's 1.2 -- deliberately less than half.
-_CAUSAL3D_ENCODE_MB_PER_LATENT_PX = 0.5
+_CAUSAL3D_ENCODE_MB_PER_LATENT_PX = 0.25
+_CAUSAL3D_ENCODE_MB_PER_LATENT_PX_WITHOUT_CUDNN = 0.5
 
 # Fraction of live free VRAM the first tile guess may claim: leaves slack for
 # allocator fragmentation and the assembled fp32 output pixels.
@@ -160,12 +163,19 @@ _DECODE_TILE_VRAM_FRACTION = 0.75
 _MIN_ENCODE_TILE_PX = 128
 
 
+def _causal3d_encode_mb_per_latent_px() -> float:
+    cudnn = torch.backends.cudnn
+    if torch.version.cuda and not getattr(torch.version, "hip", None) and cudnn.enabled and cudnn.is_available():
+        return _CAUSAL3D_ENCODE_MB_PER_LATENT_PX
+    return _CAUSAL3D_ENCODE_MB_PER_LATENT_PX_WITHOUT_CUDNN
+
+
 def _causal3d_encode_tile(
     free_gb: float, pixel_hw: tuple[int, int], align: int, max_tile: int | None = None,
 ) -> tuple[int, int]:
     align = max(8, int(align))
     floor = max(_MIN_ENCODE_TILE_PX, align)
-    budget_latent_px = max(0.0, free_gb) * _DECODE_TILE_VRAM_FRACTION * 1024.0 / _CAUSAL3D_ENCODE_MB_PER_LATENT_PX
+    budget_latent_px = max(0.0, free_gb) * _DECODE_TILE_VRAM_FRACTION * 1024.0 / _causal3d_encode_mb_per_latent_px()
     window_px = (budget_latent_px ** 0.5) * _VAE_SPATIAL_DOWNSCALE
     tile = int(window_px / 1.125) // align * align
     cap = (max(pixel_hw) + 1) // 2 // align * align
@@ -235,6 +245,7 @@ _FORWARD_KWARGS = (
     "ref_isolated",
     "flow_map_target",
     "text_fusion",
+    "token_tags",
 )
 
 
@@ -1113,7 +1124,7 @@ class NativeEngineLoader:
         )
         return sd, QUANT_FP8_SCALED, weight_dtype(sd), new_est
 
-    def _load_component(self, kind, path, prefix, slice_fn, build) -> NativeModel:
+    def _load_component(self, kind, path, prefix, slice_fn, build, working_dtypes=None) -> NativeModel:
         if prefix is None:
             sd, metadata = load_torch_file(path, device="cpu")
         else:
@@ -1124,6 +1135,8 @@ class NativeEngineLoader:
         quant_format = detect_quant_format(metadata, sd)
         sd_dtype = weight_dtype(sd)
         _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
+        if working_dtypes is not None:
+            compute_dtype = honour_working_dtypes(compute_dtype, sd_dtype, working_dtypes(sd, metadata))
         storage_dtype = sd_dtype or compute_dtype
         est_gb = _estimated_gb(sd)
         ops = self._ops_for("vae", est_gb, storage_dtype, compute_dtype, quant_format, sd)
@@ -1139,6 +1152,7 @@ class NativeEngineLoader:
             "vae", path, "vae.",
             _prefix_slice("vae.", _is_ltx_video_vae, strip=True),
             build_native_vae,
+            native_vae_working_dtypes,
         )
 
     def _load_audio_vae(self, path: str | Path) -> NativeModel:
@@ -1260,6 +1274,9 @@ class Conditioning:
 
 class NativeGenerator:
     """Runs encode -> sample -> decode for one loaded model bundle."""
+
+    model_sigma_dtype: torch.dtype | None = None
+    latent_output_dtype: torch.dtype | None = None
 
     def __init__(
         self,
@@ -1972,6 +1989,8 @@ class NativeGenerator:
                     resume=resume,
                     sigmas=sigmas_tensor,
                     latent_mask=latent_mask,
+                    model_sigma_dtype=self.model_sigma_dtype,
+                    output_dtype=self.latent_output_dtype,
                 )
             finally:
                 self._release_dit_after_sampling()
@@ -2529,10 +2548,19 @@ class NativeGenerator:
         tile, overlap = _causal3d_encode_tile(
             free, (pixels.shape[-2], pixels.shape[-1]), self._spatial_downscale(), max_tile,
         )
-        logger.info(
-            "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx",
-            need, free, tile, overlap,
-        )
+        if (self.spec.latent_format or {}).get("tiled_encode_faithful", True):
+            logger.info(
+                "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx",
+                need, free, tile, overlap,
+            )
+        else:
+            logger.warning(
+                "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx. "
+                "This VAE's tiled latent differs from its whole-image latent, so the output may not follow "
+                "the reference image closely. Use a smaller reference image, or free VRAM (unload other "
+                "models, stop other GPU work) so it encodes in one piece.",
+                need, free, tile, overlap,
+            )
         return tile, overlap
 
     def _encode_need_gb(self, pixels: torch.Tensor) -> float:
@@ -2540,13 +2568,13 @@ class NativeGenerator:
         resident) + the transient conv-activation peak, scaled from input pixels.
 
         Mirrors ``_decode_need_gb``'s shape with the encode-calibrated per-latent-
-        px coefficient (``_CAUSAL3D_ENCODE_MB_PER_LATENT_PX``; 2D falls back to the
+        px coefficient (``_causal3d_encode_mb_per_latent_px``; 2D falls back to the
         tiering default via ``activation_headroom_gb``)."""
         h, w = pixels.shape[-2], pixels.shape[-1]
         latent_hw = (h // _VAE_SPATIAL_DOWNSCALE, w // _VAE_SPATIAL_DOWNSCALE)
         if self._is_causal3d_vae():
             spike = activation_headroom_gb(
-                latent_hw, decode_mb_per_latent_px=_CAUSAL3D_ENCODE_MB_PER_LATENT_PX
+                latent_hw, decode_mb_per_latent_px=_causal3d_encode_mb_per_latent_px()
             )
         else:
             spike = activation_headroom_gb(latent_hw)
@@ -2557,7 +2585,7 @@ class NativeGenerator:
     def _ensure_room_for_encode(self, pixels: torch.Tensor, device) -> None:
         """Free VRAM for the ref-image encode's transient peak BEFORE it runs.
 
-        Foreign residents first (``_ensure_room_for``, never our own VAE/DiT).
+        Idle pool first, then foreign residents (``_ensure_room_for``).
         If the encode still won't fit live free VRAM, our OWN DiT is the room: a
         prior generation's kept-resident DiT (warm-reuse) parked
         here is what the encode OOMs against, and the failed run's post-generation
@@ -2569,6 +2597,11 @@ class NativeGenerator:
         if not str(device).startswith("cuda"):
             return
         need = self._encode_need_gb(pixels)
+        free = free_vram_gb(device)
+        if free is None or free >= need:
+            return
+        if (effective_free_vram_gb(device) or 0.0) > free:
+            torch.cuda.empty_cache()
         self._ensure_room_for(need, device)
         free = free_vram_gb(device)
         if free is None or free >= need:

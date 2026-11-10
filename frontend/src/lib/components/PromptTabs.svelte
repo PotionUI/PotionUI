@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, type Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PromptPicker from '$lib/components/PromptPicker.svelte';
@@ -23,7 +23,8 @@
 		onDuplicate,
 		onDelete,
 		onRename,
-		singleLabel = 'Prompt'
+		singleLabel = 'Prompt',
+		trailing = undefined
 	}: {
 		prompts: PromptTabData[];
 		active: number;
@@ -37,6 +38,7 @@
 		onDelete: (index: number) => void;
 		onRename: (index: number, name: string) => void;
 		singleLabel?: string;
+		trailing?: Snippet;
 	} = $props();
 
 	let strip = $state<HTMLDivElement | null>(null);
@@ -320,6 +322,9 @@
 			{onDelete}
 			{onRename}
 		/>
+	{/if}
+	{#if trailing}
+		{@render trailing()}
 	{/if}
 </div>
 

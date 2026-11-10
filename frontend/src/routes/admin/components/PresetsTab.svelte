@@ -35,6 +35,17 @@
 	import PresetRecipeSetup from './presets/PresetRecipeSetup.svelte';
 	import PresetModesList from './presets/PresetModesList.svelte';
 	import PresetFiltersPopover from './presets/PresetFiltersPopover.svelte';
+	import PresetDisplayTab from './presets/PresetDisplayTab.svelte';
+	import PresetPromptTextTab from './presets/PresetPromptTextTab.svelte';
+	import CreateMirrorModal from './presets/CreateMirrorModal.svelte';
+	import PresetHasMirrorsDialog from './presets/PresetHasMirrorsDialog.svelte';
+	import { presetApiFailure, runPresetUninstall } from './presets/presetApiFailure';
+	import {
+		isUnavailableMirror,
+		mirrorSourceName,
+		mirrorStateCopy,
+		presetHeaderChips
+	} from './presets/presetMirrorState';
 	import { PRESET_LIBRARY_SECTIONS, type PresetLibrarySection } from './presets/presetLibrarySections';
 	import {
 		DEFAULT_PRESET_DETAIL_TAB,
@@ -55,14 +66,22 @@
 		presetFilters
 	} from './presets/presetFilters';
 	import { Badge, Button, EmptyState, Spinner, Alert, IconButton } from '$lib/components/ui';
-	import type { PresetInfo, PresetConfigurationEntry, PresetRecipeLink } from '$lib/types/api';
+	import type {
+		PresetInfo,
+		PresetAdminDetail,
+		PresetConfigurationEntry,
+		PresetMirrorRef,
+		PresetRecipeLink
+	} from '$lib/types/api';
+
+	type PresetDetailInfo = PresetInfo & { vars?: Record<string, unknown> };
 
 	let presets = $state<PresetInfo[]>([]);
 	let loading = $state(true);
 	let refreshing = $state(false);
 	let loadError = $state('');
 	let detailTab = $state<PresetDetailTab>(DEFAULT_PRESET_DETAIL_TAB);
-	let presetDetail = $state<PresetInfo | null>(null);
+	let presetDetail = $state<PresetDetailInfo | null>(null);
 	let detailLoading = $state(false);
 	let detailError = $state('');
 	let mutatingPresetId = $state<string | null>(null);
@@ -79,6 +98,17 @@
 	let formTabRef: any = $state();
 	let formDirtyCount = $state(0);
 	let formSaving = $state(false);
+	let displayTabRef: any = $state();
+	let displayDirtyCount = $state(0);
+	let displaySaving = $state(false);
+	let promptTabRef: any = $state();
+	let promptDirtyCount = $state(0);
+	let promptSaving = $state(false);
+	let adminDetail = $state<PresetAdminDetail | null>(null);
+	let adminDetailError = $state('');
+	let adminRequestVersion = 0;
+	let createMirrorModal: any = $state();
+	let blockedUninstall = $state<{ name: string; mirrors: PresetMirrorRef[] } | null>(null);
 
 	const section = $derived(($page.url.searchParams.get('section') as PresetLibrarySection) || 'all');
 	const filters = $derived(presetFilters.fromSearchParams($page.url.searchParams));
@@ -92,6 +122,7 @@
 	const chips = $derived(presetFilters.chips(filters));
 	const activeFilterCount = $derived(presetFilters.activeCount(filters));
 
+	const presetsById = $derived(new Map(presets.map((preset) => [preset.id, preset])));
 	const selectedPreset = $derived(viewId ? (presets.find((preset) => preset.id === viewId) ?? null) : null);
 	const activePreset = $derived(
 		selectedPreset && presetDetail?.id === selectedPreset.id
@@ -119,17 +150,25 @@
 	const requirementsBadge = $derived(presetRequirementsBadge(activePreset?.requirements_summary));
 	const detailTabs = $derived(activePreset ? presetDetailTabsFor(activePreset, presetConfigEntries.length > 0) : []);
 	const effectiveTab = $derived(resolvePresetDetailTab(detailTabs, detailTab));
-	const headerChips = $derived(
-		activePreset
-			? [
-					...(activePreset.engine ? [{ key: 'engine', label: activePreset.engine, tone: 'signal' as const }] : []),
-					{ key: 'version', label: `v${activePreset.version}`, tone: 'neutral' as const },
-					activePreset.installed
-						? { key: 'installed', label: 'Installed', tone: 'success' as const }
-						: { key: 'installed', label: 'Not installed', tone: 'neutral' as const }
-				]
-			: []
+	const headerChips = $derived(activePreset ? presetHeaderChips(activePreset) : []);
+	const activeUnavailable = $derived(isUnavailableMirror(activePreset));
+	const activeStateCopy = $derived(activePreset?.is_mirror ? mirrorStateCopy(activePreset.mirror_state) : null);
+	const activeAdminDetail = $derived(adminDetail && activePreset && adminDetail.preset_id === activePreset.id ? adminDetail : null);
+	const activeSourceName = $derived(
+		activePreset?.is_mirror
+			? (activeAdminDetail?.source_name ?? mirrorSourceName(activePreset, presetsById))
+			: null
 	);
+	const activeSourceAvailable = $derived(
+		!!activePreset?.source_preset_id && presetsById.has(activePreset.source_preset_id)
+	);
+	const renamedFrom = $derived(
+		activePreset && !activePreset.is_mirror && activePreset.display_overridden && activePreset.file_name && activePreset.file_name !== activePreset.name
+			? activePreset.file_name
+			: null
+	);
+	const canCreateMirror = $derived(!!activePreset?.installed && !activePreset.is_mirror);
+	const activeMirrors = $derived(activeAdminDetail?.mirrors ?? []);
 
 	const recipeSession = new RecipeRunSession({
 		onFinished: () => {
@@ -164,8 +203,9 @@
 		lastViewId = viewId;
 		untrack(() => {
 			const opened = presets.find((preset) => preset.id === viewId);
+			const unavailable = isUnavailableMirror(opened);
 			detailTab = restorePresetDetailTab($page.url.searchParams.get(PRESET_DETAIL_TAB_PARAM));
-			configEntriesSettled = !opened?.installed;
+			configEntriesSettled = !opened?.installed || unavailable;
 			recipeSession.reset();
 			presetDetail = null;
 			detailError = '';
@@ -174,9 +214,15 @@
 			headerOverflowOpen = false;
 			configDirtyCount = 0;
 			formDirtyCount = 0;
+			displayDirtyCount = 0;
+			promptDirtyCount = 0;
+			adminDetail = null;
+			adminDetailError = '';
+			blockedUninstall = null;
 			if (viewId) {
-				loadPresetDetail(viewId);
-				if (opened?.installed) loadPresetConfigEntries(viewId);
+				if (!unavailable) loadPresetDetail(viewId);
+				if (opened?.installed) loadAdminDetail(viewId);
+				if (opened?.installed && !unavailable) loadPresetConfigEntries(viewId);
 			}
 		});
 	});
@@ -241,6 +287,43 @@
 		} finally {
 			if (version === detailRequestVersion && id === viewId) detailLoading = false;
 		}
+	}
+
+	async function loadAdminDetail(id: string) {
+		const version = ++adminRequestVersion;
+		adminDetailError = '';
+		try {
+			const response = await api.getPresetAdmin(id);
+			if (!response.success || !response.data) {
+				throw new Error(responseError(response, 'Could not load the display settings'));
+			}
+			if (version !== adminRequestVersion || id !== viewId) return;
+			adminDetail = response.data;
+		} catch (error) {
+			if (version !== adminRequestVersion || id !== viewId) return;
+			logger.error('Failed to load preset admin detail:', error);
+			adminDetailError = presetApiFailure(error, 'Could not load the display settings').message;
+		}
+	}
+
+	function handleDisplayChanged(next: PresetAdminDetail) {
+		adminDetail = next;
+		void loadPresets(true);
+		if (viewId === next.preset_id && !activeUnavailable) loadPresetDetail(next.preset_id);
+	}
+
+	function openCreateMirror() {
+		if (!activePreset) return;
+		createMirrorModal?.open(
+			{ id: activePreset.id, name: activePreset.name, description: activePreset.description ?? null },
+			activeAdminDetail?.modes.available ?? []
+		);
+	}
+
+	async function handleMirrorCreated(created: PresetAdminDetail) {
+		invalidatePresets();
+		await loadPresets(true);
+		void urlState.go({ id: created.preset_id, view: 'access' });
 	}
 
 	function buildUrl(
@@ -317,31 +400,52 @@
 		const assignmentWarning = accessCount
 			? ` This will also remove ${accessCount} access ${accessCount === 1 ? 'assignment' : 'assignments'}.`
 			: '';
+		const isMirror = !!preset.is_mirror;
 		if (
 			!(await confirmDialog({
-				title: `Uninstall “${preset.name}”?`,
-				message: assignmentWarning.trim(),
-				variant: 'danger'
+				title: isMirror ? `Remove “${preset.name}”?` : `Uninstall “${preset.name}”?`,
+				message: isMirror
+					? `Users lose this preset. Its source keeps working.${assignmentWarning}`
+					: assignmentWarning.trim(),
+				variant: 'danger',
+				confirmLabel: isMirror ? 'Remove' : 'Uninstall'
 			}))
 		)
 			return;
 
 		mutatingPresetId = preset.id;
 		try {
-			const response = await adminApi.uninstallPreset(preset.id);
-			if (!response.success) {
-				throw new Error(responseError(response, 'The preset could not be uninstalled'));
+			const outcome = await runPresetUninstall(
+				() => adminApi.uninstallPreset(preset.id),
+				isMirror ? 'The mirror could not be removed' : 'The preset could not be uninstalled'
+			);
+			if (outcome.kind === 'has_mirrors') {
+				const mirrors = outcome.mirrors.length
+					? outcome.mirrors
+					: (activeAdminDetail?.mirrors ?? []).map((mirror) => ({ preset_id: mirror.preset_id, name: mirror.name }));
+				blockedUninstall = { name: preset.name, mirrors };
+				return;
 			}
-			toasts.success(`${preset.name} uninstalled`);
+			if (outcome.kind === 'refused') {
+				toasts.error(outcome.message);
+				return;
+			}
+			toasts.success(isMirror ? `${preset.name} removed` : `${preset.name} uninstalled`);
 			selectDetailTab(DEFAULT_PRESET_DETAIL_TAB);
 			invalidatePresets();
 			await loadPresets(true);
+			if (isMirror && viewId === preset.id) backToGrid();
 		} catch (error) {
 			logger.error('Failed to uninstall preset:', error);
 			toasts.error(error instanceof Error ? error.message : 'Failed to uninstall preset');
 		} finally {
 			mutatingPresetId = null;
 		}
+	}
+
+	function openBlockingMirror(id: string) {
+		blockedUninstall = null;
+		openPresetId(id);
 	}
 
 	function closeHeaderOverflow() {
@@ -430,6 +534,23 @@
 		{:else}
 			<div class="flex h-full flex-col">
 				<DetailHeader title={activePreset.name} icon={presetCategoryIcon(activePreset.category)} backLabel="Presets" onBack={backToGrid} chipItems={headerChips}>
+					{#snippet subtitle()}
+						{#if activePreset.is_mirror}
+							<span>Mirror of</span>
+							{#if activeSourceAvailable && activePreset.source_preset_id}
+								<button
+									type="button"
+									class="rounded text-signal hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-signal/40"
+									data-mirror-source-link
+									onclick={() => activePreset.source_preset_id && openPresetId(activePreset.source_preset_id)}
+								>{activeSourceName}</button>
+							{:else}
+								<span class="text-warning">{activeSourceName ?? 'a missing preset'}</span>
+							{/if}
+						{:else if renamedFrom}
+							<span>Renamed from {renamedFrom}</span>
+						{/if}
+					{/snippet}
 					{#snippet actions()}
 						{#if headerRecipe}
 							<Tooltip text={headerRecipe.name}>
@@ -472,6 +593,22 @@
 										role="menu"
 										use:dismiss={{ onDismiss: closeHeaderOverflow, ignore: [headerOverflowEl] }}
 									>
+										{#if canCreateMirror}
+											<button
+												type="button"
+												role="menuitem"
+												class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 text-fg hover:bg-surface-3 disabled:opacity-50"
+												disabled={mutatingPresetId !== null}
+												data-create-mirror-action
+												onclick={() => {
+													closeHeaderOverflow();
+													openCreateMirror();
+												}}
+											>
+												<Icon name="layers" className="w-3.5 h-3.5" />
+												Create mirror
+											</button>
+										{/if}
 										<button
 											type="button"
 											role="menuitem"
@@ -483,7 +620,7 @@
 											}}
 										>
 											<Icon name="trash" className="w-3.5 h-3.5" />
-											Uninstall
+											{activePreset.is_mirror ? 'Remove mirror' : 'Uninstall'}
 										</button>
 									</div>
 								{/if}
@@ -503,6 +640,23 @@
 					<DetailBody>
 						<DetailLayout>
 							{#snippet lead()}
+								{#if activeUnavailable && activeStateCopy}
+									<div data-mirror-state-alert>
+										<Alert variant="warning" density="compact" icon title={activeStateCopy.label}>
+											{activeStateCopy.description}
+											{#snippet actions()}
+												<Button
+													variant="secondary"
+													size="xs"
+													icon="trash"
+													loading={mutatingPresetId === activePreset.id}
+													disabled={mutatingPresetId !== null}
+													onclick={() => handleUninstall(activePreset)}
+												>Remove mirror</Button>
+											{/snippet}
+										</Alert>
+									</div>
+								{/if}
 								{#if detailError}
 									<Alert variant="warning" density="compact" live="polite">
 										{detailError}. Catalog metadata is shown below.
@@ -522,7 +676,7 @@
 									{/if}
 								</DetailSection>
 
-								{#if activePreset.installed}
+								{#if activePreset.installed && !activeUnavailable}
 									{#key activePreset.id}
 										<PresetModesList presetId={activePreset.id} />
 									{/key}
@@ -583,11 +737,48 @@
 							{/snippet}
 
 							{#snippet aside()}
+								{#if activePreset.is_mirror}
+									<DetailSection label="Source">
+										<div class="flex items-center justify-between gap-2" data-mirror-source-section>
+											<div class="min-w-0">
+												<p class="truncate text-sm text-fg">{activeSourceName ?? 'Missing preset'}</p>
+												<p class="text-xs text-fg-subtle">Uses its files and gets its updates.</p>
+											</div>
+											{#if activeSourceAvailable && activePreset.source_preset_id}
+												<Button variant="ghost" size="xs" icon="arrow-right" onclick={() => activePreset.source_preset_id && openPresetId(activePreset.source_preset_id)}>Open</Button>
+											{/if}
+										</div>
+									</DetailSection>
+								{:else if canCreateMirror}
+									<DetailSection label="Mirrors">
+										{#snippet headerExtra()}
+											<Button variant="ghost" size="xs" icon="plus" onclick={openCreateMirror}>Create</Button>
+										{/snippet}
+										{#if activeMirrors.length}
+											<ul class="-my-1 divide-y divide-line" data-preset-mirrors-list>
+												{#each activeMirrors as mirror (mirror.preset_id)}
+													{@const state = mirrorStateCopy(mirror.mirror_state)}
+													<li class="flex items-center justify-between gap-2 py-1.5">
+														<div class="flex min-w-0 items-center gap-2">
+															<span class="truncate text-sm text-fg">{mirror.name}</span>
+															{#if state}<Badge variant="warning" size="sm">{state.label}</Badge>{/if}
+														</div>
+														<Button variant="ghost" size="xs" onclick={() => openPresetId(mirror.preset_id)}>Open</Button>
+													</li>
+												{/each}
+											</ul>
+										{:else}
+											<p class="text-sm text-fg-muted">No mirrors yet. A mirror is a separate preset with its own name, cover and defaults that uses these files.</p>
+										{/if}
+									</DetailSection>
+								{/if}
+
 								<DetailSection label="Metadata">
 									<KVGrid>
 										<KVItem label="ID" mono full>{activePreset.id}</KVItem>
 										{#if activePreset.engine}<KVItem label="Engine">{activePreset.engine}</KVItem>{/if}
-										<KVItem label="Version" mono>v{activePreset.version}</KVItem>
+										{#if activePreset.version}<KVItem label="Version" mono>v{activePreset.version}</KVItem>{/if}
+										{#if activePreset.file_name && activePreset.file_name !== activePreset.name}<KVItem label="File name">{activePreset.file_name}</KVItem>{/if}
 										{#if activePreset.source}<KVItem label="Source">{activePreset.source}</KVItem>{/if}
 										{#if activePreset.category}<KVItem label="Category">{presetCategoryLabel(activePreset.category)}</KVItem>{/if}
 									</KVGrid>
@@ -598,6 +789,7 @@
 									{/if}
 								</DetailSection>
 
+								{#if !activeUnavailable}
 								<DetailSection label="Requirements">
 									{#if requirementsBadge}
 										<div class="flex items-center justify-between gap-2">
@@ -608,6 +800,7 @@
 										<p class="text-sm text-fg-muted">Not checked yet.</p>
 									{/if}
 								</DetailSection>
+								{/if}
 
 								{#if presetRecipes.length}
 									<DetailSection label="Recipe">
@@ -659,6 +852,62 @@
 						saving={formSaving}
 						onSave={() => formTabRef?.save()}
 						onDiscard={() => formTabRef?.discard()}
+					/>
+				{:else if effectiveTab === 'display'}
+					<DetailBody>
+						<DetailLayout>
+							{#snippet main()}
+								{#if activeAdminDetail}
+									{#key activePreset.id}
+										<PresetDisplayTab
+											bind:this={displayTabRef}
+											presetId={activePreset.id}
+											initialDetail={activeAdminDetail}
+											category={activePreset.category ?? null}
+											bind:dirtyCount={displayDirtyCount}
+											bind:saving={displaySaving}
+											onChanged={handleDisplayChanged}
+										/>
+									{/key}
+								{:else if adminDetailError}
+									<EmptyState title="Display settings unavailable" description={adminDetailError} icon="warning" compact>
+										{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={() => loadAdminDetail(activePreset.id)}>Try again</Button>{/snippet}
+									</EmptyState>
+								{:else}
+									<div class="flex items-center justify-center py-10">
+										<Spinner size="md" />
+									</div>
+								{/if}
+							{/snippet}
+						</DetailLayout>
+					</DetailBody>
+					<DetailFooter
+						dirtyCount={displayDirtyCount}
+						saving={displaySaving}
+						onSave={() => displayTabRef?.save()}
+						onDiscard={() => displayTabRef?.discard()}
+					/>
+				{:else if effectiveTab === 'prompt'}
+					<DetailBody>
+						<DetailLayout>
+							{#snippet main()}
+								{#key activePreset.id}
+									<PresetPromptTextTab
+										bind:this={promptTabRef}
+										presetId={activePreset.id}
+										vars={presetDetail?.id === activePreset.id ? (presetDetail.vars ?? null) : null}
+										bind:dirtyCount={promptDirtyCount}
+										bind:saving={promptSaving}
+									/>
+								{/key}
+							{/snippet}
+						</DetailLayout>
+					</DetailBody>
+					<DetailFooter
+						dirtyCount={promptDirtyCount}
+						saving={promptSaving}
+						onSave={() => promptTabRef?.save()}
+						onDiscard={() => promptTabRef?.discard()}
 					/>
 				{:else if effectiveTab === 'requirements'}
 					<DetailBody>
@@ -721,7 +970,13 @@
 			{:else}
 				<div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3" role="list" aria-label="Preset catalog">
 					{#each visiblePresets as preset (preset.id)}
-						<PresetCard {preset} installing={mutatingPresetId === preset.id} onOpen={openPreset} onInstall={handleInstall} />
+						<PresetCard
+							{preset}
+							sourceName={mirrorSourceName(preset, presetsById)}
+							installing={mutatingPresetId === preset.id}
+							onOpen={openPreset}
+							onInstall={handleInstall}
+						/>
 					{/each}
 				</div>
 			{/if}
@@ -730,3 +985,13 @@
 </LibraryShell>
 
 <PresetMediaModal isOpen={mediaModalOpen} preset={activePreset} on:close={() => (mediaModalOpen = false)} />
+
+<CreateMirrorModal bind:this={createMirrorModal} onCreated={handleMirrorCreated} />
+
+<PresetHasMirrorsDialog
+	isOpen={!!blockedUninstall}
+	presetName={blockedUninstall?.name ?? ''}
+	mirrors={blockedUninstall?.mirrors ?? []}
+	onClose={() => (blockedUninstall = null)}
+	onOpenMirror={openBlockingMirror}
+/>

@@ -10,7 +10,7 @@ from tests.fixtures.model_header_fixtures import make_view
 PREFIX = "model.diffusion_model."
 VAE = {"vae.decoder.a": (4,), "vae.decoder.b": (4,)}
 TE = {"text_encoders.clip_l.a": (4,), "text_encoders.clip_l.b": (4,)}
-ALLOWED = ["flux1", "flux2", "flux3", "moss_image", "krea2", "qwen_image", "qwen_image21", "z_image", "wan", "anima", "seedvr2_3b", "minimax_h3"]
+ALLOWED = ["flux1", "flux2", "flux3", "moss_image", "krea2", "qwen_image", "qwen_image21", "z_image", "wan", "anima", "seedvr2_3b", "minimax_h3", "minimax_h3_image"]
 NOT_ALLOWED = ["ltxv", "ltxav", "minimax_music3", "yue2", "trellis2"]
 
 

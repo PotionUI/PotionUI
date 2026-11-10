@@ -8,7 +8,9 @@ from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import parse_page
 from src.features.llm.tools.errors import unexpected
 from src.features.presets import operations as preset_operations
+from src.features.presets.operations.access import preset_available_to_user
 from src.features.presets.form_overrides import mode_field_inventory
+from src.features.presets.regional_prompt import regional_prompt_guide
 from src.platform.security.user import AccountType, User
 
 logger = logging.getLogger(__name__)
@@ -189,14 +191,13 @@ class GetPresetInfoTool(BaseTool):
             )
 
         collaborators = context.preset_collaborators
-        if not context.is_admin:
-            try:
-                allowed_ids = collaborators.db_repo.get_available_preset_ids_for_user(context.user_id)
-            except Exception:
-                logger.warning("could not resolve assigned presets for access check", exc_info=True)
-                allowed_ids = []
-            if preset_id not in allowed_ids:
-                return ToolResult(success=False, data="", error=f"No preset '{preset_id}'. {_NOT_FOUND_HINT}")
+        try:
+            allowed = preset_available_to_user(collaborators.db_repo, context.user_id, preset_id, context.is_admin)
+        except Exception:
+            logger.warning("could not resolve assigned presets for access check", exc_info=True)
+            allowed = False
+        if not allowed:
+            return ToolResult(success=False, data="", error=f"No preset '{preset_id}'. {_NOT_FOUND_HINT}")
 
         try:
             found_preset = collaborators.file_repo.find_preset_by_id(preset_id)
@@ -252,6 +253,10 @@ class GetPresetInfoTool(BaseTool):
                         field_info["options_count"] = len(options)
                     fields_summary.append(field_info)
                 summary["form_fields"] = fields_summary
+
+            regional_guide = regional_prompt_guide(getattr(found_preset, "vars", None))
+            if regional_guide:
+                summary["regional_prompt"] = regional_guide
 
             # Preset-authored prompting guide (see docs/presets.md "LLM context"),
             # replaced by the current mode's override when one is declared.

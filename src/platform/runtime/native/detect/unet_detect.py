@@ -43,6 +43,7 @@ from src.platform.runtime.model_headers.signatures import (
     LTX_SIG,
     LUMINA2_SIG,
     MINIMAX_H3_SIG,
+    MINIMAX_H3_IMAGE_SIG2,
     MINIMAX_H3_SIG2,
     MINIMAX_MUSIC3_SIG,
     MINIMAX_MUSIC3_SIG2,
@@ -114,6 +115,9 @@ def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | N
 
     if SEEDVR2_SIG in sd and SEEDVR2_SIG2 in sd:
         return _detect_seedvr2(sd)
+
+    if MINIMAX_H3_SIG in sd and MINIMAX_H3_IMAGE_SIG2 in sd and MINIMAX_H3_SIG2 not in sd:
+        return _detect_minimax_h3_image(sd, metadata)
 
     if MINIMAX_H3_SIG in sd and MINIMAX_H3_SIG2 in sd:
         return _detect_minimax_h3(sd)
@@ -886,6 +890,64 @@ def _detect_minimax_h3(sd: dict[str, torch.Tensor]) -> dict:
         ffn_dim, in_channels, audio_in_channels, text_dim, config["pruned"], config["time_embed_dim"],
         config.get("gate_compress", False),
     )
+    return config
+
+
+def _minimax_h3_image_pdd(metadata: dict[str, str] | None, pdd_steps: int) -> tuple[float, ...]:
+    if pdd_steps == 1:
+        return ()
+    try:
+        transformer = json.loads((metadata or {})["config"]).get("transformer", {})
+    except (KeyError, TypeError, ValueError, AttributeError):
+        transformer = {}
+    sigmas = tuple(float(sigma) for sigma in transformer.get("pdd_sigmas", ()))
+    declared = int(transformer.get("pdd_steps", pdd_steps))
+    if (
+        declared != pdd_steps
+        or len(sigmas) != pdd_steps + 1
+        or sigmas[0] != 1.0
+        or sigmas[-1] != 0.0
+        or any(b >= a for a, b in zip(sigmas, sigmas[1:]))
+    ):
+        raise NativeEngineUnsupportedError(
+            f"this MiniMax-H3-Image checkpoint has {pdd_steps} output heads but no matching "
+            "descending pdd_sigmas grid in its metadata (config.transformer)"
+        )
+    return sigmas
+
+
+def _detect_minimax_h3_image(sd: dict[str, torch.Tensor], metadata: dict[str, str] | None) -> dict:
+    hidden_size = int(sd[MINIMAX_H3_SIG].shape[0])
+    attention_head_dim = int(sd["blocks.0.attn.q_norm.weight"].shape[0])
+    patch_voxels = math.prod(_MINIMAX_H3_PATCH)
+    in_channels = linear_in_features(sd, MINIMAX_H3_SIG) // patch_voxels
+    pdd_steps = int(sd["final_layer.video_out.weight"].shape[0]) // (in_channels * patch_voxels)
+    config: dict = {
+        "image_model": "minimax_h3_image",
+        "hidden_size": hidden_size,
+        "num_layers": count_blocks(sd, "blocks.{}."),
+        "num_refiner_layers": count_blocks(sd, "token_refiner.blocks.{}."),
+        "num_attention_heads": int(sd["blocks.0.attn.qkv_proj.weight"].shape[0]) // (3 * attention_head_dim),
+        "attention_head_dim": attention_head_dim,
+        "ffn_dim": int(sd["blocks.0.mlp.fc1.weight"].shape[0]) // 2,
+        "in_channels": in_channels,
+        "audio_in_channels": None,
+        "patch_size": _MINIMAX_H3_PATCH,
+        "text_dim": linear_in_features(sd, "condition_proj.weight"),
+        "rope_freq_dim": int(sd["rope.inv_freq"].shape[0]),
+        "pdd_steps": pdd_steps,
+        "pdd_sigmas": _minimax_h3_image_pdd(metadata, pdd_steps),
+    }
+    if "adaln_t_table" in sd:
+        grid, width = sd["adaln_t_table"].shape
+        config.update(pruned=True, adaln_curve_grid=int(grid), time_embed_dim=int(width))
+    else:
+        config.update(
+            pruned=False,
+            freq_dim=linear_in_features(sd, "time_embedder.proj_in.weight"),
+            time_embed_hidden_dim=int(sd["time_embedder.proj_in.weight"].shape[0]),
+            time_embed_dim=int(sd["time_embedder.proj_out.weight"].shape[0]),
+        )
     return config
 
 

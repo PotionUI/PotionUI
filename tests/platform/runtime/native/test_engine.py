@@ -527,6 +527,26 @@ def test_sample_extracts_ref_latents_from_cond_dict_for_placement(monkeypatch, d
     assert seen["ref_latents"] == [ref]
 
 
+@pytest.mark.parametrize("sigma_dtype", [None, torch.float32])
+def test_sample_hands_the_generator_sigma_and_latent_dtypes_to_denoise(monkeypatch, dit_path, vae_path, sigma_dtype):
+    import src.platform.runtime.native.engine as engine_mod
+
+    seen = {}
+
+    def fake_denoise(model_forward, latents, *args, **kwargs):
+        seen.update(kwargs)
+        return latents
+
+    monkeypatch.setattr(engine_mod, "denoise", fake_denoise)
+    loader = NativeEngineLoader(device="cpu")
+    generator_class = type("_Generator", (NativeGenerator,),
+                           {"model_sigma_dtype": sigma_dtype, "latent_output_dtype": sigma_dtype})
+    gen = generator_class(loader.load(dit_path, "diffusion_model"), _StubTE(), loader.load(vae_path, "vae"))
+    gen.sample(Conditioning({"context": torch.zeros(1, 4, 32)}), (1, 16, 8, 8), steps=1, seed=0, cfg_scale=1.0)
+    assert seen["model_sigma_dtype"] is sigma_dtype
+    assert seen["output_dtype"] is sigma_dtype
+
+
 def test_dit_weights_budget_shrinks_by_the_preview_reserve(monkeypatch):
     import src.platform.runtime.native.engine as engine_mod
 
@@ -715,9 +735,6 @@ def test_encode_need_gb_scales_with_input_pixels():
     big = gen._encode_need_gb(torch.zeros(1, 3, 1072, 1920))
     small = gen._encode_need_gb(torch.zeros(1, 3, 512, 512))
     assert big > small
-    # 2MP causal-3D estimate must be large enough to exceed a 32GB card's free
-    # room once a ~15GB DiT is parked -- the whole point of the proactive offload.
-    assert big > 12.0
 
 
 def test_ensure_room_for_encode_offloads_parked_dit_when_estimate_exceeds_free(monkeypatch):

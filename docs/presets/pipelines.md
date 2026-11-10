@@ -427,6 +427,7 @@ this table and the scaffolder can never disagree for long.
 | `ltx` | `model_loader/ltx` | `generator/txt2vid_ltx`, `generator/video_ltx`, `generator/dfr_video_ltx` | video |
 | `maya` | `model_loader/maya` | `generator/maya` | image |
 | `minimax_h3` | `model_loader/minimax_h3` | `generator/video_minimax_h3` | video |
+| `minimax_h3_image` | `model_loader/minimax_h3_image` | `generator/minimax_h3_image` | image |
 | `minimax_music3` | `model_loader/minimax_music3` | `generator/audio_minimax_music3` | audio |
 | `moss_image` | `model_loader/moss_image` | `generator/moss_image` | image |
 | `qwen` | `model_loader/qwen` | `generator/qwen` | image |

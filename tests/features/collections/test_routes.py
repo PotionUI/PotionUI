@@ -21,7 +21,7 @@ def repository():
 
 @pytest.fixture
 def controller(repository):
-    return CollectionController(repository)
+    return CollectionController(repository, {})
 
 
 @pytest.mark.asyncio

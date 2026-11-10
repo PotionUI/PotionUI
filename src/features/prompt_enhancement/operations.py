@@ -15,6 +15,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Sequence
 from src.features.llm.harness.adapter import Settings
 from src.features.llm.generation_hooks import fire_after_generate, fire_before_generate
 from src.features.llm.harness.build import user_message
+from src.features.presets.operations.access import preset_available_to_user
 from src.features.llm.harness.events import Usage
 from src.features.llm.tools.builtin.utils import extract_model_path, lookup_model, resolve_active_model_id
 from src.features.prompt_database import operations as prompt_database_operations
@@ -664,8 +665,7 @@ def _reasoning_text(answer: Any) -> Optional[str]:
 def preset_visible(collaborators: PromptEnhancementCollaborators, user_id: str, preset_id: str, is_admin: bool) -> bool:
     if is_admin or collaborators.preset_collaborators is None:
         return True
-    available = collaborators.preset_collaborators.db_repo.get_available_preset_ids_for_user(user_id) or []
-    return preset_id in available
+    return preset_available_to_user(collaborators.preset_collaborators.db_repo, user_id, preset_id, False)
 
 
 async def _gather_writing_context(

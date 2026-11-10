@@ -101,6 +101,7 @@
 	export let embedded = false;
 	export let plain = false;
 	export let titleExtra: import('svelte').Snippet | undefined = undefined;
+	export let afterMain: import('svelte').Snippet | undefined = undefined;
 
 	$: paired = negativeSegments !== undefined;
 
@@ -574,6 +575,10 @@
 			</header>
 
 			{@render mainRail()}
+
+			{#if afterMain}
+				{@render afterMain()}
+			{/if}
 
 			{#if showPreview}
 				<section class="resolved" class:open={resolvedOpen}>

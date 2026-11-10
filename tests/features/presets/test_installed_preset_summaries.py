@@ -91,3 +91,17 @@ def test_admin_list_carries_the_same_tuples_as_the_per_preset_queries(world):
     } == expected
     assert by_id[UNINSTALLED]["installed"] is False
     assert not {"preset_db_id", "assignment_count", "group_count"} & by_id[UNINSTALLED].keys()
+
+
+def test_a_mirror_row_has_its_own_assignment_counts(world, mock_db):
+    presets, groups = world
+    mirror = presets.create_mirror(
+        "MIRROR", "native/both", "Anime", None, None, None, None, configuration={}, form_overrides={},
+    )
+    presets.assign_preset_to_user("MIRROR", _user(mock_db, "cara"))
+
+    summaries = presets.get_installed_preset_summaries()
+
+    assert summaries["MIRROR"] == (mirror.id, 1, 0)
+    assert summaries["native/both"][1:] == (2, 1)
+    assert [m.preset_id for m in presets.mirrors_of("native/both")] == ["MIRROR"]

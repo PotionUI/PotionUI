@@ -308,12 +308,15 @@ class TestPresetController:
     @pytest.mark.asyncio
     async def test_uninstall_preset_success(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test successful preset uninstallation."""
-        mock_preset_collaborators.uninstall_preset.return_value = "Preset uninstalled. Removed 3 assignments."
+        mock_preset_collaborators.uninstall_preset.return_value = {
+            "message": "Preset uninstalled. Removed 3 assignments.", "tombstone": None,
+        }
 
         result = await controller.uninstall_preset("test-preset", mock_admin_user)
 
         assert isinstance(result, APIResponse)
         assert result.success is True
+        assert result.data is None
 
     @pytest.mark.asyncio
     async def test_uninstall_preset_not_installed(self, controller, mock_preset_collaborators, mock_admin_user):

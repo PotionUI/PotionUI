@@ -301,6 +301,95 @@ export interface PresetInfo {
 	assignment_count?: number;
 	group_count?: number;
 	recipes?: PresetRecipeLink[];
+	file_name?: string;
+	display_overridden?: boolean;
+	is_mirror?: boolean;
+	source_preset_id?: string | null;
+	mirror_state?: PresetMirrorState | null;
+	mirror_count?: number;
+}
+
+export type PresetMirrorState = 'ok' | 'source_missing' | 'modes_missing' | 'id_collision';
+
+export interface PresetDisplayValues {
+	name: string | null;
+	description: string | null;
+	cover: string | null;
+}
+
+export interface PresetAdminModeOption {
+	name: string;
+	label: string;
+	icon?: string | null;
+}
+
+export interface PresetMirrorSummary {
+	preset_id: string;
+	name: string;
+	mirror_state: PresetMirrorState;
+}
+
+export interface PresetAdminDetail {
+	preset_id: string;
+	preset_db_id: string;
+	is_mirror: boolean;
+	source_preset_id: string | null;
+	source_name: string | null;
+	mirror_state: PresetMirrorState | null;
+	file: PresetDisplayValues | null;
+	display: PresetDisplayValues;
+	effective: PresetDisplayValues;
+	modes: {
+		available: PresetAdminModeOption[];
+		offered: string[] | null;
+		first: string | null;
+	};
+	mirrors: PresetMirrorSummary[];
+	assignment_count: number;
+	group_count: number;
+}
+
+export interface PresetDisplayPayload {
+	name: string | null;
+	description: string | null;
+	cover: string | null;
+}
+
+export interface PresetMirrorCreatePayload {
+	name: string;
+	description: string | null;
+	cover: string | null;
+	offered_modes: string[] | null;
+	first_mode: string | null;
+}
+
+export interface PresetMirrorModesPayload {
+	offered: string[] | null;
+	first: string | null;
+}
+
+export interface PresetFixedPrompt {
+	prefix: string;
+	suffix: string;
+	negative: string;
+	modes: string[] | null;
+}
+
+export interface PresetMirrorRef {
+	preset_id: string;
+	name: string;
+}
+
+export interface PresetUninstallData {
+	tombstone?: PresetMirrorRef;
+}
+
+export interface PresetApiErrorBody {
+	success: false;
+	error?: string;
+	message?: string;
+	errors?: string[];
+	mirrors?: PresetMirrorRef[];
 }
 
 export interface PresetPickerState {

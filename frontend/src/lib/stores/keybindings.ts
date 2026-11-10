@@ -12,7 +12,7 @@ export interface KeybindingAction {
 	description?: string;
 	enabled: boolean;
 	isCustom: boolean;
-	handler?: () => void;
+	handler?: (event: KeyboardEvent) => void;
 }
 
 interface KeybindingsState {
@@ -33,7 +33,7 @@ function createKeybindingsStore() {
 	// Handlers registered before their binding has loaded (e.g. a layout-persistent
 	// component's onMount runs before the layout kicks off loadBindings). We stash
 	// them here and re-attach on load so early registrations aren't lost.
-	const pendingHandlers = new Map<string, () => void>();
+	const pendingHandlers = new Map<string, (event: KeyboardEvent) => void>();
 
 	return {
 		subscribe,
@@ -70,7 +70,7 @@ function createKeybindingsStore() {
 			}
 		},
 
-		registerHandler(actionId: string, handler: () => void) {
+		registerHandler(actionId: string, handler: (event: KeyboardEvent) => void) {
 			pendingHandlers.set(actionId, handler);
 			update((state) => ({
 				...state,

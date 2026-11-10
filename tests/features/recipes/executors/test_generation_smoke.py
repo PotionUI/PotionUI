@@ -597,3 +597,50 @@ def test_an_app_loop_that_is_not_running_fails_clearly_without_starting_a_genera
     assert result.error_code == "GENERATION_SMOKE_NO_APP_LOOP"
     assert "Application event loop is not running" in result.safe_error_detail
     assert orchestrator.loops == []
+
+
+class FakePresetDbRepo:
+    def __init__(self, overrides):
+        self.overrides = overrides
+        self.asked = []
+
+    def get_preset_form_overrides(self, preset_id):
+        self.asked.append(preset_id)
+        return self.overrides
+
+
+def test_the_admin_defaults_of_the_smoke_mode_are_passed_to_form_building(monkeypatch):
+    captured = {}
+
+    def _capture(*args, **kwargs):
+        captured.update(kwargs)
+        return {"seed": 1}
+
+    monkeypatch.setattr(generation_smoke, "build_fixture_form_data", _capture)
+    db_repo = FakePresetDbRepo({
+        "txt2img": {"vae": {"default": "vae.safetensors"}, "steps": {"visible": False}},
+        "img2img": {"vae": {"default": "other.safetensors"}},
+    })
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), FakeOrchestrator(), FakeFileRepository(), preset_db_repo=db_repo
+    )
+
+    executor.execute(_context(_recipe()))
+
+    assert db_repo.asked == ["p1"]
+    assert captured["admin_defaults"] == {"vae": "vae.safetensors", "steps": None}
+
+
+def test_without_a_preset_store_the_smoke_passes_no_admin_defaults(monkeypatch):
+    captured = {}
+
+    def _capture(*args, **kwargs):
+        captured.update(kwargs)
+        return {"seed": 1}
+
+    monkeypatch.setattr(generation_smoke, "build_fixture_form_data", _capture)
+    executor = GenerationSmokeExecutor(FakePresetLoader(FakePresetTemplate()), object(), FakeOrchestrator(), FakeFileRepository())
+
+    executor.execute(_context(_recipe()))
+
+    assert captured["admin_defaults"] == {}

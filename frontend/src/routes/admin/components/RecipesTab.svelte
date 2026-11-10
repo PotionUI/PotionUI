@@ -53,7 +53,13 @@
 	import { announceModelInstalled } from '$lib/stores/modelInstalls';
 	import { toasts } from '$lib/stores/toast';
 	import type { RecipeModeRow } from '$lib/services/api/recipeModes';
-	import { isModesRecipe, modesBadge, modesDiskLine, partitionRecipes } from './recipes/recipeModesDisplay';
+	import {
+		isModesRecipe,
+		modesBadge,
+		modesDiskLine,
+		partitionRecipes,
+		withoutCoveredModeRecipes
+	} from './recipes/recipeModesDisplay';
 	import RecipeArtifactCards from './recipes/RecipeArtifactCards.svelte';
 	import RecipeRunsList from './recipes/RecipeRunsList.svelte';
 	import RecipeStepsList from './recipes/RecipeStepsList.svelte';
@@ -94,10 +100,11 @@
 	let previewOpen = $state(false);
 	let removeTarget = $state<RecipeModeRow | null>(null);
 
-	const sources = $derived(recipeSourceVocabulary(recipes));
-	const engines = $derived(recipeEngineVocabulary(recipes));
-	const sectionCounts = $derived(recipeSectionCounts(recipes));
-	const filteredRecipes = $derived(applyRecipeFilters(recipesInSection(recipes, section), filters));
+	const listed = $derived(withoutCoveredModeRecipes(recipes));
+	const sources = $derived(recipeSourceVocabulary(listed));
+	const engines = $derived(recipeEngineVocabulary(listed));
+	const sectionCounts = $derived(recipeSectionCounts(listed));
+	const filteredRecipes = $derived(applyRecipeFilters(recipesInSection(listed, section), filters));
 	const filterCount = $derived(recipeFilters.activeCount(filters));
 	const filterChips = $derived(recipeFilters.chips(filters));
 	const detailOpen = $derived(!!selectedRecipeId);
@@ -318,7 +325,7 @@
 			onRemoveChip={removeChip}
 			onClearFilters={clearFilters}
 			loadedCount={filteredRecipes.length}
-			total={recipes.length}
+			total={listed.length}
 			heightClass="h-full"
 		>
 			{#snippet toolbar()}

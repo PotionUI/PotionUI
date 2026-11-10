@@ -918,6 +918,13 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
     def _text_presentation(self, text: str) -> list[int]:
         return self.tokenizer(text) or [MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID]
 
+    @staticmethod
+    def _truncate_prompt(token_ids: list[int], limit: int) -> list[int]:
+        if len(token_ids) <= limit:
+            return token_ids
+        logger.warning("minimax_h3: prompt is %d tokens; keeping the first %d", len(token_ids), limit)
+        return token_ids[:limit]
+
     @torch.inference_mode()
     def encode_presentation(
         self, token_ids: list[int], vision_runs: list[MiniMaxH3VisionRun] | None = None,
@@ -1022,6 +1029,7 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
     def encode_request(
         self, text: str, images: list[torch.Tensor] | None = None,
         min_pixels: int = H3_VISION_MIN_PIXELS, max_pixels: int = H3_VISION_MAX_PIXELS,
+        picture_label: str = "<Picture {}>: ", max_prompt_tokens: int | None = None,
     ) -> dict[str, torch.Tensor]:
         r"""
         Build MiniMax-H3's `fl2va` presentation for one request and encode it.
@@ -1060,6 +1068,8 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
         """
         if not images:
             token_ids = self._text_presentation(text)
+            if max_prompt_tokens is not None:
+                token_ids = self._truncate_prompt(token_ids, max_prompt_tokens)
             out = self.encode_presentation(token_ids)
             out["token_tags"] = torch.full(
                 (len(token_ids),), MINIMAX_H3_TEXT_TAG, dtype=torch.long, device=out["context"].device,
@@ -1080,7 +1090,7 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
         token_tags: list[int] = []
         vision_runs: list[MiniMaxH3VisionRun] = []
         for index, image in enumerate(images):
-            label_ids = self.tokenizer(f"<Picture {index + 1}>: ")
+            label_ids = self.tokenizer(picture_label.format(index + 1))
             patches, grid_thw = preprocess_qwen3_vl_image(
                 image.to(self._device), grounding_px=0,
                 min_pixels=min_pixels, max_pixels=max_pixels,
@@ -1096,6 +1106,8 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
             vision_runs.append(MiniMaxH3VisionRun(patches=patches, grid_thw=grid_thw, pad_token_id=image_pad_id))
 
         prompt_ids = self.tokenizer(text)
+        if max_prompt_tokens is not None:
+            prompt_ids = self._truncate_prompt(prompt_ids, max_prompt_tokens)
         token_ids += prompt_ids
         token_tags += [MINIMAX_H3_TEXT_TAG] * len(prompt_ids)
 

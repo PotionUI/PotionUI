@@ -2,6 +2,7 @@ import type { AxiosInstance } from 'axios';
 import type { APIResponse } from '$lib/types/api';
 import type { Collection, CollectionScope } from '$lib/types/history';
 import type { SmartCounts } from '$lib/components/collections/types';
+import type { DeleteEntriesResult } from '$lib/components/collections/deleteEntries';
 import { collectionListParams } from '$lib/components/collections/selection';
 
 // Every call takes `scope` explicitly - the backend has no default and
@@ -70,6 +71,11 @@ export function createCollectionsApi(client: AxiosInstance) {
 
 		async deleteCollection(id: string, scope: CollectionScope): Promise<APIResponse<any>> {
 			const response = await client.delete(`/api/collections/${id}`, { params: { scope } });
+			return response.data;
+		},
+
+		async deleteCollectionEntries(id: string): Promise<APIResponse<DeleteEntriesResult>> {
+			const response = await client.post(`/api/collections/${id}/delete-entries`);
 			return response.data;
 		},
 

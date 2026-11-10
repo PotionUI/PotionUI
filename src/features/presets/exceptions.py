@@ -6,6 +6,10 @@ preset operations. They are caught by the controller and mapped to
 appropriate HTTP responses.
 """
 
+from typing import Dict, List
+
+from src.platform.http.errors import ConflictError, DomainError, InvalidInputError, NotFoundError
+
 
 class PresetException(Exception):
     """Base exception for all preset-related errors."""
@@ -122,4 +126,59 @@ class InvalidFormOverridesException(PresetException):
         self.errors = errors
         super().__init__(
             f"Invalid form overrides for preset '{preset_id}' mode '{mode}': {'; '.join(errors)}"
+        )
+
+
+class PresetRowNotFoundError(NotFoundError):
+    def __init__(self, preset_id: str):
+        super().__init__("preset_not_found", f"Preset '{preset_id}' not found")
+
+
+class PresetRowNotInstalledError(ConflictError):
+    def __init__(self, preset_id: str):
+        super().__init__("preset_not_installed", f"Preset '{preset_id}' is not installed")
+
+
+class MirrorSourceNotInstalledError(ConflictError):
+    def __init__(self, preset_id: str):
+        super().__init__("source_not_installed", f"Install '{preset_id}' before creating a mirror of it")
+
+
+class MirrorSourceInvalidError(InvalidInputError):
+    def __init__(self, preset_id: str):
+        super().__init__("mirror_source_invalid", f"'{preset_id}' is a mirror; create the mirror from its source preset")
+
+
+class NotAMirrorError(InvalidInputError):
+    def __init__(self, preset_id: str):
+        super().__init__("not_a_mirror", f"'{preset_id}' is a preset file, so its modes cannot be chosen here")
+
+
+class InvalidDisplayError(InvalidInputError):
+    def __init__(self, errors: List[str]):
+        super().__init__("invalid_display", "; ".join(errors), errors=errors)
+
+
+class InvalidCoverError(InvalidInputError):
+    def __init__(self, message: str):
+        super().__init__("invalid_cover", message)
+
+
+class InvalidModesError(InvalidInputError):
+    def __init__(self, errors: List[str]):
+        super().__init__("invalid_modes", "; ".join(errors), errors=errors)
+
+
+class MirrorIdUnavailableError(DomainError):
+    def __init__(self):
+        super().__init__("mirror_id_unavailable", "Could not pick a free id for the mirror", 500)
+
+
+class PresetHasMirrorsError(ConflictError):
+    def __init__(self, preset_id: str, mirrors: List[Dict[str, str]]):
+        names = ", ".join(mirror["name"] for mirror in mirrors)
+        super().__init__(
+            "preset_has_mirrors",
+            f"Remove the mirrors of '{preset_id}' first: {names}",
+            mirrors=mirrors,
         )

@@ -20,24 +20,17 @@ import backend  # noqa: E402,F401
 
 @pytest.fixture
 def scratch_db(tmp_path):
-    from src.plugin_api.storage import db
+    from src.plugin_api import scratch_database
 
-    Database = type(db)
-
-    Database._instance = None
-    test_db = Database()
-    test_db.db_path = tmp_path / "test.sqlite"
-    test_db.db_path.parent.mkdir(parents=True, exist_ok=True)
-    test_db._initialized = True
-    yield test_db
-    Database.close_pool()
-    Database._instance = None
+    return scratch_database(tmp_path / "test.sqlite", core_schema=False)
 
 
 @pytest.fixture
-def plugin_db(scratch_db, monkeypatch):
-    monkeypatch.setattr("src.platform.database.database.db", scratch_db)
-    return scratch_db
+def plugin_db(scratch_db):
+    from src.plugin_api import use_database
+
+    with use_database(scratch_db):
+        yield scratch_db
 
 
 @pytest.fixture

@@ -692,6 +692,40 @@ async def test_a_disabled_plugin_takes_an_update_its_new_code_would_not_start_wi
     assert [path.name for path in local.iterdir()] == ["demo"]
 
 
+def _discovery_that_skips_demo_once(registry, monkeypatch) -> None:
+    real_discover = registry.loader.discover_plugins
+    calls = []
+
+    def discover():
+        calls.append(None)
+        found = real_discover()
+        return [manifest for manifest in found if manifest.id != "demo"] if len(calls) == 1 else found
+
+    monkeypatch.setattr(registry.loader, "discover_plugins", discover)
+
+
+async def test_an_update_of_a_disabled_plugin_whose_new_manifest_the_scan_skips_puts_the_previous_version_back(
+    plugins, catalog, monkeypatch
+):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    catalog.publish("demo", "1.1.0")
+    _discovery_that_skips_demo_once(registry, monkeypatch)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert str(refused.value) == (
+        "demo 1.1.0 did not start (the scan did not find its manifest); the installed 1.0.0 is back in place."
+    )
+
+
 async def test_an_update_that_does_not_start_and_cannot_be_undone_keeps_the_previous_version_in_staging(plugins, catalog, monkeypatch):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

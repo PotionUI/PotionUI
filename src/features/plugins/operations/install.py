@@ -275,6 +275,8 @@ def _disable(repo: PluginRepository, registry: PluginRegistry, plugin_id: str, c
 
 
 def _came_back(was_enabled: bool, state: Optional[PluginState]) -> bool:
+    if state is None:
+        return False
     if was_enabled:
         return state == PluginState.ENABLED
     return state != PluginState.ERROR
@@ -398,7 +400,9 @@ async def install_from_catalog(
                 await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
             state = registry.get_plugin_state(plugin_id)
             if placement.previous is not None and not _came_back(was_enabled, state):
-                failure = registry.get_plugin_error(plugin_id) or "it did not start"
+                failure = registry.get_plugin_error(plugin_id) or (
+                    "the scan did not find its manifest" if state is None else "it did not start"
+                )
                 await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
             if row_was_enabled and item.status == "update" and state == PluginState.ENABLED:
                 repo.enable_plugin(plugin_id)

@@ -184,6 +184,30 @@ def test_the_same_id_installed_under_another_folder_is_a_conflict(plugins):
     assert str(local.parent) not in item.reason
 
 
+@pytest.mark.parametrize("installed, listed", [("foo-bar", "foo_bar"), ("foo_bar", "foo-bar")])
+def test_an_id_that_shares_the_python_package_of_an_installed_plugin_is_a_conflict(plugins, installed, listed):
+    registry, _, _, local = plugins
+    _write_plugin(local / installed, installed, "1.0.0", record=True, catalog=CATALOG_A)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(plugin_id=listed), registry, local, CATALOG_B)
+
+    assert item.status == "conflict"
+    assert item.reason == f"The installed plugin {installed} uses the same Python package name, foo_bar."
+
+
+async def test_a_catalog_cannot_install_a_plugin_whose_package_name_another_plugin_already_uses(plugins, catalog):
+    registry, repo, _, local = plugins
+    _write_plugin(local / "foo-bar", "foo-bar", "1.0.0", record=False)
+    registry.discover_plugins()
+    catalog.publish("foo_bar", "1.0.0")
+
+    with pytest.raises(CatalogInstallError, match="uses the same Python package name"):
+        await _install(repo, registry, catalog, "foo_bar")
+
+    assert sorted(path.name for path in local.iterdir()) == ["foo-bar"]
+
+
 def test_a_folder_of_that_name_without_a_manifest_is_a_conflict(plugins):
     registry, _, _, local = plugins
     (local / "demo").mkdir()

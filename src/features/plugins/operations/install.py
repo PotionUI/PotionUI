@@ -136,6 +136,16 @@ def catalog_item(
             entry, "conflict", f"A plugin with this id is already installed in the folder {Path(manifest.plugin_dir).name}.", manifest.version
         )
 
+    package = entry.id.replace("-", "_")
+    for other in registry.get_all_plugins():
+        if other.id != entry.id and other.id.replace("-", "_") == package:
+            return CatalogItem(
+                entry,
+                "conflict",
+                f"The installed plugin {other.id} uses the same Python package name, {package}.",
+                manifest.version if manifest is not None else None,
+            )
+
     installed_version = None
     if folder.exists():
         record = _install_record(folder)

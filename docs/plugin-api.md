@@ -3280,7 +3280,9 @@ was removed while the server was stopped.
 The same id is never installed twice. A plugin that ships with PotionUI
 (`content/plugins/marketplace/`) is listed as bundled; a folder of that id that holds no
 `.potionui-catalog.json` (a clone, a plugin placed by hand), or the id found in another
-folder or in `POTIONUI_EXTRA_PLUGIN_DIRS`, is a conflict; neither is replaced. A plugin
+folder or in `POTIONUI_EXTRA_PLUGIN_DIRS`, is a conflict; neither is replaced. So is an id
+that differs from an installed plugin's only by `-` and `_` (`foo-bar` and `foo_bar`), since
+both would load as the same Python package. A plugin
 belongs to the catalog it was installed from, the URL kept in its `.potionui-catalog.json`
 (scheme and host compared without case, a default port the same as none, path and query
 exactly): any other catalog that lists its id shows it as a conflict, installed from

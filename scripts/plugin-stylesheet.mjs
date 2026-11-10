@@ -8,7 +8,7 @@ export const PLUGIN_SCOPE_ATTRIBUTE = 'data-potionui-plugin';
 const DOCUMENT_ROOT = /^(?::root|html|body)(?=$|\s|>)/;
 
 export function pluginScopeSelector(pluginId) {
-	return `[${PLUGIN_SCOPE_ATTRIBUTE}="${pluginId.replace(/["\\]/g, '\\$&')}"]`;
+	return `:where([${PLUGIN_SCOPE_ATTRIBUTE}="${pluginId.replace(/["\\]/g, '\\$&')}"])`;
 }
 
 export function scopeSelector(scope, selector) {

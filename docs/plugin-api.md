@@ -3043,17 +3043,27 @@ it minifies the bundle. Compiling it needs the app frontend's packages (`npm ci`
 `frontend/`); a plugin without the file does not.
 
 The build puts every rule under the page of the plugin: `.p-4` becomes
-`[data-potionui-plugin="video-producer"] .p-4`, `:root`, `html` and `body` at the start of a
-selector become the page element itself, and keyframes keep their names. The sheet holds no
+`:where([data-potionui-plugin="video-producer"]) .p-4`, `:root`, `html` and `body` at the start
+of a selector become the page element itself, and keyframes keep their names. The sheet holds no
 token values: its rules read the app's CSS variables (`--surface-2`, `--fg-muted`, ...), so it
 follows the light and dark themes like the app does.
+
+The scope sits in `:where()`, so it adds no specificity: a rule of the sheet weighs what the same
+utility weighs in the app's own CSS, and the sheet, adopted after the app's, wins only ties. A
+host component rendered in the page (a `Button` of `hostComponents`) keeps its `hover:`,
+`focus-visible:` and `disabled:` styles when the plugin uses the same base utility, since those
+variants weigh more than a bare class. One tie remains: a responsive variant of a host component
+(`md:px-4`) weighs the same as a base utility of the sheet (`px-3`) on the same element, so the
+sheet's rule wins at that width. `:where()` needs Chrome or Edge 88, Firefox 78 or Safari 14; the
+app's own `focus-visible:` variant already uses it, and in Firefox and Safari adopting a
+constructed stylesheet needs more (Firefox 101, Safari 16.4).
 
 `GET /api/plugins/pages/{route}` answers `stylesheet`, the path of `<Component>.css` in
 `frontend/dist/` when the file is there, `null` otherwise. The plugin page route fetches the
 sheet with the bundle, keeps only the rules that stay inside the page element, adopts the sheet
 before it mounts the page, and removes it when the page unmounts. A kept style rule has
-selectors that each start with the plugin's `[data-potionui-plugin="<id>"]` followed by nothing,
-a descendant or a child combinator; `@media`, `@supports`, `@container` and `@layer` blocks are
+selectors that each start with the plugin's `:where([data-potionui-plugin="<id>"])`, the scope
+alone inside `:where()`, followed by nothing, a descendant or a child combinator; `@media`, `@supports`, `@container` and `@layer` blocks are
 looked into, `@keyframes` and `@font-face` are kept, and everything else (`@import`, `@page`,
 a selector that starts elsewhere or reaches a sibling of the page) is dropped, with a console
 warning in development. The sheet therefore applies to the plugin page only, and to nothing

@@ -7,7 +7,7 @@ import { mount, unmount } from 'svelte';
 import { page } from './stubs/appStores';
 import { settle } from './helpers/settle';
 
-const SCOPE = '[data-potionui-plugin="styled-plugin"]';
+const SCOPE = ':where([data-potionui-plugin="styled-plugin"])';
 
 const state = vi.hoisted(() => ({ base: '', pageInfo: {} as Record<string, unknown> }));
 

@@ -8,7 +8,7 @@ import {
 	splitSelectorList
 } from './pluginStylesheet';
 
-const SCOPE = '[data-potionui-plugin="video-producer"]';
+const SCOPE = ':where([data-potionui-plugin="video-producer"])';
 const BASE = 'http://localhost/api/plugins/video-producer/assets/VideoProducerPage.css';
 
 function kept(css: string): string[] {
@@ -48,15 +48,31 @@ describe('scopedPluginStylesheet', () => {
 	});
 
 	it('drops the rules of another plugin', () => {
-		const css = `[data-potionui-plugin="other"] .a { color: red }`;
+		const css = `:where([data-potionui-plugin="other"]) .a { color: red }`;
 
 		expect(kept(css)).toEqual([]);
 	});
 
 	it('reads the scope written without quotes or with single quotes', () => {
-		const css = `[data-potionui-plugin=video-producer] .a { color: red } [data-potionui-plugin='video-producer'] .b { color: blue }`;
+		const css = `:where([data-potionui-plugin=video-producer]) .a { color: red } :where([data-potionui-plugin='video-producer']) .b { color: blue }`;
 
 		expect(kept(css)).toHaveLength(2);
+	});
+
+	it('drops a rule whose scope is not wrapped in :where alone', () => {
+		const css = [
+			`[data-potionui-plugin="video-producer"] .a { color: red }`,
+			`:is([data-potionui-plugin="video-producer"]) .b { color: red }`,
+			`:where([data-potionui-plugin="video-producer"], .host) .c { color: red }`,
+			`:where([data-potionui-plugin="video-producer"] .d) { color: red }`,
+			`:where(.host [data-potionui-plugin="video-producer"]) .e { color: red }`,
+			`:where([data-potionui-plugin="video-producer"]):hover .f { color: red }`
+		].join(' ');
+
+		const { dropped } = scopedPluginStylesheet('video-producer', css, BASE);
+
+		expect(kept(css)).toEqual([]);
+		expect(dropped).toBe(6);
 	});
 
 	it('looks inside media and supports rules and drops what is outside the page there', () => {
@@ -103,7 +119,7 @@ describe('splitSelectorList', () => {
 describe('pluginScopeSelector', () => {
 	it('quotes the plugin id', () => {
 		expect(pluginScopeSelector('video-producer')).toBe(SCOPE);
-		expect(pluginScopeSelector('a"b')).toBe('[data-potionui-plugin="a\\"b"]');
+		expect(pluginScopeSelector('a"b')).toBe(':where([data-potionui-plugin="a\\"b"])');
 	});
 });
 

@@ -23,7 +23,7 @@ function scopePattern(pluginId: string): RegExp {
 	const dq = escapeRegex(quoted(pluginId));
 	const bare = /^-?[A-Za-z_][\w-]*$/.test(pluginId) ? `|${id}` : '';
 	return new RegExp(
-		`^\\[\\s*${escapeRegex(PLUGIN_SCOPE_ATTRIBUTE)}\\s*=\\s*(?:"${dq}"|'${id}'${bare})\\s*\\](?:$|\\s*>\\s*(?![+~>])\\S|\\s+(?![+~>])\\S)`
+		`^:where\\(\\s*\\[\\s*${escapeRegex(PLUGIN_SCOPE_ATTRIBUTE)}\\s*=\\s*(?:"${dq}"|'${id}'${bare})\\s*\\]\\s*\\)(?:$|\\s*>\\s*(?![+~>])\\S|\\s+(?![+~>])\\S)`
 	);
 }
 
@@ -55,7 +55,7 @@ export function splitSelectorList(selectorText: string): string[] {
 }
 
 export function pluginScopeSelector(pluginId: string): string {
-	return `[${PLUGIN_SCOPE_ATTRIBUTE}="${quoted(pluginId)}"]`;
+	return `:where([${PLUGIN_SCOPE_ATTRIBUTE}="${quoted(pluginId)}"])`;
 }
 
 function staysInScope(selectorText: string, pattern: RegExp): boolean {

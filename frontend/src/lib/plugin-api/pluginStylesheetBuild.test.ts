@@ -9,7 +9,7 @@ import { PLUGIN_SCOPE_ATTRIBUTE, pluginScopeSelector, scopedPluginStylesheet } f
 
 const REPO = resolve(__dirname, '../../../..');
 const FRONTEND = join(REPO, 'frontend');
-const SCOPE = '[data-potionui-plugin="styled-plugin"]';
+const SCOPE = ':where([data-potionui-plugin="styled-plugin"])';
 const frontendRequire = createRequire(join(FRONTEND, 'package.json'));
 
 let build: any;

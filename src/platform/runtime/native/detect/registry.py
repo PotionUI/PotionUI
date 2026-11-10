@@ -363,6 +363,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
             "format": "qwen_image21",
             "spatial_downscale": 16,
             "scale_factor": 1.0,
+            "tiled_encode_faithful": False,
             "latents_mean": [
                 0.5126, 0.7721, -0.0631, 1.3506, -0.7855, -2.1025, -0.3458, 1.3722,
                 1.8873, -1.7177, -0.651, 0.2732, 0.7562, -0.6163, -1.0277, 3.8363,

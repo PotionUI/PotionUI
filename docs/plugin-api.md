@@ -3300,7 +3300,11 @@ install.
 Catalog and archive URLs must be https, to a host that resolves to public addresses
 only; every redirect is checked the same way, and the connection goes to the addresses
 that were checked. For a catalog on a local network or a test server, start PotionUI
-with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`, which also allows plain http. Installing,
+with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`: catalog and archive URLs may then point to
+local and private addresses, and use plain http, but only to such an address. A plain http
+URL to a public address, written as one or a name with any public answer, is refused
+before connecting, a redirect from https to http included; https to public hosts is
+unchanged. Installing,
 updating and reading a catalog are admin-only (`POST /api/plugins/catalog` and
 `POST /api/plugins/catalog/install`). The sha256 proves the archive is the one the
 catalog names; it says nothing about the catalog itself, so install only from catalogs

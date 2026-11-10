@@ -159,6 +159,65 @@ def test_allowing_local_sources_lets_http_and_local_hosts_through(url):
     check_source_url(url, allow_local=True)
 
 
+@pytest.mark.parametrize("url", ["http://8.8.8.8/plugins.json", "http://[2606:4700:4700::1111]/x.zip", "http://[::ffff:8.8.8.8]/x.zip"])
+def test_allowing_local_sources_does_not_allow_plain_http_to_a_public_address(url):
+    with pytest.raises(FetchError, match="Plain http is only allowed to a local or private address"):
+        check_source_url(url, allow_local=True)
+
+
+@pytest.mark.parametrize("url", ["https://8.8.8.8/plugins.json", "https://github.com/owner/repo/releases/download/x/x.zip"])
+def test_allowing_local_sources_keeps_https_to_public_hosts(url):
+    check_source_url(url, allow_local=True)
+
+
+async def test_allowing_local_sources_refuses_plain_http_to_a_name_that_resolves_to_a_public_address_before_connecting():
+    async def lookup(host, port, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+    with pytest.raises(FetchError, match="Plain http is only allowed to a local or private address, and catalog.example.com is public"):
+        await fetch_bytes("http://catalog.example.com/plugins.json", max_bytes=100, timeout_s=5, allow_local=True, lookup=lookup)
+
+
+async def test_allowing_local_sources_refuses_plain_http_to_a_name_with_any_public_answer():
+    async def lookup(host, port, **kwargs):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port)),
+        ]
+
+    with pytest.raises(FetchError, match="Plain http is only allowed"):
+        await fetch_bytes("http://nas.example.com/plugins.json", max_bytes=100, timeout_s=5, allow_local=True, lookup=lookup)
+
+
+@pytest.mark.parametrize("location", ["http://93.184.216.34/x.zip", "http://downgrade.example.com/x.zip"])
+async def test_allowing_local_sources_refuses_a_redirect_to_plain_http_on_a_public_host(location):
+    async def lookup(host, port, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+    async def downgrade(request):
+        raise web.HTTPFound(location)
+
+    server = await _serve({"/start": downgrade})
+    try:
+        with pytest.raises(FetchError, match="Plain http is only allowed to a local or private address"):
+            await fetch_bytes(_url(server, "/start"), max_bytes=100, timeout_s=5, allow_local=True, lookup=lookup)
+    finally:
+        await server.close()
+
+
+async def test_allowing_local_sources_lets_plain_http_reach_a_name_that_resolves_to_a_local_address():
+    server = await _serve({"/plugins.json": lambda request: web.Response(body=b"local")})
+
+    async def lookup(host, port, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+    try:
+        url = f"http://catalog.lan:{server.port}/plugins.json"
+        assert await fetch_bytes(url, max_bytes=100, timeout_s=5, allow_local=True, lookup=lookup) == b"local"
+    finally:
+        await server.close()
+
+
 def test_allowing_local_sources_still_refuses_other_schemes():
     with pytest.raises(FetchError, match="Only https URLs"):
         check_source_url("file:///etc/passwd", allow_local=True)

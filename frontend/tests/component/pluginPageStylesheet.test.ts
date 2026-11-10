@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -53,9 +53,13 @@ afterAll(() => {
 	rmSync(stage, { recursive: true, force: true });
 });
 
+beforeEach(() => {
+	Object.defineProperty(document, 'adoptedStyleSheets', { value: [], writable: true, configurable: true });
+});
+
 afterEach(() => {
 	vi.unstubAllGlobals();
-	document.head.querySelectorAll('style').forEach((style) => style.remove());
+	delete (document as { adoptedStyleSheets?: unknown }).adoptedStyleSheets;
 	document.body.innerHTML = '';
 });
 
@@ -69,7 +73,8 @@ async function mountPage() {
 }
 
 function pageStyles(): string {
-	return Array.from(document.head.querySelectorAll('style'), (style) => style.textContent ?? '').join('\n');
+	expect(document.head.querySelector('style')).toBeNull();
+	return document.adoptedStyleSheets.flatMap((sheet) => Array.from(sheet.cssRules, (rule) => rule.cssText)).join('\n');
 }
 
 describe('the plugin page route', () => {

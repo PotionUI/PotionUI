@@ -150,15 +150,10 @@ describe('attachPluginStylesheet', () => {
 		expect(document.adoptedStyleSheets).toEqual([other]);
 	});
 
-	it('falls back to a style element holding only the kept rules', () => {
-		const { sheet } = scopedPluginStylesheet('video-producer', `.gone { color: red } ${SCOPE} .a { color: red }`, BASE);
+	it('needs adoptedStyleSheets and never copies the sheet into a style element', () => {
+		const { sheet } = scopedPluginStylesheet('video-producer', `${SCOPE} .a { color: red }`, BASE);
 
-		const detach = attachPluginStylesheet(document, sheet);
-		const style = document.head.querySelector('style');
-		expect(style?.textContent).toContain(`${SCOPE} .a`);
-		expect(style?.textContent).not.toContain('.gone');
-
-		detach();
+		expect(() => attachPluginStylesheet(document, sheet)).toThrow(TypeError);
 		expect(document.head.querySelector('style')).toBeNull();
 	});
 });

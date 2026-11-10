@@ -113,14 +113,8 @@ export async function loadPluginStylesheet(
 }
 
 export function attachPluginStylesheet(doc: Document, sheet: CSSStyleSheet): () => void {
-	if (Array.isArray(doc.adoptedStyleSheets)) {
-		doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
-		return () => {
-			doc.adoptedStyleSheets = doc.adoptedStyleSheets.filter((adopted) => adopted !== sheet);
-		};
-	}
-	const style = doc.createElement('style');
-	style.textContent = Array.from(sheet.cssRules, (rule) => rule.cssText).join('\n');
-	doc.head.appendChild(style);
-	return () => style.remove();
+	doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
+	return () => {
+		doc.adoptedStyleSheets = doc.adoptedStyleSheets.filter((adopted) => adopted !== sheet);
+	};
 }

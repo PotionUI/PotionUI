@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Union
 
@@ -5,11 +6,18 @@ from PIL import Image
 
 Box = Dict[str, Any]
 ImageInput = Union[str, Path, Image.Image]
+SINGLE = (str, bytes, os.PathLike, Image.Image)
 
 NMS = 0.3
 TOP_K = 5000
 SCORE = 14
 LANDMARKS = range(4, 14, 2)
+
+
+def listed(values: Any, name: str) -> List[Any]:
+    if isinstance(values, SINGLE):
+        raise TypeError(f"{name} is a list: wrap a single path or image in a list")
+    return list(values)
 
 
 def rgb(image: ImageInput) -> Image.Image:

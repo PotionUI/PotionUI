@@ -89,6 +89,21 @@ def test_detecting_faces_reads_the_first_detection_bbox_folder_that_holds_the_de
     detect.assert_called_once_with(second / face_models.FACE_MODEL, ["a.png"], 0.6)
 
 
+@pytest.mark.parametrize("kind", ["str", "path", "bytes", "image"])
+def test_a_single_path_or_image_where_a_list_of_images_is_expected_is_refused_before_anything_is_read(tmp_path, known, kind):
+    folder = tmp_path / "a" / "detection_bbox"
+    world = _roots(folder)
+    (folder / face_models.FACE_MODEL).write_bytes(CONTENT)
+    picture = tmp_path / "single.png"
+    Image.new("RGB", (8, 8)).save(picture)
+    single = {"str": str(picture), "path": picture, "bytes": str(picture).encode(), "image": Image.new("RGB", (8, 8))}[kind]
+    with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect") as detect:
+        with pytest.raises(TypeError, match="^images is a list: wrap a single path or image in a list$"):
+            media.detect_faces(single)
+
+    detect.assert_not_called()
+
+
 @pytest.mark.parametrize("min_score", [True, False, -0.01, 1.01, float("nan"), float("inf"), "0.5", None])
 def test_a_min_score_that_is_not_a_number_from_zero_to_one_is_refused_before_anything_is_read(tmp_path, known, min_score):
     folder = tmp_path / "a" / "detection_bbox"

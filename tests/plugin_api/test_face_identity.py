@@ -272,6 +272,22 @@ def test_a_face_that_is_not_an_image_and_its_landmarks_is_refused_with_a_plain_m
     assert sessions.built == []
 
 
+@pytest.mark.parametrize("kind", ["str", "path", "bytes", "image"])
+def test_a_single_path_or_image_where_a_list_of_faces_is_expected_is_refused_before_the_model_loads(tmp_path, lifecycle, known, onnxruntime, monkeypatch, kind):
+    sessions = Sessions()
+    monkeypatch.setattr(face_identity, "new_session", sessions)
+    _model(tmp_path)
+    picture = tmp_path / "single.png"
+    Image.new("RGB", (8, 8)).save(picture)
+    single = {"str": str(picture), "path": picture, "bytes": str(picture).encode(), "image": Image.new("RGB", (8, 8))}[kind]
+    with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
+        with pytest.raises(TypeError, match="^faces is a list: wrap a single path or image in a list$"):
+            media.embed_faces(single)
+
+    assert sessions.built == []
+    assert not lifecycle.is_cached(face_identity.MODEL_KEY)
+
+
 def test_no_faces_load_nothing(tmp_path, lifecycle, monkeypatch):
     sessions = Sessions()
     monkeypatch.setattr(face_identity, "new_session", sessions)

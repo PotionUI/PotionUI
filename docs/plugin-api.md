@@ -2574,10 +2574,11 @@ async def continue_from(user, request, generation_id, file_id):
 
 `src.plugin_api.media` lends a plugin the image models of the application, so that it can compare
 images without loading models of its own. These functions read images the plugin already holds, each
-a path on this server or a PIL image, and name no media of the user. To look at a media the user
-picked, take its file first with `media_local_path(user, ref)` or `copy_media_file(user, ref, target)`
-(see [Working with the user's media](#working-with-the-users-media)), which reach only what the user may
-see. Never pass them a path taken from a request.
+a path on this server or a PIL image, and name no media of the user. `images` and `faces` are lists,
+even of one item: a single string, path or image in their place raises `TypeError` before anything is
+read. To look at a media the user picked, take its file first with `media_local_path(user, ref)` or
+`copy_media_file(user, ref, target)` (see [Working with the user's media](#working-with-the-users-media)),
+which reach only what the user may see. Never pass them a path taken from a request.
 
 | Function | Does |
 |---|---|

@@ -296,10 +296,11 @@ def image_embedder() -> Dict[str, Any]:
 
 
 def embed_images(images: Sequence[ImageInput]) -> List[List[float]]:
+    images = face_boxes.listed(images, "images")
     embedder = _embedder()
     if not _embedder_weights_here(embedder):
         raise FileNotFoundError(f"The weights of {embedder.model_name} are not on this server")
-    return contextvars.copy_context().run(embedder.embed_images, list(images))
+    return contextvars.copy_context().run(embedder.embed_images, images)
 
 
 def _face_model() -> Optional[Path]:
@@ -311,12 +312,13 @@ def face_detector() -> Dict[str, Any]:
 
 
 def detect_faces(images: Sequence[ImageInput], min_score: float = 0.5) -> List[List[Dict[str, Any]]]:
+    images = face_boxes.listed(images, "images")
     if isinstance(min_score, bool) or not isinstance(min_score, numbers.Real) or not 0 <= min_score <= 1:
         raise ValueError("min_score is a number from 0 to 1")
     model = _face_model()
     if model is None:
         raise FileNotFoundError(f"{face_models.FACE_MODEL} is not in a {face_models.FACE_MODEL_TYPE} folder of the model roots")
-    return face_boxes.detect(model, list(images), min_score)
+    return face_boxes.detect(model, images, min_score)
 
 
 def _identity_model() -> Optional[Path]:
@@ -328,6 +330,7 @@ def face_embedder() -> Dict[str, Any]:
 
 
 def embed_faces(faces: Sequence[Any]) -> List[List[float]]:
+    faces = face_boxes.listed(faces, "faces")
     model = _identity_model()
     if model is None:
         raise FileNotFoundError(f"{face_models.IDENTITY_MODEL} is not in {face_models.IDENTITY_DIR} of the home model root")

@@ -140,6 +140,23 @@ def test_embedding_from_inside_a_generation_leaves_that_generations_lease_and_pr
     assert contextvars.copy_context().run(generation) == ("generation-1", "preset-a", True)
 
 
+@pytest.mark.parametrize("kind", ["str", "path", "bytes", "image"])
+def test_a_single_path_or_image_where_a_list_of_images_is_expected_is_refused_before_anything_is_read(tmp_path, lifecycle, kind):
+    embedder = _embedder(tmp_path, lifecycle)
+    processor = _loaded(embedder)
+    _put_weights(embedder)
+    picture = tmp_path / "single.png"
+    Image.new("RGB", (8, 8)).save(picture)
+    single = {"str": str(picture), "path": picture, "bytes": str(picture).encode(), "image": Image.new("RGB", (8, 8))}[kind]
+
+    with patch("src.plugin_api.media.get_container", return_value=_world(embedder)):
+        with pytest.raises(TypeError, match="^images is a list: wrap a single path or image in a list$"):
+            media.embed_images(single)
+
+    processor.assert_not_called()
+    embedder._load_model.assert_not_called()
+
+
 def test_no_images_need_no_weights_loaded(tmp_path, lifecycle):
     embedder = _embedder(tmp_path, lifecycle)
     _loaded(embedder)

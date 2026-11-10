@@ -14,7 +14,7 @@ from packaging.version import InvalidVersion, Version
 
 from src.features.plugins.archive import unpack_plugin_archive
 from src.features.plugins.catalog import CatalogEntry, CatalogProblem, core_mismatch, parse_catalog
-from src.features.plugins.operations.lifecycle import _rescan_presets_and_pipes, enable_plugin
+from src.features.plugins.operations.lifecycle import enable_plugin, rescan_presets_and_pipes
 from src.features.plugins.operations.scan import scan_plugins
 from src.features.plugins.remote import fetch_bytes, local_sources_allowed
 from src.features.plugins.repository import PluginRepository
@@ -347,7 +347,7 @@ async def install_from_catalog(
         manifest = placement.manifest
         enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
         if enabled:
-            _rescan_presets_and_pipes(
+            rescan_presets_and_pipes(
                 preset_loader, pipe_catalog, recipe_catalog, f"catalog update of plugin {plugin_id}", model_layout_catalog
             )
         logger.info(f"Installed plugin {plugin_id} {item.entry.version} from {url}")

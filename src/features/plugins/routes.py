@@ -8,17 +8,19 @@ from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import User
 from src.features.plugins.dto import (
-    PluginCatalogEntryResponse,
     PluginCatalogInstallRequest,
-    PluginCatalogInstallResponse,
-    PluginCatalogProblemResponse,
     PluginCatalogRequest,
-    PluginCatalogResponse,
     PluginDetailResponse,
     PluginPageResponse,
     PluginSettingsUpdateRequest,
 )
-from src.features.plugins.mappers import hook_to_response, plugin_to_response, setting_to_response
+from src.features.plugins.mappers import (
+    catalog_to_response,
+    hook_to_response,
+    install_result_to_response,
+    plugin_to_response,
+    setting_to_response,
+)
 from src.features.plugins import operations
 from src.features.plugins.operations import PluginManifestUnavailableError
 from src.features.plugins.remote import FetchError
@@ -37,32 +39,6 @@ def _refused(failed_code: str) -> dict:
 _SETTINGS_UPDATE = {PluginManifestUnavailableError: Fail("plugin_manifest_unavailable", status=409)}
 _CATALOG_REFUSED = {(ValueError, FetchError): Fail("plugin_catalog_refused", status=400)}
 _INSTALL_REFUSED = {(ValueError, FetchError): Fail("plugin_install_refused", status=400)}
-
-
-def _catalog_response(listing) -> PluginCatalogResponse:
-    return PluginCatalogResponse(
-        url=listing.url,
-        entries=[
-            PluginCatalogEntryResponse(
-                id=item.entry.id,
-                name=item.entry.name,
-                version=item.entry.version,
-                description=item.entry.description,
-                license=item.entry.license,
-                requires_core=item.entry.requires_core,
-                archive=item.entry.archive,
-                sha256=item.entry.sha256,
-                status=item.status,
-                reason=item.reason,
-                installed_version=item.installed_version,
-            )
-            for item in listing.items
-        ],
-        problems=[
-            PluginCatalogProblemResponse(index=problem.index, plugin_id=problem.plugin_id, reason=problem.reason)
-            for problem in listing.problems
-        ],
-    )
 
 
 class PluginController(BaseController):
@@ -255,7 +231,7 @@ class PluginController(BaseController):
     @guarded(_CATALOG_REFUSED, Fail("plugin_catalog_failed", "Failed to read the plugin catalog", 500))
     async def read_catalog(self, url: str) -> APIResponse:
         listing = await operations.read_catalog(self.registry, url)
-        return self.success_response(data=_catalog_response(listing).model_dump())
+        return self.success_response(data=catalog_to_response(listing).model_dump())
 
     @guarded(_INSTALL_REFUSED, Fail("plugin_install_failed", "Failed to install the plugin", 500))
     async def install_from_catalog(self, url: str, plugin_id: str, version: str, sha256: str) -> APIResponse:
@@ -271,15 +247,8 @@ class PluginController(BaseController):
             recipe_catalog=self.recipe_catalog,
             model_layout_catalog=self.model_layout_catalog,
         )
-        response = PluginCatalogInstallResponse(
-            plugin_id=result.plugin_id,
-            version=result.version,
-            previous_version=result.previous_version,
-            enabled=result.enabled,
-            dependencies_python=result.dependencies_python,
-        )
         return self.success_response(
-            data=response.model_dump(),
+            data=install_result_to_response(result).model_dump(),
             message=f"Plugin '{result.plugin_id}' {result.version} installed",
         )
 

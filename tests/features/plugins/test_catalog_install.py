@@ -166,7 +166,8 @@ def test_a_hand_placed_local_folder_of_the_same_id_is_a_conflict(plugins):
     item = catalog_item(_entry(version="2.0.0"), registry, local, CATALOG_A)
 
     assert item.status == "conflict"
-    assert "was not installed from a catalog" in item.reason
+    assert item.reason.startswith("The folder demo was not installed from a catalog")
+    assert str(local) not in item.reason
 
 
 def test_the_same_id_installed_under_another_folder_is_a_conflict(plugins):
@@ -177,7 +178,8 @@ def test_the_same_id_installed_under_another_folder_is_a_conflict(plugins):
     item = catalog_item(_entry(version="2.0.0"), registry, local, CATALOG_A)
 
     assert item.status == "conflict"
-    assert "demo-checkout" in item.reason
+    assert "the folder demo-checkout" in item.reason
+    assert str(local.parent) not in item.reason
 
 
 def test_a_folder_of_that_name_without_a_manifest_is_a_conflict(plugins):
@@ -574,7 +576,7 @@ def test_an_update_of_a_folder_that_lost_its_install_record_replaces_nothing(plu
     _write_plugin(local / "demo", "demo", "1.0.0", record=False)
     item = CatalogItem(_entry(version="1.1.0"), "update", installed_version="1.0.0")
 
-    with pytest.raises(CatalogInstallError, match="changed since the catalog was read"):
+    with pytest.raises(CatalogInstallError, match="^The folder demo changed since the catalog was read"):
         install_ops._place(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json")
 
     assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
@@ -586,7 +588,7 @@ def test_a_new_install_over_a_folder_that_appeared_meanwhile_replaces_nothing(pl
     _write_plugin(local / "demo", "demo", "0.1.0", record=False)
     item = CatalogItem(_entry(), "available")
 
-    with pytest.raises(CatalogInstallError, match="appeared since the catalog was read"):
+    with pytest.raises(CatalogInstallError, match="^The folder demo appeared since the catalog was read"):
         install_ops._place(_archive("demo", "1.0.0"), item, local, "https://example.com/plugins.json")
 
     assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "0.1.0")

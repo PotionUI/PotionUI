@@ -131,7 +131,7 @@ def catalog_item(
         return CatalogItem(entry, "bundled", "PotionUI ships this plugin; a catalog copy would hide it.", manifest.version)
     if manifest is not None and not _same_folder(manifest.plugin_dir, folder):
         return CatalogItem(
-            entry, "conflict", f"A plugin with this id is already installed in {manifest.plugin_dir}.", manifest.version
+            entry, "conflict", f"A plugin with this id is already installed in the folder {Path(manifest.plugin_dir).name}.", manifest.version
         )
 
     installed_version = None
@@ -141,7 +141,7 @@ def catalog_item(
             return CatalogItem(
                 entry,
                 "conflict",
-                f"{folder} was not installed from a catalog; remove it to install this plugin from here.",
+                f"The folder {folder.name} was not installed from a catalog; remove it to install this plugin from here.",
                 manifest.version if manifest is not None else None,
             )
         installed_version = manifest.version if manifest is not None else str(record.get("version") or "")
@@ -221,7 +221,7 @@ def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) ->
         previous = None
         if item.status == "update":
             if _install_record(target) is None:
-                raise CatalogInstallError(f"{target} changed since the catalog was read; nothing was replaced.")
+                raise CatalogInstallError(f"The folder {target.name} changed since the catalog was read; nothing was replaced.")
             previous = staging / "previous"
             os.replace(target, previous)
             try:
@@ -231,7 +231,7 @@ def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) ->
                 raise
         else:
             if target.exists():
-                raise CatalogInstallError(f"{target} appeared since the catalog was read; nothing was replaced.")
+                raise CatalogInstallError(f"The folder {target.name} appeared since the catalog was read; nothing was replaced.")
             os.replace(unpacked, target)
         return _Placement(manifest, staging, previous)
     except BaseException:

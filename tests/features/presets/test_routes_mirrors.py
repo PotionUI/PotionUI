@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from src.features.presets.routes import PresetController, build_router
 from src.platform.security.current_user import get_current_active_user
+from src.features.presets.cover_store import COVER_UPLOAD_MAX_BYTES
 from tests.features.presets.mirror_world import build_world, png_bytes
 
 MIRROR_BODY = {"name": "Anime", "description": None, "cover": None, "offered_modes": ["txt2img"], "first_mode": None}
@@ -18,11 +19,11 @@ def world(mock_db, tmp_path):
     return build_world(mock_db, tmp_path)
 
 
-def _client(world, user):
+def _client(world, user, controller=None):
     backends = Mock()
     backends.engine_supports_prompt_batch.return_value = False
     backends.get_backends_for_engine.return_value = []
-    controller = PresetController(world.collaborators, backends)
+    controller = controller or PresetController(world.collaborators, backends)
     app = FastAPI()
     app.include_router(build_router(SimpleNamespace(preset_controller=controller)))
     app.dependency_overrides[get_current_active_user] = lambda: user
@@ -199,3 +200,26 @@ def test_a_regular_user_assigned_a_mirror_sees_an_ordinary_preset(world, admin):
     assert [m["name"] for m in modes["modes"]] == ["edit", "txt2img"]
     assert modes["default_mode"] == "edit"
     assert user.get("/api/presets/krea2").status_code == 404
+
+
+def test_an_oversized_cover_upload_is_read_only_up_to_the_limit_and_refused(world):
+    world.install("krea2")
+    controller = PresetController(world.collaborators, Mock())
+    received = []
+    upload = controller.upload_display_cover
+
+    async def recording(preset_id, filename, content, current_user):
+        received.append(len(content))
+        return await upload(preset_id, filename, content, current_user)
+
+    controller.upload_display_cover = recording
+    oversized = png_bytes() + b"\0" * (COVER_UPLOAD_MAX_BYTES + 1024)
+
+    response = _client(world, world.admin, controller).post(
+        "/api/presets/krea2/display/cover", files={"file": ("big.png", oversized, "image/png")}
+    )
+
+    assert response.status_code == 400
+    assert _error(response)["error"] == "invalid_cover"
+    assert received == [COVER_UPLOAD_MAX_BYTES + 1]
+    assert world.repo.get_installed_preset_by_preset_id("krea2").display_cover is None

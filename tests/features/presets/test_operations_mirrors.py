@@ -179,6 +179,7 @@ def test_removing_a_mirror_drops_its_assignments_and_cover_and_keeps_its_name(wo
     result = operations.uninstall_preset(world.collaborators, mirror_id, world.admin)
 
     assert result["tombstone"] == {"preset_id": mirror_id, "name": "Anime"}
+    assert world.repo.tombstones()[0].deleted_at.endswith("+00:00")
     assert world.repo.get_installed_preset_by_preset_id(mirror_id) is None
     assert world.repo.get_available_preset_ids_for_user("ann") == []
     assert world.groups.get_group_presets(group.id) == []
@@ -293,3 +294,24 @@ def test_removing_a_preset_file_clears_its_display_overrides(world):
     assert not world.covers.directory(row.id).exists()
     world.install("krea2")
     assert world.repo.get_installed_preset_by_preset_id("krea2").display_name is None
+
+
+def test_a_mirror_created_while_its_source_is_being_removed_still_refuses_the_removal(world):
+    world.install("krea2")
+    real_mirrors_of = world.repo.mirrors_of
+    calls = []
+
+    def mirror_appears_after_the_check(preset_id):
+        calls.append(preset_id)
+        if len(calls) == 1:
+            world.repo.create_mirror("LATE", "krea2", "Late", None, None, None, None, configuration={}, form_overrides={})
+            return []
+        return real_mirrors_of(preset_id)
+
+    world.repo.mirrors_of = mirror_appears_after_the_check
+
+    with pytest.raises(PresetHasMirrorsError) as caught:
+        operations.uninstall_preset(world.collaborators, "krea2", world.admin)
+
+    assert caught.value.extra["mirrors"] == [{"preset_id": "LATE", "name": "Late"}]
+    assert world.repo.is_preset_installed("krea2")

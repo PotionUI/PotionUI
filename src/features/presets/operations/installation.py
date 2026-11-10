@@ -4,6 +4,7 @@ Module-level functions, `PresetCollaborators` as their leading arg - no class
 holds them together (see `src.features.presets.collaborators`'s docstring).
 """
 import logging
+import sqlite3
 from typing import Any, Dict
 
 from src.platform.plugins.hooks import execute_hook
@@ -89,6 +90,15 @@ def install_preset(collaborators: PresetCollaborators, preset_id: str, user: Use
     return installed_preset.to_dict()
 
 
+def _refuse_when_mirrored(collaborators: PresetCollaborators, preset_id: str) -> None:
+    mirrors = collaborators.db_repo.mirrors_of(preset_id)
+    if mirrors:
+        raise PresetHasMirrorsError(
+            preset_id,
+            [{"preset_id": m.preset_id, "name": mirror_entry(m, None)["name"]} for m in mirrors],
+        )
+
+
 def uninstall_preset(collaborators: PresetCollaborators, preset_id: str, user: User) -> Dict[str, Any]:
     """Uninstall a preset and remove all user assignments.
 
@@ -115,12 +125,7 @@ def uninstall_preset(collaborators: PresetCollaborators, preset_id: str, user: U
         raise PresetNotInstalledException(preset_id)
 
     if not row.is_mirror:
-        mirrors = collaborators.db_repo.mirrors_of(preset_id)
-        if mirrors:
-            raise PresetHasMirrorsError(
-                preset_id,
-                [{"preset_id": m.preset_id, "name": mirror_entry(m, None)["name"]} for m in mirrors],
-            )
+        _refuse_when_mirrored(collaborators, preset_id)
 
     # Get assignment summary before uninstalling
     summary = collaborators.db_repo.get_preset_assignment_summary(preset_id)
@@ -144,7 +149,12 @@ def uninstall_preset(collaborators: PresetCollaborators, preset_id: str, user: U
     if row.is_mirror:
         tombstone = delete_mirror(collaborators, row)
     else:
-        if not collaborators.db_repo.uninstall_preset(preset_id):
+        try:
+            removed = collaborators.db_repo.uninstall_preset(preset_id)
+        except sqlite3.IntegrityError:
+            _refuse_when_mirrored(collaborators, preset_id)
+            raise
+        if not removed:
             raise PresetNotInstalledException(preset_id)
         if collaborators.cover_store is not None:
             collaborators.cover_store.remove(row.id)

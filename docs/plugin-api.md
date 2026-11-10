@@ -2608,6 +2608,12 @@ reads it through. `face_detector()` and `face_embedder()` make that check too: t
 to run after the file changes reads it through, 260 MB for AuraFace, so call them from a thread as
 well, like the functions that run the models.
 
+`embed_faces` aligns each face on the 112×112 ArcFace template of InsightFace, the five points
+`arcface_dst` of `python-package/insightface/utils/face_align.py` in
+[deepinsight/insightface](https://github.com/deepinsight/insightface/blob/ffa12d315041c0505b077c7ff057ca914bb8dc7e/python-package/insightface/utils/face_align.py):
+the eyes, the nose tip and the corners of the mouth of an upright face in a 112×112 crop. InsightFace
+releases that code under the MIT License; only its models and training data are non-commercial.
+
 The embedder and AuraFace go through the model cache of the application for each call, like any
 other model: they count against its memory budget, stay cached between calls and are evicted under
 memory pressure or when an administrator clears the cache. AuraFace's ONNX Runtime session is

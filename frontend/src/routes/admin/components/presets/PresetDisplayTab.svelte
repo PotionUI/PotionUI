@@ -14,21 +14,22 @@
 		DISPLAY_DESCRIPTION_MAX,
 		buildDisplayPayload,
 		buildModesPayload,
+		discardDisplayEditor,
 		displayDirtyKeys,
-		displayDraftFrom,
+		displayEditorDirtyCount,
+		displayEditorFailed,
+		displayEditorFor,
+		displayEditorSaved,
 		modesDirtyCount,
-		modesDraftFrom,
 		validateDisplayDraft,
 		validateModesDraft,
 		withOfferedToggled,
-		type DisplayDraft,
-		type ModesDraft
+		type DisplayEditor,
+		type DisplayServerField
 	} from './presetDisplayDraft';
-	import { assignFieldErrors, presetApiFailure, presetResponseFailure } from './presetApiFailure';
+	import { cleanFieldErrors, presetApiFailure, presetResponseFailure } from './presetApiFailure';
 	import { COVER_ACCEPT, mediaPickItem, resolveCoverFileFromMediaItem } from './presetCoverPick';
 	import type { APIResponse, PresetAdminDetail } from '$lib/types/api';
-
-	type ServerField = 'name' | 'description' | 'cover' | 'modes';
 
 	let {
 		presetId,
@@ -46,18 +47,18 @@
 		onChanged?: (detail: PresetAdminDetail) => void;
 	} = $props();
 
-	const seed = untrack(() => initialDetail);
-	let detail = $state<PresetAdminDetail>(seed);
-	let draft = $state<DisplayDraft>(displayDraftFrom(seed));
-	let modesDraft = $state<ModesDraft>(modesDraftFrom(seed.modes));
-	let attempted = $state(false);
-	let serverErrors = $state<Partial<Record<ServerField, string>>>({});
-	let generalErrors = $state<string[]>([]);
+	let editor = $state<DisplayEditor>(displayEditorFor(untrack(() => initialDetail)));
 	let coverPickerOpen = $state(false);
 	let coverPick = $state<unknown>(null);
 	let coverBusy = $state(false);
 	let coverError = $state('');
 
+	const detail = $derived(editor.detail);
+	const draft = $derived(editor.draft);
+	const modesDraft = $derived(editor.modes);
+	const attempted = $derived(editor.attempted);
+	const serverErrors = $derived(editor.serverErrors);
+	const generalErrors = $derived(editor.generalErrors);
 	const isMirror = $derived(detail.is_mirror);
 	const dirtyKeys = $derived(displayDirtyKeys(draft, detail));
 	const modesDirty = $derived(isMirror ? modesDirtyCount(modesDraft, detail.modes) : 0);
@@ -79,28 +80,32 @@
 	const shownModesError = $derived(serverErrors.modes ?? (attempted || modesDirty > 0 ? modesError : null));
 
 	$effect(() => {
-		dirtyCount = dirtyKeys.length + modesDirty;
+		dirtyCount = displayEditorDirtyCount(editor);
 	});
 
+	function clearServerError(field: DisplayServerField) {
+		if (editor.serverErrors[field]) editor = { ...editor, serverErrors: { ...editor.serverErrors, [field]: undefined } };
+	}
+
 	function setName(value: string) {
-		draft = { ...draft, name: value };
-		if (serverErrors.name) serverErrors = { ...serverErrors, name: undefined };
+		editor = { ...editor, draft: { ...editor.draft, name: value } };
+		clearServerError('name');
 	}
 
 	function setDescription(value: string) {
-		draft = { ...draft, description: value };
-		if (serverErrors.description) serverErrors = { ...serverErrors, description: undefined };
+		editor = { ...editor, draft: { ...editor.draft, description: value } };
+		clearServerError('description');
 	}
 
 	function setOffered(_name: string, value: unknown) {
 		const next = Array.isArray(value) ? value.map(String) : [];
-		modesDraft = withOfferedToggled(modesDraft, next, detail.modes.available);
-		if (serverErrors.modes) serverErrors = { ...serverErrors, modes: undefined };
+		editor = { ...editor, modes: withOfferedToggled(editor.modes, next, editor.detail.modes.available) };
+		clearServerError('modes');
 	}
 
 	function setFirst(value: string) {
-		modesDraft = { ...modesDraft, first: value };
-		if (serverErrors.modes) serverErrors = { ...serverErrors, modes: undefined };
+		editor = { ...editor, modes: { ...editor.modes, first: value } };
+		clearServerError('modes');
 	}
 
 	function unwrap(response: APIResponse<PresetAdminDetail>, fallback: string): PresetAdminDetail {
@@ -111,69 +116,50 @@
 		return response.data;
 	}
 
-	function adopt(next: PresetAdminDetail) {
-		detail = next;
-		draft = displayDraftFrom(next);
-		modesDraft = modesDraftFrom(next.modes);
-		attempted = false;
-		onChanged?.(next);
-	}
-
-	function applyFailure(error: unknown, fallback: string) {
-		const failure =
+	function failureOf(error: unknown, fallback: string) {
+		return (
 			(error as { presetFailure?: ReturnType<typeof presetApiFailure> } | null)?.presetFailure ??
-			presetApiFailure(error, fallback);
-		if (failure.code === 'invalid_modes') {
-			serverErrors = { ...serverErrors, modes: failure.errors.join(' ') || failure.message };
-			return;
-		}
-		const assigned = assignFieldErrors(failure.errors, ['name', 'description', 'cover'] as const);
-		serverErrors = { ...serverErrors, ...assigned.byField };
-		generalErrors = assigned.general;
-		if (Object.keys(assigned.byField).length === 0 && assigned.general.length === 0) {
-			toasts.error(failure.message);
-		}
+			presetApiFailure(error, fallback)
+		);
 	}
 
 	export async function save() {
-		attempted = true;
+		editor = { ...editor, attempted: true };
 		if (Object.keys(clientErrors).length > 0 || (modesDirty > 0 && modesError)) return;
 		if (dirtyKeys.length === 0 && modesDirty === 0) return;
 		saving = true;
-		serverErrors = {};
-		generalErrors = [];
+		editor = { ...editor, serverErrors: {}, generalErrors: [] };
 		try {
-			let next = detail;
+			let next = editor.detail;
 			if (dirtyKeys.length > 0) {
 				next = unwrap(
-					await api.updatePresetDisplay(presetId, buildDisplayPayload(draft, detail.display.cover)),
+					await api.updatePresetDisplay(presetId, buildDisplayPayload(editor.draft, editor.detail.display.cover)),
 					'Could not save the display settings'
 				);
-				detail = next;
+				editor = { ...editor, detail: next };
 			}
 			if (modesDirty > 0) {
 				next = unwrap(
-					await api.updatePresetMirrorModes(presetId, buildModesPayload(modesDraft, detail.modes.available)),
+					await api.updatePresetMirrorModes(presetId, buildModesPayload(editor.modes, editor.detail.modes.available)),
 					'Could not save the modes'
 				);
 			}
-			adopt(next);
+			editor = displayEditorSaved(editor, next);
+			onChanged?.(next);
 			invalidatePresets();
 			toasts.success('Display saved');
 		} catch (error) {
 			logger.error('Failed to save preset display:', error);
-			applyFailure(error, 'Could not save the display settings');
+			const result = displayEditorFailed(editor, failureOf(error, 'Could not save the display settings'));
+			editor = result.editor;
+			if (result.toast) toasts.error(result.toast);
 		} finally {
 			saving = false;
 		}
 	}
 
 	export function discard() {
-		draft = displayDraftFrom(detail);
-		modesDraft = modesDraftFrom(detail.modes);
-		attempted = false;
-		serverErrors = {};
-		generalErrors = [];
+		editor = discardDisplayEditor(editor);
 	}
 
 	function toggleCoverPicker() {
@@ -195,7 +181,7 @@
 				return;
 			}
 			const next = unwrap(await api.uploadPresetDisplayCover(presetId, resolved.file), 'Could not upload the cover');
-			detail = next;
+			editor = { ...editor, detail: next };
 			onChanged?.(next);
 			invalidatePresets();
 			coverPick = null;
@@ -203,10 +189,8 @@
 			toasts.success('Cover updated');
 		} catch (error) {
 			logger.error('Failed to upload preset cover:', error);
-			const failure =
-				(error as { presetFailure?: ReturnType<typeof presetApiFailure> } | null)?.presetFailure ??
-				presetApiFailure(error, 'Could not upload the cover');
-			coverError = failure.errors.join(' ') || failure.message;
+			const failure = failureOf(error, 'Could not upload the cover');
+			coverError = cleanFieldErrors(failure.errors) || failure.message;
 		} finally {
 			coverBusy = false;
 		}
@@ -224,16 +208,14 @@
 				}),
 				'Could not reset the cover'
 			);
-			detail = next;
+			editor = { ...editor, detail: next };
 			onChanged?.(next);
 			invalidatePresets();
 			toasts.success('Cover reset');
 		} catch (error) {
 			logger.error('Failed to reset preset cover:', error);
-			const failure =
-				(error as { presetFailure?: ReturnType<typeof presetApiFailure> } | null)?.presetFailure ??
-				presetApiFailure(error, 'Could not reset the cover');
-			coverError = failure.errors.join(' ') || failure.message;
+			const failure = failureOf(error, 'Could not reset the cover');
+			coverError = cleanFieldErrors(failure.errors) || failure.message;
 		} finally {
 			coverBusy = false;
 		}

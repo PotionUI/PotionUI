@@ -400,7 +400,8 @@ test('a mirror’s detail edits its modes and shows fixed-prompt errors next to 
 	await prefix.fill('cinematic {film|photo still,');
 	await page.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect.poll(() => mocks.fixedPuts.length).toBe(1);
-	await expect(page.getByText('prefix: a { has no closing }')).toBeVisible();
+	await expect(page.getByText('A { has no closing }', { exact: true })).toBeVisible();
+	await expect(page.getByText('prefix: a { has no closing }')).toHaveCount(0);
 	await screenshot(page, JOURNEY, 'mirror-prompt-error-1440');
 
 	await page.setViewportSize({ width: 390, height: 844 });

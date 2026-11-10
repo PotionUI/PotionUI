@@ -252,12 +252,30 @@ def test_a_single_shot_document_binds_without_reading_any_preset():
     assert bound.form_data["video_director"]["mode"] == "i2v"
 
 
-def test_without_the_application_a_director_document_is_refused_as_before():
+@pytest.mark.parametrize(
+    "doc, role, segment_id, options",
+    [
+        (timeline_doc(), "first", "s1", {}),
+        (timeline_doc(), "keyframe", "s1", {"at": 1}),
+        (chain_doc(), "reference", "seg-0", {}),
+        (single_doc(), "reference", None, {}),
+    ],
+)
+def test_without_the_application_a_binding_that_reads_the_preset_lets_the_container_error_through(
+    doc, role, segment_id, options,
+):
     with patch("src.plugin_api.presets.get_container", side_effect=RuntimeError("no container")):
-        with pytest.raises(DirectorBindingError) as refused:
-            bind_director_media(request_with(timeline_doc()), "first", IMAGE, "s1")
+        with pytest.raises(RuntimeError, match="no container"):
+            bind_director_media(request_with(doc), role, IMAGE, segment_id, **options)
 
-    assert refused.value.code == "unsupported_mode"
+
+def test_without_the_application_given_capabilities_bind_without_reading_any_preset():
+    with patch("src.plugin_api.presets.get_container", side_effect=RuntimeError("no container")):
+        bound = bind_director_media(request_with(timeline_doc()), "first", IMAGE, "s1", capabilities=TIMELINE)
+        pooled = bind_director_media(request_with(chain_doc()), "reference", IMAGE, capabilities=REFS)
+
+    assert bound.form_data["video_director"]["media"][0]["role"] == "first"
+    assert pooled.form_data["references"][0]["relative_path"] == "uploads/new.png"
 
 
 REFS = {
@@ -327,7 +345,7 @@ def test_a_single_shot_document_takes_references_into_its_pool():
     [
         (IMAGE, None, TIMELINE, {}, "references_unsupported"),
         (IMAGE, None, {**REFS, "reference_fields": []}, {}, "references_unsupported"),
-        (IMAGE, None, None, {}, "references_unsupported"),
+        (IMAGE, None, {}, {}, "references_unsupported"),
         (IMAGE, None, REFS, {"field": "pictures"}, "unknown_field"),
         ({**IMAGE, "media_type": "model"}, None, REFS, {}, "invalid_media"),
         ({**IMAGE, "value": ""}, None, REFS, {}, "invalid_media"),

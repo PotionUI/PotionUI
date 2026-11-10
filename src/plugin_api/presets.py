@@ -133,10 +133,7 @@ def _preset_capabilities(request: Any, role: str) -> Optional[Dict[str, Any]]:
     document = form_data.get("video_director") if isinstance(form_data, Mapping) else None
     if role != REFERENCE_ROLE and (not isinstance(document, Mapping) or document.get("mode") != "director"):
         return None
-    try:
-        repository = get_container().file_preset_repository
-    except RuntimeError:
-        return None
+    repository = get_container().file_preset_repository
     preset_id = _request_field(request, "preset_id")
     template = repository.find_preset_by_id(preset_id) if preset_id else None
     capabilities = (template.vars or {}).get("video_director") if template is not None else None

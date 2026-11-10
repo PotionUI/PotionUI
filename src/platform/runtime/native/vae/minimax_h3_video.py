@@ -478,15 +478,18 @@ class _VideoViTDecoder3d(nn.Module):
         self, *, in_channels: int, out_channels: int, patch_size: int, patch_size_t: int,
         num_layers: int, num_heads: int, head_dim: int, num_register_tokens: int,
         ffn_mult: int, rope_theta: float, rope_dim_ratio: float, norm_eps: float, operations: Any,
+        rope_axes: int = 3, zero_suffix_token: bool = False,
     ) -> None:
         super().__init__()
         dim = num_heads * head_dim
+        self.rope_axes = rope_axes
+        self.zero_suffix_token = zero_suffix_token
         self.patch_size = patch_size
         self.patch_size_t = patch_size_t
         self.out_channels = out_channels
         self.num_register_tokens = num_register_tokens
 
-        self.rope = _VideoRotaryPosEmbed(int(head_dim * rope_dim_ratio), theta=rope_theta)
+        self.rope = _VideoRotaryPosEmbed(int(head_dim * rope_dim_ratio), theta=rope_theta, num_axes=rope_axes)
         self.x_embedder = operations.Linear(in_channels, dim, bias=True)
         self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, dim))
         # Real loaded parameter -- NOT diffusers' computed torch.zeros_like
@@ -506,16 +509,20 @@ class _VideoViTDecoder3d(nn.Module):
         num_patches = x.shape[1]
 
         register_tokens = self.register_tokens.expand(b, -1, -1).to(x.dtype)
-        mask_token = self.mask_token.expand(b, -1, -1).to(x.dtype)
+        if self.zero_suffix_token:
+            mask_token = x.new_zeros((b, 1, x.shape[-1]))
+        else:
+            mask_token = self.mask_token.expand(b, -1, -1).to(x.dtype)
         x = torch.cat([x, register_tokens, mask_token], dim=1)
 
+        sizes = (f, h, w)[-self.rope_axes:]
         grids = [
             2.0 * (torch.arange(0.5, size, dtype=torch.float32, device=x.device) / size) - 1.0
-            for size in (f, h, w)
+            for size in sizes
         ]
-        position_ids = torch.stack(torch.meshgrid(*grids, indexing="ij"), dim=-1).flatten(0, 2)
+        position_ids = torch.stack(torch.meshgrid(*grids, indexing="ij"), dim=-1).flatten(0, len(sizes) - 1)
         position_ids = position_ids.unsqueeze(0).expand(b, -1, -1)
-        suffix = position_ids.new_zeros((b, self.num_register_tokens + 1, 3))
+        suffix = position_ids.new_zeros((b, self.num_register_tokens + 1, self.rope_axes))
         position_ids = torch.cat([position_ids, suffix], dim=1)
         rotary_emb = self.rope(position_ids)
 
@@ -562,6 +569,9 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         tile_sample_min_overlap_height: int = TILE_SAMPLE_MIN_OVERLAP_HEIGHT,
         tile_sample_min_overlap_width: int = TILE_SAMPLE_MIN_OVERLAP_WIDTH,
         operations: Any,
+        decoder_patch_size_t: int | None = None,
+        decoder_rope_axes: int = 3,
+        decoder_zero_suffix_token: bool = False,
     ) -> None:
         super().__init__()
         self.spatial_compression_ratio = math.prod(spatial_downsample_factors)
@@ -578,11 +588,13 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         self.post_quant_conv = operations.Conv3d(latent_channels, latent_channels, kernel_size=1)
         self.decoder = _VideoViTDecoder3d(
             in_channels=latent_channels, out_channels=OUT_CHANNELS,
-            patch_size=self.spatial_compression_ratio, patch_size_t=self.temporal_compression_ratio,
+            patch_size=self.spatial_compression_ratio,
+            patch_size_t=self.temporal_compression_ratio if decoder_patch_size_t is None else decoder_patch_size_t,
             num_layers=decoder_num_layers, num_heads=decoder_num_attention_heads,
             head_dim=decoder_attention_head_dim, num_register_tokens=decoder_num_register_tokens,
             ffn_mult=decoder_ffn_mult, rope_theta=decoder_rope_theta, rope_dim_ratio=decoder_rope_dim_ratio,
             norm_eps=decoder_norm_eps, operations=operations,
+            rope_axes=decoder_rope_axes, zero_suffix_token=decoder_zero_suffix_token,
         )
 
         # Real checkpoint tensors (see module docstring point 4) -- not
@@ -768,9 +780,9 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         within a sample), so the outputs are the same values the tiles would
         have produced one at a time up to kernel-level reassociation."""
         if len(group) == 1:
-            return [self.decoder(self.post_quant_conv(group[0]))]
+            return [self._decode_pixels(group[0])]
         sizes = [tile.shape[0] for tile in group]
-        decoded = self.decoder(self.post_quant_conv(torch.cat(group, dim=0)))
+        decoded = self._decode_pixels(torch.cat(group, dim=0))
         return list(torch.split(decoded, sizes, dim=0))
 
     def _decode_tiles(self, tiles: list[torch.Tensor]) -> list[torch.Tensor]:
@@ -807,9 +819,12 @@ class MiniMaxH3VideoVAE(NativeArchModule):
             index += group
         return done
 
+    def _decode_pixels(self, z: torch.Tensor) -> torch.Tensor:
+        return self.decoder(self.post_quant_conv(z))
+
     def _decode_clip(self, z: torch.Tensor) -> torch.Tensor:
         if not self.use_tiling:
-            return self.decoder(self.post_quant_conv(z))
+            return self._decode_pixels(z)
 
         height = z.shape[-2] * self.spatial_compression_ratio
         width = z.shape[-1] * self.spatial_compression_ratio

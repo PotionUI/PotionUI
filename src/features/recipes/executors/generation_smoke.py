@@ -53,7 +53,9 @@ class GenerationSmokeExecutor:
         file_repository: Any = None,
         model_repository: Any = None,
         app_loop: Optional[Callable[[], Optional[asyncio.AbstractEventLoop]]] = None,
+        preset_db_repo: Any = None,
     ):
+        self.preset_db_repo = preset_db_repo
         self.preset_template_loader = preset_template_loader
         self.template_processor = template_processor
         self.orchestrator = generation_orchestrator
@@ -66,6 +68,12 @@ class GenerationSmokeExecutor:
         if model_repository is None:
             from src.features.models.repository import model_repo as model_repository
         self.model_repository = model_repository
+
+    def _admin_defaults(self, preset_id: str, mode: str) -> Dict[str, Any]:
+        if self.preset_db_repo is None:
+            return {}
+        stored = (self.preset_db_repo.get_preset_form_overrides(preset_id) or {}).get(mode) or {}
+        return {name: entry.get("default") for name, entry in stored.items() if isinstance(entry, dict)}
 
     def _running_app_loop(self) -> Optional[asyncio.AbstractEventLoop]:
         if self.app_loop is None:
@@ -110,6 +118,7 @@ class GenerationSmokeExecutor:
                 model_repository=self.model_repository,
                 selections=context.selections,
                 prompt=smoke.prompt if smoke else None,
+                admin_defaults=self._admin_defaults(preset_id, mode),
             )
         except RequiredModelMissing as exc:
             return StepResult.fail(

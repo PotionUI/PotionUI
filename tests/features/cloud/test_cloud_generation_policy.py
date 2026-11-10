@@ -212,3 +212,17 @@ async def test_media_is_judged_by_the_model_its_field_is_bound_to(refreshed, pol
     )
 
     policy.check(template, "txt2img", bound, refreshed.backend())
+
+
+async def test_a_mirror_uses_the_model_scopes_of_its_source(refreshed, policy):
+    model_id = await enabled(refreshed, IMAGE)
+    source = preset("txt2img")
+    mirror = replace(source, id="MIRROR", name="Anime", source_preset_id=source.id)
+    bound = bound_for(refreshed, mirror, model_id)
+
+    ModelPresetScopeRepository().replace(model_id, [source.id])
+    policy.check(mirror, "txt2img", bound, refreshed.backend())
+
+    ModelPresetScopeRepository().replace(model_id, ["preset_other"])
+    with pytest.raises(CloudPolicyViolation, match="not available in this preset"):
+        policy.check(mirror, "txt2img", bound, refreshed.backend())

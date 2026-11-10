@@ -63,6 +63,7 @@ EXCLUDED_TOOL_NAMES = frozenset({
     "get_music_director",
     "update_music_director",
     "set_prompt_relay_timeline",
+    "set_regional_prompt",
     "list_models",
 })
 

@@ -4,6 +4,7 @@ Module-level functions, `PresetCollaborators` as their leading arg - no class
 holds them together (see `src.features.presets.collaborators`'s docstring).
 """
 import logging
+from collections import Counter
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional
 
@@ -11,6 +12,8 @@ from src.features.forms.binding import bind_form
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.formula_groups import resolve_formula_groups
+from src.features.presets.mappers import admin_list_fields, missing_mirror_entry
+from src.features.presets.overlays import MIRROR_OK
 from src.features.presets.mode_labels import mode_display_icon, mode_display_name
 from src.features.presets.quantity import mode_quantity_fields
 from src.features.prompt.resource_sources import with_source_specs
@@ -53,6 +56,9 @@ def list_presets(
     if include_uninstalled and user.account_type == AccountType.ADMIN:
         # For admin users, show all presets with installation status
         summaries = collaborators.db_repo.get_installed_preset_summaries()
+        rows = {row.preset_id: row for row in collaborators.db_repo.get_all_installed_presets()}
+        mirror_counts = Counter(row.source_preset_id for row in rows.values() if row.is_mirror)
+        loader = collaborators.preset_loader
 
         # Add installation status to each preset
         for preset in all_presets:
@@ -64,6 +70,16 @@ def list_presets(
                 preset['preset_db_id'] = preset_db_id
                 preset['group_count'] = group_count
             preset['requirements_summary'] = _peek_requirements_summary(collaborators, preset['id'])
+            template = collaborators.file_repo.find_preset_by_id(preset['id'])
+            if template is not None:
+                preset.update(admin_list_fields(
+                    template, rows.get(preset['id']), loader.mirror_state(preset['id']), mirror_counts[preset['id']]
+                ))
+
+        for row in rows.values():
+            state = loader.mirror_state(row.preset_id) if row.is_mirror else None
+            if state is not None and state != MIRROR_OK:
+                all_presets.append(missing_mirror_entry(row, state, summaries.get(row.preset_id)))
 
         return all_presets
     else:

@@ -7,7 +7,12 @@ import type {
 	PresetConfigurationResponse,
 	PresetFormOverridePatch,
 	PresetFormOverridesResponse,
-	PresetRequirementsResponse
+	PresetRequirementsResponse,
+	PresetAdminDetail,
+	PresetDisplayPayload,
+	PresetMirrorCreatePayload,
+	PresetMirrorModesPayload,
+	PresetFixedPrompt
 } from '$lib/types/api';
 import type { PromptResourceSpec } from '$lib/utils/promptResources';
 import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
@@ -142,6 +147,55 @@ export function createPresetsApi(client: AxiosInstance) {
 			if (options.refresh) params.set('refresh', '1');
 			const query = params.toString();
 			const response = await client.get(`/api/presets/${presetId}/requirements${query ? `?${query}` : ''}`);
+			return response.data;
+		},
+
+		async getPresetAdmin(presetId: string): Promise<APIResponse<PresetAdminDetail>> {
+			const response = await client.get(`/api/presets/${encodeURIComponent(presetId)}/admin`);
+			return response.data;
+		},
+
+		async updatePresetDisplay(
+			presetId: string,
+			display: PresetDisplayPayload
+		): Promise<APIResponse<PresetAdminDetail>> {
+			const response = await client.put(`/api/presets/${encodeURIComponent(presetId)}/display`, display);
+			return response.data;
+		},
+
+		async uploadPresetDisplayCover(presetId: string, file: File): Promise<APIResponse<PresetAdminDetail>> {
+			const formData = new FormData();
+			formData.append('file', file);
+			const response = await client.post(`/api/presets/${encodeURIComponent(presetId)}/display/cover`, formData);
+			return response.data;
+		},
+
+		async createPresetMirror(
+			sourcePresetId: string,
+			payload: PresetMirrorCreatePayload
+		): Promise<APIResponse<PresetAdminDetail>> {
+			const response = await client.post(`/api/presets/${encodeURIComponent(sourcePresetId)}/mirrors`, payload);
+			return response.data;
+		},
+
+		async updatePresetMirrorModes(
+			presetId: string,
+			payload: PresetMirrorModesPayload
+		): Promise<APIResponse<PresetAdminDetail>> {
+			const response = await client.put(`/api/presets/${encodeURIComponent(presetId)}/modes`, payload);
+			return response.data;
+		},
+
+		async getPresetFixedPrompt(presetId: string): Promise<APIResponse<PresetFixedPrompt>> {
+			const response = await client.get(`/api/presets/${encodeURIComponent(presetId)}/fixed-prompt`);
+			return response.data;
+		},
+
+		async updatePresetFixedPrompt(
+			presetId: string,
+			fixedPrompt: PresetFixedPrompt
+		): Promise<APIResponse<PresetFixedPrompt>> {
+			const response = await client.put(`/api/presets/${encodeURIComponent(presetId)}/fixed-prompt`, fixedPrompt);
 			return response.data;
 		}
 	};

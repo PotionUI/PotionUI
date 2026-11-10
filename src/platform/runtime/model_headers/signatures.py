@@ -24,6 +24,7 @@ SEEDVR2_SIG = "vid_in.proj.weight"
 SEEDVR2_SIG2 = "blocks.0.ada.vid.attn_shift"
 MINIMAX_H3_SIG = "video_patch_proj.weight"
 MINIMAX_H3_SIG2 = "audio_patch_proj.weight"
+MINIMAX_H3_IMAGE_SIG2 = "condition_proj.weight"
 MINIMAX_MUSIC3_SIG = "cond_layer_logits"
 MINIMAX_MUSIC3_SIG2 = "latent_conditioners.0.weight"
 MINIMAX_MUSIC3_SIG3 = "diffusion_transformer.transformer.layers.0.self_attn.to_qkv.weight"
@@ -67,6 +68,7 @@ TRANSFORMER_EXTRACTABLE_FAMILIES = frozenset(
         "anima",
         "seedvr2",
         "minimax_h3",
+        "minimax_h3_image",
     }
 )
 BNB_QUANT_SUFFIXES = (".absmax", ".quant_map")
@@ -183,6 +185,9 @@ def family_from_keys(keys: Collection[str], shape_of: ShapeOf) -> FamilyMatch | 
 
     if SEEDVR2_SIG in keys and SEEDVR2_SIG2 in keys:
         return FamilyMatch("seedvr2", _seedvr2_variant(keys))
+
+    if MINIMAX_H3_SIG in keys and MINIMAX_H3_IMAGE_SIG2 in keys and MINIMAX_H3_SIG2 not in keys:
+        return FamilyMatch("minimax_h3_image")
 
     if MINIMAX_H3_SIG in keys and MINIMAX_H3_SIG2 in keys:
         return FamilyMatch("minimax_h3")

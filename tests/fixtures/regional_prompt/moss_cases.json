@@ -1,0 +1,91 @@
+{
+  "cases": [
+    {
+      "name": "upstream worked example",
+      "caption": "A ceramic cup campaign image",
+      "width": 1536,
+      "height": 1024,
+      "items": [
+        {
+          "x": 0.11458333333333333,
+          "y": 0.21875,
+          "w": 0.40625,
+          "h": 0.625,
+          "caption": "A white ceramic cup on a linen cloth"
+        }
+      ],
+      "expected": "{\"summary\": {\"caption\": \"A ceramic cup campaign image\"}, \"items\": [{\"label\": \"object\", \"caption\": \"A white ceramic cup on a linen cloth\", \"bbox\": [-288, -592, 352, 32]}], \"bbox_coord_space\": \"abs_centralized\", \"bbox_format\": \"yxyx\"}"
+    },
+    {
+      "name": "quoted words become a text item",
+      "caption": "A vintage travel poster",
+      "width": 1024,
+      "height": 1024,
+      "items": [
+        {
+          "x": 0.1,
+          "y": 0.05,
+          "w": 0.8,
+          "h": 0.15,
+          "caption": "Title \"EXPLORE THE COAST\" in bold cream letters"
+        },
+        {
+          "x": 0.25,
+          "y": 0.25,
+          "w": 0.5,
+          "h": 0.5,
+          "caption": "A lighthouse on a cliff"
+        }
+      ],
+      "expected": "{\"summary\": {\"caption\": \"A vintage travel poster\"}, \"items\": [{\"label\": \"text\", \"caption\": \"Title \\\"EXPLORE THE COAST\\\" in bold cream letters\", \"text\": \"EXPLORE THE COAST\", \"bbox\": [-461, -410, -307, 410]}, {\"label\": \"object\", \"caption\": \"A lighthouse on a cliff\", \"bbox\": [-256, -256, 256, 256]}], \"bbox_coord_space\": \"abs_centralized\", \"bbox_format\": \"yxyx\"}"
+    },
+    {
+      "name": "curly quotes and two spans",
+      "caption": "A shop front at night",
+      "width": 768,
+      "height": 1344,
+      "items": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 0.5,
+          "h": 0.5,
+          "caption": "Sign “OPEN” above “DAILY”"
+        }
+      ],
+      "expected": "{\"summary\": {\"caption\": \"A shop front at night\"}, \"items\": [{\"label\": \"text\", \"caption\": \"Sign “OPEN” above “DAILY”\", \"text\": \"OPEN\\nDAILY\", \"bbox\": [-672, -384, 0, 0]}], \"bbox_coord_space\": \"abs_centralized\", \"bbox_format\": \"yxyx\"}"
+    },
+    {
+      "name": "empty descriptions are dropped, none left means the plain prompt",
+      "caption": "Just a prompt",
+      "width": 1024,
+      "height": 1024,
+      "items": [
+        {
+          "x": 0.1,
+          "y": 0.1,
+          "w": 0.2,
+          "h": 0.2,
+          "caption": "   "
+        }
+      ],
+      "expected": "Just a prompt"
+    },
+    {
+      "name": "odd canvas size centres on the floor of half",
+      "caption": "An odd sized canvas",
+      "width": 1023,
+      "height": 767,
+      "items": [
+        {
+          "x": 0.25,
+          "y": 0.25,
+          "w": 0.5,
+          "h": 0.5,
+          "caption": "A red square"
+        }
+      ],
+      "expected": "{\"summary\": {\"caption\": \"An odd sized canvas\"}, \"items\": [{\"label\": \"object\", \"caption\": \"A red square\", \"bbox\": [-192, -256, 193, 257]}], \"bbox_coord_space\": \"abs_centralized\", \"bbox_format\": \"yxyx\"}"
+    }
+  ]
+}

@@ -228,6 +228,18 @@ CORE_SCHEDULES = (
         description="MOSS-Image's reference schedule: a shifted ramp snapped to the nearest "
                     "point of the training grid.",
     ),
+    ScheduleDefinition(
+        "h3_image_pdd", _schedule("_build_h3_image_pdd_schedule"), "MiniMax-H3-Image step grid",
+        families=("minimax_h3_image",),
+        options=(
+            OptionSpec(
+                "grid", "str", None,
+                "Descending sigma grid the step heads were distilled on; blank uses the released one.",
+            ),
+        ),
+        description="MiniMax-H3-Image's distilled grid: six steps land exactly on it, other counts "
+                    "interpolate linearly between its points.",
+    ),
 )
 
 for _definition in CORE_SAMPLERS:

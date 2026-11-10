@@ -42,7 +42,7 @@ class CloudModelScopes:
             "candidates": [
                 {"id": preset.id, "title": preset.name}
                 for preset in sorted(self.preset_loader.all(), key=lambda p: (p.name or "").lower())
-                if self._usable_by(preset, driver)
+                if self._usable_by(preset, driver) and getattr(preset, "source_preset_id", None) is None
             ],
         }
 
@@ -54,6 +54,8 @@ class CloudModelScopes:
             preset = self.preset_loader.get(preset_id)
             if preset is None:
                 problems.append(f"Preset '{preset_id}' does not exist.")
+            elif getattr(preset, "source_preset_id", None) is not None:
+                problems.append(f"'{preset.name}' uses the files of preset '{preset.source_preset_id}': scope its source instead.")
             elif not self._usable_by(preset, driver):
                 problems.append(f"Preset '{preset.name}' cannot use this model: it runs on {preset.engine}"
                                 f"{'/' + preset.driver if getattr(preset, 'driver', None) else ''}, not {driver}.")

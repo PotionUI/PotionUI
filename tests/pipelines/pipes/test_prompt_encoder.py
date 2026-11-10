@@ -701,3 +701,30 @@ class TestTransparentReferenceFingerprint:
                 lambda o: None,
             )
         assert len(set(models.fingerprints)) == 3
+
+
+class TestPairsInput:
+    def test_pairs_is_an_optional_array_input(self):
+        specs = {s.name: s for s in PromptEncoderPipe.inputs()}
+        assert specs["pairs"].io_type == IOType.DICT
+        assert specs["pairs"].required is False
+        assert specs["pairs"].is_array is True
+
+    def test_connected_pairs_replace_the_configured_ones(self):
+        clip = _FakeClip()
+        pipe = PromptEncoderPipe(config=_config(pairs=[{"positive": "configured", "negative": ""}]))
+        wired = [{"positive": "wired", "negative": ""}]
+        pipe.process(PipeInput(input={"text_encoder": clip, "pairs": wired}), lambda o: None)
+        assert [r["prompt"] for r in clip.requests] == ["wired"]
+
+    def test_without_the_input_the_configured_pairs_are_used(self):
+        clip = _FakeClip()
+        pipe = PromptEncoderPipe(config=_config(pairs=[{"positive": "configured", "negative": ""}]))
+        pipe.process(PipeInput(input={"text_encoder": clip}), lambda o: None)
+        assert [r["prompt"] for r in clip.requests] == ["configured"]
+
+    def test_an_empty_connected_list_falls_back_to_the_configured_pairs(self):
+        clip = _FakeClip()
+        pipe = PromptEncoderPipe(config=_config(pairs=[{"positive": "configured", "negative": ""}]))
+        pipe.process(PipeInput(input={"text_encoder": clip, "pairs": []}), lambda o: None)
+        assert [r["prompt"] for r in clip.requests] == ["configured"]

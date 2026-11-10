@@ -119,6 +119,10 @@ def test_duplicate_ids_resolve_to_the_first_preset_in_name_map_and_resolve():
 
     class _Loader:
         presets = [first, second]
+        retired_names = {}
+
+        def retired_name(self, preset_id):
+            return None
 
         def all(self):
             return self.presets

@@ -139,6 +139,7 @@ def build_default_executor_registry(
             file_repository,
             model_repository=model_repository,
             app_loop=app_loop,
+            preset_db_repo=getattr(preset_collaborators, "db_repo", None),
         )
     else:
         # No orchestrator wired (e.g. a minimal test container) - a recipe

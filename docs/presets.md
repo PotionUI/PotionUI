@@ -301,6 +301,68 @@ that names a field the mode does not have, is a lint error and the mode is not o
 Video Director targets (`kind: video_director_role`, `role: first|last`) need a mode listed in
 `vars.video_director.preset_modes`, and the media type must be `image`.
 
+## Regional prompting
+
+`vars.regional_prompt` offers the layout editor on the generate page for the listed modes:
+
+```yaml
+vars:
+  regional_prompt:
+    modes: [txt2img]
+    size_field: resolution
+```
+
+`modes` are mode ids of the preset and `size_field` is the `resolution` field the canvas takes its shape from. The option names no prompt format. The client sends `form_data.regional_prompt` as `{enabled, items: [{x, y, w, h, caption}]}` with `x`, `y`, `w`, `h` as fractions of the canvas from the top-left corner; the form binder keeps it only for a declared mode and drops it otherwise. The mode's pipeline must contain a `regional_prompt/*` stage, which turns the document into whatever the model reads; the linter reports a missing mode, a missing stage and a `size_field` that is not a `resolution` field of that mode. Wire the stage before `prompt_encoder` with `enabled: "{{ (form.regional_prompt | default({})).enabled | default(false) }}"` and feed its `pairs` output to the encoder's optional `pairs` input: the encoder falls back to its configured `pairs` when the stage did not run.
+
+## Display names and mirrors (admin-set)
+
+Admins can change how an installed preset is presented and can offer one preset's files under
+several entries. Neither touches the YAML: both live on the installed preset's row in the
+`presets` table and are laid over the scanned templates by the loader
+(`src/features/presets/overlays.py`).
+
+**Display overrides.** Any installed preset (a preset file or a mirror) can carry a display
+`name` (1-80 characters), `description` (up to 4000) and `cover`. Each replaces the YAML value
+when set; `null` falls back to it. The cover is either a `public/...` file of the preset or an
+uploaded file (`display/<id>.<ext>`: PNG, JPEG or WebP up to 10 MB, MP4 or WebM up to 1.5 MB),
+stored under `<storage>/preset_display/<row id>/` and served at
+`/api/media/presets/{preset_id}/display/<file>`. Every screen reads the name from the template,
+so a rename shows up everywhere, including old generations. Uninstalling a preset drops its
+display overrides and uploaded cover.
+
+**Mirrors.** A mirror is an installed preset with its own generated id that uses another
+installed preset file's folder. The loader registers a copy of the source template under the
+mirror's id with the mirror's name, description and cover, the modes the mirror offers (all by
+default) with its first mode first, and only the requirements of those modes. Everything else
+(pipelines, forms, styles, vars, engine, plugin-contributed modes) is the source's, so the
+mirror follows every update of the source files. A new mirror starts with a copy of the source's
+configuration and form overrides; from then on they are its own, which is how "Anime" gets a
+different default model or LoRA list than "Realistic". Like any preset, a new mirror is visible
+to nobody until it is assigned to users or groups.
+
+Rules:
+
+- The source must be an installed preset file, never another mirror.
+- A preset file that has mirrors cannot be uninstalled until its mirrors are removed
+  (`409 preset_has_mirrors`).
+- Removing a mirror deletes its row and assignments and keeps a tombstone with its name, so
+  history still shows what a generation was made with.
+- If the source files disappear outside the admin panel (plugin disabled, files deleted), the
+  mirror stays in the admin list as `source_missing` and is hidden from users. A mirror whose
+  offered modes all vanished is `modes_missing`.
+
+Things that describe the files, not the label, look through a mirror to its source
+(`files_preset_id` in `src/features/presets/templates.py`, also exported by
+`src.plugin_api.presets`): model scopes, recipes and install modes, styles and style previews,
+and the media thumbnail cache. Requirements are checked on the mirror itself, because its
+defaults can name other files than the source's. A mirror gets no derived install recipe of its
+own, and a derived recipe id comes from the preset file's YAML `name`, so renaming a preset
+keeps its recipe history.
+
+Admin API (all admin-only): `GET /api/presets/{id}/admin`, `PUT /api/presets/{id}/display`,
+`POST /api/presets/{id}/display/cover`, `POST /api/presets/{id}/mirrors`,
+`PUT /api/presets/{id}/modes`.
+
 ## See also
 
 - [Backends and Engines](backends.md) — `engine:`, how a preset's pipes get executed.

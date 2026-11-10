@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -52,6 +53,24 @@ def test_provider_plugins_come_from_manifests_never_hardcoded():
 def test_a_colliding_id_gets_a_preset_suffix():
     recipes, _ = build_derived_recipes([video_preset()], None, taken_ids={"modes-vid-1-0"})
     assert list(recipes) == ["modes-vid-1-0-vid"]
+
+
+def test_a_mirror_gets_no_recipe_of_its_own():
+    source = video_preset()
+    mirror = replace(source, id="MIRROR", name="Anime", source_preset_id=source.id, file_name=source.file_name)
+
+    recipes, _ = build_derived_recipes([source, mirror], Plugins([HF]))
+
+    assert list(recipes) == ["modes-vid-1-0"]
+    assert recipes["modes-vid-1-0"].presets[0].preset_id == "VID"
+
+
+def test_renaming_a_preset_keeps_its_recipe_id():
+    renamed = replace(video_preset(), name="Realistic video", file_name="Vid-1.0")
+
+    recipes, _ = build_derived_recipes([renamed], Plugins([HF]))
+
+    assert list(recipes) == ["modes-vid-1-0"]
 
 
 def _write(root: Path, recipe_id: str, preset_id: str):

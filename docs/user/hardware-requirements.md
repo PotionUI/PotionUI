@@ -49,6 +49,7 @@ Peak-VRAM figures below marked **(32 GB-card ceiling)** are measured GPU runs on
 | LTX-2 / 2.3 / 2.5 | ~27 GB on-disk all-in-one AV checkpoint (19–22B params) | Not GPU-validated end-to-end — DiT/TE built, AV forward + golden validation still open (`docs/native-engine.md`) | No | No | Not yet recommended at any tier — validation pending |
 | MiniMax-H3 | 20B (pruned) / 33B (full) params, per its own doc front matter | **No local weights, no GPU validation performed at all** (`docs/models/minimax_h3.md`) | No | No | Not recommended — unvalidated, and weights are territorially license-restricted (excludes EU/UK/US/KR) |
 | MiniMax-Music3 (audio) | 4.9 GB fp16 DiT plus a 15.6 GB bf16 fused text encoder (Qwen3-8B AR core, `docs/models/minimax_music3.md`) | Not measured on a 32 GB card. On a 12 GB card with `gpu_max_vram` 10: **10.9 GB** (10 s song, 8 steps, AR layers streamed) | Unvalidated | **Works but slow** — the AR stage streams its LLM layers, about 17 s per second of audio | 24 GB |
+| MiniMax-H3-Image | 20B params; int8 ConvRot file 19.5 GB, bf16 37.5 GB (`docs/models/minimax_h3_image.md`) | **No GPU validation performed** — estimated ~24 GB at 4 MP with the int8 DiT resident and the 15.7 GB nvfp4 text encoder swapped in per prompt | No | No | 32 GB VRAM + 64 GB RAM; 24 GB untested; weights territorially restricted |
 | SeedVR2 (upscaler) | 3B fp8 **3.39 GB** / 3B fp16 6.78 GB / 7B fp8 **8.24 GB** / 7B fp16 16.48 GB (`content/presets/marketplace/SeedVR2/modes/upscale/tabs/generation.yml`) | Batch 5 frames on 12.5 GB or less, else sized from live free VRAM; VAE tiles sized from costs measured on a 12 GB card (`docs/models/seedvr2.md`); an OOM halves and retries, except the first driver-error OOM under WSL2 | 3B fp8 works | 7B fp8 works | Scales down cleanly to small cards — no fixed floor |
 
 ## Disk space
@@ -63,6 +64,7 @@ Budget for the checkpoint files themselves plus their text encoders and VAEs —
 - Wan 2.2 14B: **two** DiT files (high/low-noise experts, 14B each) + UMT5-XXL + VAE — the largest native disk footprint short of LTX/MiniMax.
 - LTX-2/2.3: ~27 GB all-in-one file (DiT + both VAEs + vocoder + text-embedding projection). LTX-2.5 splits into separate DiT/TE/VAE files instead.
 - MiniMax-H3: four separate files (DiT, text encoder, video VAE, audio VAE) — no confirmed sizes since no local weights exist yet.
+- MiniMax-H3-Image: three files — the int8 DiT (19.5 GB) or bf16 DiT (37.5 GB), the Qwen3-VL-32B text encoder shared with MiniMax-H3 (14.6 GB nvfp4), and the image VAE (1.1 GB).
 - SeedVR2: 3.39–16.48 GB per DiT variant (see table above) + a ~501 MB VAE.
 
 None of these are downloaded by PotionUI itself unless you ask — see [Models](models.md) for how installation works.

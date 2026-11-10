@@ -94,6 +94,13 @@ describe('applyPresetFilters', () => {
 		expect(applyPresetFilters(all, { ...DEFAULT_PRESET_FILTERS, q: 'h3' }, 'all').map((p) => p.id)).toEqual(['h3']);
 	});
 
+	it('finds a renamed preset and its mirrors by the name in its files', () => {
+		const renamed = preset({ id: 'krea2', name: 'Realistic', file_name: 'Krea-2' });
+		const mirror = preset({ id: '01MIRROR', name: 'Anime', file_name: 'Krea-2', is_mirror: true });
+		const filtered = applyPresetFilters([...all, renamed, mirror], { ...DEFAULT_PRESET_FILTERS, q: 'krea' }, 'all');
+		expect(filtered.map((p) => p.id)).toEqual(['01MIRROR', 'krea2']);
+	});
+
 	it('filters by engine, install status, requirements, and assignment', () => {
 		expect(applyPresetFilters(all, { ...DEFAULT_PRESET_FILTERS, engine: 'comfyui' }, 'all').map((p) => p.id)).toEqual(['h3']);
 		expect(applyPresetFilters(all, { ...DEFAULT_PRESET_FILTERS, install: 'installed' }, 'all').map((p) => p.id).sort()).toEqual(['h3', 'sdxl']);

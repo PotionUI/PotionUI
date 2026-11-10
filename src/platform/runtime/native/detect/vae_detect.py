@@ -248,6 +248,8 @@ logger = logging.getLogger(__name__)
 # this file follows the same self-contained convention (e.g.
 # ``detect_causal3d_v2_vae_config``'s hardcoded ``else 48``).
 _H3_VIDEO_LATENT_CHANNELS = 24
+_H3_IMAGE_DECODER_OUT_ROWS = 3 * 16 * 16
+_H3_IMAGE_DECODER_NUM_LAYERS = 24
 _H3_VIDEO_BLOCK_OUT_CHANNELS: tuple[int, ...] = (128, 256, 256, 512, 512, 1024)
 _H3_VIDEO_LAYERS_PER_BLOCK = 2
 _H3_VIDEO_SPATIAL_DOWNSAMPLE_FACTORS: tuple[int, ...] = (2, 2, 2, 2, 1, 1)
@@ -691,6 +693,8 @@ def detect_minimax_h3_video_vae_config(
     conv_in = sd.get("encoder.conv_in.weight")
     if conv_in is not None and conv_in.ndim != 5:
         return None
+    if _is_minimax_h3_image_vae(sd):
+        return None
 
     latent_channels = (
         int(sd["post_quant_conv.weight"].shape[0]) if "post_quant_conv.weight" in sd else _H3_VIDEO_LATENT_CHANNELS
@@ -739,6 +743,45 @@ def detect_minimax_h3_video_vae_config(
     logger.debug(
         "detected minimax_h3 video VAE: latent=%d decoder_layers=%d clip_length=%d token_drop=%d",
         latent_channels, decoder_num_layers, clip_length, token_drop,
+    )
+    return config
+
+
+def _is_minimax_h3_image_vae(sd: dict[str, torch.Tensor]) -> bool:
+    proj_out = sd.get("decoder.proj_out.weight")
+    post_quant = sd.get("post_quant_conv.weight")
+    return (
+        proj_out is not None and int(proj_out.shape[0]) == _H3_IMAGE_DECODER_OUT_ROWS
+        and (post_quant is None or post_quant.ndim == 4)
+    )
+
+
+def detect_minimax_h3_image_vae_config(
+    sd: dict[str, torch.Tensor], metadata: dict[str, str] | None = None,
+) -> dict | None:
+    if "decoder.mask_token" not in sd or "decoder.register_tokens" not in sd:
+        return None
+    if not _is_minimax_h3_image_vae(sd):
+        return None
+    conv_in = sd.get("encoder.conv_in.weight")
+    if conv_in is not None and conv_in.ndim != 5:
+        return None
+    decoder_dim = int(sd["decoder.x_embedder.weight"].shape[0]) if "decoder.x_embedder.weight" in sd else 1024
+    latent_channels = (
+        int(sd["post_quant_conv.weight"].shape[0]) if "post_quant_conv.weight" in sd else _H3_VIDEO_LATENT_CHANNELS
+    )
+    decoder_num_layers = len({
+        k.split(".")[2] for k in sd if k.startswith("decoder.transformer_blocks.")
+    }) or _H3_IMAGE_DECODER_NUM_LAYERS
+    config = {
+        "latent_channels": latent_channels,
+        "decoder_num_layers": decoder_num_layers,
+        "decoder_num_attention_heads": decoder_dim // _H3_VIDEO_DECODER_ATTENTION_HEAD_DIM,
+        "decoder_attention_head_dim": _H3_VIDEO_DECODER_ATTENTION_HEAD_DIM,
+    }
+    logger.debug(
+        "detected minimax_h3 image VAE: latent=%d decoder_layers=%d heads=%d",
+        latent_channels, decoder_num_layers, config["decoder_num_attention_heads"],
     )
     return config
 

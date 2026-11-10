@@ -2,6 +2,7 @@
 // (history/models) that own the actual store calls.
 
 import type { TreeItem } from '$lib/components/pane';
+import type { CollectionEntriesActions } from './deleteEntries';
 
 // What the sidebar needs beyond the bare tree shape (name for display/sort,
 // item_count for the per-row badge). Both Collection (history) and
@@ -47,6 +48,7 @@ export interface TreeActions {
 	// Reparent several collections in one call. Per-id failures (a cycle, an
 	// ownership mismatch) don't block the rest of the batch - see BulkMoveResult.
 	onBulkMove?: (ids: string[], parentId: string | null) => Promise<BulkMoveResult>;
+	entries?: CollectionEntriesActions;
 }
 
 export interface SmartCounts {

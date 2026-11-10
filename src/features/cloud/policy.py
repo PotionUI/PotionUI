@@ -3,6 +3,7 @@ from typing import Any, List
 from src.features.cloud.capability_rules import find_input, media_items, media_problems, mode_task
 from src.features.cloud.repository import CloudCatalogRepository
 from src.features.models.form_refs import collect_model_ids
+from src.features.presets.templates import files_preset_id
 from src.platform.filesystem.model_types import CLOUD_MODEL_TYPE
 
 
@@ -34,7 +35,7 @@ class CloudGenerationPolicy:
 
     def _scope_problem(self, model: Any, preset_template: Any) -> str:
         scope = self.scope_repository.get(model.id)
-        if scope and getattr(preset_template, "id", None) not in scope:
+        if scope and files_preset_id(preset_template) not in scope:
             return f"'{model.display_name}' is not available in this preset. Choose another model or another preset."
         return ""
 

@@ -12,7 +12,7 @@ All business logic is delegated to `src.features.presets.operations`.
 
 import asyncio
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends, File, UploadFile
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
@@ -21,7 +21,10 @@ from src.features.backends.backend_registry import BackendRegistry
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations
+from src.features.presets.cover_store import COVER_UPLOAD_MAX_BYTES
 from src.features.presets.mode_labels import MODE_LABELS
+from src.features.presets.overlays import MIRROR_OK
+from src.features.presets.templates import files_preset_id
 from src.features.presets.exceptions import (
     PresetNotFoundException,
     ModeNotFoundException,
@@ -60,8 +63,18 @@ _PRESET_REFUSALS = {
 }
 
 
+_ADMIN_REFUSALS = {
+    PresetNotFoundException: Fail("preset_not_found", status=404),
+    PresetNotInstalledException: Fail("preset_not_installed", status=409),
+}
+
+
 def _guarded(code: str, message: str):
     return guarded(_PRESET_REFUSALS, Fail(code, message, status=500), soft=True)
+
+
+def _admin_guarded(code: str, message: str):
+    return guarded(_ADMIN_REFUSALS, Fail(code, message, status=500), admin="current_user")
 
 
 class PresetController(BaseController):
@@ -88,11 +101,28 @@ class PresetController(BaseController):
         # supplies it.
         self.model_access_policy = model_access_policy
 
+    def require_preset_access(self, preset_id: str, current_user: User) -> None:
+        try:
+            operations.require_preset_access(
+                self.collaborators.db_repo, current_user.id, preset_id, operations.is_admin_user(current_user)
+            )
+        except PresetNotFoundException:
+            self.error_response(
+                error="preset_not_found",
+                message=f"Preset '{preset_id}' not found",
+                status_code=404,
+            )
+
     def _supports_prompt_batch(self, engine: Optional[str]) -> bool:
         return self.backend_registry.engine_supports_prompt_batch(engine)
 
     def _engine_available(self, engine: Optional[str]) -> bool:
         return bool(engine) and bool(self.backend_registry.get_backends_for_engine(engine))
+
+    def _listed_recipes(self, by_preset: Dict[str, List[Dict]], preset: Dict[str, Any]) -> List[Dict]:
+        if not by_preset or preset.get('mirror_state') not in (None, MIRROR_OK):
+            return []
+        return by_preset.get(self.collaborators.preset_loader.files_preset_id(preset['id']), [])
 
     def _list_presets(self, current_user: User, include_uninstalled: bool) -> List[Dict[str, Any]]:
         data = operations.list_presets(self.collaborators, current_user, include_uninstalled)
@@ -104,7 +134,7 @@ class PresetController(BaseController):
             engine = preset.get('engine')
             if engine not in engines:
                 engines[engine] = self._engine_available(engine)
-            preset['recipes'] = by_preset.get(preset['id'], [])
+            preset['recipes'] = self._listed_recipes(by_preset, preset)
             preset['supports_prompt_batch'] = self._supports_prompt_batch(engine)
             preset['engine_available'] = engines[engine]
         return data
@@ -124,7 +154,9 @@ class PresetController(BaseController):
         """Get specific preset information."""
         data = operations.get_preset(self.collaborators, preset_id)
         data['recipes'] = (
-            self.recipe_links.recipes_for_preset(preset_id, current_user)
+            self.recipe_links.recipes_for_preset(
+                self.collaborators.preset_loader.files_preset_id(preset_id), current_user
+            )
             if self.recipe_links is not None
             else []
         )
@@ -139,13 +171,14 @@ class PresetController(BaseController):
         data = await operations.get_preset_requirements(
             self.collaborators, preset_id, backend_id=backend_id, refresh=refresh
         )
-        recipe_id = self.recipe_links.install_recipe_id(preset_id) if self.recipe_links is not None else None
+        files_id = self.collaborators.preset_loader.files_preset_id(preset_id)
+        recipe_id = self.recipe_links.install_recipe_id(files_id) if self.recipe_links is not None else None
         if recipe_id:
             for item in data.get("results") or []:
                 if item.get("type") == "model" and item.get("status") == "missing" and item.get("mode"):
                     item["action"] = {
                         "kind": "install_mode",
-                        "payload": {"preset_id": preset_id, "mode": item["mode"], "recipe_id": recipe_id},
+                        "payload": {"preset_id": files_id, "mode": item["mode"], "recipe_id": recipe_id},
                     }
         return self.success_response(data=data)
 
@@ -207,7 +240,7 @@ class PresetController(BaseController):
             engine=preset.engine,
             driver=driver,
             tasks=task_list,
-            preset_id=preset.id if isinstance(getattr(preset, "id", None), str) else None,
+            preset_id=files_preset_id(preset) if isinstance(getattr(preset, "id", None), str) else None,
             backend_registry=self.backend_registry,
             model_type=model_type,
             model_types=type_list,
@@ -266,7 +299,11 @@ class PresetController(BaseController):
         await operations.refresh_mode_requirements(self.collaborators, preset_id)
         data = operations.get_available_modes(self.collaborators, preset_id)
         install = (
-            await asyncio.to_thread(self.recipe_links.mode_install, preset_id, current_user)
+            await asyncio.to_thread(
+                self.recipe_links.mode_install,
+                self.collaborators.preset_loader.files_preset_id(preset_id),
+                current_user,
+            )
             if self.recipe_links is not None and current_user is not None
             else {}
         )
@@ -301,7 +338,7 @@ class PresetController(BaseController):
         """Reload a preset from disk and return its current state."""
         data = operations.reload_preset(self.collaborators, preset_id)
         if self.media_store is not None:
-            self.media_store.purge_preset_thumbnail_cache(preset_id)
+            self.media_store.purge_preset_thumbnail_cache(self.collaborators.preset_loader.files_preset_id(preset_id))
         return self.success_response(
             data=data,
             message=f"Preset '{preset_id}' reloaded successfully"
@@ -316,11 +353,42 @@ class PresetController(BaseController):
             message=f"Preset '{preset_id}' installed successfully"
         )
 
-    @_guarded("preset_uninstall_failed", "Failed to uninstall preset")
+    @guarded(_PRESET_REFUSALS, Fail("preset_uninstall_failed", "Failed to uninstall preset", status=500))
     async def uninstall_preset(self, preset_id: str, current_user: User) -> APIResponse:
         """Uninstall a preset (admin only) - removes all user assignments."""
-        message = operations.uninstall_preset(self.collaborators, preset_id, current_user)
-        return self.success_response(message=message)
+        result = operations.uninstall_preset(self.collaborators, preset_id, current_user)
+        if result["tombstone"] is not None:
+            return self.success_response(data={"tombstone": result["tombstone"]}, message=result["message"])
+        return self.success_response(message=result["message"])
+
+    @_admin_guarded("preset_admin_failed", "Failed to load the preset")
+    async def get_admin_detail(self, preset_id: str, current_user: User) -> APIResponse:
+        data = await asyncio.to_thread(operations.get_admin_detail, self.collaborators, preset_id)
+        return self.success_response(data=data)
+
+    @_admin_guarded("preset_display_failed", "Failed to save the preset's name, description and cover")
+    async def set_display(self, preset_id: str, payload: Any, current_user: User) -> APIResponse:
+        data = await asyncio.to_thread(operations.set_display, self.collaborators, preset_id, payload)
+        return self.success_response(data=data)
+
+    @_admin_guarded("preset_cover_failed", "Failed to upload the cover")
+    async def upload_display_cover(
+        self, preset_id: str, filename: str, content: bytes, current_user: User
+    ) -> APIResponse:
+        data = await asyncio.to_thread(
+            operations.upload_display_cover, self.collaborators, preset_id, filename, content
+        )
+        return self.success_response(data=data)
+
+    @_admin_guarded("mirror_create_failed", "Failed to create the mirror")
+    async def create_mirror(self, preset_id: str, payload: Any, current_user: User) -> APIResponse:
+        data = await asyncio.to_thread(operations.create_mirror, self.collaborators, preset_id, payload)
+        return self.success_response(data=data)
+
+    @_admin_guarded("mirror_modes_failed", "Failed to save the mirror's modes")
+    async def set_mirror_modes(self, preset_id: str, payload: Any, current_user: User) -> APIResponse:
+        data = await asyncio.to_thread(operations.set_mirror_modes, self.collaborators, preset_id, payload)
+        return self.success_response(data=data)
 
     @_guarded("preset_assignment_failed", "Failed to assign preset")
     async def assign_preset_to_users(
@@ -354,9 +422,9 @@ class PresetController(BaseController):
         return self.success_response(data=data)
 
     @_guarded("preset_configuration_get_failed", "Failed to get preset configuration")
-    async def get_preset_configuration(self, preset_id: str) -> APIResponse:
+    async def get_preset_configuration(self, preset_id: str, current_user: User) -> APIResponse:
         """Get a preset's declared configuration schema merged with its stored values."""
-        data = operations.get_preset_configuration(self.collaborators, preset_id)
+        data = operations.get_preset_configuration(self.collaborators, preset_id, current_user)
         return self.success_response(data=data)
 
     @_guarded("preset_configuration_set_failed", "Failed to set preset configuration")
@@ -398,6 +466,10 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = container.preset_controller
     router = APIRouter(prefix="/api/presets", tags=["Presets"])
 
+    def preset_access(preset_id: str, current_user: User = Depends(get_current_active_user)) -> User:
+        controller.require_preset_access(preset_id, current_user)
+        return current_user
+
     @router.get("", response_model=APIResponse, summary="List Presets")
     async def list_presets(
         include_uninstalled: bool = False,
@@ -433,7 +505,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.push_recent_preset(preset_id, current_user)
 
     @router.get("/{preset_id}", response_model=APIResponse, summary="Get Preset Details")
-    async def get_preset(preset_id: str, current_user=Depends(get_current_active_user)):
+    async def get_preset(preset_id: str, current_user=Depends(preset_access)):
         """Get detailed information about a specific preset including its configuration."""
         return await controller.get_preset(preset_id, current_user)
 
@@ -468,7 +540,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         tasks: Optional[str] = None,
         model_types: Optional[str] = None,
         unquantized_only: bool = False,
-        current_user=Depends(get_current_active_user)
+        current_user=Depends(preset_access)
     ):
         """List models loadable by this preset's engine, each badged with the backends holding it.
 
@@ -488,22 +560,22 @@ def build_router(container: "AppContainer") -> APIRouter:
         )
 
     @router.get("/{preset_id}/modes", response_model=APIResponse, summary="Get Preset Modes")
-    async def get_preset_modes(preset_id: str, current_user=Depends(get_current_active_user)):
+    async def get_preset_modes(preset_id: str, current_user=Depends(preset_access)):
         """Get available generation modes (txt2img, img2img, etc.) for a specific preset."""
         return await controller.get_available_modes(preset_id, current_user)
 
     @router.get("/{preset_id}/form", response_model=APIResponse, summary="Get Form Schema")
-    async def get_preset_form_schema(preset_id: str, mode: str = None, form_name: str = None, current_user=Depends(get_current_active_user)):
+    async def get_preset_form_schema(preset_id: str, mode: str = None, form_name: str = None, current_user=Depends(preset_access)):
         """Get the dynamic form schema for a preset, including field definitions and validation rules."""
         return await controller.get_form_schema(preset_id, mode, form_name)
 
     @router.get("/{preset_id}/pipes", response_model=APIResponse, summary="Get Pipeline Configuration")
-    async def get_preset_pipes(preset_id: str, mode: str = "txt2img", current_user=Depends(get_current_active_user)):
+    async def get_preset_pipes(preset_id: str, mode: str = "txt2img", current_user=Depends(preset_access)):
         """Get the pipeline configuration and pipe connections for a preset and mode."""
         return await controller.get_pipeline(preset_id, mode)
 
     @router.post("/{preset_id}/pipes", response_model=APIResponse, summary="Get Pipeline with Form Data")
-    async def get_preset_pipes_with_form_data(preset_id: str, request: Dict[str, Any], mode: str = "txt2img", current_user=Depends(get_current_active_user)):
+    async def get_preset_pipes_with_form_data(preset_id: str, request: Dict[str, Any], mode: str = "txt2img", current_user=Depends(preset_access)):
         """Get pipeline configuration evaluated with specific form data for dynamic pipe configuration."""
         form_data = request.get('form_data', {})
         return await controller.get_pipeline(preset_id, mode, form_data)
@@ -522,6 +594,35 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def uninstall_preset(preset_id: str, current_user: User = Depends(get_current_active_user)):
         """Uninstall a preset (admin only) - removes all user assignments."""
         return await controller.uninstall_preset(preset_id, current_user)
+
+    @router.get("/{preset_id}/admin", response_model=APIResponse, summary="Get Preset Admin Detail")
+    async def get_preset_admin_detail(preset_id: str, current_user: User = Depends(get_current_admin_user)):
+        return await controller.get_admin_detail(preset_id, current_user)
+
+    @router.put("/{preset_id}/display", response_model=APIResponse, summary="Set Preset Name, Description and Cover")
+    async def set_preset_display(
+        preset_id: str, request: Any = Body(None), current_user: User = Depends(get_current_admin_user)
+    ):
+        return await controller.set_display(preset_id, request, current_user)
+
+    @router.post("/{preset_id}/display/cover", response_model=APIResponse, summary="Upload Preset Cover")
+    async def upload_preset_cover(
+        preset_id: str, file: UploadFile = File(...), current_user: User = Depends(get_current_admin_user)
+    ):
+        content = await file.read(COVER_UPLOAD_MAX_BYTES + 1)
+        return await controller.upload_display_cover(preset_id, file.filename or "", content, current_user)
+
+    @router.post("/{preset_id}/mirrors", response_model=APIResponse, status_code=201, summary="Create Preset Mirror")
+    async def create_preset_mirror(
+        preset_id: str, request: Any = Body(None), current_user: User = Depends(get_current_admin_user)
+    ):
+        return await controller.create_mirror(preset_id, request, current_user)
+
+    @router.put("/{preset_id}/modes", response_model=APIResponse, summary="Set Mirror Modes")
+    async def set_preset_mirror_modes(
+        preset_id: str, request: Any = Body(None), current_user: User = Depends(get_current_admin_user)
+    ):
+        return await controller.set_mirror_modes(preset_id, request, current_user)
 
     @router.post("/{preset_id}/assign", response_model=APIResponse, summary="Assign Preset to Users")
     async def assign_preset_to_users(preset_id: str, request: Dict[str, Any], current_user: User = Depends(get_current_active_user)):
@@ -542,7 +643,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/{preset_id}/configuration", response_model=APIResponse, summary="Get Preset Configuration")
     async def get_preset_configuration(preset_id: str, current_user: User = Depends(get_current_active_user)):
         """Get a preset's declared `configuration:` schema merged with its stored admin-set values."""
-        return await controller.get_preset_configuration(preset_id)
+        return await controller.get_preset_configuration(preset_id, current_user)
 
     @router.put("/{preset_id}/configuration", response_model=APIResponse, summary="Set Preset Configuration")
     async def set_preset_configuration(

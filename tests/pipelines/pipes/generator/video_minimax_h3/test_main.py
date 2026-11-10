@@ -26,13 +26,12 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     visual_latent_cache_key,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.layout import (
-    TEXT_TAG,
     ReferenceBlock,
     build_packed_sequence,
     build_ref2va_packed_sequence,
     build_row_timesteps,
-    unpatchify_video_rows,
 )
+from src.platform.runtime.native.arch.minimax_h3.packing import TEXT_TAG, unpatchify_video_rows
 from src.pipelines.pipes.generator.video_minimax_h3.main import (
     AUDIO_LATENT_CHANNELS,
     GeneratorMinimaxH3Pipe,
@@ -2305,7 +2304,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     head_frames_for_latents,
     video_latent_num_frames,
 )
-from src.pipelines.pipes.generator.video_minimax_h3.layout import patchify_video_latents
+from src.platform.runtime.native.arch.minimax_h3.packing import patchify_video_latents
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import KEYFRAME_NOISE_AUG, scale_noise
 from src.pipelines.pipes.generator.video_minimax_h3.windows import DirectorPlanError, build_director_plan
 

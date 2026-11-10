@@ -50,6 +50,9 @@
 				onclick={() => onSelect(item.id)}
 			>
 				{item.label}
+				{#if variant === 'toggle' && item.count !== undefined}
+					<span class="ml-1 font-mono tabular-nums text-signal">{item.count}</span>
+				{/if}
 			</button>
 		{/each}
 	</div>

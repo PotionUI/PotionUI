@@ -21,12 +21,17 @@ class PresetNameResolver:
         names: Dict[str, str] = {}
         for preset in self.preset_loader.all():
             names.setdefault(preset.id, preset.name)
+        for preset_id, name in self.preset_loader.retired_names.items():
+            names.setdefault(preset_id, name)
         return names
 
     def resolve(self, preset_id: Optional[str], default: Optional[str] = None) -> Optional[str]:
         if not preset_id:
             return default
         preset = self.preset_loader.get(preset_id)
-        if preset is None:
-            return default if default is not None else preset_id
-        return preset.name
+        if preset is not None:
+            return preset.name
+        retired = self.preset_loader.retired_name(preset_id)
+        if retired is not None:
+            return retired
+        return default if default is not None else preset_id

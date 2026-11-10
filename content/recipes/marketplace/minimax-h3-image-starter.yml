@@ -1,0 +1,140 @@
+########
+## Setup recipe: MiniMax-H3-Image on the native engine
+##
+## WEIGHTS LICENSE: the MiniMax-H3-Image Community License Agreement's
+## Applicable Territory EXCLUDES the European Union, the United Kingdom, the
+## Republic of Korea and the United States of America, and the licence forbids
+## using the weights or their outputs outside that territory. Separate written
+## authorisation from MiniMax is required above US$1 million annualised revenue
+## or for a hosted service offered to third parties. See
+## content/presets/marketplace/MiniMax-H3-Image/description.md and
+## docs/models/minimax_h3_image.md before enabling this recipe.
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py).
+########
+schema_version: 1
+id: "minimax-h3-image-starter"
+version: 1
+name: "MiniMax-H3-Image Starter"
+engine: "native"
+category: "image"
+summary: "Get a working MiniMax-H3-Image setup on your local GPU and produce a first image."
+description: >
+  Installs the bundled MiniMax-H3-Image preset on the native (in-process)
+  engine, makes sure its three model files are available, and proves the
+  pipeline is wired up correctly before handing you a ready-to-use preset
+  (see docs/models/minimax_h3_image.md). The recipe pins the int8 ConvRot DiT,
+  the nvfp4 Qwen3-VL-32B text encoder (the same file MiniMax-H3 uses) and the
+  MiniMax-H3-Image VAE. The three files together are a real download
+  (~36 GB); a 32 GB GPU and 64 GB of system RAM are recommended.
+
+  WEIGHTS LICENSE: MiniMax-H3-Image is published under the MiniMax-H3-Image
+  Community License Agreement. Its Applicable Territory EXCLUDES the European
+  Union, the United Kingdom, the Republic of Korea and the United States of
+  America, and the licence does not allow the weights or their outputs to be
+  used outside that territory. Separate, prior written authorization from
+  MiniMax is required when annualized revenue exceeds US$1 million or when
+  you provide a hosted service to third parties, and redistributing the
+  weights requires the NOTICE line "MiniMax-H3-Image is licensed under the
+  MiniMax-H3-Image Community License Agreement, Copyright © 2026 MiniMax. All
+  Rights Reserved." MiniMax claims no rights over the outputs you generate.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion model, text encoder and VAE from HuggingFace
+      (Comfy-Org's MiniMax-H3-Image and MiniMax-H3 releases) by exact repo
+      path. HuggingFace has no hash-lookup API, so each artifact names its
+      file explicitly; the sha256 in each recommendation still verifies the
+      download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts: []
+presets:
+  - preset_id: "01M732Q89GSPYP058BTVGJDR89"
+    path_hint: "marketplace/MiniMax-H3-Image"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01M732Q89GSPYP058BTVGJDR89"
+  mode: "txt2img"
+  prompt: "a small red boat on a calm lake at sunset, photograph"
+  seed: 12345
+  form:
+    resolution: "2048x2048"
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
+    params:
+      preset_id: "01M732Q89GSPYP058BTVGJDR89"
+      modes: "all"
+      selected: ["txt2img"]
+      locked: ["txt2img"]
+      extras: "offer"
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the files"
+    params:
+      plan: "modes.plan"
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the MiniMax-H3-Image preset"
+    params:
+      preset_id: "01M732Q89GSPYP058BTVGJDR89"
+
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01M732Q89GSPYP058BTVGJDR89"
+      plan: "modes.plan"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
+    params:
+      preset_id: "01M732Q89GSPYP058BTVGJDR89"
+      mode: "txt2img"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    onboarding_only: true
+    params: {}

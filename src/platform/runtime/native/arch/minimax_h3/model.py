@@ -459,15 +459,17 @@ class MiniMaxH3FinalLayer(nn.Module):
     trivially auditable against each other.
     """
 
-    def __init__(self, hidden_size: int, t_dim: int, video_dim: int, audio_dim: int, eps: float,
-                 apply_silu: bool, operations, dtype=None, device=None) -> None:
+    def __init__(self, hidden_size: int, t_dim: int, video_dim: int, audio_dim: int | None, eps: float,
+                 apply_silu: bool, operations, dtype=None, device=None, pdd_steps: int = 1) -> None:
         super().__init__()
         self.norm = operations.RMSNorm(hidden_size, eps=eps, dtype=dtype, device=device)
         self.adaln_proj = MiniMaxH3AdalnProj(t_dim, hidden_size, 2, 1, apply_silu, operations, dtype=dtype, device=device)
         self.operations = operations
         # The output heads are one of this checkpoint's fp32 islands.
-        self.video_out = operations.Linear(hidden_size, video_dim, bias=True, dtype=torch.float32, device=device)
-        self.audio_out = operations.Linear(hidden_size, audio_dim, bias=True, dtype=torch.float32, device=device)
+        self.video_out = operations.Linear(hidden_size, video_dim * pdd_steps, bias=True, dtype=torch.float32, device=device)
+        self.audio_out = None
+        if audio_dim is not None:
+            self.audio_out = operations.Linear(hidden_size, audio_dim, bias=True, dtype=torch.float32, device=device)
 
     def forward(self, x: Tensor, temb: Tensor, timestep_indices: Tensor) -> tuple[Tensor, Tensor]:
         # split shift-then-scale, indexed by TIMESTEP only (not modality).
@@ -537,8 +539,10 @@ class MiniMaxH3Model(NativeArchModule):
         # stack's own (usually bf16) dtype.
         self.video_patch_proj = operations.Linear(video_patch_dim, hidden_size, bias=True,
                                                     dtype=torch.float32, device=device)
-        self.audio_patch_proj = operations.Linear(config.audio_in_channels, hidden_size, bias=True,
-                                                    dtype=torch.float32, device=device)
+        self.audio_patch_proj = None
+        if config.audio_in_channels is not None:
+            self.audio_patch_proj = operations.Linear(config.audio_in_channels, hidden_size, bias=True,
+                                                        dtype=torch.float32, device=device)
         self.condition_proj = operations.Linear(config.text_dim, hidden_size, bias=True, dtype=dtype, device=device)
 
         # 2. Timestep embedding, shared by every AdaLN projection (blocks + final
@@ -583,7 +587,7 @@ class MiniMaxH3Model(NativeArchModule):
         # 6. Shared output norm + the two per-modality output heads.
         self.final_layer = MiniMaxH3FinalLayer(
             hidden_size, config.time_embed_dim, video_patch_dim, config.audio_in_channels,
-            config.final_norm_eps, apply_silu, operations, dtype=dtype, device=device,
+            config.final_norm_eps, apply_silu, operations, dtype=dtype, device=device, pdd_steps=config.pdd_steps,
         )
 
         # Load-time contract: every non-VAE arch module exposes patch_size.

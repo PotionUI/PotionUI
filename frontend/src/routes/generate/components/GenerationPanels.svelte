@@ -29,6 +29,7 @@
 	import type { GenerationTab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
+	import type { RegionalCaps } from '$lib/regional/regions';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import type { PresetInfo, PresetStyle } from '$lib/services/api/index';
@@ -36,6 +37,7 @@
 	export let tab: GenerationTab;
 	export let tabHandlers: any;
 	export let promptRelayActive: boolean;
+	export let regionalCaps: RegionalCaps | null = null;
 	export let videoDirectorActive: boolean = false;
 	export let videoDirectorCaps: DirectorCapabilities | null = null;
 	export let musicDirectorActive: boolean = false;
@@ -70,6 +72,7 @@
 	export let onWorkbenchNext: () => void;
 	export let onWorkbenchHeightChange: (event: CustomEvent<string>) => void;
 	export let onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
+	export let onDeleteGeneration: ((tabId: string) => void) | null = null;
 
 	export let presets: PresetInfo[] = [];
 
@@ -318,6 +321,7 @@
 					{tab}
 					{tabHandlers}
 					{promptRelayActive}
+					{regionalCaps}
 					{videoDirectorActive}
 					{videoDirectorCaps}
 					{musicDirectorActive}
@@ -393,6 +397,7 @@
 							{onWorkbenchNext}
 							{onWorkbenchHeightChange}
 							{onMoveToWorkbench}
+							{onDeleteGeneration}
 						/>
 					{/if}
 				{/if}
@@ -427,6 +432,7 @@
 							{tab}
 							{tabHandlers}
 							{promptRelayActive}
+							{regionalCaps}
 							{videoDirectorActive}
 							{videoDirectorCaps}
 							{musicDirectorActive}
@@ -476,6 +482,7 @@
 								{onWorkbenchNext}
 								{onWorkbenchHeightChange}
 								{onMoveToWorkbench}
+								{onDeleteGeneration}
 							/>
 						{/if}
 					{/if}
@@ -485,6 +492,7 @@
 							{tab}
 							{tabHandlers}
 							{promptRelayActive}
+							{regionalCaps}
 							{videoDirectorActive}
 							{videoDirectorCaps}
 							{musicDirectorActive}
@@ -527,6 +535,7 @@
 		{onWorkbenchNext}
 		{onWorkbenchHeightChange}
 		{onMoveToWorkbench}
+		{onDeleteGeneration}
 		onClose={closeFloatingGenerationWorkbench}
 		onResizeWidth={resizeFloatingGenerationWorkbench}
 		closeShortcut={$shortcutLabels['toggle_floating_workbench']}

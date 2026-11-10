@@ -85,7 +85,8 @@ from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     head_frames_for_latents,
     resolve_canvas_size,
 )
-from src.pipelines.pipes.generator.video_minimax_h3.layout import ReferenceBlock, patchify_video_latents
+from src.pipelines.pipes.generator.video_minimax_h3.layout import ReferenceBlock
+from src.platform.runtime.native.arch.minimax_h3.packing import patchify_video_latents
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import KEYFRAME_NOISE_AUG, scale_noise
 
 Tensor = torch.Tensor

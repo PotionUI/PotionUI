@@ -4,6 +4,7 @@
 	import { presetRequirementsBadge } from '$lib/utils/presetRequirementsBadge';
 	import { presetVramLabel } from './presetFilters';
 	import PresetCoverTile from './PresetCoverTile.svelte';
+	import { isUnavailableMirror, mirrorCountLabel, mirrorStateCopy } from './presetMirrorState';
 	import type { PresetInfo } from '$lib/types/api';
 
 	const VISIBLE_TAGS = 2;
@@ -11,11 +12,13 @@
 	let {
 		preset,
 		installing = false,
+		sourceName = null,
 		onOpen,
 		onInstall
 	}: {
 		preset: PresetInfo;
 		installing?: boolean;
+		sourceName?: string | null;
 		onOpen: (preset: PresetInfo) => void;
 		onInstall: (preset: PresetInfo) => void;
 	} = $props();
@@ -25,6 +28,9 @@
 	const shownTags = $derived((preset.tags ?? []).slice(0, VISIBLE_TAGS));
 	const hiddenTagCount = $derived(Math.max(0, (preset.tags ?? []).length - VISIBLE_TAGS));
 	const recipeNames = $derived((preset.recipes ?? []).map((recipe) => recipe.name).join(', '));
+	const unavailable = $derived(isUnavailableMirror(preset));
+	const stateCopy = $derived(mirrorStateCopy(preset.mirror_state));
+	const mirrorsLabel = $derived(mirrorCountLabel(preset.mirror_count));
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Enter' || event.key === ' ') {
@@ -46,6 +52,7 @@
 	role="button"
 	tabindex="0"
 	data-preset-card
+	data-preset-mirror={preset.is_mirror ? (preset.mirror_state ?? 'ok') : undefined}
 	data-cover-host
 	aria-label={preset.name}
 	onclick={() => onOpen(preset)}
@@ -65,11 +72,16 @@
 		<Tooltip text={preset.name} wrapperClass="flex w-full min-w-0">
 			<h3 class="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{preset.name}</h3>
 		</Tooltip>
+		{#if preset.is_mirror}
+			<p class="truncate text-xs text-fg-muted" data-mirror-source>Mirror of {sourceName ?? preset.source_preset_id ?? 'a missing preset'}</p>
+		{/if}
 
 		<div class="flex flex-wrap items-center gap-1.5">
 			{#if preset.engine}<Badge size="sm" variant="signal">{preset.engine}</Badge>{/if}
-			<Badge size="sm" class="font-mono tabular-nums">v{preset.version}</Badge>
-			{#if preset.installed}
+			{#if preset.version}<Badge size="sm" class="font-mono tabular-nums">v{preset.version}</Badge>{/if}
+			{#if unavailable && stateCopy}
+				<span data-mirror-state-badge><Badge size="sm" variant="warning" dot>{stateCopy.label}</Badge></span>
+			{:else if preset.installed}
 				<Badge size="sm" variant="success" dot>installed</Badge>
 			{:else if requirementsBadge}
 				<Badge size="sm" variant={requirementsBadge.variant}>{requirementsBadge.label}</Badge>
@@ -81,7 +93,14 @@
 					<span data-preset-recipe-badge><Badge size="sm" variant="info">Recipe</Badge></span>
 				</Tooltip>
 			{/if}
+			{#if mirrorsLabel}
+				<span data-preset-mirror-count><Badge size="sm" class="font-mono tabular-nums">{mirrorsLabel}</Badge></span>
+			{/if}
 		</div>
+
+		{#if unavailable && stateCopy}
+			<p class="line-clamp-3 text-xs text-fg-muted" data-mirror-state-text>{stateCopy.description}</p>
+		{/if}
 
 		{#if shownTags.length}
 			<div class="flex flex-wrap gap-1">

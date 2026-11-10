@@ -5,6 +5,8 @@
 	import CollectionActionsMenu from '$lib/components/collections/CollectionActionsMenu.svelte';
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
 	import { buildSmartViews, createFilterSelection } from '$lib/components/collections/scopeActions';
+	import { createEntriesActions } from '$lib/components/collections/deleteEntries';
+	import { api } from '$lib/services/api/index';
 
 	let allView: SmartView;
 	let favoritesView: SmartView;
@@ -57,7 +59,12 @@
 		onCreate: (name, parentId) => collectionsStore.create(name, parentId),
 		onDelete: handleDelete,
 		onMove: (id, parentId) => collectionsStore.move(id, parentId),
-		onBulkMove: (ids, parentId) => collectionsStore.bulkMove(ids, parentId)
+		onBulkMove: (ids, parentId) => collectionsStore.bulkMove(ids, parentId),
+		entries: createEntriesActions(
+			'history',
+			{ list: (scope, directOnly) => api.listCollections(scope, directOnly), deleteEntries: (id) => api.deleteCollectionEntries(id) },
+			() => Promise.all([historyStore.loadGenerations(), collectionsStore.load()])
+		)
 	};
 </script>
 

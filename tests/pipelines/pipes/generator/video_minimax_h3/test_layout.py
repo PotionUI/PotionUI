@@ -15,13 +15,15 @@ import pytest
 import torch
 
 from src.pipelines.pipes.generator.video_minimax_h3.layout import (
-    AUDIO_TAG,
-    TEXT_TAG,
-    VIDEO_TAG,
     ReferenceBlock,
     build_packed_sequence,
     build_ref2va_packed_sequence,
     build_row_timesteps,
+)
+from src.platform.runtime.native.arch.minimax_h3.packing import (
+    AUDIO_TAG,
+    TEXT_TAG,
+    VIDEO_TAG,
     patchify_video_latents,
     unpatchify_video_rows,
 )

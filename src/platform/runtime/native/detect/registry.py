@@ -674,6 +674,23 @@ _VENDORED_SPECS: list[ModelSpec] = [
         memory_cost_gb=20.0,
         reference_dtype="bfloat16",
     ),
+    ModelSpec(
+        family="minimax_h3_image",
+        variant="h3_image",
+        signature={"image_model": "minimax_h3_image"},
+        model_class="src.platform.runtime.native.arch.minimax_h3.image:MiniMaxH3ImageModel",
+        state_dict_map="src.platform.runtime.native.arch.minimax_h3.image:convert_minimax_h3_image_state_dict",
+        sampling_settings={
+            "prediction": "const",
+            "guidance": "flow_map",
+            "default_steps": 6,
+            "schedule": "h3_image_pdd",
+        },
+        latent_format={"latent_channels": 24, "format": "minimax_h3", "spatial_downscale": 16},
+        expected_unexpected_keys={"*.comfy_quant", *_SIDECAR_GLOBS},
+        memory_cost_gb=21.0,
+        reference_dtype="bfloat16",
+    ),
     # MiniMax-Music3 flow-matching DiT + fused condition encoder (text-to-music
     # only -- see the preset's `vars.music_director` contract). ``latent_channels``
     # is 128 like LTX's video latent, purely by coincidence of channel count;

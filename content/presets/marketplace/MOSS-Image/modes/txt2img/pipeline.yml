@@ -18,9 +18,18 @@ pipeline:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
 
+  - name: "regional_prompt/moss_image"
+    id: "regional_prompt"
+    enabled: "{{ (form.regional_prompt | default({})).enabled | default(false) }}"
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      regional_prompt: "{{ form.regional_prompt | default({}) }}"
+      resolution: "{{ form.resolution }}"
+
   - name: "prompt_encoder"
     input:
       - ["text_encoder", "model_loader/moss_image", "text_encoder"]
+      - ["pairs", "regional_prompt", "pairs"]
     enabled: true
     configuration:
       p_prompt:

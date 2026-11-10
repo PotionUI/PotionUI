@@ -11,7 +11,8 @@ describe('resolveRequestContext', () => {
 			videoDirectorCaps: null,
 			videoDirectorActive: false,
 			musicDirectorCaps: null,
-			musicDirectorActive: false
+			musicDirectorActive: false,
+			regionalCaps: null
 		});
 	});
 
@@ -53,5 +54,24 @@ describe('createRequestContextCache', () => {
 
 		expect(contextFor('p', { optional_prompt_modes: [] }, 'recast').promptOptionalActive).toBe(false);
 		expect(contextFor('p', { optional_prompt_modes: ['recast'] }, 'recast').promptOptionalActive).toBe(true);
+	});
+});
+
+describe('regional prompt caps', () => {
+	const vars = { regional_prompt: { modes: ['txt2img'], size_field: 'resolution' } };
+
+	it('resolves for a listed mode only', () => {
+		expect(resolveRequestContext(vars, 'txt2img').regionalCaps).toEqual({ sizeField: 'resolution' });
+		expect(resolveRequestContext(vars, 'inpaint').regionalCaps).toBeNull();
+		expect(resolveRequestContext({}, 'txt2img').regionalCaps).toBeNull();
+	});
+
+	it('is part of the memo key', () => {
+		const contextFor = createRequestContextCache();
+		expect(contextFor('p', {}, 'txt2img').regionalCaps).toBeNull();
+		expect(contextFor('p', vars, 'txt2img').regionalCaps).toEqual({ sizeField: 'resolution' });
+		expect(contextFor('p', { regional_prompt: { modes: ['txt2img'], size_field: 'size' } }, 'txt2img').regionalCaps).toEqual({
+			sizeField: 'size'
+		});
 	});
 });

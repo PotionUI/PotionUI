@@ -5,6 +5,8 @@
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { toasts } from '$lib/stores/toast';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { showDeleteError } from '$lib/elixirs/openBrew';
+	import { runDeleteEntries } from './deleteEntries';
 	import type { OrganizeCollectionScope } from '$lib/types/organize';
 	import CollectionRulesLink from './CollectionRulesLink.svelte';
 	import CollectionNameDialog from './CollectionNameDialog.svelte';
@@ -51,6 +53,19 @@
 		const result = await treeActions.onCreate(name, item.id);
 		if (result.success) onChildCreated?.(item.id);
 		return result;
+	}
+
+	function deleteEntries() {
+		const entries = treeActions.entries;
+		if (!entries) return;
+		const hasSubcollections = collections.some((collection) => collection.parent_id === item.id);
+		void runDeleteEntries({ id: item.id, name: item.name, hasSubcollections }, entries, {
+			confirm: confirmDialog,
+			success: (message) => toasts.success(message),
+			info: (message) => toasts.info(message),
+			error: (message) => toasts.error(message),
+			failed: (error) => showDeleteError(error, 'Failed to delete entries.')
+		});
 	}
 
 	async function remove() {
@@ -119,6 +134,12 @@
 			<CollectionRulesLink scope={rulesScope} collectionId={item.id} />
 		{/if}
 		<div class="mx-1 my-[5px] h-px bg-line" role="separator"></div>
+		{#if treeActions.entries}
+			<button type="button" role="menuitem" class="{MENU_ITEM_CLASS} text-danger" onclick={() => run(close, deleteEntries)}>
+				<Icon name="trash" className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+				Delete entries…
+			</button>
+		{/if}
 		<button type="button" role="menuitem" class="{MENU_ITEM_CLASS} text-danger" onclick={() => run(close, () => void remove())}>
 			<Icon name="trash" className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
 			Delete collection…

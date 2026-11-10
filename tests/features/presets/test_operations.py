@@ -20,6 +20,7 @@ from src.features.presets.exceptions import (
     PermissionDeniedException,
     InvalidModeDataException,
 )
+from src.features.presets.records import Preset
 from src.features.presets.templates import PipeTemplate, ModeTemplate, GenerationMode
 from src.platform.security.user import User, AccountType
 from tests.fixtures.prompt_source_plugin import fake_prompt_source
@@ -168,6 +169,7 @@ class TestPresetOperationsQuery:
         mock_db_repo.get_installed_preset_summaries.return_value = {
             "preset-1": ("installed-preset-1", 5, 2),
         }
+        mock_db_repo.get_all_installed_presets.return_value = [Preset(preset_id="preset-1", id="installed-preset-1")]
 
         result = operations.list_presets(collaborators, admin_user, include_uninstalled=True)
 
@@ -672,14 +674,16 @@ class TestPresetOperationsInstallation:
 
     def test_uninstall_preset_success(self, collaborators, admin_user):
         """Test uninstalling preset successfully."""
-        collaborators.db_repo.is_preset_installed.return_value = True
+        collaborators.db_repo.get_installed_preset_by_preset_id.return_value = Preset(preset_id="test-preset", id="row-1")
+        collaborators.db_repo.mirrors_of.return_value = []
         collaborators.db_repo.get_preset_assignment_summary.return_value = {"total_assignments": 3}
         collaborators.db_repo.uninstall_preset.return_value = True
 
         result = operations.uninstall_preset(collaborators, "test-preset", admin_user)
 
-        assert "uninstalled successfully" in result
-        assert "3 user assignments" in result
+        assert "uninstalled successfully" in result["message"]
+        assert "3 user assignments" in result["message"]
+        assert result["tombstone"] is None
 
     def test_uninstall_preset_permission_denied(self, collaborators, regular_user):
         """Test uninstalling preset as regular user."""
@@ -688,7 +692,7 @@ class TestPresetOperationsInstallation:
 
     def test_uninstall_preset_not_installed(self, collaborators, admin_user):
         """Test uninstalling non-installed preset."""
-        collaborators.db_repo.is_preset_installed.return_value = False
+        collaborators.db_repo.get_installed_preset_by_preset_id.return_value = None
 
         with pytest.raises(PresetNotInstalledException):
             operations.uninstall_preset(collaborators, "test-preset", admin_user)

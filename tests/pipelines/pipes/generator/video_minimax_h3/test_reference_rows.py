@@ -11,7 +11,7 @@ from PIL import Image
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import ReferenceMedia
-from src.pipelines.pipes.generator.video_minimax_h3.layout import TEXT_TAG
+from src.platform.runtime.native.arch.minimax_h3.packing import TEXT_TAG
 from src.pipelines.pipes.generator.video_minimax_h3.main import GeneratorMinimaxH3Pipe, _MiniMaxH3Ctx
 from src.pipelines.pipes.generator.video_minimax_h3.windows import build_director_plan
 from src.platform.runtime.native.arch.minimax_h3.config import MiniMaxH3Config

@@ -5,11 +5,13 @@ Handles collection CRUD and membership operations with thin route handlers
 delegating to controller methods. Mutations delegate to
 `src.features.collections.operations`.
 """
-from typing import TYPE_CHECKING
+import asyncio
+from typing import TYPE_CHECKING, Mapping
 from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.http.error_pipeline import soft_guarded
+from src.platform.http.error_pipeline import Fail, guarded, soft_guarded
+from src.platform.security.failure_text import failure_detail
 from src.platform.security.current_user import get_current_active_user
 from src.features.collections.dto import (
     CollectionScope,
@@ -38,9 +40,10 @@ class CollectionController(BaseController):
     scoped to the current user and to a 'history' | 'library' collection tree.
     """
 
-    def __init__(self, collection_repository: CollectionRepository):
+    def __init__(self, collection_repository: CollectionRepository, entry_deleters: Mapping[str, operations.EntryDeleter]):
         super().__init__()
         self.repository = collection_repository
+        self.entry_deleters = entry_deleters
 
     # ========== List Methods ==========
 
@@ -116,6 +119,16 @@ class CollectionController(BaseController):
         return self.success_response(data={
             "message": "Collection deleted successfully"
         })
+
+    @guarded(
+        fallback=Fail("delete_entries_failed", "Failed to delete collection entries", detail=failure_detail, status=400),
+        admin="user",
+    )
+    async def delete_entries(self, collection_id: str, user: User) -> APIResponse:
+        result = await asyncio.to_thread(
+            operations.delete_entries, self.repository, self.entry_deleters, collection_id, user.id
+        )
+        return self.success_response(data=result)
 
     # ========== Membership Methods ==========
 
@@ -261,6 +274,13 @@ def build_router(container: "AppContainer") -> APIRouter:
     ) -> APIResponse:
         """Delete a collection (cascade removes all memberships)."""
         return await controller.delete_collection(collection_id, scope, current_user)
+
+    @router.post("/{collection_id}/delete-entries", response_model=APIResponse, summary="Delete Collection Entries")
+    async def delete_entries(
+        collection_id: str,
+        current_user: User = Depends(get_current_active_user)
+    ) -> APIResponse:
+        return await controller.delete_entries(collection_id, current_user)
 
     @router.post("/{collection_id}/members", response_model=APIResponse, summary="Add Collection Members")
     async def add_members(

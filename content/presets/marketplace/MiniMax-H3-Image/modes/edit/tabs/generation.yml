@@ -1,0 +1,32 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+      - name: "match_picture_1"
+        type: "checkbox"
+        formula: "size"
+        label: "Same size as Picture 1"
+        default: true
+        ai_hint: "On: the result takes Picture 1's shape, scaled to 1024-2048 pixels on its short side. Off: use the Resolution below."
+
+      - name: "resolution"
+        type: "resolution"
+        formula: "size"
+        label: "Resolution"
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_image.yml", group: "MiniMax-H3-Image" }
+        default: "2048x2048"
+        reactions:
+          - when: { field: "match_picture_1", equals: true }
+            then: { set_disabled: true }
+          - when: { field: "match_picture_1", equals: false }
+            then: { set_disabled: false }
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models.yml"

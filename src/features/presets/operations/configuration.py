@@ -21,7 +21,7 @@ from src.platform.security.user import User, AccountType
 logger = logging.getLogger(__name__)
 
 
-def get_preset_configuration(collaborators: PresetCollaborators, preset_id: str) -> Dict[str, Any]:
+def get_preset_configuration(collaborators: PresetCollaborators, preset_id: str, admin: User) -> Dict[str, Any]:
     """Get a preset's declared configuration schema merged with its stored values.
 
     Returns `{"preset_id": ..., "entries": [{"key", "type", "label",
@@ -31,6 +31,9 @@ def get_preset_configuration(collaborators: PresetCollaborators, preset_id: str)
     Raises:
         PresetNotFoundException: If the preset is not found
     """
+    if admin.account_type != AccountType.ADMIN:
+        raise PermissionDeniedException("get_preset_configuration")
+
     found_preset = collaborators.file_repo.find_preset_by_id(preset_id)
     if not found_preset:
         raise PresetNotFoundException(preset_id)
@@ -102,4 +105,4 @@ def set_preset_configuration(
 
     logger.info(f"Preset '{preset_id}' configuration updated by admin {admin.id}: {sorted(values.keys())}")
 
-    return get_preset_configuration(collaborators, preset_id)
+    return get_preset_configuration(collaborators, preset_id, admin)

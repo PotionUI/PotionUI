@@ -1,0 +1,5 @@
+fields:
+  - name: "preview"
+    type: "checkbox"
+    label: "Live preview"
+    default: true

@@ -40,6 +40,7 @@ class TestMediaStore:
         resolver = Mock(spec=FilePathResolver)
         resolver.get_uploads_directory.return_value = Path("/tmp/uploads")
         resolver.get_storage_directory.return_value = "/tmp/storage"
+        resolver.preset_files_id.side_effect = lambda preset_id: preset_id
         return resolver
 
     @pytest.fixture
@@ -1132,3 +1133,31 @@ class TestMediaStore:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+def test_a_mirror_shares_its_source_thumbnail_cache_and_a_purge_clears_both(tmp_path):
+    preset_file = tmp_path / "cover.png"
+    Image.new("RGB", (800, 600)).save(preset_file)
+    resolver = Mock(spec=FilePathResolver)
+    resolver.get_storage_directory.return_value = str(tmp_path / "storage")
+    resolver.resolve_preset_file.return_value = preset_file
+    resolver.preset_files_id.side_effect = lambda preset_id: {"MIRROR": "krea2"}.get(preset_id, preset_id)
+    image_processor = Mock()
+    image_processor.generate_thumbnail.return_value = b"data"
+    settings = Mock(spec=Settings)
+    settings.get_file_storage_directory.return_value = str(tmp_path / "storage")
+    store = MediaStore(
+        file_resolver=resolver, image_processor=image_processor, media_type_resolver=MediaTypeResolver(),
+        file_repository=Mock(), generation_repository=Mock(), settings=settings,
+        file_service=Mock(), plugin_registry=Mock(),
+    )
+
+    source = store.get_preset_file("krea2", "public/cover.png", size="small")
+    mirror = store.get_preset_file("MIRROR", "public/cover.png", size="small")
+
+    assert mirror.file_path == source.file_path
+    assert Path(source.file_path).parent == tmp_path / "storage" / "preset_media" / "krea2"
+    assert image_processor.generate_thumbnail.call_count == 1
+    assert store.preset_render_is_current("MIRROR", "public/cover.png", "small")
+    store.purge_preset_thumbnail_cache("MIRROR")
+    assert not Path(source.file_path).exists()

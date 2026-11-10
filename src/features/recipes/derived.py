@@ -71,7 +71,7 @@ def derived_recipe_dict(preset: PresetTemplate, plugin_for: Callable[[str], Opti
     )
     return {
         "schema_version": 1,
-        "id": install_recipe_id(preset.name),
+        "id": install_recipe_id(preset.file_name or preset.name),
         "version": DERIVED_VERSION,
         "name": f"{preset.name} modes",
         "engine": DERIVED_ENGINE,
@@ -94,7 +94,9 @@ def build_derived_recipes(
     recipes: Dict[str, Recipe] = {}
     errors: Dict[str, List[str]] = {}
     taken = set(taken_ids or ())
-    for preset in sorted(presets, key=lambda p: (p.name or "", p.id)):
+    for preset in sorted(presets, key=lambda p: (p.file_name or p.name or "", p.id)):
+        if preset.source_preset_id is not None:
+            continue
         if (preset.engine or "") != DERIVED_ENGINE or not has_downloadable_modes(preset):
             continue
         data = derived_recipe_dict(preset, plugin_for)

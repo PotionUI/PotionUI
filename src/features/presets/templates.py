@@ -188,8 +188,14 @@ class PresetTemplate:
     prompt_syntax: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     formulas: Optional[Dict[str, Any]] = None
     negative_prompt: Optional[Dict[str, Any]] = None
+    source_preset_id: Optional[str] = None
+    file_name: Optional[str] = None
 
     def __post_init__(self):
         # Default to the built-in native engine if not specified
         if self.engine is None:
             self.engine = "native"
+
+
+def files_preset_id(template: PresetTemplate) -> str:
+    return template.source_preset_id or template.id

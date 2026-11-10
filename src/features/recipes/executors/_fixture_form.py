@@ -21,9 +21,11 @@ failure rules.
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Any, Dict, List, Optional
 
-from src.features.models.form_refs import make_model_ref
+from src.features.models.form_refs import is_model_ref, make_model_ref
+from src.features.models.recommendations import find_installed_model
 from src.features.presets.fixture_form import (
     MODEL_FIELD_TYPES,
     bind_fixture_form,
@@ -73,7 +75,9 @@ def _collect_model_field_specs(fields: List[Any]) -> List[Dict[str, Any]]:
                     for key in ("name", "sha256"):
                         if entry.get(key):
                             recommended.add(str(entry[key]).lower())
-            specs.append({"name": name, "model_type": model_type, "recommended": recommended})
+            specs.append(
+                {"name": name, "label": field_obj.label or name, "model_type": model_type, "recommended": recommended}
+            )
         if isinstance(field_obj.children, list):
             specs.extend(_collect_model_field_specs(field_obj.children))
     return specs
@@ -105,6 +109,18 @@ def _artifact_for_field(candidates: List[Any], recommended: set) -> Optional[Any
     return candidates[0]
 
 
+def _admin_default_ref(spec: Dict[str, Any], value: Any, model_repository: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    if is_model_ref(value):
+        return value
+    filename = PurePosixPath(value.replace("\\", "/")).name
+    model = find_installed_model(model_repository, spec["model_type"], filename) if model_repository is not None else None
+    if model is None:
+        raise RequiredModelMissing(spec["label"], filename)
+    return make_model_ref(model.id)
+
+
 def _resolve_model_fields(
     fields: List[Any],
     form_data: Dict[str, Any],
@@ -112,6 +128,7 @@ def _resolve_model_fields(
     recipe: Any,
     model_repository: Any,
     selections: Optional[Dict[str, str]] = None,
+    admin_defaults: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Replace every model-typed field's `/SETUP-CHECK` placeholder with a
     REAL indexed model's `file_path`, matched through the recipe's own
@@ -151,7 +168,7 @@ def _resolve_model_fields(
             continue  # already a real default/value - leave it alone
         artifact = _artifact_for_field(artifacts_by_type.get(spec["model_type"]) or [], spec["recommended"])
         if artifact is None:
-            form_data[name] = ""
+            form_data[name] = _admin_default_ref(spec, (admin_defaults or {}).get(name), model_repository)
             continue
         model = (
             find_slot_model(model_repository, artifact, (selections or {}).get(artifact.id))
@@ -172,6 +189,7 @@ def build_fixture_form_data(
     model_repository: Optional[Any] = None,
     selections: Optional[Dict[str, str]] = None,
     prompt: Optional[str] = None,
+    admin_defaults: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Fixture form data for `preset_template`'s `mode`, with `overrides`
     (e.g. a recipe's `smoke:` field values) applied on top before binding.
@@ -195,7 +213,8 @@ def build_fixture_form_data(
         if repo is None:
             from src.features.models.repository import model_repo as repo
         _resolve_model_fields(
-            fields, form_data, recipe=recipe, model_repository=repo, selections=selections
+            fields, form_data, recipe=recipe, model_repository=repo, selections=selections,
+            admin_defaults=admin_defaults,
         )
 
     if overrides:

@@ -143,6 +143,32 @@ class TestValidateFormOverrides:
         assert any("must be an object" in e for e in errors)
 
 
+class TestLoraListDefaults:
+    def _preset(self):
+        picker = _field("loras", type_="lora_picker", configuration={"strength_min": -1.0, "strength_max": 1.5, "max_items": 2})
+        return _preset({"txt2img": [FormTemplate(name="default", fields=[picker])]})
+
+    def _errors(self, default):
+        return validate_form_overrides(self._preset(), "txt2img", {"loras": {"default": default}})
+
+    def test_a_well_formed_lora_list_default_passes(self):
+        assert self._errors([{"model": "anime.safetensors", "strength": 0.8}, {"model": "model:01ABC", "strength": -1}]) == []
+        assert self._errors([]) == []
+
+    def test_a_lora_list_default_must_be_a_list_of_model_and_strength_entries(self):
+        assert self._errors("anime.safetensors")
+        assert self._errors([{"strength": 0.5}])
+        assert self._errors([{"model": "  ", "strength": 0.5}])
+        assert self._errors(["anime.safetensors"])
+        assert self._errors([{"model": "anime.safetensors"}])
+
+    def test_strengths_and_count_follow_the_field_limits(self):
+        assert self._errors([{"model": "a.safetensors", "strength": 2.0}])
+        assert self._errors([{"model": "a.safetensors", "strength": "0.5"}])
+        assert self._errors([{"model": "a.safetensors", "strength": True}])
+        assert self._errors([{"model": f"{i}.safetensors", "strength": 1} for i in range(3)])
+
+
 class TestBuildInventoryEntries:
     def test_entries_carry_preset_default_and_override(self):
         preset = _preset({

@@ -95,13 +95,16 @@ class TestUploadHasAlpha(LibraryTestBase):
         self.assertIs(row.has_alpha, False)
 
     def test_video_and_audio_leave_alpha_unknown(self):
-        with patch("src.features.media.store.media_probe") as probe:
+        with patch("src.features.media.store.media_probe") as probe, \
+             patch.object(self.store, "_schedule_upload_video_thumbnails") as schedule:
             probe.get_video_dimensions.return_value = (4, 4)
             probe.get_video_duration_fps.return_value = (1.0, 24.0)
             probe.get_audio_duration_seconds.return_value = 1.0
             video = self._upload(b"not really a video", "a.mp4", "video/mp4")
             audio = self._upload(b"not really audio", "a.wav", "audio/wav")
 
+        schedule.assert_called_once()
+        self.assertEqual(schedule.call_args.args[2], video.id)
         self.assertIsNone(video.has_alpha)
         self.assertIsNone(audio.has_alpha)
 

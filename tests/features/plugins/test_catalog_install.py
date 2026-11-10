@@ -579,6 +579,27 @@ async def test_an_update_whose_request_is_cancelled_while_the_files_move_finishe
     assert repo.get_plugin_by_id("demo").enabled is True
 
 
+async def test_an_update_whose_row_cannot_be_disabled_after_unpacking_leaves_no_staging_folder(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+
+    def locked(plugin_id):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(repo, "disable_plugin", locked)
+
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        await _install(repo, registry, catalog, "demo")
+
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+
+
 async def test_an_update_stopped_while_the_archive_is_unpacked_leaves_the_installed_version_enabled(plugins, catalog, monkeypatch):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

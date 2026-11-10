@@ -395,13 +395,17 @@ async def _install_downloaded(
     plugin_id = item.entry.id
     local_dir = local_plugin_dir(registry)
     staged = await asyncio.to_thread(_stage, data, item, local_dir, url)
-    was_enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
-    row_was_enabled = _row_enabled(repo, plugin_id)
-    if row_was_enabled:
-        repo.disable_plugin(plugin_id)
-    took_down_an_earlier_copy = item.status == "available" and was_enabled
-    if took_down_an_earlier_copy:
-        _disable(repo, registry, plugin_id, collaborators)
+    try:
+        was_enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
+        row_was_enabled = _row_enabled(repo, plugin_id)
+        if row_was_enabled:
+            repo.disable_plugin(plugin_id)
+        took_down_an_earlier_copy = item.status == "available" and was_enabled
+        if took_down_an_earlier_copy:
+            _disable(repo, registry, plugin_id, collaborators)
+    except BaseException:
+        await asyncio.to_thread(_discard_staging, staged.staging)
+        raise
     try:
         placement = await asyncio.to_thread(_place, staged, item, local_dir)
     except Exception as error:

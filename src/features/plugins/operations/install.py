@@ -314,6 +314,15 @@ def _left_in_place(item: CatalogItem, target: Path, reason: str) -> CatalogInsta
     )
 
 
+def _same_version(first: Optional[str], second: Optional[str]) -> bool:
+    if first == second:
+        return True
+    try:
+        return Version(str(first)) == Version(str(second))
+    except InvalidVersion:
+        return False
+
+
 def _row_enabled(repo: PluginRepository, plugin_id: str) -> bool:
     row = repo.get_plugin_by_id(plugin_id)
     return row is not None and bool(row.enabled)
@@ -351,7 +360,9 @@ async def _restore_previous(
             f"{message}, but the scan that followed failed ({type(error).__name__}: {error}), so {plugin_id} is disabled."
         ) from error
     restored = registry.get_plugin(plugin_id)
-    if restored is None or restored.version != item.installed_version or not _same_folder(restored.plugin_dir, target):
+    if restored is None or not _same_version(restored.version, item.installed_version) or not _same_folder(
+        restored.plugin_dir, target
+    ):
         _disable(repo, registry, plugin_id, collaborators)
         raise CatalogInstallError(f"{message}, but the scan did not pick it up, so {plugin_id} is disabled.")
     if was_enabled:

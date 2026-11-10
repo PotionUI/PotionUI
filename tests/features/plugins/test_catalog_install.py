@@ -814,6 +814,26 @@ async def test_an_update_of_a_disabled_plugin_whose_new_manifest_the_scan_skips_
     )
 
 
+async def test_a_restore_takes_a_recorded_version_written_another_way_for_the_same_version(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=False)
+    (local / "demo" / INSTALL_RECORD).write_text(json.dumps({"catalog": catalog.url(), "id": "demo", "version": "1.0"}))
+    catalog.publish("demo", "1.1.0")
+    _discovery_that_skips_demo_once(registry, monkeypatch)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert str(refused.value) == (
+        "demo 1.1.0 did not start (the scan did not find its manifest); the installed 1.0 is back in place."
+    )
+    assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
 def _discovery_that_raises_once(registry, monkeypatch) -> None:
     real_discover = registry.loader.discover_plugins
     calls = []

@@ -3405,7 +3405,8 @@ takes the new version as it is, since nothing runs it until it is enabled. If th
 folder cannot be moved back, or the server stops before the check, it stays in
 `content/plugins/local/.potionui-install/`, named in the answer when there is one, and the
 plugin is left disabled: its row is disabled from the move on, and enabled again only once
-the new version, or the old one put back, is running. After a rollback, the modules the
+the new version, or the old one put back, is running; an install cancelled after the move
+disables the plugin in the running server as well. After a rollback, the modules the
 failed version imported stay loaded until PotionUI restarts, and the answer says so.
 
 PotionUI installs no Python package. `dependencies.python` stays in the manifest; the

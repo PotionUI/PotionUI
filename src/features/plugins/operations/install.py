@@ -385,6 +385,9 @@ async def install_from_catalog(
             if row_was_enabled:
                 repo.enable_plugin(plugin_id)
             raise
+        except BaseException:
+            _disable(repo, registry, plugin_id, collaborators)
+            raise
         target = local_dir / plugin_id
         try:
             try:
@@ -401,6 +404,8 @@ async def install_from_catalog(
             if row_was_enabled and item.status == "update" and state == PluginState.ENABLED:
                 repo.enable_plugin(plugin_id)
         except BaseException:
+            if registry.get_plugin_state(plugin_id) == PluginState.ENABLED and not _row_enabled(repo, plugin_id):
+                _disable(repo, registry, plugin_id, collaborators)
             if placement.previous is None or not placement.previous.exists():
                 await asyncio.to_thread(_discard_staging, placement.staging)
             raise

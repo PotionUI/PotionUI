@@ -443,6 +443,53 @@ async def test_an_install_cancelled_once_the_new_code_is_in_place_leaves_the_plu
     assert repo.get_plugin_by_id("demo").enabled is False
 
 
+async def test_an_update_cancelled_once_the_new_code_is_in_place_is_not_enabled_by_the_next_scan(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    real_place = install_ops._place
+
+    def place(*args):
+        real_place(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(install_ops, "_place", place)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _install(repo, registry, catalog, "demo")
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    operations.scan_plugins(repo, registry)
+
+    assert registry.get_plugin("demo").version == "1.1.0"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
+async def test_an_update_whose_scan_raises_and_whose_put_back_is_cancelled_leaves_the_plugin_disabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    _a_page_route_owned_by_another_plugin(repo, registry, local)
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0", _archive_taking_that_route("demo", "1.1.0"))
+    real_put_back = install_ops._put_previous_back
+
+    def put_back(*args):
+        real_put_back(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(install_ops, "_put_previous_back", put_back)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
 @pytest.mark.parametrize("status", ["update", "available"])
 async def test_an_install_whose_placement_fails_leaves_the_row_as_it_was(plugins, catalog, status):
     registry, repo, _, local = plugins

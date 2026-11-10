@@ -367,6 +367,72 @@ def test_a_decode_that_hits_an_out_of_memory_error_is_retried_too(monkeypatch):
     assert calls == [3, 1, 1, 1]
 
 
+@pytest.mark.parametrize(("reading", "sized_by"), [(0.5, 0.5), (None, 0.0)])
+def test_a_second_vram_failure_one_latent_frame_at_a_time_falls_back_to_tiles_sized_by_a_fresh_reading(
+        monkeypatch, reading, sized_by):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
+    torch.manual_seed(0)
+    vae_module = _tiny_wan_vae()
+    latent = torch.randn(1, 16, 5, 4, 12)
+    whole = decode_wan_video(_ctx(vae_module), latent.clone())
+    real_decode = vae_module.decode
+    frames_per_call = []
+
+    def decode_failing_twice(z, **kw):
+        frames_per_call.append(z.shape[2])
+        if len(frames_per_call) == 1:
+            raise RuntimeError(DEVICE_NOT_READY)
+        if len(frames_per_call) == 2:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB")
+        return real_decode(z, **kw)
+
+    vae_module.decode = decode_failing_twice
+    readings = [100.0, reading]
+    sized = []
+    cleared = []
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: readings.pop(0))
+    monkeypatch.setattr(wan_experts, "causal3d_decode_tile", lambda latent_hw, free, **kw: sized.append(free) or 8)
+    monkeypatch.setattr(wan_experts, "_clear_card_for_decode", cleared.append)
+    c = _ctx(vae_module)
+
+    out = decode_wan_video(c, latent.clone())
+
+    assert frames_per_call == [5, 1] + [1] * 10
+    assert readings == []
+    assert sized == [sized_by]
+    assert cleared == [c, c]
+    assert out.shape == whole.shape
+    assert c.vae.offloads == 1
+
+
+def test_a_fatal_driver_oom_one_latent_frame_at_a_time_raises_without_trying_tiles(monkeypatch):
+    _fatal_driver_oom_policy(monkeypatch)
+    vae_module = _tiny_wan_vae()
+    fatal = RuntimeError(DEVICE_NOT_READY)
+    frames_per_call = []
+
+    def decode_failing(z, **kw):
+        frames_per_call.append(z.shape[2])
+        if len(frames_per_call) == 1:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB")
+        raise fatal
+
+    vae_module.decode = decode_failing
+    cleared = []
+    monkeypatch.setattr(wan_experts, "_clear_card_for_decode", cleared.append)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", Mock(side_effect=AssertionError("tiled")))
+    c = _ctx(vae_module)
+
+    with pytest.raises(RuntimeError) as caught:
+        decode_wan_video(c, torch.randn(1, 16, 5, 4, 4))
+
+    assert caught.value is fatal
+    assert frames_per_call == [5, 1]
+    assert cleared == [c]
+    assert cuda_allocator.allocator_damage() == DEVICE_NOT_READY
+
+
 def test_a_decode_error_that_is_not_about_vram_propagates_without_a_retry(monkeypatch):
     vae_module = _tiny_wan_vae()
     cleared = []

@@ -2565,6 +2565,11 @@ class NativeGenerator:
         free = free_vram_gb(device)
         if free is None or free >= need:
             return
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            free = free_vram_gb(device)
+            if free is None or free >= need:
+                return
         if str(getattr(self.dit, "device", "cpu")).startswith("cuda") or self.dit.is_streaming:
             logger.debug(
                 "ref-image encode needs ~%.1fGB but only %.1fGB free; offloading the parked DiT first",

@@ -10,6 +10,7 @@ from src.features.presets.fixed_prompt_repository import PresetFixedPromptReposi
 from src.features.presets.fixed_prompt_routes import build_router
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
+from tests.features.content_safety.fakes import build
 
 EMPTY = {"prefix": "", "suffix": "", "negative": "", "modes": None}
 FILM = {"prefix": "kodachrome still,", "suffix": "warm grain", "negative": "cartoonish", "modes": ["txt2img"]}
@@ -47,9 +48,11 @@ def presets(mock_db):
     return repository
 
 
-def _client(repository, account_type=AccountType.ADMIN):
+def _client(repository, account_type=AccountType.ADMIN, content_safety=None):
     loader = _Loader({"film": _template(), "shipped": _template()})
-    container = SimpleNamespace(preset_template_loader=loader, preset_fixed_prompt_repository=repository)
+    container = SimpleNamespace(
+        preset_template_loader=loader, preset_fixed_prompt_repository=repository, content_safety=content_safety,
+    )
     app = FastAPI()
     app.include_router(build_router(container))
     app.dependency_overrides[get_current_active_user] = lambda: _user(account_type)
@@ -172,5 +175,43 @@ class TestValidation:
         body = {**FILM, "prefix": "{a|b} ${mood} " + "x" * 1986}
 
         response = _client(presets).put("/api/presets/film/fixed-prompt", json=body)
+
+        assert response.status_code == 200
+
+
+class TestBannedWords:
+    BANNED = "'{}' contains a word on this instance's banned prompt list"
+
+    def _put(self, presets, body, words=("kodachrome",)):
+        manager, _, _ = build("allowed", words=list(words))
+        return _client(presets, content_safety=manager).put("/api/presets/film/fixed-prompt", json=body)
+
+    @pytest.mark.parametrize("key, text", [
+        ("prefix", "Kodachrome still,"),
+        ("suffix", "shot on {warm|kodachrome} stock"),
+        ("prefix", "kodach{rome} still,"),
+    ], ids=["prefix", "suffix choice", "only after expansion"])
+    def test_a_banned_word_in_the_prompt_text_is_refused_at_save_time(self, presets, key, text):
+        response = self._put(presets, {**FILM, key: text})
+
+        assert response.status_code == 400
+        error = _error(response)
+        assert error["error"] == "invalid_fixed_prompt"
+        assert any(entry.startswith(self.BANNED.format(key)) for entry in error["errors"]), error["errors"]
+        assert presets.get("film") == FixedPrompt()
+
+    def test_a_banned_word_in_the_negative_is_kept_because_it_never_refuses_a_generation(self, presets):
+        response = self._put(presets, {**FILM, "prefix": "", "negative": "kodachrome"})
+
+        assert response.status_code == 200
+        assert presets.get("film").negative == "kodachrome"
+
+    def test_an_empty_banned_list_checks_nothing(self, presets):
+        response = self._put(presets, FILM | {"prefix": "kodachrome still,"}, words=())
+
+        assert response.status_code == 200
+
+    def test_clean_text_is_saved(self, presets):
+        response = self._put(presets, {**FILM, "prefix": "film still,", "suffix": "warm grain"})
 
         assert response.status_code == 200

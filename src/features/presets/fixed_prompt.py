@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.prompt.expander import expand_prompts
 from src.platform.http.errors import ConflictError, InvalidInputError, NotFoundError
@@ -8,6 +8,7 @@ from src.platform.http.errors import ConflictError, InvalidInputError, NotFoundE
 MAX_FIXED_PROMPT_CHARS = 2000
 
 TEXT_KEYS = ("prefix", "suffix", "negative")
+SCREENED_KEYS = ("prefix", "suffix")
 PAYLOAD_KEYS = (*TEXT_KEYS, "modes")
 
 
@@ -67,13 +68,25 @@ def _text(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _syntax_error(text: str) -> bool:
+def _expand_once(text: str) -> Tuple[str, bool]:
     warnings: List[str] = []
-    expand_prompts(text, "", count=1, base_seed=0, on_warning=warnings.append)
-    return bool(warnings)
+    expanded = expand_prompts(text, "", count=1, base_seed=0, on_warning=warnings.append)[0].positive
+    return expanded, bool(warnings)
 
 
-def validate_fixed_prompt(template, payload: Any) -> List[str]:
+def _banned(content_safety, key: str, value: str, expanded: str) -> Optional[str]:
+    if content_safety is None or key not in SCREENED_KEYS:
+        return None
+    matcher = content_safety.matcher()
+    if matcher.empty or matcher.first_match_in([value, expanded]) is None:
+        return None
+    return (
+        f"'{key}' contains a word on this instance's banned prompt list, "
+        "so every generation with this preset would be refused"
+    )
+
+
+def validate_fixed_prompt(template, payload: Any, content_safety=None) -> List[str]:
     if not isinstance(payload, dict):
         return ["The body must be an object with prefix, suffix, negative and modes"]
     errors = [f"'{key}' is required" for key in PAYLOAD_KEYS if key not in payload]
@@ -85,8 +98,13 @@ def validate_fixed_prompt(template, payload: Any) -> List[str]:
             errors.append(f"'{key}' must be text")
         elif len(value) > MAX_FIXED_PROMPT_CHARS:
             errors.append(f"'{key}' is longer than {MAX_FIXED_PROMPT_CHARS} characters")
-        elif value.strip() and _syntax_error(value):
-            errors.append(f"'{key}' has a syntax error in its {{a|b}} choices, ${{variables}} or conditions")
+        elif value.strip():
+            expanded, malformed = _expand_once(value)
+            if malformed:
+                errors.append(f"'{key}' has a syntax error in its {{a|b}} choices, ${{variables}} or conditions")
+            banned = _banned(content_safety, key, value, expanded)
+            if banned:
+                errors.append(banned)
     if "modes" in payload:
         errors.extend(_mode_errors(template, payload["modes"]))
     return errors
@@ -119,13 +137,13 @@ def read_fixed_prompt(loader, repository, preset_id: str) -> FixedPrompt:
     return stored
 
 
-def write_fixed_prompt(loader, repository, preset_id: str, payload: Any) -> FixedPrompt:
+def write_fixed_prompt(loader, repository, preset_id: str, payload: Any, content_safety=None) -> FixedPrompt:
     template = loader.get(preset_id)
     if template is None:
         raise _not_found(preset_id)
     if repository.get(preset_id) is None:
         raise _not_installed(preset_id)
-    fixed = parse_fixed_prompt(template, payload)
+    fixed = parse_fixed_prompt(template, payload, content_safety)
     if not repository.set(preset_id, fixed):
         raise _not_installed(preset_id)
     return fixed
@@ -135,8 +153,8 @@ def _not_installed(preset_id: str) -> ConflictError:
     return ConflictError("preset_not_installed", f"Preset '{preset_id}' is not installed")
 
 
-def parse_fixed_prompt(template, payload: Any) -> FixedPrompt:
-    errors = validate_fixed_prompt(template, payload)
+def parse_fixed_prompt(template, payload: Any, content_safety=None) -> FixedPrompt:
+    errors = validate_fixed_prompt(template, payload, content_safety)
     if errors:
         raise InvalidFixedPrompt(errors)
     modes = payload["modes"]

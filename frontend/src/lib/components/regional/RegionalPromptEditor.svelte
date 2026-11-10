@@ -376,7 +376,7 @@
 		outline: none;
 	}
 
-	.rg-cv:focus-visible {
+	:global(:where(html:not([data-input='pointer']))) .rg-cv:focus-visible {
 		outline: 2px solid rgb(var(--signal));
 		outline-offset: 2px;
 	}

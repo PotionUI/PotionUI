@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import io
 import json
+import shutil
 import sqlite3
 import zipfile
 from pathlib import Path
@@ -389,6 +390,31 @@ async def test_a_new_install_whose_scan_raises_over_an_enabled_row_left_by_a_rem
     assert (local / "demo" / "payload.py").exists()
     assert repo.get_plugin_by_id("demo").enabled is False
     assert registry.get_plugin_state("demo") != PluginState.ENABLED
+
+
+async def test_a_new_install_does_not_carry_over_the_enabled_state_of_a_copy_removed_while_running(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    _write_plugin(local / "demo", "demo", "0.9.0", record=False)
+    operations.scan_plugins(repo, registry)
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    shutil.rmtree(local / "demo")
+    catalog.publish("demo", "1.0.0")
+    real_enable = registry._enable_locked
+    started = []
+
+    def enable(plugin_id):
+        started.append(registry.get_plugin(plugin_id).version)
+        return real_enable(plugin_id)
+
+    monkeypatch.setattr(registry, "_enable_locked", enable)
+
+    result = await _install(repo, registry, catalog, "demo")
+
+    assert started == []
+    assert result.enabled is False
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
 
 
 @pytest.mark.parametrize("status", ["update", "available"])

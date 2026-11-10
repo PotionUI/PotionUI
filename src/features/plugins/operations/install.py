@@ -369,6 +369,8 @@ async def install_from_catalog(
         row_was_enabled = _row_enabled(repo, plugin_id)
         if row_was_enabled:
             repo.disable_plugin(plugin_id)
+        if item.status == "available" and was_enabled:
+            _disable(repo, registry, plugin_id, collaborators)
         local_dir = local_plugin_dir(registry)
         try:
             placement = await asyncio.to_thread(_place, data, item, local_dir, url)

@@ -1,6 +1,8 @@
+import asyncio
 import hashlib
 import io
 import json
+import sqlite3
 import zipfile
 from pathlib import Path
 from unittest.mock import Mock
@@ -358,6 +360,79 @@ async def test_a_new_install_over_an_enabled_row_left_by_a_removed_copy_stays_di
     assert result.enabled is False
     assert repo.get_plugin_by_id("demo").enabled is False
     assert registry.get_plugin_state("demo") != PluginState.ENABLED
+
+
+def _an_enabled_row_left_by_a_removed_copy(repo) -> None:
+    repo.create_plugin(
+        Plugin(
+            id="demo",
+            name="demo",
+            version="0.9.0",
+            type="backend-only",
+            enabled=True,
+            manifest_path="manifest.yml",
+            installed_at=now_utc(),
+            updated_at=now_utc(),
+        )
+    )
+
+
+async def test_a_new_install_whose_scan_raises_over_an_enabled_row_left_by_a_removed_copy_leaves_it_disabled(plugins, catalog):
+    registry, repo, _, local = plugins
+    _a_page_route_owned_by_another_plugin(repo, registry, local)
+    _an_enabled_row_left_by_a_removed_copy(repo)
+    catalog.publish("demo", "1.0.0", _archive_taking_that_route("demo", "1.0.0"))
+
+    with pytest.raises(sqlite3.IntegrityError):
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "payload.py").exists()
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+
+
+@pytest.mark.parametrize("status", ["update", "available"])
+async def test_an_install_cancelled_once_the_new_code_is_in_place_leaves_the_plugin_disabled(plugins, catalog, monkeypatch, status):
+    registry, repo, _, local = plugins
+    if status == "update":
+        catalog.publish("demo", "1.0.0")
+        await _install(repo, registry, catalog, "demo")
+        assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+        catalog.publish("demo", "1.1.0")
+    else:
+        _an_enabled_row_left_by_a_removed_copy(repo)
+        catalog.publish("demo", "1.0.0")
+    real_place = install_ops._place
+
+    def place(*args):
+        real_place(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(install_ops, "_place", place)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == f"demo {catalog.entries[0]['version']}\n"
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
+@pytest.mark.parametrize("status", ["update", "available"])
+async def test_an_install_whose_placement_fails_leaves_the_row_as_it_was(plugins, catalog, status):
+    registry, repo, _, local = plugins
+    if status == "update":
+        catalog.publish("demo", "1.0.0")
+        await _install(repo, registry, catalog, "demo")
+        assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+        catalog.publish("demo", "1.1.0", _archive("demo", "1.1.0", manifest=_manifest("demo", "6.6.6")))
+    else:
+        _an_enabled_row_left_by_a_removed_copy(repo)
+        catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "6.6.6")))
+
+    with pytest.raises(CatalogInstallError, match="holds demo 6.6.6"):
+        await _install(repo, registry, catalog, "demo")
+
+    assert repo.get_plugin_by_id("demo").enabled is True
 
 
 async def test_an_archive_whose_sha256_differs_from_the_catalog_writes_nothing(plugins, catalog):

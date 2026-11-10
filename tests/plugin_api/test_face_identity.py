@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw
 import src.plugin_api as root
 from src.platform.runtime.model_lifecycle import lifecycle as lifecycle_module
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
-from src.platform.util import face_identity
+from src.platform.util import face_identity, face_models
 from src.plugin_api import media
 from tests.fixtures.model_roots import make_roots
 
@@ -29,8 +29,8 @@ def lifecycle(monkeypatch):
 
 @pytest.fixture
 def known(monkeypatch):
-    monkeypatch.setattr(media, "MODEL_FILES", {media.IDENTITY_MODEL: (len(CONTENT), hashlib.sha256(CONTENT).hexdigest())})
-    monkeypatch.setattr(media, "_verified_files", set())
+    monkeypatch.setattr(face_models, "MODEL_FILES", {face_models.IDENTITY_MODEL: (len(CONTENT), hashlib.sha256(CONTENT).hexdigest())})
+    monkeypatch.setattr(face_models, "_verified_files", set())
 
 
 @pytest.fixture
@@ -340,7 +340,7 @@ def _cosine(a, b):
 @pytest.mark.requires_models
 def test_the_real_model_gives_one_unit_vector_of_512_values_per_face_close_for_one_person(lifecycle):
     data = pytest.importorskip("skimage.data")
-    if not (REAL_HOME / "detection_bbox" / media.FACE_MODEL).is_file() or not (REAL_HOME / media.IDENTITY_DIR / media.IDENTITY_MODEL).is_file():
+    if not (REAL_HOME / "detection_bbox" / face_models.FACE_MODEL).is_file() or not (REAL_HOME / face_models.IDENTITY_DIR / face_models.IDENTITY_MODEL).is_file():
         pytest.skip("the face models are not on this machine")
     from tests.plugin_api.test_face_detector import _roots
 

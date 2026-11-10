@@ -8,7 +8,7 @@ from PIL import Image
 
 import src.plugin_api as root
 from src.platform.filesystem.model_roots import ModelRoot, TypeDir
-from src.platform.util import face_boxes
+from src.platform.util import face_boxes, face_models
 from src.plugin_api import media
 from tests.fixtures.model_index_fixtures import FakeProbe, make_resolver
 
@@ -18,8 +18,8 @@ NO_POINTS = [[0.0, 0.0]] * 5
 
 @pytest.fixture
 def known(monkeypatch):
-    monkeypatch.setattr(media, "MODEL_FILES", {media.FACE_MODEL: (len(CONTENT), hashlib.sha256(CONTENT).hexdigest())})
-    monkeypatch.setattr(media, "_verified_files", set())
+    monkeypatch.setattr(face_models, "MODEL_FILES", {face_models.FACE_MODEL: (len(CONTENT), hashlib.sha256(CONTENT).hexdigest())})
+    monkeypatch.setattr(face_models, "_verified_files", set())
 
 
 def _roots(*folders, offline=()):
@@ -53,7 +53,7 @@ def test_the_face_detector_says_which_file_it_reads_and_whether_it_is_here(tmp_p
     first, second = tmp_path / "a" / "detection_bbox", tmp_path / "b" / "detection_bbox"
     with patch("src.plugin_api.media.get_container", return_value=_roots(first, second)):
         before = media.face_detector()
-        (second / media.FACE_MODEL).write_bytes(CONTENT)
+        (second / face_models.FACE_MODEL).write_bytes(CONTENT)
         after = media.face_detector()
 
     assert before == {"model": "face_detection_yunet_2023mar.onnx", "available": False}
@@ -63,12 +63,12 @@ def test_the_face_detector_says_which_file_it_reads_and_whether_it_is_here(tmp_p
 def test_a_file_of_that_name_that_is_not_the_detector_is_not_used(tmp_path, known):
     folder = tmp_path / "a" / "detection_bbox"
     world = _roots(folder)
-    (folder / media.FACE_MODEL).write_bytes(b"other weights")
+    (folder / face_models.FACE_MODEL).write_bytes(b"other weights")
     with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect") as detect:
         available = media.face_detector()["available"]
         with pytest.raises(FileNotFoundError):
             media.detect_faces(["a.png"])
-        (folder / media.FACE_MODEL).write_bytes(CONTENT[::-1])
+        (folder / face_models.FACE_MODEL).write_bytes(CONTENT[::-1])
         same_size = media.face_detector()["available"]
 
     assert available is False
@@ -79,21 +79,21 @@ def test_a_file_of_that_name_that_is_not_the_detector_is_not_used(tmp_path, know
 def test_detecting_faces_reads_the_first_detection_bbox_folder_that_holds_the_detector(tmp_path, known):
     first, second, third = (tmp_path / name / "detection_bbox" for name in "abc")
     world = _roots(first, second, third)
-    (first / media.FACE_MODEL).write_bytes(b"other weights")
-    (second / media.FACE_MODEL).write_bytes(CONTENT)
-    (third / media.FACE_MODEL).write_bytes(CONTENT)
+    (first / face_models.FACE_MODEL).write_bytes(b"other weights")
+    (second / face_models.FACE_MODEL).write_bytes(CONTENT)
+    (third / face_models.FACE_MODEL).write_bytes(CONTENT)
     with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect", return_value=[[]]) as detect:
         found = media.detect_faces(("a.png",), min_score=0.6)
 
     assert found == [[]]
-    detect.assert_called_once_with(second / media.FACE_MODEL, ["a.png"], 0.6)
+    detect.assert_called_once_with(second / face_models.FACE_MODEL, ["a.png"], 0.6)
 
 
 @pytest.mark.parametrize("min_score", [True, False, -0.01, 1.01, float("nan"), float("inf"), "0.5", None])
 def test_a_min_score_that_is_not_a_number_from_zero_to_one_is_refused_before_anything_is_read(tmp_path, known, min_score):
     folder = tmp_path / "a" / "detection_bbox"
     world = _roots(folder)
-    (folder / media.FACE_MODEL).write_bytes(CONTENT)
+    (folder / face_models.FACE_MODEL).write_bytes(CONTENT)
     with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect") as detect:
         with pytest.raises(ValueError, match="min_score"):
             media.detect_faces(["a.png"], min_score=min_score)
@@ -105,24 +105,24 @@ def test_a_min_score_that_is_not_a_number_from_zero_to_one_is_refused_before_any
 def test_the_bounds_zero_and_one_are_valid_min_scores(tmp_path, known, min_score):
     folder = tmp_path / "a" / "detection_bbox"
     world = _roots(folder)
-    (folder / media.FACE_MODEL).write_bytes(CONTENT)
+    (folder / face_models.FACE_MODEL).write_bytes(CONTENT)
     with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect", return_value=[[]]) as detect:
         media.detect_faces(["a.png"], min_score=min_score)
 
-    detect.assert_called_once_with(folder / media.FACE_MODEL, ["a.png"], min_score)
+    detect.assert_called_once_with(folder / face_models.FACE_MODEL, ["a.png"], min_score)
 
 
 def test_the_folder_of_an_offline_root_is_not_read(tmp_path, known):
     first, second = tmp_path / "a" / "detection_bbox", tmp_path / "b" / "detection_bbox"
     world = _roots(first, second, offline=[0])
-    (first / media.FACE_MODEL).write_bytes(CONTENT)
+    (first / face_models.FACE_MODEL).write_bytes(CONTENT)
     with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect", return_value=[[]]) as detect:
         offline = media.face_detector()["available"]
-        (second / media.FACE_MODEL).write_bytes(CONTENT)
+        (second / face_models.FACE_MODEL).write_bytes(CONTENT)
         media.detect_faces(["a.png"])
 
     assert offline is False
-    detect.assert_called_once_with(second / media.FACE_MODEL, ["a.png"], 0.5)
+    detect.assert_called_once_with(second / face_models.FACE_MODEL, ["a.png"], 0.5)
 
 
 def test_without_its_model_file_detecting_faces_says_so_downloads_nothing_and_names_no_path(tmp_path, known):
@@ -132,7 +132,7 @@ def test_without_its_model_file_detecting_faces_says_so_downloads_nothing_and_na
             media.detect_faces(["a.png"])
 
     detect.assert_not_called()
-    assert media.FACE_MODEL in str(raised.value)
+    assert face_models.FACE_MODEL in str(raised.value)
     assert str(tmp_path) not in str(raised.value)
     assert list(folder.iterdir()) == []
 
@@ -140,7 +140,7 @@ def test_without_its_model_file_detecting_faces_says_so_downloads_nothing_and_na
 def test_a_detector_file_that_cannot_be_read_counts_as_missing_and_its_path_is_not_told(tmp_path, known, monkeypatch):
     folder = tmp_path / "a" / "detection_bbox"
     world = _roots(folder)
-    model = folder / media.FACE_MODEL
+    model = folder / face_models.FACE_MODEL
     model.write_bytes(CONTENT)
     _refuse_opening(monkeypatch, model)
     with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect") as detect:
@@ -150,19 +150,19 @@ def test_a_detector_file_that_cannot_be_read_counts_as_missing_and_its_path_is_n
 
     assert available is False
     detect.assert_not_called()
-    assert media.FACE_MODEL in str(raised.value)
+    assert face_models.FACE_MODEL in str(raised.value)
     assert str(tmp_path) not in str(raised.value)
-    assert media._verified_files == set()
+    assert face_models._verified_files == set()
 
 
 def test_the_model_file_is_read_through_once_until_it_changes(tmp_path, known, monkeypatch):
     folder = tmp_path / "a" / "detection_bbox"
     world = _roots(folder)
-    model = folder / media.FACE_MODEL
+    model = folder / face_models.FACE_MODEL
     model.write_bytes(CONTENT)
     hashed = []
-    real = media._sha256
-    monkeypatch.setattr(media, "_sha256", lambda path: hashed.append(path) or real(path))
+    real = face_models._sha256
+    monkeypatch.setattr(face_models, "_sha256", lambda path: hashed.append(path) or real(path))
     with patch("src.plugin_api.media.get_container", return_value=world):
         answers = [media.face_detector()["available"] for _ in range(3)]
         model.write_bytes(b"other, longer weights")
@@ -228,7 +228,7 @@ REAL_DETECTOR = Path("models/detection_bbox")
 @pytest.mark.requires_models
 def test_the_real_detector_finds_the_face_of_a_photograph_with_its_landmarks_and_none_in_a_plain_image():
     data = pytest.importorskip("skimage.data")
-    if not (REAL_DETECTOR / media.FACE_MODEL).is_file():
+    if not (REAL_DETECTOR / face_models.FACE_MODEL).is_file():
         pytest.skip("face_detection_yunet_2023mar.onnx is not on this machine")
     photograph = Image.fromarray(data.astronaut())
 

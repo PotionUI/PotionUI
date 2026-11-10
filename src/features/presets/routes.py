@@ -21,6 +21,7 @@ from src.features.backends.backend_registry import BackendRegistry
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations
+from src.features.presets.cover_store import COVER_UPLOAD_MAX_BYTES
 from src.features.presets.mode_labels import MODE_LABELS
 from src.features.presets.overlays import MIRROR_OK
 from src.features.presets.templates import files_preset_id
@@ -608,7 +609,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def upload_preset_cover(
         preset_id: str, file: UploadFile = File(...), current_user: User = Depends(get_current_admin_user)
     ):
-        content = await file.read()
+        content = await file.read(COVER_UPLOAD_MAX_BYTES + 1)
         return await controller.upload_display_cover(preset_id, file.filename or "", content, current_user)
 
     @router.post("/{preset_id}/mirrors", response_model=APIResponse, status_code=201, summary="Create Preset Mirror")

@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import json
 
 from src.features.presets.records import Preset, PresetTombstone, UserPreset
 from src.platform.util.ids import generate_ulid
 from src.platform.database import get_cursor
+from src.platform.database.rows import now_iso
 
 class DatabasePresetRepository:
     # ===== Preset Management (Admin Operations) =====
@@ -143,7 +143,7 @@ class DatabasePresetRepository:
                 preset_id=mirror.preset_id,
                 name=mirror.display_name or mirror.preset_id,
                 source_preset_id=mirror.source_preset_id,
-                deleted_at=datetime.now(timezone.utc).isoformat(),
+                deleted_at=now_iso(),
             )
             cursor.execute(
                 "INSERT OR REPLACE INTO preset_tombstones (preset_id, name, source_preset_id, deleted_at) "

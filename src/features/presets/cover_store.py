@@ -11,6 +11,7 @@ from src.platform.util.ids import generate_ulid
 DISPLAY_ROOT = "display"
 COVER_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 COVER_VIDEO_MAX_BYTES = 1536 * 1024
+COVER_UPLOAD_MAX_BYTES = max(COVER_IMAGE_MAX_BYTES, COVER_VIDEO_MAX_BYTES)
 _IMAGE_EXTENSIONS = {".png": ".png", ".jpg": ".jpg", ".jpeg": ".jpg", ".webp": ".webp"}
 _VIDEO_EXTENSIONS = {".mp4": ".mp4", ".webm": ".webm"}
 

@@ -167,3 +167,19 @@ def test_a_loader_without_an_overlay_source_shows_the_files_as_they_are(tmp_path
     assert loader.get("krea2").name == "Krea-2"
     assert loader.get("krea2").file_name == "Krea-2"
     assert loader.mirror_states == {}
+
+
+def test_a_failed_overlay_read_keeps_the_mirrors_and_renames_already_shown(world):
+    loader, overlays, _, _ = world
+    overlays.add(RowOverlay(preset_id="krea2", display_name="Realistic"))
+    overlays.add(RowOverlay(preset_id="MIRROR", source_preset_id="krea2", display_name="Anime"))
+    loader.all()
+
+    overlays.broken = True
+    loader.refresh_overlays()
+    loader.reload()
+
+    assert overlays.reads == 3
+    assert loader.get("krea2").name == "Realistic"
+    assert loader.get("MIRROR").name == "Anime"
+    assert loader.mirror_state("MIRROR") == MIRROR_OK

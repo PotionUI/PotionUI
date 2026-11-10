@@ -884,8 +884,8 @@ class PresetTemplateLoader:
         try:
             return self.overlay_source()
         except Exception:
-            logger.exception("Reading preset display overrides and mirrors failed; showing the preset files as they are")
-            return PresetOverlays()
+            logger.exception("Reading preset display overrides and mirrors failed; keeping the last ones read")
+            return self._overlays
 
     def _publish(self) -> None:
         overlays = self._read_overlays()

@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from packaging.version import InvalidVersion, Version
 
 from src.features.plugins.archive import unpack_plugin_archive
-from src.features.plugins.catalog import CatalogEntry, CatalogProblem, core_mismatch, parse_catalog
+from src.features.plugins.catalog import INSTALL_RECORD, CatalogEntry, CatalogProblem, core_mismatch, parse_catalog
 from src.features.plugins.operations.lifecycle import disable_plugin, enable_plugin, rescan_presets_and_pipes
 from src.features.plugins.operations.scan import scan_plugins
 from src.features.plugins.remote import fetch_bytes, local_sources_allowed
@@ -26,7 +26,6 @@ from src.platform.version import POTIONUI_VERSION
 
 logger = logging.getLogger(__name__)
 
-INSTALL_RECORD = ".potionui-catalog.json"
 STAGING_FOLDER = ".potionui-install"
 MAX_CATALOG_BYTES = 1024 * 1024
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024

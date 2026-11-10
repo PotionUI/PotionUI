@@ -3374,7 +3374,11 @@ moves the folder into `content/plugins/local/<id>/`, and scans for
 plugins. A new plugin is discovered disabled, like one placed by hand, and stays so across
 a restart even when its scan fails, when the database still holds an enabled row for its id
 from a copy that was removed while the server was stopped, or when such a copy was removed
-while the server ran and is still enabled in it.
+while the server ran and is still enabled in it. A manifest's `default_enabled` never enables
+a plugin installed from a catalog: at startup, a plugin with no row in the database is
+enabled by default only when its folder holds no `.potionui-catalog.json`, so a first
+install that stopped before its row was written (a cancelled request, a stopped server, a
+scan that raised) still waits for an admin.
 
 The same id is never installed twice. A plugin that ships with PotionUI
 (`content/plugins/marketplace/`) is listed as bundled; a folder of that id that holds no

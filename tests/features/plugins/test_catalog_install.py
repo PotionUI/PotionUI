@@ -443,6 +443,54 @@ async def test_an_install_cancelled_once_the_new_code_is_in_place_leaves_the_plu
     assert repo.get_plugin_by_id("demo").enabled is False
 
 
+def _restarted(marketplace: Path, local: Path) -> PluginRegistry:
+    registry = PluginRegistry(marketplace_dir=str(marketplace), local_dir=str(local))
+    registry.discover_plugins()
+    return registry
+
+
+@pytest.mark.parametrize("stop", ["cancelled", "scan raises"])
+async def test_a_default_enabled_first_install_stopped_before_its_row_exists_is_not_enabled_at_the_next_start(
+    plugins, catalog, monkeypatch, stop
+):
+    registry, repo, marketplace, local = plugins
+    catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "1.0.0", default_enabled=True)))
+    if stop == "cancelled":
+        real_place = install_ops._place
+
+        def place(*args):
+            real_place(*args)
+            raise asyncio.CancelledError()
+
+        monkeypatch.setattr(install_ops, "_place", place)
+    else:
+
+        def scan(repo, registry):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(install_ops, "scan_plugins", scan)
+
+    with pytest.raises(BaseException):
+        await _install(repo, registry, catalog, "demo")
+    assert (local / "demo" / INSTALL_RECORD).exists()
+    assert repo.get_plugin_by_id("demo") is None
+    after_restart = _restarted(marketplace, local)
+
+    assert operations.enable_default_plugins(repo, after_restart) == []
+    assert after_restart.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo") is None
+
+
+def test_a_hand_placed_default_enabled_plugin_is_still_enabled_at_the_first_start(plugins):
+    registry, repo, marketplace, local = plugins
+    (local / "demo").mkdir()
+    (local / "demo" / "manifest.yml").write_bytes(_manifest("demo", "1.0.0", default_enabled=True))
+    after_restart = _restarted(marketplace, local)
+
+    assert operations.enable_default_plugins(repo, after_restart) == ["demo"]
+    assert after_restart.get_plugin_state("demo") == PluginState.ENABLED
+
+
 async def test_an_update_cancelled_once_the_new_code_is_in_place_is_not_enabled_by_the_next_scan(plugins, catalog, monkeypatch):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

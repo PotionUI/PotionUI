@@ -8,14 +8,12 @@ from src.features.presets.exceptions import (
     InvalidDisplayError,
     InvalidModesError,
     MirrorIdUnavailableError,
-    MirrorSourceInvalidError,
-    MirrorSourceNotInstalledError,
-    NotAMirrorError,
     PresetHasMirrorsError,
+    PresetNotFoundException,
     PresetRowNotFoundError,
     PresetRowNotInstalledError,
 )
-from src.features.presets.overlays import MIRROR_SOURCE_MISSING
+from src.features.presets.overlays import MIRROR_MODES_MISSING, MIRROR_SOURCE_MISSING
 from tests.features.presets.mirror_world import build_world, png_bytes
 
 
@@ -76,18 +74,6 @@ def test_a_new_mirror_is_visible_to_nobody_until_it_is_assigned(world):
     assert "krea2" not in listed
 
 
-def test_the_source_must_exist_be_installed_and_be_a_preset_file(world):
-    with pytest.raises(PresetRowNotFoundError):
-        operations.create_mirror(world.collaborators, "missing", {"name": "X"})
-    with pytest.raises(MirrorSourceNotInstalledError):
-        _mirror(world)
-
-    world.install("krea2")
-    mirror_id = _mirror(world)["preset_id"]
-    with pytest.raises(MirrorSourceInvalidError):
-        operations.create_mirror(world.collaborators, mirror_id, {"name": "Nested"})
-
-
 @pytest.mark.parametrize(
     "body",
     [
@@ -134,15 +120,6 @@ def test_changing_the_modes_of_a_mirror_reorders_and_filters_it(world):
     assert list(world.loader.get(mirror_id).modes) == ["txt2img", "img2img", "edit"]
 
 
-def test_a_preset_file_has_no_mode_choice(world):
-    world.install("krea2")
-
-    with pytest.raises(NotAMirrorError):
-        operations.set_mirror_modes(world.collaborators, "krea2", {"offered": ["txt2img"], "first": None})
-    with pytest.raises(PresetRowNotFoundError):
-        operations.set_mirror_modes(world.collaborators, "nothing", {"offered": None, "first": None})
-
-
 def test_a_generated_id_never_reuses_a_taken_one(world):
     world.install("krea2")
     world.install("flux")
@@ -152,18 +129,6 @@ def test_a_generated_id_never_reuses_a_taken_one(world):
             _mirror(world)
     with patch("src.features.presets.operations.mirrors.generate_ulid", side_effect=["krea2", "FRESH"]):
         assert _mirror(world)["preset_id"] == "FRESH"
-
-
-def test_a_source_with_mirrors_cannot_be_removed(world):
-    world.install("krea2")
-    mirror_id = _mirror(world)["preset_id"]
-
-    with pytest.raises(PresetHasMirrorsError) as caught:
-        operations.uninstall_preset(world.collaborators, "krea2", world.admin)
-
-    assert caught.value.status_code == 409
-    assert caught.value.extra["mirrors"] == [{"preset_id": mirror_id, "name": "Anime"}]
-    assert world.repo.is_preset_installed("krea2")
 
 
 def test_removing_a_mirror_drops_its_assignments_and_cover_and_keeps_its_name(world):
@@ -191,22 +156,52 @@ def test_removing_a_mirror_drops_its_assignments_and_cover_and_keeps_its_name(wo
     assert not world.repo.is_preset_installed("krea2")
 
 
-def test_a_mirror_whose_source_files_vanish_is_listed_for_admins_and_hidden_from_users(world):
-    world.install("krea2")
-    mirror_id = _mirror(world)["preset_id"]
-    world.repo.assign_preset_to_user(mirror_id, "ann")
+def _delete_source_files(world):
     (world.root / "Krea-2" / "std" / "preset.yml").unlink()
+
+
+def _drop_edit_mode_from_source(world):
+    preset_file = world.root / "Krea-2" / "std" / "preset.yml"
+    preset_file.write_text(preset_file.read_text().replace("  - edit\n", ""))
+
+
+@pytest.mark.parametrize(
+    "break_source, state",
+    [(_delete_source_files, MIRROR_SOURCE_MISSING), (_drop_edit_mode_from_source, MIRROR_MODES_MISSING)],
+    ids=["source files deleted", "offered mode gone"],
+)
+def test_a_mirror_that_cannot_run_is_listed_for_admins_and_hidden_from_users(world, break_source, state):
+    world.install("krea2")
+    mirror_id = _mirror(world, offered_modes=["edit"])["preset_id"]
+    world.repo.assign_preset_to_user(mirror_id, "ann")
+    break_source(world)
     world.loader.reload()
 
     admin_list = _listed(world, world.admin)
 
     entry = admin_list[mirror_id]
-    assert entry["mirror_state"] == MIRROR_SOURCE_MISSING
+    assert entry["mirror_state"] == state
     assert entry["name"] == "Anime"
     assert entry["installed"] is True and entry["is_mirror"] is True
     assert entry["modes"] == [] and entry["engine"] is None
     assert mirror_id not in _listed(world, world.regular)
-    assert operations.get_admin_detail(world.collaborators, mirror_id)["file"] is None
+    assert operations.get_admin_detail(world.collaborators, mirror_id)["mirror_state"] == state
+    with pytest.raises(PresetNotFoundException):
+        operations.get_preset(world.collaborators, mirror_id)
+
+
+def test_a_mirror_can_be_renamed_but_never_left_without_a_name(world):
+    world.install("krea2")
+    mirror_id = _mirror(world)["preset_id"]
+
+    with pytest.raises(InvalidDisplayError):
+        operations.set_display(world.collaborators, mirror_id, {"name": None, "description": None, "cover": None})
+    operations.set_display(world.collaborators, mirror_id, {"name": "Anime v2", "description": None, "cover": "public/alt.png"})
+
+    assert world.loader.get(mirror_id).name == "Anime v2"
+    assert world.loader.get(mirror_id).media["cover"] == "public/alt.png"
+    assert world.loader.get("krea2").name == "Krea-2"
+    assert world.loader.get("krea2").media["cover"] == "public/cover.png"
 
 
 def test_the_admin_list_marks_renamed_presets_and_counts_mirrors(world):

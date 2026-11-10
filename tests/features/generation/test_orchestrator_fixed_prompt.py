@@ -136,22 +136,15 @@ def assert_user_version(payload):
         assert secret not in text, secret
 
 
-async def test_the_pipeline_gets_the_applied_prompts():
-    orchestrator, _, _ = make_orchestrator()
-
-    await start(orchestrator, make_request([{'positive': 'a red fox', 'negative': 'blurry'}]))
-
-    assert pipeline_prompts(orchestrator) == [
-        {'positive': f'{PREFIX} a red fox {SUFFIX}', 'negative': f'blurry, {NEGATIVE}'},
-    ]
-
-
-async def test_the_applied_prompts_are_recorded_with_the_users_version():
+@pytest.mark.parametrize('negative, applied_negative', [('blurry', f'blurry, {NEGATIVE}'), ('', NEGATIVE)])
+async def test_the_pipeline_gets_the_applied_prompts_and_they_are_recorded(negative, applied_negative):
     orchestrator, applied, _ = make_orchestrator()
 
-    await start(orchestrator, make_request([{'positive': 'a red fox', 'negative': ''}]))
+    await start(orchestrator, make_request([{'positive': 'a red fox', 'negative': negative}]))
 
-    assert applied.saved['g1'] == [{'positive': f'{PREFIX} a red fox {SUFFIX}', 'negative': NEGATIVE}]
+    expected = [{'positive': f'{PREFIX} a red fox {SUFFIX}', 'negative': applied_negative}]
+    assert pipeline_prompts(orchestrator) == expected
+    assert applied.saved['g1'] == expected
 
 
 async def test_content_safety_checks_the_applied_text():
@@ -205,21 +198,21 @@ async def test_batch_prompt_text_is_the_users_version():
     assert all(PREFIX in pair['positive'] for pair in pipeline_prompts(orchestrator))
 
 
-async def test_the_run_is_forgotten_when_the_generation_completes():
+async def _complete(orchestrator, generation_id):
+    await orchestrator._handle_generation_output(generation_id, None, 'native', Collector())
+
+
+async def _drop(orchestrator, generation_id):
+    orchestrator._forget_run(generation_id)
+
+
+@pytest.mark.parametrize('finish', [_complete, _drop], ids=['completed', 'dropped'])
+async def test_the_run_is_forgotten_when_the_generation_ends(finish):
     orchestrator, _, _ = make_orchestrator()
     generation_id = await start(orchestrator, make_request([{'positive': 'a red fox', 'negative': ''}]))
     assert generation_id in orchestrator._fixed_prompt_runs
 
-    await orchestrator._handle_generation_output(generation_id, None, 'native', Collector())
-
-    assert generation_id not in orchestrator._fixed_prompt_runs
-
-
-async def test_the_run_is_forgotten_when_the_generation_is_dropped():
-    orchestrator, _, _ = make_orchestrator()
-    generation_id = await start(orchestrator, make_request([{'positive': 'a red fox', 'negative': ''}]))
-
-    orchestrator._forget_run(generation_id)
+    await finish(orchestrator, generation_id)
 
     assert generation_id not in orchestrator._fixed_prompt_runs
 

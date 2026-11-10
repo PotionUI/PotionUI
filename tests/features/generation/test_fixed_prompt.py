@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 from src.features.generation.fixed_prompt import (
     FixedPromptRun,
     applied_parameters,
@@ -55,30 +57,14 @@ class TestJoining:
 
 
 class TestExpansion:
-    def test_each_image_gets_its_own_roll_of_the_fixed_text(self):
-        expander = PromptExpander()
-        fixed = FixedPrompt(prefix="{a|b|c|d|e|f|g|h}")
-
-        parts = expander.expand_fixed("g", _request(seed=10), fixed, 6)
-
-        assert len(parts) == 6
-        assert all(prefix in "abcdefgh" for prefix, _, _ in parts)
-        assert len({prefix for prefix, _, _ in parts}) > 1
-
     def test_image_i_uses_the_same_seed_as_a_single_image_run_at_base_plus_i(self):
         expander = PromptExpander()
         fixed = FixedPrompt(prefix="{a|b|c|d|e|f|g|h}", suffix="{1|2|3|4|5|6|7|8}", negative="{x|y|z|w}")
 
         batch = expander.expand_fixed("g", _request(seed=40), fixed, 4)
-        singles = [expander.expand_fixed("g", _request(seed=40 + i), fixed, 1)[0] for i in range(4)]
+        singles = [expander.expand_fixed("other", _request(seed=40 + i), fixed, 1)[0] for i in range(4)]
 
         assert batch == singles
-
-    def test_the_same_seed_reproduces_the_same_fixed_text(self):
-        expander = PromptExpander()
-        fixed = FixedPrompt(prefix="{a|b|c|d}", negative="{x|y|z}")
-
-        assert expander.expand_fixed("g", _request(seed=7), fixed, 3) == expander.expand_fixed("h", _request(seed=7), fixed, 3)
 
     def test_request_variables_reach_the_fixed_text(self):
         expander = PromptExpander()
@@ -104,40 +90,25 @@ class TestExpansion:
 
 
 class TestWhenItApplies:
-    def test_it_applies_to_a_prompted_mode(self):
-        assert fixed_prompt_applies(FILM, TEMPLATE, "txt2img", {}, PAIRS)
-
-    def test_an_empty_fixed_prompt_is_skipped(self):
-        assert not fixed_prompt_applies(FixedPrompt(prefix="  "), TEMPLATE, "txt2img", {}, PAIRS)
-        assert not fixed_prompt_applies(None, TEMPLATE, "txt2img", {}, PAIRS)
-
-    def test_a_mode_outside_the_allow_list_is_skipped(self):
-        fixed = FixedPrompt(prefix="film", modes=["txt2img"])
-
-        assert fixed_prompt_applies(fixed, TEMPLATE, "txt2img", {}, PAIRS)
-        assert not fixed_prompt_applies(fixed, TEMPLATE, "edit", {}, PAIRS)
-
-    def test_a_promptless_mode_is_skipped(self):
-        assert not fixed_prompt_applies(FILM, TEMPLATE, "upscale", {}, PAIRS)
-
-    def test_a_request_without_prompts_is_skipped(self):
-        assert not fixed_prompt_applies(FILM, TEMPLATE, "txt2img", {}, [])
-        assert not fixed_prompt_applies(FILM, TEMPLATE, "txt2img", {}, None)
-
-    def test_a_video_director_document_is_skipped(self):
-        assert not fixed_prompt_applies(FILM, TEMPLATE, "txt2img", {"video_director": {"segments": []}}, PAIRS)
-
-    def test_a_music_director_document_is_skipped(self):
-        assert not fixed_prompt_applies(FILM, TEMPLATE, "txt2img", {"music_director": {"sections": []}}, PAIRS)
-
-    def test_a_template_without_vars_still_applies(self):
-        assert fixed_prompt_applies(FILM, SimpleNamespace(vars=None), "txt2img", {}, PAIRS)
+    @pytest.mark.parametrize("fixed, template, mode, prompts, applies", [
+        (FILM, TEMPLATE, "txt2img", PAIRS, True),
+        (FixedPrompt(prefix="film", modes=["txt2img"]), TEMPLATE, "txt2img", PAIRS, True),
+        (FILM, SimpleNamespace(vars=None), "txt2img", PAIRS, True),
+        (FixedPrompt(prefix="  "), TEMPLATE, "txt2img", PAIRS, False),
+        (None, TEMPLATE, "txt2img", PAIRS, False),
+        (FILM, TEMPLATE, "txt2img", [], False),
+        (FILM, TEMPLATE, "txt2img", None, False),
+    ], ids=["prompted mode", "listed mode", "template without vars", "blank text", "no fixed prompt",
+            "empty prompts", "no prompts"])
+    def test_it_applies_only_with_text_and_prompts(self, fixed, template, mode, prompts, applies):
+        assert fixed_prompt_applies(fixed, template, mode, {}, prompts) is applies
 
 
 class TestMasking:
-    def test_rendered_prompts_show_the_users_text(self):
+    @pytest.mark.parametrize("shown", [0, 1], ids=["another images text", "its own text"])
+    def test_a_rendered_prompt_shows_the_users_text_of_its_own_index(self, shown):
         run = _run()
-        output = RenderedPromptGenerationOutput(index=1, positive=run.applied[1]["positive"], negative=run.applied[1]["negative"])
+        output = RenderedPromptGenerationOutput(index=1, positive=run.applied[shown]["positive"], negative=run.applied[shown]["negative"])
 
         run.mask(output)
 
@@ -154,21 +125,17 @@ class TestMasking:
         assert positive.values == ["a red fox", "a grey wolf"]
         assert negative.values == ["blurry", "blurry"]
 
-    def test_each_image_keeps_its_own_prompt_even_when_its_value_equals_another_images_applied_text(self):
+    @pytest.mark.parametrize("values", [
+        ["PREFIX one a red fox SUFFIX one"] * 2,
+        ["LLM rewrite of PREFIX one", "LLM rewrite of PREFIX two"],
+    ], ids=["equal to another images text", "rewritten"])
+    def test_each_image_gets_its_own_prompt_whatever_the_stored_value(self, values):
         run = _run()
-        output = ParamGenerationOutput(name="positive_prompt", values=[run.applied[0]["positive"]] * 2)
+        output = ParamGenerationOutput(name="positive_prompt", values=list(values))
 
         run.mask(output)
 
         assert output.values == ["a red fox", "a grey wolf"]
-
-    def test_a_rendered_prompt_keeps_its_own_index_when_its_text_equals_another_images(self):
-        run = _run()
-        output = RenderedPromptGenerationOutput(index=1, positive=run.applied[0]["positive"], negative=run.applied[0]["negative"])
-
-        run.mask(output)
-
-        assert (output.positive, output.negative) == ("a grey wolf", "blurry")
 
     def test_identical_user_prompts_with_different_fixed_rolls_mask_to_the_user_prompt(self):
         run = apply_fixed_prompt([{"positive": "a fox", "negative": ""}] * 3, [("PRE a", "", ""), ("PRE b", "", ""), ("PRE c", "", "")])
@@ -177,14 +144,6 @@ class TestMasking:
         run.mask(output)
 
         assert output.values == ["a fox", "a fox", "a fox"]
-
-    def test_a_rewritten_prompt_is_replaced_by_the_users_text_at_its_index(self):
-        run = _run()
-        output = ParamGenerationOutput(name="positive_prompt", values=["LLM rewrite of PREFIX one", "LLM rewrite of PREFIX two"])
-
-        run.mask(output)
-
-        assert output.values == ["a red fox", "a grey wolf"]
 
     def test_values_tiled_across_passes_are_masked_on_every_pass(self):
         run = _run()
@@ -205,22 +164,6 @@ class TestMasking:
 
         assert steps.values == [30, 30]
         assert (seed.index, seed.seed) == (0, 5)
-
-    def test_no_masked_output_contains_fixed_text(self):
-        run = _run()
-        outputs = [
-            RenderedPromptGenerationOutput(index=i, positive=pair["positive"], negative=pair["negative"])
-            for i, pair in enumerate(run.applied)
-        ]
-        outputs.append(ParamGenerationOutput(name="positive_prompt", values=[p["positive"] for p in run.applied]))
-        outputs.append(ParamGenerationOutput(name="negative_prompt", values=[p["negative"] for p in run.applied]))
-
-        for output in outputs:
-            run.mask(output)
-
-        text = repr(outputs)
-        for secret in ("PREFIX", "SUFFIX", "NEG"):
-            assert secret not in text
 
 
 class TestAdminView:

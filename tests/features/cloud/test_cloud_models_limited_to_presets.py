@@ -100,6 +100,22 @@ async def test_a_scoped_out_model_leaves_the_preset_models_endpoint(refreshed):
     assert len(own.data["models"]) == 2
 
 
+async def test_a_mirror_lists_the_models_scoped_to_its_source(refreshed):
+    image_id, _ = await enable_both(refreshed)
+    ModelPresetScopeRepository().replace(image_id, ["preset-a"])
+    loader = Mock()
+    loader.load_preset_by_id.return_value = SimpleNamespace(
+        id="MIRROR", engine="cloud", driver="cloud.fake", source_preset_id="preset-a",
+    )
+    controller = PresetController(SimpleNamespace(preset_loader=loader), refreshed.registry)
+
+    listed_for_mirror = await controller.get_preset_models("MIRROR", model_type="cloud")
+
+    assert sorted(m["filename"] for m in listed_for_mirror.data["models"]) == sorted(
+        [refreshed.slug_of(IMAGE), refreshed.slug_of(VIDEO)]
+    )
+
+
 def template(preset_id):
     fields = [FieldTemplate(type="model", name="model")]
     return PresetTemplate(

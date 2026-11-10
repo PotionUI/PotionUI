@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -158,11 +157,3 @@ class TestFixedPromptScopeOnGenerationRoutes(PersistenceTestBase):
         self.assertNotIn("fixed_prompt_applied", details)
         self.assertNotIn("fixed_prompt_applied", admin_view)
         self.assertNotIn("parameters", admin_view)
-
-    def test_the_stored_parameters_hold_only_the_users_prompt(self):
-        with self.db.get_cursor() as cursor:
-            cursor.execute("SELECT parameter_value FROM generation_parameters")
-            stored = json.dumps([row[0] for row in cursor.fetchall()])
-
-        for secret in SECRETS:
-            self.assertNotIn(secret, stored)

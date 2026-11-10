@@ -6,8 +6,7 @@ from urllib.parse import urljoin, urlsplit
 
 import aiohttp
 
-from src.features.automation.http_request import BlockedTargetError, PublicOnlyResolver
-from src.platform.http.targets import is_public_address
+from src.platform.http.targets import BlockedTargetError, PublicOnlyResolver, is_public_address
 from src.platform.http.tls import certificate_failure_message, client_ssl_context, is_certificate_error
 
 ALLOW_LOCAL_SOURCES_ENV = "POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL"

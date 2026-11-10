@@ -1,6 +1,10 @@
+import asyncio
 import ipaddress
-from typing import Tuple
+import socket
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
+
+from aiohttp.abc import AbstractResolver
 
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -31,3 +35,36 @@ def origin_of(url: str) -> Tuple[str, str, int]:
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
     return scheme, (parts.hostname or "").lower(), parts.port or DEFAULT_PORTS.get(scheme, 0)
+
+
+class BlockedTargetError(OSError):
+    pass
+
+
+class PublicOnlyResolver(AbstractResolver):
+    def __init__(self, allow_private: bool, lookup: Optional[Callable[..., Awaitable[Any]]] = None):
+        self._allow_private = allow_private
+        self._lookup = lookup
+
+    async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET) -> List[Dict[str, Any]]:
+        lookup = self._lookup or asyncio.get_running_loop().getaddrinfo
+        infos = await lookup(host, port, type=socket.SOCK_STREAM)
+        records: List[Dict[str, Any]] = []
+        for info in infos:
+            address = info[4][0]
+            if not self._allow_private and not is_public_address(address):
+                raise BlockedTargetError(f"{host} resolves to a non-public address")
+            records.append({
+                "hostname": host,
+                "host": address,
+                "port": port,
+                "family": info[0],
+                "proto": 0,
+                "flags": socket.AI_NUMERICHOST,
+            })
+        if not records:
+            raise OSError(f"{host} did not resolve")
+        return records
+
+    async def close(self) -> None:
+        return None

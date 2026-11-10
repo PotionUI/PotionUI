@@ -236,8 +236,8 @@ from src.plugin_api.media import (
     image_embedder,
     detect_faces,
     face_detector,
-    face_identifier,
-    identify_faces,
+    face_embedder,
+    embed_faces,
 )
 
 # Contributing a prompt import source.
@@ -579,8 +579,8 @@ __all__ = [
     "image_embedder",
     "detect_faces",
     "face_detector",
-    "face_identifier",
-    "identify_faces",
+    "face_embedder",
+    "embed_faces",
     # Prompt import sources
     "PromptImporter",
     "PromptImportOutcome",

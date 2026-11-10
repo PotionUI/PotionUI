@@ -96,13 +96,13 @@ __all__ = [
     "convert_image_to_base64",
     "copy_media_file",
     "detect_faces",
+    "embed_faces",
     "embed_images",
     "extract_frame",
     "face_detector",
-    "face_identifier",
+    "face_embedder",
     "find_ffmpeg",
     "has_audio_stream",
-    "identify_faces",
     "image_embedder",
     "media_local_path",
     "mux_audio_from_source",
@@ -366,11 +366,11 @@ def _identity_model() -> Optional[Path]:
     return path if _is_model_file(path) else None
 
 
-def face_identifier() -> Dict[str, Any]:
+def face_embedder() -> Dict[str, Any]:
     return {"model": IDENTITY_MODEL, "available": _identity_model() is not None and face_identity.runtime_imports()}
 
 
-def identify_faces(faces: Sequence[Any]) -> List[List[float]]:
+def embed_faces(faces: Sequence[Any]) -> List[List[float]]:
     model = _identity_model()
     if model is None:
         raise FileNotFoundError(f"{IDENTITY_MODEL} is not in {IDENTITY_DIR} of the home model root")

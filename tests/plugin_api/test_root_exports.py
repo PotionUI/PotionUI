@@ -47,8 +47,8 @@ REEXPORTS = {
         "image_embedder",
         "detect_faces",
         "face_detector",
-        "face_identifier",
-        "identify_faces",
+        "face_embedder",
+        "embed_faces",
     ],
 }
 

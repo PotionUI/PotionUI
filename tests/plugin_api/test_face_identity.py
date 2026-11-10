@@ -82,12 +82,12 @@ class Sessions:
         return session
 
 
-def test_the_face_identifier_is_looked_for_in_the_home_model_root_and_says_whether_it_can_run(tmp_path, lifecycle, known, onnxruntime):
+def test_the_face_embedder_is_looked_for_in_the_home_model_root_and_says_whether_it_can_run(tmp_path, lifecycle, known, onnxruntime):
     world = _world(tmp_path, lifecycle)
     with patch("src.plugin_api.media.get_container", return_value=world):
-        before = media.face_identifier()
+        before = media.face_embedder()
         _model(tmp_path)
-        after = media.face_identifier()
+        after = media.face_embedder()
 
     assert before == {"model": "glintr100.onnx", "available": False}
     assert after == {"model": "glintr100.onnx", "available": True}
@@ -98,32 +98,32 @@ def test_a_file_of_that_name_that_is_not_auraface_is_not_used(tmp_path, lifecycl
     monkeypatch.setattr(face_identity, "new_session", sessions)
     _model(tmp_path, content=CONTENT[::-1])
     with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
-        available = media.face_identifier()["available"]
+        available = media.face_embedder()["available"]
         with pytest.raises(FileNotFoundError):
-            media.identify_faces([(Image.new("RGB", (200, 200)), _points())])
+            media.embed_faces([(Image.new("RGB", (200, 200)), _points())])
 
     assert available is False
     assert sessions.built == []
 
 
-def test_the_face_identifier_is_unavailable_while_onnxruntime_does_not_import(tmp_path, lifecycle, known, monkeypatch):
+def test_the_face_embedder_is_unavailable_while_onnxruntime_does_not_import(tmp_path, lifecycle, known, monkeypatch):
     _model(tmp_path)
     monkeypatch.setitem(sys.modules, "onnxruntime", None)
     with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
-        missing = media.face_identifier()
+        missing = media.face_embedder()
         monkeypatch.setitem(sys.modules, "onnxruntime", ModuleType("onnxruntime"))
-        present = media.face_identifier()
+        present = media.face_embedder()
 
     assert missing == {"model": "glintr100.onnx", "available": False}
     assert present["available"] is True
 
 
-def test_without_its_model_file_identifying_faces_says_so_loads_nothing_and_names_no_path(tmp_path, lifecycle, known, monkeypatch):
+def test_without_its_model_file_embedding_faces_says_so_loads_nothing_and_names_no_path(tmp_path, lifecycle, known, monkeypatch):
     sessions = Sessions()
     monkeypatch.setattr(face_identity, "new_session", sessions)
     with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
         with pytest.raises(FileNotFoundError) as raised:
-            media.identify_faces([("a.png", _points())])
+            media.embed_faces([("a.png", _points())])
 
     assert sessions.built == []
     assert not lifecycle.is_cached(face_identity.MODEL_KEY)
@@ -144,9 +144,9 @@ def test_an_identity_file_that_cannot_be_read_counts_as_missing_and_its_path_is_
 
     monkeypatch.setattr(Path, "open", opener)
     with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
-        available = media.face_identifier()["available"]
+        available = media.face_embedder()["available"]
         with pytest.raises(FileNotFoundError) as raised:
-            media.identify_faces([(Image.new("RGB", (200, 200)), _points())])
+            media.embed_faces([(Image.new("RGB", (200, 200)), _points())])
 
     assert available is False
     assert sessions.built == []
@@ -155,18 +155,18 @@ def test_an_identity_file_that_cannot_be_read_counts_as_missing_and_its_path_is_
     assert str(tmp_path) not in str(raised.value)
 
 
-def test_identifying_faces_builds_one_session_through_the_model_lifecycle_and_holds_it_only_during_the_call(tmp_path, lifecycle, known, monkeypatch):
+def test_embedding_faces_builds_one_session_through_the_model_lifecycle_and_holds_it_only_during_the_call(tmp_path, lifecycle, known, monkeypatch):
     sessions = Sessions(lifecycle)
     monkeypatch.setattr(face_identity, "new_session", sessions)
     model = _model(tmp_path)
     face = (Image.new("RGB", (200, 200), (255, 255, 255)), _points())
     with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
-        first = media.identify_faces([face])
-        second = media.identify_faces([face, face])
+        first = media.embed_faces([face])
+        second = media.embed_faces([face, face])
         cached = lifecycle.is_cached(face_identity.MODEL_KEY)
         held_after = lifecycle.leased_values()
         lifecycle.invalidate(face_identity.MODEL_KEY)
-        media.identify_faces([face])
+        media.embed_faces([face])
 
     assert first == [pytest.approx([0.6, 0.8])]
     assert second == [pytest.approx([0.6, 0.8])] * 2
@@ -182,11 +182,11 @@ def test_a_model_file_put_in_place_again_gets_a_new_session(tmp_path, lifecycle,
     model = _model(tmp_path)
     face = (Image.new("RGB", (200, 200)), _points())
     with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
-        media.identify_faces([face])
+        media.embed_faces([face])
         stat = model.stat()
         os.utime(model, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10 ** 9))
-        media.identify_faces([face])
-        media.identify_faces([face])
+        media.embed_faces([face])
+        media.embed_faces([face])
 
     assert len(sessions.built) == 2
 
@@ -218,7 +218,7 @@ def test_two_callers_at_once_share_one_session(tmp_path, lifecycle, monkeypatch)
     assert found == [[pytest.approx([0.6, 0.8])]] * 2
 
 
-def test_identifying_from_inside_a_generation_leaves_that_generations_lease_and_preset_alone(tmp_path, lifecycle, known, monkeypatch):
+def test_embedding_faces_from_inside_a_generation_leaves_that_generations_lease_and_preset_alone(tmp_path, lifecycle, known, monkeypatch):
     monkeypatch.setattr(face_identity, "new_session", Sessions())
     _model(tmp_path)
     world = _world(tmp_path, lifecycle)
@@ -229,7 +229,7 @@ def test_identifying_from_inside_a_generation_leaves_that_generations_lease_and_
         lifecycle.begin_lease("generation-1")
         try:
             with patch("src.plugin_api.media.get_container", return_value=world):
-                media.identify_faces([(Image.new("RGB", (200, 200)), _points())])
+                media.embed_faces([(Image.new("RGB", (200, 200)), _points())])
             lease = lifecycle_module._active_lease_id.get()
             owner = lifecycle_module._cache_owner.get()
             lifecycle.acquire("native/dit/a", "a", lambda: weights)
@@ -267,7 +267,7 @@ def test_a_face_that_is_not_an_image_and_its_landmarks_is_refused_with_a_plain_m
     shapes = {"image": [image], "image-points-extra": (image, _points(), "extra"), "image-alone": image, None: None}
     with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
         with pytest.raises(ValueError, match="Each face is a pair: an image and its five landmarks"):
-            media.identify_faces([(image, _points()), shapes[face]])
+            media.embed_faces([(image, _points()), shapes[face]])
 
     assert sessions.built == []
 
@@ -353,9 +353,9 @@ def test_the_real_model_gives_one_unit_vector_of_512_values_per_face_close_for_o
     with patch("src.plugin_api.media.get_container", return_value=detector):
         found = media.detect_faces([photograph, smaller, other])
     with patch("src.plugin_api.media.get_container", return_value=world):
-        assert media.face_identifier()["available"] is True
+        assert media.face_embedder()["available"] is True
         pictures = [photograph, smaller, other]
-        vectors = media.identify_faces([(picture, faces[0]["landmarks"]) for picture, faces in zip(pictures, found) if faces])
+        vectors = media.embed_faces([(picture, faces[0]["landmarks"]) for picture, faces in zip(pictures, found) if faces])
 
     assert [len(faces) >= 1 for faces in found[:2]] == [True, True]
     assert all(len(vector) == 512 and abs(_cosine(vector, vector) - 1.0) < 1e-3 for vector in vectors)
@@ -365,6 +365,8 @@ def test_the_real_model_gives_one_unit_vector_of_512_values_per_face_close_for_o
 
 
 def test_the_names_are_listed_by_the_media_module_and_the_root():
-    assert {"face_identifier", "identify_faces"} <= set(media.__all__)
-    assert root.face_identifier is media.face_identifier
-    assert root.identify_faces is media.identify_faces
+    assert {"face_embedder", "embed_faces"} <= set(media.__all__)
+    assert root.face_embedder is media.face_embedder
+    assert root.embed_faces is media.embed_faces
+    assert not {"face_identifier", "identify_faces"} & (set(media.__all__) | set(root.__all__))
+    assert not hasattr(media, "identify_faces") and not hasattr(media, "face_identifier")

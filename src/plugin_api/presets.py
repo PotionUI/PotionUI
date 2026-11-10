@@ -40,11 +40,14 @@ See docs/presets.md.
 
 import copy
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from src.features.generation.dto import GenerationRequest, PromptPair
+from src.features.generation.policy import GenerationPolicy
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations as preset_operations
+from src.features.presets.children_paths import resolve_children_path
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.linter import (
     COVER_VIDEO_MAX_BYTES as PRESET_COVER_VIDEO_MAX_BYTES,
@@ -60,8 +63,10 @@ from src.features.presets.requirements.contracts import (
 )
 from src.features.presets.schema import GalleryItem, PresetMedia
 from src.features.presets.style_previews import downscale_and_save_webp
-from src.features.presets.templates import default_form_name
-from src.features.video_director.binding import DirectorBindingError, bind_director_media
+from src.features.presets.templates import PresetTemplate, default_form_name
+from src.features.video_director import apply_preset_mode_overlay
+from src.features.video_director.binding import REFERENCE_ROLE, DirectorBindingError
+from src.features.video_director.binding import bind_director_media as _bind_director_media
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
@@ -75,7 +80,9 @@ __all__ = [
     "PRESET_COVER_VIDEO_MAX_BYTES",
     "PRESET_MEDIA_MAX_BYTES",
     "PresetDescription",
+    "PresetInstallState",
     "PresetMedia",
+    "PresetTemplate",
     "RequirementAction",
     "RequirementChecker",
     "RequirementBackendInfo",
@@ -85,8 +92,12 @@ __all__ = [
     "describe_preset",
     "downscale_and_save_webp",
     "lint_preset_dir",
+    "list_presets",
+    "preset_install_state",
     "preset_operations",
+    "preset_template",
     "PromptPair",
+    "resolve_preset_path",
 ]
 
 
@@ -113,6 +124,42 @@ def lint_preset_dir(path: str) -> Tuple[List[str], List[str]]:
     return errors, warnings
 
 
+def _request_field(request: Any, name: str) -> Any:
+    return request.get(name) if isinstance(request, Mapping) else getattr(request, name, None)
+
+
+def _preset_capabilities(request: Any, role: str) -> Optional[Dict[str, Any]]:
+    form_data = _request_field(request, "form_data")
+    document = form_data.get("video_director") if isinstance(form_data, Mapping) else None
+    if role != REFERENCE_ROLE and (not isinstance(document, Mapping) or document.get("mode") != "director"):
+        return None
+    repository = get_container().file_preset_repository
+    preset_id = _request_field(request, "preset_id")
+    template = repository.find_preset_by_id(preset_id) if preset_id else None
+    capabilities = (template.vars or {}).get("video_director") if template is not None else None
+    if not isinstance(capabilities, Mapping):
+        return {}
+    return apply_preset_mode_overlay(capabilities, _request_field(request, "mode"))
+
+
+def bind_director_media(
+    request,
+    role: str,
+    media: Any,
+    segment_id: Optional[str] = None,
+    promote: bool = False,
+    *,
+    at: Optional[float] = None,
+    capabilities: Optional[Mapping[str, Any]] = None,
+    field: Optional[str] = None,
+):
+    if capabilities is None:
+        capabilities = _preset_capabilities(request, role)
+    return _bind_director_media(
+        request, role, media, segment_id, promote, at=at, capabilities=capabilities, field=field,
+    )
+
+
 @dataclass(frozen=True)
 class FieldDescription:
     type: Optional[str]
@@ -132,6 +179,9 @@ class PresetDescription:
     name: str
     vars: Dict[str, Any] = field(default_factory=dict)
     modes: Dict[str, ModeDescription] = field(default_factory=dict)
+    engine: Optional[str] = None
+    category: Optional[str] = None
+    requires: Optional[Dict[str, Any]] = None
 
 
 def _describe_fields(fields: Iterable[Any], out: Dict[str, FieldDescription]) -> None:
@@ -146,10 +196,62 @@ def _describe_fields(fields: Iterable[Any], out: Dict[str, FieldDescription]) ->
             _describe_fields(form_field.children, out)
 
 
+@dataclass(frozen=True)
+class PresetInstallState:
+    installed: bool
+    assigned: bool
+
+
+def preset_template(preset_id: str) -> Optional[PresetTemplate]:
+    template = get_container().file_preset_repository.find_preset_by_id(preset_id)
+    return copy.deepcopy(template) if template is not None else None
+
+
+def resolve_preset_path(preset_id: str, reference: str) -> Optional[Path]:
+    repository = get_container().file_preset_repository
+    template = repository.find_preset_by_id(preset_id)
+    if template is None:
+        return None
+    preset_root = Path(template.path)
+    shared_root = Path(repository.preset_loader.shared_path)
+    try:
+        resolved = resolve_children_path(reference, preset_root, shared_root).resolve()
+        roots = [preset_root.resolve(), shared_root.resolve()]
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not any(resolved.is_relative_to(root) for root in roots):
+        return None
+    return resolved
+
+
+def preset_install_state(preset_id: str) -> PresetInstallState:
+    summary = get_container().preset_collaborators.db_repo.get_installed_preset_summaries().get(preset_id)
+    if summary is None:
+        return PresetInstallState(installed=False, assigned=False)
+    _, users, groups = summary
+    return PresetInstallState(installed=True, assigned=users + groups > 0)
+
+
 def describe_preset(preset_id: str) -> Optional[PresetDescription]:
     template = get_container().file_preset_repository.find_preset_by_id(preset_id)
     if template is None:
         return None
+    return _describe(template)
+
+
+def list_presets(user) -> List[PresetDescription]:
+    if user is None:
+        raise PermissionError("A user is required to list presets")
+    container = get_container()
+    db_repo = container.preset_collaborators.db_repo
+    if GenerationPolicy.is_admin(user):
+        offered = {preset.preset_id for preset in db_repo.get_all_installed_presets()}
+    else:
+        offered = set(db_repo.get_available_preset_ids_for_user(user.id))
+    return [_describe(template) for template in container.file_preset_repository.templates() if template.id in offered]
+
+
+def _describe(template) -> PresetDescription:
     modes = {}
     for mode_name, mode in (template.modes or {}).items():
         forms = {}
@@ -163,4 +265,7 @@ def describe_preset(preset_id: str) -> Optional[PresetDescription]:
         name=template.name,
         vars=copy.deepcopy(template.vars or {}),
         modes=modes,
+        engine=template.engine,
+        category=template.category,
+        requires=copy.deepcopy(template.requires),
     )

@@ -299,6 +299,19 @@ stored `references` key is ignored in every mode.
   reference to anchor a soundtrack). Single-shot modes (`t2v`/`i2v`/`flf`) keep the whole
   pool and leave their markers to the generation's own prompt resolution.
 
+A plugin adds references with `bind_director_media(request, "reference", media, segment_id=None,
+field=None)` (`src.plugin_api.presets`): `media` is one resolved media or a list of them (images,
+videos, audio tracks), each appended once to the pool field `field` (default: the first of
+`reference_fields`) as `{path, relative_path, type, name}`; an item the field already holds is not
+added again. With `segment_id` (a `director` document whose capability is `"per_shot"`), the
+segment's `prompt` also gets an `@[field:relative_path]` marker for each item it does not cite yet,
+so the shot is conditioned on them. The capabilities are read as for [`media`](#media) below.
+Refusals raise `DirectorBindingError`: `references_unsupported` for a preset mode without a
+reference pool, `unknown_field` for a `field` that is not one of its `reference_fields`,
+`unsupported_mode` for a `segment_id` outside a per-shot `director` document, `unknown_segment`,
+and `invalid_media` for a media that is not an image, a video or an audio track, or that a marker
+cannot cite (a path holding `]` or a line break).
+
 ### `media`
 
 `role` is one of `first`, `last`, `keyframe`.
@@ -355,6 +368,28 @@ stored `references` key is ignored in every mode.
   `"video"` is rejected here rather than silently dropped later; a reference with no `type`
   at all counts as an image.
 - `media.media` is resolved to an on-disk path (see [Path resolution](#path-resolution-and-traversal)).
+
+A plugin places an image with `bind_director_media(request, role, media, segment_id, at=None,
+capabilities=None)` (`src.plugin_api.presets`, `media` from `resolve_media_ref` or
+`extract_frame`). In a `director` document `segment_id` is required: `first` and `last` anchor to
+that segment, their `at` set to its start and end on the timeline, and `keyframe` takes `at` in
+seconds from the start of the segment and stores the timeline position: the segment's `start` in
+timeline style, the frames of the segments before it over `settings.fps` in chain style, plus `at`.
+When that window cannot be known (a timeline segment without a `start` before its `end`, a chain
+segment, or one before it, without a positive whole `frames`, or a frame rate that is not a
+positive number), all three roles raise `invalid_at`. Binding the same role on the same segment, or a keyframe at the same position, replaces the image.
+The roles follow the rules above: `keyframe` needs a timeline director or `keyframes: "anywhere"`,
+a chain `last` needs a `first` on its segment, a chain `first` cannot go on a segment whose
+`sub_type` is `"chain"`, and the keyframes stay within `max_keyframes`. The capabilities are the
+preset's `vars.video_director` for the request's preset mode (see [Preset mode
+overlays](#preset-mode-overlays)) unless `capabilities=` gives them; a cloud model's
+[overlay](#model-overlays) is not applied, so pass the model's capabilities to bind against them.
+Refusals raise `DirectorBindingError` with a stable `code`: `segment_required`,
+`unknown_segment`, `invalid_role`, `role_unsupported`, `unsupported_mode` (also for a preset that
+declares no `director` mode), `invalid_at`, `too_many_keyframes`, `first_frame_required`,
+`invalid_media`. A single-shot document keeps the `first` and `last` binding and the `promote`
+option described in [docs/plugin-api.md](plugin-api.md). The generation still validates the
+document when it is submitted.
 
 ### `audio`
 

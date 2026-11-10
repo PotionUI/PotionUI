@@ -369,6 +369,72 @@ async def test_updating_replaces_the_catalog_install_and_keeps_the_plugin_enable
     assert [path.name for path in local.iterdir()] == ["demo"]
 
 
+def _unstartable_archive(plugin_id: str, version: str) -> bytes:
+    manifest = _manifest(plugin_id, version, dependencies={"python": ["potionui-catalog-missing-package>=1"]})
+    return _archive(plugin_id, version, manifest=manifest, extra=[(f"{plugin_id}/payload.py", b"print('new')")])
+
+
+async def test_an_update_that_does_not_start_puts_the_previous_version_back_and_running(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0", _unstartable_archive("demo", "1.1.0"))
+    preset_loader = Mock()
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo", preset_loader=preset_loader)
+
+    assert "demo 1.1.0 did not start (Missing dependencies: potionui-catalog-missing-package>=1)" in str(refused.value)
+    assert "the installed 1.0.0 is back in place and running." in str(refused.value)
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert not (local / "demo" / "payload.py").exists()
+    assert json.loads((local / "demo" / INSTALL_RECORD).read_text())["version"] == "1.0.0"
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    preset_loader.reload.assert_called()
+
+
+async def test_a_disabled_plugin_takes_an_update_its_new_code_would_not_start_with_since_nothing_runs_it(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    catalog.publish("demo", "1.1.0", _unstartable_archive("demo", "1.1.0"))
+
+    result = await _install(repo, registry, catalog, "demo")
+
+    assert (result.version, result.previous_version, result.enabled) == ("1.1.0", "1.0.0", False)
+    assert (local / "demo" / "payload.py").exists()
+    assert registry.get_plugin("demo").version == "1.1.0"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+async def test_an_update_that_does_not_start_and_cannot_be_undone_keeps_the_previous_version_in_staging(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0", _unstartable_archive("demo", "1.1.0"))
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(source).name == "previous" and Path(target) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(CatalogInstallError, match="could not be put back .*in use.*; it is kept in .potionui-install/"):
+        await _install(repo, registry, catalog, "demo")
+
+    kept = list((local / STAGING_FOLDER).glob("*/previous"))
+    assert len(kept) == 1
+    assert (kept[0] / "README.md").read_text() == "demo 1.0.0\n"
+    assert (local / "demo" / "payload.py").exists()
+
+
 async def test_a_failed_update_leaves_the_installed_version_in_place(plugins, catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

@@ -14,7 +14,7 @@ from packaging.version import InvalidVersion, Version
 
 from src.features.plugins.archive import unpack_plugin_archive
 from src.features.plugins.catalog import CatalogEntry, CatalogProblem, core_mismatch, parse_catalog
-from src.features.plugins.operations.lifecycle import _rescan_presets_and_pipes
+from src.features.plugins.operations.lifecycle import _rescan_presets_and_pipes, enable_plugin
 from src.features.plugins.operations.scan import scan_plugins
 from src.features.plugins.remote import fetch_bytes, local_sources_allowed
 from src.features.plugins.repository import PluginRepository
@@ -39,6 +39,10 @@ _install_lock = asyncio.Lock()
 
 
 class CatalogInstallError(ValueError):
+    pass
+
+
+class _PreviousKept(CatalogInstallError):
     pass
 
 
@@ -188,7 +192,22 @@ def _checked_manifest(unpacked: Path, entry: CatalogEntry) -> PluginManifestSche
     return manifest
 
 
-def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) -> PluginManifestSchema:
+@dataclass(frozen=True)
+class _Placement:
+    manifest: PluginManifestSchema
+    staging: Path
+    previous: Optional[Path]
+
+
+def _discard_staging(staging: Path) -> None:
+    shutil.rmtree(staging, ignore_errors=True)
+    try:
+        staging.parent.rmdir()
+    except OSError:
+        pass
+
+
+def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) -> _Placement:
     entry = item.entry
     staging_root = local_dir / STAGING_FOLDER
     staging_root.mkdir(parents=True, exist_ok=True)
@@ -199,6 +218,7 @@ def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) ->
         record = {"catalog": catalog_url, "id": entry.id, "version": entry.version, "archive": entry.archive, "sha256": entry.sha256}
         (unpacked / INSTALL_RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         target = local_dir / entry.id
+        previous = None
         if item.status == "update":
             if _install_record(target) is None:
                 raise CatalogInstallError(f"{target} changed since the catalog was read; nothing was replaced.")
@@ -213,13 +233,60 @@ def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) ->
             if target.exists():
                 raise CatalogInstallError(f"{target} appeared since the catalog was read; nothing was replaced.")
             os.replace(unpacked, target)
-        return manifest
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        return _Placement(manifest, staging, previous)
+    except BaseException:
+        _discard_staging(staging)
+        raise
+
+
+def _put_previous_back(placement: _Placement, target: Path) -> None:
+    failed = placement.staging / "failed"
+    os.replace(target, failed)
+    try:
+        os.replace(placement.previous, target)
+    except OSError:
+        os.replace(failed, target)
+        raise
+
+
+def _came_back(was_enabled: bool, state: Optional[PluginState]) -> bool:
+    if was_enabled:
+        return state == PluginState.ENABLED
+    return state != PluginState.ERROR
+
+
+async def _restore_previous(
+    repo: PluginRepository,
+    registry: PluginRegistry,
+    item: CatalogItem,
+    placement: _Placement,
+    target: Path,
+    was_enabled: bool,
+    collaborators: dict,
+) -> None:
+    plugin_id = item.entry.id
+    failure = registry.get_plugin_error(plugin_id) or "it did not start"
+    try:
+        await asyncio.to_thread(_put_previous_back, placement, target)
+    except OSError as error:
+        raise _PreviousKept(
+            f"{plugin_id} {item.entry.version} did not start ({failure}), and the installed "
+            f"{item.installed_version} could not be put back ({error}); it is kept in "
+            f"{STAGING_FOLDER}/{placement.staging.name}/previous."
+        ) from error
+    scan_plugins(repo, registry)
+    message = (
+        f"{plugin_id} {item.entry.version} did not start ({failure}); "
+        f"the installed {item.installed_version} is back in place"
+    )
+    if was_enabled:
         try:
-            staging_root.rmdir()
-        except OSError:
-            pass
+            enable_plugin(repo, registry, plugin_id, **collaborators)
+        except Exception as error:
+            raise CatalogInstallError(f"{message}, but did not start again either: {error}") from error
+        message += " and running"
+    logger.warning(message)
+    raise CatalogInstallError(f"{message}.")
 
 
 async def install_from_catalog(
@@ -257,8 +324,27 @@ async def install_from_catalog(
                 f"The archive's sha256 is {digest}, the catalog lists {item.entry.sha256}; nothing was installed."
             )
 
-        manifest = await asyncio.to_thread(_place, data, item, local_plugin_dir(registry), url)
-        scan_plugins(repo, registry)
+        collaborators = dict(
+            preset_loader=preset_loader,
+            pipe_catalog=pipe_catalog,
+            recipe_catalog=recipe_catalog,
+            model_layout_catalog=model_layout_catalog,
+        )
+        was_enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
+        local_dir = local_plugin_dir(registry)
+        placement = await asyncio.to_thread(_place, data, item, local_dir, url)
+        try:
+            scan_plugins(repo, registry)
+            state = registry.get_plugin_state(plugin_id)
+            if placement.previous is not None and not _came_back(was_enabled, state):
+                await _restore_previous(repo, registry, item, placement, local_dir / plugin_id, was_enabled, collaborators)
+        except _PreviousKept:
+            raise
+        except BaseException:
+            await asyncio.to_thread(_discard_staging, placement.staging)
+            raise
+        await asyncio.to_thread(_discard_staging, placement.staging)
+        manifest = placement.manifest
         enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
         if enabled:
             _rescan_presets_and_pipes(

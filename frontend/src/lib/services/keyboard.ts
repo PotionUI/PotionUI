@@ -62,7 +62,7 @@ export function globalBindingFor(e: KeyboardEvent): KeybindingAction | null {
 
 	const { key, modifiers } = normalizeKey(e);
 	const candidates = get(keybindingsStore).bindings.filter(
-		(b) => b.enabled && b.handler && b.key?.toLowerCase() === key && (b.modifiers || '') === modifiers
+		(b) => b.enabled && b.handler && b.key?.toLowerCase() === key.toLowerCase() && (b.modifiers || '') === modifiers
 	);
 	if (!candidates.length) return null;
 	const currentContext = getContext(get(page).url.pathname);
@@ -75,5 +75,5 @@ function handleKeydown(e: KeyboardEvent) {
 	if (!match?.handler) return;
 	e.preventDefault();
 	e.stopPropagation();
-	match.handler();
+	match.handler(e);
 }

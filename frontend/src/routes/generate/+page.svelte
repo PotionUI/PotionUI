@@ -29,6 +29,8 @@
 		getCompareSummary,
 		isCompareActive,
 		isGridRunning,
+		readWorkbenchGrid,
+		compareRevision,
 		restoreGrids,
 		setGridRunHandlers,
 		setCompareBlocked,
@@ -66,6 +68,10 @@
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
 	import { pressFloatingForm, pressFloatingWorkbench } from '$lib/generation/floatingOverlays';
+	import { tabDeleteTarget, type TabDeleteTarget } from '$lib/generation/deleteTabGeneration';
+	import { generateDeleteIntent } from '$lib/utils/deleteShortcut';
+	import { pageOwnsKeys } from '$lib/utils/shortcutGuard';
+	import GenerationDeleteDialog from './components/GenerationDeleteDialog.svelte';
 	import { contextToolsAvailable } from '$lib/generation/contextTools';
 	let generationPanelRef: GenerationPanel | undefined;
 	import { normalizeFileType } from '$lib/utils/fileType';
@@ -986,6 +992,17 @@
 			if (toolTabActive) return;
 			tabsStore.updateTab(activeTabId, pressFloatingWorkbench(currentTab));
 		});
+		keybindingsStore.registerHandler('delete_current_generation', (event) => {
+			const target = generateDeleteIntent({
+				ownsKeys: pageOwnsKeys(event),
+				repeat: event.repeat,
+				toolTabActive,
+				showsGrid: isGridRunning(activeTabId) || !!readWorkbenchGrid(get(compareRevision), activeTabId),
+				deleteInFlight: deleteRequest !== null,
+				tab: findGenerationTab($tabsStore.tabs, activeTabId)
+			});
+			if (target) deleteRequest = target;
+		});
 
 		// Load presets - shares the layout's boot-time fetch (already in flight,
 		// often resolved, by the time this page mounts) instead of firing a
@@ -1111,6 +1128,7 @@
 		keybindingsStore.unregisterHandler('toggle_floating_form');
 		keybindingsStore.unregisterHandler('toggle_floating_workbench');
 		keybindingsStore.unregisterHandler('toggle_last_generations');
+		keybindingsStore.unregisterHandler('delete_current_generation');
 	});
 
 	// Reactive store for modes per tab
@@ -1637,6 +1655,19 @@
 		retireConfirmedCancellations(cancelledIds, { tabsStore, unsubscribe: unsubscribeGeneration });
 	}
 
+	let deleteRequest: TabDeleteTarget | null = null;
+
+	function requestDeleteGeneration(tabId: string) {
+		if (deleteRequest) return;
+		const target = tabDeleteTarget(findGenerationTab($tabsStore.tabs, tabId));
+		if (target) deleteRequest = target;
+	}
+
+	function handleGenerationDeleted() {
+		deleteRequest = null;
+		lastGenerationsRefreshSignal++;
+	}
+
 	async function cancelGeneration() {
 		if (isGridRunning(activeTabId)) {
 			await cancelGrid(activeTabId);
@@ -2016,6 +2047,7 @@
 								onWorkbenchNext={handleWorkbenchNext}
 								onWorkbenchHeightChange={handleWorkbenchHeightChange}
 								onMoveToWorkbench={handleMoveToWorkbench}
+								onDeleteGeneration={requestDeleteGeneration}
 							/>
 						{/if}
 					</DesktopWorkspace>
@@ -2112,6 +2144,15 @@
 	{/if}
 
 </div>
+
+{#if deleteRequest}
+	<GenerationDeleteDialog
+		target={deleteRequest}
+		unsubscribe={unsubscribeGeneration}
+		onDeleted={handleGenerationDeleted}
+		onClose={() => (deleteRequest = null)}
+	/>
+{/if}
 
 {#if restartAsk}
 	<ConfirmModal

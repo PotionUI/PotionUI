@@ -215,7 +215,16 @@ def resolve_preset_path(preset_id: str, reference: str) -> Optional[Path]:
     template = repository.find_preset_by_id(preset_id)
     if template is None:
         return None
-    return resolve_children_path(reference, Path(template.path), Path(repository.preset_loader.shared_path))
+    preset_root = Path(template.path)
+    shared_root = Path(repository.preset_loader.shared_path)
+    try:
+        resolved = resolve_children_path(reference, preset_root, shared_root).resolve()
+        roots = [preset_root.resolve(), shared_root.resolve()]
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not any(resolved.is_relative_to(root) for root in roots):
+        return None
+    return resolved
 
 
 def preset_install_state(preset_id: str) -> PresetInstallState:

@@ -1,4 +1,5 @@
 import copy
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -110,12 +111,74 @@ def test_a_preset_that_is_not_installed_is_handed_over_too_and_an_unknown_one_is
     assert api.preset_template(NONE) is None
 
 
-def test_a_path_a_preset_names_has_its_variables_filled(world):
-    preset_root = Path(api.preset_template(SOLO).path)
+def _link_folder(link, target):
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        if sys.platform != "win32":
+            raise
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+
+
+def test_a_path_a_preset_names_has_its_variables_filled_and_comes_back_resolved(world):
+    preset_root = Path(api.preset_template(SOLO).path).resolve()
+    shared = world.shared.resolve()
 
     assert api.resolve_preset_path(SOLO, "{{ paths.preset }}/options.yml") == preset_root / "options.yml"
-    assert api.resolve_preset_path(SOLO, "{{paths._shared}}/lists/names.yml") == world.shared / "lists" / "names.yml"
-    assert api.resolve_preset_path(SOLO, "lists/names.yml") == Path("lists/names.yml")
+    assert api.resolve_preset_path(SOLO, "{{paths._shared}}/lists/names.yml") == shared / "lists" / "names.yml"
+    assert api.resolve_preset_path(SOLO, "{{ paths.preset }}/lists/../options.yml") == preset_root / "options.yml"
+    assert api.resolve_preset_path(SOLO, "{{ paths.preset }}") == preset_root
+    assert api.resolve_preset_path(SOLO, str(preset_root / "options.yml")) == preset_root / "options.yml"
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "{{ paths.preset }}/../Grouped/preset.yml",
+        "{{ paths.preset }}/../../outside.txt",
+        "{{ paths.preset }}/lists/../../../outside.txt",
+        "{{ paths._shared }}/../outside.txt",
+        "{{ paths.preset }}/../Solo-evil/options.yml",
+        "lists/names.yml",
+        "/etc/passwd",
+        "C:\\Windows\\win.ini",
+        "C:/Windows/win.ini",
+        "C:outside.txt",
+        "\\\\server\\share\\options.yml",
+        "//server/share/options.yml",
+        "{{ paths.preset }}/options\x00.yml",
+    ],
+)
+def test_a_path_that_leaves_the_preset_and_the_shared_folder_is_none(world, reference):
+    assert api.resolve_preset_path(SOLO, reference) is None
+
+
+def test_an_absolute_path_outside_both_folders_is_none(world, tmp_path):
+    assert api.resolve_preset_path(SOLO, str(tmp_path / "outside.txt")) is None
+    assert api.resolve_preset_path(SOLO, str(world.root / "Grouped" / "preset.yml")) is None
+
+
+def test_a_link_inside_the_preset_is_followed_before_the_path_is_checked(world, tmp_path):
+    preset_root = Path(api.preset_template(SOLO).path).resolve()
+    (tmp_path / "outside").mkdir()
+    _link_folder(preset_root / "escape", tmp_path / "outside")
+    _link_folder(preset_root / "inner", preset_root / "modes")
+
+    assert api.resolve_preset_path(SOLO, "{{ paths.preset }}/escape/secret.txt") is None
+    assert api.resolve_preset_path(SOLO, "{{ paths.preset }}/inner/txt2img/form.yml") == (
+        preset_root / "modes" / "txt2img" / "form.yml"
+    )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="backslashes and case only fold into the path on Windows")
+def test_on_windows_backslashes_and_a_different_case_are_checked_as_the_same_folder(world):
+    preset_root = Path(api.preset_template(SOLO).path).resolve()
+
+    assert api.resolve_preset_path(SOLO, "{{ paths.preset }}\\..\\..\\outside.txt") is None
+    assert api.resolve_preset_path(SOLO, str(preset_root).upper() + "\\options.yml") == preset_root / "options.yml"
+    assert api.resolve_preset_path(SOLO, "\\\\?\\" + str(preset_root) + "\\..\\outside.txt") is None
 
 
 def test_a_path_of_a_preset_that_is_not_loaded_is_none(world):

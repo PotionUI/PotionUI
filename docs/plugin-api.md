@@ -3290,7 +3290,10 @@ another catalog, and cannot replace it. A plugin installed from this catalog is 
 only to a strictly newer version, both versions read as Python package versions (PEP 440)
 like `requires.core`: the same version is installed, an older one is listed as older
 than the installed one, and a version either side that is not a PEP 440 version is
-listed as not comparable; none of these offers an action. On an update, the
+listed as not comparable; none of these offers an action. PEP 440 rules apply as they are:
+`1.0.0+build` counts as newer than `1.0.0`, and after a version with an epoch (`1!0.1`)
+every version without one is older, so a catalog should use plain release numbers. On an
+update, the
 new folder replaces the old one whole, the old one comes back if the move fails, and an
 enabled plugin is enabled again on its new manifest, with presets, pipes and recipes
 rescanned. The old folder waits in the staging folder until the scan that follows the
@@ -3317,7 +3320,9 @@ with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`: catalog and archive URLs may then 
 local and private addresses, and use plain http, but only to such an address. A plain http
 URL to a public address, written as one or a name with any public answer, is refused
 before connecting, a redirect from https to http included; https to public hosts is
-unchanged. Installing,
+unchanged. Local and private addresses include link-local ones, such as the cloud metadata
+address `169.254.169.254`, so set the variable only on a server where that is acceptable.
+Installing,
 updating and reading a catalog are admin-only (`POST /api/plugins/catalog` and
 `POST /api/plugins/catalog/install`). The sha256 proves the archive is the one the
 catalog names; it says nothing about the catalog itself, so install only from catalogs

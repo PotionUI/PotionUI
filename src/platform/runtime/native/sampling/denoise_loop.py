@@ -281,10 +281,10 @@ def resolve_sampler(sampler_name: str):
     return sampler_registry.get(sampler_name).sample
 
 
-def fp32_trajectory_forward(model_forward, traj_dtype):
+def fp32_trajectory_forward(model_forward, traj_dtype, sigma_dtype: torch.dtype | None = None):
     def model_forward_fp32(x_fp32: Tensor, sigma_fp32: Tensor, conditioning: dict) -> Tensor:
         x_model = x_fp32.to(traj_dtype)
-        sigma_model = sigma_fp32.to(traj_dtype)
+        sigma_model = sigma_fp32.to(sigma_dtype or traj_dtype)
         v_model = model_forward(x_model, sigma_model, conditioning)
         return v_model.float()
 
@@ -347,6 +347,8 @@ def denoise(
     sigmas: Tensor | None = None,
     expert_boundary: float | None = None,
     latent_mask: Tensor | None = None,
+    model_sigma_dtype: torch.dtype | None = None,
+    output_dtype: torch.dtype | None = None,
 ) -> Tensor:
     """Denoise ``latents`` to a clean latent and return it.
 
@@ -485,7 +487,7 @@ def denoise(
     # fp32 state (x, v, x0_est, ancestral noise via randn_like) while the model
     # receives its original traj_dtype. Guidance/CFG, preview hooks, and FBCache
     # operate on the fp32 trajectory; only the DiT forward runs in traj_dtype.
-    model_forward_fp32 = fp32_trajectory_forward(model_forward, traj_dtype)
+    model_forward_fp32 = fp32_trajectory_forward(model_forward, traj_dtype, model_sigma_dtype)
 
     # Multi-expert discontinuity: tell a multistep sampler (unipc, dpmpp_2m,
     # dpmpp_2m_sde, dpmpp_3m, res_multistep) which step index switches network
@@ -529,4 +531,4 @@ def denoise(
 
     # Cast the final latent back to the original dtype (one final rounding, same as
     # the reference's decode-boundary cast). Downstream decode contracts unchanged.
-    return latent.to(traj_dtype)
+    return latent.to(output_dtype or traj_dtype)

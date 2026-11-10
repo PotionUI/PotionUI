@@ -125,6 +125,16 @@ def align_half_storage(
     return cast
 
 
+def honour_working_dtypes(
+    compute_dtype: torch.dtype,
+    sd_dtype: torch.dtype | None,
+    working: tuple[torch.dtype, ...] | None,
+) -> torch.dtype:
+    if not working or compute_dtype in working:
+        return compute_dtype
+    return sd_dtype if sd_dtype in working else working[0]
+
+
 def warn_below_reference(label: str, reference_dtype: torch.dtype | None, compute_dtype: torch.dtype) -> bool:
     if reference_dtype is not torch.bfloat16 or compute_dtype is not torch.float16:
         return False

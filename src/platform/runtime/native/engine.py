@@ -70,7 +70,14 @@ from .memory.tiering import (
     ref_latents_headroom_gb,
     sampling_headroom_gb,
 )
-from .ops.dtype import align_half_storage, is_mixed_precision, parse_dtype, pick_dtypes, warn_below_reference
+from .ops.dtype import (
+    align_half_storage,
+    honour_working_dtypes,
+    is_mixed_precision,
+    parse_dtype,
+    pick_dtypes,
+    warn_below_reference,
+)
 from .ops.fp8_quant import estimate_fp8_gb, quantize_state_dict_to_fp8, should_quantize_fp8
 from .kernels import (
     QUANT_FP8_SCALED,
@@ -105,6 +112,7 @@ from .vae.loader import (
     load_minimax_h3_latent_upsampler,
     load_minimax_music3_dav,
     load_yue2_vae,
+    native_vae_working_dtypes,
 )
 from .vae.tiling import (
     auto_tile_size,
@@ -1114,7 +1122,7 @@ class NativeEngineLoader:
         )
         return sd, QUANT_FP8_SCALED, weight_dtype(sd), new_est
 
-    def _load_component(self, kind, path, prefix, slice_fn, build) -> NativeModel:
+    def _load_component(self, kind, path, prefix, slice_fn, build, working_dtypes=None) -> NativeModel:
         if prefix is None:
             sd, metadata = load_torch_file(path, device="cpu")
         else:
@@ -1125,6 +1133,8 @@ class NativeEngineLoader:
         quant_format = detect_quant_format(metadata, sd)
         sd_dtype = weight_dtype(sd)
         _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
+        if working_dtypes is not None:
+            compute_dtype = honour_working_dtypes(compute_dtype, sd_dtype, working_dtypes(sd, metadata))
         storage_dtype = sd_dtype or compute_dtype
         est_gb = _estimated_gb(sd)
         ops = self._ops_for("vae", est_gb, storage_dtype, compute_dtype, quant_format, sd)
@@ -1140,6 +1150,7 @@ class NativeEngineLoader:
             "vae", path, "vae.",
             _prefix_slice("vae.", _is_ltx_video_vae, strip=True),
             build_native_vae,
+            native_vae_working_dtypes,
         )
 
     def _load_audio_vae(self, path: str | Path) -> NativeModel:
@@ -1261,6 +1272,9 @@ class Conditioning:
 
 class NativeGenerator:
     """Runs encode -> sample -> decode for one loaded model bundle."""
+
+    model_sigma_dtype: torch.dtype | None = None
+    latent_output_dtype: torch.dtype | None = None
 
     def __init__(
         self,
@@ -1973,6 +1987,8 @@ class NativeGenerator:
                     resume=resume,
                     sigmas=sigmas_tensor,
                     latent_mask=latent_mask,
+                    model_sigma_dtype=self.model_sigma_dtype,
+                    output_dtype=self.latent_output_dtype,
                 )
             finally:
                 self._release_dit_after_sampling()

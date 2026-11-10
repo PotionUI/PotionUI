@@ -124,3 +124,81 @@ def test_a_vae_file_with_the_image_decoder_loads_through_the_image_loader(monkey
     assert vae_loader.build_native_vae("vae.safetensors", None, _state("minimax_h3_image/vae_fp16"), {}) == "image"
     assert vae_loader.build_native_vae("vae.safetensors", None, _state("minimax_h3/video_vae"), {}) == "video"
     assert calls == ["image", "video"]
+
+
+def _reference_blend(a, b, extent, dim):
+    extent = min(a.shape[dim], b.shape[dim], extent)
+    positions = torch.arange(extent, dtype=b.dtype)
+    shape = [1] * a.ndim
+    shape[dim] = extent
+    blended = (a.narrow(dim, a.shape[dim] - extent, extent) * (1 - positions / extent).view(shape)
+               + b.narrow(dim, 0, extent) * (positions / extent).view(shape))
+    return torch.cat([blended, b.narrow(dim, extent, b.shape[dim] - extent)], dim=dim)
+
+
+def _reference_tiled_decode(tiles, y_overlaps, x_starts, x_lengths, x_overlaps, height, width):
+    canvas = torch.empty(*tiles[0][0].shape[:-2], height, width)
+    strip = None
+    out_y = 0
+    for i, row in enumerate(tiles):
+        new_strip = None
+        left_tail = None
+        out_x = 0
+        for j, tile in enumerate(row):
+            if i > 0:
+                tile = _reference_blend(strip[..., :, x_starts[j]:x_starts[j] + x_lengths[j]], tile, y_overlaps[i - 1], -2)
+            if j > 0:
+                tile = _reference_blend(left_tail, tile, x_overlaps[j - 1], -1)
+            left_tail = tile[..., :, -x_overlaps[j]:].clone() if j < len(row) - 1 else None
+            if j < len(row) - 1:
+                tile = tile[..., :, :-x_overlaps[j]]
+            if i < len(tiles) - 1:
+                if new_strip is None:
+                    new_strip = torch.empty(*tile.shape[:-2], y_overlaps[i], width)
+                new_strip[..., :, out_x:out_x + tile.shape[-1]] = tile[..., -y_overlaps[i]:, :]
+                tile = tile[..., :-y_overlaps[i], :]
+            canvas[..., out_y:out_y + tile.shape[-2], out_x:out_x + tile.shape[-1]] = tile
+            tile_height = tile.shape[-2]
+            out_x += tile.shape[-1]
+        strip = new_strip
+        out_y += tile_height
+    return canvas
+
+
+def _decoded_tiles(vae, latent):
+    height, width = latent.shape[-2] * 16, latent.shape[-1] * 16
+    y_starts, y_lengths, y_overlaps = vae._split_tiles(height, 256, 64)
+    x_starts, x_lengths, x_overlaps = vae._split_tiles(width, 256, 64)
+    with torch.no_grad():
+        tiles = [[vae._decode_pixels(latent[..., ys // 16:(ys + yl) // 16, xs // 16:(xs + xl) // 16])
+                  for xs, xl in zip(x_starts, x_lengths)] for ys, yl in zip(y_starts, y_lengths)]
+    return tiles, y_overlaps, x_starts, x_lengths, x_overlaps, height, width
+
+
+def test_the_image_vae_blends_each_tile_against_already_blended_neighbours():
+    vae = _tiny_decoder()
+    latent = torch.randn(1, 24, 1, 34, 22, generator=torch.Generator().manual_seed(4))
+    tiles, y_overlaps, x_starts, x_lengths, x_overlaps, height, width = _decoded_tiles(vae, latent)
+    assert len(tiles) == 3 and len(tiles[0]) == 2
+    expected = _reference_tiled_decode(tiles, y_overlaps, x_starts, x_lengths, x_overlaps, height, width)
+    with torch.no_grad():
+        decoded = vae.decode(latent)
+    assert decoded.shape == expected.shape
+    assert torch.allclose(decoded, expected, atol=1e-6)
+
+
+def test_tile_corners_follow_the_reference_blend_even_where_tiles_disagree():
+    vae = _tiny_decoder()
+    starts, lengths, overlaps = vae._split_tiles(560, 256, 64)
+    generator = torch.Generator().manual_seed(6)
+    tiles = [[torch.randn(1, 3, 1, 256, 256, generator=generator) for _ in starts] for _ in starts]
+    expected = _reference_tiled_decode(tiles, overlaps, starts, lengths, overlaps, 560, 560)
+    assert torch.allclose(vae._stitch_decoded_tiles(tiles, overlaps, overlaps), expected, atol=1e-6)
+    assert (vae._stitch_tiles(tiles, overlaps, overlaps) - expected).abs().max() > 0.1
+
+
+def test_the_video_vae_keeps_blending_against_raw_neighbours():
+    video = _tiny_decoder(MiniMaxH3VideoVAE)
+    tiles = [[torch.randn(1, 3, 1, 256, 256, generator=torch.Generator().manual_seed(i * 2 + j)) for j in range(2)]
+             for i in range(2)]
+    assert torch.equal(video._stitch_decoded_tiles(tiles, [64], [64]), video._stitch_tiles(tiles, [64], [64]))

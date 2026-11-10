@@ -841,7 +841,12 @@ class MiniMaxH3VideoVAE(NativeArchModule):
 
         cols = len(x_indices)
         rows = [decoded[i * cols : (i + 1) * cols] for i in range(len(y_indices))]
-        return self._stitch_tiles(rows, y_overlaps, x_overlaps)
+        return self._stitch_decoded_tiles(rows, y_overlaps, x_overlaps)
+
+    def _stitch_decoded_tiles(
+        self, tiles: list[list[torch.Tensor]], height_overlaps: list[int], width_overlaps: list[int],
+    ) -> torch.Tensor:
+        return self._stitch_tiles(tiles, height_overlaps, width_overlaps)
 
     # -- temporal chunking -----------------------------------------------
 

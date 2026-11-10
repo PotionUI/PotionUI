@@ -1,4 +1,4 @@
-# Derived from: comfy/ldm/minimax/vae.py (ComfyUI, GPL-3.0) — H3ImageVAE / MiniMaxH3ImageVAE: the H3 encoder paired with a single-frame 2D ViT decoder (16 heads, 2D RoPE over half of each head, Conv2d post-quant conv, zeros as the trailing decoder token).
+# Derived from: comfy/ldm/minimax/vae.py (ComfyUI, GPL-3.0) — H3ImageVAE / MiniMaxH3ImageVAE: the H3 encoder paired with a single-frame 2D ViT decoder (16 heads, 2D RoPE over half of each head, Conv2d post-quant conv, zeros as the trailing decoder token). Its tile stitching follows MiniMaxH3VideoVAE.tiled_decode: each tile blends against neighbours that are already blended.
 from __future__ import annotations
 
 from typing import Any
@@ -43,6 +43,8 @@ IMAGE_DECODER_OUT_ROWS = 3 * 16 * 16
 
 
 class MiniMaxH3ImageVAE(MiniMaxH3VideoVAE):
+    working_dtypes: tuple[torch.dtype, ...] = (torch.float16, torch.float32)
+
     def __init__(
         self, *,
         latent_channels: int = LATENT_CHANNELS,
@@ -92,6 +94,34 @@ class MiniMaxH3ImageVAE(MiniMaxH3VideoVAE):
 
     def _decode_pixels(self, z: torch.Tensor) -> torch.Tensor:
         return self.decoder(self.post_quant_conv(z.squeeze(2)).unsqueeze(2))
+
+    def _stitch_decoded_tiles(
+        self, tiles: list[list[torch.Tensor]], height_overlaps: list[int], width_overlaps: list[int],
+    ) -> torch.Tensor:
+        starts = [0]
+        for j, tile in enumerate(tiles[0][:-1]):
+            starts.append(starts[-1] + tile.shape[-1] - width_overlaps[j])
+        strip = None
+        bands = []
+        for i, row in enumerate(tiles):
+            left_tail = None
+            pieces = []
+            for j, tile in enumerate(row):
+                if i > 0:
+                    above = strip[..., :, starts[j] : starts[j] + tile.shape[-1]]
+                    tile = self._blend(above, tile, height_overlaps[i - 1], dim=-2)
+                if j > 0:
+                    tile = self._blend(left_tail, tile, width_overlaps[j - 1], dim=-1)
+                if j < len(row) - 1:
+                    left_tail = tile[..., :, -width_overlaps[j]:]
+                    tile = tile[..., :, : -width_overlaps[j]]
+                pieces.append(tile)
+            band = torch.cat(pieces, dim=-1)
+            if i < len(tiles) - 1:
+                strip = band[..., -height_overlaps[i]:, :]
+                band = band[..., : -height_overlaps[i], :]
+            bands.append(band)
+        return torch.cat(bands, dim=-2)
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         if z.ndim != 5 or z.shape[2] != 1:

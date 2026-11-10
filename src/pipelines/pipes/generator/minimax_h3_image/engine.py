@@ -21,6 +21,9 @@ REFERENCE_ENCODE_SEED = 42
 
 @register_native_generator("minimax_h3_image")
 class MiniMaxH3ImageNativeGenerator(NativeGenerator):
+    model_sigma_dtype = torch.float32
+    latent_output_dtype = torch.float32
+
     def _spatial_downscale(self) -> int:
         return SPATIAL_DOWNSCALE
 

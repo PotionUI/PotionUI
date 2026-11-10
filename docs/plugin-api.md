@@ -2616,7 +2616,8 @@ that file is not AuraFace's and is not used. A file's size and digest are checke
 state of the file (its size and modification time), so the first call after a file is put in place
 reads it through. `face_detector()` and `face_embedder()` make that check too: the first of them
 to run after the file changes reads it through, 260 MB for AuraFace, so call them from a thread as
-well, like the functions that run the models.
+well, like the functions that run the models. A call that arrives while a file is being checked waits
+for that check instead of reading the file again; the check of one file does not wait for the other.
 
 `embed_faces` aligns each face on the 112×112 ArcFace template of InsightFace, the five points
 `arcface_dst` of `python-package/insightface/utils/face_align.py` in

@@ -1,4 +1,5 @@
 import hashlib
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -69,3 +70,59 @@ def test_the_identity_model_is_its_file_in_the_auraface_folder_of_the_home_root_
     assert missing is None
     assert face_models.identity_model(roots) == folder / face_models.IDENTITY_MODEL
     assert roots.asked == ["face_recognition/auraface", "face_recognition/auraface"]
+
+
+def _slow_digest(monkeypatch):
+    entered = threading.Semaphore(0)
+    release = threading.Event()
+    hashed = []
+    real = face_models._sha256
+
+    def digest(path):
+        hashed.append(path.name)
+        entered.release()
+        if path.name == face_models.IDENTITY_MODEL:
+            release.wait(timeout=5)
+        return real(path)
+
+    monkeypatch.setattr(face_models, "_sha256", digest)
+    return entered, release, hashed
+
+
+def test_two_first_checks_of_one_file_at_once_hash_it_once(tmp_path, known, monkeypatch):
+    model = tmp_path / face_models.IDENTITY_MODEL
+    model.write_bytes(IDENTITY)
+    entered, release, hashed = _slow_digest(monkeypatch)
+    answers = []
+    threads = [threading.Thread(target=lambda: answers.append(face_models._is_model_file(model))) for _ in range(2)]
+
+    threads[0].start()
+    assert entered.acquire(timeout=5)
+    threads[1].start()
+    second_hash = entered.acquire(timeout=0.5)
+    release.set()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert second_hash is False
+    assert hashed == [face_models.IDENTITY_MODEL]
+    assert answers == [True, True]
+
+
+def test_the_check_of_one_file_does_not_wait_for_the_hash_of_another(tmp_path, known, monkeypatch):
+    identity = tmp_path / face_models.IDENTITY_MODEL
+    identity.write_bytes(IDENTITY)
+    detector = tmp_path / face_models.FACE_MODEL
+    detector.write_bytes(DETECTOR)
+    entered, release, hashed = _slow_digest(monkeypatch)
+    slow = threading.Thread(target=face_models._is_model_file, args=(identity,))
+
+    slow.start()
+    assert entered.acquire(timeout=5)
+    try:
+        assert face_models._is_model_file(detector) is True
+    finally:
+        release.set()
+        slow.join(timeout=5)
+
+    assert hashed == [face_models.IDENTITY_MODEL, face_models.FACE_MODEL]

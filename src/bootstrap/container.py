@@ -324,6 +324,8 @@ if TYPE_CHECKING:
     from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
     from src.features.collections.repository import CollectionRepository
     from src.features.presets.repository import DatabasePresetRepository
+    from src.features.presets.fixed_prompt_repository import PresetFixedPromptRepository
+    from src.features.generation.applied_prompt_repository import GenerationAppliedPromptRepository
     from src.features.prompt_database.repository import PromptRepository
     from src.features.stats.repository import StatsRepository
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
@@ -536,6 +538,8 @@ class AppContainer:
     # Presets
     file_preset_repository: "FilePresetRepository"
     database_preset_repository: "DatabasePresetRepository"
+    preset_fixed_prompt_repository: "PresetFixedPromptRepository"
+    generation_applied_prompt_repository: "GenerationAppliedPromptRepository"
     preset_collaborators: PresetCollaborators
     preset_controller: "PresetController"
 
@@ -1297,6 +1301,10 @@ def build_container() -> AppContainer:
         connection_hub, generation_status_tracker, run_report_recorder
     )
 
+    from src.features.presets.fixed_prompt_repository import PresetFixedPromptRepository
+    from src.features.generation.applied_prompt_repository import GenerationAppliedPromptRepository
+    preset_fixed_prompt_repository = PresetFixedPromptRepository()
+    generation_applied_prompt_repository = GenerationAppliedPromptRepository()
     generation_orchestrator = GenerationOrchestrator(
         pipeline_builder, backend_registry, connection_hub, settings, output_processor,
         preset_template_loader, status_tracker=generation_status_tracker,
@@ -1318,6 +1326,8 @@ def build_container() -> AppContainer:
         limit_guard=limit_guard,
         prompt_resource_source_registry=prompt_resource_source_registry,
         plugin_registry=plugin_registry,
+        fixed_prompt_repository=preset_fixed_prompt_repository,
+        applied_prompt_repository=generation_applied_prompt_repository,
     )
 
     # Initialize generation history manager

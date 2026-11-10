@@ -250,6 +250,24 @@ class TestPublish(InspirationTestBase):
         self.assertIn("preset", preview_names)
         self.assertIn("seed", preview_names)
 
+    def test_a_published_snapshot_has_no_fixed_prompt_text(self):
+        from src.features.generation.fixed_prompt import apply_fixed_prompt
+        from src.pipelines.outputs import ParamGenerationOutput
+
+        generation_id, _, source = self._generated_file()
+        run = apply_fixed_prompt([{"positive": "a cat", "negative": "blurry"}], [("kodachrome still,", "warm grain", "cartoonish")])
+        for name, channel in (("positive_prompt", "positive"), ("negative_prompt", "negative")):
+            output = ParamGenerationOutput(name=name, values=[pair[channel] for pair in run.applied])
+            run.mask(output)
+            self.parameter_repo.create_batch(generation_id, output.name, output.values)
+
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Film")
+
+        snapshot = json.dumps(insp.params_snapshot)
+        for secret in ("kodachrome", "warm grain", "cartoonish"):
+            self.assertNotIn(secret, snapshot)
+        self.assertEqual(insp.params_snapshot["form_data"]["prompt"], "a cat")
+
     def test_publish_rejects_a_generation_owned_by_someone_else(self):
         """The ownership check: a foreign generation_id must not publish."""
         generation_id, file_record, source = self._generated_file(user_id=self.other_user_id)

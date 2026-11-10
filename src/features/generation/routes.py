@@ -49,6 +49,8 @@ from src.features.content_safety.errors import ContentPolicyRefusal
 from src.features.generation.exceptions import IdempotencyKeyConflict
 from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.run_report_recorder import RunReportRecorder
+from src.features.generation.applied_prompt_repository import GenerationAppliedPromptRepository
+from src.features.generation.fixed_prompt import applied_parameters, with_applied_prompts
 from src.features.cloud.cost_repository import GenerationCostRepository
 from src.features.generation.failure import (
     failure_report,
@@ -135,8 +137,10 @@ class GenerationController(BaseController):
         run_report_recorder: RunReportRecorder,
         generation_cost_repository: Optional[GenerationCostRepository] = None,
         output_broadcaster: Optional[GenerationOutputBroadcaster] = None,
+        applied_prompt_repository: Optional[GenerationAppliedPromptRepository] = None,
     ):
         super().__init__()  # Initialize BaseController
+        self.applied_prompt_repository = applied_prompt_repository
         self.generation_orchestrator = generation_orchestrator
         self.history_facade = generation_history_facade
         self.history_query = generation_history_facade.query
@@ -508,7 +512,10 @@ class GenerationController(BaseController):
             include_files=include_files,
             include_batch=include_batch,
         )
-        return self.success_response(data=scope_generation(result, GenerationPolicy.is_admin(current_user)))
+        is_admin = GenerationPolicy.is_admin(current_user)
+        if is_admin:
+            result = with_applied_prompts(result, self._applied_prompts(generation_id))
+        return self.success_response(data=scope_generation(result, is_admin))
 
     @guarded(
         _NOT_FOUND,
@@ -526,7 +533,14 @@ class GenerationController(BaseController):
             index=index,
             user_id=current_user.id
         )
+        if GenerationPolicy.is_admin(current_user):
+            result = with_applied_prompts(result, self._applied_prompts(generation_id), index)
         return self.success_response(data=result)
+
+    def _applied_prompts(self, generation_id: str):
+        if self.applied_prompt_repository is None:
+            return None
+        return self.applied_prompt_repository.get(generation_id)
 
     @guarded(
         {**_NOT_FOUND, ValueError: Fail("invalid_rating", status=400)},
@@ -929,11 +943,15 @@ class GenerationController(BaseController):
                 prompt = generation.form_data.get('prompt')
             report = {**report, 'prompt_template': prompt}
 
+        generation_data = {
+            **generation.to_dict(include_files=True, include_tags=True),
+            'routing': generation.routing_decision,
+        }
+        applied = applied_parameters(self._applied_prompts(generation_id))
+        if applied is not None:
+            generation_data = {**generation_data, 'parameters': applied, 'fixed_prompt_applied': True}
         return self.success_response(data={
-            'generation': {
-                **generation.to_dict(include_files=True, include_tags=True),
-                'routing': generation.routing_decision,
-            },
+            'generation': generation_data,
             'run_report': report,
             'cost': self._admin_cost(generation_id),
         })
@@ -1004,6 +1022,7 @@ def _get_generation_controller(container: "AppContainer") -> GenerationControlle
             container.run_report_recorder,
             container.generation_cost_repository,
             container.output_broadcaster,
+            container.generation_applied_prompt_repository,
         )
         container._generation_controller = controller
     return controller

@@ -11,6 +11,7 @@
 	import { createHostFetchApi } from '$lib/plugin-api/hostApi';
 	import { createPluginApi as createHostPluginApi } from '$lib/plugin-api/pluginApi';
 	import { releaseAllKeyboardHolds } from '$lib/services/keyboard';
+	import { attachPluginStylesheet, loadPluginStylesheet } from '$lib/plugin-api/pluginStylesheet';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -19,6 +20,7 @@
 	let headerActionsEl: HTMLDivElement;
 	let pluginInstance: any = null;
 	let unmountFn: ((instance: any) => void) | null = null;
+	let detachStylesheet: (() => void) | null = null;
 	let loadedPluginId: string | null = null;
 	let loadVersion = 0;
 	let titleHidden = false;
@@ -43,6 +45,8 @@
 		pluginInstance = null;
 		unmountFn = null;
 		releaseAllKeyboardHolds();
+		detachStylesheet?.();
+		detachStylesheet = null;
 	}
 
 	async function loadPlugin(id: string) {
@@ -71,11 +75,19 @@
 
 			pageInfo = data.data;
 
+			const stylesheetLoad = pageInfo.stylesheet
+				? loadPluginStylesheet(
+						pageInfo.plugin_id,
+						new URL(`${api.getBaseURL()}/api/plugins/${pageInfo.plugin_id}/assets/${pageInfo.stylesheet}`, window.location.href).href
+					)
+				: null;
 			const componentUrl = `${api.getBaseURL()}/api/plugins/${pageInfo.plugin_id}/assets/${pageInfo.component_path}`;
 			const mod = await import(/* @vite-ignore */ componentUrl);
+			const stylesheet = await stylesheetLoad;
 
 			if (thisVersion !== loadVersion) return;
 
+			if (stylesheet) detachStylesheet = attachPluginStylesheet(document, stylesheet);
 			loading = false;
 
 			// Wait for the container to be in the DOM
@@ -181,6 +193,6 @@
 		</div>
 
 		<!-- Plugin Content -->
-		<div bind:this={containerEl} class="plugin-container min-h-0 flex-1 overflow-auto"></div>
+		<div bind:this={containerEl} data-potionui-plugin={pageInfo?.plugin_id} class="plugin-container min-h-0 flex-1 overflow-auto"></div>
 	{/if}
 </div>

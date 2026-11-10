@@ -38,6 +38,7 @@ ALLOWED_BASENAMES = {
     "docs_lint.py",
     "pipes_reference.py",
     "build-plugins.mjs",
+    "plugin-stylesheet.mjs",
     "h3_extract_time_embedder.py",
     "llm_cassette_record.py",
     "llm_profiles_refresh.py",

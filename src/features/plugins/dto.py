@@ -94,6 +94,7 @@ class PluginPageResponse(BaseModel):
     sidebar_order: int = 100
     show_in_sidebar: bool = True
     require_role: Optional[str] = None
+    stylesheet: Optional[str] = None
 
 
 class PluginScanResult(BaseModel):

@@ -13,10 +13,11 @@ if TYPE_CHECKING:
 
 
 class FixedPromptController(BaseController):
-    def __init__(self, preset_loader, repository):
+    def __init__(self, preset_loader, repository, content_safety=None):
         super().__init__()
         self.preset_loader = preset_loader
         self.repository = repository
+        self.content_safety = content_safety
 
     @guarded(None, Fail("fixed_prompt_read_failed", "Failed to read the fixed prompt text", status=500), admin="current_user")
     async def get_fixed_prompt(self, preset_id: str, current_user: User) -> APIResponse:
@@ -25,12 +26,14 @@ class FixedPromptController(BaseController):
 
     @guarded(None, Fail("fixed_prompt_update_failed", "Failed to save the fixed prompt text", status=500), admin="current_user")
     async def set_fixed_prompt(self, preset_id: str, payload: Any, current_user: User) -> APIResponse:
-        fixed = write_fixed_prompt(self.preset_loader, self.repository, preset_id, payload)
+        fixed = write_fixed_prompt(self.preset_loader, self.repository, preset_id, payload, self.content_safety)
         return self.success_response(data=fixed.to_dict())
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    controller = FixedPromptController(container.preset_template_loader, container.preset_fixed_prompt_repository)
+    controller = FixedPromptController(
+        container.preset_template_loader, container.preset_fixed_prompt_repository, container.content_safety,
+    )
     router = APIRouter(prefix="/api/presets", tags=["Presets"])
 
     @router.get("/{preset_id}/fixed-prompt", response_model=APIResponse, summary="Get Preset Fixed Prompt Text")

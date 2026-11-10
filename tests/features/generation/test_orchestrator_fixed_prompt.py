@@ -151,12 +151,7 @@ async def test_the_applied_prompts_are_recorded_with_the_users_version():
 
     await start(orchestrator, make_request([{'positive': 'a red fox', 'negative': ''}]))
 
-    assert applied.saved['g1'] == [{
-        'positive': f'{PREFIX} a red fox {SUFFIX}',
-        'negative': NEGATIVE,
-        'visible_positive': 'a red fox',
-        'visible_negative': '',
-    }]
+    assert applied.saved['g1'] == [{'positive': f'{PREFIX} a red fox {SUFFIX}', 'negative': NEGATIVE}]
 
 
 async def test_content_safety_checks_the_applied_text():
@@ -269,3 +264,21 @@ async def test_without_the_repository_nothing_changes():
     await start(orchestrator, make_request([{'positive': 'a red fox', 'negative': ''}]))
 
     assert pipeline_prompts(orchestrator) == [{'positive': 'a red fox', 'negative': ''}]
+
+
+async def test_a_failing_fixed_prompt_step_fails_the_generation_and_leaves_nothing_behind():
+    from src.features.generation.status_tracker import GenerationState
+
+    orchestrator, applied, _ = make_orchestrator()
+    orchestrator._prompt_expander.expand_fixed = Mock(side_effect=RuntimeError('expansion broke'))
+    prune = Mock(wraps=orchestrator._queue_dispatcher.prune_finished)
+    orchestrator._queue_dispatcher.prune_finished = prune
+
+    with pytest.raises(RuntimeError, match='expansion broke'):
+        await start(orchestrator, make_request([{'positive': 'a red fox', 'negative': ''}]))
+
+    assert orchestrator.status_tracker.get('g1').state == GenerationState.FAILED
+    prune.assert_called()
+    orchestrator.pipeline_builder.build_pipeline.assert_not_called()
+    assert applied.saved == {}
+    assert orchestrator._fixed_prompt_runs == {}

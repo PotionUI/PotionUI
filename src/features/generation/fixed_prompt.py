@@ -36,44 +36,30 @@ def _join(parts: Sequence[str], separator: str) -> str:
     return separator.join(text.strip() for text in parts if isinstance(text, str) and text.strip())
 
 
-def _pick(texts: List[str], value: Any, index: int) -> int:
-    slot = index % len(texts)
-    if isinstance(value, str) and texts[slot] != value and value in texts:
-        return texts.index(value)
-    return slot
-
-
 @dataclass
 class FixedPromptRun:
     visible: List[Dict[str, str]]
     applied: List[Dict[str, str]] = field(default_factory=list)
 
-    def _visible_text(self, channel: str, value: Any, index: int) -> str:
-        source = [pair.get(channel, "") for pair in self.applied]
-        return self.visible[_pick(source, value, index)].get(channel, "")
+    def _visible_text(self, channel: str, index: int) -> str:
+        return self.visible[index % len(self.visible)].get(channel, "")
 
     def mask(self, output: GenerationOutput) -> None:
         if not self.visible:
             return
         if isinstance(output, RenderedPromptGenerationOutput):
             index = output.index if isinstance(output.index, int) else 0
-            output.positive = self._visible_text("positive", output.positive, index)
-            output.negative = self._visible_text("negative", output.negative, index)
+            output.positive = self._visible_text("positive", index)
+            output.negative = self._visible_text("negative", index)
         elif isinstance(output, ParamGenerationOutput) and output.name in PROMPT_PARAMETERS:
             channel = PROMPT_PARAMETERS[output.name]
             output.values = [
-                self._visible_text(channel, value, index) for index, value in enumerate(output.values or [])
+                self._visible_text(channel, index) for index in range(len(output.values or []))
             ]
 
     def records(self) -> List[Dict[str, str]]:
         return [
-            {
-                "positive": applied.get("positive", ""),
-                "negative": applied.get("negative", ""),
-                "visible_positive": visible.get("positive", ""),
-                "visible_negative": visible.get("negative", ""),
-            }
-            for visible, applied in zip(self.visible, self.applied)
+            {"positive": pair.get("positive", ""), "negative": pair.get("negative", "")} for pair in self.applied
         ]
 
 
@@ -90,9 +76,8 @@ def apply_fixed_prompt(
     return FixedPromptRun(visible=[dict(pair) for pair in visible], applied=applied)
 
 
-def _applied_text(entries: List[Dict[str, str]], channel: str, value: Any, index: int) -> Any:
-    source = [entry.get(f"visible_{channel}", "") for entry in entries]
-    return entries[_pick(source, value, index)].get(channel, "")
+def _applied_text(entries: List[Dict[str, str]], channel: str, index: int) -> str:
+    return entries[index % len(entries)].get(channel, "")
 
 
 def with_applied_prompts(
@@ -106,9 +91,9 @@ def with_applied_prompts(
             continue
         value = parameters[name]
         if index is None and isinstance(value, list):
-            parameters[name] = [_applied_text(entries, channel, item, at) for at, item in enumerate(value)]
+            parameters[name] = [_applied_text(entries, channel, at) for at in range(len(value))]
         elif index is not None:
-            parameters[name] = _applied_text(entries, channel, value, index)
+            parameters[name] = _applied_text(entries, channel, index)
     return {**result, "parameters": parameters, "fixed_prompt_applied": True}
 
 

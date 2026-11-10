@@ -280,7 +280,10 @@ suffix and a fixed addition to the negative prompt. They live in `presets.fixed_
 Each text is at most 2000 characters and is checked by expanding it once: a malformed `{a|b}` or
 condition is refused with `400 invalid_fixed_prompt`. `modes` is `null` for every prompted mode, or
 an allow-list of the preset's modes; a mode listed in `promptless_modes` is refused. A mirror does
-not inherit its source's fixed text.
+not inherit its source's fixed text. When the instance has a banned prompt list, a prefix or suffix
+containing a banned word (as written or after one expansion) is refused at save time, because content
+safety scans the applied prompt and would refuse every generation; the negative is not scanned by
+content safety and is not checked.
 
 **Where it is applied.** In `GenerationOrchestrator._start_generation`, right after the user's
 prompt is expanded per image and before content safety and `build_pipeline`. The user's realized
@@ -313,7 +316,8 @@ visible pairs, and prompt batches take their `prompt_text` from the visible pair
 parameters by index, archive and A1111 exports, inspirations and chat context all read that stored
 user version. The applied pairs are kept in `generation_applied_prompts`; only admins get them, on
 `GET /api/generations/history/{id}`, `GET /api/generations/{id}/params/{index}` and
-`GET /api/admin/generations/{id}`, which then carry `"fixed_prompt_applied": true`. The live view
+`GET /api/admin/generations/{id}`, which then carry `"fixed_prompt_applied": true`. When a prompt batch is
+split into one history entry per prompt, each entry keeps only its own images' applied pairs. The live view
 shows admins the user version too.
 
 ## Known limitation: ComfyUI is per-batch, not per-image

@@ -154,13 +154,29 @@ class TestMasking:
         assert positive.values == ["a red fox", "a grey wolf"]
         assert negative.values == ["blurry", "blurry"]
 
-    def test_a_first_prompt_broadcast_to_every_image_stays_the_first_prompt(self):
+    def test_each_image_keeps_its_own_prompt_even_when_its_value_equals_another_images_applied_text(self):
         run = _run()
         output = ParamGenerationOutput(name="positive_prompt", values=[run.applied[0]["positive"]] * 2)
 
         run.mask(output)
 
-        assert output.values == ["a red fox", "a red fox"]
+        assert output.values == ["a red fox", "a grey wolf"]
+
+    def test_a_rendered_prompt_keeps_its_own_index_when_its_text_equals_another_images(self):
+        run = _run()
+        output = RenderedPromptGenerationOutput(index=1, positive=run.applied[0]["positive"], negative=run.applied[0]["negative"])
+
+        run.mask(output)
+
+        assert (output.positive, output.negative) == ("a grey wolf", "blurry")
+
+    def test_identical_user_prompts_with_different_fixed_rolls_mask_to_the_user_prompt(self):
+        run = apply_fixed_prompt([{"positive": "a fox", "negative": ""}] * 3, [("PRE a", "", ""), ("PRE b", "", ""), ("PRE c", "", "")])
+        output = ParamGenerationOutput(name="positive_prompt", values=[pair["positive"] for pair in run.applied])
+
+        run.mask(output)
+
+        assert output.values == ["a fox", "a fox", "a fox"]
 
     def test_a_rewritten_prompt_is_replaced_by_the_users_text_at_its_index(self):
         run = _run()
@@ -223,6 +239,16 @@ class TestAdminView:
         assert shown["parameters"]["steps"] == [30, 30]
         assert shown["fixed_prompt_applied"] is True
         assert result["parameters"]["positive_prompt"] == ["a red fox", "a grey wolf"]
+
+    def test_identical_user_prompts_show_each_images_own_applied_text(self):
+        run = apply_fixed_prompt([{"positive": "a fox", "negative": ""}] * 3, [("PRE a", "", ""), ("PRE b", "", ""), ("PRE c", "", "")])
+        result = {"parameters": {"positive_prompt": ["a fox", "a fox", "a fox"]}}
+
+        shown = with_applied_prompts(result, run.records())
+
+        assert shown["parameters"]["positive_prompt"] == ["PRE a a fox", "PRE b a fox", "PRE c a fox"]
+        assert [with_applied_prompts({"parameters": {"positive_prompt": "a fox"}}, run.records(), i)["parameters"]["positive_prompt"]
+                for i in range(3)] == ["PRE a a fox", "PRE b a fox", "PRE c a fox"]
 
     def test_parameters_for_one_index_get_that_images_applied_text(self):
         run = _run()

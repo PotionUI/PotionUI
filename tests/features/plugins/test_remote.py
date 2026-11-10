@@ -1,12 +1,35 @@
 import asyncio
 import socket
 
+import aiohttp
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from src.features.plugins import remote
 from src.features.plugins.remote import ALLOW_LOCAL_SOURCES_ENV, FetchError, check_source_url, fetch_bytes, local_sources_allowed
+
+LOOPBACK = ("127.0.0.1", "::1")
+
+
+class ConnectionAttempted(AssertionError):
+    pass
+
+
+@pytest.fixture
+def loopback_connections_only(monkeypatch):
+    real = aiohttp.TCPConnector._wrap_create_connection
+    attempts = []
+
+    async def guarded(self, *args, addr_infos, **kwargs):
+        addresses = [info[4][0] for info in addr_infos]
+        if any(address not in LOOPBACK for address in addresses):
+            attempts.append(addresses)
+            raise ConnectionAttempted(f"the fetch opened a connection to {addresses}")
+        return await real(self, *args, addr_infos=addr_infos, **kwargs)
+
+    monkeypatch.setattr(aiohttp.TCPConnector, "_wrap_create_connection", guarded)
+    return attempts
 
 
 async def _serve(routes):
@@ -232,15 +255,16 @@ def test_allowing_local_sources_keeps_https_to_public_hosts(url):
     check_source_url(url, allow_local=True)
 
 
-async def test_allowing_local_sources_refuses_plain_http_to_a_name_that_resolves_to_a_public_address_before_connecting():
+async def test_allowing_local_sources_refuses_plain_http_to_a_name_that_resolves_to_a_public_address_before_connecting(loopback_connections_only):
     async def lookup(host, port, **kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
 
     with pytest.raises(FetchError, match="Plain http is only allowed to a local or private address, and catalog.example.com is public"):
         await fetch_bytes("http://catalog.example.com/plugins.json", max_bytes=100, timeout_s=5, allow_local=True, lookup=lookup)
+    assert loopback_connections_only == []
 
 
-async def test_allowing_local_sources_refuses_plain_http_to_a_name_with_any_public_answer():
+async def test_allowing_local_sources_refuses_plain_http_to_a_name_with_any_public_answer(loopback_connections_only):
     async def lookup(host, port, **kwargs):
         return [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", port)),
@@ -249,10 +273,11 @@ async def test_allowing_local_sources_refuses_plain_http_to_a_name_with_any_publ
 
     with pytest.raises(FetchError, match="Plain http is only allowed"):
         await fetch_bytes("http://nas.example.com/plugins.json", max_bytes=100, timeout_s=5, allow_local=True, lookup=lookup)
+    assert loopback_connections_only == []
 
 
 @pytest.mark.parametrize("location", ["http://93.184.216.34/x.zip", "http://downgrade.example.com/x.zip"])
-async def test_allowing_local_sources_refuses_a_redirect_to_plain_http_on_a_public_host(location):
+async def test_allowing_local_sources_refuses_a_redirect_to_plain_http_on_a_public_host(location, loopback_connections_only):
     async def lookup(host, port, **kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
 
@@ -263,11 +288,12 @@ async def test_allowing_local_sources_refuses_a_redirect_to_plain_http_on_a_publ
     try:
         with pytest.raises(FetchError, match="Plain http is only allowed to a local or private address"):
             await fetch_bytes(_url(server, "/start"), max_bytes=100, timeout_s=5, allow_local=True, lookup=lookup)
+        assert loopback_connections_only == []
     finally:
         await server.close()
 
 
-async def test_allowing_local_sources_lets_plain_http_reach_a_name_that_resolves_to_a_local_address():
+async def test_allowing_local_sources_lets_plain_http_reach_a_name_that_resolves_to_a_local_address(loopback_connections_only):
     server = await _serve({"/plugins.json": lambda request: web.Response(body=b"local")})
 
     async def lookup(host, port, **kwargs):
@@ -276,6 +302,7 @@ async def test_allowing_local_sources_lets_plain_http_reach_a_name_that_resolves
     try:
         url = f"http://catalog.lan:{server.port}/plugins.json"
         assert await fetch_bytes(url, max_bytes=100, timeout_s=5, allow_local=True, lookup=lookup) == b"local"
+        assert loopback_connections_only == []
     finally:
         await server.close()
 

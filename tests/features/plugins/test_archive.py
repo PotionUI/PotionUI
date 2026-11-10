@@ -78,6 +78,20 @@ def test_the_metadata_folder_the_macos_finder_adds_is_skipped(tmp_path):
     assert not any(path.name.startswith("._") for path in folder.rglob("*"))
 
 
+def test_a_skipped_macos_metadata_entry_that_climbs_out_or_is_a_link_writes_nothing(tmp_path):
+    link = zipfile.ZipInfo("__MACOSX/demo/link")
+    link.external_attr = (stat.S_IFLNK | 0o777) << 16
+    bundle = _plugin(("__MACOSX/../escape.py", b"x"), ("__MACOSX/../../escape.py", b"x"), link)
+
+    folder = unpack_plugin_archive(bundle, "demo", tmp_path / "out" / "inner")
+
+    assert sorted(path.name for path in (tmp_path / "out" / "inner").iterdir()) == ["demo"]
+    assert not (tmp_path / "out" / "escape.py").exists()
+    assert not (tmp_path / "escape.py").exists()
+    assert not (folder / "link").exists()
+    assert not list(tmp_path.rglob("__MACOSX"))
+
+
 def test_a_macos_metadata_folder_inside_the_plugin_folder_is_checked_and_unpacked_like_any_other(tmp_path):
     folder = unpack_plugin_archive(_plugin(("demo/__MACOSX/notes.txt", b"kept")), "demo", tmp_path / "out")
 

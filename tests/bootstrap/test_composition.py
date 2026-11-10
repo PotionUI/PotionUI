@@ -63,6 +63,12 @@ report = {
         "llm_provider_registry": c.llm_service.types.provider_registry is c.plugin_registry.llm_provider_registry,
         "llm_profile_resolver": c.llm_controller.profile_resolver is c.llm_service.profiles,
         "facade_repo": c.generation_history_facade.generation_repo is c.generation_repository,
+        "collection_history_entries_delete_through_the_history_facade": (
+            c.collection_controller.entry_deleters["history"].__self__ is c.generation_history_facade
+        ),
+        "collection_library_entries_delete_through_the_library": (
+            c.collection_controller.entry_deleters["library"].args[0] is c.library_collaborators
+        ),
         "parameter_repository": (
             c.inspiration_collaborators.generation_parameter_repository
             is r.generation_parameter_repository

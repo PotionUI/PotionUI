@@ -38,8 +38,11 @@ from src.features.collections.operations.members import (
     add_prompt_members,
     remove_prompt_members,
 )
+from src.features.collections.operations.entries import EntryDeleter, delete_entries
 
 __all__ = [
+    "EntryDeleter",
+    "delete_entries",
     "get_collection",
     "create_collection",
     "rename_collection",

@@ -94,6 +94,24 @@ class CollectionRepository:
             row = cursor.fetchone()
             return Collection.from_row(row) if row else None
 
+    def scope_of(self, collection_id: str, user_id: str) -> Optional[str]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "SELECT scope FROM collections WHERE id = ? AND user_id = ?",
+                (collection_id, user_id),
+            )
+            row = cursor.fetchone()
+            return row["scope"] if row else None
+
+    def member_ids(self, collection_id: str, scope: str) -> List[str]:
+        member_table, item_column, _item_table, _base = _SCOPE_ITEMS[scope]
+        with get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT {item_column} FROM {member_table} WHERE collection_id = ? ORDER BY rowid",
+                (collection_id,),
+            )
+            return [row[0] for row in cursor.fetchall()]
+
     def list(self, user_id: str, scope: str, include_descendants: bool = False) -> List[Collection]:
         """List all of the user's collections within a scope, each with its item count."""
         with get_cursor() as cursor:

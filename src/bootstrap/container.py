@@ -1461,7 +1461,6 @@ def build_container() -> AppContainer:
     from src.features.collections.repository import CollectionRepository
 
     collection_repository = CollectionRepository()
-    collection_controller = CollectionController(collection_repository)
 
     # Automation module components. The connection manager is the module-level
     # singleton from the platform websocket layer (src/platform/websocket),
@@ -1610,6 +1609,15 @@ def build_container() -> AppContainer:
         limit_guard=limit_guard,
     )
     library_controller = LibraryController(library_collaborators)
+    from src.features.library import operations as library_operations
+
+    collection_controller = CollectionController(
+        collection_repository,
+        {
+            "history": generation_history_facade.delete,
+            "library": functools.partial(library_operations.delete_item, library_collaborators),
+        },
+    )
 
     # Inspirations components (cross-user publishing of generations)
 

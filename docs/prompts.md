@@ -271,6 +271,51 @@ substitution is a no-op by construction.
 An upstream `prompt_expander` (the LLM one) wins: when it supplies `p_prompt` on the pipe input,
 `prompt_encoder` ignores `pairs`.
 
+## Fixed prompt text
+
+An admin can give any installed preset row, a shipped preset or a mirror, a fixed prefix, a fixed
+suffix and a fixed addition to the negative prompt. They live in `presets.fixed_prompt` as
+`{"prefix", "suffix", "negative", "modes"}` and are edited through
+`GET`/`PUT /api/presets/{id}/fixed-prompt` (admin only; `src/features/presets/fixed_prompt_routes.py`).
+Each text is at most 2000 characters and is checked by expanding it once: a malformed `{a|b}` or
+condition is refused with `400 invalid_fixed_prompt`. `modes` is `null` for every prompted mode, or
+an allow-list of the preset's modes; a mode listed in `promptless_modes` is refused. A mirror does
+not inherit its source's fixed text.
+
+**Where it is applied.** In `GenerationOrchestrator._start_generation`, right after the user's
+prompt is expanded per image and before content safety and `build_pipeline`. The user's realized
+pairs are kept as the *visible* pairs; `PromptExpander.expand_fixed` expands the prefix, the suffix
+and the negative once per image with the same `base_seed + i` as the user prompt, and
+`src/features/generation/fixed_prompt.py` joins them:
+
+| Channel | Applied text |
+|---|---|
+| positive | `prefix`, user prompt, `suffix`, the non-empty ones joined by one space |
+| negative | user negative, fixed `negative`, the non-empty ones joined by `", "` |
+
+The pipeline, the encoders and content safety see the applied pairs.
+
+**It is not applied** when all three texts are empty, when the generation's mode is not in
+`modes`, when the mode is in the preset's `promptless_modes`, when the request has no prompt, or
+when `form_data` carries a `video_director` or `music_director` document: those documents hold
+their own prompts in `form_data`, which is stored and returned to the user as submitted.
+
+**Grammar.** Fixed text goes through `expand_prompts` like any prompt: `{a|b}` choices, weights,
+conditions and `${variables}` from the request's variables work, and `prompt.transform` fires for
+each part. Each part is expanded separately, so a variable assigned inside the user's prompt is not
+visible to the prefix or suffix. Prompt-resource tokens are resolved before expansion, from the
+user's prompt only, and do not work in fixed text.
+
+**Who sees it.** A regular user never sees fixed text. Every prompt that is stored or broadcast is
+the user's version: the orchestrator masks each output before handlers run and before broadcast,
+replacing `positive_prompt`/`negative_prompt` parameters and `rendered_prompt` artifacts with the
+visible pairs, and prompt batches take their `prompt_text` from the visible pairs. History details,
+parameters by index, archive and A1111 exports, inspirations and chat context all read that stored
+user version. The applied pairs are kept in `generation_applied_prompts`; only admins get them, on
+`GET /api/generations/history/{id}`, `GET /api/generations/{id}/params/{index}` and
+`GET /api/admin/generations/{id}`, which then carry `"fixed_prompt_applied": true`. The live view
+shows admins the user version too.
+
 ## Known limitation: ComfyUI is per-batch, not per-image
 
 A ComfyUI preset submits **one** workflow with `batch_size = quantity`, a single prompt text node,

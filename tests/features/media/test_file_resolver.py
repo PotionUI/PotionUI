@@ -298,3 +298,74 @@ class TestFilePathResolver:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+class TestUploadedPresetCovers:
+    @pytest.fixture
+    def world(self, tmp_path):
+        from types import SimpleNamespace
+
+        from src.features.presets.cover_store import PresetCoverStore
+        from src.features.presets.records import Preset
+
+        preset_dir = tmp_path / "presets" / "krea2"
+        (preset_dir / "public").mkdir(parents=True)
+        (preset_dir / "public" / "cover.png").write_bytes(b"png")
+        settings = Mock(spec=Settings)
+        settings.get_file_storage_directory.return_value = str(tmp_path / "storage")
+        rows = {
+            "krea2": Preset(preset_id="krea2", id="row-krea", display_cover="display/abc.png"),
+            "MIRROR": Preset(preset_id="MIRROR", id="row-mirror", source_preset_id="krea2", display_cover=None),
+        }
+        repository = SimpleNamespace(get_installed_preset_by_preset_id=rows.get)
+        covers = PresetCoverStore(settings, repository)
+        for row_id in ("row-krea", "row-mirror"):
+            covers.directory(row_id).mkdir(parents=True)
+            (covers.directory(row_id) / "abc.png").write_bytes(b"png")
+        (tmp_path / "storage" / "preset_display" / "secret.png").write_bytes(b"png")
+        loader = Mock()
+        loader.get.side_effect = lambda preset_id: SimpleNamespace(id=preset_id, path=str(preset_dir)) if preset_id in rows else None
+        loader.files_preset_id.side_effect = lambda preset_id: "krea2"
+        return FilePathResolver(settings, loader, cover_store=covers), covers
+
+    def test_the_current_uploaded_cover_is_served_from_the_preset_row_directory(self, world):
+        resolver, covers = world
+
+        resolved = resolver.resolve_preset_file("krea2", "display/abc.png")
+
+        assert resolved == (covers.directory("row-krea") / "abc.png").resolve()
+
+    @pytest.mark.parametrize(
+        "preset_id, file_path",
+        [
+            ("MIRROR", "display/abc.png"),
+            ("krea2", "display/other.png"),
+            ("krea2", "display/../secret.png"),
+            ("krea2", "display/../../preset_display/secret.png"),
+            ("krea2", "display/sub/abc.png"),
+            ("krea2", "display/abc.svg"),
+        ],
+    )
+    def test_anything_else_under_display_is_refused(self, world, preset_id, file_path):
+        resolver, _ = world
+
+        with pytest.raises(ValueError):
+            resolver.resolve_preset_file(preset_id, file_path)
+
+    def test_public_files_still_resolve_inside_the_preset_files(self, world):
+        resolver, _ = world
+
+        assert resolver.resolve_preset_file("MIRROR", "public/cover.png").name == "cover.png"
+
+    def test_without_a_cover_store_display_files_are_refused(self, world, tmp_path):
+        resolver, _ = world
+        bare = FilePathResolver(resolver.settings, resolver.preset_loader)
+
+        with pytest.raises(ValueError):
+            bare.resolve_preset_file("krea2", "display/abc.png")
+
+    def test_a_preset_shares_its_files_id_with_its_mirrors(self, world):
+        resolver, _ = world
+
+        assert resolver.preset_files_id("MIRROR") == "krea2"
+        assert FilePathResolver(resolver.settings).preset_files_id("MIRROR") == "MIRROR"

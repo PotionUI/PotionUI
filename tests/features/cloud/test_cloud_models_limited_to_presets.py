@@ -91,9 +91,9 @@ async def test_a_scoped_out_model_leaves_the_preset_models_endpoint(refreshed):
     loader = Mock()
     controller = PresetController(SimpleNamespace(preset_loader=loader), refreshed.registry)
 
-    loader.load_preset_by_id.return_value = SimpleNamespace(id="preset-b", engine="cloud", driver="cloud.fake")
+    loader.load_preset_by_id.return_value = SimpleNamespace(id="preset-b", engine="cloud", driver="cloud.fake", source_preset_id=None)
     other = await controller.get_preset_models("preset-b", model_type="cloud")
-    loader.load_preset_by_id.return_value = SimpleNamespace(id="preset-a", engine="cloud", driver="cloud.fake")
+    loader.load_preset_by_id.return_value = SimpleNamespace(id="preset-a", engine="cloud", driver="cloud.fake", source_preset_id=None)
     own = await controller.get_preset_models("preset-a", model_type="cloud")
 
     assert [m["filename"] for m in other.data["models"]] == [refreshed.slug_of(VIDEO)]
@@ -302,3 +302,20 @@ async def test_a_scope_with_an_unknown_and_a_cross_driver_preset_reports_both_pr
     assert response.status_code == 422
     assert "Preset 'nope' does not exist." in message
     assert "Preset 'Other' cannot use this model" in message
+
+
+async def test_a_mirror_is_never_a_scope_candidate_and_scoping_it_is_refused(refreshed, container):
+    image_id, _ = await enable_both(refreshed)
+    add_preset(refreshed, "preset-a", "Alpha")
+    refreshed.presets.presets.append(
+        SimpleNamespace(id="MIRROR", name="Anime", engine="cloud", driver="cloud.fake", source_preset_id="preset-a")
+    )
+
+    async with client_as(container, AccountType.ADMIN) as client:
+        candidates = (await client.get(scope_url(image_id))).json()["data"]["candidates"]
+        response = await client.put(scope_url(image_id), json={"preset_ids": ["MIRROR"]})
+
+    assert candidates == [{"id": "preset-a", "title": "Alpha"}]
+    assert response.status_code == 422
+    assert "scope its source instead" in response.json()["detail"]["message"]
+    assert ModelPresetScopeRepository().get(image_id) == []

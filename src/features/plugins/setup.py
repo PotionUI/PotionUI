@@ -263,7 +263,10 @@ class _State:
             roots = {root.resolve() for root in plugin_preset_roots([self.manifest])}
             templates = [self.setup.preset_loader.load_preset_by_id(preset_id) for _, preset_id in self.setup.preset_loader.get_all_presets()]
             self._presets = sorted(
-                (t for t in templates if t is not None and t.base_path and Path(t.base_path).resolve() in roots),
+                (
+                    t for t in templates
+                    if t is not None and t.source_preset_id is None and t.base_path and Path(t.base_path).resolve() in roots
+                ),
                 key=lambda t: t.name,
             )
         return self._presets

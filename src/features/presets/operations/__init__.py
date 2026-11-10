@@ -51,6 +51,15 @@ from src.features.presets.operations.requirements import (
     get_preset_requirements,
     refresh_mode_requirements,
 )
+from src.features.presets.operations.display import (
+    get_admin_detail,
+    set_display,
+    upload_display_cover,
+)
+from src.features.presets.operations.mirrors import (
+    create_mirror,
+    set_mirror_modes,
+)
 from src.features.presets.operations.picker_state import (
     get_picker_state,
     pin_preset,
@@ -83,4 +92,9 @@ __all__ = [
     "pin_preset",
     "unpin_preset",
     "push_recent_preset",
+    "get_admin_detail",
+    "set_display",
+    "upload_display_cover",
+    "create_mirror",
+    "set_mirror_modes",
 ]

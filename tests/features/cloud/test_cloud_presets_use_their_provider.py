@@ -75,7 +75,7 @@ async def two(mock_db):
 
 
 def preset(driver):
-    return SimpleNamespace(id="p1", engine="cloud", driver=driver, requirements=[])
+    return SimpleNamespace(id="p1", engine="cloud", driver=driver, requirements=[], source_preset_id=None)
 
 
 def filenames(entries):

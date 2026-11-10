@@ -12,9 +12,12 @@ from src.features.presets.hooks import PRESET_HOOKS
 from src.features.presets.exceptions import (
     PermissionDeniedException,
     PresetAlreadyInstalledException,
+    PresetHasMirrorsError,
     PresetNotFoundException,
     PresetNotInstalledException,
 )
+from src.features.presets.mappers import mirror_entry
+from src.features.presets.operations.mirrors import delete_mirror
 from src.platform.security.user import User, AccountType
 
 logger = logging.getLogger(__name__)
@@ -86,7 +89,7 @@ def install_preset(collaborators: PresetCollaborators, preset_id: str, user: Use
     return installed_preset.to_dict()
 
 
-def uninstall_preset(collaborators: PresetCollaborators, preset_id: str, user: User) -> str:
+def uninstall_preset(collaborators: PresetCollaborators, preset_id: str, user: User) -> Dict[str, Any]:
     """Uninstall a preset and remove all user assignments.
 
     Executes hooks:
@@ -98,9 +101,6 @@ def uninstall_preset(collaborators: PresetCollaborators, preset_id: str, user: U
         preset_id: The preset ID to uninstall
         user: The admin user performing the uninstallation
 
-    Returns:
-        Success message with count of removed assignments
-
     Raises:
         PermissionDeniedException: If user is not an admin
         PresetNotInstalledException: If preset is not installed
@@ -110,8 +110,17 @@ def uninstall_preset(collaborators: PresetCollaborators, preset_id: str, user: U
         raise PermissionDeniedException("uninstall_preset")
 
     # Check if preset is installed
-    if not collaborators.db_repo.is_preset_installed(preset_id):
+    row = collaborators.db_repo.get_installed_preset_by_preset_id(preset_id)
+    if row is None:
         raise PresetNotInstalledException(preset_id)
+
+    if not row.is_mirror:
+        mirrors = collaborators.db_repo.mirrors_of(preset_id)
+        if mirrors:
+            raise PresetHasMirrorsError(
+                preset_id,
+                [{"preset_id": m.preset_id, "name": mirror_entry(m, None)["name"]} for m in mirrors],
+            )
 
     # Get assignment summary before uninstalling
     summary = collaborators.db_repo.get_preset_assignment_summary(preset_id)
@@ -131,11 +140,14 @@ def uninstall_preset(collaborators: PresetCollaborators, preset_id: str, user: U
         logger.warning(f"Preset uninstallation blocked by plugin: {reason}")
         raise PermissionDeniedException(f"uninstall_preset: {reason}")
 
-    # Uninstall the preset
-    success = collaborators.db_repo.uninstall_preset(preset_id)
-
-    if not success:
-        raise PresetNotInstalledException(preset_id)
+    tombstone = None
+    if row.is_mirror:
+        tombstone = delete_mirror(collaborators, row)
+    else:
+        if not collaborators.db_repo.uninstall_preset(preset_id):
+            raise PresetNotInstalledException(preset_id)
+        if collaborators.cover_store is not None:
+            collaborators.cover_store.remove(row.id)
 
     # Execute after_uninstall hook
     execute_hook(collaborators.plugins,
@@ -147,5 +159,9 @@ def uninstall_preset(collaborators: PresetCollaborators, preset_id: str, user: U
         }
     )
 
+    collaborators.preset_loader.refresh_overlays()
     logger.info(f"Preset '{preset_id}' uninstalled by user {user.id}")
-    return f"Preset '{preset_id}' uninstalled successfully. Removed {summary['total_assignments']} user assignments."
+    return {
+        "message": f"Preset '{preset_id}' uninstalled successfully. Removed {summary['total_assignments']} user assignments.",
+        "tombstone": tombstone.to_dict() if tombstone is not None else None,
+    }

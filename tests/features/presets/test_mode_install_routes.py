@@ -25,12 +25,18 @@ class Links:
         return "modes-vid" if preset_id == "VID" else None
 
 
+def _collaborators(files_of=None):
+    collaborators = Mock()
+    collaborators.preset_loader.files_preset_id.side_effect = lambda preset_id: (files_of or {}).get(preset_id, preset_id)
+    return collaborators
+
+
 MODES = {"preset_id": "VID", "modes": [{"name": "video"}, {"name": "cinemagraph"}], "default_mode": "video"}
 
 
 @pytest.mark.asyncio
 async def test_modes_carry_an_install_summary_for_admins_only():
-    controller = PresetController(Mock(), Mock(), recipe_links=Links())
+    controller = PresetController(_collaborators(), Mock(), recipe_links=Links())
     with patch("src.features.presets.routes.operations.refresh_mode_requirements", AsyncMock()), patch(
         "src.features.presets.routes.operations.get_available_modes", side_effect=lambda c, p: {**MODES, "modes": [dict(m) for m in MODES["modes"]]}
     ):
@@ -44,7 +50,7 @@ async def test_modes_carry_an_install_summary_for_admins_only():
 
 @pytest.mark.asyncio
 async def test_missing_mode_model_requirements_offer_install_mode():
-    controller = PresetController(Mock(), Mock(), recipe_links=Links())
+    controller = PresetController(_collaborators(), Mock(), recipe_links=Links())
     results = {
         "results": [
             {"type": "model", "status": "missing", "mode": "cinemagraph", "action": {"kind": "open_downloader", "payload": {}}},

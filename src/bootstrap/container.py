@@ -324,6 +324,7 @@ if TYPE_CHECKING:
     from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
     from src.features.collections.repository import CollectionRepository
     from src.features.presets.repository import DatabasePresetRepository
+    from src.features.presets.cover_store import PresetCoverStore
     from src.features.prompt_database.repository import PromptRepository
     from src.features.stats.repository import StatsRepository
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
@@ -384,6 +385,7 @@ class AppContainer:
     pipe_catalog: PipeCatalog
     pipe_install_runner: PipeInstallRunner
     preset_template_loader: PresetTemplateLoader
+    preset_cover_store: "PresetCoverStore"
     preset_processor: PresetProcessor
     template_processor: TemplateProcessor
     backend_registry: BackendRegistry
@@ -811,8 +813,14 @@ def build_container() -> AppContainer:
     # Built after the plugin registry so enabled plugins that own a `presets:`
     # root contribute their presets at load time (loading is lazy, so the
     # startup plugin sync below is applied before the first load).
+    from src.features.presets.mappers import read_overlays
+    from src.features.presets.repository import DatabasePresetRepository
+
+    database_preset_repository = DatabasePresetRepository()
     preset_template_loader = PresetTemplateLoader(
-        ["content/presets/marketplace", "content/presets/local"], plugin_registry=plugin_registry
+        ["content/presets/marketplace", "content/presets/local"],
+        plugin_registry=plugin_registry,
+        overlay_source=functools.partial(read_overlays, database_preset_repository),
     )
 
     register_builtin_fields(field_type_registry, template_processor=template_processor)
@@ -1184,10 +1192,8 @@ def build_container() -> AppContainer:
     generation_status_tracker = GenerationStatusTracker()
     generation_status_tracker.add_terminal_listener(limit_guard.on_generation_terminal)
 
-    from src.features.presets.repository import DatabasePresetRepository
     from src.features.models.repository import ModelRepository
 
-    database_preset_repository = DatabasePresetRepository()
     form_controller = FormController(field_type_registry, plugin_registry, database_preset_repository)
     file_preset_repository = FilePresetRepository(preset_template_loader)
     preset_name_resolver = PresetNameResolver(preset_template_loader)
@@ -1513,7 +1519,10 @@ def build_container() -> AppContainer:
     from src.features.generation.file_repository import file_repo
 
     media_type_resolver = MediaTypeResolver()
-    file_resolver = FilePathResolver(settings, preset_template_loader)
+    from src.features.presets.cover_store import PresetCoverStore
+
+    preset_cover_store = PresetCoverStore(settings, database_preset_repository)
+    file_resolver = FilePathResolver(settings, preset_template_loader, cover_store=preset_cover_store)
     image_processor = ImageProcessor()
     upload_repository = UploadRepository()
     media_store = MediaStore(
@@ -1649,6 +1658,7 @@ def build_container() -> AppContainer:
         gpu_monitor=gpu_monitor,
         backend_registry=backend_registry,
         requirements_cache=requirements_cache,
+        cover_store=preset_cover_store,
     )
 
     plugin_setup = PluginSetup(

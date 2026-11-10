@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import json
 
 from src.platform.database.rows import dt_column, dt_iso
@@ -20,6 +20,20 @@ class Preset:
     # every form variant of the mode. See src/features/presets/form_overrides.py
     # and docs/presets.md "Form overrides (admin-set)".
     form_overrides: Dict[str, Any] = field(default_factory=dict)
+    source_preset_id: Optional[str] = None
+    display_name: Optional[str] = None
+    display_description: Optional[str] = None
+    display_cover: Optional[str] = None
+    offered_modes: Optional[List[str]] = None
+    first_mode: Optional[str] = None
+
+    @property
+    def is_mirror(self) -> bool:
+        return self.source_preset_id is not None
+
+    @property
+    def has_display(self) -> bool:
+        return any(value is not None for value in (self.display_name, self.display_description, self.display_cover))
 
     @classmethod
     def from_row(cls, row) -> 'Preset':
@@ -39,6 +53,12 @@ class Preset:
             updated_at=dt_column(row['updated_at']),
             configuration=json.loads(raw_configuration) if raw_configuration else {},
             form_overrides=json.loads(raw_form_overrides) if raw_form_overrides else {},
+            source_preset_id=_column(row, 'source_preset_id'),
+            display_name=_column(row, 'display_name'),
+            display_description=_column(row, 'display_description'),
+            display_cover=_column(row, 'display_cover'),
+            offered_modes=_json_list(_column(row, 'offered_modes')),
+            first_mode=_column(row, 'first_mode'),
         )
 
     def to_dict(self) -> dict:
@@ -50,7 +70,47 @@ class Preset:
             'updated_at': dt_iso(self.updated_at),
             'configuration': self.configuration,
             'form_overrides': self.form_overrides,
+            'source_preset_id': self.source_preset_id,
+            'display_name': self.display_name,
+            'display_description': self.display_description,
+            'display_cover': self.display_cover,
+            'offered_modes': self.offered_modes,
+            'first_mode': self.first_mode,
         }
+
+
+@dataclass(frozen=True)
+class PresetTombstone:
+    preset_id: str
+    name: str
+    source_preset_id: Optional[str]
+    deleted_at: str
+
+    @classmethod
+    def from_row(cls, row) -> 'PresetTombstone':
+        return cls(
+            preset_id=row['preset_id'],
+            name=row['name'],
+            source_preset_id=row['source_preset_id'],
+            deleted_at=row['deleted_at'],
+        )
+
+    def to_dict(self) -> dict:
+        return {'preset_id': self.preset_id, 'name': self.name}
+
+
+def _column(row, name: str) -> Any:
+    try:
+        return row[name]
+    except (KeyError, IndexError):
+        return None
+
+
+def _json_list(raw: Any) -> Optional[List[str]]:
+    if not raw:
+        return None
+    value = json.loads(raw)
+    return [str(item) for item in value] if isinstance(value, list) else None
 
 @dataclass
 class UserPreset:

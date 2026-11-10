@@ -1,7 +1,8 @@
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import json
 
-from src.features.presets.records import Preset, UserPreset
+from src.features.presets.records import Preset, PresetTombstone, UserPreset
 from src.platform.util.ids import generate_ulid
 from src.platform.database import get_cursor
 
@@ -68,6 +69,103 @@ class DatabasePresetRepository:
         with get_cursor() as cursor:
             cursor.execute("DELETE FROM presets WHERE preset_id = ?", (preset_id,))
             return cursor.rowcount > 0
+
+    def create_mirror(
+        self,
+        preset_id: str,
+        source_preset_id: str,
+        display_name: str,
+        display_description: Optional[str],
+        display_cover: Optional[str],
+        offered_modes: Optional[List[str]],
+        first_mode: Optional[str],
+        configuration: Dict[str, Any],
+        form_overrides: Dict[str, Any],
+    ) -> Preset:
+        preset_db_id = generate_ulid()
+        with get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO presets (id, preset_id, source_preset_id, display_name, display_description, "
+                "display_cover, offered_modes, first_mode, configuration, form_overrides) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    preset_db_id, preset_id, source_preset_id, display_name, display_description, display_cover,
+                    _json_or_null(offered_modes), first_mode, json.dumps(configuration or {}),
+                    json.dumps(form_overrides or {}),
+                ),
+            )
+        return self.get_installed_preset_by_id(preset_db_id)
+
+    def set_display(
+        self, preset_id: str, name: Optional[str], description: Optional[str], cover: Optional[str]
+    ) -> Optional[Preset]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE presets SET display_name = ?, display_description = ?, display_cover = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE preset_id = ?",
+                (name, description, cover, preset_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self.get_installed_preset_by_preset_id(preset_id)
+
+    def set_mirror_modes(
+        self, preset_id: str, offered_modes: Optional[List[str]], first_mode: Optional[str]
+    ) -> Optional[Preset]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE presets SET offered_modes = ?, first_mode = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE preset_id = ? AND source_preset_id IS NOT NULL",
+                (_json_or_null(offered_modes), first_mode, preset_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self.get_installed_preset_by_preset_id(preset_id)
+
+    def mirrors_of(self, source_preset_id: str) -> List[Preset]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM presets WHERE source_preset_id = ? ORDER BY installed_at, id",
+                (source_preset_id,),
+            )
+            return [Preset.from_row(row) for row in cursor.fetchall()]
+
+    def delete_mirror(self, preset_id: str) -> Optional[PresetTombstone]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM presets WHERE preset_id = ? AND source_preset_id IS NOT NULL", (preset_id,)
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            mirror = Preset.from_row(row)
+            tombstone = PresetTombstone(
+                preset_id=mirror.preset_id,
+                name=mirror.display_name or mirror.preset_id,
+                source_preset_id=mirror.source_preset_id,
+                deleted_at=datetime.now(timezone.utc).isoformat(),
+            )
+            cursor.execute(
+                "INSERT OR REPLACE INTO preset_tombstones (preset_id, name, source_preset_id, deleted_at) "
+                "VALUES (?, ?, ?, ?)",
+                (tombstone.preset_id, tombstone.name, tombstone.source_preset_id, tombstone.deleted_at),
+            )
+            cursor.execute("DELETE FROM presets WHERE id = ?", (mirror.id,))
+        return tombstone
+
+    def tombstones(self) -> List[PresetTombstone]:
+        with get_cursor() as cursor:
+            cursor.execute("SELECT * FROM preset_tombstones ORDER BY deleted_at")
+            return [PresetTombstone.from_row(row) for row in cursor.fetchall()]
+
+    def preset_id_taken(self, preset_id: str) -> bool:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "SELECT 1 FROM presets WHERE preset_id = ? UNION ALL "
+                "SELECT 1 FROM preset_tombstones WHERE preset_id = ? LIMIT 1",
+                (preset_id, preset_id),
+            )
+            return cursor.fetchone() is not None
 
     # ===== Configuration (admin-set) =====
 
@@ -255,6 +353,10 @@ class DatabasePresetRepository:
             'total_assignments': len(assignments),
             'assignments': [assignment.to_dict() for assignment in assignments]
         }
+
+def _json_or_null(values: Optional[List[str]]) -> Optional[str]:
+    return None if values is None else json.dumps(list(values))
+
 
 # Global repository instance
 preset_repo = DatabasePresetRepository()

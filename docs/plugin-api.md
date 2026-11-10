@@ -3276,8 +3276,11 @@ folder or in `POTIONUI_EXTRA_PLUGIN_DIRS`, is a conflict; neither is replaced. A
 belongs to the catalog it was installed from, the URL kept in its `.potionui-catalog.json`
 (scheme and host compared without case, a default port the same as none, path and query
 exactly): any other catalog that lists its id shows it as a conflict, installed from
-another catalog, and cannot replace it. A plugin installed from this catalog whose
-version differs from the catalog's can be updated: the
+another catalog, and cannot replace it. A plugin installed from this catalog is updated
+only to a strictly newer version, both versions read as Python package versions (PEP 440)
+like `requires.core`: the same version is installed, an older one is listed as older
+than the installed one, and a version either side that is not a PEP 440 version is
+listed as not comparable; none of these offers an action. On an update, the
 new folder replaces the old one whole, the old one comes back if the move fails, and an
 enabled plugin is enabled again on its new manifest, with presets, pipes and recipes
 rescanned.

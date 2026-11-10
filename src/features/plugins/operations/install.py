@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, List, Optional
 from urllib.parse import urlsplit
 
+from packaging.version import InvalidVersion, Version
+
 from src.features.plugins.archive import unpack_plugin_archive
 from src.features.plugins.catalog import CatalogEntry, CatalogProblem, core_mismatch, parse_catalog
 from src.features.plugins.operations.lifecycle import _rescan_presets_and_pipes
@@ -91,6 +93,27 @@ def _same_catalog(recorded: Any, url: str) -> bool:
     return same_origin and (first_parts.path, first_parts.query) == (second_parts.path, second_parts.query)
 
 
+def _installed_item(entry: CatalogEntry, installed_version: str) -> Optional[CatalogItem]:
+    if installed_version == entry.version:
+        return CatalogItem(entry, "installed", "", installed_version)
+    try:
+        listed, current = Version(entry.version), Version(installed_version)
+    except InvalidVersion:
+        return CatalogItem(
+            entry,
+            "unreadable",
+            f"PotionUI cannot order the listed {entry.version!r} and the installed {installed_version!r} as versions.",
+            installed_version,
+        )
+    if listed == current:
+        return CatalogItem(entry, "installed", "", installed_version)
+    if listed < current:
+        return CatalogItem(
+            entry, "older", f"The catalog lists {entry.version}, older than the installed {installed_version}.", installed_version
+        )
+    return None
+
+
 def catalog_item(
     entry: CatalogEntry,
     registry: PluginRegistry,
@@ -126,8 +149,9 @@ def catalog_item(
                 "only that catalog updates it.",
                 installed_version,
             )
-        if installed_version == entry.version:
-            return CatalogItem(entry, "installed", "", installed_version)
+        settled = _installed_item(entry, installed_version)
+        if settled is not None:
+            return settled
 
     if entry.archive is None:
         return CatalogItem(entry, "unreleased", "The catalog lists no release archive for this version.", installed_version)

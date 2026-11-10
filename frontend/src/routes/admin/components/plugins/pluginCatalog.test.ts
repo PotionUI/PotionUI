@@ -38,7 +38,7 @@ describe('catalog entries', () => {
 	it('offer an install or an update and nothing for the other statuses', () => {
 		expect(catalogActionLabel(entry('available'))).toBe('Install');
 		expect(catalogActionLabel(entry('update'))).toBe('Update to 1.2.0');
-		for (const status of ['installed', 'bundled', 'conflict', 'incompatible', 'unreleased'] as const) {
+		for (const status of ['installed', 'older', 'unreadable', 'bundled', 'conflict', 'incompatible', 'unreleased'] as const) {
 			expect(catalogActionLabel(entry(status))).toBeNull();
 		}
 	});
@@ -46,6 +46,8 @@ describe('catalog entries', () => {
 	it('name every status', () => {
 		expect(catalogStatusLabel('conflict')).toBe('Installed elsewhere');
 		expect(catalogStatusLabel('bundled')).toBe('Ships with PotionUI');
+		expect(catalogStatusLabel('older')).toBe('Older than installed');
+		expect(catalogStatusLabel('unreadable')).toBe('Versions not comparable');
 	});
 });
 

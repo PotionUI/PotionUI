@@ -183,6 +183,32 @@ def test_a_catalog_install_of_the_listed_version_is_installed_and_of_another_ver
     assert (item.status, item.installed_version) == ("update", "1.0.0")
 
 
+@pytest.mark.parametrize(
+    "installed, listed, status",
+    [
+        ("1.0.0", "1.0.1", "update"),
+        ("1.0.0", "1.0.0", "installed"),
+        ("1.0", "1.0.0", "installed"),
+        ("1.10.0", "1.9.0", "older"),
+        ("2.0.0", "2.0.0rc1", "older"),
+        ("2.0.0rc1", "2.0.0", "update"),
+        ("1.0.0", "1.0.0.post1", "update"),
+        ("1.0.0", "latest", "unreadable"),
+        ("nightly", "1.0.0", "unreadable"),
+    ],
+)
+def test_only_a_strictly_newer_version_is_an_update(plugins, installed, listed, status):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", installed, record=True)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version=listed), registry, local, CATALOG_A)
+
+    assert (item.status, item.installed_version) == (status, installed)
+    if status in ("older", "unreadable"):
+        assert item.reason
+
+
 def test_a_plugin_installed_from_one_catalog_is_a_conflict_in_another_catalog_that_lists_its_id(plugins):
     registry, _, _, local = plugins
     _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=CATALOG_A)
@@ -340,6 +366,21 @@ async def test_a_failed_update_leaves_the_installed_version_in_place(plugins, ca
 
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+async def test_a_catalog_that_goes_back_to_an_older_version_cannot_downgrade_the_installed_plugin(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.1.0")
+    await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    catalog.publish("demo", "1.0.0")
+
+    listing = await operations.read_catalog(registry, catalog.url())
+    assert [(item.status, item.installed_version) for item in listing.items] == [("older", "1.1.0")]
+    with pytest.raises(CatalogInstallError, match="older than the installed 1.1.0"):
+        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.1.0\n"
+    assert registry.get_plugin("demo").version == "1.1.0"
 
 
 async def test_another_catalog_that_lists_the_same_id_cannot_replace_the_installed_plugin(plugins, catalog, other_catalog):

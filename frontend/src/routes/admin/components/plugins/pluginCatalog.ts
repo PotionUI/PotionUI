@@ -5,6 +5,8 @@ export type PluginCatalogStatus =
 	| 'available'
 	| 'update'
 	| 'installed'
+	| 'older'
+	| 'unreadable'
 	| 'bundled'
 	| 'conflict'
 	| 'incompatible'
@@ -50,6 +52,8 @@ const STATUS_LABELS: Record<PluginCatalogStatus, string> = {
 	available: 'Available',
 	update: 'Update available',
 	installed: 'Installed',
+	older: 'Older than installed',
+	unreadable: 'Versions not comparable',
 	bundled: 'Ships with PotionUI',
 	conflict: 'Installed elsewhere',
 	incompatible: 'Incompatible',

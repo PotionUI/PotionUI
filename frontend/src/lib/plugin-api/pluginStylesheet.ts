@@ -68,7 +68,8 @@ function keepScopedRules(list: RuleList, pattern: RegExp): number {
 		const rule = list.cssRules[i];
 		const kind = rule.constructor.name;
 		if (kind === 'CSSStyleRule') {
-			if (staysInScope((rule as CSSStyleRule).selectorText, pattern)) continue;
+			const style = rule as CSSStyleRule;
+			if (!style.cssRules?.length && staysInScope(style.selectorText, pattern)) continue;
 		} else if (GROUPING_RULES.has(kind)) {
 			dropped += keepScopedRules(rule as unknown as RuleList, pattern);
 			continue;

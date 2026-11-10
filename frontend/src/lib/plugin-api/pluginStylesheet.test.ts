@@ -47,6 +47,15 @@ describe('scopedPluginStylesheet', () => {
 		expect(kept(css)).toEqual([]);
 	});
 
+	it('drops a rule in scope that holds nested rules', () => {
+		const css = `${SCOPE} .a { color: red; :root & { color: blue } } ${SCOPE} .b { & + .c { color: blue } } ${SCOPE} .d { @media (min-width: 1px) { color: blue } } ${SCOPE} .kept { color: red }`;
+
+		const { dropped } = scopedPluginStylesheet('video-producer', css, BASE);
+
+		expect(kept(css)).toEqual([`${SCOPE} .kept { color: red; }`]);
+		expect(dropped).toBe(3);
+	});
+
 	it('drops the rules of another plugin', () => {
 		const css = `:where([data-potionui-plugin="other"]) .a { color: red }`;
 

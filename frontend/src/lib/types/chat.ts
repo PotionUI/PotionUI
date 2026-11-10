@@ -64,7 +64,6 @@ export interface ToolApprovalTimelineRow {
 	op?: string;
 }
 
-/** One region row inside a `kind: 'regions'` preview's `rows`. */
 export interface ToolApprovalRegionRow {
 	position: string;
 	size: string;
@@ -98,7 +97,6 @@ export interface ToolApprovalPreview {
 	fields?: ToolApprovalField[] | null;
 	/** Prompt-style blocks for `kind: 'generation'` (plain) and `kind: 'text_edit'` (diff, via `old_text`). */
 	text_blocks?: ToolApprovalTextBlock[] | null;
-	/** Scene rows for `kind: 'timeline'`, region rows for `kind: 'regions'`. */
 	rows?: Array<ToolApprovalTimelineRow | ToolApprovalRegionRow> | null;
 }
 

@@ -241,6 +241,7 @@ for (const viewport of [
 			await expect(page.locator('[data-generation-card]')).toHaveCount(3);
 			if (viewport.width < 768) await page.getByRole('button', { name: 'Show collections' }).click();
 
+			await page.getByRole('treeitem', { name: new RegExp(COLLECTION.name) }).hover();
 			await page.getByRole('button', { name: `${COLLECTION.name} actions` }).click();
 			await page.getByRole('menuitem', { name: 'Delete entries…' }).click();
 			await expect(dialog(page)).toContainText('Delete entries?');
@@ -254,19 +255,38 @@ for (const viewport of [
 			await expect(page.getByText('Deleted 2 generations.')).toBeVisible();
 			expect(backend.entryDeletes).toEqual([COLLECTION.id]);
 			await expect(page.locator('[data-generation-card]')).toHaveCount(1);
-			await expect(page.getByRole('button', { name: `${COLLECTION.name} actions` })).toHaveCount(1);
+			await expect(page.getByRole('treeitem', { name: new RegExp(COLLECTION.name) })).toHaveCount(1);
 		});
 
 		test('the Delete shortcut is listed with the generate page shortcuts', async ({ page }) => {
 			await mockBackend(page);
+			const bindingsLoaded = page.waitForResponse(/\/api\/keybindings$/);
 			await page.goto('/generate');
-			await leaveFocus(page);
-			await page.keyboard.press('?');
+			await bindingsLoaded;
 			const shortcuts = page.getByRole('dialog', { name: 'Keyboard Shortcuts' });
-			await expect(shortcuts).toBeVisible();
+			const deleteKey = shortcuts.locator('kbd', { hasText: /^Delete$/ });
+			const sidebarButton = page.getByRole('button', { name: 'Keyboard shortcuts', exact: true });
+
+			const desktop = viewport.width >= 768;
+			if (desktop) {
+				await sidebarButton.click();
+				await expect(shortcuts).toBeVisible();
+				await shortcuts.getByPlaceholder('Filter shortcuts...').fill('delete');
+				await expect(deleteKey).toBeVisible();
+				await screenshot(page, JOURNEY, `shortcuts-${viewport.width}`);
+				await page.keyboard.press('Escape');
+				await expect(shortcuts).toHaveCount(0);
+			}
+
+			await leaveFocus(page);
+			await expect.poll(() => page.evaluate(() => document.activeElement === document.body)).toBe(true);
+			await expect(async () => {
+				if (!(await shortcuts.isVisible())) await page.keyboard.press('?');
+				await expect(shortcuts).toBeVisible({ timeout: 500 });
+			}).toPass({ timeout: 10000 });
 			await shortcuts.getByPlaceholder('Filter shortcuts...').fill('delete');
-			await expect(shortcuts.locator('kbd', { hasText: /^Delete$/ })).toBeVisible();
-			await screenshot(page, JOURNEY, `shortcuts-${viewport.width}`);
+			await expect(deleteKey).toBeVisible();
+			if (!desktop) await screenshot(page, JOURNEY, `shortcuts-${viewport.width}`);
 		});
 	});
 }

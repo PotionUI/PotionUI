@@ -135,6 +135,7 @@ def forwarded_operations(monkeypatch):
 async def test_preset_list_carries_recipes(catalog, forwarded_operations):
     collaborators = Mock()
     collaborators.list_presets.return_value = [{"id": "P1"}, {"id": "P9"}]
+    collaborators.preset_loader.files_preset_id.side_effect = lambda preset_id: preset_id
 
     result = await _controller(catalog, collaborators).list_presets(ADMIN, True)
 
@@ -143,9 +144,26 @@ async def test_preset_list_carries_recipes(catalog, forwarded_operations):
 
 
 @pytest.mark.asyncio
+async def test_a_mirror_carries_the_recipes_of_its_source(catalog, forwarded_operations):
+    collaborators = Mock()
+    collaborators.list_presets.return_value = [{"id": "MIRROR", "mirror_state": "ok"}, {"id": "GONE", "mirror_state": "source_missing"}]
+    collaborators.get_preset.side_effect = lambda preset_id: {"id": preset_id}
+    collaborators.preset_loader.files_preset_id.side_effect = lambda preset_id: "P1"
+    controller = _controller(catalog, collaborators)
+
+    listed = await controller.list_presets(ADMIN, True)
+    detail = await controller.get_preset("MIRROR", ADMIN)
+
+    assert [r["id"] for r in listed.data[0]["recipes"]] == ["alpha", "beta"]
+    assert listed.data[1]["recipes"] == []
+    assert [r["id"] for r in detail.data["recipes"]] == ["alpha", "beta"]
+
+
+@pytest.mark.asyncio
 async def test_preset_detail_carries_recipes_only_for_admins(catalog, forwarded_operations):
     collaborators = Mock()
     collaborators.get_preset.side_effect = lambda preset_id: {"id": preset_id}
+    collaborators.preset_loader.files_preset_id.side_effect = lambda preset_id: preset_id
     controller = _controller(catalog, collaborators)
 
     admin = await controller.get_preset("P2", ADMIN)

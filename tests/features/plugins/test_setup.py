@@ -25,9 +25,9 @@ class World:
         self.settings = {}
         self.check_class = None
         self.presets = [
-            SimpleNamespace(id="p-video", name="Fake Video", base_path=str(self.plugin_dir / "presets")),
-            SimpleNamespace(id="p-image", name="Fake Image", base_path=str(self.plugin_dir / "presets")),
-            SimpleNamespace(id="p-core", name="Core Preset", base_path=str(self.other_root)),
+            SimpleNamespace(id="p-video", name="Fake Video", base_path=str(self.plugin_dir / "presets"), source_preset_id=None),
+            SimpleNamespace(id="p-image", name="Fake Image", base_path=str(self.plugin_dir / "presets"), source_preset_id=None),
+            SimpleNamespace(id="p-core", name="Core Preset", base_path=str(self.other_root), source_preset_id=None),
         ]
         self.manifest = SimpleNamespace(
             id="fake-provider",
@@ -309,3 +309,16 @@ def test_manifest_accepts_every_setup_kind():
 def test_manifest_rejects_incomplete_or_unknown_steps(step):
     with pytest.raises(ValidationError):
         PluginManifestSchema.model_validate(_manifest([step]))
+
+
+def test_a_mirror_of_a_plugin_preset_is_not_one_of_the_plugin_presets(world):
+    world.add_backend()
+    world.enabled_counts["b1"] = 1
+    world.presets.append(
+        SimpleNamespace(id="MIRROR", name="Anime", base_path=str(world.plugin_dir / "presets"), source_preset_id="p-video")
+    )
+    world.installed = {"p-video", "p-image", "MIRROR"}
+
+    steps = _by_kind(world.report())
+
+    assert steps["presets.installed"].description == "2 of 2 installed."

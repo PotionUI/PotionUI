@@ -50,6 +50,7 @@ class PromptBatchSplitRepository:
                 self._copy_links(cursor, generation_id, new_id)
             self._split_segments(cursor, generation_id, new_ids)
             self._split_parameters(cursor, generation_id, new_ids, batch.per_prompt)
+            self._split_applied_prompts(cursor, generation_id, new_ids, batch.per_prompt)
             bump_history_revision(cursor, source["user_id"])
         return list(new_ids.values())
 
@@ -138,6 +139,30 @@ class PromptBatchSplitRepository:
                     "UPDATE generation_segment_phrasebook SET generation_id = ? WHERE segment_id = ?",
                     (new_id, segment["id"]),
                 )
+
+    @staticmethod
+    def _split_applied_prompts(cursor, generation_id: str, new_ids: Dict[int, str], per_prompt: int) -> None:
+        cursor.execute(
+            "SELECT applied, created_at FROM generation_applied_prompts WHERE generation_id = ?", (generation_id,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return
+        try:
+            entries = json.loads(row["applied"])
+        except (TypeError, ValueError):
+            return
+        if not isinstance(entries, list):
+            return
+        cursor.execute(
+            "UPDATE generation_applied_prompts SET applied = ? WHERE generation_id = ?",
+            (json.dumps(entries[:per_prompt]), generation_id),
+        )
+        for index, new_id in new_ids.items():
+            cursor.execute(
+                "INSERT OR REPLACE INTO generation_applied_prompts (generation_id, applied, created_at) VALUES (?, ?, ?)",
+                (new_id, json.dumps(entries[index * per_prompt:(index + 1) * per_prompt]), row["created_at"]),
+            )
 
     @staticmethod
     def _split_parameters(cursor, generation_id: str, new_ids: Dict[int, str], per_prompt: int) -> None:

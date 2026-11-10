@@ -8,7 +8,7 @@ docs/prompts.md.
 """
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.platform.util.latents import generate_seed
 from src.features.prompt.expander import expand_prompts
@@ -100,6 +100,42 @@ class PromptExpander:
 
         realized = self._expand_template(generation_id, request, template, quantity, base_seed, on_warning)
         return realized if realized is not None else prompts
+
+    def expand_fixed(self, generation_id: str, request, fixed, count: int) -> List[Tuple[str, str, str]]:
+        try:
+            base_seed = int((request.form_data or {}).get('seed', 0))
+        except (TypeError, ValueError):
+            base_seed = 0
+        variables = getattr(request, 'variables', None)
+        head = self._expand_fixed_part(generation_id, variables, fixed.prefix, fixed.negative, count, base_seed)
+        tail = self._expand_fixed_part(generation_id, variables, fixed.suffix, '', count, base_seed)
+        return [(head[i][0], tail[i][0], head[i][1]) for i in range(count)]
+
+    def _expand_fixed_part(
+        self,
+        generation_id: str,
+        variables: Optional[Dict[str, str]],
+        positive: str,
+        negative: str,
+        count: int,
+        base_seed: int,
+    ) -> List[Tuple[str, str]]:
+        if not (positive or '').strip() and not (negative or '').strip():
+            return [('', '')] * count
+        try:
+            expanded = expand_prompts(
+                positive or '',
+                negative or '',
+                count=count,
+                base_seed=base_seed,
+                variables=variables,
+                plugin_registry=self.plugin_registry,
+                generation_id=generation_id,
+            )
+        except Exception:
+            logger.exception(f"Fixed prompt expansion failed for {generation_id}, using the text as written")
+            return [(positive or '', negative or '')] * count
+        return [(e.positive, e.negative) for e in expanded]
 
     def _expand_template(
         self,

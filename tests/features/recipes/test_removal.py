@@ -150,6 +150,41 @@ def test_files_of_another_installed_preset_or_a_hand_written_recipe_are_kept(wor
     assert _kept(world.removal.preview("modes-vid-1-0", "add_water"), "water.safetensors") == [("other_recipe", "Part of the Vid Starter recipe")]
 
 
+def test_a_mirror_of_the_preset_does_not_make_its_files_shared(world):
+    for model_type, filename in BASE:
+        world.place(model_type, filename)
+    world.place("lora", "cine.safetensors", size=200)
+    world.db.mirrors["MIRROR"] = "VID"
+
+    preview = world.removal.preview("modes-vid-1-0", "cinemagraph")
+
+    assert [d["filename"] for d in preview["delete"]] == ["cine.safetensors"]
+
+
+def test_a_mirror_lora_list_default_keeps_its_lora(world):
+    for model_type, filename in BASE:
+        world.place(model_type, filename)
+    world.place("lora", "cine.safetensors", size=200)
+    world.db.mirrors["MIRROR"] = "VID"
+    world.db.overrides["MIRROR"] = {"cinemagraph": {"loras": {"default": [{"model": "loras/Cine.safetensors", "strength": 0.7}]}}}
+
+    preview = world.removal.preview("modes-vid-1-0", "cinemagraph")
+
+    assert preview["delete"] == []
+    assert _kept(preview, "cine.safetensors") == [("admin_default", "Set as a default file by an admin")]
+
+
+def test_a_lora_list_default_naming_a_model_by_id_keeps_it(world):
+    for model_type, filename in BASE:
+        world.place(model_type, filename)
+    cine, _ = world.place("lora", "cine.safetensors", size=200)
+    world.db.overrides["VID"]["video"] = {"loras": {"default": [{"model": f"model:{cine.id}", "strength": 1}, "junk", {"strength": 1}]}}
+
+    preview = world.removal.preview("modes-vid-1-0", "cinemagraph")
+
+    assert _kept(preview, "cine.safetensors") == [("admin_default", "Set as a default file by an admin")]
+
+
 class Broken:
     def __getattr__(self, name):
         def fail(*args, **kwargs):

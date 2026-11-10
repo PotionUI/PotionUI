@@ -11,6 +11,8 @@
 	import { previewConditions } from '$lib/utils/conditionPreview';
 	import type { VariablesMap } from '$lib/utils/variableDefs';
 	import { buildSyntaxSegments, syntaxColorStyle, syntaxToneClasses, type PromptSyntaxSpec } from '$lib/utils/promptSyntax';
+	import { fixedPromptPieces, type FixedPromptParts } from '$lib/utils/presetFixedPrompt';
+	import { AdminOnlyMark } from '$lib/components/ui';
 
 	export let prompt = '';
 	export let negativePrompt = '';
@@ -19,6 +21,7 @@
 	export let promptSyntax: PromptSyntaxSpec[] = [];
 	export let variables: VariablesMap | undefined = undefined;
 	export let compilePrompt: ((resolved: string) => string) | null = null;
+	export let fixedPrompt: FixedPromptParts | null = null;
 
 	const resourceNumbering =
 		getContext<Readable<ResourceNumbering | null> | undefined>(RESOURCE_NUMBERING_CONTEXT_KEY) ?? EMPTY_RESOURCE_NUMBERING;
@@ -68,6 +71,8 @@
 	$: activeText = active === 'prompt' ? resolvedPrompt : resolvedNegativePrompt;
 	$: wordCount = activeText.trim() ? activeText.trim().split(/\s+/).length : 0;
 	$: activeSegments = buildSyntaxSegments(activeText, promptSyntax);
+	$: activePieces = fixedPromptPieces(activeText, fixedPrompt, active);
+	$: hasFixedPieces = activePieces.some((piece) => piece.fixed);
 
 	async function copyActive() {
 		if (!activeText) return;
@@ -117,8 +122,8 @@
 				<button type="button" role="tab" aria-selected={active === 'negative'} class="rounded px-2.5 py-1 text-xs {active === 'negative' ? 'bg-danger/10 text-danger' : 'text-fg-muted hover:text-fg'}" on:click={() => (active = 'negative')}>Negative</button>
 			</div>
 			<div class="whitespace-pre-wrap rounded bg-surface-2 p-3 text-sm leading-relaxed text-fg-muted">
-				{#if activeText}
-					{#each activeSegments as segment}
+				{#if activeText || hasFixedPieces}
+					{#each activePieces as piece}{#if piece.fixed}<span class="text-fg-subtle italic" data-fixed-prompt-piece>{piece.text}</span>{:else}{#each activeSegments as segment}
 						{#if segment.match}
 							{#if segment.match.spec.help}
 								<Tooltip text={segment.match.spec.help} wrapperClass="inline">
@@ -136,11 +141,17 @@
 						{:else}
 							{segment.text}
 						{/if}
-					{/each}
+					{/each}{/if}{/each}
 				{:else}
 					No {active === 'negative' ? 'negative ' : ''}prompt content
 				{/if}
 			</div>
+			{#if hasFixedPieces}
+				<p class="mt-2 flex items-center gap-1.5 text-xs text-fg-subtle" data-fixed-prompt-note>
+					<AdminOnlyMark />
+					Muted text is added by this preset. Only admins see it.
+				</p>
+			{/if}
 			{#if activeConditions.rows.length > 0}
 				<div class="mt-2 overflow-x-auto rounded border border-line" data-testid="condition-preview-table">
 					<table class="w-full text-left text-xs">

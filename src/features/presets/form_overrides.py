@@ -213,10 +213,41 @@ def validate_form_overrides(
                         f"for this field; enter a plain number"
                     )
                 continue
+            if spec.type == "lora_picker":
+                errors.extend(lora_list_default_errors(name, value, spec))
+                continue
             value_errors: List[str] = []
             validate_field_value(name, value, spec, value_errors)
             errors.extend(value_errors)
 
+    return errors
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def lora_list_default_errors(name: str, value: Any, spec: FieldTemplate) -> List[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return [f"{name}: the default must be a list of {{model, strength}} entries"]
+    config = spec.configuration or {}
+    low, high = config.get("strength_min", -2.0), config.get("strength_max", 2.0)
+    limit = config.get("max_items", 6)
+    errors: List[str] = []
+    if limit is not None and len(value) > limit:
+        errors.append(f"{name}: at most {limit} LoRAs")
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            errors.append(f"{name}: entry {index} must be an object with a model and a strength")
+            continue
+        model = item.get("model")
+        if not isinstance(model, str) or not model.strip():
+            errors.append(f"{name}: entry {index} needs a model")
+        strength = item.get("strength")
+        if not (_is_number(strength) and low <= strength <= high):
+            errors.append(f"{name}: entry {index} strength must be a number from {low} to {high}")
     return errors
 
 

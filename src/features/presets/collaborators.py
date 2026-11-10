@@ -34,6 +34,7 @@ from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 
 if TYPE_CHECKING:
+    from src.features.presets.cover_store import PresetCoverStore
     from src.features.presets.pipeline_assembler import PipelineAssembler
 
 
@@ -65,6 +66,7 @@ class PresetCollaborators:
     gpu_monitor: Optional[GpuMonitor] = None
     backend_registry: Optional[BackendRegistry] = None
     requirements_cache: Optional[RequirementsCache] = None
+    cover_store: Optional["PresetCoverStore"] = None
     # Derived, built once here rather than per-call.
     form_serializer: PresetFormSerializer = field(init=False)
 

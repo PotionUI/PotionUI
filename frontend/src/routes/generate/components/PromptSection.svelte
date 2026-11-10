@@ -55,6 +55,10 @@
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { getPresetPromptSyntax } from '$lib/utils/presetPromptSyntaxCache';
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
+	import { authStore } from '$lib/stores/auth';
+	import { getPresetFixedPrompt } from '$lib/utils/presetFixedPromptCache';
+	import { fixedPromptForMode } from '$lib/utils/presetFixedPrompt';
+	import type { PresetFixedPrompt } from '$lib/types/api';
 
 	type TabHandlers = {
 		handlePromptChange: (prompt: string) => void;
@@ -191,6 +195,29 @@
 	let promptResourceSpecs = $state.raw<PromptResourceSpec[]>(EMPTY_RESOURCE_SPECS);
 	let promptResourceFieldLabels = $state.raw<Record<string, string>>(EMPTY_FIELD_LABELS);
 	let promptSyntaxSpecs = $state.raw<PromptSyntaxSpec[]>(EMPTY_SYNTAX_SPECS);
+	let presetFixedPrompt = $state.raw<PresetFixedPrompt | null>(null);
+
+	const isAdmin = $derived($authStore.user?.account_type === 'ADMIN');
+	const fixedPromptParts = $derived(
+		isAdmin
+			? fixedPromptForMode(presetFixedPrompt, selectedMode, { directorActive: videoDirectorActive || musicDirectorActive })
+			: null
+	);
+
+	$effect(() => {
+		const preset = selectedPreset;
+		if (!isAdmin || !preset) {
+			presetFixedPrompt = null;
+			return;
+		}
+		let live = true;
+		getPresetFixedPrompt(preset).then((fixed) => {
+			if (live) presetFixedPrompt = fixed;
+		});
+		return () => {
+			live = false;
+		};
+	});
 
 	$effect.pre(() => {
 		const preset = selectedPreset;
@@ -412,6 +439,7 @@
 					promptSyntax={promptSyntaxSpecs}
 					{variables}
 					compilePrompt={regionalCompile}
+					fixedPrompt={fixedPromptParts}
 				/>
 			</div>
 		</div>

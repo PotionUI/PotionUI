@@ -26,6 +26,7 @@ from src.features.plans.routes import build_router as build_plans_router
 from src.features.workspaces.routes import build_router as build_workspace_router
 from src.features.tab_drafts.routes import build_router as build_tab_draft_router
 from src.features.presets.routes import build_router as build_preset_router
+from src.features.presets.fixed_prompt_routes import build_router as build_preset_fixed_prompt_router
 from src.features.forms.routes import build_router as build_form_router
 from src.features.fields.routes import build_router as build_field_router
 from src.features.sampling.routes import build_router as build_sampling_router
@@ -118,6 +119,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_workspace_router(container))  # Workspace management routes
     app.include_router(build_tab_draft_router(container))
     app.include_router(build_preset_router(container))
+    app.include_router(build_preset_fixed_prompt_router(container))
     app.include_router(build_form_router(container))
     app.include_router(build_field_router(container))
     app.include_router(build_sampling_router(container))  # /api/sampling/catalog

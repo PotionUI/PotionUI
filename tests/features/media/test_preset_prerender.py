@@ -31,6 +31,7 @@ class _FakePreset:
 def media_store(tmp_path):
     resolver = Mock(spec=FilePathResolver)
     resolver.get_storage_directory.return_value = str(tmp_path / "storage")
+    resolver.preset_files_id.side_effect = lambda preset_id: preset_id
     store = MediaStore(
         file_resolver=resolver,
         image_processor=ImageProcessor(),

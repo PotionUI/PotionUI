@@ -1086,12 +1086,15 @@ class MediaStore:
         editing an image simply misses the cache instead of serving a stale render.
         """
         digest = hashlib.sha1(file_path.encode("utf-8")).hexdigest()[:16]
-        cache_dir = Path(self.file_resolver.get_storage_directory()) / "preset_media" / preset_id
-        return cache_dir / f"{digest}_{size}_{mtime_ns}{suffix}"
+        return self._preset_cache_dir(preset_id) / f"{digest}_{size}_{mtime_ns}{suffix}"
+
+    def _preset_cache_dir(self, preset_id: str) -> Path:
+        files_id = self.file_resolver.preset_files_id(preset_id)
+        return Path(self.file_resolver.get_storage_directory()) / "preset_media" / files_id
 
     def purge_preset_thumbnail_cache(self, preset_id: str) -> None:
         """Drop every rendered thumbnail for a preset. Called on preset reload."""
-        cache_dir = Path(self.file_resolver.get_storage_directory()) / "preset_media" / preset_id
+        cache_dir = self._preset_cache_dir(preset_id)
         if cache_dir.exists():
             shutil.rmtree(cache_dir, ignore_errors=True)
             logger.debug(f"Purged preset thumbnail cache for {preset_id}")

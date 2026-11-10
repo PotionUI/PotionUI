@@ -223,7 +223,10 @@ def test_a_changed_file_left_unindexed_is_not_marked_missing(tmp_path, mock_db):
 
     changed.write_bytes(b"a much longer replacement payload")
     gone.unlink()
-    with patch.object(ModelScanner, "index_file", side_effect=RuntimeError("left for the next scan")):
+    second_scan_stamp = "2099-01-01T00:00:00+00:00"
+    with patch.object(ModelScanner, "index_file", side_effect=RuntimeError("left for the next scan")), patch(
+        "src.features.models.indexer.now_iso", return_value=second_scan_stamp
+    ):
         result = scanner.index_models(max_workers=1)
 
     assert (result["new_files"], result["failed"], result["skipped"]) == (1, 1, 1)
@@ -233,5 +236,5 @@ def test_a_changed_file_left_unindexed_is_not_marked_missing(tmp_path, mock_db):
     assert changed_row["status"] == "present"
     assert changed_row["seen_at"] == before["changed.safetensors"]["seen_at"]
     assert kept_row["status"] == "present"
-    assert kept_row["seen_at"] != before["kept.safetensors"]["seen_at"]
+    assert kept_row["seen_at"] == second_scan_stamp
     assert gone_row["status"] == "missing"

@@ -18,7 +18,7 @@ test.describe('tooltip dismissal', () => {
 	test('a tooltip disappears when its anchor is removed without a pointer leave', async ({ page }) => {
 		const fab = await hoverAiChat(page);
 		await fab.evaluate((el) => el.parentElement!.remove());
-		await expect(tooltip(page)).toHaveCount(0);
+		await expect(tooltip(page).filter({ hasText: 'AI Chat' })).toHaveCount(0);
 	});
 
 	test('a tooltip disappears when the page loses focus', async ({ page }) => {

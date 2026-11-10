@@ -747,6 +747,7 @@ def _streaming_with(parts: list, encoder) -> TextEncoderStreaming:
     streaming = TextEncoderStreaming.__new__(TextEncoderStreaming)
     streaming.encoder = encoder
     streaming.parts = parts
+    streaming.device = "cpu"
     return streaming
 
 

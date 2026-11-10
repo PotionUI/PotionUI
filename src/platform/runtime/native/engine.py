@@ -890,12 +890,14 @@ class TextEncoderStreaming:
         self.budget_gb = 0.0
         self.resident_gb = 0.0
         self.streamed_gb = 0.0
+        self.device = "cpu"
 
     @property
     def active(self) -> bool:
         return any(part.is_streaming for part in self.parts)
 
     def apply(self, device: str | torch.device, budget_gb: float) -> None:
+        self.device = str(device)
         self.budget_gb = max(0.0, float(budget_gb))
         remaining = self.budget_gb
         resident = streamed = 0.0
@@ -930,6 +932,12 @@ class TextEncoderStreaming:
         if callable(mover):
             try:
                 mover("cpu")
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if self.device.startswith("cuda") and torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
             except Exception as exc:
                 if first_error is None:
                     first_error = exc

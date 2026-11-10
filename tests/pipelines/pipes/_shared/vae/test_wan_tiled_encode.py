@@ -116,3 +116,59 @@ def test_make_room_does_nothing_off_cuda(monkeypatch):
 
     assert log == []
     assert registry.resident_gb("cuda:0") == 1.0
+
+
+def _concat_room(free_gb, monkeypatch, names=("umt5", "vae", "high", "low")):
+    from src.pipelines.pipes._shared.vae import wan_tiled_encode
+
+    registry, parts, log = _registry_with(names, monkeypatch)
+    monkeypatch.setattr(wan_tiled_encode, "_release_idle_pool", lambda device: log.append(("release_idle_pool", device)))
+
+    def free(device):
+        log.append(("read_free", device))
+        return free_gb
+
+    monkeypatch.setattr(wan_tiled_encode, "effective_free_vram_gb", free)
+    return registry, parts, log
+
+
+def test_concat_encode_room_evicts_nothing_when_the_encode_fits(monkeypatch):
+    from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_concat_encode
+
+    registry, parts, log = _concat_room(20.0, monkeypatch)
+    make_room_for_wan_concat_encode("cuda:0", parts["vae"], 960, 544, keep=(parts["high"], parts["low"]))
+
+    assert log == [("release_idle_pool", "cuda:0"), ("read_free", "cuda:0")]
+    assert registry.resident_gb("cuda:0") == 4.0
+
+
+def test_concat_encode_room_hands_the_idle_pool_back_before_it_evicts_the_text_encoder(monkeypatch):
+    from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_concat_encode
+
+    registry, parts, log = _concat_room(0.58, monkeypatch)
+    make_room_for_wan_concat_encode("cuda:0", parts["vae"], 832, 480, keep=(parts["high"], parts["low"], None))
+
+    assert log == [("release_idle_pool", "cuda:0"), ("read_free", "cuda:0"), ("offload", "umt5"),
+                   ("release_idle_pool", "cuda:0")]
+    assert registry.resident_gb("cuda:0") == 3.0
+
+
+def test_concat_encode_room_does_nothing_off_cuda(monkeypatch):
+    from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_concat_encode
+
+    registry, parts, log = _concat_room(0.0, monkeypatch)
+    make_room_for_wan_concat_encode("cpu", parts["vae"], 832, 480)
+
+    assert log == []
+    assert registry.resident_gb("cuda:0") == 4.0
+
+
+def test_concat_encode_need_counts_the_vae_weights_only_while_they_are_off_the_card():
+    from src.pipelines.pipes._shared.vae.wan_tiled_encode import wan_concat_encode_need_gb
+
+    on_card = wan_concat_encode_need_gb(SimpleNamespace(device="cuda:0", estimated_vram_gb=0.25), 832, 480)
+    off_card = wan_concat_encode_need_gb(SimpleNamespace(device="cpu", estimated_vram_gb=0.25), 832, 480)
+
+    assert on_card == 2.0 + 0.5 * (60 * 104) / 1024
+    assert off_card == on_card + 0.25
+    assert wan_concat_encode_need_gb(SimpleNamespace(device="cuda:0"), 960, 544) > on_card

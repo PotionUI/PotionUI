@@ -603,7 +603,23 @@ def test_ti2v_5b_makes_room_on_the_card_before_it_encodes_the_start_image():
     assert order == ["make_room", "vae.move_to", "encode"]
 
 
-def test_a14b_i2v_keeps_its_encode_without_making_room():
-    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode") as make_room:
-        _pipe(device="cpu").build_context(_pipe_input(in_dim=36))
-    make_room.assert_not_called()
+def test_a14b_i2v_makes_room_on_the_card_before_it_encodes_the_start_image():
+    pipe_input = _pipe_input(in_dim=36)
+    bundle = pipe_input.input["model"]
+    order = []
+    rooms = []
+    encoded = []
+    bundle.vae.move_to = lambda d: order.append("vae.move_to")
+    encode = bundle.vae.module.encode
+    bundle.vae.module.encode = lambda px: (order.append("encode"), encoded.append(tuple(px.shape[-2:])), encode(px))[2]
+
+    def make_room(device, vae, width, height, keep):
+        order.append("make_room")
+        rooms.append((device, vae, (height, width), [id(m) for m in keep if m is not None]))
+
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_concat_encode", side_effect=make_room),          patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode") as five_b_room:
+        _pipe(device="cpu").build_context(pipe_input)
+
+    assert order[:3] == ["make_room", "vae.move_to", "encode"]
+    assert rooms == [("cpu", bundle.vae, encoded[0], [id(bundle.high_dit), id(bundle.low_dit)])]
+    five_b_room.assert_not_called()

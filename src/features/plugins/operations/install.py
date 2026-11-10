@@ -14,7 +14,7 @@ from packaging.version import InvalidVersion, Version
 
 from src.features.plugins.archive import unpack_plugin_archive
 from src.features.plugins.catalog import CatalogEntry, CatalogProblem, core_mismatch, parse_catalog
-from src.features.plugins.operations.lifecycle import enable_plugin, rescan_presets_and_pipes
+from src.features.plugins.operations.lifecycle import disable_plugin, enable_plugin, rescan_presets_and_pipes
 from src.features.plugins.operations.scan import scan_plugins
 from src.features.plugins.remote import fetch_bytes, local_sources_allowed
 from src.features.plugins.repository import PluginRepository
@@ -261,6 +261,13 @@ def _put_previous_back(placement: _Placement, target: Path) -> None:
         raise
 
 
+def _disable(repo: PluginRepository, registry: PluginRegistry, plugin_id: str, collaborators: dict) -> None:
+    if registry.get_plugin_state(plugin_id) == PluginState.ENABLED:
+        disable_plugin(repo, registry, plugin_id, **collaborators)
+    else:
+        repo.disable_plugin(plugin_id)
+
+
 def _came_back(was_enabled: bool, state: Optional[PluginState]) -> bool:
     if was_enabled:
         return state == PluginState.ENABLED
@@ -288,10 +295,11 @@ async def _restore_previous(
     try:
         await asyncio.to_thread(_put_previous_back, placement, target)
     except OSError as error:
+        _disable(repo, registry, plugin_id, collaborators)
         raise CatalogInstallError(
             f"{plugin_id} {item.entry.version} did not start ({failure}), and the installed "
             f"{item.installed_version} could not be put back ({error}); it is kept in "
-            f"{STAGING_FOLDER}/{placement.staging.name}/previous."
+            f"{STAGING_FOLDER}/{placement.staging.name}/previous, and {plugin_id} is disabled."
         ) from error
     scan_plugins(repo, registry)
     message = (

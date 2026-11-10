@@ -516,6 +516,52 @@ async def test_an_update_that_does_not_start_and_cannot_be_undone_keeps_the_prev
     assert (local / "demo" / "payload.py").exists()
 
 
+def _a_page_route_owned_by_another_plugin(repo, registry, local: Path) -> None:
+    other = local / "other"
+    other.mkdir()
+    (other / "manifest.yml").write_bytes(
+        _manifest("other", "1.0.0", pages=[{"route": "shared-page", "component": "Page", "label": "Other"}])
+    )
+    operations.scan_plugins(repo, registry)
+
+
+def _archive_taking_that_route(plugin_id: str, version: str) -> bytes:
+    taken = _manifest(plugin_id, version, pages=[{"route": "shared-page", "component": "Page", "label": "Demo"}])
+    return _archive(plugin_id, version, manifest=taken, extra=[(f"{plugin_id}/payload.py", b"print('new')")])
+
+
+@pytest.mark.parametrize("failure", ["does not start", "scan raises"])
+async def test_an_update_that_fails_and_cannot_be_put_back_leaves_the_new_code_disabled(plugins, catalog, monkeypatch, failure):
+    registry, repo, _, local = plugins
+    if failure == "scan raises":
+        _a_page_route_owned_by_another_plugin(repo, registry, local)
+        new = _archive_taking_that_route("demo", "1.1.0")
+    else:
+        new = _unstartable_archive("demo", "1.1.0")
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0", new)
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(source).name == "previous" and Path(target) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "payload.py").exists()
+    assert len(list((local / STAGING_FOLDER).glob("*/previous"))) == 1
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert "could not be put back (the folder is in use); it is kept in .potionui-install/" in str(refused.value)
+    assert str(refused.value).endswith("previous, and demo is disabled.")
+
+
 async def test_a_failed_update_leaves_the_installed_version_in_place(plugins, catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

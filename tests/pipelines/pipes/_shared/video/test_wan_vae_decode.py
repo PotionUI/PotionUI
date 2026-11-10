@@ -14,6 +14,7 @@ from src.platform.runtime.native.detect.registry import arch_registry
 from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
+from src.platform.runtime.native.vae.causal_3d_v2 import LATENTS_MEAN as WAN22_LATENTS_MEAN, LATENTS_STD as WAN22_LATENTS_STD
 from src.platform.runtime.native.vae.tiling import causal3d_frame_need_gb
 
 LATENT_480P_5S = (1, 16, 21, 60, 104)
@@ -541,3 +542,56 @@ def test_an_81_frame_480p_wan21_clip_decodes_whole_from_a_12gb_card_by_its_measu
     wan_experts._decode_pixels(c, torch.zeros(1, 16, 21, 60, 104))
 
     assert calls == [decoded]
+
+
+class _Wan22Decoder:
+    def __init__(self, fail_first=False):
+        self.inputs = []
+        self.fail_first = fail_first
+
+    def decode(self, z, **kw):
+        self.inputs.append(z.clone())
+        if self.fail_first and len(self.inputs) == 1:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 1.00 GiB")
+        return torch.zeros(1, 3, 1 + 4 * (z.shape[2] - 1), z.shape[3] * 16, z.shape[4] * 16)
+
+
+def _wan22_denormalized(latent):
+    mean = torch.tensor(WAN22_LATENTS_MEAN).view(1, -1, 1, 1, 1)
+    std = torch.tensor(WAN22_LATENTS_STD).view(1, -1, 1, 1, 1)
+    return latent * std + mean
+
+
+def _seen_by_the_vae(decoder, monkeypatch, path):
+    seen = []
+
+    def chunked(vae, z, chunk_latent_frames, **kw):
+        seen.append(z.clone())
+        return vae.decode(z)
+
+    def tiled(vae, z, **kw):
+        seen.append(z.clone())
+        return vae.decode(z)
+
+    monkeypatch.setattr(wan_experts, "chunked_decode_causal3d", chunked)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", tiled)
+    monkeypatch.setattr(wan_experts, "_clear_card_for_decode", lambda c: None)
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 0.001 if path == "tiled" else 100.0)
+    monkeypatch.setattr(wan_experts, "causal3d_decode_tile", lambda latent_hw, free, **kw: 8)
+    monkeypatch.setattr(wan_experts, "causal3d_chunk_frames", lambda *a, **kw: 2 if path == "chunked" else None)
+    return seen
+
+
+@pytest.mark.parametrize("path", ["whole", "chunked", "tiled", "retried"])
+def test_a_wan22_latent_is_denormalized_once_whichever_way_the_vae_decodes_it(monkeypatch, path):
+    torch.manual_seed(0)
+    latent = torch.randn(1, 48, 3, 4, 4)
+    decoder = _Wan22Decoder(fail_first=path == "retried")
+    seen = _seen_by_the_vae(decoder, monkeypatch, path)
+
+    decode_wan_video(_ctx(decoder, latent_channels=48, spatial_downscale=16), latent.clone())
+
+    expected = _wan22_denormalized(latent)
+    assert decoder.inputs
+    for z in [*seen, *decoder.inputs]:
+        assert torch.allclose(z, expected, atol=1e-6)

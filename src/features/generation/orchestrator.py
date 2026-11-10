@@ -133,7 +133,7 @@ from src.features.cloud.contracts import CLOUD_ENGINE
 from src.features.cloud.director import director_overlay
 from src.platform.security.user_ref import cloud_user_ref
 from src.features.generation.output_types import output_type_registry
-from src.features.forms.binding import bind_form, FormBindingError
+from src.features.forms.binding import bind_form, form_field_index, FormBindingError
 from src.features.prompt.resource_sources import BundleMembersResolver, member_kinds_resolver, prompt_resource_sources
 from src.platform.plugins.prompt_resource_sources import PromptResourceCaller, PromptResourceSourceRegistry
 from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
@@ -210,6 +210,27 @@ def _check_ltx_two_stage_geometry(preset_template, mode: str, form_data: Dict[st
     )
 
 
+def _carries_a_one_frame_tail(
+    timing: Dict[str, Any], form_data: Dict[str, Any], model_sha256: Optional[Callable[[Any], Optional[str]]],
+) -> bool:
+    rule = timing.get('one_frame_tail')
+    if model_sha256 is None or not isinstance(rule, dict) or not isinstance(rule.get('model_field'), str):
+        return False
+    hashes = {str(item).lower() for item in rule.get('sha256') or []}
+    sha256 = model_sha256(form_data.get(rule['model_field']))
+    return isinstance(sha256, str) and sha256.lower() in hashes
+
+
+def _is_form_default(preset_template: PresetTemplate, mode: str, field_name: str, value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        field = form_field_index(preset_template, mode).get(field_name)
+    except Exception:
+        return False
+    return field is not None and value == field.default
+
+
 def _prepare_director_form_data(
     preset_template: PresetTemplate,
     mode: str,
@@ -218,6 +239,7 @@ def _prepare_director_form_data(
     settings: Settings,
     model_overlay: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
     bundle_members: Optional[BundleMembersResolver] = None,
+    model_sha256: Optional[Callable[[Any], Optional[str]]] = None,
 ) -> Dict[str, Any]:
     """Pure Video/Music Director canonicalization, shared by `start_generation`
     and `GenerationOrchestrator.preview_memory` so a preview's active loader
@@ -284,6 +306,11 @@ def _prepare_director_form_data(
                 value = form_data.get(field_name)
                 if value is None:
                     value = timing_capability.get('motion_latent_count_default', 1)
+                if _carries_a_one_frame_tail(timing_capability, form_data, model_sha256) and _is_form_default(
+                    preset_template, mode, field_name, form_data.get(field_name),
+                ):
+                    value = 1
+                    form_data[field_name] = 1
                 normalized_doc = {
                     **normalized_doc,
                     'settings': {
@@ -781,6 +808,19 @@ class GenerationOrchestrator:
         )
         return member_kinds_resolver(caller, self.prompt_resource_source_registry)
 
+    def _model_sha256(self, value: Any) -> Optional[str]:
+        if not is_model_ref(value):
+            return None
+        from src.features.models.repository import model_repo
+
+        try:
+            record = model_repo.get_by_id(model_id_of(value), include_providers=False, include_tags=False)
+        except Exception:
+            logger.debug("Model sha256 lookup failed; the Director timing keeps the form value", exc_info=True)
+            return None
+        sha256 = getattr(record, 'sha256', None)
+        return sha256.lower() if isinstance(sha256, str) else None
+
     def _director_model_overlay(self, preset_template) -> Optional[Callable[[Any], Optional[Dict[str, Any]]]]:
         capabilities = self.cloud_capabilities
         if capabilities is None or preset_template.engine != CLOUD_ENGINE:
@@ -864,6 +904,7 @@ class GenerationOrchestrator:
                 preset_template, mode, bound.values, user_id, self.settings,
                 model_overlay=self._director_model_overlay(preset_template),
                 bundle_members=self._bundle_members(user_id),
+                model_sha256=self._model_sha256,
             )
             built = self.pipeline_builder.build_pipeline(
                 preset_id=preset_template,
@@ -1177,6 +1218,7 @@ class GenerationOrchestrator:
                     preset_template, mode, request.form_data, user_id, self.settings,
                     model_overlay=self._director_model_overlay(preset_template),
                     bundle_members=self._bundle_members(user_id),
+                    model_sha256=self._model_sha256,
                 )
 
             # LTX two-stage upscale geometry: fail fast, before the (expensive)

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 import torch
 
@@ -13,6 +14,8 @@ from src.pipelines.outputs import GalleryGenerationOutput
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.img2vid_wan22.main import GeneratorWanImg2VidPipe, _Ctx, ExpertRouter, _I2VForward
+from src.pipelines.pipes._shared.generation.wan_ti2v import TI2VForward
+from src.platform.runtime.native.vae.causal_3d_v2 import LATENTS_MEAN as WAN22_LATENTS_MEAN, LATENTS_STD as WAN22_LATENTS_STD
 
 
 # -- i2v forward: prepend concat to the noisy latent ----------------------
@@ -269,31 +272,127 @@ def test_t2v_model_in_img2vid_mode_raises_clear_error():
         _pipe().build_context(_pipe_input(in_dim=16))
 
 
-def test_ti2v_5b_model_in_img2vid_mode_raises_before_any_vae_or_concat_work():
-    """The TI2V-5B checkpoint (in_dim=48) does its own built-in text+image
-    conditioning -- feeding it into this generator's 36-channel concat
-    contract would silently produce a wrong/garbage conditioning tensor
-    instead of failing loudly. Must reject before touching the VAE (move_to/
-    encode/offload) or building the concat, not just before sampling."""
-    import pytest
-    bundle = _bundle(in_dim=48)
-    calls = {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0, "concat": 0}
-    bundle.vae.move_to = lambda d: calls.__setitem__("vae_move_to", calls["vae_move_to"] + 1)
-    bundle.vae.offload = lambda: calls.__setitem__("vae_offload", calls["vae_offload"] + 1)
-    bundle.vae.module.encode = lambda px: (calls.__setitem__("vae_encode", calls["vae_encode"] + 1) or None)
-    pipe_input = PipeInput(input={
+def _ti2v_bundle(low_dit=False, encoded=None):
+    seen = {"pixels": []}
+    spec = _FakeSpec(variant="wan_ti2v_5b", sampling_settings={"guidance": "cfg"},
+                     latent_format={"latent_channels": 48, "format": "wan22", "spatial_downscale": 16})
+
+    def encode(px):
+        seen["pixels"].append(px.clone())
+        if encoded is not None:
+            return encoded
+        return torch.zeros(1, 48, (px.shape[2] - 1) // 4 + 1, px.shape[3] // 16, px.shape[4] // 16)
+
+    vae = SimpleNamespace(
+        compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
+        module=SimpleNamespace(
+            encode=encode,
+            decode=lambda z: torch.zeros(1, 3, (z.shape[2] - 1) * 4 + 1, z.shape[3] * 16, z.shape[4] * 16),
+        ),
+    )
+
+    def dit():
+        return SimpleNamespace(compute_dtype=torch.float32, spec=spec, offload=lambda: None,
+                               module=SimpleNamespace(patch_size=(1, 2, 2), in_dim=48, img_emb=None))
+
+    bundle = SimpleNamespace(high_dit=dit(), low_dit=dit() if low_dit else None, vae=vae, spec=spec,
+                             is_dual_expert=low_dit)
+    return bundle, seen
+
+
+def _ti2v_input(bundle, end_image=False):
+    inp = {
         "model": bundle,
         "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
-        "image": [torch.rand(64, 64, 3)],
+        "image": [torch.full((64, 64, 3), 0.25)],
         "seed": [1],
-    })
-    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.build_i2v_concat") as mock_concat, \
-         patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise") as mock_denoise:
-        with pytest.raises(ValueError, match="in_dim=48"):
-            _pipe(device="cpu").build_context(pipe_input)
+    }
+    if end_image:
+        inp["end_image"] = [torch.rand(64, 64, 3)]
+    return PipeInput(input=inp)
+
+
+def test_ti2v_5b_in_i2v_mode_encodes_one_start_frame_into_a_normalized_48ch_latent():
+    bundle, seen = _ti2v_bundle()
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.build_i2v_concat") as mock_concat:
+        ctx = _pipe(device="cpu", resolution="128x64", frames=9).build_context(_ti2v_input(bundle))
         mock_concat.assert_not_called()
-        mock_denoise.assert_not_called()
-    assert calls == {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0, "concat": 0}
+
+    assert isinstance(ctx.extra.forward, TI2VForward)
+    assert [tuple(p.shape) for p in seen["pixels"]] == [(1, 3, 1, 64, 128)]
+    assert torch.allclose(seen["pixels"][0], torch.full((1, 3, 1, 64, 128), -0.5))
+    start = ctx.extra.start_latent
+    assert tuple(start.shape) == (1, 48, 1, 4, 8)
+    mean = torch.tensor(WAN22_LATENTS_MEAN).view(1, -1, 1, 1, 1)
+    std = torch.tensor(WAN22_LATENTS_STD).view(1, -1, 1, 1, 1)
+    assert torch.allclose(start, (torch.zeros_like(start) - mean) / std)
+
+
+class _RecordingTI2VDiT:
+    in_dim = 48
+    patch_size = (1, 2, 2)
+    img_emb = None
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, x, t, ctx, **kw):
+        self.calls.append((x.clone(), t.clone()))
+        return torch.ones_like(x)
+
+
+@patch("src.pipelines.pipes.generator.img2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
+def test_ti2v_5b_samples_with_the_start_latent_pinned_on_the_first_latent_frame_at_timestep_zero():
+    encoded = torch.randn(1, 48, 1, 4, 8)
+    bundle, _ = _ti2v_bundle(encoded=encoded)
+    dit = _RecordingTI2VDiT()
+    bundle.high_dit.module = dit
+    captured = {}
+
+    def fake_denoise(model_forward, latents, cond, uncond, **kw):
+        captured["latents"] = latents.clone()
+        captured["noise"] = kw["seed_noise"].clone()
+        captured["velocity"] = model_forward(torch.randn_like(latents), torch.tensor([0.75]), cond)
+        return torch.randn_like(latents)
+
+    decoded = {}
+
+    def fake_decode(c, latent):
+        decoded["latent"] = latent.clone()
+        return np.zeros((9, 64, 128, 3), dtype=np.uint8)
+
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise", side_effect=fake_denoise),          patch("src.pipelines.pipes.generator.img2vid_wan22.main.decode_wan_video", side_effect=fake_decode),          patch.object(ExpertRouter, "_place_expert", lambda self, expert: setattr(self, "active", expert)):
+        _pipe(device="cpu", resolution="128x64", frames=9, preview=False).process(_ti2v_input(bundle), lambda o: None)
+
+    mean = torch.tensor(WAN22_LATENTS_MEAN).view(1, -1, 1, 1, 1)
+    std = torch.tensor(WAN22_LATENTS_STD).view(1, -1, 1, 1, 1)
+    start = (encoded - mean) / std
+    assert tuple(captured["latents"].shape) == (1, 48, 3, 4, 8)
+    assert torch.allclose(captured["latents"][:, :, :1], start)
+    assert torch.allclose(captured["noise"][:, :, :1], start)
+    assert torch.count_nonzero(captured["latents"][:, :, 1:]) == 0
+    x, t = dit.calls[0]
+    assert torch.allclose(x[:, :, :1], start)
+    assert tuple(t.shape) == (1, 3)
+    assert t[0, 0].item() == 0.0
+    assert torch.allclose(t[0, 1:], torch.full((2,), 750.0))
+    assert torch.count_nonzero(captured["velocity"][:, :, :1]) == 0
+    assert torch.all(captured["velocity"][:, :, 1:] == 1)
+    assert torch.allclose(decoded["latent"][:, :, :1], start)
+
+
+def test_ti2v_5b_with_a_low_noise_expert_raises_before_any_vae_work():
+    bundle, seen = _ti2v_bundle(low_dit=True)
+    with pytest.raises(ValueError, match="low-noise picker empty"):
+        _pipe(device="cpu").build_context(_ti2v_input(bundle))
+    assert seen["pixels"] == []
+
+
+def test_ti2v_5b_in_flf_mode_raises_a_first_frame_only_error_before_any_vae_work():
+    bundle, seen = _ti2v_bundle()
+    with pytest.raises(ValueError, match="first frame only"):
+        _pipe(device="cpu").build_context(_ti2v_input(bundle, end_image=True))
+    assert seen["pixels"] == []
 
 
 def test_a14b_i2v_model_in_dim_36_proceeds():
@@ -483,3 +582,28 @@ def test_emitted_videos_carry_live_resolution():
 
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)][0]
     assert [v.resolution for v in gallery.videos] == [(992, 544), (992, 544)]
+
+
+def test_ti2v_5b_makes_room_on_the_card_before_it_encodes_the_start_image():
+    bundle, seen = _ti2v_bundle()
+    order = []
+    bundle.vae.move_to = lambda d: order.append("vae.move_to")
+    encode = bundle.vae.module.encode
+    bundle.vae.module.encode = lambda px: (order.append("encode"), encode(px))[1]
+
+    def make_room(device, keep):
+        order.append("make_room")
+        assert device == "cpu"
+        kept = [id(m) for m in keep if m is not None]
+        assert kept == [id(bundle.vae), id(bundle.high_dit)]
+
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode", side_effect=make_room):
+        _pipe(device="cpu", resolution="128x64", frames=9).build_context(_ti2v_input(bundle))
+
+    assert order == ["make_room", "vae.move_to", "encode"]
+
+
+def test_a14b_i2v_keeps_its_encode_without_making_room():
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode") as make_room:
+        _pipe(device="cpu").build_context(_pipe_input(in_dim=36))
+    make_room.assert_not_called()

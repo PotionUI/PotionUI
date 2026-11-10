@@ -33,6 +33,12 @@ TINY_I2V = dict(
 )
 
 
+TINY_TI2V = dict(
+    model_type="t2v", patch_size=(1, 2, 2), in_dim=48, dim=64, ffn_dim=128,
+    freq_dim=256, text_dim=32, out_dim=48, num_heads=4, num_layers=2,
+)
+
+
 def _build(config) -> WanModel:
     """from_config + fill empty params (norm scales -> 1, rest small random)."""
     m = WanModel.from_config(config, fp32_ops())
@@ -367,3 +373,26 @@ def test_skip_layers_out_of_range_index_is_a_noop_for_that_index():
         baseline = m(x, t, context)
         out = m(x, t, context, skip_layers={99})
     assert torch.equal(baseline, out)
+
+
+def test_ti2v_per_frame_timestep_equal_to_the_scalar_one_gives_the_same_prediction():
+    m = _build(TINY_TI2V)
+    x = torch.randn(1, 48, 3, 8, 8)
+    context = torch.randn(1, 12, 32)
+    with torch.no_grad():
+        scalar = m(x, torch.tensor([500.0]), context)
+        per_frame = m(x, torch.full((1, 3), 500.0), context)
+    assert per_frame.shape == (1, 48, 3, 8, 8)
+    assert torch.allclose(scalar, per_frame, atol=1e-5)
+
+
+def test_ti2v_first_frame_at_timestep_zero_changes_the_prediction():
+    m = _build(TINY_TI2V)
+    x = torch.randn(1, 48, 3, 8, 8)
+    context = torch.randn(1, 12, 32)
+    pinned = torch.full((1, 3), 500.0)
+    pinned[0, 0] = 0.0
+    with torch.no_grad():
+        uniform = m(x, torch.full((1, 3), 500.0), context)
+        first_clean = m(x, pinned, context)
+    assert not torch.allclose(uniform[:, :, :1], first_clean[:, :, :1], atol=1e-6)

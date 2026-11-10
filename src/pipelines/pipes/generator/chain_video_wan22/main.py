@@ -45,6 +45,7 @@ from src.platform.runtime.native.engine import NativeEngineLoader
 from src.platform.runtime.native.errors import SamplingNumericsError
 from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
+from src.platform.runtime.native.vae.causal_3d_v2 import LATENTS_MEAN as WAN22_LATENTS_MEAN, LATENTS_STD as WAN22_LATENTS_STD
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
     IOType,
@@ -57,6 +58,16 @@ from src.pipelines.contracts import (
 from src.pipelines.outputs import Icon
 from src.pipelines.pipes._shared.generation.generator_base import emit_gallery
 from src.pipelines.pipes._shared.generation.wan_i2v_contract import require_concat_i2v_contract
+from src.pipelines.pipes._shared.generation.wan_ti2v import (
+    TI2VForward,
+    WAN_TI2V_IN_DIM,
+    encode_ti2v_start_latent,
+    is_ti2v_expert,
+    pin_start_latent,
+    refuse_ti2v_last_frame,
+    require_matching_wan_vae,
+    require_single_ti2v_expert,
+)
 from src.pipelines.pipes._shared.generation.guidance_options import (
     apg_settings_config_specs,
     apg_settings_overrides,
@@ -76,7 +87,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
-from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_wan_vae_encode
+from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_vae_encode, make_wan_vae_encode
 from src.pipelines.pipes.generator.chain_video_wan22.geometry import (
     resolve_continuation as _resolve_continuation,
     tail_frame_count as _tail_frame_count,
@@ -409,17 +420,23 @@ class GeneratorWanChainVideoPipe(BasePipe):
             mset.native_dtype = mset.base_high.compute_dtype
             mset.patch_size = mset.base_high.module.patch_size
             in_dim = mset.base_high.module.in_dim
-            if set_name == "t2v" and in_dim != 16:
+            if set_name == "t2v" and in_dim not in (16, WAN_TI2V_IN_DIM):
                 raise ValueError(
                     f"generator/chain_video_wan22: the t2v set holds '{spec.variant}' (in_dim={in_dim}); a t2v "
-                    f"shot needs a plain t2v Wan checkpoint (in_dim=16)."
+                    f"shot needs a plain t2v Wan checkpoint (in_dim=16) or the Wan 2.2 TI2V-5B (in_dim=48)."
                 )
-            if set_name == "i2v" and in_dim != 36:
+            if set_name == "i2v" and in_dim not in (36, WAN_TI2V_IN_DIM):
                 raise ValueError(
                     f"generator/chain_video_wan22: the i2v set holds '{spec.variant}' (in_dim={in_dim}); an "
-                    f"image-conditioned/chain shot needs a concat-i2v Wan checkpoint (in_dim=36)."
+                    f"image-conditioned/chain shot needs a concat-i2v Wan checkpoint (in_dim=36) or the Wan 2.2 "
+                    f"TI2V-5B (in_dim=48)."
                 )
-            if set_name == "i2v":
+            require_matching_wan_vae(mset.vae, mset.base_high, generator="generator/chain_video_wan22",
+                                     set_name=set_name, variant=spec.variant)
+            if is_ti2v_expert(mset.base_high):
+                require_single_ti2v_expert(mset.base_low, generator="generator/chain_video_wan22",
+                                           variant=spec.variant)
+            elif set_name == "i2v":
                 # Classic Wan i2v checkpoints share in_dim=36 with the concat-i2v
                 # contract this generator implements, but condition through
                 # CLIP-vision `img_emb` cross-attention instead -- which this
@@ -556,6 +573,19 @@ class GeneratorWanChainVideoPipe(BasePipe):
         }
         for required in required_sets:
             prepare_set(sets[required], required)
+        if "i2v" in required_sets and is_ti2v_expert(sets["i2v"].base_high):
+            planned = [
+                segment_sub_type(seg, j, seg.get("id") in first_index, seg.get("id") in last_index)
+                for j, seg in enumerate(segments)
+            ]
+            if "flf" in planned:
+                refuse_ti2v_last_frame(generator="generator/chain_video_wan22", variant=sets["i2v"].spec.variant)
+            if "chain" in planned and tail_count > 1:
+                raise ValueError(
+                    f"generator/chain_video_wan22: the i2v set holds the Wan 2.2 TI2V-5B, which continues a "
+                    f"shot from the previous shot's last frame only, but this chain carries {tail_count} "
+                    f"frames of tail. Set the motion latents carried to 1, or the continuation overlap to 1 frame."
+                )
 
         try:
             for i, seg in enumerate(segments):
@@ -610,7 +640,26 @@ class GeneratorWanChainVideoPipe(BasePipe):
                 # previous segment's tail for a chain continuation.
                 concat = None
                 tail_latent = None
-                if sub_type != "t2v":
+                start_latent = None
+                if sub_type != "t2v" and is_ti2v_expert(mset.base_high):
+                    if sub_type == "chain" and prev_tail is not None:
+                        start = _tail_to_start_frames(prev_tail[-1:], device, native_dtype)
+                    elif not has_first:
+                        raise ValueError(
+                            f"generator/chain_video_wan22: segment {i} ('{seg_id}') is '{sub_type}' but has "
+                            f"no start image."
+                        )
+                    else:
+                        start = prep_start_frame(images[first_index[seg_id]], seg_height, seg_width, device, native_dtype)
+                    make_room_for_wan_vae_encode(device, keep=(mset.vae, mset.base_high, mset.base_low))
+                    mset.vae.move_to(device)
+                    with torch.no_grad():
+                        start_latent = encode_ti2v_start_latent(
+                            start, mset.vae.module.encode,
+                            latents_mean=WAN22_LATENTS_MEAN, latents_std=WAN22_LATENTS_STD,
+                        ).to(native_dtype)
+                    mset.vae.offload()
+                elif sub_type != "t2v":
                     if sub_type == "chain":
                         start = _tail_to_start_frames(prev_tail, device, native_dtype)
                         end = None
@@ -646,7 +695,8 @@ class GeneratorWanChainVideoPipe(BasePipe):
                             device=device, dtype=native_dtype,
                         ).to(native_dtype)
                     mset.vae.offload()
-                forward = _ChainForward(mset.router, concat)
+                forward = (TI2VForward(mset.router, start_latent) if start_latent is not None
+                           else _ChainForward(mset.router, concat))
 
                 cond_model = conditioning[i] if i < len(conditioning) else conditioning[-1]
                 cond = to_device(cond_model.embeds, device, native_dtype)
@@ -659,6 +709,9 @@ class GeneratorWanChainVideoPipe(BasePipe):
                 gen = torch.Generator(device=device).manual_seed(seed_i)
                 noise = torch.randn(shape, generator=gen, device=device, dtype=native_dtype)
                 latents = torch.zeros(shape, device=device, dtype=native_dtype)
+                if start_latent is not None:
+                    noise = pin_start_latent(noise, start_latent)
+                    latents = pin_start_latent(latents, start_latent)
                 mset.router.latents_shape = shape
 
                 steps_before = sum(seg_steps_list[:i])
@@ -693,6 +746,8 @@ class GeneratorWanChainVideoPipe(BasePipe):
                 )
                 if mset.router.active is not None:
                     mset.router.active.offload()
+                if start_latent is not None:
+                    latent = pin_start_latent(latent, start_latent)
 
                 # Captured BEFORE decode -- this segment's own sampled latent tail,
                 # for the NEXT segment's seam splice (seam_handoff="latent"). Cloned

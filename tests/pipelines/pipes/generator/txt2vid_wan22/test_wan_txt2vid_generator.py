@@ -15,6 +15,7 @@ from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.errors import DecodeNumericsError
 from src.platform.settings import runtime_flags
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D, LATENTS_MEAN, LATENTS_STD
+from src.platform.runtime.native.vae.causal_3d_v2 import LATENTS_MEAN as WAN22_LATENTS_MEAN, LATENTS_STD as WAN22_LATENTS_STD
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.txt2vid_wan22.main import _WanCtx, GeneratorWanTxt2VidPipe
@@ -870,11 +871,7 @@ def test_decode_video_finite_pixels_pass_through_unaffected():
     assert out.dtype == np.uint8
 
 
-def test_decode_video_wan22_5b_48ch_skips_normalization_in_both_paths():
-    # 48ch (Wan22 5B) latent format is a no-op denorm by design -- verify the
-    # chunked path receives the RAW latent too, not incorrectly normalized.
-    # (The tiny fixture VAE is a 16ch-input toy, so the fake just records z
-    # rather than round-tripping it through a real 48ch-incompatible decode.)
+def test_decode_video_wan22_5b_48ch_denormalizes_with_the_wan22_mean_and_std():
     vae_module = _tiny_wan_vae()
     seen = {}
 
@@ -888,7 +885,15 @@ def test_decode_video_wan22_5b_48ch_skips_normalization_in_both_paths():
          patch("src.pipelines.pipes._shared.video.wan_experts.chunked_decode_causal3d", side_effect=fake_chunked):
         decode_wan_video(c, latent.clone())
 
-    assert torch.equal(seen["z"], latent)
+    mean = torch.tensor(WAN22_LATENTS_MEAN).view(1, -1, 1, 1, 1)
+    std = torch.tensor(WAN22_LATENTS_STD).view(1, -1, 1, 1, 1)
+    assert torch.allclose(seen["z"], latent * std + mean, atol=1e-6)
+
+
+def test_wan22_latent_stats_hold_the_reference_first_channel_and_48_channels():
+    assert len(WAN22_LATENTS_MEAN) == len(WAN22_LATENTS_STD) == 48
+    assert (WAN22_LATENTS_MEAN[0], WAN22_LATENTS_STD[0]) == (-0.2289, 0.4765)
+    assert (WAN22_LATENTS_MEAN[-1], WAN22_LATENTS_STD[-1]) == (-0.0667, 0.7744)
 
 
 # -- activation-aware partial-residency expert placement --------------

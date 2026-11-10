@@ -233,6 +233,23 @@ def test_a_first_or_last_frame_whose_segment_has_no_known_window_is_refused_like
     assert "no timing" in str(refused.value)
 
 
+@pytest.mark.parametrize(
+    "doc, role, segment_id, options, message",
+    [
+        ({**single_doc(), "mode": "i2v"}, "first", None, {}, "Only an image can be a Video Director first or last frame"),
+        ({**single_doc(), "mode": "i2v"}, "last", None, {"promote": True}, "Only an image can be a Video Director first or last frame"),
+        (timeline_doc(), "first", "s1", {"capabilities": TIMELINE}, "Only an image can be a Video Director first or last frame"),
+        (timeline_doc(), "keyframe", "s1", {"capabilities": TIMELINE, "at": 1}, "Only an image can be a Video Director keyframe"),
+    ],
+)
+def test_a_frame_that_is_not_an_image_is_refused_with_the_message_of_its_place(doc, role, segment_id, options, message):
+    with pytest.raises(DirectorBindingError) as refused:
+        bind_director_media(request_with(doc), role, CLIP, segment_id, **options)
+
+    assert refused.value.code == "invalid_media"
+    assert str(refused.value) == message
+
+
 def test_a_first_only_chain_still_takes_a_first_frame():
     bound = bind(request_with(chain_doc()), "first", IMAGE, "seg-1", caps=FIRST_ONLY)
 

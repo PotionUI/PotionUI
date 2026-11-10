@@ -30,13 +30,13 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
-def _media_value(media: Mapping[str, Any]) -> Dict[str, Any]:
+def _media_value(media: Mapping[str, Any], place: str = "first or last frame") -> Dict[str, Any]:
     value = media.get("value")
     if not isinstance(value, str) or not value:
         raise DirectorBindingError("invalid_media", "The media to bind has no stored path")
     media_type = str(media.get("media_type") or "").lower()
     if media_type != "image":
-        raise DirectorBindingError("invalid_media", "Only an image can be a Video Director frame")
+        raise DirectorBindingError("invalid_media", f"Only an image can be a Video Director {place}")
     return {"path": value, "relative_path": value, "type": "image"}
 
 
@@ -233,7 +233,7 @@ def _bind_director(
         raise DirectorBindingError("role_unsupported", f"This preset's director mode takes no {role} media")
     if role != "keyframe" and at is not None:
         raise DirectorBindingError("invalid_at", "at only places a keyframe")
-    value = _media_value(media)
+    value = _media_value(media, "keyframe" if role == "keyframe" else "first or last frame")
     window = _segment_window(document, capabilities, segments, index, chain)
     bound = dict(document)
     entries = _entries(bound)

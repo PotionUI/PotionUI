@@ -198,6 +198,41 @@ def test_director_bindings_the_preset_cannot_take_are_refused(doc, role, segment
     assert refused.value.code == code
 
 
+def _untimed(doc, segment=0, settings=None, **fields):
+    doc["segments"][segment].update(fields)
+    doc["settings"].update(settings or {})
+    return doc
+
+
+def _with_first(doc, segment_id):
+    doc["media"].append({"id": "f", "role": "first", "segment_id": segment_id, "at": 0.0, "strength": 1.0, "media": {}})
+    return doc
+
+
+@pytest.mark.parametrize(
+    "doc, role, segment_id, caps",
+    [
+        (_untimed(chain_doc(), frames=None), "first", "seg-1", CHAIN),
+        (_untimed(chain_doc(), frames=None), "keyframe", "seg-1", CHAIN),
+        (_untimed(chain_doc(), frames=0), "first", "seg-1", FIRST_ONLY),
+        (_untimed(chain_doc(), segment=1, frames=None), "first", "seg-1", CHAIN),
+        (_with_first(_untimed(chain_doc(), segment=1, frames=None), "seg-1"), "last", "seg-1", CHAIN),
+        (_with_first(_untimed(chain_doc(), frames=None), "seg-1"), "first", "seg-1", CHAIN),
+        (_untimed(chain_doc(), settings={"fps": -24}), "first", "seg-0", CHAIN),
+        (_untimed(chain_doc(), settings={"fps": "24"}), "first", "seg-0", CHAIN),
+        (_untimed(timeline_doc(), end=None), "first", "s1", TIMELINE),
+        (_untimed(timeline_doc(), start=4.0), "last", "s1", TIMELINE),
+    ],
+)
+def test_a_first_or_last_frame_whose_segment_has_no_known_window_is_refused_like_a_keyframe(doc, role, segment_id, caps):
+    options = {"at": 0} if role == "keyframe" else {}
+    with pytest.raises(DirectorBindingError) as refused:
+        bind(request_with(doc), role, IMAGE, segment_id, caps=caps, **options)
+
+    assert refused.value.code == "invalid_at"
+    assert "no timing" in str(refused.value)
+
+
 def test_a_first_only_chain_still_takes_a_first_frame():
     bound = bind(request_with(chain_doc()), "first", IMAGE, "seg-1", caps=FIRST_ONLY)
 

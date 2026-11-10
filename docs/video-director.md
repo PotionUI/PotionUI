@@ -375,7 +375,9 @@ capabilities=None)` (`src.plugin_api.presets`, `media` from `resolve_media_ref` 
 that segment, their `at` set to its start and end on the timeline, and `keyframe` takes `at` in
 seconds from the start of the segment and stores the timeline position: the segment's `start` in
 timeline style, the frames of the segments before it over `settings.fps` in chain style, plus `at`.
-Binding the same role on the same segment, or a keyframe at the same position, replaces the image.
+When that window cannot be known (a timeline segment without a `start` before its `end`, a chain
+segment, or one before it, without a positive whole `frames`, or a frame rate that is not a
+positive number), all three roles raise `invalid_at`. Binding the same role on the same segment, or a keyframe at the same position, replaces the image.
 The roles follow the rules above: `keyframe` needs a timeline director or `keyframes: "anywhere"`,
 a chain `last` needs a `first` on its segment, a chain `first` cannot go on a segment whose
 `sub_type` is `"chain"`, and the keyframes stay within `max_keyframes`. The capabilities are the

@@ -147,6 +147,8 @@ def _place_edge(
         entry.get("role") == "first" and entry.get("segment_id") == segment_id for entry in entries
     ):
         raise DirectorBindingError("first_frame_required", "A last frame needs a first frame on the same segment")
+    if window[0] is None or window[1] is None:
+        raise DirectorBindingError("invalid_at", f"Segment {segment_id!r} has no timing to place a {role} frame on")
     existing = next(
         (entry for entry in entries if entry.get("role") == role and entry.get("segment_id") == segment_id),
         None,

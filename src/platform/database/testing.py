@@ -48,7 +48,7 @@ def use_database(database: Any) -> Iterator[Any]:
         Database.close_pool()
 
 
-def _build_template(path: Path) -> None:
+def build_template(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     template = _database_at(path)
     connection = sqlite3.connect(path, check_same_thread=False)
@@ -72,7 +72,7 @@ def _build_template(path: Path) -> None:
     checkpoint_wal(path)
 
 
-def _remove_template_directory(directory: Path, owner_pid: int) -> None:
+def remove_template_directory(directory: Path, owner_pid: int) -> None:
     if os.getpid() != owner_pid:
         return
     shutil.rmtree(directory, ignore_errors=True)
@@ -83,9 +83,9 @@ def template_db_path() -> Path:
     with _lock:
         if _template_path is None:
             directory = Path(tempfile.mkdtemp(prefix="potionui-test-db-template-"))
-            atexit.register(_remove_template_directory, directory, os.getpid())
+            atexit.register(remove_template_directory, directory, os.getpid())
             path = directory / "template.sqlite"
-            _build_template(path)
+            build_template(path)
             _template_path = path
         return _template_path
 

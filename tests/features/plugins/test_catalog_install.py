@@ -920,6 +920,60 @@ async def test_an_update_whose_restored_version_does_not_start_again_leaves_it_i
     assert repo.get_plugin_by_id("demo").enabled is False
 
 
+@pytest.mark.parametrize("restore", ["scan raises", "scan changes nothing"])
+async def test_an_update_whose_restore_scan_fails_leaves_the_installed_version_in_place_and_disabled(
+    plugins, catalog, monkeypatch, restore
+):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0", _unstartable_archive("demo", "1.1.0"))
+    real_discover = registry.loader.discover_plugins
+    real_scan = install_ops.scan_plugins
+    scans = []
+
+    def denied():
+        raise PermissionError("the plugin folder cannot be listed")
+
+    def scan(repo, registry):
+        scans.append(None)
+        if len(scans) == 2 and restore == "scan raises":
+            raise sqlite3.OperationalError("database is locked")
+        monkeypatch.setattr(registry.loader, "discover_plugins", denied if len(scans) == 2 else real_discover)
+        return real_scan(repo, registry)
+
+    monkeypatch.setattr(install_ops, "scan_plugins", scan)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+    if restore == "scan raises":
+        reason = "the scan that followed failed (OperationalError: database is locked)"
+    else:
+        reason = "the scan did not pick it up"
+    assert str(refused.value).endswith(f"the installed 1.0.0 is back in place, but {reason}, so demo is disabled.")
+
+
+async def test_a_new_install_that_fails_after_taking_down_an_earlier_copy_leaves_its_row_disabled(plugins, catalog):
+    registry, repo, _, local = plugins
+    _write_plugin(local / "demo", "demo", "0.9.0", record=False)
+    operations.scan_plugins(repo, registry)
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    shutil.rmtree(local / "demo")
+    catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "6.6.6")))
+
+    with pytest.raises(CatalogInstallError, match="holds demo 6.6.6"):
+        await _install(repo, registry, catalog, "demo")
+
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
 async def test_a_failed_update_leaves_the_installed_version_in_place(plugins, catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

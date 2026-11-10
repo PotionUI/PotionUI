@@ -323,11 +323,21 @@ async def _restore_previous(
             f"{item.installed_version} could not be put back ({error}); it is kept in "
             f"{STAGING_FOLDER}/{placement.staging.name}/previous, and {plugin_id} is disabled."
         ) from error
-    scan_plugins(repo, registry)
     message = (
         f"{plugin_id} {item.entry.version} did not start ({failure}); "
         f"the installed {item.installed_version} is back in place"
     )
+    try:
+        scan_plugins(repo, registry)
+    except Exception as error:
+        _disable(repo, registry, plugin_id, collaborators)
+        raise CatalogInstallError(
+            f"{message}, but the scan that followed failed ({type(error).__name__}: {error}), so {plugin_id} is disabled."
+        ) from error
+    restored = registry.get_plugin(plugin_id)
+    if restored is None or restored.version != item.installed_version or not _same_folder(restored.plugin_dir, target):
+        _disable(repo, registry, plugin_id, collaborators)
+        raise CatalogInstallError(f"{message}, but the scan did not pick it up, so {plugin_id} is disabled.")
     if was_enabled:
         if registry.get_plugin_state(plugin_id) == PluginState.ENABLED:
             repo.enable_plugin(plugin_id)
@@ -393,7 +403,8 @@ async def install_from_catalog(
         row_was_enabled = _row_enabled(repo, plugin_id)
         if row_was_enabled:
             repo.disable_plugin(plugin_id)
-        if item.status == "available" and was_enabled:
+        took_down_an_earlier_copy = item.status == "available" and was_enabled
+        if took_down_an_earlier_copy:
             _disable(repo, registry, plugin_id, collaborators)
         local_dir = local_plugin_dir(registry)
         try:
@@ -402,7 +413,7 @@ async def install_from_catalog(
             if item.status == "update" and not (local_dir / plugin_id).exists():
                 _disable(repo, registry, plugin_id, collaborators)
                 raise CatalogInstallError(f"{error} The plugin {plugin_id} is disabled.") from error
-            if row_was_enabled:
+            if row_was_enabled and not took_down_an_earlier_copy:
                 repo.enable_plugin(plugin_id)
             raise
         except BaseException:

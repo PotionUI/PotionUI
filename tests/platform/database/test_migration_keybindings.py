@@ -6,6 +6,7 @@ KEYBINDINGS = (
     ("012_add_toggle_floating_workbench_keybinding", "toggle_floating_workbench", "w"),
     ("013_add_toggle_workbench_panel_keybinding", "toggle_workbench_panel", "e"),
     ("017_add_save_session_keybinding", "save_session", "s"),
+    ("094_add_delete_current_generation_keybinding", "delete_current_generation", "Delete"),
 )
 
 
@@ -28,6 +29,7 @@ class TestKeybindingMigrations(MigrationCase):
                 self.assertIsNotNone(row)
                 self.assertEqual(row[0], key)
                 self.assertEqual(row[1], "")
+                self.assertEqual(row[3], "generation")
                 self.assertEqual(row[4], "generate")
                 self.assertEqual(row[5], 1)
 

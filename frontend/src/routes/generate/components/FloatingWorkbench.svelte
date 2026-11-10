@@ -36,6 +36,7 @@
 		onMoveToWorkbench,
 		onClose,
 		onResizeWidth,
+		onDeleteGeneration = null,
 		closeShortcut = undefined
 	}: {
 		tab: GenerationTab;
@@ -45,6 +46,7 @@
 		onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
 		onClose: () => void;
 		onResizeWidth: (width: number) => void;
+		onDeleteGeneration?: ((tabId: string) => void) | null;
 		closeShortcut?: string;
 	} = $props();
 
@@ -229,6 +231,7 @@
 				{onWorkbenchNext}
 				{onWorkbenchHeightChange}
 				{onMoveToWorkbench}
+				{onDeleteGeneration}
 			/>
 		</div>
 

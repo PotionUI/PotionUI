@@ -384,12 +384,15 @@ async def test_a_new_install_whose_scan_raises_over_an_enabled_row_left_by_a_rem
     _an_enabled_row_left_by_a_removed_copy(repo)
     catalog.publish("demo", "1.0.0", _archive_taking_that_route("demo", "1.0.0"))
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(CatalogInstallError) as refused:
         await _install(repo, registry, catalog, "demo")
 
+    assert isinstance(refused.value.__cause__, sqlite3.IntegrityError)
     assert (local / "demo" / "payload.py").exists()
     assert repo.get_plugin_by_id("demo").enabled is False
     assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert str(refused.value).startswith("demo 1.0.0 is in the folder demo, but its scan failed (IntegrityError: ")
+    assert str(refused.value).endswith("; it stays there, disabled. Remove that folder to install it again.")
 
 
 async def test_a_new_install_does_not_carry_over_the_enabled_state_of_a_copy_removed_while_running(plugins, catalog, monkeypatch):

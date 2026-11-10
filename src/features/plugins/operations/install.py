@@ -425,7 +425,7 @@ async def install_from_catalog(
                 scan_plugins(repo, registry)
             except Exception as error:
                 if placement.previous is None:
-                    raise
+                    raise _left_in_place(item, target, f"its scan failed ({type(error).__name__}: {error})") from error
                 failure = f"the scan failed: {type(error).__name__}: {error}"
                 await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
             missing = _not_picked_up(registry, item, target)

@@ -640,7 +640,9 @@ async def test_an_update_stopped_while_the_archive_is_unpacked_leaves_the_instal
 
 
 @pytest.mark.parametrize("status", ["update", "available"])
-async def test_an_install_whose_placement_fails_leaves_the_row_as_it_was(plugins, catalog, status):
+async def test_an_install_whose_archive_is_refused_while_unpacking_leaves_the_folder_the_row_and_the_registry_as_they_were(
+    plugins, catalog, status
+):
     registry, repo, _, local = plugins
     if status == "update":
         catalog.publish("demo", "1.0.0")
@@ -655,6 +657,13 @@ async def test_an_install_whose_placement_fails_leaves_the_row_as_it_was(plugins
         await _install(repo, registry, catalog, "demo")
 
     assert repo.get_plugin_by_id("demo").enabled is True
+    if status == "update":
+        assert [path.name for path in local.iterdir()] == ["demo"]
+        assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+        assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    else:
+        assert list(local.iterdir()) == []
+        assert registry.get_plugin("demo") is None
 
 
 async def test_an_archive_whose_sha256_differs_from_the_catalog_writes_nothing(plugins, catalog):

@@ -238,6 +238,33 @@ async def test_allowing_local_sources_lets_plain_http_reach_a_name_that_resolves
         await server.close()
 
 
+@pytest.mark.parametrize("allow_local", [False, True])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://2130706433/plugins.json",
+        "https://127.1/plugins.json",
+        "https://0x7f.1/plugins.json",
+        "https://0X7F000001/plugins.json",
+        "https://017700000001/plugins.json",
+        "https://134744072./plugins.json",
+    ],
+)
+def test_a_host_written_as_a_number_that_is_not_a_full_ip_address_is_refused(url, allow_local):
+    with pytest.raises(FetchError, match="is a number but not an IP address written in full"):
+        check_source_url(url, allow_local=allow_local)
+
+
+def test_plain_http_to_a_host_written_as_a_number_is_refused_with_local_sources_allowed():
+    with pytest.raises(FetchError, match="is a number but not an IP address written in full"):
+        check_source_url("http://134744072/plugins.json", allow_local=True)
+
+
+@pytest.mark.parametrize("url", ["https://123.example.com/plugins.json", "https://1e100.net/plugins.json", "https://0x.example.org/x.zip"])
+def test_a_name_that_starts_with_digits_is_still_a_name(url):
+    check_source_url(url, allow_local=False)
+
+
 def test_allowing_local_sources_still_refuses_other_schemes():
     with pytest.raises(FetchError, match="Only https URLs"):
         check_source_url("file:///etc/passwd", allow_local=True)

@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 import os
+import re
 import socket
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 from urllib.parse import urljoin, urlsplit
@@ -15,6 +16,7 @@ MAX_REDIRECTS = 5
 READ_TIMEOUT_S = 30.0
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+_NUMERIC_HOST = re.compile(r"(0x[0-9a-f]*|[0-9]+)([.](0x[0-9a-f]*|[0-9]*))*", re.IGNORECASE)
 _CHUNK = 65536
 
 Lookup = Callable[..., Awaitable[Any]]
@@ -80,6 +82,8 @@ def check_source_url(url: str, allow_local: bool) -> None:
     except ValueError as error:
         raise FetchError(f"The URL {url!r} has an invalid port.") from error
     address = _literal_address(host)
+    if address is None and _NUMERIC_HOST.fullmatch(host.rstrip(".")):
+        raise FetchError(f"{host} is a number but not an IP address written in full; write the address as such.")
     if allow_local:
         if scheme == "http" and address is not None and is_public_address(address):
             raise _plain_http_to_public(host)

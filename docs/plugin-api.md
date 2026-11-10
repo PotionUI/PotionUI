@@ -3306,7 +3306,8 @@ install.
 
 Catalog and archive URLs must be https, to a host that resolves to public addresses
 only; every redirect is checked the same way, and the connection goes to the addresses
-that were checked. For a catalog on a local network or a test server, start PotionUI
+that were checked. A host written as a number that is not a full IP address
+(`2130706433`, `127.1`, `0x7f.1`) is refused in every mode. For a catalog on a local network or a test server, start PotionUI
 with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`: catalog and archive URLs may then point to
 local and private addresses, and use plain http, but only to such an address. A plain http
 URL to a public address, written as one or a name with any public answer, is refused

@@ -288,6 +288,29 @@ def test_a_single_path_or_image_where_a_list_of_faces_is_expected_is_refused_bef
     assert not lifecycle.is_cached(face_identity.MODEL_KEY)
 
 
+@pytest.mark.parametrize("broken", ["missing", "not-an-image", "truncated"])
+def test_a_face_whose_image_cannot_be_read_raises_one_error_that_names_its_place_before_the_model_loads(tmp_path, lifecycle, known, onnxruntime, monkeypatch, broken):
+    pytest.importorskip("cv2")
+    sessions = Sessions()
+    monkeypatch.setattr(face_identity, "new_session", sessions)
+    _model(tmp_path)
+    good = tmp_path / "good.png"
+    Image.new("RGB", (200, 200), (90, 120, 150)).save(good)
+    bad = tmp_path / "bad.png"
+    if broken == "not-an-image":
+        bad.write_bytes(b"not an image")
+    elif broken == "truncated":
+        bad.write_bytes(good.read_bytes()[:60])
+    with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
+        with pytest.raises(ValueError, match=r"^faces\[1\] cannot be read as an image$") as raised:
+            media.embed_faces([(good, _points()), (bad, _points())])
+        with pytest.raises(TypeError, match=r"^faces\[0\] is not a path or an image$"):
+            media.embed_faces([(5, _points())])
+
+    assert str(tmp_path) not in str(raised.value)
+    assert sessions.built == []
+
+
 def test_no_faces_load_nothing(tmp_path, lifecycle, monkeypatch):
     sessions = Sessions()
     monkeypatch.setattr(face_identity, "new_session", sessions)

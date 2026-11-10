@@ -237,6 +237,41 @@ def test_each_image_a_path_or_a_picture_is_read_at_its_own_size_by_one_detector(
     create.assert_called_once_with("m.onnx", "", (832, 480), 0.5, face_boxes.NMS, face_boxes.TOP_K)
 
 
+def _broken(tmp_path, broken):
+    good = tmp_path / "good.png"
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(good)
+    bad = tmp_path / "bad.png"
+    if broken == "not-an-image":
+        bad.write_bytes(b"not an image")
+    elif broken == "truncated":
+        bad.write_bytes(good.read_bytes()[:60])
+    return good, bad
+
+
+@pytest.mark.parametrize("broken", ["missing", "not-an-image", "truncated"])
+def test_an_image_of_a_batch_that_cannot_be_read_raises_one_error_that_names_its_place_and_no_path(tmp_path, known, broken):
+    cv2 = pytest.importorskip("cv2")
+    folder = tmp_path / "a" / "detection_bbox"
+    world = _roots(folder)
+    (folder / face_models.FACE_MODEL).write_bytes(CONTENT)
+    good, bad = _broken(tmp_path, broken)
+    with patch("src.plugin_api.media.get_container", return_value=world), patch.object(cv2.FaceDetectorYN, "create", return_value=Detector()):
+        with pytest.raises(ValueError, match=r"^images\[1\] cannot be read as an image$") as raised:
+            media.detect_faces([good, str(bad), good])
+
+    assert str(tmp_path) not in str(raised.value)
+
+
+def test_an_item_of_a_batch_that_is_neither_a_path_nor_an_image_is_named_by_its_place(tmp_path, known):
+    cv2 = pytest.importorskip("cv2")
+    folder = tmp_path / "a" / "detection_bbox"
+    world = _roots(folder)
+    (folder / face_models.FACE_MODEL).write_bytes(CONTENT)
+    with patch("src.plugin_api.media.get_container", return_value=world), patch.object(cv2.FaceDetectorYN, "create", return_value=Detector()):
+        with pytest.raises(TypeError, match=r"^images\[1\] is not a path or an image$"):
+            media.detect_faces([Image.new("RGB", (64, 48)), 5])
+
+
 REAL_DETECTOR = Path("models/detection_bbox")
 
 

@@ -27,6 +27,15 @@ def rgb(image: ImageInput) -> Image.Image:
         return opened.convert("RGB")
 
 
+def readable(image: Any, label: str) -> Image.Image:
+    if not isinstance(image, (str, os.PathLike, Image.Image)):
+        raise TypeError(f"{label} is not a path or an image")
+    try:
+        return rgb(image)
+    except (OSError, ValueError, Image.DecompressionBombError) as error:
+        raise ValueError(f"{label} cannot be read as an image") from error
+
+
 def boxes(faces: Any, min_score: float) -> List[Box]:
     found = []
     for face in [] if faces is None else faces:
@@ -43,8 +52,8 @@ def detect(model: Path, images: Sequence[ImageInput], min_score: float = 0.5) ->
 
     detector = None
     found = []
-    for image in images:
-        picture = np.ascontiguousarray(cv2.cvtColor(np.asarray(rgb(image)), cv2.COLOR_RGB2BGR))
+    for index, image in enumerate(images):
+        picture = np.ascontiguousarray(cv2.cvtColor(np.asarray(readable(image, f"images[{index}]")), cv2.COLOR_RGB2BGR))
         size = (picture.shape[1], picture.shape[0])
         if detector is None:
             detector = cv2.FaceDetectorYN.create(str(model), "", size, min_score, NMS, TOP_K)

@@ -300,7 +300,8 @@ def embed_images(images: Sequence[ImageInput]) -> List[List[float]]:
     embedder = _embedder()
     if not _embedder_weights_here(embedder):
         raise FileNotFoundError(f"The weights of {embedder.model_name} are not on this server")
-    return contextvars.copy_context().run(embedder.embed_images, images)
+    pictures = [face_boxes.readable(image, f"images[{index}]") for index, image in enumerate(images)]
+    return contextvars.copy_context().run(embedder.embed_images, pictures)
 
 
 def _face_model() -> Optional[Path]:

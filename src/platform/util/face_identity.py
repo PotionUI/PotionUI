@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 from typing import Any, List, Sequence, Tuple
 
-from src.platform.util.face_boxes import ImageInput, rgb
+from src.platform.util.face_boxes import ImageInput, readable, rgb
 
 TEMPLATE = ((38.2946, 51.6963), (73.5318, 51.5014), (56.0252, 71.7366), (41.5493, 92.3655), (70.7299, 92.2041))
 SIZE = 112
@@ -58,7 +58,10 @@ def _unit(vector: Any) -> List[float]:
 def embed(models: Any, model: Path, faces: Sequence[Face]) -> List[List[float]]:
     import numpy as np
 
-    inputs = [((align(image, landmarks).astype(np.float32) - 127.5) / 127.5).transpose(2, 0, 1)[None] for image, landmarks in faces]
+    inputs = [
+        ((align(readable(image, f"faces[{index}]"), landmarks).astype(np.float32) - 127.5) / 127.5).transpose(2, 0, 1)[None]
+        for index, (image, landmarks) in enumerate(faces)
+    ]
     if not inputs:
         return []
     lease = f"face-identity-{uuid.uuid4().hex}"

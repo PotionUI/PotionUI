@@ -157,6 +157,30 @@ def test_a_single_path_or_image_where_a_list_of_images_is_expected_is_refused_be
     embedder._load_model.assert_not_called()
 
 
+@pytest.mark.parametrize("broken", ["missing", "not-an-image", "truncated"])
+def test_an_image_of_a_batch_that_cannot_be_read_raises_one_error_that_names_its_place_and_no_path(tmp_path, lifecycle, broken):
+    embedder = _embedder(tmp_path, lifecycle)
+    processor = _loaded(embedder)
+    _put_weights(embedder)
+    good = tmp_path / "good.png"
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(good)
+    bad = tmp_path / "bad.png"
+    if broken == "not-an-image":
+        bad.write_bytes(b"not an image")
+    elif broken == "truncated":
+        bad.write_bytes(good.read_bytes()[:60])
+
+    with patch("src.plugin_api.media.get_container", return_value=_world(embedder)):
+        with pytest.raises(ValueError, match=r"^images\[1\] cannot be read as an image$") as raised:
+            media.embed_images([good, str(bad)])
+        with pytest.raises(TypeError, match=r"^images\[0\] is not a path or an image$"):
+            media.embed_images([5])
+
+    assert str(tmp_path) not in str(raised.value)
+    processor.assert_not_called()
+    embedder._load_model.assert_not_called()
+
+
 def test_no_images_need_no_weights_loaded(tmp_path, lifecycle):
     embedder = _embedder(tmp_path, lifecycle)
     _loaded(embedder)

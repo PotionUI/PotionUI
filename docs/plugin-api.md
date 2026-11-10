@@ -2576,7 +2576,10 @@ async def continue_from(user, request, generation_id, file_id):
 images without loading models of its own. These functions read images the plugin already holds, each
 a path on this server or a PIL image, and name no media of the user. `images` and `faces` are lists,
 even of one item: a single string, path or image in their place raises `TypeError` before anything is
-read. To look at a media the user picked, take its file first with `media_local_path(user, ref)` or
+read. An item that is neither a path nor a PIL image raises `TypeError`, and an image that cannot be
+read, missing, truncated or not an image, raises `ValueError` named by its place in the list
+(`"images[2] cannot be read as an image"`, or `faces[2]` for the image of a face), never by its path;
+`FileNotFoundError` only ever means that a model is missing. To look at a media the user picked, take its file first with `media_local_path(user, ref)` or
 `copy_media_file(user, ref, target)` (see [Working with the user's media](#working-with-the-users-media)),
 which reach only what the user may see. Never pass them a path taken from a request.
 

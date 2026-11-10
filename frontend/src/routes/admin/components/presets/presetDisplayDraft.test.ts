@@ -3,6 +3,11 @@ import type { PresetAdminDetail } from '$lib/types/api';
 import {
 	buildDisplayPayload,
 	buildModesPayload,
+	discardDisplayEditor,
+	displayEditorDirtyCount,
+	displayEditorFailed,
+	displayEditorFor,
+	displayEditorSaved,
 	displayDirtyKeys,
 	displayDraftFrom,
 	modesDirtyCount,
@@ -109,5 +114,84 @@ describe('mirror modes draft', () => {
 			offered: ['txt2img', 'edit'],
 			first: 'edit'
 		});
+	});
+});
+
+describe('display editor', () => {
+	const realistic = detail({ display: { name: 'Realistic', description: 'Photos', cover: null } });
+	const mirror = detail({
+		preset_id: '01MIRROR',
+		is_mirror: true,
+		source_preset_id: 'krea2',
+		mirror_state: 'ok',
+		display: { name: 'Film Covers', description: null, cover: 'display/01.webp' },
+		modes: { available: AVAILABLE, offered: ['txt2img', 'edit'], first: 'edit' }
+	});
+
+	function edited() {
+		const editor = displayEditorFor(realistic);
+		return { ...editor, draft: { name: 'Studio', description: 'Photos' }, attempted: true, serverErrors: { name: 'Taken' } };
+	}
+
+	it('starts clean on the loaded values', () => {
+		const editor = displayEditorFor(realistic);
+		expect(editor.draft).toEqual({ name: 'Realistic', description: 'Photos' });
+		expect(displayEditorDirtyCount(editor)).toBe(0);
+	});
+
+	it('resets to the other preset’s values with nothing unsaved when the preset changes', () => {
+		expect(displayEditorDirtyCount(edited())).toBe(1);
+		const next = displayEditorFor(mirror);
+		expect(next.detail.preset_id).toBe('01MIRROR');
+		expect(next.draft).toEqual({ name: 'Film Covers', description: '' });
+		expect(next.modes).toEqual({ offered: ['txt2img', 'edit'], first: 'edit' });
+		expect(displayEditorDirtyCount(next)).toBe(0);
+		expect(next.serverErrors).toEqual({});
+		expect(next.attempted).toBe(false);
+	});
+
+	it('counts mirror mode changes as unsaved', () => {
+		const editor = displayEditorFor(mirror);
+		expect(displayEditorDirtyCount({ ...editor, modes: { offered: ['txt2img', 'edit'], first: 'txt2img' } })).toBe(1);
+	});
+
+	it('restores the loaded values and clears errors on Discard', () => {
+		const discarded = discardDisplayEditor(edited());
+		expect(discarded.draft).toEqual({ name: 'Realistic', description: 'Photos' });
+		expect(discarded.serverErrors).toEqual({});
+		expect(discarded.attempted).toBe(false);
+		expect(displayEditorDirtyCount(discarded)).toBe(0);
+	});
+
+	it('keeps the draft and shows the error next to its field when a save fails', () => {
+		const result = displayEditorFailed(edited(), {
+			code: 'invalid_display',
+			message: 'Invalid display.',
+			errors: ['name: must be 80 characters or fewer']
+		});
+		expect(result.editor.draft).toEqual({ name: 'Studio', description: 'Photos' });
+		expect(result.editor.serverErrors.name).toBe('Must be 80 characters or fewer');
+		expect(displayEditorDirtyCount(result.editor)).toBe(1);
+		expect(result.toast).toBeNull();
+	});
+
+	it('keeps the draft and raises a toast when a failed save names no field', () => {
+		const result = displayEditorFailed(edited(), { code: 'preset_not_installed', message: 'Install it first.', errors: [] });
+		expect(result.editor.draft.name).toBe('Studio');
+		expect(result.toast).toBe('Install it first.');
+	});
+
+	it('puts a modes refusal under the modes field', () => {
+		const editor = displayEditorFor(mirror);
+		const result = displayEditorFailed(editor, { code: 'invalid_modes', message: 'Bad modes.', errors: ['first: not offered'] });
+		expect(result.editor.serverErrors.modes).toBe('Not offered');
+		expect(result.editor.modes).toEqual(editor.modes);
+	});
+
+	it('adopts the saved values after a save', () => {
+		const saved = displayEditorSaved(edited(), { ...realistic, display: { name: 'Studio', description: 'Photos', cover: null } });
+		expect(saved.draft.name).toBe('Studio');
+		expect(displayEditorDirtyCount(saved)).toBe(0);
+		expect(saved.serverErrors).toEqual({});
 	});
 });

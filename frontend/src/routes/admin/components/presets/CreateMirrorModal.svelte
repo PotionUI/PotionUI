@@ -18,7 +18,7 @@
 		withOfferedToggled,
 		type ModesDraft
 	} from './presetDisplayDraft';
-	import { assignFieldErrors, presetApiFailure, presetResponseFailure } from './presetApiFailure';
+	import { assignFieldErrors, cleanFieldErrors, presetApiFailure, presetResponseFailure } from './presetApiFailure';
 	import { COVER_ACCEPT, mediaPickItem, resolveCoverFileFromMediaItem } from './presetCoverPick';
 	import type { PresetAdminDetail, PresetAdminModeOption } from '$lib/types/api';
 
@@ -150,9 +150,9 @@
 				(error as { presetFailure?: ReturnType<typeof presetApiFailure> } | null)?.presetFailure ??
 				presetApiFailure(error, 'Could not create the mirror');
 			if (failure.code === 'invalid_modes') {
-				serverErrors = { modes: failure.errors.join(' ') || failure.message };
+				serverErrors = { modes: cleanFieldErrors(failure.errors) || failure.message };
 			} else {
-				const assigned = assignFieldErrors(failure.errors, ['name', 'description', 'cover'] as const);
+				const assigned = assignFieldErrors(failure.errors, ['name', 'description', 'cover', 'modes'] as const);
 				serverErrors = assigned.byField;
 				generalError = [...assigned.general, ...(failure.errors.length ? [] : [failure.message])].join(' ');
 			}

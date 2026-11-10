@@ -94,22 +94,57 @@ export async function runPresetUninstall(
 	}
 }
 
+export const API_FIELD_KEYS = ['prefix', 'suffix', 'negative', 'modes', 'name', 'description', 'cover', 'offered', 'first'] as const;
+
+const FIELD_KEY_ALIASES: Record<string, string> = { offered: 'modes', first: 'modes' };
+
+export interface KeyedFieldError {
+	key: string | null;
+	text: string;
+}
+
+function capitalized(text: string): string {
+	return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+export function splitFieldError(error: string): KeyedFieldError {
+	const match = /^\s*([A-Za-z_]+)\s*:\s*([\s\S]*)$/.exec(error);
+	const key = match?.[1].toLowerCase();
+	if (!match || !key || !(API_FIELD_KEYS as readonly string[]).includes(key)) return { key: null, text: error };
+	const text = match[2].trim();
+	return { key, text: text ? capitalized(text) : error };
+}
+
+export function cleanFieldErrors(errors: readonly string[]): string {
+	return errors.map((error) => splitFieldError(error).text).join(' ');
+}
+
 export interface AssignedErrors<F extends string> {
 	byField: Partial<Record<F, string>>;
 	general: string[];
+}
+
+function fieldForKey<F extends string>(key: string | null, fields: readonly F[]): F | undefined {
+	if (!key) return undefined;
+	return fields.find((name) => name === key) ?? fields.find((name) => name === FIELD_KEY_ALIASES[key]);
+}
+
+function fieldNamedIn<F extends string>(text: string, fields: readonly F[]): F | undefined {
+	const lower = text.toLowerCase();
+	return fields.find((name) => new RegExp(`\\b${name.toLowerCase().replace(/s$/, '')}s?\\b`).test(lower));
 }
 
 export function assignFieldErrors<F extends string>(errors: readonly string[], fields: readonly F[]): AssignedErrors<F> {
 	const byField: Partial<Record<F, string>> = {};
 	const general: string[] = [];
 	for (const error of errors) {
-		const lower = error.toLowerCase();
-		const field = fields.find((name) => new RegExp(`\\b${name.toLowerCase().replace(/s$/, '')}s?\\b`).test(lower));
+		const { key, text } = splitFieldError(error);
+		const field = key ? fieldForKey(key, fields) : fieldNamedIn(error, fields);
 		if (!field) {
-			general.push(error);
+			general.push(text);
 			continue;
 		}
-		byField[field] = byField[field] ? `${byField[field]} ${error}` : error;
+		byField[field] = byField[field] ? `${byField[field]} ${text}` : text;
 	}
 	return { byField, general };
 }

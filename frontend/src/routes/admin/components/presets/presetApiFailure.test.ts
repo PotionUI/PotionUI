@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { assignFieldErrors, presetApiFailure, presetResponseFailure, runPresetUninstall } from './presetApiFailure';
+import {
+	assignFieldErrors,
+	cleanFieldErrors,
+	presetApiFailure,
+	presetResponseFailure,
+	runPresetUninstall,
+	splitFieldError
+} from './presetApiFailure';
 
 function axiosError(status: number, data: unknown) {
 	return { isAxiosError: true, message: 'Request failed with status code ' + status, response: { status, data } };
@@ -118,7 +125,7 @@ describe('assignFieldErrors', () => {
 			['prefix', 'suffix', 'negative', 'modes'] as const
 		);
 		expect(result.byField).toEqual({
-			prefix: 'prefix: unbalanced braces',
+			prefix: 'Unbalanced braces',
 			negative: 'Negative is too long',
 			modes: 'mode "edit" is not offered'
 		});
@@ -136,5 +143,43 @@ describe('assignFieldErrors', () => {
 		const result = assignFieldErrors(['rename failed'], ['name'] as const);
 		expect(result.byField).toEqual({});
 		expect(result.general).toEqual(['rename failed']);
+	});
+});
+
+describe('field keys in API errors', () => {
+	it('drops a known key and capitalises the rest', () => {
+		expect(splitFieldError('prefix: a { has no closing }')).toEqual({ key: 'prefix', text: 'A { has no closing }' });
+		for (const key of ['prefix', 'suffix', 'negative', 'modes', 'name', 'description', 'cover', 'offered', 'first']) {
+			expect(splitFieldError(`${key}: too long`)).toEqual({ key, text: 'Too long' });
+		}
+	});
+
+	it('leaves other text alone', () => {
+		expect(splitFieldError('Seed: must be a number')).toEqual({ key: null, text: 'Seed: must be a number' });
+		expect(splitFieldError('name is required')).toEqual({ key: null, text: 'name is required' });
+		expect(splitFieldError('prefix:')).toEqual({ key: 'prefix', text: 'prefix:' });
+	});
+
+	it('places a keyed error by its key, without the key', () => {
+		const result = assignFieldErrors(
+			['prefix: a { has no closing }', 'Suffix: too long', 'negative: bad ${var'],
+			['prefix', 'suffix', 'negative', 'modes'] as const
+		);
+		expect(result.byField).toEqual({ prefix: 'A { has no closing }', suffix: 'Too long', negative: 'Bad ${var' });
+		expect(result.general).toEqual([]);
+	});
+
+	it('sends offered and first to the modes field', () => {
+		const result = assignFieldErrors(['offered: unknown mode "x"', 'first: not offered'], ['name', 'modes'] as const);
+		expect(result.byField).toEqual({ modes: 'Unknown mode "x" Not offered' });
+	});
+
+	it('shows a keyed error for a field this form lacks as a general error, without the key', () => {
+		const result = assignFieldErrors(['cover: unreadable file'], ['prefix'] as const);
+		expect(result.general).toEqual(['Unreadable file']);
+	});
+
+	it('cleans a list of errors for a single message', () => {
+		expect(cleanFieldErrors(['offered: empty list', 'first must be offered'])).toBe('Empty list first must be offered');
 	});
 });

@@ -166,7 +166,7 @@
 		</EmptyState>
 	{:else}
 		<Alert variant="info" density="compact" icon>
-			Added to every prompt made with this preset. Users don’t see it and can’t change it. Wildcards and variables work here too.
+			Added to every prompt made with this preset. Users don’t see it and can’t change it. Choices like {'{a|b}'} and variables work here too.
 		</Alert>
 
 		{#if directorLabels.length}

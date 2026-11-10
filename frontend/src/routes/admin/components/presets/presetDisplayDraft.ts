@@ -4,6 +4,7 @@ import type {
 	PresetDisplayPayload,
 	PresetMirrorModesPayload
 } from '$lib/types/api';
+import { assignFieldErrors, cleanFieldErrors, type PresetApiFailure } from './presetApiFailure';
 
 export const DISPLAY_NAME_MAX = 80;
 export const DISPLAY_DESCRIPTION_MAX = 4000;
@@ -108,5 +109,62 @@ export function buildModesPayload(draft: ModesDraft, available: readonly PresetA
 	return {
 		offered: everything ? null : offered,
 		first: draft.first || null
+	};
+}
+
+export type DisplayServerField = 'name' | 'description' | 'cover' | 'modes';
+
+export interface DisplayEditor {
+	detail: PresetAdminDetail;
+	draft: DisplayDraft;
+	modes: ModesDraft;
+	attempted: boolean;
+	serverErrors: Partial<Record<DisplayServerField, string>>;
+	generalErrors: string[];
+}
+
+export function displayEditorFor(detail: PresetAdminDetail): DisplayEditor {
+	return {
+		detail,
+		draft: displayDraftFrom(detail),
+		modes: modesDraftFrom(detail.modes),
+		attempted: false,
+		serverErrors: {},
+		generalErrors: []
+	};
+}
+
+export function displayEditorDirtyCount(editor: DisplayEditor): number {
+	const modes = editor.detail.is_mirror ? modesDirtyCount(editor.modes, editor.detail.modes) : 0;
+	return displayDirtyKeys(editor.draft, editor.detail).length + modes;
+}
+
+export function discardDisplayEditor(editor: DisplayEditor): DisplayEditor {
+	return displayEditorFor(editor.detail);
+}
+
+export function displayEditorSaved(_editor: DisplayEditor, next: PresetAdminDetail): DisplayEditor {
+	return displayEditorFor(next);
+}
+
+export function displayEditorFailed(
+	editor: DisplayEditor,
+	failure: Pick<PresetApiFailure, 'code' | 'message' | 'errors'>
+): { editor: DisplayEditor; toast: string | null } {
+	if (failure.code === 'invalid_modes') {
+		return {
+			editor: { ...editor, serverErrors: { ...editor.serverErrors, modes: cleanFieldErrors(failure.errors) || failure.message } },
+			toast: null
+		};
+	}
+	const assigned = assignFieldErrors(failure.errors, ['name', 'description', 'cover'] as const);
+	const placed = Object.keys(assigned.byField).length > 0 || assigned.general.length > 0;
+	return {
+		editor: {
+			...editor,
+			serverErrors: { ...editor.serverErrors, ...assigned.byField },
+			generalErrors: assigned.general
+		},
+		toast: placed ? null : failure.message
 	};
 }

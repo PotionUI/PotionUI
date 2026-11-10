@@ -34,6 +34,17 @@ def _roots(*folders, offline=()):
     return SimpleNamespace(model_roots=resolver)
 
 
+def _refuse_opening(monkeypatch, refused):
+    real_open = Path.open
+
+    def opener(self, *args, **kwargs):
+        if self == refused:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", opener)
+
+
 def _row(x, y, width, height, score, points=None):
     return [x, y, width, height, *(points or [0.0] * 10), score]
 
@@ -101,6 +112,24 @@ def test_without_its_model_file_detecting_faces_says_so_downloads_nothing_and_na
     assert media.FACE_MODEL in str(raised.value)
     assert str(tmp_path) not in str(raised.value)
     assert list(folder.iterdir()) == []
+
+
+def test_a_detector_file_that_cannot_be_read_counts_as_missing_and_its_path_is_not_told(tmp_path, known, monkeypatch):
+    folder = tmp_path / "a" / "detection_bbox"
+    world = _roots(folder)
+    model = folder / media.FACE_MODEL
+    model.write_bytes(CONTENT)
+    _refuse_opening(monkeypatch, model)
+    with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect") as detect:
+        available = media.face_detector()["available"]
+        with pytest.raises(FileNotFoundError) as raised:
+            media.detect_faces(["a.png"])
+
+    assert available is False
+    detect.assert_not_called()
+    assert media.FACE_MODEL in str(raised.value)
+    assert str(tmp_path) not in str(raised.value)
+    assert media._verified_files == set()
 
 
 def test_the_model_file_is_read_through_once_until_it_changes(tmp_path, known, monkeypatch):

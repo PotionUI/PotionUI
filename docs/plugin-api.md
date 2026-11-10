@@ -2591,8 +2591,8 @@ The functions never download a model. `embed_images` raises `FileNotFoundError` 
 weights are not on this server, even when the gallery may fetch them (`media_vision_auto_download`).
 The face models are files an administrator puts in place by hand; a function whose file is missing
 raises `FileNotFoundError`, and its `face_detector()` or `face_identifier()` says `available: false`.
-A file is only used when its bytes are the published file's, so a corrupted copy or another model
-saved under the same name counts as missing:
+A file is only used when its bytes are the published file's, so a corrupted copy, another model
+saved under the same name or a file the server cannot read counts as missing:
 
 | Model | File | Where | License | Bytes | SHA-256 |
 |---|---|---|---|---|---|

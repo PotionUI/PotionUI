@@ -330,7 +330,10 @@ def _is_model_file(path: Path) -> bool:
     if stamp in _verified_files:
         return True
     size, digest = MODEL_FILES[path.name]
-    if not path.is_file() or stat.st_size != size or _sha256(path) != digest:
+    try:
+        if not path.is_file() or stat.st_size != size or _sha256(path) != digest:
+            return False
+    except OSError:
         return False
     _verified_files.add(stamp)
     return True

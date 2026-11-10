@@ -131,6 +131,30 @@ def test_without_its_model_file_identifying_faces_says_so_loads_nothing_and_name
     assert str(tmp_path) not in str(raised.value)
 
 
+def test_an_identity_file_that_cannot_be_read_counts_as_missing_and_its_path_is_not_told(tmp_path, lifecycle, known, onnxruntime, monkeypatch):
+    sessions = Sessions()
+    monkeypatch.setattr(face_identity, "new_session", sessions)
+    model = _model(tmp_path)
+    real_open = Path.open
+
+    def opener(self, *args, **kwargs):
+        if self == model:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", opener)
+    with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
+        available = media.face_identifier()["available"]
+        with pytest.raises(FileNotFoundError) as raised:
+            media.identify_faces([(Image.new("RGB", (200, 200)), _points())])
+
+    assert available is False
+    assert sessions.built == []
+    assert not lifecycle.is_cached(face_identity.MODEL_KEY)
+    assert "glintr100.onnx" in str(raised.value)
+    assert str(tmp_path) not in str(raised.value)
+
+
 def test_identifying_faces_builds_one_session_through_the_model_lifecycle_and_holds_it_only_during_the_call(tmp_path, lifecycle, known, monkeypatch):
     sessions = Sessions(lifecycle)
     monkeypatch.setattr(face_identity, "new_session", sessions)

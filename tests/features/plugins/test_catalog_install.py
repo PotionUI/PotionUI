@@ -652,18 +652,20 @@ def test_a_conflict_with_another_catalog_names_its_host_and_not_its_query(plugin
     assert "s3cret-value" not in item.reason
 
 
-async def test_an_install_from_a_catalog_url_with_a_query_logs_its_host_only(plugins, catalog, caplog):
+async def test_an_install_from_a_catalog_url_with_a_query_logs_its_host_only(plugins, catalog, monkeypatch):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")
     url = catalog.url("/plugins.json?token=s3cret-value")
-    caplog.set_level("INFO", logger="src.features.plugins.operations.install")
+    logger = Mock()
+    monkeypatch.setattr(install_ops, "logger", logger)
 
     await operations.install_from_catalog(
         repo, registry, url, "demo", version="1.0.0", sha256=catalog.entries[0]["release"]["sha256"]
     )
 
-    assert "Installed plugin demo 1.0.0 from a catalog on 127.0.0.1" in caplog.text
-    assert "s3cret-value" not in caplog.text
+    logged = [str(argument) for call in logger.method_calls for argument in call.args]
+    assert "Installed plugin demo 1.0.0 from a catalog on 127.0.0.1" in logged
+    assert not any("s3cret-value" in message for message in logged)
     assert json.loads((local / "demo" / INSTALL_RECORD).read_text())["catalog"] == url
 
 

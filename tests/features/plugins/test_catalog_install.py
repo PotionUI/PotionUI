@@ -236,7 +236,7 @@ def test_a_plugin_installed_from_one_catalog_is_a_conflict_in_another_catalog_th
         item = catalog_item(_entry(version=version), registry, local, CATALOG_B)
         assert (item.status, item.installed_version) == ("conflict", "1.0.0")
         assert "installed from another catalog" in item.reason
-        assert CATALOG_A in item.reason
+        assert "(a.example.com)" in item.reason
 
 
 def test_an_install_record_without_its_catalog_is_a_conflict(plugins):
@@ -614,6 +614,33 @@ async def test_a_plugin_the_catalog_does_not_list_is_refused(plugins, catalog):
 
     with pytest.raises(CatalogInstallError, match="lists no installable plugin 'other'"):
         await _install(repo, registry, catalog, "other")
+
+
+def test_a_conflict_with_another_catalog_names_its_host_and_not_its_query(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog="https://a.example.com/plugins.json?token=s3cret-value")
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
+
+    assert item.status == "conflict"
+    assert "(a.example.com)" in item.reason
+    assert "s3cret-value" not in item.reason
+
+
+async def test_an_install_from_a_catalog_url_with_a_query_logs_its_host_only(plugins, catalog, caplog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    url = catalog.url("/plugins.json?token=s3cret-value")
+    caplog.set_level("INFO", logger="src.features.plugins.operations.install")
+
+    await operations.install_from_catalog(
+        repo, registry, url, "demo", version="1.0.0", sha256=catalog.entries[0]["release"]["sha256"]
+    )
+
+    assert "Installed plugin demo 1.0.0 from a catalog on 127.0.0.1" in caplog.text
+    assert "s3cret-value" not in caplog.text
+    assert json.loads((local / "demo" / INSTALL_RECORD).read_text())["catalog"] == url
 
 
 async def test_a_local_catalog_is_refused_without_the_explicit_setting(plugins, catalog, monkeypatch):

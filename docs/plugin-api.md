@@ -3270,8 +3270,9 @@ for the catalog, redirects included, and dropped when the host sends nothing for
 seconds),
 compares its sha256 with the catalog's before anything is written, unpacks it into a
 staging folder under `content/plugins/local/.potionui-install/`, checks the manifest,
-writes `.potionui-catalog.json` (the catalog URL, version, archive URL and sha256) into
-the plugin folder, moves the folder into `content/plugins/local/<id>/`, and scans for
+writes `.potionui-catalog.json` (the catalog URL as given, query included, since it binds
+the plugin to that catalog; the version, archive URL and sha256) into the plugin folder,
+moves the folder into `content/plugins/local/<id>/`, and scans for
 plugins. A new plugin is discovered disabled, like one placed by hand, and stays so across
 a restart even when the database still holds an enabled row for its id from a copy that
 was removed while the server was stopped.
@@ -3307,7 +3308,9 @@ install.
 Catalog and archive URLs must be https, to a host that resolves to public addresses
 only; every redirect is checked the same way, and the connection goes to the addresses
 that were checked. A host written as a number that is not a full IP address
-(`2130706433`, `127.1`, `0x7f.1`) is refused in every mode. For a catalog on a local network or a test server, start PotionUI
+(`2130706433`, `127.1`, `0x7f.1`) is refused in every mode, and so is a URL with
+credentials in it. Refusals, statuses and logs name the host, never the whole URL, so a
+token in a query or a signed redirect does not end up in them. For a catalog on a local network or a test server, start PotionUI
 with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`: catalog and archive URLs may then point to
 local and private addresses, and use plain http, but only to such an address. A plain http
 URL to a public address, written as one or a name with any public answer, is refused

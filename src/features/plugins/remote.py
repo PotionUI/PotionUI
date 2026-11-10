@@ -69,18 +69,18 @@ def _literal_address(host: str) -> Optional[str]:
 
 def check_source_url(url: str, allow_local: bool) -> None:
     parts = urlsplit(url)
-    scheme = parts.scheme.lower()
-    if scheme != "https" and not (allow_local and scheme == "http"):
-        raise FetchError(f"Only https URLs are allowed, got {url!r}.")
-    host = parts.hostname
-    if not host:
-        raise FetchError(f"The URL {url!r} has no host.")
     if parts.username or parts.password:
         raise FetchError("Credentials inside the URL are not allowed.")
+    scheme = parts.scheme.lower()
+    if scheme != "https" and not (allow_local and scheme == "http"):
+        raise FetchError(f"Only https URLs are allowed, not {scheme or 'a URL without a scheme'}.")
+    host = parts.hostname
+    if not host:
+        raise FetchError("The URL has no host.")
     try:
         parts.port
     except ValueError as error:
-        raise FetchError(f"The URL {url!r} has an invalid port.") from error
+        raise FetchError(f"The URL for {host} has an invalid port.") from error
     address = _literal_address(host)
     if address is None and _NUMERIC_HOST.fullmatch(host.rstrip(".")):
         raise FetchError(f"{host} is a number but not an IP address written in full; write the address as such.")
@@ -108,7 +108,7 @@ async def fetch_bytes(
     deadline = loop.time() + timeout_s
     for _ in range(MAX_REDIRECTS + 1):
         check_source_url(url, allow_local)
-        host = urlsplit(url).hostname or url
+        host = urlsplit(url).hostname or "the source"
         local_only = urlsplit(url).scheme.lower() == "http"
         connector = aiohttp.TCPConnector(
             ssl=client_ssl_context(),
@@ -129,14 +129,14 @@ async def fetch_bytes(
                         url = urljoin(url, location)
                         continue
                     if response.status != 200:
-                        raise FetchError(f"{host} answered HTTP {response.status} for {url}.")
+                        raise FetchError(f"{host} answered HTTP {response.status}.")
                     if response.content_length is not None and response.content_length > max_bytes:
-                        raise FetchError(f"{url} is larger than {max_bytes} bytes.")
+                        raise FetchError(f"The file from {host} is larger than {max_bytes} bytes.")
                     body = bytearray()
                     async for chunk in response.content.iter_chunked(_CHUNK):
                         body.extend(chunk)
                         if len(body) > max_bytes:
-                            raise FetchError(f"{url} is larger than {max_bytes} bytes.")
+                            raise FetchError(f"The file from {host} is larger than {max_bytes} bytes.")
                     return bytes(body)
         except asyncio.TimeoutError as error:
             raise FetchError(
@@ -153,5 +153,5 @@ async def fetch_bytes(
         except aiohttp.ClientError as error:
             if is_certificate_error(error):
                 raise FetchError(certificate_failure_message(host)) from error
-            raise FetchError(f"{type(error).__name__} while fetching {url}.") from error
+            raise FetchError(f"{type(error).__name__} while fetching from {host}.") from error
     raise FetchError(f"More than {MAX_REDIRECTS} redirects while fetching the source.")

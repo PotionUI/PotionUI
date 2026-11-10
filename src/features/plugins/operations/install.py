@@ -93,6 +93,12 @@ def _same_catalog(recorded: Any, url: str) -> bool:
     return same_origin and (first_parts.path, first_parts.query) == (second_parts.path, second_parts.query)
 
 
+def _catalog_host(recorded: Any) -> str:
+    if not isinstance(recorded, str):
+        return "unknown"
+    return urlsplit(recorded.strip()).hostname or "unknown"
+
+
 def _installed_item(entry: CatalogEntry, installed_version: str) -> Optional[CatalogItem]:
     if installed_version == entry.version:
         return CatalogItem(entry, "installed", "", installed_version)
@@ -145,7 +151,7 @@ def catalog_item(
             return CatalogItem(
                 entry,
                 "conflict",
-                f"This plugin was installed from another catalog ({record.get('catalog') or 'unknown'}); "
+                f"This plugin was installed from another catalog ({_catalog_host(record.get('catalog'))}); "
                 "only that catalog updates it.",
                 installed_version,
             )
@@ -371,7 +377,7 @@ async def install_from_catalog(
             rescan_presets_and_pipes(
                 preset_loader, pipe_catalog, recipe_catalog, f"catalog update of plugin {plugin_id}", model_layout_catalog
             )
-        logger.info(f"Installed plugin {plugin_id} {item.entry.version} from {url}")
+        logger.info(f"Installed plugin {plugin_id} {item.entry.version} from a catalog on {urlsplit(url).hostname}")
         return InstallResult(
             plugin_id=plugin_id,
             version=item.entry.version,

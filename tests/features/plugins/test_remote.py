@@ -120,6 +120,48 @@ async def test_a_source_that_stops_sending_is_dropped_after_the_read_timeout_not
         await server.close()
 
 
+async def test_errors_after_a_redirect_name_the_host_and_not_the_signed_url():
+    async def signed(request):
+        raise web.HTTPFound("/asset?X-Amz-Signature=s3cret-value")
+
+    async def asset(request):
+        if request.query.get("big"):
+            return web.Response(body=b"x" * 1000)
+        return web.Response(status=403)
+
+    async def signed_big(request):
+        raise web.HTTPFound("/asset?big=1&X-Amz-Signature=s3cret-value")
+
+    server = await _serve({"/start": signed, "/start-big": signed_big, "/asset": asset})
+    try:
+        with pytest.raises(FetchError, match="127.0.0.1 answered HTTP 403.") as refused:
+            await fetch_bytes(_url(server, "/start"), max_bytes=100, timeout_s=5, allow_local=True)
+        assert "s3cret-value" not in str(refused.value)
+        with pytest.raises(FetchError, match="The file from 127.0.0.1 is larger than 100 bytes") as refused:
+            await fetch_bytes(_url(server, "/start-big"), max_bytes=100, timeout_s=5, allow_local=True)
+        assert "s3cret-value" not in str(refused.value)
+    finally:
+        await server.close()
+
+
+@pytest.mark.parametrize("allow_local", [False, True])
+@pytest.mark.parametrize(
+    "url", ["ftp://user:s3cret-value@example.com/x.zip", "http://user:s3cret-value@example.com/x.zip", "https://:s3cret-value@example.com/x"]
+)
+def test_credentials_are_refused_before_the_scheme_and_never_echoed(url, allow_local):
+    with pytest.raises(FetchError, match="Credentials inside the URL are not allowed") as refused:
+        check_source_url(url, allow_local=allow_local)
+
+    assert "s3cret-value" not in str(refused.value)
+
+
+def test_a_refused_scheme_names_the_scheme_and_not_the_url():
+    with pytest.raises(FetchError, match="Only https URLs are allowed, not ftp.") as refused:
+        check_source_url("ftp://example.com/x.zip?token=s3cret-value", allow_local=False)
+
+    assert "s3cret-value" not in str(refused.value)
+
+
 async def test_an_error_status_is_refused_with_the_status():
     server = await _serve({"/missing": lambda request: web.Response(status=404)})
     try:

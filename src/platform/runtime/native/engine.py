@@ -2521,10 +2521,19 @@ class NativeGenerator:
         tile, overlap = _causal3d_encode_tile(
             free, (pixels.shape[-2], pixels.shape[-1]), self._spatial_downscale(), max_tile,
         )
-        logger.info(
-            "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx",
-            need, free, tile, overlap,
-        )
+        if (self.spec.latent_format or {}).get("tiled_encode_faithful", True):
+            logger.info(
+                "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx",
+                need, free, tile, overlap,
+            )
+        else:
+            logger.warning(
+                "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx. "
+                "This VAE's tiled latent differs from its whole-image latent, so the output may not follow "
+                "the reference image closely. Use a smaller reference image, or free VRAM (unload other "
+                "models, stop other GPU work) so it encodes in one piece.",
+                need, free, tile, overlap,
+            )
         return tile, overlap
 
     def _encode_need_gb(self, pixels: torch.Tensor) -> float:

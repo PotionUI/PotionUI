@@ -58,7 +58,8 @@
 	function deleteEntries() {
 		const entries = treeActions.entries;
 		if (!entries) return;
-		void runDeleteEntries(item, entries, {
+		const hasSubcollections = collections.some((collection) => collection.parent_id === item.id);
+		void runDeleteEntries({ id: item.id, name: item.name, hasSubcollections }, entries, {
 			confirm: confirmDialog,
 			success: (message) => toasts.success(message),
 			info: (message) => toasts.info(message),

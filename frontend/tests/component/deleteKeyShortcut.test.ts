@@ -17,7 +17,10 @@ beforeEach(async () => {
 	keybindingsStore.reset();
 	const keybindings = [
 		{ action_id: 'delete_current_generation', key: 'Delete', modifiers: '', context: 'generate', category: 'generation' },
-		{ action_id: 'new_tab', key: 't', modifiers: '', context: 'generate', category: 'generation' }
+		{ action_id: 'new_tab', key: 't', modifiers: '', context: 'generate', category: 'generation' },
+		{ action_id: 'show_help', key: '?', modifiers: '', context: 'global', category: 'general' },
+		{ action_id: 'search_everything', key: 'k', modifiers: 'ctrl', context: 'global', category: 'general' },
+		{ action_id: 'recorded_enter', key: 'Enter', modifiers: 'ctrl', context: 'global', category: 'general' }
 	].map((binding) => ({ ...binding, label: binding.action_id, enabled: true, is_custom: false }));
 	vi.spyOn(api, 'getKeybindings').mockResolvedValue({ success: true, data: { keybindings } });
 	await keybindingsStore.loadBindings();
@@ -57,6 +60,21 @@ describe('the Delete shortcut on the generate page', () => {
 	it('matches the stored key whatever its case', () => {
 		expect(globalBindingFor(new KeyboardEvent('keydown', { key: 'Delete' }))?.actionId).toBe('delete_current_generation');
 		expect(globalBindingFor(new KeyboardEvent('keydown', { key: 'Backspace' }))).toBeNull();
+	});
+
+	it('keeps letter, symbol and modifier bindings matching, and matches other named keys as recorded', () => {
+		const key = (k: string, init: KeyboardEventInit = {}) => new KeyboardEvent('keydown', { key: k, ...init });
+		for (const actionId of ['new_tab', 'show_help', 'search_everything', 'recorded_enter']) {
+			keybindingsStore.registerHandler(actionId, () => {});
+		}
+		expect(globalBindingFor(key('t'))?.actionId).toBe('new_tab');
+		expect(globalBindingFor(key('T', { shiftKey: true }))).toBeNull();
+		expect(globalBindingFor(key('?', { shiftKey: true }))?.actionId).toBe('show_help');
+		expect(globalBindingFor(key('k', { ctrlKey: true }))?.actionId).toBe('search_everything');
+		expect(globalBindingFor(key('k'))).toBeNull();
+		expect(globalBindingFor(key('Enter', { ctrlKey: true }))?.actionId).toBe('recorded_enter');
+		expect(globalBindingFor(key('Enter'))).toBeNull();
+		expect(globalBindingFor(key('Delete', { ctrlKey: true }))).toBeNull();
 	});
 
 	it('shows as Delete in the shortcuts list and tooltips', () => {

@@ -35,10 +35,10 @@ function entries(count = 3) {
 	};
 }
 
-async function openMenu(actions: ReturnType<typeof treeActions>) {
+async function openMenu(actions: ReturnType<typeof treeActions>, item = collections[1]) {
 	const { target } = mountComponent(CollectionActionsMenu as never, {
 		variant: 'toolbar',
-		item: collections[1],
+		item,
 		collections,
 		treeActions: actions
 	});
@@ -86,6 +86,20 @@ describe('Delete entries in the collection menu', () => {
 		expect(options.message).toContain('“Blue glass”');
 		expect(scope.deleteAll).toHaveBeenCalledWith('glass');
 		expect(success).toHaveBeenCalledWith('Deleted 3 generations.');
+	});
+
+	it('mentions that subcollection items stay for a collection with subcollections', async () => {
+		vi.mocked(confirmDialog).mockResolvedValue(false);
+		const sentence = 'Items in its subcollections are not deleted.';
+		const parent = await openMenu(treeActions(entries(3)), collections[0]);
+		parent.find((item) => item.textContent?.trim() === 'Delete entries…')!.click();
+		await settle();
+		expect(vi.mocked(confirmDialog).mock.calls[0][0].message).toContain(sentence);
+		document.body.innerHTML = '';
+		const leaf = await openMenu(treeActions(entries(3)), collections[1]);
+		leaf.find((item) => item.textContent?.trim() === 'Delete entries…')!.click();
+		await settle();
+		expect(vi.mocked(confirmDialog).mock.calls[1][0].message).not.toContain(sentence);
 	});
 
 	it('deletes nothing when the dialog is cancelled', async () => {

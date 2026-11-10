@@ -3409,9 +3409,12 @@ takes the new version as it is, since nothing runs it until it is enabled. If th
 folder cannot be moved back, or the server stops before the check, it stays in
 `content/plugins/local/.potionui-install/`, named in the answer when there is one, and the
 plugin is left disabled: its row is disabled from the move on, and enabled again only once
-the new version, or the old one put back, is running; an install cancelled after the move
-disables the plugin in the running server as well. After a rollback, the modules the
-failed version imported stay loaded until PotionUI restarts, and the answer says so.
+the new version, or the old one put back, is running. Once the archive is downloaded, a
+cancelled request no longer stops the install half way: the install finishes, or rolls
+back, before the cancellation goes through and before another install can start. If the
+install itself is stopped after the move (the server shutting down), the plugin is disabled
+in the running server as well. After a rollback, the modules the failed version imported
+stay loaded until PotionUI restarts, and the answer says so.
 
 PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
 enable step checks it, and the install answer lists it so the admin knows what to

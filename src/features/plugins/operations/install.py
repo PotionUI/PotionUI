@@ -374,6 +374,93 @@ async def _restore_previous(
     raise CatalogInstallError(f"{message}.")
 
 
+async def _outlast(work: asyncio.Future) -> None:
+    while not work.done():
+        try:
+            await asyncio.wait([work])
+        except asyncio.CancelledError:
+            continue
+    if not work.cancelled() and work.exception() is not None:
+        logger.warning(f"A catalog install whose request was cancelled ended with: {work.exception()}")
+
+
+async def _install_downloaded(
+    repo: PluginRepository,
+    registry: PluginRegistry,
+    url: str,
+    item: CatalogItem,
+    data: bytes,
+    collaborators: dict,
+) -> InstallResult:
+    plugin_id = item.entry.id
+    local_dir = local_plugin_dir(registry)
+    staged = await asyncio.to_thread(_stage, data, item, local_dir, url)
+    was_enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
+    row_was_enabled = _row_enabled(repo, plugin_id)
+    if row_was_enabled:
+        repo.disable_plugin(plugin_id)
+    took_down_an_earlier_copy = item.status == "available" and was_enabled
+    if took_down_an_earlier_copy:
+        _disable(repo, registry, plugin_id, collaborators)
+    try:
+        placement = await asyncio.to_thread(_place, staged, item, local_dir)
+    except Exception as error:
+        if item.status == "update" and not (local_dir / plugin_id).exists():
+            _disable(repo, registry, plugin_id, collaborators)
+            raise CatalogInstallError(f"{error} The plugin {plugin_id} is disabled.") from error
+        if row_was_enabled and not took_down_an_earlier_copy:
+            repo.enable_plugin(plugin_id)
+        raise
+    except BaseException:
+        _disable(repo, registry, plugin_id, collaborators)
+        raise
+    target = local_dir / plugin_id
+    try:
+        try:
+            scan_plugins(repo, registry)
+        except Exception as error:
+            if placement.previous is None:
+                raise _left_in_place(item, target, f"its scan failed ({type(error).__name__}: {error})") from error
+            failure = f"the scan failed: {type(error).__name__}: {error}"
+            await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
+        missing = _not_picked_up(registry, item, target)
+        state = registry.get_plugin_state(plugin_id)
+        if placement.previous is not None and (missing or not _came_back(was_enabled, state)):
+            failure = missing or registry.get_plugin_error(plugin_id) or "it did not start"
+            await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
+        if missing:
+            raise _left_in_place(item, target, missing)
+        if row_was_enabled and item.status == "update" and state == PluginState.ENABLED:
+            repo.enable_plugin(plugin_id)
+    except BaseException:
+        if registry.get_plugin_state(plugin_id) == PluginState.ENABLED and not _row_enabled(repo, plugin_id):
+            _disable(repo, registry, plugin_id, collaborators)
+        if placement.previous is None or not placement.previous.exists():
+            await asyncio.to_thread(_discard_staging, placement.staging)
+        raise
+    await asyncio.to_thread(_discard_staging, placement.staging)
+    if row_was_enabled and item.status == "available":
+        logger.info(f"Plugin {plugin_id} was recorded as enabled from an earlier copy; the catalog install leaves it disabled")
+    manifest = placement.manifest
+    enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
+    if enabled:
+        rescan_presets_and_pipes(
+            collaborators["preset_loader"],
+            collaborators["pipe_catalog"],
+            collaborators["recipe_catalog"],
+            f"catalog update of plugin {plugin_id}",
+            collaborators["model_layout_catalog"],
+        )
+    logger.info(f"Installed plugin {plugin_id} {item.entry.version} from a catalog on {urlsplit(url).hostname}")
+    return InstallResult(
+        plugin_id=plugin_id,
+        version=item.entry.version,
+        previous_version=item.installed_version,
+        enabled=enabled,
+        dependencies_python=list(manifest.dependencies.python),
+    )
+
+
 async def install_from_catalog(
     repo: PluginRepository,
     registry: PluginRegistry,
@@ -415,65 +502,9 @@ async def install_from_catalog(
             recipe_catalog=recipe_catalog,
             model_layout_catalog=model_layout_catalog,
         )
-        local_dir = local_plugin_dir(registry)
-        staged = await asyncio.to_thread(_stage, data, item, local_dir, url)
-        was_enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
-        row_was_enabled = _row_enabled(repo, plugin_id)
-        if row_was_enabled:
-            repo.disable_plugin(plugin_id)
-        took_down_an_earlier_copy = item.status == "available" and was_enabled
-        if took_down_an_earlier_copy:
-            _disable(repo, registry, plugin_id, collaborators)
+        work = asyncio.ensure_future(_install_downloaded(repo, registry, url, item, data, collaborators))
         try:
-            placement = await asyncio.to_thread(_place, staged, item, local_dir)
-        except Exception as error:
-            if item.status == "update" and not (local_dir / plugin_id).exists():
-                _disable(repo, registry, plugin_id, collaborators)
-                raise CatalogInstallError(f"{error} The plugin {plugin_id} is disabled.") from error
-            if row_was_enabled and not took_down_an_earlier_copy:
-                repo.enable_plugin(plugin_id)
+            return await asyncio.shield(work)
+        except asyncio.CancelledError:
+            await _outlast(work)
             raise
-        except BaseException:
-            _disable(repo, registry, plugin_id, collaborators)
-            raise
-        target = local_dir / plugin_id
-        try:
-            try:
-                scan_plugins(repo, registry)
-            except Exception as error:
-                if placement.previous is None:
-                    raise _left_in_place(item, target, f"its scan failed ({type(error).__name__}: {error})") from error
-                failure = f"the scan failed: {type(error).__name__}: {error}"
-                await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
-            missing = _not_picked_up(registry, item, target)
-            state = registry.get_plugin_state(plugin_id)
-            if placement.previous is not None and (missing or not _came_back(was_enabled, state)):
-                failure = missing or registry.get_plugin_error(plugin_id) or "it did not start"
-                await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
-            if missing:
-                raise _left_in_place(item, target, missing)
-            if row_was_enabled and item.status == "update" and state == PluginState.ENABLED:
-                repo.enable_plugin(plugin_id)
-        except BaseException:
-            if registry.get_plugin_state(plugin_id) == PluginState.ENABLED and not _row_enabled(repo, plugin_id):
-                _disable(repo, registry, plugin_id, collaborators)
-            if placement.previous is None or not placement.previous.exists():
-                await asyncio.to_thread(_discard_staging, placement.staging)
-            raise
-        await asyncio.to_thread(_discard_staging, placement.staging)
-        if row_was_enabled and item.status == "available":
-            logger.info(f"Plugin {plugin_id} was recorded as enabled from an earlier copy; the catalog install leaves it disabled")
-        manifest = placement.manifest
-        enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
-        if enabled:
-            rescan_presets_and_pipes(
-                preset_loader, pipe_catalog, recipe_catalog, f"catalog update of plugin {plugin_id}", model_layout_catalog
-            )
-        logger.info(f"Installed plugin {plugin_id} {item.entry.version} from a catalog on {urlsplit(url).hostname}")
-        return InstallResult(
-            plugin_id=plugin_id,
-            version=item.entry.version,
-            previous_version=item.installed_version,
-            enabled=enabled,
-            dependencies_python=list(manifest.dependencies.python),
-        )

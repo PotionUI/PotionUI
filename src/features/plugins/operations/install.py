@@ -255,6 +255,13 @@ def _came_back(was_enabled: bool, state: Optional[PluginState]) -> bool:
     return state != PluginState.ERROR
 
 
+def _disable_a_leftover_enabled_row(repo: PluginRepository, registry: PluginRegistry, plugin_id: str) -> None:
+    row = repo.get_plugin_by_id(plugin_id)
+    if row is not None and row.enabled and registry.get_plugin_state(plugin_id) != PluginState.ENABLED:
+        repo.disable_plugin(plugin_id)
+        logger.info(f"Plugin {plugin_id} was recorded as enabled from an earlier copy; the catalog install leaves it disabled")
+
+
 async def _restore_previous(
     repo: PluginRepository,
     registry: PluginRegistry,
@@ -344,6 +351,8 @@ async def install_from_catalog(
             await asyncio.to_thread(_discard_staging, placement.staging)
             raise
         await asyncio.to_thread(_discard_staging, placement.staging)
+        if item.status == "available":
+            _disable_a_leftover_enabled_row(repo, registry, plugin_id)
         manifest = placement.manifest
         enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
         if enabled:

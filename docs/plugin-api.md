@@ -3271,7 +3271,9 @@ compares its sha256 with the catalog's before anything is written, unpacks it in
 staging folder under `content/plugins/local/.potionui-install/`, checks the manifest,
 writes `.potionui-catalog.json` (the catalog URL, version, archive URL and sha256) into
 the plugin folder, moves the folder into `content/plugins/local/<id>/`, and scans for
-plugins. A new plugin is discovered disabled, like one placed by hand.
+plugins. A new plugin is discovered disabled, like one placed by hand, and stays so across
+a restart even when the database still holds an enabled row for its id from a copy that
+was removed while the server was stopped.
 
 The same id is never installed twice. A plugin that ships with PotionUI
 (`content/plugins/marketplace/`) is listed as bundled; a folder of that id that holds no

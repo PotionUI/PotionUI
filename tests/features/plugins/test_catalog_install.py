@@ -15,7 +15,9 @@ from src.features.plugins.catalog import CatalogEntry
 from src.features.plugins.operations import install as install_ops
 from src.features.plugins.operations.install import INSTALL_RECORD, STAGING_FOLDER, CatalogInstallError, CatalogItem, catalog_item
 from src.features.plugins.remote import ALLOW_LOCAL_SOURCES_ENV, FetchError
+from src.features.plugins.records import Plugin
 from src.features.plugins.repository import PluginRepository
+from src.platform.database.rows import now_utc
 from src.platform.plugins.registry import PluginRegistry, PluginState
 
 
@@ -308,6 +310,30 @@ async def test_installing_puts_the_plugin_in_local_with_its_install_record_and_d
     assert repo.get_plugin_by_id("demo").enabled is False
     assert (result.plugin_id, result.version, result.previous_version, result.enabled) == ("demo", "1.0.0", None, False)
     assert result.dependencies_python == ["numpy>=1.24"]
+
+
+async def test_a_new_install_over_an_enabled_row_left_by_a_removed_copy_stays_disabled_across_a_restart(plugins, catalog):
+    registry, repo, _, local = plugins
+    repo.create_plugin(
+        Plugin(
+            id="demo",
+            name="demo",
+            version="0.9.0",
+            type="backend-only",
+            enabled=True,
+            manifest_path="manifest.yml",
+            installed_at=now_utc(),
+            updated_at=now_utc(),
+        )
+    )
+    assert repo.get_plugin_by_id("demo").enabled is True
+    catalog.publish("demo", "1.0.0")
+
+    result = await _install(repo, registry, catalog, "demo")
+
+    assert result.enabled is False
+    assert repo.get_plugin_by_id("demo").enabled is False
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
 
 
 async def test_an_archive_whose_sha256_differs_from_the_catalog_writes_nothing(plugins, catalog):

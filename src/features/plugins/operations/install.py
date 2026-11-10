@@ -282,6 +282,22 @@ def _came_back(was_enabled: bool, state: Optional[PluginState]) -> bool:
     return state != PluginState.ERROR
 
 
+def _not_picked_up(registry: PluginRegistry, item: CatalogItem, target: Path) -> Optional[str]:
+    manifest = registry.get_plugin(item.entry.id)
+    if manifest is None:
+        return "the scan did not find its manifest"
+    if manifest.version != item.entry.version or not _same_folder(manifest.plugin_dir, target):
+        return "the scan did not pick up its manifest"
+    return None
+
+
+def _left_in_place(item: CatalogItem, target: Path, reason: str) -> CatalogInstallError:
+    return CatalogInstallError(
+        f"{item.entry.id} {item.entry.version} is in the folder {target.name}, but {reason}; it stays there, disabled. "
+        "Remove that folder to install it again."
+    )
+
+
 def _row_enabled(repo: PluginRepository, plugin_id: str) -> bool:
     row = repo.get_plugin_by_id(plugin_id)
     return row is not None and bool(row.enabled)
@@ -398,12 +414,13 @@ async def install_from_catalog(
                     raise
                 failure = f"the scan failed: {type(error).__name__}: {error}"
                 await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
+            missing = _not_picked_up(registry, item, target)
             state = registry.get_plugin_state(plugin_id)
-            if placement.previous is not None and not _came_back(was_enabled, state):
-                failure = registry.get_plugin_error(plugin_id) or (
-                    "the scan did not find its manifest" if state is None else "it did not start"
-                )
+            if placement.previous is not None and (missing or not _came_back(was_enabled, state)):
+                failure = missing or registry.get_plugin_error(plugin_id) or "it did not start"
                 await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
+            if missing:
+                raise _left_in_place(item, target, missing)
             if row_was_enabled and item.status == "update" and state == PluginState.ENABLED:
                 repo.enable_plugin(plugin_id)
         except BaseException:

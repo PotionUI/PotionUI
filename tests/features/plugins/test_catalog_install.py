@@ -726,6 +726,59 @@ async def test_an_update_of_a_disabled_plugin_whose_new_manifest_the_scan_skips_
     )
 
 
+def _discovery_that_raises_once(registry, monkeypatch) -> None:
+    real_discover = registry.loader.discover_plugins
+    calls = []
+
+    def discover():
+        calls.append(None)
+        if len(calls) == 1:
+            raise PermissionError("the plugin folder cannot be listed")
+        return real_discover()
+
+    monkeypatch.setattr(registry.loader, "discover_plugins", discover)
+
+
+async def test_an_update_whose_scan_changes_nothing_puts_the_previous_version_back_and_running(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    _discovery_that_raises_once(registry, monkeypatch)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+    assert str(refused.value).startswith(
+        "demo 1.1.0 did not start (the scan did not pick up its manifest); the installed 1.0.0 is back in place and running."
+    )
+
+
+async def test_a_new_install_whose_scan_changes_nothing_says_the_folder_stays_disabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    _discovery_that_raises_once(registry, monkeypatch)
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo")
+
+    assert str(refused.value) == (
+        "demo 1.0.0 is in the folder demo, but the scan did not find its manifest; it stays there, disabled. "
+        "Remove that folder to install it again."
+    )
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin("demo") is None
+    operations.scan_plugins(repo, registry)
+    assert registry.get_plugin_state("demo") != PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is False
+
+
 async def test_an_update_that_does_not_start_and_cannot_be_undone_keeps_the_previous_version_in_staging(plugins, catalog, monkeypatch):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

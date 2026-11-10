@@ -2602,7 +2602,9 @@ saved under the same name counts as missing:
 InsightFace's model packs also hold a `glintr100.onnx`, under a license for non-commercial use;
 that file is not AuraFace's and is not used. A file's size and digest are checked once for each
 state of the file (its size and modification time), so the first call after a file is put in place
-reads it through.
+reads it through. `face_detector()` and `face_identifier()` make that check too: the first of them
+to run after the file changes reads it through, 260 MB for AuraFace, so call them from a thread as
+well, like the functions that run the models.
 
 The embedder and AuraFace go through the model cache of the application for each call, like any
 other model: they count against its memory budget, stay cached between calls and are evicted under

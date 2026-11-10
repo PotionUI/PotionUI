@@ -258,6 +258,20 @@ def test_faces_whose_landmarks_give_no_alignment_are_refused_before_the_model_lo
     assert lifecycle.stats()["active_leases"] == 0
 
 
+@pytest.mark.parametrize("face", ["image", "image-points-extra", "image-alone", None])
+def test_a_face_that_is_not_an_image_and_its_landmarks_is_refused_with_a_plain_message(tmp_path, lifecycle, known, onnxruntime, monkeypatch, face):
+    sessions = Sessions()
+    monkeypatch.setattr(face_identity, "new_session", sessions)
+    _model(tmp_path)
+    image = Image.new("RGB", (200, 200))
+    shapes = {"image": [image], "image-points-extra": (image, _points(), "extra"), "image-alone": image, None: None}
+    with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path, lifecycle)):
+        with pytest.raises(ValueError, match="Each face is a pair: an image and its five landmarks"):
+            media.identify_faces([(image, _points()), shapes[face]])
+
+    assert sessions.built == []
+
+
 def test_no_faces_load_nothing(tmp_path, lifecycle, monkeypatch):
     sessions = Sessions()
     monkeypatch.setattr(face_identity, "new_session", sessions)

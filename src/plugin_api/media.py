@@ -374,5 +374,8 @@ def identify_faces(faces: Sequence[Any]) -> List[List[float]]:
     model = _identity_model()
     if model is None:
         raise FileNotFoundError(f"{IDENTITY_MODEL} is not in {IDENTITY_DIR} of the home model root")
-    pairs = [(image, landmarks) for image, landmarks in faces]
+    try:
+        pairs = [(image, landmarks) for image, landmarks in faces]
+    except (TypeError, ValueError) as error:
+        raise ValueError("Each face is a pair: an image and its five landmarks") from error
     return contextvars.copy_context().run(face_identity.embed, get_container().model_lifecycle, model, pairs)

@@ -23,6 +23,11 @@ from src.features.plugins.operations.lifecycle import (
     delete_plugin,
 )
 from src.features.plugins.operations.scan import scan_plugins, refresh_known_plugin_hooks
+from src.features.plugins.operations.install import (
+    CatalogInstallError,
+    install_from_catalog,
+    read_catalog,
+)
 from src.features.plugins.operations.settings import (
     PluginManifestUnavailableError,
     update_plugin_settings,
@@ -43,6 +48,9 @@ __all__ = [
     "delete_plugin",
     "scan_plugins",
     "refresh_known_plugin_hooks",
+    "CatalogInstallError",
+    "install_from_catalog",
+    "read_catalog",
     "PluginManifestUnavailableError",
     "update_plugin_settings",
     "encrypt_declared_secrets",

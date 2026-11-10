@@ -47,7 +47,7 @@ def _notify_plugin_lifecycle(level: str, title: str, message: str) -> None:
         logger.error(f"Failed to send plugin lifecycle notification: {e}")
 
 
-def _rescan_presets_and_pipes(
+def rescan_presets_and_pipes(
     preset_loader: Optional[Any],
     pipe_catalog: Optional[Any],
     recipe_catalog: Optional[Any],
@@ -178,7 +178,7 @@ def enable_plugin(
     registry.run_ready_hook(plugin_id)
 
     reset_provider_registry()
-    _rescan_presets_and_pipes(
+    rescan_presets_and_pipes(
         preset_loader, pipe_catalog, recipe_catalog, f"enabling plugin '{plugin_id}'", model_layout_catalog
     )
 
@@ -247,7 +247,7 @@ def disable_plugin(
 
     logger.info(f"Disabled plugin: {plugin_id}")
     reset_provider_registry()
-    _rescan_presets_and_pipes(
+    rescan_presets_and_pipes(
         preset_loader, pipe_catalog, recipe_catalog, f"disabling plugin '{plugin_id}'", model_layout_catalog
     )
 
@@ -291,7 +291,7 @@ def delete_plugin(
         raise ValueError("Failed to delete plugin from database")
 
     if was_enabled:
-        _rescan_presets_and_pipes(
+        rescan_presets_and_pipes(
             preset_loader, pipe_catalog, recipe_catalog, f"deleting enabled plugin '{plugin_id}'", model_layout_catalog
         )
 

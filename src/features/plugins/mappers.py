@@ -6,15 +6,23 @@ API response DTOs. No class, no state - a mapping that needs a collaborator
 the manager/controller holds (e.g. the plugin registry, for runtime state
 enrichment) takes it as an explicit argument.
 """
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from src.features.plugins.dto import (
+    PluginCatalogEntryResponse,
+    PluginCatalogInstallResponse,
+    PluginCatalogProblemResponse,
+    PluginCatalogResponse,
     PluginResponse,
     PluginHookResponse,
     PluginSettingResponse,
 )
 from src.features.plugins.records import Plugin, PluginSetting, PluginHook
 from src.platform.plugins.registry import PluginRegistry
+
+if TYPE_CHECKING:
+    from src.features.plugins.catalog import CatalogProblem
+    from src.features.plugins.operations.install import CatalogItem, CatalogListing, InstallResult
 
 
 def plugin_to_response(plugin: Plugin, registry: PluginRegistry) -> PluginResponse:
@@ -122,4 +130,43 @@ def setting_to_response(setting: PluginSetting) -> PluginSettingResponse:
         setting_value='***' if setting.is_secret else setting.setting_value,
         user_id=setting.user_id,
         is_secret=setting.is_secret
+    )
+
+
+def catalog_item_to_response(item: "CatalogItem") -> PluginCatalogEntryResponse:
+    entry = item.entry
+    return PluginCatalogEntryResponse(
+        id=entry.id,
+        name=entry.name,
+        version=entry.version,
+        description=entry.description,
+        license=entry.license,
+        requires_core=entry.requires_core,
+        archive=entry.archive,
+        sha256=entry.sha256,
+        status=item.status,
+        reason=item.reason,
+        installed_version=item.installed_version,
+    )
+
+
+def catalog_problem_to_response(problem: "CatalogProblem") -> PluginCatalogProblemResponse:
+    return PluginCatalogProblemResponse(index=problem.index, plugin_id=problem.plugin_id, reason=problem.reason)
+
+
+def catalog_to_response(listing: "CatalogListing") -> PluginCatalogResponse:
+    return PluginCatalogResponse(
+        url=listing.url,
+        entries=[catalog_item_to_response(item) for item in listing.items],
+        problems=[catalog_problem_to_response(problem) for problem in listing.problems],
+    )
+
+
+def install_result_to_response(result: "InstallResult") -> PluginCatalogInstallResponse:
+    return PluginCatalogInstallResponse(
+        plugin_id=result.plugin_id,
+        version=result.version,
+        previous_version=result.previous_version,
+        enabled=result.enabled,
+        dependencies_python=list(result.dependencies_python),
     )

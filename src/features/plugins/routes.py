@@ -8,13 +8,22 @@ from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import User
 from src.features.plugins.dto import (
+    PluginCatalogInstallRequest,
+    PluginCatalogRequest,
     PluginDetailResponse,
     PluginPageResponse,
     PluginSettingsUpdateRequest,
 )
-from src.features.plugins.mappers import hook_to_response, plugin_to_response, setting_to_response
+from src.features.plugins.mappers import (
+    catalog_to_response,
+    hook_to_response,
+    install_result_to_response,
+    plugin_to_response,
+    setting_to_response,
+)
 from src.features.plugins import operations
 from src.features.plugins.operations import PluginManifestUnavailableError
+from src.features.plugins.remote import FetchError
 from src.features.plugins.repository import PluginRepository
 from src.platform.plugins.registry import PluginRegistry
 from src.features.providers.registry import refresh_provider_for_plugin
@@ -28,6 +37,8 @@ def _refused(failed_code: str) -> dict:
 
 
 _SETTINGS_UPDATE = {PluginManifestUnavailableError: Fail("plugin_manifest_unavailable", status=409)}
+_CATALOG_REFUSED = {(ValueError, FetchError): Fail("plugin_catalog_refused", status=400)}
+_INSTALL_REFUSED = {(ValueError, FetchError): Fail("plugin_install_refused", status=400)}
 
 
 class PluginController(BaseController):
@@ -215,6 +226,30 @@ class PluginController(BaseController):
                 "errored_plugin_ids": result.errored_plugin_ids,
             },
             message=f"Scan complete: {len(result.new_plugins)} new, {len(result.updated_plugins)} updated"
+        )
+
+    @guarded(_CATALOG_REFUSED, Fail("plugin_catalog_failed", "Failed to read the plugin catalog", 500))
+    async def read_catalog(self, url: str) -> APIResponse:
+        listing = await operations.read_catalog(self.registry, url)
+        return self.success_response(data=catalog_to_response(listing).model_dump())
+
+    @guarded(_INSTALL_REFUSED, Fail("plugin_install_failed", "Failed to install the plugin", 500))
+    async def install_from_catalog(self, url: str, plugin_id: str, version: str, sha256: str) -> APIResponse:
+        result = await operations.install_from_catalog(
+            self.repository,
+            self.registry,
+            url,
+            plugin_id,
+            version=version,
+            sha256=sha256,
+            preset_loader=self.preset_loader,
+            pipe_catalog=self.pipe_catalog,
+            recipe_catalog=self.recipe_catalog,
+            model_layout_catalog=self.model_layout_catalog,
+        )
+        return self.success_response(
+            data=install_result_to_response(result).model_dump(),
+            message=f"Plugin '{result.plugin_id}' {result.version} installed",
         )
 
     # ========== Plugin Settings ==========
@@ -478,6 +513,17 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def scan_plugins(current_user = Depends(get_current_admin_user)):
         """Rescan plugin directories to discover new or updated plugins (admin only)."""
         return await controller.scan_plugins()
+
+    @router.post("/catalog", response_model=APIResponse, summary="Read a Plugin Catalog")
+    async def read_plugin_catalog(request: PluginCatalogRequest, current_user = Depends(get_current_admin_user)):
+        return await controller.read_catalog(request.url)
+
+    @router.post("/catalog/install", response_model=APIResponse, summary="Install a Plugin from a Catalog")
+    async def install_plugin_from_catalog(
+        request: PluginCatalogInstallRequest,
+        current_user = Depends(get_current_admin_user)
+    ):
+        return await controller.install_from_catalog(request.url, request.plugin_id, request.version, request.sha256)
 
     @router.get("/{plugin_id}/settings", response_model=APIResponse, summary="Get Plugin Settings")
     async def get_plugin_settings(

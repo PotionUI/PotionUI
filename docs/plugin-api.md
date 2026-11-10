@@ -3236,6 +3236,120 @@ Two build modes:
 Both modes preserve upstream license notices (`legalComments: 'eof'`) from the bundled
 Svelte runtime and any other bundled dependency.
 
+## Publishing a plugin in a catalog
+
+A plugin that lives outside this repository installs in two ways: cloned or unpacked into
+`content/plugins/local/<id>/` by hand, then **Scan for plugins**; or from a catalog, with
+**Install from catalog** in Admin → Plugins. A catalog is a JSON file served over https:
+
+```json
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "id": "video-producer",
+      "name": "Video Producer",
+      "version": "0.1.0",
+      "description": "Storyboards, takes, editing and delivery for AI video.",
+      "license": "GPL-3.0",
+      "requires": { "core": "0.2.0" },
+      "release": {
+        "archive": "https://example.com/releases/video-producer-0.1.0.zip",
+        "sha256": "<64 lowercase hex digits>"
+      }
+    }
+  ]
+}
+```
+
+- `id` is the plugin folder name and the manifest `id`: lowercase letters, digits, `.`,
+  `_` and `-`, at most 64 characters, not ending with `.`, never a Windows device name
+  (`con`, `nul`, `com1`, ...).
+- `requires.core` is the PotionUI version the release needs: a bare version is a minimum
+  (`"0.2.0"` means `>=0.2.0`), and a range such as `">=0.2,<0.3"` is read as a Python
+  version specifier. An entry whose requirement this PotionUI does not meet, or that is not
+  a version at all, is listed as incompatible and cannot be installed. Other keys of
+  `requires`, and keys PotionUI does not know anywhere in an entry, are ignored.
+- `release` names the archive and its sha256; `null`, or both values `null`, lists the
+  plugin without a release. An entry that breaks these rules, or an id listed twice, is set
+  aside and shown with its reason; the others stay installable.
+
+The archive is a zip holding a single folder named after the id, with `manifest.yml` at
+its root and the built `frontend/dist/`: what `content/plugins/local/<id>/` should hold,
+without tests. The `__MACOSX/` folder the macOS Finder adds next to it is skipped, never
+unpacked. PotionUI refuses the whole archive if any other entry is outside that folder, has
+an absolute path, a `..`, `.` or empty part, a backslash or a `:`, a name Windows cannot
+hold (a device name, a trailing dot or space, a control character), is a link or a special
+file, is encrypted, differs from another only by letter case, or uses a file as a folder,
+and when the archive holds more than 10,000 entries or unpacks to more than 1 GiB. The
+manifest must be valid and carry the `id` and `version` of the catalog entry.
+
+What an install does, in order: it reads the catalog again on the server (the browser
+sends the catalog URL, the plugin id, and the version and sha256 the admin confirmed),
+refuses with nothing written when the entry it reads now lists another version or
+sha256, downloads the archive (at most 128 MiB, within 300 seconds for the archive and 30
+for the catalog, redirects included, and dropped when the host sends nothing for 30
+seconds),
+compares its sha256 with the catalog's before anything is written, unpacks it into a
+staging folder under `content/plugins/local/.potionui-install/`, checks the manifest,
+writes `.potionui-catalog.json` (the catalog URL as given, query included, since it binds
+the plugin to that catalog; the version, archive URL and sha256) into the plugin folder,
+moves the folder into `content/plugins/local/<id>/`, and scans for
+plugins. A new plugin is discovered disabled, like one placed by hand, and stays so across
+a restart even when the database still holds an enabled row for its id from a copy that
+was removed while the server was stopped.
+
+The same id is never installed twice. A plugin that ships with PotionUI
+(`content/plugins/marketplace/`) is listed as bundled; a folder of that id that holds no
+`.potionui-catalog.json` (a clone, a plugin placed by hand), or the id found in another
+folder or in `POTIONUI_EXTRA_PLUGIN_DIRS`, is a conflict; neither is replaced. So is an id
+that differs from an installed plugin's only by `-` and `_` (`foo-bar` and `foo_bar`), since
+both would load as the same Python package. A plugin
+belongs to the catalog it was installed from, the URL kept in its `.potionui-catalog.json`
+(scheme and host compared without case, a default port the same as none, path and query
+exactly): any other catalog that lists its id shows it as a conflict, installed from
+another catalog, and cannot replace it. A plugin installed from this catalog is updated
+only to a strictly newer version, both versions read as Python package versions (PEP 440)
+like `requires.core`: the same version is installed, an older one is listed as older
+than the installed one, and a version either side that is not a PEP 440 version is
+listed as not comparable; none of these offers an action. PEP 440 rules apply as they are:
+`1.0.0+build` counts as newer than `1.0.0`, and after a version with an epoch (`1!0.1`)
+every version without one is older, so a catalog should use plain release numbers. On an
+update, the
+new folder replaces the old one whole, the old one comes back if the move fails, and an
+enabled plugin is enabled again on its new manifest, with presets, pipes and recipes
+rescanned. The old folder waits in the staging folder until the scan that follows the
+move has the plugin back up, and is never deleted before: when that scan fails (a page
+route another plugin already owns, for example), when the new version of an enabled plugin
+does not start (a missing Python package, a hook that fails to register), or when the new
+manifest of any plugin leaves it in error, the old folder goes back in place, an enabled
+plugin is enabled again on it, and the install answers with the reason. A disabled plugin
+takes the new version as it is, since nothing runs it until it is enabled. If the old
+folder cannot be moved back, or the server stops before the check, it stays in
+`content/plugins/local/.potionui-install/`, named in the answer when there is one.
+
+PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
+enable step checks it, and the install answer lists it so the admin knows what to
+install.
+
+Catalog and archive URLs must be https, to a host that resolves to public addresses
+only; every redirect is checked the same way, and the connection goes to the addresses
+that were checked. A host written as a number that is not a full IP address
+(`2130706433`, `127.1`, `0x7f.1`) is refused in every mode, and so is a URL with
+credentials in it. Refusals, statuses and logs name the host, never the whole URL, so a
+token in a query or a signed redirect does not end up in them. For a catalog on a local network or a test server, start PotionUI
+with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`: catalog and archive URLs may then point to
+local and private addresses, and use plain http, but only to such an address. A plain http
+URL to a public address, written as one or a name with any public answer, is refused
+before connecting, a redirect from https to http included; https to public hosts is
+unchanged. Local and private addresses include link-local ones, such as the cloud metadata
+address `169.254.169.254`, so set the variable only on a server where that is acceptable.
+Installing,
+updating and reading a catalog are admin-only (`POST /api/plugins/catalog` and
+`POST /api/plugins/catalog/install`). The sha256 proves the archive is the one the
+catalog names; it says nothing about the catalog itself, so install only from catalogs
+you trust: a plugin runs with the same rights as PotionUI.
+
 ## Related
 
 - [Providers](providers.md) — writing a marketplace provider.

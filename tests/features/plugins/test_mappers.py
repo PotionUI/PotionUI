@@ -9,7 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock
 
-from src.features.plugins.mappers import plugin_to_response
+from src.features.plugins.catalog import CatalogEntry, CatalogProblem
+from src.features.plugins.mappers import catalog_to_response, install_result_to_response, plugin_to_response
+from src.features.plugins.operations import install, lifecycle
+from src.features.plugins.operations.install import CatalogItem, CatalogListing, InstallResult
 from src.features.plugins.records import Plugin
 from src.platform.plugins.loader import PluginManifest
 
@@ -84,3 +87,49 @@ def test_plugin_to_response_falls_back_to_defaults_without_manifest():
     assert result.repository is None
     assert result.hook_count == 0
     assert result.settings_count == 0
+
+
+def test_a_catalog_listing_maps_to_its_response_with_each_entry_status_and_problem():
+    entry = CatalogEntry("demo", "Demo", "1.1.0", "A demo", "MIT", "0.1.0", "https://example.com/demo.zip", "a" * 64)
+    listing = CatalogListing(
+        "https://example.com/plugins.json",
+        [CatalogItem(entry, "update", "", "1.0.0")],
+        [CatalogProblem(1, None, "the entry is not an object")],
+    )
+
+    assert catalog_to_response(listing).model_dump() == {
+        "url": "https://example.com/plugins.json",
+        "entries": [
+            {
+                "id": "demo",
+                "name": "Demo",
+                "version": "1.1.0",
+                "description": "A demo",
+                "license": "MIT",
+                "requires_core": "0.1.0",
+                "archive": "https://example.com/demo.zip",
+                "sha256": "a" * 64,
+                "status": "update",
+                "reason": "",
+                "installed_version": "1.0.0",
+            }
+        ],
+        "problems": [{"index": 1, "plugin_id": None, "reason": "the entry is not an object"}],
+    }
+
+
+def test_an_install_result_maps_to_its_response():
+    result = InstallResult("demo", "1.1.0", "1.0.0", True, ["numpy>=1.24"])
+
+    assert install_result_to_response(result).model_dump() == {
+        "plugin_id": "demo",
+        "version": "1.1.0",
+        "previous_version": "1.0.0",
+        "enabled": True,
+        "dependencies_python": ["numpy>=1.24"],
+    }
+
+
+def test_the_catalog_install_uses_the_public_rescan_of_the_lifecycle():
+    assert install.rescan_presets_and_pipes is lifecycle.rescan_presets_and_pipes
+    assert not hasattr(lifecycle, "_rescan_presets_and_pipes")

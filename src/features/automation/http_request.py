@@ -1,17 +1,15 @@
 import asyncio
 import ipaddress
 import json
-import socket
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import aiohttp
-from aiohttp.abc import AbstractResolver
 
 from src.features.cloud.redaction import is_sensitive_name, redact_headers, scrub_text, secret_fragments
-from src.platform.http.targets import DEFAULT_PORTS, is_public_address, origin_of
+from src.platform.http.targets import DEFAULT_PORTS, BlockedTargetError, PublicOnlyResolver, is_public_address, origin_of
 from src.platform.http.tls import certificate_failure_message, client_ssl_context, is_certificate_error
 
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
@@ -39,10 +37,6 @@ class TransportError(Exception):
     def __init__(self, message: str, *, retryable: bool = True):
         super().__init__(message)
         self.retryable = retryable
-
-
-class BlockedTargetError(OSError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -119,35 +113,6 @@ def validate_url(url: str, allow_private: bool) -> None:
         raise HttpRequestError(f"Requests to {host} are blocked; enable private targets on the node to allow them.")
 
 
-class PublicOnlyResolver(AbstractResolver):
-    def __init__(self, allow_private: bool, lookup: Optional[Callable[..., Awaitable[Any]]] = None):
-        self._allow_private = allow_private
-        self._lookup = lookup
-
-    async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET) -> List[Dict[str, Any]]:
-        lookup = self._lookup or asyncio.get_running_loop().getaddrinfo
-        infos = await lookup(host, port, type=socket.SOCK_STREAM)
-        records: List[Dict[str, Any]] = []
-        for info in infos:
-            address = info[4][0]
-            if not self._allow_private and not is_public_address(address):
-                raise BlockedTargetError(f"{host} resolves to a non-public address; enable private targets on the node to allow it.")
-            records.append({
-                "hostname": host,
-                "host": address,
-                "port": port,
-                "family": info[0],
-                "proto": 0,
-                "flags": socket.AI_NUMERICHOST,
-            })
-        if not records:
-            raise OSError(f"{host} did not resolve")
-        return records
-
-    async def close(self) -> None:
-        return None
-
-
 async def aiohttp_transport(request: PreparedRequest) -> RawResponse:
     connector = aiohttp.TCPConnector(
         ssl=client_ssl_context(),
@@ -181,7 +146,7 @@ async def aiohttp_transport(request: PreparedRequest) -> RawResponse:
         raise TransportError(f"Timed out after {request.timeout_s:g}s.") from error
     except aiohttp.ClientConnectorError as error:
         if isinstance(error.os_error, BlockedTargetError):
-            raise HttpRequestError(str(error.os_error)) from error
+            raise HttpRequestError(f"{error.os_error}; enable private targets on the node to allow it.") from error
         if is_certificate_error(error):
             raise TransportError(certificate_failure_message(host), retryable=False) from error
         raise TransportError(f"Could not reach {host}.") from error

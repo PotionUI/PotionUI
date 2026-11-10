@@ -715,9 +715,6 @@ def test_encode_need_gb_scales_with_input_pixels():
     big = gen._encode_need_gb(torch.zeros(1, 3, 1072, 1920))
     small = gen._encode_need_gb(torch.zeros(1, 3, 512, 512))
     assert big > small
-    # 2MP causal-3D estimate must be large enough to exceed a 32GB card's free
-    # room once a ~15GB DiT is parked -- the whole point of the proactive offload.
-    assert big > 12.0
 
 
 def test_ensure_room_for_encode_offloads_parked_dit_when_estimate_exceeds_free(monkeypatch):

@@ -99,3 +99,35 @@ def test_no_cache_flush_when_the_encode_already_fits(card):
     state = card(free_gb=need + 1.0, idle_cache_gb=3.0)
     gen._ensure_room_for_encode(_pixels(), "cuda:0")
     assert state.empty_cache_calls == 0
+
+
+def test_a_qwen21_edit_left_with_one_gb_free_and_a_full_cache_encodes_whole(card):
+    gen = _gen(_Dit())
+    state = card(free_gb=1.0, idle_cache_gb=8.6)
+    gen._ensure_room_for_encode(_pixels(), "cuda:0")
+    assert state.free_gb == pytest.approx(9.6)
+    assert gen._causal3d_encode_tile_for(_pixels(), "cuda:0") is None
+
+
+@pytest.mark.parametrize(
+    ("h", "w", "peak_reserved_gb"),
+    [(1024, 1024, 3.03), (928, 1664, 4.46), (1072, 1920, 5.96), (768, 1360, 3.03)],
+)
+def test_the_estimate_keeps_a_margin_over_the_measured_whole_encode(h, w, peak_reserved_gb):
+    gen = _gen(_Dit())
+    need = gen._encode_need_gb(_pixels(h, w))
+    assert need >= 1.5 * peak_reserved_gb
+
+
+@pytest.mark.parametrize(("h", "w"), [(1024, 1024), (928, 1664), (768, 1360)])
+def test_reference_images_of_the_qwen_presets_fit_a_cleared_12gb_card_whole(h, w):
+    gen = _gen(_Dit())
+    assert gen._encode_need_gb(_pixels(h, w)) <= 9.6
+
+
+def test_krea2_enhance_2048_still_tiles_on_a_cleared_12gb_card(card):
+    gen = _gen(_Dit())
+    card(free_gb=10.6, idle_cache_gb=0.0)
+    tile = gen._causal3d_encode_tile_for(_pixels(2048, 2048), "cuda:0")
+    assert tile is not None
+    assert tile[0] < 2048

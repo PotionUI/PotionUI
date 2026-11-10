@@ -63,8 +63,8 @@ def _shape_only(h: int, w: int) -> torch.Tensor:
 
 def test_tile_for_krea2_enhance_2048_on_a_12gb_card():
     tile, overlap = _causal3d_encode_tile(10.0, (2048, 2048), 8)
-    assert tile == 880
-    assert overlap == 104
+    assert tile == 1024
+    assert overlap == 128
     assert tile % 8 == 0 and overlap % 8 == 0
     assert overlap < tile
 

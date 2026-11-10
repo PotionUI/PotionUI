@@ -144,14 +144,7 @@ _MIN_DECODE_TILE_LATENT = 16
 # the tiled-vs-untiled fit test and to size the first tile from live free VRAM.
 _CAUSAL3D_DECODE_MB_PER_LATENT_PX = 1.2
 
-# Transient-peak estimate per latent pixel for the causal-3D ref-image ENCODE.
-# Calibrated from a live trace: a ~10GB single conv3d alloc at
-# 1072x1920 (~32.2k latent px @ //8), so ~0.32 MB/latent-px for that one alloc;
-# rounded UP to 0.5 to cover the fuller working set (input + stacked activation
-# buffers), keeping it conservative so a big edit offloads the parked DiT before
-# encoding rather than OOMing against it. Encode runs in compute-dtype (bf16),
-# so it is cheaper than the fp32 decode's 1.2 -- deliberately less than half.
-_CAUSAL3D_ENCODE_MB_PER_LATENT_PX = 0.5
+_CAUSAL3D_ENCODE_MB_PER_LATENT_PX = 0.25
 
 # Fraction of live free VRAM the first tile guess may claim: leaves slack for
 # allocator fragmentation and the assembled fp32 output pixels.

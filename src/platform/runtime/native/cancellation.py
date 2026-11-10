@@ -39,7 +39,7 @@ def cancellation_scope(
     token = _active_scope.set(scope)
     try:
         yield scope
-    except SamplingCancelled as exc:
+    except Exception as exc:
         traceback.clear_frames(exc.__traceback__)
         raise
     finally:

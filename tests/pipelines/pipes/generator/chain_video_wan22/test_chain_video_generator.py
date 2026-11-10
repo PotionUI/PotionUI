@@ -11,13 +11,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List
 from unittest.mock import patch
+import weakref
 
 import numpy as np
 import pytest
 import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput, ParamGenerationOutput
-from src.platform.runtime.native.errors import DecodeNumericsError, SamplingNumericsError
+from src.platform.runtime.native.errors import DecodeNumericsError, SamplingCancelled, SamplingNumericsError
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.chain_video_wan22 import geometry as chain_geometry
@@ -1628,3 +1629,44 @@ def test_sampler_spec_has_no_hardcoded_choices():
     spec = next(s for s in GeneratorWanChainVideoPipe.configuration() if s.name == "sampler")
     assert spec.choices is None
     assert sampler_registry.has(spec.default)
+
+
+class _FailingForward:
+    patch_size = (1, 2, 2)
+    in_dim = 36
+    img_emb = None
+
+    def __init__(self, error):
+        self.error = error
+        self.activations = []
+
+    def __call__(self, x, t, context, **extra):
+        activation = torch.ones(64, 64)
+        self.activations.append(weakref.ref(activation))
+        raise self.error
+
+
+@pytest.mark.parametrize("make_error", [
+    pytest.param(lambda: torch.cuda.OutOfMemoryError("CUDA out of memory"), id="out-of-memory"),
+    pytest.param(lambda: SamplingCancelled(step_index=0), id="cancelled"),
+])
+def test_a_failed_sampling_drops_its_activations_before_the_experts_are_offloaded(make_error):
+    error = make_error()
+    forward = _FailingForward(error)
+    bundle = _bundle(in_dim=36)
+    offloads = []
+    for dit in (bundle.high_dit, bundle.low_dit):
+        dit.module = forward
+        dit.offload = lambda: offloads.append((len(forward.activations), all(ref() is None for ref in forward.activations)))
+    pipe = _pipe(document=_document(n_segments=1, start_on_seg0=True))
+    pi = _inputs(model=bundle, conditioning=_cond(1), image=[torch.rand(8, 8, 3)])
+    fake_decode, _ = _fake_decode_factory()
+    fake_build, _ = _fake_build_i2v_concat_factory()
+
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4",
+               lambda frames, path, fps: Path(path).write_bytes(b"fake")),          patch("src.pipelines.pipes.generator.chain_video_wan22.main.decode_wan_video", side_effect=fake_decode),          patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat", side_effect=fake_build),          _no_stitch(), pytest.raises(type(error)):
+        pipe.process(pi, lambda o: None, is_cancelled=lambda: False)
+
+    assert len(forward.activations) == 1
+    after_failure = [freed for seen, freed in offloads if seen == 1]
+    assert after_failure and all(after_failure)

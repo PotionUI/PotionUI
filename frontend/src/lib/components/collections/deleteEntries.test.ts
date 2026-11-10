@@ -47,6 +47,13 @@ describe('the delete entries dialog copy', () => {
 		expect(copy.confirmLabel).toBe('Delete 12 generations');
 	});
 
+	it('says items in subcollections stay, only when there are subcollections', () => {
+		const sentence = 'Items in its subcollections are not deleted.';
+		expect(deleteEntriesCopy('Blue glass', 2, 'history', true).message).toContain(sentence);
+		expect(deleteEntriesCopy('Blue glass', 2, 'history', false).message).not.toContain(sentence);
+		expect(deleteEntriesCopy('Blue glass', 2, 'history').message).not.toContain(sentence);
+	});
+
 	it('names library entries as items and uses the singular for one', () => {
 		const copy = deleteEntriesCopy('Refs', 1, 'library');
 		expect(copy.message).toContain('Delete all 1 item in “Refs”, with its files?');
@@ -81,6 +88,13 @@ describe('running delete entries', () => {
 		expect(u.confirm).toHaveBeenCalledWith(deleteEntriesCopy('Blue glass', 4, 'history'));
 		expect(a.deleteAll).toHaveBeenCalledWith('col-1');
 		expect(u.success).toHaveBeenCalledWith('Deleted 4 generations.');
+	});
+
+	it('tells the dialog when the collection has subcollections', async () => {
+		const a = actions(2, { deleted: 2, blocked: [], total: 2 });
+		const u = ui(false);
+		await runDeleteEntries({ ...COLLECTION, hasSubcollections: true }, a, u);
+		expect(u.confirm).toHaveBeenCalledWith(deleteEntriesCopy('Blue glass', 2, 'history', true));
 	});
 
 	it('deletes nothing when the dialog is cancelled', async () => {

@@ -69,12 +69,18 @@ function noun(scope: EntriesScope, count: number): string {
 	return count === 1 ? 'item' : 'items';
 }
 
-export function deleteEntriesCopy(name: string, count: number, scope: EntriesScope): ConfirmOptions {
+export function deleteEntriesCopy(
+	name: string,
+	count: number,
+	scope: EntriesScope,
+	hasSubcollections = false
+): ConfirmOptions {
 	const what = `${count} ${noun(scope, count)}`;
 	const files = count === 1 ? 'its files' : 'their files';
+	const nested = hasSubcollections ? ' Items in its subcollections are not deleted.' : '';
 	return {
 		title: 'Delete entries?',
-		message: `Delete all ${what} in “${name}”, with ${files}? ${count === 1 ? 'It is' : 'They are'} deleted everywhere, not only removed from this collection. The collection itself stays. This cannot be undone.`,
+		message: `Delete all ${what} in “${name}”, with ${files}? ${count === 1 ? 'It is' : 'They are'} deleted everywhere, not only removed from this collection. The collection itself stays.${nested} This cannot be undone.`,
 		variant: 'danger',
 		confirmLabel: `Delete ${what}`
 	};
@@ -93,7 +99,7 @@ export function deleteEntriesSummary(result: DeleteEntriesResult, scope: Entries
 }
 
 export async function runDeleteEntries(
-	collection: { id: string; name: string },
+	collection: { id: string; name: string; hasSubcollections?: boolean },
 	actions: CollectionEntriesActions,
 	ui: DeleteEntriesUi
 ): Promise<DeleteEntriesOutcome> {
@@ -108,7 +114,9 @@ export async function runDeleteEntries(
 		ui.info(`“${collection.name}” has no entries to delete.`);
 		return 'empty';
 	}
-	const confirmed = await ui.confirm(deleteEntriesCopy(collection.name, count, actions.scope));
+	const confirmed = await ui.confirm(
+		deleteEntriesCopy(collection.name, count, actions.scope, !!collection.hasSubcollections)
+	);
 	if (!confirmed) return 'cancelled';
 	let result: DeleteEntriesResult;
 	try {

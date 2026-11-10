@@ -3052,28 +3052,51 @@ The scope sits in `:where()`, so it adds no specificity: a rule of the sheet wei
 utility weighs in the app's own CSS, and the sheet, adopted after the app's, wins only ties. A
 host component rendered in the page (a `Button` of `hostComponents`) keeps its `hover:`,
 `focus-visible:` and `disabled:` styles when the plugin uses the same base utility, since those
-variants weigh more than a bare class. One tie remains: a responsive variant of a host component
-(`md:px-4`) weighs the same as a base utility of the sheet (`px-3`) on the same element, so the
-sheet's rule wins at that width. `:where()` needs Chrome or Edge 88, Firefox 78 or Safari 14; the
-app's own `focus-visible:` variant already uses it, and in Firefox and Safari adopting a
-constructed stylesheet needs more (Firefox 101, Safari 16.4).
+variants weigh more than a bare class. One tie remains: a responsive variant weighs what a bare
+class weighs, so a host component whose element carries `px-3 md:px-4` keeps `px-3` at every
+width once the plugin uses `px-3` anywhere, because the sheet's `px-3` comes after the app's
+`md:px-4`. `:where()` needs Chrome or Edge 88, Firefox 78 or Safari 14; the app's own
+`focus-visible:` variant already uses it, and in Firefox and Safari adopting a constructed
+stylesheet needs more (Firefox 101, Safari 16.4).
 
 `GET /api/plugins/pages/{route}` answers `stylesheet`, the path of `<Component>.css` in
 `frontend/dist/` when the file is there, `null` otherwise. The plugin page route fetches the
 sheet with the bundle, keeps only the rules that stay inside the page element, adopts the sheet
 before it mounts the page, and removes it when the page unmounts. A kept style rule has
 selectors that each start with the plugin's `:where([data-potionui-plugin="<id>"])`, the scope
-alone inside `:where()`, followed by nothing, a descendant or a child combinator; `@media`, `@supports`, `@container` and `@layer` blocks are
-looked into, `@keyframes` and `@font-face` are kept, and everything else (`@import`, `@page`,
-a selector that starts elsewhere or reaches a sibling of the page) is dropped, with a console
-warning in development. The sheet therefore applies to the plugin page only, and to nothing
-once the user leaves it.
+alone inside `:where()`, followed by nothing, a descendant or a child combinator, and holds no
+nested rules; `@media`, `@supports`, `@container` and `@layer` blocks are looked into,
+`@keyframes` and `@font-face` are kept, and everything else (`@import`, `@page`, a selector that
+starts elsewhere or reaches a sibling of the page, a style rule with nested rules) is dropped,
+with a console warning in development. The sheet therefore applies to the plugin page only, and
+to nothing once the user leaves it.
 
-Two consequences for the plugin's markup. An element the plugin moves out of its page element,
-for example appended to `document.body`, is outside the scope: give its root the attribute
-`data-potionui-plugin` with the plugin id, or render it with the host components, which carry
-the app's own classes. And a selector cannot depend on an ancestor of the page element:
-`[data-theme='light'] .x` never matches, so use the tokens, which already follow the theme.
+Limits of the page stylesheet:
+
+- **Content outside the page element.** Content the plugin moves out of its page element, such
+  as its own dropdown or modal portalled to `document.body`, gets nothing from the sheet. Render
+  it with the host components, which carry the app's own classes, or give its root the attribute
+  `data-potionui-plugin` with the plugin id, which brings the sheet to the root's descendants but
+  not to the root itself. The plugins of this repository do not show the problem because the
+  app's Tailwind build still scans them.
+- **Selectors on the document root.** Only `:root`, `html` and `body` written alone at the start
+  of a selector become the page element. `:root[data-theme='light'] .x`, `html.dark .x`,
+  `body:hover .x`, and any selector that depends on an ancestor of the page element such as
+  `[data-theme='light'] .x`, stay in the sheet under the page, where they never match, and no
+  warning says so. They are not supported: the utilities read the app's tokens and already
+  follow the theme.
+- **CSS nesting.** Nesting in the plain CSS written after `@tailwind utilities;` is not
+  supported: the scope prefix breaks `&` rules, and the page drops any style rule that holds
+  nested rules.
+- **Global names.** `@keyframes` and `@font-face` names are global while the page is open: a
+  plugin's `@keyframes spin` replaces the app's `spin`, and a `font-family` it declares applies
+  wherever the app uses that name. Prefix your own names with the plugin id
+  (`@keyframes video-producer-pulse`).
+- **Responsive variants of host components.** As said above, a host component's `md:px-4` loses
+  to the sheet's `px-3` when the component's element carries both and the plugin uses `px-3`.
+  The host components that change a utility at a breakpoint are the page layout ones
+  (`PageHeader`, `PageContainer`, `PageTitle`) and several of `detail/` and `library/`;
+  `Button` and the other controls of `ui/` do not.
 
 A plugin without the file, which is every plugin in this repository, gets `stylesheet: null`
 and loads as before.

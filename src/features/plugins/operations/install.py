@@ -42,10 +42,6 @@ class CatalogInstallError(ValueError):
     pass
 
 
-class _PreviousKept(CatalogInstallError):
-    pass
-
-
 @dataclass(frozen=True)
 class CatalogItem:
     entry: CatalogEntry
@@ -270,13 +266,13 @@ async def _restore_previous(
     target: Path,
     was_enabled: bool,
     collaborators: dict,
+    failure: str,
 ) -> None:
     plugin_id = item.entry.id
-    failure = registry.get_plugin_error(plugin_id) or "it did not start"
     try:
         await asyncio.to_thread(_put_previous_back, placement, target)
     except OSError as error:
-        raise _PreviousKept(
+        raise CatalogInstallError(
             f"{plugin_id} {item.entry.version} did not start ({failure}), and the installed "
             f"{item.installed_version} could not be put back ({error}); it is kept in "
             f"{STAGING_FOLDER}/{placement.staging.name}/previous."
@@ -287,10 +283,19 @@ async def _restore_previous(
         f"the installed {item.installed_version} is back in place"
     )
     if was_enabled:
-        try:
-            enable_plugin(repo, registry, plugin_id, **collaborators)
-        except Exception as error:
-            raise CatalogInstallError(f"{message}, but did not start again either: {error}") from error
+        if registry.get_plugin_state(plugin_id) == PluginState.ENABLED:
+            rescan_presets_and_pipes(
+                collaborators["preset_loader"],
+                collaborators["pipe_catalog"],
+                collaborators["recipe_catalog"],
+                f"restore of plugin {plugin_id}",
+                collaborators["model_layout_catalog"],
+            )
+        else:
+            try:
+                enable_plugin(repo, registry, plugin_id, **collaborators)
+            except Exception as error:
+                raise CatalogInstallError(f"{message}, but did not start again either: {error}") from error
         message += " and running"
     logger.warning(message)
     raise CatalogInstallError(f"{message}.")
@@ -340,15 +345,22 @@ async def install_from_catalog(
         was_enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
         local_dir = local_plugin_dir(registry)
         placement = await asyncio.to_thread(_place, data, item, local_dir, url)
+        target = local_dir / plugin_id
         try:
-            scan_plugins(repo, registry)
+            try:
+                scan_plugins(repo, registry)
+            except Exception as error:
+                if placement.previous is None:
+                    raise
+                failure = f"the scan failed: {type(error).__name__}: {error}"
+                await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
             state = registry.get_plugin_state(plugin_id)
             if placement.previous is not None and not _came_back(was_enabled, state):
-                await _restore_previous(repo, registry, item, placement, local_dir / plugin_id, was_enabled, collaborators)
-        except _PreviousKept:
-            raise
+                failure = registry.get_plugin_error(plugin_id) or "it did not start"
+                await _restore_previous(repo, registry, item, placement, target, was_enabled, collaborators, failure)
         except BaseException:
-            await asyncio.to_thread(_discard_staging, placement.staging)
+            if placement.previous is None or not placement.previous.exists():
+                await asyncio.to_thread(_discard_staging, placement.staging)
             raise
         await asyncio.to_thread(_discard_staging, placement.staging)
         if item.status == "available":

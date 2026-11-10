@@ -425,6 +425,35 @@ async def test_an_update_that_does_not_start_puts_the_previous_version_back_and_
     preset_loader.reload.assert_called()
 
 
+async def test_an_update_whose_scan_fails_puts_the_previous_version_back_and_running(plugins, catalog):
+    registry, repo, _, local = plugins
+    other = local / "other"
+    other.mkdir()
+    (other / "manifest.yml").write_bytes(
+        _manifest("other", "1.0.0", pages=[{"route": "shared-page", "component": "Page", "label": "Other"}])
+    )
+    operations.scan_plugins(repo, registry)
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    taken = _manifest("demo", "1.1.0", pages=[{"route": "shared-page", "component": "Page", "label": "Demo"}])
+    catalog.publish("demo", "1.1.0", _archive("demo", "1.1.0", manifest=taken, extra=[("demo/payload.py", b"print('new')")]))
+    preset_loader = Mock()
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "demo", preset_loader=preset_loader)
+
+    assert "demo 1.1.0 did not start (the scan failed: IntegrityError" in str(refused.value)
+    assert "the installed 1.0.0 is back in place and running." in str(refused.value)
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert not (local / "demo" / "payload.py").exists()
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+    assert sorted(path.name for path in local.iterdir()) == ["demo", "other"]
+    preset_loader.reload.assert_called()
+
+
 async def test_a_disabled_plugin_takes_an_update_its_new_code_would_not_start_with_since_nothing_runs_it(plugins, catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

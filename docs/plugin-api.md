@@ -3290,13 +3290,15 @@ than the installed one, and a version either side that is not a PEP 440 version 
 listed as not comparable; none of these offers an action. On an update, the
 new folder replaces the old one whole, the old one comes back if the move fails, and an
 enabled plugin is enabled again on its new manifest, with presets, pipes and recipes
-rescanned. The old folder waits in the staging folder until the plugin is back up: when
-the new version of an enabled plugin does not start (a missing Python package, a hook that
-fails to register), or the new manifest of any plugin leaves it in error, the old folder
-goes back in place, an enabled plugin is enabled again on it, and the install answers
-with the reason. A disabled plugin takes the new version as it is, since nothing runs it
-until it is enabled. If the old folder cannot be moved back, it stays in
-`content/plugins/local/.potionui-install/` and the answer names it.
+rescanned. The old folder waits in the staging folder until the scan that follows the
+move has the plugin back up, and is never deleted before: when that scan fails (a page
+route another plugin already owns, for example), when the new version of an enabled plugin
+does not start (a missing Python package, a hook that fails to register), or when the new
+manifest of any plugin leaves it in error, the old folder goes back in place, an enabled
+plugin is enabled again on it, and the install answers with the reason. A disabled plugin
+takes the new version as it is, since nothing runs it until it is enabled. If the old
+folder cannot be moved back, or the server stops before the check, it stays in
+`content/plugins/local/.potionui-install/`, named in the answer when there is one.
 
 PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
 enable step checks it, and the install answer lists it so the admin knows what to

@@ -204,6 +204,13 @@ def _checked_manifest(unpacked: Path, entry: CatalogEntry) -> PluginManifestSche
 
 
 @dataclass(frozen=True)
+class _Staged:
+    manifest: PluginManifestSchema
+    staging: Path
+    unpacked: Path
+
+
+@dataclass(frozen=True)
 class _Placement:
     manifest: PluginManifestSchema
     staging: Path
@@ -218,18 +225,27 @@ def _discard_staging(staging: Path) -> None:
         pass
 
 
-def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) -> _Placement:
+def _stage(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) -> _Staged:
     entry = item.entry
     staging_root = local_dir / STAGING_FOLDER
     staging_root.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(dir=staging_root))
-    previous = None
     try:
         unpacked = unpack_plugin_archive(data, entry.id, staging / "new")
         manifest = _checked_manifest(unpacked, entry)
         record = {"catalog": catalog_url, "id": entry.id, "version": entry.version, "archive": entry.archive, "sha256": entry.sha256}
         (unpacked / INSTALL_RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-        target = local_dir / entry.id
+        return _Staged(manifest, staging, unpacked)
+    except BaseException:
+        _discard_staging(staging)
+        raise
+
+
+def _place(staged: _Staged, item: CatalogItem, local_dir: Path) -> _Placement:
+    staging, unpacked = staged.staging, staged.unpacked
+    target = local_dir / item.entry.id
+    previous = None
+    try:
         if item.status == "update":
             if _install_record(target) is None:
                 raise CatalogInstallError(f"The folder {target.name} changed since the catalog was read; nothing was replaced.")
@@ -250,7 +266,7 @@ def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) ->
             if target.exists():
                 raise CatalogInstallError(f"The folder {target.name} appeared since the catalog was read; nothing was replaced.")
             os.replace(unpacked, target)
-        return _Placement(manifest, staging, previous)
+        return _Placement(staged.manifest, staging, previous)
     except BaseException:
         if previous is None or not previous.exists():
             _discard_staging(staging)
@@ -399,6 +415,8 @@ async def install_from_catalog(
             recipe_catalog=recipe_catalog,
             model_layout_catalog=model_layout_catalog,
         )
+        local_dir = local_plugin_dir(registry)
+        staged = await asyncio.to_thread(_stage, data, item, local_dir, url)
         was_enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
         row_was_enabled = _row_enabled(repo, plugin_id)
         if row_was_enabled:
@@ -406,9 +424,8 @@ async def install_from_catalog(
         took_down_an_earlier_copy = item.status == "available" and was_enabled
         if took_down_an_earlier_copy:
             _disable(repo, registry, plugin_id, collaborators)
-        local_dir = local_plugin_dir(registry)
         try:
-            placement = await asyncio.to_thread(_place, data, item, local_dir, url)
+            placement = await asyncio.to_thread(_place, staged, item, local_dir)
         except Exception as error:
             if item.status == "update" and not (local_dir / plugin_id).exists():
                 _disable(repo, registry, plugin_id, collaborators)

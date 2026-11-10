@@ -542,6 +542,32 @@ async def test_an_update_whose_scan_raises_and_whose_put_back_is_cancelled_leave
     assert repo.get_plugin_by_id("demo").enabled is False
 
 
+async def test_an_update_stopped_while_the_archive_is_unpacked_leaves_the_installed_version_enabled(plugins, catalog, monkeypatch):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    catalog.publish("demo", "1.1.0")
+    rows_while_unpacking = []
+    real_unpack = install_ops.unpack_plugin_archive
+
+    def unpack(*args):
+        rows_while_unpacking.append(repo.get_plugin_by_id("demo").enabled)
+        real_unpack(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(install_ops, "unpack_plugin_archive", unpack)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _install(repo, registry, catalog, "demo")
+
+    assert rows_while_unpacking == [True]
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert [path.name for path in local.iterdir()] == ["demo"]
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
+    assert repo.get_plugin_by_id("demo").enabled is True
+
+
 @pytest.mark.parametrize("status", ["update", "available"])
 async def test_an_install_whose_placement_fails_leaves_the_row_as_it_was(plugins, catalog, status):
     registry, repo, _, local = plugins
@@ -962,15 +988,23 @@ async def test_an_update_whose_restore_scan_fails_leaves_the_installed_version_i
     assert str(refused.value).endswith(f"the installed 1.0.0 is back in place, but {reason}, so demo is disabled.")
 
 
-async def test_a_new_install_that_fails_after_taking_down_an_earlier_copy_leaves_its_row_disabled(plugins, catalog):
+async def test_a_new_install_that_fails_after_taking_down_an_earlier_copy_leaves_its_row_disabled(plugins, catalog, monkeypatch):
     registry, repo, _, local = plugins
     _write_plugin(local / "demo", "demo", "0.9.0", record=False)
     operations.scan_plugins(repo, registry)
     assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
     shutil.rmtree(local / "demo")
-    catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "6.6.6")))
+    catalog.publish("demo", "1.0.0")
+    real_replace = install_ops.os.replace
 
-    with pytest.raises(CatalogInstallError, match="holds demo 6.6.6"):
+    def replace(source, target):
+        if Path(target) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(OSError, match="in use"):
         await _install(repo, registry, catalog, "demo")
 
     assert registry.get_plugin_state("demo") != PluginState.ENABLED
@@ -1146,7 +1180,7 @@ def test_an_update_of_a_folder_that_lost_its_install_record_replaces_nothing(plu
     item = CatalogItem(_entry(version="1.1.0"), "update", installed_version="1.0.0")
 
     with pytest.raises(CatalogInstallError, match="^The folder demo changed since the catalog was read"):
-        install_ops._place(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json")
+        install_ops._place(install_ops._stage(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json"), item, local)
 
     assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
     assert [path.name for path in local.iterdir()] == ["demo"]
@@ -1158,7 +1192,7 @@ def test_a_new_install_over_a_folder_that_appeared_meanwhile_replaces_nothing(pl
     item = CatalogItem(_entry(), "available")
 
     with pytest.raises(CatalogInstallError, match="^The folder demo appeared since the catalog was read"):
-        install_ops._place(_archive("demo", "1.0.0"), item, local, "https://example.com/plugins.json")
+        install_ops._place(install_ops._stage(_archive("demo", "1.0.0"), item, local, "https://example.com/plugins.json"), item, local)
 
     assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "0.1.0")
     assert [path.name for path in local.iterdir()] == ["demo"]
@@ -1178,7 +1212,7 @@ def test_an_update_whose_move_fails_puts_the_installed_version_back(plugins, mon
     monkeypatch.setattr(install_ops.os, "replace", replace)
 
     with pytest.raises(OSError, match="in use"):
-        install_ops._place(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json")
+        install_ops._place(install_ops._stage(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json"), item, local)
 
     assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
     assert [path.name for path in local.iterdir()] == ["demo"]
@@ -1198,7 +1232,7 @@ def test_an_update_whose_move_and_move_back_both_fail_keeps_the_installed_versio
     monkeypatch.setattr(install_ops.os, "replace", replace)
 
     with pytest.raises(CatalogInstallError, match="^The folder demo could not be replaced .*in use.* nor put back .*in use.*; the installed 1.0.0 is kept in .potionui-install/.*/previous.$"):
-        install_ops._place(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json")
+        install_ops._place(install_ops._stage(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json"), item, local)
 
     kept = list((local / STAGING_FOLDER).glob("*/previous"))
     assert len(kept) == 1

@@ -8,8 +8,43 @@ import { get } from 'svelte/store';
 import { pageOwnsKeys } from '$lib/utils/shortcutGuard';
 import { registerDismissLayer, resetLayerStackForTests } from '$lib/actions/layerStack';
 import { selectionDeleteIntent } from '$lib/utils/deleteShortcut';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 let received: KeyboardEvent[] = [];
+
+interface ShippedBinding {
+	action_id: string;
+	key: string;
+	modifiers: string;
+	context: string;
+}
+
+const MIGRATIONS = join(process.cwd(), '..', 'src', 'platform', 'database', 'migrations');
+
+function shippedDefaults(): ShippedBinding[] {
+	const rows = new Map<string, ShippedBinding>();
+	for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith('.py')).sort()) {
+		const text = readFileSync(join(MIGRATIONS, file), 'utf8');
+		const baseline = text.match(/KEYBINDING_ROWS = \[(.*)\]/)?.[1] ?? '';
+		for (const row of baseline.matchAll(/\('([a-z_]+)', '([^']*)', '([^']*)', '[^']*', '[a-z]+', '([a-z]+)'/g)) {
+			rows.set(row[1], { action_id: row[1], key: row[2], modifiers: row[3], context: row[4] });
+		}
+		const action = text.match(/_ACTION_ID = "([a-z_]+)"/)?.[1];
+		if (!action) continue;
+		const seeded = text.match(/INTO keybinding_defaults[\s\S]*?VALUES \(\?, '([^']*)', '([^']*)', '[^']*', '[a-z]+', '([a-z]+)'/);
+		if (seeded) rows.set(action, { action_id: action, key: seeded[1], modifiers: seeded[2], context: seeded[3] });
+		else if (/DELETE FROM keybinding_defaults/.test(text)) rows.delete(action);
+	}
+	return [...rows.values()];
+}
+
+async function loadOnly(bindings: ShippedBinding[]) {
+	keybindingsStore.reset();
+	const keybindings = bindings.map((binding) => ({ ...binding, label: binding.action_id, category: 'general', enabled: true, is_custom: false }));
+	vi.spyOn(api, 'getKeybindings').mockResolvedValue({ success: true, data: { keybindings } });
+	await keybindingsStore.loadBindings();
+}
 
 beforeEach(async () => {
 	received = [];
@@ -17,10 +52,7 @@ beforeEach(async () => {
 	keybindingsStore.reset();
 	const keybindings = [
 		{ action_id: 'delete_current_generation', key: 'Delete', modifiers: '', context: 'generate', category: 'generation' },
-		{ action_id: 'new_tab', key: 't', modifiers: '', context: 'generate', category: 'generation' },
-		{ action_id: 'show_help', key: '?', modifiers: '', context: 'global', category: 'general' },
-		{ action_id: 'search_everything', key: 'k', modifiers: 'ctrl', context: 'global', category: 'general' },
-		{ action_id: 'recorded_enter', key: 'Enter', modifiers: 'ctrl', context: 'global', category: 'general' }
+		{ action_id: 'new_tab', key: 't', modifiers: '', context: 'generate', category: 'generation' }
 	].map((binding) => ({ ...binding, label: binding.action_id, enabled: true, is_custom: false }));
 	vi.spyOn(api, 'getKeybindings').mockResolvedValue({ success: true, data: { keybindings } });
 	await keybindingsStore.loadBindings();
@@ -62,19 +94,34 @@ describe('the Delete shortcut on the generate page', () => {
 		expect(globalBindingFor(new KeyboardEvent('keydown', { key: 'Backspace' }))).toBeNull();
 	});
 
-	it('keeps letter, symbol and modifier bindings matching, and matches other named keys as recorded', () => {
+	it('keeps every shipped default shortcut firing on its own key and only on it', async () => {
+		const defaults = shippedDefaults();
+		expect(defaults.map((binding) => binding.action_id)).toEqual(
+			expect.arrayContaining(['show_help', 'new_tab', 'toggle_floating_workbench', 'save_session', 'delete_current_generation'])
+		);
+		expect(defaults.filter((binding) => binding.key.length > 1).map((binding) => binding.action_id)).toEqual(['delete_current_generation']);
+		await loadOnly(defaults);
 		const key = (k: string, init: KeyboardEventInit = {}) => new KeyboardEvent('keydown', { key: k, ...init });
-		for (const actionId of ['new_tab', 'show_help', 'search_everything', 'recorded_enter']) {
-			keybindingsStore.registerHandler(actionId, () => {});
+		for (const binding of defaults) {
+			keybindingsStore.registerHandler(binding.action_id, () => {});
 		}
-		expect(globalBindingFor(key('t'))?.actionId).toBe('new_tab');
-		expect(globalBindingFor(key('T', { shiftKey: true }))).toBeNull();
-		expect(globalBindingFor(key('?', { shiftKey: true }))?.actionId).toBe('show_help');
-		expect(globalBindingFor(key('k', { ctrlKey: true }))?.actionId).toBe('search_everything');
-		expect(globalBindingFor(key('k'))).toBeNull();
-		expect(globalBindingFor(key('Enter', { ctrlKey: true }))?.actionId).toBe('recorded_enter');
-		expect(globalBindingFor(key('Enter'))).toBeNull();
-		expect(globalBindingFor(key('Delete', { ctrlKey: true }))).toBeNull();
+		for (const binding of defaults) {
+			const own = { shiftKey: binding.modifiers.includes('shift') || binding.key === '?' };
+			expect(globalBindingFor(key(binding.key, own))?.actionId, binding.action_id).toBe(binding.action_id);
+			for (const extra of ['ctrlKey', 'altKey', 'metaKey'] as const) {
+				expect(globalBindingFor(key(binding.key, { ...own, [extra]: true }))?.actionId, `${binding.action_id} ${extra}`).not.toBe(binding.action_id);
+			}
+			if (/^[a-z]$/.test(binding.key)) {
+				expect(globalBindingFor(key(binding.key.toUpperCase(), { shiftKey: true }))?.actionId, `${binding.action_id} shift`).not.toBe(binding.action_id);
+			}
+		}
+	});
+
+	it('matches a named key someone recorded with a modifier', async () => {
+		await loadOnly([{ action_id: 'recorded_enter', key: 'Enter', modifiers: 'ctrl', context: 'global' }]);
+		keybindingsStore.registerHandler('recorded_enter', () => {});
+		expect(globalBindingFor(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }))?.actionId).toBe('recorded_enter');
+		expect(globalBindingFor(new KeyboardEvent('keydown', { key: 'Enter' }))).toBeNull();
 	});
 
 	it('shows as Delete in the shortcuts list and tooltips', () => {

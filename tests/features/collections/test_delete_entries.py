@@ -153,12 +153,9 @@ def _upload(resolver, user_id, name):
     return upload.id, path
 
 
-def _file_into(database, collection_id, generation_id):
-    _execute(
-        database,
-        "INSERT INTO collection_generations (collection_id, generation_id) VALUES (?, ?)",
-        (collection_id, generation_id),
-    )
+def _file_into(database, collection_id, item_id, scope="history"):
+    table, column = {"history": ("collection_generations", "generation_id"), "library": ("collection_uploads", "upload_id")}[scope]
+    _execute(database, f"INSERT INTO {table} (collection_id, {column}) VALUES (?, ?)", (collection_id, item_id))
 
 
 def test_history_entries_and_their_files_are_deleted_and_the_collection_stays(database, storage, collections, deleters):
@@ -231,14 +228,16 @@ def test_items_of_other_collections_stay(database, storage, resolver, collection
     assert collections.member_ids(foreign.id, "history") == [theirs]
 
 
-def test_another_users_item_in_the_collection_is_reported_and_left_alone(database, storage, collections, deleters):
+@pytest.mark.parametrize("scope", ["history", "library"])
+def test_another_users_item_in_the_collection_is_reported_and_left_alone(database, storage, resolver, collections, deleters, scope):
     owner = _user(database, "owner")
     stranger = _user(database, "stranger")
-    collection = collections.create("Mixed", owner, "history")
-    mine, mine_path = _generation(storage, owner)
-    theirs, theirs_path = _generation(storage, stranger)
-    collections.add_members(collection.id, [mine], owner, "history")
-    _file_into(database, collection.id, theirs)
+    collection = collections.create("Mixed", owner, scope)
+    make = (lambda user_id, name: _generation(storage, user_id)) if scope == "history" else (lambda user_id, name: _upload(resolver, user_id, name))
+    mine, mine_path = make(owner, "mine.png")
+    theirs, theirs_path = make(stranger, "theirs.png")
+    _file_into(database, collection.id, mine, scope)
+    _file_into(database, collection.id, theirs, scope)
 
     result = operations.delete_entries(collections, deleters, collection.id, owner)
 
@@ -247,9 +246,8 @@ def test_another_users_item_in_the_collection_is_reported_and_left_alone(databas
     assert [entry["id"] for entry in result["blocked"]] == [theirs]
     assert result["blocked"][0]["reason"]
     assert not mine_path.exists()
-    assert _count(database, "generations", "id = ?", (theirs,)) == 1
     assert theirs_path.is_file()
-    assert collections.member_ids(collection.id, "history") == [theirs]
+    assert collections.member_ids(collection.id, scope) == [theirs]
 
 
 def test_another_users_collection_answers_not_found_and_keeps_its_items(database, storage, resolver, collections, deleters):

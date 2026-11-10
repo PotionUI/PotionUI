@@ -3264,7 +3264,9 @@ manifest must be valid and carry the `id` and `version` of the catalog entry.
 What an install does, in order: it reads the catalog again on the server (the browser
 sends the catalog URL, the plugin id, and the version and sha256 the admin confirmed),
 refuses with nothing written when the entry it reads now lists another version or
-sha256, downloads the archive (at most 128 MiB),
+sha256, downloads the archive (at most 128 MiB, within 300 seconds for the archive and 30
+for the catalog, redirects included, and dropped when the host sends nothing for 30
+seconds),
 compares its sha256 with the catalog's before anything is written, unpacks it into a
 staging folder under `content/plugins/local/.potionui-install/`, checks the manifest,
 writes `.potionui-catalog.json` (the catalog URL, version, archive URL and sha256) into

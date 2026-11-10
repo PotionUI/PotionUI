@@ -12,6 +12,7 @@ from src.platform.http.tls import certificate_failure_message, client_ssl_contex
 
 ALLOW_LOCAL_SOURCES_ENV = "POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL"
 MAX_REDIRECTS = 5
+READ_TIMEOUT_S = 30.0
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _CHUNK = 65536
@@ -97,6 +98,7 @@ async def fetch_bytes(
     timeout_s: float,
     allow_local: bool,
     lookup: Optional[Lookup] = None,
+    read_timeout_s: float = READ_TIMEOUT_S,
 ) -> bytes:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_s
@@ -109,7 +111,10 @@ async def fetch_bytes(
             resolver=_SourceResolver(allow_local, local_only, lookup),
             use_dns_cache=False,
         )
-        timeout = aiohttp.ClientTimeout(total=max(deadline - loop.time(), 0.001))
+        remaining = max(deadline - loop.time(), 0.001)
+        timeout = aiohttp.ClientTimeout(
+            total=remaining, sock_connect=min(read_timeout_s, remaining), sock_read=min(read_timeout_s, remaining)
+        )
         try:
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
                 async with session.get(url, allow_redirects=False) as response:
@@ -130,7 +135,9 @@ async def fetch_bytes(
                             raise FetchError(f"{url} is larger than {max_bytes} bytes.")
                     return bytes(body)
         except asyncio.TimeoutError as error:
-            raise FetchError(f"{host} did not answer within {timeout_s:g}s.") from error
+            raise FetchError(
+                f"{host} did not answer within {timeout_s:g}s, or sent nothing for {read_timeout_s:g}s."
+            ) from error
         except aiohttp.ClientConnectorError as error:
             if isinstance(error.os_error, _PublicOverPlainHttp):
                 raise _plain_http_to_public(host) from error

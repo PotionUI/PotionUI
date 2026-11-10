@@ -100,6 +100,26 @@ async def test_a_declared_length_over_the_limit_is_refused_before_the_body_arriv
         await server.close()
 
 
+async def test_a_source_that_stops_sending_is_dropped_after_the_read_timeout_not_the_total_one():
+    async def stalled(request):
+        response = web.StreamResponse()
+        response.content_length = 1000
+        await response.prepare(request)
+        await response.write(b"x" * 10)
+        await asyncio.sleep(5)
+        return response
+
+    server = await _serve({"/stalled": stalled})
+    try:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        with pytest.raises(FetchError, match="sent nothing for 0.5s"):
+            await fetch_bytes(_url(server, "/stalled"), max_bytes=10_000, timeout_s=20, allow_local=True, read_timeout_s=0.5)
+        assert loop.time() - started < 4
+    finally:
+        await server.close()
+
+
 async def test_an_error_status_is_refused_with_the_status():
     server = await _serve({"/missing": lambda request: web.Response(status=404)})
     try:

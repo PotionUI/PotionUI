@@ -44,7 +44,7 @@ describe('catalog entries', () => {
 	});
 
 	it('name every status', () => {
-		expect(catalogStatusLabel('conflict')).toBe('Installed by hand');
+		expect(catalogStatusLabel('conflict')).toBe('Installed elsewhere');
 		expect(catalogStatusLabel('bundled')).toBe('Ships with PotionUI');
 	});
 });

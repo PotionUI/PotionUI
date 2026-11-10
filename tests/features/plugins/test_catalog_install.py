@@ -43,11 +43,18 @@ def _archive(plugin_id: str, version: str, *, manifest: bytes = None, extra=()) 
     return buffer.getvalue()
 
 
-def _write_plugin(folder: Path, plugin_id: str, version: str, *, record: bool) -> None:
+CATALOG_A = "https://a.example.com/plugins.json"
+CATALOG_B = "https://b.example.com/plugins.json"
+
+
+def _write_plugin(folder: Path, plugin_id: str, version: str, *, record: bool, catalog=CATALOG_A) -> None:
     folder.mkdir(parents=True)
     (folder / "manifest.yml").write_bytes(_manifest(plugin_id, version))
     if record:
-        (folder / INSTALL_RECORD).write_text(json.dumps({"id": plugin_id, "version": version}))
+        fields = {"id": plugin_id, "version": version}
+        if catalog is not None:
+            fields["catalog"] = catalog
+        (folder / INSTALL_RECORD).write_text(json.dumps(fields))
 
 
 class Catalog:
@@ -82,14 +89,26 @@ class Catalog:
         return web.Response(status=404)
 
 
-@pytest.fixture
-async def catalog(monkeypatch):
-    monkeypatch.setenv(ALLOW_LOCAL_SOURCES_ENV, "1")
+async def _serve_catalog() -> Catalog:
     served = Catalog()
     app = web.Application()
     app.router.add_get("/{tail:.*}", served.handle)
     served.server = TestServer(app, host="127.0.0.1")
     await served.server.start_server()
+    return served
+
+
+@pytest.fixture
+async def catalog(monkeypatch):
+    monkeypatch.setenv(ALLOW_LOCAL_SOURCES_ENV, "1")
+    served = await _serve_catalog()
+    yield served
+    await served.server.close()
+
+
+@pytest.fixture
+async def other_catalog(catalog):
+    served = await _serve_catalog()
     yield served
     await served.server.close()
 
@@ -112,7 +131,7 @@ def _entry(plugin_id="demo", version="1.0.0", core="0.1.0", archive="https://exa
 def test_an_entry_absent_from_this_install_is_available(plugins):
     registry, _, _, local = plugins
 
-    assert catalog_item(_entry(), registry, local).status == "available"
+    assert catalog_item(_entry(), registry, local, CATALOG_A).status == "available"
 
 
 def test_an_entry_bundled_with_potionui_is_not_installable(plugins):
@@ -120,7 +139,7 @@ def test_an_entry_bundled_with_potionui_is_not_installable(plugins):
     _write_plugin(marketplace / "demo", "demo", "1.0.0", record=False)
     registry.discover_plugins()
 
-    item = catalog_item(_entry(version="2.0.0"), registry, local)
+    item = catalog_item(_entry(version="2.0.0"), registry, local, CATALOG_A)
 
     assert (item.status, item.installed_version) == ("bundled", "1.0.0")
 
@@ -130,7 +149,7 @@ def test_a_hand_placed_local_folder_of_the_same_id_is_a_conflict(plugins):
     _write_plugin(local / "demo", "demo", "1.0.0", record=False)
     registry.discover_plugins()
 
-    item = catalog_item(_entry(version="2.0.0"), registry, local)
+    item = catalog_item(_entry(version="2.0.0"), registry, local, CATALOG_A)
 
     assert item.status == "conflict"
     assert "was not installed from a catalog" in item.reason
@@ -141,7 +160,7 @@ def test_the_same_id_installed_under_another_folder_is_a_conflict(plugins):
     _write_plugin(local / "demo-checkout", "demo", "1.0.0", record=False)
     registry.discover_plugins()
 
-    item = catalog_item(_entry(version="2.0.0"), registry, local)
+    item = catalog_item(_entry(version="2.0.0"), registry, local, CATALOG_A)
 
     assert item.status == "conflict"
     assert "demo-checkout" in item.reason
@@ -151,7 +170,7 @@ def test_a_folder_of_that_name_without_a_manifest_is_a_conflict(plugins):
     registry, _, _, local = plugins
     (local / "demo").mkdir()
 
-    assert catalog_item(_entry(), registry, local).status == "conflict"
+    assert catalog_item(_entry(), registry, local, CATALOG_A).status == "conflict"
 
 
 def test_a_catalog_install_of_the_listed_version_is_installed_and_of_another_version_can_be_updated(plugins):
@@ -159,19 +178,53 @@ def test_a_catalog_install_of_the_listed_version_is_installed_and_of_another_ver
     _write_plugin(local / "demo", "demo", "1.0.0", record=True)
     registry.discover_plugins()
 
-    assert catalog_item(_entry(version="1.0.0"), registry, local).status == "installed"
-    item = catalog_item(_entry(version="1.1.0"), registry, local)
+    assert catalog_item(_entry(version="1.0.0"), registry, local, CATALOG_A).status == "installed"
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_A)
     assert (item.status, item.installed_version) == ("update", "1.0.0")
+
+
+def test_a_plugin_installed_from_one_catalog_is_a_conflict_in_another_catalog_that_lists_its_id(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=CATALOG_A)
+    registry.discover_plugins()
+
+    for version in ("1.0.0", "9.0.0"):
+        item = catalog_item(_entry(version=version), registry, local, CATALOG_B)
+        assert (item.status, item.installed_version) == ("conflict", "1.0.0")
+        assert "installed from another catalog" in item.reason
+        assert CATALOG_A in item.reason
+
+
+def test_an_install_record_without_its_catalog_is_a_conflict(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=None)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_A)
+
+    assert item.status == "conflict"
+    assert "installed from another catalog (unknown)" in item.reason
+
+
+def test_the_catalog_a_plugin_came_from_is_recognised_whatever_the_case_of_its_host_or_an_explicit_default_port(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=CATALOG_A)
+    registry.discover_plugins()
+
+    for url in ("HTTPS://A.Example.com/plugins.json", "https://a.example.com:443/plugins.json"):
+        assert catalog_item(_entry(version="1.1.0"), registry, local, url).status == "update"
+    for url in ("https://a.example.com/other.json", "https://a.example.com/plugins.json?v=2", "https://a.example.com:8443/plugins.json"):
+        assert catalog_item(_entry(version="1.1.0"), registry, local, url).status == "conflict"
 
 
 def test_an_entry_without_a_release_or_for_another_core_is_not_installable(plugins):
     registry, _, _, local = plugins
 
-    assert catalog_item(_entry(archive=None), registry, local).status == "unreleased"
-    item = catalog_item(_entry(core="9.0.0"), registry, local)
+    assert catalog_item(_entry(archive=None), registry, local, CATALOG_A).status == "unreleased"
+    item = catalog_item(_entry(core="9.0.0"), registry, local, CATALOG_A)
     assert item.status == "incompatible"
     assert "needs PotionUI >=9.0.0" in item.reason
-    assert catalog_item(_entry(core="02cce6fdd"), registry, local).status == "incompatible"
+    assert catalog_item(_entry(core="02cce6fdd"), registry, local, CATALOG_A).status == "incompatible"
 
 
 async def test_reading_a_catalog_gives_each_entry_its_status(plugins, catalog):
@@ -287,6 +340,25 @@ async def test_a_failed_update_leaves_the_installed_version_in_place(plugins, ca
 
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+async def test_another_catalog_that_lists_the_same_id_cannot_replace_the_installed_plugin(plugins, catalog, other_catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
+    other_catalog.publish("demo", "2.0.0", _archive("demo", "2.0.0", extra=[("demo/payload.py", b"print('other')")]))
+
+    listing = await operations.read_catalog(registry, other_catalog.url())
+    assert [(item.status, item.installed_version) for item in listing.items] == [("conflict", "1.0.0")]
+    with pytest.raises(CatalogInstallError, match="installed from another catalog"):
+        await operations.install_from_catalog(repo, registry, other_catalog.url(), "demo")
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert not (local / "demo" / "payload.py").exists()
+    assert json.loads((local / "demo" / INSTALL_RECORD).read_text())["catalog"] == catalog.url()
+    assert registry.get_plugin("demo").version == "1.0.0"
+    assert registry.get_plugin_state("demo") == PluginState.ENABLED
 
 
 @pytest.mark.parametrize("status", ["installed", "conflict", "bundled", "incompatible"])

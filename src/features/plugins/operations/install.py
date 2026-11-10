@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Optional
+from urllib.parse import urlsplit
 
 from src.features.plugins.archive import unpack_plugin_archive
 from src.features.plugins.catalog import CatalogEntry, CatalogProblem, core_mismatch, parse_catalog
@@ -16,6 +17,7 @@ from src.features.plugins.operations.scan import scan_plugins
 from src.features.plugins.remote import fetch_bytes, local_sources_allowed
 from src.features.plugins.repository import PluginRepository
 from src.platform.filesystem.yaml_io import load_yaml
+from src.platform.http.targets import origin_of
 from src.platform.plugins.manifest import PluginManifestSchema
 from src.platform.plugins.registry import PluginRegistry, PluginState
 from src.platform.version import POTIONUI_VERSION
@@ -77,7 +79,25 @@ def _same_folder(first: Any, second: Path) -> bool:
         return False
 
 
-def catalog_item(entry: CatalogEntry, registry: PluginRegistry, local_dir: Path, core_version: str = POTIONUI_VERSION) -> CatalogItem:
+def _same_catalog(recorded: Any, url: str) -> bool:
+    if not isinstance(recorded, str) or not recorded.strip():
+        return False
+    first, second = recorded.strip(), url.strip()
+    first_parts, second_parts = urlsplit(first), urlsplit(second)
+    try:
+        same_origin = origin_of(first) == origin_of(second)
+    except ValueError:
+        return False
+    return same_origin and (first_parts.path, first_parts.query) == (second_parts.path, second_parts.query)
+
+
+def catalog_item(
+    entry: CatalogEntry,
+    registry: PluginRegistry,
+    local_dir: Path,
+    catalog_url: str,
+    core_version: str = POTIONUI_VERSION,
+) -> CatalogItem:
     folder = local_dir / entry.id
     manifest = registry.get_plugin(entry.id)
     if manifest is not None and manifest.source == "marketplace":
@@ -98,6 +118,14 @@ def catalog_item(entry: CatalogEntry, registry: PluginRegistry, local_dir: Path,
                 manifest.version if manifest is not None else None,
             )
         installed_version = manifest.version if manifest is not None else str(record.get("version") or "")
+        if not _same_catalog(record.get("catalog"), catalog_url):
+            return CatalogItem(
+                entry,
+                "conflict",
+                f"This plugin was installed from another catalog ({record.get('catalog') or 'unknown'}); "
+                "only that catalog updates it.",
+                installed_version,
+            )
         if installed_version == entry.version:
             return CatalogItem(entry, "installed", "", installed_version)
 
@@ -121,7 +149,7 @@ async def read_catalog(registry: PluginRegistry, url: str) -> CatalogListing:
     )
     entries, problems = parse_catalog(data)
     local_dir = local_plugin_dir(registry)
-    return CatalogListing(url, [catalog_item(entry, registry, local_dir) for entry in entries], problems)
+    return CatalogListing(url, [catalog_item(entry, registry, local_dir, url) for entry in entries], problems)
 
 
 def _checked_manifest(unpacked: Path, entry: CatalogEntry) -> PluginManifestSchema:

@@ -51,7 +51,7 @@ const STATUS_LABELS: Record<PluginCatalogStatus, string> = {
 	update: 'Update available',
 	installed: 'Installed',
 	bundled: 'Ships with PotionUI',
-	conflict: 'Installed by hand',
+	conflict: 'Installed elsewhere',
 	incompatible: 'Incompatible',
 	unreleased: 'Not released'
 };

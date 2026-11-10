@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fixtures.db_template import _remove_template_directory
+from tests.fixtures.db_template import remove_template_directory
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PREFIX = "potionui-test-db-template-"
@@ -100,7 +100,7 @@ def test_another_process_never_removes_the_directory(tmp_path):
     directory.mkdir()
     (directory / "template.sqlite").write_bytes(b"")
 
-    _remove_template_directory(directory, os.getpid() + 1)
+    remove_template_directory(directory, os.getpid() + 1)
 
     assert (directory / "template.sqlite").is_file()
 
@@ -110,13 +110,13 @@ def test_the_owning_process_removes_the_directory(tmp_path):
     directory.mkdir()
     (directory / "template.sqlite").write_bytes(b"")
 
-    _remove_template_directory(directory, os.getpid())
+    remove_template_directory(directory, os.getpid())
 
     assert not directory.exists()
 
 
 def test_a_missing_directory_is_not_an_error(tmp_path):
-    _remove_template_directory(tmp_path / f"{PREFIX}gone", os.getpid())
+    remove_template_directory(tmp_path / f"{PREFIX}gone", os.getpid())
 
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="needs os.fork")

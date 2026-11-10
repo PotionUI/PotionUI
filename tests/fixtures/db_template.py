@@ -1,103 +1,17 @@
-import atexit
-import importlib
-import io
-import os
-import shutil
-import sqlite3
-import tempfile
-import threading
-from contextlib import contextmanager, redirect_stdout
-from pathlib import Path
-from typing import Optional
+from src.platform.database.testing import (
+    build_template,
+    checkpoint_wal,
+    copy_template_db,
+    load_template_into_connection,
+    remove_template_directory,
+    template_db_path,
+)
 
-from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
-from src.platform.database.sql_functions import register_sql_functions
-
-_lock = threading.Lock()
-_template_path: Optional[Path] = None
-
-
-def checkpoint_wal(path: Path) -> None:
-    conn = sqlite3.connect(path)
-    try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    finally:
-        conn.close()
-
-
-def _build_template(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    database_module = importlib.import_module("src.platform.database.database")
-    migration_runner_module = importlib.import_module("src.platform.database.migration_runner")
-
-    previous_instance = Database._instance
-    previous_db = database_module.db
-    previous_migration_db = migration_runner_module.db
-
-    Database._instance = None
-    template_db = Database()
-    template_db.db_path = path
-    template_db.db_path.parent.mkdir(exist_ok=True)
-    template_db._initialized = True
-    build_connection = sqlite3.connect(path, check_same_thread=False)
-    build_connection.row_factory = sqlite3.Row
-    register_sql_functions(build_connection)
-    build_connection.execute("PRAGMA journal_mode = MEMORY").close()
-    build_connection.execute("PRAGMA synchronous = OFF").close()
-    build_connection.execute("PRAGMA foreign_keys = ON").close()
-
-    @contextmanager
-    def shared_connection():
-        yield build_connection
-
-    template_db.get_connection = shared_connection
-    database_module.db = template_db
-    migration_runner_module.db = template_db
-    try:
-        with redirect_stdout(io.StringIO()):
-            MigrationRunner().run_migrations()
-    finally:
-        Database._instance = previous_instance
-        database_module.db = previous_db
-        migration_runner_module.db = previous_migration_db
-        build_connection.close()
-
-    checkpoint_wal(path)
-
-
-def _remove_template_directory(directory: Path, owner_pid: int) -> None:
-    if os.getpid() != owner_pid:
-        return
-    shutil.rmtree(directory, ignore_errors=True)
-
-
-def template_db_path() -> Path:
-    global _template_path
-    with _lock:
-        if _template_path is None:
-            directory = Path(tempfile.mkdtemp(prefix="potionui-test-db-template-"))
-            atexit.register(_remove_template_directory, directory, os.getpid())
-            path = directory / "template.sqlite"
-            _build_template(path)
-            _template_path = path
-        return _template_path
-
-
-def copy_template_db(dest_path: Path, *, template_path: Optional[Path] = None) -> None:
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(template_path or template_db_path(), dest_path)
-
-
-def load_template_into_connection(*, template_path: Optional[Path] = None) -> sqlite3.Connection:
-    target = sqlite3.connect(":memory:", check_same_thread=False)
-    source = sqlite3.connect(template_path or template_db_path())
-    try:
-        source.backup(target)
-    finally:
-        source.close()
-    target.row_factory = sqlite3.Row
-    target.execute("PRAGMA foreign_keys = ON")
-    target.execute("PRAGMA busy_timeout = 30000")
-    return target
+__all__ = [
+    "build_template",
+    "checkpoint_wal",
+    "copy_template_db",
+    "load_template_into_connection",
+    "remove_template_directory",
+    "template_db_path",
+]

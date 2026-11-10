@@ -7,7 +7,7 @@ import pytest
 from src.features.llm.harness.store import step_from_row
 from src.platform.database.database import Database
 from src.platform.database.migration_runner import MigrationRunner
-from tests.fixtures.db_template import _build_template
+from tests.fixtures.db_template import build_template
 from tests.fixtures.persistence_base import make_lean_file_database
 from tests.platform.database._support import load_migration
 
@@ -21,7 +21,7 @@ def previous_template(tmp_path_factory):
     with patch.object(
         MigrationRunner, "get_available_migrations", lambda self: [name for name in available(self) if name < NAME]
     ):
-        _build_template(path)
+        build_template(path)
     return path
 
 

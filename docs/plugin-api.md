@@ -66,6 +66,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Generation** — submitting, previewing, following and reading generations | `.generation` | `submit_generation`, `preview_memory`, `cancel_generation`, `generation_state`, `generation_record`, `generation_failure` (administrators only), `generation_active`, `list_generation_files`, `resolve_media_ref`, `get_session`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict`, and the errors `submit_generation` and `preview_memory` let through, to catch by type: `FormBindingError` (a `ValueError`: the form does not bind), `FormNotFoundException` (no form of that name), `NoBackendForEngineError` and `NoEligibleBackendError` (both `RuntimeError`: no backend can run the request) |
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `plugin_settings`, `Settings`, `SettingRepository`, `PluginRepository` |
+| **Testing** — running your plugin's tests against a scratch database | `.testing` | `scratch_database(path, *, core_schema=True)` (a new database in the file `path`, created on the spot: `FileExistsError` when the file already exists, `ValueError` for the application's own database file even before it exists; it carries the tables of every core migration, or no table at all with `core_schema=False`, and it is not the application's database until `use_database` makes it so), `use_database(database)` (a `with` block during which `db` and every repository behind this API read and write `database`; the database in place before comes back when the block ends, even when it raises). Both are loaded the first time a test asks for them, never by importing `src.plugin_api`. See [Testing your plugin against a scratch database](#testing-your-plugin-against-a-scratch-database) |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe`, `StreamingMp4Writer(out_path, width, height, fps)` (pipes RGB uint8 frames to ffmpeg into a video-only MP4; `write`, `close`, `abort`, or a `with` block; raises `FFmpegNotFoundError` when ffmpeg is missing), `has_audio_stream(path)`, `mux_audio_from_source(video_only, source, out_path)` (video of one file plus audio of another, stream-copied or AAC; returns `False` and leaves no partial file when there is no audio or ffmpeg fails), the frame schedule of frame interpolation, the one `interpolator/rife` uses: `source_per_output(src_fps, factor=2, target_fps=0.0)` (source frames per output frame, an exact `Fraction`: `1/factor`, or `src_fps/target_fps` with both rates as fractions), `output_fps(src_fps, factor=2, target_fps=0.0)`, `output_count(n_source, ratio)` (output frames for `n_source` source frames, the duration kept) and `slot(index, ratio)` (a `Slot`: output frame `index` lies between source frames `left` and `left + 1` at `t` in [0, 1), `t` snapped to 0 within 1e-3), so two interpolators given the same clip place the same frames, NTSC rates on long clips included; `extract_frame(user, ref, at="last", purpose="user_upload")` and `save_user_media(user, path, purpose="user_upload")` (async; one frame of a video the user may see, or a file the plugin wrote, stored as the user's upload and returned as a `StoredMedia`; see [Working with the user's media](#working-with-the-users-media)), `media_local_path(user, ref)` (the path on this server of the file of a media the user may see, or `None` when the storage keeps it elsewhere), `copy_media_file(user, ref, target)` (streams that file into a file of the plugin), `upload_formats()` (the file extensions the Library takes, by `media_type`), `StoredMedia`, and the media reference names of `.generation`: `resolve_media_ref`, `MediaRefError`, `HistoryMediaRef`, `LibraryMediaRef`, `ResolvedMedia` |
 | **Models** — model metadata fields, provider links, resolving a model's file/folder across roots, and acting on catalog models | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `ModelFileUnavailable` (raised by `resolve_model_file` when the model's file is not reachable), `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path(path, admin=False)`, `model_for_sha256(sha256, *, size=None, hash_candidates="background", admin=False)` (the indexed model with that hash, or `None`; pass the file's `size` in bytes and a local copy that has not been hashed yet but has exactly that size can match as well: `"background"` queues at most eight of those candidates per call at the normal, rate-capped priority and answers `None` until they are done, `"paced"` verifies at most two of them through the rate-capped pool, waiting up to 15 minutes, `"inline"` hashes up to eight of them before answering at full speed, `"never"` only looks; `ValueError` for any other mode; unscoped; both leave out the operational fields - location, file size, hash - unless `admin=True`, for a caller that has checked the user is an admin), the hook `model_index.after_digests` (payload `model_ids`, at most once every 5 seconds: files finished being hashed, so a model's `sha256` is now known), `visible_model_ids(user_id)` (the models assigned to a user, directly or through their groups), `assign_model_to_user(model_id, user_id)` (`True` when newly assigned; fires `model_index.before_assign` / `after_assign`; raises `ModelAssignmentException`), `update_model_metadata(model_id, values)` (sets some shared attribute values, validated against the type's definitions; raises `InvalidModelMetadataException`, `ModelNotFoundException`), `run_provider_fetch(provider, model_ids)` (async; hashes any model that has no digest yet, one after another, then fills empty description, triggers, tags and previews from a provider plugin; `{"successful", "failed", "errors"}`; raises `ProviderFetchException` for an unknown or uninitialised provider, or a `model_index.before_fetch_info` veto), `ProviderFetchException`, `directory_aliases()`, `type_for_folder_name`, `model_types()` (the registered model types, plugin types included, read at call time), `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
 | **Downloads** — queueing a download and following it | `.downloads` | `queue_model_download(url, *, filename=None, model_type=None, subdir=None, tags=None, checksum_sha256=None, provider_id=None, created_by=None, destination_backend_id=None)` (async; the queued download as a dict; raises `DownloadQueueException`, or its `UnsafeFilenameException` and `DownloadDestinationInvalid` subtypes - the latter when the subfolder, directory or remote backend cannot be used, as opposed to a queue that is blocked), `get_download(download_id)` (the download's current state, or `None`), `DownloadNotFoundException`. Declare the `download.after_complete` hook to be told when a download has landed (`download_id`, `created_by` ...; `model_id` or `duplicate_of` only for a plain local model download, the one kind indexed on completion) |
@@ -3448,6 +3449,58 @@ for meanwhile is refused with "Another plugin install from a catalog is in progr
 queued. The sha256 proves the archive is the one the
 catalog names; it says nothing about the catalog itself, so install only from catalogs
 you trust: a plugin runs with the same rights as PotionUI.
+
+## Testing your plugin against a scratch database
+
+Your plugin's tests must never touch the application's database. `scratch_database` makes a
+throwaway one in a file of the test's temporary folder, and `use_database` makes it the
+application's database for the length of a `with` block: `db`, and every repository behind this
+API (`SettingRepository`, `PluginRepository`, `plugin_settings`, ...), read and write it, and the
+database in place before comes back when the block ends, even when the test fails inside it.
+
+```python
+import pytest
+
+
+@pytest.fixture
+def plugin_db(tmp_path):
+    from src.plugin_api import scratch_database, use_database
+
+    from backend.tables import create_tables
+
+    with use_database(scratch_database(tmp_path / "test.sqlite")) as database:
+        create_tables()
+        yield database
+```
+
+- **The core schema.** A scratch database carries the tables of every core migration, so a
+  table of your plugin can reference `users(id)` and a core repository finds its own tables.
+  The migrations run once per test process, into a folder of the system's temporary directory;
+  each scratch database is a copy of their result. Pass `core_schema=False` for an empty
+  database, for a test that checks exactly which tables your plugin creates.
+- **Your own tables.** Create them inside the block by calling the function your
+  `plugin.lifecycle.boot` handler calls (see
+  [Initializing your plugin](#initializing-your-plugin-boot-vs-enable)). It reads `db` when it
+  runs, so it writes to the scratch database exactly as it writes to the application's at boot.
+  Code that binds `db` once, at the top of a module, keeps the database that was in place then:
+  import it inside the function that uses it.
+- **A new file only.** `scratch_database` creates its file before it returns and refuses a
+  path that already exists, so a test can never overwrite a database it did not make, and two
+  tests given the same path cannot end up sharing one. It also refuses the application's own
+  database file, `storage/db.sqlite` or the file `POTIONUI_DB_PATH` names, even when that file
+  does not exist yet.
+- **One block at a time.** `use_database` swaps the database for the whole process. Blocks
+  nest, each one putting back the database it replaced, but two blocks opened at the same time
+  on different threads would put back the wrong one. Parallel runs are safe: each pytest-xdist
+  worker is a process of its own, with its own temporary folders and its own copy of the
+  migrations.
+- **Only in tests.** Importing `src.plugin_api` does not load these two names; they load the
+  first time a test asks for them. Never open `use_database` in running plugin code: every
+  request the application serves while the block is open would read and write the scratch
+  database.
+- **Nothing else.** Do not patch the module `db` comes from or build its class yourself: both
+  are internal and change without notice. These two names are the supported way to swap the
+  database.
 
 ## Related
 

@@ -107,10 +107,13 @@ export function readPluginCatalog(url: string): Promise<PluginCatalog> {
 	return post<PluginCatalog>('/api/plugins/catalog', { url }, 'Failed to read the plugin catalog');
 }
 
-export function installFromCatalog(url: string, pluginId: string): Promise<PluginCatalogInstallResult> {
+export function installFromCatalog(
+	url: string,
+	entry: Pick<PluginCatalogEntry, 'id' | 'version' | 'sha256'>
+): Promise<PluginCatalogInstallResult> {
 	return post<PluginCatalogInstallResult>(
 		'/api/plugins/catalog/install',
-		{ url, plugin_id: pluginId },
+		{ url, plugin_id: entry.id, version: entry.version, sha256: entry.sha256 },
 		'Failed to install the plugin'
 	);
 }

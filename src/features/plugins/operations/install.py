@@ -228,6 +228,8 @@ async def install_from_catalog(
     url: str,
     plugin_id: str,
     *,
+    version: str,
+    sha256: str,
     preset_loader: Optional[Any] = None,
     pipe_catalog: Optional[Any] = None,
     recipe_catalog: Optional[Any] = None,
@@ -238,6 +240,11 @@ async def install_from_catalog(
         item = next((candidate for candidate in listing.items if candidate.entry.id == plugin_id), None)
         if item is None:
             raise CatalogInstallError(f"The catalog lists no installable plugin {plugin_id!r}.")
+        if (item.entry.version, item.entry.sha256) != (version, sha256):
+            raise CatalogInstallError(
+                f"The catalog now lists {plugin_id} {item.entry.version} with the sha256 {item.entry.sha256}, "
+                f"not the {version} with the sha256 {sha256} you confirmed; nothing was installed. Read the catalog again."
+            )
         if item.status not in INSTALLABLE:
             raise CatalogInstallError(item.reason or f"{plugin_id} {item.entry.version} is already installed.")
 

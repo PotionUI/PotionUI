@@ -20,6 +20,8 @@ class PluginCatalogRequest(BaseModel):
 class PluginCatalogInstallRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     plugin_id: str = Field(min_length=1, max_length=64)
+    version: str = Field(min_length=1, max_length=128)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 # ========== Response DTOs ==========

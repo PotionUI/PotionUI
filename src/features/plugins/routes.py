@@ -258,12 +258,14 @@ class PluginController(BaseController):
         return self.success_response(data=_catalog_response(listing).model_dump())
 
     @guarded(_INSTALL_REFUSED, Fail("plugin_install_failed", "Failed to install the plugin", 500))
-    async def install_from_catalog(self, url: str, plugin_id: str) -> APIResponse:
+    async def install_from_catalog(self, url: str, plugin_id: str, version: str, sha256: str) -> APIResponse:
         result = await operations.install_from_catalog(
             self.repository,
             self.registry,
             url,
             plugin_id,
+            version=version,
+            sha256=sha256,
             preset_loader=self.preset_loader,
             pipe_catalog=self.pipe_catalog,
             recipe_catalog=self.recipe_catalog,
@@ -552,7 +554,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         request: PluginCatalogInstallRequest,
         current_user = Depends(get_current_admin_user)
     ):
-        return await controller.install_from_catalog(request.url, request.plugin_id)
+        return await controller.install_from_catalog(request.url, request.plugin_id, request.version, request.sha256)
 
     @router.get("/{plugin_id}/settings", response_model=APIResponse, summary="Get Plugin Settings")
     async def get_plugin_settings(

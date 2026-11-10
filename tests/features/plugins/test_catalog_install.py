@@ -113,6 +113,20 @@ async def other_catalog(catalog):
     await served.server.close()
 
 
+async def _install(repo, registry, served: Catalog, plugin_id: str, **collaborators):
+    listed = next((entry for entry in served.entries if entry["id"] == plugin_id), None)
+    seen = listed["release"] if listed else {"sha256": "0" * 64}
+    return await operations.install_from_catalog(
+        repo,
+        registry,
+        served.url(),
+        plugin_id,
+        version=listed["version"] if listed else "1.0.0",
+        sha256=seen["sha256"],
+        **collaborators,
+    )
+
+
 @pytest.fixture
 def plugins(tmp_path, mock_db):
     marketplace = tmp_path / "marketplace"
@@ -275,7 +289,7 @@ async def test_installing_puts_the_plugin_in_local_with_its_install_record_and_d
     catalog.publish("demo", "1.0.0")
     preset_loader = Mock()
 
-    result = await operations.install_from_catalog(repo, registry, catalog.url(), "demo", preset_loader=preset_loader)
+    result = await _install(repo, registry, catalog, "demo", preset_loader=preset_loader)
 
     preset_loader.reload.assert_not_called()
 
@@ -299,7 +313,7 @@ async def test_an_archive_whose_sha256_differs_from_the_catalog_writes_nothing(p
     catalog.publish("demo", "1.0.0", sha256="0" * 64)
 
     with pytest.raises(CatalogInstallError, match="sha256"):
-        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+        await _install(repo, registry, catalog, "demo")
 
     assert list(local.iterdir()) == []
     assert registry.get_plugin("demo") is None
@@ -310,7 +324,7 @@ async def test_an_archive_that_holds_another_plugin_or_version_writes_nothing(pl
     catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "6.6.6")))
 
     with pytest.raises(CatalogInstallError, match="holds demo 6.6.6"):
-        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+        await _install(repo, registry, catalog, "demo")
 
     assert list(local.iterdir()) == []
 
@@ -320,7 +334,7 @@ async def test_an_archive_with_a_path_outside_its_folder_writes_nothing(plugins,
     catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", extra=[("demo/../../escape.py", b"x")]))
 
     with pytest.raises(ValueError, match="'..' part"):
-        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+        await _install(repo, registry, catalog, "demo")
 
     assert list(local.iterdir()) == []
     assert not (tmp_path / "escape.py").exists()
@@ -331,7 +345,7 @@ async def test_an_archive_with_an_invalid_manifest_writes_nothing(plugins, catal
     catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", manifest=_manifest("demo", "1.0.0", unknown_key=True)))
 
     with pytest.raises(CatalogInstallError, match="manifest in the archive is not valid"):
-        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+        await _install(repo, registry, catalog, "demo")
 
     assert list(local.iterdir()) == []
 
@@ -339,12 +353,12 @@ async def test_an_archive_with_an_invalid_manifest_writes_nothing(plugins, catal
 async def test_updating_replaces_the_catalog_install_and_keeps_the_plugin_enabled(plugins, catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")
-    await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    await _install(repo, registry, catalog, "demo")
     assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
     catalog.publish("demo", "1.1.0")
     preset_loader = Mock()
 
-    result = await operations.install_from_catalog(repo, registry, catalog.url(), "demo", preset_loader=preset_loader)
+    result = await _install(repo, registry, catalog, "demo", preset_loader=preset_loader)
 
     preset_loader.reload.assert_called_once_with()
     assert (local / "demo" / "README.md").read_text() == "demo 1.1.0\n"
@@ -358,26 +372,72 @@ async def test_updating_replaces_the_catalog_install_and_keeps_the_plugin_enable
 async def test_a_failed_update_leaves_the_installed_version_in_place(plugins, catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")
-    await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    await _install(repo, registry, catalog, "demo")
     catalog.publish("demo", "1.1.0", _archive("demo", "1.1.0", extra=[("demo/CON", b"x")]))
 
     with pytest.raises(ValueError):
-        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+        await _install(repo, registry, catalog, "demo")
 
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert [path.name for path in local.iterdir()] == ["demo"]
 
 
+@pytest.mark.parametrize("change", ["archive", "version"])
+async def test_a_catalog_that_changes_after_the_admin_confirmed_installs_nothing(plugins, catalog, change):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    confirmed = dict(catalog.entries[0])
+    if change == "archive":
+        catalog.publish("demo", "1.0.0", _archive("demo", "1.0.0", extra=[("demo/payload.py", b"print('swapped')")]))
+    else:
+        catalog.publish("demo", "1.1.0")
+
+    with pytest.raises(CatalogInstallError, match="not the 1.0.0 with the sha256 .* you confirmed; nothing was installed"):
+        await operations.install_from_catalog(
+            repo,
+            registry,
+            catalog.url(),
+            "demo",
+            version=confirmed["version"],
+            sha256=confirmed["release"]["sha256"],
+        )
+
+    assert list(local.iterdir()) == []
+    assert registry.get_plugin("demo") is None
+
+
+async def test_an_update_installs_only_the_version_and_archive_the_admin_confirmed(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+    await _install(repo, registry, catalog, "demo")
+    catalog.publish("demo", "1.1.0")
+    confirmed = dict(catalog.entries[0])
+    catalog.publish("demo", "1.2.0")
+
+    with pytest.raises(CatalogInstallError, match="now lists demo 1.2.0"):
+        await operations.install_from_catalog(
+            repo,
+            registry,
+            catalog.url(),
+            "demo",
+            version=confirmed["version"],
+            sha256=confirmed["release"]["sha256"],
+        )
+
+    assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
+    assert registry.get_plugin("demo").version == "1.0.0"
+
+
 async def test_a_catalog_that_goes_back_to_an_older_version_cannot_downgrade_the_installed_plugin(plugins, catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.1.0")
-    await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    await _install(repo, registry, catalog, "demo")
     catalog.publish("demo", "1.0.0")
 
     listing = await operations.read_catalog(registry, catalog.url())
     assert [(item.status, item.installed_version) for item in listing.items] == [("older", "1.1.0")]
     with pytest.raises(CatalogInstallError, match="older than the installed 1.1.0"):
-        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+        await _install(repo, registry, catalog, "demo")
 
     assert (local / "demo" / "README.md").read_text() == "demo 1.1.0\n"
     assert registry.get_plugin("demo").version == "1.1.0"
@@ -386,14 +446,14 @@ async def test_a_catalog_that_goes_back_to_an_older_version_cannot_downgrade_the
 async def test_another_catalog_that_lists_the_same_id_cannot_replace_the_installed_plugin(plugins, catalog, other_catalog):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")
-    await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+    await _install(repo, registry, catalog, "demo")
     assert repo.enable_plugin("demo") and registry.enable_plugin("demo")
     other_catalog.publish("demo", "2.0.0", _archive("demo", "2.0.0", extra=[("demo/payload.py", b"print('other')")]))
 
     listing = await operations.read_catalog(registry, other_catalog.url())
     assert [(item.status, item.installed_version) for item in listing.items] == [("conflict", "1.0.0")]
     with pytest.raises(CatalogInstallError, match="installed from another catalog"):
-        await operations.install_from_catalog(repo, registry, other_catalog.url(), "demo")
+        await _install(repo, registry, other_catalog, "demo")
 
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert not (local / "demo" / "payload.py").exists()
@@ -407,7 +467,7 @@ async def test_an_entry_that_is_not_installable_is_refused_with_its_reason(plugi
     registry, repo, marketplace, local = plugins
     if status == "installed":
         catalog.publish("demo", "1.0.0")
-        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+        await _install(repo, registry, catalog, "demo")
     elif status == "conflict":
         _write_plugin(local / "demo", "demo", "0.9.0", record=False)
         catalog.publish("demo", "1.0.0")
@@ -420,7 +480,7 @@ async def test_an_entry_that_is_not_installable_is_refused_with_its_reason(plugi
     before = sorted(path.name for path in local.rglob("*"))
 
     with pytest.raises(CatalogInstallError):
-        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+        await _install(repo, registry, catalog, "demo")
 
     assert sorted(path.name for path in local.rglob("*")) == before
 
@@ -430,7 +490,7 @@ async def test_a_plugin_the_catalog_does_not_list_is_refused(plugins, catalog):
     catalog.publish("demo", "1.0.0")
 
     with pytest.raises(CatalogInstallError, match="lists no installable plugin 'other'"):
-        await operations.install_from_catalog(repo, registry, catalog.url(), "other")
+        await _install(repo, registry, catalog, "other")
 
 
 async def test_a_local_catalog_is_refused_without_the_explicit_setting(plugins, catalog, monkeypatch):
@@ -439,7 +499,7 @@ async def test_a_local_catalog_is_refused_without_the_explicit_setting(plugins, 
     monkeypatch.delenv(ALLOW_LOCAL_SOURCES_ENV)
 
     with pytest.raises(FetchError, match="Only https URLs"):
-        await operations.install_from_catalog(repo, registry, catalog.url(), "demo")
+        await _install(repo, registry, catalog, "demo")
     assert list(local.iterdir()) == []
 
 

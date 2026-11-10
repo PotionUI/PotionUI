@@ -146,7 +146,7 @@ describe('the catalog install window', () => {
 		expect(input.value).toBe('https://example.com/other.json');
 	});
 
-	it('installs after the admin confirms, by catalog URL and plugin id only', async () => {
+	it('installs after the admin confirms, sending the version and sha256 the window showed', async () => {
 		openModal();
 		await readCatalog();
 
@@ -154,10 +154,12 @@ describe('the catalog install window', () => {
 		await settle();
 		flushSync();
 
+		expect(hoisted.confirmCalls[0].title).toContain('Demo 1.0.0');
+		expect(hoisted.confirmCalls[0].message).toContain('a'.repeat(64));
 		expect(hoisted.confirmCalls[0].message).toContain('same rights as PotionUI');
 		expect(hoisted.posts[1]).toEqual({
 			url: '/api/plugins/catalog/install',
-			body: { url: 'https://example.com/plugins.json', plugin_id: 'demo' }
+			body: { url: 'https://example.com/plugins.json', plugin_id: 'demo', version: '1.0.0', sha256: 'a'.repeat(64) }
 		});
 		expect(onInstalled).toHaveBeenCalledWith(expect.objectContaining({ plugin_id: 'demo', version: '1.0.0' }));
 		expect(document.body.textContent).toContain('Plugin installed');

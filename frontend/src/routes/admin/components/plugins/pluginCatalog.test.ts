@@ -52,15 +52,19 @@ describe('catalog entries', () => {
 });
 
 describe('the catalog calls', () => {
-	it('read a catalog and install by catalog URL and plugin id, without a client timeout', async () => {
+	it('read a catalog and install by catalog URL, plugin id and the version and sha256 confirmed, without a client timeout', async () => {
 		post.mockResolvedValue({ data: { success: true, data: { ok: true } } });
 
 		await readPluginCatalog('https://example.com/plugins.json');
-		await installFromCatalog('https://example.com/plugins.json', 'demo');
+		await installFromCatalog('https://example.com/plugins.json', { id: 'demo', version: '1.2.0', sha256: 'e'.repeat(64) });
 
 		expect(post.mock.calls).toEqual([
 			['/api/plugins/catalog', { url: 'https://example.com/plugins.json' }, { timeout: 0 }],
-			['/api/plugins/catalog/install', { url: 'https://example.com/plugins.json', plugin_id: 'demo' }, { timeout: 0 }]
+			[
+				'/api/plugins/catalog/install',
+				{ url: 'https://example.com/plugins.json', plugin_id: 'demo', version: '1.2.0', sha256: 'e'.repeat(64) },
+				{ timeout: 0 }
+			]
 		]);
 	});
 

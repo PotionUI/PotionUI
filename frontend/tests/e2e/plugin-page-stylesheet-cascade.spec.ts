@@ -1,14 +1,14 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transform } from 'esbuild';
 import { loginAsOwner, screenshot } from './helpers';
 
 const JOURNEY = 'plugin-page-stylesheet-cascade';
 const PLUGIN_ID = 'cascade-fixture';
-const REPO = resolve(__dirname, '../../..');
+const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 
 const PAGE_MODULE = `
 export function mountPlugin(el, ctx) {

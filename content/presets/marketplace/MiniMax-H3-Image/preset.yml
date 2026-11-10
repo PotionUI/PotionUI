@@ -50,13 +50,61 @@ vars:
 
 llm:
   guide: |
-    Write MiniMax-H3-Image prompts as natural-language prose: subject and action, appearance,
-    setting, framing, medium, lighting, materials, palette and mood. Keep everything the user
-    gave and do not invent facts. Put every word that should appear in the image in double
-    quotes, verbatim. There is no negative prompt and no guidance scale.
-    In edit mode the pictures are numbered by their order: the first is Picture 1, the picture
-    being edited; refer to the others as Picture 2, Picture 3 and so on, and say what to take
-    from each ("the jacket from Picture 2").
+    Expand the request into ONE detailed English paragraph that describes the finished image.
+    Text that must appear in the image stays in its own language, in double quotes, verbatim.
+    Keep everything the user fixed: wording, names, how many of each, figures and formulas,
+    the look and technique asked for, upright or wide, and what goes on which side. Add only
+    what can be seen.
+    First decide what kind of image it is.
+    A SCENE OR PHOTOGRAPH: say who or what the subject is, the pose and what touches what,
+    scale, setting, lighting, lens or medium. Keep the number of main subjects to what was
+    asked; a crowd stays small in the background. For a body in action fix the place and one
+    camera first, then state the body's orientation to the camera (front, back, left or right
+    profile, three-quarter) and the direction it moves in the frame; gaze, torso, limbs and
+    support all belong to the same instant. When hands or contact matter pick a framing where
+    they read (medium or waist-up) and say which hand touches what.
+    A DESIGNED ARTIFACT (poster, card, product board, web page, UI, chart, dashboard,
+    infographic, diagram, packaging, cover, multi-panel sheet): lay it out in reading order as
+    named areas, top to bottom and left to right (heading, main picture, side column, row of
+    cards, chart, key, bottom strip). For each area give its position, its exact visible text,
+    what it shows and how it is styled. A word like "graphics" or "info" is not a
+    description: say what is drawn. Charts get a title, axis labels, units, a key and values
+    that agree with what is drawn. Diagrams get a few large labelled boxes joined by bold
+    arrows, each with a clear start and end, none crossing another. Panels
+    that show the same thing (plan and render, before and after) reuse the same objects,
+    materials and positions. Add the small supporting elements such an artifact normally has
+    (subtitle, legend, units, specification table, swatches) as short labels, not prose.
+    Bring in what you know about the subject only as things one can see: correct anatomy,
+    tools, materials, units, cultural motifs. Settle the content before the look, and name
+    the look through what is visible (light, surface, colour, lens) instead of mood words.
+    There is no negative prompt and no guidance scale.
+  modes:
+    edit:
+      guide: |
+        Write the edit as ONE English paragraph that describes the finished image, built from
+        what is visible in the pictures and what the user asked. Pictures are numbered by their
+        order: <Picture 1> is the image being edited unless the user says otherwise.
+        Write three parts in this order, as flowing prose with no headings.
+        1. SOURCES. Name each thing taken from a picture once, as a numbered subject with its
+        picture: "<Subject 1> is the woman in <Picture 1>", "<Subject 2> is the leather bag in
+        <Picture 2>". Keep each definition short but unambiguous. Record any source text or data
+        you rely on here, once, exactly as it appears, without correcting or translating it.
+        2. WHAT STAYS. Give every subject its own sentence saying how it carries over. For a
+        subject that does not change write exactly "<Subject N> is fully preserved." and do not
+        describe its appearance again. For a subject that changes in part, say what is kept and
+        what is replaced. A subject that lends one property (a colour, a pattern, a pose, a
+        style) lends that property and nothing else.
+        3. WHAT CHANGES. Describe only the changed and newly added content and how it sits in the
+        scene: placement, scale, contact, and lighting and shadow that match the rest. Give new
+        content enough detail to be drawn. Leave the untouched parts of the frame out.
+        Only things taken from a picture get a subject number; new and removed things do not.
+        Text that should appear in the image goes in double quotes, complete and verbatim, in the
+        language the user asked for; everything else is English.
+        If the edit changes the shape of the canvas (extend, crop, another format), say so. For a
+        grid give the number of rows and the number of columns.
+        Do not invent what the pictures show: describe only what is visible, and change only what
+        the instruction asks for or what necessarily follows from it.
+        There is no negative prompt and no guidance scale.
 
 formulas:
   groups:

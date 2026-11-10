@@ -47,6 +47,8 @@ The shipped **MiniMax-H3-Image** preset has `txt2img` and `edit`. The pipes are 
 
 **Edit** takes up to 16 pictures in order. Picture 1 is the image being edited. The text encoder sees each picture after a `Picture n: ` label at a 1024-pixel short edge; the generator VAE-encodes each one at a 1024 to 2048-pixel short edge and puts it in the sequence ahead of the image being generated. *Same size as Picture 1* (on by default) gives the result Picture 1's shape at that VAE size.
 
+**Prompt enhancement.** The preset's `llm.guide` tells the assistant how this model wants its prompts written: one long, concrete paragraph for text to image, and for an edit a paragraph in three parts that names what it takes from each picture as `<Subject N>` from `<Picture N>`, says what stays (`<Subject N> is fully preserved.`) and then describes only what changes. The guides follow the format of MiniMax's published prompt-expansion instructions (`MiniMaxAI/MiniMax-H3-Image-PE`) and are written in PotionUI's own words; MiniMax's prompt files and its prompt-expansion model are not bundled.
+
 ## Sampling
 
 The generator runs six Euler steps on the checkpoint's grid (`h3_image_pdd` schedule). Each step uses its own output head: head 0 is a full output layer and heads 1 to 5 are offsets added to it, picked from the step's start and target sigma. The model is called with `t = 1 - sigma`; reference rows run at `max(t, 0.999)` and are mixed with 0.1% noise drawn from the generation seed. The packed sequence is `[text | pictures | image]`: text rows sit on the time axis at their index, each picture one step later than the last, and every picture's spatial grid is normalised to its own area.

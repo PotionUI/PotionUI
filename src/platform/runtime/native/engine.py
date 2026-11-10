@@ -232,6 +232,7 @@ _FORWARD_KWARGS = (
     "ref_isolated",
     "flow_map_target",
     "text_fusion",
+    "token_tags",
 )
 
 

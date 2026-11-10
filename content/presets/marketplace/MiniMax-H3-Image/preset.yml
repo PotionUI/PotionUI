@@ -1,0 +1,68 @@
+########
+## MiniMax-H3-Image (native engine)
+##
+## Text to image and editing with up to 16 reference pictures. The model is
+## distilled to six steps with one output head per step, so steps, sampler and
+## guidance are fixed: no CFG scale and no negative prompt.
+##
+## Three components, each its own file: the DiT, the Qwen3-VL-32B text encoder
+## (the same file MiniMax-H3 uses) and the MiniMax-H3-Image VAE.
+##
+## WEIGHTS LICENSE: the MiniMax-H3-Image weights are published under the
+## MiniMax-H3-Image Community License Agreement, whose Applicable Territory
+## EXCLUDES the European Union, the United Kingdom, the Republic of Korea and
+## the United States of America; the licence also forbids using the weights or
+## their outputs outside that territory. Separate written authorisation from
+## MiniMax is required above US$1 million annualised revenue or for any hosted
+## service offered to third parties. Read description.md before enabling this
+## preset.
+##
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01M732Q89GSPYP058BTVGJDR89"
+name: "MiniMax-H3-Image"
+category: "image"
+version: "1.0.0"
+engine: "native"
+tags: ["minimax", "minimax-h3-image", "image", "edit", "flow-matching", "local", "experimental"]
+
+requires:
+  min_vram_gb: 24
+  recommended_vram_gb: 32
+
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the MiniMax-H3-Image DiT picker."
+  text_encoder_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+
+vars:
+  steps: 6
+
+llm:
+  guide: |
+    Write MiniMax-H3-Image prompts as natural-language prose: subject and action, appearance,
+    setting, framing, medium, lighting, materials, palette and mood. Keep everything the user
+    gave and do not invent facts. Put every word that should appear in the image in double
+    quotes, verbatim. There is no negative prompt and no guidance scale.
+    In edit mode the pictures are numbered by their order: the first is Picture 1, the picture
+    being edited; refer to the others as Picture 2, Picture 3 and so on, and say what to take
+    from each ("the jacket from Picture 2").
+
+formulas:
+  groups:
+    size:   { label: "Size" }
+    models: { label: "Models", preselect: false }
+
+modes:
+  - txt2img
+  - edit

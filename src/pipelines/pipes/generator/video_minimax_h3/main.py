@@ -226,9 +226,8 @@ from src.pipelines.pipes.generator.video_minimax_h3.layout import (
     build_packed_sequence,
     build_ref2va_packed_sequence,
     build_row_timesteps,
-    patchify_video_latents,
-    unpatchify_video_rows,
 )
+from src.platform.runtime.native.arch.minimax_h3.packing import patchify_video_latents, unpatchify_video_rows
 from src.pipelines.pipes.generator.video_minimax_h3.samplers import LCM, SAMPLERS, make_stepper
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
     AUDIO_SHIFT,

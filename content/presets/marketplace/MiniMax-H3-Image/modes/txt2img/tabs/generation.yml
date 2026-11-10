@@ -1,0 +1,21 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+      - name: "resolution"
+        type: "resolution"
+        formula: "size"
+        label: "Resolution"
+        ai_hint: "The model is tuned for about 2048x2048 pixels of area. 4 MP is the default; 8 and 16 MP take two to five times longer."
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_image.yml", group: "MiniMax-H3-Image" }
+        default: "2048x2048"
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models.yml"

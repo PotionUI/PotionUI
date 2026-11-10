@@ -23,6 +23,7 @@ NATIVE_IMAGE_MODEL = {
     "anima": "anima",
     "seedvr2": "seedvr2",
     "minimax_h3": "minimax_h3",
+    "minimax_h3_image": "minimax_h3_image",
     "minimax_music3": "minimax_music3_dit",
     "yue2": "yue2",
     "trellis2": "trellis2",

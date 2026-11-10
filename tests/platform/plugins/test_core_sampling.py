@@ -41,6 +41,7 @@ EXPECTED_SCHEDULES = [
     ("manual", "Manual sigmas", ("*",), True, False, ("sigmas",)),
     ("ltx_dynamic", "LTX dynamic shift", ("ltx",), False, True, ("base_shift", "max_shift", "stretch", "terminal")),
     ("moss_grid", "MOSS-Image grid", ("moss_image",), False, False, ("training_shift", "num_train_timesteps")),
+    ("h3_image_pdd", "MiniMax-H3-Image step grid", ("minimax_h3_image",), False, False, ("grid",)),
 ]
 
 FORBIDDEN_MODULES = ("torch", "src.platform.runtime.native.sampling.denoise_loop")

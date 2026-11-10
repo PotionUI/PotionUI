@@ -1,11 +1,4 @@
-# Derived from: diffusers `modular_pipelines/minimax_h3/before_denoise.py`
-# (Apache-2.0, "Copyright 2026 The MiniMax and HuggingFace Teams") --
-# `patchify_video_latents`, `_spatial_position_grid`, `_temporal_position_grid`,
-# `_frame_position_grid`, `MiniMaxH3PrepareLayoutStep.build_packed_sequence`,
-# `MiniMaxH3SetTimestepsStep.build_row_timesteps` and
-# `MiniMaxH3Ref2VAPrepareLayoutStep.build_ref2va_packed_sequence` are ported
-# near-verbatim (module-level functions here instead of `ModularPipelineBlocks`
-# methods/staticmethods). `_fill_audio_positions` is ported verbatim.
+# Derived from: diffusers `modular_pipelines/minimax_h3/before_denoise.py` (Apache-2.0, "Copyright 2026 The MiniMax and HuggingFace Teams") -- `_temporal_position_grid`, `MiniMaxH3PrepareLayoutStep.build_packed_sequence`, `MiniMaxH3SetTimestepsStep.build_row_timesteps` and `MiniMaxH3Ref2VAPrepareLayoutStep.build_ref2va_packed_sequence` are ported near-verbatim (module-level functions here instead of `ModularPipelineBlocks` methods/staticmethods). `_fill_audio_positions` is ported verbatim.
 """MiniMax-H3 packed-sequence layout: the `(t, h, w)` rotary grid and the
 row-index/modality-tag bookkeeping every other part of the generator reads.
 
@@ -112,60 +105,15 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
+from src.platform.runtime.native.arch.minimax_h3.packing import AUDIO_TAG, VIDEO_TAG, frame_position_grid
+
 # One shared audio/video rotary clock: 40 Hz audio latents, 24 fps video --
 # 5/3 rotary units per pixel-frame-second. `(1, 4, 4, 4, 4)` mirrors the video
 # VAE's 17-pixel-frame -> 5-latent-frame chunking (dossier §A.3/§A.8).
 ROPE_FRAME_RESCALE = 5.0 / 3.0
 ROPE_FRAMES_PER_LATENT: tuple[int, ...] = (1, 4, 4, 4, 4)
-ROPE_SPATIAL_SCALE = 32
-
-# Per-row modality tags -- index the transformer's AdaLN table
-# (`timestep_indices * MINIMAX_H3_MODALITY_NUM + token_tags`), so these values
-# are a checkpoint contract, not a free choice.
-VIDEO_TAG = 0
-TEXT_TAG = 1
-AUDIO_TAG = 2
 
 Tensor = torch.Tensor
-
-
-def patchify_video_latents(latents: Tensor, patch_size: tuple[int, int, int]) -> Tensor:
-    """`(B, C, F, H, W)` -> `(B * num_patches, C * prod(patch_size))`, rows
-    ordered frame-major then row-major, channel the SLOWEST axis inside a
-    patch (dossier §A.8's ``patchify_video_latents``)."""
-    patch_t, patch_h, patch_w = patch_size
-    b, c, f, h, w = latents.shape
-    if f % patch_t or h % patch_h or w % patch_w:
-        raise ValueError(f"latents of shape {tuple(latents.shape)} are not divisible by patch {patch_size}")
-    latents = latents.reshape(b, c, f // patch_t, patch_t, h // patch_h, patch_h, w // patch_w, patch_w)
-    latents = latents.permute(0, 2, 4, 6, 1, 3, 5, 7)
-    return latents.reshape(-1, c * patch_t * patch_h * patch_w).contiguous()
-
-
-def unpatchify_video_rows(
-    rows: Tensor, *, num_latent_frames: int, latent_height: int, latent_width: int,
-    channels: int, patch_size: tuple[int, int, int],
-) -> Tensor:
-    """Inverse of :func:`patchify_video_latents` -> `(1, C, F, H, W)`."""
-    patch_t, patch_h, patch_w = patch_size
-    rows = rows.reshape(
-        -1, num_latent_frames // patch_t, latent_height // patch_h, latent_width // patch_w,
-        channels, patch_t, patch_h, patch_w,
-    )
-    rows = rows.permute(0, 4, 1, 5, 2, 6, 3, 7)
-    return rows.reshape(-1, channels, num_latent_frames, latent_height, latent_width).contiguous()
-
-
-def _spatial_position_grid(dim: int, patch: int, sqrt_area: float, device: torch.device) -> Tensor:
-    """One aspect-normalized spatial rotary axis, float64, right endpoint
-    excluded (a square canvas spans `[0, 32)`). Built with `numpy` on
-    purpose -- see module docstring, trap 2. The `numpy` math itself always
-    runs on the host CPU (numpy has no device concept); only the resulting
-    tensor is placed on `device`."""
-    ratio = dim / sqrt_area
-    left = (1.0 - ratio) / 2.0
-    grid = np.linspace(left, left + ratio, dim // patch, endpoint=False) * ROPE_SPATIAL_SCALE
-    return torch.from_numpy(grid).to(device=device, dtype=torch.float64)
 
 
 def _temporal_position_grid(num_latent_frames: int, origin: float, device: torch.device) -> Tensor:
@@ -179,19 +127,6 @@ def _temporal_position_grid(num_latent_frames: int, origin: float, device: torch
         dtype=torch.float64, device=device,
     )
     return origin + torch.cat([torch.zeros(1, dtype=torch.float64, device=device), spans[:-1].cumsum(0)])
-
-
-def _frame_position_grid(
-    latent_height: int, latent_width: int, patch_h: int, patch_w: int, device: torch.device,
-) -> tuple[Tensor, Tensor]:
-    """`(h, w)` rotary coordinates of one latent frame (`(rows_per_frame, 2)`),
-    and the width axis they were built from (stereo audio pins to its
-    extremes -- see `_fill_target_audio_positions`)."""
-    sqrt_area = np.sqrt(latent_height * latent_width)
-    height_grid = _spatial_position_grid(latent_height, patch_h, sqrt_area, device)
-    width_grid = _spatial_position_grid(latent_width, patch_w, sqrt_area, device)
-    grids = torch.meshgrid(height_grid, width_grid, indexing="ij")
-    return torch.stack([grid.reshape(-1) for grid in grids], dim=-1), width_grid
 
 
 def _pairwise_span_sum(num_latent_frames: int) -> float:
@@ -348,7 +283,7 @@ def build_packed_sequence(
     position_ids = torch.zeros(sequence_length, 3, dtype=torch.float64, device=device)
     position_ids[:num_text_tokens, 0] = torch.arange(num_text_tokens, dtype=torch.float64, device=device)
 
-    frame_grid, width_grid = _frame_position_grid(latent_height, latent_width, patch_h, patch_w, device)
+    frame_grid, width_grid = frame_position_grid(latent_height, latent_width, patch_h, patch_w, device)
 
     if num_condition_audio_rows:
         _fill_audio_positions(
@@ -478,7 +413,7 @@ def build_ref2va_packed_sequence(
 
     position_ids = torch.zeros(sequence_length, 3, dtype=torch.float64, device=device)
     position_ids[:num_text_tokens, 0] = torch.arange(num_text_tokens, dtype=torch.float64, device=device)
-    target_frame_grid, target_width_grid = _frame_position_grid(latent_height, latent_width, patch_h, patch_w, device)
+    target_frame_grid, target_width_grid = frame_position_grid(latent_height, latent_width, patch_h, patch_w, device)
 
     video_index_blocks: list[Tensor] = []
     audio_index_blocks: list[Tensor] = []
@@ -491,7 +426,7 @@ def build_ref2va_packed_sequence(
             rows = slice(cursor, cursor + num_video_rows)
             cursor = rows.stop
             video_index_blocks.append(torch.arange(rows.start, rows.stop, device=device))
-            frame_grid, _ = _frame_position_grid(reference_height, reference_width, patch_h, patch_w, device)
+            frame_grid, _ = frame_position_grid(reference_height, reference_width, patch_h, patch_w, device)
             position_ids[rows, 0] = rotary_time
             position_ids[rows, 1:] = frame_grid
             # An image is a single frame and takes a single integer rotary
@@ -521,7 +456,7 @@ def build_ref2va_packed_sequence(
             audio_index_blocks.append(torch.arange(audio_rows.start, audio_rows.stop, device=device))
             video_index_blocks.append(torch.arange(video_rows.start, video_rows.stop, device=device))
 
-            frame_grid, width_grid = _frame_position_grid(reference_height, reference_width, patch_h, patch_w, device)
+            frame_grid, width_grid = frame_position_grid(reference_height, reference_width, patch_h, patch_w, device)
             _fill_audio_positions(
                 position_ids, audio_rows, reference_audio_latents, rotary_time, width_grid, audio_channels, device,
             )

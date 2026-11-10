@@ -40,6 +40,7 @@ from ..detect.vae_detect import (
     detect_ltx_video_vae_config,
     detect_ltx_vocoder_config,
     detect_minimax_h3_audio_vae_config,
+    detect_minimax_h3_image_vae_config,
     detect_minimax_h3_latent_upsampler_config,
     detect_minimax_h3_video_vae_config,
     detect_minimax_music3_dav_config,
@@ -60,6 +61,7 @@ from .ltx_causal_video import LTXCausalVideoVAE
 from .ltx_diffusion_video import LTXDiffusionVideoVAE
 from .ltx_latent_upsampler import LTXLatentUpsampler
 from .minimax_h3_audio import MiniMaxH3AudioVAE
+from .minimax_h3_image import MiniMaxH3ImageVAE
 from .minimax_h3_latent_upsampler import MiniMaxH3LatentUpsampler
 from .minimax_h3_video import ENCODER_KEY_PREFIXES, MiniMaxH3VideoVAE
 from .minimax_music3_dav import MiniMaxMusic3DAV, fold_weight_norm_conv
@@ -186,6 +188,8 @@ def build_native_vae(path: str | Path, operations: Any, sd: dict[str, torch.Tens
             return _build_bare_vae(spec, path, operations, sd, config)
     if detect_ltx_video_vae_config(metadata) is not None:
         return load_ltx_video_vae(path, operations, device="cpu", sd=sd, metadata=metadata)
+    if detect_minimax_h3_image_vae_config(sd, metadata) is not None:
+        return load_minimax_h3_image_vae(path, operations, device="cpu", sd=sd, metadata=metadata)
     if detect_minimax_h3_video_vae_config(sd, metadata) is not None:
         return load_minimax_h3_video_vae(path, operations, device="cpu", sd=sd, metadata=metadata)
     if detect_ltx_diffusion_vae_config(metadata) is not None:
@@ -529,6 +533,36 @@ def load_minimax_h3_video_vae(
         "(latent_channels=%d, decoder_layers=%d)",
         path.name, len(encoder_loaded), len(encoder_expected), len(decoder_loaded), len(decoder_expected),
         module.can_encode, config["latent_channels"], config["decoder_num_layers"],
+    )
+    return module
+
+
+def load_minimax_h3_image_vae(
+    path: str | Path,
+    operations: Any,
+    device: str | torch.device = "cpu",
+    sd: dict[str, torch.Tensor] | None = None,
+    metadata: dict[str, str] | None = None,
+) -> MiniMaxH3ImageVAE:
+    path = Path(path)
+    if sd is None or metadata is None:
+        sd, metadata = load_torch_file(path, device=device)
+    config = detect_minimax_h3_image_vae_config(sd, metadata)
+    if config is None:
+        raise NativeEngineUnsupportedError(
+            f"'{path.name}' does not look like a MiniMax-H3-Image VAE (needs decoder.mask_token, "
+            "decoder.register_tokens and a 768-row decoder.proj_out)"
+        )
+    module = MiniMaxH3ImageVAE.from_config(config, operations)
+    expected = {k: tuple(v.shape) for k, v in module.state_dict().items()}
+    encoder_expected = [k for k in expected if k.startswith(ENCODER_KEY_PREFIXES)]
+    if any(k not in sd or tuple(sd[k].shape) != expected[k] for k in encoder_expected):
+        module.drop_encoder()
+        sd = {k: v for k, v in sd.items() if not k.startswith(ENCODER_KEY_PREFIXES)}
+    load_into_module(module, sd, _VaeSpec(family="vae", variant="minimax_h3_image"))
+    logger.info(
+        "loaded MiniMax-H3-Image VAE from %s (decoder_layers=%d, can_encode=%s)",
+        path.name, config["decoder_num_layers"], module.can_encode,
     )
     return module
 

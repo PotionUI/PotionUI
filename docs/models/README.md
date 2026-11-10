@@ -22,6 +22,7 @@ Every family below except SDXL and RIFE runs on the native engine ([Native Engin
 - [Anima](anima.md) — text-to-image, image-to-image
 - [Wan 2.1 / 2.2](wan.md) — text-to-video, image-to-video, chained video
 - [LTX-2 / 2.3](ltx.md) — text-to-video, video director (keyframes, audio)
+- [MiniMax-H3-Image](minimax_h3_image.md) — text-to-image, edit with up to 16 pictures (territorially restricted weights)
 - [MiniMax-H3](minimax_h3.md) — text-to-video-and-audio, first/last keyframe anchoring (territorially restricted weights)
 - [MiniMax-Music3](minimax_music3.md) — text-to-music, structured caption + tagged lyrics
 - [YuE2](yue2.md) — text-to-music, style tags + tagged lyrics, optional chain-of-thought

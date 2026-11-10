@@ -66,7 +66,7 @@ def _is_exact_expression(value: str) -> bool:
 # entries actually declare (a plugin-contributed family not yet in this fixed
 # list is still accepted) - see `_lint_sampling_fields`.
 _KNOWN_SAMPLING_FAMILIES = frozenset({
-    "anima", "flux", "flux3", "krea2", "ltx", "minimax_h3", "moss_image", "qwen_image", "qwen_image21",
+    "anima", "flux", "flux3", "krea2", "ltx", "minimax_h3", "minimax_h3_image", "moss_image", "qwen_image", "qwen_image21",
     "wan", "z_image", "seedvr2", "minimax_music3",
 })
 

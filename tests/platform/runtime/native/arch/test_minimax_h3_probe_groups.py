@@ -12,11 +12,8 @@ from __future__ import annotations
 
 import torch
 
-from src.pipelines.pipes.generator.video_minimax_h3.layout import (
-    TEXT_TAG,
-    build_packed_sequence,
-    build_row_timesteps,
-)
+from src.pipelines.pipes.generator.video_minimax_h3.layout import build_packed_sequence, build_row_timesteps
+from src.platform.runtime.native.arch.minimax_h3.packing import TEXT_TAG
 from src.pipelines.pipes.generator.video_minimax_h3.main import _MiniMaxH3Forward
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache, GroupedProbe
 

@@ -32,6 +32,7 @@ import contextvars
 import hashlib
 import io
 import math
+import numbers
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence, Union
 
@@ -352,6 +353,8 @@ def face_detector() -> Dict[str, Any]:
 
 
 def detect_faces(images: Sequence[ImageInput], min_score: float = 0.5) -> List[List[Dict[str, Any]]]:
+    if isinstance(min_score, bool) or not isinstance(min_score, numbers.Real) or not 0 <= min_score <= 1:
+        raise ValueError("min_score is a number from 0 to 1")
     model = _face_model()
     if model is None:
         raise FileNotFoundError(f"{FACE_MODEL} is not in a {FACE_MODEL_TYPE} folder of the model roots")

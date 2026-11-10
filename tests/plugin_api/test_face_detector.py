@@ -89,6 +89,29 @@ def test_detecting_faces_reads_the_first_detection_bbox_folder_that_holds_the_de
     detect.assert_called_once_with(second / media.FACE_MODEL, ["a.png"], 0.6)
 
 
+@pytest.mark.parametrize("min_score", [True, False, -0.01, 1.01, float("nan"), float("inf"), "0.5", None])
+def test_a_min_score_that_is_not_a_number_from_zero_to_one_is_refused_before_anything_is_read(tmp_path, known, min_score):
+    folder = tmp_path / "a" / "detection_bbox"
+    world = _roots(folder)
+    (folder / media.FACE_MODEL).write_bytes(CONTENT)
+    with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect") as detect:
+        with pytest.raises(ValueError, match="min_score"):
+            media.detect_faces(["a.png"], min_score=min_score)
+
+    detect.assert_not_called()
+
+
+@pytest.mark.parametrize("min_score", [0, 0.0, 1, 1.0])
+def test_the_bounds_zero_and_one_are_valid_min_scores(tmp_path, known, min_score):
+    folder = tmp_path / "a" / "detection_bbox"
+    world = _roots(folder)
+    (folder / media.FACE_MODEL).write_bytes(CONTENT)
+    with patch("src.plugin_api.media.get_container", return_value=world), patch.object(face_boxes, "detect", return_value=[[]]) as detect:
+        media.detect_faces(["a.png"], min_score=min_score)
+
+    detect.assert_called_once_with(folder / media.FACE_MODEL, ["a.png"], min_score)
+
+
 def test_the_folder_of_an_offline_root_is_not_read(tmp_path, known):
     first, second = tmp_path / "a" / "detection_bbox", tmp_path / "b" / "detection_bbox"
     world = _roots(first, second, offline=[0])

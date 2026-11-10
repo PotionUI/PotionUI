@@ -224,13 +224,13 @@ def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) ->
     staging_root = local_dir / STAGING_FOLDER
     staging_root.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(dir=staging_root))
+    previous = None
     try:
         unpacked = unpack_plugin_archive(data, entry.id, staging / "new")
         manifest = _checked_manifest(unpacked, entry)
         record = {"catalog": catalog_url, "id": entry.id, "version": entry.version, "archive": entry.archive, "sha256": entry.sha256}
         (unpacked / INSTALL_RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         target = local_dir / entry.id
-        previous = None
         if item.status == "update":
             if _install_record(target) is None:
                 raise CatalogInstallError(f"The folder {target.name} changed since the catalog was read; nothing was replaced.")
@@ -238,8 +238,14 @@ def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) ->
             os.replace(target, previous)
             try:
                 os.replace(unpacked, target)
-            except OSError:
-                os.replace(previous, target)
+            except OSError as error:
+                try:
+                    os.replace(previous, target)
+                except OSError as second:
+                    raise CatalogInstallError(
+                        f"The folder {target.name} could not be replaced ({error}) nor put back ({second}); "
+                        f"the installed {item.installed_version} is kept in {STAGING_FOLDER}/{staging.name}/previous."
+                    ) from second
                 raise
         else:
             if target.exists():
@@ -247,7 +253,8 @@ def _place(data: bytes, item: CatalogItem, local_dir: Path, catalog_url: str) ->
             os.replace(unpacked, target)
         return _Placement(manifest, staging, previous)
     except BaseException:
-        _discard_staging(staging)
+        if previous is None or not previous.exists():
+            _discard_staging(staging)
         raise
 
 

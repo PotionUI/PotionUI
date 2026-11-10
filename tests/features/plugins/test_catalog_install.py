@@ -868,3 +868,24 @@ def test_an_update_whose_move_fails_puts_the_installed_version_back(plugins, mon
 
     assert (local / "demo" / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
     assert [path.name for path in local.iterdir()] == ["demo"]
+
+
+def test_an_update_whose_move_and_move_back_both_fail_keeps_the_installed_version_in_staging(plugins, monkeypatch):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True)
+    item = CatalogItem(_entry(version="1.1.0"), "update", installed_version="1.0.0")
+    real_replace = install_ops.os.replace
+
+    def replace(source, target):
+        if Path(target) == local / "demo":
+            raise OSError("the folder is in use")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(install_ops.os, "replace", replace)
+
+    with pytest.raises(CatalogInstallError, match="^The folder demo could not be replaced .*in use.* nor put back .*in use.*; the installed 1.0.0 is kept in .potionui-install/.*/previous.$"):
+        install_ops._place(_archive("demo", "1.1.0"), item, local, "https://example.com/plugins.json")
+
+    kept = list((local / STAGING_FOLDER).glob("*/previous"))
+    assert len(kept) == 1
+    assert (kept[0] / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")

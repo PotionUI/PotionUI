@@ -3443,7 +3443,9 @@ unchanged. Local and private addresses include link-local ones, such as the clou
 address `169.254.169.254`, so set the variable only on a server where that is acceptable.
 Installing,
 updating and reading a catalog are admin-only (`POST /api/plugins/catalog` and
-`POST /api/plugins/catalog/install`). The sha256 proves the archive is the one the
+`POST /api/plugins/catalog/install`). One catalog install runs at a time: another one asked
+for meanwhile is refused with "Another plugin install from a catalog is in progress", not
+queued. The sha256 proves the archive is the one the
 catalog names; it says nothing about the catalog itself, so install only from catalogs
 you trust: a plugin runs with the same rights as PotionUI.
 

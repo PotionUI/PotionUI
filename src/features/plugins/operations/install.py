@@ -489,6 +489,8 @@ async def install_from_catalog(
     recipe_catalog: Optional[Any] = None,
     model_layout_catalog: Optional[Any] = None,
 ) -> InstallResult:
+    if _install_lock.locked():
+        raise CatalogInstallError("Another plugin install from a catalog is in progress; try again once it has finished.")
     async with _install_lock:
         listing = await read_catalog(registry, url)
         item = next((candidate for candidate in listing.items if candidate.entry.id == plugin_id), None)

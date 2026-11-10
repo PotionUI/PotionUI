@@ -579,6 +579,19 @@ async def test_an_update_whose_request_is_cancelled_while_the_files_move_finishe
     assert repo.get_plugin_by_id("demo").enabled is True
 
 
+async def test_a_catalog_install_asked_for_while_another_runs_is_refused_and_changes_nothing(plugins, catalog):
+    registry, repo, _, local = plugins
+    catalog.publish("demo", "1.0.0")
+
+    async with install_ops._install_lock:
+        with pytest.raises(CatalogInstallError, match="^Another plugin install from a catalog is in progress"):
+            await asyncio.wait_for(_install(repo, registry, catalog, "demo"), timeout=5)
+
+    assert list(local.iterdir()) == []
+    assert registry.get_plugin("demo") is None
+    assert repo.get_plugin_by_id("demo") is None
+
+
 async def test_an_update_whose_row_cannot_be_disabled_after_unpacking_leaves_no_staging_folder(plugins, catalog, monkeypatch):
     registry, repo, _, local = plugins
     catalog.publish("demo", "1.0.0")

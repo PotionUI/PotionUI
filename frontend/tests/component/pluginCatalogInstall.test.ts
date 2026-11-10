@@ -156,6 +156,7 @@ describe('the catalog install window', () => {
 
 		expect(hoisted.confirmCalls[0].title).toContain('Demo 1.0.0');
 		expect(hoisted.confirmCalls[0].message).toContain('a'.repeat(64));
+		expect(hoisted.confirmCalls[0].message).toContain('another version or sha256 by then, nothing is installed');
 		expect(hoisted.confirmCalls[0].message).toContain('same rights as PotionUI');
 		expect(hoisted.posts[1]).toEqual({
 			url: '/api/plugins/catalog/install',

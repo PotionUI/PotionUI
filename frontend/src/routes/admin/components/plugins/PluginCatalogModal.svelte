@@ -54,7 +54,7 @@
 			title: `${catalogActionLabel(entry)} ${entry.name} ${entry.version}?`,
 			message:
 				`PotionUI downloads ${entry.archive}, checks it against the sha256 ${entry.sha256} the catalog lists, and unpacks it into content/plugins/local/${entry.id}. ` +
-				'If the catalog lists another version or archive by then, nothing is installed. ' +
+				'If the catalog lists another version or sha256 by then, nothing is installed. ' +
 				'A plugin is code that runs with the same rights as PotionUI: install only from a catalog you trust.',
 			variant: 'warning',
 			confirmLabel: catalogActionLabel(entry) ?? 'Install'

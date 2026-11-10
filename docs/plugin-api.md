@@ -3378,7 +3378,10 @@ while the server ran and is still enabled in it. A manifest's `default_enabled` 
 a plugin installed from a catalog: at startup, a plugin with no row in the database is
 enabled by default only when its folder holds no `.potionui-catalog.json`, so a first
 install that stopped before its row was written (a cancelled request, a stopped server, a
-scan that raised) still waits for an admin.
+scan that raised) still waits for an admin. When the scan of a first install raises, or
+does not pick up the new manifest, the folder stays in place, disabled, and the answer says
+so: the catalog then lists the plugin as installed, so remove the folder to install it
+again.
 
 The same id is never installed twice. A plugin that ships with PotionUI
 (`content/plugins/marketplace/`) is listed as bundled; a folder of that id that holds no
@@ -3402,12 +3405,16 @@ enabled plugin is enabled again on its new manifest, with presets, pipes and rec
 rescanned. The old folder waits in the staging folder until the scan that follows the
 move has the plugin back up, and is never deleted before: when that scan fails (a page
 route another plugin already owns, for example), when the new version of an enabled plugin
-does not start (a missing Python package, a hook that fails to register), or when the new
-manifest of any plugin leaves it in error, the old folder goes back in place, an enabled
-plugin is enabled again on it, and the install answers with the reason. A disabled plugin
-takes the new version as it is, since nothing runs it until it is enabled. If the old
-folder cannot be moved back, or the server stops before the check, it stays in
-`content/plugins/local/.potionui-install/`, named in the answer when there is one, and the
+does not start (a missing Python package, a hook that fails to register), when the new
+manifest of any plugin leaves it in error, or when the scan does not pick up the new
+manifest (a folder the loader could not read, for example), the old folder goes back in
+place, an enabled plugin is enabled again on it, and the install answers with the reason.
+If the scan that follows the put-back fails in turn, the old version stays in place,
+disabled, and the answer says so. A disabled plugin whose new manifest is valid takes the
+new version as it is, since nothing runs it until it is enabled; its new code is only
+checked when it is enabled. If the old folder cannot be moved back (after a failed check,
+or when the new one cannot be moved in either), or the server stops before the check, it
+stays in `content/plugins/local/.potionui-install/`, named in the answer when there is one, and the
 plugin is left disabled: its row is disabled from the move on, and enabled again only once
 the new version, or the old one put back, is running. Once the archive is downloaded, a
 cancelled request no longer stops the install half way: the install finishes, or rolls

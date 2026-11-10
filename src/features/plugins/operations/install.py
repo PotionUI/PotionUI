@@ -326,7 +326,7 @@ async def _restore_previous(
                 enable_plugin(repo, registry, plugin_id, **collaborators)
             except Exception as error:
                 raise CatalogInstallError(f"{message}, but did not start again either: {error}") from error
-        message += " and running"
+        message += f" and running. Restart PotionUI to unload any module {item.entry.version} imported"
     logger.warning(message)
     raise CatalogInstallError(f"{message}.")
 

@@ -539,7 +539,9 @@ async def test_an_update_that_does_not_start_puts_the_previous_version_back_and_
         await _install(repo, registry, catalog, "demo", preset_loader=preset_loader)
 
     assert "demo 1.1.0 did not start (Missing dependencies: potionui-catalog-missing-package>=1)" in str(refused.value)
-    assert "the installed 1.0.0 is back in place and running." in str(refused.value)
+    assert str(refused.value).endswith(
+        "the installed 1.0.0 is back in place and running. Restart PotionUI to unload any module 1.1.0 imported."
+    )
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert not (local / "demo" / "payload.py").exists()
     assert json.loads((local / "demo" / INSTALL_RECORD).read_text())["version"] == "1.0.0"
@@ -569,7 +571,9 @@ async def test_an_update_whose_scan_fails_puts_the_previous_version_back_and_run
         await _install(repo, registry, catalog, "demo", preset_loader=preset_loader)
 
     assert "demo 1.1.0 did not start (the scan failed: IntegrityError" in str(refused.value)
-    assert "the installed 1.0.0 is back in place and running." in str(refused.value)
+    assert str(refused.value).endswith(
+        "the installed 1.0.0 is back in place and running. Restart PotionUI to unload any module 1.1.0 imported."
+    )
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert not (local / "demo" / "payload.py").exists()
     assert registry.get_plugin("demo").version == "1.0.0"

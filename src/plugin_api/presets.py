@@ -206,7 +206,8 @@ class PresetInstallState:
 
 
 def preset_template(preset_id: str) -> Optional[PresetTemplate]:
-    return get_container().file_preset_repository.find_preset_by_id(preset_id)
+    template = get_container().file_preset_repository.find_preset_by_id(preset_id)
+    return copy.deepcopy(template) if template is not None else None
 
 
 def resolve_preset_path(preset_id: str, reference: str) -> Optional[Path]:

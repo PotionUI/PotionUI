@@ -1,3 +1,4 @@
+import copy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -64,18 +65,48 @@ def world(mock_db, tmp_path, monkeypatch):
     return SimpleNamespace(loader=loader, root=root, shared=shared, presets=presets)
 
 
-def test_a_loaded_preset_is_handed_over_as_its_loader_built_it(world):
+def test_a_loaded_preset_is_handed_over_as_a_copy_of_what_its_loader_built(world):
     template = api.preset_template(SOLO)
 
     assert world.loader.load_errors == {}
     assert isinstance(template, PresetTemplate)
-    assert template is world.loader.get(SOLO)
+    assert template == world.loader.get(SOLO)
+    assert template is not world.loader.get(SOLO)
     assert Path(template.path).resolve() == (world.root / "Solo").resolve()
     assert template.modes["txt2img"].forms[0].fields[0].name == "source_image"
 
 
+def test_changing_the_template_handed_over_leaves_the_loaded_preset_as_it_was(world):
+    before = copy.deepcopy(world.loader.get(SOLO))
+    template = api.preset_template(SOLO)
+
+    template.vars = {"injected": True}
+    template.requires = {"min_vram_gb": 99}
+    template.modes["txt2img"].forms[0].fields[0].name = "renamed"
+    template.modes["txt2img"].forms[0].fields[0].configuration = {"multi": True}
+    template.modes["img2img"] = template.modes.pop("txt2img")
+
+    assert world.loader.get(SOLO) == before
+    assert api.preset_template(SOLO) == before
+    assert api.describe_preset(SOLO).modes.keys() == {"txt2img"}
+
+
+def test_changing_a_nested_value_of_the_template_handed_over_leaves_the_loaded_preset_as_it_was(world):
+    loaded = world.loader.get(SOLO)
+    loaded.vars = {"video_director": {"modes": {"director": {"max_keyframes": 2}}}}
+    loaded.requires = {"min_vram_gb": 12}
+    template = api.preset_template(SOLO)
+
+    template.vars["video_director"]["modes"]["director"]["max_keyframes"] = 50
+    template.requires["min_vram_gb"] = 1
+
+    assert world.loader.get(SOLO).vars == {"video_director": {"modes": {"director": {"max_keyframes": 2}}}}
+    assert world.loader.get(SOLO).requires == {"min_vram_gb": 12}
+
+
 def test_a_preset_that_is_not_installed_is_handed_over_too_and_an_unknown_one_is_none(world):
-    assert api.preset_template(LOOSE) is world.loader.get(LOOSE)
+    assert api.preset_template(LOOSE) == world.loader.get(LOOSE)
+    assert api.preset_template(LOOSE) is not world.loader.get(LOOSE)
     assert api.preset_template(NONE) is None
 
 

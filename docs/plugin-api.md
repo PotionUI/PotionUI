@@ -2618,8 +2618,11 @@ made inside a generation, from a step hook for example, holds its own lease on i
 the generation's lease alone.
 
 The core keeps nothing of what these functions read or return: no image, no face box, no vector,
-and no log of them. What a plugin stores is its own to scope to the user and to delete with their
-data. An identity vector identifies a person: keep one only as long as the feature that needs it.
+and no log of them. What a plugin stores is its own. On an instance with several users, the vectors
+a plugin computes from people's own pictures are biometric data, and the identity vectors of
+`embed_faces` identify a person: whoever runs the instance is responsible for that. A plugin that
+keeps them scopes them to the user, deletes them with the user's data, and keeps them only as long as
+the feature that needs them.
 
 ## Driving native-engine generation directly
 

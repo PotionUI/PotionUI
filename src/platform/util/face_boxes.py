@@ -1,4 +1,5 @@
 import os
+import struct
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Sequence, Union
 
@@ -39,7 +40,8 @@ def displayed(image: ImageInput) -> Image.Image:
     if isinstance(image, Image.Image):
         return on_white(image)
     with Image.open(image) as opened:
-        return on_white(ImageOps.exif_transpose(opened) or opened)
+        ImageOps.exif_transpose(opened, in_place=True)
+        return on_white(opened)
 
 
 def readable(image: Any, label: str, read: Callable[[ImageInput], Image.Image] = rgb) -> Image.Image:
@@ -47,7 +49,7 @@ def readable(image: Any, label: str, read: Callable[[ImageInput], Image.Image] =
         raise TypeError(f"{label} is not a path or an image")
     try:
         return read(image)
-    except (OSError, ValueError, Image.DecompressionBombError) as error:
+    except (OSError, ValueError, SyntaxError, EOFError, IndexError, struct.error, Image.DecompressionBombError) as error:
         raise ValueError(f"{label} cannot be read as an image") from error
 
 

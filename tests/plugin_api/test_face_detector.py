@@ -1,4 +1,5 @@
 import hashlib
+import struct
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -260,6 +261,20 @@ def test_an_image_of_a_batch_that_cannot_be_read_raises_one_error_that_names_its
             media.detect_faces([good, str(bad), good])
 
     assert str(tmp_path) not in str(raised.value)
+
+
+@pytest.mark.parametrize("error", [SyntaxError("bad header"), EOFError(), IndexError("tile"), struct.error("unpack"), Image.DecompressionBombError("too large")])
+def test_every_error_pil_raises_while_reading_an_image_becomes_the_one_documented_error(tmp_path, monkeypatch, error):
+    path = tmp_path / "broken.png"
+    path.write_bytes(b"broken")
+
+    def refuse(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(face_boxes.Image, "open", refuse)
+    for read in (face_boxes.rgb, face_boxes.displayed):
+        with pytest.raises(ValueError, match=r"^images\[3\] cannot be read as an image$"):
+            face_boxes.readable(path, "images[3]", read)
 
 
 def test_an_item_of_a_batch_that_is_neither_a_path_nor_an_image_is_named_by_its_place(tmp_path, known):

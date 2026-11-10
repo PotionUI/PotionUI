@@ -272,6 +272,48 @@ def test_an_item_of_a_batch_that_is_neither_a_path_nor_an_image_is_named_by_its_
             media.detect_faces([Image.new("RGB", (64, 48)), 5])
 
 
+def _turned_jpeg(path, displayed):
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    displayed.transpose(Image.Transpose.ROTATE_90).save(path, quality=95, exif=exif)
+    return path
+
+
+def test_a_jpeg_turned_by_its_exif_orientation_is_read_as_it_is_displayed_and_a_picture_as_it_is_given(tmp_path):
+    cv2 = pytest.importorskip("cv2")
+    shown = Image.new("RGB", (48, 64), (0, 0, 0))
+    shown.paste((255, 255, 255), (0, 0, 8, 8))
+    path = _turned_jpeg(tmp_path / "phone.jpg", shown)
+    detector = Detector()
+
+    with Image.open(path) as opened, patch.object(cv2.FaceDetectorYN, "create", return_value=detector):
+        face_boxes.detect(Path("m.onnx"), [path, str(path), opened], 0.5)
+
+    assert detector.sizes == [(48, 64), (48, 64), (64, 48)]
+    for picture in detector.pictures[:2]:
+        assert picture[2, 2].min() > 200
+        assert picture[60, 44].max() < 50
+
+
+def test_a_transparent_picture_is_put_on_white_before_it_is_read():
+    cv2 = pytest.importorskip("cv2")
+    picture = Image.new("RGBA", (64, 48), (0, 0, 0, 0))
+    picture.paste((255, 0, 0, 255), (32, 0, 64, 48))
+    palette = Image.new("P", (64, 48), 0)
+    palette.putpalette([0, 0, 0, 255, 0, 0])
+    palette.info["transparency"] = 0
+    detector = Detector()
+
+    with patch.object(cv2.FaceDetectorYN, "create", return_value=detector):
+        face_boxes.detect(Path("m.onnx"), [picture, palette, picture.convert("LA")], 0.5)
+
+    first, second, third = detector.pictures
+    assert first[10, 10].tolist() == [255, 255, 255]
+    assert first[10, 40].tolist() == [0, 0, 255]
+    assert second[10, 10].tolist() == [255, 255, 255]
+    assert third[10, 10].tolist() == [255, 255, 255]
+
+
 REAL_DETECTOR = Path("models/detection_bbox")
 
 
@@ -296,6 +338,23 @@ def test_the_real_detector_finds_the_face_of_a_photograph_with_its_landmarks_and
     right_eye, left_eye, nose, right_mouth, left_mouth = face["landmarks"]
     assert right_eye[0] < left_eye[0]
     assert max(right_eye[1], left_eye[1]) < nose[1] < min(right_mouth[1], left_mouth[1])
+
+
+@pytest.mark.requires_models
+def test_the_real_detector_finds_the_same_landmarks_in_a_phone_jpeg_turned_by_its_exif_orientation(tmp_path):
+    data = pytest.importorskip("skimage.data")
+    if not (REAL_DETECTOR / face_models.FACE_MODEL).is_file():
+        pytest.skip("face_detection_yunet_2023mar.onnx is not on this machine")
+    photograph = Image.fromarray(data.astronaut())
+    upright = tmp_path / "upright.jpg"
+    photograph.save(upright, quality=95)
+    turned = _turned_jpeg(tmp_path / "turned.jpg", photograph)
+
+    with patch("src.plugin_api.media.get_container", return_value=_roots(REAL_DETECTOR.resolve())):
+        (first,), (second,) = media.detect_faces([upright, turned])
+
+    for a, b in zip(first["landmarks"], second["landmarks"]):
+        assert abs(a[0] - b[0]) < 3 and abs(a[1] - b[1]) < 3
 
 
 def test_the_names_are_listed_by_the_media_module_and_the_root():

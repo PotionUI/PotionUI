@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Union
+from typing import Any, Callable, Dict, List, Sequence, Union
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 Box = Dict[str, Any]
 ImageInput = Union[str, Path, Image.Image]
@@ -27,11 +27,26 @@ def rgb(image: ImageInput) -> Image.Image:
         return opened.convert("RGB")
 
 
-def readable(image: Any, label: str) -> Image.Image:
+def on_white(image: Image.Image) -> Image.Image:
+    if image.mode not in ("RGBA", "LA", "PA") and not (image.mode == "P" and "transparency" in image.info):
+        return image.convert("RGB")
+    canvas = Image.new("RGBA", image.size, (255, 255, 255, 255))
+    canvas.alpha_composite(image.convert("RGBA"))
+    return canvas.convert("RGB")
+
+
+def displayed(image: ImageInput) -> Image.Image:
+    if isinstance(image, Image.Image):
+        return on_white(image)
+    with Image.open(image) as opened:
+        return on_white(ImageOps.exif_transpose(opened) or opened)
+
+
+def readable(image: Any, label: str, read: Callable[[ImageInput], Image.Image] = rgb) -> Image.Image:
     if not isinstance(image, (str, os.PathLike, Image.Image)):
         raise TypeError(f"{label} is not a path or an image")
     try:
-        return rgb(image)
+        return read(image)
     except (OSError, ValueError, Image.DecompressionBombError) as error:
         raise ValueError(f"{label} cannot be read as an image") from error
 
@@ -53,7 +68,7 @@ def detect(model: Path, images: Sequence[ImageInput], min_score: float = 0.5) ->
     detector = None
     found = []
     for index, image in enumerate(images):
-        picture = np.ascontiguousarray(cv2.cvtColor(np.asarray(readable(image, f"images[{index}]")), cv2.COLOR_RGB2BGR))
+        picture = np.ascontiguousarray(cv2.cvtColor(np.asarray(readable(image, f"images[{index}]", displayed)), cv2.COLOR_RGB2BGR))
         size = (picture.shape[1], picture.shape[0])
         if detector is None:
             detector = cv2.FaceDetectorYN.create(str(model), "", size, min_score, NMS, TOP_K)

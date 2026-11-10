@@ -351,6 +351,32 @@ def test_a_face_is_aligned_so_that_its_five_landmarks_sit_on_the_arcface_templat
         assert aligned[72, 56].max() < 50
 
 
+def test_a_jpeg_turned_by_its_exif_orientation_is_aligned_on_landmarks_given_in_its_displayed_frame(tmp_path):
+    pytest.importorskip("cv2")
+    shown = Image.new("RGB", (300, 400), (0, 0, 0))
+    points = _points(scale=2.0, dx=60.0, dy=80.0)
+    eye_x, eye_y = points[0]
+    ImageDraw.Draw(shown).rectangle((eye_x - 4, eye_y - 4, eye_x + 4, eye_y + 4), fill=(255, 255, 255))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    path = tmp_path / "phone.jpg"
+    shown.transpose(Image.Transpose.ROTATE_90).save(path, quality=95, exif=exif)
+
+    aligned = face_identity.align(path, points)
+
+    assert aligned[52, 38].min() > 200
+    assert aligned[52, 74].max() < 50
+
+
+def test_a_transparent_face_is_put_on_white_before_it_is_aligned():
+    pytest.importorskip("cv2")
+    clear = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
+
+    aligned = face_identity.align(clear, _points())
+
+    assert aligned[56, 56].tolist() == [255, 255, 255]
+
+
 def test_each_face_is_read_alone_scaled_to_minus_one_one_and_its_vector_normalized(tmp_path, lifecycle, monkeypatch):
     np = pytest.importorskip("numpy")
     pytest.importorskip("cv2")

@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 from typing import Any, List, Sequence, Tuple
 
-from src.platform.util.face_boxes import ImageInput, readable, rgb
+from src.platform.util.face_boxes import ImageInput, displayed, readable
 
 TEMPLATE = ((38.2946, 51.6963), (73.5318, 51.5014), (56.0252, 71.7366), (41.5493, 92.3655), (70.7299, 92.2041))
 SIZE = 112
@@ -22,7 +22,7 @@ def align(image: ImageInput, landmarks: Sequence[Sequence[float]]) -> Any:
     matrix, _ = cv2.estimateAffinePartial2D(points, np.asarray(TEMPLATE, dtype=np.float32), method=cv2.LMEDS)
     if matrix is None:
         raise ValueError("The five landmarks of the face give no alignment")
-    return cv2.warpAffine(np.asarray(rgb(image)), matrix, (SIZE, SIZE), borderValue=0)
+    return cv2.warpAffine(np.asarray(displayed(image)), matrix, (SIZE, SIZE), borderValue=0)
 
 
 def runtime_imports() -> bool:
@@ -59,7 +59,7 @@ def embed(models: Any, model: Path, faces: Sequence[Face]) -> List[List[float]]:
     import numpy as np
 
     inputs = [
-        ((align(readable(image, f"faces[{index}]"), landmarks).astype(np.float32) - 127.5) / 127.5).transpose(2, 0, 1)[None]
+        ((align(readable(image, f"faces[{index}]", displayed), landmarks).astype(np.float32) - 127.5) / 127.5).transpose(2, 0, 1)[None]
         for index, (image, landmarks) in enumerate(faces)
     ]
     if not inputs:

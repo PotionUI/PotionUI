@@ -2574,14 +2574,21 @@ async def continue_from(user, request, generation_id, file_id):
 
 `src.plugin_api.media` lends a plugin the image models of the application, so that it can compare
 images without loading models of its own. These functions read images the plugin already holds, each
-a path on this server or a PIL image, and name no media of the user. `images` and `faces` are lists,
-even of one item: a single string, path or image in their place raises `TypeError` before anything is
-read. An item that is neither a path nor a PIL image raises `TypeError`, and an image that cannot be
-read, missing, truncated or not an image, raises `ValueError` named by its place in the list
-(`"images[2] cannot be read as an image"`, or `faces[2]` for the image of a face), never by its path;
-`FileNotFoundError` only ever means that a model is missing. To look at a media the user picked, take its file first with `media_local_path(user, ref)` or
-`copy_media_file(user, ref, target)` (see [Working with the user's media](#working-with-the-users-media)),
-which reach only what the user may see. Never pass them a path taken from a request.
+a path on this server or a PIL image, and name no media of the user. To look at a media the user
+picked, take its file first with `media_local_path(user, ref)` or `copy_media_file(user, ref, target)`
+(see [Working with the user's media](#working-with-the-users-media)), which reach only what the user may
+see. Never pass them a path taken from a request.
+
+`images` and `faces` are lists, even of one item: a single string, path or image in their place
+raises `TypeError` before anything is read. An item that is neither a path nor a PIL image raises
+`TypeError`, and an image that cannot be read, missing, truncated or not an image, raises `ValueError`
+named by its place in the list (`"images[2] cannot be read as an image"`, or `faces[2]` for the image
+of a face), never by its path; `FileNotFoundError` only ever means that a model is missing.
+`detect_faces` and `embed_faces` read a path as it is displayed, its EXIF orientation applied, so the
+boxes and landmarks of a phone JPEG are in the frame it shows in; they read a PIL image as it is
+given, its pixels as they are. Both put a transparent image on white first, as the media loader does.
+`embed_images` reads an image the way the gallery search indexes it, orientation not applied and
+transparency dropped, so that its vectors compare with the gallery's.
 
 | Function | Does |
 |---|---|

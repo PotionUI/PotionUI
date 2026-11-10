@@ -11,6 +11,7 @@ MAX_ARCHIVE_ENTRIES = 10_000
 MAX_UNPACKED_BYTES = 1024 * 1024 * 1024
 MAX_NAME_LENGTH = 255
 MAX_PATH_LENGTH = 1024
+MACOS_METADATA_FOLDER = "__MACOSX"
 
 _WINDOWS_DEVICES = frozenset(
     ["con", "prn", "aux", "nul", "conin$", "conout$"]
@@ -57,6 +58,8 @@ def _checked_members(bundle: zipfile.ZipFile, plugin_id: str) -> List[_Member]:
     seen = set()
     declared = 0
     for info in infos:
+        if info.filename.split("/", 1)[0] == MACOS_METADATA_FOLDER:
+            continue
         if info.flag_bits & 0x1:
             raise ArchiveError(f"The archive entry {info.filename!r} is encrypted.")
         if stat.S_IFMT(info.external_attr >> 16) not in _ALLOWED_TYPES:

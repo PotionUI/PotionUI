@@ -3254,7 +3254,8 @@ A plugin that lives outside this repository installs in two ways: cloned or unpa
 
 The archive is a zip holding a single folder named after the id, with `manifest.yml` at
 its root and the built `frontend/dist/`: what `content/plugins/local/<id>/` should hold,
-without tests. PotionUI refuses the whole archive if an entry is outside that folder, has
+without tests. The `__MACOSX/` folder the macOS Finder adds next to it is skipped, never
+unpacked. PotionUI refuses the whole archive if any other entry is outside that folder, has
 an absolute path, a `..`, `.` or empty part, a backslash or a `:`, a name Windows cannot
 hold (a device name, a trailing dot or space, a control character), is a link or a special
 file, is encrypted, differs from another only by letter case, or uses a file as a folder,

@@ -63,6 +63,29 @@ def test_an_entry_outside_the_plugin_folder_or_with_an_unsafe_name_refuses_the_w
     assert not (tmp_path / "escape.py").exists()
 
 
+def test_the_metadata_folder_the_macos_finder_adds_is_skipped(tmp_path):
+    bundle = _plugin(
+        ("__MACOSX/", b""),
+        ("__MACOSX/._demo", b"apple-double"),
+        ("__MACOSX/demo/._manifest.yml", b"apple-double"),
+        ("__MACOSX/demo/frontend/dist/._Page.js", b"apple-double"),
+    )
+
+    folder = unpack_plugin_archive(bundle, "demo", tmp_path / "out")
+
+    assert sorted(path.name for path in (tmp_path / "out").iterdir()) == ["demo"]
+    assert (folder / "manifest.yml").read_bytes() == MANIFEST
+    assert not any(path.name.startswith("._") for path in folder.rglob("*"))
+
+
+def test_a_macos_metadata_folder_inside_the_plugin_folder_is_checked_and_unpacked_like_any_other(tmp_path):
+    folder = unpack_plugin_archive(_plugin(("demo/__MACOSX/notes.txt", b"kept")), "demo", tmp_path / "out")
+
+    assert (folder / "__MACOSX" / "notes.txt").read_bytes() == b"kept"
+    with pytest.raises(ArchiveError):
+        unpack_plugin_archive(_plugin(("demo/__MACOSX/../../escape.py", b"x")), "demo", tmp_path / "again")
+
+
 def test_an_absolute_path_is_refused_as_such(tmp_path):
     with pytest.raises(ArchiveError, match="is absolute"):
         unpack_plugin_archive(_plugin(("/demo/escape.py", b"x")), "demo", tmp_path / "out")

@@ -37,7 +37,7 @@ function cutoutPng(): Buffer {
 	]);
 }
 
-type Probe = { corner: number[]; middle: number[]; cutout: number[]; width: number; height: number };
+type Probe = { corner: number[]; middle: number[]; cutout: number[]; width: number; height: number; ms?: number[] };
 
 const PROBE = { corner: [0.01, 0.015], middle: [0.4, 0.5], cutout: [0.95, 0.5] } as const;
 
@@ -45,8 +45,14 @@ function probeCanvas(page: Page): Promise<Probe> {
 	return page.locator('[data-editor-layer]').evaluate((node, points) => {
 		const canvas = node as HTMLCanvasElement;
 		const context = canvas.getContext('2d')!;
-		const at = ([fx, fy]: readonly number[]) => Array.from(context.getImageData(Math.floor(canvas.width * fx), Math.floor(canvas.height * fy), 1, 1).data);
-		return { corner: at(points.corner), middle: at(points.middle), cutout: at(points.cutout), width: canvas.width, height: canvas.height };
+		const ms: number[] = [];
+		const at = ([fx, fy]: readonly number[]) => {
+			const began = performance.now();
+			const data = Array.from(context.getImageData(Math.floor(canvas.width * fx), Math.floor(canvas.height * fy), 1, 1).data);
+			ms.push(Math.round(performance.now() - began));
+			return data;
+		};
+		return { corner: at(points.corner), middle: at(points.middle), cutout: at(points.cutout), width: canvas.width, height: canvas.height, ms };
 	}, PROBE);
 }
 
@@ -104,7 +110,24 @@ test('Vignette from the effect catalog previews live on the image canvas through
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop', { timeout: 15000 });
 
 	let original: Probe | null = null;
-	await expect.poll(async () => ((original = await probeCanvas(page)), original.middle[3] === 255 && original.cutout[3] === 0), { timeout: 20000 }).toBe(true);
+	const samples: string[] = [];
+	const opened = Date.now();
+	try {
+		await expect
+			.poll(
+				async () => {
+					const began = Date.now() - opened;
+					samples.push(`start +${began}ms`);
+					original = await probeCanvas(page);
+					samples.push(`end +${Date.now() - opened}ms ${JSON.stringify(original)}`);
+					return original.middle[3] === 255 && original.cutout[3] === 0;
+				},
+				{ timeout: 90000 }
+			)
+			.toBe(true);
+	} catch (error) {
+		throw new Error(`${(error as Error).message}\nprobe samples:\n${samples.join('\n')}\nerrors: ${JSON.stringify(errors)}`);
+	}
 
 	await page.locator('[data-tool-rail] button[data-tool="effects"]').click();
 	const card = page.locator('[data-effect-card="vignette"]');

@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Beta 0.1.0 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Beta 0.1.0 · Linux and Windows x86_64 + NVIDIA · WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
 [Ko-fi](https://ko-fi.com/A3B325D031)*
@@ -59,7 +59,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 ./potionui start     # create the venv, install deps, launch backend + frontend, print the URL
 ```
 
-Native Windows (experimental): `.\potionui.cmd doctor` and `.\potionui.cmd start`
+Native Windows: `.\potionui.cmd doctor` and `.\potionui.cmd start`
 from PowerShell or cmd — see [Windows (native)](#windows-native).
 
 Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
@@ -278,10 +278,10 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.1.0 matrix. **Native
-> Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
-> the backend test suite, the frontend checks and the E2E harness all run in
-> CI on `windows-latest` — see [Windows (native)](#windows-native) below.
+> **Linux and Windows x86_64 with an NVIDIA GPU** are supported. On Windows
+> the installer, the CLI, the backend test suite, the frontend checks and the
+> E2E harness all run in CI on `windows-latest` — see
+> [Windows (native)](#windows-native) below.
 > WSL2 and Docker Desktop work too. Details in
 > [Supported platforms](#supported-platforms).
 
@@ -324,14 +324,14 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 | --------------------------- | ------------------------------------------------------------------------------------------- |
 | Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.1.0                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
-| Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
+| Windows native              | Supported — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
 | AMD GPU (ROCm)              | No — the pinned dependency stack is CUDA-only                                               |
 | Docker                      | Supported — see below (on Windows, Docker Desktop runs this via WSL2)                       |
 
 ### Windows (native)
 
-Experimental as of 0.0.8. The `windows-latest` GitHub Actions workflow
+Supported since 0.0.8. The `windows-latest` GitHub Actions workflow
 ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)) covers
 the install and test matrix below.
 
@@ -386,7 +386,7 @@ setup:
 ```bash
 # Backend
 python -m venv venv
-source venv/bin/activate          # Windows (native, experimental): venv\Scripts\activate
+source venv/bin/activate          # Windows (native): venv\Scripts\activate
 pip install -r requirements.txt -c constraints.txt
 python api.py                     # serves on http://localhost:26730
 

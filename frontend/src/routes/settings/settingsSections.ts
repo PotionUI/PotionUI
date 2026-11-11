@@ -1,6 +1,6 @@
 import type { LibrarySectionMeta } from '$lib/components/library/librarySection';
 
-export type SettingsSectionId = 'account' | 'plan' | 'appearance' | 'content' | 'notifications' | 'mcp';
+export type SettingsSectionId = 'account' | 'plan' | 'appearance' | 'content' | 'notifications' | 'keys';
 
 export const SETTINGS_SECTIONS: readonly LibrarySectionMeta<SettingsSectionId>[] = [
 	{ id: 'account', label: 'Account', icon: 'user' },
@@ -8,7 +8,7 @@ export const SETTINGS_SECTIONS: readonly LibrarySectionMeta<SettingsSectionId>[]
 	{ id: 'appearance', label: 'Appearance', icon: 'palette' },
 	{ id: 'content', label: 'Content', icon: 'eye-off' },
 	{ id: 'notifications', label: 'Notifications', icon: 'bell' },
-	{ id: 'mcp', label: 'MCP', icon: 'plug' }
+	{ id: 'keys', label: 'API keys', icon: 'key' }
 ];
 
 export function availableSettingsSections(opts: {

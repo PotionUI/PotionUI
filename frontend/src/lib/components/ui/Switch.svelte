@@ -7,6 +7,7 @@
 		onclick,
 		disabled = false,
 		busy = false,
+		mixed = false,
 		size = 'md',
 		label,
 		id,
@@ -18,6 +19,7 @@
 		onclick?: (e: MouseEvent) => void;
 		disabled?: boolean;
 		busy?: boolean;
+		mixed?: boolean;
 		size?: Size;
 		label: string;
 		id?: string;
@@ -49,6 +51,12 @@
 		lg: 'translate-x-6'
 	};
 
+	const thumbMixedClasses: Record<Size, string> = {
+		sm: 'translate-x-[7px]',
+		md: 'translate-x-[11px]',
+		lg: 'translate-x-[14px]'
+	};
+
 	const spinnerSizeClasses: Record<Size, string> = {
 		sm: 'w-2.5 h-2.5 border',
 		md: 'w-3 h-3 border',
@@ -75,6 +83,7 @@
 		{onclick}
 		aria-label={label}
 		aria-busy={busy || undefined}
+		aria-checked={mixed && !checked ? 'mixed' : undefined}
 		class="absolute inset-0 w-full h-full m-0 appearance-none opacity-0 rounded-full disabled:cursor-not-allowed {isDisabled
 			? ''
 			: 'cursor-pointer'}"
@@ -83,13 +92,15 @@
 		aria-hidden="true"
 		class="pointer-events-none absolute inset-0 rounded-full transition-colors {checked
 			? 'bg-signal'
-			: 'bg-surface-3 border border-line-strong'} {isDisabled ? 'opacity-50' : ''}"
+			: mixed
+				? 'border border-signal/50 bg-signal/25'
+				: 'bg-surface-3 border border-line-strong'} {isDisabled ? 'opacity-50' : ''}"
 	></span>
 	<span
 		aria-hidden="true"
 		class="pointer-events-none absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded-full bg-canvas shadow transition-transform {thumbSizeClasses[
 			size
-		]} {checked ? thumbOnClasses[size] : thumbOffClasses[size]} {isDisabled ? 'opacity-50' : ''}"
+		]} {checked ? thumbOnClasses[size] : mixed ? thumbMixedClasses[size] : thumbOffClasses[size]} {isDisabled ? 'opacity-50' : ''}"
 	>
 		{#if busy}
 			<span

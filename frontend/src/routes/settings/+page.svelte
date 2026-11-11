@@ -4,12 +4,11 @@
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth';
 	import { api } from '$lib/services/api/index';
-	import type { McpToken, McpTokenCreated } from '$lib/services/api/mcp';
 	import { themeStore, type ThemePref } from '$lib/stores/theme';
 	import { nsfwFilterStore, type NsfwFilterMode } from '$lib/stores/nsfwFilter';
 	import { notifications } from '$lib/stores/notifications';
 	import type { NotificationTypePref } from '$lib/services/api/notifications';
-	import { Badge, Button, Card, Input, Spinner, Switch, Alert } from '$lib/components/ui';
+	import { Button, Card, Input, Spinner, Switch, Alert } from '$lib/components/ui';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import PlanUsageCard from '$lib/plans/components/PlanUsageCard.svelte';
@@ -17,10 +16,7 @@
 	import { resolveAvatarFileFromMediaItem } from './avatarMediaPick';
 	import { passwordErrorsFromServer, validatePasswordChange, type PasswordChangeErrors } from '$lib/utils/passwordValidation';
 	import { parseApiError } from '$lib/utils/apiErrors';
-	import { copyText } from '$lib/utils/clipboard';
-	import { timeAgo } from '$lib/utils/relativeTime';
-	import { confirmDialog } from '$lib/stores/confirm';
-	import { toasts } from '$lib/stores/toast';
+	import ApiKeysSection from '$lib/components/apikeys/ApiKeysSection.svelte';
 	import AccountsSheet from '$lib/components/accounts/AccountsSheet.svelte';
 	import { accountsStore } from '$lib/stores/accounts';
 	import { refreshResumeSetup, showResumeSetup } from '$lib/stores/resumeSetup';
@@ -202,128 +198,8 @@
 		return acc;
 	}, {});
 
-	// ── MCP ───────────────────────────────────────────────────────────────
-	// `mcpEnabled` (GET /api/mcp/status) is the AND of the global and per-user
-	// admin flags. Even when it's false, existing tokens stay listable and
-	// revocable - only minting a new one and the connection instructions are
-	// gated, per the maintainer's call: revoking should never be blocked by
-	// the same flag that blocks new connections.
-	let mcpLoading = true;
-	let mcpLoadError: string | null = null;
-	let mcpEnabled = true;
-	let mcpTokens: McpToken[] = [];
-	let mcpCreateName = '';
-	let mcpCreating = false;
-	let mcpCreateError: string | null = null;
-	let mcpRevealedToken: McpTokenCreated | null = null;
-	let mcpCopied = false;
-	let mcpConfigCopied = false;
-	let mcpRevokingId: string | null = null;
-
-	$: mcpUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/mcp` : '/api/mcp';
-	$: mcpConfigSnippet = `URL: ${mcpUrl}\nAuthorization: Bearer ${mcpRevealedToken?.token ?? '<your-token>'}`;
-
-	async function loadMcpStatus() {
-		try {
-			const response = await api.getMcpStatus();
-			if (response.success && response.data) mcpEnabled = response.data.enabled;
-		} catch {
-			// Non-fatal: the token list below still loads and stays functional
-			// even if the status check itself fails, so leave the notice off.
-		}
-	}
-
-	async function loadMcpTokens() {
-		mcpLoading = true;
-		mcpLoadError = null;
-		try {
-			const response = await api.listMcpTokens();
-			if (response.success) {
-				mcpTokens = response.data ?? [];
-			} else {
-				mcpLoadError = response.message || 'Failed to load MCP tokens.';
-			}
-		} catch (err: any) {
-			mcpLoadError = parseApiError(err).message || 'Failed to load MCP tokens.';
-		} finally {
-			mcpLoading = false;
-		}
-	}
-
-	async function handleCreateMcpToken(event: Event) {
-		event.preventDefault();
-		const name = mcpCreateName.trim();
-		if (!name) return;
-
-		mcpCreating = true;
-		mcpCreateError = null;
-		try {
-			const response = await api.createMcpToken(name);
-			if (response.success && response.data) {
-				mcpRevealedToken = response.data;
-				mcpCreateName = '';
-				await loadMcpTokens();
-			} else {
-				mcpCreateError = response.message || 'Failed to create token.';
-			}
-		} catch (err: any) {
-			mcpCreateError = parseApiError(err).message || 'Failed to create token.';
-		} finally {
-			mcpCreating = false;
-		}
-	}
-
-	async function handleRevokeMcpToken(tokenId: string, name: string) {
-		if (
-			!(await confirmDialog({
-				title: `Revoke "${name}"?`,
-				message: 'Any client using this token will immediately lose access. This cannot be undone.',
-				variant: 'danger'
-			}))
-		)
-			return;
-
-		mcpRevokingId = tokenId;
-		try {
-			const response = await api.revokeMcpToken(tokenId);
-			if (response.success) {
-				if (mcpRevealedToken?.id === tokenId) mcpRevealedToken = null;
-				await loadMcpTokens();
-			} else {
-				toasts.error(response.message || 'Failed to revoke token.');
-			}
-		} catch (err: any) {
-			toasts.error(parseApiError(err).message || 'Failed to revoke token.');
-		} finally {
-			mcpRevokingId = null;
-		}
-	}
-
-	async function copyMcpToken() {
-		if (!mcpRevealedToken) return;
-		const ok = await copyText(mcpRevealedToken.token);
-		if (ok) {
-			mcpCopied = true;
-			setTimeout(() => (mcpCopied = false), 1500);
-		} else {
-			toasts.error('Could not copy');
-		}
-	}
-
-	async function copyMcpConfig() {
-		const ok = await copyText(mcpConfigSnippet);
-		if (ok) {
-			mcpConfigCopied = true;
-			setTimeout(() => (mcpConfigCopied = false), 1500);
-		} else {
-			toasts.error('Could not copy');
-		}
-	}
-
 	onMount(() => {
 		if (!$notifications.prefsLoaded) notifications.loadPrefs();
-		loadMcpStatus();
-		loadMcpTokens();
 	});
 
 	const nsfwFilterOptions: { value: NsfwFilterMode; label: string }[] = [
@@ -343,6 +219,7 @@
 		notificationsEmpty: prefsLoaded && prefTypes.length === 0
 	});
 	$: activeSection = resolveSettingsSection($page.url, sections);
+	let keyCount: number | null = null;
 
 	function selectSection(id: SettingsSectionId) {
 		void goto(settingsSectionUrl($page.url, id), { replaceState: true, keepFocus: true, noScroll: true });
@@ -352,6 +229,9 @@
 <LibraryShell
 	title="Settings"
 	persistKey="settings"
+	count={activeSection === 'keys' ? keyCount : null}
+	countLabel="keys"
+	countLabelOne="key"
 	{sections}
 	section={activeSection}
 	onSelectSection={selectSection}
@@ -655,141 +535,8 @@
 						{/if}
 					</Card>
 				</div>
-			{:else if activeSection === 'mcp'}
-				<Card>
-					<h2 class="label mb-3">MCP</h2>
-					<p class="text-fg-subtle text-xs mb-4">
-						Connect an external AI client to PotionUI over MCP. It acts as you — same presets,
-						same library, same permissions.
-					</p>
-
-					{#if mcpLoading}
-						<div class="flex items-center justify-center py-8">
-							<Spinner />
-						</div>
-					{:else}
-						<div class="space-y-4">
-							{#if !mcpEnabled}
-								<Alert variant="info">
-									An administrator has disabled MCP access. Existing tokens below can still be
-									reviewed and revoked, but new connections won't be accepted until it's re-enabled.
-								</Alert>
-							{/if}
-
-							{#if mcpLoadError}
-								<Alert variant="danger">{mcpLoadError}</Alert>
-							{/if}
-
-							{#if mcpEnabled}
-								{#if mcpRevealedToken}
-									<div class="rounded border border-line-strong bg-surface-2 p-3 space-y-2">
-										<p class="text-xs font-medium text-warning">
-											Copy this token now — you won't see it again.
-										</p>
-										<div class="flex items-center gap-2">
-											<code
-												class="flex-1 min-w-0 truncate font-mono text-xs text-fg bg-canvas rounded px-2 py-1.5 border border-line"
-											>
-												{mcpRevealedToken.token}
-											</code>
-											<Button
-												size="xs"
-												variant="secondary"
-												icon={mcpCopied ? 'check' : 'copy'}
-												onclick={copyMcpToken}
-											>
-												{mcpCopied ? 'Copied' : 'Copy'}
-											</Button>
-										</div>
-										<Button size="xs" variant="ghost" onclick={() => (mcpRevealedToken = null)}>Done</Button>
-									</div>
-								{/if}
-
-								<form on:submit={handleCreateMcpToken} class="flex max-w-lg items-end gap-2">
-									<div class="flex-1">
-										<label for="mcp-token-name" class="label">New token name</label>
-										<Input
-											id="mcp-token-name"
-											bind:value={mcpCreateName}
-											placeholder="e.g. Claude Desktop"
-											disabled={mcpCreating}
-										/>
-									</div>
-									<Button
-										type="submit"
-										variant="primary"
-										size="sm"
-										loading={mcpCreating}
-										disabled={mcpCreating || !mcpCreateName.trim()}
-									>
-										Create token
-									</Button>
-								</form>
-								{#if mcpCreateError}
-									<p class="text-xs text-danger">{mcpCreateError}</p>
-								{/if}
-							{/if}
-
-							{#if mcpTokens.length === 0}
-								<p class="text-xs text-fg-subtle py-4 text-center">No tokens yet.</p>
-							{:else}
-								<div class="divide-y divide-line rounded border border-line overflow-hidden">
-									{#each mcpTokens as token (token.id)}
-										<div
-											class="flex items-center justify-between gap-3 px-3 py-2.5 {token.revoked_at ? 'opacity-50' : ''}"
-										>
-											<div class="min-w-0">
-												<p class="text-sm text-fg truncate">{token.name}</p>
-												<p class="font-mono text-2xs text-fg-subtle tabular-nums truncate">
-													{token.token_prefix}&hellip;
-													· created {timeAgo(token.created_at)}
-													{#if token.last_used_at}
-														· last used {timeAgo(token.last_used_at)}
-													{:else}
-														· never used
-													{/if}
-													{#if token.revoked_at}
-														· revoked {timeAgo(token.revoked_at)}
-													{/if}
-												</p>
-											</div>
-											{#if token.revoked_at}
-												<Badge variant="neutral" size="sm" class="flex-shrink-0">Revoked</Badge>
-											{:else}
-												<Button
-													size="xs"
-													variant="ghost"
-													class="text-danger hover:text-danger flex-shrink-0"
-													loading={mcpRevokingId === token.id}
-													onclick={() => handleRevokeMcpToken(token.id, token.name)}
-												>
-													Revoke
-												</Button>
-											{/if}
-										</div>
-									{/each}
-								</div>
-							{/if}
-
-							{#if mcpEnabled}
-								<div>
-									<p class="text-fg text-sm font-medium mb-1">Client configuration</p>
-									<pre
-										class="rounded border border-line bg-surface-2 p-3 font-mono text-2xs text-fg-muted whitespace-pre-wrap break-all">{mcpConfigSnippet}</pre>
-									<Button
-										size="xs"
-										variant="ghost"
-										class="mt-1.5"
-										icon={mcpConfigCopied ? 'check' : 'copy'}
-										onclick={copyMcpConfig}
-									>
-										{mcpConfigCopied ? 'Copied' : 'Copy config'}
-									</Button>
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</Card>
+			{:else if activeSection === 'keys'}
+				<ApiKeysSection {isAdmin} onCount={(count) => (keyCount = count)} />
 			{/if}
 		</div>
 	</div>

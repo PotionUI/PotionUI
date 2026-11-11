@@ -9,7 +9,7 @@ const SECTIONS = [
 	{ id: 'appearance', label: 'Appearance', marker: '[role="radiogroup"][aria-label="Theme"]' },
 	{ id: 'content', label: 'Content', marker: '[role="radiogroup"][aria-label="Sensitive media"]' },
 	{ id: 'notifications', label: 'Notifications', marker: '#notifications' },
-	{ id: 'mcp', label: 'MCP', marker: 'text=Connect an external AI client' }
+	{ id: 'keys', label: 'API keys', marker: 'text=A key lets a script or an MCP client act as you' }
 ] as const;
 
 const NOT_READY = {
@@ -78,12 +78,12 @@ test.describe('user settings sections on desktop', () => {
 		await expect(page).not.toHaveURL(/\/settings/);
 	});
 
-	test('?section=mcp opens the MCP section', async ({ page }) => {
+	test('?section=keys opens the API keys section', async ({ page }) => {
 		test.setTimeout(60000);
 		await mockPrefs(page);
 		await loginAsOwner(page);
-		await page.goto('/settings?section=mcp');
-		await expectSection(page, 'mcp');
+		await page.goto('/settings?section=keys');
+		await expectSection(page, 'keys');
 		await expect(page.locator('#plan')).toHaveCount(0);
 	});
 
@@ -95,8 +95,8 @@ test.describe('user settings sections on desktop', () => {
 		await expectSection(page, 'plan');
 		await page.goto('/settings?section=appearance#plan');
 		await expectSection(page, 'plan');
-		await page.getByRole('listbox', { name: 'Settings sections' }).getByRole('option', { name: 'MCP', exact: true }).click();
-		await expectSection(page, 'mcp');
+		await page.getByRole('listbox', { name: 'Settings sections' }).getByRole('option', { name: 'API keys', exact: true }).click();
+		await expectSection(page, 'keys');
 		expect(new URL(page.url()).hash).toBe('');
 	});
 
@@ -191,12 +191,12 @@ test.describe('user settings sections on a phone', () => {
 		}
 	});
 
-	test('?section=mcp opens the MCP section on a phone', async ({ page }) => {
+	test('?section=keys opens the API keys section on a phone', async ({ page }) => {
 		test.setTimeout(60000);
 		await mockPrefs(page);
 		await loginAsOwner(page);
-		await page.goto('/settings?section=mcp');
-		await expectSection(page, 'mcp');
-		await expect(page.locator('select:has(option[value="plan"])')).toHaveValue('mcp');
+		await page.goto('/settings?section=keys');
+		await expectSection(page, 'keys');
+		await expect(page.locator('select:has(option[value="plan"])')).toHaveValue('keys');
 	});
 });

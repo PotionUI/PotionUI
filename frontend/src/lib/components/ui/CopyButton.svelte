@@ -17,6 +17,7 @@
 		size = 'sm',
 		variant = 'ghost',
 		disabled = false,
+		oncopy,
 		class: className = ''
 	}: {
 		/** Value to copy, or a function returning it (resolved on click). */
@@ -29,6 +30,7 @@
 		size?: Size;
 		variant?: Variant;
 		disabled?: boolean;
+		oncopy?: () => void;
 		class?: string;
 	} = $props();
 
@@ -43,6 +45,7 @@
 		if (!value) return;
 		const ok = await copyText(value);
 		if (ok) {
+			oncopy?.();
 			copied = true;
 			clearTimeout(timer);
 			timer = setTimeout(() => (copied = false), 1500);

@@ -11,8 +11,24 @@ const hoisted = vi.hoisted(() => ({
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		getClient: () => ({ get: vi.fn().mockResolvedValue({ data: { data: {} } }), put: vi.fn() }),
-		getMcpStatus: vi.fn().mockResolvedValue({ success: true, data: { enabled: true } }),
-		listMcpTokens: vi.fn().mockResolvedValue({ success: true, data: [] }),
+		listApiKeys: vi.fn().mockResolvedValue({
+			success: true,
+			data: {
+				keys: [],
+				limits: { keys_enabled: true, mcp_enabled: true, scopes_allowed: ['read', 'generate', 'content', 'mcp'], max_lifetime_days: null }
+			}
+		}),
+		getMcpTools: vi.fn().mockResolvedValue({
+			success: true,
+			data: {
+				level: 'default',
+				key_id: null,
+				policy: 'read_only_on',
+				ceiling_policy: 'all_on',
+				summary: { exposed: 0, total: 0, writes_exposed: 0, unavailable: 0, locked: 0, unreviewed: 0 },
+				tools: []
+			}
+		}),
 		getReadiness: (...args: unknown[]) => hoisted.getReadiness(...args)
 	}
 }));
@@ -112,7 +128,7 @@ afterEach(() => {
 describe('settings page sections', () => {
 	it('lists the six sections in order with no counts and opens on Account', async () => {
 		await open();
-		expect(labels()).toEqual(['Account', 'Plan & usage', 'Appearance', 'Content', 'Notifications', 'MCP']);
+		expect(labels()).toEqual(['Account', 'Plan & usage', 'Appearance', 'Content', 'Notifications', 'API keys']);
 		expect(title()).toBe('Account');
 		expect(target.textContent).toContain('Change avatar');
 		expect(target.textContent).toContain('Change password');
@@ -132,11 +148,17 @@ describe('settings page sections', () => {
 		expect(target.textContent).not.toContain('Change password');
 	});
 
-	it('opens the MCP token card for ?section=mcp', async () => {
-		await open('/settings?section=mcp');
-		expect(title()).toBe('MCP');
-		expect(target.textContent).toContain('Connect an external AI client');
+	it('opens the API keys section for ?section=keys', async () => {
+		await open('/settings?section=keys');
+		expect(title()).toBe('API keys');
+		expect(target.textContent).toContain('A key lets a script or an MCP client act as you');
+		expect(target.textContent).toContain('MCP tools');
 		expect(target.textContent).not.toContain('Change avatar');
+	});
+
+	it('no longer knows the old mcp section id and falls back to Account', async () => {
+		await open('/settings?section=mcp');
+		expect(title()).toBe('Account');
 	});
 
 	it('maps the legacy #plan hash to Plan & usage', async () => {

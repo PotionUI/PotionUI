@@ -15,6 +15,8 @@
 		onSelectSection,
 		sectionCounts = {},
 		count = null,
+		countLabel,
+		countLabelOne,
 		titleLabel,
 		detailOpen = false,
 		heightClass = 'h-[100dvh]',
@@ -38,6 +40,8 @@
 		onSelectSection: (id: S) => void;
 		sectionCounts?: Partial<Record<S, number>>;
 		count?: number | null;
+		countLabel?: string;
+		countLabelOne?: string;
 		titleLabel?: string;
 		detailOpen?: boolean;
 		heightClass?: string;
@@ -149,7 +153,7 @@
 		{#if !detailOpen}
 			<PageHeader sticky={false} wrap>
 				<div class="flex w-full flex-wrap items-center gap-2 xl:gap-4">
-					<PageTitle title={titleLabel ?? meta.label} count={count ?? undefined}>
+					<PageTitle title={titleLabel ?? meta.label} count={count ?? undefined} {countLabel} {countLabelOne}>
 						{#if hasSidebar}
 							<label class="block md:hidden">
 								<span class="sr-only">Section</span>

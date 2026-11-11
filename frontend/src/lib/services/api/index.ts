@@ -71,7 +71,8 @@ import { createSetupApi } from './setup';
 import { createAuthProvidersApi } from './authProviders';
 import { createRecipesApi } from './recipes';
 import { createRecipeModesApi } from './recipeModes';
-import { createMcpApi } from './mcp';
+import { createApiKeysApi } from './apiKeys';
+import { createMcpToolsApi } from './mcpTools';
 import { createInspirationsApi } from './inspirations';
 import { createFormulasApi } from './formulas';
 import { createFiltersApi } from './filters';
@@ -127,7 +128,8 @@ export const api = {
 	...createAuthProvidersApi(apiClient.getClient()),
 	...createRecipesApi(apiClient.getClient()),
 	...createRecipeModesApi(apiClient.getClient()),
-	...createMcpApi(apiClient.getClient()),
+	...createApiKeysApi(apiClient.getClient()),
+	...createMcpToolsApi(apiClient.getClient()),
 	...createInspirationsApi(apiClient.getClient()),
 	...createFormulasApi(apiClient.getClient()),
 	...createFiltersApi(apiClient.getClient()),
@@ -168,7 +170,28 @@ export type {
 	RecipeRun,
 	RecipeStepKind
 } from './recipes';
-export type { McpToken, McpTokenCreated, McpStatus } from './mcp';
+export type {
+	ApiKey,
+	ApiKeyScope,
+	ApiKeyStatus,
+	ApiKeyLimits,
+	ApiKeyListing,
+	ApiKeyCreated,
+	ApiKeyCreateRequest,
+	ApiKeyUpdateRequest,
+	ApiKeyExpiryDays,
+	ApiKeyEvent,
+	ApiKeyEventsPage
+} from './apiKeys';
+export type {
+	McpTool,
+	McpToolState,
+	McpToolsLevel,
+	McpToolsListing,
+	McpToolsPolicy,
+	McpToolsSummary,
+	McpToolOverrides
+} from './mcpTools';
 export type {
 	InspirationAuthor,
 	InspirationMedia,

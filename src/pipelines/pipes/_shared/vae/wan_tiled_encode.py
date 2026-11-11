@@ -20,7 +20,7 @@ import torch
 
 from src.pipelines.pipes._shared.generation.dit_placement import _release_idle_pool
 from src.platform.runtime.native.errors import retry_after_cuda_oom
-from src.platform.runtime.native.memory.residency import effective_free_vram_gb, get_residency_registry
+from src.platform.runtime.native.memory.residency import effective_free_vram_gb, free_vram_gb, get_residency_registry
 from src.platform.runtime.native.memory.tiering import activation_headroom_gb
 from src.platform.runtime.native.vae.tiling import VAE_SPATIAL_DOWNSCALE, tiled_encode_causal3d
 
@@ -96,11 +96,15 @@ def wan_concat_encode_need_gb(vae: Any, width: int, height: int) -> float:
 def make_room_for_wan_concat_encode(device: str, vae: Any, width: int, height: int, keep: Iterable[Any] = ()) -> None:
     if not str(device).startswith("cuda") or not torch.cuda.is_available():
         return
-    _release_idle_pool(device)
-    free = effective_free_vram_gb(device)
-    if free is None:
-        return
     need = wan_concat_encode_need_gb(vae, width, height)
+    free = free_vram_gb(device)
+    if free is None or free >= need:
+        return
+    if (effective_free_vram_gb(device) or 0.0) > free:
+        _release_idle_pool(device)
+        free = free_vram_gb(device)
+        if free is None or free >= need:
+            return
     exclude = [vae, *(m for m in keep if m is not None)]
     evicted = get_residency_registry().ensure_free(device, need, free, exclude=exclude)
     if evicted:

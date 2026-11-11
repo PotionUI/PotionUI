@@ -75,6 +75,10 @@
 		} catch {
 			setupStatus = null;
 		}
+		if (setupStatus?.needs_owner) {
+			void goto('/setup/claim', { replaceState: true });
+			return;
+		}
 		saveReturnPath(returnTo);
 		try {
 			loginProviders = normalizeLoginProviders(await api.getLoginProviders());

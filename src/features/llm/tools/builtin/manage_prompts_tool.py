@@ -124,6 +124,7 @@ class GetPromptTool(BaseTool):
     context_group = "library"
 
     name = "get_prompt"
+    mcp = True
     read_only = True
     group = "Saved prompts"
     user_description = "Reads one prompt from your library in full."
@@ -163,6 +164,7 @@ class ListPromptsTool(BaseTool):
     context_group = "library"
 
     name = "list_prompts"
+    mcp = True
     read_only = True
     group = "Saved prompts"
     user_description = "Lists the prompts in your library."
@@ -225,6 +227,7 @@ class AddPromptTool(_PromptWriteTool):
     icon = "book-plus"
 
     name = "add_prompt"
+    mcp = True
     user_description = "Saves a new prompt composition to your library."
 
     @property
@@ -291,6 +294,7 @@ class EditPromptTool(_PromptWriteTool):
     icon = "book-open"
 
     name = "edit_prompt"
+    mcp = True
     user_description = "Updates a prompt already saved in your library."
 
     @property
@@ -375,6 +379,7 @@ class DeletePromptTool(_PromptWriteTool):
     icon = "trash-2"
 
     name = "delete_prompt"
+    mcp = True
     user_description = "Removes a saved prompt from your library."
 
     @property

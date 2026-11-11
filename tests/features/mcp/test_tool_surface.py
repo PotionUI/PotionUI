@@ -11,11 +11,11 @@ from src.features.media.upload_repository import UploadRepository
 from src.features.tags.repository import TagRepository
 from src.features.llm.tools.base import BaseTool, ToolResult, ToolServices
 from src.features.llm.tools.builtin import register_builtin_tools
-from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm_memory.records import LLMMemoryNote
 from src.features.llm_memory.repository import LLMMemoryRepository
-from src.features.mcp.protocol import McpToolCollaborators, handle_method
+from src.features.mcp.tool_policy import POLICY_ALL_ON
+from src.features.mcp.tool_repository import McpToolRepository
 from src.features.models.access_policy import ModelAccessPolicy
 from src.features.models.catalog import ModelCatalog
 from src.features.models.records import Model
@@ -33,6 +33,7 @@ from src.features.segments.repository import (
     SegmentCategoryRepository,
     SegmentTemplateRepository,
 )
+from tests.features.mcp.support import build_collaborators, handle_method
 from tests.fixtures.seed import seed_user
 
 EXPECTED_TOOLS = {
@@ -50,6 +51,7 @@ EXPECTED_TOOLS = {
     "write_memory", "read_memory", "update_memory", "delete_memory",
     "manage_collections", "organize_gallery", "start_generation", "run_media_tool",
     "get_prompt_variables", "manage_prompt_variables", "list_tab_drafts", "write_condition",
+    "list_models",
 }
 
 
@@ -60,6 +62,8 @@ class _Registry:
 
 class _PathLeakTool(BaseTool):
     modes = ["generation"]
+    mcp = True
+    read_only = True
 
     @property
     def name(self):
@@ -158,6 +162,7 @@ class _FakePresetDb:
 def world(mcp_db):
     for user_id in ("user-1", "user-2"):
         seed_user(mcp_db, user_id)
+        McpToolRepository().apply_default(user_id, POLICY_ALL_ON, {})
 
     categories = SegmentCategoryRepository()
     segments = SavedSegmentRepository()
@@ -210,10 +215,9 @@ def world(mcp_db):
     register_builtin_tools(registry)
     llm_repository = Mock()
     llm_repository.get_default_configuration.return_value = None
-    collaborators = McpToolCollaborators(
-        tool_registry=registry,
-        tool_governance_repository=ToolGovernanceRepository(),
-        services=ToolServices(
+    collaborators = build_collaborators(
+        registry,
+        ToolServices(
             llm_repository=llm_repository,
             segment_category_repository=categories,
             saved_segment_repository=segments,
@@ -279,6 +283,7 @@ READ_CALLS = [
     ("get_preset_info", {"preset_id": "preset-a"}),
     ("list_library_items", {}),
     ("search_models", {"query": "m"}),
+    ("list_models", {}),
     ("list_phrasebook_categories", {}),
     ("get_phrasebook_values", {"category": "pb-1"}),
     ("search_model_prompts", {"queries": ["fox"]}),
@@ -299,6 +304,14 @@ class TestReadToolsWithoutSessionContext:
         result = await _call(world, name, arguments)
 
         assert result["isError"] is False, result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_list_models_returns_only_the_models_assigned_to_the_caller(self, world):
+        mine = _payload(await _call(world, "list_models", {}, user_id="user-1"))
+        theirs = _payload(await _call(world, "list_models", {}, user_id="user-2"))
+
+        assert [m["id"] for m in mine["models"]] == [world.model.id]
+        assert theirs["models"] == []
 
     @pytest.mark.asyncio
     async def test_get_model_info_succeeds_for_an_assigned_model(self, world):

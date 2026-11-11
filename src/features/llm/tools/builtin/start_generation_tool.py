@@ -35,6 +35,7 @@ class StartGenerationTool(BaseTool):
     context_group = "library"
 
     name = "start_generation"
+    mcp = True
     group = "Generation"
     user_description = "Starts a generation from a chosen preset, without needing an open form."
     requires_approval = True

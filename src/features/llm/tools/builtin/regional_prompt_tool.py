@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult, MCP_NEEDS_LIVE_FORM
 from src.features.llm.tools.errors import teach
 from src.features.presets.regional_prompt import offers_regional_prompt, regional_prompt_modes
 from src.pipelines.pipes._shared.regional import normalize_regional_prompt
@@ -103,6 +103,7 @@ class SetRegionalPromptTool(BaseTool):
     icon = "square-dashed"
 
     name = "set_regional_prompt"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     group = "Prompt writing"
     user_description = "Places described regions on the image canvas for exact placement of objects and text."
     requires_approval = True

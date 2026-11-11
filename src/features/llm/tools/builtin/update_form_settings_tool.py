@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any, Dict
 
-from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, MCP_NEEDS_LIVE_FORM
 from src.features.llm.tools.media_values import (
     MEDIA_VALUE_FORM,
     media_field_names,
@@ -22,6 +22,7 @@ class UpdateFormSettingsTool(BaseTool):
     icon = "sliders-horizontal"
 
     name = "update_form_settings"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     group = "Form & segments"
     user_description = "Changes values on your generation form for you."
     requires_approval = True

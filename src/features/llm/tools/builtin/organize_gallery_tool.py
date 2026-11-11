@@ -48,6 +48,7 @@ class OrganizeGalleryTool(BaseTool):
     context_group = "library"
 
     name = "organize_gallery"
+    mcp = True
     group = "Generation"
     user_description = "Tags, rates, and lists your recent generations."
     requires_approval = True

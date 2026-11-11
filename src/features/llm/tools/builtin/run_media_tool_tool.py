@@ -199,6 +199,7 @@ class RunMediaToolTool(BaseTool):
     context_group = "media"
 
     name = "run_media_tool"
+    mcp = True
     group = "Generation"
     requires_approval = True
     approval_per_call = True

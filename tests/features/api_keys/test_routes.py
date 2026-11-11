@@ -414,14 +414,15 @@ class TestMcpToolCounts:
         assert keys["assistant"]["mcp_tools"] == {"exposed": 7, "total": 12}
         assert keys["script"]["mcp_tools"] is None
 
-    def test_the_count_is_computed_once_per_owner_not_per_key(self, client, world):
+    def test_the_counts_are_asked_for_once_with_every_mcp_key_and_its_owner(self, client, world):
         self.setup_mcp(world)
-        for index in range(4):
-            world.mint(world.alice, scopes=("mcp",), name=f"k{index}")
+        keys = [world.mint(world.alice, scopes=("mcp",), name=f"k{index}")[0] for index in range(4)]
+        world.mint(world.alice, scopes=("read",), name="script")
 
         client.get("/api/keys", headers=world.session("alice"))
 
-        assert world.tool_counts_calls == [[world.alice.id]]
+        assert len(world.tool_counts_calls) == 1
+        assert sorted(world.tool_counts_calls[0]) == sorted((key.id, world.alice.id) for key in keys)
 
     def test_the_count_is_not_computed_when_no_key_has_mcp(self, client, world):
         world.mint(world.alice, scopes=("read",))
@@ -437,16 +438,18 @@ class TestMcpToolCounts:
 
         assert created["mcp_tools"] == patched["mcp_tools"] == {"exposed": 7, "total": 12}
 
-    def test_the_admin_listing_counts_each_distinct_owner_once(self, client, world):
+    def test_the_admin_listing_counts_each_key_with_its_own_owner(self, client, world):
         self.setup_mcp(world)
-        world.mint(world.alice, scopes=("mcp",))
-        world.mint(world.alice, scopes=("mcp",))
-        world.mint(world.bob, scopes=("mcp",))
+        first = world.mint(world.alice, scopes=("mcp",))[0]
+        second = world.mint(world.alice, scopes=("mcp",))[0]
+        third = world.mint(world.bob, scopes=("mcp",))[0]
 
         items = client.get("/api/admin/keys", headers=world.session("root")).json()["data"]["items"]
 
         assert len(world.tool_counts_calls) == 1
-        assert sorted(world.tool_counts_calls[0]) == sorted([world.alice.id, world.bob.id])
+        assert sorted(world.tool_counts_calls[0]) == sorted([
+            (first.id, world.alice.id), (second.id, world.alice.id), (third.id, world.bob.id),
+        ])
         assert all(item["mcp_tools"] == {"exposed": 7, "total": 12} for item in items)
 
 

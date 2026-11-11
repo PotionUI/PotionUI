@@ -22,7 +22,7 @@ import json
 import uuid
 from typing import Any, Dict, List, Optional, Sequence
 
-from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, MCP_NEEDS_LIVE_FORM
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.features.video_director import apply_preset_mode_overlay
 
@@ -590,6 +590,7 @@ class GetVideoDirectorTool(BaseTool):
         return video_director_active(form_state)
 
     name = "get_video_director"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     read_only = True
     group = "Form & segments"
     user_description = "Reads the Video Director document on your generation form."

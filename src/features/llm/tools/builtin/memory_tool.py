@@ -161,6 +161,7 @@ class WriteMemoryTool(BaseTool):
     icon = "brain"
 
     name = "write_memory"
+    mcp = True
     group = "Memory"
     user_description = "Saves a note about you the assistant can recall in later chats."
     requires_approval = False
@@ -281,6 +282,7 @@ class ReadMemoryTool(BaseTool):
     context_group = "memory_maintenance"
 
     name = "read_memory"
+    mcp = True
     read_only = True
     group = "Memory"
     user_description = "Reads notes the assistant saved in earlier chats."
@@ -413,6 +415,7 @@ class _MemoryApprovalTool(ApprovalTool):
 
 class DeleteMemoryTool(_MemoryApprovalTool):
     name = "delete_memory"
+    mcp = True
     user_description = "Deletes one of the assistant's saved memory notes."
 
     @property
@@ -491,6 +494,7 @@ class DeleteMemoryTool(_MemoryApprovalTool):
 
 class UpdateMemoryTool(_MemoryApprovalTool):
     name = "update_memory"
+    mcp = True
     user_description = "Edits one of the assistant's saved memory notes."
 
     @property

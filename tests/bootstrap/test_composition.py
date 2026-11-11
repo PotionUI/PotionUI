@@ -296,7 +296,19 @@ report["api_keys_wiring"] = {
         if route.path.startswith(("/api/keys", "/api/admin/keys", "/api/admin/users/{user_id}/api-access"))
         for method in _methods(route)
     ),
-    "mcp_routes": sorted(f"{m} {r.path}" for r in api_routes if r.path.startswith("/api/mcp") for m in _methods(r)),
+    "mcp_routes": sorted(f"{m} {r.path}" for r in api_routes if r.path == "/api/mcp" for m in _methods(r)),
+    "mcp_tool_routes": sorted(
+        f"{m} {r.path}" for r in api_routes
+        if r.path.startswith(("/api/mcp/", "/api/admin/mcp/")) for m in _methods(r)
+    ),
+    "mcp_tool_routes_a_key_can_reach": [
+        f"{m} {r.path}" for r in api_routes
+        if r.path.startswith(("/api/mcp/", "/api/admin/mcp/")) for m in _methods(r)
+        if required_scopes(r, m) is not None
+    ],
+    "mcp_tool_policy_is_built_on_the_container_settings_and_registry": (
+        c.mcp_tool_collaborators.settings is c.settings and c.mcp_tool_collaborators.tool_registry is c.tool_registry
+    ),
     "the_collaborators_use_the_container_settings_and_users": (
         c.api_key_collaborators.settings is c.settings and c.api_key_resolver._users is c.user_repository
     ),
@@ -539,6 +551,20 @@ def test_the_mcp_endpoint_is_the_only_mcp_route_and_needs_the_mcp_scope(report):
     wiring = report["api_keys_wiring"]
     assert wiring["mcp_routes"] == ["POST /api/mcp"]
     assert wiring["mcp_endpoint_needs_mcp"] == [["mcp"]]
+
+
+def test_the_mcp_tool_routes_are_mounted_and_session_only(report):
+    wiring = report["api_keys_wiring"]
+    assert wiring["mcp_tool_routes"] == [
+        "GET /api/admin/mcp/tools",
+        "GET /api/mcp/keys/{key_id}/tools",
+        "GET /api/mcp/tools",
+        "PATCH /api/admin/mcp/tools",
+        "PATCH /api/mcp/keys/{key_id}/tools",
+        "PATCH /api/mcp/tools",
+    ]
+    assert wiring["mcp_tool_routes_a_key_can_reach"] == []
+    assert wiring["mcp_tool_policy_is_built_on_the_container_settings_and_registry"] is True
 
 
 def test_every_media_viewer_route_accepts_a_read_or_mcp_key(report):

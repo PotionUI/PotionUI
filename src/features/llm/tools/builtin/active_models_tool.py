@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, List
 
 from src.features.llm.tools.errors import unexpected
-from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, MCP_NEEDS_LIVE_FORM
 from src.features.llm.tools.builtin.utils import (
     build_model_field_metadata,
     resolve_active_models,
@@ -37,6 +37,7 @@ class GetActiveModelsTool(BaseTool):
     icon = "boxes"
 
     name = "get_active_models"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     read_only = True
     group = "Models & presets"
     user_description = "Reads details of the models currently selected in your form."

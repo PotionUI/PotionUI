@@ -1,15 +1,10 @@
 from typing import Dict, Iterable, Tuple
 
-from src.features.mcp.protocol import McpToolCollaborators, _candidate_tools, _default_llm_id, _resolve_scope
+from src.features.mcp.operations.tools import counts_for_keys
+from src.features.mcp.protocol import McpToolCollaborators
 
 
-def tool_counts_by_owner(
-    collaborators: McpToolCollaborators, user_ids: Iterable[str]
+def tool_counts_by_key(
+    collaborators: McpToolCollaborators, key_owners: Iterable[Tuple[str, str]]
 ) -> Dict[str, Tuple[int, int]]:
-    total = len(_candidate_tools(collaborators))
-    llm_id = _default_llm_id(collaborators)
-    counts: Dict[str, Tuple[int, int]] = {}
-    for user_id in dict.fromkeys(user_ids):
-        exposed = len(_resolve_scope(collaborators, user_id, llm_id).allowed_names())
-        counts[user_id] = (exposed, total)
-    return counts
+    return counts_for_keys(collaborators, dict(key_owners))

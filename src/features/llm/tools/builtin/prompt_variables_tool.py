@@ -306,6 +306,7 @@ class ManagePromptVariablesTool(BaseTool):
     icon = "braces"
 
     name = "manage_prompt_variables"
+    mcp = True
     group = "Form & segments"
     user_description = "Creates or changes the ${name} prompt variables on your generation form."
     requires_approval = True
@@ -596,6 +597,7 @@ class GetPromptVariablesTool(BaseTool):
     icon = "braces"
 
     name = "get_prompt_variables"
+    mcp = True
     read_only = True
     group = "Form & segments"
     user_description = "Reads the ${name} prompt variables on your generation form, with every option."
@@ -699,6 +701,7 @@ class ListTabDraftsTool(BaseTool):
     icon = "braces"
 
     name = "list_tab_drafts"
+    mcp = True
     read_only = True
     group = "Form & segments"
     user_description = "Lists the user's Generate tabs that hold prompt variables, so another tab's variables can be read."

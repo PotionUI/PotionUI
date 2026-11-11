@@ -811,6 +811,7 @@ class ChatToolSpec(BaseModel):
 
     tool_class: str = Field(alias="class")  # "module.path:ClassName"
     modes: Optional[List[str]] = None  # omitted/None = global tool
+    mcp: Optional[bool] = None
 
 
 class ResourceProviderSpec(BaseModel):

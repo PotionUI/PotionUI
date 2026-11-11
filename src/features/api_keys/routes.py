@@ -24,7 +24,7 @@ from src.platform.security.user import User
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
-ToolCounts = Callable[[Iterable[str]], Dict[str, Tuple[int, int]]]
+ToolCounts = Callable[[Iterable[Tuple[str, str]]], Dict[str, Tuple[int, int]]]
 
 
 class ApiKeyController(BaseController):
@@ -46,11 +46,11 @@ class ApiKeyController(BaseController):
         now = now_utc()
         names = self._c.keys.usernames(related_user_ids(keys))
         counts = self._tool_counts(
-            dict.fromkeys(key.user_id for key in keys if ApiScope.MCP in key.scopes)
+            [(key.id, key.user_id) for key in keys if ApiScope.MCP in key.scopes]
         )
         result = []
         for key in keys:
-            item = key_to_dict(key, now, names, counts.get(key.user_id))
+            item = key_to_dict(key, now, names, counts.get(key.id))
             if owners is not None:
                 item["owner"] = {"id": key.user_id, "username": owners.get(key.user_id)}
             result.append(item)

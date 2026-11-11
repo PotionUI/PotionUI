@@ -34,6 +34,7 @@ class GetModelInfoTool(BaseTool):
     icon = "box"
 
     name = "get_model_info"
+    mcp = True
     read_only = True
     group = "Models & presets"
     user_description = "Looks up details about a specific model you have installed."

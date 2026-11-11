@@ -25,10 +25,12 @@ READ_ONLY = {
     "list_prompts",
     "list_segment_categories",
     "list_tab_drafts",
+    "enhance_prompt",
     "read_memory",
     "search_gallery",
     "search_model_prompts",
     "search_models",
+    "write_condition",
 }
 
 

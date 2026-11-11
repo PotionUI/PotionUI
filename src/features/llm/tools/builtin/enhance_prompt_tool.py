@@ -21,6 +21,8 @@ class EnhancePromptTool(BaseTool):
         return not video_director_active(form_state)
 
     name = "enhance_prompt"
+    read_only = True
+    mcp = True
     group = "Prompt writing"
     user_description = "Rewrites your prompt into a stronger version tuned to your model."
 

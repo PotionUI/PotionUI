@@ -3,7 +3,7 @@
 import json
 from typing import Any, Dict, List
 
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult, MCP_NEEDS_LIVE_FORM
 
 _DEFAULT_DURATION = 5
 _DEFAULT_FPS = 24
@@ -123,6 +123,7 @@ class SetPromptRelayTimelineTool(BaseTool):
     context_group = "director"
 
     name = "set_prompt_relay_timeline"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     group = "Prompt writing"
     user_description = "Puts a timed scene-by-scene video prompt timeline into your editor."
     requires_approval = True

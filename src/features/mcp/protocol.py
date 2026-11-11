@@ -1,29 +1,3 @@
-"""Stateless MCP (Model Context Protocol) Streamable-HTTP surface: JSON-RPC 2.0
-over plain `application/json` responses, no session persistence.
-
-Exposes a subset of the existing LLM `ToolRegistry` (see
-src.features.llm.tools.registry) as MCP tools, gated through the same
-governance rules chat sessions apply (src.features.llm.tools.governance) plus
-a fixed exclusion list for builtins whose only effect is reading/writing a
-live frontend session's `form_state` (Generate-form fields, prompt segments,
-Video Director document, Music Director document) — context an MCP caller
-has no way to supply. A tool
-excluded here always fails with "No form state available" regardless of who
-calls it; see `EXCLUDED_TOOL_NAMES` for the full list and why each is there.
-
-`tools/call` runs `requires_approval` tools via `execute_confirmed` directly
-rather than the chat path's preview-then-approve two-step: an MCP client
-already gates each tool call behind its own user consent UI before the
-request ever reaches this endpoint, so there is no second round trip here to
-collect approval for.
-
-Post-Manager reference shape (see `src.features.plugins.operations`): dispatch
-is module-level functions, not a class. The collaborators a request needs to
-build a `ToolContext` are held in `McpToolCollaborators` - a plain, frozen
-data holder (no behavior beyond field access), built once in the composition
-root and passed in explicitly; nothing here is stored across calls.
-"""
-
 import json
 import logging
 from dataclasses import dataclass, field
@@ -32,9 +6,12 @@ from typing import Any, Dict, List, Optional
 from src.features.generation.details_url import REQUEST_ORIGIN_KEY
 from src.features.llm.tools.base import ToolContext, ToolResult, ToolServices
 from src.features.llm.tools.errors import scrub_paths, unexpected
-from src.features.llm.tools.governance import ToolScopeResolution, resolve_tool_scope
-from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
+from src.features.mcp.mappers import Row
+from src.features.mcp.operations.tools import states_for_key
+from src.features.mcp.tool_policy import ToolState, refusal_message
+from src.features.mcp.tool_repository import McpToolRepository
+from src.platform.settings.settings import Settings
 from src.platform.version import POTIONUI_VERSION
 
 logger = logging.getLogger(__name__)
@@ -44,44 +21,7 @@ SERVER_VERSION = POTIONUI_VERSION
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 SUPPORTED_PROTOCOL_VERSIONS = {"2025-06-18", "2025-03-26", "2024-11-05"}
 
-# Builtins whose result is only meaningful with a live frontend chat session:
-# they read `context.session_metadata['form_state'/'segments']`, populated by
-# the frontend at chat-send time from the DOM (the active Generate form,
-# prompt editor segments, or Video/Music Director document) — an MCP caller
-# has no analogous state to hand over, so these always fail. set_prompt_relay_timeline
-# is different in kind: it needs no form_state, but its `execute_confirmed`
-# just hands back an `{"action": "set_prompt_relay", ...}` payload for the
-# CHAT FRONTEND to apply to the live video editor — there is no server-side
-# effect at all, so calling it over MCP would silently do nothing.
-EXCLUDED_TOOL_NAMES = frozenset({
-    "get_active_models",
-    "get_current_segments",
-    "get_form_state",
-    "update_form_settings",
-    "run_generation",
-    "get_video_director",
-    "get_music_director",
-    "update_music_director",
-    "set_prompt_relay_timeline",
-    "set_regional_prompt",
-    "list_models",
-})
-
-
-@dataclass(frozen=True)
-class _McpToolScope:
-    """A `ToolScope` (see ToolRegistry.get_for_mode) standing in for the chat
-    mode MCP has no equivalent of: MCP exposes exactly the tool surface a
-    `generation`-mode chat session sees (every global tool plus every tool
-    declaring `generation`), before the exclusion list above narrows it."""
-    id: str = "generation"
-    tool_names: Optional[List[str]] = field(default_factory=lambda: [
-        "add_prompt", "edit_prompt", "delete_prompt", "manage_collections", "organize_gallery",
-    ])
-    offers_tools: bool = True
-
-
-_MCP_SCOPE = _McpToolScope()
+MCP_MODE_ID = "generation"
 
 
 class JsonRpcError(Exception):
@@ -107,36 +47,17 @@ class McpToolCollaborators:
     own beyond field access, so it is not the "manager" the dissolution
     removed."""
     tool_registry: ToolRegistry
-    tool_governance_repository: ToolGovernanceRepository
+    tool_repository: McpToolRepository
+    settings: Settings
     services: ToolServices = field(default_factory=ToolServices)
 
 
 # --- tool exposure ---
 
-def _candidate_tools(collaborators: McpToolCollaborators) -> List[Any]:
-    """Every tool eligible for MCP exposure, before governance."""
-    return [tool for tool in _exposable_tools(collaborators) if tool.is_available(None)]
-
-
-def _exposable_tools(collaborators: McpToolCollaborators) -> List[Any]:
-    return [
-        tool for tool in collaborators.tool_registry.get_for_mode(_MCP_SCOPE)
-        if tool.name not in EXCLUDED_TOOL_NAMES
-    ]
-
-
-def _default_llm_id(collaborators: McpToolCollaborators) -> Optional[str]:
+def _execution_llm_id(collaborators: McpToolCollaborators) -> Optional[str]:
     llm_repository = collaborators.services.llm_repository
     default_config = llm_repository.get_default_configuration() if llm_repository else None
     return default_config.id if default_config else None
-
-
-def _resolve_scope(
-    collaborators: McpToolCollaborators, user_id: str, llm_id: Optional[str]
-) -> ToolScopeResolution:
-    return resolve_tool_scope(
-        _exposable_tools(collaborators), collaborators.tool_governance_repository, llm_id, user_id
-    )
 
 
 def _build_tool_context(
@@ -146,7 +67,7 @@ def _build_tool_context(
     return ToolContext.for_session(
         collaborators.services,
         user_id,
-        mode_id=_MCP_SCOPE.id,
+        mode_id=MCP_MODE_ID,
         is_admin=is_admin,
         session_metadata={REQUEST_ORIGIN_KEY: request_origin},
         chat_session=False,
@@ -154,47 +75,49 @@ def _build_tool_context(
     )
 
 
-def _mcp_tool_schema(tool: Any, rendered: Dict[str, Any]) -> Dict[str, Any]:
-    """An OpenAI-shaped `tool.to_schema()` (already tool-conditional
-    resolved by `ToolRegistry.get_schemas`), reshaped into MCP's
-    `{name, description, inputSchema}`."""
+def _mcp_tool_schema(entry: Any, rendered: Dict[str, Any]) -> Dict[str, Any]:
     function = rendered.get("function", {})
     return {
-        "name": function.get("name", tool.name),
-        "description": function.get("description", tool.description),
-        "inputSchema": function.get("parameters", tool.parameters),
+        "name": function.get("name", entry.name),
+        "title": entry.label,
+        "description": function.get("description", entry.tool.description),
+        "inputSchema": function.get("parameters", entry.tool.parameters),
+        "annotations": {"readOnlyHint": not entry.writes},
     }
 
 
-def list_tools(collaborators: McpToolCollaborators, user_id: str) -> Dict[str, Any]:
-    scope = _resolve_scope(collaborators, user_id, _default_llm_id(collaborators))
-    allowed = set(scope.allowed_names())
-    if not allowed:
+def _on_rows(rows: List[Row]) -> List[Row]:
+    return [row for row in rows if row[1] == ToolState.ON]
+
+
+def list_tools(collaborators: McpToolCollaborators, user_id: str, key_id: str) -> Dict[str, Any]:
+    on = _on_rows(states_for_key(collaborators, user_id, key_id))
+    if not on:
         return {"tools": []}
-    schemas = collaborators.tool_registry.get_schemas(sorted(allowed))
+    schemas = collaborators.tool_registry.get_schemas(sorted(entry.name for entry, _, _ in on))
     by_name = {s.get("function", {}).get("name"): s for s in schemas}
-    tools = [
-        _mcp_tool_schema(tool, by_name[tool.name])
-        for tool in scope.tools
-        if tool.name in allowed and tool.name in by_name
-    ]
-    return {"tools": tools}
+    return {
+        "tools": [
+            _mcp_tool_schema(entry, by_name[entry.name])
+            for entry, _, _ in on
+            if entry.name in by_name
+        ]
+    }
 
 
 async def call_tool(
-    collaborators: McpToolCollaborators, user_id: str, name: str, arguments: Dict[str, Any],
+    collaborators: McpToolCollaborators, user_id: str, key_id: str, name: str, arguments: Dict[str, Any],
     is_admin: bool = False, request_origin: str = "",
 ) -> Dict[str, Any]:
-    llm_id = _default_llm_id(collaborators)
-    allowed = _resolve_scope(collaborators, user_id, llm_id).allowed_names()
-    if name not in allowed:
+    row = next((row for row in states_for_key(collaborators, user_id, key_id) if row[0].name == name), None)
+    if row is None:
         raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
+    entry, state, _ = row
+    if state != ToolState.ON:
+        raise JsonRpcError(INVALID_PARAMS, refusal_message(name, state, entry.unavailable_reason))
 
-    tool = collaborators.tool_registry.get(name)
-    if tool is None:
-        raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
-
-    context = _build_tool_context(collaborators, user_id, is_admin, llm_id, request_origin)
+    tool = entry.tool
+    context = _build_tool_context(collaborators, user_id, is_admin, _execution_llm_id(collaborators), request_origin)
     try:
         if tool.approval_required(arguments):
             # The MCP client already gated this call behind its own
@@ -217,7 +140,7 @@ async def call_tool(
 
 async def handle_method(
     collaborators: McpToolCollaborators, method: str, params: Dict[str, Any], user_id: str,
-    is_admin: bool = False, request_origin: str = "",
+    *, key_id: str, is_admin: bool = False, request_origin: str = "",
 ) -> Optional[Dict[str, Any]]:
     """Returns the JSON-RPC `result` payload, or None for a notification
     that has no response body."""
@@ -234,7 +157,7 @@ async def handle_method(
     if method == "ping":
         return {}
     if method == "tools/list":
-        return list_tools(collaborators, user_id)
+        return list_tools(collaborators, user_id, key_id)
     if method == "tools/call":
         name = params.get("name")
         if not name:
@@ -243,7 +166,7 @@ async def handle_method(
         if not isinstance(arguments, dict):
             raise JsonRpcError(INVALID_PARAMS, "'arguments' must be an object")
         return await call_tool(
-            collaborators, user_id, name, arguments, is_admin=is_admin, request_origin=request_origin
+            collaborators, user_id, key_id, name, arguments, is_admin=is_admin, request_origin=request_origin
         )
     raise JsonRpcError(METHOD_NOT_FOUND, f"Method not found: {method}")
 

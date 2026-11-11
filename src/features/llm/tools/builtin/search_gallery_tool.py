@@ -30,6 +30,7 @@ class SearchGalleryTool(BaseTool):
     MAX_LIMIT = 25
 
     name = "search_gallery"
+    mcp = True
     read_only = True
     group = "Generation"
     user_description = "Finds images in your gallery by describing what they show."

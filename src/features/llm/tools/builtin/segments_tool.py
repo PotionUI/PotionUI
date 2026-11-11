@@ -18,6 +18,7 @@ class ListSegmentCategoriesTool(BaseTool):
     context_group = "library"
 
     name = "list_segment_categories"
+    mcp = True
     read_only = True
     group = "Form & segments"
     user_description = "Lists the categories of your saved segment library."
@@ -66,6 +67,7 @@ class GetSavedSegmentsTool(BaseTool):
     context_group = "library"
 
     name = "get_saved_segments"
+    mcp = True
     read_only = True
     group = "Form & segments"
     user_description = "Fetches reusable prompt segments from your library."
@@ -111,6 +113,7 @@ class GetSegmentTemplatesTool(BaseTool):
     context_group = "library"
 
     name = "get_segment_templates"
+    mcp = True
     read_only = True
     group = "Form & segments"
     user_description = "Fetches your reusable multi-segment prompt templates."
@@ -272,6 +275,7 @@ class _SavedSegmentTool(_SegmentWriteTool):
 
 class CreateSavedSegmentTool(_SavedSegmentTool):
     name = "create_saved_segment"
+    mcp = True
     user_description = "Saves a new reusable segment to your library."
 
     @property
@@ -314,6 +318,7 @@ class CreateSavedSegmentTool(_SavedSegmentTool):
 
 class UpdateSavedSegmentTool(_SavedSegmentTool):
     name = "update_saved_segment"
+    mcp = True
     user_description = "Edits a saved segment in your library."
 
     @property
@@ -374,6 +379,7 @@ class DeleteSavedSegmentTool(_SavedSegmentTool):
     icon = "trash-2"
 
     name = "delete_saved_segment"
+    mcp = True
     user_description = "Removes a saved segment from your library."
 
     @property
@@ -415,6 +421,7 @@ class _TemplateTool(_SegmentWriteTool):
 
 class CreateSegmentTemplateTool(_TemplateTool):
     name = "create_segment_template"
+    mcp = True
     user_description = "Saves a new multi-segment template to your library."
 
     @property
@@ -454,6 +461,7 @@ class CreateSegmentTemplateTool(_TemplateTool):
 
 class UpdateSegmentTemplateTool(_TemplateTool):
     name = "update_segment_template"
+    mcp = True
     user_description = "Edits a segment template in your library."
 
     @property
@@ -515,6 +523,7 @@ class DeleteSegmentTemplateTool(_TemplateTool):
     icon = "trash-2"
 
     name = "delete_segment_template"
+    mcp = True
     user_description = "Removes a segment template from your library."
 
     @property
@@ -556,6 +565,7 @@ class _CategoryTool(_SegmentWriteTool):
 
 class CreateSegmentCategoryTool(_CategoryTool):
     name = "create_segment_category"
+    mcp = True
     user_description = "Creates a new category in your segment library."
 
     @property
@@ -586,6 +596,7 @@ class CreateSegmentCategoryTool(_CategoryTool):
 
 class UpdateSegmentCategoryTool(_CategoryTool):
     name = "update_segment_category"
+    mcp = True
     user_description = "Edits a category in your segment library."
 
     @property
@@ -639,6 +650,7 @@ class DeleteSegmentCategoryTool(_CategoryTool):
     icon = "trash-2"
 
     name = "delete_segment_category"
+    mcp = True
     user_description = "Removes an empty category from your segment library."
 
     @property

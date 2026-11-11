@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict
 
 from src.features.generation.failure import start_failure_reason
-from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, MCP_USE_START_GENERATION
 from src.features.llm.tools.builtin.utils import build_generation_preview
 from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.media_values import (
@@ -28,6 +28,7 @@ class RunGenerationTool(BaseTool):
     icon = "play"
 
     name = "run_generation"
+    mcp_unavailable = MCP_USE_START_GENERATION
     group = "Generation"
     user_description = "Starts a generation with your current form settings."
     requires_approval = True

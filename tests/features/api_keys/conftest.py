@@ -69,7 +69,7 @@ def world(stack, monkeypatch):
     current_user.set_key_resolver(stack.resolver)
     current_user._key_failures.reset("testclient")
     world.tool_counts_calls = []
-    world.tool_counts = lambda ids: (world.tool_counts_calls.append(list(ids)), {i: (7, 12) for i in ids})[1]
+    world.tool_counts = lambda pairs: (world.tool_counts_calls.append(list(pairs)), {key_id: (7, 12) for key_id, _ in pairs})[1]
     world.handle_method = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr(mcp_routes, "handle_method", world.handle_method)
     yield world

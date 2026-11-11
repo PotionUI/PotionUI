@@ -1207,6 +1207,8 @@ class PluginRegistry:
             # class attribute, so an instance attribute shadows it).
             if spec.get('modes') is not None:
                 tool.modes = list(spec['modes'])
+            if spec.get('mcp') is not None:
+                tool.mcp = bool(spec['mcp'])
 
             existing = self.tool_registry.get(tool.name)
             if existing is not None:

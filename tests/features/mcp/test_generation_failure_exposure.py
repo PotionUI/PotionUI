@@ -7,9 +7,8 @@ from src.features.generation.failure import failure_from_output
 from src.features.generation.records import Generation
 from src.features.llm.tools.base import ToolServices
 from src.features.llm.tools.builtin.organize_gallery_tool import OrganizeGalleryTool
-from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
-from src.features.mcp.protocol import McpToolCollaborators, handle_method
+from tests.features.mcp.support import build_collaborators, handle_method, user_with_every_tool
 from src.pipelines.outputs import ErrorGenerationOutput
 
 RAW_ERROR = "FileNotFoundError: [Errno 2] No such file or directory: '/srv/models/private/unet.safetensors'"
@@ -35,15 +34,12 @@ async def test_an_mcp_client_sees_only_the_safe_failure_of_a_generation(mcp_db):
     history_facade.get_by_id.return_value = _failed_generation()
     llm_repository = Mock()
     llm_repository.get_default_configuration.return_value = None
-    collaborators = McpToolCollaborators(
-        tool_registry=registry,
-        tool_governance_repository=ToolGovernanceRepository(),
-        services=ToolServices(
-            llm_repository=llm_repository,
-            generation_history_facade=history_facade,
-            plugin_registry=Mock(),
-        ),
-    )
+    user_with_every_tool(mcp_db, "user-1")
+    collaborators = build_collaborators(registry, ToolServices(
+        llm_repository=llm_repository,
+        generation_history_facade=history_facade,
+        plugin_registry=Mock(),
+    ))
 
     result = await handle_method(
         collaborators,

@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from src.features.llm.tools.errors import unexpected
-from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, MCP_NEEDS_LIVE_FORM
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.features.presets import operations
 from src.features.llm.tools.builtin.prompt_variables_tool import NO_TAB_OPEN_MESSAGE, active_draft_variables
@@ -61,6 +61,7 @@ class GetCurrentSegmentsTool(BaseTool):
         return not video_director_active(form_state)
 
     name = "get_current_segments"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     read_only = True
     group = "Form & segments"
     user_description = "Reads the prompt segments currently in your editor."
@@ -164,6 +165,7 @@ class GetFormStateTool(BaseTool):
     icon = "clipboard-list"
 
     name = "get_form_state"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     read_only = True
     group = "Form & segments"
     user_description = "Reads the current values of your generation form."

@@ -1,22 +1,14 @@
-"""MCP tool-surface documentation generator.
-
-Reads the exact tool pool `tools/list` narrows and the exact MCP tool shape
-`tools/list` returns (`src.features.mcp.protocol._candidate_tools` /
-`_mcp_tool_schema`) rather than hand-listing tools, so this reference can
-never drift from the JSON-RPC dispatcher's own exposure logic. Governance
-facts (acting-as-owner, the two enable switches, model visibility) are
-sourced from the same module's constants/docstrings, not invented prose.
-"""
 import inspect
 from typing import Any, Dict, List
 
 from src.features.llm.tools.builtin.utils import allowed_model_ids
 from src.features.mcp import protocol
+from src.features.mcp.catalog import CatalogEntry, build_catalog
 from src.features.api_keys.settings import MCP_ENABLED_KEY
 
 ACTS_AS_KEY_OWNER = (
-    "An API key with the mcp scope lets an MCP client act as the key's owner "
-    "against the same tool surface chat uses."
+    "An API key with the mcp scope lets an MCP client act as the key's owner, "
+    "with the tools that are turned on for that key."
 )
 
 
@@ -34,8 +26,8 @@ class McpToolsDocumenter:
     def __init__(self, tool_collaborators: protocol.McpToolCollaborators):
         self.tool_collaborators = tool_collaborators
 
-    def _document_tool(self, tool: Any, rendered: Dict[str, Any]) -> Dict[str, Any]:
-        mcp_shape = protocol._mcp_tool_schema(tool, rendered)
+    def _document_tool(self, entry: CatalogEntry, rendered: Dict[str, Any]) -> Dict[str, Any]:
+        mcp_shape = protocol._mcp_tool_schema(entry, rendered)
         input_schema = mcp_shape.get("inputSchema") or {}
         required = set(input_schema.get("required") or [])
         properties = input_schema.get("properties") or {}
@@ -51,10 +43,10 @@ class McpToolsDocumenter:
         ]
 
         return {
-            "name": mcp_shape.get("name", tool.name),
-            "description": mcp_shape.get("description", tool.description),
-            "group": tool.group,
-            "mutating": tool.requires_approval,
+            "name": mcp_shape.get("name", entry.name),
+            "description": mcp_shape.get("description", entry.tool.description),
+            "group": entry.group,
+            "mutating": entry.writes,
             "parameters": parameters,
         }
 
@@ -64,20 +56,26 @@ class McpToolsDocumenter:
             "global_setting_key": MCP_ENABLED_KEY,
             "global_default_enabled": False,
             "model_visibility_rule": _first_paragraph(allowed_model_ids.__doc__ or ""),
-            "excluded_tool_names": sorted(protocol.EXCLUDED_TOOL_NAMES),
+            "excluded_tool_names": sorted(
+                entry.name for entry in build_catalog(self.tool_collaborators.tool_registry) if entry.unavailable_reason
+            ),
         }
 
     def generate_documentation(self) -> Dict[str, Any]:
-        candidates: List[Any] = sorted(
-            protocol._candidate_tools(self.tool_collaborators), key=lambda t: t.name
+        candidates: List[CatalogEntry] = sorted(
+            (
+                entry for entry in build_catalog(self.tool_collaborators.tool_registry)
+                if not entry.unavailable_reason
+            ),
+            key=lambda entry: entry.name,
         )
-        schemas = self.tool_collaborators.tool_registry.get_schemas([t.name for t in candidates])
+        schemas = self.tool_collaborators.tool_registry.get_schemas([entry.name for entry in candidates])
         schemas_by_name = {s.get("function", {}).get("name"): s for s in schemas}
 
         tools = [
-            self._document_tool(tool, schemas_by_name[tool.name])
-            for tool in candidates
-            if tool.name in schemas_by_name
+            self._document_tool(entry, schemas_by_name[entry.name])
+            for entry in candidates
+            if entry.name in schemas_by_name
         ]
 
         return {

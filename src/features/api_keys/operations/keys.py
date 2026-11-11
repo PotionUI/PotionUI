@@ -19,6 +19,7 @@ NAME_MAX_LENGTH = 80
 ACTION_CREATED = "created"
 ACTION_RENAMED = "renamed"
 ACTION_SCOPES_CHANGED = "scopes_changed"
+ACTION_MCP_TOOLS_CHANGED = "mcp_tools_changed"
 ACTION_REVOKED = "revoked"
 ACTION_EXPIRED = "expired"
 

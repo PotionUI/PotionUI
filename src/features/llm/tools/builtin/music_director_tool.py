@@ -25,7 +25,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult, MCP_NEEDS_LIVE_FORM
 from src.features.llm.tools.builtin.utils import music_director_active
 from src.features.llm.tools.operation_args import operations_from
 from src.features.music_director import apply_preset_mode_overlay
@@ -676,6 +676,7 @@ class GetMusicDirectorTool(BaseTool):
         return music_director_active(form_state)
 
     name = "get_music_director"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     read_only = True
     group = "Form & segments"
     user_description = "Reads the Music Director document on your generation form."
@@ -746,6 +747,7 @@ class UpdateMusicDirectorTool(BaseTool):
         return music_director_active(form_state)
 
     name = "update_music_director"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     group = "Form & segments"
     user_description = "Changes the Music Director document on your generation form for you."
     requires_approval = True

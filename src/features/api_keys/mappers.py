@@ -71,6 +71,12 @@ def _changes(event: ApiKeyEvent) -> Optional[dict]:
             "added": [scope for scope in after if scope not in before],
             "removed": [scope for scope in before if scope not in after],
         }}
+    if event.action == "mcp_tools_changed":
+        before, after = detail.get("before") or [], detail.get("after") or []
+        return {"mcp_tools": {
+            "turned_off": [name for name in after if name not in before],
+            "turned_on": [name for name in before if name not in after],
+        }}
     return None
 
 

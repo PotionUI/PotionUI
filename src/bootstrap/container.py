@@ -289,7 +289,8 @@ from src.features.prompt_database.routes import PromptDatabaseController
 from src.features.prompt_enhancement import PromptEnhancementCollaborators
 from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
 from src.features.llm.tools.base import ToolServices
-from src.features.mcp.exposure import tool_counts_by_owner
+from src.features.mcp.exposure import tool_counts_by_key
+from src.features.mcp.tool_repository import McpToolRepository
 from src.features.api_keys.operations.keys import ApiKeyCollaborators
 from src.features.api_keys.operations.resolver import ApiKeyResolver
 from src.features.api_keys.repository import ApiKeyEventRepository, ApiKeyRepository, UserApiAccessRepository
@@ -1905,12 +1906,13 @@ def build_container() -> AppContainer:
     )
     mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,
-        tool_governance_repository=tool_governance_repository,
+        tool_repository=McpToolRepository(),
+        settings=settings,
         services=tool_services,
     )
 
 
-    mcp_tool_counts = functools.partial(tool_counts_by_owner, mcp_tool_collaborators)
+    mcp_tool_counts = functools.partial(tool_counts_by_key, mcp_tool_collaborators)
     mcp_tools_documenter = McpToolsDocumenter(mcp_tool_collaborators)
     docs_controller = DocsController(
         plugin_registry,

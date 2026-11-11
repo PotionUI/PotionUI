@@ -66,6 +66,7 @@ class ListPhrasebookCategoriesTool(BaseTool):
     icon = "list-tree"
 
     name = "list_phrasebook_categories"
+    mcp = True
     read_only = True
     group = "Phrasebook vocabulary"
     user_description = "Lists your phrasebook vocabulary categories."
@@ -116,6 +117,7 @@ class GetPhrasebookValuesTool(BaseTool):
     icon = "list"
 
     name = "get_phrasebook_values"
+    mcp = True
     read_only = True
     group = "Phrasebook vocabulary"
     user_description = "Looks up or searches the saved values in one phrasebook category."
@@ -232,6 +234,7 @@ class CreatePhrasebookCategoryTool(_PhrasebookWriteTool):
     icon = "folder-plus"
 
     name = "create_phrasebook_category"
+    mcp = True
     user_description = "Creates a new phrasebook category."
 
     @property
@@ -339,6 +342,7 @@ class UpdatePhrasebookCategoryTool(_PhrasebookWriteTool):
     icon = "folder-pen"
 
     name = "update_phrasebook_category"
+    mcp = True
     user_description = "Renames, re-describes or switches on/off an existing phrasebook category."
 
     @property
@@ -467,6 +471,7 @@ class DeletePhrasebookCategoryTool(_PhrasebookWriteTool):
     icon = "folder-minus"
 
     name = "delete_phrasebook_category"
+    mcp = True
     user_description = "Deletes a phrasebook category and every value in it."
 
     @property
@@ -545,6 +550,7 @@ class RemovePhrasebookValuesTool(_PhrasebookWriteTool):
     icon = "list-minus"
 
     name = "remove_phrasebook_values"
+    mcp = True
     user_description = "Removes values from your phrasebook vocabulary."
 
     @property
@@ -705,6 +711,7 @@ class UpdatePhrasebookValuesTool(_PhrasebookWriteTool):
     icon = "list-pen"
 
     name = "update_phrasebook_values"
+    mcp = True
     user_description = "Edits existing values in your phrasebook vocabulary."
 
     @property
@@ -885,6 +892,7 @@ class CreatePhrasebookValuesTool(_PhrasebookWriteTool):
     icon = "list-plus"
 
     name = "create_phrasebook_values"
+    mcp = True
     user_description = "Adds new values to your phrasebook vocabulary."
 
     @property

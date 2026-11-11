@@ -3,9 +3,10 @@ import json
 
 from src.features.llm.tools.base import BaseTool, ToolResult, ToolServices
 from src.features.llm.tools.builtin import register_builtin_tools
-from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
-from src.features.mcp.protocol import McpToolCollaborators, handle_method
+from src.features.mcp.tool_policy import POLICY_ALL_ON
+from src.features.mcp.tool_repository import McpToolRepository
+from tests.features.mcp.support import build_collaborators, handle_method
 from tests.features.media_tools.support import MediaToolsTestBase
 
 
@@ -15,11 +16,8 @@ class McpMediaToolCase(MediaToolsTestBase):
         super().setUp()
         self.tools = ToolRegistry()
         register_builtin_tools(self.tools, self.registry)
-        self.collaborators = McpToolCollaborators(
-            tool_registry=self.tools,
-            tool_governance_repository=ToolGovernanceRepository(),
-            services=ToolServices(media_tool_service=self.service),
-        )
+        self.collaborators = build_collaborators(self.tools, ToolServices(media_tool_service=self.service))
+        McpToolRepository().apply_default(self.user_id, POLICY_ALL_ON, {})
 
     def rpc(self, method, params=None, user_id=None):
         return asyncio.run(handle_method(self.collaborators, method, params or {}, user_id or self.user_id))
@@ -133,6 +131,7 @@ class TestMcpCallsRunMediaTool(McpMediaToolCase):
 class _Switch(BaseTool):
     name = "switch"
     modes = ["generation"]
+    mcp = True
     requires_approval = True
 
     def __init__(self):

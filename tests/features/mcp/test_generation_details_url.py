@@ -7,10 +7,14 @@ from starlette.requests import Request
 from src.features.llm.tools.base import ToolServices
 from src.features.llm.tools.builtin.organize_gallery_tool import OrganizeGalleryTool
 from src.features.llm.tools.builtin.start_generation_tool import StartGenerationTool
-from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
-from src.features.mcp.protocol import McpToolCollaborators, handle_method
 from src.features.mcp.routes import request_origin
+from tests.features.mcp.support import build_collaborators, handle_method, user_with_every_tool
+
+
+@pytest.fixture(autouse=True)
+def _user_with_every_tool(mcp_db):
+    user_with_every_tool(mcp_db, "user-1")
 
 
 def _collaborators(history_facade=None, orchestrator=None, public_base_url=""):
@@ -21,17 +25,13 @@ def _collaborators(history_facade=None, orchestrator=None, public_base_url=""):
     llm_repository.get_default_configuration.return_value = None
     settings = Mock()
     settings.get_setting.return_value = public_base_url
-    return McpToolCollaborators(
-        tool_registry=registry,
-        tool_governance_repository=ToolGovernanceRepository(),
-        services=ToolServices(
-            llm_repository=llm_repository,
-            generation_history_facade=history_facade,
-            generation_orchestrator=orchestrator,
-            plugin_registry=Mock(),
-            settings=settings,
-        ),
-    )
+    return build_collaborators(registry, ToolServices(
+        llm_repository=llm_repository,
+        generation_history_facade=history_facade,
+        generation_orchestrator=orchestrator,
+        plugin_registry=Mock(),
+        settings=settings,
+    ))
 
 
 def _history_facade():

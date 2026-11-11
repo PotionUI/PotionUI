@@ -41,6 +41,7 @@ class ManageCollectionsTool(ApprovalTool):
     context_group = "library"
 
     name = "manage_collections"
+    mcp = True
     group = "Collections"
     user_description = "Creates, renames, deletes collections and adds/removes generations, library items, or prompts from them."
 

@@ -9,6 +9,9 @@ from typing import Any, Dict, Hashable, List, Optional
 
 logger = logging.getLogger(__name__)
 
+MCP_NEEDS_LIVE_FORM = "Needs the live Generate form — available when called from chat."
+MCP_USE_START_GENERATION = "Drives the open Generate form. Use start_generation over MCP."
+
 
 @dataclass
 class ToolSource:
@@ -210,6 +213,12 @@ class BaseTool(ABC):
     requires_approval: bool = False
     approval_per_call: bool = False
     read_only: bool = False
+    mcp: bool = False
+    mcp_unavailable: Optional[str] = None
+
+    @property
+    def writes(self) -> bool:
+        return not self.read_only
 
     @property
     def label(self) -> str:

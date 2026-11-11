@@ -1,26 +1,15 @@
-"""Tests for McpToolsDocumenter.
-
-Uses the same scratch-database fixture MCP's own protocol tests use
-(`tests.features.mcp.conftest.mcp_db`) so `ToolGovernanceRepository` has a
-real migrated table to read from - the documenter must stay wired to the
-actual `tools/list` code path, not a hand-rolled tool list.
-"""
-from unittest.mock import Mock
-
-import pytest
-
 from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
 from src.features.llm.tools.base import BaseTool, ToolResult, ToolServices
-from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.mcp import protocol
-from src.features.mcp.protocol import McpToolCollaborators
-
 from tests.features.mcp.conftest import mcp_db  # noqa: F401 -- reused fixture
+from tests.features.mcp.support import build_collaborators, user_with_every_tool
 
 
 class _SearchTool(BaseTool):
     modes = ["generation"]
+    mcp = True
+    read_only = True
 
     @property
     def name(self):
@@ -51,6 +40,7 @@ class _SearchTool(BaseTool):
 
 class _MutatingTool(BaseTool):
     modes = ["generation"]
+    mcp = True
 
     @property
     def name(self):
@@ -82,6 +72,7 @@ class _MutatingTool(BaseTool):
 class _ExcludedTool(BaseTool):
     """Named after a real MCP-excluded builtin (form-state dependent)."""
     modes = ["generation"]
+    mcp_unavailable = "Needs the live Generate form"
 
     @property
     def name(self):
@@ -99,23 +90,17 @@ class _ExcludedTool(BaseTool):
         return ToolResult(success=True, data="")
 
 
-def _collaborators(governance_repo: ToolGovernanceRepository) -> McpToolCollaborators:
+def _collaborators():
     registry = ToolRegistry()
     registry.register(_SearchTool())
     registry.register(_MutatingTool())
     registry.register(_ExcludedTool())
-    return McpToolCollaborators(
-        tool_registry=registry,
-        tool_governance_repository=governance_repo,
-        services=ToolServices(
-            llm_repository=None,
-        ),
-    )
+    return build_collaborators(registry, ToolServices(llm_repository=None))
 
 
 class TestMcpToolsDocumenter:
     def test_excluded_tool_is_absent(self, mcp_db):
-        documenter = McpToolsDocumenter(_collaborators(ToolGovernanceRepository()))
+        documenter = McpToolsDocumenter(_collaborators())
 
         result = documenter.generate_documentation()
 
@@ -124,7 +109,7 @@ class TestMcpToolsDocumenter:
         assert result["total"] == 2
 
     def test_parameters_carry_required_flag_type_and_description(self, mcp_db):
-        documenter = McpToolsDocumenter(_collaborators(ToolGovernanceRepository()))
+        documenter = McpToolsDocumenter(_collaborators())
 
         result = documenter.generate_documentation()
 
@@ -137,8 +122,8 @@ class TestMcpToolsDocumenter:
         assert params_by_name["limit"]["required"] is False
         assert params_by_name["limit"]["type"] == "integer"
 
-    def test_mutating_flag_reflects_requires_approval(self, mcp_db):
-        documenter = McpToolsDocumenter(_collaborators(ToolGovernanceRepository()))
+    def test_mutating_flag_reflects_whether_the_tool_writes(self, mcp_db):
+        documenter = McpToolsDocumenter(_collaborators())
 
         result = documenter.generate_documentation()
         by_name = {t["name"]: t for t in result["tools"]}
@@ -147,7 +132,7 @@ class TestMcpToolsDocumenter:
         assert by_name["search_things"]["mutating"] is False
 
     def test_governance_facts_are_sourced_from_the_protocol_and_operations_modules(self, mcp_db):
-        documenter = McpToolsDocumenter(_collaborators(ToolGovernanceRepository()))
+        documenter = McpToolsDocumenter(_collaborators())
 
         governance = documenter.generate_documentation()["governance"]
 
@@ -163,12 +148,13 @@ class TestMcpToolsDocumenter:
         """The documenter must read the exact code path `tools/list` uses -
         this pins that there is no drift between the reference page and the
         protocol's own tool exposure."""
-        collaborators = _collaborators(ToolGovernanceRepository())
+        collaborators = _collaborators()
+        user_with_every_tool(mcp_db, "user-1")
         documenter = McpToolsDocumenter(collaborators)
 
         documented_names = {t["name"] for t in documenter.generate_documentation()["tools"]}
         dispatcher_names = {
-            t["name"] for t in protocol.list_tools(collaborators, user_id="user-1")["tools"]
+            t["name"] for t in protocol.list_tools(collaborators, user_id="user-1", key_id="key-1")["tools"]
         }
 
         assert documented_names == dispatcher_names

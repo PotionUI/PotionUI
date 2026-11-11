@@ -177,6 +177,8 @@ class WriteConditionTool(BaseTool):
     icon = "git-branch"
 
     name = "write_condition"
+    read_only = True
+    mcp = True
     group = "Form & segments"
     user_description = "Builds or checks a prompt condition against your prompt variables."
 

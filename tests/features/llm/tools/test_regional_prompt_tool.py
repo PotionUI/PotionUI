@@ -10,7 +10,6 @@ from src.features.llm.tools.builtin.form_context_tool import GetFormStateTool
 from src.features.llm.tools.builtin.preset_info_tool import GetPresetInfoTool
 from src.features.llm.tools.builtin.regional_prompt_tool import SetRegionalPromptTool
 from src.features.llm.tools.builtin.start_generation_tool import StartGenerationTool
-from src.features.mcp.protocol import EXCLUDED_TOOL_NAMES
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.file_repository import FilePresetRepository
@@ -52,7 +51,8 @@ class TestSetRegionalPrompt:
         assert tool.name == "set_regional_prompt"
         assert tool.requires_approval is True
         assert tool.parameters["required"] == ["regions"]
-        assert "set_regional_prompt" in EXCLUDED_TOOL_NAMES
+        assert not tool.mcp
+        assert tool.mcp_unavailable
 
     @pytest.mark.asyncio
     async def test_unoffered_preset_is_refused(self):

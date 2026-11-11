@@ -44,6 +44,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.pins import (
     restore_pinned,
     video_pin,
 )
+from src.pipelines.pipes.generator.video_minimax_h3.layout import ROPE_FRAME_RESCALE, _pairwise_span_sum
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import data_estimate
 from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
 from tests.pipelines.pipes.generator.video_minimax_h3.test_main import (
@@ -237,7 +238,7 @@ def _loop_bundle(calls):
     )
 
 
-def _run_loop(seconds=4.0, *, audio_source="none", picture=False, sampler="euler", steps=3):
+def _run_loop(seconds=4.0, *, audio_source="none", picture=True, sampler="euler", steps=3):
     plan = plan_loop(round(seconds * FPS), with_sound=audio_source == "generate")
     calls: list = []
     bundle = _loop_bundle(calls)
@@ -264,18 +265,17 @@ def _run_loop(seconds=4.0, *, audio_source="none", picture=False, sampler="euler
         mock_mp4.side_effect = lambda frames, path, **kw: path
         pipe.generate_one(ctx, 0, 7, ProgressEmitter([].append, title="test"))
         written = mock_mp4.call_args_list[0]
-    return SimpleNamespace(plan=plan, calls=calls, windows=windows, pipe=pipe, frames=written.args[0],
-                           audio=written.kwargs.get("audio"), steps=steps)
+    return SimpleNamespace(plan=plan, calls=calls, windows=windows[-2:], pipe=pipe, frames=written.args[0],
+                           audio=written.kwargs.get("audio"), steps=steps, anchor_calls=calls[-2 * steps: -steps],
+                           bridge_calls=calls[-steps:], opening_calls=calls[: -2 * steps])
 
 
 def test_the_loop_runs_an_anchor_pass_then_a_bridge_pass_with_both_ends_conditioned():
     run = _run_loop(4.0)
     plan = run.plan
-    per_pass = len(run.calls) // 2
 
-    assert len(run.calls) == 2 * per_pass
-    assert run.calls[0]["num_condition_video_rows"] == 0
-    bridge = run.calls[per_pass]
+    assert len(run.calls) == 2 * run.steps
+    bridge = run.bridge_calls[0]
     assert bridge["num_condition_video_rows"] == len(plan.bridge_anchors)
     position = bridge["position_ids"][:, 0]
     video = bridge["video_indices"]
@@ -304,9 +304,8 @@ def test_the_bridge_ends_are_bit_identical_to_the_anchor_and_its_middle_is_new()
 
 
 def _implied_noise(run, rows, source):
-    per_pass = len(run.calls) // 2
     implied = []
-    for call in run.calls[per_pass:]:
+    for call in run.bridge_calls:
         n_cv = call["num_condition_video_rows"]
         target = call["video_indices"][n_cv]
         timestep = float(call["timestep"][call["timestep_indices"][target]])
@@ -330,12 +329,11 @@ def test_the_pinned_rows_walk_the_source_own_noised_path_at_every_step():
 def test_the_pinned_audio_rows_walk_the_source_own_noised_path_at_every_step():
     run = _run_loop(4.0, steps=4, audio_source="generate")
     plan = run.plan
-    per_pass = len(run.calls) // 2
     head = run.windows[0][1][0, :, plan.head_audio_start: plan.head_audio_start + plan.head_audio_latents].T.float()
 
     def implied(rows):
         noises = []
-        for call in run.calls[per_pass:]:
+        for call in run.bridge_calls:
             target = call["audio_indices"][call["num_condition_audio_rows"]]
             timestep = float(call["timestep"][call["timestep_indices"][target]])
             sample = call["audio_hidden_states"][0][rows].float()
@@ -371,7 +369,7 @@ def test_the_join_is_by_construction_the_loop_opening():
     assert torch.equal(bridge[:, :, :5], anchor[:, :, plan.head_start: plan.head_start + 5])
     decoded = run.pipe.decoded_latents
     assert len(decoded) == 1
-    assert torch.equal(decoded[0], torch.cat([loop[:, :, -5:], loop, loop[:, :, :2]], dim=2))
+    assert torch.equal(decoded[-1], torch.cat([loop[:, :, -5:], loop, loop[:, :, :2]], dim=2))
     assert run.frames.shape[0] == plan.loop_frames
 
 
@@ -387,15 +385,51 @@ def test_sound_off_writes_no_soundtrack_and_sound_on_wraps_an_exact_loop_of_audi
     assert latents == loud.plan.loop_audio_latents + 2 * min(AUDIO_CONTEXT_LATENTS, loud.plan.loop_audio_latents)
 
 
-def test_the_loop_runs_from_a_start_picture_and_with_the_flex_sampler():
-    run = _run_loop(2.0, picture=True, sampler="lcm")
-    plan = run.plan
-    per_pass = len(run.calls) // 2
+def _anchor_keyframe_times(call, plan):
+    position = call["position_ids"][:, 0]
+    video = call["video_indices"]
+    n_cv = call["num_condition_video_rows"]
+    first = float(position[video[n_cv]])
+    last = first + _pairwise_span_sum(plan.anchor_latents) - ROPE_FRAME_RESCALE
+    return [float(position[video[row]]) for row in range(n_cv)], first, last
 
-    assert run.calls[0]["num_condition_video_rows"] == 1
+
+def test_the_anchor_pass_holds_the_start_picture_at_its_first_and_its_last_frame():
+    run = _run_loop(4.0)
+    plan = run.plan
+
+    assert run.opening_calls == []
+    times, first, last = _anchor_keyframe_times(run.anchor_calls[0], plan)
+    assert len(times) == 2
+    assert times[0] == first
+    assert times[1] == pytest.approx(last)
+    condition = run.anchor_calls[0]["hidden_states"][0, :2].float()
+    torch.testing.assert_close(condition[0], condition[1], atol=0.02, rtol=0.02)
+
+
+def test_a_loop_without_a_picture_first_makes_its_opening_frame_and_holds_both_anchor_ends_on_it():
+    run = _run_loop(4.0, picture=False)
+    plan = run.plan
+
+    assert len(run.calls) == 3 * run.steps
+    opening = run.opening_calls[0]
+    assert opening["num_condition_video_rows"] == 0
+    assert opening["hidden_states"].shape[1] == LATENTS_PER_CHUNK + 2
+    assert run.pipe.decoded_latents[0].shape[2] == LATENTS_PER_CHUNK + 2
+    times, first, last = _anchor_keyframe_times(run.anchor_calls[0], plan)
+    assert len(times) == 2 and times[0] == first and times[1] == pytest.approx(last)
     (anchor, _), (bridge, _) = run.windows
     assert torch.equal(bridge[:, :, plan.tail_start:], anchor[:, :, : plan.tail_latents])
-    assert run.calls[per_pass]["num_condition_video_rows"] == len(plan.bridge_anchors)
+
+
+def test_the_loop_runs_with_the_flex_sampler():
+    run = _run_loop(2.0, sampler="lcm")
+    plan = run.plan
+
+    assert run.anchor_calls[0]["num_condition_video_rows"] == 2
+    (anchor, _), (bridge, _) = run.windows
+    assert torch.equal(bridge[:, :, plan.tail_start:], anchor[:, :, : plan.tail_latents])
+    assert run.bridge_calls[0]["num_condition_video_rows"] == len(plan.bridge_anchors)
 
 
 def _loop_pipe(**config):

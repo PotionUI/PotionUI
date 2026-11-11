@@ -32,8 +32,11 @@ cross-fading its first 5 frames with the previous chunk's look-ahead. So if ever
 neighbouring chunks in a sequence was denoised together, the decoded sequence has no seam anywhere.
 The loop is built so that this holds around the wrap too.
 
-1. **Anchor pass.** One ordinary window of `17a + 5` frames: text-to-video, or image-to-video from
-   the Start picture. Its latent chunks are `A0 … A(a-1)` plus a 2-latent tail.
+1. **Anchor pass.** One window of `17a + 5` frames with the Start picture as both its first and its
+   last keyframe (the model's trained first-and-last-frame route), so the anchor itself comes back to
+   where it began and cannot drift away in colour or layout. Without a Start picture an opening pass
+   (22 frames, text-to-video) is made first and its first decoded frame serves as the picture. The
+   anchor's latent chunks are `A0 … A(a-1)` plus a 2-latent tail.
 2. **Bridge pass.** A second window of `17b + 5` frames whose first chunk is pinned to `A(a-1)` and
    whose last chunk and tail are pinned to `A0` and the first two latents of `A1`. Pinned spans are
    whole chunks at chunk boundaries, so every pinned latent sits at the phase it was made for and no
@@ -79,7 +82,12 @@ loop is at most 38 chunks (26.9 s), or 36 (25.5 s) with sound.
 ## Tradeoffs and limitations
 
 - Cost is two windows whose lengths add up to the loop plus two chunks, plus one extra chunk of
-  decode.
+  decode; a loop without a picture adds a 22-frame opening pass.
+- The bridge's tail pins alone do not steer a few-step run back to the start: the first real run
+  (4 steps, shift 12, no anchor end keyframe) drifted 52 luma levels from start to end and cut at
+  the wrap. Every model evaluation at that schedule sees pinned rows at sigma 0.8 or above, so the
+  pins are exact but nearly invisible to the model; the anchor's last keyframe is what holds the
+  loop's two ends together.
 - The pins make the seam exact in latent space and in the decoder. Whether the bridge's free middle
   moves naturally into and out of its pinned ends, at every speed profile, is what a GPU run has to
   show (`tests/manual/h3_perfect_loop_check.py`).

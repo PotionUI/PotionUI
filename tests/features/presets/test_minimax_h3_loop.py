@@ -128,3 +128,14 @@ def test_the_gpu_check_passes_a_periodic_clip_and_fails_a_jump_at_the_seam():
     report = seam_metric(ramp)
     assert not report["pass"]
     assert report["seam_step"] == pytest.approx(94) and report["largest_step"] == pytest.approx(2)
+
+
+def test_a_prompt_that_is_already_a_full_document_is_not_wrapped_in_a_second_one(h3_template):
+    written = (
+        "integrated_multimodal_description: [Shot 1] A woman on a cliff, her hair streaming in the wind.\n\n"
+        "overall_soundscape: Distant surf.\n\nnon_diegetic_music: None."
+    )
+    document = _document(_pipes(h3_template, {"start_picture": "/media/cabin.png"}, prompt=written))
+
+    assert document == written
+    assert document.count("integrated_multimodal_description:") == 1

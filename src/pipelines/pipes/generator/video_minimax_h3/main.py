@@ -254,6 +254,8 @@ from src.pipelines.pipes.generator.video_minimax_h3.control import (
 from src.platform.runtime.native.arch.minimax_h3.control import HINT_ROW_MODES, ControlContext, control_attached
 from src.pipelines.pipes.generator.video_minimax_h3.drift import DriftGuard
 from src.pipelines.pipes.generator.video_minimax_h3.loop import (
+    LOOP_ANCHOR_KEYFRAMES,
+    LOOP_OPENING_LATENTS,
     LoopPlan,
     LoopRequestError,
     assemble_loop_audio,
@@ -3022,17 +3024,33 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             video_shift=c.video_sigma_shift, audio_shift=c.audio_sigma_shift, denoise=c.denoise,
         )
         per_pass = int(video_schedule.timesteps.numel())
+        passes = 2 if c.keyframe_images else 3
         shared = dict(
             prompt_embeds=prompt_embeds, text_token_tags=text_token_tags, condition_audio_rows=None,
-            steps=c.steps, progress=progress, progress_total=2 * per_pass, is_cancelled=ctx.is_cancelled,
+            steps=c.steps, progress=progress, progress_total=passes * per_pass, is_cancelled=ctx.is_cancelled,
         )
+
+        picture = c.keyframe_images[0] if c.keyframe_images else None
+        if picture is None:
+            opening_generator = torch.Generator(device=c.device).manual_seed(int(seed) + 2)
+            video_rows, audio_rows, layout = self._sample_window(
+                c, condition_rows=self._loop_anchor_condition_rows(c, opening_generator, [], ()),
+                keyframe_anchors=(), num_latent_frames=LOOP_OPENING_LATENTS,
+                num_audio_latents=audio_latent_num_frames(pixel_frames_for_latent_frames(LOOP_OPENING_LATENTS)),
+                generator=opening_generator, progress_offset=0, progress_state=f"LOOP 1/{passes}", **shared,
+            )
+            opening, _ = self._loop_window_latents(
+                c, video_rows, audio_rows, layout, LOOP_OPENING_LATENTS,
+                audio_latent_num_frames(pixel_frames_for_latent_frames(LOOP_OPENING_LATENTS)),
+            )
+            picture = Image.fromarray(self._decode_video(c, opening)[0])
 
         anchor_generator = torch.Generator(device=c.device).manual_seed(int(seed))
         video_rows, audio_rows, layout = self._sample_window(
-            c, condition_rows=self._loop_anchor_condition_rows(c, anchor_generator),
-            keyframe_anchors=c.keyframe_anchors, num_latent_frames=plan.anchor_latents,
+            c, condition_rows=self._loop_anchor_condition_rows(c, anchor_generator, [picture, picture], LOOP_ANCHOR_KEYFRAMES),
+            keyframe_anchors=LOOP_ANCHOR_KEYFRAMES, num_latent_frames=plan.anchor_latents,
             num_audio_latents=plan.anchor_audio_latents, generator=anchor_generator,
-            progress_offset=0, progress_state="LOOP 1/2", **shared,
+            progress_offset=(passes - 2) * per_pass, progress_state=f"LOOP {passes - 1}/{passes}", **shared,
         )
         anchor_latent, anchor_audio = self._loop_window_latents(
             c, video_rows, audio_rows, layout, plan.anchor_latents, plan.anchor_audio_latents,
@@ -3043,7 +3061,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         video_rows, audio_rows, layout = self._sample_window(
             c, condition_rows=condition_rows, keyframe_anchors=anchors, num_latent_frames=plan.bridge_latents,
             num_audio_latents=plan.bridge_audio_latents, generator=bridge_generator,
-            progress_offset=per_pass, progress_state="LOOP 2/2", pins=pins, **shared,
+            progress_offset=(passes - 1) * per_pass, progress_state=f"LOOP {passes}/{passes}", pins=pins, **shared,
         )
         if ctx.is_cancelled():
             raise SamplingCancelled()
@@ -3066,11 +3084,13 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             c.reference_cache.release()
         return out_path
 
-    def _loop_anchor_condition_rows(self, c: _MiniMaxH3Ctx, generator: torch.Generator) -> Tensor:
+    def _loop_anchor_condition_rows(
+        self, c: _MiniMaxH3Ctx, generator: torch.Generator, images: list, anchors: tuple,
+    ) -> Tensor:
         video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
         weight_revision = getattr(c.bundle.video_vae, "effective_revision", None)
         needs_video_encode = keyframes_need_encode(
-            c.keyframe_images, cache=c.reference_cache, height=c.height, width=c.width,
+            images, cache=c.reference_cache, height=c.height, width=c.width,
             vae_module=video_vae_module, weight_revision=weight_revision,
             latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std, device=c.device,
         )
@@ -3078,7 +3098,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             _place_vae(c, c.bundle.video_vae)
         try:
             return prepare_keyframe_condition_rows(
-                c.keyframe_images, c.keyframe_anchors, vae_module=video_vae_module,
+                images, anchors, vae_module=video_vae_module,
                 height=c.height, width=c.width, patch_size=PATCH_SIZE, device=c.device, dtype=c.dtype,
                 latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
                 generator=generator, cache=c.reference_cache, weight_revision=weight_revision,

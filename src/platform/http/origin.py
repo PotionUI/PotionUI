@@ -8,7 +8,8 @@ so it lives on the platform HTTP layer rather than inside one feature.
 from __future__ import annotations
 
 import ipaddress
-from typing import Optional
+from typing import Iterable, List, Optional
+from urllib.parse import urlsplit
 
 # Hostnames that resolve to the loopback interface but are not IP literals.
 _LOOPBACK_HOSTNAMES = {"localhost"}
@@ -42,3 +43,63 @@ def is_loopback_host(host: Optional[str]) -> bool:
 
     mapped = getattr(address, "ipv4_mapped", None)
     return bool(mapped is not None and mapped.is_loopback)
+
+
+def _header_values(headers, name: str) -> List[str]:
+    getlist = getattr(headers, "getlist", None)
+    if getlist is not None:
+        return list(getlist(name))
+    value = headers.get(name)
+    return [] if value is None else [value]
+
+
+def _address_of(value: str) -> str:
+    candidate = value.strip().strip('"')
+    if candidate.startswith("["):
+        return candidate[1:].split("]", 1)[0]
+    if candidate.count(":") == 1:
+        return candidate.rsplit(":", 1)[0]
+    return candidate
+
+
+def _all_loopback(entries: Iterable[str]) -> bool:
+    return all(is_loopback_host(_address_of(entry)) for entry in entries)
+
+
+def _list_entries(headers, name: str) -> List[str]:
+    return [part for value in _header_values(headers, name) for part in value.split(",")]
+
+
+def _forwarded_entries(headers) -> List[str]:
+    entries: List[str] = []
+    for element in _list_entries(headers, "forwarded"):
+        for pair in element.split(";"):
+            key, _, value = pair.partition("=")
+            if key.strip().casefold() == "for":
+                entries.append(value)
+    return entries
+
+
+def is_local_request(request) -> bool:
+    client = getattr(request, "client", None)
+    if not client or not is_loopback_host(getattr(client, "host", None)):
+        return False
+
+    headers = request.headers
+    for entries in (
+        _list_entries(headers, "x-forwarded-for"),
+        _list_entries(headers, "x-real-ip"),
+        _forwarded_entries(headers),
+        _list_entries(headers, "x-forwarded-host"),
+    ):
+        if not _all_loopback(entries):
+            return False
+
+    for origin in _header_values(headers, "origin"):
+        try:
+            hostname = urlsplit(origin.strip()).hostname
+        except ValueError:
+            return False
+        if not is_loopback_host(hostname):
+            return False
+    return True

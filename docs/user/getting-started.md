@@ -43,6 +43,8 @@ A freshly installed PotionUI has no accounts at all. The **first** account ever 
 
 Once the owner account exists, this instance is claimed: nobody else can repeat this flow, and everyone after you signs in the ordinary way, either by an account someone with admin rights creates for them, or by registering directly if the instance owner has turned on open registration.
 
+Create the owner account before you open the port to a network. A request counts as coming from the same machine only when nothing in it points elsewhere: it must arrive from the local machine and carry no forwarded address, forwarded host or `Origin` that names another host. If you put PotionUI behind a reverse proxy, make the proxy send `X-Forwarded-For` (and keep the original `Host` or send `X-Forwarded-Host`); a proxy that hides the real client address can make a remote visitor look local.
+
 ## Signing in to an existing instance
 
 If someone else administers the PotionUI instance you're using, they create your account for you in **Administration → Users** — there's no self-service signup unless they've explicitly turned on open registration for the instance.

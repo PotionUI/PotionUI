@@ -50,6 +50,7 @@ export default defineConfig({
 			'/api': {
 				target: `http://127.0.0.1:${backendPort}`,
 				changeOrigin: true,
+				xfwd: true,
 				autoRewrite: true
 			},
 			// The backend's health check lives at `/health`, not under `/api`
@@ -59,11 +60,13 @@ export default defineConfig({
 			// such route - and recovery can never be observed.
 			'/health': {
 				target: `http://127.0.0.1:${backendPort}`,
-				changeOrigin: true
+				changeOrigin: true,
+				xfwd: true
 			},
 			'/ws': {
 				target: `ws://127.0.0.1:${backendPort}`,
 				changeOrigin: true,
+				xfwd: true,
 				ws: true
 			}
 		}
@@ -74,15 +77,18 @@ export default defineConfig({
 			'/api': {
 				target: `http://127.0.0.1:${e2eBackendPort}`,
 				changeOrigin: true,
+				xfwd: true,
 				autoRewrite: true
 			},
 			'/health': {
 				target: `http://127.0.0.1:${e2eBackendPort}`,
-				changeOrigin: true
+				changeOrigin: true,
+				xfwd: true
 			},
 			'/ws': {
 				target: `ws://127.0.0.1:${e2eBackendPort}`,
 				changeOrigin: true,
+				xfwd: true,
 				ws: true
 			}
 		}

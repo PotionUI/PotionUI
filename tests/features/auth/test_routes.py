@@ -414,3 +414,95 @@ class TestAuthController:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestRegisterOwnerClaimOrigin:
+    @pytest.fixture
+    def parts(self):
+        from src.platform.security.claim_store import InstanceClaimStore
+        from src.platform.security.claim_token import ClaimTokenStore
+        from src.features.users.repository import UserRepository
+
+        users = Mock(spec=UserRepository)
+        users.exists_by_username.return_value = False
+        users.exists_by_email.return_value = False
+        users.create_claiming_instance.return_value = (
+            User(
+                id="owner-1", username="newuser", email="newuser@example.com",
+                password_hash="$2b$12$hashed", account_type=AccountType.ADMIN,
+                created_at=datetime.utcnow(),
+            ),
+            True,
+        )
+        claim = Mock(spec=InstanceClaimStore)
+        claim.is_claimed.return_value = False
+        tokens = Mock(spec=ClaimTokenStore)
+        tokens.verify.return_value = False
+        tokens.describe_location.return_value = "the claim file"
+        hasher = Mock(spec=PasswordHasher)
+        hasher.hash.return_value = "$2b$12$hashed"
+        codec = Mock(spec=TokenCodec)
+        codec.create_access_token.return_value = "test.jwt.token"
+        registry = Mock()
+        registry.execute_hook.return_value = (Mock(data={}), [])
+        settings = Mock()
+        settings.get_setting.return_value = "closed"
+        auth = Auth(
+            user_repository=users, password_hasher=hasher, token_codec=codec,
+            auth_config=Mock(spec=AuthConfig), plugin_registry=registry,
+            instance_claim=claim, claim_tokens=tokens, settings=settings,
+        )
+        return AuthController(auth, Mock()), users, tokens
+
+    @staticmethod
+    def _request(host, headers):
+        request = Mock()
+        request.client = Mock()
+        request.client.host = host
+        request.headers = {"user-agent": "Test Agent", **headers}
+        return request
+
+    @staticmethod
+    def _payload():
+        return UserCreate(username="newuser", email="newuser@example.com", password="password123")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            {"origin": "https://photos.example.com"},
+            {"x-forwarded-for": "203.0.113.7"},
+            {"x-real-ip": "203.0.113.7"},
+            {"x-forwarded-host": "photos.example.com"},
+        ],
+    )
+    async def test_loopback_peer_with_remote_markers_needs_the_token(self, parts, headers):
+        controller, users, tokens = parts
+
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.register(self._payload(), self._request("127.0.0.1", headers))
+
+        assert exc_info.value.status_code == 400
+        users.create_claiming_instance.assert_not_called()
+        tokens.verify.assert_called_once_with(None)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            {},
+            {
+                "x-forwarded-for": "127.0.0.1",
+                "x-forwarded-host": "localhost:26731",
+                "origin": "http://localhost:26731",
+            },
+        ],
+    )
+    async def test_plain_and_proxied_local_requests_claim_without_a_token(self, parts, headers):
+        controller, users, tokens = parts
+
+        result = await controller.register(self._payload(), self._request("127.0.0.1", headers))
+
+        assert result.success is True
+        users.create_claiming_instance.assert_called_once()
+        tokens.verify.assert_not_called()

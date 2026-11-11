@@ -193,7 +193,7 @@ export function isEmptyChange(change: ToolsChange): boolean {
 }
 
 export function policyAllows(policy: McpToolsPolicy, tool: McpTool): boolean {
-	return policy === 'all_on' || !tool.writes;
+	return policy === 'all_on' || !(tool.writes || tool.spends);
 }
 
 function followPolicy(tool: McpTool, policy: McpToolsPolicy): McpTool {

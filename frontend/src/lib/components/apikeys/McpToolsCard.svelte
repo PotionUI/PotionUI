@@ -53,7 +53,7 @@
 			} else failed = true;
 		} catch (err) {
 			if (mine === seq) {
-				if ((err as { response?: { status?: number } })?.response?.status === 404) unavailable = true;
+				if (!forKey && (err as { response?: { status?: number } })?.response?.status === 404) unavailable = true;
 				else failed = true;
 			}
 		} finally {

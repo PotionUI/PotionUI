@@ -36,6 +36,7 @@ export function makeTool(over: Partial<McpTool> = {}): McpTool {
 		group: 'Generation',
 		description: 'Does something useful.',
 		writes: false,
+		spends: false,
 		unavailable_reason: null,
 		state: 'on',
 		reviewed: true,

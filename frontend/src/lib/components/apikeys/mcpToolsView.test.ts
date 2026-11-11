@@ -136,6 +136,13 @@ describe('applyChange (optimistic)', () => {
 		expect(next.tools[0]).toMatchObject({ state: 'off', reviewed: false });
 	});
 
+	it('treats a tool that spends like a write under the read-only policy', () => {
+		const listing = makeListing([makeTool({ name: 'enhance_prompt', spends: true, state: 'off', reviewed: false })], { policy: 'read_only_on' });
+		expect(applyChange(listing, changeForPolicy('all_on')).tools[0].state).toBe('on');
+		const on = makeListing([makeTool({ name: 'enhance_prompt', spends: true, state: 'on', reviewed: true })]);
+		expect(applyChange(on, { overrides: { enhance_prompt: null } }).tools[0].state).toBe('off');
+	});
+
 	it('moves only unreviewed tools when the policy changes', () => {
 		const listing = makeListing(
 			[

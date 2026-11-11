@@ -11,6 +11,7 @@ export interface McpTool {
 	group: string;
 	description: string;
 	writes: boolean;
+	spends: boolean;
 	unavailable_reason: string | null;
 	state: McpToolState;
 	reviewed: boolean;

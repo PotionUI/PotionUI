@@ -254,11 +254,10 @@ export function createSetupApi(client: AxiosInstance) {
 		 * endpoint is idempotent under an active run (admin-only, 404-not-403). */
 		async createSetupRun(
 			recipeId: string,
-			options?: { recipeVersion?: number; safeInput?: Record<string, unknown> }
+			options?: { safeInput?: Record<string, unknown> }
 		): Promise<SetupRun> {
 			const response = await client.post('/api/setup/runs', {
 				recipe_id: recipeId,
-				recipe_version: options?.recipeVersion ?? 1,
 				safe_input: options?.safeInput ?? {}
 			});
 			return response.data;

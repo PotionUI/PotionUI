@@ -127,9 +127,12 @@ def build_router(container: "AppContainer") -> APIRouter:
     ) -> RecipeRunView:
         _require_admin_or_404(current_user)
         runner = _runner()
+        recipe = _recipe_catalog().get_recipe(body.recipe_id)
+        if recipe is None:
+            raise HTTPException(status_code=404, detail="That recipe is not available on this installation.")
         run = runner.create_run(
-            body.recipe_id,
-            recipe_version=body.recipe_version,
+            recipe.id,
+            recipe_version=recipe.version,
             mode=MODE_ONBOARDING,
             safe_input=body.safe_input,
             created_by=current_user.id,

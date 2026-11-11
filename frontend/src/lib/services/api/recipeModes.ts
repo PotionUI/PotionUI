@@ -185,7 +185,6 @@ export function createRecipeModesApi(client: AxiosInstance) {
 
 		async startRecipeModesRun(recipeId: string, preselectModes: string[] = []): Promise<SetupRun> {
 			const response = await client.post(`/api/recipes/${encodeURIComponent(recipeId)}/runs`, {
-				recipe_version: null,
 				preselect_modes: preselectModes
 			});
 			return response.data;

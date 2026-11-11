@@ -12,6 +12,7 @@ the same request - tests that need to observe a driven-forward state poll
 """
 
 import threading
+from pathlib import Path
 import time
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -26,6 +27,7 @@ from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from src.features.setup.routes import build_router
 from src.features.recipes.preset_links import RecipePresetLinks
+from src.features.recipes.catalog import RecipeCatalog
 from src.features.recipes.runner import RecipeRunner
 from src.features.recipes.executors.base import StepResult
 from src.features.recipes.executors.registry import RecipeExecutorRegistry
@@ -67,7 +69,10 @@ class _FakeCatalog:
         return list(self._recipes.values())
 
     def get_recipe(self, recipe_id, version=None):
-        return self._recipes.get(recipe_id)
+        recipe = self._recipes.get(recipe_id)
+        if recipe is not None and version is not None and recipe.version != version:
+            return None
+        return recipe
 
 
 def _consent_recipe(recipe_id="consent-recipe"):
@@ -80,7 +85,17 @@ def _consent_recipe(recipe_id="consent-recipe"):
     )
 
 
+def _plain_recipe(recipe_id, version=1):
+    return Recipe(
+        id=recipe_id, schema_version=1, version=version, name=recipe_id, engine="native",
+        steps=[RecipeStep(key="backend.ensure", kind="backend.ensure", title="Backend")],
+    )
+
+_DEFAULT_RECIPE_IDS = ("r", "r1", "r2", "native-image-starter")
+
 def _client(current_user: User, *, recipe_catalog=None, executor_registry=None) -> TestClient:
+    if recipe_catalog is None:
+        recipe_catalog = _FakeCatalog([_plain_recipe(recipe_id) for recipe_id in _DEFAULT_RECIPE_IDS])
     runner = RecipeRunner()
     if executor_registry is not None:
         runner.register_executor_registry(executor_registry)
@@ -95,9 +110,8 @@ def _client(current_user: User, *, recipe_catalog=None, executor_registry=None) 
         claim_token_store=Mock(),
         settings=Mock(),
     )
-    if recipe_catalog is not None:
-        container.recipe_catalog = recipe_catalog
-        container.recipe_preset_links = RecipePresetLinks(recipe_catalog, runner)
+    container.recipe_catalog = recipe_catalog
+    container.recipe_preset_links = RecipePresetLinks(recipe_catalog, runner)
     app = FastAPI()
     app.include_router(build_router(container))
     app.dependency_overrides[get_current_active_user] = lambda: current_user
@@ -377,3 +391,63 @@ def test_grant_consent_rejects_unknown_slot_or_variant(file_db, selections):
     assert resp.status_code == 400
     assert client.get(f"/api/setup/runs/{run_id}").json()["status"] == "awaiting_consent"
     assert fetch.selections is None
+
+
+class _RecordingExecutor:
+    def __init__(self):
+        self.calls = 0
+
+    def execute(self, context):
+        self.calls += 1
+        return StepResult.ok({})
+
+def _wizard_body(recipe_id):
+    return {"recipe_id": recipe_id, "safe_input": {}}
+
+def test_version_two_recipe_runs_its_first_step_from_the_wizard_body(file_db):
+    recipe = _plain_recipe("v2-starter", version=2)
+    catalog = _FakeCatalog([recipe])
+    executor = _RecordingExecutor()
+    registry = RecipeExecutorRegistry(catalog, {"backend.ensure": executor})
+    client = _client(_user(AccountType.ADMIN), recipe_catalog=catalog, executor_registry=registry)
+
+    created = client.post("/api/setup/runs", json=_wizard_body(recipe.id))
+
+    assert created.status_code == 201
+    body = _poll_until(client, created.json()["id"], lambda b: b["status"] in ("completed", "failed"))
+    assert body["status"] == "completed", body.get("error_code")
+    assert body["recipe_version"] == 2
+    assert executor.calls == 1
+
+def test_unknown_recipe_is_404_and_creates_no_run(file_db):
+    client = _client(_user(AccountType.ADMIN))
+
+    resp = client.post("/api/setup/runs", json=_wizard_body("does-not-exist"))
+
+    assert resp.status_code == 404
+    assert client.get("/api/setup/runs/active").status_code == 404
+
+def test_stale_recipe_version_in_body_is_ignored(file_db):
+    catalog = _FakeCatalog([_plain_recipe("v2-starter", version=2)])
+    client = _client(_user(AccountType.ADMIN), recipe_catalog=catalog)
+
+    resp = client.post(
+        "/api/setup/runs", json={"recipe_id": "v2-starter", "recipe_version": 1, "safe_input": {}}
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["recipe_version"] == 2
+
+def test_every_shipped_recipe_starts_a_run_at_its_own_version(file_db):
+    catalog = RecipeCatalog(recipes_dir=str(Path(__file__).resolve().parents[3] / "content" / "recipes"))
+    recipes = [recipe for recipe in catalog.list_recipes() if recipe.source == "marketplace"]
+    assert any(recipe.version > 1 for recipe in recipes)
+    client = _client(_user(AccountType.ADMIN), recipe_catalog=catalog)
+
+    for recipe in recipes:
+        created = client.post("/api/setup/runs", json=_wizard_body(recipe.id))
+        assert created.status_code == 201, recipe.id
+        assert created.json()["recipe_id"] == recipe.id
+        assert created.json()["recipe_version"] == recipe.version, recipe.id
+        cancelled = client.post(f"/api/setup/runs/{created.json()['id']}/actions/cancel", json={})
+        assert cancelled.status_code == 200, recipe.id

@@ -66,7 +66,7 @@ def plugin_row(client: SetupClient) -> dict:
 
 
 def drive_run(client: SetupClient, recipe_id: str, evidence: list) -> dict:
-    resp = client.post("/api/setup/runs", json={"recipe_id": recipe_id, "recipe_version": 1, "safe_input": {}})
+    resp = client.post("/api/setup/runs", json={"recipe_id": recipe_id, "safe_input": {}})
     run = resp.json()
     deadline = time.monotonic() + RUN_TIMEOUT_SECONDS
     granted = set()

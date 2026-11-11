@@ -19,7 +19,7 @@ from src.features.media_tools.service import MediaToolService
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.media_tools import FfmpegUnavailable, ToolFailed
-from src.platform.security.api_scopes import ApiScope, key_scope
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user, require_media_viewer
 
 if TYPE_CHECKING:
@@ -157,7 +157,7 @@ class MediaToolController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.media_tool_controller
-    router = APIRouter(tags=["Media Tools"])
+    router = APIRouter(tags=["Media Tools"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.GENERATE)])
 
     @router.get("/api/media-tools", response_model=APIResponse, summary="List Media Tools")
     async def list_media_tools(

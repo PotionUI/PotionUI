@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Depends
 from src.features.presets.fixed_prompt import read_fixed_prompt, write_fixed_prompt
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 
@@ -34,7 +35,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = FixedPromptController(
         container.preset_template_loader, container.preset_fixed_prompt_repository, container.content_safety,
     )
-    router = APIRouter(prefix="/api/presets", tags=["Presets"])
+    router = APIRouter(prefix="/api/presets", tags=["Presets"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("/{preset_id}/fixed-prompt", response_model=APIResponse, summary="Get Preset Fixed Prompt Text")
     async def get_fixed_prompt(preset_id: str, current_user: User = Depends(get_current_admin_user)):

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 import logging
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.platform.filesystem.model_types import model_types
 
@@ -19,7 +20,7 @@ class DictionaryController(BaseController):
     def __init__(self):
         logger.debug("Initializing DictionaryController")
         super().__init__()
-        self.router = APIRouter()
+        self.router = APIRouter(dependencies=[key_access(read=ApiScope.READ, write=None)])
         self.setup_routes()
         logger.debug("DictionaryController initialized successfully")
 

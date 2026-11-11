@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from src.platform.http.base_controller import APIError, APIResponse, BaseController
 from src.platform.http.errors import AccessDeniedError, NotFoundError
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.sessions.dto import PinSessionRequest, SaveSessionRequest, UpdateSessionRequest
 from src.features.sessions import operations
@@ -176,7 +177,7 @@ class SessionController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.session_controller
-    router = APIRouter(prefix="/api/sessions", tags=["Sessions"])
+    router = APIRouter(prefix="/api/sessions", tags=["Sessions"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("/preset/{preset_id}", response_model=APIResponse, summary="Get Sessions for Preset")
     async def get_sessions_for_preset(preset_id: str, current_user=Depends(get_current_active_user)):

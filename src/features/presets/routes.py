@@ -16,6 +16,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.forms.exceptions import FormNotFoundException
@@ -464,7 +465,7 @@ class PresetController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.preset_controller
-    router = APIRouter(prefix="/api/presets", tags=["Presets"])
+    router = APIRouter(prefix="/api/presets", tags=["Presets"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     def preset_access(preset_id: str, current_user: User = Depends(get_current_active_user)) -> User:
         controller.require_preset_access(preset_id, current_user)
@@ -574,7 +575,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get the pipeline configuration and pipe connections for a preset and mode."""
         return await controller.get_pipeline(preset_id, mode)
 
-    @router.post("/{preset_id}/pipes", response_model=APIResponse, summary="Get Pipeline with Form Data")
+    @router.post("/{preset_id}/pipes", response_model=APIResponse, summary="Get Pipeline with Form Data", dependencies=[key_scope(ApiScope.READ)])
     async def get_preset_pipes_with_form_data(preset_id: str, request: Dict[str, Any], mode: str = "txt2img", current_user=Depends(preset_access)):
         """Get pipeline configuration evaluated with specific form data for dynamic pipe configuration."""
         form_data = request.get('form_data', {})
@@ -585,12 +586,12 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Reload a preset configuration from disk and return its updated state."""
         return await controller.reload_preset(preset_id)
 
-    @router.post("/{preset_id}/install", response_model=APIResponse, summary="Install Preset")
+    @router.post("/{preset_id}/install", response_model=APIResponse, summary="Install Preset", dependencies=[key_scope(ApiScope.ADMIN)])
     async def install_preset(preset_id: str, current_user: User = Depends(get_current_active_user)):
         """Install a preset for the current user."""
         return await controller.install_preset(preset_id, current_user)
 
-    @router.post("/{preset_id}/uninstall", response_model=APIResponse, summary="Uninstall Preset")
+    @router.post("/{preset_id}/uninstall", response_model=APIResponse, summary="Uninstall Preset", dependencies=[key_scope(ApiScope.ADMIN)])
     async def uninstall_preset(preset_id: str, current_user: User = Depends(get_current_active_user)):
         """Uninstall a preset (admin only) - removes all user assignments."""
         return await controller.uninstall_preset(preset_id, current_user)
@@ -624,28 +625,28 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         return await controller.set_mirror_modes(preset_id, request, current_user)
 
-    @router.post("/{preset_id}/assign", response_model=APIResponse, summary="Assign Preset to Users")
+    @router.post("/{preset_id}/assign", response_model=APIResponse, summary="Assign Preset to Users", dependencies=[key_scope(ApiScope.ADMIN)])
     async def assign_preset_to_users(preset_id: str, request: Dict[str, Any], current_user: User = Depends(get_current_active_user)):
         """Assign a preset to multiple users (admin only)."""
         user_ids = request.get('user_ids', [])
         return await controller.assign_preset_to_users(preset_id, user_ids, current_user)
 
-    @router.post("/{preset_id}/unassign/{user_id}", response_model=APIResponse, summary="Unassign Preset from User")
+    @router.post("/{preset_id}/unassign/{user_id}", response_model=APIResponse, summary="Unassign Preset from User", dependencies=[key_scope(ApiScope.ADMIN)])
     async def unassign_preset_from_user(preset_id: str, user_id: str, current_user: User = Depends(get_current_active_user)):
         """Unassign a preset from a user (admin only)."""
         return await controller.unassign_preset_from_user(preset_id, user_id, current_user)
 
-    @router.get("/{preset_id}/assignments", response_model=APIResponse, summary="Get Preset Assignments")
+    @router.get("/{preset_id}/assignments", response_model=APIResponse, summary="Get Preset Assignments", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_preset_assignments(preset_id: str, current_user: User = Depends(get_current_active_user)):
         """Get assignment summary for a preset (admin only)."""
         return await controller.get_preset_assignments(preset_id, current_user)
 
-    @router.get("/{preset_id}/configuration", response_model=APIResponse, summary="Get Preset Configuration")
+    @router.get("/{preset_id}/configuration", response_model=APIResponse, summary="Get Preset Configuration", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_preset_configuration(preset_id: str, current_user: User = Depends(get_current_active_user)):
         """Get a preset's declared `configuration:` schema merged with its stored admin-set values."""
         return await controller.get_preset_configuration(preset_id, current_user)
 
-    @router.put("/{preset_id}/configuration", response_model=APIResponse, summary="Set Preset Configuration")
+    @router.put("/{preset_id}/configuration", response_model=APIResponse, summary="Set Preset Configuration", dependencies=[key_scope(ApiScope.ADMIN)])
     async def set_preset_configuration(
         preset_id: str,
         request: Dict[str, Any],
@@ -655,7 +656,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         values = request.get('values', {})
         return await controller.set_preset_configuration(preset_id, values, current_user)
 
-    @router.get("/{preset_id}/form-overrides", response_model=APIResponse, summary="Get Preset Form Overrides")
+    @router.get("/{preset_id}/form-overrides", response_model=APIResponse, summary="Get Preset Form Overrides", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_form_overrides(
         preset_id: str,
         mode: Optional[str] = None,
@@ -665,7 +666,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         (admin only; defaults to the preset's first mode when `mode` is omitted)."""
         return await controller.get_form_overrides(preset_id, mode, current_user)
 
-    @router.put("/{preset_id}/form-overrides", response_model=APIResponse, summary="Set Preset Form Overrides")
+    @router.put("/{preset_id}/form-overrides", response_model=APIResponse, summary="Set Preset Form Overrides", dependencies=[key_scope(ApiScope.ADMIN)])
     async def set_form_overrides(
         preset_id: str,
         request: Dict[str, Any],

@@ -45,6 +45,7 @@ class BuiltPipeline:
     preset_id: str
     preset_template: PresetTemplate
     pipes: List[Dict[str, Any]]
+    needs_admin_authority: bool = False
 
     def to_backend_payload(self) -> Dict[str, Any]:
         """Return the exact dict shape backends expect to receive.
@@ -100,6 +101,7 @@ class PipelineBuilder:
         prompts: Optional[List[Dict[str, str]]] = None,
         form_name: Optional[str] = None,
         user_id: Optional[str] = None,
+        acts_as_admin: Optional[bool] = None,
     ) -> BuiltPipeline:
         """
         Build a pipeline configuration from form data and preset.
@@ -181,7 +183,9 @@ class PipelineBuilder:
         # Process preset to get processed pipes with Jinja2 rendering
         logger.debug("Processing preset through PresetProcessor")
         try:
-            processed_pipes = self.preset_processor.process(preset_template, generation_data, user_id=user_id)
+            processed_pipes = self.preset_processor.process(
+                preset_template, generation_data, user_id=user_id, acts_as_admin=acts_as_admin
+            )
             logger.info(f"Pipeline built successfully with {len(processed_pipes)} pipes")
         except Exception as e:
             error_msg = f"Failed to process preset: {str(e)}"
@@ -192,5 +196,6 @@ class PipelineBuilder:
             generation_id=generation_id,
             preset_id=resolved_preset_id,
             preset_template=preset_template,
-            pipes=processed_pipes
+            pipes=processed_pipes,
+            needs_admin_authority=bool(getattr(processed_pipes, "used_admin_authority", False)),
         )

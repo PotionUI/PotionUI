@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, Query
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.http.spooled_zip import stream_spooled_zip
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
 from src.features.library.collaborators import LibraryCollaborators
 from src.features.library.criteria_delete import delete_items, owner_criteria, preview_items
@@ -203,7 +204,7 @@ class LibraryController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.library_controller
-    router = APIRouter(prefix="/api/library", tags=["Library"])
+    router = APIRouter(prefix="/api/library", tags=["Library"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("/items", response_model=APIResponse, summary="List Library Items")
     async def list_items(
@@ -245,7 +246,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Copy a generated file into the library as a standalone resource."""
         return await controller.copy_from_generation(request, current_user)
 
-    @router.post("/export", summary="Export Library Items as Zip")
+    @router.post("/export", summary="Export Library Items as Zip", dependencies=[key_scope(ApiScope.READ)])
     async def export_items(
         request: LibraryExportRequest,
         current_user=Depends(get_current_active_user)
@@ -256,7 +257,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """
         return await controller.export_items(request, current_user)
 
-    @router.post("/count-by-criteria", response_model=APIResponse, summary="Count Library Items by Criteria")
+    @router.post("/count-by-criteria", response_model=APIResponse, summary="Count Library Items by Criteria", dependencies=[key_scope(ApiScope.READ)])
     async def count_items_by_criteria(
         request: BulkDeleteLibraryByCriteriaRequest,
         current_user=Depends(get_current_active_user)

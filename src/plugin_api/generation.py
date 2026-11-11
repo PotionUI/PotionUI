@@ -109,7 +109,9 @@ async def submit_generation(
         request = GenerationRequest.model_validate(request)
     container = get_container()
     _require_available_preset(container, user, request.preset_id)
-    result = await container.generation_orchestrator.start_generation(request, user.id)
+    result = await container.generation_orchestrator.start_generation(
+        request, user.id, acts_as_admin=GenerationPolicy.is_admin(user)
+    )
     status = result.get("status")
     return {
         "generation_id": result["generation_id"],

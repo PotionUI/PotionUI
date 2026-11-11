@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_user
 from src.features.user_groups.dto import (
     GroupCreate,
@@ -212,7 +213,7 @@ class UserGroupController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.user_group_controller
-    router = APIRouter(prefix="/api/user-groups", tags=["user-groups"])
+    router = APIRouter(prefix="/api/user-groups", tags=["user-groups"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     # Group CRUD
     @router.get("", response_model=APIResponse, summary="List All Groups")

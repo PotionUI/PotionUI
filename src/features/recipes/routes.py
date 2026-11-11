@@ -37,6 +37,7 @@ from src.features.recipes.runner import (
     RecipeRunNotFound,
 )
 from src.features.setup.readiness import ReadinessReport, build_readiness_aggregator
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 
@@ -63,7 +64,7 @@ def run_view(runner: RecipeRunner, recipe_catalog, run) -> RecipeRunView:
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    router = APIRouter(prefix="/api/recipes", tags=["Recipes"])
+    router = APIRouter(prefix="/api/recipes", tags=["Recipes"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     def _runner() -> RecipeRunner:
         return container.recipe_runner

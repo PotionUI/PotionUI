@@ -37,6 +37,26 @@ from .loader import PresetTemplateLoader
 _LOOP_ITEMS_CAP = 10_000
 
 
+class _RuntimeUser(dict):
+    def __init__(self, is_admin: bool):
+        super().__init__(is_admin=is_admin)
+        self.read = False
+
+    def __getitem__(self, key):
+        if key == "is_admin":
+            self.read = True
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        if key == "is_admin":
+            self.read = True
+        return super().get(key, default)
+
+
+class _ProcessedPipes(list):
+    used_admin_authority: bool = False
+
+
 class PresetProcessor:
     """
     Processes preset templates with Jinja2 templating.
@@ -290,7 +310,11 @@ class PresetProcessor:
             ),
         }
 
-    def _build_runtime_user(self, user_id: Optional[str]) -> Dict[str, Any]:
+    def _build_runtime_user(
+        self, user_id: Optional[str], acts_as_admin: Optional[bool] = None
+    ) -> "_RuntimeUser":
+        if acts_as_admin is not None:
+            return _RuntimeUser(bool(acts_as_admin))
         is_admin = False
         if user_id and self.user_resolver is not None:
             try:
@@ -299,7 +323,7 @@ class PresetProcessor:
                 logger.debug(f"Could not resolve user {user_id} for runtime.user", exc_info=True)
                 user = None
             is_admin = getattr(user, 'account_type', None) == AccountType.ADMIN
-        return {'is_admin': is_admin}
+        return _RuntimeUser(is_admin)
 
     def _resolve_enabled(
         self,
@@ -349,6 +373,7 @@ class PresetProcessor:
         preset_template: PresetTemplate,
         generation_data: dict,
         user_id: Optional[str] = None,
+        acts_as_admin: Optional[bool] = None,
     ) -> list:
         """
         Process generation data to a pipeline configuration with recursive template processing.
@@ -382,6 +407,7 @@ class PresetProcessor:
 
         first_pair = prompts[0] if prompts else {'positive': '', 'negative': ''}
 
+        runtime_user = self._build_runtime_user(user_id, acts_as_admin)
         context = {
             # The bound form's values (src/features/forms/binding.py's BoundForm,
             # once W3 lands) - `form.steps` is an int, `form.loras` is a
@@ -423,7 +449,7 @@ class PresetProcessor:
             },
             'runtime': {
                 'settings': self._build_runtime_settings(user_id),
-                'user': self._build_runtime_user(user_id),
+                'user': runtime_user,
             },
             'paths': {
                 'preset': preset_template.path,
@@ -481,4 +507,6 @@ class PresetProcessor:
 
             processed_pipes.append(processed_pipe)
 
-        return processed_pipes
+        result = _ProcessedPipes(processed_pipes)
+        result.used_admin_authority = runtime_user.read
+        return result

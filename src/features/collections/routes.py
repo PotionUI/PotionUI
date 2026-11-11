@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded, soft_guarded
 from src.platform.security.failure_text import failure_detail
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.collections.dto import (
     CollectionScope,
@@ -221,7 +222,7 @@ class CollectionController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.collection_controller
-    router = APIRouter(prefix="/api/collections", tags=["Collections"])
+    router = APIRouter(prefix="/api/collections", tags=["Collections"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("", response_model=APIResponse, summary="List Collections")
     async def list_collections(

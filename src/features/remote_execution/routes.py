@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from src.features.remote_execution import ops
 from src.features.remote_execution.transport import WorkerTransportError, WorkerUnreachableError
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 
 if TYPE_CHECKING:
@@ -83,7 +84,7 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     router = APIRouter(
         prefix="/api/admin/remote-models",
         tags=["Remote Model Sync"],
-        dependencies=[Depends(get_current_admin_user)],
+        dependencies=[Depends(get_current_admin_user), key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)],
     )
 
     @router.get("/{backend_id}", response_model=APIResponse, summary="Remote Model Sync View")

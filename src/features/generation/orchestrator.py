@@ -109,6 +109,7 @@ from src.features.generation.repository import generation_repo
 from src.features.generation.records import Generation
 from src.features.generation.dto import GenerationStatus
 from src.features.generation.exceptions import (
+    AdminAuthorityRequired,
     DuplicateIdempotencyKey,
     IdempotencyKeyConflict,
     InvalidGenerationSourceException,
@@ -708,6 +709,7 @@ class GenerationOrchestrator:
         preset_template: PresetTemplate,
         mode: str,
         user_id: Optional[str],
+        acts_as_admin: bool = False,
     ) -> Optional[str]:
         """The model identity a queued generation is scheduled against (the
         "fair" policy's affinity key - see `docs/backends.md` "Scheduling
@@ -738,6 +740,7 @@ class GenerationOrchestrator:
                 mode=mode,
                 form_name=bound.form_name,
                 user_id=user_id,
+                acts_as_admin=acts_as_admin,
             )
         except Exception:
             logger.debug("Model-identity pipeline build failed; affinity disabled", exc_info=True)
@@ -757,6 +760,29 @@ class GenerationOrchestrator:
         require_preset_access(
             self.database_preset_repository, user_id, preset_id, GenerationPolicy.is_admin(user)
         )
+
+    def _enforce_admin_authority(
+        self, preset_template: PresetTemplate, mode: str, bound, user_id: str, acts_as_admin: bool
+    ) -> None:
+        if acts_as_admin or self.user_repository is None:
+            return
+        owner = self.user_repository.get_by_id(user_id)
+        if not GenerationPolicy.is_admin(owner):
+            return
+        try:
+            built = self.pipeline_builder.build_pipeline(
+                preset_id=preset_template,
+                form_data=bound.values,
+                mode=mode,
+                form_name=bound.form_name,
+                user_id=user_id,
+                acts_as_admin=False,
+            )
+        except Exception:
+            logger.debug("Authority check could not build the pipeline", exc_info=True)
+            return
+        if built.needs_admin_authority:
+            raise AdminAuthorityRequired("This preset is restricted to administrators")
 
     def _enforce_model_access(self, bound, user_id: str) -> None:
         """Verify every `model:<id>` reference in `bound.values` is one
@@ -854,7 +880,7 @@ class GenerationOrchestrator:
 
         return overlay
 
-    async def preview_memory(self, request, user_id: str) -> Dict[str, Any]:
+    async def preview_memory(self, request, user_id: str, acts_as_admin: bool = False) -> Dict[str, Any]:
         """A non-blocking request memory advisory for a request that has NOT
         started: binds the form, canonicalizes any Video/Music Director
         document, and resolves the backend exactly as `start_generation`
@@ -933,6 +959,7 @@ class GenerationOrchestrator:
                 mode=mode,
                 form_name=bound.form_name,
                 user_id=user_id,
+                acts_as_admin=acts_as_admin,
             )
             pipes = built.pipes
         except Exception:
@@ -978,8 +1005,10 @@ class GenerationOrchestrator:
         request,
         user_id: str,
         output_callback: Optional[Callable[[str, GenerationOutput], Any]] = None,
-        grid_cell: Optional['GridCellRef'] = None
+        grid_cell: Optional['GridCellRef'] = None,
+        acts_as_admin: bool = False,
     ) -> Dict[str, Any]:
+        request._acts_as_admin = bool(acts_as_admin)
         key = getattr(request, 'idempotency_key', None)
         if not isinstance(key, str) or not key:
             return await self._submit_generation(request, user_id, output_callback, grid_cell=grid_cell)
@@ -1226,6 +1255,7 @@ class GenerationOrchestrator:
             # ModelAccessDeniedException, mapped by the controller to the house
             # 404-not-403 pattern.
             self._enforce_model_access(bound, user_id)
+            self._enforce_admin_authority(preset_template, mode, bound, user_id, getattr(request, '_acts_as_admin', False))
 
             # Video/Music Director documents, if present, are untrusted client
             # input: validate + canonicalize against what this preset
@@ -1433,7 +1463,7 @@ class GenerationOrchestrator:
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
                 model_key=(
-                    self._resolve_model_key(bound, preset_template, mode, user_id)
+                    self._resolve_model_key(bound, preset_template, mode, user_id, getattr(request, '_acts_as_admin', False))
                     if self._scheduling_policy_for(backend.backend_id).name == FAIR
                     else None
                 ),
@@ -1589,6 +1619,7 @@ class GenerationOrchestrator:
                 prompts=prompts,
                 form_name=getattr(request, 'form_name', None),
                 user_id=db_generation.user_id,
+                acts_as_admin=getattr(request, '_acts_as_admin', False),
             )
             if batch is not None:
                 batch.apply_to_pipes(built_pipeline.pipes)

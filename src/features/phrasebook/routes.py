@@ -14,6 +14,7 @@ from fastapi.responses import PlainTextResponse, FileResponse
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded, soft_guarded
 from src.platform.security.failure_text import failure_detail
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
 from src.features.phrasebook.dto import (
     BatchRequest,
@@ -362,7 +363,7 @@ class PhrasebookController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.phrasebook_controller
-    router = APIRouter(prefix="/api/phrasebook", tags=["Phrasebook"])
+    router = APIRouter(prefix="/api/phrasebook", tags=["Phrasebook"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     # Category Routes
 
@@ -444,8 +445,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.post(
         "/categories/{category_id}/generate-previews",
         response_model=APIResponse,
-        summary="Generate Preview Images"
-    )
+        summary="Generate Preview Images", dependencies=[key_scope(ApiScope.GENERATE)])
     async def generate_previews(
         category_id: str,
         request: GeneratePreviewRequest,
@@ -510,7 +510,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         all-or-nothing, between the phrasebook.batch.before/after hooks."""
         return await controller.batch_values(request, current_user)
 
-    @router.post("/values/batch/preview", response_model=APIResponse, summary="Preview Batch Operation")
+    @router.post("/values/batch/preview", response_model=APIResponse, summary="Preview Batch Operation", dependencies=[key_scope(ApiScope.READ)])
     async def preview_batch(
         request: BatchRequest,
         current_user: User = Depends(get_current_active_user)
@@ -520,7 +520,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     # Search Routes
 
-    @router.post("/search", response_model=APIResponse, summary="Search Phrasebook")
+    @router.post("/search", response_model=APIResponse, summary="Search Phrasebook", dependencies=[key_scope(ApiScope.READ)])
     async def search_phrasebook(
         request: PhrasebookSearchRequest,
         state: PhrasebookStateFilter = PhrasebookStateFilter.ACTIVE,

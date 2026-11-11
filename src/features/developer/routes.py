@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.developer import operations
 from src.features.developer.template_functions_documenter import TemplateFunctionsDocumenter
@@ -97,7 +98,7 @@ class DeveloperController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.developer_controller
-    router = APIRouter(prefix="/api/developer", tags=["Developer"])
+    router = APIRouter(prefix="/api/developer", tags=["Developer"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     # ========== Route Handlers ==========
     # Keep these thin - just delegate to controller methods

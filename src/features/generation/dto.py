@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional, List
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, PrivateAttr, validator
 
 from src.features.generation.validators import validate_rating_policy
 
@@ -32,6 +32,7 @@ class SegmentInput(BaseModel):
 
 
 class GenerationRequest(BaseModel):
+    _acts_as_admin: bool = PrivateAttr(default=False)
     preset_id: str
     prompt: Optional[str] = ""  # Legacy single prompt (deprecated, use prompts array)
     negative_prompt: Optional[str] = ""  # Legacy single negative (deprecated)

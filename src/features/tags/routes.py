@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import soft_guarded
 from src.platform.http.errors import NotFoundError
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.repository import DatabasePresetRepository
@@ -143,7 +144,7 @@ class TagController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.tag_controller
-    router = APIRouter(prefix="/api/tags", tags=["Tags"])
+    router = APIRouter(prefix="/api/tags", tags=["Tags"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("", response_model=APIResponse, summary="List Tags")
     async def list_tags(

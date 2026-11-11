@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import soft_guarded
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.keybindings.dto import UpdateKeybindingRequest
 from src.features.keybindings.repository import KeybindingRepository
@@ -101,7 +102,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     from src.features.keybindings.repository import keybinding_repo
 
     controller = KeybindingController(keybinding_repo)
-    router = APIRouter(prefix="/api/keybindings", tags=["Keybindings"])
+    router = APIRouter(prefix="/api/keybindings", tags=["Keybindings"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("", response_model=APIResponse, summary="Get Effective Keybindings")
     async def get_keybindings(

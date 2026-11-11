@@ -1,11 +1,11 @@
 from typing import Any
 
 from src.features.presets.exceptions import PresetNotFoundException
-from src.platform.security.user import AccountType
+from src.platform.security.user import owner_is_admin
 
 
 def is_admin_user(user: Any) -> bool:
-    return getattr(user, "account_type", None) == AccountType.ADMIN
+    return owner_is_admin(user)
 
 
 def preset_available_to_user(db_repo: Any, user_id: str, preset_id: str, is_admin: bool) -> bool:

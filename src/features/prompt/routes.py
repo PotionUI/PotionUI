@@ -11,6 +11,7 @@ from src.features.prompt.resource_sources import read_source_members
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.plugins.prompt_resource_sources import PromptResourceCaller, PromptResourceSourceRegistry
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.failure_text import failure_detail
 from src.platform.security.user import AccountType, User
@@ -71,7 +72,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         container.model_index_manager,
         container.model_locator.path_for_model,
     )
-    router = APIRouter(prefix="/api/prompt-resources", tags=["Prompt resources"])
+    router = APIRouter(prefix="/api/prompt-resources", tags=["Prompt resources"], dependencies=[key_access(read=ApiScope.READ, write=None)])
 
     @router.get("/sources/{source_id}/members", response_model=APIResponse, summary="Get an item's members")
     async def get_members(

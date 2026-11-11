@@ -285,6 +285,7 @@ class StartGenerationTool(BaseTool):
             result = await context.generation_orchestrator.start_generation(
                 request=request,
                 user_id=context.user_id,
+                acts_as_admin=context.acts_as_admin,
             )
 
             started_id = result.get("generation_id", "")

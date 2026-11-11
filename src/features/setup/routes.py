@@ -42,6 +42,7 @@ from src.features.setup.dto import MachineInfo, SetupStatus
 from src.features.setup.machine import probe_machine
 from src.features.setup.readiness import ReadinessReport, build_readiness_aggregator
 from src.platform.http.origin import is_local_request
+from src.platform.security.api_scopes import SESSION_ONLY
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 
@@ -81,7 +82,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     # No prefix on the parent: setup status lives under /api/setup, readiness at
     # /api/readiness. Both ship through the one `build_setup_router` registration
     # in src/bootstrap/routers.py.
-    router = APIRouter(tags=["System & Health"])
+    router = APIRouter(tags=["System & Health"], dependencies=[SESSION_ONLY])
 
     setup_router = APIRouter(prefix="/api/setup")
 

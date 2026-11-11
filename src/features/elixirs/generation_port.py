@@ -62,7 +62,9 @@ class GenerationPort:
     async def submit(self, user, request: Mapping[str, Any]) -> Dict[str, Any]:
         if user is None:
             raise PermissionError("A user is required to submit a generation")
-        result = await self.orchestrator.start_generation(GenerationRequest.model_validate(dict(request)), user.id)
+        result = await self.orchestrator.start_generation(
+            GenerationRequest.model_validate(dict(request)), user.id, acts_as_admin=False
+        )
         status = result.get("status")
         return {
             "generation_id": result["generation_id"],

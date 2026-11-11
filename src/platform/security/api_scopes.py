@@ -122,3 +122,20 @@ def required_scopes(route, method: str) -> Optional[FrozenSet[ApiScope]]:
     if policy.access is None:
         return None
     return policy.access.read if method.upper() in _READ_METHODS else policy.access.write
+
+
+SOURCE_SESSION_ONLY = "session_only"
+SOURCE_ADMIN_DEPENDENCY = "admin_dependency"
+SOURCE_MARKER = "marker"
+SOURCE_DEFAULT_DENY = "default_deny"
+
+
+def policy_source(route, method: str) -> str:
+    policy = _policy_for(route)
+    if policy.access is not None and policy.access.session_only:
+        return SOURCE_SESSION_ONLY
+    if policy.admin_dependency:
+        return SOURCE_ADMIN_DEPENDENCY
+    if policy.access is None:
+        return SOURCE_DEFAULT_DENY
+    return SOURCE_MARKER

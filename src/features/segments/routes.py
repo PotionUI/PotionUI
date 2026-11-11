@@ -6,6 +6,7 @@ from typing import Optional, TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.segments.dto import (
     SavedSegmentRequest,
@@ -195,13 +196,11 @@ class SegmentController(BaseController):
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.segment_controller
 
-    saved_segments_router = APIRouter(prefix="/api/segments", tags=["Segments"])
+    saved_segments_router = APIRouter(prefix="/api/segments", tags=["Segments"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
     segment_templates_router = APIRouter(
-        prefix="/api/segment-templates", tags=["Segment Templates"]
-    )
+        prefix="/api/segment-templates", tags=["Segment Templates"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
     segment_categories_router = APIRouter(
-        prefix="/api/segment-categories", tags=["Segment Categories"]
-    )
+        prefix="/api/segment-categories", tags=["Segment Categories"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     # Segment Categories -----------------------------------------------------
 

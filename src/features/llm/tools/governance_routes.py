@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import SESSION_ONLY
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import User
 from src.features.llm.dto import ToolGovernanceUpdateRequest, UserToolPreferenceRequest
@@ -119,7 +120,7 @@ class ToolGovernanceController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.tool_governance_controller
-    router = APIRouter(tags=["LLM Tool Governance"])
+    router = APIRouter(tags=["LLM Tool Governance"], dependencies=[SESSION_ONLY])
 
     # --- Admin: per-LLM-config tool governance ---
 

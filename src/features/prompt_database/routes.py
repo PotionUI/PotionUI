@@ -9,6 +9,7 @@ from fastapi import File as FastAPIFile
 from fastapi.responses import PlainTextResponse
 
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.prompt_database import operations
 from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
@@ -92,7 +93,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     def not_found() -> APIResponse:
         return controller.error_response("not_found", "Prompt not found", 404)
 
-    router = APIRouter(prefix="/api/prompts", tags=["Prompts"])
+    router = APIRouter(prefix="/api/prompts", tags=["Prompts"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get(
         "/embedding-status",
@@ -238,7 +239,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             "tags": [{"tag": tag, "count": count} for tag, count in counts],
         })
 
-    @router.post("/find-duplicates", response_model=APIResponse, summary="Find near-duplicate prompts")
+    @router.post("/find-duplicates", response_model=APIResponse, summary="Find near-duplicate prompts", dependencies=[key_scope(ApiScope.READ)])
     async def find_duplicates(
         threshold: float = Query(0.1, ge=0.01, le=1.0),
         model_id: Optional[str] = None,

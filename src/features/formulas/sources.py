@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol
 
-from src.platform.security.user import AccountType, User
+from src.platform.security.user import User, owner_is_admin
 
 
 @dataclass(frozen=True)
@@ -87,7 +87,7 @@ class ModelRepositoryRefChecker:
         model = self._models.get_by_id(model_id, include_providers=False, include_tags=True)
         if model is None:
             return None
-        if user.account_type != AccountType.ADMIN:
+        if not owner_is_admin(user):
             if model_id not in self._models.get_available_model_ids_for_user(user.id):
                 return None
         return ModelRefInfo(

@@ -12,6 +12,7 @@ from src.features.generation.criteria_delete import (
 from src.features.generation.status_tracker import TERMINAL_STATES
 from src.features.housekeeping.worker import HousekeepingRunning, HousekeepingWorker
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 
 if TYPE_CHECKING:
@@ -95,7 +96,7 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
         container.generation_history_facade,
     )
 
-    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"])
+    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @admin_router.get("/housekeeping", response_model=APIResponse, summary="Get Housekeeping Overview")
     async def get_housekeeping(current_user=Depends(get_current_admin_user)):

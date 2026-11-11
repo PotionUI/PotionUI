@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.platform.plugins.sampling import (
     SamplingRegistry,
@@ -52,7 +53,7 @@ class SamplingController(BaseController):
 def build_router(container: "AppContainer") -> APIRouter:
     controller = SamplingController()
 
-    router = APIRouter(prefix="/api/sampling", tags=["Sampling"])
+    router = APIRouter(prefix="/api/sampling", tags=["Sampling"], dependencies=[key_access(read=ApiScope.READ, write=None)])
 
     @router.get("/catalog", response_model=APIResponse, summary="Get Sampling Catalog")
     async def get_sampling_catalog(

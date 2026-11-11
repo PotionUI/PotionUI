@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict
 import logging
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access, SESSION_ONLY
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.providers.dto import ProviderSettingsUpdate, ProviderTestResult, ProviderInfo
 from src.features.providers.registry import ensure_providers_discovered
@@ -343,7 +344,7 @@ class ProviderController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = ProviderController(container.plugin_registry)
-    router = APIRouter(prefix="/api/providers", tags=["Providers"])
+    router = APIRouter(prefix="/api/providers", tags=["Providers"], dependencies=[key_access(read=ApiScope.READ, write=None)])
 
     @router.get("", response_model=APIResponse, summary="List marketplace providers")
     async def list_providers(current_user=Depends(get_current_active_user)):
@@ -363,7 +364,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get the JSON schema for a provider's settings."""
         return await controller.get_settings_schema(provider_id, current_user)
 
-    @router.get("/{provider_id}/settings", summary="Get a provider's current settings")
+    @router.get("/{provider_id}/settings", summary="Get a provider's current settings", dependencies=[SESSION_ONLY])
     async def get_provider_settings(
         provider_id: str,
         current_user=Depends(get_current_active_user)
@@ -371,7 +372,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get current settings for a provider."""
         return await controller.get_settings(provider_id, current_user)
 
-    @router.put("/{provider_id}/settings", summary="Update a provider's settings")
+    @router.put("/{provider_id}/settings", summary="Update a provider's settings", dependencies=[SESSION_ONLY])
     async def update_provider_settings(
         provider_id: str,
         request: ProviderSettingsUpdate,
@@ -380,7 +381,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Update settings for a provider."""
         return await controller.update_settings(provider_id, request, current_user)
 
-    @router.post("/{provider_id}/test", response_model=ProviderTestResult, summary="Test a provider connection")
+    @router.post("/{provider_id}/test", response_model=ProviderTestResult, summary="Test a provider connection", dependencies=[SESSION_ONLY])
     async def test_provider_connection(
         provider_id: str,
         current_user=Depends(get_current_active_user)

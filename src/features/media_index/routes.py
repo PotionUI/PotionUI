@@ -6,6 +6,7 @@ from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 
@@ -64,7 +65,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     settings = container.settings
     download_queue = container.download_queue
     model_roots = container.model_roots
-    router = APIRouter(prefix="/api/media-index", tags=["Media Index"])
+    router = APIRouter(prefix="/api/media-index", tags=["Media Index"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("/models-status", response_model=APIResponse, summary="Tagger + Vision-embedder Model Status")
     async def models_status(

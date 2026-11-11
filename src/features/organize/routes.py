@@ -17,6 +17,7 @@ from src.features.organize.admin import OrganizeAdmin
 from src.features.organize.backfill import BackfillManager
 from src.features.organize.manager import OrganizeManager, instance_viewer
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 
 if TYPE_CHECKING:
@@ -86,11 +87,11 @@ def mount_rule_routes(router: APIRouter, controller: OrganizeController, who: Ca
     async def apply_existing(rule_id: str, body: Optional[ApplyExistingBody] = None, user=Depends(who)):
         return await controller.run("organize_apply_failed", backfill.start, user, rule_id)
 
-    @router.post("/preview", response_model=APIResponse, summary="Count what a rule would match")
+    @router.post("/preview", response_model=APIResponse, summary="Count what a rule would match", dependencies=[key_scope(ApiScope.READ)])
     async def preview(body: PreviewBody, user=Depends(who)):
         return await controller.run("organize_preview_failed", manager.preview, user, body_dict(body))
 
-    @router.post("/preview/matches", response_model=APIResponse, summary="Page through what a rule would match")
+    @router.post("/preview/matches", response_model=APIResponse, summary="Page through what a rule would match", dependencies=[key_scope(ApiScope.READ)])
     async def preview_matches(body: MatchesBody, user=Depends(who)):
         return await controller.run("organize_matches_failed", manager.preview_matches, user, body_dict(body))
 
@@ -128,7 +129,7 @@ def mount_rule_routes(router: APIRouter, controller: OrganizeController, who: Ca
 def build_router(container: "AppContainer") -> APIRouter:
     controller: OrganizeController = container.organize_controller
     manager = controller.manager
-    router = APIRouter(prefix="/api/organize", tags=["Auto-organize"])
+    router = APIRouter(prefix="/api/organize", tags=["Auto-organize"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("/summary", response_model=APIResponse, summary="Rule counts for the sidebar")
     async def summary(user=Depends(get_current_active_user)):
@@ -151,7 +152,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 def build_admin_router(container: "AppContainer") -> APIRouter:
     controller: OrganizeController = container.organize_controller
     ops = controller.admin
-    router = APIRouter(prefix="/api/admin/organize", tags=["Auto-organize admin"])
+    router = APIRouter(prefix="/api/admin/organize", tags=["Auto-organize admin"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("/overview", response_model=APIResponse, summary="Auto-organize counts across users")
     async def overview(admin=Depends(get_current_admin_user)):

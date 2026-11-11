@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
 
 def build_router(container: "AppContainer") -> APIRouter:
     manager = container.content_safety
-    router = APIRouter(prefix="/api/content-safety", tags=["Content Safety"])
+    router = APIRouter(prefix="/api/content-safety", tags=["Content Safety"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("/status", response_model=APIResponse, summary="Content Safety Status")
     async def status(current_user: User = Depends(get_current_admin_user)) -> APIResponse:

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from src.features.plans.dto import AssignBody, PlanBody, SettingsBody
 from src.features.plans.manager import PlansManager
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 
 if TYPE_CHECKING:
@@ -22,7 +23,7 @@ class PlansController(BaseController):
 def build_router(container: "AppContainer") -> APIRouter:
     controller: PlansController = container.plans_controller
     manager = controller.manager
-    router = APIRouter(prefix="/api/me/limits", tags=["Plans"])
+    router = APIRouter(prefix="/api/me/limits", tags=["Plans"], dependencies=[key_access(read=ApiScope.READ, write=None)])
 
     @router.get("", response_model=APIResponse, summary="My plan limits and usage")
     async def my_limits(user=Depends(get_current_active_user)):
@@ -38,7 +39,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 def build_admin_router(container: "AppContainer") -> APIRouter:
     controller: PlansController = container.plans_controller
     manager = controller.manager
-    router = APIRouter(prefix="/api/admin/plans", tags=["Plans admin"])
+    router = APIRouter(prefix="/api/admin/plans", tags=["Plans admin"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("", response_model=APIResponse, summary="Plans, kinds and plan settings")
     async def list_plans(admin=Depends(get_current_admin_user)):

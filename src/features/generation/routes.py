@@ -16,7 +16,7 @@ from src.platform.observability.profiling import render_report_from_file
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.failure_text import basename_paths, failure_detail
-from src.platform.security.api_scopes import ApiScope, key_scope
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import (
     get_current_active_user,
     get_current_admin_user,
@@ -47,7 +47,7 @@ from src.features.presets.exceptions import PresetNotFoundException
 from src.features.backends.backend_registry import NoBackendForEngineError
 from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.content_safety.errors import ContentPolicyRefusal
-from src.features.generation.exceptions import IdempotencyKeyConflict
+from src.features.generation.exceptions import AdminAuthorityRequired, IdempotencyKeyConflict
 from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.generation.applied_prompt_repository import GenerationAppliedPromptRepository
@@ -166,6 +166,8 @@ class GenerationController(BaseController):
         try:
             # Delegate to generation orchestrator
             extra = {'grid_cell': grid_cell} if grid_cell is not None else {}
+            if GenerationPolicy.is_admin(current_user):
+                extra['acts_as_admin'] = True
             result = await self.generation_orchestrator.start_generation(
                 request,
                 current_user.id,
@@ -177,6 +179,16 @@ class GenerationController(BaseController):
 
             return self.success_response(data=result)
 
+        except AdminAuthorityRequired:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "success": False,
+                    "error": "insufficient_scope",
+                    "message": "This preset is restricted to administrators; the API key needs the 'admin' scope.",
+                },
+                headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin"'},
+            )
         except FormNotFoundException as e:
             return self.error_response(
                 error="form_not_found",
@@ -242,7 +254,8 @@ class GenerationController(BaseController):
     async def preview_memory(self, request: GenerationRequest, current_user) -> APIResponse:
         """Estimate the GPU memory a request would need, without starting it."""
         try:
-            result = await self.generation_orchestrator.preview_memory(request, current_user.id)
+            authority = {'acts_as_admin': True} if GenerationPolicy.is_admin(current_user) else {}
+            result = await self.generation_orchestrator.preview_memory(request, current_user.id, **authority)
             return self.success_response(data=result)
         except FormNotFoundException as e:
             return self.error_response(
@@ -1032,14 +1045,14 @@ def _get_generation_controller(container: "AppContainer") -> GenerationControlle
 def build_router(container: "AppContainer") -> APIRouter:
     controller = _get_generation_controller(container)
 
-    router = APIRouter(prefix="/api/generations", tags=["Generation"])
+    router = APIRouter(prefix="/api/generations", tags=["Generation"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.GENERATE)])
 
     @router.post("/start", response_model=APIResponse, summary="Start Generation")
     async def start_generation(request: GenerationRequest, current_user = Depends(get_current_active_user)):
         """Start a new image generation job with the specified parameters and preset."""
         return await controller.start_generation(request, current_user)
 
-    @router.post("/memory-preview", response_model=APIResponse, summary="Preview Generation Memory Advisory")
+    @router.post("/memory-preview", response_model=APIResponse, summary="Preview Generation Memory Advisory", dependencies=[key_scope(ApiScope.READ)])
     async def preview_generation_memory(request: GenerationRequest, current_user = Depends(get_current_active_user)):
         """Estimate the GPU memory a request would need, without starting it."""
         return await controller.preview_memory(request, current_user)
@@ -1145,39 +1158,39 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get parameters for a specific generation and image index."""
         return await controller.get_generation_params(generation_id, index, current_user)
 
-    @router.put("/{generation_id}/rating", response_model=APIResponse, summary="Set Generation Rating")
+    @router.put("/{generation_id}/rating", response_model=APIResponse, summary="Set Generation Rating", dependencies=[key_scope(ApiScope.CONTENT)])
     async def set_generation_rating(generation_id: str, request: RatingRequest,
                                     current_user = Depends(get_current_active_user)):
         """Set the star rating (0-5, 0 = unrated) for a generation."""
         return await controller.set_generation_rating(generation_id, request.rating, current_user)
 
-    @router.put("/{generation_id}/favorite", response_model=APIResponse, summary="Set Generation Favorite")
+    @router.put("/{generation_id}/favorite", response_model=APIResponse, summary="Set Generation Favorite", dependencies=[key_scope(ApiScope.CONTENT)])
     async def set_generation_favorite(generation_id: str, request: FavoriteRequest,
                                       current_user = Depends(get_current_active_user)):
         """Set the favorite flag for a generation."""
         return await controller.set_generation_favorite(generation_id, request.is_favorite, current_user)
 
-    @router.delete("/history/{generation_id}", response_model=APIResponse, summary="Delete Generation")
+    @router.delete("/history/{generation_id}", response_model=APIResponse, summary="Delete Generation", dependencies=[key_scope(ApiScope.CONTENT)])
     async def delete_generation_history(generation_id: str, current_user = Depends(get_current_active_user)):
         """Delete a generation from history including all associated files."""
         return await controller.delete_generation_history(generation_id, current_user)
 
-    @router.post("/history/bulk-delete", response_model=APIResponse, summary="Bulk Delete Generations")
+    @router.post("/history/bulk-delete", response_model=APIResponse, summary="Bulk Delete Generations", dependencies=[key_scope(ApiScope.CONTENT)])
     async def bulk_delete_generations(request: BulkDeleteRequest, current_user = Depends(get_current_active_user)):
         """Delete multiple generations from history including all associated files."""
         return await controller.bulk_delete_generations(request.generation_ids, current_user)
 
-    @router.post("/history/count-by-criteria", response_model=APIResponse, summary="Count Generations by Criteria")
+    @router.post("/history/count-by-criteria", response_model=APIResponse, summary="Count Generations by Criteria", dependencies=[key_scope(ApiScope.READ)])
     async def count_generations_by_criteria(request: BulkDeleteByCriteriaRequest, current_user = Depends(get_current_active_user)):
         """Count the current user's generations matching criteria, AND-ed (for confirmation preview)."""
         return await controller.count_generations_by_criteria(request, current_user)
 
-    @router.post("/history/bulk-delete-by-criteria", response_model=APIResponse, summary="Bulk Delete by Criteria")
+    @router.post("/history/bulk-delete-by-criteria", response_model=APIResponse, summary="Bulk Delete by Criteria", dependencies=[key_scope(ApiScope.CONTENT)])
     async def bulk_delete_by_criteria(request: BulkDeleteByCriteriaRequest, current_user = Depends(get_current_active_user)):
         """Delete every generation of the current user matching criteria, AND-ed."""
         return await controller.bulk_delete_by_criteria(request, current_user)
 
-    @router.post("/export", summary="Export Generations as Zip")
+    @router.post("/export", summary="Export Generations as Zip", dependencies=[key_scope(ApiScope.READ)])
     async def export_generations(request: ExportRequest, current_user = Depends(get_current_active_user)):
         """Export the final image/video files of multiple generations as a single zip.
 
@@ -1188,7 +1201,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             request.generation_ids, request.strip_metadata, current_user
         )
 
-    @router.post("/upload", response_model=APIResponse, summary="Upload Generations")
+    @router.post("/upload", response_model=APIResponse, summary="Upload Generations", dependencies=[key_scope(ApiScope.CONTENT)])
     async def upload_generations(
         files: List[UploadFile] = FastAPIFile(...),
         tag_ids: List[str] = Query(default=[]),
@@ -1197,7 +1210,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Upload image files as completed generations with optional tags."""
         return await controller.upload_generations(files, tag_ids, current_user)
 
-    @router.post("/import-bundle", response_model=APIResponse, summary="Import Generation Bundle")
+    @router.post("/import-bundle", response_model=APIResponse, summary="Import Generation Bundle", dependencies=[key_scope(ApiScope.CONTENT)])
     async def import_generation_bundle(
         file: UploadFile = FastAPIFile(...),
         current_user = Depends(get_current_active_user)
@@ -1214,7 +1227,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get all tags for a generation"""
         return await controller.get_generation_tags(generation_id, current_user)
 
-    @router.put("/{generation_id}/tags", response_model=APIResponse, summary="Update Generation Tags")
+    @router.put("/{generation_id}/tags", response_model=APIResponse, summary="Update Generation Tags", dependencies=[key_scope(ApiScope.CONTENT)])
     async def update_generation_tags(
         generation_id: str,
         request: UpdateTagsRequest,
@@ -1223,7 +1236,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Replace all tags for a generation"""
         return await controller.update_generation_tags(generation_id, request.tag_ids, current_user)
 
-    @router.delete("/{generation_id}/tags/{tag_id}", response_model=APIResponse, summary="Remove Tag from Generation")
+    @router.delete("/{generation_id}/tags/{tag_id}", response_model=APIResponse, summary="Remove Tag from Generation", dependencies=[key_scope(ApiScope.CONTENT)])
     async def remove_generation_tag(
         generation_id: str,
         tag_id: str,
@@ -1309,7 +1322,7 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     included. Separate from `/api/generations` (per-user, ownership-scoped)."""
     controller = _get_generation_controller(container)
 
-    admin_router = APIRouter(prefix="/api/admin/generations", tags=["Generation"])
+    admin_router = APIRouter(prefix="/api/admin/generations", tags=["Generation"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @admin_router.post("/bulk-delete", response_model=APIResponse, summary="Bulk Delete Generations (Admin)")
     async def admin_bulk_delete_generations(request: BulkDeleteRequest, current_user = Depends(get_current_admin_user)):

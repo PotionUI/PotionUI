@@ -13,7 +13,7 @@ import aiofiles
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
-from src.platform.security.api_scopes import ApiScope, key_scope
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import (
     get_current_active_user,
     get_current_admin_user,
@@ -345,7 +345,7 @@ class MediaController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.media_controller
-    router = APIRouter(prefix="/api/media", tags=["Media"])
+    router = APIRouter(prefix="/api/media", tags=["Media"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("/generations/{generation_id}/{filename}", summary="Serve Generation Media", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     @router.head("/generations/{generation_id}/{filename}", summary="Get Generation Media Headers", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
@@ -383,7 +383,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get best-effort metadata for an already-uploaded file"""
         return await controller.get_upload_info(filename, current_user)
 
-    @router.post("/upload", response_model=APIResponse, summary="Upload Media")
+    @router.post("/upload", response_model=APIResponse, summary="Upload Media", dependencies=[key_scope(ApiScope.GENERATE)])
     async def upload_media(
         file: UploadFile = File(...),
         purpose: Optional[str] = Form(None),
@@ -528,7 +528,7 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     under /api/admin alongside the other admin-only operations."""
     controller = ThumbnailAdminController(container.settings, container.thumbnail_regeneration)
 
-    admin_router = APIRouter(prefix="/api/admin", tags=["Media"])
+    admin_router = APIRouter(prefix="/api/admin", tags=["Media"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @admin_router.get("/thumbnails", response_model=APIResponse, summary="Get Thumbnail Settings")
     async def get_thumbnails(current_user=Depends(get_current_admin_user)):

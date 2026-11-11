@@ -13,6 +13,7 @@ from fastapi import APIRouter, Query, Depends, WebSocket, WebSocketDisconnect
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import soft_guarded
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.notifications.dto import CreateNotificationRequest, UpdateNotificationPreferencesRequest
 from src.features.notifications import NotificationCollaborators
@@ -127,7 +128,7 @@ class NotificationController(BaseController):
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.notification_controller
 
-    router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
+    router = APIRouter(prefix="/api/notifications", tags=["Notifications"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("/", response_model=APIResponse, summary="List Notifications")
     async def list_notifications(

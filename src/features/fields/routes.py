@@ -10,6 +10,7 @@ from typing import Any, Dict, List, TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.platform.plugins.field_types import FieldTypeRegistry
 
@@ -40,7 +41,7 @@ class FieldController(BaseController):
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.field_controller
 
-    router = APIRouter(prefix="/api/fields", tags=["Fields"])
+    router = APIRouter(prefix="/api/fields", tags=["Fields"], dependencies=[key_access(read=ApiScope.READ, write=None)])
 
     @router.get("/types", response_model=APIResponse, summary="Get Field Types")
     async def get_field_types(current_user=Depends(get_current_active_user)):

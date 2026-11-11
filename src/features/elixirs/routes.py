@@ -43,6 +43,7 @@ from src.features.elixirs.records import (
     RevisionConflict,
 )
 from src.features.elixirs.repository import ElixirRepository
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import User
 
@@ -215,7 +216,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
 
 def create_router(elixirs: ElixirsComponents) -> APIRouter:
-    router = APIRouter(prefix="/api/elixirs", tags=["Elixirs"])
+    router = APIRouter(prefix="/api/elixirs", tags=["Elixirs"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("/presets")
     def list_presets(
@@ -277,7 +278,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
         coordinator = elixirs.coordinator
         return run_detail(coordinator, user, _owned_run(coordinator, run_id, user))
 
-    @router.put("/runs/{run_id}/edges/{edge_id}/selection")
+    @router.put("/runs/{run_id}/edges/{edge_id}/selection", dependencies=[key_scope(ApiScope.GENERATE)])
     def save_selection(
         run_id: str,
         edge_id: str,
@@ -292,7 +293,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
             _refused(error)
         return run_detail(coordinator, user, _owned_run(coordinator, run_id, user))
 
-    @router.post("/runs/{run_id}/edges/{edge_id}/continue")
+    @router.post("/runs/{run_id}/edges/{edge_id}/continue", dependencies=[key_scope(ApiScope.GENERATE)])
     def continue_edge(
         run_id: str,
         edge_id: str,
@@ -307,7 +308,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
             _refused(error)
         return run_detail(coordinator, user, run)
 
-    @router.put("/runs/{run_id}/texts/{text_id}")
+    @router.put("/runs/{run_id}/texts/{text_id}", dependencies=[key_scope(ApiScope.GENERATE)])
     def edit_text(
         run_id: str,
         text_id: str,
@@ -322,7 +323,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
             _refused(error)
         return run_detail(coordinator, user, run)
 
-    @router.post("/runs/{run_id}/cancel")
+    @router.post("/runs/{run_id}/cancel", dependencies=[key_scope(ApiScope.GENERATE)])
     def cancel_brew(
         run_id: str,
         user: User = Depends(get_current_active_user),
@@ -335,7 +336,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
             _refused(error)
         return run_detail(coordinator, user, run)
 
-    @router.post("/runs/{run_id}/nodes/{node_id}/retry-failed")
+    @router.post("/runs/{run_id}/nodes/{node_id}/retry-failed", dependencies=[key_scope(ApiScope.GENERATE)])
     def retry_failed(
         run_id: str,
         node_id: str,
@@ -401,7 +402,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
             _fail(404, "elixir_not_found", "That elixir does not exist.")
         return {"deleted": True, "id": elixir_id}
 
-    @router.post("/{elixir_id}/validate")
+    @router.post("/{elixir_id}/validate", dependencies=[key_scope(ApiScope.READ)])
     def validate_elixir(
         elixir_id: str,
         user: User = Depends(get_current_active_user),
@@ -512,7 +513,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
             lambda: own_settings(stored.definition, node_id),
         )
 
-    @router.post("/{elixir_id}/runs", status_code=201)
+    @router.post("/{elixir_id}/runs", status_code=201, dependencies=[key_scope(ApiScope.GENERATE)])
     def start_brew(
         elixir_id: str,
         body: StartBrewRequest,
@@ -595,7 +596,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
         )
         return {**page, "limit": limit, "offset": offset}
 
-    @router.post("/{elixir_id}/runs/cancel")
+    @router.post("/{elixir_id}/runs/cancel", dependencies=[key_scope(ApiScope.GENERATE)])
     def cancel_brews(
         elixir_id: str,
         body: CancelBrewsRequest,
@@ -617,7 +618,7 @@ def create_router(elixirs: ElixirsComponents) -> APIRouter:
                 cancelled.append(run_id)
         return {"cancelled": cancelled}
 
-    @router.post("/{elixir_id}/nodes/{node_id}/runs", status_code=201)
+    @router.post("/{elixir_id}/nodes/{node_id}/runs", status_code=201, dependencies=[key_scope(ApiScope.GENERATE)])
     def run_node(
         elixir_id: str,
         node_id: str,

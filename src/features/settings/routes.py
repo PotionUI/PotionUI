@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access, SESSION_ONLY
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.settings.settings import Settings
 from src.platform.settings.runtime_flags import apply_saved_settings, validate_runtime_flag
@@ -441,7 +442,7 @@ def _build_settings_controller(container: "AppContainer") -> SettingsController:
 def build_router(container: "AppContainer") -> APIRouter:
     controller = _build_settings_controller(container)
 
-    router = APIRouter(prefix="/api/settings", tags=["Settings"])
+    router = APIRouter(prefix="/api/settings", tags=["Settings"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.ADMIN)])
 
     @router.get("", response_model=APIResponse, summary="Get Application Settings")
     async def get_settings(current_user = Depends(get_current_active_user)):
@@ -477,7 +478,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Update a specific setting by key. Creates user override if user is authenticated."""
         return await controller.update_setting_by_key(key, update_data, current_user)
 
-    @router.delete("/user/{key}", response_model=APIResponse, summary="Delete User Setting Override")
+    @router.delete("/user/{key}", response_model=APIResponse, summary="Delete User Setting Override", dependencies=[SESSION_ONLY])
     async def delete_user_setting(key: str, current_user = Depends(get_current_active_user)):
         """Delete a user setting override, reverting to system default."""
         return await controller.delete_user_setting(key, current_user)
@@ -490,7 +491,7 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     restarting isn't a setting, it's an operation."""
     controller = _build_settings_controller(container)
 
-    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"])
+    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @admin_router.post("/restart", response_model=APIResponse, summary="Restart Application")
     async def restart_app(current_user = Depends(get_current_active_user)):

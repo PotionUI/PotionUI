@@ -20,6 +20,10 @@ class IdempotencyKeyConflict(GenerationException):
     pass
 
 
+class AdminAuthorityRequired(GenerationException):
+    pass
+
+
 class PresetProcessingError(GenerationException):
     pass
 

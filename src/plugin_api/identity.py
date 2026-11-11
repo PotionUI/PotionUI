@@ -41,6 +41,7 @@ from src.platform.plugins.login_providers import (
     source_from_start_path,
 )
 from src.platform.plugins.runtime_registries import get_container
+from src.platform.security.api_scopes import SESSION_ONLY, ApiScope, key_access, key_scope
 from src.platform.security.current_user import (
     authenticate_websocket_token,
     get_current_active_user,
@@ -50,15 +51,19 @@ from src.platform.security.user import AccountType, User
 
 __all__ = [
     "AccountType",
+    "ApiScope",
     "DuplicateLoginProviderError",
     "ExternalLoginError",
     "ExternalSession",
     "InvalidLoginProviderError",
+    "SESSION_ONLY",
     "User",
     "authenticate_websocket_token",
     "get_current_active_user",
     "get_current_admin_user",
     "get_user",
+    "key_access",
+    "key_scope",
     "list_user_ids",
     "register_login_provider",
     "sign_in_external",

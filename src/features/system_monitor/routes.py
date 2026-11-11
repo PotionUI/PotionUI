@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, WebSocket, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user, authenticate_websocket_token
 from src.features.system_monitor import SystemMonitorCoordinator
 from src.features.system_monitor.backend_snapshots import collect_backend_snapshots
@@ -65,7 +66,7 @@ class SystemMonitorController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.system_monitor_controller
-    router = APIRouter(prefix="/api/system", tags=["System & Health"])
+    router = APIRouter(prefix="/api/system", tags=["System & Health"], dependencies=[key_access(read=ApiScope.READ, write=None)])
 
     async def monitor_user(current_user=Depends(get_current_active_user)):
         return require_monitor_access(container.plugin_repository, current_user)

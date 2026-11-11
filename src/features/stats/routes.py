@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Optional
 from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.stats import operations
@@ -157,7 +158,7 @@ _TO = Query(None, alias="to", description="Inclusive end date, YYYY-MM-DD")
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.stats_controller
-    router = APIRouter(prefix="/api/stats", tags=["Stats"])
+    router = APIRouter(prefix="/api/stats", tags=["Stats"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("/overview", response_model=APIResponse, summary="Aggregate usage totals")
     async def get_overview(date_from: Optional[str] = _FROM, date_to: Optional[str] = _TO,

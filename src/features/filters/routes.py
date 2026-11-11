@@ -10,6 +10,7 @@ from src.features.filters.dto import CreateFilterRequest, UpdateFilterRequest
 from src.features.filters.payload import PAYLOAD_SCHEMA, USER_ID_PREFIX, file_item, user_item
 from src.features.filters.schema import FILTER_JSON_SCHEMA, SOURCE_MINE
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 
 if TYPE_CHECKING:
@@ -96,7 +97,7 @@ class FilterController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.filter_controller
-    router = APIRouter(prefix="/api/filters", tags=["Filters"])
+    router = APIRouter(prefix="/api/filters", tags=["Filters"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("/mine", response_model=APIResponse, summary="List my filters")
     async def list_mine(current_user=Depends(get_current_active_user)):

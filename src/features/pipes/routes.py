@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 
@@ -39,7 +40,7 @@ logger = logging.getLogger(__name__)
 def build_router(container: "AppContainer") -> APIRouter:
     manager = container.pipe_install_runner
 
-    router = APIRouter(prefix="/api/pipes", tags=["Pipes"])
+    router = APIRouter(prefix="/api/pipes", tags=["Pipes"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("/{pipe_name:path}", summary="Get Pipe Install State")
     async def get_pipe(pipe_name: str, current_user: User = Depends(get_current_admin_user)):

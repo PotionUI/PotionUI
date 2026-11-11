@@ -12,6 +12,7 @@ from src.features.model_layouts.schema import GENERIC_LAYOUT_ID
 from src.features.models.root_browse import BrowseError, browse_subfolders
 from src.features.models.roots import BindingRef, BindingSpec, ModelRootsError, ModelRootsManager
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 
@@ -215,7 +216,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = ModelRootsController(
         container.model_roots_manager, container.model_index_manager.indexing, container.model_layout_catalog
     )
-    router = APIRouter(prefix="/api/models/roots", tags=["Model Roots"])
+    router = APIRouter(prefix="/api/models/roots", tags=["Model Roots"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("", response_model=APIResponse, summary="List Model Roots")
     async def list_roots(current_user: User = Depends(get_current_admin_user)):

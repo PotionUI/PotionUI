@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict
 from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 from src.features.backends.backend_registry import BackendRegistry
@@ -188,7 +189,7 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     router = APIRouter(
         prefix="/api/admin/provisioning",
         tags=["Compute Provisioning"],
-        dependencies=[Depends(get_current_admin_user)],
+        dependencies=[Depends(get_current_admin_user), key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)],
     )
 
     @router.get("/providers", response_model=APIResponse, summary="List Compute Providers")

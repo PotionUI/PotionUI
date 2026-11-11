@@ -18,6 +18,7 @@ from src.features.auth.dto import (
     UserResponse,
 )
 from src.platform.plugins.login_providers import login_provider_registry
+from src.platform.security.api_scopes import ApiScope, key_access, SESSION_ONLY
 from src.platform.security.current_user import get_current_user, oauth2_scheme
 from src.platform.security.media_session import clear_media_cookie, set_media_cookie
 from src.platform.security import Auth
@@ -214,7 +215,7 @@ class AuthController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = AuthController(container.auth, container.login_handoff, container.content_policy_resolver)
-    router = APIRouter(prefix="/api/auth", tags=["authentication"])
+    router = APIRouter(prefix="/api/auth", tags=["authentication"], dependencies=[key_access(read=ApiScope.READ, write=None)])
 
     @router.post("/register", response_model=APIResponse, summary="Register a new user account")
     async def register(user_data: UserCreate, request: Request, response: Response) -> APIResponse:
@@ -274,7 +275,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             set_media_cookie(response, request, token)
         return result
 
-    @router.post("/change-password", response_model=APIResponse, summary="Change your own password")
+    @router.post("/change-password", response_model=APIResponse, summary="Change your own password", dependencies=[SESSION_ONLY])
     async def change_password(
         request: ChangePasswordRequest,
         current_user: User = Depends(get_current_user)

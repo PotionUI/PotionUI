@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from src.features.model_layouts.dto import ModelLayoutListResponse, ModelLayoutSummary
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 
@@ -11,7 +12,7 @@ if TYPE_CHECKING:
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    router = APIRouter(prefix="/api/models/layouts", tags=["Model Layouts"])
+    router = APIRouter(prefix="/api/models/layouts", tags=["Model Layouts"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("", response_model=ModelLayoutListResponse, summary="Available model layout profiles")
     async def list_layouts(current_user: User = Depends(get_current_admin_user)) -> ModelLayoutListResponse:

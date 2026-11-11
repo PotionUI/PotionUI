@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.failure_text import failure_detail
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.backends.dto import (
     AttentionBackendRequest,
@@ -843,7 +844,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         container.model_lifecycle,
         model_indexing_coordinator=container.model_index_manager.indexing,
     )
-    router = APIRouter(prefix="/api/backends", tags=["Backends"])
+    router = APIRouter(prefix="/api/backends", tags=["Backends"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.ADMIN)])
 
     @router.get("", response_model=APIResponse, summary="Get All Backends")
     async def list_backends(current_user=Depends(get_current_active_user)):
@@ -932,7 +933,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Drop every cached model/artifact from the native engine's RAM cache (admin only)."""
         return await controller.clear_backend_cache(backend_id, current_user)
 
-    @router.get("/{backend_id}/optimizations", response_model=APIResponse, summary="Get Native Backend Optimizations")
+    @router.get("/{backend_id}/optimizations", response_model=APIResponse, summary="Get Native Backend Optimizations", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_backend_optimizations(backend_id: str, current_user=Depends(get_current_active_user)):
         """System probe + acceleration-library catalog status for a native backend (admin only)."""
         return await controller.get_backend_optimizations(backend_id, current_user)
@@ -951,8 +952,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get(
         "/{backend_id}/optimizations/jobs/current",
         response_model=APIResponse,
-        summary="Get Current Optimization Install Job",
-    )
+        summary="Get Current Optimization Install Job", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_current_optimization_job(
         backend_id: str, offset: int = Query(0, ge=0), current_user=Depends(get_current_active_user)
     ):
@@ -989,7 +989,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         return await controller.set_engine_flags(backend_id, body.flags, user=current_user)
 
-    @router.get("/{backend_id}/engine-flags", response_model=APIResponse, summary="Get Native Engine Settings")
+    @router.get("/{backend_id}/engine-flags", response_model=APIResponse, summary="Get Native Engine Settings", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_engine_flags(backend_id: str, current_user=Depends(get_current_active_user)):
         return await controller.get_engine_flags(backend_id, current_user)
 

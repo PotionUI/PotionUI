@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.errors import AccessDeniedError, NotFoundError
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.workspaces.dto import SaveWorkspaceRequest, UpdateWorkspaceRequest
 from src.features.workspaces import operations
@@ -77,7 +78,7 @@ class WorkspaceController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.workspace_controller
-    router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
+    router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("", response_model=APIResponse, summary="Get Workspaces")
     async def get_workspaces(current_user=Depends(get_current_active_user)):

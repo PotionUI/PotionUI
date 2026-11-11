@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from src.platform.http.errors import NotFoundError
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import User
 from src.features.plugins.dto import (
@@ -448,7 +449,7 @@ class PluginController(BaseController):
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.plugin_controller
 
-    router = APIRouter(prefix="/api/plugins", tags=["Plugins"])
+    router = APIRouter(prefix="/api/plugins", tags=["Plugins"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.ADMIN)])
 
     @router.get("", response_model=APIResponse, summary="List All Plugins")
     async def list_plugins(current_user = Depends(get_current_admin_user)):

@@ -11,6 +11,7 @@ from src.features.tab_drafts.errors import (
 )
 from src.features.tab_drafts.manager import TabDraftManager
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 
 if TYPE_CHECKING:
@@ -67,7 +68,7 @@ class TabDraftController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.tab_draft_controller
-    router = APIRouter(prefix="/api/tab-drafts", tags=["Tab drafts"])
+    router = APIRouter(prefix="/api/tab-drafts", tags=["Tab drafts"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("", response_model=APIResponse, summary="List Tab Drafts")
     async def list_drafts(current_user=Depends(get_current_active_user)):

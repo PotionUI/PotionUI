@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded, soft_guarded
 from src.platform.security.failure_text import failure_detail
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
 from src.features.docs import operations
 from src.features.docs.operations import DocNotFoundError, DocForbiddenError, DocIsLiveError
@@ -89,7 +90,7 @@ def _is_admin(user: User) -> bool:
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.docs_controller
-    router = APIRouter(prefix="/api/docs", tags=["Documentation"])
+    router = APIRouter(prefix="/api/docs", tags=["Documentation"], dependencies=[key_access(read=ApiScope.READ, write=None)])
 
     # ========== Route Handlers ==========
 
@@ -111,7 +112,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get the raw markdown content for a doc id."""
         return await controller.get_content(id, _is_admin(current_user))
 
-    @router.get("/live/pipes", response_model=APIResponse, summary="Get Live Pipes Reference")
+    @router.get("/live/pipes", response_model=APIResponse, summary="Get Live Pipes Reference", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_live_pipes(current_user: User = Depends(get_current_active_user)) -> APIResponse:
         """Get the live pipe registry reference.
 
@@ -122,7 +123,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
         return await controller.get_live_pipes()
 
-    @router.get("/live/output-types", response_model=APIResponse, summary="Get Live Output Types Reference")
+    @router.get("/live/output-types", response_model=APIResponse, summary="Get Live Output Types Reference", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_live_output_types(current_user: User = Depends(get_current_active_user)) -> APIResponse:
         """Get the live output-type registry reference.
 
@@ -133,7 +134,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
         return await controller.get_live_output_types()
 
-    @router.get("/live/mcp-tools", response_model=APIResponse, summary="Get Live MCP Tools Reference")
+    @router.get("/live/mcp-tools", response_model=APIResponse, summary="Get Live MCP Tools Reference", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_live_mcp_tools(current_user: User = Depends(get_current_active_user)) -> APIResponse:
         """Get the live MCP tool-surface reference.
 

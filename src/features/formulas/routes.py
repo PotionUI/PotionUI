@@ -6,6 +6,7 @@ from src.features.formulas import operations
 from src.features.formulas.collaborators import FormulaCollaborators
 from src.features.formulas.dto import CreateFormulaRequest, PlanFormulaRequest, UpdateFormulaRequest
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ class FormulaController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.formula_controller
-    router = APIRouter(prefix="/api/formulas", tags=["Formulas"])
+    router = APIRouter(prefix="/api/formulas", tags=["Formulas"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("", response_model=APIResponse, summary="List Formulas")
     async def list_formulas(
@@ -75,7 +76,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def duplicate_formula(formula_id: str, current_user=Depends(get_current_active_user)):
         return await controller.duplicate_formula(current_user.id, formula_id)
 
-    @router.post("/{formula_id}/plan", response_model=APIResponse, summary="Plan Applying a Formula")
+    @router.post("/{formula_id}/plan", response_model=APIResponse, summary="Plan Applying a Formula", dependencies=[key_scope(ApiScope.READ)])
     async def plan_formula(
         formula_id: str, request: PlanFormulaRequest, current_user=Depends(get_current_active_user)
     ):

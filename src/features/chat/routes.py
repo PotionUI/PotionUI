@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded, raw_detail
+from src.platform.security.api_scopes import SESSION_ONLY
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.chat.dto import (
     AdminBulkDeleteSessionsRequest,
@@ -729,7 +730,7 @@ class ChatController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.chat_controller
-    router = APIRouter(prefix="/api/chat", tags=["Chat"])
+    router = APIRouter(prefix="/api/chat", tags=["Chat"], dependencies=[SESSION_ONLY])
 
     @router.post("/sessions", response_model=APIResponse, summary="Create a chat session")
     async def create_session(

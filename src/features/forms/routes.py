@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.forms.dto import FormFieldOptionsRequest, FormValidationRequest
 from src.features.forms import operations
@@ -106,7 +107,7 @@ class FormController(BaseController):
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.form_controller
 
-    router = APIRouter(prefix="/api/form", tags=["Forms"])
+    router = APIRouter(prefix="/api/form", tags=["Forms"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.READ)])
 
     @router.post("/options", response_model=APIResponse, summary="Get Field Options")
     async def get_field_options(request: FormFieldOptionsRequest, current_user=Depends(get_current_active_user)):

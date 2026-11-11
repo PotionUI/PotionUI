@@ -62,3 +62,33 @@ def test_get_user_returns_the_stored_user():
 
     with patch("src.plugin_api.identity.get_container", return_value=container):
         assert get_user("user-1") is user
+
+
+def test_the_key_declarations_are_exported_and_are_the_platform_ones():
+    from src.plugin_api import identity
+    from src.platform.security import api_scopes
+
+    for name in ("ApiScope", "SESSION_ONLY", "key_access", "key_scope"):
+        assert name in identity.__all__
+        assert getattr(identity, name) is getattr(api_scopes, name)
+
+
+def test_a_plugin_route_that_declares_nothing_refuses_keys_and_a_declared_one_does_not():
+    from fastapi import APIRouter, Depends
+
+    from src.plugin_api.identity import ApiScope, get_current_active_user, key_access
+    from src.platform.security.api_scopes import required_scopes
+
+    router = APIRouter(prefix="/plugin")
+
+    @router.get("/open", dependencies=[key_access(read=ApiScope.READ, write=None)])
+    async def declared(user=Depends(get_current_active_user)):
+        return {}
+
+    @router.get("/closed")
+    async def undeclared(user=Depends(get_current_active_user)):
+        return {}
+
+    routes = {route.path: route for route in router.routes}
+    assert required_scopes(routes["/plugin/open"], "GET") == {ApiScope.READ}
+    assert required_scopes(routes["/plugin/closed"], "GET") is None

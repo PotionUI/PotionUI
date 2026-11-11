@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded, raw_detail
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.llm.dto import (
     LLMConfigRequest,
@@ -443,7 +444,7 @@ class LLMController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.llm_controller
-    router = APIRouter(prefix="/api/llm", tags=["LLM"])
+    router = APIRouter(prefix="/api/llm", tags=["LLM"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.ADMIN)])
 
     # LLM Configuration routes
     @router.get("/configurations", response_model=APIResponse, summary="Get LLM Configurations")
@@ -515,7 +516,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.test_configuration(config_id)
 
     # Generation route
-    @router.post("/generate", response_model=APIResponse, summary="Generate LLM Response")
+    @router.post("/generate", response_model=APIResponse, summary="Generate LLM Response", dependencies=[key_scope(ApiScope.GENERATE)])
     async def generate_llm_response(request: LLMGenerateRequest, current_user: User = Depends(get_current_active_user)):
         """Generate a text response using the configured LLM provider."""
         return await controller.generate_response(request, current_user)

@@ -127,6 +127,7 @@ class ToolContext:
     user_id: str
     mode_id: Optional[str] = None
     is_admin: bool = False
+    acts_as_admin: bool = False
     session_metadata: Dict[str, Any] = field(default_factory=dict)
     # Service references - injected at construction time
     segment_category_repository: Any = None

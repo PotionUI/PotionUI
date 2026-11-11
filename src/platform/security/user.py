@@ -72,3 +72,9 @@ class User:
         if not exclude_password:
             data['password_hash'] = self.password_hash
         return data
+
+def owner_is_admin(user) -> bool:
+    owner = getattr(user, "owner_account_type", None)
+    if not isinstance(owner, AccountType):
+        owner = getattr(user, "account_type", None)
+    return owner == AccountType.ADMIN

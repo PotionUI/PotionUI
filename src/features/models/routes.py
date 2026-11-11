@@ -18,6 +18,7 @@ from fastapi import APIRouter, BackgroundTasks, Query, Depends
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.failure_text import failure_detail
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.models.dto import (
     ModelInfoFetchRequest,
@@ -804,7 +805,7 @@ class ModelController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.model_controller
-    router = APIRouter(prefix="/api/models", tags=["Models"])
+    router = APIRouter(prefix="/api/models", tags=["Models"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     # ============ Router Endpoints ============
 
@@ -1047,7 +1048,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         )
 
 
-    @router.get("/{model_id}/availability", response_model=APIResponse, summary="Get Model Availability")
+    @router.get("/{model_id}/availability", response_model=APIResponse, summary="Get Model Availability", dependencies=[key_scope(ApiScope.ADMIN)])
     async def get_model_availability(
         model_id: str,
         current_user: User = Depends(get_current_active_user)

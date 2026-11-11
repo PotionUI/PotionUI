@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.automation.dto import (
     CreateAutomationRequest,
@@ -362,7 +363,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     router = APIRouter(
         prefix="/api/automations",
         tags=["Automations"],
-        dependencies=[Depends(get_current_admin_user)],
+        dependencies=[Depends(get_current_admin_user), key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)],
     )
 
     # Route ordering gotcha: static catalog/import routes must be declared

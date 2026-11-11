@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from src.features.logs.tail import DEFAULT_LINES, MAX_LINES, LogLevel, tail_log
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.observability.logger import LOG_FILE_NAME, log_directory
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ class LogsAdminController(BaseController):
 def build_admin_router(container: "AppContainer") -> APIRouter:
     controller = LogsAdminController()
 
-    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"])
+    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @admin_router.get("/logs/tail", response_model=APIResponse, summary="Get Log Tail")
     async def get_log_tail(

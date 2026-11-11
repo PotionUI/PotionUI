@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user
 from src.features.model_library.dto import (
     CreateModelCollectionRequest,
@@ -190,7 +191,7 @@ class ModelCollectionController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.model_collection_controller
-    router = APIRouter(prefix="/api/models/collections", tags=["Model Collections"])
+    router = APIRouter(prefix="/api/models/collections", tags=["Model Collections"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
     @router.get("", response_model=APIResponse, summary="List Model Collections")
     async def list_collections(

@@ -47,6 +47,7 @@ class ToolCallDispatcher:
             user_id,
             mode_id=mode_id or session.mode,
             is_admin=is_admin,
+            acts_as_admin=is_admin,
             session_metadata=context_metadata or {},
             llm_repository=self._m.llm_service.repository,
             plugin_registry=self._m.plugins,

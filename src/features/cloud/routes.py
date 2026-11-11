@@ -11,6 +11,7 @@ from src.features.cloud.errors import CloudCatalogError
 from src.features.cloud.scopes import CloudModelScopes
 from src.platform.http.base_controller import APIError, APIResponse, BaseController
 from src.features.models.exceptions import ModelAccessDeniedException, ModelNotFoundException
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 
 if TYPE_CHECKING:
@@ -124,7 +125,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = CloudCatalogController(container.cloud_catalog)
     capabilities_controller = CloudCapabilitiesController(container.cloud_capabilities)
     scope_controller = CloudModelScopeController(container.cloud_model_scopes)
-    router = APIRouter(prefix="/api/cloud", tags=["Cloud"])
+    router = APIRouter(prefix="/api/cloud", tags=["Cloud"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.ADMIN)])
 
     @router.get(
         "/models/{model_id}/capabilities", response_model=APIResponse, summary="Get a cloud model's capabilities"

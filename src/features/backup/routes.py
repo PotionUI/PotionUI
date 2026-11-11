@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from src.features.backup.admin import BackupRunning, BackupRuns
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 
 if TYPE_CHECKING:
@@ -53,7 +54,7 @@ class BackupAdminController(BaseController):
 def build_admin_router(container: "AppContainer") -> APIRouter:
     controller = BackupAdminController(container.backup_runs)
 
-    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"])
+    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @admin_router.get("/backups", response_model=APIResponse, summary="Get Backup Overview")
     async def get_backups(current_user=Depends(get_current_admin_user)):

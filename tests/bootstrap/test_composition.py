@@ -289,6 +289,8 @@ api_routes = [r for r in elixir_app.routes if hasattr(r, "dependant")]
 media_viewer_routes = [
     r for r in api_routes if any(d.call is _media_viewer for d in _walk(r.dependant))
 ]
+from scripts.api_key_scopes import render as render_key_scopes
+report["api_key_scopes"] = render_key_scopes(elixir_app)
 report["api_keys_wiring"] = {
     "routes": sorted(
         f"{method} {route.path}"
@@ -571,3 +573,19 @@ def test_every_media_viewer_route_accepts_a_read_or_mcp_key(report):
     wiring = report["api_keys_wiring"]
     assert wiring["media_viewer_route_count"] >= 8
     assert wiring["media_viewer_routes_not_open_to_read_or_mcp"] == []
+
+
+GOLDEN_KEY_SCOPES = ROOT / "tests" / "golden" / "api_key_scopes.tsv"
+
+
+def test_the_key_scope_table_matches_the_golden_file(report):
+    import difflib
+
+    current = "\n".join(report["api_key_scopes"]) + "\n"
+    golden = GOLDEN_KEY_SCOPES.read_text()
+    if current != golden:
+        diff = "\n".join(list(difflib.unified_diff(golden.splitlines(), current.splitlines(), "golden", "current", lineterm=""))[:60])
+        pytest.fail(
+            "What API keys may reach changed. Review the diff, then regenerate with "
+            "`python scripts/api_key_scopes.py` and commit tests/golden/api_key_scopes.tsv.\n" + diff
+        )

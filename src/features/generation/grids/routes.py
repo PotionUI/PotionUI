@@ -8,6 +8,7 @@ from src.features.generation.grids.service import GridError, GridService
 from src.features.generation.policy import GenerationPolicy
 from src.features.generation.repository import generation_repo
 from src.platform.http.base_controller import APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ def _service(container: "AppContainer") -> GridService:
 
 def build_router(container: "AppContainer") -> APIRouter:
     service = _service(container)
-    router = APIRouter(prefix="/api/generations/grids", tags=["Generation"])
+    router = APIRouter(prefix="/api/generations/grids", tags=["Generation"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.GENERATE)])
 
     async def guarded(call):
         try:
@@ -74,7 +75,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def retry_failed(grid_id: str, current_user=Depends(get_current_active_user)):
         return await guarded(lambda: service.retry_failed(grid_id, current_user))
 
-    @router.delete("/{grid_id}", response_model=APIResponse, summary="Delete Compare Grid")
+    @router.delete("/{grid_id}", response_model=APIResponse, summary="Delete Compare Grid", dependencies=[key_scope(ApiScope.CONTENT)])
     async def delete_grid(grid_id: str, current_user=Depends(get_current_active_user)):
         async def run():
             await service.delete(grid_id, current_user)

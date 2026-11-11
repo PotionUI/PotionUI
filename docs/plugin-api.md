@@ -52,7 +52,7 @@ import from those — the names are identical, so it is purely a matter of taste
 
 | Group | Module | Exports |
 |---|---|---|
-| **Identity** — who is calling, and signing them in | `.identity` | `User`, `AccountType`, `get_current_active_user`, `get_user` (a user by id, or `None`, for background work that acts as a known user), `register_login_provider`, `unregister_login_provider`, `sign_in_external`, `ExternalSession`, `ExternalLoginError` |
+| **Identity** — who is calling, and signing them in | `.identity` | `User`, `AccountType`, `get_current_active_user`, `ApiScope`, `key_access`, `key_scope`, `SESSION_ONLY` (see [API keys on plugin routes](#api-keys-on-plugin-routes)), `get_user` (a user by id, or `None`, for background work that acts as a known user), `register_login_provider`, `unregister_login_provider`, `sign_in_external`, `ExternalSession`, `ExternalLoginError` |
 | **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_app_loop`, `run_on_app_loop`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context`, `is_certificate_error`, `certificate_failure_message`, `HttpMarketplaceProvider`, `register_provider`, `retry_after_from_headers` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
@@ -338,6 +338,31 @@ settings:
 
 `href` and `link_label` are optional. `/admin?tab=settings&view=<group>` opens Admin →
 Settings on that group.
+
+## API keys on plugin routes
+
+A script can call the app with an API key instead of a browser session. A key carries scopes (`read`, `generate`, `content`, `admin`, `mcp`), and a route accepts a key only if it says which scope it needs. **A plugin route that declares nothing refuses every key** with `403 key_not_allowed`; browser sessions are unaffected. Declare what your routes need from `src.plugin_api.identity`:
+
+```python
+from src.plugin_api.identity import ApiScope, SESSION_ONLY, key_access, key_scope
+
+router = APIRouter(
+    prefix="/api/plugins/my-plugin",
+    dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)],
+)
+
+@router.post("/render", dependencies=[key_scope(ApiScope.GENERATE)])
+async def render(...): ...
+
+@router.post("/connect", dependencies=[SESSION_ONLY])
+async def connect(...): ...
+```
+
+- `key_access(read=..., write=...)` on the router sets the scope for GET and HEAD, and for every other method. `None` means keys cannot use that half.
+- `key_scope(...)` on one route overrides the router for every method. Give several scopes to accept any of them.
+- `SESSION_ONLY` refuses keys on that route whatever else is declared. Use it for anything that manages credentials or keys.
+- A route that depends on `get_current_admin_user` needs a key with `admin` automatically.
+- A key without `admin` sees its owner as a regular user, so an inline `account_type` check refuses it. Keep admin-only logic on `get_current_admin_user` or on that check.
 
 ## Login providers
 

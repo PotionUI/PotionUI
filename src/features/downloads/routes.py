@@ -15,6 +15,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from src.platform.database.rows import now_iso
+from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import authenticate_websocket_token, get_current_admin_user
 from src.platform.security.user import AccountType, User
 
@@ -44,7 +45,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     download_queue = container.download_queue
     download_repository = container.download_repository
 
-    router = APIRouter(prefix="/api/downloads", tags=["Downloads"])
+    router = APIRouter(prefix="/api/downloads", tags=["Downloads"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @router.get("", summary="List Downloads")
     async def list_downloads(

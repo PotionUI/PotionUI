@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.security.api_scopes import ApiScope, key_scope
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope, SESSION_ONLY
 from src.platform.security.current_user import get_current_user, require_media_viewer
 from src.features.users.dto import UserCreate, UserUpdate, UserResponse
 from src.features.users import operations
@@ -373,7 +373,7 @@ class UserController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.user_controller
-    router = APIRouter(prefix="/api/users", tags=["users"])
+    router = APIRouter(prefix="/api/users", tags=["users"], dependencies=[key_access(read=ApiScope.READ, write=None)])
 
     @router.get("", response_model=APIResponse, summary="Get All Users")
     async def get_all_users(current_user: User = Depends(get_current_user)) -> APIResponse:
@@ -385,21 +385,21 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get user by ID."""
         return await controller.get_user(user_id, current_user)
 
-    @router.post("", response_model=APIResponse, summary="Create User")
+    @router.post("", response_model=APIResponse, summary="Create User", dependencies=[key_scope(ApiScope.ADMIN)])
     async def create_user(
         user_data: UserCreate, current_user: User = Depends(get_current_user)
     ) -> APIResponse:
         """Create new user (admin only)."""
         return await controller.create_user(user_data, current_user)
 
-    @router.put("/{user_id}", response_model=APIResponse, summary="Update User")
+    @router.put("/{user_id}", response_model=APIResponse, summary="Update User", dependencies=[SESSION_ONLY])
     async def update_user(
         user_id: str, user_data: UserUpdate, current_user: User = Depends(get_current_user)
     ) -> APIResponse:
         """Update user."""
         return await controller.update_user(user_id, user_data, current_user)
 
-    @router.delete("/{user_id}", response_model=APIResponse, summary="Delete User")
+    @router.delete("/{user_id}", response_model=APIResponse, summary="Delete User", dependencies=[key_scope(ApiScope.ADMIN)])
     async def delete_user(user_id: str, current_user: User = Depends(get_current_user)) -> APIResponse:
         """Delete user (admin only, cannot delete self)."""
         return await controller.delete_user(user_id, current_user)

@@ -33,9 +33,9 @@ describe('decideRootDestination', () => {
 		expect(decideRootDestination(status({ needs_owner: false }), false)).toBe('/login');
 	});
 
-	it('fails soft into auth-only routing when the status fetch errored', () => {
-		expect(decideRootDestination(null, true)).toBe('/generate');
-		expect(decideRootDestination(null, false)).toBe('/login');
+	it('has no destination while the status is unknown, signed in or not', () => {
+		expect(decideRootDestination(null, true)).toBeNull();
+		expect(decideRootDestination(null, false)).toBeNull();
 	});
 });
 
@@ -49,9 +49,9 @@ describe('canDecideRootDestination', () => {
 		expect(canDecideRootDestination(status({ needs_owner: false }), false)).toBe(true);
 	});
 
-	it('waits for auth to resolve when the status fetch errored', () => {
+	it('never decides while the status is unknown, whatever auth says', () => {
 		expect(canDecideRootDestination(null, true)).toBe(false);
-		expect(canDecideRootDestination(null, false)).toBe(true);
+		expect(canDecideRootDestination(null, false)).toBe(false);
 	});
 });
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 import torch
 from PIL import Image
@@ -10,6 +11,7 @@ from PIL import Image
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
+from src.pipelines.pipes.generator.video_minimax_h3.conditioning import fit_keyframe_to_canvas
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     FPS,
     FRAMES_PER_CHUNK,
@@ -238,7 +240,7 @@ def _loop_bundle(calls):
     )
 
 
-def _run_loop(seconds=4.0, *, audio_source="none", picture=True, sampler="euler", steps=3):
+def _run_loop(seconds=4.0, *, audio_source="none", picture=True, sampler="euler", steps=3, picture_image=None):
     plan = plan_loop(round(seconds * FPS), with_sound=audio_source == "generate")
     calls: list = []
     bundle = _loop_bundle(calls)
@@ -246,7 +248,7 @@ def _run_loop(seconds=4.0, *, audio_source="none", picture=True, sampler="euler"
         bundle=bundle, conditioning=[_fake_conditioning(3)], steps=steps, height=32, width=32,
         frames=plan.anchor_frames, num_latent_frames=plan.anchor_latents, latent_height=2, latent_width=2,
         num_audio_latents=plan.anchor_audio_latents, device="cpu", dtype=torch.bfloat16, spec=bundle.spec,
-        keyframe_images=[Image.new("RGB", (32, 32), (10, 20, 30))] if picture else [],
+        keyframe_images=[picture_image or Image.new("RGB", (32, 32), (10, 20, 30))] if picture else [],
         keyframe_anchors=("first",) if picture else (), audio_source=audio_source, decode=True,
         sampler=sampler, loop=plan,
     ))
@@ -405,6 +407,30 @@ def test_the_anchor_pass_holds_the_start_picture_at_its_first_and_its_last_frame
     assert times[1] == pytest.approx(last)
     condition = run.anchor_calls[0]["hidden_states"][0, :2].float()
     torch.testing.assert_close(condition[0], condition[1], atol=0.02, rtol=0.02)
+
+
+def test_both_anchor_ends_encode_the_same_pixels_even_when_the_picture_is_not_the_screen_shape():
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+
+    original = h3_main.prepare_keyframe_condition_rows
+    seen: list = []
+
+    def record(images, anchors, **kwargs):
+        seen.append([
+            np.asarray(fit_keyframe_to_canvas(image, kwargs["height"], kwargs["width"], is_geometry_anchor=index == 0))
+            for index, image in enumerate(images)
+        ])
+        return original(images, anchors, **kwargs)
+
+    gradient = np.tile(np.arange(48, dtype=np.uint8)[:, None, None] * 5, (1, 32, 3))
+    with patch(f"{_MAIN}.prepare_keyframe_condition_rows", side_effect=record):
+        _run_loop(4.0, picture_image=Image.fromarray(gradient))
+
+    first, last = seen[-1]
+    assert first.shape == (32, 32, 3)
+    assert np.array_equal(first, last)
+    cropped = np.asarray(fit_keyframe_to_canvas(Image.fromarray(gradient), 32, 32, is_geometry_anchor=False))
+    assert np.array_equal(first, cropped)
 
 
 def test_a_loop_without_a_picture_first_makes_its_opening_frame_and_holds_both_anchor_ends_on_it():

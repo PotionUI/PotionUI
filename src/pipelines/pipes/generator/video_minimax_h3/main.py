@@ -195,6 +195,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     ReferenceMedia,
     VisualLatentCache,
     encode_source_video_condition,
+    fit_keyframe_to_canvas,
     fit_source_video,
     keyframes_need_encode,
     latent_condition_rows,
@@ -3044,6 +3045,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 audio_latent_num_frames(pixel_frames_for_latent_frames(LOOP_OPENING_LATENTS)),
             )
             picture = Image.fromarray(self._decode_video(c, opening)[0])
+        picture = fit_keyframe_to_canvas(picture, c.height, c.width, is_geometry_anchor=False)
 
         anchor_generator = torch.Generator(device=c.device).manual_seed(int(seed))
         video_rows, audio_rows, layout = self._sample_window(

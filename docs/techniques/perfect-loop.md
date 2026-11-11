@@ -34,7 +34,10 @@ The loop is built so that this holds around the wrap too.
 
 1. **Anchor pass.** One window of `17a + 5` frames with the Start picture as both its first and its
    last keyframe (the model's trained first-and-last-frame route), so the anchor itself comes back to
-   where it began and cannot drift away in colour or layout. Without a Start picture an opening pass
+   where it began and cannot drift away in colour or layout. The picture is fitted to the screen once, keeping its
+   aspect ratio (cover crop), and that one fitted image is both keyframes: the model's own fit
+   stretches a first keyframe and crops a later one, and two differently fitted copies of one picture
+   read to the model as a slow zoom. Without a Start picture an opening pass
    (22 frames, text-to-video) is made first and its first decoded frame serves as the picture. The
    anchor's latent chunks are `A0 … A(a-1)` plus a 2-latent tail.
 2. **Bridge pass.** A second window of `17b + 5` frames whose first chunk is pinned to `A(a-1)` and

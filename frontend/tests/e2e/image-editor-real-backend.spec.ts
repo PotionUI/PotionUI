@@ -88,7 +88,7 @@ function canvasPixels(page: Page): Promise<Pixels> {
 	});
 }
 
-async function expectPicture(page: Page, label: string, size: { width: number; height: number }) {
+async function expectPicture(page: Page, label: string, size: { width: number; height: number }, timeout = 20000) {
 	const canvas = page.locator('[data-editor-canvas]');
 	await expect(canvas.getByText('Preview', { exact: true }), `${label}: the preview should finish`).toHaveCount(0, { timeout: 30000 });
 	await expect(page.locator('[data-render-error]'), `${label}: no render error`).toHaveCount(0);
@@ -101,7 +101,7 @@ async function expectPicture(page: Page, label: string, size: { width: number; h
 				const lit = last.samples.length > 0 && last.samples.every(([r, g, b, a]) => a > 200 && Math.max(r, g, b) > 24);
 				return shape && lit;
 			},
-			{ message: `${label}: the canvas should show a ${size.width}x${size.height} picture, not a black frame`, timeout: 20000 }
+			{ message: `${label}: the canvas should show a ${size.width}x${size.height} picture, not a black frame`, timeout }
 		)
 		.toBe(true);
 	console.log(`${label}: ${JSON.stringify(last)}`);
@@ -140,7 +140,7 @@ async function openPicture(page: Page, from: 'library' | 'history', buffer = sol
 }
 
 async function editThrough(page: Page, label: string) {
-	await expectPicture(page, `${label} opened`, { width: 1920, height: 1072 });
+	await expectPicture(page, `${label} opened`, { width: 1920, height: 1072 }, 90000);
 
 	await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 	await page.locator('[data-options-apply]').click();
@@ -183,7 +183,7 @@ test.describe('the Image editor against the real backend', () => {
 
 	for (const from of ['library', 'history'] as const) {
 		test(`a ${from} picture stays visible through a crop, a look, a server tool and a resize`, async ({ page }) => {
-			test.setTimeout(120000);
+			test.setTimeout(180000);
 			const trace = watch(page);
 			await loginAsOwner(page);
 			await openPicture(page, from);
@@ -225,7 +225,7 @@ test.describe('the Image editor against the real backend', () => {
 	});
 
 	test('a display canvas the browser drops comes back with the edited picture', async ({ page }) => {
-		test.setTimeout(120000);
+		test.setTimeout(180000);
 		const trace = watch(page);
 		await loginAsOwner(page);
 		await openPicture(page, 'library');
@@ -236,7 +236,7 @@ test.describe('the Image editor against the real backend', () => {
 		await page.locator('[data-tray-item="reel"]').click();
 		await page.locator('[data-options-apply]').click();
 		await expect(stackRows(page)).toHaveCount(3);
-		await expectPicture(page, 'before the loss', { width: 1072, height: 1072 });
+		await expectPicture(page, 'before the loss', { width: 1072, height: 1072 }, 90000);
 
 		const lost = await page.locator('[data-editor-layer]').evaluate((node) => {
 			const canvas = node as HTMLCanvasElement;

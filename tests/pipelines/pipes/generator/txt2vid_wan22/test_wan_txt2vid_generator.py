@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import patch
+import weakref
 
 import numpy as np
 import pytest
@@ -12,7 +13,7 @@ import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput
 from src.platform.runtime.native.kernels import disable_weight_init
-from src.platform.runtime.native.errors import DecodeNumericsError
+from src.platform.runtime.native.errors import DecodeNumericsError, SamplingCancelled
 from src.platform.settings import runtime_flags
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D, LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.vae.causal_3d_v2 import LATENTS_MEAN as WAN22_LATENTS_MEAN, LATENTS_STD as WAN22_LATENTS_STD
@@ -1165,3 +1166,43 @@ def test_router_resident_placement_routes_through_guarded_move(monkeypatch):
 
     assert calls == [(high, "cuda:0", (high,))]
     assert high.moved == []   # never called dit.move_to directly -- routed through the guard
+
+
+class _ActivationHoldingExpert:
+    def __init__(self, error):
+        self.error = error
+        self.device = "cpu"
+        self.activations = []
+        self.freed_at_offload = []
+
+    def module(self, x, t, context, **extra):
+        activation = torch.ones(64, 64)
+        self.activations.append(weakref.ref(activation))
+        raise self.error
+
+    def move_to(self, device):
+        self.device = device
+
+    def offload(self):
+        self.freed_at_offload.append(all(ref() is None for ref in self.activations))
+
+
+@pytest.mark.parametrize("make_error", [
+    pytest.param(lambda: torch.cuda.OutOfMemoryError("CUDA out of memory"), id="out-of-memory"),
+    pytest.param(lambda: SamplingCancelled(step_index=0), id="cancelled"),
+])
+@patch("src.pipelines.pipes.generator.txt2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
+def test_a_failed_sampling_drops_its_activations_before_the_expert_is_offloaded(make_error):
+    pipe = _pipe(device="cpu", preview=False, resolution="64x64", frames=5, steps=2)
+    ctx = pipe.build_context(_pipe_input())
+    ctx.is_cancelled = lambda: False
+    error = make_error()
+    expert = _ActivationHoldingExpert(error)
+    ctx.extra.router.high = expert
+    ctx.extra.router.low = expert
+
+    with pytest.raises(type(error)):
+        pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
+
+    assert len(expert.activations) == 1
+    assert expert.freed_at_offload == [True]

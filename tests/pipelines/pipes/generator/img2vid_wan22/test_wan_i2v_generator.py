@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import patch
+import weakref
 
 import numpy as np
 import pytest
 import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput
+from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.img2vid_wan22.main import GeneratorWanImg2VidPipe, _Ctx, ExpertRouter, _I2VForward
@@ -164,6 +166,47 @@ def _pipe_input(quantity=1, seeds=(1,), in_dim=36):
                             n_embeds={"context": torch.zeros(1, 4, 8)}) for _ in range(quantity)]
     img = torch.rand(64, 64, 3)  # HWC start frame
     return PipeInput(input={"model": _bundle(in_dim=in_dim), "conditioning": cond, "image": [img], "seed": list(seeds)})
+
+
+class _ActivationHoldingExpert:
+    def __init__(self, error):
+        self.error = error
+        self.device = "cpu"
+        self.activations = []
+        self.freed_at_offload = []
+
+    def module(self, x, t, context, **extra):
+        activation = torch.ones(64, 64)
+        self.activations.append(weakref.ref(activation))
+        raise self.error
+
+    def move_to(self, device):
+        self.device = device
+
+    def offload(self):
+        self.freed_at_offload.append(all(ref() is None for ref in self.activations))
+
+
+@pytest.mark.parametrize("make_error", [
+    pytest.param(lambda: torch.cuda.OutOfMemoryError("CUDA out of memory"), id="out-of-memory"),
+    pytest.param(lambda: SamplingCancelled(step_index=0), id="cancelled"),
+])
+@patch("src.pipelines.pipes.generator.img2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
+def test_a_failed_sampling_drops_its_activations_before_the_expert_is_offloaded(make_error):
+    pipe = _pipe(device="cpu", preview=False, steps=2)
+    ctx = pipe.build_context(_pipe_input())
+    ctx.is_cancelled = lambda: False
+    error = make_error()
+    expert = _ActivationHoldingExpert(error)
+    ctx.extra.forward.router.high = expert
+    ctx.extra.forward.router.low = expert
+    progress = SimpleNamespace(step=lambda *a, **k: None, preview=lambda *a, **k: None)
+
+    with pytest.raises(type(error)):
+        pipe.generate_one(ctx, index=0, seed=1, progress=progress)
+
+    assert len(expert.activations) == 1
+    assert expert.freed_at_offload == [True]
 
 
 def test_build_context_vae_offload_called_even_when_concat_build_raises():

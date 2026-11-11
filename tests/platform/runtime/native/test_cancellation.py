@@ -234,3 +234,27 @@ def test_a_cancelled_first_forward_leaves_the_prefetcher_recording(monkeypatch):
         assert prefetcher._forward_count == 2
         assert prefetcher._order == leaves
     prefetcher.teardown()
+
+
+class _FailingDit:
+    def __init__(self, error) -> None:
+        self.error = error
+        self.activations: list[weakref.ref] = []
+
+    def __call__(self, x, sigma, conditioning):
+        scratch = torch.empty(4096)
+        self.activations.append(weakref.ref(scratch))
+        raise self.error
+
+
+@pytest.mark.parametrize("error", [
+    pytest.param(torch.cuda.OutOfMemoryError("CUDA out of memory"), id="out-of-memory"),
+    pytest.param(ValueError("bad shape"), id="other-error"),
+])
+def test_a_forward_that_fails_frees_its_tensors_while_the_error_is_still_held(error):
+    model = _FailingDit(error)
+    with pytest.raises(type(error)) as excinfo:
+        _denoise(model, _Flag())
+    assert excinfo.value.__traceback__ is not None
+    assert len(model.activations) == 1
+    assert model.activations[0]() is None

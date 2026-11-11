@@ -8,7 +8,7 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.settings.settings import Settings
 from src.platform.settings.runtime_flags import apply_saved_settings, validate_runtime_flag
-from src.features.api_keys.settings import validate_setting as validate_api_keys_setting
+from src.features.api_keys.settings import KEY_MANAGEMENT_SETTING_KEYS, validate_setting as validate_api_keys_setting
 from src.features.backup.settings import validate_setting as validate_backup_setting
 from src.features.generation.thumbnail_profile import validate_setting as validate_thumbnail_setting
 from src.features.housekeeping.settings import validate_setting as validate_housekeeping_setting
@@ -47,6 +47,15 @@ def _is_stored_secret_mask(key: str, value: Any) -> bool:
     Skipping is not an error: nothing changed.
     """
     return is_secret_key(key) and value == SECRET_MASK
+
+
+def _refuse_key_managed_setting(controller: "SettingsController", user: Optional[User], keys) -> None:
+    if user is not None and user.key is not None and any(key in KEY_MANAGEMENT_SETTING_KEYS for key in keys):
+        controller.error_response(
+            error="key_not_allowed",
+            message="API key and MCP switches can only be changed from a browser session",
+            status_code=403,
+        )
 
 
 class SettingsController(BaseController):
@@ -112,6 +121,7 @@ class SettingsController(BaseController):
         passes are the writes applied in a single DB transaction. A rejected or
         failed batch persists nothing - no key is ever half-applied.
         """
+        _refuse_key_managed_setting(self, user, settings)
         try:
             if not user:
                 return self.error_response(
@@ -276,6 +286,7 @@ class SettingsController(BaseController):
         user: Optional[User] = None
     ) -> APIResponse:
         """Update a specific setting by key"""
+        _refuse_key_managed_setting(self, user, [key])
         try:
             # Get setting details first to determine type
             setting = self.setting_repository.get_setting_by_key(key)

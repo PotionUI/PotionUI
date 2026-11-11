@@ -25,7 +25,7 @@ class TestCreate:
         assert key["status"] == "active" and key["expires_at"] is None
         assert key["display_prefix"] == body["secret"][:12] and key["last_four"] == body["secret"][-4:]
         assert key["mcp_tools"] is None
-        assert key["created_at"].endswith("Z")
+        assert key["created_at"].endswith("+00:00")
 
     def test_omitting_the_expiry_means_never_for_an_ordinary_key(self, client, world):
         response = client.post("/api/keys", json={"name": "k", "scopes": ["read"]}, headers=world.session("alice"))
@@ -37,7 +37,7 @@ class TestCreate:
             "/api/keys", json={"name": "k", "scopes": ["read"], "expires_in_days": 30}, headers=world.session("alice")
         )
 
-        assert response.json()["data"]["key"]["expires_at"].endswith("Z")
+        assert response.json()["data"]["key"]["expires_at"].endswith("+00:00")
 
     def test_the_secret_appears_in_no_later_response(self, client, world):
         created = client.post("/api/keys", json={"name": "k", "scopes": ["read"]}, headers=world.session("alice"))
@@ -84,7 +84,7 @@ class TestCreate:
         default = client.post("/api/keys", json={"name": "k", "scopes": ["admin"]}, headers=headers)
 
         assert detail_error(never) == detail_error(year) == "lifetime_too_long"
-        assert default.status_code == 201 and default.json()["data"]["key"]["expires_at"].endswith("Z")
+        assert default.status_code == 201 and default.json()["data"]["key"]["expires_at"].endswith("+00:00")
 
     def test_switched_off_instance_refuses_creation_but_not_listing(self, client, world):
         world.stack.settings.set_setting("api_keys_enabled", False)
@@ -149,7 +149,7 @@ class TestList:
 
         listed = client.get("/api/keys", headers=world.session("alice")).json()["data"]["keys"][0]
 
-        assert listed["status"] == "revoked" and listed["revoked_by"] is None and listed["revoked_at"].endswith("Z")
+        assert listed["status"] == "revoked" and listed["revoked_by"] is None and listed["revoked_at"].endswith("+00:00")
 
     def test_active_keys_are_listed_before_revoked_ones(self, client, world):
         old, _ = world.mint(world.alice, name="old")
@@ -304,34 +304,42 @@ class TestAdminRoutes:
         assert client.delete("/api/admin/keys/ghost", headers=headers).status_code == 404
         assert client.get("/api/admin/keys/ghost/events", headers=headers).status_code == 404
 
-    def test_an_admin_scoped_key_reaches_the_admin_routes(self, client, world):
+    def test_an_admin_scoped_key_is_refused_on_every_admin_key_route_and_changes_nothing(self, client, world):
         world.stack.settings.set_setting("api_key_scopes_allowed", ["read", "admin"])
         target, _ = world.mint(world.alice)
         _, secret = world.mint(world.root, scopes=("admin",), days=30)
+        headers = world.bearer(secret)
+        user_path = f"/api/admin/users/{world.alice.id}/api-access"
 
-        listing = client.get("/api/admin/keys", headers=world.bearer(secret))
-        revoke = client.delete(f"/api/admin/keys/{target.id}", headers=world.bearer(secret))
+        responses = [
+            client.get("/api/admin/keys", headers=headers),
+            client.delete(f"/api/admin/keys/{target.id}", headers=headers),
+            client.get(f"/api/admin/keys/{target.id}/events", headers=headers),
+            client.get(user_path, headers=headers),
+            client.put(user_path, json={"keys_enabled": False, "mcp_enabled": False}, headers=headers),
+        ]
 
-        assert listing.status_code == 200 and revoke.status_code == 200
-        assert world.stack.keys.get_by_id(target.id).revoked_by == world.root.id
+        for response in responses:
+            assert (response.status_code, detail_error(response)) == (403, "key_not_allowed")
+        assert not world.stack.keys.get_by_id(target.id).is_revoked
+        assert world.stack.access.get(world.alice.id).keys_enabled is True
 
-    def test_a_key_without_admin_is_refused_even_for_an_admin_owner(self, client, world):
+    def test_the_same_admin_in_a_browser_session_still_manages_keys(self, client, world):
+        target, _ = world.mint(world.alice)
+        headers = world.session("root")
+        user_path = f"/api/admin/users/{world.alice.id}/api-access"
+
+        assert client.get("/api/admin/keys", headers=headers).status_code == 200
+        assert client.get(f"/api/admin/keys/{target.id}/events", headers=headers).status_code == 200
+        assert client.get(user_path, headers=headers).status_code == 200
+        assert client.delete(f"/api/admin/keys/{target.id}", headers=headers).status_code == 200
+
+    def test_a_key_without_admin_is_refused_the_same_way(self, client, world):
         _, secret = world.mint(world.root, scopes=("read", "generate", "content"))
 
         response = client.get("/api/admin/keys", headers=world.bearer(secret))
 
-        assert response.status_code == 403
-        assert response.headers["www-authenticate"] == 'Bearer error="insufficient_scope", scope="admin"'
-
-    def test_a_key_whose_owner_lost_admin_is_refused(self, client, world):
-        world.stack.settings.set_setting("api_key_scopes_allowed", ["read", "admin"])
-        _, secret = world.mint(world.root, scopes=("admin",), days=30)
-        from src.platform.database import get_cursor
-
-        with get_cursor() as cursor:
-            cursor.execute("UPDATE users SET account_type = 'USER' WHERE id = ?", (world.root.id,))
-
-        assert client.get("/api/admin/keys", headers=world.bearer(secret)).status_code == 403
+        assert (response.status_code, detail_error(response)) == (403, "key_not_allowed")
 
 
 class TestUserAccessSwitches:
@@ -473,12 +481,12 @@ class TestOwnerEvents:
 
         key, _ = world.mint(world.alice, days=30)
         with get_cursor() as cursor:
-            cursor.execute("UPDATE api_keys SET expires_at = '2026-01-01T00:00:00Z' WHERE id = ?", (key.id,))
-            cursor.execute("UPDATE api_key_events SET created_at = '2025-12-01T00:00:00Z' WHERE key_id = ?", (key.id,))
+            cursor.execute("UPDATE api_keys SET expires_at = '2026-01-01T00:00:00+00:00' WHERE id = ?", (key.id,))
+            cursor.execute("UPDATE api_key_events SET created_at = '2025-12-01T00:00:00+00:00' WHERE key_id = ?", (key.id,))
 
         items = self.events(client, world, key.id).json()["data"]["items"]
 
-        assert items[0]["action"] == "expired" and items[0]["created_at"] == "2026-01-01T00:00:00Z"
+        assert items[0]["action"] == "expired" and items[0]["created_at"] == "2026-01-01T00:00:00+00:00"
 
     def test_pagination_slices_and_bounds_page_size(self, client, world):
         key, _ = world.mint(world.alice)

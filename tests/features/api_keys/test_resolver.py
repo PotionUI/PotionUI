@@ -170,7 +170,7 @@ class TestRecordUse:
 
         stored = stack.keys.get_by_id(key.id)
         assert stored.last_used_via == "mcp"
-        assert stored.last_used_at.endswith(":00:00Z")
+        assert stored.last_used_at.endswith(":00:00+00:00")
 
     def test_it_writes_at_most_once_per_hour(self, stack, monkeypatch):
         key, secret = mint(stack, stack.user())

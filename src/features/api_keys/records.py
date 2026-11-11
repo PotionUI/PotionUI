@@ -1,9 +1,9 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import FrozenSet, List, Optional
 
-from src.platform.database.rows import dt_column
+from src.platform.database.rows import dt_column, now_utc
 from src.platform.security.api_scopes import ApiScope
 
 STATUS_ACTIVE = "active"
@@ -51,7 +51,7 @@ class ApiKey:
         expires = dt_column(self.expires_at)
         if expires is None:
             return True
-        return expires <= (now or datetime.now(timezone.utc))
+        return expires <= (now or now_utc())
 
     def status(self, now: Optional[datetime] = None) -> str:
         if self.is_revoked:

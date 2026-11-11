@@ -10,10 +10,14 @@ sourced from the same module's constants/docstrings, not invented prose.
 import inspect
 from typing import Any, Dict, List
 
-import src.features.mcp as mcp_package
 from src.features.llm.tools.builtin.utils import allowed_model_ids
 from src.features.mcp import protocol
 from src.features.api_keys.settings import MCP_ENABLED_KEY
+
+ACTS_AS_KEY_OWNER = (
+    "An API key with the mcp scope lets an MCP client act as the key's owner "
+    "against the same tool surface chat uses."
+)
 
 
 def _first_paragraph(doc: str) -> str:
@@ -56,7 +60,7 @@ class McpToolsDocumenter:
 
     def _governance(self) -> Dict[str, Any]:
         return {
-            "acts_as_token_owner": _first_paragraph(mcp_package.__doc__ or ""),
+            "acts_as_token_owner": ACTS_AS_KEY_OWNER,
             "global_setting_key": MCP_ENABLED_KEY,
             "global_default_enabled": False,
             "model_visibility_rule": _first_paragraph(allowed_model_ids.__doc__ or ""),

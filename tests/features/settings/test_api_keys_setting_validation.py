@@ -86,3 +86,38 @@ async def test_a_rejected_value_writes_nothing(controller, repository, admin, ke
     assert exc.value.status_code == 400
     assert key in exc.value.detail["message"]
     repository.apply_bulk_updates.assert_not_called()
+
+
+@pytest.fixture
+def keyed_admin(admin):
+    from dataclasses import replace
+
+    from src.platform.security.api_scopes import ApiScope
+    from src.platform.security.principal import KeyGrant
+
+    grant = KeyGrant(key_id="k1", user_id=admin.id, scopes=frozenset({ApiScope.ADMIN}), display_prefix="pui_aaaaaaaa")
+    return replace(admin, key=grant)
+
+
+@pytest.mark.parametrize("key", [
+    "api_keys_enabled", "api_key_scopes_allowed", "api_key_max_lifetime_days", "mcp_tools_ceiling_policy", "mcp_enabled",
+])
+@pytest.mark.asyncio
+async def test_a_key_cannot_change_the_key_and_mcp_switches(controller, repository, keyed_admin, key):
+    with pytest.raises(HTTPException) as batch:
+        await controller.update_settings({key: "x"}, keyed_admin)
+    with pytest.raises(HTTPException) as single:
+        from src.features.settings.dto import SettingUpdateRequest
+
+        await controller.update_setting_by_key(key, SettingUpdateRequest(value="x"), keyed_admin)
+
+    assert batch.value.status_code == single.value.status_code == 403
+    assert batch.value.detail["error"] == "key_not_allowed"
+    repository.apply_bulk_updates.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_session_may_still_change_them(controller, repository, admin):
+    response = await controller.update_settings({"api_keys_enabled": True}, admin)
+
+    assert response.success is True

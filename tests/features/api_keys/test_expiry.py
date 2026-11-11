@@ -29,7 +29,7 @@ class TestOrdinaryKeys:
     def test_omitting_the_field_means_never(self):
         assert expiry([S.READ], None, provided=False) is None
 
-    @pytest.mark.parametrize("days,expected", [(30, "2026-12-11T09:00:00Z"), (90, "2027-02-09T09:00:00Z"), (365, "2027-11-11T09:00:00Z")])
+    @pytest.mark.parametrize("days,expected", [(30, "2026-12-11T09:00:00+00:00"), (90, "2027-02-09T09:00:00+00:00"), (365, "2027-11-11T09:00:00+00:00")])
     def test_the_offered_lifetimes_become_a_utc_timestamp(self, days, expected):
         assert expiry([S.READ], days) == expected
 
@@ -56,16 +56,16 @@ class TestAdminKeys:
         assert raised.value.error == "lifetime_too_long"
 
     def test_ninety_days_is_the_cap_and_is_accepted(self):
-        assert expiry([S.ADMIN], 90) == "2027-02-09T09:00:00Z"
+        assert expiry([S.ADMIN], 90) == "2027-02-09T09:00:00+00:00"
 
     def test_thirty_days_is_accepted(self):
-        assert expiry([S.ADMIN], 30) == "2026-12-11T09:00:00Z"
+        assert expiry([S.ADMIN], 30) == "2026-12-11T09:00:00+00:00"
 
     def test_omitting_the_field_defaults_to_ninety_days(self):
-        assert expiry([S.ADMIN], None, provided=False) == "2027-02-09T09:00:00Z"
+        assert expiry([S.ADMIN], None, provided=False) == "2027-02-09T09:00:00+00:00"
 
     def test_the_default_follows_a_shorter_instance_limit(self):
-        assert expiry([S.ADMIN], None, provided=False, max_days=45) == "2026-12-11T09:00:00Z"
+        assert expiry([S.ADMIN], None, provided=False, max_days=45) == "2026-12-11T09:00:00+00:00"
 
     def test_an_instance_limit_shorter_than_every_option_leaves_no_default(self):
         with pytest.raises(ApiKeyError) as raised:
@@ -92,8 +92,8 @@ class TestInstanceMaximumLifetime:
         assert raised.value.error == "lifetime_too_long"
 
     def test_a_lifetime_within_the_maximum_is_accepted(self):
-        assert expiry([S.READ], 90, max_days=90) == "2027-02-09T09:00:00Z"
-        assert expiry([S.READ], 30, max_days=90) == "2026-12-11T09:00:00Z"
+        assert expiry([S.READ], 90, max_days=90) == "2027-02-09T09:00:00+00:00"
+        assert expiry([S.READ], 30, max_days=90) == "2026-12-11T09:00:00+00:00"
 
     def test_a_maximum_does_not_lengthen_the_admin_cap(self):
         with pytest.raises(ApiKeyError):
@@ -105,7 +105,7 @@ class TestExistingKeyGainingAdmin:
         assert not admin_expiry_is_within_cap(None, NOW)
 
     def test_a_key_expiring_within_ninety_days_of_now_is_within_the_cap(self):
-        assert admin_expiry_is_within_cap("2027-02-09T09:00:00Z", NOW)
+        assert admin_expiry_is_within_cap("2027-02-09T09:00:00+00:00", NOW)
 
     def test_a_key_expiring_later_is_not(self):
-        assert not admin_expiry_is_within_cap("2027-02-10T09:00:00Z", NOW)
+        assert not admin_expiry_is_within_cap("2027-02-10T09:00:00+00:00", NOW)

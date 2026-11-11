@@ -430,14 +430,13 @@ class TestMediaViewer:
 
 
 class TestSecretsStayOutOfLogs:
-    def test_a_rejected_key_is_logged_by_prefix_only(self, client, resolver, caplog):
+    def test_a_rejected_key_is_logged_by_length_and_client_only(self, client, resolver, caplog):
         with caplog.at_level(logging.DEBUG):
             client.get("/r/me", headers=bearer(SECRET))
 
-        assert caplog.records
-        assert SECRET not in caplog.text
-        assert SECRET[12:] not in caplog.text
-        assert SECRET[:12] in caplog.text
+        assert "length 50" in caplog.text and "testclient" in caplog.text
+        assert SECRET[:8] not in caplog.text
+        assert SECRET[4:] not in caplog.text
 
     def test_an_accepted_key_is_logged_by_id_and_prefix_only(self, client, resolver, caplog):
         resolver.add(SECRET, make_user(), [S.READ])

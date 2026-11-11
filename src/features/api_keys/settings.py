@@ -48,3 +48,5 @@ def validate_setting(key: str, value: Any) -> Optional[str]:
     if value not in CEILING_POLICIES:
         return f"must be one of: {', '.join(CEILING_POLICIES)}"
     return None
+
+KEY_MANAGEMENT_SETTING_KEYS = _OWNED | {MCP_ENABLED_KEY}

@@ -1,17 +1,15 @@
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from src.features.api_keys.operations.expiry import stamp
 from src.features.api_keys.operations.limits import InstanceLimits
 from src.features.api_keys.records import ApiKey, ApiKeyEvent, UserApiAccess
-from src.platform.database.rows import dt_column
+from src.platform.database.rows import dt_iso
 from src.platform.security.api_scopes import ApiScope
 from src.platform.security.user import AccountType
 
 
 def api_time(value: Optional[str]) -> Optional[str]:
-    parsed = dt_column(value)
-    return stamp(parsed) if parsed else value
+    return dt_iso(value) or value
 
 
 def _person(user_id: Optional[str], names: Dict[str, str]) -> Optional[dict]:

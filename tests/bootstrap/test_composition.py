@@ -309,11 +309,11 @@ report["api_keys_wiring"] = {
         f"{m} {r.path}" for r in api_routes if r.path.startswith("/api/keys") for m in _methods(r)
         if required_scopes(r, m) is not None
     ],
-    "admin_key_routes_need_admin": sorted({
-        tuple(sorted(s.value for s in required_scopes(r, m)))
-        for r in api_routes
+    "admin_key_routes_a_key_can_reach": [
+        f"{m} {r.path}" for r in api_routes
         if r.path.startswith(("/api/admin/keys", "/api/admin/users/{user_id}/api-access")) for m in _methods(r)
-    }),
+        if required_scopes(r, m) is not None
+    ],
     "mcp_endpoint_needs_mcp": [
         sorted(s.value for s in required_scopes(r, "POST")) for r in api_routes if r.path == "/api/mcp"
     ],
@@ -532,7 +532,7 @@ def test_api_keys_are_composed_and_mounted_with_their_scopes(report):
     ]
     assert wiring["the_collaborators_use_the_container_settings_and_users"] is True
     assert wiring["user_key_routes_are_session_only"] == []
-    assert wiring["admin_key_routes_need_admin"] == [["admin"]]
+    assert wiring["admin_key_routes_a_key_can_reach"] == []
 
 
 def test_the_mcp_endpoint_is_the_only_mcp_route_and_needs_the_mcp_scope(report):

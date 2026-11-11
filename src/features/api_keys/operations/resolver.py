@@ -1,11 +1,10 @@
 import secrets
-from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from src.features.api_keys.operations import secret_format
-from src.features.api_keys.operations.expiry import stamp
 from src.features.api_keys.operations.limits import load_limits
 from src.features.api_keys.repository import ApiKeyRepository, UserApiAccessRepository
+from src.platform.database.rows import dt_iso, now_utc
 from src.platform.security.principal import KeyGrant, ResolvedKey
 from src.platform.settings.settings import Settings
 
@@ -56,7 +55,7 @@ class ApiKeyResolver:
         return None
 
     def record_use(self, grant: KeyGrant, via: str) -> None:
-        hour = stamp(datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0))
+        hour = dt_iso(now_utc().replace(minute=0, second=0, microsecond=0))
         if self._recorded_hour.get(grant.key_id) == hour:
             return
         self._keys.touch_last_used(grant.key_id, hour, via)

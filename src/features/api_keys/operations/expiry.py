@@ -3,15 +3,11 @@ from typing import FrozenSet, Optional
 
 from src.features.api_keys.errors import ApiKeyError
 from src.features.api_keys.operations.limits import InstanceLimits
-from src.platform.database.rows import dt_column
+from src.platform.database.rows import dt_column, dt_iso
 from src.platform.security.api_scopes import ApiScope
 
 ALLOWED_LIFETIMES = (30, 90, 365)
 ADMIN_MAX_DAYS = 90
-
-
-def stamp(moment: datetime) -> str:
-    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _lifetime_cap(scopes: FrozenSet[ApiScope], limits: InstanceLimits) -> Optional[int]:
@@ -50,7 +46,7 @@ def expiry_for_new_key(
         raise ApiKeyError("invalid_expiry", "expires_in_days must be null, 30, 90 or 365.")
     if cap is not None and days > cap:
         raise _too_long(cap, is_admin)
-    return stamp(now + timedelta(days=days))
+    return dt_iso(now + timedelta(days=days))
 
 
 def admin_expiry_is_within_cap(expires_at: Optional[str], now: datetime) -> bool:

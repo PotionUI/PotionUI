@@ -197,3 +197,26 @@ class TestMigration095ApiKeys(MigrationCase):
         self.migration.up()
 
         self.assertEqual(self.rows("SELECT user_id FROM api_key_user_access WHERE user_id IN ('u1', 'u3')"), [])
+
+    def test_a_failure_after_the_copy_rolls_back_the_copy_the_drop_and_the_moves(self):
+        good = self.migration._SETTINGS
+        self.migration._SETTINGS = good + (("broken_setting", "x", "not_a_type", "fails the CHECK constraint"),)
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.migration.up()
+
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM mcp_tokens"), [(4,)])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM api_keys"), [(0,)])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM api_key_user_access"), [(0,)])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM settings WHERE key = 'mcp_user_enabled'"), [(1,)])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM user_settings WHERE id IN ('us-u2', 'us-u3')"), [(2,)])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM settings WHERE key = 'api_keys_enabled'"), [(0,)])
+
+        self.migration._SETTINGS = good
+        self.migration.up()
+
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM api_keys"), [(3,)])
+        self.assertEqual(self.rows("SELECT name FROM sqlite_master WHERE name = 'mcp_tokens'"), [])
+        self.assertEqual(self.rows("SELECT user_id FROM api_key_user_access"), [("u2",)])
+        for plaintext in (PLAINTEXT_USED, PLAINTEXT_REVOKED, PLAINTEXT_UNUSED):
+            self.assertEqual(len(self.rows("SELECT id FROM api_keys WHERE secret_hash = ?", (digest(plaintext),))), 1)

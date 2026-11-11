@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Callable, Dict, Iterable, Literal, Optional, Sequence, Tuple
 
 from fastapi import APIRouter, Depends, Query
@@ -16,6 +15,7 @@ from src.features.api_keys.operations import access as access_operations
 from src.features.api_keys.operations import keys as operations
 from src.features.api_keys.operations.keys import ApiKeyCollaborators
 from src.features.api_keys.records import ApiKey
+from src.platform.database.rows import now_utc
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.api_scopes import SESSION_ONLY, ApiScope
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
@@ -43,7 +43,7 @@ class ApiKeyController(BaseController):
         self.error_response(error=exc.error, message=exc.message, status_code=exc.status_code)
 
     def _key_dicts(self, keys: Sequence[ApiKey], owners: Optional[Dict[str, str]] = None) -> list:
-        now = datetime.now(timezone.utc)
+        now = now_utc()
         names = self._c.keys.usernames(related_user_ids(keys))
         counts = self._tool_counts(
             dict.fromkeys(key.user_id for key in keys if ApiScope.MCP in key.scopes)
@@ -91,9 +91,9 @@ class ApiKeyController(BaseController):
     async def admin_list(
         self, status: str, user_id: Optional[str], page: int, page_size: int
     ) -> APIResponse:
-        now = datetime.now(timezone.utc)
+        now = now_utc()
         keys, total = self._c.keys.list_page(
-            status, user_id, now.strftime("%Y-%m-%dT%H:%M:%SZ"), page_size, (page - 1) * page_size
+            status, user_id, now.isoformat(), page_size, (page - 1) * page_size
         )
         owners = self._c.keys.usernames(key.user_id for key in keys)
         return self.success_response(data={
@@ -192,7 +192,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
 def build_admin_router(container: "AppContainer") -> APIRouter:
     controller = _controller(container)
-    router = APIRouter(prefix="/api/admin", tags=["API Keys Admin"])
+    router = APIRouter(prefix="/api/admin", tags=["API Keys Admin"], dependencies=[SESSION_ONLY])
 
     @router.get("/keys", response_model=APIResponse, summary="List every API key on the instance")
     async def admin_list(

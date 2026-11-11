@@ -33,8 +33,6 @@ _key_resolver: Optional[KeyResolver] = None
 
 _key_failures = LoginAttemptLimiter("Too many invalid API key attempts. Please try again later.")
 
-_DISPLAY_PREFIX_LEN = 12
-
 
 def set_auth(auth: Auth) -> None:
     """
@@ -127,7 +125,7 @@ async def _resolve_key_principal(request: Request, bearer: str) -> Principal:
     resolved = await asyncio.to_thread(resolver.resolve, bearer)
     if resolved is None:
         _key_failures.record_failure(client)
-        logging.warning("Rejected API key %s from %s", bearer[:_DISPLAY_PREFIX_LEN], client)
+        logging.warning("Rejected API key of length %d from %s", len(bearer), client)
         raise _key_error(
             status.HTTP_401_UNAUTHORIZED, "invalid_api_key",
             "The API key is not valid.",

@@ -552,3 +552,11 @@ def test_detail_lists_artifact_variants(file_db):
     ]
     ckpt = next(a for a in body["artifacts"] if a["id"] == "ckpt")
     assert ckpt["variants"] == []
+
+def test_admin_run_uses_the_catalog_version_and_ignores_a_sent_one(file_db):
+    client, _runner = _client(_user(AccountType.ADMIN), executors={})
+
+    created = client.post("/api/recipes/demo/runs", json={"recipe_version": 1})
+
+    assert created.status_code == 201
+    assert created.json()["recipe_version"] == 3

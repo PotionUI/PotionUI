@@ -450,7 +450,7 @@ def stage_start_run(journey: Journey) -> Dict[str, Any]:
     def _create() -> requests.Response:
         return journey.client.post(
             "/api/setup/runs",
-            json={"recipe_id": journey.recipe_id, "recipe_version": 1, "safe_input": {}},
+            json={"recipe_id": journey.recipe_id, "safe_input": {}},
             timeout=RUN_ACTION_TIMEOUT_SECONDS,
         )
 

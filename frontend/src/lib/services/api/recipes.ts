@@ -134,10 +134,8 @@ export function createRecipesApi(client: AxiosInstance) {
 		},
 
 		/** Start a run. 409s when another run is already active. */
-		async createRecipeRun(recipeId: string, recipeVersion: number | null = null): Promise<RecipeRun> {
-			const response = await client.post(`/api/recipes/${recipeId}/runs`, {
-				recipe_version: recipeVersion
-			});
+		async createRecipeRun(recipeId: string): Promise<RecipeRun> {
+			const response = await client.post(`/api/recipes/${recipeId}/runs`, {});
 			return response.data;
 		},
 

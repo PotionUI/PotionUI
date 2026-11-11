@@ -94,16 +94,14 @@ class CreateRecipeRunRequest(BaseModel):
     client sends."""
 
     recipe_id: str = Field(..., min_length=1)
-    recipe_version: int = 1
     safe_input: Dict[str, Any] = Field(default_factory=dict)
 
 
 class StartRecipeRunRequest(BaseModel):
     """Body of ``POST /api/recipes/{recipe_id}/runs``. The recipe is already
-    in the path, so only the pinned version is a body field; a null version
-    means "whatever the catalog serves right now"."""
+    in the path, so the body only carries the modes to preselect; the run
+    always uses the version the catalog serves right now."""
 
-    recipe_version: Optional[int] = None
     preselect_modes: List[str] = Field(default_factory=list)
 
 

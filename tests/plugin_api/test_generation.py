@@ -170,7 +170,7 @@ async def test_submit_goes_through_the_orchestrators_ordinary_start(world):
     result = await api.submit_generation(world.owner, request)
 
     assert result == {"generation_id": "g-new", "status": "pending", "queue_position": 2}
-    world.orchestrator.start_generation.assert_awaited_once_with(request, "owner")
+    world.orchestrator.start_generation.assert_awaited_once_with(request, "owner", acts_as_admin=False)
 
 
 @pytest.mark.asyncio
@@ -284,7 +284,7 @@ async def test_preview_goes_through_the_orchestrators_memory_preview(world):
     result = await api.preview_memory(world.owner, request)
 
     assert result == PREVIEW
-    world.orchestrator.preview_memory.assert_awaited_once_with(request, "owner")
+    world.orchestrator.preview_memory.assert_awaited_once_with(request, "owner", acts_as_admin=False)
     world.orchestrator.start_generation.assert_not_awaited()
 
 
@@ -825,3 +825,24 @@ def test_a_session_read_refuses_anyone_but_the_owner(world):
     for user, session_id in ((world.other, "s1"), (world.admin, "s1"), (world.owner, "nope")):
         with pytest.raises(api.SessionNotFoundError):
             api.get_session(user, session_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["submit_generation", "preview_memory"])
+async def test_the_plugins_users_effective_authority_is_what_the_orchestrator_gets(world, entry):
+    from dataclasses import replace
+
+    from src.platform.security.api_scopes import ApiScope
+    from src.platform.security.principal import KeyGrant
+    from src.platform.security.user import AccountType
+
+    admin = replace(world.owner, account_type=AccountType.ADMIN)
+    grant = KeyGrant(key_id="k", user_id=admin.id, scopes=frozenset({ApiScope.GENERATE}), display_prefix="pui_aaaaaaaa")
+    keyed = replace(admin, key=grant, account_type=AccountType.USER)
+    target = world.orchestrator.start_generation if entry == "submit_generation" else world.orchestrator.preview_memory
+    request = GenerationRequest(preset_id="p")
+
+    await getattr(api, entry)(admin, request)
+    await getattr(api, entry)(keyed, request)
+
+    assert [call.kwargs["acts_as_admin"] for call in target.await_args_list] == [True, False]

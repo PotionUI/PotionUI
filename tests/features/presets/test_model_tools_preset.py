@@ -202,9 +202,10 @@ def test_the_preset_asks_for_admin_authority_and_takes_it_from_the_caller_not_th
     data = {"prompts": [], "mode": mode, "form_data": FORMS[mode]}
     users = {"a": Mock(account_type=AccountType.ADMIN)}
 
-    denied = processor(users).process(template, data, user_id="a", acts_as_admin=False)
-    granted = processor(users).process(template, data, user_id="a", acts_as_admin=True)
+    denied_probe, granted_probe = [], []
+    denied = processor(users).process(template, data, user_id="a", acts_as_admin=False, authority_probe=denied_probe)
+    granted = processor(users).process(template, data, user_id="a", acts_as_admin=True, authority_probe=granted_probe)
 
-    assert denied.used_admin_authority is True and granted.used_admin_authority is True
+    assert denied_probe and granted_probe
     assert next(p for p in denied if p["name"] == "model_tools")["config"]["is_admin"] is False
     assert next(p for p in granted if p["name"] == "model_tools")["config"]["is_admin"] is True

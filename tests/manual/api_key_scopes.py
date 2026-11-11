@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = ROOT / "tests" / "golden" / "api_key_scopes.tsv"
 HEADER = "method\tpath\tread\twrite\tsource"
 SOURCE_PUBLIC = "public"
+EXIT_UNDECLARED = 3
+EXIT_OUT_OF_DATE = 4
 READ_METHODS = ("GET", "HEAD", "OPTIONS")
 
 
@@ -75,14 +77,14 @@ def main(argv) -> int:
     if "--default-deny" in argv:
         undeclared = [line for line in lines[1:] if line.endswith("\tdefault_deny")]
         print("\n".join(undeclared))
-        return 1 if undeclared else 0
+        return EXIT_UNDECLARED if undeclared else 0
     if "--check" in argv:
-        current = GOLDEN.read_text() if GOLDEN.exists() else ""
+        current = GOLDEN.read_bytes().decode("utf-8").replace("\r\n", "\n") if GOLDEN.exists() else ""
         if current != text:
             print("tests/golden/api_key_scopes.tsv is out of date: run python tests/manual/api_key_scopes.py")
-            return 1
+            return EXIT_OUT_OF_DATE
         return 0
-    GOLDEN.write_text(text)
+    GOLDEN.write_bytes(text.encode("utf-8"))
     print(f"wrote {GOLDEN} ({len(lines) - 1} routes)")
     return 0
 

@@ -582,7 +582,7 @@ def test_the_key_scope_table_matches_the_golden_file(report):
     import difflib
 
     current = "\n".join(report["api_key_scopes"]) + "\n"
-    golden = GOLDEN_KEY_SCOPES.read_text()
+    golden = GOLDEN_KEY_SCOPES.read_bytes().decode("utf-8").replace("\r\n", "\n")
     if current != golden:
         diff = "\n".join(list(difflib.unified_diff(golden.splitlines(), current.splitlines(), "golden", "current", lineterm=""))[:60])
         pytest.fail(

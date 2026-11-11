@@ -19,6 +19,7 @@ config_path) as it propagates, so pipeline builds fail loudly instead of
 silently rendering `None` into a config value.
 """
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -37,24 +38,83 @@ from .loader import PresetTemplateLoader
 _LOOP_ITEMS_CAP = 10_000
 
 
-class _RuntimeUser(dict):
-    def __init__(self, is_admin: bool):
-        super().__init__(is_admin=is_admin)
-        self.read = False
+def _holds_runtime_user(value: Any) -> bool:
+    if isinstance(value, _RuntimeUser):
+        return True
+    if isinstance(value, dict):
+        return any(_holds_runtime_user(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_holds_runtime_user(item) for item in value)
+    return False
+
+
+class _RuntimeUser(Mapping):
+    __slots__ = ("_is_admin", "_probe")
+
+    def __init__(self, is_admin: bool, probe: List[bool]):
+        self._is_admin = is_admin
+        self._probe = probe
+
+    def _touched(self):
+        self._probe.append(True)
+
+    def __getattr__(self, name):
+        self._touched()
+        if name == "is_admin":
+            return self._is_admin
+        raise AttributeError(name)
 
     def __getitem__(self, key):
+        self._touched()
         if key == "is_admin":
-            self.read = True
-        return super().__getitem__(key)
+            return self._is_admin
+        raise KeyError(key)
 
-    def get(self, key, default=None):
-        if key == "is_admin":
-            self.read = True
-        return super().get(key, default)
+    def __iter__(self):
+        self._touched()
+        return iter(("is_admin",))
 
+    def __len__(self):
+        self._touched()
+        return 1
 
-class _ProcessedPipes(list):
-    used_admin_authority: bool = False
+    def __eq__(self, other):
+        self._touched()
+        return NotImplemented
+
+    def __ne__(self, other):
+        self._touched()
+        return NotImplemented
+
+    def __hash__(self):
+        self._touched()
+        return 0
+
+    def __str__(self):
+        self._touched()
+        return str({"is_admin": self._is_admin})
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __format__(self, spec):
+        return format(self.__str__(), spec)
+
+    def __dir__(self):
+        self._touched()
+        return ["is_admin"]
+
+    def __copy__(self):
+        self._touched()
+        return self
+
+    def __deepcopy__(self, memo):
+        self._touched()
+        return self
+
+    def __reduce_ex__(self, protocol):
+        self._touched()
+        raise TypeError("runtime.user cannot be copied")
 
 
 class PresetProcessor:
@@ -311,10 +371,10 @@ class PresetProcessor:
         }
 
     def _build_runtime_user(
-        self, user_id: Optional[str], acts_as_admin: Optional[bool] = None
+        self, user_id: Optional[str], acts_as_admin: Optional[bool], probe: List[bool]
     ) -> "_RuntimeUser":
         if acts_as_admin is not None:
-            return _RuntimeUser(bool(acts_as_admin))
+            return _RuntimeUser(bool(acts_as_admin), probe)
         is_admin = False
         if user_id and self.user_resolver is not None:
             try:
@@ -323,7 +383,7 @@ class PresetProcessor:
                 logger.debug(f"Could not resolve user {user_id} for runtime.user", exc_info=True)
                 user = None
             is_admin = getattr(user, 'account_type', None) == AccountType.ADMIN
-        return _RuntimeUser(is_admin)
+        return _RuntimeUser(is_admin, probe)
 
     def _resolve_enabled(
         self,
@@ -374,6 +434,7 @@ class PresetProcessor:
         generation_data: dict,
         user_id: Optional[str] = None,
         acts_as_admin: Optional[bool] = None,
+        authority_probe: Optional[List[bool]] = None,
     ) -> list:
         """
         Process generation data to a pipeline configuration with recursive template processing.
@@ -407,7 +468,9 @@ class PresetProcessor:
 
         first_pair = prompts[0] if prompts else {'positive': '', 'negative': ''}
 
-        runtime_user = self._build_runtime_user(user_id, acts_as_admin)
+        runtime_user = self._build_runtime_user(
+            user_id, acts_as_admin, authority_probe if authority_probe is not None else []
+        )
         context = {
             # The bound form's values (src/features/forms/binding.py's BoundForm,
             # once W3 lands) - `form.steps` is an int, `form.loras` is a
@@ -507,6 +570,6 @@ class PresetProcessor:
 
             processed_pipes.append(processed_pipe)
 
-        result = _ProcessedPipes(processed_pipes)
-        result.used_admin_authority = runtime_user.read
-        return result
+        if _holds_runtime_user(processed_pipes):
+            runtime_user._touched()
+        return processed_pipes

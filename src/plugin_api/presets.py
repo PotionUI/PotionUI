@@ -11,7 +11,9 @@ To actually generate, build a `GenerationRequest` - the preset, the mode, the
 orchestrator from the container:
 
     orchestrator = get_container().generation_orchestrator
-    result = await orchestrator.start_generation(request, user.id)
+    result = await orchestrator.start_generation(
+        request, user.id, acts_as_admin=user.account_type == AccountType.ADMIN
+    )
 
 A plugin that writes a preset directory to disk (e.g. a workflow importer) can
 validate it with `lint_preset_dir` - the same `PresetLinter` backing

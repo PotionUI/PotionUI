@@ -116,6 +116,15 @@ class TestOrchestratorRefusesBeforeQueueing:
 
         assert first._acts_as_admin is True and second._acts_as_admin is False
 
+    @pytest.mark.asyncio
+    async def test_a_call_site_that_forgets_to_carry_the_authority_fails_loudly(self):
+        orchestrator, _, _ = make_orchestrator()
+        wire(orchestrator, AccountType.ADMIN, admin_only_preset=False)
+        forgetful = SimpleNamespace(preset_id="p")
+
+        with pytest.raises(AttributeError):
+            orchestrator._enforce_admin_authority(Mock(), "txt2img", SimpleNamespace(values={}, form_name=None), "u1", forgetful)
+
     def test_a_client_cannot_set_the_authority_through_the_request_body(self):
         request = GenerationRequest.model_validate({"preset_id": "p", "acts_as_admin": True, "_acts_as_admin": True})
 
@@ -133,22 +142,53 @@ class TestProcessorTracksTheAuthorityTemplatesRead:
             template_processor=TemplateProcessor(settings=Mock()), settings=Mock(), preset_template_loader=Mock(),
             user_resolver=lambda user_id: SimpleNamespace(account_type=AccountType.ADMIN),
         )
-        return processor.process(_preset(pipe_configuration=template_config), _generation_data(), user_id="u1", acts_as_admin=acts_as_admin)
+        probe = []
+        pipes = processor.process(
+            _preset(pipe_configuration=template_config), _generation_data(), user_id="u1",
+            acts_as_admin=acts_as_admin, authority_probe=probe,
+        )
+        return pipes, probe
 
     def test_an_explicit_value_beats_the_owners_row(self):
-        pipes = self.render({"admin": "{{ runtime.user.is_admin }}"}, acts_as_admin=False)
+        pipes, _ = self.render({"admin": "{{ runtime.user.is_admin }}"}, acts_as_admin=False)
 
         assert pipes[0]["config"]["admin"] is False
 
     def test_reading_it_is_recorded_and_not_reading_it_is_not(self):
-        read = self.render({"admin": "{{ runtime.user.is_admin }}"}, acts_as_admin=False)
-        untouched = self.render({"steps": 4}, acts_as_admin=False)
+        _, read = self.render({"admin": "{{ runtime.user.is_admin }}"}, acts_as_admin=False)
+        _, untouched = self.render({"steps": 4}, acts_as_admin=False)
 
-        assert read.used_admin_authority is True
-        assert untouched.used_admin_authority is False
+        assert read and not untouched
 
     def test_true_is_passed_through_when_the_caller_holds_authority(self):
-        assert self.render({"admin": "{{ runtime.user.is_admin }}"}, acts_as_admin=True)[0]["config"]["admin"] is True
+        assert self.render({"admin": "{{ runtime.user.is_admin }}"}, acts_as_admin=True)[0][0]["config"]["admin"] is True
+
+
+class TestBuilderReportsWhatThePipelineAsksFor:
+    def build(self, config, acts_as_admin):
+        from src.features.generation.pipeline_builder import PipelineBuilder
+        from src.features.presets.processor import PresetProcessor
+        from src.platform.templating import TemplateProcessor
+        from tests.features.presets.test_processor_context import _preset
+
+        processor = PresetProcessor(
+            template_processor=TemplateProcessor(settings=Mock()), settings=Mock(), preset_template_loader=Mock(),
+        )
+        builder = PipelineBuilder(Mock(), processor)
+        return builder.build_pipeline(
+            preset_id=_preset(pipe_configuration=config), form_data={}, mode="txt2img",
+            user_id="u1", acts_as_admin=acts_as_admin,
+        )
+
+    @pytest.mark.parametrize("acts", [False, True])
+    def test_a_template_that_reads_the_authority_is_flagged_whatever_its_value(self, acts):
+        built = self.build({"admin": "{{ runtime.user.is_admin }}"}, acts)
+
+        assert built.needs_admin_authority is True
+        assert built.pipes[0]["config"]["admin"] is acts
+
+    def test_an_ordinary_template_is_not_flagged(self):
+        assert self.build({"steps": 4}, False).needs_admin_authority is False
 
 
 class TestControllerDerivesAuthorityFromTheCaller:

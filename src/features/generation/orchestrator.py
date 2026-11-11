@@ -709,7 +709,7 @@ class GenerationOrchestrator:
         preset_template: PresetTemplate,
         mode: str,
         user_id: Optional[str],
-        acts_as_admin: bool = False,
+        request,
     ) -> Optional[str]:
         """The model identity a queued generation is scheduled against (the
         "fair" policy's affinity key - see `docs/backends.md` "Scheduling
@@ -740,7 +740,7 @@ class GenerationOrchestrator:
                 mode=mode,
                 form_name=bound.form_name,
                 user_id=user_id,
-                acts_as_admin=acts_as_admin,
+                acts_as_admin=request._acts_as_admin,
             )
         except Exception:
             logger.debug("Model-identity pipeline build failed; affinity disabled", exc_info=True)
@@ -762,9 +762,9 @@ class GenerationOrchestrator:
         )
 
     def _enforce_admin_authority(
-        self, preset_template: PresetTemplate, mode: str, bound, user_id: str, acts_as_admin: bool
+        self, preset_template: PresetTemplate, mode: str, bound, user_id: str, request
     ) -> None:
-        if acts_as_admin or self.user_repository is None:
+        if request._acts_as_admin or self.user_repository is None:
             return
         owner = self.user_repository.get_by_id(user_id)
         if not GenerationPolicy.is_admin(owner):
@@ -915,6 +915,7 @@ class GenerationOrchestrator:
             NoBackendForEngineError / NoEligibleBackendError: no backend
                 available for this preset's engine / request.
         """
+        request._acts_as_admin = bool(acts_as_admin)
         self._enforce_preset_access(request.preset_id, user_id)
         preset_template = self.preset_template_loader.load_preset_by_id(request.preset_id)
         if not preset_template:
@@ -959,7 +960,7 @@ class GenerationOrchestrator:
                 mode=mode,
                 form_name=bound.form_name,
                 user_id=user_id,
-                acts_as_admin=acts_as_admin,
+                acts_as_admin=request._acts_as_admin,
             )
             pipes = built.pipes
         except Exception:
@@ -1255,7 +1256,7 @@ class GenerationOrchestrator:
             # ModelAccessDeniedException, mapped by the controller to the house
             # 404-not-403 pattern.
             self._enforce_model_access(bound, user_id)
-            self._enforce_admin_authority(preset_template, mode, bound, user_id, getattr(request, '_acts_as_admin', False))
+            self._enforce_admin_authority(preset_template, mode, bound, user_id, request)
 
             # Video/Music Director documents, if present, are untrusted client
             # input: validate + canonicalize against what this preset
@@ -1463,7 +1464,7 @@ class GenerationOrchestrator:
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
                 model_key=(
-                    self._resolve_model_key(bound, preset_template, mode, user_id, getattr(request, '_acts_as_admin', False))
+                    self._resolve_model_key(bound, preset_template, mode, user_id, request)
                     if self._scheduling_policy_for(backend.backend_id).name == FAIR
                     else None
                 ),
@@ -1619,7 +1620,7 @@ class GenerationOrchestrator:
                 prompts=prompts,
                 form_name=getattr(request, 'form_name', None),
                 user_id=db_generation.user_id,
-                acts_as_admin=getattr(request, '_acts_as_admin', False),
+                acts_as_admin=request._acts_as_admin,
             )
             if batch is not None:
                 batch.apply_to_pipes(built_pipeline.pipes)

@@ -183,8 +183,10 @@ class PipelineBuilder:
         # Process preset to get processed pipes with Jinja2 rendering
         logger.debug("Processing preset through PresetProcessor")
         try:
+            authority_probe: List[bool] = []
             processed_pipes = self.preset_processor.process(
-                preset_template, generation_data, user_id=user_id, acts_as_admin=acts_as_admin
+                preset_template, generation_data, user_id=user_id, acts_as_admin=acts_as_admin,
+                authority_probe=authority_probe,
             )
             logger.info(f"Pipeline built successfully with {len(processed_pipes)} pipes")
         except Exception as e:
@@ -197,5 +199,5 @@ class PipelineBuilder:
             preset_id=resolved_preset_id,
             preset_template=preset_template,
             pipes=processed_pipes,
-            needs_admin_authority=bool(getattr(processed_pipes, "used_admin_authority", False)),
+            needs_admin_authority=bool(authority_probe),
         )

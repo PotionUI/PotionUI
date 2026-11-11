@@ -191,6 +191,10 @@
     "label": "Cinemagraph",
     "icon": "mode-cinemagraph"
   },
+  "loop": {
+    "label": "Perfect Loop",
+    "icon": "mode-cinemagraph"
+  },
   "transition": {
     "label": "Transition",
     "icon": "mode-transition"

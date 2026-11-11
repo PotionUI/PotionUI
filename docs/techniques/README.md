@@ -51,6 +51,7 @@ complete index of every file in this directory.
 
 - [Samplers and Sigma Schedules](samplers-and-schedules.md) — every sampler algorithm and sigma schedule mode, with guidance on when to use each.
 - [Latent-Mask Inpainting](latent-mask-inpainting.md) — repaint a painted area or extend a canvas by pinning the kept latents to the source.
+- [Perfect Loop (Pinned Bridge)](perfect-loop.md) — a seamless video loop from an anchor pass and a bridge pinned to it at both ends, decoded with wrap-around context.
 - [Trajectory Warm-Start (Iterate Mode)](trajectory-warm-start.md) — resume a generation from a cached mid-trajectory latent instead of starting from noise.
 
 See [Models](../models/README.md) for per-family reference pages, each listing which techniques above apply to it.

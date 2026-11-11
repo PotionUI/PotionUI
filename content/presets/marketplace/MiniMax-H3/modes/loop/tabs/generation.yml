@@ -1,0 +1,85 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "quality"
+    ai_hint: "Quality runs 24 steps for each of the loop's two passes and gives the cleanest seam. Turbo runs 4 steps and is softer. Flex runs 6 steps with the Pika Flex adapter, which needs the Flex adapter model on the Models section; it is fast, and it ignores the LoRA tab and the sampler settings. Custom hands the Steps slider on the Advanced tab to the user."
+    configuration:
+      options:
+        - { label: "Quality", value: "quality", sub_label: "24 steps" }
+        - { label: "Turbo", value: "turbo", sub_label: "4 steps" }
+        - { label: "Flex", value: "flex", sub_label: "6 steps · Flex adapter" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps, left alone" }
+
+  - type: "section"
+    label: "Loop"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "start_picture"
+        type: "image"
+        label: "Start picture"
+        description: "Optional. The picture that comes to life."
+        ai_hint: "The still the loop starts from and returns to; its look, colours and framing are kept. Leave it empty to make the scene from the prompt alone. With Screen set to Match the picture, the loop takes the picture's shape, from 1:4 to 4:1."
+
+      - name: "loop_seconds"
+        type: "slider"
+        formula: "size"
+        label: "Length (seconds)"
+        default: 6
+        description: "Rounded to the nearest 0.7 s, or 2.1 s with sound."
+        ai_hint: "How long one pass of the loop lasts. It is made in two passes, so the cost is about two clips of half this length each. Up to 26.9 seconds, 25.5 with sound. The loop is cut on the model's own 17-frame steps, so the result can be a little shorter or longer than asked."
+        configuration: {min: 1, max: 26, step: 0.5}
+
+      - name: "movement"
+        type: "select"
+        label: "Movement"
+        default: "subtle"
+        ai_hint: "Subtle asks for slight, slow movement, the kind that gives a still picture life on a wallpaper. Lively asks for steadier, more visible movement."
+        configuration:
+          options:
+            - { label: "Subtle", value: "subtle" }
+            - { label: "Lively", value: "lively" }
+
+      - name: "screen"
+        type: "select"
+        formula: "size"
+        label: "Screen"
+        default: "auto"
+        ai_hint: "The loop's shape and size on MiniMax-H3's own canvas (short edge 768). Match the picture takes the start picture's shape, or a 16:9 desktop without one. The Faster sizes run about twice as fast and need less memory. For a 4K screen, upscale the result afterwards."
+        configuration:
+          options:
+            - { label: "Match the picture", value: "auto" }
+            - { label: "Desktop 16:9", value: "1344x768", sub_label: "1344 × 768" }
+            - { label: "Phone 9:16", value: "768x1344", sub_label: "768 × 1344" }
+            - { label: "Ultrawide 21:9", value: "1536x672", sub_label: "1536 × 672" }
+            - { label: "Laptop 3:2", value: "1152x768", sub_label: "1152 × 768" }
+            - { label: "Tablet 4:3", value: "1024x768", sub_label: "1024 × 768" }
+            - { label: "Square", value: "768x768", sub_label: "768 × 768" }
+            - { label: "Desktop 16:9, faster", value: "960x544", sub_label: "960 × 544" }
+            - { label: "Phone 9:16, faster", value: "544x960", sub_label: "544 × 960" }
+
+      - name: "sound"
+        type: "checkbox"
+        label: "Sound"
+        default: false
+        ai_hint: "Off writes a silent loop, which suits a wallpaper. On adds quiet ambient sound that loops with the picture; the length then moves in 2.1-second steps so the sound wraps cleanly."
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models_fl2va.yml"

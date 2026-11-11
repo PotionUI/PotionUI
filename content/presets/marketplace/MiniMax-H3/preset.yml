@@ -122,6 +122,7 @@ vars:
       remix: { segment_templates: [] }
       talk: { segment_templates: [] }
       motion_transfer: { segment_templates: [] }
+      loop: { segment_templates: [] }
     segment_templates:
       - name: "H3 prompt document"
         description: "The three labeled fields MiniMax-H3 was trained on, in order."
@@ -422,6 +423,18 @@ llm:
         look and the kind of action ("dancing"), never the individual moves; the
         Video supplies those. Length follows the Video, up to 15 seconds.
 
+    loop:
+      guide: |
+        Perfect loop mode: the preset writes the structured request itself, so
+        never write the three-field document here. The prompt is plain English
+        saying only what moves and how ("the lake ripples and the reeds sway in a
+        light breeze", "steam rises from the cup"). Describe movement that can
+        repeat: swaying, drifting, flickering, flowing, breathing. Avoid anything
+        that starts, ends or travels across the frame (a person walking in, a car
+        driving past, a door opening), and never ask for camera movement: the
+        camera is fixed so the loop can close. With a Start picture, do not
+        describe the scene again; the picture supplies it.
+
     upscale:
       guide: |
         Utility mode -- upscales and refines an EXISTING MiniMax-H3 video, not a
@@ -552,6 +565,7 @@ modes:
   - talk
   - long
   - motion_transfer
+  - loop
 
 media:
   cover: "public/cover-h35m40se.webm"

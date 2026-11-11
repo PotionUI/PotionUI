@@ -199,6 +199,20 @@ The `long` mode chains parts into one video of up to two minutes, with seamless 
 
 **Unmeasured.** GPU validation of a 30-60 second chain, and of the default Colour hold, is pending.
 
+## Perfect loop
+
+The `loop` mode makes a clip whose last frame flows into its first with no seam, for animated wallpapers: a picture and a sentence about what moves go in. It is the generator's `loop` setting driven by a small form, and the technique page [Perfect Loop](../techniques/perfect-loop.md) has the mechanism and the frame arithmetic.
+
+**Inputs.** An optional Start picture (the loop starts from it and returns to it), What moves (the prompt; the mode writes the three-field document itself and asks for a fixed camera), Length in seconds (6 by default), Movement (Subtle by default, or Lively), Screen (Match the picture by default, which takes the picture's shape or 16:9 without one; or a fixed desktop, phone, ultrawide, laptop, tablet or square size on the 768 canvas; or a faster 960x544 or 544x960), Sound (off by default), the speed profile and the model files.
+
+**How it runs.** Two windows in one request with one progress bar: an anchor pass (text-to-video, or image-to-video from the Start picture) and a bridge pass whose first 17 frames are pinned to the anchor's last full chunk and whose last 22 frames to the anchor's opening. The pins are the anchor's own latents, entered both as condition rows and as target rows held on the source's noised path, so the bridge's ends come back bit-identical. The loop is joined in latent space and decoded with one chunk of wrap-around context, so the seam decodes like any other chunk boundary. The bridge seed is the request seed plus one.
+
+**Length.** Rounded to whole 17-frame chunks (0.71 s), at least two chunks, at most 26.9 s; with sound in 51-frame steps (2.125 s), at most 25.5 s. A longer request is refused in plain words. With Match the picture, a picture outside 1:4 to 4:1 is refused.
+
+**Sound.** Off writes the loop without a soundtrack (the stream is still sampled with the picture). On pins the bridge's audio the same way and decodes it with wrap-around context.
+
+**Not validated on real weights.** `tests/manual/h3_perfect_loop_check.py` renders one loop and measures the seam.
+
 ## Pika H3 Flex (6-step adapter)
 
 [Pika-Labs/Pika-H3-Flex](https://huggingface.co/Pika-Labs/Pika-H3-Flex) is a pair of rank-128 LoRA adapters on the base DiT, one for the fl2va partition and one for the ref2va partition, post-trained with step distillation from 50 to 6 steps plus a quality finetune. It adds no conditioning and no architecture, so it runs through the same generator as every other profile.

@@ -1,0 +1,346 @@
+{
+  "mode": "loop",
+  "pipes": [
+    {
+      "config": {
+        "audio_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "audio_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "video_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        },
+        "video_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_loader",
+      "name": "model_loader/minimax_h3"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "start_picture",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "guidance_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "integrated_multimodal_description: [Shot 1] Filmed from a fixed camera that never moves, as one seamless looping shot. Only slight, slow movement: golden positive prompt The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "integrated_multimodal_description: [Shot 1] Filmed from a fixed camera that never moves, as one seamless looping shot. Only slight, slow movement: golden positive prompt The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "",
+              "positive": "integrated_multimodal_description: [Shot 1] Filmed from a fixed camera that never moves, as one seamless looping shot. Only slight, slow movement: golden positive prompt The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/video_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/audio_vae.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [],
+            [
+              "steps",
+              4
+            ],
+            [
+              "speed_profile",
+              "quality"
+            ],
+            [
+              "duration",
+              6
+            ],
+            [
+              "movement",
+              "subtle"
+            ],
+            [
+              "resolution",
+              "auto"
+            ],
+            [
+              "sound",
+              false
+            ],
+            [
+              "fps",
+              24
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "audio_sigma_shift": {
+          "type": "float",
+          "value": 3.0
+        },
+        "audio_source": {
+          "type": "str",
+          "value": "none"
+        },
+        "decode": {
+          "type": "bool",
+          "value": true
+        },
+        "frames": {
+          "type": "int",
+          "value": 144
+        },
+        "keyframe_anchors": {
+          "type": "list",
+          "value": []
+        },
+        "loop": {
+          "type": "bool",
+          "value": true
+        },
+        "manual_audio_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "manual_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "mode": {
+          "type": "str",
+          "value": "video"
+        },
+        "preview": {
+          "type": "bool",
+          "value": true
+        },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "resolution": {
+          "type": "str",
+          "value": "auto"
+        },
+        "runtime_loras": {
+          "type": "list",
+          "value": []
+        },
+        "sampler": {
+          "type": "str",
+          "value": "euler"
+        },
+        "scheduler": {
+          "type": "str",
+          "value": "simple"
+        },
+        "sla_block_size": {
+          "type": "int",
+          "value": 64
+        },
+        "sla_sparsity": {
+          "type": "float",
+          "value": 0.9
+        },
+        "sol_attn_tau": {
+          "type": "float",
+          "value": 1.0
+        },
+        "sparse_attn": {
+          "type": "str",
+          "value": "off"
+        },
+        "sparse_attn_dense_last_steps": {
+          "type": "int",
+          "value": 2
+        },
+        "step_cache_max_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache_warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
+        "steps": {
+          "type": "int",
+          "value": 4
+        },
+        "video_sigma_shift": {
+          "type": "float",
+          "value": 12.0
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/video_minimax_h3"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KX47H3MINIMAX000000000VA",
+  "preset_name": "MiniMax-H3"
+}

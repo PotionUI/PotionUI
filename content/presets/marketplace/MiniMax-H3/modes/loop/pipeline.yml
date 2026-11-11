@@ -1,0 +1,150 @@
+pipeline:
+  - name: "model_loader/minimax_h3"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      video_vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio_vae:
+        file_path: "{{ form.audio_vae }}"
+        name: "{{ form.audio_vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras if form.speed_profile != 'flex' else [] }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
+
+  - name: "media_loader"
+    id: "start_picture"
+    enabled: "{{ form.start_picture is defined and form.start_picture is not none and form.start_picture != '' }}"
+    configuration:
+      validate_files: true
+      media:
+        - type: "image"
+          path: "{{ form.start_picture }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader", "text_encoder"]
+      - ["image", "start_picture", "image"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: &document |-
+          {% set what = ((item.positive if item is defined else generation.prompts.first.positive) | default('', true)) | trim %}{% set has_picture = form.start_picture is defined and form.start_picture is not none and form.start_picture != '' %}integrated_multimodal_description: [Shot 1] {% if has_picture %}The scene of <Picture 1>, filmed{% else %}Filmed{% endif %} from a fixed camera that never moves, as one seamless looping shot. {% if form.movement == 'lively' %}Steady, clearly visible movement: {% else %}Only slight, slow movement: {% endif %}{{ what }} The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.
+          overall_soundscape: {{ 'Quiet ambient sound that fits the scene, steady from start to end.' if form.sound else 'N/A' }}
+          non_diegetic_music: N/A
+        output: *document
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *document
+            negative: ""
+      quantity: "{{ form.quantity }}"
+      guidance_scale: 1.0
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae }}"]
+        - "@loop":
+            items: "{{ (form.loras | active_loras) if form.speed_profile != 'flex' else [] }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - "@loop":
+            items: "{{ [form.flex_adapter] if form.speed_profile == 'flex' else [] }}"
+            template: ["model", "{{ item }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["speed_profile", "{{ form.speed_profile }}"]
+        - ["duration", "{{ form.loop_seconds }}"]
+        - ["movement", "{{ form.movement }}"]
+        - ["resolution", "{{ form.screen }}"]
+        - ["sound", "{{ form.sound }}"]
+        - ["fps", "{{ preset.vars.fps }}"]
+
+  - name: "generator/video_minimax_h3"
+    id: "generator"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "start_picture", "image"]
+    enabled: true
+    configuration:
+      mode: "video"
+      loop: true
+      keyframe_anchors: "{{ ['first'] if (form.start_picture is defined and form.start_picture is not none and form.start_picture != '') else [] }}"
+      resolution: "{{ form.screen }}"
+      frames: "{{ (form.loop_seconds * preset.vars.fps) | round(0) | int }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      quantity: "{{ form.quantity }}"
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
+      preview: "{{ form.preview }}"
+      audio_source: "{{ 'generate' if form.sound else 'none' }}"
+      decode: true
+      step_cache_threshold: "{{ (generation.profile.extra | default({})).step_cache_threshold | default(form.step_cache_threshold) }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
+      sparse_attn: "{{ form.sparse_attn }}"
+      sol_attn_tau: "{{ form.sol_attn_tau }}"
+      sla_sparsity: "{{ form.sla_sparsity }}"
+      sla_block_size: "{{ form.sla_block_size | int }}"
+      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps }}"
+      sampler: "{{ generation.profile.sampler | default(form.sampler) }}"
+      scheduler: "{{ generation.profile.schedule | default(form.scheduler) }}"
+      video_sigma_shift: "{{ generation.profile.shift | default(form.video_sigma_shift) }}"
+      audio_sigma_shift: "{{ form.audio_sigma_shift }}"
+      manual_sigmas: "{{ (generation.profile.extra | default({})).manual_sigmas | default(form.manual_sigmas) }}"
+      manual_audio_sigmas: "{{ (generation.profile.extra | default({})).manual_audio_sigmas | default(form.manual_audio_sigmas) }}"
+      runtime_loras:
+        "@loop":
+          items: "{{ [{'model': form.flex_adapter, 'strength': 1.0, 'audio': true}] if form.speed_profile == 'flex' else [] }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
+
+  - name: "gallery"
+    input:
+      - ["video", "generator", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

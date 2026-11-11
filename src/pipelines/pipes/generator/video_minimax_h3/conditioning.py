@@ -441,6 +441,21 @@ def encode_source_video_condition(
     )
     if latent.shape[2] < num_latents:
         raise ValueError(f"the clip encoded to {latent.shape[2]} latent frame(s), {num_latents} needed")
+    return latent_condition_rows(
+        latent[:, :, :num_latents], anchor_start=anchor_start, patch_size=patch_size, device=device, dtype=dtype,
+        generator=generator,
+    )
+
+
+def latent_condition_rows(
+    latent: Tensor, *, anchor_start: int, patch_size: tuple[int, int, int], device: Any, dtype: torch.dtype,
+    generator: torch.Generator,
+) -> tuple[tuple[int, ...], Tensor]:
+    if anchor_start < 0:
+        raise ValueError(f"anchor_start must not be negative, got {anchor_start}")
+    num_latents = int(latent.shape[2])
+    if num_latents < 1:
+        raise ValueError("a condition span needs at least one latent frame")
     rows = []
     for offset in range(num_latents):
         frame = latent[:, :, offset: offset + 1].to(device=device, dtype=torch.float32)

@@ -197,6 +197,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     encode_source_video_condition,
     fit_source_video,
     keyframes_need_encode,
+    latent_condition_rows,
     normalize_references,
     prepare_keyframe_condition_rows,
     prepare_reference_conditioning,
@@ -252,6 +253,30 @@ from src.pipelines.pipes.generator.video_minimax_h3.control import (
 )
 from src.platform.runtime.native.arch.minimax_h3.control import HINT_ROW_MODES, ControlContext, control_attached
 from src.pipelines.pipes.generator.video_minimax_h3.drift import DriftGuard
+from src.pipelines.pipes.generator.video_minimax_h3.loop import (
+    LoopPlan,
+    LoopRequestError,
+    assemble_loop_audio,
+    assemble_loop_latent,
+    bridge_head,
+    bridge_head_audio,
+    bridge_tail,
+    bridge_tail_audio,
+    cyclic_audio_latents,
+    cyclic_decode_segments,
+    cyclic_segment_frames,
+    cyclic_segment_latent,
+    picture_canvas,
+    plan_loop,
+)
+from src.pipelines.pipes.generator.video_minimax_h3.pins import (
+    RowPins,
+    audio_pin,
+    merge_pins,
+    pinned_velocity,
+    restore_pinned,
+    video_pin,
+)
 from src.pipelines.pipes.generator.video_minimax_h3.windows import (
     DirectorPlan,
     DirectorPlanError,
@@ -374,7 +399,7 @@ def _format_fit_hint(hint: Optional[_FitHint], width: int, height: int) -> str:
 VDN_ANCHOR_FRAMES = "both"
 
 _VALID_ANCHORS = ("first", "last")
-_VALID_AUDIO_SOURCES = ("generate", "file", "passthrough", "reference_video")
+_VALID_AUDIO_SOURCES = ("generate", "file", "passthrough", "reference_video", "none")
 _VALID_AUDIO_REFINE_MODES = ("lock", "resample")
 _VALID_MODES = ("video", "references")
 _VALID_SOURCE_ROLES = ("none", "continue", "precede")
@@ -1028,6 +1053,7 @@ class _MiniMaxH3Ctx:
     control_end: float = 1.0
     control_hint_rows: str = "trained"
     control_cache: dict = field(default_factory=dict)
+    loop: Optional[LoopPlan] = None
 
     def release_gpu(self) -> None:
         """Picked up by `BaseGeneratorPipe._release_gpu_on_error` on a failed
@@ -1103,8 +1129,21 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                            "muxed track is), file (mux the user-supplied audio input instead), or "
                            "passthrough (mux an already-decoded track from this pipe's own prior 'audio' "
                            "output, e.g. a future refine stage), or reference_video (mux the first reference "
-                           "video's own soundtrack, e.g. keeping the original sound of a re-performed clip)",
+                           "video's own soundtrack, e.g. keeping the original sound of a re-performed clip), "
+                           "or none (the stream is still sampled with the picture, but the video is written "
+                           "without a soundtrack)",
                            required=False, choices=list(_VALID_AUDIO_SOURCES)),
+            PipeConfigSpec(
+                "loop", bool, False,
+                "Perfect loop: 'frames' is the loop's length, rounded to whole 17-frame VAE chunks. The pipe "
+                "renders an anchor window (text-to-video, or image-to-video from one 'image' anchored 'first'), "
+                "then a bridge window whose first chunk is the anchor's last full chunk and whose last chunk "
+                "and a half are the anchor's own opening latents, pinned exactly on every step. The loop is "
+                "the anchor up to its last chunk plus the bridge up to its pinned tail, decoded with "
+                "wrap-around context, so its last frame flows into its first like any other frame step. "
+                "With sound the length is rounded to 51-frame steps so the audio wraps on a latent boundary.",
+                required=False,
+            ),
             PipeConfigSpec(
                 "audio_refine", str, "lock",
                 "How a refine ('initial_latent' connected) treats the audio stream. 'lock' (default) "
@@ -1542,6 +1581,15 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "generator/video_minimax_h3: a 'source_video' run has to decode -- the reproduced source "
                 "frames are trimmed off in pixel space"
             )
+        loop = bool(self.config.get("loop", False))
+        if loop:
+            self._validate_loop_request(
+                packed=packed, images=images, anchors=configured_anchors, initial_latents=initial_latents,
+                document=self.config.get("document"), source_role=source_role, control_videos=control_videos,
+                decode=bool(self.config.get("decode", True)),
+                audio_source=str(self.config.get("audio_source", "generate")),
+            )
+        loop_plan: Optional[LoopPlan] = None
         if initial_audio_latents and not initial_latents:
             raise ValueError(
                 "generator/video_minimax_h3: 'initial_audio_latent' has no effect without 'initial_latent' "
@@ -1696,7 +1744,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             raw_source = self._load_source_video(source_videos[0]) if source_role != "none" else None
             raw_control = self._load_source_video(control_videos[0]) if control_videos else None
             resolution = str(self.config.get("resolution", "1344x768"))
-            if resolution == AUTO_RESOLUTION:
+            if resolution == AUTO_RESOLUTION and loop and images:
+                height, width = picture_canvas(*images[0].size)
+            elif resolution == AUTO_RESOLUTION:
                 height, width = self._auto_canvas(raw_source if raw_source is not None else raw_control, raw_references)
             else:
                 width, height = (int(part) for part in resolution.split("x"))
@@ -1713,6 +1763,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 frames += head_frames_for_latents(source_overlap_latents)
             elif source_role == "precede":
                 frames += 1
+            if loop:
+                loop_plan = plan_loop(frames, with_sound=str(self.config.get("audio_source", "generate")) == "generate")
+                frames = loop_plan.anchor_frames
             if source_role != "none" and frames > MAX_WINDOW_FRAMES:
                 logger.warning(
                     "[GENERATOR MINIMAX-H3] source extension of %d frame(s) exceeds one %gs window; "
@@ -1790,6 +1843,13 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 " (manual sigmas)" if (manual_sigmas.strip() or manual_audio_sigmas.strip()) else "",
                 sampler, scheduler,
                 ", ".join(kind for kind, _media in packed), audio_source,
+            )
+        elif loop_plan is not None:
+            logger.info(
+                "[GENERATOR MINIMAX-H3] %s: perfect loop of %d frame(s) (%.2fs) @ %dx%d, anchor %d + bridge %d "
+                "frame(s), %d steps each (%s/%s), %d start picture(s), audio_source=%s",
+                spec.variant, loop_plan.loop_frames, loop_plan.seconds, width, height, loop_plan.anchor_frames,
+                loop_plan.bridge_frames, effective_steps, sampler, scheduler, len(keyframe_images), audio_source,
             )
         elif initial_latents:
             logger.info(
@@ -1871,8 +1931,36 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 ),
                 control_scale=control_scale, control_start=control_start, control_end=control_end,
                 control_hint_rows=control_hint_rows,
+                loop=loop_plan,
             ),
         )
+
+    @staticmethod
+    def _validate_loop_request(
+        *, packed: list, images: list, anchors: list, initial_latents: list, document: Any, source_role: str,
+        control_videos: list, decode: bool, audio_source: str,
+    ) -> None:
+        if packed or initial_latents or document or source_role != "none" or control_videos:
+            raise ValueError(
+                "generator/video_minimax_h3: a perfect loop is made from the prompt and an optional start "
+                "picture only -- it cannot be combined with references, a source video, a refine latent, a "
+                "Video Director document or a control video"
+            )
+        if len(images) > 1 or any(anchor != "first" for anchor in anchors):
+            raise ValueError(
+                "generator/video_minimax_h3: a perfect loop takes at most one start picture, anchored as its "
+                "first frame"
+            )
+        if not decode:
+            raise ValueError(
+                "generator/video_minimax_h3: a perfect loop has to decode -- the loop is joined in latent space "
+                "and decoded with wrap-around context, so there is no single window latent to hand on"
+            )
+        if audio_source not in ("generate", "none"):
+            raise ValueError(
+                f"generator/video_minimax_h3: a perfect loop makes its own sound or none, so audio_source must "
+                f"be 'generate' or 'none', got {audio_source!r}"
+            )
 
     @staticmethod
     def _validate_director_images(plan: DirectorPlan, images: List[Any]) -> None:
@@ -2173,6 +2261,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         c: _MiniMaxH3Ctx = ctx.extra
         if c.plan is not None:
             return self._generate_director(c, c.plan, progress, ctx.is_cancelled)
+        if c.loop is not None:
+            return self._generate_loop(c, index, seed, progress, ctx)
         cond_model = c.conditioning[index] if index < len(c.conditioning) else c.conditioning[-1]
         prompt_embeds = cond_model.embeds["context"].to(device=c.device, dtype=c.dtype)
         text_token_tags = cond_model.embeds["token_tags"].to(device=c.device)
@@ -2369,6 +2459,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         layout: Optional[PackedLayout] = None, is_cancelled: Optional[Callable[[], bool]] = None,
         initial_latent: Optional[Tensor] = None, initial_audio_latent: Optional[Tensor] = None,
         progress_segment_id: Optional[str] = None, control_rows: Optional[Tensor] = None,
+        pins: Optional[RowPins] = None,
     ) -> tuple[Tensor, Tensor, PackedLayout]:
         """Sample ONE packed sequence to completion; returns the final
         `(video_rows, audio_rows, layout)` with the condition prefixes still
@@ -2696,6 +2787,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 # too (samplers.py, `_MultistepStepper`).
                 video_velocity = video_pred[n_cv:].float()
                 video_sample = video_rows[n_cv:].float()
+                if pins is not None:
+                    video_velocity = pinned_velocity(
+                        video_velocity, video_sample, video_t, pins.video_index, pins.video_values,
+                    )
                 # Taken BEFORE the row update below: x0 is only this step's estimate
                 # while it pairs this step's velocity and timestep with the sample
                 # the stepper was handed, not the one it produced.
@@ -2705,8 +2800,14 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     video_schedule.sigmas[step_index], video_schedule.sigmas[step_index + 1],
                 ).to(c.dtype)
                 if not audio_locked:
+                    audio_velocity = audio_pred[n_ca:].float()
+                    audio_sample = audio_rows[n_ca:].float()
+                    if pins is not None:
+                        audio_velocity = pinned_velocity(
+                            audio_velocity, audio_sample, audio_t, pins.audio_index, pins.audio_values,
+                        )
                     audio_rows[n_ca:] = audio_stepper.step(
-                        audio_pred[n_ca:].float(), audio_t, audio_rows[n_ca:].float(),
+                        audio_velocity, audio_t, audio_sample,
                         audio_schedule.sigmas[step_index], audio_schedule.sigmas[step_index + 1],
                     ).to(c.dtype)
 
@@ -2718,6 +2819,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 else:
                     video_x0_5d = None
                 run_hooks(loop_hooks, "on_step", step_index, num_steps, video_rows, video_schedule.sigmas[step_index], video_x0_5d)
+
+            if pins is not None:
+                restore_pinned(video_rows, n_cv, pins.video_index, pins.video_values)
+                restore_pinned(audio_rows, n_ca, pins.audio_index, pins.audio_values)
 
             if step_cache is not None:
                 stats = step_cache.stats()
@@ -2906,6 +3011,143 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         self._audio_results.append(stitched_track)
         self._audio_latent_results.append(audio_latents[-1] if audio_latents else None)
         return [stitched]
+
+    def _generate_loop(self, c: _MiniMaxH3Ctx, index: int, seed: int, progress, ctx: GeneratorContext) -> str:
+        plan = c.loop
+        cond_model = c.conditioning[index] if index < len(c.conditioning) else c.conditioning[-1]
+        prompt_embeds = cond_model.embeds["context"].to(device=c.device, dtype=c.dtype)
+        text_token_tags = cond_model.embeds["token_tags"].to(device=c.device)
+        video_schedule, _ = resolve_schedules(
+            c.steps, manual_video=c.manual_sigmas, manual_audio=c.manual_audio_sigmas, scheduler=c.scheduler,
+            video_shift=c.video_sigma_shift, audio_shift=c.audio_sigma_shift, denoise=c.denoise,
+        )
+        per_pass = int(video_schedule.timesteps.numel())
+        shared = dict(
+            prompt_embeds=prompt_embeds, text_token_tags=text_token_tags, condition_audio_rows=None,
+            steps=c.steps, progress=progress, progress_total=2 * per_pass, is_cancelled=ctx.is_cancelled,
+        )
+
+        anchor_generator = torch.Generator(device=c.device).manual_seed(int(seed))
+        video_rows, audio_rows, layout = self._sample_window(
+            c, condition_rows=self._loop_anchor_condition_rows(c, anchor_generator),
+            keyframe_anchors=c.keyframe_anchors, num_latent_frames=plan.anchor_latents,
+            num_audio_latents=plan.anchor_audio_latents, generator=anchor_generator,
+            progress_offset=0, progress_state="LOOP 1/2", **shared,
+        )
+        anchor_latent, anchor_audio = self._loop_window_latents(
+            c, video_rows, audio_rows, layout, plan.anchor_latents, plan.anchor_audio_latents,
+        )
+
+        bridge_generator = torch.Generator(device=c.device).manual_seed(int(seed) + 1)
+        anchors, condition_rows, pins = self._loop_bridge_conditioning(c, anchor_latent, anchor_audio, bridge_generator)
+        video_rows, audio_rows, layout = self._sample_window(
+            c, condition_rows=condition_rows, keyframe_anchors=anchors, num_latent_frames=plan.bridge_latents,
+            num_audio_latents=plan.bridge_audio_latents, generator=bridge_generator,
+            progress_offset=per_pass, progress_state="LOOP 2/2", pins=pins, **shared,
+        )
+        if ctx.is_cancelled():
+            raise SamplingCancelled()
+        bridge_latent, bridge_audio = self._loop_window_latents(
+            c, video_rows, audio_rows, layout, plan.bridge_latents, plan.bridge_audio_latents,
+        )
+
+        loop_latent = assemble_loop_latent(anchor_latent, bridge_latent, plan)
+        loop_audio = assemble_loop_audio(anchor_audio, bridge_audio, plan)
+        frames_np = self._decode_loop_video(c, loop_latent)
+        audio_track = self._decode_loop_audio(c, loop_audio) if c.audio_source == "generate" else None
+        self._audio_results.append(audio_track)
+        if not hasattr(self, "_audio_latent_results"):
+            self._audio_latent_results = []
+        self._audio_latent_results.append(pack_audio_rows(loop_audio).detach())
+        out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+        encode_frames_to_mp4(frames_np, out_path, fps=FPS, audio=audio_track)
+        if index == ctx.quantity - 1:
+            restore_dit_best_effort(c.bundle.dit, c.device)
+            c.reference_cache.release()
+        return out_path
+
+    def _loop_anchor_condition_rows(self, c: _MiniMaxH3Ctx, generator: torch.Generator) -> Tensor:
+        video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
+        weight_revision = getattr(c.bundle.video_vae, "effective_revision", None)
+        needs_video_encode = keyframes_need_encode(
+            c.keyframe_images, cache=c.reference_cache, height=c.height, width=c.width,
+            vae_module=video_vae_module, weight_revision=weight_revision,
+            latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std, device=c.device,
+        )
+        if needs_video_encode:
+            _place_vae(c, c.bundle.video_vae)
+        try:
+            return prepare_keyframe_condition_rows(
+                c.keyframe_images, c.keyframe_anchors, vae_module=video_vae_module,
+                height=c.height, width=c.width, patch_size=PATCH_SIZE, device=c.device, dtype=c.dtype,
+                latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
+                generator=generator, cache=c.reference_cache, weight_revision=weight_revision,
+            )
+        finally:
+            if needs_video_encode:
+                c.bundle.video_vae.offload()
+
+    @staticmethod
+    def _loop_window_latents(
+        c: _MiniMaxH3Ctx, video_rows: Tensor, audio_rows: Tensor, layout: PackedLayout,
+        num_latent_frames: int, num_audio_latents: int,
+    ) -> tuple[Tensor, Tensor]:
+        latent = unpatchify_video_rows(
+            video_rows[layout.num_condition_video_rows:], num_latent_frames=num_latent_frames,
+            latent_height=c.latent_height, latent_width=c.latent_width,
+            channels=VIDEO_LATENT_CHANNELS, patch_size=PATCH_SIZE,
+        )
+        audio = unpack_audio_rows(audio_rows[layout.num_condition_audio_rows:], num_audio_latents=num_audio_latents)
+        return latent, audio
+
+    @staticmethod
+    def _loop_bridge_conditioning(
+        c: _MiniMaxH3Ctx, anchor_latent: Tensor, anchor_audio: Tensor, generator: torch.Generator,
+    ) -> tuple[tuple, Tensor, RowPins]:
+        plan = c.loop
+        rows_per_frame = (c.latent_height // PATCH_SIZE[1]) * (c.latent_width // PATCH_SIZE[2])
+        head, tail = bridge_head(anchor_latent, plan), bridge_tail(anchor_latent, plan)
+        head_anchors, head_rows = latent_condition_rows(
+            head, anchor_start=0, patch_size=PATCH_SIZE, device=c.device, dtype=c.dtype, generator=generator,
+        )
+        tail_anchors, tail_rows = latent_condition_rows(
+            tail, anchor_start=plan.tail_start, patch_size=PATCH_SIZE, device=c.device, dtype=c.dtype,
+            generator=generator,
+        )
+        pins = merge_pins(
+            [
+                video_pin(head, start=0, rows_per_frame=rows_per_frame, patch_size=PATCH_SIZE),
+                video_pin(tail, start=plan.tail_start, rows_per_frame=rows_per_frame, patch_size=PATCH_SIZE),
+            ],
+            [
+                audio_pin(bridge_head_audio(anchor_audio, plan), start=0,
+                          num_audio_latents=plan.bridge_audio_latents),
+                audio_pin(bridge_tail_audio(anchor_audio, plan), start=plan.tail_audio_start,
+                          num_audio_latents=plan.bridge_audio_latents),
+            ],
+            video_width=int(head_rows.shape[1]), audio_width=int(anchor_audio.shape[1]), device=c.device,
+        )
+        return head_anchors + tail_anchors, torch.cat([head_rows, tail_rows], dim=0), pins
+
+    def _decode_loop_video(self, c: _MiniMaxH3Ctx, loop_latent: Tensor) -> np.ndarray:
+        chunks = loop_latent.shape[2] // LATENTS_PER_CHUNK
+        parts = [
+            self._decode_video(c, cyclic_segment_latent(loop_latent, start, end))[cyclic_segment_frames(start, end)]
+            for start, end in cyclic_decode_segments(chunks)
+        ]
+        return np.concatenate(parts, axis=0)
+
+    def _decode_loop_audio(self, c: _MiniMaxH3Ctx, loop_audio: Tensor) -> AudioInput:
+        padded, context = cyclic_audio_latents(loop_audio)
+        track = self._resolve_audio(c, pack_audio_rows(padded), num_audio_latents=int(padded.shape[-1]))
+        if not isinstance(track, AudioTrack):
+            return track
+        hop = track.waveform.shape[-1] // int(padded.shape[-1])
+        start = context * hop
+        return AudioTrack(
+            waveform=track.waveform[:, start: start + int(loop_audio.shape[-1]) * hop],
+            sample_rate=track.sample_rate,
+        )
 
     def _window_step_count(self, c: _MiniMaxH3Ctx, window: WindowPlan) -> int:
         """Model evaluations one window runs -- the schedule's length, which a

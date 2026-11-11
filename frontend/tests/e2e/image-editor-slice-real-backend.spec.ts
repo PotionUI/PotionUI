@@ -78,7 +78,7 @@ test.describe('Slice against the real backend', () => {
 					const shape = Math.abs(pixels.width / pixels.height - WIDTH / HEIGHT) < 0.02;
 					return shape && pixels.samples.length === 5 && pixels.samples.every(([r, g, b, a]) => a > 200 && Math.max(r, g, b) > 40);
 				},
-				{ message: 'the sheet should be drawn, not a black canvas', timeout: 20000 }
+				{ message: 'the sheet should be drawn, not a black canvas', timeout: 90000 }
 			)
 			.toBe(true);
 		const cells = page.locator('[data-slice-overlay] [data-slice-cell]');

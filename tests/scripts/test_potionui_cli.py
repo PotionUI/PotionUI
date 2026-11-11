@@ -450,9 +450,10 @@ def test_cmd_start_prints_the_node_security_warning_and_still_starts(monkeypatch
     spawned = []
     monkeypatch.setattr(
         cli, "start_supervised",
-        lambda name, cmd, cwd, env, port, spawn=None: spawned.append(name) or {
-            "pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"
-        },
+        lambda name, cmd, cwd, env, port, spawn=None: spawned.append(name) or (
+            {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"},
+            _LiveProcess(),
+        ),
     )
 
     assert cli.cmd_start(cli.build_parser().parse_args(["start"])) == 0
@@ -471,9 +472,10 @@ def test_cmd_start_prints_no_node_line_when_node_is_patched(monkeypatch, tmp_pat
     _touch_with_mtime(tmp_path / "frontend" / "build" / "index.html", 200.0)
     monkeypatch.setattr(
         cli, "start_supervised",
-        lambda name, cmd, cwd, env, port, spawn=None: {
-            "pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"
-        },
+        lambda name, cmd, cwd, env, port, spawn=None: (
+            {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"},
+            _LiveProcess(),
+        ),
     )
 
     assert cli.cmd_start(cli.build_parser().parse_args(["start"])) == 0
@@ -578,11 +580,22 @@ def test_check_gpu_absent():
 def test_check_gpu_present():
     probe = FakeProbe(
         which={"nvidia-smi": "/usr/bin/nvidia-smi"},
-        run={"/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 5090, 570.00\n")},
+        run={"/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 5090, 580.65\n")},
     )
     result = cli.check_gpu(probe)
     assert result.severity == cli.Severity.OK
     assert "RTX 5090" in result.message
+
+
+def test_check_gpu_warns_when_the_nvidia_driver_is_older_than_580():
+    probe = FakeProbe(
+        which={"nvidia-smi": "/usr/bin/nvidia-smi"},
+        run={"/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 4090, 570.172.08\n")},
+    )
+    result = cli.check_gpu(probe)
+    assert result.severity == cli.Severity.WARNING
+    assert result.blocking is False
+    assert "580" in result.repair
 
 
 def test_check_gpu_present_but_empty_output():
@@ -615,7 +628,7 @@ def test_check_gpu_required_absent_is_blocking_error():
 def test_check_gpu_required_present_is_ok_and_blocking():
     probe = FakeProbe(
         which={"nvidia-smi": "/usr/bin/nvidia-smi"},
-        run={"/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 5090, 570.00\n")},
+        run={"/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 5090, 580.65\n")},
     )
     result = cli.check_gpu(probe, required=True)
     assert result.severity == cli.Severity.OK
@@ -1191,11 +1204,19 @@ class FakePopen:
         self.pid = pid
 
 
+class _LiveProcess:
+    pid = 1
+
+    def poll(self):
+        return None
+
+
 def test_start_supervised_records_pid_and_port(tmp_path):
     def fake_spawn(cmd, cwd, env, log_path):
         return FakePopen(pid=4242)
 
-    info = cli.start_supervised("backend", ["echo", "hi"], tmp_path, {}, 8005, spawn=fake_spawn)
+    info, popen = cli.start_supervised("backend", ["echo", "hi"], tmp_path, {}, 8005, spawn=fake_spawn)
+    assert popen.pid == 4242
     assert info["pid"] == 4242
     assert info["port"] == 8005
     assert info["log"].endswith("backend.log")
@@ -1604,7 +1625,7 @@ def test_cmd_start_frontend_env_and_probe_url_share_the_same_host(monkeypatch, t
     def fake_start_supervised(name, cmd, cwd, env, port, spawn=None):
         if name == "frontend":
             captured["frontend_env"] = env
-        return {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"}
+        return {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"}, _LiveProcess()
 
     monkeypatch.setattr(cli, "start_supervised", fake_start_supervised)
     monkeypatch.setattr(cli, "save_state", lambda state, state_file=cli.STATE_FILE: None)
@@ -1612,7 +1633,7 @@ def test_cmd_start_frontend_env_and_probe_url_share_the_same_host(monkeypatch, t
 
     probed_urls = []
 
-    def fake_wait_for_ready(check, timeout):
+    def fake_wait_for_ready(check, timeout, exited=None):
         probed_urls.append(check)
         return True
 
@@ -1690,13 +1711,14 @@ def _stub_cmd_start_for_profile(monkeypatch, tmp_path, deps_importable=False):
     monkeypatch.setattr(cli, "run_streamed", fake_run_streamed)
     monkeypatch.setattr(
         cli, "start_supervised",
-        lambda name, cmd, cwd, env, port, spawn=None: {
-            "pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"
-        },
+        lambda name, cmd, cwd, env, port, spawn=None: (
+            {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"},
+            _LiveProcess(),
+        ),
     )
     monkeypatch.setattr(cli, "save_state", lambda state, state_file=cli.STATE_FILE: None)
     monkeypatch.setattr(cli, "_install_signal_forwarding", lambda state: None)
-    monkeypatch.setattr(cli, "wait_for_ready", lambda check, timeout: True)
+    monkeypatch.setattr(cli, "wait_for_ready", lambda check, timeout, exited=None: True)
     monkeypatch.setattr(cli, "http_ok", lambda url, **kwargs: True)
     monkeypatch.setattr(cli, "_print_claim_token_hint", lambda repo_root, port: None)
     return captured, marked
@@ -1882,7 +1904,7 @@ def _stub_cmd_start_prereqs(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(cli, "save_state", lambda state, state_file=cli.STATE_FILE: None)
     monkeypatch.setattr(cli, "_install_signal_forwarding", lambda state: None)
-    monkeypatch.setattr(cli, "wait_for_ready", lambda check, timeout: True)
+    monkeypatch.setattr(cli, "wait_for_ready", lambda check, timeout, exited=None: True)
     monkeypatch.setattr(cli, "http_ok", lambda url, **kwargs: True)
     monkeypatch.setattr(cli, "_print_claim_token_hint", lambda repo_root, port: None)
     return venv_python
@@ -1898,9 +1920,10 @@ def test_cmd_start_single_process_when_build_is_fresh_spawns_backend_only(monkey
     spawned = []
     monkeypatch.setattr(
         cli, "start_supervised",
-        lambda name, cmd, cwd, env, port, spawn=None: spawned.append(name) or {
-            "pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"
-        },
+        lambda name, cmd, cwd, env, port, spawn=None: spawned.append(name) or (
+            {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"},
+            _LiveProcess(),
+        ),
     )
 
     parser = cli.build_parser()
@@ -1922,9 +1945,10 @@ def test_cmd_start_dev_flag_forces_two_process_even_with_a_fresh_build(monkeypat
     spawned = []
     monkeypatch.setattr(
         cli, "start_supervised",
-        lambda name, cmd, cwd, env, port, spawn=None: spawned.append(name) or {
-            "pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"
-        },
+        lambda name, cmd, cwd, env, port, spawn=None: spawned.append(name) or (
+            {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"},
+            _LiveProcess(),
+        ),
     )
 
     parser = cli.build_parser()
@@ -2030,7 +2054,7 @@ def _worker_ok_probe(port=None, worker_dir=None):
             "ffmpeg": "/usr/bin/ffmpeg",
         },
         run={
-            "/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 5090, 570.00\n"),
+            "/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 5090, 580.65\n"),
             "/usr/bin/python3.12": cp(stdout="3.12.2\n"),
             "/usr/bin/ffmpeg": cp(stdout="ffmpeg version 6.1.1\n"),
         },
@@ -2261,7 +2285,7 @@ def _stub_port_fallback_start(monkeypatch, tmp_path, ports_free):
         captured.setdefault("ports", {})[name] = port
         captured.setdefault("envs", {})[name] = env
         captured.setdefault("cmds", {})[name] = cmd
-        return {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"}
+        return {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"}, _LiveProcess()
 
     saved = {}
     monkeypatch.setattr(cli, "start_supervised", fake_start_supervised)
@@ -2347,3 +2371,213 @@ def test_cmd_start_stops_early_when_the_visual_cpp_runtime_is_missing(monkeypatc
 
     out = capsys.readouterr().out
     assert "VCRUNTIME" in out and "winget install -e --id Microsoft.VCRedist.2015+.x64" in out
+
+
+
+class _DeadProcess:
+    pid = 2
+
+    def __init__(self, exit_code):
+        self.exit_code = exit_code
+
+    def poll(self):
+        return self.exit_code
+
+
+@pytest.mark.parametrize("log_tail, exit_code, expected", [
+    ("ModuleNotFoundError: No module named 'fastapi'", 1, "Python package is missing"),
+    ("ImportError: libGL.so.1: cannot open shared object file: No such file or directory", 1, "system library"),
+    ("ImportError: DLL load failed while importing cv2", 1, "Visual C++ Redistributable"),
+    ("ERROR: [Errno 98] error while attempting to bind on address ('127.0.0.1', 26730): address already in use", 1, "already using the port"),
+    ("OSError: [Errno 10048] only one usage of each socket address", 1, "already using the port"),
+    ("sqlite3.OperationalError: attempt to write a readonly database", 1, "cannot write to its database or storage folder"),
+    ("PermissionError: [Errno 13] Permission denied: 'storage/logs'", 1, "cannot write to its database or storage folder"),
+    ("OSError: [Errno 28] No space left on device", 1, "disk is full"),
+    ("sqlite3.OperationalError: database or disk is full", 1, "disk is full"),
+    ('  File "src/bootstrap/app.py", line 215, in run_migrations_sync\nValueError: boom', 1, "database upgrade failed"),
+    ("RuntimeError: CUDA driver version is insufficient for CUDA runtime version", 1, "graphics driver is too old"),
+    ("MemoryError", 1, "ran out of memory"),
+    ("Illegal instruction (core dumped)", -4, "processor feature"),
+    ("", -9, "killed"),
+    ("", 0xC0000017, "killed"),
+    ("", -4, "processor feature"),
+    ("", 0xC000001D, "processor feature"),
+])
+def test_explain_start_failure_maps_each_signature_to_its_sentence(log_tail, exit_code, expected):
+    assert expected in cli.explain_start_failure(log_tail, exit_code, "/x/backend.log")
+
+
+def test_explain_start_failure_with_no_match_points_to_the_full_log():
+    reading = cli.explain_start_failure("something unheard of", 1, "/x/backend.log")
+
+    assert "/x/backend.log" in reading
+    assert "full log" in reading
+
+
+def test_the_normal_startup_chatter_about_migrations_is_not_read_as_a_failed_upgrade():
+    reading = cli.explain_start_failure("INFO Checking database migrations...\nINFO Pending migrations found, applying...", 1, "/x/backend.log")
+
+    assert "upgrade" not in reading
+
+
+@pytest.mark.parametrize("exit_code, label", [
+    (1, "exit code 1)"),
+    (-9, "exit code -9, stopped by signal 9)"),
+    (3221225477, "exit code 3221225477, 0xC0000005)"),
+])
+def test_describe_exit_code_reads_posix_signals_and_windows_status_codes(exit_code, label):
+    assert label in f"exit code {cli.describe_exit_code(exit_code)})"
+
+
+def test_fail_start_with_an_exit_code_says_the_backend_stopped_and_reads_the_log(monkeypatch, tmp_path, capsys):
+    log = tmp_path / "backend.log"
+    log.write_text("starting\nModuleNotFoundError: No module named 'fastapi'\n")
+    stopped = []
+    monkeypatch.setattr(cli, "stop_process", lambda pid: stopped.append(pid) or True)
+    monkeypatch.setattr(cli, "clear_state", lambda: None)
+    info = {"pid": 5, "port": 26730, "log": str(log)}
+
+    code = cli._fail_start("backend", info, {"backend": info}, 1)
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "The backend stopped while starting (exit code 1)." in out
+    assert "did not become ready" not in out
+    assert "No module named 'fastapi'" in out
+    assert "A Python package is missing or broken" in out
+    assert "doctor code: BACKEND_START_TIMEOUT" in out
+
+
+def test_fail_start_without_an_exit_code_keeps_the_timeout_sentence_and_adds_no_reading(monkeypatch, tmp_path, capsys):
+    log = tmp_path / "backend.log"
+    log.write_text("still going\n")
+    monkeypatch.setattr(cli, "stop_process", lambda pid: True)
+    monkeypatch.setattr(cli, "clear_state", lambda: None)
+    info = {"pid": 5, "port": 26730, "log": str(log)}
+
+    cli._fail_start("backend", info, {"backend": info})
+
+    out = capsys.readouterr().out
+    assert "backend did not become ready within the timeout." in out
+    assert "stopped while starting" not in out
+    assert "full log" not in out
+
+
+def _stub_dead_backend_start(monkeypatch, tmp_path, exit_code, wait_results, log_text="Traceback\nModuleNotFoundError: No module named 'fastapi'\n"):
+    _stub_cmd_start_prereqs(monkeypatch, tmp_path)
+    log = tmp_path / "backend.log"
+    log.write_text(log_text)
+    dead = _DeadProcess(exit_code)
+    seen = []
+
+    def fake_start_supervised(name, cmd, cwd, env, port, spawn=None):
+        process = dead if name == "backend" else _LiveProcess()
+        return {"pid": process.pid, "port": port, "log": str(log), "started_at": "now"}, process
+
+    results = iter(wait_results)
+
+    def fake_wait(check, timeout, exited=None):
+        seen.append(exited)
+        return next(results)
+
+    monkeypatch.setattr(cli, "start_supervised", fake_start_supervised)
+    monkeypatch.setattr(cli, "wait_for_ready", fake_wait)
+    monkeypatch.setattr(cli, "stop_process", lambda pid: True)
+    monkeypatch.setattr(cli, "clear_state", lambda: None)
+    return dead, seen
+
+
+def test_cmd_start_single_process_stops_with_the_reading_when_the_backend_exits(monkeypatch, tmp_path, capsys):
+    _touch_with_mtime(tmp_path / "frontend" / "src" / "routes" / "+page.svelte", 100.0)
+    _touch_with_mtime(tmp_path / "frontend" / "build" / "index.html", 200.0)
+    dead, seen = _stub_dead_backend_start(monkeypatch, tmp_path, 1, [False])
+
+    code = cli.cmd_start(cli.build_parser().parse_args(["start"]))
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert seen == [dead.poll]
+    assert "The backend stopped while starting (exit code 1)." in out
+    assert "PotionUI is up." not in out
+
+
+def test_cmd_start_two_process_watches_the_backend_during_both_waits_and_blames_it(monkeypatch, tmp_path, capsys):
+    (tmp_path / "frontend" / "node_modules" / ".bin").mkdir(parents=True)
+    (tmp_path / "frontend" / "node_modules" / ".bin" / "vite").touch()
+    dead, seen = _stub_dead_backend_start(monkeypatch, tmp_path, -9, [True, False], log_text="starting\n")
+
+    code = cli.cmd_start(cli.build_parser().parse_args(["start", "--dev"]))
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert seen == [dead.poll, dead.poll]
+    assert "The backend stopped while starting (exit code -9, stopped by signal 9)." in out
+    assert "frontend did not become ready" not in out
+    assert "was killed" in out
+
+
+def test_cmd_start_two_process_blames_the_frontend_when_only_the_frontend_never_answers(monkeypatch, tmp_path, capsys):
+    (tmp_path / "frontend" / "node_modules" / ".bin").mkdir(parents=True)
+    (tmp_path / "frontend" / "node_modules" / ".bin" / "vite").touch()
+    _stub_dead_backend_start(monkeypatch, tmp_path, None, [True, False])
+
+    code = cli.cmd_start(cli.build_parser().parse_args(["start", "--dev"]))
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "frontend did not become ready within the timeout." in out
+    assert "The backend stopped" not in out
+
+
+
+def test_the_remote_hint_is_printed_for_remote_only(capsys):
+    cli._print_remote_profile_hint("remote")
+    remote_out = capsys.readouterr().out
+    for profile in ("local", "hybrid"):
+        cli._print_remote_profile_hint(profile)
+    other_out = capsys.readouterr().out
+
+    assert "does not generate on this computer" in remote_out
+    assert "Admin -> Backends" in remote_out
+    assert other_out == ""
+
+
+def test_cmd_start_remote_profile_ends_with_the_remote_hint(monkeypatch, tmp_path, capsys):
+    _stub_cmd_start_for_profile(monkeypatch, tmp_path, deps_importable=True)
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start", "--profile", "remote"])) == 0
+    remote_out = capsys.readouterr().out
+    assert cli.cmd_start(cli.build_parser().parse_args(["start", "--profile", "local"])) == 0
+    local_out = capsys.readouterr().out
+
+    assert "does not generate on this computer" in remote_out
+    assert "does not generate on this computer" not in local_out
+
+
+def _status_state(tmp_path):
+    return {"backend": {"pid": 111, "port": 8005, "log": "backend.log", "started_at": "now"}}
+
+
+def test_cmd_status_prints_the_claim_hint_while_the_code_file_exists(monkeypatch, tmp_path, capsys):
+    (tmp_path / "storage").mkdir()
+    (tmp_path / "storage" / "setup_claim_token").write_text("ABC-123\n")
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(cli, "load_state", lambda state_file=cli.STATE_FILE: _status_state(tmp_path))
+    monkeypatch.setattr(cli, "pid_alive", lambda pid: True)
+
+    code = cli.cmd_status(cli.build_parser().parse_args(["status"]))
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "use this claim code if asked: ABC-123" in out
+    assert "http://localhost:8005" in out
+
+
+def test_cmd_status_is_silent_about_a_claim_code_when_there_is_no_code_file(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(cli, "load_state", lambda state_file=cli.STATE_FILE: _status_state(tmp_path))
+    monkeypatch.setattr(cli, "pid_alive", lambda pid: True)
+
+    cli.cmd_status(cli.build_parser().parse_args(["status"]))
+
+    assert "claim code" not in capsys.readouterr().out

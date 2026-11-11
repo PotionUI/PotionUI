@@ -593,6 +593,9 @@ def check_ffmpeg(probe) -> CheckResult:
     return CheckResult("FFMPEG", Severity.OK, f"ffmpeg found at {path} (version unknown).", blocking=False)
 
 
+MIN_NVIDIA_DRIVER_MAJOR = 580
+
+
 def check_gpu(probe, no_gpu: bool = False, required: bool = False) -> CheckResult:
     """`required=True` is the `worker doctor` variant: a worker with no GPU
     can't execute anything, so an absent/broken GPU is a blocking error there
@@ -641,7 +644,24 @@ def check_gpu(probe, no_gpu: bool = False, required: bool = False) -> CheckResul
             repair="Check the NVIDIA driver installation (`nvidia-smi`).", blocking=required,
         )
     line = result.stdout.strip().splitlines()[0]
+    driver_major = _nvidia_driver_major(line)
+    if driver_major is not None and driver_major < MIN_NVIDIA_DRIVER_MAJOR:
+        return CheckResult(
+            "GPU", Severity.WARNING,
+            f"GPU detected: {line}. The NVIDIA driver is older than {MIN_NVIDIA_DRIVER_MAJOR}.",
+            repair=(
+                f"Update the NVIDIA driver to version {MIN_NVIDIA_DRIVER_MAJOR} or newer, "
+                "or generation will fail with \"CUDA driver version is insufficient\"."
+            ),
+            blocking=False,
+        )
     return CheckResult("GPU", Severity.OK, f"GPU detected: {line}.", blocking=required)
+
+
+def _nvidia_driver_major(smi_line: str) -> Optional[int]:
+    version = smi_line.rsplit(",", 1)[-1].strip()
+    head = version.split(".", 1)[0]
+    return int(head) if head.isdigit() else None
 
 
 def describe_port_owner(port: int, pid: int, process_name: str, services: Sequence[str] = ()) -> str:
@@ -1044,6 +1064,87 @@ def guess_failed_requirement(text: str) -> Optional[str]:
     return None
 
 
+START_FAILURE_SIGNATURES: list[tuple[re.Pattern, str]] = [
+    (
+        re.compile(r"CUDA driver version is insufficient|NVIDIA driver on your system is too old|driver (?:is )?too old", re.IGNORECASE),
+        "The NVIDIA graphics driver is too old for the installed CUDA software. "
+        "Update the driver to version 580 or newer and start again.",
+    ),
+    (
+        re.compile(r"No space left on device|\[Errno 28\]|database or disk is full|not enough space on the disk", re.IGNORECASE),
+        "The disk is full. Free some space on the drive PotionUI is installed on and start again.",
+    ),
+    (
+        re.compile(r"Address already in use|\[Errno 98\]|\[Errno 10048\]|error while attempting to bind on address|only one usage of each socket address", re.IGNORECASE),
+        "Another program is already using the port PotionUI needs. Close it, or start with "
+        "`--backend-port` and a different number.",
+    ),
+    (
+        re.compile(r"readonly database|unable to open database file|PermissionError|Permission denied|Access is denied", re.IGNORECASE),
+        "PotionUI cannot write to its database or storage folder. Make sure your user owns "
+        "the PotionUI folder (including `storage`) and can change what is inside it.",
+    ),
+    (
+        re.compile(r"run_migrations_sync|migration_runner\.py|_run_migration"),
+        "The database upgrade failed while PotionUI was starting. Back up the `storage` folder, "
+        "then read the lines above for the exact error before trying again.",
+    ),
+    (
+        re.compile(r"DLL load failed|cannot open shared object file", re.IGNORECASE),
+        "A system library that PotionUI needs is missing. Install the missing library named "
+        "above (on Windows, the latest Microsoft Visual C++ Redistributable) and start again.",
+    ),
+    (
+        re.compile(r"No module named ['\"]?([\w.\-]+)|ImportError: cannot import name", re.IGNORECASE),
+        "A Python package is missing or broken. Delete the `venv` folder and run "
+        "`./potionui start` again to reinstall everything.",
+    ),
+    (
+        re.compile(r"MemoryError|Out of memory|Cannot allocate memory", re.IGNORECASE),
+        "The computer ran out of memory. Close other programs and start again.",
+    ),
+    (
+        re.compile(r"Illegal instruction", re.IGNORECASE),
+        "A component used a processor feature this computer does not have. "
+        "Reinstall for this machine: delete the `venv` folder and run `./potionui start` again.",
+    ),
+]
+
+START_FAILURE_EXIT_CODES: list[tuple[frozenset, str]] = [
+    (
+        frozenset({-9, 0xC0000017}),
+        "The backend was killed, most likely because the computer ran out of memory. "
+        "Close other programs and start again.",
+    ),
+    (
+        frozenset({-4, 0xC000001D}),
+        "A component used a processor feature this computer does not have. "
+        "Reinstall for this machine: delete the `venv` folder and run `./potionui start` again.",
+    ),
+]
+
+
+def describe_exit_code(exit_code: int) -> str:
+    if exit_code < 0:
+        return f"{exit_code}, stopped by signal {-exit_code}"
+    if exit_code >= 0x80000000:
+        return f"{exit_code}, 0x{exit_code:08X}"
+    return str(exit_code)
+
+
+def explain_start_failure(log_tail: str, exit_code: Optional[int], log_path: Optional[str] = None) -> str:
+    for pattern, sentence in START_FAILURE_SIGNATURES:
+        if pattern.search(log_tail):
+            return sentence
+    if exit_code is not None:
+        normalized = exit_code & 0xFFFFFFFF if exit_code >= 0 else exit_code
+        for codes, sentence in START_FAILURE_EXIT_CODES:
+            if normalized in codes:
+                return sentence
+    where = f"at {log_path}" if log_path else "in the logs folder"
+    return f"The cause is not one PotionUI recognises. The full log is {where}."
+
+
 def run_streamed(cmd: list[str], cwd: Path, env: dict, label: str) -> bool:
     """Run cmd with output streamed live to stdout. Returns True on success.
     On failure, prints the tail of output and a best-effort guess at the
@@ -1101,16 +1202,17 @@ def spawn_process(cmd: list[str], cwd: Path, env: dict, log_path: Path) -> subpr
         log_file.close()  # child holds its own dup'd fd
 
 
-def start_supervised(name: str, cmd: list[str], cwd: Path, env: dict, port: int, spawn=spawn_process) -> dict:
+def start_supervised(name: str, cmd: list[str], cwd: Path, env: dict, port: int, spawn=spawn_process) -> tuple[dict, subprocess.Popen]:
     log_path = LOG_DIR / f"{name}.log"
     popen = spawn(cmd, cwd, env, log_path)
-    return {
+    info = {
         "pid": popen.pid,
         "port": port,
         "cmd": cmd,
         "log": str(log_path),
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
+    return info, popen
 
 
 def _pid_alive_windows(pid: int) -> bool:
@@ -1221,10 +1323,13 @@ def wait_for_ready(
     clock: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
     report: Callable[[str], None] = print,
+    exited: Optional[Callable[[], Optional[int]]] = None,
 ) -> bool:
     deadline = clock() + timeout
     announced = False
     while True:
+        if exited is not None and exited() is not None:
+            return False
         state = check_fn()
         if state == STARTING:
             deadline = clock() + timeout
@@ -1366,6 +1471,14 @@ def _print_claim_token_hint(repo_root: Path, port: int) -> None:
         )
 
 
+def _print_remote_profile_hint(profile: str) -> None:
+    if profile != "remote":
+        return
+    print(
+        "\nThis install does not generate on this computer. Connect a worker, a ComfyUI server "
+        "or cloud models in Admin -> Backends."
+    )
+
 def _print_hybrid_profile_hint(profile: str) -> None:
     if profile != "hybrid":
         return
@@ -1427,13 +1540,20 @@ def _install_signal_forwarding(state: dict) -> None:
     signal.signal(signal.SIGTERM, _handler)
 
 
-def _fail_start(name: str, info: dict, state: dict) -> int:
-    print(f"\n{name} did not become ready within the timeout.")
+def _fail_start(name: str, info: dict, state: dict, exit_code: Optional[int] = None) -> int:
+    if exit_code is None:
+        print(f"\n{name} did not become ready within the timeout.")
+    else:
+        print(f"\nThe {name} stopped while starting (exit code {describe_exit_code(exit_code)}).")
     log_path = Path(info["log"])
+    tail_lines: list[str] = []
     if log_path.exists():
+        tail_lines = log_path.read_text(errors="replace").splitlines()[-30:]
         print(f"Last lines of {log_path}:")
-        for line in log_path.read_text(errors="replace").splitlines()[-30:]:
+        for line in tail_lines:
             print(f"  {line}")
+    if exit_code is not None:
+        print(f"\n{explain_start_failure(chr(10).join(tail_lines), exit_code, str(log_path))}")
     code = "BACKEND_START_TIMEOUT" if name == "backend" else "FRONTEND_START_TIMEOUT"
     print(f"\ndoctor code: {code}")
     print("Stopping partially-started processes...")
@@ -1538,20 +1658,21 @@ def cmd_start(args) -> int:
         # The browser talks to the backend directly (same origin serves both
         # the SPA and /api), so there's no cross-origin frontend to allow.
         print("\nStarting backend...")
-        backend_info = start_supervised("backend", backend_cmd, REPO_ROOT, backend_env, args.backend_port)
+        backend_info, backend_proc = start_supervised("backend", backend_cmd, REPO_ROOT, backend_env, args.backend_port)
         state = {"backend": backend_info}
         save_state(state)
         _install_signal_forwarding(state)
 
         print("Waiting for backend to become ready...")
         backend_url = f"http://127.0.0.1:{args.backend_port}/health"
-        if not wait_for_ready(lambda: health_state(backend_url), timeout=args.timeout):
-            return _fail_start("backend", backend_info, state)
+        if not wait_for_ready(lambda: health_state(backend_url), timeout=args.timeout, exited=backend_proc.poll):
+            return _fail_start("backend", backend_info, state, backend_proc.poll())
 
         print("\nPotionUI is up.")
         _print_canonical_url(args.backend_port)
         _print_claim_token_hint(REPO_ROOT, args.backend_port)
         _print_hybrid_profile_hint(profile)
+        _print_remote_profile_hint(profile)
         return 0
 
     vite_bin = REPO_ROOT / "frontend" / "node_modules" / ".bin" / "vite"
@@ -1573,8 +1694,8 @@ def cmd_start(args) -> int:
     frontend_cmd = [npm_bin, "run", "dev"]
 
     print("\nStarting backend and frontend...")
-    backend_info = start_supervised("backend", backend_cmd, REPO_ROOT, backend_env, args.backend_port)
-    frontend_info = start_supervised("frontend", frontend_cmd, REPO_ROOT / "frontend", frontend_env, args.frontend_port)
+    backend_info, backend_proc = start_supervised("backend", backend_cmd, REPO_ROOT, backend_env, args.backend_port)
+    frontend_info, _frontend_proc = start_supervised("frontend", frontend_cmd, REPO_ROOT / "frontend", frontend_env, args.frontend_port)
     state = {"backend": backend_info, "frontend": frontend_info}
     save_state(state)
     _install_signal_forwarding(state)
@@ -1583,15 +1704,19 @@ def cmd_start(args) -> int:
     backend_url = f"http://127.0.0.1:{args.backend_port}/health"
     frontend_url = f"http://{FRONTEND_BIND_HOST}:{args.frontend_port}/"
 
-    if not wait_for_ready(lambda: health_state(backend_url), timeout=args.timeout):
-        return _fail_start("backend", backend_info, state)
-    if not wait_for_ready(lambda: http_ok(frontend_url), timeout=args.timeout):
+    if not wait_for_ready(lambda: health_state(backend_url), timeout=args.timeout, exited=backend_proc.poll):
+        return _fail_start("backend", backend_info, state, backend_proc.poll())
+    if not wait_for_ready(lambda: http_ok(frontend_url), timeout=args.timeout, exited=backend_proc.poll):
+        backend_exit = backend_proc.poll()
+        if backend_exit is not None:
+            return _fail_start("backend", backend_info, state, backend_exit)
         return _fail_start("frontend", frontend_info, state)
 
     print("\nPotionUI is up.")
     _print_canonical_url(args.frontend_port)
     _print_claim_token_hint(REPO_ROOT, args.frontend_port)
     _print_hybrid_profile_hint(profile)
+    _print_remote_profile_hint(profile)
     return 0
 
 
@@ -1631,6 +1756,7 @@ def cmd_status(args) -> int:
         print("PotionUI is not running (no state file).")
         return 1
     _print_status_lines(state)
+    _print_claim_token_hint(REPO_ROOT, _canonical_port(state))
     all_alive = all(pid_alive(state[n]["pid"]) for n in ("backend", "frontend") if state.get(n))
     return 0 if all_alive else 1
 

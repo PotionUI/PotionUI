@@ -23,11 +23,12 @@ import uvicorn
 
 from src.bootstrap.app import create_app
 from src.bootstrap.asgi import resolve_asgi_loop
+from src.bootstrap.startup import create_or_explain
 from src.platform.observability.logger import configure_logging
 
 configure_logging()
 
-app = create_app()
+app = create_or_explain(create_app)
 
 
 if __name__ == "__main__":

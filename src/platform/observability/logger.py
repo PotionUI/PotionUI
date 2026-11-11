@@ -19,6 +19,8 @@ from pathlib import Path
 
 from rich.logging import RichHandler
 
+from src.platform.security.redaction import redact_api_keys
+
 FILE_FORMAT = "%(asctime)s | %(levelname)8s | %(name)s | %(message)s"
 FILE_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -51,7 +53,7 @@ _SECRET_QUERY_PATTERN = re.compile(
 
 
 def _redact_secret_query_params(text: str) -> str:
-    return _SECRET_QUERY_PATTERN.sub(lambda m: f"{m.group(1)}=***", text)
+    return redact_api_keys(_SECRET_QUERY_PATTERN.sub(lambda m: f"{m.group(1)}=***", text))
 
 
 class _SecretQueryParamFilter(logging.Filter):

@@ -98,6 +98,10 @@ from src.features.automation.routes import (
     build_router as build_automation_router,
     build_ws_router as build_automation_ws_router,
 )
+from src.features.api_keys.routes import (
+    build_admin_router as build_api_keys_admin_router,
+    build_router as build_api_keys_router,
+)
 from src.features.mcp.routes import build_router as build_mcp_router
 
 
@@ -176,4 +180,6 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_notification_ws_router(container))  # Notification WebSocket endpoint
     app.include_router(build_automation_router(container))  # Automation endpoints
     app.include_router(build_automation_ws_router(container))  # Automation WebSocket endpoint
-    app.include_router(build_mcp_router(container))  # MCP tokens + JSON-RPC endpoint
+    app.include_router(build_api_keys_router(container))
+    app.include_router(build_api_keys_admin_router(container))
+    app.include_router(build_mcp_router(container))

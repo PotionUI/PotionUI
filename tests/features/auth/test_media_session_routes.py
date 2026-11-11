@@ -139,6 +139,22 @@ class TestMediaCookieIssued:
         assert response.status_code == 200
         assert _media_cookie(response)[0].value == token
 
+    def test_me_never_sets_the_cookie_when_the_caller_is_an_api_key(self, client, user):
+        from dataclasses import replace
+
+        from src.platform.security.api_scopes import ApiScope
+        from src.platform.security.principal import KeyGrant
+
+        grant = KeyGrant(key_id="k1", user_id=user.id, scopes=frozenset({ApiScope.READ}), display_prefix="pui_aaaaaaaa")
+        client.app.dependency_overrides[current_user.get_current_user] = lambda: replace(user, key=grant)
+        secret = "pui_" + "a" * 46
+
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {secret}"})
+
+        assert response.status_code == 200
+        assert _media_cookie(response) == (None, None)
+        assert secret not in "".join(response.headers.get_list("set-cookie"))
+
     def test_me_without_a_token_sets_nothing(self, client):
         response = client.get("/api/auth/me")
 

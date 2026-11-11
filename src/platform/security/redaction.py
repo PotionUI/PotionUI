@@ -143,6 +143,15 @@ def _mask_text_match(match: "re.Match[str]") -> str:
     return matched[: start - offset] + SECRET_MASK + matched[end - offset :]
 
 
+_API_KEY_PATTERN = re.compile(r"pui_[0-9A-Za-z_-]{20,}")
+
+
+def redact_api_keys(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+    return _API_KEY_PATTERN.sub("pui_" + SECRET_MASK, text)
+
+
 def redact_text(text: str) -> str:
     """`text` with credential-shaped values replaced by the mask.
 
@@ -153,4 +162,4 @@ def redact_text(text: str) -> str:
     """
     if not isinstance(text, str) or not text:
         return text
-    return _TEXT_SECRET_PATTERN.sub(_mask_text_match, text)
+    return redact_api_keys(_TEXT_SECRET_PATTERN.sub(_mask_text_match, text))

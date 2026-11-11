@@ -1,13 +1,14 @@
 import asyncio
 import os
 import sys
-from typing import Dict, Any, NoReturn, Optional, List, Union, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.settings.settings import Settings
 from src.platform.settings.runtime_flags import apply_saved_settings, validate_runtime_flag
+from src.features.api_keys.settings import validate_setting as validate_api_keys_setting
 from src.features.backup.settings import validate_setting as validate_backup_setting
 from src.features.generation.thumbnail_profile import validate_setting as validate_thumbnail_setting
 from src.features.housekeeping.settings import validate_setting as validate_housekeeping_setting
@@ -36,17 +37,6 @@ if TYPE_CHECKING:
 # settings that a non-admin's own UI needs the value of to render correctly.
 # Never add a secret or anything sensitive here - only display/behavior toggles.
 PUBLIC_SYSTEM_SETTING_KEYS = frozenset({"workbench_single_result_gallery"})
-
-ADMIN_CONTROLLED_USER_SETTING_KEYS = frozenset({"mcp_user_enabled"})
-
-
-def _refuse_admin_controlled_setting(controller: "SettingsController", key: str) -> NoReturn:
-    controller.error_response(
-        error="forbidden",
-        message=f"Setting '{key}' is controlled by an administrator and cannot be changed here",
-        status_code=403
-    )
-
 
 def _is_stored_secret_mask(key: str, value: Any) -> bool:
     """Whether this write is the mask a read handed out, meaning "unchanged".
@@ -122,11 +112,6 @@ class SettingsController(BaseController):
         passes are the writes applied in a single DB transaction. A rejected or
         failed batch persists nothing - no key is ever half-applied.
         """
-        if user:
-            for key in settings:
-                if key in ADMIN_CONTROLLED_USER_SETTING_KEYS:
-                    _refuse_admin_controlled_setting(self, key)
-
         try:
             if not user:
                 return self.error_response(
@@ -160,6 +145,7 @@ class SettingsController(BaseController):
                     or validate_housekeeping_setting(key, value)
                     or validate_backup_setting(key, value)
                     or validate_content_safety_setting(key, value)
+                    or validate_api_keys_setting(key, value)
                     or validate_runtime_flag(key, value)
                 )
                 if rejected:
@@ -290,9 +276,6 @@ class SettingsController(BaseController):
         user: Optional[User] = None
     ) -> APIResponse:
         """Update a specific setting by key"""
-        if key in ADMIN_CONTROLLED_USER_SETTING_KEYS:
-            _refuse_admin_controlled_setting(self, key)
-
         try:
             # Get setting details first to determine type
             setting = self.setting_repository.get_setting_by_key(key)
@@ -320,6 +303,7 @@ class SettingsController(BaseController):
                     or validate_housekeeping_setting(key, update_data.value)
                     or validate_backup_setting(key, update_data.value)
                     or validate_content_safety_setting(key, update_data.value)
+                    or validate_api_keys_setting(key, update_data.value)
                     or validate_runtime_flag(key, update_data.value)
                 )
                 if rejected:
@@ -395,9 +379,6 @@ class SettingsController(BaseController):
 
     async def delete_user_setting(self, key: str, user: User) -> APIResponse:
         """Delete a user setting override, reverting to system default"""
-        if key in ADMIN_CONTROLLED_USER_SETTING_KEYS:
-            _refuse_admin_controlled_setting(self, key)
-
         try:
             success = self.settings.delete_user_setting(key, user.id)
 

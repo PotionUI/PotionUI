@@ -271,6 +271,53 @@ report["organize_instance_wiring"] = {
         for pid, _ in c.plugin_registry.hook_chain._handlers.get("model_index.after_digests", [])
     ),
 }
+from src.platform.security.api_scopes import ApiScope, required_scopes
+from src.platform.security.current_user import require_media_viewer as _media_viewer
+
+
+def _walk(dependant):
+    yield dependant
+    for child in dependant.dependencies:
+        yield from _walk(child)
+
+
+def _methods(route):
+    return sorted(m for m in route.methods if m not in ("HEAD", "OPTIONS"))
+
+
+api_routes = [r for r in elixir_app.routes if hasattr(r, "dependant")]
+media_viewer_routes = [
+    r for r in api_routes if any(d.call is _media_viewer for d in _walk(r.dependant))
+]
+report["api_keys_wiring"] = {
+    "routes": sorted(
+        f"{method} {route.path}"
+        for route in api_routes
+        if route.path.startswith(("/api/keys", "/api/admin/keys", "/api/admin/users/{user_id}/api-access"))
+        for method in _methods(route)
+    ),
+    "mcp_routes": sorted(f"{m} {r.path}" for r in api_routes if r.path.startswith("/api/mcp") for m in _methods(r)),
+    "the_collaborators_use_the_container_settings_and_users": (
+        c.api_key_collaborators.settings is c.settings and c.api_key_resolver._users is c.user_repository
+    ),
+    "media_viewer_route_count": len(media_viewer_routes),
+    "media_viewer_routes_not_open_to_read_or_mcp": [
+        r.path for r in media_viewer_routes
+        if required_scopes(r, "GET") != frozenset({ApiScope.READ, ApiScope.MCP})
+    ],
+    "user_key_routes_are_session_only": [
+        f"{m} {r.path}" for r in api_routes if r.path.startswith("/api/keys") for m in _methods(r)
+        if required_scopes(r, m) is not None
+    ],
+    "admin_key_routes_need_admin": sorted({
+        tuple(sorted(s.value for s in required_scopes(r, m)))
+        for r in api_routes
+        if r.path.startswith(("/api/admin/keys", "/api/admin/users/{user_id}/api-access")) for m in _methods(r)
+    }),
+    "mcp_endpoint_needs_mcp": [
+        sorted(s.value for s in required_scopes(r, "POST")) for r in api_routes if r.path == "/api/mcp"
+    ],
+}
 report["recipe_smoke_wiring"] = {
     "the_smoke_asks_the_registry_for_the_app_loop": c.recipe_runner._executor_registry.get_executor("generation.smoke").app_loop is runtime_registries.get_app_loop,
 }
@@ -467,3 +514,34 @@ def test_build_chat_passes_every_dependency_to_the_runtime():
     assert dropped == []
     assert components.chat_runtime.pre_chat_action_registry is components.pre_chat_action_registry
     assert components.chat_controller.chat_runtime is components.chat_runtime
+
+
+def test_api_keys_are_composed_and_mounted_with_their_scopes(report):
+    wiring = report["api_keys_wiring"]
+    assert wiring["routes"] == [
+        "DELETE /api/admin/keys/{key_id}",
+        "DELETE /api/keys/{key_id}",
+        "GET /api/admin/keys",
+        "GET /api/admin/keys/{key_id}/events",
+        "GET /api/admin/users/{user_id}/api-access",
+        "GET /api/keys",
+        "GET /api/keys/{key_id}/events",
+        "PATCH /api/keys/{key_id}",
+        "POST /api/keys",
+        "PUT /api/admin/users/{user_id}/api-access",
+    ]
+    assert wiring["the_collaborators_use_the_container_settings_and_users"] is True
+    assert wiring["user_key_routes_are_session_only"] == []
+    assert wiring["admin_key_routes_need_admin"] == [["admin"]]
+
+
+def test_the_mcp_endpoint_is_the_only_mcp_route_and_needs_the_mcp_scope(report):
+    wiring = report["api_keys_wiring"]
+    assert wiring["mcp_routes"] == ["POST /api/mcp"]
+    assert wiring["mcp_endpoint_needs_mcp"] == [["mcp"]]
+
+
+def test_every_media_viewer_route_accepts_a_read_or_mcp_key(report):
+    wiring = report["api_keys_wiring"]
+    assert wiring["media_viewer_route_count"] >= 8
+    assert wiring["media_viewer_routes_not_open_to_read_or_mcp"] == []

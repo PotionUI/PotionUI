@@ -16,6 +16,7 @@ from src.platform.observability.profiling import render_report_from_file
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.failure_text import basename_paths, failure_detail
+from src.platform.security.api_scopes import ApiScope, key_scope
 from src.platform.security.current_user import (
     get_current_active_user,
     get_current_admin_user,
@@ -1052,7 +1053,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_generation_failure(generation_id: str, current_user = Depends(get_current_admin_user)):
         return await controller.get_generation_failure(generation_id)
 
-    @router.get("/{generation_id}/run-report/artifacts/{name}", summary="Serve Run Report Artifact")
+    @router.get("/{generation_id}/run-report/artifacts/{name}", summary="Serve Run Report Artifact", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     async def get_run_report_artifact(generation_id: str, name: str, viewer=Depends(require_media_viewer)):
         allowed = GenerationPolicy.is_admin(viewer) and await asyncio.to_thread(
             container.media_access.generation_allowed, viewer, generation_id

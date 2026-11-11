@@ -25,6 +25,7 @@ from src.features.models.repository import ModelRepository
 from src.features.users.routes import build_router as build_users_router
 from src.platform.filesystem.file_store import FileStore
 from src.platform.security import current_user
+from src.platform.security.api_scopes import ApiScope
 from src.platform.security.media_session import media_cookie_name, partitioned_media_cookie_name
 from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
@@ -221,13 +222,13 @@ def client(world, test_storage):
         "tok-kid": world.kid,
     }
     previous_auth = current_user._auth
-    previous_fallback = current_user._media_bearer_fallback
+    previous_resolver = current_user._key_resolver
     current_user.set_auth(_Tokens(tokens))
-    current_user.set_media_bearer_fallback(None)
+    current_user.set_key_resolver(None)
     with TestClient(app) as test_client:
         yield test_client
     current_user._auth = previous_auth
-    current_user._media_bearer_fallback = previous_fallback
+    current_user.set_key_resolver(previous_resolver)
 
 
 def _get(client, url, token=None, via="cookie"):
@@ -480,13 +481,109 @@ class TestPublicAssets:
         assert current_user.get_current_user not in calls
 
 
-class TestMcpBearer:
-    def test_an_mcp_token_reaches_its_owners_media(self, client, world):
+class _KeyResolver:
+    def __init__(self, keys):
+        self.keys = keys
+        self.gate_refusal = None
+        self.uses = []
+
+    def resolve(self, plaintext):
+        return self.keys.get(plaintext)
+
+    def mcp_gate(self, grant):
+        return self.gate_refusal
+
+    def record_use(self, grant, via):
+        self.uses.append((grant.key_id, via))
+
+
+def _key(user, *scopes):
+    from src.platform.security.principal import KeyGrant, ResolvedKey
+
+    grant = KeyGrant(
+        key_id=f"key-{user.username}", user_id=user.id,
+        scopes=frozenset(ApiScope(scope) for scope in scopes), display_prefix="pui_aaaaaaaa",
+    )
+    return ResolvedKey(user=user, grant=grant)
+
+
+@pytest.fixture
+def resolver(world):
+    fake = _KeyResolver({
+        "pui_mcp": _key(world.owner, "mcp"),
+        "pui_read": _key(world.owner, "read"),
+        "pui_generate": _key(world.owner, "generate"),
+        "pui_other_mcp": _key(world.other, "mcp"),
+    })
+    current_user.set_key_resolver(fake)
+    yield fake
+    current_user.set_key_resolver(None)
+
+
+class TestKeyBearer:
+    def test_an_mcp_key_and_a_read_key_reach_every_media_route_of_their_owner(self, client, world, resolver):
+        for name, url in _owner_routes(world)[1].items():
+            for token in ("pui_mcp", "pui_read"):
+                response = _get(client, url, token, via="header")
+                assert (name, token, response.status_code) == (name, token, 200)
+                assert response.content == PIXELS
+
+    def test_a_key_without_read_or_mcp_is_refused_with_the_scopes_that_would_do(self, client, world, resolver):
+        url = next(iter(_owner_routes(world)[1].values()))
+
+        response = _get(client, url, "pui_generate", via="header")
+
+        assert response.status_code == 403
+        assert response.headers["www-authenticate"] == 'Bearer error="insufficient_scope", scope="read mcp"'
+        assert PIXELS not in response.content
+
+    def test_an_unknown_key_is_401(self, client, world, resolver):
+        url = next(iter(_owner_routes(world)[1].values()))
+
+        assert _get(client, url, "pui_unknown", via="header").status_code == 401
+
+    def test_a_key_sees_exactly_what_its_owner_sees(self, client, world, resolver):
+        for name, url in _owner_routes(world)[1].items():
+            response = _get(client, url, "pui_other_mcp", via="header")
+            assert (name, response.status_code) == (name, 404)
+            assert PIXELS not in response.content
+
+    def test_the_mcp_gate_closes_media_for_a_key_that_only_has_mcp(self, client, world, resolver):
+        url = next(iter(_owner_routes(world)[1].values()))
+        resolver.gate_refusal = "MCP is disabled on this instance"
+
+        mcp = _get(client, url, "pui_mcp", via="header")
+        read = _get(client, url, "pui_read", via="header")
+
+        assert mcp.status_code == 403
+        assert read.status_code == 200
+
+    def test_use_by_an_mcp_only_key_is_recorded_as_mcp_and_by_a_read_key_as_api(self, client, world, resolver):
+        url = next(iter(_owner_routes(world)[1].values()))
+
+        _get(client, url, "pui_mcp", via="header")
+        _get(client, url, "pui_read", via="header")
+
+        assert resolver.uses == [("key-owner", "mcp"), ("key-owner", "api")]
+
+    def test_a_key_in_a_cookie_is_never_accepted(self, client, world, resolver):
+        url = next(iter(_owner_routes(world)[1].values()))
+
+        assert _get(client, url, "pui_read", via="cookie").status_code == 401
+
+    def test_an_invalid_key_is_not_rescued_by_a_valid_cookie(self, client, world, resolver):
+        url = next(iter(_owner_routes(world)[1].values()))
+        client.cookies.clear()
+        client.cookies.set(media_cookie_name(), "tok-owner")
+
+        response = client.get(url, headers={"Authorization": "Bearer pui_unknown"})
+
+        assert response.status_code == 401
+
+
+class TestKeyShapedBearerWithoutResolver:
+    def test_a_key_shaped_bearer_is_only_a_jwt_and_is_refused_when_no_resolver_is_registered(self, client, world):
         generation = world.generation(world.owner)
         url = f"/api/media/generations/{generation.id}/{generation.filename}"
-        current_user.set_media_bearer_fallback(
-            lambda token: world.owner if token == "pui_mcp_owner" else None
-        )
 
-        assert _get(client, url, "pui_mcp_owner", via="header").status_code == 200
-        assert _get(client, url, "pui_mcp_unknown", via="header").status_code == 401
+        assert _get(client, url, "pui_" + "a" * 46, via="header").status_code == 401

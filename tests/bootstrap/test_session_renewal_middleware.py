@@ -251,3 +251,16 @@ def test_the_renewal_header_is_visible_cross_origin(client):
 
     assert response.headers["x-refreshed-token"]
     assert "X-Refreshed-Token" in response.headers["access-control-expose-headers"]
+
+
+def test_an_api_key_bearer_is_never_offered_to_the_jwt_renewal(client, monkeypatch):
+    offered = []
+    monkeypatch.setattr("src.bootstrap.middleware.renewed_token", lambda codec, token: offered.append(token))
+
+    response = client.get("/ok", headers=_auth_header("pui_" + "a" * 46))
+    client.get("/ok", headers=_auth_header("a.jwt.token"))
+
+    assert response.status_code == 200
+    assert "x-refreshed-token" not in response.headers
+    assert offered == ["a.jwt.token"]
+    assert _media_cookie(response) is None

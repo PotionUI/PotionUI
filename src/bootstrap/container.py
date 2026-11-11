@@ -289,7 +289,10 @@ from src.features.prompt_database.routes import PromptDatabaseController
 from src.features.prompt_enhancement import PromptEnhancementCollaborators
 from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
 from src.features.llm.tools.base import ToolServices
-from src.features.mcp.repository import McpTokenRepository
+from src.features.mcp.exposure import tool_counts_by_owner
+from src.features.api_keys.operations.keys import ApiKeyCollaborators
+from src.features.api_keys.operations.resolver import ApiKeyResolver
+from src.features.api_keys.repository import ApiKeyEventRepository, ApiKeyRepository, UserApiAccessRepository
 from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
 from src.features.docs.routes import DocsController
 from src.features.sessions.routes import SessionController
@@ -414,7 +417,9 @@ class AppContainer:
     llm_controller: "LLMController"
     tool_governance_repository: "ToolGovernanceRepository"
     tool_governance_controller: "ToolGovernanceController"
-    mcp_token_repository: "McpTokenRepository"
+    api_key_collaborators: "ApiKeyCollaborators"
+    api_key_resolver: "ApiKeyResolver"
+    mcp_tool_counts: Callable
     mcp_tool_collaborators: "McpToolCollaborators"
 
     # Auth
@@ -1862,7 +1867,17 @@ def build_container() -> AppContainer:
         storage_root=settings.get_file_storage_directory,
     )
 
-    mcp_token_repository = McpTokenRepository()
+    api_key_repository = ApiKeyRepository()
+    user_api_access_repository = UserApiAccessRepository()
+    api_key_collaborators = ApiKeyCollaborators(
+        keys=api_key_repository,
+        events=ApiKeyEventRepository(),
+        access=user_api_access_repository,
+        settings=settings,
+    )
+    api_key_resolver = ApiKeyResolver(
+        api_key_repository, user_api_access_repository, user_repository, settings
+    )
     tool_services = ToolServices(
         segment_category_repository=segment_category_repo,
         saved_segment_repository=saved_segment_repo,
@@ -1895,6 +1910,7 @@ def build_container() -> AppContainer:
     )
 
 
+    mcp_tool_counts = functools.partial(tool_counts_by_owner, mcp_tool_collaborators)
     mcp_tools_documenter = McpToolsDocumenter(mcp_tool_collaborators)
     docs_controller = DocsController(
         plugin_registry,

@@ -153,8 +153,8 @@ class TestMcpToolsDocumenter:
 
         assert governance["global_setting_key"] == "mcp_enabled"
         assert governance["global_default_enabled"] is False
-        assert governance["user_setting_key"] == "mcp_user_enabled"
-        assert governance["user_default_enabled"] is True
+        assert "user_setting_key" not in governance
+        assert "user_default_enabled" not in governance
         assert "get_active_models" in governance["excluded_tool_names"]
         assert governance["acts_as_token_owner"]
         assert governance["model_visibility_rule"]

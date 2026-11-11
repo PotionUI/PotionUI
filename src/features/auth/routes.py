@@ -1,10 +1,7 @@
 """
 Authentication controller for user registration, login, and token management.
 """
-from collections import defaultdict, deque
-import os
-import time
-from typing import TYPE_CHECKING, Deque, Dict
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -24,41 +21,12 @@ from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.security.current_user import get_current_user, oauth2_scheme
 from src.platform.security.media_session import clear_media_cookie, set_media_cookie
 from src.platform.security import Auth
+from src.platform.security.attempt_limiter import LoginAttemptLimiter
 from src.platform.security.login_handoff import LoginHandoffStore
 from src.platform.security.user import User
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
-
-
-class LoginAttemptLimiter:
-    """Small per-process guard against brute-force login attempts."""
-
-    def __init__(self) -> None:
-        self.max_attempts = int(os.environ.get("POTIONUI_AUTH_LOGIN_ATTEMPTS", "5"))
-        self.window_seconds = int(os.environ.get("POTIONUI_AUTH_LOGIN_WINDOW_SECONDS", "60"))
-        self._attempts: Dict[str, Deque[float]] = defaultdict(deque)
-
-    def _prune(self, key: str, now: float) -> Deque[float]:
-        attempts = self._attempts[key]
-        cutoff = now - self.window_seconds
-        while attempts and attempts[0] <= cutoff:
-            attempts.popleft()
-        return attempts
-
-    def check(self, key: str) -> None:
-        if len(self._prune(key, time.monotonic())) >= self.max_attempts:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many login attempts. Please try again later.",
-                headers={"Retry-After": str(self.window_seconds)},
-            )
-
-    def record_failure(self, key: str) -> None:
-        self._prune(key, time.monotonic()).append(time.monotonic())
-
-    def reset(self, key: str) -> None:
-        self._attempts.pop(key, None)
 
 
 class AuthController(BaseController):
@@ -302,7 +270,8 @@ def build_router(container: "AppContainer") -> APIRouter:
     ) -> APIResponse:
         """Get current user information."""
         result = await controller.get_me(current_user)
-        set_media_cookie(response, request, token)
+        if current_user.key is None:
+            set_media_cookie(response, request, token)
         return result
 
     @router.post("/change-password", response_model=APIResponse, summary="Change your own password")

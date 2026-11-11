@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, Response
 from src.platform.http.errors import NotFoundError
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.security.api_scopes import ApiScope, key_scope
 from src.platform.security.current_user import get_current_active_user, require_media_viewer
 from src.platform.security.user import AccountType
 
@@ -392,7 +393,7 @@ def build_media_router(container: "AppContainer") -> APIRouter:
     controller = container.inspiration_controller
     router = APIRouter(prefix="/api/media/inspirations", tags=["Inspirations"])
 
-    @router.get("/{inspiration_id}/{filename}", summary="Serve Inspiration Media")
+    @router.get("/{inspiration_id}/{filename}", summary="Serve Inspiration Media", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     async def serve_media(inspiration_id: str, filename: str, viewer=Depends(require_media_viewer)):
         return await controller.serve_media(inspiration_id, filename, viewer)
 

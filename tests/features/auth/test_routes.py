@@ -12,6 +12,7 @@ from src.features.auth.routes import AuthController
 from src.platform.security.current_user import (
     get_current_user,
     get_current_active_user,
+    get_principal,
     authenticate_websocket_token,
     set_auth,
 )
@@ -20,6 +21,12 @@ from src.features.auth.dto import ChangePasswordRequest, UserCreate, Token, User
 from src.platform.security.token import TokenData
 from src.platform.security import Auth, AuthConfig, LoginHandoffStore, PasswordHasher, TokenCodec
 from src.platform.security.user import User, AccountType
+
+
+def _request():
+    from starlette.requests import Request
+
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": []})
 
 
 class TestAuthController:
@@ -328,7 +335,7 @@ class TestAuthController:
         """Test get_current_user with valid token."""
         mock_auth_manager.get_user_from_token.return_value = sample_user
 
-        result = await get_current_user("valid.jwt.token")
+        result = await get_current_user(await get_principal(_request(), "valid.jwt.token"))
 
         assert result == sample_user
         mock_auth_manager.get_user_from_token.assert_called_once_with("valid.jwt.token")
@@ -339,7 +346,7 @@ class TestAuthController:
         mock_auth_manager.get_user_from_token.return_value = None
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_user("invalid.token")
+            await get_current_user(await get_principal(_request(), "invalid.token"))
 
         assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
         assert "Could not validate credentials" in exc_info.value.detail

@@ -19,6 +19,7 @@ from src.features.media_tools.service import MediaToolService
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.media_tools import FfmpegUnavailable, ToolFailed
+from src.platform.security.api_scopes import ApiScope, key_scope
 from src.platform.security.current_user import get_current_active_user, require_media_viewer
 
 if TYPE_CHECKING:
@@ -219,7 +220,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ) -> APIResponse:
         return await controller.preview_clip(request, current_user)
 
-    @router.get("/api/media-tools/previews/{preview_id}", response_model=None, summary="Get A Preview Clip")
+    @router.get("/api/media-tools/previews/{preview_id}", response_model=None, summary="Get A Preview Clip", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     async def get_media_tool_preview(
         preview_id: str, current_user=Depends(require_media_viewer)
     ) -> FileResponse:

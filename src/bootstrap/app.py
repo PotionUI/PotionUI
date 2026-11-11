@@ -10,7 +10,6 @@ them in order.
 """
 
 import asyncio
-import functools
 import logging
 import os
 import threading
@@ -33,7 +32,7 @@ from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_
 from src.platform.runtime.offload.pool import shutdown_offload
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
 
-from src.platform.security.current_user import set_auth, set_media_bearer_fallback
+from src.platform.security.current_user import set_auth, set_key_resolver
 from src.platform.version import POTIONUI_VERSION
 from src.platform.websocket.notification_connection_hub import notification_connection_hub
 from src.platform.websocket.automation_connection_hub import automation_connection_hub
@@ -281,14 +280,7 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
     """Bind process-wide dependencies that live outside the router factories."""
     # Auth dependency (get_current_active_user) resolves through this Auth.
     set_auth(container.auth)
-    from src.features.mcp.operations import resolve_media_user
-
-    set_media_bearer_fallback(functools.partial(
-        resolve_media_user,
-        container.mcp_token_repository,
-        container.settings,
-        container.user_repository,
-    ))
+    set_key_resolver(container.api_key_resolver)
 
     try:
         from src.features.backends.backend_config import NATIVE_LOCAL_DRIVER

@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 import src.features.mcp as mcp_package
 from src.features.llm.tools.builtin.utils import allowed_model_ids
 from src.features.mcp import protocol
-from src.features.mcp.operations import MCP_ENABLED_KEY, MCP_USER_ENABLED_KEY
+from src.features.api_keys.settings import MCP_ENABLED_KEY
 
 
 def _first_paragraph(doc: str) -> str:
@@ -59,8 +59,6 @@ class McpToolsDocumenter:
             "acts_as_token_owner": _first_paragraph(mcp_package.__doc__ or ""),
             "global_setting_key": MCP_ENABLED_KEY,
             "global_default_enabled": False,
-            "user_setting_key": MCP_USER_ENABLED_KEY,
-            "user_default_enabled": True,
             "model_visibility_rule": _first_paragraph(allowed_model_ids.__doc__ or ""),
             "excluded_tool_names": sorted(protocol.EXCLUDED_TOOL_NAMES),
         }

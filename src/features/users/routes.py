@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_scope
 from src.platform.security.current_user import get_current_user, require_media_viewer
 from src.features.users.dto import UserCreate, UserUpdate, UserResponse
 from src.features.users import operations
@@ -419,7 +420,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Clear a user's avatar (self-or-admin)."""
         return await controller.delete_avatar(user_id, current_user)
 
-    @router.get("/avatars/{filename}", summary="Serve User Avatar")
+    @router.get("/avatars/{filename}", summary="Serve User Avatar", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     async def get_avatar(filename: str, viewer: User = Depends(require_media_viewer)):
         return await controller.get_avatar(filename)
 

@@ -29,12 +29,24 @@ def a_user():
     )
 
 
+def _plain_request(headers=None):
+    from starlette.requests import Request
+
+    raw = [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": raw})
+
+
+async def _current_user(token):
+    principal = await current_user.get_principal(_plain_request(), token=token)
+    return await current_user.get_current_user(principal)
+
+
 class TestGetCurrentUser:
     @pytest.mark.asyncio
     async def test_returns_user_from_token(self, mock_auth_manager, a_user):
         mock_auth_manager.get_user_from_token.return_value = a_user
 
-        user = await current_user.get_current_user(token="a.jwt.token")
+        user = await _current_user("a.jwt.token")
 
         assert user is a_user
         mock_auth_manager.get_user_from_token.assert_called_once_with("a.jwt.token")
@@ -44,7 +56,7 @@ class TestGetCurrentUser:
         mock_auth_manager.get_user_from_token.return_value = None
 
         with pytest.raises(HTTPException) as exc_info:
-            await current_user.get_current_user(token="bad.token")
+            await _current_user("bad.token")
 
         assert exc_info.value.status_code == 401
 
@@ -66,7 +78,7 @@ class TestGetCurrentUser:
             recording_to_thread,
         )
 
-        user = await current_user.get_current_user(token="a.jwt.token")
+        user = await _current_user("a.jwt.token")
 
         assert user is a_user
         assert mock_auth_manager.get_user_from_token in recorded
@@ -84,10 +96,10 @@ class TestMediaViewer:
 
     @pytest.fixture
     def no_fallback(self):
-        previous = current_user._media_bearer_fallback
-        current_user.set_media_bearer_fallback(None)
+        previous = current_user._key_resolver
+        current_user.set_key_resolver(None)
         yield
-        current_user._media_bearer_fallback = previous
+        current_user.set_key_resolver(previous)
 
     @pytest.mark.asyncio
     async def test_the_bearer_header_wins_over_the_cookie(self, mock_auth_manager, a_user, no_fallback):
@@ -121,13 +133,13 @@ class TestMediaViewer:
         assert viewer is a_user
 
     @pytest.mark.asyncio
-    async def test_a_non_jwt_bearer_falls_back_to_the_registered_resolver(self, mock_auth_manager, a_user, no_fallback):
+    async def test_a_key_shaped_bearer_is_only_a_jwt_while_no_resolver_is_registered(self, mock_auth_manager, no_fallback):
         mock_auth_manager.get_user_from_token.return_value = None
-        current_user.set_media_bearer_fallback({"pui_mcp_x": a_user}.get)
 
-        viewer = await current_user.get_media_viewer(self._request({"Authorization": "Bearer pui_mcp_x"}))
+        viewer = await current_user.get_media_viewer(self._request({"Authorization": "Bearer pui_x"}))
 
-        assert viewer is a_user
+        assert viewer is None
+        mock_auth_manager.get_user_from_token.assert_called_once_with("pui_x")
 
     @pytest.mark.asyncio
     async def test_no_credentials_is_a_401(self, mock_auth_manager, no_fallback):

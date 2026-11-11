@@ -20,6 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipResponder
 
 from src.platform.security.current_user import get_auth
+from src.platform.security.principal import KEY_PREFIX
 from src.platform.security.media_session import (
     media_cookie_headers,
     media_cookie_name,
@@ -93,6 +94,9 @@ class SessionRenewalMiddleware:
             await self.app(scope, receive, send)
             return
         token = authorization[7:].strip()
+        if token.startswith(KEY_PREFIX):
+            await self.app(scope, receive, send)
+            return
 
         async def send_renewed(message):
             if message["type"] == "http.response.start" and message["status"] < 400:

@@ -102,3 +102,60 @@ def test_a_backend_that_never_answers_is_abandoned_at_the_timeout_without_a_word
     assert ready is False
     assert clock() == 3.0
     assert said == []
+
+
+def test_a_backend_that_already_exited_ends_the_wait_at_once_without_sleeping_or_asking():
+    clock, sleeper = _fake_clock()
+    asked = []
+
+    ready = cli.wait_for_ready(
+        lambda: asked.append(1) or "ready", timeout=180.0, interval=2.0, clock=clock, sleeper=sleeper, exited=lambda: 1,
+    )
+
+    assert ready is False
+    assert clock() == 0.0
+    assert asked == []
+
+
+def test_the_wait_ends_at_the_first_poll_after_the_process_exits_not_at_the_deadline():
+    clock, sleeper = _fake_clock()
+    exit_codes = iter([None, None, None, 3, 3, 3])
+
+    ready = cli.wait_for_ready(
+        lambda: None, timeout=180.0, interval=2.0, clock=clock, sleeper=sleeper, exited=lambda: next(exit_codes),
+    )
+
+    assert ready is False
+    assert clock() == 6.0
+
+
+def test_a_starting_answer_does_not_extend_the_wait_of_a_process_that_died():
+    clock, sleeper = _fake_clock()
+    exit_codes = iter([None, None, -9, -9, -9])
+    said = []
+
+    ready = cli.wait_for_ready(
+        lambda: cli.STARTING, timeout=5.0, interval=1.0, clock=clock, sleeper=sleeper,
+        report=said.append, exited=lambda: next(exit_codes),
+    )
+
+    assert ready is False
+    assert clock() == 2.0
+
+
+def test_an_exit_code_of_zero_still_counts_as_exited():
+    clock, sleeper = _fake_clock()
+
+    ready = cli.wait_for_ready(lambda: "ready", timeout=5.0, clock=clock, sleeper=sleeper, exited=lambda: 0)
+
+    assert ready is False
+
+
+def test_a_process_that_keeps_running_does_not_change_the_wait():
+    clock, sleeper = _fake_clock()
+    answers = iter([None, None, "ready"])
+
+    ready = cli.wait_for_ready(lambda: next(answers), timeout=10.0, interval=1.0, clock=clock, sleeper=sleeper, exited=lambda: None)
+
+    assert ready is True
+    assert clock() == 2.0

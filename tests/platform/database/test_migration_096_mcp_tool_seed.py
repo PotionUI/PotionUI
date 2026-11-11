@@ -63,11 +63,12 @@ class TestMigration096McpToolSeed(MigrationCase):
 
         defaults = self.defaults_of("u-two-keys")
 
-        assert {name for name, enabled in defaults.items() if enabled == 1} == set(self.migration._WRITE_TOOLS)
+        assert {name for name, enabled in defaults.items() if enabled == 1} == set(self.migration._KEPT_ON)
 
     def test_the_write_list_is_the_twenty_six_tools_the_surface_pinned(self):
         self.assertEqual(len(self.migration._WRITE_TOOLS), 26)
-        self.assertEqual(len(self.migration._READ_TOOLS), 19)
+        self.assertEqual(len(self.migration._SPENDING_TOOLS), 1)
+        self.assertEqual(len(self.migration._READ_TOOLS), 18)
         self.assertEqual(len(set(self.migration._SURFACE)), 45)
 
     def test_a_user_who_opted_a_tool_out_in_chat_has_it_off_in_their_mcp_default(self):
@@ -79,6 +80,21 @@ class TestMigration096McpToolSeed(MigrationCase):
         self.assertEqual(defaults["add_prompt"], 0)
         self.assertEqual(defaults["write_memory"], 1)
         self.assertEqual(defaults["start_generation"], 1)
+
+    def test_a_spending_tool_the_user_could_call_before_stays_on_for_them_and_for_no_one_else(self):
+        self.migration.up()
+
+        self.assertEqual(self.defaults_of("u-two-keys")["enhance_prompt"], 1)
+        self.assertEqual(self.defaults_of("u-keyed")["enhance_prompt"], 1)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM mcp_tool_defaults WHERE tool_name = 'enhance_prompt' AND user_id IN ('u-revoked', 'u-none')"), [(0,)])
+
+    def test_a_spending_tool_a_user_opted_out_of_in_chat_stays_off(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("INSERT INTO user_disabled_tools (user_id, tool_name, created_at) VALUES ('u-two-keys', 'enhance_prompt', ?)", (OLD,))
+
+        self.migration.up()
+
+        self.assertEqual(self.defaults_of("u-two-keys")["enhance_prompt"], 0)
 
     def test_an_opt_out_for_a_tool_outside_todays_surface_is_not_carried_over(self):
         self.migration.up()

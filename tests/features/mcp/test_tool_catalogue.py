@@ -8,6 +8,8 @@ from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.mcp.catalog import build_catalog
 
+SPENDS = {"enhance_prompt", "start_generation", "run_media_tool"}
+
 READS = {
     "list_segment_categories", "get_saved_segments", "get_segment_templates",
     "get_model_info", "get_preset_info", "list_presets", "list_models", "search_models",
@@ -44,9 +46,9 @@ CANNOT_RUN = {
 NOT_IN_THE_CATALOGUE = {"get_elixir", "get_step_settings", "get_choice_outputs", "edit_elixir", "choose_outputs"}
 
 EXPECTED = (
-    {name: (False, None) for name in READS}
-    | {name: (True, None) for name in WRITES}
-    | CANNOT_RUN
+    {name: (False, name in SPENDS, None) for name in READS}
+    | {name: (True, name in SPENDS, None) for name in WRITES}
+    | {name: (writes, False, reason) for name, (writes, reason) in CANNOT_RUN.items()}
 )
 
 
@@ -57,24 +59,16 @@ def registry():
     return registry
 
 
-def test_the_catalogue_pins_every_tool_its_writes_flag_and_its_reason(registry):
-    actual = {entry.name: (entry.writes, entry.unavailable_reason) for entry in build_catalog(registry)}
+def test_the_catalogue_pins_every_tool_its_writes_and_spends_flags_and_its_reason(registry):
+    actual = {entry.name: (entry.writes, entry.spends, entry.unavailable_reason) for entry in build_catalog(registry)}
 
     assert actual == EXPECTED
-    assert len(actual) == 56
 
 
 def test_the_catalogue_is_the_registry_without_the_elixir_tools(registry):
     names = {tool.name for tool in registry.get_all()}
 
     assert names - {entry.name for entry in build_catalog(registry)} == NOT_IN_THE_CATALOGUE
-
-
-def test_forty_six_tools_are_offered_and_ten_cannot_run(registry):
-    entries = build_catalog(registry)
-
-    assert sum(1 for entry in entries if not entry.unavailable_reason) == 46
-    assert sum(1 for entry in entries if entry.unavailable_reason) == 10
 
 
 def test_start_generation_is_the_only_generation_tool_over_mcp(registry):
@@ -91,16 +85,16 @@ def test_every_offered_tool_has_a_description_for_the_screen(registry):
         assert entry.group.strip(), entry.name
 
 
-def test_a_tool_the_migration_keeps_on_writes_exactly_when_the_catalogue_says_so(registry):
+def test_the_tools_the_migration_keeps_on_are_exactly_those_that_write_or_spend(registry):
     path = Path(__file__).resolve().parents[3] / "src" / "platform" / "database" / "migrations" / "096_mcp_tool_seed.py"
     spec = importlib.util.spec_from_file_location("seed_literal", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    offered_writes = {entry.name for entry in build_catalog(registry) if entry.writes and not entry.unavailable_reason}
-    offered_reads = {entry.name for entry in build_catalog(registry) if not entry.writes and not entry.unavailable_reason}
+    offered = [entry for entry in build_catalog(registry) if not entry.unavailable_reason]
 
-    assert set(module._WRITE_TOOLS) == offered_writes
-    assert set(module._READ_TOOLS) == offered_reads - {"list_models"}
+    assert set(module._KEPT_ON) == {entry.name for entry in offered if entry.writes or entry.spends}
+    assert set(module._WRITE_TOOLS) == {entry.name for entry in offered if entry.writes}
+    assert set(module._READ_TOOLS) == {entry.name for entry in offered if not entry.writes and not entry.spends} - {"list_models"}
 
 
 class _Tool(BaseTool):
@@ -121,6 +115,14 @@ class _Tool(BaseTool):
 def _named(tool_name, **attributes):
     tool_type = type("Tool", (_Tool,), {"name": tool_name, **attributes})
     return tool_type()
+
+
+def test_a_tool_that_says_nothing_about_spending_does_not_spend():
+    assert build_catalog_of(_named("quiet"))[0].spends is False
+
+
+def test_a_tool_that_declares_it_spends_says_so_in_the_catalogue():
+    assert build_catalog_of(_named("metered", spends=True))[0].spends is True
 
 
 def test_a_tool_that_says_nothing_about_writing_counts_as_writing():

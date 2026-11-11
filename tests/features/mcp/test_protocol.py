@@ -39,6 +39,28 @@ class _EchoTool(BaseTool):
         return ToolResult(success=True, data=kwargs.get("text", ""))
 
 
+class _SpendingTool(BaseTool):
+    modes = ["generation"]
+    mcp = True
+    read_only = True
+    spends = True
+
+    @property
+    def name(self):
+        return "spender"
+
+    @property
+    def description(self):
+        return "Reads nothing, writes nothing, costs money."
+
+    @property
+    def parameters(self):
+        return {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, context, **kwargs):
+        return ToolResult(success=True, data="spent")
+
+
 class _FailingTool(BaseTool):
     modes = ["generation"]
     mcp = True
@@ -119,6 +141,7 @@ def protocol(mcp_db):
     registry.register(_EchoTool())
     registry.register(_FailingTool())
     registry.register(_ApprovalTool())
+    registry.register(_SpendingTool())
     registry.register(_StubExcludedTool())
     user_with_every_tool(mcp_db, "user-1")
     seed_user(mcp_db, "user-2")
@@ -300,6 +323,41 @@ class TestCallTool:
         assert exc.value.message == "Tool 'echo' is turned off by your administrator"
 
     @pytest.mark.asyncio
+    async def test_a_tool_narrowed_on_the_key_is_refused_there_but_runs_on_a_second_key_of_the_owner(
+        self, protocol, mcp_db
+    ):
+        from tests.features.api_keys.conftest import Stack
+
+        collaborators, _registry, repo = protocol
+        keys = Stack()
+        narrowed = keys.keys.create(api_key("key-narrowed", "user-1"))
+        other = keys.keys.create(api_key("key-other", "user-1"))
+        repo.apply_key_overrides(narrowed.id, ["echo"], [])
+        call = {"name": "echo", "arguments": {"text": "hi"}}
+
+        with pytest.raises(JsonRpcError) as exc:
+            await handle_method(collaborators, "tools/call", call, "user-1", key_id=narrowed.id)
+        result = await handle_method(collaborators, "tools/call", call, "user-1", key_id=other.id)
+
+        assert exc.value.code == INVALID_PARAMS
+        assert exc.value.message == "Tool 'echo' is turned off for this key"
+        assert result["content"] == [{"type": "text", "text": "hi"}]
+
+    @pytest.mark.asyncio
+    async def test_a_spending_tool_is_not_listed_and_is_refused_until_the_user_turns_it_on(self, protocol):
+        collaborators, _registry, repo = protocol
+
+        listed = await handle_method(collaborators, "tools/list", {}, "user-2")
+        with pytest.raises(JsonRpcError) as exc:
+            await handle_method(collaborators, "tools/call", {"name": "spender"}, "user-2")
+        repo.apply_default("user-2", None, {"spender": True})
+        allowed = await handle_method(collaborators, "tools/call", {"name": "spender"}, "user-2")
+
+        assert "spender" not in {t["name"] for t in listed["tools"]}
+        assert exc.value.message == "Tool 'spender' is turned off for this key"
+        assert allowed["content"][0]["text"] == "spent"
+
+    @pytest.mark.asyncio
     async def test_a_write_tool_is_refused_while_the_default_is_read_only(self, protocol):
         collaborators, _registry, _repo = protocol
         with pytest.raises(JsonRpcError) as exc:
@@ -425,6 +483,19 @@ class TestModelVisibilityOverMcp:
         )
         payload = json.loads(result["content"][0]["text"])
         assert payload["models"] == []
+
+    @pytest.mark.asyncio
+    async def test_list_models_hides_an_unassigned_model_from_a_normal_user_and_shows_it_once_assigned(
+        self, model_protocol
+    ):
+        collaborators, model, repo = model_protocol
+
+        before = await handle_method(collaborators, "tools/call", {"name": "list_models", "arguments": {}}, "user-1")
+        repo.assign_model_to_user(model.id, "user-1")
+        after = await handle_method(collaborators, "tools/call", {"name": "list_models", "arguments": {}}, "user-1")
+
+        assert json.loads(before["content"][0]["text"])["models"] == []
+        assert [m["id"] for m in json.loads(after["content"][0]["text"])["models"]] == [model.id]
 
     @pytest.mark.asyncio
     async def test_search_models_shows_the_model_once_assigned(self, model_protocol):

@@ -21,12 +21,12 @@ class LevelPolicy:
     overrides: Mapping[str, bool] = field(default_factory=dict)
 
 
-def allows(policy: str, writes: bool) -> bool:
-    return policy == POLICY_ALL_ON or not writes
+def allows(policy: str, writes: bool, spends: bool = False) -> bool:
+    return policy == POLICY_ALL_ON or not (writes or spends)
 
 
-def level_allows(level: LevelPolicy, name: str, writes: bool) -> bool:
-    return level.overrides.get(name, allows(level.policy, writes))
+def level_allows(level: LevelPolicy, name: str, writes: bool, spends: bool = False) -> bool:
+    return level.overrides.get(name, allows(level.policy, writes, spends))
 
 
 def is_reviewed(default: LevelPolicy, name: str) -> bool:
@@ -40,12 +40,13 @@ def resolve_state(
     ceiling: LevelPolicy,
     default: LevelPolicy,
     key_disabled: Optional[FrozenSet[str]] = None,
+    spends: bool = False,
 ) -> ToolState:
     if unavailable_reason:
         return ToolState.UNAVAILABLE
-    if not level_allows(ceiling, name, writes):
+    if not level_allows(ceiling, name, writes, spends):
         return ToolState.LOCKED_BY_ADMIN
-    user_on = level_allows(default, name, writes)
+    user_on = level_allows(default, name, writes, spends)
     if key_disabled is None:
         return ToolState.ON if user_on else ToolState.OFF
     if not user_on:
@@ -53,10 +54,12 @@ def resolve_state(
     return ToolState.OFF if name in key_disabled else ToolState.ON
 
 
-def ceiling_state(name: str, writes: bool, unavailable_reason: Optional[str], ceiling: LevelPolicy) -> ToolState:
+def ceiling_state(
+    name: str, writes: bool, unavailable_reason: Optional[str], ceiling: LevelPolicy, spends: bool = False
+) -> ToolState:
     if unavailable_reason:
         return ToolState.UNAVAILABLE
-    return ToolState.ON if level_allows(ceiling, name, writes) else ToolState.OFF
+    return ToolState.ON if level_allows(ceiling, name, writes, spends) else ToolState.OFF
 
 
 def refusal_message(name: str, state: ToolState, unavailable_reason: Optional[str]) -> str:

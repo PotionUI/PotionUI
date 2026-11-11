@@ -19,12 +19,16 @@ _READ_TOOLS = (
     "list_segment_categories", "get_saved_segments", "get_segment_templates",
     "get_model_info", "get_preset_info", "list_presets",
     "list_phrasebook_categories", "get_phrasebook_values",
-    "enhance_prompt", "search_model_prompts", "search_gallery",
+    "search_model_prompts", "search_gallery",
     "get_prompt", "list_prompts", "search_models", "list_library_items", "read_memory",
     "get_prompt_variables", "list_tab_drafts", "write_condition",
 )
 
-_SURFACE = _WRITE_TOOLS + _READ_TOOLS
+_SPENDING_TOOLS = ("enhance_prompt",)
+
+_KEPT_ON = _WRITE_TOOLS + _SPENDING_TOOLS
+
+_SURFACE = _WRITE_TOOLS + _SPENDING_TOOLS + _READ_TOOLS
 
 _ACTIVE_OWNERS = "SELECT DISTINCT user_id FROM api_keys WHERE revoked_at IS NULL"
 
@@ -63,7 +67,7 @@ def up():
         )
         opted_out = cursor.rowcount
 
-        for tool in _WRITE_TOOLS:
+        for tool in _KEPT_ON:
             cursor.execute(
                 "INSERT OR IGNORE INTO mcp_tool_defaults (user_id, tool_name, enabled, updated_at) "
                 f"SELECT user_id, ?, 1, ? FROM ({_ACTIVE_OWNERS})",
@@ -71,5 +75,5 @@ def up():
             )
     print(
         f"Migration {_NAME}: {ceiling} tools the administrator had turned off in chat now stay off for MCP, "
-        f"{opted_out} per-user chat opt-outs carried over, write tools kept on for users with keys"
+        f"{opted_out} per-user chat opt-outs carried over, write and spending tools kept on for users with keys"
     )

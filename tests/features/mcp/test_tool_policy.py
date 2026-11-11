@@ -101,6 +101,42 @@ class TestRowsOfTheResolutionTable:
         assert state == ToolState.UNAVAILABLE
 
 
+class TestAToolThatSpends:
+    def test_allows_treats_spending_like_writing(self):
+        assert not allows(POLICY_READ_ONLY_ON, False, True)
+        assert allows(POLICY_ALL_ON, False, True)
+        assert allows(POLICY_READ_ONLY_ON, False, False)
+
+    def test_it_is_off_by_default_for_the_user_and_off_in_default_on_the_key(self):
+        at_default = resolve_state("t", False, None, ceiling(), default(), None, spends=True)
+        at_key = resolve_state("t", False, None, ceiling(), default(), NONE, spends=True)
+
+        assert at_default == ToolState.OFF
+        assert at_key == ToolState.OFF_IN_DEFAULT
+
+    def test_an_explicit_user_choice_or_the_all_on_policy_turns_it_on(self):
+        explicit = resolve_state("t", False, None, ceiling(), default(t=True), NONE, spends=True)
+        all_on = resolve_state("t", False, None, ceiling(), default(POLICY_ALL_ON), NONE, spends=True)
+
+        assert explicit == all_on == ToolState.ON
+
+    def test_a_read_only_ceiling_locks_it_unless_the_administrator_says_otherwise(self):
+        locked = resolve_state("t", False, None, ceiling(POLICY_READ_ONLY_ON), default(t=True), NONE, spends=True)
+        allowed = resolve_state("t", False, None, ceiling(POLICY_READ_ONLY_ON, t=True), default(t=True), NONE, spends=True)
+
+        assert locked == ToolState.LOCKED_BY_ADMIN
+        assert allowed == ToolState.ON
+
+    def test_at_the_ceiling_it_follows_the_policy(self):
+        assert ceiling_state("t", False, None, ceiling(POLICY_READ_ONLY_ON), spends=True) == ToolState.OFF
+        assert ceiling_state("t", False, None, ceiling(), spends=True) == ToolState.ON
+
+    def test_a_key_still_cannot_turn_it_on(self):
+        state = resolve_state("t", False, None, ceiling(), default(), NONE, spends=True)
+
+        assert state != ToolState.ON
+
+
 class TestAKeyCanOnlyNarrow:
     def test_a_key_row_never_turns_on_what_the_user_turned_off(self):
         state = resolve_state("t", False, None, ceiling(), default(t=False), NONE)

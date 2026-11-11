@@ -289,7 +289,7 @@ from src.features.prompt_database.routes import PromptDatabaseController
 from src.features.prompt_enhancement import PromptEnhancementCollaborators
 from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
 from src.features.llm.tools.base import ToolServices
-from src.features.mcp.exposure import tool_counts_by_key
+from src.features.mcp.operations.tools import counts_for_keys
 from src.features.mcp.tool_repository import McpToolRepository
 from src.features.api_keys.operations.keys import ApiKeyCollaborators
 from src.features.api_keys.operations.resolver import ApiKeyResolver
@@ -1912,7 +1912,7 @@ def build_container() -> AppContainer:
     )
 
 
-    mcp_tool_counts = functools.partial(tool_counts_by_key, mcp_tool_collaborators)
+    mcp_tool_counts = functools.partial(counts_for_keys, mcp_tool_collaborators)
     mcp_tools_documenter = McpToolsDocumenter(mcp_tool_collaborators)
     docs_controller = DocsController(
         plugin_registry,

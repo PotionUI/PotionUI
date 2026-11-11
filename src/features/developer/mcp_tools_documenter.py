@@ -7,8 +7,10 @@ from src.features.mcp.catalog import CatalogEntry, build_catalog
 from src.features.api_keys.settings import MCP_ENABLED_KEY
 
 ACTS_AS_KEY_OWNER = (
-    "An API key with the mcp scope lets an MCP client act as the key's owner, "
-    "with the tools that are turned on for that key."
+    "An API key with the mcp scope lets an MCP client act as the key's owner. The tools it sees are "
+    "the ones left on by three levels that can only narrow: the administrator's list, the owner's "
+    "default and the key's own list. Tools that write or spend are off by default until the owner "
+    "turns them on."
 )
 
 
@@ -47,6 +49,7 @@ class McpToolsDocumenter:
             "description": mcp_shape.get("description", entry.tool.description),
             "group": entry.group,
             "mutating": entry.writes,
+            "spends": entry.spends,
             "parameters": parameters,
         }
 

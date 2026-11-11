@@ -63,7 +63,7 @@ async def test_an_existing_mcp_user_keeps_the_tool_list_their_clients_saw_before
 
 
 @pytest.mark.asyncio
-async def test_a_user_who_never_used_mcp_gets_only_the_reading_tools(mcp_db, collaborators):
+async def test_a_user_who_never_used_mcp_gets_only_the_tools_that_neither_write_nor_spend(mcp_db, collaborators):
     seed_user(mcp_db, "u-new")
     seed_key(mcp_db, "k-new", "u-new")
     seed_user(mcp_db, "u-other")
@@ -73,8 +73,10 @@ async def test_a_user_who_never_used_mcp_gets_only_the_reading_tools(mcp_db, col
 
     names = await listed(collaborators, "u-other", "k-later")
 
-    assert {"list_presets", "list_models", "read_memory", "enhance_prompt", "write_condition"} <= names
-    assert names.isdisjoint({"start_generation", "add_prompt", "write_memory", "run_media_tool", "organize_gallery"})
+    assert {"list_presets", "list_models", "read_memory", "write_condition"} <= names
+    assert names.isdisjoint({
+        "start_generation", "add_prompt", "write_memory", "run_media_tool", "organize_gallery", "enhance_prompt",
+    })
 
 
 @pytest.mark.asyncio

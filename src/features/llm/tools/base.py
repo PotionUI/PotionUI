@@ -213,6 +213,7 @@ class BaseTool(ABC):
     requires_approval: bool = False
     approval_per_call: bool = False
     read_only: bool = False
+    spends: bool = False
     mcp: bool = False
     mcp_unavailable: Optional[str] = None
 

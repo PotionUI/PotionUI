@@ -48,7 +48,9 @@ def key_rows(
     return [
         (
             entry,
-            resolve_state(entry.name, entry.writes, entry.unavailable_reason, ceiling, default, disabled),
+            resolve_state(
+                entry.name, entry.writes, entry.unavailable_reason, ceiling, default, disabled, spends=entry.spends
+            ),
             is_reviewed(default, entry.name),
         )
         for entry in entries
@@ -80,15 +82,20 @@ def key_listing(c: "McpToolCollaborators", user_id: str, key_id: str) -> dict:
 def ceiling_listing(c: "McpToolCollaborators") -> dict:
     ceiling = ceiling_level(c)
     rows = [
-        (entry, ceiling_state(entry.name, entry.writes, entry.unavailable_reason, ceiling), True)
+        (
+            entry,
+            ceiling_state(entry.name, entry.writes, entry.unavailable_reason, ceiling, spends=entry.spends),
+            True,
+        )
         for entry in build_catalog(c.tool_registry)
     ]
     return listing_to_dict(LEVEL_CEILING, None, ceiling.policy, ceiling.policy, rows)
 
 
 def counts_for_keys(
-    c: "McpToolCollaborators", owners_by_key: Mapping[str, str]
+    c: "McpToolCollaborators", key_owners: Iterable[Tuple[str, str]]
 ) -> Dict[str, Tuple[int, int]]:
+    owners_by_key = dict(key_owners)
     if not owners_by_key:
         return {}
     entries = build_catalog(c.tool_registry)
@@ -124,7 +131,7 @@ def _check_not_locked(
 ) -> None:
     for name in overrides:
         entry = entries[name]
-        if not entry.unavailable_reason and not level_allows(ceiling, name, entry.writes):
+        if not entry.unavailable_reason and not level_allows(ceiling, name, entry.writes, entry.spends):
             raise McpToolError("locked_by_admin", f"Tool '{name}' is turned off by your administrator", 409)
 
 

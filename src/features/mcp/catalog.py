@@ -12,6 +12,7 @@ class CatalogEntry:
     group: str
     description: str
     writes: bool
+    spends: bool
     unavailable_reason: Optional[str]
 
 
@@ -23,6 +24,7 @@ def _entry(tool: Any) -> CatalogEntry:
         group=tool.group,
         description=tool.user_description or tool.description,
         writes=bool(tool.writes),
+        spends=bool(tool.spends),
         unavailable_reason=tool.mcp_unavailable or None,
     )
 

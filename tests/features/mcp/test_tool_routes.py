@@ -8,17 +8,20 @@ from src.features.api_keys import routes as api_key_routes
 from src.features.llm.tools.base import BaseTool, ToolResult
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.mcp import routes as mcp_routes
-from src.features.mcp.exposure import tool_counts_by_key
+from src.features.mcp.operations.tools import counts_for_keys
 from src.features.mcp.tool_repository import McpToolRepository
 from tests.features.mcp.support import build_collaborators
 
 
-def _stub(tool_name, read_only, unavailable=None):
+def _stub(tool_name, read_only, unavailable=None, spends=False):
+    spends_flag = spends
+
     class _Stub(BaseTool):
         name = tool_name
         group = "Group"
         user_description = f"{tool_name} description"
         mcp = unavailable is None
+        spends = spends_flag
         mcp_unavailable = unavailable
 
         @property
@@ -49,7 +52,7 @@ def tools_client(world):
         api_key_collaborators=world.stack.collaborators,
         user_repository=world.stack.users,
         mcp_tool_collaborators=collaborators,
-        mcp_tool_counts=lambda pairs: tool_counts_by_key(collaborators, pairs),
+        mcp_tool_counts=lambda pairs: counts_for_keys(collaborators, pairs),
     )
     app = FastAPI()
     app.include_router(api_key_routes.build_router(container))
@@ -101,7 +104,8 @@ class TestUserDefaultListing:
 
         assert tool == {
             "name": "live_e", "label": "Live E", "group": "Group", "description": "live_e description",
-            "writes": False, "unavailable_reason": "Needs the live Generate form", "state": "unavailable",
+            "writes": False, "spends": False, "unavailable_reason": "Needs the live Generate form",
+            "state": "unavailable",
             "reviewed": False,
         }
 
@@ -174,6 +178,45 @@ class TestUserDefaultPatch:
         assert response.status_code == 200
         assert states(response)["live_e"] == "unavailable"
         assert world.repository.default_overrides(world.alice.id) == {}
+
+
+class TestSpendingTools:
+    @pytest.fixture(autouse=True)
+    def spender(self, tools_client, world):
+        world.collaborators.tool_registry.register(_stub("spend_f", True, None, True))
+
+    def test_a_tool_that_spends_is_off_under_the_read_only_default_and_says_so(self, tools_client, world):
+        response = mine(tools_client, world)
+
+        tool = {t["name"]: t for t in response.json()["data"]["tools"]}["spend_f"]
+        assert (tool["state"], tool["spends"], tool["writes"], tool["reviewed"]) == ("off", True, False, False)
+        assert states(response)["read_a"] == "on"
+
+    def test_it_is_on_under_all_on_and_when_the_user_turns_it_on_explicitly(self, tools_client, world):
+        assert states(patch(tools_client, world, {"overrides": {"spend_f": True}}))["spend_f"] == "on"
+        assert states(patch(tools_client, world, {"overrides": {"spend_f": None}}))["spend_f"] == "off"
+        assert states(patch(tools_client, world, {"policy": "all_on"}))["spend_f"] == "on"
+
+    def test_a_key_sees_it_off_in_the_default_and_cannot_turn_it_on(self, tools_client, world):
+        key = world.mint(world.alice, scopes=("mcp",), name="assistant")[0]
+
+        listing = tools_client.get(f"/api/mcp/keys/{key.id}/tools", headers=world.session("alice"))
+        widen = tools_client.patch(
+            f"/api/mcp/keys/{key.id}/tools", json={"overrides": {"spend_f": True}}, headers=world.session("alice")
+        )
+
+        assert states(listing)["spend_f"] == "off_in_default"
+        assert widen.status_code == 400
+
+    def test_a_read_only_ceiling_locks_it_like_a_writing_tool(self, tools_client, world):
+        tools_client.patch("/api/admin/mcp/tools", json={"policy": "read_only_on"}, headers=world.session("root"))
+
+        assert states(mine(tools_client, world))["spend_f"] == "locked_by_admin"
+
+    def test_the_ceiling_listing_carries_the_flag(self, tools_client, world):
+        tool = {t["name"]: t for t in tools_client.get("/api/admin/mcp/tools", headers=world.session("root")).json()["data"]["tools"]}
+
+        assert tool["spend_f"]["spends"] is True and tool["read_a"]["spends"] is False
 
 
 class TestAdminLockOnTheUserRoutes:

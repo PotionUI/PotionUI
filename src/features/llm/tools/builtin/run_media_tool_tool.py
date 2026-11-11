@@ -200,6 +200,7 @@ class RunMediaToolTool(BaseTool):
 
     name = "run_media_tool"
     mcp = True
+    spends = True
     group = "Generation"
     requires_approval = True
     approval_per_call = True

@@ -232,6 +232,12 @@ from src.plugin_api.media import (
     save_user_media,
     transcode_video,
     upload_formats,
+    embed_images,
+    image_embedder,
+    detect_faces,
+    face_detector,
+    face_embedder,
+    embed_faces,
 )
 
 # Contributing a prompt import source.
@@ -569,6 +575,12 @@ __all__ = [
     "save_user_media",
     "transcode_video",
     "upload_formats",
+    "embed_images",
+    "image_embedder",
+    "detect_faces",
+    "face_detector",
+    "face_embedder",
+    "embed_faces",
     # Prompt import sources
     "PromptImporter",
     "PromptImportOutcome",

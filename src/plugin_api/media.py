@@ -28,10 +28,12 @@ the model depot's `detection_segm/` folder, the convention
 """
 
 import asyncio
+import contextvars
 import io
 import math
+import numbers
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence, Union
 
 from src.features.media.validators import UPLOAD_PURPOSE_USER, UPLOAD_PURPOSES
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame as _extract_video_frame
@@ -46,6 +48,7 @@ from src.platform.filesystem import audio_formats, visual_formats
 from src.platform.filesystem.mesh_formats import mesh_format_registry
 from src.platform.filesystem.storage_driver import local_copy, validate_key
 from src.platform.plugins.runtime_registries import get_container
+from src.platform.util import face_boxes, face_identity, face_models
 from src.platform.util.imaging import convert_image_to_base64
 from src.platform.util.video_stream import (
     FFmpegNotFoundError,
@@ -71,6 +74,8 @@ from src.plugin_api.generation import (
 )
 
 if TYPE_CHECKING:
+    from PIL import Image
+
     from src.platform.runtime.native.matting import BackgroundMattingModel
 
 __all__ = [
@@ -89,9 +94,15 @@ __all__ = [
     "VideoTranscodeError",
     "convert_image_to_base64",
     "copy_media_file",
+    "detect_faces",
+    "embed_faces",
+    "embed_images",
     "extract_frame",
+    "face_detector",
+    "face_embedder",
     "find_ffmpeg",
     "has_audio_stream",
+    "image_embedder",
     "media_local_path",
     "mux_audio_from_source",
     "output_count",
@@ -260,3 +271,72 @@ def upload_formats() -> Dict[str, List[str]]:
         "audio": sorted(audio_formats.AUDIO_EXTENSIONS),
         "model": sorted(mesh_format_registry.extensions()),
     }
+
+
+ImageInput = Union[str, Path, "Image.Image"]
+
+
+def _embedder():
+    return get_container().media_indexer.vision_embedder
+
+
+def _embedder_weights_here(embedder) -> bool:
+    return bool(type(embedder).resolve_status(embedder.model_name, embedder.resolver)["present"])
+
+
+def image_embedder() -> Dict[str, Any]:
+    embedder = _embedder()
+    return {
+        "model": embedder.model_name,
+        "slug": embedder.embedder_slug,
+        "device": str(embedder.device),
+        "available": _embedder_weights_here(embedder),
+        "loaded": bool(embedder.is_loaded()),
+    }
+
+
+def embed_images(images: Sequence[ImageInput]) -> List[List[float]]:
+    images = face_boxes.listed(images, "images")
+    embedder = _embedder()
+    if not _embedder_weights_here(embedder):
+        raise FileNotFoundError(f"The weights of {embedder.model_name} are not on this server")
+    pictures = [face_boxes.readable(image, f"images[{index}]") for index, image in enumerate(images)]
+    return contextvars.copy_context().run(embedder.embed_images, pictures)
+
+
+def _face_model() -> Optional[Path]:
+    return face_models.face_model(get_container().model_roots)
+
+
+def face_detector() -> Dict[str, Any]:
+    return {"model": face_models.FACE_MODEL, "available": _face_model() is not None}
+
+
+def detect_faces(images: Sequence[ImageInput], min_score: float = 0.5) -> List[List[Dict[str, Any]]]:
+    images = face_boxes.listed(images, "images")
+    if isinstance(min_score, bool) or not isinstance(min_score, numbers.Real) or not 0 <= min_score <= 1:
+        raise ValueError("min_score is a number from 0 to 1")
+    model = _face_model()
+    if model is None:
+        raise FileNotFoundError(f"{face_models.FACE_MODEL} is not in a {face_models.FACE_MODEL_TYPE} folder of the model roots")
+    return face_boxes.detect(model, images, min_score)
+
+
+def _identity_model() -> Optional[Path]:
+    return face_models.identity_model(get_container().model_roots)
+
+
+def face_embedder() -> Dict[str, Any]:
+    return {"model": face_models.IDENTITY_MODEL, "available": _identity_model() is not None and face_identity.runtime_imports()}
+
+
+def embed_faces(faces: Sequence[Any]) -> List[List[float]]:
+    faces = face_boxes.listed(faces, "faces")
+    model = _identity_model()
+    if model is None:
+        raise FileNotFoundError(f"{face_models.IDENTITY_MODEL} is not in {face_models.IDENTITY_DIR} of the home model root")
+    try:
+        pairs = [(image, landmarks) for image, landmarks in faces]
+    except (TypeError, ValueError) as error:
+        raise ValueError("Each face is a pair: an image and its five landmarks") from error
+    return contextvars.copy_context().run(face_identity.embed, get_container().model_lifecycle, model, pairs)

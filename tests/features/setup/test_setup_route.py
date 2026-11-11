@@ -3,13 +3,14 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.features.setup.routes import build_router
 
 
-def _client(*, claimed: bool, policy: str = "closed", token_exists: bool = False) -> TestClient:
+def _client(*, claimed: bool, policy: str = "closed", token_exists: bool = False, host: str = "testclient") -> TestClient:
     instance_claim = Mock()
     instance_claim.is_claimed.return_value = claimed
     settings = Mock()
@@ -23,7 +24,13 @@ def _client(*, claimed: bool, policy: str = "closed", token_exists: bool = False
     )
     app = FastAPI()
     app.include_router(build_router(container))
-    return TestClient(app)
+
+    async def with_peer(scope, receive, send):
+        if scope["type"] == "http":
+            scope["client"] = (host, 50000)
+        await app(scope, receive, send)
+
+    return TestClient(with_peer)
 
 
 def test_status_is_public_and_minimal():
@@ -49,3 +56,26 @@ def test_status_reports_claimed_instance():
     body = client.get("/api/setup/status").json()
     assert body["needs_owner"] is False
     assert body["registration_open"] is False
+
+
+@pytest.mark.parametrize(
+    "headers,requires_token",
+    [
+        ({}, False),
+        (
+            {
+                "x-forwarded-for": "127.0.0.1",
+                "x-forwarded-host": "localhost:26731",
+                "origin": "http://localhost:26731",
+            },
+            False,
+        ),
+        ({"origin": "https://photos.example.com"}, True),
+        ({"x-forwarded-for": "203.0.113.7"}, True),
+        ({"x-forwarded-host": "photos.example.com"}, True),
+    ],
+)
+def test_status_token_requirement_follows_the_whole_request(headers, requires_token):
+    client = _client(claimed=False, token_exists=True, host="127.0.0.1")
+    response = client.get("/api/setup/status", headers=headers)
+    assert response.json()["claim_requires_token"] is requires_token

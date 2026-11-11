@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, 
 from fastapi.security import OAuth2PasswordRequestForm
 
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.http.origin import is_loopback_host
+from src.platform.http.origin import is_local_request
 from src.features.auth.dto import (
     ChangePasswordRequest,
     ExternalLoginExchange,
@@ -100,7 +100,7 @@ class AuthController(BaseController):
                 password=user_data.password,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                origin_is_loopback=is_loopback_host(ip_address),
+                origin_is_loopback=is_local_request(request),
                 claim_token=user_data.claim_token,
             )
 

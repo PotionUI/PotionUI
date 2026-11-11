@@ -41,7 +41,7 @@ from src.features.setup import operations
 from src.features.setup.dto import MachineInfo, SetupStatus
 from src.features.setup.machine import probe_machine
 from src.features.setup.readiness import ReadinessReport, build_readiness_aggregator
-from src.platform.http.origin import is_loopback_host
+from src.platform.http.origin import is_local_request
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 
@@ -88,12 +88,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     @setup_router.get("/status", response_model=SetupStatus, summary="First-run setup status")
     async def get_setup_status(request: Request) -> SetupStatus:
         """Report whether the instance needs an owner and how it may be claimed."""
-        client_host = request.client.host if request.client else None
         return operations.status(
             instance_claim_repository,
             claim_token_store,
             settings,
-            is_loopback=is_loopback_host(client_host),
+            is_loopback=is_local_request(request),
         )
 
     # Built lazily on first readiness request so the (public, minimal) setup

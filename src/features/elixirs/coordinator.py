@@ -68,6 +68,7 @@ from src.features.elixirs.vocabulary import (
     node_label,
 )
 from src.features.generation.exceptions import GenerationNotFoundException
+from src.features.generation.policy import GenerationPolicy
 from src.features.generation.prompt_batch import per_prompt_quantity
 
 logger = logging.getLogger(__name__)
@@ -285,6 +286,7 @@ class Coordinator:
                 "run_mode": run_mode,
                 "status": "pending",
                 "graph": {
+                    "acts_as_admin": GenerationPolicy.is_admin(user),
                     "nodes": nodes,
                     "edges": frozen_edges,
                     "ports": ports,
@@ -460,6 +462,7 @@ class Coordinator:
                 "run_mode": elixir.get("run_mode") or "review",
                 "status": "pending",
                 "graph": {
+                    "acts_as_admin": GenerationPolicy.is_admin(user),
                     "nodes": [node],
                     "edges": [*frozen_edges, *onward],
                     "peers": peers,
@@ -696,11 +699,25 @@ class Coordinator:
             created += 1 if inserted else 0
         return created
 
+    def _record_authority(self, cursor, run: Mapping[str, Any], user) -> None:
+        authority = GenerationPolicy.is_admin(user)
+        graph = dict(run["graph"])
+        if graph.get("acts_as_admin") is authority:
+            return
+        graph["acts_as_admin"] = authority
+        self.store.save_run(cursor, run["id"], {"graph": graph})
+
+    @staticmethod
+    def _run_authority(run: Mapping[str, Any], owner) -> bool:
+        stored = (run.get("graph") or {}).get("acts_as_admin")
+        return GenerationPolicy.is_admin(owner) if stored is None else bool(stored)
+
     def confirm_edge(self, user, run_id: str, edge_id: str, selected: Iterable[str], expected_revision: int) -> Dict[str, Any]:
         selected = list(selected)
         limits = self.limits_provider()
         with self.store.transaction() as cursor:
             run = self._owned_run(cursor, user, run_id)
+            self._record_authority(cursor, run, user)
             checkpoint = run["checkpoints"].get(edge_id)
             if checkpoint is None:
                 raise BrewRefused("no_checkpoint", "That connection is not waiting for a choice.", status=404)
@@ -827,6 +844,7 @@ class Coordinator:
     def retry_failed(self, user, run_id: str, node_id: str) -> Dict[str, Any]:
         with self.store.transaction() as cursor:
             run = self._owned_run(cursor, user, run_id)
+            self._record_authority(cursor, run, user)
             if run.get("cancel_requested_at") or run["status"] in TERMINAL_RUN_STATUSES:
                 raise BrewRefused("run_closed", "This brew is no longer running.", status=409)
             latest = [item for item in latest_attempts(self.store.run_invocations(cursor, run_id)) if item["node_id"] == node_id]
@@ -1086,7 +1104,8 @@ class Coordinator:
             await asyncio.to_thread(self._fail, item, "The generation could not be prepared.")
             return
         try:
-            submitted = await self.port.submit(user, request)
+            authority = {"acts_as_admin": True} if self._run_authority(run, user) else {}
+            submitted = await self.port.submit(user, request, **authority)
         except Exception:
             logger.exception("Elixir invocation %s could not be submitted", item["id"])
             await asyncio.to_thread(self._fail, item, "The generation could not be started.")

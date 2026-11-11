@@ -134,6 +134,7 @@ class FakePort:
         self.generations = {}
         self.by_key = {}
         self.submits = []
+        self.authority = []
         self.cancels = []
         self.media = {}
         self.fail_submit = None
@@ -169,9 +170,10 @@ class FakePort:
     def user(self, user_id):
         return self.users.get(user_id)
 
-    async def submit(self, user, request):
+    async def submit(self, user, request, acts_as_admin=False):
         await asyncio.sleep(0)
         self.submits.append(copy.deepcopy(request))
+        self.authority.append(acts_as_admin)
         if self.fail_submit:
             raise ValueError(self.fail_submit)
         key = request.get("idempotency_key")

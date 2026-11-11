@@ -32,7 +32,7 @@ def test_no_authenticated_core_route_is_left_on_default_deny(tmp_path):
             env[name] = os.environ[name]
 
     result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "api_key_scopes.py"), "--default-deny"],
+        [sys.executable, str(ROOT / "tests" / "manual" / "api_key_scopes.py"), "--default-deny"],
         cwd=ROOT, env=env, capture_output=True, text=True, timeout=600,
     )
 
@@ -40,7 +40,7 @@ def test_no_authenticated_core_route_is_left_on_default_deny(tmp_path):
     assert result.returncode in (0, 1), result.stderr[-2000:]
     assert undeclared == [], (
         "These routes authenticate a user but never say what an API key may do. Declare key_access(...) on "
-        "the router, key_scope(...) on the route, or SESSION_ONLY, then run python scripts/api_key_scopes.py:\n"
+        "the router, key_scope(...) on the route, or SESSION_ONLY, then run python tests/manual/api_key_scopes.py:\n"
         + "\n".join(undeclared)
     )
 

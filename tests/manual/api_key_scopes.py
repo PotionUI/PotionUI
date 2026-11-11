@@ -3,7 +3,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = ROOT / "tests" / "golden" / "api_key_scopes.tsv"
 HEADER = "method\tpath\tread\twrite\tsource"
 SOURCE_PUBLIC = "public"
@@ -79,7 +79,7 @@ def main(argv) -> int:
     if "--check" in argv:
         current = GOLDEN.read_text() if GOLDEN.exists() else ""
         if current != text:
-            print("tests/golden/api_key_scopes.tsv is out of date: run python scripts/api_key_scopes.py")
+            print("tests/golden/api_key_scopes.tsv is out of date: run python tests/manual/api_key_scopes.py")
             return 1
         return 0
     GOLDEN.write_text(text)

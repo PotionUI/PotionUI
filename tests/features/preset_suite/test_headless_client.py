@@ -43,8 +43,9 @@ class _FakeOrchestrator:
         self.callback = None
         self.request = None
 
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         self.request = request
+        self.acts_as_admin = acts_as_admin
         self.callback = output_callback
         # The real orchestrator awaits the callback per output...
         for out in self._outputs:
@@ -61,6 +62,14 @@ def _client_with(orch) -> HeadlessGenerationClient:
     c = HeadlessGenerationClient(_never_called)
     c._orchestrator = orch  # bypass _boot(): no injector, no GPU
     return c
+
+
+def test_the_suite_starts_every_case_as_the_administrator_who_runs_it():
+    orch = _FakeOrchestrator(outputs=[])
+
+    _client_with(orch).run_case("PID", "txt2img", {}, prompt="hi", negative_prompt=None)
+
+    assert orch.acts_as_admin is True
 
 
 def test_collector_callback_is_a_coroutine():
@@ -128,7 +137,7 @@ def test_case_times_out_instead_of_hanging():
     # hang the suite. Orchestrator that never awaits the callback with None and
     # always reports non-terminal status.
     class _HangOrch:
-        async def start_generation(self, request, user_id, output_callback):
+        async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
             return {"generation_id": "gen-1"}
 
         async def get_generation_status(self, generation_id):

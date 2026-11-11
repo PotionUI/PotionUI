@@ -71,7 +71,7 @@ class SamplingUntilCancelledOrchestrator:
         self.cancelled = []
         self.stopped = threading.Event()
 
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         asyncio.get_running_loop().create_task(self._sample(output_callback))
         return {"generation_id": "gen-1"}
 

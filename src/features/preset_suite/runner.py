@@ -486,7 +486,7 @@ class HeadlessGenerationClient:
         request = GenerationRequest(preset_id=preset_id, mode=mode, form_data=form_data, prompts=prompts)
         start = time.perf_counter()
         try:
-            result = await self._orchestrator.start_generation(request, self.user_id, _collect)
+            result = await self._orchestrator.start_generation(request, self.user_id, _collect, acts_as_admin=True)
         except Exception as e:  # noqa: BLE001
             return CaseOutcome(status="failed", error=str(e), seconds=time.perf_counter() - start)
 

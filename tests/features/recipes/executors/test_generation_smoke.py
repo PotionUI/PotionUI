@@ -46,10 +46,12 @@ class FakeOrchestrator:
         self.error = error
         self.cancelled = []
         self.loops = []
+        self.authority = []
 
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         from src.pipelines.outputs import ErrorGenerationOutput, ImageGenerationOutput
 
+        self.authority.append(acts_as_admin)
         self.loops.append(asyncio.get_running_loop())
         if self.error:
             await output_callback("gen-1", ErrorGenerationOutput(error=self.error))
@@ -106,12 +108,24 @@ def test_successful_generation_reports_generation_id_and_file():
     assert result.safe_output["file_path"] == "images/gen-1/out.png"
 
 
+def test_the_setup_test_generation_runs_as_the_administrator_who_runs_the_recipe():
+    orchestrator = FakeOrchestrator(images=1)
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator,
+        FakeFileRepository(files=[SimpleNamespace(file_path="images/gen-1/out.png")]),
+    )
+
+    executor.execute(_context(_recipe()))
+
+    assert orchestrator.authority == [True]
+
+
 class FakeMediaOrchestrator(FakeOrchestrator):
     """Emits one final video, audio and mesh output - the shapes the video,
     song and img2mesh presets produce - plus a temporary video that must not
     count."""
 
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         from pathlib import Path
         from src.pipelines.outputs import AudioGenerationOutput, MeshGenerationOutput, VideoGenerationOutput
 
@@ -125,7 +139,7 @@ class FakeMediaOrchestrator(FakeOrchestrator):
 
 class FakeAudioGalleryOrchestrator(FakeOrchestrator):
 
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         from pathlib import Path
         from src.pipelines.outputs import AudioGenerationOutput, GalleryGenerationOutput
 
@@ -156,7 +170,7 @@ class FakeSamplingOrchestrator(FakeOrchestrator):
     """Emits sampling progress before the final image, the way a real
     generator does."""
 
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         from src.pipelines.outputs import ImageGenerationOutput, Progress, ProgressGenerationOutput
 
         for step in (1, 2, 3):
@@ -212,7 +226,7 @@ def test_generation_error_fails_with_plain_message_and_repair():
 
 
 class StatusOnlyFailureOrchestrator(FakeOrchestrator):
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         await output_callback("gen-1", None)
         return {"generation_id": "gen-1"}
 
@@ -232,7 +246,7 @@ def test_failure_reported_only_on_the_status_record_reaches_the_step():
 
 
 class SafeAndRawErrorOrchestrator(FakeOrchestrator):
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         from src.pipelines.outputs import ErrorGenerationOutput
 
         await output_callback("gen-1", ErrorGenerationOutput(
@@ -257,7 +271,7 @@ def test_the_admin_step_reports_the_raw_error_not_the_safe_message():
 
 
 class SafeStatusOnlyFailureOrchestrator(FakeOrchestrator):
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         await output_callback("gen-1", None)
         return {"generation_id": "gen-1"}
 
@@ -389,7 +403,7 @@ def test_default_model_repository_is_lazily_constructed():
 
 
 class NeverCompletingOrchestrator(FakeOrchestrator):
-    async def start_generation(self, request, user_id, output_callback):
+    async def start_generation(self, request, user_id, output_callback, acts_as_admin=False):
         self.loops.append(asyncio.get_running_loop())
         return {"generation_id": "gen-1"}
 

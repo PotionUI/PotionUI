@@ -98,7 +98,8 @@ class PhrasebookPreviewGenerator:
         generation_orchestrator,  # GenerationOrchestrator (passed to avoid circular import)
         value_ids: Optional[List[str]] = None,
         negative_prompt: Optional[str] = None,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        acts_as_admin: bool = False,
     ) -> Dict[str, Any]:
         """
         Generate preview images for phrasebook values.
@@ -252,10 +253,12 @@ class PhrasebookPreviewGenerator:
                 preview_callback = create_preview_callback(value.id, category_id, completion_event)
 
                 # Start generation
+                authority = {'acts_as_admin': True} if acts_as_admin else {}
                 result = await generation_orchestrator.start_generation(
                     request,
                     user_id,
-                    output_callback=preview_callback
+                    output_callback=preview_callback,
+                    **authority
                 )
 
                 generation_id = result['generation_id']

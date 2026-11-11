@@ -39,6 +39,7 @@ from src.platform.plugins.hooks import execute_hook
 from src.platform.plugins.phrasebook_ops import BatchOperationError, PhrasebookOperationRegistry
 from src.platform.security.user import User
 from src.features.generation.orchestrator import GenerationOrchestrator
+from src.features.generation.policy import GenerationPolicy
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -345,6 +346,7 @@ class PhrasebookController(BaseController):
         self, category_id: str, request: GeneratePreviewRequest, user: User
     ) -> APIResponse:
         """Generate preview images for values in a category."""
+        authority = {"acts_as_admin": True} if GenerationPolicy.is_admin(user) else {}
         result = await self.preview_generator.generate_previews(
             category_id=category_id,
             session_id=request.session_id,
@@ -354,7 +356,8 @@ class PhrasebookController(BaseController):
             generation_orchestrator=self.generation_orchestrator,
             value_ids=request.value_ids,
             negative_prompt=request.negative_prompt,
-            seed=request.seed
+            seed=request.seed,
+            **authority
         )
         return self.success_response(data=result)
 

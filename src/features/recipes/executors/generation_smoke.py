@@ -290,7 +290,9 @@ class GenerationSmokeExecutor:
             prompts = [PromptPair(positive=prompt or "", negative=negative_prompt or "")]
 
         request = GenerationRequest(preset_id=preset_id, mode=mode, form_data=form_data, prompts=prompts)
-        result = await self.orchestrator.start_generation(request, user_id or "setup", _collect)
+        result = await self.orchestrator.start_generation(
+            request, user_id or "setup", _collect, acts_as_admin=True
+        )
         generation_id = result.get("generation_id")
 
         try:

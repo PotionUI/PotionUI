@@ -255,8 +255,6 @@ from src.pipelines.pipes.generator.video_minimax_h3.control import (
 from src.platform.runtime.native.arch.minimax_h3.control import HINT_ROW_MODES, ControlContext, control_attached
 from src.pipelines.pipes.generator.video_minimax_h3.drift import DriftGuard
 from src.pipelines.pipes.generator.video_minimax_h3.loop import (
-    LOOP_ANCHOR_KEYFRAMES,
-    LOOP_OPENING_LATENTS,
     LoopPlan,
     LoopRequestError,
     assemble_loop_audio,
@@ -3025,34 +3023,23 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             video_shift=c.video_sigma_shift, audio_shift=c.audio_sigma_shift, denoise=c.denoise,
         )
         per_pass = int(video_schedule.timesteps.numel())
-        passes = 2 if c.keyframe_images else 3
+        passes = 2
         shared = dict(
             prompt_embeds=prompt_embeds, text_token_tags=text_token_tags, condition_audio_rows=None,
             steps=c.steps, progress=progress, progress_total=passes * per_pass, is_cancelled=ctx.is_cancelled,
         )
 
-        picture = c.keyframe_images[0] if c.keyframe_images else None
-        if picture is None:
-            opening_generator = torch.Generator(device=c.device).manual_seed(int(seed) + 2)
-            video_rows, audio_rows, layout = self._sample_window(
-                c, condition_rows=self._loop_anchor_condition_rows(c, opening_generator, [], ()),
-                keyframe_anchors=(), num_latent_frames=LOOP_OPENING_LATENTS,
-                num_audio_latents=audio_latent_num_frames(pixel_frames_for_latent_frames(LOOP_OPENING_LATENTS)),
-                generator=opening_generator, progress_offset=0, progress_state=f"LOOP 1/{passes}", **shared,
-            )
-            opening, _ = self._loop_window_latents(
-                c, video_rows, audio_rows, layout, LOOP_OPENING_LATENTS,
-                audio_latent_num_frames(pixel_frames_for_latent_frames(LOOP_OPENING_LATENTS)),
-            )
-            picture = Image.fromarray(self._decode_video(c, opening)[0])
-        picture = fit_keyframe_to_canvas(picture, c.height, c.width, is_geometry_anchor=False)
-
+        images = [
+            fit_keyframe_to_canvas(image, c.height, c.width, is_geometry_anchor=False)
+            for image in c.keyframe_images
+        ]
+        anchors = tuple(c.keyframe_anchors[: len(images)])
         anchor_generator = torch.Generator(device=c.device).manual_seed(int(seed))
         video_rows, audio_rows, layout = self._sample_window(
-            c, condition_rows=self._loop_anchor_condition_rows(c, anchor_generator, [picture, picture], LOOP_ANCHOR_KEYFRAMES),
-            keyframe_anchors=LOOP_ANCHOR_KEYFRAMES, num_latent_frames=plan.anchor_latents,
+            c, condition_rows=self._loop_anchor_condition_rows(c, anchor_generator, images, anchors),
+            keyframe_anchors=anchors, num_latent_frames=plan.anchor_latents,
             num_audio_latents=plan.anchor_audio_latents, generator=anchor_generator,
-            progress_offset=(passes - 2) * per_pass, progress_state=f"LOOP {passes - 1}/{passes}", **shared,
+            progress_offset=0, progress_state=f"LOOP 1/{passes}", **shared,
         )
         anchor_latent, anchor_audio = self._loop_window_latents(
             c, video_rows, audio_rows, layout, plan.anchor_latents, plan.anchor_audio_latents,

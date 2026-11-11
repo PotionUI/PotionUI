@@ -119,8 +119,8 @@ def test_the_gpu_check_passes_a_periodic_clip_and_fails_a_jump_at_the_seam():
 
     from tests.manual.h3_perfect_loop_check import seam_metric
 
-    phase = np.linspace(0, 2 * np.pi, 48, endpoint=False)
-    smooth = (128 + 40 * np.sin(phase)).astype(np.uint8)[:, None, None, None].repeat(4, 1).repeat(4, 2).repeat(3, 3)
+    triangle = 100 + 2 * np.minimum(np.arange(48), 48 - np.arange(48))
+    smooth = triangle.astype(np.uint8)[:, None, None, None].repeat(4, 1).repeat(4, 2).repeat(3, 3)
     report = seam_metric(smooth)
     assert report["pass"] and report["frames"] == 48
 
@@ -128,6 +128,61 @@ def test_the_gpu_check_passes_a_periodic_clip_and_fails_a_jump_at_the_seam():
     report = seam_metric(ramp)
     assert not report["pass"]
     assert report["seam_step"] == pytest.approx(94) and report["largest_step"] == pytest.approx(2)
+    assert report["jumps"][0]["at_wrap"] and report["jumps"][0]["back_to"] == 0
+
+
+def _clip(values):
+    import numpy as np
+
+    return np.asarray(values, dtype=np.uint8)[:, None, None, None].repeat(4, 1).repeat(4, 2).repeat(3, 3)
+
+
+def test_the_gpu_check_finds_a_reset_inside_the_period_and_names_the_frame_it_jumps_back_to():
+    import numpy as np
+
+    from tests.manual.h3_perfect_loop_check import seam_metric
+
+    values = 40 + 2.5 * np.arange(60, dtype=float)
+    values[45:] = values[20:35]
+    report = seam_metric(_clip(values))
+
+    assert not report["pass"]
+    assert [jump["frames"] for jump in report["jumps"]][0] == [44, 45]
+    assert report["jumps"][0]["back_to"] == 20
+
+
+def test_the_gpu_check_finds_motion_that_stops_and_restarts_but_not_the_vae_cadence():
+    import numpy as np
+
+    from tests.manual.h3_perfect_loop_check import seam_metric
+
+    steps = np.where(np.arange(60) % 4 == 0, 6.0, 2.0)
+    signs = np.where(np.arange(60) % 30 < 15, 1, -1)
+    cadence = np.cumsum(steps * signs) + 60
+    assert seam_metric(_clip(cadence - cadence.min() + 40))["pass"]
+
+    stopping = np.cumsum(np.where((np.arange(60) >= 28) & (np.arange(60) < 33), 0.0, 2.0) * signs) + 60
+    report = seam_metric(_clip(stopping - stopping.min() + 40))
+    assert not report["pass"] and report["stops"]
+
+
+def test_the_gpu_check_finds_a_slow_zoom():
+    import numpy as np
+    from PIL import Image
+
+    from tests.manual.h3_perfect_loop_check import zoom_drift
+
+    base = Image.fromarray((np.random.default_rng(1).random((168, 96)) * 255).astype(np.uint8)).resize((192, 336))
+    def zoom(scale):
+        grown = base.resize((round(192 * scale), round(336 * scale)))
+        left, top = (grown.size[0] - 192) // 2, (grown.size[1] - 336) // 2
+        return np.asarray(grown.crop((left, top, left + 192, top + 336)).convert("RGB"))
+
+    still = np.stack([zoom(1.0)] * 48)
+    assert zoom_drift(still)["zoom_ok"]
+    drifting = np.stack([zoom(1.0 + 0.03 * index / 47) for index in range(48)])
+    report = zoom_drift(drifting)
+    assert not report["zoom_ok"] and report["worst_zoom"] >= 1.02
 
 
 def test_a_prompt_that_is_already_a_full_document_is_not_wrapped_in_a_second_one(h3_template):

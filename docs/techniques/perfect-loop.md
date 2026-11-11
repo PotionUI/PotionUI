@@ -32,14 +32,9 @@ cross-fading its first 5 frames with the previous chunk's look-ahead. So if ever
 neighbouring chunks in a sequence was denoised together, the decoded sequence has no seam anywhere.
 The loop is built so that this holds around the wrap too.
 
-1. **Anchor pass.** One window of `17a + 5` frames with the Start picture as both its first and its
-   last keyframe (the model's trained first-and-last-frame route), so the anchor itself comes back to
-   where it began and cannot drift away in colour or layout. The picture is fitted to the screen once, keeping its
-   aspect ratio (cover crop), and that one fitted image is both keyframes: the model's own fit
-   stretches a first keyframe and crops a later one, and two differently fitted copies of one picture
-   read to the model as a slow zoom. Without a Start picture an opening pass
-   (22 frames, text-to-video) is made first and its first decoded frame serves as the picture. The
-   anchor's latent chunks are `A0 … A(a-1)` plus a 2-latent tail.
+1. **Anchor pass.** One ordinary window of `17a + 5` frames: text-to-video, or image-to-video from
+   the Start picture, which is fitted to the screen once, keeping its aspect ratio (cover crop). Only
+   its first frame is held. Its latent chunks are `A0 … A(a-1)` plus a 2-latent tail.
 2. **Bridge pass.** A second window of `17b + 5` frames whose first chunk is pinned to `A(a-1)` and
    whose last chunk and tail are pinned to `A0` and the first two latents of `A1`. Pinned spans are
    whole chunks at chunk boundaries, so every pinned latent sits at the phase it was made for and no
@@ -85,12 +80,17 @@ loop is at most 38 chunks (26.9 s), or 36 (25.5 s) with sound.
 ## Tradeoffs and limitations
 
 - Cost is two windows whose lengths add up to the loop plus two chunks, plus one extra chunk of
-  decode; a loop without a picture adds a 22-frame opening pass.
-- The bridge's tail pins alone do not steer a few-step run back to the start: the first real run
-  (4 steps, shift 12, no anchor end keyframe) drifted 52 luma levels from start to end and cut at
-  the wrap. Every model evaluation at that schedule sees pinned rows at sigma 0.8 or above, so the
-  pins are exact but nearly invisible to the model; the anchor's last keyframe is what holds the
-  loop's two ends together.
+  decode.
+- It needs the full step count. At 24 steps the bridge brings the scene back (a measured run: largest
+  step 1.8x the median, the wrap 1.6x, no zoom). At 4 steps, shift 12, every model evaluation sees the
+  pinned rows at sigma 0.8 or above, the pins are nearly invisible to the model, and the first real
+  run drifted 52 luma levels and cut at the wrap.
+- Holding the picture at the anchor's end as well does not help, and was tried. It puts a second
+  visit to the picture in the middle of every period. When the picture is fitted differently for
+  the two keyframes (the model's own fit stretches a first keyframe and crops a later one), the
+  difference reads as a slow zoom. With identical fits, the bridge has to travel from the picture to
+  the picture and solves that with a cut back to its own opening: a visible reset about four fifths
+  of the way through.
 - The pins make the seam exact in latent space and in the decoder. Whether the bridge's free middle
   moves naturally into and out of its pinned ends, at every speed profile, is what a GPU run has to
   show (`tests/manual/h3_perfect_loop_check.py`).

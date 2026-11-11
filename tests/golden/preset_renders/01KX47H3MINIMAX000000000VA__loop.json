@@ -64,18 +64,18 @@
         },
         "p_prompt.input": {
           "type": "str",
-          "value": "integrated_multimodal_description: [Shot 1] Filmed from a fixed camera that never moves, as one seamless looping shot. Only slight, slow movement: golden positive prompt The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
+          "value": "integrated_multimodal_description: [Shot 1] Filmed from a fixed camera that never moves, as one continuous, seamless looping shot with no cuts. Only slight, slow movement: golden positive prompt The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
         },
         "p_prompt.output": {
           "type": "str",
-          "value": "integrated_multimodal_description: [Shot 1] Filmed from a fixed camera that never moves, as one seamless looping shot. Only slight, slow movement: golden positive prompt The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
+          "value": "integrated_multimodal_description: [Shot 1] Filmed from a fixed camera that never moves, as one continuous, seamless looping shot with no cuts. Only slight, slow movement: golden positive prompt The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
         },
         "pairs": {
           "type": "list",
           "value": [
             {
               "negative": "",
-              "positive": "integrated_multimodal_description: [Shot 1] Filmed from a fixed camera that never moves, as one seamless looping shot. Only slight, slow movement: golden positive prompt The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
+              "positive": "integrated_multimodal_description: [Shot 1] Filmed from a fixed camera that never moves, as one continuous, seamless looping shot with no cuts. Only slight, slow movement: golden positive prompt The motion is continuous and repeats naturally, and everything looks the same at the end as at the start.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
             }
           ]
         },

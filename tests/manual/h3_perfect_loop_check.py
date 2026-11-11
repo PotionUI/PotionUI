@@ -16,9 +16,11 @@ DESCRIPTION = (
     "GPU check for MiniMax-H3's perfect loop. Renders one loop through the real model loader, prompt "
     "encoder and generator pipes (or takes an existing loop with --video), then writes the loop, the loop "
     "three times in a row, a contact sheet of the frames around the seam, and the seam metric: the mean "
-    "absolute luma difference from the last frame to the first, against the average and the largest step "
-    "between neighbouring frames inside the clip. PASS when the seam step is no larger than the largest "
-    "ordinary step."
+    "absolute luma difference between neighbouring frames around the whole period, the wrap included. PASS "
+    "when no step is above 2.5x the median and 1.8x the steps four frames away (the VAE's own cadence), which "
+    "would be a jump or a reset (with the earlier frame it jumps back to), and "
+    "motion never drops below 0.35x the median for two steps (a stop and restart), and the view never zooms "
+    "more than 1 percent against the first frame."
 )
 PRESET = ROOT / "content/presets/marketplace/MiniMax-H3/preset.yml"
 SEAM_TILES = 8
@@ -30,7 +32,7 @@ def loop_document(what_moves: str, *, picture: bool, lively: bool, sound: bool) 
     soundscape = "Quiet ambient sound that fits the scene, steady from start to end." if sound else "N/A"
     return (
         f"integrated_multimodal_description: [Shot 1] {scene} from a fixed camera that never moves, as one "
-        f"seamless looping shot. {pace}{what_moves.strip()} The motion is continuous and repeats naturally, "
+        f"continuous, seamless looping shot with no cuts. {pace}{what_moves.strip()} The motion is continuous and repeats naturally, "
         f"and everything looks the same at the end as at the start.\n"
         f"overall_soundscape: {soundscape}\n"
         f"non_diegetic_music: N/A"
@@ -42,21 +44,74 @@ def luma(frames: np.ndarray) -> np.ndarray:
     return 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
 
 
+SPIKE_RATIO = 2.5
+CADENCE = 4
+CADENCE_RATIO = 1.8
+STOP_RATIO = 0.35
+RESET_GAP = 12
+
+
 def seam_metric(frames: np.ndarray) -> dict:
     y = luma(frames)
     steps = np.abs(np.diff(y, axis=0)).mean(axis=(1, 2))
     seam = float(np.abs(y[0] - y[-1]).mean())
+    cycle = np.append(steps, seam)
+    count = len(cycle)
+    median = float(np.median(cycle))
+    jumps = []
+    for index in range(count):
+        same_phase = max(cycle[index - CADENCE], cycle[(index + CADENCE) % count])
+        if cycle[index] <= SPIKE_RATIO * median or cycle[index] <= CADENCE_RATIO * same_phase:
+            continue
+        after = y[(index + 1) % len(y)]
+        earlier = np.abs(y[: max(0, index - RESET_GAP)] - after).mean(axis=(1, 2))
+        back_to = int(np.argmin(earlier)) if earlier.size and earlier.min() < cycle[index] else None
+        jumps.append({
+            "frames": [int(index), int((index + 1) % len(y))], "step": float(cycle[index]),
+            "back_to": back_to, "at_wrap": index == count - 1,
+        })
+    slow = cycle < STOP_RATIO * median
+    stops = [index for index in range(count) if slow[index] and slow[(index + 1) % count] and not slow[index - 1]]
     largest = int(np.argmax(steps))
     return {
         "frames": int(frames.shape[0]),
         "seam_step": seam,
         "mean_step": float(steps.mean()),
-        "median_step": float(np.median(steps)),
+        "median_step": median,
         "largest_step": float(steps[largest]),
         "largest_step_at": [largest, largest + 1],
-        "seam_over_mean": seam / float(steps.mean()) if steps.mean() else float("inf"),
-        "pass": seam <= float(steps[largest]),
+        "seam_over_median": seam / median if median else float("inf"),
+        "jumps": jumps,
+        "stops": stops,
+        "pass": not jumps and not stops,
     }
+
+
+ZOOM_LIMIT = 0.01
+ZOOM_STEP = 12
+
+
+def zoom_drift(frames: np.ndarray, *, size: tuple[int, int] = (96, 168)) -> dict:
+    def small(frame: np.ndarray) -> np.ndarray:
+        return np.asarray(Image.fromarray(frame).convert("L").resize(size), dtype=np.float64)
+
+    def zoomed(frame: np.ndarray, scale: float) -> np.ndarray:
+        image = Image.fromarray(frame)
+        width, height = image.size
+        grown = image.resize((round(width * scale), round(height * scale)))
+        left, top = (grown.size[0] - width) // 2, (grown.size[1] - height) // 2
+        return small(np.asarray(grown.crop((left, top, left + width, top + height))))
+
+    scales = np.round(np.arange(0.94, 1.0601, 0.005), 3)
+    references = {float(scale): zoomed(frames[0], float(scale)) for scale in scales}
+    found = []
+    for index in range(0, len(frames), ZOOM_STEP):
+        target = small(frames[index])
+        best = min(references, key=lambda scale: np.abs(references[scale] - target).mean())
+        found.append((index, best))
+    worst = max(found, key=lambda item: abs(item[1] - 1.0))
+    return {"zoom_by_frame": found, "worst_zoom": worst[1], "worst_zoom_at": worst[0],
+            "zoom_ok": abs(worst[1] - 1.0) <= ZOOM_LIMIT}
 
 
 def contact_sheet(frames: np.ndarray, path: Path, *, tiles: int = SEAM_TILES, width: int = 320) -> None:
@@ -173,15 +228,26 @@ def main() -> int:
     encode_frames_to_mp4(np.concatenate([frames, frames, frames]), args.out / "loop-x3.mp4", fps=fps)
     contact_sheet(frames, args.out / "seam-sheet.png")
     report = seam_metric(frames)
+    report.update(zoom_drift(frames))
+    report["pass"] = report["pass"] and report["zoom_ok"]
     (args.out / "seam.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     print(f"frames {report['frames']} at {fps:g} fps")
     print(f"seam step (last to first)   {report['seam_step']:.2f}")
     print(f"neighbour step mean/median  {report['mean_step']:.2f} / {report['median_step']:.2f}")
     print(f"largest step inside         {report['largest_step']:.2f} at frames {report['largest_step_at']}")
-    print(f"seam / mean                 {report['seam_over_mean']:.2f}")
-    print(f"{'PASS' if report['pass'] else 'FAIL'}: the seam step is "
-          f"{'no larger than' if report['pass'] else 'larger than'} the largest ordinary step")
+    print(f"seam / median               {report['seam_over_median']:.2f}")
+    for jump in report["jumps"]:
+        back = f", the picture jumps back to frame {jump['back_to']}" if jump["back_to"] is not None else ""
+        where = " (the wrap)" if jump["at_wrap"] else ""
+        print(f"jump at frames {jump['frames'][0]}-{jump['frames'][1]}{where}: step {jump['step']:.2f}{back}")
+    for stop in report["stops"]:
+        print(f"motion stops at frame {stop} and restarts")
+    print(f"zoom against frame 0          worst {report['worst_zoom']:.3f} at frame {report['worst_zoom_at']} "
+          f"(limit 1 +/- {ZOOM_LIMIT})")
+    print(f"{'PASS' if report['pass'] else 'FAIL'}: no step of the period, the wrap included, jumps above "
+          f"{SPIKE_RATIO}x the median and {CADENCE_RATIO}x the steps {CADENCE} frames away, and motion never "
+          f"drops below {STOP_RATIO}x the median for two steps")
     return 0 if report["pass"] else 1
 
 

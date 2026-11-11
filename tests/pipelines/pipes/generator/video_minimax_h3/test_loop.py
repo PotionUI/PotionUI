@@ -396,20 +396,17 @@ def _anchor_keyframe_times(call, plan):
     return [float(position[video[row]]) for row in range(n_cv)], first, last
 
 
-def test_the_anchor_pass_holds_the_start_picture_at_its_first_and_its_last_frame():
+def test_the_anchor_pass_holds_the_start_picture_at_its_first_frame_only():
     run = _run_loop(4.0)
     plan = run.plan
 
     assert run.opening_calls == []
-    times, first, last = _anchor_keyframe_times(run.anchor_calls[0], plan)
-    assert len(times) == 2
-    assert times[0] == first
-    assert times[1] == pytest.approx(last)
-    condition = run.anchor_calls[0]["hidden_states"][0, :2].float()
-    torch.testing.assert_close(condition[0], condition[1], atol=0.02, rtol=0.02)
+    times, first, _ = _anchor_keyframe_times(run.anchor_calls[0], plan)
+    assert times == [first]
+    assert run.bridge_calls[0]["num_condition_video_rows"] == len(plan.bridge_anchors)
 
 
-def test_both_anchor_ends_encode_the_same_pixels_even_when_the_picture_is_not_the_screen_shape():
+def test_the_start_picture_is_fitted_once_keeping_its_shape():
     from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
 
     original = h3_main.prepare_keyframe_condition_rows
@@ -426,24 +423,17 @@ def test_both_anchor_ends_encode_the_same_pixels_even_when_the_picture_is_not_th
     with patch(f"{_MAIN}.prepare_keyframe_condition_rows", side_effect=record):
         _run_loop(4.0, picture_image=Image.fromarray(gradient))
 
-    first, last = seen[-1]
-    assert first.shape == (32, 32, 3)
-    assert np.array_equal(first, last)
+    (first,) = seen[-1]
     cropped = np.asarray(fit_keyframe_to_canvas(Image.fromarray(gradient), 32, 32, is_geometry_anchor=False))
     assert np.array_equal(first, cropped)
 
 
-def test_a_loop_without_a_picture_first_makes_its_opening_frame_and_holds_both_anchor_ends_on_it():
+def test_a_loop_without_a_picture_runs_two_passes_from_the_prompt_alone():
     run = _run_loop(4.0, picture=False)
     plan = run.plan
 
-    assert len(run.calls) == 3 * run.steps
-    opening = run.opening_calls[0]
-    assert opening["num_condition_video_rows"] == 0
-    assert opening["hidden_states"].shape[1] == LATENTS_PER_CHUNK + 2
-    assert run.pipe.decoded_latents[0].shape[2] == LATENTS_PER_CHUNK + 2
-    times, first, last = _anchor_keyframe_times(run.anchor_calls[0], plan)
-    assert len(times) == 2 and times[0] == first and times[1] == pytest.approx(last)
+    assert len(run.calls) == 2 * run.steps
+    assert run.anchor_calls[0]["num_condition_video_rows"] == 0
     (anchor, _), (bridge, _) = run.windows
     assert torch.equal(bridge[:, :, plan.tail_start:], anchor[:, :, : plan.tail_latents])
 
@@ -452,7 +442,7 @@ def test_the_loop_runs_with_the_flex_sampler():
     run = _run_loop(2.0, sampler="lcm")
     plan = run.plan
 
-    assert run.anchor_calls[0]["num_condition_video_rows"] == 2
+    assert run.anchor_calls[0]["num_condition_video_rows"] == 1
     (anchor, _), (bridge, _) = run.windows
     assert torch.equal(bridge[:, :, plan.tail_start:], anchor[:, :, : plan.tail_latents])
     assert run.bridge_calls[0]["num_condition_video_rows"] == len(plan.bridge_anchors)

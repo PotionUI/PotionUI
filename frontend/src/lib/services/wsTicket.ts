@@ -19,3 +19,7 @@ export function isAuthRefusal(error: unknown): boolean {
 	const status = (error as { response?: { status?: number } } | null)?.response?.status;
 	return status === 401 || status === 403;
 }
+
+export function widgetWsUrl(path: string, token?: string | null): string | Promise<string> {
+	return token ? getWsUrl(path, token) : ticketedWsUrl(path);
+}

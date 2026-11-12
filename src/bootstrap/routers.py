@@ -103,6 +103,7 @@ from src.features.api_keys.routes import (
     build_admin_router as build_api_keys_admin_router,
     build_router as build_api_keys_router,
 )
+from src.features.mcp.legacy_routes import build_legacy_router as build_mcp_legacy_router
 from src.features.mcp.routes import build_admin_router as build_mcp_admin_router, build_router as build_mcp_router
 
 
@@ -186,3 +187,4 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_api_keys_admin_router(container))
     app.include_router(build_mcp_router(container))
     app.include_router(build_mcp_admin_router(container))
+    app.include_router(build_mcp_legacy_router(container))

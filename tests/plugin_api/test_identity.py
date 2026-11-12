@@ -92,3 +92,40 @@ def test_a_plugin_route_that_declares_nothing_refuses_keys_and_a_declared_one_do
     routes = {route.path: route for route in router.routes}
     assert required_scopes(routes["/plugin/open"], "GET") == {ApiScope.READ}
     assert required_scopes(routes["/plugin/closed"], "GET") is None
+
+
+def test_authenticate_websocket_token_is_exported_with_its_v010_shape():
+    import src.plugin_api as plugin_api
+    from src.plugin_api import identity
+
+    assert plugin_api.authenticate_websocket_token is identity.authenticate_websocket_token
+    assert "authenticate_websocket_token" in identity.__all__
+    assert "authenticate_websocket_token" in plugin_api.__all__
+
+
+def test_authenticate_websocket_token_hands_the_token_to_the_session_check():
+    from src.plugin_api.identity import authenticate_websocket_token
+
+    user = SimpleNamespace(id="user-1")
+    auth = Mock(authenticate_websocket=Mock(return_value=(user, None)))
+
+    with patch("src.platform.security.current_user.get_auth", return_value=auth):
+        assert authenticate_websocket_token("jwt") == (user, None)
+
+    auth.authenticate_websocket.assert_called_once_with("jwt")
+
+
+def test_authenticate_websocket_token_defaults_to_no_token():
+    from src.plugin_api.identity import authenticate_websocket_token
+
+    auth = Mock(authenticate_websocket=Mock(return_value=(None, "Authentication required")))
+
+    with patch("src.platform.security.current_user.get_auth", return_value=auth):
+        assert authenticate_websocket_token() == (None, "Authentication required")
+
+
+def test_authenticate_websocket_token_reports_an_uninitialised_auth_service():
+    from src.plugin_api.identity import authenticate_websocket_token
+
+    with patch("src.platform.security.current_user.get_auth", side_effect=RuntimeError("not ready")):
+        assert authenticate_websocket_token("jwt") == (None, "Authentication service not available")

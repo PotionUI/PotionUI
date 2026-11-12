@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from src.features.presets.mode_fields import mode_inventory
+from src.features.presets.retired_modes import is_retired
 from src.features.presets.schema import (
     ExtensionFieldGroup,
     ExtensionPipeAdd,
@@ -344,7 +345,15 @@ def _apply_one(
     spec, problems = read_extension_file(extension)
     if problems:
         return problems
-    missing = [name for name in extension.modes if name not in target.modes]
+    retired = [name for name in extension.modes if name not in target.modes and is_retired(target.vars, name)]
+    applicable = [name for name in extension.modes if name not in retired]
+    if retired:
+        logger.warning(
+            f"{extension.error_key} lists retired mode(s) {', '.join(retired)} of preset '{target.id}'; skipping them"
+        )
+    if not applicable:
+        return []
+    missing = [name for name in applicable if name not in target.modes]
     if missing:
         return [f"preset '{target.id}' has no mode '{name}'" for name in missing]
 
@@ -352,7 +361,7 @@ def _apply_one(
     if problems:
         return problems
 
-    modes = {name: copy.deepcopy(target.modes[name]) for name in extension.modes}
+    modes = {name: copy.deepcopy(target.modes[name]) for name in applicable}
     for mode_name, mode in modes.items():
         for form in mode.forms:
             loc = f"modes/{mode_name}/form '{form.name}'"

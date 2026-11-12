@@ -11,3 +11,11 @@ class McpToolsPatchRequest(BaseModel):
 class McpKeyToolsPatchRequest(BaseModel):
     overrides: Optional[Dict[str, Optional[StrictBool]]] = None
     reset: Optional[StrictBool] = None
+
+
+class McpTokenCreateRequest(BaseModel):
+    name: str
+
+
+class McpUserToggleRequest(BaseModel):
+    enabled: bool

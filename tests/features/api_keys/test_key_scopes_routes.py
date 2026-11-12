@@ -208,6 +208,7 @@ class TestSystemSettingsThroughTheDowngrade:
         container = SimpleNamespace(
             settings=Mock(get_setting=Mock(return_value="preset")), setting_repository=repository,
             gpu_monitor=Mock(), backend_registry=MagicMock(),
+            api_key_collaborators=world.stack.collaborators,
         )
         app = FastAPI()
         app.include_router(build_settings_router(container))

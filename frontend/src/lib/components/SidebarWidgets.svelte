@@ -3,7 +3,7 @@
 	import { api } from '$lib/services/api/index';
 	import { logger } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
-	import { ticketedWsUrl } from '$lib/services/wsTicket';
+	import { widgetWsUrl } from '$lib/services/wsTicket';
 	import { authStore } from '$lib/stores/auth';
 
 	// Props
@@ -61,7 +61,7 @@
 					apiBaseUrl: api.getBaseURL(),
 					token: api.getToken(),
 					isAdmin: $authStore.user?.account_type === 'ADMIN',
-					wsUrl: ticketedWsUrl
+					wsUrl: widgetWsUrl
 				}
 			});
 			mountedInstances[widget.widget_id] = instance;

@@ -16,6 +16,7 @@ from src.features.presets.mappers import admin_list_fields, missing_mirror_entry
 from src.features.presets.overlays import MIRROR_OK
 from src.features.presets.mode_labels import mode_display_icon, mode_display_name
 from src.features.presets.quantity import mode_quantity_fields
+from src.features.presets.retired_modes import replacement_for
 from src.features.prompt.resource_sources import with_source_specs
 from src.features.presets.exceptions import (
     InvalidModeDataException,
@@ -289,7 +290,7 @@ def get_form_schema(
 
     mode_data = found_preset.modes.get(mode)
     if mode_data is None:
-        raise ModeNotFoundException(preset_id, mode)
+        raise ModeNotFoundException(preset_id, mode, replaced_by=replacement_for(getattr(found_preset, 'vars', None), mode))
 
     # Get form configuration
     form_config = _get_form_config(mode_data, mode, form_name, preset_id)

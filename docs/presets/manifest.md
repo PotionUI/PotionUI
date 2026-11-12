@@ -129,6 +129,24 @@ hint like `promptless_modes`; the backend rejects nothing when the prompt is emp
 can be read by the pipeline, but with nothing written `generation.prompts.first` is
 `{'positive': '', 'negative': ''}`, so the pipeline must handle an empty prompt.
 
+### `vars.retired_modes` (modes a preset no longer has)
+
+When a release removes a mode, saved data and API callers may still name it. List the old
+mode and the mode that replaced it, and every refusal for the old name says so instead of
+only saying the mode does not exist:
+
+```yaml
+vars:
+  retired_modes: { long: video }
+```
+
+A generate call, a form lookup or an MCP `start_generation` naming `long` is answered with
+`No form configuration found for mode 'long' in preset '<id>'. Mode 'long' was replaced by 'video'`
+(HTTP 404, error `form_not_found`). A plugin `preset_extensions` entry that lists a retired mode
+is applied to its other modes and the retired one is skipped with a log line, instead of the
+whole extension being rejected. The entry is only a message and a tolerance: nothing is
+converted, because the replacement takes a different form.
+
 ### What the prompt is for (`prompt_label`, `prompt_placeholder`)
 
 A mode that mixes form fields with a prompt should say what the prompt is for. Exact strings

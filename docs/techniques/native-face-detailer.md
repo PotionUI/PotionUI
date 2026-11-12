@@ -252,7 +252,7 @@ own contract.
 ## How to enable it
 
 Wired into the Krea-2 `txt2img` mode's "Face Detailer" tab
-(`content/presets/marketplace/Krea2/modes/txt2img/tabs/face-detailer.yml`), gated by
+(`content/presets/marketplace/Krea2/modes/txt2img/tabs/enhance.yml`), gated by
 `face_detailer_enabled` (default off). In `modes/txt2img/pipeline.yml` it runs after the optional
 Enhance stage and before `gallery`, taking whichever of `enhancer`/`generator` actually produced the
 image, and emits its own `compare_faces` before/after artifact the same way `compare_enhance` does

@@ -489,8 +489,8 @@ wiring. Without a decoder hook (the colour projection or previews off) the reser
 placement does not change.
 
 All of the above is unit-testable without a GPU: the fit math, the deterministic layer split, the
-fp8 quant equivalence, and the eviction accounting are pure functions (`tests/core/native/memory/`,
-`tests/core/native/test_fp8_quant.py`). The wall-clock A/B (streamed-bf16 vs partial-residency vs
+fp8 quant equivalence, and the eviction accounting are pure functions (`tests/platform/runtime/native/memory/`,
+`tests/platform/runtime/native/test_fp8_quant.py`). The wall-clock A/B (streamed-bf16 vs partial-residency vs
 fp8-auto, in s/step) is measured on GPU via `tests/manual/native_smoke.py --tier-vram <GB>`.
 
 **System RAM** (`src/platform/runtime/system_memory.py`) is psutil's reading, capped by cgroup v2 on the process's folder and
@@ -734,7 +734,7 @@ still no branch on family name.
 | bf16 / fp16 | native dtype | **Supported** | `disable_weight_init` (storage == compute) or `manual_cast` (storage != compute) namespace from `kernels/casting.py`, picked by `kernels/operations.py:pick_operations` over the dtypes `ops/dtype.py:pick_dtypes` returns. |
 | fp8-scaled (legacy `scale_weight`) | `float8_e4m3fn`/`e5m2` + one f32 scale per Linear | **Supported** | `fp8_ops.Linear` (`kernels/fp8_linear.py:Fp8ScaledLinear`) dequantises on forward: `weight.to(compute) * weight_scale`. Detected via a `*.scale_weight` sidecar key or a top-level `scaled_fp8` marker tensor. |
 | fp8-scaled (modern `weight_scale`/`input_scale`) | as above, per-tensor `weight_scale` + `input_scale` | **Supported** | Same `Fp8ScaledLinear`; `input_scale` is captured for a future native-fp8 matmul path but unused by the current dequant-on-forward path. Detected via a `_quantization_metadata` header entry or `*.weight_scale`/`*.input_scale` sidecar keys — `kernels/operations.py:detect_quant_format`. Verified against the real `flux-2-klein-9b-fp8.safetensors` checkpoint. |
-| nvfp4 | 4-bit packed U8 weight + fp8 block scale + f32 tensor scale (`*.weight_scale_2` sidecar) | **Supported** | `io/quant_formats.py:dequantize_nvfp4` + `kernels/nvfp4_linear.py:Nvfp4Linear` (extends `Fp8ScaledLinear`): un-swizzles NVIDIA's `to_blocked` scale layout, dequantises `e2m1_LUT * unblock(scale) * weight_scale_2` per 16-element block. A checkpoint may be *mixed* fp8/nvfp4 across layers (the local `qwen_3_8b_fp8mixed` is one) — `pick_operations` routes the whole module to `fp8_ops` and each Linear independently detects its own format from which sidecar keys it has. Tested against a `Nvfp4Linear` load+forward-parity case and a mixed fp8/nvfp4/plain module (`tests/core/native/test_nvfp4.py`), and **verified end-to-end** via the real `qwen_3_8b_fp8mixed` TE in the GPU-validated Klein run (the 8B TE is exactly this mixed fp8/nvfp4 checkpoint). |
+| nvfp4 | 4-bit packed U8 weight + fp8 block scale + f32 tensor scale (`*.weight_scale_2` sidecar) | **Supported** | `io/quant_formats.py:dequantize_nvfp4` + `kernels/nvfp4_linear.py:Nvfp4Linear` (extends `Fp8ScaledLinear`): un-swizzles NVIDIA's `to_blocked` scale layout, dequantises `e2m1_LUT * unblock(scale) * weight_scale_2` per 16-element block. A checkpoint may be *mixed* fp8/nvfp4 across layers (the local `qwen_3_8b_fp8mixed` is one) — `pick_operations` routes the whole module to `fp8_ops` and each Linear independently detects its own format from which sidecar keys it has. Tested against a `Nvfp4Linear` load+forward-parity case and a mixed fp8/nvfp4/plain module (`tests/platform/runtime/native/test_nvfp4_packed_detect.py`), and **verified end-to-end** via the real `qwen_3_8b_fp8mixed` TE in the GPU-validated Klein run (the 8B TE is exactly this mixed fp8/nvfp4 checkpoint). |
 | GGUF | k-quant blocks | **Unsupported, explicit error** | `io/safetensors_loader.py:load_torch_file` rejects any non-`.safetensors`/`.sft` suffix by name, `GGUF / pickle checkpoints are not supported.` Deferred by design, not a bug. |
 | Pickle (`.pt`/`.ckpt`) | — | **Unsupported, explicit error** | Same rejection path — the native engine never runs untrusted pickle. |
 
@@ -807,7 +807,7 @@ add `preview_decoder: "{{ form.preview_decoder | default('') }}"` to each genera
 
 ## Verification approach
 
-- **Key-parity fixtures.** `tests/core/native/text_encoders/test_key_parity.py` and the VAE/arch
+- **Key-parity fixtures.** `tests/platform/runtime/native/text_encoders/test_key_parity.py` and the VAE/arch
   tests build tiny random-weight state dicts using the *real* key names (not full checkpoints) and
   run them through the full detect → build → `load_into_module` path, asserting zero missing/
   unexpected keys outside the declared allowlist. This is the cheap, CI-friendly form of load-
@@ -817,7 +817,7 @@ add `preview_decoder: "{{ form.preview_decoder | default('') }}"` to each genera
   stays green on a machine without the model files: load the real local checkpoint (CPU is fine —
   these are small enough, e.g. the Flux VAE), run a tiny forward pass (e.g. a 64×64 encode/decode
   roundtrip), assert finite output and the expected shape. See
-  `tests/core/native/vae/test_ae_2d.py` for the pattern.
+  `tests/platform/runtime/native/vae/test_ae_2d.py` for the pattern.
 - **Load-integrity asserts are themselves the test for meta-device correctness** — `base.py`'s
   no-meta / no-NaN checks run on every load, real or synthetic, so a `post_load()` bug that leaves a
   buffer uninitialized fails loudly in any test that constructs the module, not just a dedicated one.

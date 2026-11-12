@@ -1,4 +1,4 @@
-import type { ApiKey, ApiKeyLimits } from '$lib/services/api/apiKeys';
+import type { AdminApiKey, ApiKey, ApiKeyLimits } from '$lib/services/api/apiKeys';
 import type { McpTool, McpToolsListing } from '$lib/services/api/mcpTools';
 
 export const NOW = new Date('2026-11-11T12:00:00Z');
@@ -20,6 +20,10 @@ export function makeKey(over: Partial<ApiKey> = {}): ApiKey {
 		mcp_tools: { exposed: 18, total: 44 },
 		...over
 	};
+}
+
+export function makeAdminKey(over: Partial<AdminApiKey> = {}): AdminApiKey {
+	return { ...makeKey(), owner: { id: 'u1', username: 'Marta Kowalska' }, ...over };
 }
 
 export const LIMITS: ApiKeyLimits = {

@@ -6,9 +6,17 @@ describe('settingsGroupHasFooter', () => {
 		expect(settingsGroupHasFooter('logs')).toBe(false);
 	});
 
+	it('hides the footer for the API keys table, whose changes apply as they are made', () => {
+		expect(settingsGroupHasFooter('api_keys')).toBe(false);
+	});
+
+	it('maps the API key settings to the Access group', () => {
+		expect(computeDirtyGroups(['api_keys_enabled', 'api_key_scopes_allowed', 'api_key_max_lifetime_days'])).toEqual(new Set(['access']));
+	});
+
 	it('shows the footer for every other group', () => {
 		for (const group of SETTINGS_GROUPS) {
-			if (group.id === 'logs') continue;
+			if (group.id === 'logs' || group.id === 'api_keys') continue;
 			expect(settingsGroupHasFooter(group.id)).toBe(true);
 		}
 	});

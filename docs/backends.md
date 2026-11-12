@@ -41,17 +41,16 @@ The last two rows are the point. Both are the *same engine* — the same wire pr
 pipes, the same workflow JSON. They differ only in where the socket points. That is a backend
 concern, not an engine concern.
 
-### Why `runpod` and `remote_http` are gone
+### Where a rented or remote GPU fits
 
-The old `BackendType` enum contained `local`, `runpod`, and `remote_http`. Two of those were never
-engines. "RunPod" is not a protocol — it is a hosting provider. "Remote HTTP" is not a protocol
-either — it is a transport. Neither described what a pipeline says on the wire, and no preset ever
-selected them; they were dead code and have been deleted.
+"RunPod" is a hosting provider and "Remote HTTP" is a transport; neither is an engine, and neither is a
+backend type. A GPU on another machine is reached one of two ways:
 
-If you want to run generation on a rented GPU box, you do not need a new engine. You install ComfyUI
-on the box and add a `comfyui` backend whose `host` points at it. The engine stays `comfyui`; only
-the connection config changes. Any preset that already declares `engine: comfyui` runs there
-unmodified.
+- Run a **Remote Native worker** there and add a `native.remote` backend that points at it (see
+  [Remote Native](remote-native.md)). The preset stays `engine: native`; the worker runs the same pipes.
+  The `runpod-provider` plugin can provision such a worker for you.
+- Run ComfyUI there and add a `comfyui` backend whose `host` points at it. Any preset that declares
+  `engine: comfyui` runs there unmodified.
 
 Engine is an **open string set**, not a closed enum. `native` is built in; `comfyui` is contributed
 by the `comfyui-backend` marketplace plugin; anything else arrives the same way (see
@@ -242,7 +241,7 @@ The same check is exposed at `GET /api/developer/presets/lint`. See
 ### The directory name is convention only
 
 Presets live under `content/presets/marketplace/<Model>/<variant>/` (shipped, tracked) or
-`content/presets/local/<Model>/<variant>/` (yours, `.gitignored`) — e.g. `content/presets/marketplace/SDXL/realistic/`.
+`content/presets/local/<Model>/<variant>/` (yours, `.gitignored`) — e.g. `content/presets/marketplace/SDXL/`.
 **Nothing parses the directory at all.** The loader reads `engine:` out of `preset.yml` and ignores
 where the preset lives — a preset under `content/presets/marketplace/` that declares `engine: comfyui` will
 happily run on ComfyUI. A plugin's own `presets:` root (e.g. `comfyui-backend`'s) works the same way.
@@ -370,8 +369,8 @@ Is the plugin providing 'comfyui' enabled, and a backend configured for it?
 There is no cross-engine fallback. A `comfyui` preset never quietly runs on the native GPU when the
 ComfyUI server is down — the pipes would not exist. The failure is loud by design.
 
-A generation request never names a backend. The backend is always the router's decision; a user
-with two ComfyUI backends sees which one won and why in the status feed and in Admin → Generations.
+A generation request never names a backend. The backend is always the router's decision; an
+administrator with two ComfyUI backends sees which one won and why in Admin → Generations.
 
 ### Spreading jobs across backends of one engine
 
@@ -601,22 +600,23 @@ one hook subclasses override. **`InProcessBackend` is plugin-facing API** — it
   to. It also overrides `health_check`, `get_system_info`, and cancellation (ComfyUI cancels via its
   own interrupt endpoint, not by flipping a local flag).
 
-### The `native` engine has exactly one backend
+### The `native.local` driver has exactly one backend
 
 There is one GPU and one `GenerationEngine` in this process, and `GenerationEngine` supports one
-in-flight generation at a time (`cancel()` flips a single `_cancelled` flag). A second `native`
+in-flight generation at a time (`cancel()` flips a single `_cancelled` flag). A second `native.local`
 backend would be a second name for the same hardware, competing for the same lock — pure confusion
 with no capability gained.
 
-So the `native` backend is a singleton: auto-provisioned on first boot, not deletable, and with no
-connection config to edit. `BackendConfigStore` rejects a second one, and the admin UI must not
-offer to create it. If you want a second GPU box, that is a different machine running its own
-PotionUI or ComfyUI — reach it as a `comfyui` backend, not as a second `native` one.
+So the `native.local` backend is a singleton: auto-provisioned on first boot, not deletable, and with no
+connection config to edit. `BackendConfigStore` rejects a second one, and the admin UI does not
+offer to create it. A second GPU box is a different machine: run a Remote Native worker on it and add a
+`native.remote` backend (any number of those can exist), or run its own PotionUI or ComfyUI and reach it
+as a `comfyui` backend.
 
-**Never key off the native backend's row `id`.** Migration `069_backends_type_to_engine.py` renames
-the *engine* (`local` → `native`), not the row id, so that existing generation history keeps
-resolving its backend. A database upgraded through 069 therefore has the native backend at
-`id = "local"`; a fresh install auto-provisions it at `id = "native"`. Both are correct. The
+**Never key off the native backend's row `id`.** The engine was renamed (`local` → `native`) without
+renaming the row id, so that existing generation history keeps resolving its backend. A database
+created before the rename therefore has the native backend at `id = "local"`; a fresh install
+auto-provisions it at `id = "native"`. Both are correct. The
 invariant to test is `backend.engine == "native"`.
 
 ## Contributing an engine from a plugin

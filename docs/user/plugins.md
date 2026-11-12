@@ -28,15 +28,20 @@ Plugins are managed by administrators on the **Plugins** tab of the **Administra
 
 These plugins come with PotionUI. Any of them may or may not be enabled on your server:
 
-- **Model Downloader** — download and manage model files, with real-time progress tracking. This is the usual way new models get onto the server.
 - **CivitAI Provider** — fetches model metadata, preview images, and download links from CivitAI, enriching the Models page and powering community prompt imports.
-- **Hugging Face Provider** — fetches model metadata and download links from Hugging Face.
+- **Hugging Face Provider** — fetches model metadata and download links from Hugging Face; an access token is only needed for gated or private repos.
+- **Model Browser** — browse and download models from CivitAI, Hugging Face and OpenModelDB.
 - **System Monitor** — real-time GPU, RAM, and CPU monitoring shown in the sidebar so you can keep an eye on server load.
-- **Clear Local VRAM** — a quick action that unloads cached models from the app and frees GPU memory.
-- **Ollama** — a quick action to free VRAM held by a local Ollama LLM daemon.
+- **Ollama** — a quick action that unloads the models a local Ollama daemon holds in VRAM.
 - **ComfyUI Backend** — runs presets on an external ComfyUI server and imports ComfyUI workflows as presets from Admin → Presets.
-- **RunPod Provider** — provisions a remote native worker on RunPod from Admin → Backends.
+- **RunPod Provider** — provisions a remote native worker on RunPod from the Infrastructure tab of a Remote Native backend in Admin → Backends.
+- **Cloud providers** — OpenAI, Google Gemini, Black Forest Labs and OpenRouter each add a cloud backend with its model catalog and ready-made presets for hosted image and video models. **DeepSeek** adds a DeepSeek type to the LLM configurations.
+- **OpenID Connect Login** — sign in through an external identity provider such as Authentik, Keycloak or Entra ID.
+- **A1111 Metadata Export** — exports generations as PNGs that carry A1111/Forge-style parameters metadata.
+- **Image Modal Viewer** — views generated images full screen with zoom and pan.
 - **NVIDIA RTX Upscale** — upscales, denoises and deblurs images and videos with NVIDIA RTX Video Super Resolution on an RTX GPU, and raises a video's frame rate with RTX Video Frame Generation on an Ada or Blackwell GPU; needs the `nvidia-vfx` package from NVIDIA's index, which the preset's requirements list until it is installed.
+
+Model downloads themselves are built in: they run through the download queue in Admin → Downloads, with no plugin needed.
 
 Because plugins can bring in new interfaces, the best way to learn a specific plugin is to open its page and explore — each provides its own controls for the job it does.
 

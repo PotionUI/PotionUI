@@ -9,11 +9,12 @@
 	import type { User } from '$lib/stores/auth';
 	import { AssignedList, type PickerDiff } from '$lib/components/picker';
 	import { presetsKind, llmsKind, groupsKind, modelsKind, type PickerModel } from '$lib/components/picker/kinds';
-	import { Badge, Input, IconButton, Switch } from '$lib/components/ui';
+	import { Badge, Input, IconButton } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, DetailFooter, DetailField } from '$lib/components/detail';
 	import { adminSectionIcon } from '../../adminSections';
 	import UserPlanSection from '../plans/UserPlanSection.svelte';
+	import UserApiAccessSection from '../apikeys/UserApiAccessSection.svelte';
 	import UserResolutionCard from '../plans/UserResolutionCard.svelte';
 	import { createModelRemote, fetchAssignedModels } from './modelAssignmentSource';
 	import { applyAssignments, ensureOk } from './assignments';
@@ -42,8 +43,6 @@
 	let modelRows = $state<PickerModel[] | null>(null);
 	let loadingPresets = $state(false);
 	let loadingLLMs = $state(false);
-	let mcpEnabled = $state<boolean | undefined>(undefined);
-	let togglingMcp = $state(false);
 
 	const isSelf = $derived(user.id === currentUser?.id);
 	const groupIds = $derived(directory.userGroupIds[user.id] || []);
@@ -73,8 +72,7 @@
 	}
 
 	function loadTabData(next: Tab) {
-		if (next === 'overview' && mcpEnabled === undefined) void loadMcpSetting();
-		else if (next === 'presets' && !presetAssignments) void loadPresetAssignments();
+		if (next === 'presets' && !presetAssignments) void loadPresetAssignments();
 		else if (next === 'llms' && !llmAssignments) void loadLLMAssignments();
 		else if (next === 'models') {
 			void directory.ensureModelTypeOptions();
@@ -90,32 +88,6 @@
 			planDraft = planSaved;
 		} catch (error) {
 			logger.error('Failed to load user plan:', error);
-		}
-	}
-
-	async function loadMcpSetting() {
-		try {
-			const response = await adminApi.getMcpUserSetting(user.id);
-			if (response.success && response.data) mcpEnabled = response.data.enabled;
-		} catch (error) {
-			logger.error('Failed to load MCP access setting:', error);
-		}
-	}
-
-	async function toggleMcp(next: boolean) {
-		togglingMcp = true;
-		try {
-			const result = await adminApi.setMcpUserSetting(user.id, next);
-			if (result.success && result.data) {
-				mcpEnabled = result.data.enabled;
-			} else {
-				toasts.error(`Failed to update MCP access: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to update MCP access:', error);
-			toasts.error('Failed to update MCP access.');
-		} finally {
-			togglingMcp = false;
 		}
 	}
 
@@ -327,15 +299,7 @@
 
 				{#snippet aside()}
 					{#if planDetail}<UserResolutionCard detail={planDetail} />{/if}
-					<DetailSection label="MCP Access">
-						<div class="flex items-start justify-between gap-6">
-							<div>
-								<p class="text-sm font-medium text-fg mb-1">Allow MCP connections</p>
-								<p class="text-sm text-fg-muted">Lets this user mint tokens external MCP clients can use to act as them.</p>
-							</div>
-							<Switch checked={mcpEnabled ?? true} busy={togglingMcp} onchange={toggleMcp} label="Allow MCP connections" />
-						</div>
-					</DetailSection>
+					<UserApiAccessSection userId={user.id} name={user.username} />
 				{/snippet}
 			</DetailLayout>
 		</DetailBody>

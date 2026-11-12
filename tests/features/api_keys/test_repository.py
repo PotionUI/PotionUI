@@ -187,6 +187,39 @@ class TestAdminListing:
         assert self.ids(stack, "all", limit=2, offset=2) == (["soon", "active"], 4)
         assert self.ids(stack, "all", limit=2, offset=4) == ([], 4)
 
+    def test_search_matches_name_prefix_and_owner_without_case_and_combines_with_the_filters(self, stack):
+        alice, bob = self.seed(stack)
+        stack.keys.create(make_key(bob.id, "named", "h5", name="Claude Desktop", display_prefix="pui_AbCdEf12", created_at="2026-11-07T00:00:00Z"))
+
+        def found(query, status="all", user_id=None):
+            keys, total = stack.keys.list_page(status, user_id, "2026-11-11T09:00:00Z", 50, 0, query)
+            return sorted(key.id for key in keys), total
+
+        assert found("claude DESK") == (["named"], 1)
+        assert found("abcdef") == (["named"], 1)
+        assert found("ALICE") == (["active", "soon"], 2)
+        assert found("alice", status="active", user_id=alice.id) == (["active", "soon"], 2)
+        assert found("alice", status="expired") == ([], 0)
+        assert found("  ") == (["active", "expired", "named", "revoked", "soon"], 5)
+
+    def test_search_treats_wildcards_and_quotes_as_text(self, stack):
+        self.seed(stack)
+
+        for text in ("%", "__", "'", "\\", "a%", "'; DROP TABLE api_keys; --"):
+            keys, total = stack.keys.list_page("all", None, "2026-11-11T09:00:00Z", 50, 0, text)
+            assert (keys, total) == ([], 0)
+        assert stack.keys.list_page("all", None, "2026-11-11T09:00:00Z", 50, 0)[1] == 4
+
+    def test_status_counts_split_the_keys_and_ignore_the_status_filter(self, stack):
+        alice, bob = self.seed(stack)
+        now = "2026-11-11T09:00:00Z"
+
+        assert stack.keys.status_counts(None, now) == {"all": 4, "active": 2, "expired": 1, "revoked": 1}
+        assert stack.keys.status_counts(alice.id, now) == {"all": 2, "active": 2, "expired": 0, "revoked": 0}
+        assert stack.keys.status_counts(bob.id, now, "bob") == {"all": 2, "active": 0, "expired": 1, "revoked": 1}
+        assert stack.keys.status_counts("ghost", now) == {"all": 0, "active": 0, "expired": 0, "revoked": 0}
+        assert stack.keys.counts_by_user(alice.id, now) == {"active": 2, "total": 2}
+
     def test_usernames_resolve_in_one_lookup(self, stack):
         alice, bob = self.seed(stack)
 

@@ -5,7 +5,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import { historyCollectionsStore, libraryCollectionsStore } from '$lib/stores/collections';
-	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
+	import { historyTileSize } from '$lib/stores/historyTileSize';
 	import { LIBRARY_TAG_TYPE } from '$lib/stores/library';
 	import { isTaken } from '$lib/kits/kitCounts';
 	import type { Kit, KitDetail, KitItem, KitItemKind, KitLabelCount } from '$lib/kits/types';
@@ -29,6 +29,7 @@
 	import {
 		DEFAULT_PAGE_SIZE,
 		KIT_PAGE_SIZE,
+		PICKER_TILE_SCALE,
 		SOURCE_META,
 		activeFilterCount,
 		clearSource,
@@ -219,7 +220,7 @@
 			...(multiple && perSource[id] > 0 ? { count: perSource[id] } : {})
 		}))
 	);
-	let tileScale = $derived(TILE_SIZE_MULTIPLIER[$historyTileSize]);
+	let tileScale = $derived(PICKER_TILE_SCALE[$historyTileSize]);
 
 	let badgeText = $derived(
 		inKit

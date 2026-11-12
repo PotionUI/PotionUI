@@ -79,6 +79,7 @@ from src.features.fields.segmented import Segmented
 from src.features.fields.anchor import Anchor
 from src.features.fields.color import Color
 from src.features.presets.configuration import resolve_field_tag_categories
+from src.features.presets.retired_modes import replacement_for
 from src.features.presets.regional_prompt import OPTION_KEY as _REGIONAL_PROMPT_KEY, offers_regional_prompt
 from src.pipelines.pipes._shared.regional import normalize_regional_prompt
 from src.features.models.form_refs import is_model_ref, model_id_of
@@ -238,7 +239,7 @@ def bind_form(
     preset_id = preset_template.id
     mode_data: Optional[ModeTemplate] = (preset_template.modes or {}).get(mode)
     if mode_data is None:
-        raise FormNotFoundException(preset_id, mode, form_name)
+        raise FormNotFoundException(preset_id, mode, form_name, replacement_for(getattr(preset_template, 'vars', None), mode))
 
     form = _resolve_form(mode_data, preset_id, mode, form_name)
 
@@ -887,7 +888,7 @@ def form_field_index(
 ) -> Dict[str, FieldTemplate]:
     mode_data: Optional[ModeTemplate] = (preset_template.modes or {}).get(mode)
     if mode_data is None:
-        raise FormNotFoundException(preset_template.id, mode, form_name)
+        raise FormNotFoundException(preset_template.id, mode, form_name, replacement_for(getattr(preset_template, 'vars', None), mode))
     form = _resolve_form(mode_data, preset_template.id, mode, form_name)
     index: Dict[str, FieldTemplate] = {}
     _flatten_fields(form.fields, index)

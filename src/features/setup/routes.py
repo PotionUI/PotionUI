@@ -133,7 +133,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             raise HTTPException(status_code=404, detail="That recipe is not available on this installation.")
         run = runner.create_run(
             recipe.id,
-            recipe_version=recipe.version,
+            recipe_version=body.recipe_version or recipe.version,
             mode=MODE_ONBOARDING,
             safe_input=body.safe_input,
             created_by=current_user.id,

@@ -127,7 +127,6 @@ class ToolContext:
     user_id: str
     mode_id: Optional[str] = None
     is_admin: bool = False
-    acts_as_admin: bool = False
     session_metadata: Dict[str, Any] = field(default_factory=dict)
     # Service references - injected at construction time
     segment_category_repository: Any = None
@@ -162,6 +161,7 @@ class ToolContext:
     media_tool_service: Any = None
     elixirs: Any = None
     chat_session: bool = True
+    acts_as_admin: bool = False
 
     @classmethod
     def for_session(cls, services: ToolServices, user_id: str, **fields_: Any) -> "ToolContext":

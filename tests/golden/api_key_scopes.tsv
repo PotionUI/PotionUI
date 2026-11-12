@@ -354,8 +354,14 @@ POST	/api/llm/user-assignments	-	admin	admin_dependency
 GET	/api/llm/user-assignments/{user_id}	read	-	marker
 DELETE	/api/llm/user-assignments/{user_id}/{llm_config_id}	-	admin	admin_dependency
 POST	/api/mcp	-	mcp	marker
+GET	/api/mcp/admin/users/{user_id}	-	-	session_only
+PUT	/api/mcp/admin/users/{user_id}	-	-	session_only
 GET	/api/mcp/keys/{key_id}/tools	-	-	session_only
 PATCH	/api/mcp/keys/{key_id}/tools	-	-	session_only
+GET	/api/mcp/status	-	-	session_only
+GET	/api/mcp/tokens	-	-	session_only
+POST	/api/mcp/tokens	-	-	session_only
+DELETE	/api/mcp/tokens/{token_id}	-	-	session_only
 GET	/api/mcp/tools	-	-	session_only
 PATCH	/api/mcp/tools	-	-	session_only
 GET	/api/me/limits	read	-	marker

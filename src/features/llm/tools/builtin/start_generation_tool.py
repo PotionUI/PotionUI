@@ -21,6 +21,7 @@ from src.features.llm.tools.media_values import MEDIA_VALUE_FORM, preset_form_me
 from src.features.llm.tools.model_values import preset_form_model_errors
 from src.features.forms.binding import FormBindingError
 from src.features.presets.operations.access import preset_available_to_user
+from src.features.presets.retired_modes import replacement_note
 from src.features.presets.regional_prompt import OPTION_KEY, offers_regional_prompt, regional_prompt_modes
 from src.pipelines.pipes._shared.regional import normalize_regional_prompt
 
@@ -233,7 +234,8 @@ class StartGenerationTool(BaseTool):
         if not mode:
             mode = "txt2img" if "txt2img" in modes or not modes else modes[0]
         if modes and mode not in modes:
-            return mode, f"Preset '{preset_id}' has no mode '{mode}'. Its modes are: {', '.join(modes)}."
+            replaced = replacement_note(getattr(found, "vars", None), mode)
+            return mode, f"Preset '{preset_id}' has no mode '{mode}'.{replaced} Its modes are: {', '.join(modes)}."
         return mode, None
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:

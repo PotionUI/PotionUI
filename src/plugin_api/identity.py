@@ -19,7 +19,7 @@ route that manages global, cross-user state.
 cannot use `Depends`, so authenticate the handshake by hand before accepting
 the connection. It reads a single-use `?ticket=` (minted by
 `POST /api/auth/ws-ticket`, the browser path) or an `Authorization: Bearer`
-header (scripts: a session token or an API key). `?token=` is never accepted.
+header (scripts: a session token or an API key).
 Declare what an API key needs on the route with `key_scope`; a socket without
 a declaration refuses keys.
 
@@ -48,6 +48,7 @@ from src.platform.plugins.runtime_registries import get_container
 from src.platform.security.api_scopes import SESSION_ONLY, ApiScope, key_access, key_scope
 from src.platform.security.current_user import (
     authenticate_websocket,
+    authenticate_websocket_token,
     get_current_active_user,
     get_current_admin_user,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "SESSION_ONLY",
     "User",
     "authenticate_websocket",
+    "authenticate_websocket_token",
     "get_current_active_user",
     "get_current_admin_user",
     "get_user",

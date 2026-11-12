@@ -20,6 +20,7 @@ export const iconPaths: Record<string, string | string[]> = {
 	// Canonical crossing-arrows shuffle glyph -- distinct silhouette from `refresh`'s
 	// circular arrows, so an action ("shuffle now") never reads as a state loop.
 	shuffle: ['M16 3h5v5', 'M4 20L21 3', 'M21 16v5h-5', 'M15 15L21 21', 'M4 4L9 9'],
+	swap: ['M8 7h12m0 0l-4-4m4 4l-4 4', 'M16 17H4m0 0l4-4m-4 4l4 4'],
 	download: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4',
 	upload: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12',
 	copy: 'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z',

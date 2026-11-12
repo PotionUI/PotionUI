@@ -127,6 +127,7 @@ def client(stack, admin):
         setting_repository=controller.setting_repository,
         gpu_monitor=controller.gpu_monitor,
         backend_registry=controller.backend_registry,
+        api_key_collaborators=SimpleNamespace(access=Mock()),
     )
     app = FastAPI()
     app.dependency_overrides[get_current_active_user] = lambda: admin

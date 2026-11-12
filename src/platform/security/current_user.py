@@ -6,7 +6,8 @@ This module provides FastAPI dependencies for authentication:
 - get_principal: Resolve the bearer (JWT, or API key when a resolver is set) once per request
 - get_current_user: Get authenticated user from the principal
 - get_current_active_user: Authenticated user (accounts have no disabled flag)
-- authenticate_websocket: WebSocket authentication helper (ticket or Authorization header)
+- authenticate_websocket: WebSocket authentication helper (ticket, Authorization header, or deprecated ?token=)
+- authenticate_websocket_token: deprecated v0.1.0 helper taking the bare session token
 """
 import asyncio
 import logging
@@ -306,9 +307,31 @@ def _user_for_key_secret(websocket: WebSocket, secret: str, required: Optional[F
     return _key_user(resolved), None
 
 
+_query_token_warned = False
+
+
+def _warn_query_token_once(websocket: WebSocket) -> None:
+    global _query_token_warned
+    if _query_token_warned:
+        return
+    _query_token_warned = True
+    logging.warning(
+        "Deprecated: a WebSocket connected on %s with ?token=***. Send the session token in an "
+        "Authorization header or redeem a ticket from POST /api/auth/ws-ticket instead.",
+        socket_route_path(websocket),
+    )
+
+
+def _user_for_query_token(websocket: WebSocket, token: str) -> Tuple[Optional[User], Optional[str]]:
+    if not token:
+        return None, "Authentication required"
+    if token.startswith(KEY_PREFIX):
+        return None, "API keys are not accepted in the query string"
+    _warn_query_token_once(websocket)
+    return get_auth().authenticate_websocket(token)
+
+
 def _authenticate_socket(websocket: WebSocket, scope: ScopeSpec) -> Tuple[Optional[User], Optional[str]]:
-    if "token" in websocket.query_params:
-        return None, "Credentials in the query string are not accepted"
     required = _socket_required(websocket, scope)
     ticket = websocket.query_params.get(SOCKET_TICKET_PARAM)
     if ticket:
@@ -318,10 +341,20 @@ def _authenticate_socket(websocket: WebSocket, scope: ScopeSpec) -> Tuple[Option
         return _user_for_ticket(entry, required)
     bearer = _bearer_token(websocket)
     if not bearer:
+        if "token" in websocket.query_params:
+            return _user_for_query_token(websocket, websocket.query_params.get("token", ""))
         return None, "Authentication required"
     if _is_key(bearer):
         return _user_for_key_secret(websocket, bearer, required)
     return get_auth().authenticate_websocket(bearer)
+
+
+def authenticate_websocket_token(token: Optional[str] = None) -> Tuple[Optional[User], Optional[str]]:
+    try:
+        return get_auth().authenticate_websocket(token)
+    except RuntimeError as e:
+        logging.error(f"WebSocket auth initialization error: {e}")
+        return (None, "Authentication service not available")
 
 
 async def authenticate_websocket(websocket: WebSocket, scope: ScopeSpec = None) -> Tuple[Optional[User], Optional[str]]:

@@ -4,12 +4,13 @@
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import { Badge, Input, Pagination, SegmentedControl, Spinner } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
+import type { KitCreateResponse } from '$lib/services/api/kits';
 	import { KIT_KIND_ICONS } from '$lib/kits/kitCounts';
-	import { isNameClash, kitErrorMessage } from '$lib/kits/kitErrors';
+	import { isNameClash, kitErrorMessage, kitErrorSuggestion } from '$lib/kits/kitErrors';
 	import { checkName, liveName, slugify, suggestFree } from '$lib/kits/kitNaming';
 	import { formatKitPath } from '$lib/kits/kitPath';
 	import { describeLimit, picksNames, takenNames, toNewItems, type KitPick } from '$lib/kits/kitPicks';
-	import { KIT_ITEM_LIMIT, type Kit, type KitDetail, type KitLabelCount } from '$lib/kits/types';
+	import { KIT_ITEM_LIMIT, type Kit, type KitDetail, type KitLabelCount, type NewKitItem } from '$lib/kits/types';
 	import { bumpKits, rememberKit } from '$lib/stores/kits';
 	import { toasts } from '$lib/stores/toast';
 	import KitMosaic from './KitMosaic.svelte';
@@ -115,33 +116,85 @@
 		void loadExisting();
 	});
 
+	let createdKit = $state<KitDetail | null>(null);
+	let pending = $state<NewKitItem[]>([]);
+	let suggestion = $state<string | null>(null);
+
+	function finish(kit: KitDetail, message: string) {
+		rememberKit(kit);
+		bumpKits();
+		toasts.success(message);
+		onDone(kit);
+		onClose();
+	}
+
+	async function notAdded(kit: KitDetail, remaining: NewKitItem[]): Promise<NewKitItem[]> {
+		try {
+			const fresh = await api.getKit(kit.id);
+			if (fresh.success && fresh.data) {
+				const have = new Set(fresh.data.items.map((item) => item.name));
+				return remaining.filter((item) => !item.name || !have.has(item.name));
+			}
+		} catch {
+			return remaining;
+		}
+		return remaining;
+	}
+
+	function leftOver(kit: KitDetail, remaining: NewKitItem[], message: string) {
+		createdKit = kit;
+		pending = remaining;
+		rememberKit(kit);
+		bumpKits();
+		const names = remaining.map((item) => item.name ?? item.kind).join(', ');
+		error = `${kit.name} was created. Not added: ${names}. ${message} Press the button again to add them.`;
+	}
+
 	async function submit(): Promise<boolean> {
 		busy = true;
 		error = null;
 		clash = false;
+		suggestion = null;
 		try {
+			if (createdKit) {
+				const kit = createdKit;
+				try {
+					const response = await api.addKitItems(kit.id, pending);
+					if (response.success && response.data) {
+						finish(response.data, `Created ${response.data.name}`);
+						return true;
+					}
+					leftOver(kit, await notAdded(kit, pending), kitErrorMessage(response, ''));
+				} catch (caught) {
+					leftOver(kit, await notAdded(kit, pending), kitErrorMessage(caught, ''));
+				}
+				return false;
+			}
 			const items = toNewItems(picks, names);
-			const response =
+			const response: KitCreateResponse =
 				mode === 'new'
-					? await api.createKit({ name: name.trim(), handle, label: label.trim() || null, items })
+					? await api.createKit({ name: name.trim(), label: label.trim() || null, items })
 					: await api.addKitItems((target as KitDetail).id, items);
+			if (mode === 'new' && 'partial' in response && response.partial) {
+				leftOver(response.partial.created, response.partial.pending, response.partial.message);
+				return false;
+			}
 			if (!response.success || !response.data) {
 				clash = isNameClash(response);
+				suggestion = kitErrorSuggestion(response);
 				error = kitErrorMessage(response, 'Could not save the kit.');
 				return false;
 			}
-			rememberKit(response.data);
-			bumpKits();
-			toasts.success(
+			finish(
+				response.data,
 				mode === 'new'
 					? `Created ${response.data.name}`
 					: `Added ${picks.length} ${picks.length === 1 ? 'item' : 'items'} to ${response.data.name}`
 			);
-			onDone(response.data);
-			onClose();
 			return true;
 		} catch (caught) {
 			clash = isNameClash(caught);
+			suggestion = kitErrorSuggestion(caught);
 			error = kitErrorMessage(caught, 'Could not save the kit.');
 			return false;
 		} finally {
@@ -184,7 +237,7 @@
 			<div class="grid gap-4 sm:grid-cols-[1.4fr_1fr]">
 				<div>
 					<label class="label" for="compose-name">Name</label>
-					<Input id="compose-name" bind:value={name} autocomplete="off" class="text-base" data-autofocus />
+					<Input id="compose-name" bind:value={name} autocomplete="off" class="text-base" disabled={createdKit !== null} data-autofocus />
 					<p class="mt-1.5 font-mono text-sm text-fg-subtle">
 						{#if handle}<KitPath {handle} />{:else}{formatKitPath('…')}{/if}
 					</p>
@@ -311,8 +364,8 @@
 		{#if error}
 			<p class="text-sm text-danger" role="alert">
 				{clash ? 'That path name is already used.' : error}
-				{#if clash && handle}
-					<button type="button" class="font-mono underline" onclick={() => { name = suggestFree(handle, [handle]); clash = false; error = null; }}>{suggestFree(handle, [handle])}</button>
+				{#if clash && (suggestion || handle)}
+					<button type="button" class="font-mono underline" onclick={() => { name = suggestion ?? suggestFree(handle, [handle]); clash = false; suggestion = null; error = null; }}>{suggestion ?? suggestFree(handle, [handle])}</button>
 				{/if}
 			</p>
 		{/if}

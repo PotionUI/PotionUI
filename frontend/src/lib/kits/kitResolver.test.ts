@@ -20,6 +20,8 @@ describe('buildResolveRequest', () => {
 		const request = buildResolveRequest({ texts: ['@kits.mara ' + 'x'.repeat(30000)], loaded: ['kt_1'], field: 'refs', presetId: 'p', mode: null })!;
 		expect(request.text.length).toBe(20000);
 		expect(request).toMatchObject({ loaded: ['kt_1'], field: 'refs', preset_id: 'p', mode: null });
+		const withForm = buildResolveRequest({ texts: ['@kits.m'], loaded: [], field: 'refs', presetId: null, mode: null, formData: { refs: [{ path: 'a.png' }, { kit: 'kt_1' }], other: [{ path: 'b.png' }] } })!;
+		expect(withForm.form_data).toEqual({ refs: [{ path: 'a.png' }] });
 	});
 });
 

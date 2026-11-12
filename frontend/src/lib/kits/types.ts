@@ -75,7 +75,6 @@ export interface NewKitItem {
 
 export interface NewKit {
 	name: string;
-	handle?: string;
 	label?: string | null;
 	items?: NewKitItem[];
 }
@@ -118,6 +117,7 @@ export interface KitResolveRequest {
 	field?: string | null;
 	preset_id?: string | null;
 	mode?: string | null;
+	form_data?: Record<string, unknown[]>;
 }
 
 export interface KitResolution {
@@ -144,4 +144,10 @@ export interface KitRowSnapshot {
 export interface KitRow {
 	kit: string;
 	snapshot?: KitRowSnapshot;
+}
+
+export interface KitCreatePartial {
+	created: KitDetail;
+	pending: NewKitItem[];
+	message: string;
 }

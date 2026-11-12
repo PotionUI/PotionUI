@@ -2,6 +2,7 @@ import type { AxiosInstance } from 'axios';
 import type { APIResponse } from '$lib/types/api';
 import type {
 	Kit,
+	KitCreatePartial,
 	KitDetail,
 	KitItem,
 	KitItemKind,
@@ -18,6 +19,7 @@ import type {
 	NewKitItem
 } from '$lib/kits/types';
 import { countByKind } from '$lib/kits/kitCounts';
+import { kitErrorMessage } from '$lib/kits/kitErrors';
 
 const seg = encodeURIComponent;
 
@@ -181,6 +183,8 @@ function detailOf(response: APIResponse<{ kit?: WireKit }>): APIResponse<KitDeta
 	return { success: true, data: toKitDetail(response.data.kit) };
 }
 
+export type KitCreateResponse = APIResponse<KitDetail> & { partial?: KitCreatePartial };
+
 export function createKitsApi(client: AxiosInstance) {
 	async function addText(kitId: string, text: string, name?: string): Promise<APIResponse<KitDetail>> {
 		const response = await client.post(`/api/kits/${seg(kitId)}/items`, { text, ...(name ? { name } : {}) });
@@ -223,7 +227,7 @@ export function createKitsApi(client: AxiosInstance) {
 			return detailOf(response.data);
 		},
 
-		async createKit(body: NewKit): Promise<APIResponse<KitDetail>> {
+		async createKit(body: NewKit): Promise<KitCreateResponse> {
 			const items = body.items ?? [];
 			const media = items.filter((item) => item.kind !== 'text' && item.media_ref);
 			const texts = items.filter((item) => item.kind === 'text');
@@ -231,12 +235,21 @@ export function createKitsApi(client: AxiosInstance) {
 			if (media.length > 0) {
 				created = await addMedia(media, { new_kit: { name: body.name, label: body.label ?? null } });
 			} else {
-				const response = await client.post('/api/kits', { name: body.name, handle: body.handle, label: body.label ?? null });
+				const response = await client.post('/api/kits', { name: body.name, label: body.label ?? null });
 				created = detailOf(response.data);
 			}
 			if (!created.success || !created.data) return created;
+			const kit = created.data;
 			let latest = created;
-			for (const item of texts) latest = await addText(created.data.id, item.text ?? '', item.name);
+			for (let index = 0; index < texts.length; index++) {
+				try {
+					latest = await addText(kit.id, texts[index].text ?? '', texts[index].name);
+					if (!latest.success) throw latest;
+				} catch (error) {
+					const message = kitErrorMessage(error, 'Could not add a text item.');
+					return { success: false, message, partial: { created: kit, pending: texts.slice(index), message } };
+				}
+			}
 			return latest;
 		},
 

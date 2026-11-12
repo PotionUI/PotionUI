@@ -1,5 +1,6 @@
 import { writable, type Readable } from 'svelte/store';
 import type { APIResponse } from '$lib/types/api';
+import { isKitRow } from './kitMarker';
 import type { KitNotice, KitResolution, KitResolveRequest } from './types';
 
 const MAX_TEXT = 20000;
@@ -34,12 +35,22 @@ export function summarizeSkips(notices: readonly KitNotice[]): SkipSummary | nul
 	return { count, title: `${count} ${count === 1 ? 'item' : 'items'} skipped`, detail };
 }
 
+function mediaRowsOf(formData: Record<string, unknown>, field: string | null): Record<string, unknown[]> {
+	const rows: Record<string, unknown[]> = {};
+	for (const [name, value] of Object.entries(formData)) {
+		if (field !== null && name !== field) continue;
+		if (Array.isArray(value)) rows[name] = value.filter((row) => !isKitRow(row));
+	}
+	return rows;
+}
+
 export function buildResolveRequest(input: {
 	texts: readonly (string | null | undefined)[];
 	loaded: readonly string[];
 	field: string | null;
 	presetId: string | null | undefined;
 	mode: string | null | undefined;
+	formData?: Record<string, unknown> | null;
 }): KitResolveRequest | null {
 	if (!hasKitCites(input.texts)) return null;
 	return {
@@ -47,7 +58,8 @@ export function buildResolveRequest(input: {
 		loaded: input.loaded.slice(0, MAX_LOADED),
 		field: input.field,
 		preset_id: input.presetId ?? null,
-		mode: input.mode ?? null
+		mode: input.mode ?? null,
+		...(input.formData ? { form_data: mediaRowsOf(input.formData, input.field) } : {})
 	};
 }
 

@@ -49,12 +49,12 @@ def test_the_loop_mode_is_listed_and_named_for_a_person(h3_template):
     assert "Perfect loop mode" in h3_template.llm["modes"]["loop"]["guide"]
 
 
-def test_defaults_make_a_silent_subtle_six_second_desktop_loop(h3_template):
+def test_defaults_make_a_silent_subtle_four_second_desktop_loop(h3_template):
     pipes = _pipes(h3_template)
     generator = _pipe(pipes, "generator")["config"]
 
     assert generator["loop"] is True
-    assert generator["frames"] == 144
+    assert generator["frames"] == 96
     assert generator["audio_source"] == "none"
     assert generator["resolution"] == "1344x768"
     assert generator["keyframe_anchors"] == []

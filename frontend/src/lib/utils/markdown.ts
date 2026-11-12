@@ -1,3 +1,5 @@
+import { sanitizeLinkUrl } from './safeUrl';
+
 export interface ToolAction {
 	type: string;
 	segmentIndex: number;
@@ -160,38 +162,6 @@ function processBlockElements(text: string): string {
 	return output.join('\n');
 }
 
-/** Schemes a link may use. Anything else — `javascript:`, `data:`, `vbscript:` — is dropped. */
-const SAFE_URL_SCHEMES = ['http:', 'https:', 'mailto:'];
-
-/**
- * Make a markdown link target safe to place inside an href attribute.
- *
- * Returns null when the URL must not be linked at all. Two distinct dangers:
- *  - a scheme that executes (`javascript:alert(1)`),
- *  - a quote that closes the attribute and opens another (`" onmouseover="alert(1)`),
- *    which the HTML-entity pass does not escape because it only handles `< > &`.
- */
-function sanitizeUrl(raw: string): string | null {
-	const url = raw.trim();
-	if (!url) return null;
-
-	// Relative, root-relative and anchor links never carry a scheme.
-	const isRelative = url.startsWith('/') || url.startsWith('#') || url.startsWith('./');
-	if (!isRelative) {
-		const scheme = url.slice(0, url.indexOf(':') + 1).toLowerCase();
-		// A colon before the first slash means a scheme was supplied; require a safe one.
-		const hasScheme = scheme.length > 1 && !url.slice(0, url.indexOf(':')).includes('/');
-		if (hasScheme && !SAFE_URL_SCHEMES.includes(scheme)) return null;
-	}
-
-	// `& < >` are already entity-escaped by the time links are processed; re-escaping
-	// would double-encode them. Quotes and whitespace are what remain dangerous.
-	return url
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&#39;')
-		.replace(/\s/g, '%20');
-}
-
 /** Escape a string for safe interpolation into a double-quoted HTML attribute. */
 function escapeHtmlAttr(value: string): string {
 	return value
@@ -282,7 +252,7 @@ export function processMarkdown(text: string, options: MarkdownOptions = {}): st
 		// interpolated: step 2 escapes < > &, but NOT the double quote that would
 		// otherwise close the attribute and let `[x](" onmouseover="…)` inject one.
 		.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) => {
-			const safe = sanitizeUrl(href);
+			const safe = sanitizeLinkUrl(href);
 			if (!safe) return label;
 			return `<a href="${safe}" class="text-signal hover:underline" target="_blank" rel="noopener noreferrer">${label}</a>`;
 		});

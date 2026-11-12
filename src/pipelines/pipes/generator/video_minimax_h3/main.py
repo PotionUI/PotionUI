@@ -255,6 +255,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.control import (
 from src.platform.runtime.native.arch.minimax_h3.control import HINT_ROW_MODES, ControlContext, control_attached
 from src.pipelines.pipes.generator.video_minimax_h3.drift import DriftGuard
 from src.pipelines.pipes.generator.video_minimax_h3.loop import (
+    BRIDGE_CONDITION_ROWS,
     LoopPlan,
     LoopRequestError,
     assemble_loop_audio,
@@ -3136,6 +3137,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             ],
             video_width=int(head_rows.shape[1]), audio_width=int(anchor_audio.shape[1]), device=c.device,
         )
+        if not BRIDGE_CONDITION_ROWS:
+            return (), head_rows[:0], pins
         return head_anchors + tail_anchors, torch.cat([head_rows, tail_rows], dim=0), pins
 
     def _decode_loop_video(self, c: _MiniMaxH3Ctx, loop_latent: Tensor) -> np.ndarray:

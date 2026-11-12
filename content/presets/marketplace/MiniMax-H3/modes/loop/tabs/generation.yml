@@ -50,7 +50,7 @@ fields:
         type: "select"
         label: "Movement"
         default: "subtle"
-        ai_hint: "Subtle asks for slight, slow movement, the kind that gives a still picture life on a wallpaper. Lively asks for steadier, more visible movement."
+        ai_hint: "Subtle asks for slight, slow movement, the kind that gives a still picture life on a wallpaper. Lively asks for steadier, more visible movement. The restart hides best when something clearly moves over much of the frame (water, waves, grass, clouds, snow); in a dark, nearly still scene where only fog, haze or reflections drift, it can show as a faint tick."
         configuration:
           options:
             - { label: "Subtle", value: "subtle" }

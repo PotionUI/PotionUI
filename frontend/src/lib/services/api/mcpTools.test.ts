@@ -44,4 +44,17 @@ describe('createMcpToolsApi', () => {
 		expect(patch).toHaveBeenNthCalledWith(1, '/api/mcp/keys/k1/tools', { overrides: { write_memory: false, list_models: null } });
 		expect(patch).toHaveBeenNthCalledWith(2, '/api/mcp/keys/k1/tools', { reset: true });
 	});
+
+	it('reads and PATCHes the administrator ceiling on the admin route', async () => {
+		const get = vi.fn().mockResolvedValue({ data: { success: true, data: { level: 'ceiling', tools: [] } } });
+		const patch = vi.fn().mockResolvedValue({ data: { success: true, data: { level: 'ceiling', tools: [] } } });
+		const api = createMcpToolsApi({ get, patch } as unknown as AxiosInstance);
+
+		const read = await api.getMcpCeiling();
+		await api.patchMcpCeiling({ policy: 'read_only_on', overrides: { run_media_tool: false } });
+
+		expect(get).toHaveBeenCalledWith('/api/admin/mcp/tools');
+		expect(read.data?.level).toBe('ceiling');
+		expect(patch).toHaveBeenCalledWith('/api/admin/mcp/tools', { policy: 'read_only_on', overrides: { run_media_tool: false } });
+	});
 });

@@ -50,18 +50,31 @@ class ApiKeyRepository:
             )
             return [ApiKey.from_row(row) for row in cursor.fetchall()]
 
-    def list_page(
-        self, status: str, user_id: Optional[str], now: str, limit: int, offset: int
-    ) -> Tuple[List[ApiKey], int]:
+    @staticmethod
+    def _filters(user_id: Optional[str], query: Optional[str]) -> Tuple[List[str], List[object]]:
         clauses: List[str] = []
         params: List[object] = []
-        if status in _STATUS_CLAUSES:
-            clauses.append(_STATUS_CLAUSES[status])
-            if status != "revoked":
-                params.append(now)
         if user_id:
             clauses.append("user_id = ?")
             params.append(user_id)
+        needle = (query or "").strip().lower()
+        if needle:
+            pattern = "%" + needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            clauses.append(
+                "(LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(display_prefix) LIKE ? ESCAPE '\\' "
+                "OR user_id IN (SELECT id FROM users WHERE LOWER(username) LIKE ? ESCAPE '\\'))"
+            )
+            params.extend([pattern, pattern, pattern])
+        return clauses, params
+
+    def list_page(
+        self, status: str, user_id: Optional[str], now: str, limit: int, offset: int, query: Optional[str] = None
+    ) -> Tuple[List[ApiKey], int]:
+        clauses, params = self._filters(user_id, query)
+        if status in _STATUS_CLAUSES:
+            clauses.insert(0, _STATUS_CLAUSES[status])
+            if status != "revoked":
+                params.insert(0, now)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with get_cursor() as cursor:
             cursor.execute(f"SELECT COUNT(*) FROM api_keys {where}", params)
@@ -71,6 +84,25 @@ class ApiKeyRepository:
                 [*params, limit, offset],
             )
             return [ApiKey.from_row(row) for row in cursor.fetchall()], total
+
+    def status_counts(self, user_id: Optional[str], now: str, query: Optional[str] = None) -> Dict[str, int]:
+        clauses, params = self._filters(user_id, query)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with get_cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*), "
+                "COALESCE(SUM(CASE WHEN revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?) THEN 1 ELSE 0 END), 0), "
+                "COALESCE(SUM(CASE WHEN revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at <= ? THEN 1 ELSE 0 END), 0), "
+                "COALESCE(SUM(CASE WHEN revoked_at IS NOT NULL THEN 1 ELSE 0 END), 0) "
+                f"FROM api_keys {where}",
+                [now, now, *params],
+            )
+            total, active, expired, revoked = cursor.fetchone()
+        return {"all": total, "active": active, "expired": expired, "revoked": revoked}
+
+    def counts_by_user(self, user_id: str, now: str) -> Dict[str, int]:
+        counts = self.status_counts(user_id, now)
+        return {"active": counts["active"], "total": counts["all"]}
 
     def update(self, key_id: str, name: str, scopes_json: str) -> bool:
         with get_cursor() as cursor:

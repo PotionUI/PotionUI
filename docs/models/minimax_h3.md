@@ -2,7 +2,7 @@
 type: model
 title: MiniMax-H3
 family_key: minimax_h3
-modes: [video, refs, upscale]
+modes: [txt2video, img2video, first_last, video, loop, refs, extend, remix, talk, motion_transfer, refine_faces, upscale]
 spec:
   arch: MiniMaxH3Model — one packed sequence carrying video, text and audio rows through 50 shared blocks, no cross-attention
   params: 20B (pruned) / 33B (full)

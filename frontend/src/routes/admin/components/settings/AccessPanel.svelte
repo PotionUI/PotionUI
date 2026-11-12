@@ -1,11 +1,22 @@
 <script lang="ts">
 	import { DetailSection } from '$lib/components/detail';
 	import { Input, Switch } from '$lib/components/ui';
+	import ApiKeysAccessSection from '../apikeys/ApiKeysAccessSection.svelte';
+	import McpCeilingSection from '../apikeys/McpCeilingSection.svelte';
+	import PersonAccessSection from '../apikeys/PersonAccessSection.svelte';
+	import type { CeilingDraft } from '../apikeys/ceilingDraft.svelte';
 
 	let {
 		settings,
+		savedSnapshot,
+		ceiling,
 		onSettingChange
-	}: { settings: Record<string, any>; onSettingChange: (key: string, value: unknown) => void } = $props();
+	}: {
+		settings: Record<string, any>;
+		savedSnapshot: string;
+		ceiling: CeilingDraft;
+		onSettingChange: (key: string, value: unknown) => void;
+	} = $props();
 </script>
 
 <DetailSection label="Access" padded={false}>
@@ -27,21 +38,6 @@
 			/>
 		</div>
 
-		<div class="py-4 flex items-start justify-between gap-6">
-			<div>
-				<label for="mcp-enabled" class="block text-sm font-medium text-fg mb-1">MCP Access</label>
-				<p class="text-sm text-fg-muted">
-					Allow external MCP clients to connect and act as PotionUI users via their tokens
-				</p>
-			</div>
-			<Switch
-				id="mcp-enabled"
-				label="MCP Access"
-				checked={settings.mcp_enabled || false}
-				onchange={(checked) => onSettingChange('mcp_enabled', checked)}
-			/>
-		</div>
-
 		<div class="py-4">
 			<label for="public-base-url" class="block text-sm font-medium text-fg mb-1">Public address</label>
 			<p class="text-sm text-fg-muted mb-2">
@@ -56,3 +52,7 @@
 		</div>
 	</div>
 </DetailSection>
+
+<ApiKeysAccessSection {settings} {savedSnapshot} {onSettingChange} />
+<McpCeilingSection {ceiling} />
+<PersonAccessSection />

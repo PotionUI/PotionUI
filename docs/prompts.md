@@ -74,7 +74,7 @@ tool. The read-only `get_prompt_variables` tool (same file, generation mode, no 
 those summary rows (optional `search` over names and option texts) or, given `names`, returns every
 option with its 0-based `index` (what `pinned_index` takes), its condition, the number grid
 (`min`, `max`, `step`, `count`, `decimals`) or the full text, paged with `offset`/`limit`/`total`/
-`has_more`; an unknown name answers with close-match suggestions. It is not exposed over MCP.
+`has_more`; an unknown name answers with close-match suggestions. Over MCP it takes an explicit `tab_id`.
 
 ## Conditions
 

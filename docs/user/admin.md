@@ -50,7 +50,7 @@ Both take effect on the next generation without a restart. On the first start af
 
 ## Models
 
-Server-side model management: reviewing installed models and, together with the **Model Downloader** plugin, adding new ones. This is the admin counterpart to the user-facing **Models** page.
+Server-side model management: reviewing installed models and, together with the built-in **Downloads** queue, adding new ones. This is the admin counterpart to the user-facing **Models** page.
 
 Its **Folders** section is where model files live and how PotionUI finds them. Models don't have
 to sit in one place: PotionUI keeps a list of **folders** (the built-in `models/` folder plus any
@@ -68,13 +68,17 @@ point changed — nothing is re-hashed, so this is instant even for a huge libra
 **read-only** so PotionUI never writes into it, remove a type it no longer holds, or delete the
 folder entirely (its models become unavailable, not deleted — the files stay exactly where they
 are). A folder's live state — **Online**, **Offline**, or **Unreadable** — is shown next to its
-name, with **Probe now** to recheck it immediately (useful right after plugging in a USB drive).
+name, with **Check now** to recheck it immediately (useful right after plugging in a USB drive).
 
-When more than one folder holds the same model type, **Model type order** lets you set which one
-is checked first (so the same LoRA in two folders has one clear winner) and which one is the
-**write** folder for that type. **Suggested folders** lists any folder with model files PotionUI
-found but that isn't part of a folder entry yet — **Add as root** turns the suggestion into a
+When more than one folder holds the same model type, **Downloads & priority** lets you set which one
+is checked first (so the same LoRA in two folders has one clear winner; **Use earlier** and **Use later** move a folder) and which one is the
+**Downloads** folder where new downloads of that type are saved. **Suggested folders** lists any folder with model files PotionUI
+found but that isn't part of a folder entry yet — **Add as folder** turns the suggestion into a
 proper entry without re-downloading or re-hashing anything already indexed.
+
+### Model tags
+
+Each model's page has a **Tags** section where you add or remove tags (**Add tag** can also create a new one), and the model list shows a **Tags** column. Select several models and use the **Tags** button in the toolbar to add tags to all of them or remove tags from them in one step. Presets use model tags to choose which models they offer: a preset that filters its model pickers by tags has a **Configuration** tab (Administration → Presets) where you choose the tags.
 
 ## Presets
 
@@ -82,13 +86,14 @@ Manage which presets are installed and **who can use them**. Admins see the list
 
 ## Backends
 
-Configure where generations actually run. An admin can add and enable multiple backends and pick the right type for each:
+Configure where generations actually run. An admin adds backends and picks an **Engine** for each; the engine list comes from the server, so it shows the engines your install has:
 
-- **ComfyUI** — connect to a ComfyUI server (host, port, HTTPS/SSL options).
-- **Remote HTTP** — a remote generation endpoint, with optional authentication.
-- **RunPod** — a RunPod-hosted backend.
+- **Local Generation** (`native.local`) — this machine's GPU. It is created automatically, there is only one, and it can't be deleted.
+- **Remote Native** (`native.remote`) — a headless worker on another machine or rented GPU. Any number can be added. Its detail page has Infrastructure, Models, Optimizations and Stats tabs. See [Remote Native](/admin?tab=docs&doc=dev/remote-native).
+- **ComfyUI** — connect to a ComfyUI server (host, port, HTTPS/SSL options). Available while the **ComfyUI Backend** plugin is enabled.
+- **Cloud** backends — one per hosted provider that a provider plugin adds (for example OpenAI, Google Gemini, Black Forest Labs, OpenRouter). Each has a **Catalog** tab for choosing which of the provider's models are offered.
 
-Each backend can be enabled or disabled, and users can select an available backend when generating.
+Each backend can be enabled or disabled and made the default for its engine. A preset runs on a backend of the engine it declares, and PotionUI picks the backend for each generation; users don't choose one on the Generate page.
 
 ### Optimizations (native backends)
 
@@ -128,9 +133,9 @@ Create and manage user accounts. Admins set the **account type** (Administrator 
 
 Manage groups as a way to assign access in bulk. A group has a name and description and a set of **members**, and admins can assign **presets**, **LLM configurations**, and **models** to the whole group at once — simpler than configuring each user separately.
 
-## LLM Configuration
+## LLM / Assistant
 
-Set up the language-model providers that power prompt assistance and chat features. For each configuration an admin sets the **type** (such as Ollama or OpenRouter), a **base URL** and **API key** where needed, the **model** name, and tuning options like **max tokens**, **temperature**, a **system message**, whether it **supports vision**, and any pre-chat actions. Configured LLMs can then be assigned to users and groups. See the **LLM Assistant** for how these are used day to day.
+The **LLM / Assistant** tab holds the LLM configurations. Set up the language-model providers that power prompt assistance and chat features. For each configuration an admin sets the **type** (such as Ollama or OpenRouter), a **base URL** and **API key** where needed, the **model** name, and tuning options like **max tokens**, **temperature**, a **system message**, whether it **supports vision**, and any pre-chat actions. Configured LLMs can then be assigned to users and groups. See [PotionAI](llm-chat.md) for how these are used day to day.
 
 A **Native** configuration runs a model in-process instead of through Ollama/OpenRouter. Picking type **Native** replaces the free-text model field with a **Checkpoint** picker listing the HF-layout checkpoints found under `models/llm/` (an unusable one is still listed, disabled, with the reason it can't be used); a checkpoint that was previously selected but has since disappeared from disk stays selected and is called out with a note, rather than being silently swapped or cleared. A **Native Options** section then offers: **Thinking mode** — **model default** (leave the loaded chat template's own behavior alone), **enabled**, or **disabled** — which only takes effect for a checkpoint whose loaded chat template actually exposes an explicit thinking/reasoning switch (the Qwen3 family, for example); every reply reports which mode actually applied, so requesting a mode a checkpoint doesn't support is never silently ignored. **Quantization**, offered only from the modes the selected checkpoint actually supports. **Context window**, the token capacity the context-budget preflight is told to use for this config — not a promise the model actually fits that many tokens; leave it blank to use the window PotionUI detects from the checkpoint's local files. **Top-K**, **Top-P**, **Min-P**, and **Repetition Penalty** are explicit sampling controls, each blank by default; leaving one blank passes nothing for it and the checkpoint's own generation defaults apply. Setting temperature to 0 selects greedy decoding, which ignores Top-K/Top-P/Min-P but still honors an explicit Repetition Penalty. These are manual tuning knobs, not an automatically selected preset, a guaranteed fix for repetitive output, or a throughput optimization — see the LLM chat evaluation pack for measuring their effect on a given model. The selected checkpoint's vision support and whether it's a shared text encoder are shown alongside these as read-only badges.
 
@@ -146,9 +151,18 @@ Install, inspect, enable, and disable plugins. Admins can scan for installed plu
 
 **Install from catalog** reads a plugin catalog, a `plugins.json` file at an https address, and lists its plugins with what this install can do with each: install it, update it, or why not (it ships with PotionUI, a copy of it was placed by hand or installed from another catalog, it needs another PotionUI version, it has no release yet). A plugin installed from a catalog is only ever updated from that same catalog, and only to a newer version; the catalog URL is saved as given in the plugin's folder (`.potionui-catalog.json`), so a token in it is stored there in clear. Installing downloads the release archive the catalog names, checks it against the sha256 the catalog lists before writing anything, unpacks it into `content/plugins/local/<id>/` and scans for plugins; the new plugin is disabled until you enable it. PotionUI never installs Python packages: when a plugin declares some, the install tells you which, and enabling the plugin checks that they are there. A plugin runs with the same rights as PotionUI, so install only from catalogs you trust. A catalog on your own network needs the server to be started with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`, which also allows plain http to such a local address, never to a public one. The catalog format is in [The Plugin API](../plugin-api.md#publishing-a-plugin-in-a-catalog).
 
-## Developer
+## Other tabs
 
-A reference and inspection area for people building presets and plugins. It documents the available form field types, template functions, icons, and Jinja2 templating syntax, with live previews of rendered output. It's a lookup tool for authors rather than something you change to run the app.
+- **Recipes** — start a setup recipe and follow its steps. See [Recipes](/admin?tab=docs&doc=dev/recipes) and the plugin API for how recipes are written.
+- **Generations** — every generation on the server, filterable, with its prompt, outputs and run details.
+- **Downloads** — the download queue, with pause, resume, cancel and retry for each download.
+- **Automations** — workflows that run on a schedule or when something happens, started from templates.
+- **Auto-organize** — who has auto-organize rules and how many are switched on.
+- **Stats** — usage statistics for a date range.
+
+## Documentation
+
+The **Documentation** tab shows this documentation inside the app. For admins it adds the Administration, Developer and Contributor sections, and live reference pages (field types, template functions, pipes, output types) generated from the running install and its enabled plugins.
 
 ## Server logs
 

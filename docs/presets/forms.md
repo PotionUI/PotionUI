@@ -10,7 +10,7 @@ order: 16
 `form.yml`, tabs, variants, field shapes and typed defaults, external option files,
 reactions, and the `bind_form`/422 validation contract. The live, always-current field-type
 list is [Preset Context Cheat Sheet → Built-in field types](../preset-context.md#built-in-field-types)
-and Help → Documentation → Field Types in the running app; the `model_type` values a `model`
+and Administration → Documentation → Field Types in the running app; the `model_type` values a `model`
 field's `configuration.model_type` accepts are the generated
 [`model_type` values table](../preset-context.md#model_type-values). For the `@loop` recipe
 that turns a `lora_picker` field's list value into pipeline config, see
@@ -436,8 +436,8 @@ surface, so it needs no `pipeline.yml` wiring and never appears in generation pa
 warns on a `vocabulary`/`categories` key that isn't in the taxonomy (e.g. a misspelled shot key).
 The picker offers a tile grid (default) and a 3D orbit view (drag/scroll/arrow keys) — both drive
 the same selection and compose a combined phrase; the 3D pose quantizes to the nearest canonical
-shots. See `content/presets/marketplace/SDXL/modes/txt2img/tabs/camera.yml` for a minimal working example and
-`content/presets/marketplace/Krea2/modes/txt2img/tabs/camera.yml` for a fully-curated vocabulary.
+shots. See `content/presets/marketplace/SDXL/modes/txt2img/tabs/post-processing.yml` for a minimal working example and
+`content/presets/marketplace/Krea2/modes/txt2img/tabs/enhance.yml` for a fully-curated vocabulary.
 
 Categorized tag picker (`type: "tags"` — a `{category: [tags]}` structured value, e.g. YuE2's Style
 tags field: language/genre/tempo pick one, instrumentation/voice/mood/more layer on several):
@@ -948,7 +948,7 @@ Before any pipeline renders, the submitted `form_data` is bound against the mode
    media/image field are containment-checked against the storage root and rewritten to their
    canonical form — preset YAML never builds storage paths itself).
 
-Validation failures reject the generation request with a **422** (`generation_controller.py`)
+Validation failures reject the generation request with a **422** (`src/features/generation/routes.py`)
 whose `detail` carries the per-field contract instead of one opaque string:
 
 ```json

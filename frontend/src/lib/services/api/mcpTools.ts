@@ -56,6 +56,16 @@ export function createMcpToolsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
+		async getMcpCeiling(): Promise<APIResponse<McpToolsListing>> {
+			const response = await client.get('/api/admin/mcp/tools');
+			return response.data;
+		},
+
+		async patchMcpCeiling(patch: McpToolsPatch): Promise<APIResponse<McpToolsListing>> {
+			const response = await client.patch('/api/admin/mcp/tools', patch);
+			return response.data;
+		},
+
 		async getMcpKeyTools(keyId: string): Promise<APIResponse<McpToolsListing>> {
 			const response = await client.get(`/api/mcp/keys/${encodeURIComponent(keyId)}/tools`);
 			return response.data;

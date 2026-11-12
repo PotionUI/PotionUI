@@ -185,7 +185,7 @@
             ],
             [
               "duration",
-              6
+              4
             ],
             [
               "movement",
@@ -233,7 +233,7 @@
         },
         "frames": {
           "type": "int",
-          "value": 144
+          "value": 96
         },
         "keyframe_anchors": {
           "type": "list",

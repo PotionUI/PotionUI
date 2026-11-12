@@ -11,13 +11,17 @@ generation instead of just the builder).
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+
 from src.features.generation.orchestrator import _prepare_director_form_data
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.presets.fixture_form import VIDEO_DIRECTOR_FIXTURE_PROMPT
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.recipes.executors._fixture_form import build_fixture_form_data
 from src.features.recipes.executors.base import StepContext, StepResult
-from src.features.video_director.simple_modes import simple_mode_spec
+from src.features.video_director.simple_modes import placeholder_name, simple_mode_spec
 from src.platform.templating import TemplateProcessor
 
 
@@ -59,15 +63,7 @@ class PipelineRenderExecutor:
             )
 
         try:
-            form_data = _prepare_director_form_data(
-                preset_template,
-                mode,
-                self._build_fixture_form_data(preset_template, mode),
-                context.owner_user_id,
-                self.template_processor.settings,
-                prompt_pair=(VIDEO_DIRECTOR_FIXTURE_PROMPT, ""),
-                dry_run=True,
-            )
+            form_data = self._prepared_form_data(preset_template, mode, context.owner_user_id)
             built = self.pipeline_builder.build_pipeline(
                 preset_template, form_data, mode=mode, user_id=context.owner_user_id
             )
@@ -75,10 +71,11 @@ class PipelineRenderExecutor:
             return StepResult.fail(
                 "PIPELINE_RENDER_FAILED",
                 (
-                    f"The '{mode}' setup for '{preset_template.name}' didn't check out: {exc} "
+                    f"The '{mode}' setup for '{preset_template.name}' didn't check out. "
                     "This usually points at a problem in the preset itself, not your setup."
                 ),
                 suggested_repair="Report this to the preset's maintainer, or try a different recipe.",
+                technical_detail=f"{type(exc).__name__}: {exc}",
             )
 
         return StepResult.ok(
@@ -105,13 +102,7 @@ class PipelineRenderExecutor:
                 if mode not in preset_template.modes:
                     return StepResult.fail("MODE_NOT_FOUND", f"Preset '{preset_template.name}' has no '{mode}' mode to check.")
                 try:
-                    form_data = self._build_fixture_form_data(preset_template, mode)
-                    if simple_mode_spec((getattr(preset_template, "vars", None) or {}).get("video_director"), mode):
-                        form_data = _prepare_director_form_data(
-                            preset_template, mode, form_data, context.owner_user_id,
-                            self.template_processor.settings,
-                            prompt_pair=(VIDEO_DIRECTOR_FIXTURE_PROMPT, ""), dry_run=True,
-                        )
+                    form_data = self._prepared_form_data(preset_template, mode, context.owner_user_id)
                     built = self.pipeline_builder.build_pipeline(
                         preset_template,
                         form_data,
@@ -122,13 +113,29 @@ class PipelineRenderExecutor:
                     return StepResult.fail(
                         "PIPELINE_RENDER_FAILED",
                         (
-                            f"The '{mode}' setup for '{preset_template.name}' didn't check out: {exc} "
+                            f"The '{mode}' setup for '{preset_template.name}' didn't check out. "
                             "This usually points at a problem in the preset itself, not your setup."
                         ),
                         suggested_repair="Report this to the preset's maintainer, or try a different recipe.",
+                        technical_detail=f"{type(exc).__name__}: {exc}",
                     )
                 rendered.append({"mode": mode, "pipe_count": len(built.pipes)})
         return StepResult.ok({"modes": rendered})
+
+    def _prepared_form_data(self, preset_template, mode: str, owner_user_id):
+        form_data = self._build_fixture_form_data(preset_template, mode)
+        capabilities = (getattr(preset_template, "vars", None) or {}).get("video_director")
+        with tempfile.TemporaryDirectory() as storage:
+            spec = simple_mode_spec(capabilities, mode) or {}
+            for key in ("first", "last"):
+                if spec.get(key):
+                    form_data[spec[key]] = placeholder_name(spec[key])
+                    (Path(storage) / placeholder_name(spec[key])).write_bytes(b"")
+            settings = SimpleNamespace(get_file_storage_directory=lambda user=None: storage)
+            return _prepare_director_form_data(
+                preset_template, mode, form_data, owner_user_id, settings,
+                prompt_pair=(VIDEO_DIRECTOR_FIXTURE_PROMPT, ""), dry_run=True,
+            )
 
     def _build_fixture_form_data(self, preset_template, mode: str):
         return build_fixture_form_data(

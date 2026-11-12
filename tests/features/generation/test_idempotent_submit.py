@@ -94,7 +94,7 @@ async def test_a_second_submit_with_the_same_key_returns_the_first_and_starts_no
 async def test_concurrent_submits_with_one_key_make_exactly_one_generation(harness):
     routed = []
 
-    async def slow_route(routing_request):
+    async def slow_route(routing_request, reserve=False):
         routed.append(routing_request)
         await asyncio.sleep(0.01)
         return Mock(

@@ -44,6 +44,8 @@ class RoutingContext:
     model_index: Optional[Any] = None
     gpu_monitor: Optional[Any] = None
     schedule_background: Optional[Callable[[Coroutine], None]] = None
+    load: Optional[Any] = None
+    health: Optional[Any] = None
 
 
 @dataclass
@@ -103,6 +105,7 @@ class RoutingDecision:
     chosen: Any
     candidates: List[Candidate]
     rule_trace: List[RuleTraceEntry]
+    reserved: bool = False
 
     @property
     def kept(self) -> List[Candidate]:

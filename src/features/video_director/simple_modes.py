@@ -12,6 +12,10 @@ _COMPOSITIONS = {
 }
 
 
+def placeholder_name(field: str) -> str:
+    return f"setup-check-{field}.png"
+
+
 def simple_mode_spec(capabilities: Optional[Dict[str, Any]], mode: Optional[str]) -> Optional[Dict[str, Any]]:
     table = (capabilities or {}).get(SIMPLE_MODES_KEY)
     if not isinstance(table, dict) or mode is None:
@@ -85,7 +89,7 @@ def build_simple_mode_document(
         field = spec[role]
         ref = _media_ref(form_data.get(field))
         if ref is None and placeholders:
-            ref = {"path": f"/SETUP-CHECK/media/{field}.png", "type": "image"}
+            ref = {"path": placeholder_name(field), "type": "image"}
         if ref is None:
             errors.append(f"{field}: a picture is required")
         else:

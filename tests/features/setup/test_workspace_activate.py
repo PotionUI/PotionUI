@@ -68,3 +68,19 @@ def test_no_smoke_step_still_completes_without_generation_id():
 
     assert result.success is True
     assert repo.upserts[0]["first_generation_id"] is None
+
+
+def test_no_generation_id_is_threaded_when_the_smoke_needs_attention():
+    recipe = _recipe(with_smoke=True)
+    needs_attention = RecipeStepAttempt(
+        id="a1", run_id="r1", step_key="generation.smoke", attempt=1,
+        status=RecipeStepStatus.ACTION_REQUIRED, safe_output={"generation_id": "gen-42"},
+    )
+    repos = FakeRepositories(attempts=[needs_attention])
+    executor = WorkspaceActivateExecutor(onboarding_repository=repos, run_repository=repos)
+
+    result = executor.execute(_context(recipe))
+
+    assert result.success is True
+    assert result.safe_output["first_generation_id"] is None
+    assert repos.upserts[0]["first_generation_id"] is None

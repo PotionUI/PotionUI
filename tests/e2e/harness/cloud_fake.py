@@ -62,7 +62,7 @@ def wants_cloud_fake(chunk_names) -> bool:
 
 def restart_backend(app: ThrowawayApp) -> None:
     stop_backend_process(app.instance, "cloud-fake")
-    spawn_backend(app.instance, app.repo_root, extra_env=app.extra_env)
+    spawn_backend(app.instance, app.repo_root, extra_env=app.extra_env, app_module=app.app_module)
     stage_wait_for_health(app.client)
     login(app.client, username=app.username, password=app.password)
 

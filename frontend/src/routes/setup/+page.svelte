@@ -19,29 +19,26 @@
 	import {
 		decideRunDiscovery,
 		extractGenerationHandoff,
-		extractSmokeGeneration
+		extractSmokeFailure,
+		extractSmokeGeneration,
+		newestFinishedOnboardingRun
 	} from '$lib/utils/setupRunDisplay';
 	import {
 		SKIP_TOAST_DURATION_MS,
 		deriveCurrentStep,
+		hasLocalCard,
+		runAcknowledgedShortfall,
 		showsSkipGuide,
 		skipToastMessage,
 		type SetupStepId
 	} from '$lib/utils/setupGuide';
-	import {
-		COMPUTER_SEEN_KEY,
-		MODELS_LOCATION_DONE_KEY,
-		readGuideFlag,
-		writeGuideFlag
-	} from '$lib/utils/setupGuideFlags';
+	import { COMPUTER_SEEN_KEY, readGuideFlag, writeGuideFlag } from '$lib/utils/setupGuideFlags';
 	import { notifySetupCompleted } from '$lib/stores/setupCompletion';
 	import { Badge, Button, Card, EmptyState, PageHeader, Spinner } from '$lib/components/ui';
 	import { RecipeRunSession } from '$lib/components/recipes/recipeRunSession.svelte';
 	import { createSetupRunHooks } from '$lib/components/recipes/setupRunHooks';
 	import SetupStepper from '$lib/components/setup/SetupStepper.svelte';
 	import TrustFooter from '$lib/components/setup/TrustFooter.svelte';
-	import ModelsLocationStep from './components/ModelsLocationStep.svelte';
-	import StepHeader from '$lib/components/setup/StepHeader.svelte';
 	import ComputerStep from './components/ComputerStep.svelte';
 	import StarterStep from './components/StarterStep.svelte';
 	import InstallStep from './components/InstallStep.svelte';
@@ -73,7 +70,6 @@
 
 	let flagsRead = $state(false);
 	let computerSeen = $state(false);
-	let modelsDone = $state(false);
 	let override = $state<SetupStepId | null>(null);
 
 	const session = new RecipeRunSession({
@@ -91,7 +87,6 @@
 			ownerExists: true,
 			welcomeSeen: true,
 			computerSeen,
-			modelsDone,
 			run,
 			instanceReady: report?.overall === 'ready'
 		})
@@ -102,6 +97,12 @@
 	const modelsPath = $derived(machine?.models_disk?.path ?? DEFAULT_MODELS_PATH);
 	const generationHandoff = $derived(run ? extractGenerationHandoff(run) : null);
 	const smokeResult = $derived(run ? extractSmokeGeneration(run) : null);
+	const generationProven = $derived(
+		report?.checks.find((check) => check.area === 'generation_proven')?.status === 'ready'
+	);
+	const smokeFailure = $derived(run && !generationProven ? extractSmokeFailure(run) : null);
+	const belowCard = $derived(runAcknowledgedShortfall(run));
+	const noCard = $derived(machine !== null && !hasLocalCard(machine));
 	const smokeThumbnailUrl = $derived(
 		smokeResult?.filename && smokeResult.generationId
 			? api.getGenerationThumbnailURL(smokeResult.generationId, smokeResult.filename, 'medium')
@@ -204,10 +205,15 @@
 		} catch (err: any) {
 			if (err?.response?.status === 404) {
 				const decision = decideRunDiscovery('not_found', cachedRun);
-				if (decision.show === 'stored-failed' && cachedRun) {
+				if ((decision.show === 'stored-failed' || decision.show === 'stored-completed') && cachedRun) {
 					session.adopt(cachedRun);
 				} else {
-					session.reset();
+					const finished = cachedId ? null : await findFinishedOnboardingRun();
+					if (finished) {
+						session.adopt(finished);
+					} else {
+						session.reset();
+					}
 				}
 			} else if (!run) {
 				runFetchError = "Couldn't check for an in-progress setup — trying again shortly.";
@@ -217,12 +223,20 @@
 		}
 	}
 
-	async function startRecipe(selected: SetupRecipe) {
+	async function findFinishedOnboardingRun(): Promise<SetupRun | null> {
+		try {
+			return newestFinishedOnboardingRun((await api.listRecipeRuns({ limit: 20 })).runs);
+		} catch {
+			return null;
+		}
+	}
+
+	async function startRecipe(selected: SetupRecipe, options?: { safeInput?: Record<string, unknown> }) {
 		if (starting) return;
 		starting = true;
 		startError = '';
 		try {
-			session.adopt(await api.createSetupRun(selected.id));
+			session.adopt(await api.createSetupRun(selected.id, options));
 			override = null;
 		} catch (err: any) {
 			startError = getApiErrorMessage(err, "Couldn't start this starter.");
@@ -237,9 +251,7 @@
 		override = null;
 	}
 
-	function continueFromModels() {
-		modelsDone = true;
-		override = null;
+	function reloadMachine() {
 		void loadMachine();
 	}
 
@@ -264,7 +276,6 @@
 
 	onMount(() => {
 		computerSeen = readGuideFlag(COMPUTER_SEEN_KEY);
-		modelsDone = readGuideFlag(MODELS_LOCATION_DONE_KEY);
 		flagsRead = true;
 		load();
 		if (isAdmin) {
@@ -347,21 +358,6 @@
 						recipes={recipes ?? []}
 						onContinue={continueFromComputer}
 					/>
-				{:else if step === 'models'}
-					<section class="flex flex-col gap-5" aria-labelledby="h-models">
-						<StepHeader
-							step="models"
-							titleId="h-models"
-							title="Where should PotionUI keep your models?"
-							lede="Models are large files (checkpoints, LoRAs and so on) that live in one folder on your disk."
-							status={{ text: 'Default is fine, change any time', tone: 'signal' }}
-						/>
-						<ModelsLocationStep
-							freeDiskBytes={machine?.models_disk?.free_bytes ?? null}
-							onContinue={continueFromModels}
-							onBack={() => (override = 'computer')}
-						/>
-					</section>
 				{:else if step === 'starter'}
 					<StarterStep
 						{recipes}
@@ -373,13 +369,15 @@
 						{startError}
 						onStart={startRecipe}
 						onSkip={() => (override = 'ready')}
-						onBack={() => (override = 'models')}
+						onBack={() => (override = 'computer')}
 						onRetry={loadRecipes}
+						onModelsChanged={reloadMachine}
 					/>
 				{:else if step === 'install' && run}
 					<InstallStep
 						{run}
 						{recipe}
+						{machine}
 						fetchError={runFetchError}
 						{modelsPath}
 						onRunUpdated={session.adopt}
@@ -390,6 +388,9 @@
 						{installedName}
 						thumbnailUrl={smokeThumbnailUrl}
 						{modelsPath}
+						{smokeFailure}
+						{belowCard}
+						{noCard}
 						onCreate={goToFirstGeneration}
 					/>
 				{/if}

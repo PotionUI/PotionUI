@@ -524,16 +524,19 @@ prompt_resources:
       limit: 3
 
 prompt_syntax:
-  video: &h3_prompt_syntax
-    - token: "integrated_multimodal_description:"
+  "*": &h3_prompt_syntax
+    - &h3_syntax_description
+      token: "integrated_multimodal_description:"
       kind: "label"
       help: "Opens the three-field document: shots, camera, speakers and dialogue"
       color: "cornflowerblue"
-    - token: "overall_soundscape:"
+    - &h3_syntax_soundscape
+      token: "overall_soundscape:"
       kind: "label"
       help: "Ambient sound and physical action sounds for the whole video (no dialogue or music)"
       color: "cornflowerblue"
-    - token: "non_diegetic_music:"
+    - &h3_syntax_music
+      token: "non_diegetic_music:"
       kind: "label"
       help: "Background score by instrumentation, tempo, rhythm and dynamics"
       color: "cornflowerblue"
@@ -553,9 +556,18 @@ prompt_syntax:
       insert: "<d>{}</d>"
       help: "Wraps a speaker's exact words, preserved verbatim"
       color: "mediumseagreen"
-  txt2video: *h3_prompt_syntax
-  img2video: *h3_prompt_syntax
-  first_last: *h3_prompt_syntax
+  loop:
+    - *h3_syntax_description
+    - *h3_syntax_soundscape
+    - *h3_syntax_music
+    - token: "[Shot 1]"
+      kind: "marker"
+      pattern: '\[Shot 1\]'
+      help: "The one shot of a loop; a loop is a single continuous shot, so there is no [Shot 2]"
+      color: "goldenrod"
+  remix: []
+  talk: []
+  motion_transfer: []
   refs:
     - token: "subject_definitions:"
       kind: "label"

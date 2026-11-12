@@ -94,8 +94,10 @@ class GenerationQueue:
         dispatch: Callable[[QueuedGeneration], Awaitable[None]],
         policy_for: Optional[Callable[[str], SchedulingPolicy]] = None,
         capacity_for: Optional[Callable[[str], int]] = None,
+        is_dispatchable: Optional[Callable[[str], bool]] = None,
     ):
         self._dispatch = dispatch
+        self._is_dispatchable = is_dispatchable or (lambda backend_id: True)
         self._capacity_for = capacity_for or (lambda backend_id: 1)
         # None means every backend is plain FIFO - the pre-fair-scheduling default.
         self._policy_for = policy_for or (lambda backend_id: SchedulingPolicy())
@@ -166,7 +168,10 @@ class GenerationQueue:
         `test_a_failed_same_model_dispatch_leaves_scheduling_state_unchanged`).
         """
         backend_id = next(
-            (i.backend_id for i in self._pending if self._has_free_slot(i.backend_id)),
+            (
+                i.backend_id for i in self._pending
+                if self._has_free_slot(i.backend_id) and self._is_dispatchable(i.backend_id)
+            ),
             None,
         )
         if backend_id is None:
@@ -294,13 +299,50 @@ class GenerationQueue:
                 projected[slot] = projected_item
         return projected
 
+    def pending_with_positions(self) -> List[Tuple[QueuedGeneration, int, int]]:
+        projected = self._projected_pending()
+        depth: Dict[str, int] = {}
+        for item in projected:
+            depth[item.backend_id] = depth.get(item.backend_id, 0) + 1
+        seen: Dict[str, int] = {}
+        placed = []
+        for item in projected:
+            index = seen.get(item.backend_id, 0)
+            seen[item.backend_id] = index + 1
+            placed.append((item, index, depth[item.backend_id]))
+        return placed
+
     def position(self, generation_id: str) -> Optional[int]:
-        """Zero-based position among pending items (projected dispatch order),
-        or None if not queued."""
-        for index, item in enumerate(self._projected_pending()):
+        for item, index, _depth in self.pending_with_positions():
             if item.generation_id == generation_id:
                 return index
         return None
+
+    def counts(self, backend_id: str) -> Tuple[int, int]:
+        queued = sum(1 for i in self._pending if i.backend_id == backend_id)
+        return queued, len(self._busy.get(backend_id, ()))
+
+    def pending_for_backend(self, backend_id: str) -> List[QueuedGeneration]:
+        return [i for i in self._projected_pending() if i.backend_id == backend_id]
+
+    def is_dispatchable(self, backend_id: str) -> bool:
+        return self._is_dispatchable(backend_id)
+
+    async def reassign(
+        self, generation_id: str, backend_id: str, apply: Optional[Callable[[], None]] = None
+    ) -> Optional[str]:
+        async with self._lock:
+            for item in self._pending:
+                if item.generation_id == generation_id:
+                    previous = item.backend_id
+                    item.backend_id = backend_id
+                    if apply is not None:
+                        apply()
+                    return previous
+        return None
+
+    async def wake(self) -> None:
+        await self._pump()
 
     def is_idle(self) -> bool:
         return not self._pending and not self._busy
@@ -309,7 +351,6 @@ class GenerationQueue:
         return list(self._busy.get(backend_id, ()))
 
     def pending_items(self) -> List[QueuedGeneration]:
-        """Pending work in projected dispatch order; index is the queue position."""
         return self._projected_pending()
 
     def pending_for_tab(self, user_id: str, tab_id: str) -> List[QueuedGeneration]:

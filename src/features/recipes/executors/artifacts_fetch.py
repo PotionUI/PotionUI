@@ -221,15 +221,18 @@ class ArtifactsFetchExecutor:
             except Exception as exc:
                 return StepResult.fail(
                     "ARTIFACT_DOWNLOAD_FAILED",
-                    f"Downloading '{artifact.display_name or artifact.filename}' failed to start: {exc}",
+                    f"Downloading '{artifact.display_name or artifact.filename}' didn't start.",
+                    technical_detail=f"{type(exc).__name__}: {exc}",
                 )
 
-            error = self._wait_for_completion(service, download.id, artifact, context.report_progress)
-            if error:
+            failed = self._wait_for_completion(service, download.id, artifact, context.report_progress)
+            if failed:
+                sentence, technical = failed
                 return StepResult.fail(
                     "ARTIFACT_DOWNLOAD_FAILED",
-                    error,
-                    suggested_repair=self._auth_repair_hint(artifact, error),
+                    sentence,
+                    suggested_repair=self._auth_repair_hint(artifact, f"{sentence} {technical or ''}"),
+                    technical_detail=technical,
                 )
 
             fetched.append(
@@ -338,9 +341,17 @@ class ArtifactsFetchExecutor:
             return row
         return None
 
-    def _fail_after_queueing(self, service, queued, code: str, detail: str, suggested_repair: Optional[str] = None) -> StepResult:
+    def _fail_after_queueing(
+        self,
+        service,
+        queued,
+        code: str,
+        detail: str,
+        suggested_repair: Optional[str] = None,
+        technical_detail: Optional[str] = None,
+    ) -> StepResult:
         self._cancel_unfinished(service, queued)
-        return StepResult.fail(code, detail, suggested_repair=suggested_repair)
+        return StepResult.fail(code, detail, suggested_repair=suggested_repair, technical_detail=technical_detail)
 
     def _execute_plan(self, context: StepContext) -> StepResult:
         plans = context.plans(context.step.params.get("plan"))
@@ -402,7 +413,8 @@ class ArtifactsFetchExecutor:
                     service,
                     queued,
                     "ARTIFACT_DOWNLOAD_FAILED",
-                    f"Downloading '{source.display_name}' failed to start: {exc}",
+                    f"Downloading '{source.display_name}' didn't start.",
+                    technical_detail=f"{type(exc).__name__}: {exc}",
                 )
             queued.append((entry, download, note))
         return self._wait_for_all(service, queued, context)
@@ -451,7 +463,7 @@ class ArtifactsFetchExecutor:
                 if status in _TERMINAL_BAD and failure is None:
                     error = getattr(current, "error_message", None)
                     name = entry.get("display_name") or entry.get("filename")
-                    failure = (entry, f"Downloading '{name}' {status}" + (f": {error}" if error else "."))
+                    failure = (entry, f"Downloading '{name}' {status}.", error or None)
             downloaded = sum(r["downloaded_bytes"] or 0 for r in rows)
             total = sum(r["size_bytes"] or 0 for r in rows) or None
             now = self._clock()
@@ -475,13 +487,14 @@ class ArtifactsFetchExecutor:
                 },
             )
             if failure is not None:
-                entry, message = failure
+                entry, message, technical = failure
                 return self._fail_after_queueing(
                     service,
                     queued,
                     "ARTIFACT_DOWNLOAD_FAILED",
                     message,
-                    suggested_repair=self._auth_repair_hint(_PlanSource(entry), message),
+                    suggested_repair=self._auth_repair_hint(_PlanSource(entry), f"{message} {technical or ''}"),
+                    technical_detail=technical,
                 )
             if files_done == len(rows):
                 return StepResult.ok(
@@ -567,11 +580,11 @@ class ArtifactsFetchExecutor:
 
     def _wait_for_completion(
         self, service, download_id: str, artifact, report_progress=None
-    ) -> Optional[str]:
+    ) -> Optional[Tuple[str, Optional[str]]]:
         """Block (this executor is synchronous - see `_async_bridge.py`)
         until `download_id` reaches a terminal state, or `downloaded_bytes`
-        goes `_STALL_SECONDS` without advancing. Returns an error message on
-        failure/stall, `None` on success. There is no wall-clock ceiling on
+        goes `_STALL_SECONDS` without advancing. Returns a plain sentence and
+        the raw error text on failure/stall, `None` on success. There is no wall-clock ceiling on
         top of the stall check - a download that keeps moving, however
         slowly, keeps running; only genuinely stuck progress fails the step.
         `get_download` is a plain sync repository read (see
@@ -609,7 +622,7 @@ class ArtifactsFetchExecutor:
             if status_value in ("failed", "cancelled"):
                 error = getattr(download, "error_message", None)
                 name = artifact.display_name or artifact.filename
-                return f"Downloading '{name}' {status_value}" + (f": {error}" if error else ".")
+                return f"Downloading '{name}' {status_value}.", (error or None)
 
             now = time.monotonic()
             if downloaded_bytes is not None and (
@@ -621,8 +634,9 @@ class ArtifactsFetchExecutor:
                 name = artifact.display_name or artifact.filename
                 minutes = _STALL_SECONDS // 60
                 return (
-                    f"Downloading '{name}' made no progress for {minutes} minutes "
-                    f"(last status: {status_value}) - the connection may have stalled."
+                    f"Downloading '{name}' made no progress for {minutes} minutes - "
+                    "the connection may have stalled.",
+                    f"Last status: {status_value}.",
                 )
 
             time.sleep(_POLL_INTERVAL_SECONDS)

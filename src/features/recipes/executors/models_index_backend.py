@@ -36,7 +36,8 @@ class ModelsIndexBackendExecutor:
         except Exception as exc:
             return StepResult.fail(
                 "MODEL_INDEX_FAILED",
-                f"Listing models from the '{engine}' backend failed: {exc}",
+                f"Listing the models on the '{engine}' backend failed.",
+                technical_detail=f"{type(exc).__name__}: {exc}",
                 suggested_repair="Make sure the backend is reachable, then retry this step.",
             )
 

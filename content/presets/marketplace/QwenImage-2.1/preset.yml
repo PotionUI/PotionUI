@@ -107,35 +107,13 @@ prompt_resources:
       limit: 10
 
 prompt_syntax:
-  txt2img:
+  "*":
     - token: '"…"'
       kind: "wrap"
       pattern: '"[^"\n]*"'
       insert: '"{}"'
       help: "Exact text to render in the image, verbatim"
       color: "coral"
-  edit:
-    - token: '"…"'
-      kind: "wrap"
-      pattern: '"[^"\n]*"'
-      insert: '"{}"'
-      help: "Exact text to render in the image, verbatim"
-      color: "coral"
-  combine:
-    - token: '"…"'
-      kind: "wrap"
-      pattern: '"[^"\n]*"'
-      insert: '"{}"'
-      help: "Exact text to render in the image, verbatim"
-      color: "coral"
-  control:
-    - token: '"…"'
-      kind: "wrap"
-      pattern: '"[^"\n]*"'
-      insert: '"{}"'
-      help: "Exact text to render in the image, verbatim"
-      color: "coral"
-
 formulas:
   groups:
     speed:  { label: "Speed and sampling" }

@@ -63,7 +63,8 @@ def test_a_failed_pass_is_reported_as_a_clear_failure():
 
     assert result.success is False
     assert result.error_code == "MODEL_INDEX_FAILED"
-    assert "permission denied" in result.safe_error_detail
+    assert "permission denied" not in result.safe_error_detail
+    assert "permission denied" in result.technical_detail
     assert result.suggested_repair is not None
 
 
@@ -74,7 +75,8 @@ def test_a_plugin_blocked_pass_fails_the_step_with_the_reason():
 
     assert result.success is False
     assert result.error_code == "MODEL_INDEX_FAILED"
-    assert "Indexing blocked by plugin" in result.safe_error_detail
+    assert "Indexing blocked by plugin" not in result.safe_error_detail
+    assert "Indexing blocked by plugin" in result.technical_detail
 
 
 def test_progress_ticks_reach_report_progress_as_file_counts():

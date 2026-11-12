@@ -7,8 +7,9 @@ order: 35
 
 Some presets run on **ComfyUI**, a separate server your administrator connects PotionUI to, rather
 than on PotionUI's own built-in generation engine. If you already have a ComfyUI workflow you like
-— something you built yourself, downloaded, or got from a friend — you can turn it into a preset of
-your own, without writing any code. This page is for anyone who wants to do that; it doesn't assume
+— something you built yourself, downloaded, or got from a friend — you can turn it into a preset,
+without writing any code. Importing is an administrator action (it lives in Administration → Plugins);
+this page is for anyone who wants to do that, and doesn't assume
 you know how presets are built internally (see **Presets & Forms** for that side of things).
 
 ## Where the ComfyUI backend lives
@@ -76,15 +77,17 @@ fields, numbered so each stays mapped to its own sampler.
 
 For scripting, the raw endpoints remain available — see "The two-minute path: import a workflow" in the developer [ComfyUI Presets](../presets/comfyui.md) reference for the exact calls.
 
-Imported presets are saved as **your own**, separate from anything your administrator ships or
-manages centrally, so importing one never changes what other people on the instance see. To come
+Imported presets are saved as local presets, separate from the presets that ship with PotionUI, so
+importing one never changes what other people on the instance see. To come
 back later and re-run, edit, or delete an import, use the plugin's **Imported presets** tab next to
 Import workflow — editing reopens the wizard prefilled with what you imported.
 
 ## Where it goes, and what you get
 
-An imported preset appears in your preset picker like any other, named after the workflow you
-imported. It starts as a reasonable first draft: expect to open it and tidy a few things up, the
+An imported preset is named after the workflow you imported. Importing it does not install it or
+give anyone access: in **Administration → Presets**, open the preset, press **Install preset**, then
+use its **Access** tab to choose the users and groups who can run it. Once installed and assigned, it
+appears in the preset picker like any other. It starts as a reasonable first draft: expect to open it and tidy a few things up, the
 same way you'd adjust settings on any preset that isn't quite tuned for you yet. If the import
 missed something — a slider that should exist, a field with the wrong label — that's expected for
 an unusual graph, not a sign the import failed; it can be corrected afterward through the same

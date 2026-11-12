@@ -49,7 +49,7 @@ consistently whether the sampler uses a uniform or a Karras-style non-uniform si
 
 ## When to use it
 
-It is on by default in the shipped SDXL preset (`content/presets/marketplace/SDXL/realistic`) and is meant to
+It is on by default in the shipped SDXL preset (`content/presets/marketplace/SDXL`) and is meant to
 be left on for most generations — it's a small, early-step nudge toward more defined texture with
 no extra UNet forward passes, so the performance cost is negligible. Turn it off if you want the
 checkpoint's completely untouched output for comparison, or if you notice it fighting with a

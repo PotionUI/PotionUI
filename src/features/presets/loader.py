@@ -47,6 +47,7 @@ from src.features.presets.pipeline_source import load_mode_pipeline
 from src.platform.filesystem.yaml_io import load_yaml_file
 from src.features.prompt.resource_sources import declared_prompt_resource_sources
 from .schema import (
+    PROMPT_SYNTAX_DEFAULT_KEY,
     validate_manifest,
     validate_pipeline_file,
     validate_form_file,
@@ -186,6 +187,22 @@ def read_mode_naming(mode_dir: Path) -> Dict[str, Optional[str]]:
         value = data.get(key)
         naming[key] = (value.strip() or None) if isinstance(value, str) else None
     return naming
+
+
+def resolve_prompt_syntax(declared, modes) -> Dict[str, List[Dict[str, Any]]]:
+    declared = declared or {}
+    default = declared.get(PROMPT_SYNTAX_DEFAULT_KEY)
+    resolved: Dict[str, List[Dict[str, Any]]] = {}
+    for mode_name, entries in declared.items():
+        if mode_name != PROMPT_SYNTAX_DEFAULT_KEY:
+            resolved[mode_name] = [entry.model_dump(exclude_none=True) for entry in entries]
+    if default is None:
+        return resolved
+    for mode_name, mode_template in modes.items():
+        if mode_name in resolved or getattr(mode_template, 'prompt', None) == 'none':
+            continue
+        resolved[mode_name] = [entry.model_dump(exclude_none=True) for entry in default]
+    return resolved
 
 
 def read_mode_prompting(mode_dir: Path) -> Dict[str, Any]:
@@ -408,10 +425,7 @@ class PresetTemplateLoader:
             mode_name: [entry.model_dump(exclude_none=True) for entry in entries]
             for mode_name, entries in (manifest.prompt_resources or {}).items()
         }
-        prompt_syntax = {
-            mode_name: [entry.model_dump(exclude_none=True) for entry in entries]
-            for mode_name, entries in (manifest.prompt_syntax or {}).items()
-        }
+        prompt_syntax = resolve_prompt_syntax(manifest.prompt_syntax, modes_dict)
         styles, styles_preview = self._load_styles(preset_path)
 
         template = PresetTemplate(

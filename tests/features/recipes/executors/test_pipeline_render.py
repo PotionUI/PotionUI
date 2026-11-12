@@ -76,3 +76,16 @@ def test_required_text_field_without_default_gets_a_placeholder(executor):
     result = executor.execute(_context("01KX47YUE200000000000000YU", "song"))
     assert result.success, result.safe_error_detail
     assert result.safe_output["pipe_count"] > 0
+
+
+def test_a_pipeline_that_does_not_render_keeps_the_exception_out_of_the_sentence(executor, monkeypatch):
+    def broken(*args, **kwargs):
+        raise ValueError("undefined variable 'unet_path' in pipes[3]")
+
+    monkeypatch.setattr(executor.pipeline_builder, "build_pipeline", broken)
+
+    result = executor.execute(_context(SDXL_PRESET_ID, "txt2img"))
+
+    assert result.error_code == "PIPELINE_RENDER_FAILED"
+    assert "unet_path" not in result.safe_error_detail
+    assert "ValueError: undefined variable 'unet_path' in pipes[3]" == result.technical_detail

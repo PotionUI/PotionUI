@@ -19,7 +19,7 @@ The toolbar across the top gives you several ways to narrow the list:
 
 - **Search** — type in the search box to match generations (for example by prompt text).
 - **Date** — quick presets: **All**, **Today**, **Yesterday**, **7 Days**, **30 Days**.
-- **Media type** — show **All**, images only, or videos only.
+- **Media type** — buttons for images only, videos only, audio only and 3D only, plus **Favorites only**.
 - **Status** — **All Status**, **Completed**, **Failed**, **Cancelled**, **Pending**, or **Running**.
 - **Mode, preset, and model** — narrow results to a particular generation setup.
 - **Phrasebook used** — find runs whose recorded segment composition resolved a particular phrasebook value.
@@ -61,11 +61,11 @@ To act on several generations at once, click **Select** in the toolbar to enter 
 
 Click the close button on the floating toolbar (or **Cancel** in the top toolbar) to leave selection mode.
 
-## Delete by tags
+## Delete by criteria
 
-For larger cleanups there is a dedicated **Delete by tags** action in the toolbar's overflow menu. You choose one or more tags, and PotionUI deletes the generations carrying them. This is a fast way to clear out, say, everything you tagged as a throwaway experiment.
+For larger cleanups there is a dedicated **Delete by criteria** action in the toolbar's overflow menu. You narrow the set by tags, by age, by status, or to generations without media, can choose to keep favorites, and PotionUI shows how many generations match before you delete them. This is a fast way to clear out, say, everything you tagged as a throwaway experiment, or every failed run older than a month.
 
-Deletion is permanent, so PotionUI always asks you to confirm before removing anything, whether it's a single item, a bulk selection, or a delete-by-tags operation.
+Deletion is permanent, so PotionUI always asks you to confirm before removing anything, whether it's a single item, a bulk selection, or a delete-by-criteria operation.
 
 Deleting a generation removes its files with all their previews (the animated ones of a video included), its folder, its automatic tags, and the completed, failed and warning notifications it raised for you. A file that something else still uses stays where it is: one another generation also lists, or one shown as a phrasebook or model preview. Two records outlive the generation on purpose: its timing and memory statistics, which feed the per-preset performance figures, and its entry in your usage ledger, which counts toward your plan's limits until it ages out.
 

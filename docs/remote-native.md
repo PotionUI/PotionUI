@@ -257,8 +257,8 @@ to compute its own compatibility fingerprints. These are late-bound via
 injection: `BackendRegistry._create_backend_instance` builds every backend the
 same uniform way (`backend_class(backend_config=config)`), then duck-type
 checks `hasattr(backend, "bind_remote_context")` the same way it already
-duck-type checks `isinstance(backend, InProcessBackend)` for
-`set_generation_manager`. `BackendRegistry` itself gained an optional
+checks `isinstance(backend, InProcessBackend)` to hand an in-process backend its executor
+(`set_generation_engine`). `BackendRegistry` itself gained an optional
 `pipe_catalog` constructor parameter for this (`src/bootstrap/container.py`
 passes the container's one `PipeCatalog` instance).
 
@@ -343,6 +343,22 @@ forces eager pipe discovery the first time it runs).
    before re-raising, so nothing is left stuck DISPATCHING/STAGING/RUNNING
    forever - this single-slot MVP has no separate loop that would otherwise
    retry and eventually notice.
+
+**The submit answer is checked** (`src/features/remote_execution/submit.py`,
+`submit_checked`). `accepted` (202) and `duplicate` (200) mean the worker has the job.
+`rejected` and `expired` (200) are passed on: the worker journaled a `rejected` event with the
+structured reason, so no assets are uploaded and the event stream reports it. Everything else fails
+the generation with a plain reason and frees the backend's slot: a body that is not JSON or not an
+object, an HTTP 200 whose body has no usable `outcome`, an answer for a different `execution_id`, 409
+`digest_conflict`, any other status than 200/202. A submit is retried (3 attempts, 0.5 s then 1 s
+apart) only for a connection failure or timeout, HTTP 5xx, a gateway error page or 429 `busy`; that is
+safe because the worker keys every submit on `execution_id` and answers a repeat with `duplicate`
+(or 409 for a different digest). When the attempts run out the failure says the job "may or may not
+have reached" the worker. A job that never reports back is bounded: the worker acknowledged the submit
+but sent no event for `first_event_timeout_seconds` (120), or went silent for
+`event_idle_timeout_seconds` (900) once events were flowing (`RemoteExecutionPolicy`). Rule: the
+generation is failed (`backend_unreachable`), a cancel is sent to the worker, and it is never
+re-routed, because the worker may already be running it.
 
 **`cancel_generation`** calls `POST .../cancel` and, on `"accepted"`, also
 moves the row PENDING-adjacent state to `CANCELLING` itself

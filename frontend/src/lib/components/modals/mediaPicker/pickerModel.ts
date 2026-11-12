@@ -12,6 +12,8 @@ export const SOURCE_META: Record<PickerSourceId, { label: string; icon: string; 
 	kits: { label: 'Kits', icon: 'layers', noun: 'kits' }
 };
 
+export const PICKER_TILE_SCALE: Record<'small' | 'medium' | 'large', number> = { small: 0.72, medium: 1, large: 2.1 };
+
 export const PAGE_SIZES = [10, 20, 50, 100] as const;
 export const DEFAULT_PAGE_SIZE = 20;
 export const KIT_PAGE_SIZE = 20;

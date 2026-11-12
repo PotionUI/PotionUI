@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, Callable, List, Optional
 
 import httpx
 
@@ -46,6 +46,8 @@ _MODEL_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 
 class WorkerTransportError(Exception):
     """Base for every transport-layer failure talking to a worker."""
+
+    error_code: Optional[str] = None
 
 
 class WorkerUnreachableError(WorkerTransportError):
@@ -95,7 +97,7 @@ class ArtifactVerificationError(WorkerTransportError):
 class SubmitResponse:
     """The worker's own (non-enveloped) response body to `POST /v1/executions`."""
 
-    def __init__(self, status_code: int, execution_id: str, outcome: str, detail: Optional[str] = None):
+    def __init__(self, status_code: int, execution_id: Optional[str], outcome: str, detail: Optional[str] = None):
         self.status_code = status_code
         self.execution_id = execution_id
         self.outcome = outcome
@@ -164,11 +166,20 @@ class WorkerTransport:
         try:
             body = resp.json()
         except json.JSONDecodeError as exc:
-            raise WorkerProtocolError(f"submit returned an unreadable body: {exc}") from exc
+            if _gateway_answered_for_a_down_worker(resp):
+                raise WorkerUnreachableError(
+                    f"worker is not running (gateway answered HTTP {resp.status_code} for /v1/executions)",
+                    reason="not_running",
+                ) from exc
+            raise WorkerProtocolError(
+                f"submit returned an unreadable body (HTTP {resp.status_code}): {exc}"
+            ) from exc
+        if not isinstance(body, dict):
+            raise WorkerProtocolError(f"submit returned a {type(body).__name__}, not an object (HTTP {resp.status_code})")
 
         return SubmitResponse(
             status_code=resp.status_code,
-            execution_id=body.get("execution_id", package.execution_id),
+            execution_id=body.get("execution_id"),
             outcome=body.get("outcome", "unknown"),
             detail=body.get("detail"),
         )
@@ -335,7 +346,9 @@ class WorkerTransport:
         except (json.JSONDecodeError, KeyError) as exc:
             raise WorkerProtocolError(f"transfer listing returned an unreadable body: {exc}") from exc
 
-    async def stream_events(self, execution_id: str, after: int = 0) -> AsyncIterator[JobEventV1]:
+    async def stream_events(
+        self, execution_id: str, after: int = 0, on_alive: Optional[Callable[[], None]] = None
+    ) -> AsyncIterator[JobEventV1]:
         """Yield every `JobEventV1` for ``execution_id`` with cursor > ``after``,
         journaled events first, then live events, until a terminal event closes
         the worker's stream."""
@@ -358,6 +371,8 @@ class WorkerTransport:
                             f"event stream for {execution_id!r} failed: HTTP {resp.status_code}"
                         )
                     async for line in resp.aiter_lines():
+                        if on_alive is not None:
+                            on_alive()
                         if not line.startswith("data: "):
                             continue
                         try:

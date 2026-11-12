@@ -32,9 +32,10 @@ from .extensions import plugin_preset_extensions, read_extension_file, resolve_p
 from src.features.video_director.normalize import apply_preset_mode_overlay
 from src.features.video_director.simple_modes import simple_mode_problems
 from .pipeline_source import pointer_problems, resolve_mode_pipeline_file
-from .loader import discover_form_variants, plugin_preset_mode_contributions, read_mode_naming
+from .loader import discover_form_variants, plugin_preset_mode_contributions, read_mode_naming, read_mode_prompting
 from .mode_labels import fallback_mode_label, is_known_mode, known_icon_names
 from .schema import (
+    PROMPT_SYNTAX_DEFAULT_KEY,
     SPEED_PROFILE_KNOWN_KEYS,
     validate_manifest,
     validate_form_file,
@@ -903,11 +904,31 @@ class PresetLinter:
     def _lint_prompt_syntax(self, preset_file: Path, manifest) -> List[LintIssue]:
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
-        for mode_name, entries in (getattr(manifest, "prompt_syntax", None) or {}).items():
+        declared = getattr(manifest, "prompt_syntax", None) or {}
+        for mode_name, entries in declared.items():
+            if mode_name == PROMPT_SYNTAX_DEFAULT_KEY:
+                continue
             loc = f"preset.yml: prompt_syntax.{mode_name}"
             mode_dir = preset_file.parent / "modes" / mode_name
             if mode_name not in manifest.modes or not mode_dir.exists():
                 issues.append(LintIssue("error", preset_str, f"{loc}: '{mode_name}' is not a mode of this preset"))
+        if not declared or PROMPT_SYNTAX_DEFAULT_KEY in declared:
+            return issues
+        for mode_name in manifest.modes:
+            if mode_name in declared:
+                continue
+            mode_dir = preset_file.parent / "modes" / mode_name
+            if not mode_dir.exists() or read_mode_prompting(mode_dir).get("prompt") == "none":
+                continue
+            issues.append(
+                LintIssue(
+                    "warning",
+                    preset_str,
+                    f"preset.yml: prompt_syntax declares syntax for other modes but mode '{mode_name}' has a prompt "
+                    f"field and neither a '{mode_name}' entry nor a '{PROMPT_SYNTAX_DEFAULT_KEY}' default "
+                    f"(use '{mode_name}: []' to opt out)",
+                )
+            )
         return issues
 
     def _lint_prompt_resources(self, preset_file: Path, manifest) -> List[LintIssue]:

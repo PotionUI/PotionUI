@@ -169,3 +169,88 @@ describe('setup models step choice', () => {
 		expect(localStorage.getItem(DISMISSED_KEY)).toBeNull();
 	});
 });
+
+describe('setup models step embedded in the starter step', () => {
+	const row = () => document.body.querySelector('[data-models-row]');
+	const button = (label: string) =>
+		Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
+	const radio = (title: string) =>
+		Array.from(document.body.querySelectorAll<HTMLElement>('[role="radio"]')).find((r) =>
+			r.textContent?.includes(title)
+		)!;
+
+	it('starts as one row with the path, Change and a link for folders people already have', async () => {
+		seed(status());
+		mountComponent(ModelsLocationStep, { embedded: true, initialPath: '/data/models' });
+		await settle();
+
+		expect(row()?.textContent).toContain('Saved to');
+		expect(row()?.textContent).toContain('/data/models');
+		expect(button('Change')).toBeDefined();
+		expect(button('Use a folder you already have')).toBeDefined();
+		expect(document.body.querySelector('[role="radiogroup"]')).toBeNull();
+		expect(button('Continue')).toBeUndefined();
+		expect(button('Back')).toBeUndefined();
+	});
+
+	it('has no facts card', async () => {
+		seed(status());
+		mountComponent(ModelsLocationStep, { embedded: true, initialPath: '/data/models' });
+		await settle();
+
+		expect(text()).not.toContain('Why a folder');
+		expect(text()).not.toContain('Need ComfyUI?');
+	});
+
+	it('Change opens the chooser in place on Start fresh', async () => {
+		seed(status());
+		mountComponent(ModelsLocationStep, { embedded: true, initialPath: '/data/models' });
+		await settle();
+
+		button('Change')!.click();
+		await settle();
+		expect(row()).toBeNull();
+		expect(radio('Start fresh').getAttribute('aria-checked')).toBe('true');
+		expect(button('Continue')).toBeUndefined();
+		expect(button('Back')).toBeUndefined();
+	});
+
+	it('the folder link opens the chooser on the existing-folder form', async () => {
+		seed(status());
+		mountComponent(ModelsLocationStep, { embedded: true, initialPath: '/data/models' });
+		await settle();
+
+		button('Use a folder you already have')!.click();
+		await settle();
+		expect(radio('Use an existing folder').getAttribute('aria-checked')).toBe('true');
+		expect(document.body.querySelector('#model-root-path')).not.toBeNull();
+	});
+
+	it('keeping the folder closes the chooser and tells the step to reload the machine facts', async () => {
+		seed(status());
+		const onContinue = vi.fn();
+		mountComponent(ModelsLocationStep, { embedded: true, initialPath: '/data/models', onContinue });
+		await settle();
+
+		button('Change')!.click();
+		await settle();
+		button('Keep this folder')!.click();
+		await settle();
+		expect(row()).not.toBeNull();
+		expect(onContinue).toHaveBeenCalledTimes(1);
+	});
+
+	it('Close leaves without reloading anything', async () => {
+		seed(status());
+		const onContinue = vi.fn();
+		mountComponent(ModelsLocationStep, { embedded: true, initialPath: '/data/models', onContinue });
+		await settle();
+
+		button('Change')!.click();
+		await settle();
+		button('Close')!.click();
+		await settle();
+		expect(row()).not.toBeNull();
+		expect(onContinue).not.toHaveBeenCalled();
+	});
+});

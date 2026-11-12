@@ -10,6 +10,7 @@ the orchestrator knows how to build and start a pipeline.
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
+from src.features.generation.preview_clip_message import ADMIN_DETAIL_KEY
 from src.features.generation.queue import GenerationQueue, QueuedGeneration
 from src.features.generation.scheduling import SchedulingPolicy
 from src.features.generation.status_tracker import (
@@ -18,6 +19,9 @@ from src.features.generation.status_tracker import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+WAITING_FOR_BACKEND = "Waiting for a server to come back online."
 
 
 class CancelledBeforeStart(Exception):
@@ -38,6 +42,7 @@ class QueueDispatcher:
         dispatch: Callable[..., Any],
         policy_for: Optional[Callable[[str], SchedulingPolicy]] = None,
         capacity_for: Optional[Callable[[str], int]] = None,
+        hold_reason: Optional[Callable[[str], Optional[str]]] = None,
     ):
         """Initialize the dispatcher.
 
@@ -53,14 +58,18 @@ class QueueDispatcher:
                 backend's persisted settings.
             capacity_for: Resolves a backend id to how many generations it
                 runs at once. `None` gives every backend one slot.
+            hold_reason: Answers why a backend cannot start queued work right
+                now, or `None` when it can. Held work stays pending.
         """
         self.status_tracker = status_tracker
         self._dispatch = dispatch
+        self._hold_reason = hold_reason or (lambda backend_id: None)
 
         self.queue = GenerationQueue(
             dispatch=self._dispatch_queued,
             policy_for=policy_for,
             capacity_for=capacity_for,
+            is_dispatchable=lambda backend_id: self._hold_reason(backend_id) is None,
         )
         # Set by the controller; pushes `queue_update` to a generation's WS
         # subscribers when its position changes or it starts running.
@@ -75,7 +84,6 @@ class QueueDispatcher:
         await self.queue.enqueue(item)
 
     def position(self, generation_id: str) -> Optional[int]:
-        """Global queue index of a still-pending generation, or None if running/absent."""
         return self.queue.position(generation_id)
 
     async def cancel(self, generation_id: str) -> bool:
@@ -85,6 +93,42 @@ class QueueDispatcher:
     async def release(self, backend_id: str, generation_id: str) -> None:
         """Free a backend slot so the queue can dispatch whatever waits on it."""
         await self.queue.release(backend_id, generation_id)
+
+    def _admin_detail(self, item: QueuedGeneration, hold: Optional[str]) -> Dict[str, Any]:
+        payload = item.payload if isinstance(item.payload, dict) else {}
+        backend = payload.get('backend')
+        detail = {
+            'backend_id': item.backend_id,
+            'backend_name': getattr(backend, 'name', None) or item.backend_id,
+        }
+        if hold:
+            detail['waiting_detail'] = hold
+        return detail
+
+    def _pending_message(self, item: QueuedGeneration, index: int, depth: int) -> Dict[str, Any]:
+        hold = self._hold_reason(item.backend_id)
+        return {
+            'type': 'queue_update',
+            'generation_id': item.generation_id,
+            'tab_id': item.tab_id,
+            'status': 'pending',
+            'queue_position': index,
+            'queue_depth': depth,
+            'waiting_reason': WAITING_FOR_BACKEND if hold else None,
+            ADMIN_DETAIL_KEY: self._admin_detail(item, hold),
+        }
+
+    def queue_info(self, generation_id: str) -> Optional[Dict[str, Any]]:
+        for item, index, depth in self.queue.pending_with_positions():
+            if item.generation_id == generation_id:
+                message = self._pending_message(item, index, depth)
+                return {key: message[key] for key in (
+                    'queue_position', 'queue_depth', 'waiting_reason', ADMIN_DETAIL_KEY,
+                )}
+        return None
+
+    async def wake(self) -> None:
+        await self.queue.wake()
 
     def is_idle(self) -> bool:
         return self.queue.is_idle()
@@ -99,15 +143,9 @@ class QueueDispatcher:
         """
         if self._queue_listener is None:
             return
-        for position, item in enumerate(self.queue.pending_items()):
+        for item, index, depth in self.queue.pending_with_positions():
             try:
-                await self._queue_listener(item.generation_id, {
-                    'type': 'queue_update',
-                    'generation_id': item.generation_id,
-                    'tab_id': item.tab_id,
-                    'status': 'pending',
-                    'queue_position': position,
-                })
+                await self._queue_listener(item.generation_id, self._pending_message(item, index, depth))
             except Exception as e:
                 logger.error(f"Failed to publish queue position for {item.generation_id}: {e}")
 
@@ -133,6 +171,7 @@ class QueueDispatcher:
                     'tab_id': item.tab_id,
                     'status': 'running',
                     'queue_position': None,
+                    ADMIN_DETAIL_KEY: self._admin_detail(item, None),
                 })
             except Exception as e:
                 logger.error(f"Failed to publish queue start for {item.generation_id}: {e}")
@@ -179,21 +218,16 @@ class QueueDispatcher:
         user_id: str,
         tab_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        The caller's view of the queue: their pending work, and their running work.
-
-        Scoped by `user_id` because the raw queue holds every user's generations
-        and their ids are subscribable over the WebSocket. `queue_position` stays
-        the *global* index, since that is what the user actually waits through.
-        """
         pending = []
-        for position, item in enumerate(self.queue.pending_items()):
+        for item, index, depth in self.queue.pending_with_positions():
             if item.user_id != user_id:
                 continue
             if tab_id is not None and item.tab_id != tab_id:
                 continue
             entry = item.to_dict()
-            entry['queue_position'] = position
+            entry['queue_position'] = index
+            entry['queue_depth'] = depth
+            entry['waiting_reason'] = WAITING_FOR_BACKEND if self._hold_reason(item.backend_id) else None
             pending.append(entry)
 
         running = [
@@ -213,15 +247,18 @@ class QueueDispatcher:
 
     def get_all_queue_snapshot(self) -> Dict[str, Any]:
         pending = []
-        for position, item in enumerate(self.queue.pending_items()):
+        for item, index, depth in self.queue.pending_with_positions():
             record = self.status_tracker.get(item.generation_id)
             pending.append({
                 'generation_id': item.generation_id,
                 'backend_id': item.backend_id,
+                'backend_name': self._admin_detail(item, None)['backend_name'],
+                'queue_depth': depth,
+                'waiting_detail': self._hold_reason(item.backend_id),
                 'preset_id': record.preset_id if record else None,
                 'tab_id': item.tab_id,
                 'user_id': item.user_id,
-                'queue_position': position,
+                'queue_position': index,
                 'created_at': item.enqueued_at,
             })
 

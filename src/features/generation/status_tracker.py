@@ -223,6 +223,12 @@ class GenerationStatusTracker:
             if record is not None:
                 record.cancel_notice = notice
 
+    def set_backend(self, id: str, backend_id: str) -> None:
+        with self._lock:
+            record = self._records.get(id)
+            if record is not None:
+                record.backend_id = backend_id
+
     def set_message(self, id: str, message: Optional[str]) -> None:
         with self._lock:
             record = self._records.get(id)

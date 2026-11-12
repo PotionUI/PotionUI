@@ -16,14 +16,15 @@ Every family below except SDXL and RIFE runs on the native engine ([Native Engin
 - [Flux1 / Flux2 (Klein)](flux.md) — text-to-image, image-to-image
 - [FLUX 3 Image Klein](flux3.md) — text-to-image, multi-reference edit
 - [Krea-2](krea2.md) — text-to-image, image-to-image
-- [MOSS-Image](moss_image.md) — text-to-image
+- [MOSS-Image](moss_image.md) — text-to-image, inpaint
 - [Qwen-Image](qwen_image.md) — text-to-image, image-to-image
+- [Qwen-Image-2.1](qwen_image_21.md) — text-to-image, edit, combine, text, restyle, inpaint, control
 - [Z-Image](z_image.md) — text-to-image, image-to-image, upscale and refine, Fun ControlNet structure
-- [Anima](anima.md) — text-to-image, image-to-image
+- [Anima](anima.md) — text-to-image
 - [Wan 2.1 / 2.2](wan.md) — text-to-video, image-to-video, chained video
-- [LTX-2 / 2.3](ltx.md) — text-to-video, video director (keyframes, audio)
+- [LTX-2 / 2.3 / 2.5](ltx.md) — text-to-video, video director (keyframes, audio), and the LTX-2.5 modes such as Ingredients
 - [MiniMax-H3-Image](minimax_h3_image.md) — text-to-image, edit with up to 16 pictures (territorially restricted weights)
-- [MiniMax-H3](minimax_h3.md) — text-to-video-and-audio, first/last keyframe anchoring (territorially restricted weights)
+- [MiniMax-H3](minimax_h3.md) — Text to Video, Image to Video, First to Last Frame, Video Director, Perfect loop, references, extend, remix, talk, motion transfer and upscale (territorially restricted weights)
 - [MiniMax-Music3](minimax_music3.md) — text-to-music, structured caption + tagged lyrics
 - [YuE2](yue2.md) — text-to-music, style tags + tagged lyrics, optional chain-of-thought
 - [SDXL](sdxl.md) — text-to-image, image-to-image, inpaint (diffusers pipeline)
@@ -31,7 +32,7 @@ Every family below except SDXL and RIFE runs on the native engine ([Native Engin
 - [RIFE](rife.md) — video frame interpolation, to a multiple of the frame rate or to a target rate (Video Tools)
 - [Pixal3D](pixal3d.md) — image to textured 3D mesh, single view or a four-view orbit (TRELLIS.2 with pixel-aligned conditioning)
 
-One preset directory exists that this section does not cover: **Chroma** has loader/generator pipes on disk but no shipped preset and no native-engine detection entry — it is not a working, documentable family.
+Chroma checkpoints are recognised from their headers, but PotionUI has no Chroma pipe or preset, so there is no Chroma family page.
 
 ## Recognition from file headers
 

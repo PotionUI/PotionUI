@@ -41,17 +41,16 @@ The last two rows are the point. Both are the *same engine* — the same wire pr
 pipes, the same workflow JSON. They differ only in where the socket points. That is a backend
 concern, not an engine concern.
 
-### Why `runpod` and `remote_http` are gone
+### Where a rented or remote GPU fits
 
-The old `BackendType` enum contained `local`, `runpod`, and `remote_http`. Two of those were never
-engines. "RunPod" is not a protocol — it is a hosting provider. "Remote HTTP" is not a protocol
-either — it is a transport. Neither described what a pipeline says on the wire, and no preset ever
-selected them; they were dead code and have been deleted.
+"RunPod" is a hosting provider and "Remote HTTP" is a transport; neither is an engine, and neither is a
+backend type. A GPU on another machine is reached one of two ways:
 
-If you want to run generation on a rented GPU box, you do not need a new engine. You install ComfyUI
-on the box and add a `comfyui` backend whose `host` points at it. The engine stays `comfyui`; only
-the connection config changes. Any preset that already declares `engine: comfyui` runs there
-unmodified.
+- Run a **Remote Native worker** there and add a `native.remote` backend that points at it (see
+  [Remote Native](remote-native.md)). The preset stays `engine: native`; the worker runs the same pipes.
+  The `runpod-provider` plugin can provision such a worker for you.
+- Run ComfyUI there and add a `comfyui` backend whose `host` points at it. Any preset that declares
+  `engine: comfyui` runs there unmodified.
 
 Engine is an **open string set**, not a closed enum. `native` is built in; `comfyui` is contributed
 by the `comfyui-backend` marketplace plugin; anything else arrives the same way (see
@@ -242,7 +241,7 @@ The same check is exposed at `GET /api/developer/presets/lint`. See
 ### The directory name is convention only
 
 Presets live under `content/presets/marketplace/<Model>/<variant>/` (shipped, tracked) or
-`content/presets/local/<Model>/<variant>/` (yours, `.gitignored`) — e.g. `content/presets/marketplace/SDXL/realistic/`.
+`content/presets/local/<Model>/<variant>/` (yours, `.gitignored`) — e.g. `content/presets/marketplace/SDXL/`.
 **Nothing parses the directory at all.** The loader reads `engine:` out of `preset.yml` and ignores
 where the preset lives — a preset under `content/presets/marketplace/` that declares `engine: comfyui` will
 happily run on ComfyUI. A plugin's own `presets:` root (e.g. `comfyui-backend`'s) works the same way.
@@ -281,7 +280,7 @@ compete — a preset picks its engine, and only that engine's backends are consi
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/backends` | all backends |
+| `GET` | `/api/backends` | all backends (administrators also get `queued`, `running`, `max_concurrent_runs`, `unhealthy_reason` per backend) |
 | `GET` | `/api/backends/enabled` | enabled only, priority descending |
 | `GET` | `/api/backends/default?engine=native` | default for an engine; `engine` is required |
 | `GET` | `/api/backends/engines` | one descriptor per registered engine (see below) |
@@ -344,7 +343,7 @@ When a generation starts, `src/features/generation/orchestrator.py` asks its
 engine's enabled backends down to the eligible ones (does it hold every selected model? does it meet
 the preset's requirements?) before picking among them. See
 **[Generation Routing](generation-routing.md)** for the full picture — this section covers only the
-final pick the router (and any other caller) delegates to:
+fallback pick used when the router has no load information (standalone tooling), and by any other caller:
 
 ```python
 BackendRegistry.select_backend_for_generation(engine: str, allowed_backend_ids: list[str] | None = None) -> BaseBackend
@@ -370,8 +369,53 @@ Is the plugin providing 'comfyui' enabled, and a backend configured for it?
 There is no cross-engine fallback. A `comfyui` preset never quietly runs on the native GPU when the
 ComfyUI server is down — the pipes would not exist. The failure is loud by design.
 
-A generation request never names a backend. The backend is always the router's decision; a user
-with two ComfyUI backends sees which one won and why in the status feed and in Admin → Generations.
+A generation request never names a backend. The backend is always the router's decision; an
+administrator with two ComfyUI backends sees which one won and why in Admin → Generations.
+
+### Spreading jobs across backends of one engine
+
+With several enabled backends of the same engine the router does not stick to the default one: it
+sends each job to the **least loaded** eligible backend, where load is `(queued + running) /
+max_concurrent_runs` (a backend that runs two jobs at once counts half per job). Ties go to the
+engine's default backend, then to higher `priority`. The constraints above still apply first: a
+preset's `driver:`, a model that only some backends hold, a hard-missing requirement. With one
+backend nothing changes.
+
+Backends that do not run on this host's GPU (a Remote Native worker, a ComfyUI server, a cloud
+provider) are health-probed in the background at most every 30 seconds while jobs are being routed.
+A backend whose probe is not `healthy`/`available` is skipped. If every backend of the engine is down
+the job is still accepted and **waits** (its status shows a "waiting for a server to come back
+online" reason; admins also see the backend's own reason); it starts when a probe succeeds again (a
+down backend is probed every 30 seconds while jobs wait for it) or is moved to another backend.
+
+When a backend stops being eligible, its **queued** (not yet started) jobs move to another eligible
+backend and are re-resolved against it (a model the new backend lacks keeps the job where it is,
+or fails it when the old backend is gone):
+
+- disabled or deleted in Admin → Backends: queued jobs move, or fail with "the server this job was
+  waiting for was taken offline and no other server can run it"; **running** jobs fail with "the
+  server running this job was taken offline".
+- found down by a health probe: queued jobs move or keep waiting; running jobs are left to their
+  backend, which fails them itself (a Remote Native worker fails a job whose connection is lost).
+
+### Queue position
+
+Every backend has its own queue. `queue_position` (zero-based, `null` while running) is the place in
+the queue of the backend that will run the job, after the backend's scheduling policy is applied
+(see below), not a place in one global list. It is sent in the `queue_update` WebSocket message and
+returned by `GET /api/generations/queue`, `GET /api/generations/{id}/status` (while pending) and the
+start response. Added fields, all additive:
+
+| Field | Who | Meaning |
+|---|---|---|
+| `queue_depth` | everyone | jobs waiting on the same backend |
+| `waiting_reason` | everyone | plain text when the backend cannot start work right now, else `null` |
+| `admin_detail` (`queue_update`) | administrators only | `{backend_id, backend_name, waiting_detail?}`; stripped from the copy regular users receive |
+| `backend_id`, `backend_name`, `waiting_detail` (status route) | administrators only | same detail, flat |
+| `backend_name`, `queue_depth`, `waiting_detail` (admin queue snapshot) | administrators | `GET /api/admin/generations` queue view |
+
+`GET /api/backends` adds `queued`, `running`, `max_concurrent_runs` and `unhealthy_reason` to each
+backend for administrators.
 
 ## Scheduling policy
 
@@ -556,22 +600,23 @@ one hook subclasses override. **`InProcessBackend` is plugin-facing API** — it
   to. It also overrides `health_check`, `get_system_info`, and cancellation (ComfyUI cancels via its
   own interrupt endpoint, not by flipping a local flag).
 
-### The `native` engine has exactly one backend
+### The `native.local` driver has exactly one backend
 
 There is one GPU and one `GenerationEngine` in this process, and `GenerationEngine` supports one
-in-flight generation at a time (`cancel()` flips a single `_cancelled` flag). A second `native`
+in-flight generation at a time (`cancel()` flips a single `_cancelled` flag). A second `native.local`
 backend would be a second name for the same hardware, competing for the same lock — pure confusion
 with no capability gained.
 
-So the `native` backend is a singleton: auto-provisioned on first boot, not deletable, and with no
-connection config to edit. `BackendConfigStore` rejects a second one, and the admin UI must not
-offer to create it. If you want a second GPU box, that is a different machine running its own
-PotionUI or ComfyUI — reach it as a `comfyui` backend, not as a second `native` one.
+So the `native.local` backend is a singleton: auto-provisioned on first boot, not deletable, and with no
+connection config to edit. `BackendConfigStore` rejects a second one, and the admin UI does not
+offer to create it. A second GPU box is a different machine: run a Remote Native worker on it and add a
+`native.remote` backend (any number of those can exist), or run its own PotionUI or ComfyUI and reach it
+as a `comfyui` backend.
 
-**Never key off the native backend's row `id`.** Migration `069_backends_type_to_engine.py` renames
-the *engine* (`local` → `native`), not the row id, so that existing generation history keeps
-resolving its backend. A database upgraded through 069 therefore has the native backend at
-`id = "local"`; a fresh install auto-provisions it at `id = "native"`. Both are correct. The
+**Never key off the native backend's row `id`.** The engine was renamed (`local` → `native`) without
+renaming the row id, so that existing generation history keeps resolving its backend. A database
+created before the rename therefore has the native backend at `id = "local"`; a fresh install
+auto-provisions it at `id = "native"`. Both are correct. The
 invariant to test is `backend.engine == "native"`.
 
 ## Contributing an engine from a plugin
@@ -670,8 +715,9 @@ pod.
 
 **A preset runs on the wrong backend.**
 Selection ignores directory names entirely. Read `engine:` in the preset's `preset.yml`, then check
-which candidate won: the `is_default` backend for that engine beats priority, and priority only
-breaks ties among the rest. `GET /api/backends/enabled` shows the candidate list in priority order.
+which candidate won: the least loaded eligible backend wins, the `is_default` backend breaks ties
+before priority does. `GET /api/backends/enabled` shows the candidate list in priority order and
+Admin → Backends shows each backend's queued and running counts.
 
 **An engine disappeared after a plugin update.**
 Backends persist in the database even when their engine is no longer registered. Such a backend is

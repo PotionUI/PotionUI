@@ -14,10 +14,14 @@
 
 	let {
 		freeDiskBytes = null,
+		embedded = false,
+		initialPath = null,
 		onContinue,
 		onBack
 	}: {
 		freeDiskBytes?: number | null;
+		embedded?: boolean;
+		initialPath?: string | null;
 		onContinue?: () => void;
 		onBack?: () => void;
 	} = $props();
@@ -27,6 +31,7 @@
 	const roots = new ModelRootsState();
 
 	let dismissed = $state(false);
+	let chooserOpen = $state(false);
 	let choice = $state<Choice>('fresh');
 	let addedRoot = $state<ModelRoot | null>(null);
 
@@ -35,7 +40,7 @@
 		const library = roots.roots.find((r) => r.kind !== 'home');
 		if (library) return library.path;
 		const home = roots.roots.find((r) => r.kind === 'home');
-		return home ? home.path : 'models/ (default location in this install)';
+		return home ? home.path : (initialPath ?? 'models/ (default location in this install)');
 	});
 
 	$effect(() => {
@@ -60,10 +65,23 @@
 		}
 		toasts.success(`Added "${root.label}". Re-indexing in the background.`);
 		persistDismissed(true);
+		chooserOpen = false;
 		onContinue?.();
 	}
 
 	function continueFresh() {
+		persistDismissed(true);
+		chooserOpen = false;
+		onContinue?.();
+	}
+
+	function openChooser(next: Choice) {
+		choice = next;
+		chooserOpen = true;
+	}
+
+	function closeChooser() {
+		chooserOpen = false;
 		persistDismissed(true);
 		onContinue?.();
 	}
@@ -89,7 +107,37 @@
 	];
 </script>
 
-{#if dismissed}
+{#if embedded && !chooserOpen}
+	<div class="space-y-2">
+		<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-base" data-models-row>
+			<span class="min-w-0 text-fg-muted">
+				Saved to <span class="break-all font-mono text-fg">{pathLabel}</span>
+			</span>
+			<span class="flex shrink-0 items-center gap-4">
+				<button
+					type="button"
+					class="font-medium text-signal hover:underline"
+					onclick={() => openChooser('fresh')}
+				>
+					Change
+				</button>
+				<button
+					type="button"
+					class="font-medium text-signal hover:underline"
+					onclick={() => openChooser('existing')}
+				>
+					Use a folder you already have
+				</button>
+			</span>
+		</div>
+		{#if modelsLine}
+			<p class="text-base text-fg-subtle">{modelsLine}</p>
+		{/if}
+		{#if indexingScanHasContent(indexingStatusStore.status)}
+			<IndexingStatusPanel status={indexingStatusStore.status} />
+		{/if}
+	</div>
+{:else if !embedded && dismissed}
 	<div class="space-y-4">
 		<Card class="space-y-1">
 			<div class="flex items-center justify-between gap-3 text-base text-fg-muted">
@@ -199,13 +247,19 @@
 			{/if}
 		</Card>
 
-		<StepFacts facts={FACTS} />
+		{#if !embedded}
+			<StepFacts facts={FACTS} />
+		{/if}
 
 		<div class="flex flex-wrap items-center gap-3">
 			{#if choice === 'fresh'}
-				<Button variant="primary" size="lg" onclick={continueFresh}>Continue</Button>
+				<Button variant="primary" size={embedded ? 'md' : 'lg'} onclick={embedded ? closeChooser : continueFresh}>
+					{embedded ? 'Keep this folder' : 'Continue'}
+				</Button>
 			{/if}
-			{#if onBack}
+			{#if embedded}
+				<Button variant="ghost" onclick={() => (chooserOpen = false)}>Close</Button>
+			{:else if onBack}
 				<Button variant="ghost" onclick={onBack}>Back</Button>
 			{/if}
 		</div>

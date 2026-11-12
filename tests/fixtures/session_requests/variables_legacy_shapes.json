@@ -1,0 +1,97 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "prompt": "${a} ${b} ${c}",
+    "variables": {
+      "a": "bare text",
+      "b": {
+        "type": "choice",
+        "options": [
+          "one",
+          "two"
+        ],
+        "pinnedIndex": 0
+      },
+      "c": {
+        "type": "choice",
+        "options": [
+          "three",
+          "four"
+        ],
+        "pinnedIndex": null
+      }
+    }
+  },
+  "overrides": {},
+  "random": [
+    0.9
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "${a} ${b} ${c}",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {},
+    "variables": {
+      "a": "bare text",
+      "b": "one",
+      "c": "four"
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "${a} ${b} ${c}",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "${a} ${b} ${c}",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": [],
+      "variables": {
+        "a": "bare text",
+        "b": {
+          "type": "choice",
+          "options": [
+            "one",
+            "two"
+          ],
+          "pinnedIndex": 0
+        },
+        "c": {
+          "type": "choice",
+          "options": [
+            "three",
+            "four"
+          ],
+          "pinnedIndex": null
+        }
+      }
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "${a} ${b} ${c}",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

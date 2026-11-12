@@ -474,7 +474,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         controller.require_preset_access(preset_id, current_user)
         return current_user
 
-    @router.get("", response_model=APIResponse, summary="List Presets")
+    @router.get("", response_model=APIResponse, summary="List Presets", description="The presets you may generate with, each with its id, name, modes and engine.")
     async def list_presets(
         include_uninstalled: bool = False,
         current_user: User = Depends(get_current_active_user)
@@ -570,7 +570,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get available generation modes (txt2img, img2img, etc.) for a specific preset."""
         return await controller.get_available_modes(preset_id, current_user)
 
-    @router.get("/{preset_id}/form", response_model=APIResponse, summary="Get Form Schema")
+    @router.get("/{preset_id}/form", response_model=APIResponse, summary="Get Form Schema", description="The form of one preset for a mode: every field with its name, type and default. The field names are the keys of form_data when you start a generation.")
     async def get_preset_form_schema(preset_id: str, mode: str = None, form_name: str = None, current_user=Depends(preset_access)):
         """Get the dynamic form schema for a preset, including field definitions and validation rules."""
         return await controller.get_form_schema(preset_id, mode, form_name)

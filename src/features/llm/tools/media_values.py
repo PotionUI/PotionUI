@@ -144,6 +144,19 @@ def validate_media_value(
     return errors
 
 
+def missing_media_paths(value: Any, storage_dir: Optional[str]) -> List[str]:
+    if storage_dir is None or value is None or value == "" or value == []:
+        return []
+    storage_root = Path(storage_dir).resolve()
+    items: Sequence[Any] = value if isinstance(value, list) else [value]
+    missing: List[str] = []
+    for item in items:
+        for raw in _raw_paths(item) or []:
+            if _resolve(raw, storage_root) is None:
+                missing.append(raw)
+    return missing
+
+
 def validate_media_changes(
     proposed: Dict[str, Any],
     media_fields: Set[str],

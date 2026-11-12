@@ -51,7 +51,7 @@
 
 <div class="relative" bind:this={rootEl}>
 	<button
-		class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
+		class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
 		on:click={onToggle}
 		aria-haspopup="menu"
 		aria-expanded={open}

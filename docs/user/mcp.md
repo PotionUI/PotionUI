@@ -38,6 +38,8 @@ lifetime; a row that is not allowed says so.
 
 ## Using a key from a script
 
+The **API** pages of this documentation are a step-by-step guide to scripting PotionUI, with a quickstart, working examples and a reference of every route. This section is the short version.
+
 Send the key as a bearer token on any API request:
 
 ```
@@ -126,3 +128,54 @@ The exact, live list of exposed tools — names, parameters, and which ones
 mutate state — is generated from the running server, not hand-maintained
 here: see **Administration → Documentation → MCP Tools** (admin-only) for that
 reference.
+
+## Following a generation
+
+`start_generation` returns a `generation_id`. A client can follow the run to the end
+with these tools, all limited to your own generations (another user's id behaves as
+if it did not exist):
+
+- `get_generation_status` — state (pending, running, completed, failed, cancelled),
+  progress, the current step in plain words, the queue position while it waits, and
+  the error if it failed.
+- `wait_for_generation` — returns as soon as the run finishes, or after a bounded
+  time (30 seconds by default, 55 at most) with `timed_out` set. Call it again to
+  keep waiting; clients without notifications need not poll tightly.
+- `cancel_generation` — stops a queued or running generation.
+- `get_generation_results` — the outputs of a finished run. Up to four images
+  (eight at most) come back as image content, each kept small; every other output
+  (more images, video, audio, meshes) is a resource link. The text part carries the
+  seed and the resolved prompt.
+- `upload_media` — sends a picture, video or audio file from the client (base64, up
+  to 10 MB) into your library and returns a `path` to pass as a media field value in
+  `start_generation`'s `form_overrides`. The content is checked, not the file name.
+
+The first three reads never write or spend. `cancel_generation` and `upload_media`
+write, so they are off by default for a user and a key until turned on, like every
+other tool that writes.
+
+## More of PotionUI over MCP
+
+Besides generating, a client can reach the same areas the app and its HTTP API have. Every tool
+does exactly what the matching HTTP route allows for the same account, and nothing more.
+
+| Area | Tools | Who |
+| --- | --- | --- |
+| Elixirs | `list_elixirs`, `describe_elixir`, `run_elixir`, `get_elixir_run` | your own elixirs |
+| Sessions | `list_sessions` (also describes one session; start from it with `start_generation`'s `session_id`) | your own saved forms |
+| Notifications | `list_notifications`, `mark_notifications_read` | your own |
+| Sharing | `list_inspirations`, `publish_inspiration` | the Inspirations feed |
+| Deletes | `delete_generation`, `delete_library_item` | your own, permanent |
+| Automation | `list_automations`, `run_automation`, `get_automation_status` | administrators only |
+| Model downloads | `search_provider_models`, `download_model`, `get_download_status` | administrators only |
+
+Administrator-only tools need an administrator's key that also holds the admin scope; for anyone
+else they answer that the authority is missing. Adult results from model marketplaces are left out
+of `search_provider_models`.
+
+### Destructive tools
+
+The two delete tools are flagged destructive. A policy alone never turns them on, not even "all
+tools on": the administrator has to switch each one on in the administrator list, and the user
+then has to switch it on in their own default. A key can still turn it off again. Clients see a
+`destructiveHint` on them.

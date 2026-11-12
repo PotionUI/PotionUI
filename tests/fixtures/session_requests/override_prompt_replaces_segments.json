@@ -1,0 +1,161 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "promptSegments": [
+      {
+        "id": "a",
+        "type": "content",
+        "content": "old segment",
+        "chips": {},
+        "enabled": true
+      }
+    ],
+    "prompt": "old segment",
+    "negativePromptSegments": [
+      {
+        "id": "n",
+        "type": "content",
+        "content": "old neg",
+        "chips": {},
+        "enabled": true
+      }
+    ],
+    "negativePrompt": "old neg",
+    "promptTabs": [
+      {
+        "id": "p1",
+        "name": "First",
+        "prompt": "red fox",
+        "negativePrompt": "",
+        "promptSegments": [],
+        "negativePromptSegments": []
+      },
+      {
+        "id": "p2",
+        "prompt": "blue fox",
+        "negativePrompt": "dull",
+        "promptSegments": [
+          {
+            "id": "s2",
+            "type": "content",
+            "content": "blue fox",
+            "chips": {},
+            "enabled": true
+          }
+        ],
+        "negativePromptSegments": [
+          {
+            "id": "n2",
+            "type": "content",
+            "content": "dull",
+            "chips": {},
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": "p3",
+        "prompt": "",
+        "negativePrompt": "",
+        "promptSegments": [
+          {
+            "id": "s3",
+            "type": "content",
+            "content": "green fox",
+            "chips": {},
+            "enabled": true
+          }
+        ],
+        "negativePromptSegments": []
+      }
+    ],
+    "activePromptTab": 1,
+    "formData": {
+      "seed": 1,
+      "quantity": 1
+    }
+  },
+  "overrides": {
+    "prompt": "fresh prompt",
+    "promptSegments": [],
+    "negativePrompt": "fresh neg",
+    "negativePromptSegments": [],
+    "promptTabs": null,
+    "formData": {
+      "seed": 99
+    }
+  },
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "fresh prompt",
+        "negative": "fresh neg"
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {
+      "seed": 99,
+      "quantity": 1
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "fresh prompt",
+      "negativePrompt": "fresh neg",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "fresh prompt",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": [
+        {
+          "id": "seeded-negative",
+          "type": "content",
+          "content": "fresh neg",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "promptTabs": null,
+      "activePromptTab": 1
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "fresh prompt",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "negative",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "fresh neg",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

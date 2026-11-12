@@ -20,6 +20,7 @@ def tool_to_dict(entry: CatalogEntry, state: ToolState, reviewed: bool) -> dict:
         "description": entry.description,
         "writes": entry.writes,
         "spends": entry.spends,
+        "destructive": entry.destructive,
         "unavailable_reason": entry.unavailable_reason,
         "state": state.value,
         "reviewed": reviewed,

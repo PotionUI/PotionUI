@@ -5,7 +5,12 @@ import pytest
 from src.features.llm.tools.base import BaseTool, ToolResult, ToolServices
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.registry import ToolRegistry
-from tests.features.mcp.support import build_collaborators, handle_method
+from tests.features.mcp.support import (
+    ADDED_AFTER_SEED,
+    ADDED_AFTER_SEED_READS,
+    build_collaborators,
+    handle_method,
+)
 from tests.features.mcp.test_tool_surface import EXPECTED_TOOLS
 from tests.fixtures.seed import seed_user
 from tests.platform.database._support import load_migration
@@ -55,10 +60,10 @@ async def test_an_existing_mcp_user_keeps_the_tool_list_their_clients_saw_before
 
     load_migration("096_mcp_tool_seed", mcp_db).up()
 
-    everything_before = EXPECTED_TOOLS - {"list_models"}
-    assert await listed(collaborators, "u-old", "k-old") == everything_before - {"delete_memory"} | {"list_models"}
+    everything_before = EXPECTED_TOOLS - ADDED_AFTER_SEED
+    assert await listed(collaborators, "u-old", "k-old") == everything_before - {"delete_memory"} | ADDED_AFTER_SEED_READS
     assert await listed(collaborators, "u-opted-out", "k-opted-out") == (
-        everything_before - {"delete_memory", "add_prompt", "list_presets"} | {"list_models"}
+        everything_before - {"delete_memory", "add_prompt", "list_presets"} | ADDED_AFTER_SEED_READS
     )
 
 

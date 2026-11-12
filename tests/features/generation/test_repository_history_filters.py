@@ -236,6 +236,59 @@ class TestGenerationHistoryFilters(PersistenceTestBase):
         # Names are resolved from preset YAML by GenerationHistoryQuery, not here.
         self.assertNotIn('name', facets['presets'][0])
 
+    def _link_model(self, generation_id, filename, custom_name=None, provider_name=None, user_id=None):
+        model_id = generate_ulid()
+        with self.repo_db().get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO models (id, filename, model_type) VALUES (?, ?, 'checkpoint')",
+                (model_id, filename),
+            )
+            cursor.execute(
+                "INSERT INTO generation_models (id, generation_id, model_id) VALUES (?, ?, ?)",
+                (generate_ulid(), generation_id, model_id),
+            )
+            if custom_name:
+                cursor.execute(
+                    "INSERT INTO user_model_meta (user_id, model_id, custom_name) VALUES (?, ?, ?)",
+                    (user_id or self.user_id, model_id, custom_name),
+                )
+            if provider_name:
+                cursor.execute(
+                    "INSERT INTO providers (id, model_id, provider, name) VALUES (?, ?, 'civitai', ?)",
+                    (generate_ulid(), model_id, provider_name),
+                )
+        return model_id
+
+    def test_facet_models_carry_a_readable_label_beside_the_filename(self):
+        self._link_model(self._make().id, "plain_fp8_scaled.safetensors")
+        self._link_model(self._make().id, "sub/dir/nested.safetensors")
+        self._link_model(self._make().id, "from_provider.safetensors", provider_name="Provider Name")
+        self._link_model(self._make().id, "renamed.safetensors", custom_name="My Name", provider_name="Provider Name")
+        models = {m['name']: m for m in self.repo.get_facets(user_id=self.user_id)['models']}
+        self.assertEqual(models["plain_fp8_scaled.safetensors"]['label'], "plain_fp8_scaled")
+        self.assertEqual(models["sub/dir/nested.safetensors"]['label'], "nested")
+        self.assertEqual(models["from_provider.safetensors"]['label'], "Provider Name")
+        self.assertEqual(models["renamed.safetensors"]['label'], "My Name")
+        self.assertEqual(models["renamed.safetensors"]['count'], 1)
+
+    def test_facet_model_custom_name_is_per_user(self):
+        other = self.create_test_user("other_user", "otheruser", "other@example.com")
+        mine = self._make()
+        self._link_model(mine.id, "shared.safetensors", custom_name="Other Alias", user_id=other)
+        models = self.repo.get_facets(user_id=self.user_id)['models']
+        self.assertEqual(models[0]['label'], "shared")
+
+    def test_model_filter_matches_every_newline_separated_name(self):
+        a = self._make()
+        b = self._make()
+        c = self._make()
+        self._link_model(a.id, "one.safetensors")
+        self._link_model(b.id, "two.safetensors")
+        self._link_model(c.id, "three.safetensors")
+        ids = lambda name: {g.id for g in self.repo.get_all(user_id=self.user_id, model_name=name)}
+        self.assertEqual(ids("one.safetensors"), {a.id})
+        self.assertEqual(ids("one.safetensors\ntwo.safetensors"), {a.id, b.id})
+
     # --- Segment phrasebook provenance filter ---
 
     def _create_phrasebook_value(self):

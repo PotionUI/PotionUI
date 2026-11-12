@@ -7,6 +7,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getModels: vi.fn(),
 		getModelTypes: vi.fn(),
 		getGenerationHistory: vi.fn(),
+		getHistoryFacets: vi.fn(),
 		searchPhrasebook: vi.fn(),
 		setOnAuthExpired: vi.fn(),
 		setOnTokenRefreshed: vi.fn(),
@@ -54,7 +55,7 @@ describe('History filters model picker', () => {
 		vi.mocked(api.getModels).mockResolvedValue({
 			success: true,
 			data: {
-				models: [{ id: 'm1', filename: 'dreamshaper.safetensors', model_type: 'checkpoint', files: [] }],
+				models: [{ id: 'm1', filename: 'dreamshaper.safetensors', name: 'Dream Shaper', model_type: 'checkpoint', files: [] }],
 				total: 1
 			}
 		} as never);
@@ -62,6 +63,14 @@ describe('History filters model picker', () => {
 		vi.mocked(api.getGenerationHistory).mockResolvedValue({
 			success: true,
 			data: { generations: [], total: 0 }
+		} as never);
+		vi.mocked(api.getHistoryFacets).mockResolvedValue({
+			success: true,
+			data: {
+				modes: [],
+				presets: [],
+				models: [{ name: 'tuned_v2_fp8.safetensors', label: 'Tuned Model v2', count: 4 }]
+			}
 		} as never);
 		historyStore.setFilter('modelName', undefined);
 		destroy = mount();
@@ -99,11 +108,32 @@ describe('History filters model picker', () => {
 		expect(currentFilters().modelName).toBe('dreamshaper.safetensors');
 		expect(document.body.textContent).not.toContain('Filter history by model');
 		const chip = document.querySelector<HTMLElement>('[aria-label="Clear model filter"]')!;
-		expect(chip.textContent).toContain('dreamshaper.safetensors');
+		expect(chip.textContent).toContain('Dream Shaper');
+		expect(chip.textContent).not.toContain('.safetensors');
 		chip.click();
 		await settle();
 		expect(currentFilters().modelName).toBeUndefined();
 		expect(document.querySelector('[aria-label="Clear model filter"]')).toBeNull();
+	});
+
+	it('shows the facet display name, or a cleaned stem, never the file name', async () => {
+		historyStore.setFilter('modelName', 'sub/flux_fp8_scaled.safetensors');
+		byText('button', 'Filters')!.click();
+		await settle();
+		const trigger = document.getElementById('history-filter-model')!;
+		expect(trigger.textContent).toContain('flux_fp8_scaled');
+		expect(trigger.textContent).not.toContain('.safetensors');
+		expect(trigger.textContent).not.toContain('sub/');
+	});
+
+	it('prefers the display name from the history facets for a filter set by file name', async () => {
+		await historyStore.loadFacets();
+		historyStore.setFilter('modelName', 'tuned_v2_fp8.safetensors');
+		byText('button', 'Filters')!.click();
+		await settle();
+		expect(document.getElementById('history-filter-model')!.textContent).toContain('Tuned Model v2');
+		expect(document.querySelector('[aria-label="Clear model filter"]')!.textContent).toContain('Tuned Model v2');
+		expect(currentFilters().modelName).toBe('tuned_v2_fp8.safetensors');
 	});
 
 	it('All models clears an existing pick', async () => {

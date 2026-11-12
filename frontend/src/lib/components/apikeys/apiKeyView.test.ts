@@ -34,30 +34,40 @@ describe('usedPhrase', () => {
 
 describe('keyLine', () => {
 	it('puts scopes, the MCP tool count and use on one line', () => {
-		expect(keyLine(makeKey(), { now: NOW })).toBe('Read · MCP, 18 tools · used today');
+		expect(keyLine(makeKey(), { now: NOW })).toBe('Read · MCP, 18 tools · used today · never expires');
 	});
 
 	it('says MCP only for a key with no HTTP scope', () => {
 		const key = makeKey({ scopes: ['mcp'], mcp_tools: { exposed: 35, total: 44 }, last_used_at: '2026-11-10T08:00:00Z' });
-		expect(keyLine(key, { now: NOW })).toBe('MCP only, 35 tools · used yesterday');
+		expect(keyLine(key, { now: NOW })).toBe('MCP only, 35 tools · used yesterday · never expires');
 	});
 
 	it('lists several HTTP scopes in a fixed order', () => {
 		const key = makeKey({ scopes: ['mcp', 'content', 'read', 'generate'], mcp_tools: { exposed: 33, total: 44 }, last_used_at: null });
-		expect(keyLine(key, { now: NOW })).toBe('Read, Generate, Change content · MCP, 33 tools · never used');
+		expect(keyLine(key, { now: NOW })).toBe('Read, Generate, Change content · MCP, 33 tools · never used · never expires');
 	});
 
 	it('says paused for MCP while the administrator has it off', () => {
-		expect(keyLine(makeKey(), { now: NOW, mcpPaused: true })).toBe('Read · MCP paused · used today');
-		expect(keyLine(makeKey({ scopes: ['mcp'] }), { now: NOW, mcpPaused: true })).toBe('MCP only, paused · used today');
+		expect(keyLine(makeKey(), { now: NOW, mcpPaused: true })).toBe('Read · MCP paused · used today · never expires');
+		expect(keyLine(makeKey({ scopes: ['mcp'] }), { now: NOW, mcpPaused: true })).toBe('MCP only, paused · used today · never expires');
 	});
 
 	it('shows a plain read key without any MCP text', () => {
-		expect(keyLine(makeKey({ scopes: ['read'] }), { now: NOW })).toBe('Read · used today');
+		expect(keyLine(makeKey({ scopes: ['read'] }), { now: NOW })).toBe('Read · used today · never expires');
 	});
 
 	it('collapses to full administration when admin is present', () => {
 		expect(scopeLine(['read', 'generate', 'content', 'admin'])).toBe('Full administration');
+	});
+
+	it('shows when a key expires, with the year only when it is not this one', () => {
+		expect(keyLine(makeKey({ expires_at: '2026-12-12T09:00:00Z' }), { now: NOW })).toBe('Read · MCP, 18 tools · used today · expires Dec 12');
+		expect(keyLine(makeKey({ expires_at: '2027-02-09T09:00:00Z' }), { now: NOW })).toContain('expires Feb 9 2027');
+	});
+
+	it('leaves expiry off a revoked or expired key', () => {
+		expect(keyLine(makeKey({ status: 'revoked', expires_at: '2026-12-12T09:00:00Z' }), { now: NOW })).not.toContain('expire');
+		expect(keyLine(makeKey({ status: 'expired', expires_at: '2026-11-01T09:00:00Z' }), { now: NOW })).not.toContain('expire');
 	});
 
 	it('uses the singular for one tool', () => {

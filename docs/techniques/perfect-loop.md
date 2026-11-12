@@ -70,15 +70,18 @@ The loop is built so that this holds around the wrap too.
 ## Frame arithmetic
 
 `C` loop chunks deliver `17 C` frames. Without sound `C = round(frames / 17)`, at least 3; with sound
-`C` is a multiple of 3. The anchor gets `C + 1` chunks, the bridge `b = max(3, (C + 2) // 2) + 1`,
-and the bridge's head is the anchor's chunk `h = C + 2 - b`, at least 1. The anchor stays within
+`C` is a multiple of 3. The anchor gets `C + 1` chunks, the bridge `b = min(max(3, (C + 2) // 2) + 1, C)`,
+and the bridge's head is the anchor's chunk `h = C + 2 - b`, at least 2, so the head is never the chunk
+the tail lands on. At 3 chunks (2 s) that leaves the bridge one free chunk: with two, its head and tail
+were both `A1`, it had to travel from a chunk to the same chunk, drifted (about one luma level in a
+Subtle 512x384 run) and cut back at the wrap. The anchor stays within
 345 frames (14.4 s), so a loop is at most 19 chunks (13.5 s), or 18 (12.75 s) with sound. The mode
 offers 2, 3, 4, 5, 6, 8 and 10 seconds. `OPENING_CHUNKS` in `loop.py` is the one chunk left out;
 set to 0 it gives back the loop that opens on the picture (anchor `C` chunks, bridge one chunk shorter).
 
 | Asked | Sound | Loop | Anchor | Bridge | Head `h` | Pinned in the bridge |
 |---|---|---|---|---|---|---|
-| 2 s | off | 51 frames (2.13 s) | 73 | 73 | 1 | latents 0-4 and 15-21 of 22 |
+| 2 s | off | 51 frames (2.13 s) | 73 | 56 | 2 | latents 0-4 and 10-16 of 17 |
 | 3 s | off | 68 frames (2.83 s) | 90 | 73 | 2 | latents 0-4 and 15-21 of 22 |
 | 4 s | off | 102 frames (4.25 s) | 124 | 90 | 3 | latents 0-4 and 20-26 of 27 |
 | 8 s | off | 187 frames (7.79 s) | 209 | 124 | 6 | latents 0-4 and 30-36 of 37 |

@@ -49,7 +49,8 @@ def key_rows(
         (
             entry,
             resolve_state(
-                entry.name, entry.writes, entry.unavailable_reason, ceiling, default, disabled, spends=entry.spends
+                entry.name, entry.writes, entry.unavailable_reason, ceiling, default, disabled,
+                spends=entry.spends, destructive=entry.destructive,
             ),
             is_reviewed(default, entry.name),
         )
@@ -84,7 +85,10 @@ def ceiling_listing(c: "McpToolCollaborators") -> dict:
     rows = [
         (
             entry,
-            ceiling_state(entry.name, entry.writes, entry.unavailable_reason, ceiling, spends=entry.spends),
+            ceiling_state(
+                entry.name, entry.writes, entry.unavailable_reason, ceiling,
+                spends=entry.spends, destructive=entry.destructive,
+            ),
             True,
         )
         for entry in build_catalog(c.tool_registry)
@@ -131,7 +135,9 @@ def _check_not_locked(
 ) -> None:
     for name in overrides:
         entry = entries[name]
-        if not entry.unavailable_reason and not level_allows(ceiling, name, entry.writes, entry.spends):
+        if not entry.unavailable_reason and not level_allows(
+            ceiling, name, entry.writes, entry.spends, entry.destructive
+        ):
             raise McpToolError("locked_by_admin", f"Tool '{name}' is turned off by your administrator", 409)
 
 

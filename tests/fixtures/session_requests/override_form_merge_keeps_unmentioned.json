@@ -1,0 +1,67 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "prompt": "p",
+    "formData": {
+      "seed": 1,
+      "steps": 20,
+      "image": "uploads/a.png"
+    }
+  },
+  "overrides": {
+    "formData": {
+      "steps": 30
+    }
+  },
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "p",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {
+      "seed": 1,
+      "steps": 30,
+      "image": "uploads/a.png"
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "p",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "p",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": []
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "p",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

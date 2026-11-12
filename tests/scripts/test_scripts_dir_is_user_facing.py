@@ -37,6 +37,7 @@ ALLOWED_BASENAMES = {
     "hf_variants.py",
     "docs_lint.py",
     "pipes_reference.py",
+    "api_reference.py",
     "build-plugins.mjs",
     "plugin-stylesheet.mjs",
     "h3_extract_time_embedder.py",

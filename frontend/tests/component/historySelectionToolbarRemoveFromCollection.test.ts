@@ -140,3 +140,18 @@ describe('history selection toolbar - remove from collection', () => {
 		expect(state.selectedGenerationIds).toEqual(['gen-1']);
 	});
 });
+
+describe('selection bar layout', () => {
+	it('sizes the bar to its content and keeps every action on one line', async () => {
+		historyStore.setFilter('collectionId', 'col-1');
+		historyStore.toggleSelect('gen-1');
+		mounted = mountToolbar();
+		await settle();
+		const bar = mounted.target.querySelector('[role="toolbar"]')!;
+		expect(bar.parentElement!.className).toContain('w-max');
+		expect(bar.parentElement!.className).toContain('max-w-[calc(100vw-2rem)]');
+		const buttons = Array.from(bar.querySelectorAll('button')).filter((b) => b.textContent?.trim());
+		expect(buttons.length).toBeGreaterThan(0);
+		for (const button of buttons) expect(button.className, button.textContent!).toContain('whitespace-nowrap');
+	});
+});

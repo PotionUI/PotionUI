@@ -1,0 +1,272 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "promptSegments": [
+      {
+        "id": "a",
+        "type": "content",
+        "content": "a #hair color portrait",
+        "chips": {
+          "c1": {
+            "valueId": "v1",
+            "label": "Red",
+            "value": "red",
+            "categoryPath": "hair color",
+            "allValues": [
+              {
+                "id": "v1",
+                "label": "Red",
+                "value": "red"
+              },
+              {
+                "id": "v2",
+                "label": "Blue",
+                "value": "blue"
+              },
+              {
+                "id": "v3",
+                "label": "Green",
+                "value": "green"
+              }
+            ],
+            "shuffle": true,
+            "autoRegen": false
+          }
+        },
+        "enabled": true
+      },
+      {
+        "id": "b",
+        "type": "content",
+        "content": "and a #hat",
+        "chips": {
+          "c2": {
+            "valueId": "h1",
+            "label": "Cap",
+            "value": "cap",
+            "categoryPath": "hat",
+            "allValues": [
+              {
+                "id": "h1",
+                "label": "Cap",
+                "value": "cap"
+              },
+              {
+                "id": "h2",
+                "label": "Beret",
+                "value": "beret"
+              }
+            ],
+            "shuffle": true,
+            "autoRegen": false
+          }
+        },
+        "enabled": true
+      }
+    ],
+    "negativePromptSegments": [
+      {
+        "id": "n",
+        "type": "content",
+        "content": "#flaw",
+        "chips": {
+          "c3": {
+            "valueId": "f1",
+            "label": "Blur",
+            "value": "blur",
+            "categoryPath": "flaw",
+            "allValues": [
+              {
+                "id": "f1",
+                "label": "Blur",
+                "value": "blur"
+              },
+              {
+                "id": "f2",
+                "label": "Noise",
+                "value": "noise"
+              }
+            ],
+            "shuffle": true,
+            "autoRegen": false
+          }
+        },
+        "enabled": true
+      }
+    ]
+  },
+  "overrides": {},
+  "random": [
+    0.9,
+    0.1,
+    0.5
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "a green portrait and a beret",
+        "negative": "noise"
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {},
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "a",
+          "type": "content",
+          "content": "a #hair color portrait",
+          "chips": {
+            "c1": {
+              "valueId": "v1",
+              "label": "Red",
+              "value": "red",
+              "categoryPath": "hair color",
+              "allValues": [
+                {
+                  "id": "v1",
+                  "label": "Red",
+                  "value": "red"
+                },
+                {
+                  "id": "v2",
+                  "label": "Blue",
+                  "value": "blue"
+                },
+                {
+                  "id": "v3",
+                  "label": "Green",
+                  "value": "green"
+                }
+              ],
+              "shuffle": true,
+              "autoRegen": false
+            }
+          },
+          "enabled": true
+        },
+        {
+          "id": "b",
+          "type": "content",
+          "content": "and a #hat",
+          "chips": {
+            "c2": {
+              "valueId": "h1",
+              "label": "Cap",
+              "value": "cap",
+              "categoryPath": "hat",
+              "allValues": [
+                {
+                  "id": "h1",
+                  "label": "Cap",
+                  "value": "cap"
+                },
+                {
+                  "id": "h2",
+                  "label": "Beret",
+                  "value": "beret"
+                }
+              ],
+              "shuffle": true,
+              "autoRegen": false
+            }
+          },
+          "enabled": true
+        }
+      ],
+      "negativePromptSegments": [
+        {
+          "id": "n",
+          "type": "content",
+          "content": "#flaw",
+          "chips": {
+            "c3": {
+              "valueId": "f1",
+              "label": "Blur",
+              "value": "blur",
+              "categoryPath": "flaw",
+              "allValues": [
+                {
+                  "id": "f1",
+                  "label": "Blur",
+                  "value": "blur"
+                },
+                {
+                  "id": "f2",
+                  "label": "Noise",
+                  "value": "noise"
+                }
+              ],
+              "shuffle": true,
+              "autoRegen": false
+            }
+          },
+          "enabled": true
+        }
+      ]
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "a red portrait",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": [
+          {
+            "phrasebook_value_id": "v1",
+            "category_path": "hair color",
+            "value": "red"
+          }
+        ]
+      },
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 1,
+        "segment_type": "content",
+        "text": "and a cap",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": [
+          {
+            "phrasebook_value_id": "h1",
+            "category_path": "hat",
+            "value": "cap"
+          }
+        ]
+      },
+      {
+        "channel": "negative",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "blur",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": [
+          {
+            "phrasebook_value_id": "f1",
+            "category_path": "flaw",
+            "value": "blur"
+          }
+        ]
+      }
+    ]
+  }
+}

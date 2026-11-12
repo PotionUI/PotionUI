@@ -14,6 +14,7 @@ class CatalogEntry:
     writes: bool
     spends: bool
     unavailable_reason: Optional[str]
+    destructive: bool = False
 
 
 def _entry(tool: Any) -> CatalogEntry:
@@ -26,6 +27,7 @@ def _entry(tool: Any) -> CatalogEntry:
         writes=bool(tool.writes),
         spends=bool(tool.spends),
         unavailable_reason=tool.mcp_unavailable or None,
+        destructive=bool(tool.destructive),
     )
 
 

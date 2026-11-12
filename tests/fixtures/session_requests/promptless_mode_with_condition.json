@@ -1,0 +1,50 @@
+{
+  "preset_vars": {
+    "promptless_modes": [
+      "upscale",
+      {
+        "mode": "txt2img",
+        "when": {
+          "field": "use_prompt",
+          "operator": "equals",
+          "value": false
+        }
+      }
+    ]
+  },
+  "mode": "txt2img",
+  "entry": {
+    "formData": {
+      "use_prompt": false,
+      "scale": 2
+    }
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {
+      "use_prompt": false,
+      "scale": 2
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "",
+      "negativePrompt": "",
+      "promptSegments": [],
+      "negativePromptSegments": []
+    },
+    "segments": []
+  }
+}

@@ -33,7 +33,7 @@ from src.features.segments.repository import (
     SegmentCategoryRepository,
     SegmentTemplateRepository,
 )
-from tests.features.mcp.support import build_collaborators, handle_method
+from tests.features.mcp.support import ADDED_AFTER_SEED, DESTRUCTIVE_TOOLS, build_collaborators, handle_method
 from tests.fixtures.seed import seed_user
 
 EXPECTED_TOOLS = {
@@ -52,7 +52,7 @@ EXPECTED_TOOLS = {
     "manage_collections", "organize_gallery", "start_generation", "run_media_tool",
     "get_prompt_variables", "manage_prompt_variables", "list_tab_drafts", "write_condition",
     "list_models",
-}
+} | ADDED_AFTER_SEED
 
 
 class _Registry:
@@ -263,7 +263,7 @@ class TestToolsList:
     async def test_exposes_exactly_the_expected_builtin_tools(self, world):
         listed = await handle_method(world.collaborators, "tools/list", {}, "user-1")
 
-        assert {t["name"] for t in listed["tools"]} == EXPECTED_TOOLS
+        assert {t["name"] for t in listed["tools"]} == EXPECTED_TOOLS - DESTRUCTIVE_TOOLS
 
     @pytest.mark.asyncio
     async def test_every_tool_has_a_description_an_object_schema_and_no_community_prompt_wording(self, world):

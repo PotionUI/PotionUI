@@ -1,0 +1,96 @@
+{
+  "preset_vars": {
+    "prompt": {
+      "segment_join": "paragraph"
+    }
+  },
+  "mode": "txt2img",
+  "entry": {
+    "promptSegments": [
+      {
+        "id": "a",
+        "type": "content",
+        "content": "Verse one",
+        "chips": {},
+        "enabled": true
+      },
+      {
+        "id": "b",
+        "type": "content",
+        "content": "Chorus two",
+        "chips": {},
+        "enabled": true
+      }
+    ],
+    "formData": {
+      "duration": 30
+    }
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "Verse one\n\nChorus two",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {
+      "duration": 30
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "a",
+          "type": "content",
+          "content": "Verse one",
+          "chips": {},
+          "enabled": true
+        },
+        {
+          "id": "b",
+          "type": "content",
+          "content": "Chorus two",
+          "chips": {},
+          "enabled": true
+        }
+      ],
+      "negativePromptSegments": []
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "Verse one",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 1,
+        "segment_type": "content",
+        "text": "Chorus two",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

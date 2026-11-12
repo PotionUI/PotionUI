@@ -73,7 +73,7 @@
 	<svelte:fragment slot="actionsAfterCollection" let:activeMenu let:toggleMenu let:closeMenus>
 		{#if activeCollectionId}
 			<button
-				class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
+				class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
 				use:tooltip={'Remove the selected items from this collection'}
 				on:click={handleRemoveFromCollection}
 			>
@@ -83,7 +83,7 @@
 		{/if}
 
 		<button
-			class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-50"
+			class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-50"
 			disabled={selectedItems.length === 0}
 			data-add-to-kit
 			on:click={() => onAddToKit(selectedItems)}
@@ -103,7 +103,7 @@
 		/>
 
 		<button
-			class="px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium"
+			class="whitespace-nowrap px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium"
 			on:click={onBulkDeleteClick}
 		>
 			<Icon name="trash" className="w-4 h-4" />

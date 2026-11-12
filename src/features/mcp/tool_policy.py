@@ -21,12 +21,14 @@ class LevelPolicy:
     overrides: Mapping[str, bool] = field(default_factory=dict)
 
 
-def allows(policy: str, writes: bool, spends: bool = False) -> bool:
+def allows(policy: str, writes: bool, spends: bool = False, destructive: bool = False) -> bool:
+    if destructive:
+        return False
     return policy == POLICY_ALL_ON or not (writes or spends)
 
 
-def level_allows(level: LevelPolicy, name: str, writes: bool, spends: bool = False) -> bool:
-    return level.overrides.get(name, allows(level.policy, writes, spends))
+def level_allows(level: LevelPolicy, name: str, writes: bool, spends: bool = False, destructive: bool = False) -> bool:
+    return level.overrides.get(name, allows(level.policy, writes, spends, destructive))
 
 
 def is_reviewed(default: LevelPolicy, name: str) -> bool:
@@ -41,12 +43,13 @@ def resolve_state(
     default: LevelPolicy,
     key_disabled: Optional[FrozenSet[str]] = None,
     spends: bool = False,
+    destructive: bool = False,
 ) -> ToolState:
     if unavailable_reason:
         return ToolState.UNAVAILABLE
-    if not level_allows(ceiling, name, writes, spends):
+    if not level_allows(ceiling, name, writes, spends, destructive):
         return ToolState.LOCKED_BY_ADMIN
-    user_on = level_allows(default, name, writes, spends)
+    user_on = level_allows(default, name, writes, spends, destructive)
     if key_disabled is None:
         return ToolState.ON if user_on else ToolState.OFF
     if not user_on:
@@ -55,11 +58,16 @@ def resolve_state(
 
 
 def ceiling_state(
-    name: str, writes: bool, unavailable_reason: Optional[str], ceiling: LevelPolicy, spends: bool = False
+    name: str,
+    writes: bool,
+    unavailable_reason: Optional[str],
+    ceiling: LevelPolicy,
+    spends: bool = False,
+    destructive: bool = False,
 ) -> ToolState:
     if unavailable_reason:
         return ToolState.UNAVAILABLE
-    return ToolState.ON if level_allows(ceiling, name, writes, spends) else ToolState.OFF
+    return ToolState.ON if level_allows(ceiling, name, writes, spends, destructive) else ToolState.OFF
 
 
 def refusal_message(name: str, state: ToolState, unavailable_reason: Optional[str]) -> str:

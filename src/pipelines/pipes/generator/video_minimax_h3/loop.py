@@ -19,6 +19,7 @@ PARTIAL_LATENTS = 2
 MIN_BRIDGE_CHUNKS = 3
 MIN_LOOP_CHUNKS = MIN_BRIDGE_CHUNKS
 OPENING_CHUNKS = 1
+BRIDGE_CONDITION_ROWS = True
 SOUND_CHUNK_STEP = 3
 MAX_WINDOW_CHUNKS = (int(MAX_DURATION_S * FPS) - LATENTS_PER_CHUNK) // FRAMES_PER_CHUNK
 CHUNK_AUDIO_LATENTS = FRAMES_PER_CHUNK * AUDIO_LATENTS_PER_SECOND // FPS
@@ -152,7 +153,7 @@ def plan_loop(requested_frames: int, *, with_sound: bool) -> LoopPlan:
             f"loop and the moment before it, and one pass is at most {MAX_DURATION_S:g} seconds. {requested_frames / FPS:.1f} seconds "
             f"were asked for."
         )
-    bridge = max(MIN_BRIDGE_CHUNKS, (chunks + 2) // 2) + OPENING_CHUNKS
+    bridge = min(max(MIN_BRIDGE_CHUNKS, (chunks + 2) // 2) + OPENING_CHUNKS, chunks)
     return LoopPlan(loop_chunks=chunks, bridge_chunks=bridge, with_sound=with_sound)
 
 

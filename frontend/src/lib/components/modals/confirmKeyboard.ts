@@ -33,6 +33,23 @@ export function getConfirmKeyboardAction(event: KeyboardEventLike): ConfirmKeybo
 	return { action: event.repeat ? null : 'confirm', suppress: true };
 }
 
+export function isSingleLineInputEnter(event: {
+	key: string;
+	repeat: boolean;
+	isComposing?: boolean;
+	target: EventTarget | null;
+}): boolean {
+	if (!isSubmitEnter(event)) return false;
+	const element = event.target as
+		| { tagName?: string; type?: string; closest?: (selector: string) => unknown }
+		| null;
+	if (element?.tagName?.toUpperCase() !== 'INPUT') return false;
+	if (!SINGLE_LINE_INPUT_TYPES.has((element.type ?? 'text').toLowerCase())) return false;
+	return !element.closest?.('[data-enter-passthrough]');
+}
+
+const SINGLE_LINE_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'number']);
+
 export function isSubmitEnter(event: { key: string; repeat: boolean; isComposing?: boolean }): boolean {
 	return event.key === 'Enter' && !event.repeat && !event.isComposing;
 }

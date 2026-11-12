@@ -81,9 +81,12 @@ def _mcp_tool_schema(entry: Any, rendered: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "name": function.get("name", entry.name),
         "title": entry.label,
-        "description": function.get("description", entry.tool.description),
-        "inputSchema": function.get("parameters", entry.tool.parameters),
-        "annotations": {"readOnlyHint": not entry.writes},
+        "description": entry.tool.mcp_description or function.get("description", entry.tool.description),
+        "inputSchema": entry.tool.mcp_parameters or function.get("parameters", entry.tool.parameters),
+        "annotations": {
+            "readOnlyHint": not entry.writes,
+            **({"destructiveHint": True} if entry.destructive else {}),
+        },
     }
 
 
@@ -133,10 +136,10 @@ async def call_tool(
         result = ToolResult(success=False, data="", error=unexpected(name, "run", exc, is_admin))
 
     text = result.data if result.success else f"Error: {scrub_paths(str(result.error or 'the tool failed'))}"
-    return {
-        "content": [{"type": "text", "text": text}],
-        "isError": not result.success,
-    }
+    content: List[Dict[str, Any]] = [{"type": "text", "text": text}]
+    if result.success and result.mcp_content:
+        content.extend(result.mcp_content)
+    return {"content": content, "isError": not result.success}
 
 
 # --- JSON-RPC dispatch ---

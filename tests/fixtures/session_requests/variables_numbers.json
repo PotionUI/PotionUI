@@ -1,0 +1,147 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "prompt": "strength ${s} and ${p} and ${i} and ${s} and ${q}",
+    "variables": {
+      "s": {
+        "type": "number",
+        "mode": "shuffle",
+        "min": 0,
+        "max": 1,
+        "step": 0.25,
+        "value": 0.5
+      },
+      "p": {
+        "type": "number",
+        "mode": "pin",
+        "min": 0,
+        "max": 2,
+        "step": 0.1,
+        "value": 1.35
+      },
+      "i": {
+        "type": "number",
+        "mode": "per-image",
+        "min": 1,
+        "max": 3,
+        "step": 1,
+        "value": 2
+      },
+      "bad": {
+        "type": "number",
+        "mode": "shuffle",
+        "min": 5,
+        "max": 1,
+        "step": 1,
+        "value": 2
+      },
+      "q": {
+        "type": "number",
+        "mode": "pin",
+        "min": 0,
+        "max": 2,
+        "step": 0.1,
+        "value": 1.25
+      }
+    }
+  },
+  "overrides": {},
+  "random": [
+    0.5,
+    0.99,
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "strength ${s} and ${p} and ${i} and ${s-2} and ${q}",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {},
+    "variables": {
+      "s": "0.50",
+      "s-2": "1.00",
+      "p": "1.4",
+      "i": "{1|2|3}",
+      "q": "1.3"
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "strength ${s} and ${p} and ${i} and ${s} and ${q}",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "strength ${s} and ${p} and ${i} and ${s} and ${q}",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": [],
+      "variables": {
+        "s": {
+          "type": "number",
+          "mode": "shuffle",
+          "min": 0,
+          "max": 1,
+          "step": 0.25,
+          "value": 0.5
+        },
+        "p": {
+          "type": "number",
+          "mode": "pin",
+          "min": 0,
+          "max": 2,
+          "step": 0.1,
+          "value": 1.35
+        },
+        "i": {
+          "type": "number",
+          "mode": "per-image",
+          "min": 1,
+          "max": 3,
+          "step": 1,
+          "value": 2
+        },
+        "bad": {
+          "type": "number",
+          "mode": "shuffle",
+          "min": 5,
+          "max": 1,
+          "step": 1,
+          "value": 2
+        },
+        "q": {
+          "type": "number",
+          "mode": "pin",
+          "min": 0,
+          "max": 2,
+          "step": 0.1,
+          "value": 1.25
+        }
+      }
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "strength ${s} and ${p} and ${i} and ${s} and ${q}",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

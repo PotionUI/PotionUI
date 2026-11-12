@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	createConfirmSettlementGate,
 	getConfirmKeyboardAction,
+	isSingleLineInputEnter,
 	isSubmitEnter,
 	resolveConfirmKeydown,
 	settleIfEligible
@@ -221,5 +222,23 @@ describe('isSubmitEnter', () => {
 		expect(isSubmitEnter({ key: 'Enter', repeat: true })).toBe(false);
 		expect(isSubmitEnter({ key: 'Enter', repeat: false, isComposing: true })).toBe(false);
 		expect(isSubmitEnter({ key: 'a', repeat: false })).toBe(false);
+	});
+});
+
+describe('isSingleLineInputEnter', () => {
+	const input = (type = 'text', passthrough = false) =>
+		({ tagName: 'INPUT', type, closest: (selector: string) => (passthrough && selector === '[data-enter-passthrough]' ? {} : null) }) as unknown as EventTarget;
+
+	it('accepts Enter in a text-like input', () => {
+		expect(isSingleLineInputEnter({ key: 'Enter', repeat: false, target: input() })).toBe(true);
+		expect(isSingleLineInputEnter({ key: 'Enter', repeat: false, target: input('search') })).toBe(true);
+	});
+
+	it('rejects textareas, checkboxes, passthrough inputs, repeats and IME composition', () => {
+		expect(isSingleLineInputEnter({ key: 'Enter', repeat: false, target: { tagName: 'TEXTAREA' } as unknown as EventTarget })).toBe(false);
+		expect(isSingleLineInputEnter({ key: 'Enter', repeat: false, target: input('checkbox') })).toBe(false);
+		expect(isSingleLineInputEnter({ key: 'Enter', repeat: false, target: input('text', true) })).toBe(false);
+		expect(isSingleLineInputEnter({ key: 'Enter', repeat: true, target: input() })).toBe(false);
+		expect(isSingleLineInputEnter({ key: 'Enter', repeat: false, isComposing: true, target: input() })).toBe(false);
 	});
 });

@@ -70,6 +70,7 @@ class ToolResult:
     image_data: Optional[str] = None  # Base64 image to send via LLM vision on next call
     preview: Optional[ToolApprovalPreview] = None  # Set by requires_approval tools' preview execute()
     retryable: bool = False
+    mcp_content: Optional[List[Dict[str, Any]]] = None
 
 
 def serialize_approval_preview(preview: Optional[ToolApprovalPreview]) -> Optional[Dict[str, Any]]:
@@ -115,6 +116,9 @@ class ToolServices:
     tab_drafts: Any = None
     media_tool_service: Any = None
     elixirs: Any = None
+    sessions: Any = None
+    media_store: Any = None
+    domains: Any = None
 
 
 @dataclass
@@ -162,6 +166,9 @@ class ToolContext:
     elixirs: Any = None
     chat_session: bool = True
     acts_as_admin: bool = False
+    sessions: Any = None
+    media_store: Any = None
+    domains: Any = None
 
     @classmethod
     def for_session(cls, services: ToolServices, user_id: str, **fields_: Any) -> "ToolContext":
@@ -215,8 +222,11 @@ class BaseTool(ABC):
     approval_per_call: bool = False
     read_only: bool = False
     spends: bool = False
+    destructive: bool = False
     mcp: bool = False
     mcp_unavailable: Optional[str] = None
+    mcp_description: Optional[str] = None
+    mcp_parameters: Optional[Dict[str, Any]] = None
 
     @property
     def writes(self) -> bool:

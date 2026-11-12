@@ -239,3 +239,42 @@ def test_the_gpu_check_reports_motion_either_side_of_the_wrap_and_fails_an_ease_
     report = seam_metric(_clip(40 + path - path.min()))
     assert report["before_seam_over_median"] < 0.5
     assert not report["seam_motion_ok"] and not report["pass"]
+
+
+def _subtle_clip(*, wrap_offset, scale=1.0, chunk_bump=4.0):
+    import numpy as np
+
+    values = 100.0 + np.arange(51) % 2
+    values[[17, 34]] += chunk_bump
+    values[0] += wrap_offset
+    return (values * scale)[:, None, None, None].repeat(4, 1).repeat(4, 2).repeat(3, 3)
+
+
+def test_the_gpu_check_passes_a_near_still_loop_whose_only_bumps_are_the_vae_chunk_boundaries():
+    from tests.manual.h3_perfect_loop_check import seam_metric
+
+    report = seam_metric(_subtle_clip(wrap_offset=4.0))
+
+    assert report["jumps"] == [] and report["pass"]
+
+
+def test_the_gpu_check_still_fails_a_near_still_loop_that_jumps_at_the_wrap():
+    from tests.manual.h3_perfect_loop_check import seam_metric
+
+    report = seam_metric(_subtle_clip(wrap_offset=12.0))
+
+    assert not report["pass"]
+    wrap = [jump for jump in report["jumps"] if jump["at_wrap"]]
+    assert [jump["frames"] for jump in wrap] == [[50, 0]]
+    assert wrap[0]["step"] == pytest.approx(12.0)
+
+
+def test_the_gpu_check_ignores_a_wrap_step_too_small_to_see_whatever_its_ratio():
+    from tests.manual.h3_perfect_loop_check import seam_metric
+
+    tiny = seam_metric(_subtle_clip(wrap_offset=9.0, scale=0.04, chunk_bump=0.0))
+    assert tiny["seam_over_median"] > 5 and tiny["seam_step"] < 0.5
+    assert tiny["jumps"] == []
+
+    visible = seam_metric(_subtle_clip(wrap_offset=9.0, scale=0.1, chunk_bump=0.0))
+    assert visible["seam_step"] > 0.5 and visible["jumps"]

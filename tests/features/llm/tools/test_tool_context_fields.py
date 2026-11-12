@@ -17,4 +17,4 @@ def test_the_v010_positional_order_is_kept_and_new_fields_come_after_it():
     names = tuple(field.name for field in dataclasses.fields(ToolContext))
 
     assert names[: len(V010_LEADING_FIELDS)] == V010_LEADING_FIELDS
-    assert names[len(V010_LEADING_FIELDS):] == ("acts_as_admin",)
+    assert names[len(V010_LEADING_FIELDS):] == ("acts_as_admin", "sessions", "media_store", "domains")

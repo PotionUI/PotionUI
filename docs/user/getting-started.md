@@ -30,6 +30,10 @@ PotionUI also runs natively on Windows — see the README's
 [Windows (native)](../../README.md#windows-native) section for prerequisites
 and what the Windows CI covers.
 
+### Python and stopping
+
+PotionUI needs **Python 3.12**. Newer versions are not supported yet: a new install on one stops with "Python 3.13 is not supported yet" until Python 3.12 is installed next to it, and `./potionui` picks 3.12 up by itself. `./potionui start` returns once the app is up; the processes keep running in the background, and `./potionui stop` stops them together. On native Windows use `.\potionui.cmd` in place of `./potionui`.
+
 ## First run: claiming the instance
 
 A freshly installed PotionUI has no accounts at all. The **first** account ever created on it automatically becomes its **owner** — an Administrator account, with no separate setup step. There is no default password to change and nothing to "unlock": you *are* the administrator your instance is waiting for.

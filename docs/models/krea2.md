@@ -2,7 +2,7 @@
 type: model
 title: Krea-2
 family_key: krea2
-modes: [txt2img, enhance]
+modes: [txt2img, enhance, upscale, edit]
 spec:
   arch: Krea2 distilled turbo MMDiT (forked from diffusers' transformer_krea2, Apache-2.0)
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)

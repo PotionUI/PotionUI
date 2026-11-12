@@ -9,7 +9,7 @@ on rented compute instead of the box PotionUI itself is installed on.
 1. **Admin -> Plugins -> RunPod Provider**: paste a RunPod REST API key
    (console.runpod.io -> Settings -> API Keys). `POST .../validate-key` checks
    it before you save.
-2. **Admin -> Remote Compute** (core's `/api/admin/provisioning` API,
+2. **Admin -> Backends**, a Remote Native backend's **Infrastructure** tab (core's `/api/admin/provisioning` API,
    `src.features.provisioning.routes`): pick "runpod" as the provider,
    `GET .../providers/runpod/gpu-types` lists known GPU type ids (see "GPU
    catalog is static" below), and `POST /api/admin/provisioning` with a

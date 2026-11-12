@@ -257,8 +257,8 @@ to compute its own compatibility fingerprints. These are late-bound via
 injection: `BackendRegistry._create_backend_instance` builds every backend the
 same uniform way (`backend_class(backend_config=config)`), then duck-type
 checks `hasattr(backend, "bind_remote_context")` the same way it already
-duck-type checks `isinstance(backend, InProcessBackend)` for
-`set_generation_manager`. `BackendRegistry` itself gained an optional
+checks `isinstance(backend, InProcessBackend)` to hand an in-process backend its executor
+(`set_generation_engine`). `BackendRegistry` itself gained an optional
 `pipe_catalog` constructor parameter for this (`src/bootstrap/container.py`
 passes the container's one `PipeCatalog` instance).
 

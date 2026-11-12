@@ -1,7 +1,7 @@
 id: "runpod-provider"
 name: "RunPod Provider"
 version: "0.1.0"
-description: "Provisions a RunPod GPU Pod running the PotionUI Remote Native worker, through core's compute-provisioning API (Admin -> Remote Compute)."
+description: "Provisions a RunPod GPU Pod running the PotionUI Remote Native worker, through core's compute-provisioning API (the Infrastructure tab of a Remote Native backend in Admin -> Backends)."
 author: "PotionUI Team"
 type: "backend-only"
 category: "backends"

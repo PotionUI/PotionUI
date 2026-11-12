@@ -40,7 +40,7 @@ output unless you explicitly turn it up.
 ## How to enable it
 
 It's wired into the shipped SDXL preset as the `sharpness/sdxl` pipe in
-`content/presets/marketplace/SDXL/realistic/modes/txt2img/pipeline.yml`, gated on the `sharpness` form value
+`content/presets/marketplace/SDXL/modes/txt2img/pipeline.yml`, gated on the `sharpness` form value
 being greater than `0`:
 
 ```yaml

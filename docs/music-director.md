@@ -9,9 +9,10 @@ what the preset actually declares. A preset opts in by declaring `vars.music_dir
 This is the authoritative reference for the wire document and the capability declaration.
 Where a detail depends on a source file, that file is named so you can double-check.
 
-**This document covers Phase 1 only: the backend contract.** The frontend editor and the
-first preset (YuE) that consumes this contract land separately; `compile_sections_to_lyrics`
-(below) is not wired into any pipe yet.
+This document covers the backend contract: the wire document, the capability declaration and the
+normalizer. The editor is `frontend/src/lib/components/music-director/`. No shipped preset declares
+`vars.music_director` today, so the editor appears only for a preset that opts in. The song presets
+that ship (MiniMax-Music3, YuE2) use plain form fields and the standard Prompt box.
 
 ## Composition modes
 
@@ -229,9 +230,8 @@ dropped; only the keys documented above survive normalization there.
 ## Derived: the compiler
 
 `compile_sections_to_lyrics(sections)` (`src/features/music_director/normalize.py`) is a
-pure function, **not called by `normalize_music_director`** and not wired into any pipe yet
-— it exists in this phase purely so the tagged-lyrics format is pinned down and unit-tested
-ahead of the preset work that will call it.
+pure function, **not called by `normalize_music_director`**. Prompt expansion
+(`src/features/generation/prompt_expansion.py`) calls it to fill a document's `compiled_lyrics`.
 
 It serializes a `director`-mode section list into the single document a
 `compile: "single_shot"` mode submits as one generation: each section becomes a lower-case

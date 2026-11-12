@@ -34,6 +34,9 @@ The manifest is `PresetManifest` in `src/features/presets/schema.py`, validated 
 | `formulas` | no | mapping | The groups of form settings a user may save as a formula, in display order. See [Formulas](#formulas). |
 | `llm` | no | mapping | Preset/family-level prompting guide + chat-workspace context knobs. See [LLM context](#llm-context). |
 | `requires` | no | mapping | Optional VRAM/RAM guidance shown at preset-choice time. See [Hardware requirements](#hardware-requirements). |
+| `configuration` | no | mapping | Admin-set knobs the preset exposes. See [Configuration (admin-set)](#configuration-admin-set). |
+| `requirements` | no | list | Typed requirements checked live against the instance. See [Requirements](requirements.md). |
+| `negative_prompt` | no | mapping | `applies_when`: whether the preset takes a negative prompt. See [When the negative prompt applies](../presets.md#when-the-negative-prompt-applies). |
 | `prompt_resources` | no | mapping | Per mode, the media picker fields a prompt may reference with `@`. See [Prompt resources](#prompt-resources). |
 | `prompt_syntax` | no | mapping | Per mode, the inline prompt notation the model actually understands (speaker markers, weighting, `BREAK`, ...), highlighted in the segment editor and offered with `/`. See [Prompt syntax](#prompt-syntax). |
 | `modes` | yes | list | Non-empty **list** of mode-name strings (each needs a `modes/<name>/` dir). |
@@ -522,7 +525,7 @@ configuration:
   of strings) as a single `invalid_configuration` error citing every problem found. A successful
   PUT merges into (not replaces) previously-set keys, and returns the same shape as the GET.
 
-Values live in the `presets` table's `configuration` JSON column (migration `081`), keyed by the
+Values live in the `presets` table's `configuration` JSON column, keyed by the
 installed preset's YAML `preset_id` — see `src/features/presets/configuration.py` for the
 validation/merge helpers and `operations.get_preset_configuration`/`set_preset_configuration`.
 

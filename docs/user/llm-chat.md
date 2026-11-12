@@ -1,19 +1,19 @@
 ---
-title: LLM Assistant
+title: PotionAI
 order: 55
 ---
 
-# LLM Assistant
+# PotionAI
 
-When your administrator has configured a language model, PotionUI gains an AI assistant that helps you write and refine prompts, answer questions, and (when enabled) take actions for you.
+When your administrator has configured a language model, PotionUI gains **PotionAI**, an assistant that helps you write and refine prompts, answer questions, and (when enabled) take actions for you.
 
 The assistant only appears when at least one LLM configuration is set up. If you don't see it, ask your administrator to add one (see **Administration**).
 
 ## Chatting with the assistant
 
-The chat assistant is a panel you open while generating — on desktop it's part of the generation panel, and on mobile it's the **LLM** swipe panel. Type into the "Ask the AI anything..." box and press Enter (or the send button) to talk to it. It's useful for brainstorming subjects, expanding a rough idea into a fuller prompt, or asking how to describe a look you have in mind.
+PotionAI is a panel you can open from any page: use the **AI Chat** button at the bottom of the sidebar (or its keyboard shortcut), or the **Chat** tab on a phone. Type into the "Ask the AI anything..." box and press Enter (or the send button) to talk to it. It's useful for brainstorming subjects, expanding a rough idea into a fuller prompt, or asking how to describe a look you have in mind.
 
-The header above the conversation carries the assistant's identity: a **Model** picker to choose which configured LLM answers when more than one is available (models marked "vision capable" can also look at images), a **Mode** picker that selects how the assistant behaves (it locks once the conversation has messages), small badges for vision (**V**) and an attached image (**IMG**), and token usage. Closing the panel is done from here too.
+The header above the conversation has a **model** button to choose which configured LLM answers when more than one is available (models that can see images can also look at attached pictures), a **mode** picker that selects how the assistant behaves (it locks once the conversation has messages), a context meter showing how many tokens the last request used, **New chat**, a **Conversation options** menu (**Rename conversation**, **Export transcript**, **Delete conversation**) and a close button.
 
 The controls that shape each message sit in the action row along the bottom of the composer:
 
@@ -24,9 +24,9 @@ The controls that shape each message sit in the action row along the bottom of t
 
 While the assistant is working you'll see a "Thinking..." indicator, and each reply shows token usage. Replies you like or dislike can be marked with a thumbs up or thumbs down, which helps the assistant learn your taste over time.
 
-## Sessions
+## Conversations
 
-Your conversations are kept as **sessions**, so you can leave and come back to a thread. A sessions list shows recent conversations; you can switch between them, start a new one, or delete ones you no longer need. If there are none yet you'll see "No active sessions".
+Your chats are kept as conversations, so you can leave and come back to a thread. The rail beside the chat lists recent conversations grouped by date; you can search them (and filter by chat type), switch between them, start one with **New conversation**, or delete ones you no longer need. With none yet the rail reads "No conversations yet".
 
 ## Built-in slash commands
 

@@ -27,25 +27,21 @@ settings:
 rest, masked in every API response, and rendered as a password field in the admin
 form. There is no separate display hint.
 
-`MarketplaceProviderService` passes those settings to `provider.initialize(settings)` at
+`ProviderRegistry` passes those settings to `provider.initialize(settings)` at
 discovery time, and the provider keeps them. Downloads authenticate through
 `provider.prepare_download()` (default: merge `get_download_headers()` and return
 `get_authenticated_download_url()`) — see `src/features/downloads/worker.py`, which looks
 the provider up by `download.provider_id`, or by asking each provider
 `matches_download_url(url)` when no provider was named.
 
-There is **no global API key setting**. `civitai_api_key`, `hf_api_key` and `ca_api_key`
-were removed by migration `071`: a second copy of a credential is a second copy that can
-disagree with the first. `ca_api_key` never had a reader at all.
-
-> Upgrading: migration `071` carries an existing `civitai_api_key` over to the
-> `civitai-provider` plugin's `api_key` setting, so nothing is lost.
+There is **no global API key setting**: a second copy of a credential is a second copy that can
+disagree with the first. The CivitAI key is the `api_key` setting of the `civitai-provider` plugin.
 
 ### HuggingFace
 
-There is no HuggingFace provider. Public files download without credentials. A gated-model
-provider would be a plugin like any other, owning its own token. Do not reintroduce a core
-`hf_api_key` setting to work around its absence.
+The `huggingface-provider` plugin resolves repo files to download URLs and searches public models.
+Public files download without credentials; a gated or private repo needs the plugin's
+**HuggingFace Access Token** (`api_key`, edited in Admin → Plugins).
 
 ## Presets never download models
 
@@ -54,7 +50,7 @@ enum, `ModelTemplate` and the `MODEL_TEMPLATE` IO type. A preset declares the pi
 runs, not the files it needs. Models are downloaded on demand through the core download
 queue (`src/features/downloads/`), which resolves credentials through the provider registry.
 
-`ModelDirectories` (`src/features/models/directory.py`) now owns only the models-directory layout. It does not
+`ModelRootsManager` (`src/features/models/roots.py`) owns only the model folders and where each model type lives. It does not
 download.
 
 ## Writing a provider
@@ -95,7 +91,8 @@ text for any other status, a `ProviderRateLimitError` (with `retry_after`) for a
 `retry_after_from_headers(headers)` reads `Retry-After` as seconds or an HTTP date and falls back to 60.
 
 Declare what you support via `ProviderCapability`: `HASH_LOOKUP`, `SEARCH`, `DOWNLOAD_URL`,
-`MODEL_INFO`, `MEDIA_DOWNLOAD`, `API_KEY_REQUIRED`.
+`MODEL_INFO`, `MEDIA_DOWNLOAD`, `PROMPT_FETCH`, `API_KEY_REQUIRED`, `REMOTE_DOWNLOAD` and
+`REMOTE_DOWNLOAD_BY_HASH`.
 
 The methods that matter: `initialize(settings)`, `get_model_by_hash(sha256)`,
 `search_models(...)`, `get_download_url(...)`, `get_download_headers()`,
@@ -121,8 +118,7 @@ result is dropped.
   preview media from `media_urls` (capped, and only for a model with no previews yet).
 - The core download queue's worker (`src/features/downloads/worker.py`) — authenticated downloads.
 - The automation action `action.fetch_provider_metadata`, which takes a `provider` name in
-  its config. It replaced `action.fetch_civitai_metadata`, which hardcoded one marketplace;
-  migration `071` retypes existing automations.
+  its config.
 - A `model` field's `recommendations:` (`docs/presets.md`) may reference a provider by name
   (`{name, provider, ref}`). At form-schema serialization time
   (`src/features/fields/model.py:_serialize_recommendations`) any recommendation naming a provider

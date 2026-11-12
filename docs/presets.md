@@ -48,7 +48,7 @@ them: [Pipes Reference](pipes.md) (every pipe's `name:` key, inputs, outputs, an
 and the [Preset Context Cheat Sheet](preset-context.md) (every template global/filter/context
 root, `model_type` value, built-in field type, and `_shared` option file) — both regenerated from
 the running code by `python scripts/pipes_reference.py` and drift-checked in CI. The same data,
-read live against a running install's actually enabled plugins, is also in-app under Help →
+read live against a running install's actually enabled plugins, is also in-app under Administration →
 Documentation → **Pipes** / **Field Types** / **Template Functions** / **Output Types**.
 
 ## Canonical layout

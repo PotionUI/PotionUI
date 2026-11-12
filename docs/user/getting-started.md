@@ -35,7 +35,7 @@ and what the Windows CI covers.
 A freshly installed PotionUI has no accounts at all. The **first** account ever created on it automatically becomes its **owner** — an Administrator account, with no separate setup step. There is no default password to change and nothing to "unlock": you *are* the administrator your instance is waiting for.
 
 1. **Open the printed URL.** Whatever started the server printed a local address (for example `http://localhost:26731`). Open it in your browser.
-2. **Create the owner account.** Because no owner exists yet, PotionUI sends you straight to a screen titled **"Create the owner account"** instead of a login form. Fill in a username, email, and password.
+2. **Create the owner account.** Because no owner exists yet, PotionUI sends you straight to a screen titled **"Create your owner account"** instead of a login form. Fill in a username, email, and password.
    - If you're opening this from the same machine the server runs on, that's all you need.
    - If you're reaching it from another machine on your network, the form also asks for a **Claim code** — a one-time token proving you have console access to the server. The startup CLI prints it after the server comes up (`First-time setup: open http://localhost:<port> and use this claim code if asked: <token>`), or you can read it directly from `storage/setup_claim_token` on the server. The code is deleted once the owner account is created, so you only need it this one time.
 3. **Follow guided setup.** After the owner account is created you land on the **Setup** page, which answers "Is this instance ready to generate?". Before it offers any recipe, it asks about your models folder: enter the path to an existing ComfyUI/A1111 install or any folder with model files and click **Detect** — it lists the model types it found there with a file count for each, pre-ticked, plus a **Download new models here** switch; **Add folder** starts indexing in the background, or **Skip** to keep the default `models/` location for now. Either way, more folders can be added later, and existing ones renamed, relinked or removed, in **Administration → Models → Folders**. If a backend or model still needs attention, guided setup then walks you through it recipe by recipe — each step shows its status, and any step that needs to download something first asks you to **approve and download** (it lists exactly what it wants to fetch and the total size before it starts). When everything finishes, the page shows **"You're all set"** along with the test image your setup produced, and a **Create your first image** button.
@@ -55,10 +55,13 @@ The sidebar is how you move around:
 
 - **Generate** — create new images and video.
 - **History** — browse everything you have generated.
+- **Library** — your uploaded files, collections and [Kits](kits.md).
 - **Models** — see the models installed on the server.
-- **LLM** — chat-assisted prompt help (when configured).
 - **Phrasebook** — manage word suggestions that appear as you type prompts.
 - **Prompts** — one workspace for complete Prompts, saved Segments, Segment Templates, and Segment Categories.
+- **Inspirations** — a feed of generations published on this instance, which you can collect and save to your Library.
+
+At the bottom of the sidebar, **AI Chat** opens [PotionAI](llm-chat.md) (when an LLM is configured).
 
 Some installations also show extra entries added by plugins, and an **Administration** area if your account has admin rights.
 

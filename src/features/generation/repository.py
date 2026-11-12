@@ -11,6 +11,7 @@ from src.features.generation.history_revision_repository import (
     bump_history_revision_for_generation,
     read_history_revision,
 )
+from src.features.models.records import model_display_name
 from .file_repository import file_repo
 from .prompt_text import prompt_search_sql
 from src.platform.util.ids import generate_ulid
@@ -229,14 +230,15 @@ class GenerationRepository:
         if flt.favorites_only:
             conditions.append(f"{a}is_favorite = 1")
 
-        if flt.model_name:
+        model_names = [n for n in (flt.model_name or '').split('\n') if n]
+        if model_names:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM generation_models gm
                 JOIN models m ON gm.model_id = m.id
                 WHERE gm.generation_id = {a}id
-                AND m.filename LIKE ?
+                AND ({" OR ".join(["m.filename LIKE ?"] * len(model_names))})
             )""")
-            params.append(f"%{flt.model_name}%")
+            params.extend(f"%{name}%" for name in model_names)
 
         if flt.used_phrasebook_value_id:
             conditions.append(f"""EXISTS (
@@ -645,22 +647,36 @@ class GenerationRepository:
                 for row in cursor.fetchall()
             ]
 
-            # Models (by filename)
+            # Models: `name` is the filename the filter query matches on, `label` is what to show.
             model_join = ""
-            model_params: List[Any] = []
+            model_params: List[Any] = [user_id or ""]
+            where = ""
             if user_id:
                 model_join = " JOIN generations g ON gm.generation_id = g.id"
                 where = " WHERE g.user_id = ?"
                 model_params.append(user_id)
-            else:
-                where = ""
             cursor.execute(
-                f"SELECT m.filename AS name, COUNT(DISTINCT gm.generation_id) AS c "
-                f"FROM models m JOIN generation_models gm ON gm.model_id = m.id{model_join}{where} "
+                f"SELECT m.filename AS name, m.model_type AS model_type, "
+                f"umm.custom_name AS custom_name, "
+                f"(SELECT p.name FROM providers p WHERE p.model_id = m.id "
+                f"AND p.name IS NOT NULL AND p.name != '' ORDER BY p.rowid LIMIT 1) AS provider_name, "
+                f"COUNT(DISTINCT gm.generation_id) AS c "
+                f"FROM models m JOIN generation_models gm ON gm.model_id = m.id{model_join} "
+                f"LEFT JOIN user_model_meta umm ON umm.model_id = m.id AND umm.user_id = ?{where} "
                 f"GROUP BY m.id ORDER BY c DESC",
                 model_params
             )
-            models = [{'name': row['name'], 'count': row['c']} for row in cursor.fetchall() if row['name']]
+            models = [
+                {
+                    'name': row['name'],
+                    'label': model_display_name(
+                        row['custom_name'], row['provider_name'],
+                        row['name'].replace('\\', '/').rsplit('/', 1)[-1], row['model_type']
+                    ),
+                    'count': row['c'],
+                }
+                for row in cursor.fetchall() if row['name']
+            ]
 
         return {'modes': modes, 'presets': presets, 'models': models}
 

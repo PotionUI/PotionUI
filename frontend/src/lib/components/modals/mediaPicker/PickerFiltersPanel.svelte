@@ -13,6 +13,7 @@
 		type PickerTier
 	} from './pickerModel';
 	import { kindFilterItems } from './pickerSelection';
+	import { buildModelOptions } from '$lib/utils/historyModelFilter';
 
 	type CollectionNode = { id: string; name: string; parent_id?: string | null };
 
@@ -43,6 +44,7 @@
 	} = $props();
 
 	let history = $derived(filters.history);
+	let modelOptions = $derived(buildModelOptions(facets.models));
 	let library = $derived(filters.library);
 	let current = $derived(source === 'history' ? history : source === 'library' ? library : null);
 	let nodes = $derived(flattenTree(buildTree(collections as never[])) as Array<{ item: CollectionNode; depth: number }>);
@@ -246,8 +248,8 @@
 					onchange={(event) => patchHistory({ model: event.currentTarget.value })}
 				>
 					<option value="">Any</option>
-					{#each facets.models as model (model.name)}
-						<option value={model.name}>{model.name}</option>
+					{#each modelOptions as model (model.value)}
+						<option value={model.value}>{model.label}</option>
 					{/each}
 				</select>
 			</div>

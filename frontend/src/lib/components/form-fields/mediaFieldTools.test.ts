@@ -242,8 +242,8 @@ describe('multi field tools', () => {
 		options({ multiple: true, groupSize: 3, kindIndex: 1, totalItems: 5, ...overrides });
 
 	it('adds order and source groups only to a multi field', () => {
-		expect(fieldToolIds(options())).not.toContain('replace');
-		expect(fieldToolIds(multi()).slice(-5)).toEqual(['full', 'earlier', 'later', 'replace', 'remove-all']);
+		expect(fieldToolIds(options())).not.toContain('remove-all');
+		expect(fieldToolIds(multi()).slice(-4)).toEqual(['full', 'earlier', 'later', 'remove-all']);
 	});
 
 	it('greys Move earlier on the first item of its group and Move later on the last', () => {
@@ -255,19 +255,20 @@ describe('multi field tools', () => {
 
 	it('counts every item in the Remove all label', () => {
 		const groups = buildFieldToolGroups(multi());
-		const label = groups[groups.length - 1].tools[1].tool.label;
+		const label = groups[groups.length - 1].tools[0].tool.label;
 		expect(label).toBe('Remove all 5');
 	});
 });
 
 describe('compact row tools', () => {
-	it('puts replace and remove in the menu because the row has no room for buttons', () => {
-		expect(fieldToolIds(options({ inRow: true })).slice(-3)).toEqual(['full', 'replace', 'remove']);
+	it('puts remove in the menu because the row has no room for buttons, and leaves replacing to the source menu', () => {
+		expect(fieldToolIds(options({ inRow: true })).slice(-2)).toEqual(['full', 'remove']);
+		expect(fieldToolIds(options({ inRow: true }))).not.toContain('replace');
 	});
 
 	it('keeps remove-all after remove in a multi row', () => {
 		const ids = fieldToolIds(options({ inRow: true, multiple: true, groupSize: 2, kindIndex: 0, totalItems: 2 }));
-		expect(ids.slice(-3)).toEqual(['replace', 'remove', 'remove-all']);
+		expect(ids.slice(-2)).toEqual(['remove', 'remove-all']);
 	});
 });
 

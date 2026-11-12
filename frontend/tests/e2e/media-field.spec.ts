@@ -290,7 +290,7 @@ for (const size of SIZES) {
 			});
 			const zone = host.locator('[data-media-dropzone]');
 			await expect(zone).toBeVisible();
-			await expect(zone.getByRole('button', { name: 'Browse' })).toBeVisible();
+			await expect(zone.getByRole('button', { name: 'Upload file' })).toBeVisible();
 			await expect(zone.getByRole('button', { name: 'Paste' })).toBeVisible();
 			await expect(zone.getByRole('button', { name: 'History' })).toBeVisible();
 			await expect(zone.getByRole('button', { name: 'Library' })).toBeVisible();
@@ -318,16 +318,16 @@ for (const size of SIZES) {
 			await screenshot(page, JOURNEY, `single-image-${size.tag}`);
 		});
 
-		test('tab order walks the preview, Tools, Replace and Remove', async ({ page }) => {
+		test('tab order walks the preview, Replace, Tools and Remove', async ({ page }) => {
 			const host = await mountField(page, size, {
 				config: { title: 'Image', accept: 'image/*' },
 				value: imageItem(1)
 			});
 			await host.getByRole('button', { name: 'View full size' }).focus();
 			await page.keyboard.press('Tab');
-			await expect(host.locator('[data-tools-trigger]')).toBeFocused();
-			await page.keyboard.press('Tab');
 			await expect(host.getByRole('button', { name: 'Replace' })).toBeFocused();
+			await page.keyboard.press('Tab');
+			await expect(host.locator('[data-tools-trigger]')).toBeFocused();
 			await page.keyboard.press('Tab');
 			await expect(host.getByRole('button', { name: 'Remove' })).toBeFocused();
 		});

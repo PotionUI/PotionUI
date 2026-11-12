@@ -137,7 +137,7 @@ describe('empty face', () => {
 
 		expect(target.textContent).toContain('Drop an image or');
 		expect(target.textContent).toContain('PNG · JPG · WEBP');
-		for (const door of ['Browse', 'Paste', 'History', 'Library', 'Draw']) {
+		for (const door of ['Upload file', 'Paste', 'History', 'Library', 'Draw']) {
 			expect(buttonByText(target, door), door).toBeTruthy();
 		}
 	});
@@ -829,7 +829,6 @@ describe('compact face', () => {
 			'color_key',
 			'crop_subject',
 			'full',
-			'replace',
 			'remove'
 		]);
 	});

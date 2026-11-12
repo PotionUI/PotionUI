@@ -44,7 +44,7 @@
 	import { FIELD_TOOL_EDITORS, fieldToolGroupsFor, matchToolShortcut } from './mediaFieldTools';
 	import { openFieldInEditor } from '$lib/tool-tabs/openShortcut';
 	import { globalBindingFor } from '$lib/services/keyboard';
-	import type { MediaSource } from './mediaFieldSources';
+	import { currentSourceOf, type MediaSource } from './mediaFieldSources';
 	import MediaDropzone from './MediaDropzone.svelte';
 	import MediaFieldEditors from './MediaFieldEditors.svelte';
 	import MediaFieldPickers from './MediaFieldPickers.svelte';
@@ -151,6 +151,8 @@
 	let inspectorBroken = false;
 	let replaceTarget: number | null = null;
 	let pendingKind: MediaKind | null = null;
+	let replacing: { index: number | null } | null = null;
+	let pasteReplace: { index: number | null } | null = null;
 
 	function reject(reason: string, detail: string | null = null) {
 		rejection = { reasons: [reason], detail };
@@ -264,8 +266,14 @@
 		return summarizeContents(held, (item) => kindOfMediaItem(item), itemDuration);
 	}
 
-	function admit(candidate: MediaCandidate): boolean {
-		const verdict = evaluateCandidate(candidate, limits, currentContents(), { fieldName: name });
+	function contentsWithout(index: number | null) {
+		const held = multiple ? multiItems.filter((_: Item, i: number) => i !== index) : [];
+		return summarizeContents(held, (item) => kindOfMediaItem(item), itemDuration);
+	}
+
+	function admit(candidate: MediaCandidate, replace: { index: number | null } | null = null): boolean {
+		const contents = replace ? contentsWithout(replace.index) : currentContents();
+		const verdict = evaluateCandidate(candidate, limits, contents, { fieldName: name });
 		if (!verdict.accepted) {
 			rejection = { reasons: verdict.reasons, detail: describeCandidate(candidate) };
 			return false;
@@ -276,14 +284,16 @@
 
 	function handlePaste(e: ClipboardEvent) {
 		if (!isPasteActive) return;
-		if ((!multiple && previewUrl) || allFull || showHistoryModal || showUploadLibraryModal) return;
+		const swap = pasteReplace;
+		if (!swap && ((!multiple && previewUrl) || allFull)) return;
+		if (showHistoryModal || showUploadLibraryModal) return;
 
 		e.preventDefault();
 		e.stopPropagation();
 
 		const outcome = readPastedImage(e.clipboardData?.items);
 		if ('file' in outcome) {
-			uploadFile(outcome.file);
+			uploadFile(outcome.file, swap ? swap.index : null, swap !== null);
 			isPasteActive = false;
 		} else {
 			reject(outcome.error, outcome.detail);
@@ -293,6 +303,8 @@
 	function handleClickOutside(event: MouseEvent) {
 		if (clickIsOutside(uploadAreaRef, event.target as Node)) isPasteActive = false;
 	}
+
+	$: if (!isPasteActive) pasteReplace = null;
 
 	function selectItem(flatIndex: number) {
 		selected = flatIndex;
@@ -325,9 +337,11 @@
 		const file = target.files?.[0];
 		target.value = '';
 		const slot = replaceTarget;
+		const swap = replacing !== null;
 		replaceTarget = null;
+		replacing = null;
 		if (file) {
-			await uploadFile(file, slot);
+			await uploadFile(file, slot, swap);
 		}
 	}
 
@@ -336,7 +350,7 @@
 		if (file) uploadFile(file);
 	}
 
-	async function uploadFile(file: File, replaceIndex: number | null = null) {
+	async function uploadFile(file: File, replaceIndex: number | null = null, replace: boolean = replaceIndex !== null) {
 		const kind = kindFromMimeType(file.type) ?? kindFromFilename(file.name);
 		const probed = await probeMediaFile(file, kind);
 		const candidate: MediaCandidate = {
@@ -348,7 +362,7 @@
 			height: probed.height ?? null,
 			durationSeconds: probed.durationSeconds ?? null
 		};
-		if (replaceIndex === null && !admit(candidate)) return;
+		if (!admit(candidate, replace ? { index: replaceIndex } : null)) return;
 
 		isUploading = true;
 		uploadProgress = 0;
@@ -609,17 +623,20 @@
 
 	function handleGeneration(generation: any, file: any) {
 		if (!file) return;
+		const swap = replacing;
 		const pick = pickFromGeneration(file, historyTileLabel(generation, file).label);
-		if (!admit(pick.candidate)) return;
+		if (!admit(pick.candidate, swap)) return;
 
 		if (multiple) {
-			appendMultiItem(pick.item);
+			if (swap && swap.index !== null) replaceMultiItem(swap.index, pick.item);
+			else appendMultiItem(pick.item);
 		} else if (name) {
 			commitSingle(pick.item);
 			setOriginKey(generation.id, originFileIndex(generation, file));
 			clearMask();
 		}
 		showHistoryModal = false;
+		replacing = null;
 	}
 
 	function commitSingle(item: Item) {
@@ -638,17 +655,20 @@
 	}
 
 	function handleSelectFromUpload(upload: UploadFileInfo) {
+		const swap = replacing;
 		const pick = pickFromUpload(upload);
-		if (!admit(pick.candidate)) return;
+		if (!admit(pick.candidate, swap)) return;
 
 		if (multiple) {
-			appendMultiItem(pick.item);
+			if (swap && swap.index !== null) replaceMultiItem(swap.index, pick.item);
+			else appendMultiItem(pick.item);
 		} else {
 			commitSingle(pick.item);
 			clearOriginKey();
 			clearMask();
 		}
 		showUploadLibraryModal = false;
+		replacing = null;
 	}
 
 	function openUploadLibraryModal(kind: MediaKind | null = null) {
@@ -782,9 +802,6 @@
 				if (moved) reorderItems(moved.items, moved.flatIndex);
 				break;
 			}
-			case 'replace':
-				openFilePicker(kind, multiple ? flatIndex : null);
-				break;
 			case 'remove':
 				if (multiple) removeMultiItem(flatIndex);
 				else handleClear();
@@ -797,12 +814,14 @@
 		}
 	}
 
-	function handleSource(kind: MediaKind | null, source: MediaSource) {
+	function handleSource(kind: MediaKind | null, source: MediaSource, swap: { index: number | null } | null = null) {
+		replacing = swap;
 		switch (source) {
 			case 'browse':
-				openFilePicker(kind);
+				openFilePicker(kind, swap ? swap.index : null);
 				break;
 			case 'paste':
+				pasteReplace = swap;
 				isPasteActive = true;
 				break;
 			case 'history':
@@ -818,6 +837,11 @@
 				editors?.draw();
 				break;
 		}
+	}
+
+	function replaceVia(flatIndex: number | null, source: MediaSource) {
+		const item = multiple ? (flatIndex === null ? null : (multiItems[flatIndex] ?? null)) : singleRecord;
+		handleSource(item ? kindOfMediaItem(item) : null, source, { index: multiple ? flatIndex : null });
 	}
 
 	let pointerInside = false;
@@ -943,7 +967,8 @@
 				onTool={runFieldTool}
 				onLabel={updateMultiLabel}
 				onReorder={reorderItems}
-				onSource={handleSource}
+				onSource={(kind, source) => handleSource(kind, source)}
+				onChangeSource={replaceVia}
 				onPreview={(flatIndex) => {
 					const item = multiple ? (multiItems[flatIndex] ?? null) : singleRecord;
 					const kind = item ? kindOfMediaItem(item) : null;
@@ -972,7 +997,9 @@
 				onLabel={(text) => selected !== null && updateMultiLabel(selected, text)}
 				onTool={(tool) => runFieldTool(tool, multiple ? (selected ?? 0) : 0)}
 				onClearMask={clearMask}
-				onReplace={() => openFilePicker(null, null)}
+				current={currentSourceOf(multiple ? selectedItem : singleRecord)}
+				offersDraw={canDraw}
+				onSource={(source) => replaceVia(multiple ? selected : null, source)}
 				onRemove={() => (multiple ? selected !== null && removeMultiItem(selected) : handleClear())}
 				onPreview={() => inspectorKind && openPreview(inspectorKind, multiple ? selectedItem : singleRecord)}
 			/>
@@ -1033,10 +1060,17 @@
 	historyOpen={showHistoryModal}
 	libraryOpen={showUploadLibraryModal}
 	kind={pickerKind}
-	onHistoryClose={() => (showHistoryModal = false)}
-	onLibraryClose={() => (showUploadLibraryModal = false)}
+	replacing={replacing !== null}
+	onHistoryClose={() => {
+		showHistoryModal = false;
+		replacing = null;
+	}}
+	onLibraryClose={() => {
+		showUploadLibraryModal = false;
+		replacing = null;
+	}}
 	onHistorySelect={handleGeneration}
-	historyMultiple={multiple}
+	historyMultiple={multiple && replacing === null}
 	onHistoryConfirm={handleHistoryConfirm}
 	onLibrarySelect={handleSelectFromUpload}
 />

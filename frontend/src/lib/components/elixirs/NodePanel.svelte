@@ -581,8 +581,8 @@
 						: 'Pick images or videos. One source holds one kind; add another source for the other.'}
 				</p>
 				<div class="flex flex-wrap gap-2">
-					<Button variant="secondary" size="sm" icon="clock" onclick={() => onpickmedia('history')}>From History</Button>
-					<Button variant="secondary" size="sm" icon="library" onclick={() => onpickmedia('library')}>From Library</Button>
+					<Button variant="secondary" size="sm" icon="clock" onclick={() => onpickmedia('history')}>History</Button>
+					<Button variant="secondary" size="sm" icon="photo" onclick={() => onpickmedia('library')}>Library</Button>
 					{#if onupload}
 						<Button variant="secondary" size="sm" icon="upload" onclick={() => fileInput?.click()}>Upload</Button>
 						<input

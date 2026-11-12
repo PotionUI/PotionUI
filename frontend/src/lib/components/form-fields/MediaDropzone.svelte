@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
 	import { Button } from '$lib/components/ui';
 	import { primaryModifier } from '$lib/utils/platform';
 	import { describeDropTarget, describeFormats, type MediaKind } from './mediaLoaderConfig';
@@ -41,21 +40,20 @@
 		<p class="text-sm text-signal py-3">Release to add</p>
 	{:else}
 		<div class="flex flex-wrap items-center justify-center gap-2 text-sm text-fg">
-			<Icon name="upload" className="w-4 h-4 text-fg-subtle" strokeWidth={1.6} />
 			<span>{heading} or</span>
-			<Button variant="secondary" size="xs" onclick={() => onSource('browse')}>Browse</Button>
+			<Button variant="secondary" size="xs" icon="upload" onclick={() => onSource('browse')}>Upload file</Button>
 		</div>
 		<p class="font-mono text-xs tabular-nums {pasteArmed ? 'text-signal' : 'text-fg-subtle'}">
 			{pasteArmed ? `Paste armed · press ${modifier} V` : formats}
 		</p>
 		<div class="flex flex-wrap items-center justify-center gap-1">
-			{#if showPaste}
-				<Button variant="ghost" size="xs" icon="clipboard-list" onclick={() => onSource('paste')}>Paste</Button>
-			{/if}
 			<Button variant="ghost" size="xs" icon="clock" onclick={() => onSource('history')}>History</Button>
-			<Button variant="ghost" size="xs" icon="grid" onclick={() => onSource('library')}>Library</Button>
+			<Button variant="ghost" size="xs" icon="photo" onclick={() => onSource('library')}>Library</Button>
 			{#if offersKits}
 				<Button variant="ghost" size="xs" icon="layers" onclick={() => onSource('kits')}>Kits</Button>
+			{/if}
+			{#if showPaste}
+				<Button variant="ghost" size="xs" icon="clipboard-list" onclick={() => onSource('paste')}>Paste</Button>
 			{/if}
 			{#if offersDraw}
 				<Button variant="ghost" size="xs" icon="brush" onclick={() => onSource('draw')}>Draw</Button>

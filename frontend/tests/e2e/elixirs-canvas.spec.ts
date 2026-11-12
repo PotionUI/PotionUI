@@ -61,10 +61,10 @@ test('elixirs: chooser, card lane, files, session copy, source slot, column widt
 
 	await editor.getByRole('button', { name: /^Files/ }).click();
 	const panel = settingsPanel(page);
-	await expect(panel.getByRole('button', { name: 'From Library' })).toBeVisible();
+	await expect(panel.getByRole('button', { name: 'Library' })).toBeVisible();
 	await panel.getByLabel('Name').fill('Product photos');
 	await panel.getByLabel('Name').press('Enter');
-	await panel.getByRole('button', { name: 'From Library' }).click();
+	await panel.getByRole('button', { name: 'Library' }).click();
 	const picker = page.getByRole('dialog').filter({ has: page.getByLabel('Select product-shot.png') });
 	await expect(picker.getByLabel('Select product-shot.png')).toBeVisible({ timeout: 20000 });
 	await picker.getByLabel('Select product-shot.png').check();
@@ -146,7 +146,7 @@ test('elixirs: chooser, card lane, files, session copy, source slot, column widt
 	await expect(panel).toHaveCount(0);
 	await expect(sharpenNode.getByRole('button', { name: 'Sharpen settings' })).toBeFocused();
 	await photos.locator('.files').click();
-	await expect(panel.getByRole('button', { name: 'From Library' })).toBeVisible();
+	await expect(panel.getByRole('button', { name: 'Library' })).toBeVisible();
 	await expect(photos).toHaveClass(/border-signal/);
 	await page.keyboard.press('Escape');
 	await expect(panel).toHaveCount(0);

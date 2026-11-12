@@ -215,9 +215,7 @@ export function buildFieldToolGroups(options: FieldToolOptions): MediaToolGroup[
 	}
 
 	if (options.multiple || options.inRow) {
-		const source: MediaToolGroup['tools'] = [
-			definition('replace', 'Replace file...', 'refresh', 'source', { enabled: true })
-		];
+		const source: MediaToolGroup['tools'] = [];
 		if (options.inRow) source.push(definition('remove', 'Remove', 'trash', 'source', { enabled: true }, 'Del'));
 		if (options.multiple) {
 			source.push(definition('remove-all', `Remove all ${options.totalItems}`, 'trash', 'source', { enabled: true }));

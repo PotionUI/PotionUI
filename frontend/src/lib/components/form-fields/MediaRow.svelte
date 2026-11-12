@@ -8,7 +8,7 @@
 	import { primaryModifier } from '$lib/utils/platform';
 	import { mediaItemKey } from '$lib/utils/promptResources';
 	import MediaSourceMenu from './MediaSourceMenu.svelte';
-	import type { MediaSource } from './mediaFieldSources';
+	import { currentSourceOf, type MediaSource } from './mediaFieldSources';
 	import {
 		ADD_LABELS,
 		GROUP_TITLES,
@@ -46,6 +46,7 @@
 		onLabel,
 		onReorder,
 		onSource,
+		onChangeSource,
 		onPreview
 	}: {
 		multiple: boolean;
@@ -67,6 +68,7 @@
 		onLabel: (flatIndex: number, label: string) => void;
 		onReorder: (items: Item[], flatIndex: number) => void;
 		onSource: (kind: MediaKind | null, source: MediaSource) => void;
+		onChangeSource?: (flatIndex: number, source: MediaSource) => void;
 		onPreview: (flatIndex: number) => void;
 	} = $props();
 
@@ -208,6 +210,28 @@
 							{#if broken}File not found{:else if handle}{handle}{#if factsOf(item, group.kind)} · {/if}{factsOf(item, group.kind)}{:else}{factsOf(item, group.kind)}{/if}
 						</span>
 					</div>
+
+					{#if onChangeSource}
+						<MediaSourceMenu
+							kind={group.kind}
+							intent="change"
+							current={currentSourceOf(item)}
+							offersDraw={offersDraw && !multiple}
+							align="right"
+							onPick={(source) => onChangeSource(entry.flatIndex, source)}
+						>
+							{#snippet trigger({ toggle, open })}
+								<IconButton
+									icon="refresh"
+									label="Replace"
+									size="sm"
+									ariaExpanded={open}
+									data-media-replace={entry.flatIndex}
+									onclick={toggle}
+								/>
+							{/snippet}
+						</MediaSourceMenu>
+					{/if}
 
 					<ToolsMenu
 						open={openMenu === entry.flatIndex}

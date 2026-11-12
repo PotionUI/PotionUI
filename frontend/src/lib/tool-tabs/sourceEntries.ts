@@ -15,11 +15,11 @@ export type SourceKind = 'image' | 'video';
 
 export function sourceEntries(kind: SourceKind, phone = false): SourceEntry[] {
 	const shared: SourceEntry[] = [
-		{ id: 'library', label: 'Library', icon: kind === 'image' ? 'image' : 'library' },
+		{ id: 'library', label: 'Library', icon: 'photo' },
 		{ id: 'history', label: 'History', icon: 'clock' }
 	];
 	if (kind === 'video') return shared;
-	return [...shared, { id: 'browse', label: phone ? 'Photos' : 'Browse files', icon: 'folder' }];
+	return [...shared, { id: 'browse', label: phone ? 'Photos' : 'Upload file', icon: 'upload' }];
 }
 
 export function discardTitle(edits: number): string {

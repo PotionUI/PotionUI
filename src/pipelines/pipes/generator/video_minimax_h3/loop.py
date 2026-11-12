@@ -9,11 +9,8 @@ from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     FPS,
     FRAMES_PER_CHUNK,
     LATENTS_PER_CHUNK,
-    MAX_ASPECT_RATIO,
     MAX_DURATION_S,
-    MIN_ASPECT_RATIO,
     audio_latent_num_frames,
-    resolve_canvas_size,
 )
 
 Tensor = torch.Tensor
@@ -148,20 +145,6 @@ def plan_loop(requested_frames: int, *, with_sound: bool) -> LoopPlan:
         bridge = max(MIN_BRIDGE_CHUNKS, (chunks + 2) // 2)
         anchor = chunks + 2 - bridge
     return LoopPlan(anchor_chunks=anchor, bridge_chunks=bridge, with_sound=with_sound)
-
-
-def picture_canvas(width: int, height: int) -> tuple[int, int]:
-    if width <= 0 or height <= 0:
-        raise LoopRequestError(f"The start picture has no size ({width}x{height}).")
-    ratio = width / height
-    if not MIN_ASPECT_RATIO <= ratio <= MAX_ASPECT_RATIO:
-        shape = "wide" if ratio > 1 else "tall"
-        raise LoopRequestError(
-            f"The start picture is {width}x{height}, too {shape} for MiniMax-H3, which films shapes from "
-            f"1:{1 / MIN_ASPECT_RATIO:g} to {MAX_ASPECT_RATIO:g}:1. Crop it, or pick a screen shape instead "
-            f"of matching the picture."
-        )
-    return resolve_canvas_size(width, height)
 
 
 def bridge_head(anchor_latent: Tensor, plan: LoopPlan) -> Tensor:

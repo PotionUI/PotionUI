@@ -49,14 +49,14 @@ def test_the_loop_mode_is_listed_and_named_for_a_person(h3_template):
     assert "Perfect loop mode" in h3_template.llm["modes"]["loop"]["guide"]
 
 
-def test_defaults_make_a_silent_subtle_six_second_loop_shaped_like_the_picture(h3_template):
+def test_defaults_make_a_silent_subtle_six_second_desktop_loop(h3_template):
     pipes = _pipes(h3_template)
     generator = _pipe(pipes, "generator")["config"]
 
     assert generator["loop"] is True
     assert generator["frames"] == 144
     assert generator["audio_source"] == "none"
-    assert generator["resolution"] == "auto"
+    assert generator["resolution"] == "1344x768"
     assert generator["keyframe_anchors"] == []
     assert _pipe(pipes, "start_picture")["enabled"] is False
     document = _document(pipes)
@@ -77,8 +77,8 @@ def test_a_start_picture_is_the_first_frame_and_the_scene_in_the_prompt(h3_templ
     assert "[Shot 1] The scene of <Picture 1>, filmed from a fixed camera" in _document(pipes)
 
 
-def test_sound_lively_movement_screen_and_length_reach_the_generator(h3_template):
-    pipes = _pipes(h3_template, {"sound": True, "movement": "lively", "screen": "768x1344", "loop_seconds": 8.5})
+def test_sound_lively_movement_resolution_and_length_reach_the_generator(h3_template):
+    pipes = _pipes(h3_template, {"sound": True, "movement": "lively", "resolution": "768x1344", "loop_seconds": 8.5})
     generator = _pipe(pipes, "generator")["config"]
 
     assert generator["audio_source"] == "generate"

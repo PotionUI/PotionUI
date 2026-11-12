@@ -33,7 +33,7 @@ neighbouring chunks in a sequence was denoised together, the decoded sequence ha
 The loop is built so that this holds around the wrap too.
 
 1. **Anchor pass.** One ordinary window of `17a + 5` frames: text-to-video, or image-to-video from
-   the Start picture, which is fitted to the screen once, keeping its aspect ratio (cover crop). Only
+   the Start picture, which is fitted to the picked resolution once, keeping its aspect ratio (cover crop). Only
    its first frame is held. Its latent chunks are `A0 … A(a-1)` plus a 2-latent tail.
 2. **Bridge pass.** A second window of `17b + 5` frames whose first chunk is pinned to `A(a-1)` and
    whose last chunk and tail are pinned to `A0` and the first two latents of `A1`. Pinned spans are
@@ -75,7 +75,7 @@ loop is at most 38 chunks (26.9 s), or 36 (25.5 s) with sound.
 ## Presets
 
 - **MiniMax-H3 → Perfect loop** (`modes/loop`): Start picture (optional), What moves (the prompt),
-  Length, Movement (Subtle by default), Screen, Sound (off by default), speed profile.
+  Length, Movement (Subtle by default), Resolution, Sound (off by default), speed profile.
 
 ## Tradeoffs and limitations
 

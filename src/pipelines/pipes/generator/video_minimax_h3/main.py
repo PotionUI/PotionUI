@@ -267,7 +267,6 @@ from src.pipelines.pipes.generator.video_minimax_h3.loop import (
     cyclic_decode_segments,
     cyclic_segment_frames,
     cyclic_segment_latent,
-    picture_canvas,
     plan_loop,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.pins import (
@@ -1745,9 +1744,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             raw_source = self._load_source_video(source_videos[0]) if source_role != "none" else None
             raw_control = self._load_source_video(control_videos[0]) if control_videos else None
             resolution = str(self.config.get("resolution", "1344x768"))
-            if resolution == AUTO_RESOLUTION and loop and images:
-                height, width = picture_canvas(*images[0].size)
-            elif resolution == AUTO_RESOLUTION:
+            if resolution == AUTO_RESOLUTION:
                 height, width = self._auto_canvas(raw_source if raw_source is not None else raw_control, raw_references)
             else:
                 width, height = (int(part) for part in resolution.split("x"))

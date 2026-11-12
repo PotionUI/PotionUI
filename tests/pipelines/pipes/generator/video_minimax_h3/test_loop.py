@@ -31,7 +31,6 @@ from src.pipelines.pipes.generator.video_minimax_h3.loop import (
     cyclic_segment_frames,
     cyclic_segment_latent,
     max_loop_seconds,
-    picture_canvas,
     plan_loop,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.main import (
@@ -116,17 +115,6 @@ def test_the_bridge_pins_one_chunk_at_its_head_and_a_chunk_and_a_half_at_its_tai
     assert sound.bridge_anchors[5:] == tuple(range(30, 37))
     assert (sound.head_audio_latents, sound.tail_audio_start, sound.bridge_audio_latents) == (28, 170, 207)
     assert (sound.head_audio_start, sound.tail_audio_latents, sound.loop_audio_latents) == (170, 37, 340)
-
-
-@pytest.mark.parametrize("size, canvas", [((1920, 1080), (768, 1344)), ((1080, 1920), (1344, 768)), ((800, 800), (768, 768))])
-def test_a_start_picture_sets_the_canvas_shape(size, canvas):
-    assert picture_canvas(*size) == canvas
-
-
-@pytest.mark.parametrize("size, word", [((5000, 1000), "too wide"), ((300, 1500), "too tall")])
-def test_a_picture_outside_the_model_shapes_is_refused_in_plain_words(size, word):
-    with pytest.raises(LoopRequestError, match=word):
-        picture_canvas(*size)
 
 
 def test_pinned_velocity_makes_the_clean_estimate_the_source_and_leaves_free_rows_alone():
@@ -467,16 +455,11 @@ def test_build_context_plans_the_loop_and_sizes_the_anchor_window():
     assert (c.height, c.width) == (576, 1024)
 
 
-def test_build_context_takes_the_canvas_from_the_start_picture():
-    ctx = _context(_loop_pipe(frames=96, resolution="auto"), image=[Image.new("RGB", (1080, 1920))])
+def test_build_context_keeps_the_picked_resolution_whatever_the_start_picture_shape():
+    ctx = _context(_loop_pipe(frames=96, resolution="1344x768"), image=[Image.new("RGB", (1080, 1920))])
 
-    assert (ctx.extra.height, ctx.extra.width) == (1344, 768)
+    assert (ctx.extra.height, ctx.extra.width) == (768, 1344)
     assert ctx.extra.keyframe_anchors == ("first",)
-
-
-def test_build_context_refuses_a_picture_of_an_unsupported_shape():
-    with pytest.raises(LoopRequestError, match="too wide"):
-        _context(_loop_pipe(frames=96, resolution="auto"), image=[Image.new("RGB", (5000, 1000))])
 
 
 def test_build_context_refuses_a_loop_longer_than_two_windows():

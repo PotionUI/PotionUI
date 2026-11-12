@@ -193,7 +193,7 @@
             ],
             [
               "resolution",
-              "auto"
+              "1344x768"
             ],
             [
               "sound",
@@ -269,7 +269,7 @@
         },
         "resolution": {
           "type": "str",
-          "value": "auto"
+          "value": "1344x768"
         },
         "runtime_loras": {
           "type": "list",

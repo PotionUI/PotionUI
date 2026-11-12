@@ -97,7 +97,7 @@ pipeline:
         - ["speed_profile", "{{ form.speed_profile }}"]
         - ["duration", "{{ form.loop_seconds }}"]
         - ["movement", "{{ form.movement }}"]
-        - ["resolution", "{{ form.screen }}"]
+        - ["resolution", "{{ form.resolution }}"]
         - ["sound", "{{ form.sound }}"]
         - ["fps", "{{ preset.vars.fps }}"]
 
@@ -113,7 +113,7 @@ pipeline:
       mode: "video"
       loop: true
       keyframe_anchors: "{{ ['first'] if (form.start_picture is defined and form.start_picture is not none and form.start_picture != '') else [] }}"
-      resolution: "{{ form.screen }}"
+      resolution: "{{ form.resolution }}"
       frames: "{{ (form.loop_seconds * preset.vars.fps) | round(0) | int }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       quantity: "{{ form.quantity }}"

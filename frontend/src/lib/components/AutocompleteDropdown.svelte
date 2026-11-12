@@ -16,6 +16,7 @@
 		 * "browse into" target instead of the whole row navigating.
 		 */
 		attachable?: boolean;
+		thumbnails?: string[];
 	}
 
 	export interface AutocompleteValue {
@@ -32,7 +33,7 @@
 		preview_file_id?: string;
 		badge?: string;
 		description?: string;
-		kind?: 'image' | 'video' | 'audio';
+		kind?: 'image' | 'video' | 'audio' | 'text';
 	}
 </script>
 
@@ -84,6 +85,9 @@
 	// (today's Tailwind card) untouched.
 	export let variant: 'default' | 'segment-composer' = 'default';
 	export let onBrowseAll: (() => void) | undefined = undefined;
+	export let browseLabel: string | undefined = undefined;
+	export let categoriesTitle: string = 'Categories';
+	export let categoriesNote: string = 'Browse deeper';
 
 	let dropdownRef: HTMLDivElement;
 
@@ -269,7 +273,7 @@
 			{:else if categories.length > 0 || suggestions.length > 0}
 				<div bind:this={dropdownRef} class="picker-rows" role="listbox" aria-label="Suggestions">
 					{#if categories.length > 0}
-						<div class="picker-section-title">Categories <span>Browse deeper</span></div>
+						<div class="picker-section-title">{categoriesTitle} <span>{categoriesNote}</span></div>
 						{#each categories as category, index}
 							{@const isSelected = index === selectedIndex}
 							{@const displayName = category.name || category.path.split('.').pop()}
@@ -278,13 +282,26 @@
 								use:trackSelectedItem={isSelected}
 								class="picker-row category-row"
 								class:selected={isSelected}
-								on:click={() => onSelectCategory(category)}
+								on:click={() => (category.attachable && onAttachCategory ? onAttachCategory(category) : onSelectCategory(category))}
 								role="option"
 								aria-selected={isSelected}
 							>
-								<span class="row-thumb"><Icon name="folder" className="icon" /></span>
+								<span class="row-thumb">
+									{#if category.thumbnails && category.thumbnails.length > 0}
+										<span class="row-thumb-mosaic" data-count={Math.min(category.thumbnails.length, 4)}>
+											{#each category.thumbnails.slice(0, 4) as thumb, thumbIndex (thumbIndex)}<img src={thumb} alt="" loading="lazy" />{/each}
+										</span>
+									{:else}
+										<Icon name={category.attachable ? 'layers' : 'folder'} className="icon" />
+									{/if}
+								</span>
 								<span class="row-copy"><strong><HighlightedText text={displayName ?? ''} matcher={highlightMatcher} /></strong>{#if category.description}<span>{category.description}</span>{/if}</span>
-								<span class="row-meta">{isSelected ? 'Enter' : 'Open →'}</span>
+								<span class="row-meta">{isSelected ? 'Enter' : category.attachable && onAttachCategory ? '' : 'Open →'}</span>
+								{#if category.attachable && onAttachCategory}
+									<span class="row-drill" role="button" tabindex="-1" aria-label="Open {displayName}" on:click|stopPropagation={() => onSelectCategory(category)} on:keydown|stopPropagation={() => {}}>
+										<Icon name="chevron-right" className="icon" />
+									</span>
+								{/if}
 							</button>
 						{/each}
 					{/if}
@@ -355,7 +372,7 @@
 			{#if onBrowseAll}
 				<button type="button" class="picker-browse" on:click={onBrowseAll}>
 					<Icon name="search" className="icon" />
-					Browse all in {contextLabel}…
+					Browse all {browseLabel ?? `in ${contextLabel}`}…
 					<Icon name="chevron-right" className="icon chev" />
 				</button>
 			{/if}

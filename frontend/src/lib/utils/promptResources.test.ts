@@ -184,6 +184,11 @@ describe('findResourceProblems / collectResourceProblems', () => {
 		expect(findResourceProblems('@[references:a.png]', specs, formValues)).toEqual([]);
 	});
 
+	it('leaves kit citations to the server, which skips what it cannot use instead of blocking', () => {
+		expect(findResourceProblems('@[references:kit:kt_7f3a0001/it_41c90002]', specs, formValues)).toEqual([]);
+		expect(findResourceProblems('@[nope:kit:kt_7f3a0001]', specs, formValues)).toEqual([]);
+	});
+
 	it('flags an unmapped field', () => {
 		const problems = findResourceProblems('@[nope:a.png]', specs, formValues);
 		expect(problems).toHaveLength(1);

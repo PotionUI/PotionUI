@@ -83,10 +83,13 @@ describe('InlineChipEditor @ picker with Kits', () => {
 		});
 
 		const groups = document.querySelector('.resource-picker')!.textContent || '';
-		expect(groups.match(/Kits/g)).toHaveLength(1);
+		expect(groups.match(/Kits/g)).toHaveLength(2);
 		expect(groups).toContain('1 available');
+		expect(groups).toContain('No kits loaded yet');
 
-		clickRow('Kits');
+		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-row')).filter((r) => r.textContent?.includes('1 available'));
+		rows[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		flushSync();
 		await vi.waitFor(() => {
 			flushSync();
 			expect(document.querySelector('.resource-picker')!.textContent).toContain('Face Bundle');

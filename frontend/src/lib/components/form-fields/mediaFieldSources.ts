@@ -1,7 +1,7 @@
 import { primaryModifier } from '$lib/utils/platform';
 import type { MediaKind } from './mediaLoaderConfig';
 
-export type MediaSource = 'browse' | 'paste' | 'history' | 'library' | 'draw';
+export type MediaSource = 'browse' | 'paste' | 'history' | 'library' | 'kits' | 'draw';
 
 export interface MediaSourceEntry {
 	source: MediaSource;
@@ -13,6 +13,7 @@ export interface MediaSourceEntry {
 export interface SourceOptions {
 	kind: MediaKind | null;
 	offersDraw: boolean;
+	offersKits?: boolean;
 }
 
 export function sourceEntries(options: SourceOptions): MediaSourceEntry[] {
@@ -22,6 +23,7 @@ export function sourceEntries(options: SourceOptions): MediaSourceEntry[] {
 	}
 	entries.push({ source: 'history', label: 'From history', icon: 'clock' });
 	entries.push({ source: 'library', label: 'From library', icon: 'grid' });
+	if (options.offersKits) entries.push({ source: 'kits', label: 'From a kit', icon: 'layers' });
 	if (options.offersDraw && (options.kind === null || options.kind === 'image')) {
 		entries.push({ source: 'draw', label: 'Draw a new image', icon: 'brush' });
 	}

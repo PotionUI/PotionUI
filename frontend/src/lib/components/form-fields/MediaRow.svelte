@@ -37,6 +37,7 @@
 		dragging,
 		pasteArmed,
 		offersDraw,
+		offersKits = false,
 		maxLabelLength = 64,
 		toolGroupsFor,
 		handleFor,
@@ -57,6 +58,7 @@
 		dragging: boolean;
 		pasteArmed: boolean;
 		offersDraw: boolean;
+		offersKits?: boolean;
 		maxLabelLength?: number;
 		toolGroupsFor: (flatIndex: number) => MediaToolGroup[];
 		handleFor: (flatIndex: number) => string | null;
@@ -244,7 +246,7 @@
 				: 'border-line-strong bg-surface-1'}"
 			data-media-row-add
 		>
-			<MediaSourceMenu kind={addKind} {offersDraw} onPick={(source) => onSource(addKind, source)}>
+			<MediaSourceMenu kind={addKind} {offersDraw} {offersKits} onPick={(source) => onSource(addKind, source)}>
 				{#snippet trigger({ toggle, open })}
 					<div class="inline-flex shrink-0">
 						<Button variant="secondary" size="xs" icon="plus" class="rounded-r-none" onclick={() => onSource(addKind, 'browse')}>

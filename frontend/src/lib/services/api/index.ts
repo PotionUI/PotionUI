@@ -72,6 +72,7 @@ import { createAuthProvidersApi } from './authProviders';
 import { createRecipesApi } from './recipes';
 import { createRecipeModesApi } from './recipeModes';
 import { createApiKeysApi } from './apiKeys';
+import { createKitsApi } from './kits';
 import { createMcpToolsApi } from './mcpTools';
 import { createInspirationsApi } from './inspirations';
 import { createFormulasApi } from './formulas';
@@ -129,6 +130,7 @@ export const api = {
 	...createRecipesApi(apiClient.getClient()),
 	...createRecipeModesApi(apiClient.getClient()),
 	...createApiKeysApi(apiClient.getClient()),
+	...createKitsApi(apiClient.getClient()),
 	...createMcpToolsApi(apiClient.getClient()),
 	...createInspirationsApi(apiClient.getClient()),
 	...createFormulasApi(apiClient.getClient()),

@@ -16,6 +16,9 @@
 		type ResourceUseCounts
 	} from '$lib/utils/promptResourceUsage';
 	import type { GenerationTab } from '$lib/types/tabs';
+	import DirectorKitsSection from '$lib/components/kits/DirectorKitsSection.svelte';
+	import { KIT_ROWS_HOSTED_CONTEXT_KEY } from '$lib/kits/hostContext';
+	import { kitFieldsOf } from '$lib/kits/promptKits';
 
 	const NO_FIELD_ERRORS: Record<string, string[]> = {};
 	const NO_COUNTS: ResourceUseCounts = {};
@@ -32,6 +35,8 @@
 		videoDirectorActive?: boolean;
 	} = $props();
 
+	const kitRowsHosted = writable(false);
+	setContext(KIT_ROWS_HOSTED_CONTEXT_KEY, kitRowsHosted);
 	const resourceUsage = writable<PromptResourceUsage>({ specs: [], counts: {} });
 	setContext(PROMPT_RESOURCE_USAGE_CONTEXT_KEY, resourceUsage);
 
@@ -67,6 +72,14 @@
 		);
 	});
 
+	$effect(() => {
+		kitRowsHosted.set(videoDirectorActive && kitFieldsOf(resourceSpecs, formData).length > 0);
+	});
+
+	function writeKitField(field: string, value: unknown[]) {
+		onFormDataChange({ ...(formData ?? {}), [field]: value });
+	}
+
 	let publishedCounts: ResourceUseCounts = NO_COUNTS;
 	let publishedSpecs: PromptResourceSpec[] = [];
 
@@ -81,6 +94,10 @@
 </script>
 
 <FormulaAppliedBar {tab} />
+
+{#if videoDirectorActive}
+	<DirectorKitsSection formData={formData} specs={resourceSpecs} onChange={writeKitField} />
+{/if}
 
 <DynamicForm
 	bind:this={formRef}

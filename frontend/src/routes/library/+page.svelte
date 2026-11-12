@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { createUrlState } from '$lib/utils/urlState';
 	import { hrefWithLibraryItem, libraryItemIdFromUrl } from '$lib/library/deepLink';
 	import { takePendingFresh } from '$lib/library/freshHandoff';
@@ -19,6 +20,13 @@
 	import LibrarySelectionToolbar from './components/LibrarySelectionToolbar.svelte';
 	import LibraryGrid from './components/LibraryGrid.svelte';
 	import LibraryItemModal from '$lib/components/library/LibraryItemModal.svelte';
+	import CollectionSidebarSheet from '$lib/components/collections/CollectionSidebarSheet.svelte';
+	import KitComposeDialog from '$lib/components/kits/KitComposeDialog.svelte';
+	import KitDetailPane from '$lib/components/kits/KitDetailPane.svelte';
+	import KitsListPane from '$lib/components/kits/KitsListPane.svelte';
+	import { hrefWithKitsView, kitsViewFromUrl } from '$lib/kits/libraryView';
+	import { picksFromLibraryItems, type KitPick } from '$lib/kits/kitPicks';
+	import { kitUseSentence, kitsUsingUploads } from '$lib/kits/kitUsage';
 	import { libraryItemDisplayName } from '$lib/library/libraryItemMeta';
 	import type { LibraryItem } from '$lib/services/api/library';
 	import ToolHost from '$lib/components/tools/ToolHost.svelte';
@@ -130,6 +138,41 @@
 
 	$: state = $libraryStore;
 	$: currentUrl = $page.url;
+	$: kitsState = kitsViewFromUrl($page.url);
+
+	let composing: KitPick[] | null = null;
+	let kitUse = '';
+
+	async function loadKitUse(ids: string[], many: boolean) {
+		kitUse = '';
+		if (ids.length === 0) return;
+		try {
+			const response = await api.getKitUsageForUploads(ids);
+			if (response.success) kitUse = kitUseSentence(kitsUsingUploads(response.data), many);
+		} catch {
+			kitUse = '';
+		}
+	}
+
+	$: if (itemToDelete) void loadKitUse([itemToDelete.id], false);
+	$: if (showBulkDeleteModal) void loadKitUse($libraryStore.selectedIds, true);
+
+	function showKit(id: string | null) {
+		void goto(hrefWithKitsView(currentUrl, { active: true, kitId: id }), { keepFocus: true, noScroll: true });
+	}
+
+	function leaveKits() {
+		void goto(hrefWithKitsView(currentUrl, { active: false, kitId: null }), { keepFocus: true, noScroll: true });
+	}
+
+	function addSelectionToKit(items: LibraryItem[]) {
+		const picks = picksFromLibraryItems(items);
+		if (picks.length === 0) {
+			toasts.error('Kits hold pictures, clips, sounds and notes.');
+			return;
+		}
+		composing = picks;
+	}
 
 	let lastUrlItemId: string | null = null;
 	let lastSelectedItemId: string | null = null;
@@ -276,6 +319,21 @@
 	{/if}
 
 	<div class="flex-1 min-w-0">
+		{#if kitsState.active}
+			{#if kitsState.kitId}
+				{#key kitsState.kitId}
+					<KitDetailPane kitId={kitsState.kitId} onBack={() => showKit(null)} onDeleted={() => showKit(null)} onOpenKit={showKit} />
+				{/key}
+			{:else}
+				<KitsListPane onOpen={(kit) => showKit(kit.id)} onNew={() => (composing = [])} onPickFromLibrary={leaveKits}>
+					{#snippet leading()}
+						<CollectionSidebarSheet label="Library" collapsed={!sidebarOpen} onExpand={() => (sidebarOpen = true)}>
+							<LibrarySidebar />
+						</CollectionSidebarSheet>
+					{/snippet}
+				</KitsListPane>
+			{/if}
+		{:else}
 		<div class="sticky top-0 z-30">
 			<LibraryToolbar
 				{sidebarOpen}
@@ -288,6 +346,7 @@
 		</div>
 
 		<LibrarySelectionToolbar
+			onAddToKit={addSelectionToKit}
 			onBulkDeleteClick={() => (showBulkDeleteModal = true)}
 			onToolSelect={handleToolSelect}
 		/>
@@ -298,6 +357,7 @@
 				onToolSelect={handleToolSelect}
 				onUploadRequest={pickFiles}
 			/>
+		{/if}
 	</div>
 </div>
 
@@ -313,7 +373,7 @@
 	<ConfirmModal
 		isOpen={true}
 		title="Delete library item"
-		message={`Delete "${libraryItemDisplayName(itemToDelete)}" from your library? The file is removed from disk and this cannot be undone.`}
+		message={`Delete "${libraryItemDisplayName(itemToDelete)}" from your library? The file is removed from disk and this cannot be undone.${kitUse}`}
 		variant="danger"
 		busy={deleting}
 		on:confirm={confirmDelete}
@@ -325,7 +385,7 @@
 	<ConfirmModal
 		isOpen={true}
 		title="Delete library items"
-		message={`Delete ${state.selectedIds.length} item(s) from your library? The files are removed from disk and this cannot be undone.`}
+		message={`Delete ${state.selectedIds.length} item(s) from your library? The files are removed from disk and this cannot be undone.${kitUse}`}
 		variant="danger"
 		busy={deleting}
 		on:confirm={confirmBulkDelete}
@@ -358,6 +418,17 @@
 			return response.data ?? { deleted_count: 0, files_deleted: 0 };
 		}}
 		onClose={() => (showDeleteByCriteriaModal = false)}
+	/>
+{/if}
+
+{#if composing}
+	<KitComposeDialog
+		picks={composing}
+		onDone={(kit) => {
+			libraryStore.clearSelection();
+			showKit(kit.id);
+		}}
+		onClose={() => (composing = null)}
 	/>
 {/if}
 

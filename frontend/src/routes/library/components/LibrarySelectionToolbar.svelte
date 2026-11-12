@@ -16,10 +16,12 @@
 		type MediaToolGroup
 	} from '$lib/tools/tools';
 	import { mediaToolRegistrations } from '$lib/tools/pluginTools';
+	import type { LibraryItem } from '$lib/services/api/library';
 
 	// Self-contained: reads/writes libraryStore directly. Only the bulk delete
 	// confirmation lives on the page (it needs shared modal state).
 	export let onBulkDeleteClick: () => void;
+	export let onAddToKit: (items: LibraryItem[]) => void = () => {};
 	export let onToolSelect: (tool: MediaTool, context: MediaToolContext) => void;
 
 	$: state = $libraryStore;
@@ -79,6 +81,16 @@
 				Remove from collection
 			</button>
 		{/if}
+
+		<button
+			class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-50"
+			disabled={selectedItems.length === 0}
+			data-add-to-kit
+			on:click={() => onAddToKit(selectedItems)}
+		>
+			<Icon name="layers" className="w-4 h-4" />
+			Add to kit
+		</button>
 
 		<ToolsMenu
 			open={activeMenu === 'tools'}

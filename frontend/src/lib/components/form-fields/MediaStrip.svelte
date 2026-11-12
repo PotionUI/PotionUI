@@ -28,6 +28,7 @@
 		adding = null,
 		addingProgress = 0,
 		offersDraw,
+		offersKits = false,
 		onSelect,
 		onReorder,
 		onRemove,
@@ -39,6 +40,7 @@
 		adding?: MediaKind | null;
 		addingProgress?: number;
 		offersDraw: boolean;
+		offersKits?: boolean;
 		onSelect: (flatIndex: number) => void;
 		onReorder: (items: Item[], flatIndex: number) => void;
 		onRemove: (flatIndex: number) => void;
@@ -109,6 +111,7 @@
 	<MediaSourceMenu
 		kind={group.kind}
 		offersDraw={offersDraw && group.kind === 'image'}
+		{offersKits}
 		onPick={(source) => onSource(group.kind, source)}
 	>
 		{#snippet trigger({ toggle, open })}

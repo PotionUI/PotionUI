@@ -33,6 +33,7 @@
 		allView,
 		favoritesView,
 		unsortedView,
+		kitsView,
 		autoOrganizeSubject,
 		treeActions,
 		onCreateRoot,
@@ -47,6 +48,7 @@
 		allView: SmartView;
 		favoritesView?: SmartView;
 		unsortedView: SmartView;
+		kitsView?: SmartView;
 		autoOrganizeSubject?: AutoOrganizeSubject;
 		treeActions: TreeActions;
 		onCreateRoot: (name: string) => Promise<MutationResult>;
@@ -297,6 +299,10 @@
 			{@render viewRow(favoritesView, false)}
 		{/if}
 		{@render viewRow(unsortedView, false)}
+		{#if kitsView}
+			<div class="-mx-3 my-2.5 h-px bg-line" role="separator"></div>
+			{@render viewRow(kitsView, false)}
+		{/if}
 	</div>
 {/snippet}
 

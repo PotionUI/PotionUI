@@ -1,5 +1,6 @@
 import { kindOfMediaItem } from '$lib/components/form-fields/mediaLoaderKind';
 import { citeableBundleRows, isBundleSpec } from './bundleResources';
+import { isKitKey, isKitRow } from '$lib/kits/kitMarker';
 import type { ResourceNumbering } from './resourceNumbering';
 
 export type PromptResourceKind = 'image' | 'video' | 'audio';
@@ -53,7 +54,7 @@ export function mediaItemKey(item: unknown): string | null {
 
 export function mediaFieldItems(value: unknown): unknown[] {
 	if (value === null || value === undefined || value === '') return [];
-	return Array.isArray(value) ? value : [value];
+	return Array.isArray(value) ? value.filter((entry) => !isKitRow(entry)) : [value];
 }
 
 export function itemPosition(
@@ -214,6 +215,7 @@ export function findResourceProblems(
 	while ((match = re.exec(text)) !== null) {
 		const field = match[1];
 		const itemKey = match[2];
+		if (isKitKey(itemKey)) continue;
 		const spec = findResourceSpec(specs, field);
 		if (!spec) {
 			problems.push({

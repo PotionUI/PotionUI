@@ -6,55 +6,51 @@ order: 20
 
 # Models and Backend Availability
 
-> **Status: implemented** (2026-07-09), except where noted. The one deliberate exception is the
-> `strip_model_dir` filter calls in ComfyUI preset templates (a `models/<type>/` prefix strip,
-> `replace('models/…/', '')` idiom before it), which remain as a compatibility shim — see "The
-> form value" below. Read [`docs/backends.md`](backends.md) first; engine vs. backend is assumed
-> throughout.
+> Read [`docs/backends.md`](backends.md) first; engine vs. backend is assumed throughout. The
+> `strip_model_dir` filter calls in ComfyUI preset templates (a `models/<type>/` prefix strip) remain as
+> a compatibility shim; see "The form value" below.
 
 ## The problem
 
-A **model** in PotionUI is a row in the `models` table. That row is created by walking a
-directory on this host, so a row exists only if the file exists locally; the file's SHA-256 is
-worked out afterwards, in the background (see "Scanning and digests"). The schema enforces it:
-`file_path` is `NOT NULL UNIQUE`.
+A **model** in PotionUI is a row in the `models` table. Rows are created by walking a
+directory on this host, and the file's SHA-256 is worked out afterwards, in the background (see
+"Scanning and digests"). Originally a row existed only if the file existed locally (`file_path`
+was `NOT NULL UNIQUE`); that constraint is gone, and a model is now identified as described under
+"The model" and "Identity".
 
 The `model` and `lora_picker` form fields list those rows, and the value they store is the row's
-`file_path`.
+`file_path` for local files.
 
 That works for the `native` engine, whose pipes open the file. It does not work for `comfyui`.
 The ComfyUI plugin never reads, uploads, or paths a model: it substitutes a **bare name** into a
 workflow node and POSTs the graph to `/prompt`, and the ComfyUI server resolves that name against
 its own `folder_paths` configuration.
 
-Three consequences follow, and all three are live today.
+A model that exists only as a local file has three consequences for a remote engine. The design below
+removes them.
 
-**You must download a model locally to select it, even when only a remote server will load it.**
-The local copy is never read. The remote server loads its own copy. Any model present on the
-ComfyUI server but absent from this host is simply invisible to the picker, however loadable it
-may be.
+**A model had to be downloaded locally to be selected, even when only a remote server would load it.**
+The local copy is never read; the remote server loads its own copy. A model present on the ComfyUI server but
+absent from this host would otherwise be invisible to the picker, however loadable it may be. See
+"Indexing is per backend".
 
-**Preset templates reconstruct the remote name by string surgery.** Because the field value is a
-local path, every ComfyUI preset strips the prefix back off, via the `strip_model_dir` filter
+**Preset templates reconstructed the remote name by string surgery.** Because the field value is a local
+path, every ComfyUI preset strips the prefix back off with the `strip_model_dir` filter
 (`src/platform/templating/dict_utils.py`; see [Pipelines → `pipeline.yml` context](presets/pipelines.md#pipelineyml-context)):
 
 ```jinja
 lora_name: "{{ item.model | strip_model_dir }}"
 ```
 
-There are 26 such calls across the shipped preset templates. Unlike the naive
-`replace('models/loras/', '')` idiom it replaced,
-`strip_model_dir` anchors on the last `models/<known type dir>/` path boundary, so a `models_dir`
-other than the default `./models` doesn't corrupt the name — only the type directory is stripped,
-any subdirectory underneath it is kept, and a value it doesn't recognize (a bare filename, or an
-already backend-native ref) passes through unchanged.
+The filter anchors on the last `models/<known type dir>/` path boundary, so a `models_dir` other than the
+default `./models` doesn't corrupt the name: only the type directory is stripped, any subdirectory
+underneath it is kept, and a value it doesn't recognize (a bare filename, or an already backend-native
+ref) passes through unchanged.
 
-**Generation history breaks whenever the string doesn't match.** `generation_models.model_id` is
-a foreign key to `models.id` — the history is correctly keyed on the logical model. But
-`src/features/generation/handlers/param_handler.py:102` populates it with
-`model_repo.get_by_file_path(model_path)`, an exact string match. Any preset whose `form_data`
-holds a bare filename rather than a local path therefore records **no models at all** for its
-generations: the lookup misses, `models_not_found` increments, and nothing surfaces it.
+**Generation history missed models whose stored value was not a local path.** `generation_models.model_id`
+is a foreign key to `models.id`, and the lookup used to be an exact `file_path` match, so a preset whose
+`form_data` held a bare filename recorded no models at all. See "Consequences for history" for how it is
+matched now.
 
 ## The model
 
@@ -602,8 +598,7 @@ the backend, and both digests) as a last-resort block if a conflicted row is eve
 `model_hash_cache` — a `(path, size, mtime_ns) -> sha256` table — lets the scan and the background
 hasher reuse a digest without touching the file. A cache hit means the file hasn't moved since it
 was last hashed; a miss (new file, or one whose size/mtime changed) is hashed and cached, by the
-scan for files up to 1 MiB and by the digest queue for larger ones. Directory-model fingerprints (`is_directory` rows, HF-layout checkpoints — see
-`101_add_model_is_directory.py`) are never compared as digests: `sha256` there is a cheap
+scan for files up to 1 MiB and by the digest queue for larger ones. Directory-model fingerprints (`is_directory` rows, HF-layout checkpoints) are never compared as digests: `sha256` there is a cheap
 config+shard-list fingerprint, not a content hash.
 
 ### Listing a ComfyUI server's models
@@ -811,18 +806,6 @@ async def install_model(self, ...) -> InstallResult:  # default: NotSupported
 
 A ComfyUI backend could implement it when ComfyUI-Manager is present. Its API is unprobed; treat
 this paragraph as a sketch, not a plan.
-
-## Prerequisites
-
-Two independent fixes should land before the schema work.
-
-**The `models_dir` setting is ignored by three of its five readers.** The registered key is
-`models_dir`, but `src/features/models/indexer.py:45`, `src/features/models/manager.py:946`,
-and the then-plugin download manager all read `model_dir` — a key that has
-never existed — and silently fall back to the literal `"models"`. The bug is invisible only
-because the default value normalises to the same path.
-
-**`generations` has no `backend_id`.** Required by the provenance goal above.
 
 ## See also
 

@@ -614,7 +614,7 @@ from without the profile.
 Every other family — no `family` declared, or any value besides `minimax_h3`/`wan` — keeps
 the legacy raw-frame axis unconditionally.
 
-The Director console's stage rail (`frontend/.../stage-rail/railModel.ts`) mirrors both
+The Director console's stage rail (`frontend/src/lib/components/video-director/stage-rail/railModel.ts`) mirrors both
 halves of this. For `minimax_h3` it's a small pure TypeScript port of
 `resolve_window_geometry`, selected by `family === "minimax_h3"` read off the parsed
 capabilities, so a rail block's width and a seam's overlap shoulder show the SAME emitted

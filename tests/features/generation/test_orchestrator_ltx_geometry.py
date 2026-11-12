@@ -260,3 +260,60 @@ class TestGeometryPreflightOnSimpleModes:
             result = await orchestrator.start_generation(request, 'user_123')
 
         assert result['generation_id'] == 'gen_geom_8'
+
+
+def _real_director_presets():
+    from src.features.presets.loader import PresetTemplateLoader
+
+    loader = PresetTemplateLoader(["content/presets"])
+    loader.load_presets()
+    return {p.id: p for p in loader.presets}
+
+
+REAL = {"ltx25": "01KX47LTX25VIDEO00000000TV", "ltx2": "01KX47LTXVIDEO0000000000TV", "wan": "01KX47WANVIDEO0000000000TV"}
+
+
+def _wire_document():
+    return {
+        'schema_version': 1, 'mode': 't2v', 'settings': {'fps': 24, 'duration': 5, 'seed': -1},
+        'segments': [{'id': 'seg-1', 'prompt': 'a calm lake', 'negative_prompt': '', 'start': 0, 'end': 5,
+                      'frames': None, 'seed': None, 'steps': None, 'cfg': None, 'loras': None}],
+        'media': [], 'audio': [], 'ic_lora': [],
+    }
+
+
+class TestDirectorRequestsOfEveryFamilyAreNormalizedOnEveryEntryPath:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('family', sorted(REAL))
+    async def test_a_submitted_request_reaches_the_builder_with_a_normalized_document(
+        self, orchestrator, mock_preset_template_loader, mock_pipeline_builder, mock_generation_repo, family
+    ):
+        template = _real_director_presets()[REAL[family]]
+        mock_preset_template_loader.load_preset_by_id.return_value = template
+        request = _request({'seed': 5, 'video_director': _wire_document()}, mode='video')
+
+        with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_norm_1'):
+            await orchestrator.start_generation(request, 'user_123')
+
+        document = mock_pipeline_builder.build_pipeline.call_args.kwargs['form_data']['video_director']
+        assert 'audio' in document and 'ic_lora' in document and 'media' in document
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('family', sorted(REAL))
+    async def test_a_memory_preview_builds_from_the_same_normalized_document(
+        self, orchestrator, mock_preset_template_loader, mock_pipeline_builder, family
+    ):
+        template = _real_director_presets()[REAL[family]]
+        mock_preset_template_loader.load_preset_by_id.return_value = template
+        request = _request({'seed': 5, 'video_director': _wire_document()}, mode='video')
+        request._acts_as_admin = False
+        orchestrator.router = None
+        orchestrator.gpu_monitor = None
+
+        try:
+            await orchestrator.preview_memory(request, 'user_123')
+        except Exception:
+            pass
+
+        document = mock_pipeline_builder.build_pipeline.call_args.kwargs['form_data']['video_director']
+        assert 'audio' in document and 'ic_lora' in document

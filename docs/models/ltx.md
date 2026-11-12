@@ -422,8 +422,7 @@ preset defaults to
 single-pass, full-CFG generation (CFG 4.0, 24 steps, `euler`) — do not add a
 distilled/turbo LoRA at those settings; it is trained for a short, low-CFG
 (~1.0) schedule and produces noisy output otherwise. The reference ComfyUI
-LTX-2.3 workflow (`content/plugins/marketplace/comfyui-backend/presets/LTX-2-3/official/modes/t2v/files/workflows/t2v.json`)
-actually runs TWO independent full-resolution generations from the same seed —
+LTX-2.3 workflow actually runs TWO independent full-resolution generations from the same seed —
 a "full" pass (own custom multi-term guidance: skip-layer + a
 cross-modal-attention "modality" guidance term + a std-preserving rescale,
 none of which this native engine implements yet) and a "distilled" pass

@@ -297,8 +297,6 @@ def _prepare_director_form_data(
             simple_spec, (preset_template.vars or {}).get('video_director'), form_data, positive, negative,
             placeholders=dry_run,
         )
-        if dry_run:
-            return form_data
 
     if isinstance(form_data.get('video_director'), dict):
         capabilities = (preset_template.vars or {}).get('video_director') or {}

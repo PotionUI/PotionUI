@@ -21,7 +21,7 @@ At the top of each tab is the **preset and session bar**:
 - **Mode** — appears after a preset is chosen and lists the generation types that preset supports (for example **txt2img**, **img2img**, **inpaint**). The form and prompt layout adapt to the mode you pick.
 - **Reload** — a refresh control that reloads the preset's form from the server. Use it if an administrator has just updated a preset and you want the latest version without leaving the page.
 
-You cannot generate until both a preset and a mode are selected; the page shows a "Ready to Generate" placeholder until then.
+You cannot generate until both a preset and a mode are selected; the page shows a "Ready to generate" placeholder asking you to choose them, and the run bar at the bottom reads "Can't generate yet".
 
 ## Writing prompts
 
@@ -53,7 +53,8 @@ Library application copies composition only. It does not change the other prompt
 The form panel holds the preset's controls. Because it is defined by the preset, its exact fields vary, but common ones include:
 
 - **Model / checkpoint pickers** — choose the base model and optional add-ons.
-- **Resolution** — often a set of presets (portrait, square, landscape) rather than free-typed numbers.
+- **Resolution** — often a set of presets (portrait, square, landscape) rather than free-typed numbers. A swap button beside the picker flips the size to its mirror (for example 1280×720 to 720×1280) when the model offers that size, or when a custom size is allowed; it is disabled for a square size.
+- **Pictures, clips and audio** — a reference field lists its sources as **Upload file**, **History**, **Library** and, on fields that take them, **Kits** (see [Kits](kits.md)), plus **Paste** (and **Draw** where the field offers it). History, Library and Kits all open the same picker, with a tab for each, search, filters, a tile size control and a footer with **Cancel**. To change a picture or clip you already added, use **Replace** on it: it opens the same source menu and swaps that item in place.
 - **Steps** and **guidance / CFG** — sliders controlling how long and how strongly the model works.
 - **Seed** — the number that makes a result reproducible. Set it to **-1** for a new random seed every run; set a specific number to recreate an earlier image. The actual seed used is reported back with each result.
 - **Quantity** — how many images to produce in one run.

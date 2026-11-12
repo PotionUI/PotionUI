@@ -6,7 +6,7 @@ order: 1
 # Documentation
 
 PotionUI's docs are split by audience: end-user guides, subsystem reference for anyone touching
-the code, and contributor process notes. All of it also renders in-app (Help → Documentation) for
+the code, and contributor process notes. All of it also renders in-app, at `/docs` and in Administration → Documentation, for
 signed-in users, role-filtered. A plugin doc declares its audience in the manifest `docs:` entry:
 `user` (everyone), `admin` (admins only, listed under Administration), `developer` or `contributor`
 (admins only).
@@ -20,7 +20,9 @@ Everyday usage — no preset authoring or backend internals assumed. Full index:
 - [Presets & Forms](user/presets-and-forms.md) — what a preset is and how its form maps to what you're generating.
 - [History & Tags](user/history-and-tags.md) — finding past generations, inspecting how something was made, tagging and cleanup.
 - [Prompts Workspace](user/prompts-library.md) — the four reusable prompt-composition libraries in one place.
-- [LLM Assistant](user/llm-chat.md) — the optional AI chat assistant for writing prompts and taking actions.
+- [PotionAI](user/llm-chat.md) — the optional AI chat assistant for writing prompts and taking actions.
+- [Kits](user/kits.md) — named sets of pictures, clips, audio and text that you cite in prompts.
+- [API keys and MCP](user/mcp.md) — keys for scripts and MCP clients, and how to connect them.
 - [Segments](user/segments.md) — the composable cards (subject, style, lighting, camera, ...) that build a prompt.
 - [Prompt Phrasebook](user/phrasebook.md) — inline suggestions for terms you use often.
 - [Models](user/models.md) — the installed model files and how they connect to presets.

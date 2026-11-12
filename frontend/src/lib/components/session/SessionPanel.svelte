@@ -162,6 +162,7 @@
 			{ id: 'pin', label: item.pinned ? 'Unpin' : 'Pin', icon: 'pin' },
 			{ id: 'versions', label: 'Version history', icon: 'panel-history' }
 		];
+		if (actions.openScript) items.push({ id: 'script', label: 'Use from a script…', icon: 'code' });
 		if (item.id === currentSession?.id) {
 			items.push(
 				{ id: 'divider', label: '', separator: true },
@@ -175,6 +176,7 @@
 	function runRowAction(item: Session, id: string) {
 		if (id === 'pin') actions.togglePin(item.id);
 		else if (id === 'versions') void openVersions(item.id);
+		else if (id === 'script') actions.openScript?.(item.id);
 		else if (id === 'rename') actions.rename();
 		else if (id === 'delete') actions.remove();
 	}

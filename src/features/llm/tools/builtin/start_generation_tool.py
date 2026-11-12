@@ -23,6 +23,7 @@ from src.features.forms.binding import FormBindingError
 from src.features.presets.operations.access import preset_available_to_user
 from src.features.presets.retired_modes import replacement_note
 from src.features.presets.regional_prompt import OPTION_KEY, offers_regional_prompt, regional_prompt_modes
+from src.features.sessions.generate import Overrides, SessionRequestError
 from src.pipelines.pipes._shared.regional import normalize_regional_prompt
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,24 @@ class StartGenerationTool(BaseTool):
             },
             "required": ["preset_id"],
         }
+
+    SESSION_PROPERTIES = {
+        "session_id": {"type": "string", "description": "A saved session id from list_sessions, instead of preset_id."},
+        "seed": {"type": "integer", "description": "With session_id: the seed field (-1 is a new one)."},
+        "count": {"type": "integer", "minimum": 1, "description": "With session_id: the quantity field."},
+        "variables": {"type": "object", "additionalProperties": {"type": "string"}, "description": "With session_id: prompt variables by name."},
+    }
+
+    @property
+    def mcp_description(self) -> str:
+        return self.description + (
+            " To reuse settings saved in the web UI, pass session_id (from list_sessions) and only what should change."
+        )
+
+    @property
+    def mcp_parameters(self) -> Dict[str, Any]:
+        base = self.parameters
+        return {**base, "properties": {**base["properties"], **self.SESSION_PROPERTIES}, "required": []}
 
     @staticmethod
     def _build_preview(kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -183,8 +202,53 @@ class StartGenerationTool(BaseTool):
             form_data=kwargs.get("form_overrides") or {},
         )
 
+    @staticmethod
+    def _session_prepare(context: ToolContext, kwargs: Dict[str, Any]):
+        if kwargs.get("preset_id"):
+            raise SessionRequestError(422, "conflicting_arguments", "Give either 'session_id' or 'preset_id', not both.")
+        if context.sessions is None:
+            raise SessionRequestError(503, "sessions_unavailable", "Saved sessions are not available here.")
+        pairs, prompts_error = StartGenerationTool._prompt_pairs(kwargs)
+        if prompts_error:
+            raise SessionRequestError(422, "invalid_prompts", prompts_error)
+        overrides = Overrides(
+            prompt=kwargs.get("prompt"),
+            negative_prompt=kwargs.get("negative_prompt"),
+            prompts=pairs,
+            variables=dict(kwargs.get("variables") or {}),
+            seed=kwargs.get("seed"),
+            count=kwargs.get("count"),
+            form=dict(kwargs.get("form_overrides") or {}),
+        )
+        return context.sessions.prepare(context.user_id, context.is_admin, kwargs["session_id"], kwargs.get("mode"), overrides)
+
+    async def _from_session(self, context: ToolContext, kwargs: Dict[str, Any], confirmed: bool) -> ToolResult:
+        try:
+            prepared = self._session_prepare(context, kwargs)
+        except SessionRequestError as exc:
+            return ToolResult(success=False, data="", error=exc.message)
+        if not confirmed:
+            request = prepared.resolved_request
+            pairs = request.get("prompts") or []
+            return ToolResult(
+                success=True,
+                data=json.dumps({"action": "Start generation", "session": prepared.session, "notes": prepared.notes}),
+                preview=build_generation_preview(
+                    preset_id=request.get("preset_id"),
+                    mode=request.get("mode") or "txt2img",
+                    prompt_text="\n".join(pair.get("positive", "") for pair in pairs),
+                    negative_text="\n".join(pair.get("negative", "") for pair in pairs if pair.get("negative")),
+                    form_data=request.get("form_data") or {},
+                ),
+            )
+        if not context.generation_orchestrator:
+            return ToolResult(success=False, data="", error="Generation orchestrator not available.")
+        return await self._submit(context, prepared.request, {"session": prepared.session, "notes": prepared.notes})
+
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         """Build a generation preview for user approval."""
+        if kwargs.get("session_id"):
+            return await self._from_session(context, kwargs, confirmed=False)
         preset_id = kwargs.get("preset_id")
         if not preset_id:
             return ToolResult(success=False, data="", error="'preset_id' is required")
@@ -240,6 +304,8 @@ class StartGenerationTool(BaseTool):
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         """Actually start the generation after user approval."""
+        if kwargs.get("session_id"):
+            return await self._from_session(context, kwargs, confirmed=True)
         if not context.generation_orchestrator:
             return ToolResult(success=False, data="", error="Generation orchestrator not available.")
 
@@ -269,21 +335,23 @@ class StartGenerationTool(BaseTool):
         if regional_error:
             return ToolResult(success=False, data="", error=regional_error)
 
+        from src.features.generation.dto import GenerationRequest, PromptPair
+
+        if pairs:
+            prompt_pairs = [PromptPair(positive=pair["positive"], negative=pair["negative"]) for pair in pairs]
+        else:
+            prompt_pairs = [PromptPair(positive=kwargs.get("prompt") or "", negative=kwargs.get("negative_prompt") or "")]
+        request = GenerationRequest(
+            preset_id=preset_id,
+            mode=mode,
+            form_data=form_data,
+            prompts=prompt_pairs,
+            batch_prompts=bool(pairs) and len(pairs) > 1,
+        )
+        return await self._submit(context, request)
+
+    async def _submit(self, context: ToolContext, request: Any, extra: Optional[Dict[str, Any]] = None) -> ToolResult:
         try:
-            from src.features.generation.dto import GenerationRequest, PromptPair
-
-            if pairs:
-                prompt_pairs = [PromptPair(positive=pair["positive"], negative=pair["negative"]) for pair in pairs]
-            else:
-                prompt_pairs = [PromptPair(positive=kwargs.get("prompt") or "", negative=kwargs.get("negative_prompt") or "")]
-            request = GenerationRequest(
-                preset_id=preset_id,
-                mode=mode,
-                form_data=form_data,
-                prompts=prompt_pairs,
-                batch_prompts=bool(pairs) and len(pairs) > 1,
-            )
-
             result = await context.generation_orchestrator.start_generation(
                 request=request,
                 user_id=context.user_id,
@@ -298,6 +366,7 @@ class StartGenerationTool(BaseTool):
                 "details_url": generation_details_url(
                     started_id, context.settings, context.session_metadata.get(REQUEST_ORIGIN_KEY)
                 ) if started_id else "",
+                **(extra or {}),
             }))
         except PromptBatchError as e:
             return ToolResult(success=False, data="", error=str(e))

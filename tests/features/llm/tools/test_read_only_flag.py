@@ -22,6 +22,7 @@ READ_ONLY = {
     "get_video_director",
     "list_library_items",
     "list_models",
+    "list_sessions",
     "list_phrasebook_categories",
     "list_presets",
     "list_prompts",
@@ -41,8 +42,6 @@ READ_ONLY = {
     "search_provider_models",
     "get_download_status",
     "list_inspirations",
-    "list_sessions",
-    "get_session",
     "list_notifications",
     "write_condition",
 }

@@ -1,0 +1,70 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "prompt": "tagged",
+    "selectedVariant": "Quality",
+    "autoTagIds": [
+      "t1",
+      "t2"
+    ],
+    "autoCollectionIds": [],
+    "sourcePromptId": "sp1",
+    "compare": {
+      "enabled": true
+    }
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "tagged",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_name": "Quality",
+    "form_data": {},
+    "tag_ids": [
+      "t1",
+      "t2"
+    ],
+    "tab_id": "tab-fixture",
+    "source_prompt_id": "sp1",
+    "prompt_state": {
+      "prompt": "tagged",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "tagged",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": []
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "tagged",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

@@ -1054,12 +1054,16 @@ def _get_generation_controller(container: "AppContainer") -> GenerationControlle
     return controller
 
 
+def generation_controller_for(container: "AppContainer") -> "GenerationController":
+    return _get_generation_controller(container)
+
+
 def build_router(container: "AppContainer") -> APIRouter:
     controller = _get_generation_controller(container)
 
     router = APIRouter(prefix="/api/generations", tags=["Generation"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.GENERATE)])
 
-    @router.post("/start", response_model=APIResponse, summary="Start Generation")
+    @router.post("/start", response_model=APIResponse, summary="Start Generation", description="Starts a generation from a preset and answers at once with its generation_id; the run continues in the background. Follow it with the status route or the /ws/generation socket. Repeating a request with the same idempotency_key returns the generation already started, and a different request under that key is refused with 409 idempotency_key_conflict.")
     async def start_generation(request: GenerationRequest, current_user = Depends(get_current_active_user)):
         """Start a new image generation job with the specified parameters and preset."""
         return await controller.start_generation(request, current_user)
@@ -1069,7 +1073,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Estimate the GPU memory a request would need, without starting it."""
         return await controller.preview_memory(request, current_user)
 
-    @router.get("/{generation_id}/status", response_model=APIResponse, summary="Get Generation Status")
+    @router.get("/{generation_id}/status", response_model=APIResponse, summary="Get Generation Status", description="The state of one of your generations: pending, running, completed, failed or cancelled, with its progress. Someone else's generation answers 404.")
     async def get_generation_status(generation_id: str, current_user = Depends(get_current_active_user)):
         """Get the current status and progress of a specific generation job."""
         return await controller.get_generation_status(generation_id, current_user)
@@ -1087,7 +1091,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             raise HTTPException(status_code=404, detail="Run report artifact not found")
         return await controller.get_run_report_artifact(generation_id, name)
 
-    @router.post("/{generation_id}/cancel", response_model=APIResponse, summary="Cancel Generation")
+    @router.post("/{generation_id}/cancel", response_model=APIResponse, summary="Cancel Generation", description="Cancels a pending or running generation. A generation that has already finished answers 400 cancel_failed.")
     async def cancel_generation(generation_id: str, current_user = Depends(get_current_active_user)):
         """Cancel a currently running generation job."""
         return await controller.cancel_generation(generation_id, current_user)
@@ -1107,7 +1111,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             generation_id, current_user, file, format
         )
 
-    @router.get("/queue", response_model=APIResponse, summary="Get Generation Queue")
+    @router.get("/queue", response_model=APIResponse, summary="Get Generation Queue", description="Your pending generations in the order they will start, each with its queue_position (0 starts next), and your running generations.")
     async def get_queue(tab_id: str = None, current_user = Depends(get_current_active_user)):
         """The caller's pending generations in FIFO order, plus their running ones."""
         return await controller.get_queue(current_user, tab_id)
@@ -1122,7 +1126,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """List all currently active generations with their current statuses."""
         return await controller.list_generations(current_user)
 
-    @router.get("/history", response_model=APIResponse, summary="Get Generation History")
+    @router.get("/history", response_model=APIResponse, summary="Get Generation History", description="Your generations with their files, a page at a time (limit and offset). Narrow the list with status, mode, preset_id, tag_ids, collection_id, favorites_only, min_rating, created_from, created_to, media_type or search.")
     async def get_generation_history(limit: int = 50, offset: int = 0,
                                    include_tags: bool = True,
                                    sort_by: str = None, sort_dir: str = None,
@@ -1151,7 +1155,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         and refetch the list only when the token differs from the last one seen."""
         return await controller.get_history_version(current_user)
 
-    @router.get("/history/{generation_id}", response_model=APIResponse, summary="Get Generation by ID")
+    @router.get("/history/{generation_id}", response_model=APIResponse, summary="Get Generation by ID", description="One generation with its parameters, its error if it failed, and its files. Each file has an id that GET /api/media/files/{file_id} returns as bytes.")
     async def get_generation_by_id(generation_id: str, include_files: bool = True, include_batch: bool = False, current_user = Depends(get_current_active_user)):
         """Get detailed information about a specific generation from the database."""
         return await controller.get_generation_by_id(generation_id, current_user, include_files=include_files, include_batch=include_batch)

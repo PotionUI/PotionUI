@@ -38,6 +38,8 @@ lifetime; a row that is not allowed says so.
 
 ## Using a key from a script
 
+The **API** pages of this documentation are a step-by-step guide to scripting PotionUI, with a quickstart, working examples and a reference of every route. This section is the short version.
+
 Send the key as a bearer token on any API request:
 
 ```
@@ -160,7 +162,7 @@ does exactly what the matching HTTP route allows for the same account, and nothi
 | Area | Tools | Who |
 | --- | --- | --- |
 | Elixirs | `list_elixirs`, `describe_elixir`, `run_elixir`, `get_elixir_run` | your own elixirs |
-| Sessions | `list_sessions`, `get_session` | your own saved forms |
+| Sessions | `list_sessions` (also describes one session; start from it with `start_generation`'s `session_id`) | your own saved forms |
 | Notifications | `list_notifications`, `mark_notifications_read` | your own |
 | Sharing | `list_inspirations`, `publish_inspiration` | the Inspirations feed |
 | Deletes | `delete_generation`, `delete_library_item` | your own, permanent |

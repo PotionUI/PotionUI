@@ -40,6 +40,7 @@ export type SessionPanelActions = Pick<
 	rename: () => void;
 	remove: () => void;
 	reload: () => void;
+	openScript?: (id: string) => void;
 };
 
 export interface SessionDialogsState {
@@ -48,6 +49,7 @@ export interface SessionDialogsState {
 	deleteOpen: boolean;
 	reloadOpen: boolean;
 	name: string;
+	scriptSessionId: string | null;
 }
 
 export interface SessionDialogs {
@@ -64,7 +66,7 @@ export interface SessionDialogs {
 	close(): void;
 }
 
-const CLOSED: SessionDialogsState = { saveOpen: false, saveAsOpen: false, deleteOpen: false, reloadOpen: false, name: '' };
+const CLOSED: SessionDialogsState = { saveOpen: false, saveAsOpen: false, deleteOpen: false, reloadOpen: false, name: '', scriptSessionId: null };
 
 export function createSessionDialogs(controller: SessionController): SessionDialogs {
 	const state = writable<SessionDialogsState>({ ...CLOSED });
@@ -92,6 +94,10 @@ export function createSessionDialogs(controller: SessionController): SessionDial
 		} else {
 			openSaveAs();
 		}
+	}
+
+	function openScript(id: string) {
+		state.update((s) => ({ ...s, scriptSessionId: id }));
 	}
 
 	function openDelete() {
@@ -142,7 +148,8 @@ export function createSessionDialogs(controller: SessionController): SessionDial
 			saveAs: openSaveAs,
 			rename: openSave,
 			remove: openDelete,
-			reload: openReload
+			reload: openReload,
+			openScript
 		},
 		quickSave,
 		openSave,

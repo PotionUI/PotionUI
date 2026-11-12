@@ -1,5 +1,4 @@
-import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from src.features.llm.tools.base import ToolContext, ToolResult
 from src.features.llm.tools.builtin.domain_support import (
@@ -10,89 +9,10 @@ from src.features.llm.tools.builtin.domain_support import (
     payload,
     required_text,
     run_controller,
-    without,
 )
-from src.features.sessions.mappers import session_to_response_dict
 
 NOTIFICATIONS_DEFAULT = 20
 NOTIFICATIONS_MAX = 100
-
-
-async def owned_session(context: ToolContext, session_id: str) -> Optional[Any]:
-    session = await asyncio.to_thread(context.domains.sessions.get_by_id, session_id)
-    if session is None or session.user_id != context.user_id:
-        return None
-    return session
-
-
-class ListSessionsTool(DomainTool):
-    domain = "sessions"
-    group = "Form & segments"
-    context_group = "library"
-    icon = "bookmark"
-    name = "list_sessions"
-    read_only = True
-    user_description = "Lists your saved sessions (saved form states) for a preset."
-
-    @property
-    def description(self) -> str:
-        return (
-            "List the user's saved sessions for one preset: id, name, pinned, version and last change. A "
-            "session is a saved Generate form; read one with get_session."
-        )
-
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {"preset_id": {"type": "string", "description": "A preset id from list_presets."}},
-            "required": ["preset_id"],
-        }
-
-    async def run(self, context: ToolContext, **kwargs) -> ToolResult:
-        preset_id = required_text(kwargs, "preset_id")
-        if not preset_id:
-            return failure("'preset_id' is required")
-        sessions = await asyncio.to_thread(self.service(context).get_by_user_and_preset, context.user_id, preset_id)
-        return payload({
-            "sessions": [without(session_to_response_dict(session), "data") for session in sessions],
-        })
-
-
-class GetSessionTool(DomainTool):
-    domain = "sessions"
-    group = "Form & segments"
-    context_group = "library"
-    icon = "bookmark"
-    name = "get_session"
-    read_only = True
-    user_description = "Reads one of your saved sessions."
-
-    @property
-    def description(self) -> str:
-        return (
-            "Read one of the user's saved sessions by id: its preset, the saved form values per mode and the "
-            "modes it holds."
-        )
-
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {"session_id": {"type": "string", "description": "A session id from list_sessions."}},
-            "required": ["session_id"],
-        }
-
-    async def run(self, context: ToolContext, **kwargs) -> ToolResult:
-        session_id = required_text(kwargs, "session_id")
-        if not session_id:
-            return failure("'session_id' is required")
-        session = await owned_session(context, session_id)
-        if session is None:
-            return failure("Session not found")
-        body = session_to_response_dict(session)
-        body["modes"] = [key for key, value in (body.get("data") or {}).items() if isinstance(value, dict)]
-        return payload(body)
 
 
 class ListNotificationsTool(DomainTool):
@@ -165,4 +85,4 @@ class MarkNotificationsReadTool(DomainTool):
         return await run_controller(controller.mark_read(notification_id, user))
 
 
-ACCOUNT_TOOLS = (ListSessionsTool, GetSessionTool, ListNotificationsTool, MarkNotificationsReadTool)
+ACCOUNT_TOOLS = (ListNotificationsTool, MarkNotificationsReadTool)

@@ -1,0 +1,189 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "promptSegments": [
+      {
+        "id": "a",
+        "type": "content",
+        "content": "a ${subject} in ${mood} light, again ${mood}, and ${pinned} with ${perimage}",
+        "chips": {},
+        "enabled": true
+      }
+    ],
+    "negativePromptSegments": [
+      {
+        "id": "n",
+        "type": "content",
+        "content": "no ${mood}",
+        "chips": {},
+        "enabled": true
+      }
+    ],
+    "variables": {
+      "subject": "cat",
+      "mood": {
+        "type": "choice",
+        "options": [
+          "noir",
+          "sunlit",
+          "",
+          "dusk"
+        ],
+        "mode": "shuffle",
+        "pinnedIndex": null
+      },
+      "pinned": {
+        "type": "choice",
+        "options": [
+          "x",
+          "y"
+        ],
+        "mode": "pin",
+        "pinnedIndex": 1
+      },
+      "perimage": {
+        "type": "choice",
+        "options": [
+          "p",
+          "q",
+          "r"
+        ],
+        "mode": "per-image",
+        "pinnedIndex": null
+      },
+      "unused": {
+        "type": "choice",
+        "options": [
+          "u1",
+          "u2"
+        ],
+        "mode": "shuffle",
+        "pinnedIndex": null
+      },
+      "emptytext": ""
+    }
+  },
+  "overrides": {},
+  "random": [
+    0.7,
+    0.2,
+    0.4,
+    0.95,
+    0.1
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "a ${subject} in ${mood} light, again ${mood-2}, and ${pinned} with ${perimage}",
+        "negative": "no ${mood-3}"
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {},
+    "variables": {
+      "subject": "cat",
+      "mood": "dusk",
+      "mood-2": "noir",
+      "mood-3": "sunlit",
+      "pinned": "y",
+      "perimage": "{p|q|r}",
+      "unused": "u2"
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "a",
+          "type": "content",
+          "content": "a ${subject} in ${mood} light, again ${mood}, and ${pinned} with ${perimage}",
+          "chips": {},
+          "enabled": true
+        }
+      ],
+      "negativePromptSegments": [
+        {
+          "id": "n",
+          "type": "content",
+          "content": "no ${mood}",
+          "chips": {},
+          "enabled": true
+        }
+      ],
+      "variables": {
+        "subject": "cat",
+        "mood": {
+          "type": "choice",
+          "options": [
+            "noir",
+            "sunlit",
+            "",
+            "dusk"
+          ],
+          "mode": "shuffle",
+          "pinnedIndex": null
+        },
+        "pinned": {
+          "type": "choice",
+          "options": [
+            "x",
+            "y"
+          ],
+          "mode": "pin",
+          "pinnedIndex": 1
+        },
+        "perimage": {
+          "type": "choice",
+          "options": [
+            "p",
+            "q",
+            "r"
+          ],
+          "mode": "per-image",
+          "pinnedIndex": null
+        },
+        "unused": {
+          "type": "choice",
+          "options": [
+            "u1",
+            "u2"
+          ],
+          "mode": "shuffle",
+          "pinnedIndex": null
+        },
+        "emptytext": ""
+      }
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "a ${subject} in ${mood} light, again ${mood}, and ${pinned} with ${perimage}",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "negative",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "no ${mood}",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

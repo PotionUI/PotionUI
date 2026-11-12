@@ -18,7 +18,7 @@ READS = {
     "enhance_prompt", "search_model_prompts", "search_gallery", "get_prompt", "list_prompts",
     "list_library_items", "read_memory", "get_prompt_variables", "list_tab_drafts", "write_condition",
     "get_generation_status", "wait_for_generation", "get_generation_results",
-    "list_elixirs", "describe_elixir", "get_elixir_run", "list_automations", "get_automation_status", "search_provider_models", "get_download_status", "list_inspirations", "list_sessions", "get_session", "list_notifications",
+    "list_elixirs", "describe_elixir", "get_elixir_run", "list_automations", "get_automation_status", "search_provider_models", "get_download_status", "list_inspirations", "list_notifications", "list_sessions",
 }
 
 WRITES = {

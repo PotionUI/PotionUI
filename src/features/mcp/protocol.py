@@ -81,8 +81,8 @@ def _mcp_tool_schema(entry: Any, rendered: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "name": function.get("name", entry.name),
         "title": entry.label,
-        "description": function.get("description", entry.tool.description),
-        "inputSchema": function.get("parameters", entry.tool.parameters),
+        "description": entry.tool.mcp_description or function.get("description", entry.tool.description),
+        "inputSchema": entry.tool.mcp_parameters or function.get("parameters", entry.tool.parameters),
         "annotations": {
             "readOnlyHint": not entry.writes,
             **({"destructiveHint": True} if entry.destructive else {}),

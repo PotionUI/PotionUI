@@ -116,6 +116,7 @@ class ToolServices:
     tab_drafts: Any = None
     media_tool_service: Any = None
     elixirs: Any = None
+    sessions: Any = None
     media_store: Any = None
     domains: Any = None
 
@@ -165,6 +166,7 @@ class ToolContext:
     elixirs: Any = None
     chat_session: bool = True
     acts_as_admin: bool = False
+    sessions: Any = None
     media_store: Any = None
     domains: Any = None
 
@@ -223,6 +225,8 @@ class BaseTool(ABC):
     destructive: bool = False
     mcp: bool = False
     mcp_unavailable: Optional[str] = None
+    mcp_description: Optional[str] = None
+    mcp_parameters: Optional[Dict[str, Any]] = None
 
     @property
     def writes(self) -> bool:

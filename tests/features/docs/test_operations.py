@@ -468,3 +468,31 @@ class TestAdminAudience:
         )
 
         assert content["markdown"].strip()
+
+
+class TestApiGuide:
+    def test_api_pages_are_user_docs_in_the_api_category(self, tmp_path):
+        write(tmp_path / "docs" / "api" / "quickstart.md", "---\ntitle: Quickstart\norder: 2\n---\n\n# Quickstart\n")
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
+
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
+
+        item = next(i for i in tree["sections"][0]["items"] if i["id"] == "api/quickstart")
+        assert item["title"] == "Quickstart"
+        assert item["category"] == "API"
+
+    def test_a_regular_user_can_read_an_api_page(self, tmp_path):
+        write(tmp_path / "docs" / "api" / "quickstart.md", "# Quickstart\n\nSend a key.")
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
+
+        payload = operations.get_content(registry, base_docs_path, "api/quickstart", is_admin=False)
+
+        assert "Send a key." in payload["markdown"]
+
+    def test_files_under_examples_are_not_pages(self, tmp_path):
+        write(tmp_path / "docs" / "api" / "examples" / "notes.md", "# Not a page\n")
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
+
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
+
+        assert all(not i["id"].startswith("api/") for i in tree["sections"][0]["items"])

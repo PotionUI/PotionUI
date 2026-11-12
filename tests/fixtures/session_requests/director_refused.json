@@ -1,0 +1,26 @@
+{
+  "preset_vars": {
+    "video_director": {
+      "modes": {
+        "t2v": {}
+      },
+      "preset_modes": [
+        "txt2vid"
+      ]
+    }
+  },
+  "mode": "txt2vid",
+  "entry": {
+    "prompt": "a drone shot",
+    "videoDirector": {
+      "mode": "t2v"
+    }
+  },
+  "overrides": {},
+  "random": [
+    0.0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "refusal": "session_needs_editor"
+}

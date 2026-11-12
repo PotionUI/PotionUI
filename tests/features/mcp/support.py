@@ -16,7 +16,7 @@ KEY_ID = "key-1"
 
 ADDED_AFTER_SEED_READS = frozenset({
     "list_models", "get_generation_status", "wait_for_generation", "get_generation_results",
-    "list_elixirs", "describe_elixir", "get_elixir_run", "list_automations", "get_automation_status", "search_provider_models", "get_download_status", "list_inspirations", "list_sessions", "get_session", "list_notifications"
+    "list_elixirs", "describe_elixir", "get_elixir_run", "list_automations", "get_automation_status", "search_provider_models", "get_download_status", "list_inspirations", "list_sessions", "list_notifications"
 })
 ADDED_AFTER_SEED_WRITES = frozenset({
     "cancel_generation", "upload_media",

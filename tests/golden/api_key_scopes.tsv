@@ -630,12 +630,15 @@ POST	/api/segments	-	content	marker
 DELETE	/api/segments/{segment_id}	-	content	marker
 GET	/api/segments/{segment_id}	read	-	marker
 PUT	/api/segments/{segment_id}	-	content	marker
+GET	/api/sessions	read	-	marker
 GET	/api/sessions/preset/{preset_id}	read	-	marker
 POST	/api/sessions/save	-	content	marker
 DELETE	/api/sessions/{session_id}	-	content	marker
 GET	/api/sessions/{session_id}	read	-	marker
 PUT	/api/sessions/{session_id}	-	content	marker
+POST	/api/sessions/{session_id}/generate	-	generate	marker
 PUT	/api/sessions/{session_id}/pin	-	content	marker
+GET	/api/sessions/{session_id}/request	read	-	marker
 GET	/api/sessions/{session_id}/versions	read	-	marker
 GET	/api/sessions/{session_id}/versions/{version_number}	read	-	marker
 GET	/api/settings	read	-	marker

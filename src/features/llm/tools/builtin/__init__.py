@@ -63,6 +63,7 @@ from src.features.llm.tools.builtin.video_director_tool import GetVideoDirectorT
 from src.features.llm.tools.builtin.music_director_tool import GetMusicDirectorTool, UpdateMusicDirectorTool
 from src.features.llm.tools.builtin.manage_collections_tool import ManageCollectionsTool
 from src.features.llm.tools.builtin.organize_gallery_tool import OrganizeGalleryTool
+from src.features.llm.tools.builtin.list_sessions_tool import ListSessionsTool
 from src.features.llm.tools.builtin.start_generation_tool import StartGenerationTool
 from src.features.llm.tools.builtin.run_media_tool_tool import RunMediaToolTool
 from src.features.llm.tools.builtin.elixir_tools import ELIXIR_TOOLS
@@ -133,6 +134,7 @@ def register_builtin_tools(registry, media_tool_registry=None) -> None:
         ListLibraryItemsTool(),
         OrganizeGalleryTool(),
         StartGenerationTool(),
+        ListSessionsTool(),
         RunMediaToolTool(media_tool_registry),
         *(tool() for tool in ELIXIR_TOOLS),
         *(tool() for tool in GENERATION_LOOP_TOOLS),

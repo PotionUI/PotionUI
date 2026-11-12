@@ -143,7 +143,6 @@ report = {
         "inspirations_are_the_container_controller": c.mcp_tool_collaborators.services.domains.inspirations is c.inspiration_controller,
         "downloads_are_the_container_queue": c.mcp_tool_collaborators.services.domains.downloads is c.download_queue,
         "elixirs_are_the_container_components": c.mcp_tool_collaborators.services.domains.elixirs is c.elixirs,
-        "sessions_are_the_container_repository": c.mcp_tool_collaborators.services.domains.sessions is not None,
     },
     "media_tool_wiring": {
         "chat_tools_use_the_container_service": c.chat_runtime.tool_services.media_tool_service is c.media_tool_service,

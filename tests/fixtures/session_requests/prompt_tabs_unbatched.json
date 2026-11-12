@@ -1,0 +1,161 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "promptTabs": [
+      {
+        "id": "p1",
+        "name": "First",
+        "prompt": "red fox",
+        "negativePrompt": "",
+        "promptSegments": [],
+        "negativePromptSegments": []
+      },
+      {
+        "id": "p2",
+        "prompt": "blue fox",
+        "negativePrompt": "dull",
+        "promptSegments": [
+          {
+            "id": "s2",
+            "type": "content",
+            "content": "blue fox",
+            "chips": {},
+            "enabled": true
+          }
+        ],
+        "negativePromptSegments": [
+          {
+            "id": "n2",
+            "type": "content",
+            "content": "dull",
+            "chips": {},
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": "p3",
+        "prompt": "",
+        "negativePrompt": "",
+        "promptSegments": [
+          {
+            "id": "s3",
+            "type": "content",
+            "content": "green fox",
+            "chips": {},
+            "enabled": true
+          }
+        ],
+        "negativePromptSegments": []
+      }
+    ],
+    "activePromptTab": 2,
+    "prompt": "green fox"
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "red fox",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {},
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "green fox",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "green fox",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": [],
+      "promptTabs": [
+        {
+          "id": "p1",
+          "name": "First",
+          "prompt": "red fox",
+          "negativePrompt": "",
+          "promptSegments": [
+            {
+              "id": "seeded-positive",
+              "type": "content",
+              "content": "red fox",
+              "chips": {},
+              "enabled": true,
+              "isDisabled": false
+            }
+          ],
+          "negativePromptSegments": []
+        },
+        {
+          "id": "p2",
+          "prompt": "blue fox",
+          "negativePrompt": "dull",
+          "promptSegments": [
+            {
+              "id": "s2",
+              "type": "content",
+              "content": "blue fox",
+              "chips": {},
+              "enabled": true
+            }
+          ],
+          "negativePromptSegments": [
+            {
+              "id": "n2",
+              "type": "content",
+              "content": "dull",
+              "chips": {},
+              "enabled": true
+            }
+          ]
+        },
+        {
+          "id": "p3",
+          "prompt": "",
+          "negativePrompt": "",
+          "promptSegments": [
+            {
+              "id": "s3",
+              "type": "content",
+              "content": "green fox",
+              "chips": {},
+              "enabled": true
+            }
+          ],
+          "negativePromptSegments": []
+        }
+      ],
+      "activePromptTab": 2
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "red fox",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

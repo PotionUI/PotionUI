@@ -247,6 +247,13 @@ def _collect_repo_docs(base_docs_path: Path) -> List[_DocRecord]:
         for md_path in sorted(user_dir.glob("*.md")):
             records.append(_record_from_markdown(md_path, id_prefix="user", audience="user"))
 
+    api_dir = base_docs_path / "api"
+    if api_dir.is_dir():
+        for md_path in sorted(api_dir.glob("*.md")):
+            records.append(_record_from_markdown(
+                md_path, id_prefix="api", audience="user", default_category="API",
+            ))
+
     if base_docs_path.is_dir():
         # Top-level only - `docs/user/*.md` is handled above, not re-included here.
         for md_path in sorted(base_docs_path.glob("*.md")):

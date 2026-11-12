@@ -81,3 +81,25 @@ def test_a_released_tool_keeps_its_modes_flags_and_availability(current, name):
     assert tool.requires_approval == before["requires_approval"]
     assert getattr(tool, "admin_only", False) is before["admin_only"] is False
     assert tool.destructive is before["destructive"] is False
+
+
+SESSION_ARGUMENTS = {"session_id", "seed", "count", "variables"}
+
+
+def test_start_generation_chat_schema_is_unchanged_and_the_session_arguments_are_mcp_only(current):
+    tool = current["start_generation"].tool
+    before = BASELINE["tools"]["start_generation"]["parameters"]
+
+    assert tool.parameters == before
+    assert SESSION_ARGUMENTS.isdisjoint(tool.parameters["properties"])
+    mcp = tool.mcp_parameters
+    assert SESSION_ARGUMENTS <= set(mcp["properties"])
+    assert set(mcp["properties"]) - set(before["properties"]) == SESSION_ARGUMENTS
+    for name, spec in before["properties"].items():
+        assert mcp["properties"][name] == spec
+
+
+@pytest.mark.parametrize("name", sorted(set(BASELINE["tools"]) - {"start_generation"}))
+def test_no_other_released_tool_has_a_separate_mcp_schema(current, name):
+    assert current[name].tool.mcp_parameters is None
+    assert current[name].tool.mcp_description is None

@@ -104,8 +104,6 @@ class TestRegisterBuiltinTools:
             "search_provider_models",
             "get_download_status",
             "list_inspirations",
-            "list_sessions",
-            "get_session",
             "list_notifications",
             "run_elixir",
             "run_automation",
@@ -173,6 +171,7 @@ class TestRegisterBuiltinTools:
             "manage_collections",
             "organize_gallery",
             "start_generation",
+            "list_sessions",
             "run_media_tool",
         }
 

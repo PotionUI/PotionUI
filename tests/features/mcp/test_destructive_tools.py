@@ -191,10 +191,10 @@ class TestMcpOnlyTools:
     def test_chat_never_sees_a_tool_added_for_mcp(self, real_registry, build):
         offered = {tool.name for tool in real_registry.get_for_mode(build())}
 
-        assert offered.isdisjoint(ADDED_AFTER_SEED - {"list_models"})
+        assert offered.isdisjoint(ADDED_AFTER_SEED - {"list_models", "list_sessions"})
 
     def test_the_new_tools_are_offered_to_the_mcp_mode_only(self, real_registry):
-        added = ADDED_AFTER_SEED - {"list_models"}
+        added = ADDED_AFTER_SEED - {"list_models", "list_sessions"}
 
         assert {tool.name for tool in real_registry.get_all() if tool.modes == ["mcp"]} == added
 

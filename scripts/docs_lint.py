@@ -43,8 +43,16 @@ def main(argv=None) -> int:
     for e in reference_report.errors:
         print(f"ERROR {e}")
 
-    total_errors = len(report.errors) + len(reference_report.errors)
-    total_warnings = len(report.warnings) + len(reference_report.warnings)
+    from scripts.api_reference import check as check_api_reference
+
+    api_report = check_api_reference()
+    for w in api_report.warnings:
+        print(f"WARN  {w}")
+    for e in api_report.errors:
+        print(f"ERROR {e}")
+
+    total_errors = len(report.errors) + len(reference_report.errors) + len(api_report.errors)
+    total_warnings = len(report.warnings) + len(reference_report.warnings) + len(api_report.warnings)
     print(f"\n{total_errors} error(s), {total_warnings} warning(s).")
     return 0 if total_errors == 0 else 1
 

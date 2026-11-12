@@ -18,8 +18,6 @@ from src.features.mcp.tool_repository import McpToolRepository
 from src.features.notifications.collaborators import NotificationCollaborators
 from src.features.notifications.repository import NotificationRepository
 from src.features.notifications.routes import NotificationController
-from src.features.sessions.dto import Session
-from src.features.sessions.repository import SessionRepository
 from src.platform.http.base_controller import APIResponse
 from src.platform.security.user import AccountType
 from tests.features.mcp.support import KEY_ID, api_key, build_collaborators, handle_method
@@ -32,7 +30,7 @@ OWNER_ONLY_ADMIN = {"is_admin": True, "acts_as_admin": False}
 DESTRUCTIVE = ("delete_generation", "delete_library_item")
 READS = (
     "list_elixirs", "describe_elixir", "get_elixir_run", "list_automations", "get_automation_status",
-    "search_provider_models", "get_download_status", "list_inspirations", "list_sessions", "get_session",
+    "search_provider_models", "get_download_status", "list_inspirations",
     "list_notifications",
 )
 WRITES = ("run_elixir", "run_automation", "download_model", "publish_inspiration", "mark_notifications_read")
@@ -92,7 +90,7 @@ def world(mcp_db):
     elixirs = SimpleNamespace(repository=ElixirRepository(), coordinator=Mock())
     history = FakeHistory()
     domains = DomainServices(
-        automation=automation, library=library, sessions=SessionRepository(), notifications=notifications,
+        automation=automation, library=library, notifications=notifications,
         inspirations=inspirations, downloads=downloads, elixirs=elixirs,
     )
     registry = ToolRegistry()
@@ -234,47 +232,6 @@ class TestNotifications:
     @pytest.mark.asyncio
     async def test_naming_nothing_is_refused(self, world):
         assert "notification_id" in error(await call(world, "mark_notifications_read", {}))
-
-
-class TestSessions:
-    def seed(self, user_id, session_id, preset="p1", name="s", data=None):
-        SessionRepository().create(Session(id=session_id, user_id=user_id, preset_id=preset, name=name, data=data or {}))
-
-    @pytest.mark.asyncio
-    async def test_the_list_is_the_callers_sessions_for_the_preset_without_their_payloads(self, world):
-        self.seed(ALICE, "s-1", name="warm", data={"txt2img": {"prompt": "fox"}})
-        self.seed(ALICE, "s-2", preset="other")
-        self.seed(BOB, "s-3")
-
-        data = body(await call(world, "list_sessions", {"preset_id": "p1"}))
-
-        assert [s["id"] for s in data["sessions"]] == ["s-1"]
-        assert "data" not in data["sessions"][0]
-        assert "user_id" not in data["sessions"][0]
-
-    @pytest.mark.asyncio
-    async def test_a_session_reads_with_its_values_and_modes(self, world):
-        self.seed(ALICE, "s-1", data={"txt2img": {"prompt": "fox"}, "img2img": {"prompt": "owl"}})
-
-        data = body(await call(world, "get_session", {"session_id": "s-1"}))
-
-        assert data["data"]["txt2img"] == {"prompt": "fox"}
-        assert data["modes"] == ["txt2img", "img2img"]
-        assert data["preset_id"] == "p1"
-
-    @pytest.mark.asyncio
-    async def test_another_users_session_is_not_found(self, world):
-        self.seed(ALICE, "s-1")
-
-        assert error(await call(world, "get_session", {"session_id": "s-1"}, user_id=BOB)) == "Session not found"
-
-    @pytest.mark.asyncio
-    async def test_an_unknown_session_is_not_found(self, world):
-        assert error(await call(world, "get_session", {"session_id": "nope"})) == "Session not found"
-
-    @pytest.mark.asyncio
-    async def test_a_missing_preset_is_refused(self, world):
-        assert "'preset_id' is required" in error(await call(world, "list_sessions", {}))
 
 
 class TestElixirs:
@@ -662,7 +619,7 @@ class TestUndeclaredArguments:
 
 class TestWhenAServiceIsMissing:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("name,arguments", [("list_elixirs", {}), ("list_notifications", {}), ("get_session", {"session_id": "x"})])
+    @pytest.mark.parametrize("name,arguments", [("list_elixirs", {}), ("list_notifications", {})])
     async def test_the_tool_says_it_is_not_available(self, world, name, arguments):
         bare = build_collaborators(world.c.tool_registry, ToolServices(llm_repository=world.c.services.llm_repository))
 

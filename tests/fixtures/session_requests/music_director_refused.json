@@ -1,0 +1,20 @@
+{
+  "preset_vars": {
+    "music_director": {
+      "modes": {
+        "song": {}
+      }
+    }
+  },
+  "mode": "song",
+  "entry": {
+    "prompt": "lofi"
+  },
+  "overrides": {},
+  "random": [
+    0.0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "refusal": "session_needs_editor"
+}

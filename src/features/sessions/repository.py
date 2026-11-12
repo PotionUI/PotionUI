@@ -100,6 +100,30 @@ class SessionRepository:
             rows = cursor.fetchall()
             return [self._row_to_session(row) for row in rows]
 
+    def list_for_user(
+        self, user_id: str, preset_id: Optional[str] = None, name: Optional[str] = None, query: Optional[str] = None
+    ) -> List[Session]:
+        clauses = ["user_id = ?"]
+        params: List[Any] = [user_id]
+        if preset_id:
+            clauses.append("preset_id = ?")
+            params.append(preset_id)
+        if name:
+            clauses.append("name = ?")
+            params.append(name)
+        if query:
+            clauses.append("LOWER(name) LIKE ? ESCAPE '\\'")
+            escaped = query.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            params.append(f"%{escaped}%")
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"SELECT * FROM sessions WHERE {' AND '.join(clauses)} "
+                "ORDER BY pinned DESC, pinned_at DESC, updated_at DESC, id DESC",
+                params,
+            )
+            return [self._row_to_session(row) for row in cursor.fetchall()]
+
     def get_by_user_preset_and_name(self, user_id: str, preset_id: str, name: str) -> Optional[Session]:
         """Get a specific session by user, preset, and name."""
         with get_database_connection() as conn:

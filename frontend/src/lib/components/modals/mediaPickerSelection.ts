@@ -1,12 +1,14 @@
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 import type { LibraryItem } from '$lib/services/api/library';
+import type { Kit, KitItem } from '$lib/kits/types';
 import { get, writable, type Readable } from 'svelte/store';
 
 export type PickerMediaType = 'image' | 'video' | 'audio' | 'mesh';
 
 export type PickedMediaOrigin =
 	| { kind: 'history'; generationId: string; fileId: number }
-	| { kind: 'library'; itemId: string };
+	| { kind: 'library'; itemId: string }
+	| { kind: 'kit'; kitId: string; itemId: string };
 
 export interface PickedMedia {
 	key: string;
@@ -16,6 +18,8 @@ export interface PickedMedia {
 	generation?: GenerationHistoryItem;
 	file?: GenerationFile;
 	item?: LibraryItem;
+	kit?: Pick<Kit, 'id' | 'name' | 'handle'>;
+	kitItem?: KitItem;
 }
 
 export function historyMediaKey(generationId: string, fileId: number): string {
@@ -85,6 +89,17 @@ export function pickedFromLibraryItem(item: LibraryItem): PickedMedia {
 	};
 }
 
+export function pickedFromKitItem(kit: Pick<Kit, 'id' | 'name' | 'handle'>, item: KitItem): PickedMedia {
+	return {
+		key: `kit:${item.id}`,
+		mediaType: item.kind,
+		filename: item.name,
+		origin: { kind: 'kit', kitId: kit.id, itemId: item.id },
+		kit,
+		kitItem: item
+	};
+}
+
 export function isMediaTypeSelectable(
 	mediaType: string,
 	allowed: readonly PickerMediaType[] | undefined
@@ -107,7 +122,13 @@ export function sameKeys(a: readonly string[], b: readonly string[]): boolean {
 
 export type PickerSource = 'history' | 'library';
 
-export function pickedFromKey(key: string, source: PickerSource): PickedMedia {
+export function pickedFromKey(key: string, source: PickerSource | 'any'): PickedMedia {
+	if (source === 'any') {
+		if (key.startsWith('kit:')) {
+			return { key, mediaType: null, filename: null, origin: { kind: 'kit', kitId: '', itemId: key.slice(4) } };
+		}
+		return pickedFromKey(key, key.includes(':') ? 'history' : 'library');
+	}
 	if (source === 'library') {
 		return { key, mediaType: null, filename: null, origin: { kind: 'library', itemId: key } };
 	}
@@ -127,7 +148,7 @@ export function pickedFromKey(key: string, source: PickerSource): PickedMedia {
 export function itemsForKeys(
 	keys: readonly string[],
 	known: ReadonlyMap<string, PickedMedia>,
-	source: PickerSource
+	source: PickerSource | 'any'
 ): PickedMedia[] {
 	return keys.map((key) => known.get(key) ?? pickedFromKey(key, source));
 }
@@ -140,11 +161,13 @@ export interface MediaSelectionController {
 	track: (isOpen: boolean) => void;
 	remember: (items: PickedMedia[]) => void;
 	toggle: (key: string, onChange: SelectionChangeHandler) => void;
+	set: (keys: string[], onChange: SelectionChangeHandler) => void;
+	resolve: (keys: readonly string[]) => PickedMedia[];
 	cancel: (onChange: SelectionChangeHandler) => void;
 	confirm: (onConfirm: SelectionChangeHandler) => boolean;
 }
 
-export function createMediaSelection(source: PickerSource): MediaSelectionController {
+export function createMediaSelection(source: PickerSource | 'any'): MediaSelectionController {
 	const selection = writable<string[]>([]);
 	const known = new Map<string, PickedMedia>();
 	let baseline: string[] = [];
@@ -170,6 +193,12 @@ export function createMediaSelection(source: PickerSource): MediaSelectionContro
 		},
 		toggle(key, onChange) {
 			emit(toggleKey(get(selection), key), onChange);
+		},
+		set(keys, onChange) {
+			emit([...keys], onChange);
+		},
+		resolve(keys) {
+			return itemsForKeys(keys, known, source);
 		},
 		cancel(onChange) {
 			if (!sameKeys(get(selection), baseline)) emit([...baseline], onChange);

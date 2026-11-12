@@ -9,6 +9,7 @@
 		totalPages,
 		size = 'md',
 		slots = PAGE_WINDOW_SLOTS,
+		phoneEdges = true,
 		onPageChange,
 		class: className = ''
 	}: {
@@ -16,6 +17,7 @@
 		totalPages: number;
 		size?: Size;
 		slots?: number;
+		phoneEdges?: boolean;
 		onPageChange: (page: number) => void;
 		class?: string;
 	} = $props();
@@ -42,6 +44,7 @@
 			label="First page"
 			{size}
 			variant="secondary"
+			class={phoneEdges ? '' : 'max-sm:hidden'}
 			disabled={atFirst}
 			onclick={() => go(1)}
 		/>
@@ -95,6 +98,7 @@
 			label="Last page"
 			{size}
 			variant="secondary"
+			class={phoneEdges ? '' : 'max-sm:hidden'}
 			disabled={atLast}
 			onclick={() => go(totalPages)}
 		/>

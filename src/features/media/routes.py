@@ -383,7 +383,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get best-effort metadata for an already-uploaded file"""
         return await controller.get_upload_info(filename, current_user)
 
-    @router.post("/upload", response_model=APIResponse, summary="Upload Media", dependencies=[key_scope(ApiScope.GENERATE)])
+    @router.post("/upload", response_model=APIResponse, summary="Upload Media", description="Uploads an input file (multipart field file). The answer carries relative_path, which goes into a media field of form_data when you start a generation.", dependencies=[key_scope(ApiScope.GENERATE)])
     async def upload_media(
         file: UploadFile = File(...),
         purpose: Optional[str] = Form(None),
@@ -426,7 +426,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Delete all media files for a generation"""
         return await controller.delete_generation_media(generation_id, current_user)
 
-    @router.get("/files/{file_id}", summary="Serve File by ID", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
+    @router.get("/files/{file_id}", summary="Serve File by ID", description="The bytes of a generated file or an upload, by the file id that history returns. Optional width, height or size ask for a smaller version.", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     async def serve_file_by_id(
         file_id: str,
         width: Optional[int] = None,

@@ -24,6 +24,7 @@ from src.bootstrap.container import AppContainer, build_container
 from src.bootstrap.secrets_preflight import run_secret_preflight
 from src.bootstrap.errors import register_error_handlers
 from src.bootstrap.middleware import register_middleware
+from src.bootstrap.openapi import install_api_key_scheme
 from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
 from src.features.generation.memory_advisory import resolve_device_evidence
@@ -583,6 +584,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         openapi_tags=tags_metadata,
         redirect_slashes=False,
     )
+
+    install_api_key_scheme(app)
 
     # Global exception handlers for better error reporting
     register_error_handlers(app)

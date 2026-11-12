@@ -38,6 +38,8 @@ lifetime; a row that is not allowed says so.
 
 ## Using a key from a script
 
+The **API** pages of this documentation are a step-by-step guide to scripting PotionUI, with a quickstart, working examples and a reference of every route. This section is the short version.
+
 Send the key as a bearer token on any API request:
 
 ```

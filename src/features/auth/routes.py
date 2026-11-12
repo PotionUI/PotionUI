@@ -307,6 +307,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         "/ws-ticket",
         response_model=APIResponse,
         summary="Get a single-use ticket to open one WebSocket",
+        description="Returns a ticket for the socket named in path, such as /ws/generation. The ticket works once and expires 30 seconds after it is issued; open the socket with ?ticket=. Scripts can skip the ticket and send the key in an Authorization header when they connect.",
         dependencies=[key_access(write=ApiScope.READ)],
     )
     async def ws_ticket(

@@ -74,6 +74,7 @@ import { createRecipeModesApi } from './recipeModes';
 import { createApiKeysApi } from './apiKeys';
 import { createKitsApi } from './kits';
 import { createMcpToolsApi } from './mcpTools';
+import { createSessionScriptsApi } from './sessionScripts';
 import { createInspirationsApi } from './inspirations';
 import { createFormulasApi } from './formulas';
 import { createFiltersApi } from './filters';
@@ -132,6 +133,7 @@ export const api = {
 	...createApiKeysApi(apiClient.getClient()),
 	...createKitsApi(apiClient.getClient()),
 	...createMcpToolsApi(apiClient.getClient()),
+	...createSessionScriptsApi(apiClient.getClient()),
 	...createInspirationsApi(apiClient.getClient()),
 	...createFormulasApi(apiClient.getClient()),
 	...createFiltersApi(apiClient.getClient()),

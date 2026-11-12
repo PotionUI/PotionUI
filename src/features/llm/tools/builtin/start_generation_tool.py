@@ -52,8 +52,7 @@ class StartGenerationTool(BaseTool):
             "Start a generation for an explicit preset, independent of any live form state. "
             "Unset fields fall back to the preset's own defaults. Get preset ids from list_presets "
             "and a preset's modes and field names from get_preset_info. Requires user approval; "
-            "returns the generation_id once started. To reuse settings saved in the web UI, pass "
-            "session_id (from list_sessions) and only what should change. For several distinct prompts in one run, pass "
+            "returns the generation_id once started. For several distinct prompts in one run, pass "
             "'prompts' (a list of {positive, negative?}) instead of 'prompt': they render in one "
             "generation and are much faster than calling this tool once per prompt. 'prompts' and "
             "'prompt' are mutually exclusive; form_overrides.quantity then applies per prompt. Example: "
@@ -67,10 +66,6 @@ class StartGenerationTool(BaseTool):
             "type": "object",
             "properties": {
                 "preset_id": {"type": "string", "description": "The preset id to generate with."},
-                "session_id": {"type": "string", "description": "A saved session id from list_sessions, instead of preset_id."},
-                "seed": {"type": "integer", "description": "With session_id: the seed field (-1 is a new one)."},
-                "count": {"type": "integer", "minimum": 1, "description": "With session_id: the quantity field."},
-                "variables": {"type": "object", "additionalProperties": {"type": "string"}, "description": "With session_id: prompt variables by name."},
                 "mode": {"type": "string", "description": "One of the preset's modes (see get_preset_info); default txt2img, else the first. For one video use a single-clip mode, not Video Director."},
                 "prompt": {"type": "string"},
                 "negative_prompt": {"type": "string"},
@@ -102,8 +97,26 @@ class StartGenerationTool(BaseTool):
                     ),
                 },
             },
-            "required": [],
+            "required": ["preset_id"],
         }
+
+    SESSION_PROPERTIES = {
+        "session_id": {"type": "string", "description": "A saved session id from list_sessions, instead of preset_id."},
+        "seed": {"type": "integer", "description": "With session_id: the seed field (-1 is a new one)."},
+        "count": {"type": "integer", "minimum": 1, "description": "With session_id: the quantity field."},
+        "variables": {"type": "object", "additionalProperties": {"type": "string"}, "description": "With session_id: prompt variables by name."},
+    }
+
+    @property
+    def mcp_description(self) -> str:
+        return self.description + (
+            " To reuse settings saved in the web UI, pass session_id (from list_sessions) and only what should change."
+        )
+
+    @property
+    def mcp_parameters(self) -> Dict[str, Any]:
+        base = self.parameters
+        return {**base, "properties": {**base["properties"], **self.SESSION_PROPERTIES}, "required": []}
 
     @staticmethod
     def _build_preview(kwargs: Dict[str, Any]) -> Dict[str, Any]:

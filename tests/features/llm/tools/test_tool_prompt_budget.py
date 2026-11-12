@@ -13,7 +13,7 @@ _SCHEMA_CHAR_ALLOWANCES = {
     "update_music_director": 3450,
     "manage_collections": 3100,
     "organize_gallery": 2500,
-    "start_generation": 2900,
+    "start_generation": 2350,
     "add_prompt": 2200,
     "run_media_tool": 5324,
     "edit_elixir": 2400,

@@ -46,7 +46,7 @@ class TestSchema:
         tool = StartGenerationTool()
         assert tool.name == "start_generation"
         assert tool.requires_approval is True
-        assert tool.parameters["required"] == []
+        assert tool.parameters["required"] == ["preset_id"]
 
     def test_does_not_read_session_form_state(self):
         """This tool must work with no live chat session at all (MCP has none) -

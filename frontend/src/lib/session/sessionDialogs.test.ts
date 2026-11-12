@@ -63,10 +63,18 @@ describe('createSessionDialogs', () => {
 		const dialogs = createSessionDialogs(controller);
 		dialogs.openSave();
 		dialogs.close();
-		expect(get(dialogs.state)).toEqual({ saveOpen: false, saveAsOpen: false, deleteOpen: false, reloadOpen: false, name: '' });
+		expect(get(dialogs.state)).toEqual({ saveOpen: false, saveAsOpen: false, deleteOpen: false, reloadOpen: false, name: '', scriptSessionId: null });
 		expect(controller.closeDialog).toHaveBeenCalledWith('save');
 		expect(controller.closeDialog).toHaveBeenCalledWith('delete');
 		expect(controller.clearFeedback).toHaveBeenCalled();
+	});
+
+	it('opens the script dialog for a session and closes it with the rest', () => {
+		const dialogs = createSessionDialogs(fakeController('Alpha'));
+		dialogs.actions.openScript?.('s9');
+		expect(get(dialogs.state).scriptSessionId).toBe('s9');
+		dialogs.close();
+		expect(get(dialogs.state).scriptSessionId).toBeNull();
 	});
 
 	it('saves under the typed name and closes only on success', async () => {

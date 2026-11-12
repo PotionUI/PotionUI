@@ -5,6 +5,7 @@
 	import type { SessionDialogs } from '$lib/session/sessionDialogs';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import SessionSaveModal from './SessionSaveModal.svelte';
+	import SessionScriptDialog from './SessionScriptDialog.svelte';
 
 	export let controller: SessionController;
 	export let dialogs: SessionDialogs;
@@ -62,4 +63,10 @@
 	busy={$session.isSessionLoading || $session.isQuickSaving || $session.isSaving}
 	on:confirm={dialogs.confirmReload}
 	on:cancel={dialogs.close}
+/>
+
+<SessionScriptDialog
+	sessionId={$dialogState.scriptSessionId}
+	sessionName={$session.sessions.find((item) => item.id === $dialogState.scriptSessionId)?.name ?? ''}
+	onClose={dialogs.close}
 />

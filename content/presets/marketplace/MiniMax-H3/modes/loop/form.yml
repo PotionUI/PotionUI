@@ -12,6 +12,11 @@ fields:
         configuration: {icon: "generation", icon_display: "icon_only"}
         children: "{{ paths.preset }}/modes/loop/tabs/generation.yml"
       - type: "tab"
+        anchor: "references"
+        label: "References"
+        configuration: {icon: "image", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/loop/tabs/references.yml"
+      - type: "tab"
         anchor: "lora"
         label: "LoRA"
         configuration: {icon: "lora", icon_display: "icon_only"}
@@ -21,4 +26,4 @@ fields:
         label: "Advanced"
         audience: "advanced"
         configuration: {icon: "settings", icon_display: "icon_only"}
-        children: "{{ paths.preset }}/modes/refs/tabs/advanced.yml"
+        children: "{{ paths.preset }}/modes/loop/tabs/advanced.yml"

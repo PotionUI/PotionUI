@@ -1,0 +1,6 @@
+fields:
+  - name: "start_picture"
+    type: "image"
+    label: "Start picture"
+    description: "Optional. The picture that comes to life."
+    ai_hint: "The picture the loop is made from; its look, colours and framing are kept. The loop begins a moment after the picture, once it is moving, so the wrap never eases into a still. Leave it empty to make the scene from the prompt alone."

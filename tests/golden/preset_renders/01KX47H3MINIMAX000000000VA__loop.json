@@ -174,14 +174,9 @@
                 "golden positive prompt"
               ]
             ],
-            [],
             [
               "steps",
-              4
-            ],
-            [
-              "speed_profile",
-              "quality"
+              24
             ],
             [
               "duration",
@@ -271,10 +266,6 @@
           "type": "str",
           "value": "1344x768"
         },
-        "runtime_loras": {
-          "type": "list",
-          "value": []
-        },
         "sampler": {
           "type": "str",
           "value": "euler"
@@ -317,7 +308,7 @@
         },
         "steps": {
           "type": "int",
-          "value": 4
+          "value": 24
         },
         "video_sigma_shift": {
           "type": "float",

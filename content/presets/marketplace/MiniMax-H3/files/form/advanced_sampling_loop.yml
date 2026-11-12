@@ -1,0 +1,93 @@
+fields:
+  - name: "steps"
+    type: "slider"
+    formula: "speed"
+    label: "Steps"
+    audience: "advanced"
+    default: 24
+    ai_hint: "Denoising steps for each of the loop's two passes; video and audio share the count. 24 is the setting the loop is measured to close at. Keep it at 20 or more: a few-step run may not come back to its start."
+    configuration: {min: 20, max: 100, step: 1}
+  - type: "row"
+    children:
+      - name: "sampler"
+        type: "select"
+        formula: "speed"
+        label: "Sampler"
+        audience: "advanced"
+        default: "euler"
+        ai_hint: >-
+          How each step advances between two sigmas. Euler is the reference
+          solver and what the model was distilled against — leave it there for
+          an ordinary request. Res multistep, DPM++ 2M and SA-Solver are
+          deterministic second-order solvers: they reuse the previous step's
+          estimate, so they cost no extra time and mostly buy sharpness at LOW
+          step counts. ER-SDE is
+          stochastic instead — it injects noise every step, seeded like the
+          rest of the request, trading exact reproducibility for more variety.
+          Suggest a non-default one only when the user asks for better quality
+          at a low step count, or wants to try the community's MiniMax-H3
+          recipes — res multistep with the Simple scheduler, DPM++ 2M with
+          Beta.
+        configuration:
+          options:
+            - { label: "Euler (reference)", value: "euler" }
+            - { label: "Res multistep", value: "res_multistep" }
+            - { label: "DPM++ 2M", value: "dpmpp_2m" }
+            - { label: "ER-SDE (stochastic)", value: "er_sde" }
+            - { label: "SA-Solver", value: "sa_solver" }
+            - { label: "LCM (re-noise)", value: "lcm" }
+
+      - name: "scheduler"
+        type: "select"
+        formula: "speed"
+        label: "Scheduler"
+        audience: "advanced"
+        default: "simple"
+        ai_hint: >-
+          Where the steps land on the noise curve. Simple is the model's own
+          uniform grid and the right answer unless asked otherwise. Beta pulls
+          knots toward both ends — more steps on early composition and on the
+          final detail, fewer in the middle — which tends to help short runs
+          and pairs with DPM++ 2M in the community recipe. Beta57 leans the
+          knots toward the clean end for more detail steps; the community's
+          8-step recipe pairs it with Euler. Both video and audio
+          are derived from the same knots either way. Cannot be combined with
+          this tab's manual sigmas; that combination is refused rather than
+          silently ignored.
+        configuration:
+          options:
+            - { label: "Simple (reference)", value: "simple" }
+            - { label: "Beta", value: "beta" }
+            - { label: "Beta57", value: "beta57" }
+  - type: "row"
+    children:
+      - name: "video_sigma_shift"
+        type: "slider"
+        formula: "speed"
+        label: "Video shift"
+        audience: "advanced"
+        default: 12.0
+        ai_hint: "How hard the picture's noise curve leans toward high noise. 12 is the released model's own; leave it there unless the user names another value. Ignored while manual sigmas are set."
+        configuration: {min: 0.5, max: 50.0, step: 0.5}
+      - name: "audio_sigma_shift"
+        type: "slider"
+        formula: "speed"
+        label: "Audio shift"
+        audience: "advanced"
+        default: 3.0
+        ai_hint: "The same knob for the soundtrack's own noise curve. 3 is the released model's own; leave it there unless the user names another value. Ignored while manual sigmas are set."
+        configuration: {min: 0.5, max: 50.0, step: 0.5}
+      - name: "manual_sigmas"
+        type: "textbox"
+        label: "Manual sigmas (video)"
+        default: ""
+        ai_hint: "An expert escape hatch for reshaping where the model spends its steps -- front-load values near 1.0 for more composition work, cluster them low for more detail refinement. Do not offer it for ordinary requests; Steps and the speed profile cover those. Only reach for it when the user explicitly asks for a custom or non-uniform sigma schedule, or is transplanting a schedule from another tool. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps. The computed default is shift 12 (video) / shift 3 (audio)."
+        configuration:
+          placeholder: "e.g. 1.0, 0.93, 0.8, 0.55, 0.0"
+      - name: "manual_audio_sigmas"
+        type: "textbox"
+        label: "Manual sigmas (audio)"
+        default: ""
+        ai_hint: "Rarely needed on its own. Leave blank even when Manual sigmas (video) is set, unless the user specifically wants a different noise curve for the soundtrack than for the picture. If both lists are filled they must have the same number of values."
+        configuration:
+          placeholder: "blank = matched to the video schedule"

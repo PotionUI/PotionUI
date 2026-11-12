@@ -106,7 +106,7 @@ gets one more free chunk because it now also carries the motion from the picture
 ## Presets
 
 - **MiniMax-H3 → Perfect loop** (`modes/loop`): Start picture (optional), What moves (the prompt),
-  Length, Movement (Subtle by default), Resolution, Sound (off by default), speed profile.
+  Length, Movement (Subtle by default), Resolution, Sound (off by default). No speed profile: Steps (24) is on the Advanced tab.
 
 ## Tradeoffs and limitations
 
@@ -123,7 +123,7 @@ gets one more free chunk because it now also carries the motion from the picture
   the picture and solves that with a cut back to its own opening: a visible reset about four fifths
   of the way through.
 - The pins make the seam exact in latent space and in the decoder. Whether the bridge's free middle
-  moves naturally into and out of its pinned ends, at every speed profile, is what a GPU run has to
+  moves naturally into and out of its pinned ends is what a GPU run has to
   show (`tests/manual/h3_perfect_loop_check.py`).
 - The camera has to stay fixed for a loop to close; the mode's prompt asks for that.
 - Not validated on real weights.

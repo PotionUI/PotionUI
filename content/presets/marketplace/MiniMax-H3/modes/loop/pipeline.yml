@@ -17,7 +17,7 @@ pipeline:
         name: "{{ form.audio_vae }}"
       loras:
         "@loop":
-          items: "{{ form.loras if form.speed_profile != 'flex' else [] }}"
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -87,14 +87,10 @@ pipeline:
         - ["model", "{{ form.video_vae }}"]
         - ["model", "{{ form.audio_vae }}"]
         - "@loop":
-            items: "{{ (form.loras | active_loras) if form.speed_profile != 'flex' else [] }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
-        - "@loop":
-            items: "{{ [form.flex_adapter] if form.speed_profile == 'flex' else [] }}"
-            template: ["model", "{{ item }}"]
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
-        - ["speed_profile", "{{ form.speed_profile }}"]
         - ["duration", "{{ form.loop_seconds }}"]
         - ["movement", "{{ form.movement }}"]
         - ["resolution", "{{ form.resolution }}"]
@@ -135,13 +131,6 @@ pipeline:
       audio_sigma_shift: "{{ form.audio_sigma_shift }}"
       manual_sigmas: "{{ (generation.profile.extra | default({})).manual_sigmas | default(form.manual_sigmas) }}"
       manual_audio_sigmas: "{{ (generation.profile.extra | default({})).manual_audio_sigmas | default(form.manual_audio_sigmas) }}"
-      runtime_loras:
-        "@loop":
-          items: "{{ [{'model': form.flex_adapter, 'strength': 1.0, 'audio': true}] if form.speed_profile == 'flex' else [] }}"
-          template:
-            file_path: "{{ item.model }}"
-            weight: "{{ item.strength }}"
-            audio: "{{ item.audio | default(true) }}"
 
   - name: "gallery"
     input:

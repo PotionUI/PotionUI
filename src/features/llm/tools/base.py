@@ -115,6 +115,7 @@ class ToolServices:
     tab_drafts: Any = None
     media_tool_service: Any = None
     elixirs: Any = None
+    sessions: Any = None
 
 
 @dataclass
@@ -162,6 +163,7 @@ class ToolContext:
     elixirs: Any = None
     chat_session: bool = True
     acts_as_admin: bool = False
+    sessions: Any = None
 
     @classmethod
     def for_session(cls, services: ToolServices, user_id: str, **fields_: Any) -> "ToolContext":
@@ -217,6 +219,8 @@ class BaseTool(ABC):
     spends: bool = False
     mcp: bool = False
     mcp_unavailable: Optional[str] = None
+    mcp_description: Optional[str] = None
+    mcp_parameters: Optional[Dict[str, Any]] = None
 
     @property
     def writes(self) -> bool:

@@ -1,0 +1,262 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "prompt": "ignored because segments exist",
+    "negativePrompt": "",
+    "promptSegments": [
+      {
+        "id": "a",
+        "type": "content",
+        "content": "portrait of #hair color and a #[camera lens] shot",
+        "chips": {
+          "c1": {
+            "valueId": "v1",
+            "label": "Red",
+            "value": "red hair",
+            "categoryPath": "hair color",
+            "allValues": [
+              {
+                "id": "v1",
+                "label": "Red",
+                "value": "red hair"
+              }
+            ],
+            "shuffle": false,
+            "autoRegen": false
+          },
+          "c2": {
+            "valueId": "v2",
+            "label": "85mm",
+            "value": "85mm lens",
+            "categoryPath": "camera lens",
+            "allValues": [
+              {
+                "id": "v2",
+                "label": "85mm",
+                "value": "85mm lens"
+              }
+            ],
+            "shuffle": false,
+            "autoRegen": false
+          }
+        },
+        "enabled": true,
+        "name": "Subject",
+        "color": "blue"
+      },
+      {
+        "id": "b",
+        "type": "content",
+        "content": "off segment",
+        "chips": {},
+        "enabled": false,
+        "isDisabled": true
+      },
+      {
+        "id": "c",
+        "type": "content",
+        "content": "  body  ",
+        "chips": {},
+        "enabled": true,
+        "prefix": "(",
+        "suffix": ":1.2)"
+      },
+      {
+        "id": "d",
+        "type": "content",
+        "content": "   ",
+        "chips": {},
+        "enabled": true,
+        "prefix": "[",
+        "suffix": "]"
+      }
+    ],
+    "negativePromptSegments": [
+      {
+        "id": "n",
+        "type": "content",
+        "content": "blurry, lowres",
+        "chips": {},
+        "enabled": true
+      }
+    ],
+    "formData": {
+      "width": 1024
+    }
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "portrait of red hair and a 85mm lens shot (body:1.2)",
+        "negative": "blurry, lowres"
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {
+      "width": 1024
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "ignored because segments exist",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "a",
+          "type": "content",
+          "content": "portrait of #hair color and a #[camera lens] shot",
+          "chips": {
+            "c1": {
+              "valueId": "v1",
+              "label": "Red",
+              "value": "red hair",
+              "categoryPath": "hair color",
+              "allValues": [
+                {
+                  "id": "v1",
+                  "label": "Red",
+                  "value": "red hair"
+                }
+              ],
+              "shuffle": false,
+              "autoRegen": false
+            },
+            "c2": {
+              "valueId": "v2",
+              "label": "85mm",
+              "value": "85mm lens",
+              "categoryPath": "camera lens",
+              "allValues": [
+                {
+                  "id": "v2",
+                  "label": "85mm",
+                  "value": "85mm lens"
+                }
+              ],
+              "shuffle": false,
+              "autoRegen": false
+            }
+          },
+          "enabled": true,
+          "name": "Subject",
+          "color": "blue"
+        },
+        {
+          "id": "b",
+          "type": "content",
+          "content": "off segment",
+          "chips": {},
+          "enabled": false,
+          "isDisabled": true
+        },
+        {
+          "id": "c",
+          "type": "content",
+          "content": "  body  ",
+          "chips": {},
+          "enabled": true,
+          "prefix": "(",
+          "suffix": ":1.2)"
+        },
+        {
+          "id": "d",
+          "type": "content",
+          "content": "   ",
+          "chips": {},
+          "enabled": true,
+          "prefix": "[",
+          "suffix": "]"
+        }
+      ],
+      "negativePromptSegments": [
+        {
+          "id": "n",
+          "type": "content",
+          "content": "blurry, lowres",
+          "chips": {},
+          "enabled": true
+        }
+      ]
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "portrait of red hair and a 85mm lens shot",
+        "is_disabled": false,
+        "name": "Subject",
+        "color": "blue",
+        "description": null,
+        "phrasebooks": [
+          {
+            "phrasebook_value_id": "v1",
+            "category_path": "hair color",
+            "value": "red hair"
+          },
+          {
+            "phrasebook_value_id": "v2",
+            "category_path": "camera lens",
+            "value": "85mm lens"
+          }
+        ]
+      },
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 1,
+        "segment_type": "content",
+        "text": "off segment",
+        "is_disabled": true,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 2,
+        "segment_type": "content",
+        "text": "(body:1.2)",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 3,
+        "segment_type": "content",
+        "text": "",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "negative",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "blurry, lowres",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

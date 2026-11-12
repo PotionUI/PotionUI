@@ -15,7 +15,7 @@ READS = {
     "get_model_info", "get_preset_info", "list_presets", "list_models", "search_models",
     "list_phrasebook_categories", "get_phrasebook_values",
     "enhance_prompt", "search_model_prompts", "search_gallery", "get_prompt", "list_prompts",
-    "list_library_items", "read_memory", "get_prompt_variables", "list_tab_drafts", "write_condition",
+    "list_library_items", "read_memory", "get_prompt_variables", "list_tab_drafts", "write_condition", "list_sessions",
 }
 
 WRITES = {
@@ -94,7 +94,7 @@ def test_the_tools_the_migration_keeps_on_are_exactly_those_that_write_or_spend(
 
     assert set(module._KEPT_ON) == {entry.name for entry in offered if entry.writes or entry.spends}
     assert set(module._WRITE_TOOLS) == {entry.name for entry in offered if entry.writes}
-    assert set(module._READ_TOOLS) == {entry.name for entry in offered if not entry.writes and not entry.spends} - {"list_models"}
+    assert set(module._READ_TOOLS) == {entry.name for entry in offered if not entry.writes and not entry.spends} - {"list_models", "list_sessions"}
 
 
 class _Tool(BaseTool):

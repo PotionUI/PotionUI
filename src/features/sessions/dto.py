@@ -4,9 +4,9 @@ Session DTOs for API requests and responses.
 These Pydantic models define the contract between the API layer and clients.
 They are used throughout the application as the single model type (no separate dataclass models).
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Session(BaseModel):
@@ -67,3 +67,31 @@ class SessionVersion(BaseModel):
     data: Dict[str, Any]
     summary: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+class PromptOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    positive: str
+    negative: Optional[str] = None
+
+
+class SessionOverrides(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt: Optional[str] = None
+    negative_prompt: Optional[str] = None
+    prompts: Optional[List[PromptOverride]] = Field(default=None, min_length=1, max_length=20)
+    variables: Dict[str, str] = Field(default_factory=dict)
+    seed: Optional[int] = None
+    count: Optional[int] = Field(default=None, ge=1)
+    form: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GenerateFromSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Optional[str] = None
+    overrides: SessionOverrides = Field(default_factory=SessionOverrides)
+    if_settings_hash: Optional[str] = None
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    tag_ids: Optional[List[str]] = None
+    collection_ids: Optional[List[str]] = None
+    dry_run: bool = False

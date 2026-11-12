@@ -1,0 +1,48 @@
+{
+  "preset_vars": {
+    "prompt_relay_modes": [
+      "txt2vid"
+    ]
+  },
+  "mode": "txt2vid",
+  "entry": {
+    "promptRelay": {
+      "global_prompt": "only global"
+    }
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "only global",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2vid",
+    "form_data": {
+      "global_prompt": "only global",
+      "timeline": {
+        "duration": 5,
+        "fps": 24,
+        "segments": []
+      }
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "",
+      "negativePrompt": "",
+      "promptSegments": [],
+      "negativePromptSegments": [],
+      "promptRelay": {
+        "global_prompt": "only global"
+      }
+    },
+    "segments": []
+  }
+}

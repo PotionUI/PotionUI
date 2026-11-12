@@ -150,6 +150,7 @@ class TestRegisterBuiltinTools:
             "manage_collections",
             "organize_gallery",
             "start_generation",
+            "list_sessions",
             "run_media_tool",
         }
 

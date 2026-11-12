@@ -300,6 +300,7 @@ from src.features.api_keys.operations.resolver import ApiKeyResolver
 from src.features.api_keys.repository import ApiKeyEventRepository, ApiKeyRepository, UserApiAccessRepository
 from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
 from src.features.docs.routes import DocsController
+from src.features.sessions.generate import SessionRequests
 from src.features.sessions.routes import SessionController
 from src.features.sessions.version_repository import SessionVersionRepository
 from src.features.formulas.collaborators import FormulaCollaborators
@@ -587,6 +588,7 @@ class AppContainer:
     # (migration 092); see src/features/sessions/manager.py.
     session_version_repository: "SessionVersionRepository"
     session_controller: "SessionController"
+    session_requests: "SessionRequests"
     formula_controller: "FormulaController"
     filter_controller: "FilterController"
     organize_registry: OrganizeRegistry
@@ -1862,6 +1864,16 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
 
     session_repository = SessionRepository()
     session_version_repository = SessionVersionRepository()
+    session_requests = SessionRequests(
+        sessions=session_repository,
+        versions=session_version_repository,
+        preset_loader=preset_template_loader,
+        preset_db=database_preset_repository,
+        users=user_repository,
+        models=model_access_policy,
+        settings=settings,
+        prompt_batch=backend_registry.engine_supports_prompt_batch,
+    )
     elixirs = build_elixirs(
         users=user_repository,
         orchestrator=generation_orchestrator,
@@ -1925,6 +1937,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         tab_drafts=tab_draft_manager,
         media_tool_service=media_tool_service,
         elixirs=elixir_assistant,
+        sessions=session_requests,
     )
     mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,

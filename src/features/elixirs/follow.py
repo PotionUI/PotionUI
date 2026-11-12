@@ -1,5 +1,4 @@
 import copy
-import hashlib
 import json
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
@@ -7,6 +6,7 @@ from src.features.elixirs.brew import reach
 from src.features.elixirs.errors import SessionNotFoundError
 from src.features.elixirs.records import utc_now
 from src.features.elixirs.sessions import SessionModeMissing, mode_payload
+from src.features.sessions.request import settings_hash
 from src.features.elixirs.vocabulary import node_label
 
 FOLLOW = "follow"
@@ -29,11 +29,6 @@ def session_mode_of(node: Mapping[str, Any]) -> str:
 
 def is_following(node: Mapping[str, Any]) -> bool:
     return node.get("kind") == "preset" and session_mode_of(node) == FOLLOW and bool((node.get("session_ref") or {}).get("id"))
-
-
-def settings_hash(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def session_ref(current: Mapping[str, Any], mode: str) -> Dict[str, Any]:

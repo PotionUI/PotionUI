@@ -1,0 +1,40 @@
+{
+  "preset_vars": {
+    "optional_prompt_modes": [
+      "txt2img"
+    ]
+  },
+  "mode": "txt2img",
+  "entry": {
+    "formData": {
+      "steps": 8
+    }
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {
+      "steps": 8
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "",
+      "negativePrompt": "",
+      "promptSegments": [],
+      "negativePromptSegments": []
+    },
+    "segments": []
+  }
+}

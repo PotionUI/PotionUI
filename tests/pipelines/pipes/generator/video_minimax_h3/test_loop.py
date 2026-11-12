@@ -67,8 +67,8 @@ OFFERED_SECONDS = (2, 3, 4, 5, 6, 8, 10)
 
 
 @pytest.mark.parametrize("seconds, sound, loop_frames, anchor_frames, bridge_frames", [
-    (0.5, False, 51, 73, 73),
-    (2.0, False, 51, 73, 73),
+    (0.5, False, 51, 73, 56),
+    (2.0, False, 51, 73, 56),
     (3.0, False, 68, 90, 73),
     (4.0, False, 102, 124, 90),
     (5.0, False, 119, 141, 90),
@@ -76,8 +76,8 @@ OFFERED_SECONDS = (2, 3, 4, 5, 6, 8, 10)
     (8.0, False, 187, 209, 124),
     (10.0, False, 238, 260, 158),
     (13.4, False, 323, 345, 192),
-    (0.5, True, 51, 73, 73),
-    (3.0, True, 51, 73, 73),
+    (0.5, True, 51, 73, 56),
+    (3.0, True, 51, 73, 56),
     (4.0, True, 102, 124, 90),
     (8.0, True, 204, 226, 141),
     (12.75, True, 306, 328, 192),
@@ -95,7 +95,7 @@ def test_loop_frame_arithmetic(seconds, sound, loop_frames, anchor_frames, bridg
     assert plan.head_start + plan.tail_start == LATENTS_PER_CHUNK * (plan.loop_chunks + OPENING_CHUNKS)
     assert plan.tail_start + plan.tail_latents == plan.bridge_latents
     assert plan.bridge_chunks >= 3
-    assert plan.head_chunk >= OPENING_CHUNKS
+    assert plan.head_chunk > OPENING_CHUNKS
     if sound:
         assert plan.loop_audio_latents * FPS == plan.loop_frames * 40
         assert plan.head_audio_start - plan.opening_audio_start + plan.tail_audio_start == plan.loop_audio_latents
@@ -121,7 +121,28 @@ def test_the_loop_opens_on_the_anchor_first_moving_chunk_not_on_the_still_pictur
     assert OPENING_CHUNKS == 1
     assert bridge_tail(anchor, plan)[0, 0, :, 0, 0].tolist() == list(range(5, 5 + plan.tail_latents))
     assert plan.opening_audio_start == 28
-    assert plan.bridge_chunks - 2 == max(1, (plan.loop_chunks - 2) // 2) + 1
+    assert plan.bridge_chunks - 2 == min(max(1, (plan.loop_chunks - 2) // 2) + 1, plan.loop_chunks - 2)
+
+
+@pytest.mark.parametrize("seconds, sound", [(s, sound) for s in OFFERED_SECONDS for sound in (False, True)])
+def test_the_bridge_head_is_never_the_chunk_its_tail_lands_on(seconds, sound):
+    plan = plan_loop(round(seconds * FPS), with_sound=sound)
+    anchor = _marker_latent(plan.anchor_chunks + 1)[:, :, : plan.anchor_latents]
+    head = bridge_head(anchor, plan)[0, 0, :, 0, 0].tolist()
+    tail = bridge_tail(anchor, plan)[0, 0, :LATENTS_PER_CHUNK, 0, 0].tolist()
+
+    assert not set(head) & set(tail)
+    assert plan.head_start - plan.opening_start >= LATENTS_PER_CHUNK
+
+
+def test_the_two_second_loop_opens_on_two_anchor_chunks_and_bridges_one():
+    plan = plan_loop(2 * FPS, with_sound=False)
+
+    assert (plan.loop_chunks, plan.anchor_chunks, plan.bridge_chunks, plan.head_chunk) == (3, 4, 3, 2)
+    assert plan.bridge_anchors == (0, 1, 2, 3, 4, 10, 11, 12, 13, 14, 15, 16)
+    rows_per_frame = (384 // 16 // PATCH[1]) * (512 // 16 // PATCH[2])
+    assert rows_per_frame == 192
+    assert ((plan.anchor_latents + 1) * rows_per_frame, (plan.bridge_latents + 12) * rows_per_frame) == (4_416, 5_568)
 
 
 def test_the_profiled_four_second_run_at_544x960_feeds_these_token_counts():
@@ -428,8 +449,27 @@ def test_every_offered_length_runs_the_planned_windows_and_keeps_no_repeated_lat
     assert torch.cdist(opening, frames).min() > 0
     distances = torch.cdist(frames, frames) + torch.eye(frames.shape[0]) * 1e9
     assert distances.min() > 0
+    seam = bridge[:, :, plan.tail_start - LATENTS_PER_CHUNK:]
+    assert torch.equal(seam, torch.cat([loop[:, :, -LATENTS_PER_CHUNK:], loop[:, :, : plan.tail_latents]], dim=2))
     assert torch.equal(run.pipe.decoded_latents[-1], torch.cat([loop[:, :, -5:], loop, loop[:, :, :2]], dim=2))
     assert run.frames.shape[0] == plan.loop_frames
+
+
+def test_a_bridge_without_condition_rows_still_lands_its_ends_and_draws_the_same_noise():
+    conditioned = _run_loop(4.0, steps=2)
+    with patch(f"{_MAIN}.BRIDGE_CONDITION_ROWS", False):
+        pinned_only = _run_loop(4.0, steps=2)
+    plan = pinned_only.plan
+    (anchor, _), (bridge, _) = pinned_only.windows
+
+    assert conditioned.bridge_calls[0]["num_condition_video_rows"] == len(plan.bridge_anchors)
+    assert pinned_only.bridge_calls[0]["num_condition_video_rows"] == 0
+    assert torch.equal(bridge[:, :, : plan.head_latents], bridge_head(anchor, plan))
+    assert torch.equal(bridge[:, :, plan.tail_start:], bridge_tail(anchor, plan))
+    first, second = conditioned.bridge_calls[0], pinned_only.bridge_calls[0]
+    free = slice(plan.head_latents, plan.tail_start)
+    assert torch.equal(first["hidden_states"][0, first["num_condition_video_rows"]:][free],
+                       second["hidden_states"][0][free])
 
 
 def test_sound_off_writes_no_soundtrack_and_sound_on_wraps_an_exact_loop_of_audio():

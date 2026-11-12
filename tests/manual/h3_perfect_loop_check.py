@@ -17,8 +17,9 @@ DESCRIPTION = (
     "encoder and generator pipes (or takes an existing loop with --video), then writes the loop, the loop "
     "three times in a row, a contact sheet of the frames around the seam, and the seam metric: the mean "
     "absolute luma difference between neighbouring frames around the whole period, the wrap included. PASS "
-    "when no step is above 2.5x the median and 1.8x the steps four frames away (the VAE's own cadence), which "
-    "would be a jump or a reset (with the earlier frame it jumps back to), and "
+    "when no step is above 2.5x the median, 1.8x the steps four frames away (the VAE's own cadence) "
+    "and 1.8x the steps 17 frames away (the VAE's chunk boundaries), and at least 0.5 luma levels, "
+    "which would be a jump or a reset (with the earlier frame it jumps back to), and "
     "motion never drops below 0.35x the median for two steps (a stop and restart) nor below 0.5x on average in "
     "the half second either side of the wrap (an ease into or out of the seam), and the view never zooms "
     "more than 1 percent against the first frame."
@@ -50,6 +51,8 @@ CADENCE = 4
 CADENCE_RATIO = 1.8
 STOP_RATIO = 0.35
 RESET_GAP = 12
+CHUNK_FRAMES = 17
+JUMP_MIN_LUMA = 0.5
 SEAM_WINDOW = 12
 SEAM_MOTION_MIN = 0.5
 
@@ -85,7 +88,9 @@ def seam_metric(frames: np.ndarray) -> dict:
     jumps = []
     for index in range(count):
         same_phase = max(cycle[index - CADENCE], cycle[(index + CADENCE) % count])
-        if cycle[index] <= SPIKE_RATIO * median or cycle[index] <= CADENCE_RATIO * same_phase:
+        same_chunk_phase = max(cycle[index - CHUNK_FRAMES], cycle[(index + CHUNK_FRAMES) % count])
+        if (cycle[index] <= SPIKE_RATIO * median or cycle[index] <= CADENCE_RATIO * same_phase
+                or cycle[index] <= CADENCE_RATIO * same_chunk_phase or cycle[index] < JUMP_MIN_LUMA):
             continue
         after = y[(index + 1) % len(y)]
         earlier = np.abs(y[: max(0, index - RESET_GAP)] - after).mean(axis=(1, 2))
@@ -280,7 +285,8 @@ def main() -> int:
     print(f"zoom against frame 0          worst {report['worst_zoom']:.3f} at frame {report['worst_zoom_at']} "
           f"(limit 1 +/- {ZOOM_LIMIT})")
     print(f"{'PASS' if report['pass'] else 'FAIL'}: no step of the period, the wrap included, jumps above "
-          f"{SPIKE_RATIO}x the median and {CADENCE_RATIO}x the steps {CADENCE} frames away, and motion never "
+          f"{SPIKE_RATIO}x the median, {CADENCE_RATIO}x the steps {CADENCE} and {CHUNK_FRAMES} frames away and "
+          f"{JUMP_MIN_LUMA} luma levels, and motion never "
           f"drops below {STOP_RATIO}x the median for two steps nor below {SEAM_MOTION_MIN}x on average in the "
           f"{SEAM_WINDOW} steps either side of the wrap")
     return 0 if report["pass"] else 1

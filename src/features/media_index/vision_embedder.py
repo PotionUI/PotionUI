@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from src.features.downloads import DownloadQueue
     from PIL import Image
     from src.platform.settings.settings import Settings
+from src.platform.runtime.guarded_import import guarded_from
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,7 @@ class SiglipVisionEmbedder:
             if self._processor is not None:
                 return
 
-            from transformers import AutoProcessor
+            AutoProcessor = guarded_from("transformers", "AutoProcessor")
 
             source: Optional[str] = str(self._local_path()) if self._weights_present() else None
             if source is None:
@@ -150,7 +151,7 @@ class SiglipVisionEmbedder:
         must have run first (every embed call guarantees this) so
         ``_source_path`` is resolved."""
         import torch
-        from transformers import AutoModel
+        AutoModel = guarded_from("transformers", "AutoModel")
 
         dtype = torch.float16 if str(self.device).startswith("cuda") else torch.float32
         model = AutoModel.from_pretrained(self._source_path, torch_dtype=dtype)

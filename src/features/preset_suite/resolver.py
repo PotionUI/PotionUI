@@ -32,6 +32,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
+from src.platform.runtime.guarded_import import guarded_from
 
 logger = logging.getLogger(__name__)
 
@@ -316,6 +317,6 @@ def _hf_download(repo: str, file: str, dest_dir: Path) -> str:
     queue's history/depot-containment, so callers should prefer wiring a
     `download_queue` (see `scripts/preset_test_suite.py`). Imported lazily so
     ``huggingface_hub`` is only a dependency when this path actually runs."""
-    from huggingface_hub import hf_hub_download
+    hf_hub_download = guarded_from("huggingface_hub", "hf_hub_download")
 
     return hf_hub_download(repo_id=repo, filename=file, local_dir=str(dest_dir))

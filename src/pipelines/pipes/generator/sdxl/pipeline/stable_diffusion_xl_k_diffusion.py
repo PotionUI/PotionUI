@@ -65,6 +65,7 @@ from src.pipelines.pipes.generator.sdxl.image_processor import SDXLImageProcesso
 
 from vendor.k_diffusion import sampling as k_sampling
 from vendor.k_diffusion.external import CompVisDenoiser, CompVisVDenoiser
+from src.platform.runtime.guarded_import import guarded_from
 
 logger = logging.get_logger(__name__)
 
@@ -192,7 +193,7 @@ class StableDiffusionXLKDiffusionPipeline(
         add_watermarker = add_watermarker if add_watermarker is not None else False
         if add_watermarker:
             try:
-                from diffusers.pipelines.stable_diffusion_xl.watermark import StableDiffusionXLWatermarker
+                StableDiffusionXLWatermarker = guarded_from("diffusers.pipelines.stable_diffusion_xl.watermark", "StableDiffusionXLWatermarker")
                 self.watermark = StableDiffusionXLWatermarker()
             except ImportError:
                 add_watermarker = False

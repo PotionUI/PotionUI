@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import src.bootstrap.app as app_module
-from src.bootstrap.app import add_health_route, health_payload, start_warm_up, stop_warm_up, warm_up
+from src.bootstrap.app import add_health_route, start_import_warm_up, stop_import_warm_up, health_payload, start_warm_up, stop_warm_up, warm_up
 
 
 def test_a_ready_process_reports_healthy():
@@ -114,3 +114,14 @@ async def test_shutdown_does_not_wait_for_a_warm_up_still_running(monkeypatch):
 
     assert task.cancelled()
     assert app.state.warm_up_task is None
+
+
+async def test_the_import_warm_up_runs_the_guarded_warm_up_once_off_the_event_loop(monkeypatch):
+    seen = []
+    monkeypatch.setattr(app_module, "warm_up_heavy_imports", lambda: seen.append(threading.current_thread()))
+    app = FastAPI()
+    task = start_import_warm_up(app)
+    await task
+    assert len(seen) == 1 and seen[0] is not threading.main_thread()
+    await stop_import_warm_up(app)
+    assert app.state.import_warm_up_task is None

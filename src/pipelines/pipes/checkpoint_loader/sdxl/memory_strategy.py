@@ -27,6 +27,7 @@ an already-efficient backend:
 import torch
 from src.pipelines.contracts import logger
 from src.platform.runtime.model_lifecycle.memory_policy import MemoryPolicy
+from src.platform.runtime.guarded_import import guarded_from
 
 
 def apply_to_pipeline(pipe, policy: MemoryPolicy, offload_override: str = None,
@@ -69,7 +70,7 @@ def apply_to_pipeline(pipe, policy: MemoryPolicy, offload_override: str = None,
     sdpa_active = False
     try:
         if hasattr(pipe, "unet") and hasattr(pipe.unet, "set_attn_processor"):
-            from diffusers.models.attention_processor import AttnProcessor2_0
+            AttnProcessor2_0 = guarded_from("diffusers.models.attention_processor", "AttnProcessor2_0")
             pipe.unet.set_attn_processor(AttnProcessor2_0())
             sdpa_active = True
             logger.debug("[MEMORY STRATEGY] Using PyTorch 2.0 native attention (AttnProcessor2_0)")

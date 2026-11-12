@@ -280,7 +280,7 @@ test.describe('Kits in the Library', () => {
 		await expect(tile).toContainText('Low sun');
 
 		await page.getByRole('button', { name: 'Add item' }).click();
-		await page.getByRole('menuitem', { name: 'Upload files' }).click();
+		await page.getByRole('menuitem', { name: 'Upload file' }).click();
 		await page.locator('input[type="file"]').first().setInputFiles({ name: 'a.png', mimeType: 'image/png', buffer: PNG });
 		await expect(page.locator('[data-kit-item]')).toHaveCount(2);
 

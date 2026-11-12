@@ -61,10 +61,10 @@
 	let full = $derived(items.length >= KIT_ITEM_LIMIT);
 
 	const menuItems: MenuItem[] = [
-		{ id: 'library', label: 'From library', icon: 'grid' },
-		{ id: 'history', label: 'From history', icon: 'clock' },
-		{ id: 'upload', label: 'Upload files', icon: 'upload' },
-		{ id: 'paste', label: `Paste from clipboard`, icon: 'clipboard-list' },
+		{ id: 'library', label: 'Library', icon: 'photo' },
+		{ id: 'history', label: 'History', icon: 'clock' },
+		{ id: 'upload', label: 'Upload file', icon: 'upload' },
+		{ id: 'paste', label: 'Paste', icon: 'clipboard-list' },
 		{ id: 'sep', label: '', separator: true },
 		{ id: 'text', label: 'Write text', icon: 'document' }
 	];

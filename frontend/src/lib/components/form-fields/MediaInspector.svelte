@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import Waveform from '$lib/components/Waveform.svelte';
 	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
-	import { Badge, IconButton, Input } from '$lib/components/ui';
+	import { Badge, Button, IconButton, Input } from '$lib/components/ui';
 	import { formatBytes } from '$lib/utils/format';
 	import { resolvedTheme } from '$lib/stores/theme';
 	import type { MediaTool, MediaToolGroup } from '$lib/tools/tools';
@@ -11,6 +11,8 @@
 	import { metaChips, type MediaItemMetadata } from './mediaLoaderMeta';
 	import type { ItemHandle } from './mediaFieldGroups';
 	import type { MediaKind } from './mediaLoaderConfig';
+	import MediaSourceMenu from './MediaSourceMenu.svelte';
+	import type { MediaSource } from './mediaFieldSources';
 
 	let {
 		kind,
@@ -31,7 +33,10 @@
 		onLabel,
 		onTool,
 		onClearMask,
-		onReplace,
+		current = null,
+		offersDraw = false,
+		offersKits = false,
+		onSource,
 		onRemove,
 		onPreview
 	}: {
@@ -53,7 +58,10 @@
 		onLabel?: (label: string) => void;
 		onTool: (tool: MediaTool) => void;
 		onClearMask?: () => void;
-		onReplace?: () => void;
+		current?: MediaSource | null;
+		offersDraw?: boolean;
+		offersKits?: boolean;
+		onSource?: (source: MediaSource) => void;
 		onRemove: () => void;
 		onPreview: () => void;
 	} = $props();
@@ -65,6 +73,7 @@
 	let audioElement: HTMLAudioElement | null = $state(null);
 	let palette = $state(DEFAULT_WAVEFORM_PALETTE);
 	let chips = $derived(url && !broken ? metaChips(metadata, kind, name, { edited: false }) : []);
+	let replaceOnPreview = $derived(kind !== 'audio');
 	let previewHeight = $derived(kind === 'audio' ? 'min-h-[104px]' : 'h-[168px]');
 
 	$effect(() => {
@@ -88,6 +97,28 @@
 		broken = true;
 	}
 </script>
+
+{#snippet replaceControl(variant: 'overlay' | 'ghost')}
+	{#if onSource}
+		<MediaSourceMenu {kind} intent="change" {current} {offersDraw} {offersKits} align="right" onPick={onSource}>
+			{#snippet trigger({ toggle, open })}
+				<Button
+					{variant}
+					size="sm"
+					icon="refresh"
+					ariaLabel="Replace"
+					ariaExpanded={open}
+					ariaHaspopup="menu"
+					attrs={{ 'data-media-replace': '' }}
+					onclick={toggle}
+				>
+					Replace
+					<Icon name="chevron-down" className="w-3.5 h-3.5" />
+				</Button>
+			{/snippet}
+		</MediaSourceMenu>
+	{/if}
+{/snippet}
 
 <div class="rounded-lg border border-line-strong overflow-hidden bg-canvas" data-media-inspector data-kind={kind}>
 	<div class="relative bg-surface-2 {previewHeight} flex items-center justify-center dot-grid">
@@ -134,6 +165,12 @@
 				<audio bind:this={audioElement} src={url} class="w-full mt-1" controls preload="metadata" onerror={markBroken}>
 					Your browser does not support the audio element.
 				</audio>
+			</div>
+		{/if}
+
+		{#if onSource && replaceOnPreview}
+			<div class="absolute right-2 top-2" data-media-replace-slot>
+				{@render replaceControl('overlay')}
 			</div>
 		{/if}
 
@@ -212,10 +249,8 @@
 			onPick={onTool}
 		/>
 
-		{#if !multiple && onReplace}
-			<Tooltip text="Replace" position="top">
-				<IconButton icon="refresh" label="Replace" size="sm" onclick={onReplace} />
-			</Tooltip>
+		{#if onSource && !replaceOnPreview}
+			{@render replaceControl('ghost')}
 		{/if}
 		<Tooltip text={multiple ? 'Remove this item' : 'Remove'} position="top" kbd="Del">
 			<IconButton

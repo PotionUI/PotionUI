@@ -16,6 +16,7 @@
 		onHistorySelect,
 		onLibrarySelect,
 		historyMultiple = false,
+		replacing = false,
 		onHistoryConfirm
 	}: {
 		historyOpen: boolean;
@@ -26,10 +27,14 @@
 		onHistorySelect: (generation: any, file: any) => void;
 		onLibrarySelect: (upload: UploadFileInfo) => void;
 		historyMultiple?: boolean;
+		replacing?: boolean;
 		onHistoryConfirm?: (items: PickedMedia[]) => void;
 	} = $props();
 
 	let historyKind = $derived(kind ?? undefined);
+	let noun = $derived(historyKind ? KIND_TITLE[historyKind] : 'Media');
+	let historyTitle = $derived(replacing ? `Replace ${noun.toLowerCase()}` : `Select ${noun} from Generation History`);
+	let libraryTitle = $derived(replacing ? `Replace ${noun.toLowerCase()}` : `Select ${noun} from Your Uploads`);
 </script>
 
 <GenerationHistoryModal
@@ -39,7 +44,7 @@
 	multiple={historyMultiple}
 	onConfirm={(_keys, items) => onHistoryConfirm?.(items)}
 	mediaType={historyKind}
-	title="Select {historyKind ? KIND_TITLE[historyKind] : 'Media'} from Generation History"
+	title={historyTitle}
 />
 
 <UploadLibraryModal
@@ -47,5 +52,5 @@
 	onClose={onLibraryClose}
 	onSelect={onLibrarySelect}
 	mediaType={kind ?? undefined}
-	title="Select {kind ? KIND_TITLE[kind] : 'Media'} from Your Uploads"
+	title={libraryTitle}
 />

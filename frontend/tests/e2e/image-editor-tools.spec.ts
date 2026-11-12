@@ -232,7 +232,7 @@ for (const size of SIZES) {
 		await screenshot(page, JOURNEY, `add-menu-${size.tag}`);
 		const [chooser] = await Promise.all([
 			page.waitForEvent('filechooser'),
-			menu.getByRole('menuitem', { name: 'Browse files' }).click()
+			menu.getByRole('menuitem', { name: 'Upload file' }).click()
 		]);
 		await chooser.setFiles({ name: 'piece.png', mimeType: 'image/png', buffer: fixturePng(96) });
 		await expect(dialog.getByRole('button', { name: 'Transform' })).toHaveAttribute('aria-pressed', 'true');
@@ -252,7 +252,7 @@ for (const size of SIZES) {
 		await expect(openMenu.getByText(/unsaved changes will be lost/)).toBeVisible();
 		const [second] = await Promise.all([
 			page.waitForEvent('filechooser'),
-			openMenu.getByRole('menuitem', { name: 'Browse files' }).click()
+			openMenu.getByRole('menuitem', { name: 'Upload file' }).click()
 		]);
 		await second.setFiles({ name: 'other.png', mimeType: 'image/png', buffer: fixturePng(96) });
 		await expect(visibleText(dialog, '96 × 96')).toBeVisible();

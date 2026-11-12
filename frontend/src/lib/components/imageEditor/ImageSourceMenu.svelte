@@ -151,11 +151,11 @@
 	</button>
 	<button type="button" role="menuitem" class={row} disabled={busy} on:click={() => fileInput.click()}>
 		<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.open} /></svg>
-		Browse files
+		Upload file
 	</button>
 	<button type="button" role="menuitem" class={row} disabled={busy} on:click={fromClipboard}>
 		<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.duplicate} /></svg>
-		Paste from clipboard
+		Paste
 	</button>
 	{#each sources as source (source.id)}
 		<button type="button" role="menuitem" class={row} disabled={busy} on:click={() => fromPlugin(source)}>

@@ -380,7 +380,6 @@
 					description: kitRowDescription(entry),
 					created_at: '',
 					updated_at: '',
-					attachable: true,
 					thumbnails: entry.kit.items
 						.filter((item) => item.kind === 'image' || item.kind === 'video')
 						.slice(0, 4)
@@ -416,7 +415,8 @@
 						created_at: '',
 						updated_at: '',
 						preview_file_id: item.thumbnail_url ?? (item.kind === 'image' ? (item.url ?? undefined) : undefined),
-						kind: item.kind
+						kind: item.kind,
+						disabled: !item.missing && item.kind !== 'text' && !!kitState.drilled!.accepted && !kitState.drilled!.accepted.has(item.kind)
 					}))
 			] as DropdownAutocompleteValue[])
 		: [];
@@ -682,13 +682,18 @@
 				e.preventDefault();
 				drillKit(pickerCategories[resourceSelectedIndex].id);
 				return;
+			} else if (e.key === 'ArrowLeft' && resourceGroupField === KITS_GROUP && resourceKitId) {
+				e.preventDefault();
+				handleNavigateUpResource();
+				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
 				selectActiveResourceOption();
 				return;
 			} else if (e.key === 'Tab' && variant === 'segment-composer') {
 				e.preventDefault();
-				openResourceBrowse();
+				if (kitState.kitMode) openKitBrowse();
+				else openResourceBrowse();
 				return;
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
@@ -1340,15 +1345,6 @@
 		resourceSelectedIndex = 0;
 	}
 
-	function kitFieldOf(kitId: string): string | null {
-		return loadedKitList.find((entry) => entry.kit.id === kitId)?.field ?? defaultKitField(kitFields);
-	}
-
-	function attachKit(kitId: string) {
-		const field = kitFieldOf(kitId);
-		if (field) handleSelectResourceItem(encodeKitKey(kitId), field);
-	}
-
 	function drillKit(kitId: string) {
 		if (resourceGroupField === KITS_GROUP) {
 			resourceKitId = kitId;
@@ -1370,10 +1366,10 @@
 		if (kitState.kitMode) {
 			if (kitState.drilled) {
 				const picked = kitSuggestions[resourceSelectedIndex];
-				if (picked) handleSelectResourceItem(picked.id, picked.category_id);
+				if (picked && !picked.disabled) handleSelectResourceItem(picked.id, picked.category_id);
 			} else {
 				const picked = kitCategories[resourceSelectedIndex];
-				if (picked) attachKit(picked.id);
+				if (picked) drillKit(picked.id);
 			}
 			return;
 		}
@@ -1381,7 +1377,7 @@
 			const item = resourceItemSuggestions[resourceSelectedIndex];
 			if (item) handleSelectResourceItem(item.id);
 		} else {
-			const category = resourceGroupCategories[resourceSelectedIndex];
+			const category = pickerCategories[resourceSelectedIndex];
 			if (category) handleSelectResourceGroup(category.id);
 		}
 	}
@@ -2697,7 +2693,6 @@
 			suggestions={pickerSuggestions}
 			selectedIndex={resourceSelectedIndex}
 			onSelectCategory={(category) => (kitState.kitMode ? drillKit(category.id) : handleSelectResourceGroup(category.id))}
-			onAttachCategory={kitState.kitMode && !kitState.drilled ? (category) => attachKit(category.id) : undefined}
 			onSelectValue={(suggestion) => (kitState.kitMode ? handleSelectResourceItem(suggestion.id, suggestion.category_id) : handleSelectResourceItem(suggestion.id))}
 			categoriesTitle={kitState.kitMode ? 'Kits loaded' : 'Categories'}
 			categoriesNote={kitState.kitMode ? `${loadedKitList.length} in this form` : 'Browse deeper'}

@@ -194,6 +194,44 @@ describe('createKitsApi', () => {
 		expect(result.partial?.message).toBe('Disk full');
 	});
 
+	it('adds History files to an existing kit by file id, naming each by file id', async () => {
+		const { fn, api } = client('post', { success: true, data: { kit: wireKit() } });
+		await api.addKitItems('kt_00000001', [{ kind: 'image', history_file_id: '42', name: 'face' }]);
+		expect(fn).toHaveBeenCalledTimes(1);
+		expect(fn).toHaveBeenCalledWith('/api/kits/add-history-items', {
+			file_ids: ['42'],
+			names: { '42': 'face' },
+			kit_id: 'kt_00000001'
+		});
+	});
+
+	it('creates a kit from History files in one request', async () => {
+		const { fn, api } = client('post', { success: true, data: { kit: wireKit() } });
+		await api.createKit({ name: 'Mara', items: [{ kind: 'video', history_file_id: '9', name: 'walk' }] });
+		expect(fn).toHaveBeenCalledWith('/api/kits/add-history-items', {
+			file_ids: ['9'],
+			names: { '9': 'walk' },
+			new_kit: { name: 'Mara', label: null }
+		});
+	});
+
+	it('creates the kit with the Library items first, then adds the History files to it', async () => {
+		const post = vi.fn().mockResolvedValue({ data: { success: true, data: { kit: wireKit() } } });
+		const api = createKitsApi({ post } as unknown as AxiosInstance);
+		await api.createKit({
+			name: 'Mara',
+			items: [
+				{ kind: 'image', history_file_id: '5', name: 'a' },
+				{ kind: 'image', media_ref: 'up_1', name: 'b' }
+			]
+		});
+		expect(post.mock.calls[0][0]).toBe('/api/kits/add-library-items');
+		expect(post.mock.calls[0][1]).toMatchObject({ new_kit: { name: 'Mara', label: null } });
+		expect(post.mock.calls[1][0]).toBe('/api/kits/add-history-items');
+		expect(post.mock.calls[1][1]).toMatchObject({ kit_id: 'kt_00000001', file_ids: ['5'] });
+		expect(post.mock.calls[1][1]).not.toHaveProperty('new_kit');
+	});
+
 	it('uploads a file into a kit as multipart', async () => {
 		const { fn, api } = client('post', { success: true, data: { kit: wireKit() } });
 		await api.uploadKitItem('kt_00000001', new File(['x'], 'a.png', { type: 'image/png' }), 'face');

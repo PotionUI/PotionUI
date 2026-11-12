@@ -46,7 +46,8 @@ const HOST: ToolRunHost = {
 	rate: vi.fn(),
 	favorite: vi.fn(),
 	copyToLibrary: vi.fn(),
-	addToCollection: vi.fn()
+	addToCollection: vi.fn(),
+	addToKit: vi.fn()
 };
 
 function stub(id: string, extra: Partial<MediaTool>): MediaTool {
@@ -111,6 +112,20 @@ describe('groupToolsFor', () => {
 		expect(selection).toEqual(expect.arrayContaining(['add-to-collection', 'copy-to-library', 'deselect', 'delete']));
 		expect(bar).not.toContain('delete');
 		expect(bar).not.toContain('open-details');
+	});
+
+	it('offers Add to kit beside Add to collection on a card and on a selection, not on the bar', () => {
+		expect(ids(entryCtx, 'entry')).toContain('add-to-kit');
+		expect(ids(manyCtx, 'selection')).toContain('add-to-kit');
+		expect(ids(manyCtx, 'bar')).not.toContain('add-to-kit');
+	});
+
+	it('hides Add to kit when the page cannot add to a kit', () => {
+		const { addToKit: _unused, ...withoutKit } = HOST;
+		const got = groupToolsFor(entryCtx, { surface: 'entry', host: withoutKit }).flatMap((group) =>
+			group.tools.map(({ tool }) => tool.id)
+		);
+		expect(got).not.toContain('add-to-kit');
 	});
 
 	it('keeps entry-only tools out of the selection and bar surfaces', () => {

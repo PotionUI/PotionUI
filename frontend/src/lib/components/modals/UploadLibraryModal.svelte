@@ -21,7 +21,10 @@
 		type PickerMediaType
 	} from './mediaPickerSelection';
 	import QuickTagFilterBar from '$lib/components/QuickTagFilterBar.svelte';
-	import { Badge, Button, IconButton, Spinner, EmptyState } from '$lib/components/ui';
+	import { Badge, Button, IconButton, Spinner, EmptyState, Pagination, SegmentedControl } from '$lib/components/ui';
+	import CollectionFilterPopover from '$lib/components/selectors/CollectionFilterPopover.svelte';
+	import { libraryCollectionsStore } from '$lib/stores/collections';
+	import { hasActiveLibraryFilters, type LibraryMediaTypeFilter } from '$lib/library/libraryQuery';
 	import { buildLibraryQuery, DEFAULT_LIBRARY_FILTERS } from '$lib/library/libraryQuery';
 	import { libraryItemDisplayName } from '$lib/library/libraryItemMeta';
 	import { LIBRARY_TAG_TYPE } from '$lib/stores/library';
@@ -61,6 +64,11 @@
 	let availableTags: Tag[] = [];
 	let selectedTagIds: string[] = [];
 	let search = '';
+	let kindFilter: LibraryMediaTypeFilter = 'all';
+	let collectionId: string | null = null;
+	let unsorted = false;
+	let favoritesOnly = false;
+	let collectionsLoaded = false;
 	let isLoading = false;
 	let loadError: string | null = null;
 	let total = 0;
@@ -80,8 +88,11 @@
 				buildLibraryQuery(
 					{
 						...DEFAULT_LIBRARY_FILTERS,
-						mediaType: mediaType ?? 'all',
+						mediaType: mediaType ?? kindFilter,
 						selectedTagIds,
+						collectionId: collectionId ?? undefined,
+						unsorted,
+						favoritesOnly,
 						search
 					},
 					page,
@@ -132,6 +143,37 @@
 			: [...selectedTagIds, tagId];
 		loadItems(1);
 	}
+
+	function loadCollections() {
+		if (collectionsLoaded) return;
+		collectionsLoaded = true;
+		void libraryCollectionsStore.load();
+	}
+
+	function handleCollectionChange(next: { collectionId: string | null; unsorted: boolean }) {
+		collectionId = next.collectionId;
+		unsorted = next.unsorted;
+		loadItems(1);
+	}
+
+	function handleKindChange(id: string) {
+		kindFilter = id as LibraryMediaTypeFilter;
+		loadItems(1);
+	}
+
+	function toggleFavorites() {
+		favoritesOnly = !favoritesOnly;
+		loadItems(1);
+	}
+
+	$: filtering = hasActiveLibraryFilters({
+		mediaType: mediaType ?? kindFilter,
+		selectedTagIds,
+		collectionId: collectionId ?? undefined,
+		unsorted,
+		favoritesOnly,
+		search
+	});
 
 	function handleClearTags() {
 		selectedTagIds = [];
@@ -198,6 +240,42 @@
 			/>
 		</div>
 
+		<div class="mb-3 flex flex-wrap items-center gap-2" data-library-filters>
+			{#if !mediaType}
+				<SegmentedControl
+					variant="toggle"
+					ariaLabel="Kind"
+					selected={kindFilter}
+					onSelect={handleKindChange}
+					items={[
+						{ id: 'all', label: 'All' },
+						{ id: 'image', label: 'Images' },
+						{ id: 'video', label: 'Videos' },
+						{ id: 'audio', label: 'Audio' }
+					]}
+				/>
+			{/if}
+			<CollectionFilterPopover
+				collections={$libraryCollectionsStore.collections}
+				loading={$libraryCollectionsStore.loading}
+				{collectionId}
+				{unsorted}
+				offersUnsorted
+				onOpen={loadCollections}
+				onChange={handleCollectionChange}
+			/>
+			<button
+				type="button"
+				class="px-3 py-1.5 text-sm font-medium rounded flex items-center gap-1 {favoritesOnly ? 'bg-signal/10 text-signal' : 'bg-surface-2 text-fg-muted hover:bg-surface-3'}"
+				aria-pressed={favoritesOnly}
+				data-favorites-filter
+				on:click={toggleFavorites}
+			>
+				<Icon name="star" className="w-4 h-4" />
+				Favorites
+			</button>
+		</div>
+
 		<QuickTagFilterBar
 			tags={availableTags}
 			selectedIds={selectedTagIds}
@@ -215,8 +293,8 @@
 		{:else if items.length === 0}
 			<EmptyState
 				icon="photo"
-				title="Nothing here yet"
-				description={`Files you upload, and generations you copy across, show up in your library so you can reuse them.${mediaType ? ` Nothing ${mediaTypeLabel}-shaped is in it yet.` : ''}`}
+				title={filtering ? 'No matches' : 'Nothing here yet'}
+				description={filtering ? 'Nothing in your library matches these filters.' : `Files you upload, and generations you copy across, show up in your library so you can reuse them.${mediaType ? ` Nothing ${mediaTypeLabel}-shaped is in it yet.` : ''}`}
 			/>
 		{:else}
 			{#if loadError}
@@ -369,27 +447,7 @@
 				</span>
 
 				{#if totalPages > 1}
-					<div class="flex items-center gap-2">
-						<Button
-							variant="secondary"
-							size="sm"
-							disabled={currentPage === 1}
-							onclick={() => loadItems(currentPage - 1)}
-						>
-							Previous
-						</Button>
-						<span class="text-sm text-fg-muted font-mono tabular-nums">
-							Page {currentPage} of {totalPages}
-						</span>
-						<Button
-							variant="secondary"
-							size="sm"
-							disabled={currentPage === totalPages}
-							onclick={() => loadItems(currentPage + 1)}
-						>
-							Next
-						</Button>
-					</div>
+					<Pagination {currentPage} {totalPages} size="sm" onPageChange={loadItems} />
 				{/if}
 
 				{#if !multiple}

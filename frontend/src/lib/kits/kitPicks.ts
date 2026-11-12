@@ -1,4 +1,5 @@
 import type { LibraryItem } from '$lib/services/api/library';
+import type { GenerationFile } from '$lib/types/history';
 import { defaultItemNames } from './kitNaming';
 import type { KitItem, KitItemKind, NewKitItem } from './types';
 
@@ -8,6 +9,7 @@ export interface KitPick {
 	label: string;
 	thumbnail: string | null;
 	mediaRef: string | null;
+	historyFileId?: string | null;
 	text: string | null;
 }
 
@@ -34,6 +36,41 @@ export function picksFromLibraryItems(items: readonly LibraryItem[]): KitPick[] 
 	return items.map(pickFromLibraryItem).filter((pick): pick is KitPick => pick !== null);
 }
 
+export function pickFromHistoryFile(
+	file: Pick<GenerationFile, 'id' | 'file_path' | 'file_type'>,
+	thumbnail: string | null
+): KitPick | null {
+	const kind = kindOfMediaType(file.file_type);
+	if (!kind) return null;
+	const id = String(file.id);
+	return {
+		key: `history:${id}`,
+		kind,
+		label: (file.file_path ?? '').split('/').pop() || id,
+		thumbnail: kind === 'audio' ? null : thumbnail,
+		mediaRef: null,
+		historyFileId: id,
+		text: null
+	};
+}
+
+export function picksFromHistoryFiles(
+	files: readonly Pick<GenerationFile, 'id' | 'file_path' | 'file_type'>[],
+	thumbnailFor: (fileId: string) => string | null
+): KitPick[] {
+	const seen = new Set<string>();
+	const picks: KitPick[] = [];
+	for (const file of files) {
+		const id = String(file.id);
+		if (seen.has(id)) continue;
+		const pick = pickFromHistoryFile(file, thumbnailFor(id));
+		if (!pick) continue;
+		seen.add(id);
+		picks.push(pick);
+	}
+	return picks;
+}
+
 export function picksNames(picks: readonly KitPick[], taken: Iterable<string> = []): string[] {
 	return defaultItemNames(
 		picks.map((pick) => pick.kind),
@@ -45,6 +82,7 @@ export function toNewItems(picks: readonly KitPick[], names: readonly string[]):
 	return picks.map((pick, index) => {
 		const base: NewKitItem = { kind: pick.kind, name: names[index] };
 		if (pick.kind === 'text') return { ...base, text: pick.text ?? '' };
+		if (pick.historyFileId) return { ...base, history_file_id: pick.historyFileId };
 		return { ...base, media_ref: pick.mediaRef ?? undefined };
 	});
 }

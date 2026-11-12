@@ -98,7 +98,7 @@ def test_the_generator_resolves_the_edit_profile_defaults(template):
 
 def test_the_images_field_is_mapped_to_the_encoder_token(template):
     assert template.prompt_resources["combine"] == [
-        {"field": "images", "kind": "image", "label": "Images", "token": "<image@>"},
+        {"field": "images", "kind": "image", "label": "Images", "token": "<image@>", "limit": 10},
     ]
     assert "edit" not in template.prompt_resources
 

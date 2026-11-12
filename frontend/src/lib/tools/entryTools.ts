@@ -227,6 +227,19 @@ export function registerEntryTools(): void {
 	});
 
 	registerMediaTool({
+		id: 'add-to-kit',
+		label: 'Add to kit',
+		icon: 'layers',
+		category: 'organize',
+		source: 'core',
+		scopes: ['history'],
+		surfaces: ['entry', 'selection'],
+		requires: 'addToKit',
+		applies: (ctx) => ({ enabled: true, hidden: isStack(ctx) || ctx.files.length === 0 }),
+		run: (ctx, host) => host.addToKit?.(ctx)
+	});
+
+	registerMediaTool({
 		id: 'copy-to-library',
 		label: 'Copy to Library',
 		icon: 'photo',

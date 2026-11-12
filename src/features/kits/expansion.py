@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from src.features.kits import citations
 from src.features.kits.citations import PATH_BODY
 from src.features.kits.catalog import ItemView, KitCatalog, KitView
+from src.features.kits.field_limits import DEFAULT_FIELD_CAP, FormLimit, form_limits, warn_default_cap
 from src.features.kits.rules import KIND_TEXT, MEDIA_KINDS
 from src.features.prompt.resources import media_item_keys
 from src.platform.filesystem.media_kinds import media_item_kind
@@ -51,7 +52,9 @@ class KitExpansion:
         return bool(self.notices or self.used)
 
 
-def field_policies(specs: Sequence[Mapping[str, Any]]) -> Dict[str, FieldPolicy]:
+def field_policies(
+    specs: Sequence[Mapping[str, Any]], form: Optional[Mapping[str, FormLimit]] = None,
+) -> Dict[str, FieldPolicy]:
     kinds: Dict[str, List[str]] = {}
     limits: Dict[str, Dict[str, int]] = {}
     totals: Dict[str, int] = {}
@@ -66,6 +69,18 @@ def field_policies(specs: Sequence[Mapping[str, Any]]) -> Dict[str, FieldPolicy]
             limits.setdefault(name, {})[kind] = spec["limit"]
         if isinstance(spec.get("limit_total"), int):
             totals[name] = min(spec["limit_total"], totals.get(name, spec["limit_total"]))
+    if form is not None:
+        for name, values in kinds.items():
+            bound = form.get(name)
+            if bound is not None and bound.total is not None:
+                totals[name] = min(bound.total, totals.get(name, bound.total))
+            for kind in values:
+                declared = bound.by_kind.get(kind) if bound is not None else None
+                if declared is not None:
+                    limits.setdefault(name, {})[kind] = min(declared, limits.get(name, {}).get(kind, declared))
+                elif name not in totals and kind not in limits.get(name, {}):
+                    limits.setdefault(name, {})[kind] = DEFAULT_FIELD_CAP
+                    warn_default_cap(name)
     return {
         name: FieldPolicy(name, tuple(dict.fromkeys(values)), limits.get(name, {}), totals.get(name))
         for name, values in kinds.items()

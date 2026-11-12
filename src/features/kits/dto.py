@@ -44,6 +44,13 @@ class AddLibraryItemsRequest(BaseModel):
     names: Dict[str, str] = Field(default_factory=dict)
 
 
+class AddHistoryItemsRequest(BaseModel):
+    file_ids: List[str] = Field(min_length=1, max_length=MAX_ITEMS_PER_KIT)
+    kit_id: Optional[str] = None
+    new_kit: Optional[NewKitSpec] = None
+    names: Dict[str, str] = Field(default_factory=dict)
+
+
 class ResolveRequest(BaseModel):
     text: str = ""
     cites: List[str] = Field(default_factory=list)

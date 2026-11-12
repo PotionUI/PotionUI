@@ -300,6 +300,7 @@ PATCH	/api/keys/{key_id}	-	-	session_only
 GET	/api/keys/{key_id}/events	-	-	session_only
 GET	/api/kits	read	-	marker
 POST	/api/kits	-	content	marker
+POST	/api/kits/add-history-items	-	content	marker
 POST	/api/kits/add-library-items	-	content	marker
 PUT	/api/kits/order	-	content	marker
 POST	/api/kits/resolve	-	read	marker

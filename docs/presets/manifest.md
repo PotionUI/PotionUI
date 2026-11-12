@@ -240,9 +240,12 @@ covers only that kind's items, and `@` is the item's position among the field's 
 kind. The marker carries no kind; it comes from the item's `type`, else its file extension.
 
 An entry may also carry `limit:` (the most items of its kind a kit expansion adds to the field) and
-`limit_total:` (the most items of any kind in the field). They only bound items that arrive through
-a kit; items loaded straight into the field are never counted against them. A bare kit citation
-fills the field up to these limits and reports what did not fit.
+`limit_total:` (the most items of any kind in the field). Items already loaded in the field count
+against them, and a bare kit citation fills the field up to these limits and reports what did not
+fit. An entry without a limit takes the form field's own maximum for the mode (`max_items`,
+`max_items_by_kind`, or one item for a field that is not `multi`), so a kit can never put more
+items in a field than could be loaded by hand. Where neither exists a field takes at most 8 items
+from kits. Declare `limit:` explicitly when the model's maximum is below the form's.
 
 An entry with a `source:` maps a field whose rows are bundles a prompt resource source reads,
 instead of a media picker. A source is registered by a plugin (manifest `prompt_resource_sources:`,

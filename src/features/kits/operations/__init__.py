@@ -1,4 +1,5 @@
 from src.features.kits.operations.items import (
+    add_history_items,
     add_library_items,
     add_media_item,
     add_text_item,
@@ -19,6 +20,7 @@ from src.features.kits.operations.kits import (
 
 __all__ = [
     "UNSET",
+    "add_history_items",
     "add_library_items",
     "add_media_item",
     "add_text_item",

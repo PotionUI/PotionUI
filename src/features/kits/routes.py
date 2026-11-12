@@ -193,7 +193,7 @@ class KitController(BaseController):
             specs = mode_prompt_resources(template, request.mode)
         result = await asyncio.to_thread(
             resolve_citations, self.expander, user.id, specs, request.field, request.text, request.cites,
-            request.loaded, specs,
+            request.loaded, specs, request.form_data,
         )
         return self.success_response(data=result)
 

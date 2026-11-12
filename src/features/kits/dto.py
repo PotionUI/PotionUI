@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -51,3 +51,4 @@ class ResolveRequest(BaseModel):
     field: Optional[str] = None
     preset_id: Optional[str] = None
     mode: Optional[str] = None
+    form_data: Dict[str, Any] = Field(default_factory=dict)

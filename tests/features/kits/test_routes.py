@@ -403,6 +403,21 @@ class TestResolveRoute(RoutesBase):
 
         self.assertEqual(data["text"], "Scene: She whispers. <Picture 1>")
 
+    def test_existing_form_media_is_numbered_first_and_counts_toward_limits(self):
+        own = [{"path": "uploads/o1.png", "relative_path": "uploads/o1.png", "type": "image"},
+               {"path": "uploads/o2.png", "relative_path": "uploads/o2.png", "type": "image"}]
+
+        data = self.resolve(
+            cites=["kits.mara.face"], preset_id="h3", mode="refs",
+            form_data={"references": own + [{"kit": self.mara["id"]}]},
+        )
+
+        self.assertEqual(data["text"], "<Picture 3>")
+
+        self.template.prompt_resources = {"refs": [{**ALL_KINDS[0], "limit": 2}, *ALL_KINDS[1:]]}
+        capped = self.resolve(cites=["kits.mara.face"], preset_id="h3", mode="refs", form_data={"references": own})
+        self.assertEqual([s["code"] for s in capped["skipped"]], ["limit"])
+
     def test_a_bare_kit_expands_in_kit_order_with_media_before_text(self):
         data = self.resolve(cites=["kits.mara"], preset_id="h3", mode="refs")
 

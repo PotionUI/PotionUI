@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from src.features.kits import citations
 from src.features.kits.catalog import KitCatalog
-from src.features.kits.expansion import FieldPolicy, KitExpander, field_policies
+from src.features.kits.expansion import FieldPolicy, KitExpander, field_policies, split_kit_rows
 from src.features.kits.rules import MEDIA_KINDS
 from src.features.prompt.markers import RESOURCE_MARKER_RE
 from src.features.prompt.resources import resolve_prompt_resources
@@ -49,6 +49,7 @@ def resolve_citations(
     cites: List[str],
     loaded: Optional[List[str]],
     token_specs: Optional[List[Mapping[str, Any]]] = None,
+    form_data: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     policies = field_policies(specs or [])
     name = field or next(iter(policies), "references")
@@ -59,7 +60,7 @@ def resolve_citations(
     body = " ".join(part for part in [text.strip(), *(cite_text(name, cite) for cite in cites)] if part)
     catalog = KitCatalog(expander.repository, owner_id)
     kit_ids = loaded if loaded is not None else loaded_kit_ids(body, catalog)
-    expansion = expander.expand(owner_id, policies, {}, {name: list(kit_ids)}, [body])
+    expansion = expander.expand(owner_id, policies, split_kit_rows(dict(form_data or {}))[0], {name: list(kit_ids)}, [body])
     expanded = expansion.texts[0]
     final = resolve_prompt_resources(expanded, token_specs or [], expansion.form_data)[0] if token_specs else expanded
     return {

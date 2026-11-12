@@ -81,25 +81,171 @@ describe('the @ picker with kits', () => {
 		expect(picker).toContain('3 items · Actor');
 	});
 
-	it('cites a whole kit by its stable id when its row is picked', async () => {
+	it('opens a kit when its row is picked and cites nothing yet', async () => {
+		rememberKit(mara);
+		const onChange = await openPicker(values);
+		click(row('Kits'));
+		const before = onChange.mock.calls.length;
+		click(row('Mara'));
+		expect(onChange.mock.calls.length).toBe(before);
+		expect(document.querySelector('.resource-picker')!.textContent).toContain('Everything this model can take');
+	});
+
+	it('cites the whole kit only from the first entry of an opened kit', async () => {
 		rememberKit(mara);
 		const onChange = await openPicker(values);
 		click(row('Kits'));
 		click(row('Mara'));
+		expect(document.querySelectorAll('.picker-row')[0].textContent).toContain('Everything this model can take');
+		click(row('Everything this model can take'));
 		expect(onChange.mock.calls.at(-1)![0].detail.value).toBe(`@[references:${encodeKitKey(mara.id)}]`);
 	});
 
-	it('opens a kit with its chevron and cites one item, telling what the model takes', async () => {
+	it('lists a kit items with kind and reason and cites one when picked', async () => {
 		rememberKit(mara);
 		const onChange = await openPicker(values);
 		click(row('Kits'));
-		click(row('Mara')?.querySelector('.row-drill') ?? undefined);
+		click(row('Mara'));
 		const picker = document.querySelector('.resource-picker')!.textContent!;
-		expect(picker).toContain('Everything this model can take');
 		expect(picker).toContain('face');
 		expect(picker).toContain('Text · 6 characters');
 		click(row('face'));
 		expect(onChange.mock.calls.at(-1)![0].detail.value).toBe(`@[references:${encodeKitKey(mara.id, mara.items[0].id)}]`);
+	});
+});
+
+const editorOf = () => target.querySelector<HTMLElement>('[contenteditable]')!;
+
+function press(key: string) {
+	editorOf().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+	flushSync();
+}
+
+const active = () => document.querySelector('.picker-row[aria-selected="true"]')?.textContent ?? '';
+const pickerText = () => document.querySelector('.resource-picker')?.textContent ?? '';
+
+describe('the @ picker with kits, by keyboard', () => {
+	it('Enter on the Kits group opens it, like a click', async () => {
+		rememberKit(mara);
+		await openPicker(values);
+		const rows = Array.from(document.querySelectorAll('.picker-row'));
+		const index = rows.findIndex((r) => r.textContent?.includes('Kits'));
+		for (let i = 0; i < index; i += 1) press('ArrowDown');
+		expect(active()).toContain('Kits');
+		press('Enter');
+		expect(pickerText()).toContain('Mara');
+		expect(pickerText()).toContain('3 items');
+	});
+
+	it('Enter on a kit opens it and cites nothing, ArrowRight does the same', async () => {
+		rememberKit(mara);
+		const onChange = await openPicker(values);
+		click(row('Kits'));
+		const before = onChange.mock.calls.length;
+		press('Enter');
+		expect(pickerText()).toContain('Everything this model can take');
+		expect(onChange.mock.calls.length).toBe(before);
+		press('ArrowLeft');
+		expect(pickerText()).not.toContain('Everything this model can take');
+		expect(pickerText()).toContain('Mara');
+		press('ArrowRight');
+		expect(pickerText()).toContain('Everything this model can take');
+	});
+
+	it('Enter on the first entry cites the whole kit, ArrowDown then Enter cites one item', async () => {
+		rememberKit(mara);
+		const onChange = await openPicker(values);
+		click(row('Kits'));
+		press('Enter');
+		expect(active()).toContain('Everything this model can take');
+		press('Enter');
+		expect(onChange.mock.calls.at(-1)![0].detail.value).toBe(`@[references:${encodeKitKey(mara.id)}]`);
+	});
+
+	it('Enter on an item cites that item', async () => {
+		rememberKit(mara);
+		const onChange = await openPicker(values);
+		click(row('Kits'));
+		press('Enter');
+		press('ArrowDown');
+		expect(active()).toContain('face');
+		press('Enter');
+		expect(onChange.mock.calls.at(-1)![0].detail.value).toBe(`@[references:${encodeKitKey(mara.id, mara.items[0].id)}]`);
+	});
+
+	it('Escape closes the picker', async () => {
+		rememberKit(mara);
+		await openPicker(values);
+		click(row('Kits'));
+		press('Escape');
+		expect(document.querySelector('.resource-picker')).toBeNull();
+	});
+
+	it('Tab opens the kit browser, not the generic one', async () => {
+		rememberKit(mara);
+		await openPicker(values);
+		click(row('Kits'));
+		press('Tab');
+		expect(document.querySelector('.resource-picker')).toBeNull();
+	});
+});
+
+describe('the @ picker with kits on an image-only model', () => {
+	const imageOnly: PromptResourceSpec[] = [{ field: 'image', kind: 'image', label: 'Image', token: '<image @>' }];
+
+	async function openImageOnly() {
+		rememberKit(mara);
+		target = document.createElement('div');
+		document.body.appendChild(target);
+		const onChange = vi.fn();
+		const component = createClassComponent({
+			component: InlineChipEditor as never,
+			target,
+			props: { value: '', chips: {}, variant: 'segment-composer', borderless: true, promptResources: imageOnly, resourceFieldValues: { image: [{ kit: mara.id }] } }
+		});
+		component.$on?.('change', onChange);
+		await vi.waitFor(() => {
+			flushSync();
+			(component as unknown as { insertResourceTrigger: () => void }).insertResourceTrigger?.();
+			flushSync();
+			expect(document.querySelector('.resource-picker')).not.toBeNull();
+		});
+		return onChange;
+	}
+
+	it('descends into the kit on click instead of citing it', async () => {
+		const onChange = await openImageOnly();
+		click(row('Kits'));
+		const before = onChange.mock.calls.length;
+		click(row('Mara'));
+		expect(onChange.mock.calls.length).toBe(before);
+		expect(pickerText()).toContain('Everything this model can take · 2 of 3');
+	});
+
+	it('descends into the kit on Enter instead of citing it', async () => {
+		const onChange = await openImageOnly();
+		click(row('Kits'));
+		const before = onChange.mock.calls.length;
+		press('Enter');
+		expect(onChange.mock.calls.length).toBe(before);
+		expect(pickerText()).toContain('Everything this model can take · 2 of 3');
+	});
+
+	it('shows items the model cannot take disabled, with the reason, and ignores them', async () => {
+		const onChange = await openImageOnly();
+		click(row('Kits'));
+		press('Enter');
+		const voice = row('voice')!;
+		expect(voice.getAttribute('aria-disabled')).toBe('true');
+		expect(voice.textContent).toContain('Audio · not taken by this model');
+		const before = onChange.mock.calls.length;
+		click(voice);
+		press('ArrowDown');
+		press('ArrowDown');
+		expect(active()).toContain('voice');
+		press('Enter');
+		expect(onChange.mock.calls.length).toBe(before);
+		expect(row('face')?.getAttribute('aria-disabled')).toBeNull();
 	});
 });
 

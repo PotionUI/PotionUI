@@ -417,7 +417,7 @@
 		<div class="mt-3 flex justify-center"><Button variant="secondary" size="sm" onclick={onBack}>Back to Kits</Button></div>
 	</div>
 {:else}
-	<header class="flex min-h-header flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-surface-1 px-4 py-2.5 sm:px-6">
+	<header class="sticky top-0 z-30 flex min-h-header flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-surface-1 px-4 py-2.5 sm:px-6">
 		<button type="button" class="flex items-center gap-1 text-sm font-medium text-fg-muted hover:text-fg" aria-label="Back to Kits" onclick={onBack}>
 			<Icon name="chevron-left" className="h-3.5 w-3.5" />Kits
 		</button>

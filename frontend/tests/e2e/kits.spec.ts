@@ -223,8 +223,8 @@ function seedMara(): WireKit {
 	return { id, name: 'Mara', handle: 'mara', label: 'Actor', items: [item('01', 'image', 'face', null), item('02', 'audio', 'voice', null), item('03', 'text', 'look', 'Warm and calm.')] };
 }
 
-async function mockLibrary(page: Page) {
-	const rows = ['harbour.png', 'dunes.png'].map((name, index) => ({
+async function mockLibrary(page: Page, count = 2) {
+	const rows = Array.from({ length: count }, (_, index) => `upload-${index + 1}.png`).map((name, index) => ({
 		id: `lib-${index + 1}`,
 		filename: `lib-${index + 1}.png`,
 		original_filename: name,
@@ -309,6 +309,52 @@ test.describe('Kits in the Library', () => {
 		await expect.poll(() => backend.kits.length).toBe(1);
 		await expect(page).toHaveURL(/view=kits&kit=/);
 	});
+
+	for (const view of [
+		{ name: 'All uploads', url: '/library' },
+		{ name: 'the Kits list', url: '/library?view=kits' },
+		{ name: 'an open kit', url: '/library?view=kits&kit=kt_7f3a1c2e' }
+	]) {
+		for (const size of [
+			{ width: 1440, height: 900 },
+			{ width: 390, height: 844 }
+		]) {
+			test(`${view.name} scrolls inside the Library area at ${size.width}px and leaves the page and header in place`, async ({ page }) => {
+				await page.setViewportSize(size);
+				await mockLibrary(page, 120);
+				const mara = seedMara();
+				const filler = Array.from({ length: 30 }, (_, index) => ({ ...mara, id: `kt_filler${index}`, name: `Filler ${index}`, handle: `filler_${index}` }));
+				await mockKits(page, [mara, ...filler]);
+				await page.goto(view.url);
+				const area = page.locator('[data-library-scroll]');
+				await expect(area).toBeVisible();
+				if (view.url === '/library') await expect(page.locator('[data-library-card-body]').first()).toBeVisible();
+				if (view.url.includes('view=kits') && !view.url.includes('kit=')) await expect(page.locator('[data-kit-card]').first()).toBeVisible();
+				if (view.url.includes('kit=')) await expect(page.getByRole('button', { name: 'Delete kit' })).toBeVisible();
+				const header = area.locator('.sticky, header').first();
+				const frame = async () => ({
+					page: await page.evaluate(() => document.scrollingElement!.scrollTop),
+					area: await area.evaluate((node) => node.scrollTop),
+					areaBox: await area.evaluate((node) => ({ top: node.getBoundingClientRect().top, height: node.getBoundingClientRect().height })),
+					headerTop: await header.evaluate((node) => Math.round(node.getBoundingClientRect().top)),
+					scrollable: await area.evaluate((node) => node.scrollHeight - node.clientHeight)
+				});
+				const before = await frame();
+				const areaTop = before.areaBox.top;
+				expect(before.areaBox.height).toBeLessThanOrEqual(size.height);
+				if (before.scrollable > 0) {
+					await page.mouse.move(size.width / 2, size.height / 2);
+					await page.mouse.wheel(0, 1200);
+					await expect.poll(async () => (await frame()).area).toBeGreaterThan(0);
+				}
+				const after = await frame();
+				expect(after.page).toBe(0);
+				expect(after.areaBox.top).toBe(areaTop);
+				expect(after.headerTop).toBe(areaTop);
+				if (size.width > 700 && !view.url.includes('kit=')) expect(before.scrollable).toBeGreaterThan(0);
+			});
+		}
+	}
 
 	test('deleting a kit asks first and keeps it when cancelled', async ({ page }) => {
 		await mockLibrary(page);
@@ -436,12 +482,42 @@ test.describe('Kits in a generation', () => {
 		await page.keyboard.type('@kits.');
 		await expect(page.locator('.resource-picker')).toContainText('Mara');
 		await page.keyboard.press('Enter');
+		await expect(page.locator('.resource-picker')).toContainText('Everything this model can take');
+		await expect(page.locator('[data-kit-chip]')).toHaveCount(0);
+		await page.keyboard.press('Enter');
 		await expect(page.locator('[data-kit-chip="ok"]')).toBeVisible();
 		await screenshot(page, JOURNEY, 'picker-1440');
 
 		await page.getByRole('button', { name: /^Generate/ }).first().click();
 		await expect.poll(() => backend.submitted.length).toBe(1);
 		await expect(page.getByText('voice is skipped')).toBeVisible();
+	});
+
+	test('the @ picker is driven by the keyboard: Kits group, a kit, an item, back with the left arrow', async ({ page }) => {
+		await mockKits(page, [seedMara()]);
+		test.skip(!(await openReferencePreset(page)), 'a MiniMax H3 preset with a References mode is not available on this instance');
+		await page.getByRole('button', { name: 'Kits' }).first().click();
+		const dialog = page.getByRole('dialog', { name: 'Load a kit' });
+		await dialog.locator('[data-kit-load-list] [role="option"]').first().click();
+		await dialog.getByRole('button', { name: /^Load Mara/ }).click();
+		await expect(page.locator('[data-loaded-kit]')).toContainText('Mara');
+
+		const editor = page.locator('.segment-composer [contenteditable="true"]').first();
+		await editor.click();
+		await page.keyboard.type('@kits');
+		const picker = page.locator('.resource-picker');
+		await expect(picker.locator('.picker-row[aria-selected="true"]')).toContainText('Kits');
+		await page.keyboard.press('Enter');
+		await expect(picker).toContainText('Mara');
+		await page.keyboard.press('Enter');
+		await expect(picker).toContainText('Everything this model can take');
+		await page.keyboard.press('ArrowLeft');
+		await expect(picker).not.toContainText('Everything this model can take');
+		await page.keyboard.press('ArrowRight');
+		await page.keyboard.press('ArrowDown');
+		await expect(picker.locator('.picker-row[aria-selected="true"]')).toContainText('face');
+		await page.keyboard.press('Enter');
+		await expect(page.locator('[data-kit-chip="ok"]')).toContainText('mara.face');
 	});
 
 	test('kit rows written from outside the form survive a form re-hydrate', async ({ page }) => {

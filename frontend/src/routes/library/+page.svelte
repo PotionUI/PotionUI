@@ -306,7 +306,7 @@
 	on:change={handleFilesChosen}
 />
 
-<div class="flex min-h-screen bg-canvas">
+<div class="flex h-[calc(100dvh-var(--tab-bar-height))] md:h-[100dvh] bg-canvas" data-library-shell>
 	<!-- Left folder-tree panel (collapsible), pinned while the gallery scrolls -->
 	{#if sidebarOpen}
 		<aside
@@ -318,7 +318,7 @@
 		</aside>
 	{/if}
 
-	<div class="flex-1 min-w-0">
+	<div class="flex-1 min-w-0 min-h-0 overflow-y-auto" data-library-scroll>
 		{#if kitsState.active}
 			{#if kitsState.kitId}
 				{#key kitsState.kitId}

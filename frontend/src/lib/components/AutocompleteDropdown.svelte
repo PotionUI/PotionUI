@@ -34,6 +34,7 @@
 		badge?: string;
 		description?: string;
 		kind?: 'image' | 'video' | 'audio' | 'text';
+		disabled?: boolean;
 	}
 </script>
 
@@ -316,10 +317,12 @@
 								use:trackSelectedItem={isSelected}
 								class="picker-row phrase-value"
 								class:selected={isSelected}
+								class:opacity-50={suggestion.disabled}
 								data-value={suggestion.value}
-								on:click={() => onSelectValue(suggestion)}
+								on:click={() => { if (!suggestion.disabled) onSelectValue(suggestion); }}
 								role="option"
 								aria-selected={isSelected}
+								aria-disabled={suggestion.disabled ? 'true' : undefined}
 							>
 								<span class="row-thumb">
 									{#if triggerChar === '@'}
@@ -524,10 +527,11 @@
 						<div
 							use:trackSelectedItem={isSelected}
 							class="px-3 py-2 cursor-pointer transition-colors duration-100 {isSelected ? 'bg-signal/10 text-signal' : 'text-fg hover:bg-surface-3'}"
-							on:click={() => onSelectValue(suggestion)}
-							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectValue(suggestion); } }}
+							on:click={() => { if (!suggestion.disabled) onSelectValue(suggestion); }}
+							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!suggestion.disabled) onSelectValue(suggestion); } }}
 							role="option"
 							aria-selected={isSelected}
+							aria-disabled={suggestion.disabled ? 'true' : undefined}
 							tabindex="-1"
 						>
 							<div class="flex items-center justify-between gap-2">

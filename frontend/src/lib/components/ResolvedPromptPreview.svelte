@@ -13,6 +13,12 @@
 	import { buildSyntaxSegments, syntaxColorStyle, syntaxToneClasses, type PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import { fixedPromptPieces, type FixedPromptParts } from '$lib/utils/presetFixedPrompt';
 	import { AdminOnlyMark } from '$lib/components/ui';
+	import { expandKitCitations } from '$lib/kits/kitResolve';
+	import { kitDirectory } from '$lib/stores/kits';
+	import { api } from '$lib/services/api/index';
+	import { buildResolveRequest, createKitResolver, hasKitCites, skipLines } from '$lib/kits/kitResolver';
+	import { kitFieldsOf, defaultKitField } from '$lib/kits/promptKits';
+	import { onDestroy } from 'svelte';
 
 	export let prompt = '';
 	export let negativePrompt = '';
@@ -22,6 +28,8 @@
 	export let variables: VariablesMap | undefined = undefined;
 	export let compilePrompt: ((resolved: string) => string) | null = null;
 	export let fixedPrompt: FixedPromptParts | null = null;
+	export let presetId: string | null = null;
+	export let mode: string | null = null;
 
 	const resourceNumbering =
 		getContext<Readable<ResourceNumbering | null> | undefined>(RESOURCE_NUMBERING_CONTEXT_KEY) ?? EMPTY_RESOURCE_NUMBERING;
@@ -33,13 +41,37 @@
 	$: previewVariables = resolvePreviewVariables(variables);
 	$: promptConditions = previewConditions(prompt, variables);
 	$: negativeConditions = previewConditions(negativePrompt, variables);
+	const kitResolver = createKitResolver((request) => api.resolveKitCitations(request));
+	onDestroy(() => kitResolver.cancel());
+
+	$: kitFields = kitFieldsOf(promptResources, resourceFieldValues);
+	$: promptLocal = resolveResourceMarkers(promptConditions.text, promptResources, resourceFieldValues, $resourceNumbering);
+	$: kitCited = hasKitCites([promptLocal]);
+	$: kitResolver.request(
+		kitCited
+			? buildResolveRequest({
+					texts: [promptLocal],
+					loaded: kitFields.flatMap((entry) => entry.rows.map((row) => row.kit)),
+					field: defaultKitField(kitFields),
+					presetId,
+					mode
+				})
+			: null
+	);
+	$: serverText = kitCited && $kitResolver.result ? $kitResolver.result.text : null;
+	$: kitSkips = kitCited && $kitResolver.result ? skipLines($kitResolver.result.skipped) : [];
 	$: resolvedBase = substituteVariables(
-		resolveResourceMarkers(promptConditions.text, promptResources, resourceFieldValues, $resourceNumbering),
+		serverText ?? resolveResourceMarkers(expandKitCitations(promptConditions.text, promptResources, resourceFieldValues, $kitDirectory), promptResources, resourceFieldValues, $resourceNumbering),
 		previewVariables.replacements
 	);
 	$: resolvedPrompt = compilePrompt ? compilePrompt(resolvedBase) : resolvedBase;
 	$: resolvedNegativePrompt = substituteVariables(
-		resolveResourceMarkers(negativeConditions.text, promptResources, resourceFieldValues, $resourceNumbering),
+		resolveResourceMarkers(
+			expandKitCitations(negativeConditions.text, promptResources, resourceFieldValues, $kitDirectory),
+			promptResources,
+			resourceFieldValues,
+			$resourceNumbering
+		),
 		previewVariables.replacements
 	);
 

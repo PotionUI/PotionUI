@@ -12,6 +12,7 @@
 		dragging,
 		pasteArmed,
 		offersDraw,
+		offersKits = false,
 		sizeHint,
 		onSource
 	}: {
@@ -19,6 +20,7 @@
 		dragging: boolean;
 		pasteArmed: boolean;
 		offersDraw: boolean;
+		offersKits?: boolean;
 		sizeHint: string | null;
 		onSource: (source: MediaSource) => void;
 	} = $props();
@@ -52,6 +54,9 @@
 			{/if}
 			<Button variant="ghost" size="xs" icon="clock" onclick={() => onSource('history')}>History</Button>
 			<Button variant="ghost" size="xs" icon="grid" onclick={() => onSource('library')}>Library</Button>
+			{#if offersKits}
+				<Button variant="ghost" size="xs" icon="layers" onclick={() => onSource('kits')}>Kits</Button>
+			{/if}
 			{#if offersDraw}
 				<Button variant="ghost" size="xs" icon="brush" onclick={() => onSource('draw')}>Draw</Button>
 			{/if}

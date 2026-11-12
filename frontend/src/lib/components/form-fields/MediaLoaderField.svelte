@@ -51,6 +51,13 @@
 	import { historyTileLabel, type PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import MediaInspector from './MediaInspector.svelte';
 	import MediaStrip from './MediaStrip.svelte';
+	import KitLoadDialog from '$lib/components/kits/KitLoadDialog.svelte';
+	import LoadedKitHost from '$lib/components/kits/LoadedKitHost.svelte';
+	import { acceptedFrom, mediaCountOf } from '$lib/kits/kitCounts';
+	import { addKitRow, removeKitRow, snapshotOf, splitKitRows, withKitRows } from '$lib/kits/kitMarker';
+	import type { KitDetail, KitRow } from '$lib/kits/types';
+	import { ensureKits, kitDirectory } from '$lib/stores/kits';
+	import { KIT_ROWS_HOSTED_CONTEXT_KEY, NOT_HOSTED } from '$lib/kits/hostContext';
 	import MediaRow from './MediaRow.svelte';
 	import { findResourceSpec, mediaItemKey, resourceHandleLabel } from '$lib/utils/promptResources';
 	import { isTypingInField } from '$lib/utils/editableTarget';
@@ -90,7 +97,24 @@
 	$: acceptedTypes = limits.accept;
 	$: multiple = limits.multiple;
 	$: byKindLimits = Object.keys(limits.maxItemsByKind).length > 0;
-	$: multiItems = multiple && Array.isArray(value) ? (value as Item[]) : [];
+	$: rawMulti = multiple && Array.isArray(value) ? (value as Item[]) : [];
+	$: split = splitKitRows(rawMulti);
+	$: multiItems = split.media;
+	$: kitRows = split.kits;
+	$: kitIds = kitRows.map((row) => row.kit);
+	$: void ensureKits(kitIds);
+	$: kitSpecKinds = name ? $resourceUsage.specs.filter((spec) => spec.field === name).map((spec) => spec.kind) : [];
+	$: kitAccepted = acceptedFrom(kitSpecKinds);
+	$: kitMedia = kitRows.reduce((sum, row) => {
+		const detail = $kitDirectory.get(row.kit);
+		return sum + (detail ? mediaCountOf(detail.items, kitAccepted) : 0);
+	}, 0);
+	$: canKits = multiple && !!name && kitSpecKinds.length > 0;
+	const kitRowsHosted = getContext<Readable<boolean> | undefined>(KIT_ROWS_HOSTED_CONTEXT_KEY) ?? NOT_HOSTED;
+	let showKitDialog = false;
+	onMount(() => {
+		if (kitIds.length > 0) void ensureKits(kitIds, { refresh: true });
+	});
 	$: groupLimits = byKindLimits || kinds.length === 1 ? limits : NO_LIMITS;
 	$: totalFull = !byKindLimits && kinds.length > 1 && limits.maxItems != null && multiItems.length >= limits.maxItems;
 	$: groups = buildMediaGroups(multiItems, kinds, groupLimits, (item: Item) => kindOfMediaItem(item)).map((group) =>
@@ -462,7 +486,7 @@
 			} else {
 				next.push(...built);
 			}
-			onChange(name, next);
+			emitMulti(next);
 			return;
 		}
 
@@ -474,6 +498,22 @@
 		applyEditedItem(built[0], null);
 	}
 
+	function emitMulti(next: (Item | UploadedMediaItem)[]) {
+		if (!name) return;
+		onChange(name, withKitRows(next, kitRows));
+	}
+
+	function handleKitsLoaded(kits: KitDetail[]) {
+		if (!name) return;
+		const rows = kits.reduce<KitRow[]>((held, kit) => addKitRow(held, { kit: kit.id, snapshot: snapshotOf(kit) }), kitRows);
+		onChange(name, withKitRows(multiItems, rows));
+	}
+
+	function removeKit(row: KitRow) {
+		if (!name) return;
+		onChange(name, withKitRows(multiItems, removeKitRow(kitRows, row.kit)));
+	}
+
 	function groupFor(kind: MediaKind | null) {
 		return groups.find((group) => group.kind === kind);
 	}
@@ -481,7 +521,7 @@
 	function appendMultiItem(item: Item | UploadedMediaItem) {
 		if (!name || groupFor(kindOfMediaItem(item))?.full || totalFull) return;
 		selected = multiItems.length;
-		onChange(name, [...multiItems, item]);
+		emitMulti([...multiItems, item]);
 	}
 
 	function replaceMultiItem(index: number, item: Item | UploadedMediaItem) {
@@ -489,30 +529,30 @@
 		const next = multiItems.map((existing: Item, i: number) =>
 			i === index ? { ...item, ...(existing.label ? { label: existing.label } : {}) } : existing
 		);
-		onChange(name, next);
+		emitMulti(next);
 	}
 
 	function removeMultiItem(index: number) {
 		if (!name) return;
-		onChange(name, multiItems.filter((_: unknown, i: number) => i !== index));
+		emitMulti(multiItems.filter((_: unknown, i: number) => i !== index));
 	}
 
 	function clearAllItems() {
 		if (!name) return;
-		onChange(name, []);
+		emitMulti([]);
 	}
 
 	function updateMultiLabel(index: number, text: string) {
 		if (!name) return;
 		const cleaned = text.slice(0, MAX_LABEL_LENGTH);
 		const next = multiItems.map((item: Item, i: number) => (i === index ? { ...item, label: cleaned } : item));
-		onChange(name, next);
+		emitMulti(next);
 	}
 
 	function reorderItems(next: Item[], flatIndex: number) {
 		if (!name) return;
 		selected = flatIndex;
-		onChange(name, next);
+		emitMulti(next);
 	}
 
 	let selectionSeeded = false;
@@ -562,7 +602,7 @@
 		if (accepted.length > 0) {
 			if (accepted.length === items.length) rejection = null;
 			selected = multiItems.length + accepted.length - 1;
-			onChange(name, [...multiItems, ...accepted]);
+			emitMulti([...multiItems, ...accepted]);
 		}
 		showHistoryModal = false;
 	}
@@ -771,6 +811,9 @@
 			case 'library':
 				openUploadLibraryModal(kind);
 				break;
+			case 'kits':
+				showKitDialog = true;
+				break;
 			case 'draw':
 				editors?.draw();
 				break;
@@ -808,7 +851,8 @@
 		}
 	}
 
-	$: countText = multiple && countLimit !== null ? formatCount(multiItems.length, countLimit) : null;
+	$: countText = multiple && countLimit !== null ? formatCount(multiItems.length + kitMedia, countLimit) : null;
+	$: kitRoom = countLimit === null ? null : Math.max(0, countLimit - multiItems.length - kitMedia);
 </script>
 
 <svelte:window on:keydown|capture={handleWindowKeydown} />
@@ -892,6 +936,7 @@
 				dragging={isDragging}
 				pasteArmed={isPasteActive}
 				offersDraw={canDraw}
+				offersKits={canKits}
 				maxLabelLength={MAX_LABEL_LENGTH}
 				toolGroupsFor={(flatIndex) => rowToolGroups(toolEnv, flatIndex)}
 				handleFor={rowHandle}
@@ -942,6 +987,7 @@
 					adding={addingKind}
 					addingProgress={uploadProgress}
 					offersDraw={false}
+					offersKits={canKits}
 					onSelect={selectItem}
 					onReorder={reorderItems}
 					onRemove={removeMultiItem}
@@ -954,14 +1000,34 @@
 				dragging={isDragging}
 				pasteArmed={isPasteActive}
 				offersDraw={canDraw}
+				offersKits={canKits}
 				{sizeHint}
 				onSource={(source) => handleSource(null, source)}
 			/>
 		{/if}
 	{/if}
 
+	{#if multiple && kitRows.length > 0 && !$kitRowsHosted}
+		<div class="space-y-2 {compact ? 'mt-2' : 'mt-3'}" data-loaded-kits>
+			{#each kitRows as row (row.kit)}
+				<LoadedKitHost {row} accepted={kitAccepted} {compact} onRemove={removeKit} onChoose={() => (showKitDialog = true)} />
+			{/each}
+		</div>
+	{/if}
+
 	<input bind:this={fileInput} type="file" on:change={handleFileSelect} accept={acceptedTypes} class="hidden" />
 </div>
+
+{#if showKitDialog}
+	<KitLoadDialog
+		loadedIds={kitIds}
+		accepted={kitAccepted}
+		mediaRoom={kitRoom}
+		subtitle={label || 'Reference media'}
+		onLoad={handleKitsLoaded}
+		onClose={() => (showKitDialog = false)}
+	/>
+{/if}
 
 <MediaFieldPickers
 	historyOpen={showHistoryModal}

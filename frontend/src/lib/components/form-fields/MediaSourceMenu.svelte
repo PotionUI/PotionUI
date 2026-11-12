@@ -8,18 +8,20 @@
 	let {
 		kind,
 		offersDraw = false,
+		offersKits = false,
 		align = 'left',
 		onPick,
 		trigger
 	}: {
 		kind: MediaKind | null;
 		offersDraw?: boolean;
+		offersKits?: boolean;
 		align?: 'left' | 'right';
 		onPick: (source: MediaSource) => void;
 		trigger: Snippet<[{ toggle: () => void; open: boolean }]>;
 	} = $props();
 
-	let entries = $derived(sourceEntries({ kind, offersDraw }));
+	let entries = $derived(sourceEntries({ kind, offersDraw, offersKits }));
 </script>
 
 <Menu label="Add media" width={224} {align} {trigger} menuAttrs={{ 'data-source-menu': '' }}>

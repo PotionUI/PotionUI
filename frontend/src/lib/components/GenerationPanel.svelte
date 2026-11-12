@@ -59,6 +59,7 @@
 	export let workbenchFloating: boolean = false;
 	export let preset: DeckThumbPreset | null = null;
 	export let modeLabel: string = '';
+	export let kitSkip: { count: number; title: string; detail: string } | null = null;
 
 	$: queueEntries = generation.queue || [];
 	$: queueDepth = queueEntries.length;
@@ -497,7 +498,7 @@
 				<span class="deck-eyebrow">{eyebrow}</span>
 				<div class="deck-title-line">
 					<span class="deck-dot is-{dotTone}" aria-hidden="true"></span>
-					<span class="deck-title {phraseFading ? 'is-fading' : ''}" aria-hidden="true" data-deck-title>{visibleTitle}</span>
+					<span class="deck-title {phraseFading ? 'is-fading' : ''}" aria-hidden="true" data-deck-title>{visibleTitle}{#if kitSkip && deckState === 'ready'} · {kitSkip.title}{/if}</span>
 					<span class="sr-only" data-deck-literal>{title.literal}</span>
 				</div>
 				<div class="deck-detail">
@@ -529,6 +530,8 @@
 							<span class="font-mono tabular-nums" data-batch-line>{batchLine.text}</span>
 						{:else if costNote && !(markState === 'disabled' && disabledReason)}
 							<span class="font-mono tabular-nums" data-cost-note>{costNote}</span>
+						{:else if kitSkip && deckState === 'ready' && !(markState === 'disabled' && disabledReason)}
+							<span data-kit-skip-detail>{kitSkip.detail}</span>
 						{:else}
 							{markState === 'disabled' && disabledReason
 								? disabledReason

@@ -7,10 +7,16 @@
 	import { buildSmartViews, createFilterSelection } from '$lib/components/collections/scopeActions';
 	import { createEntriesActions } from '$lib/components/collections/deleteEntries';
 	import { api } from '$lib/services/api/index';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
+	import { kitTotal, loadKitTotal } from '$lib/stores/kits';
+	import { hrefWithKitsView, kitsViewFromUrl } from '$lib/kits/libraryView';
+	import { onMount } from 'svelte';
 
 	let allView: SmartView;
 	let favoritesView: SmartView;
 	let unsortedView: SmartView;
+	let kitsView: SmartView;
 
 	export let onCollapse: (() => void) | undefined = undefined;
 	export let part: 'sidebar' | 'actions' = 'sidebar';
@@ -22,13 +28,36 @@
 	$: favoritesOnly = !!$libraryStore.filters.favoritesOnly;
 	$: unsorted = !!$libraryStore.filters.unsorted;
 	$: directOnly = !!$libraryStore.filters.directOnly;
-	$: isAll = !activeId && !favoritesOnly && !unsorted;
+	$: kitsActive = kitsViewFromUrl($page.url).active;
+	$: isAll = !activeId && !favoritesOnly && !unsorted && !kitsActive;
 	$: void collectionsStore.setDirectOnly(directOnly);
 
-	const { applySelection } = createFilterSelection(
+	function leaveKits() {
+		if (!kitsActive) return;
+		void goto(hrefWithKitsView($page.url, { active: false, kitId: null }), {
+			replaceState: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	function showKits() {
+		void goto(hrefWithKitsView($page.url, { active: true, kitId: null }), { keepFocus: true, noScroll: true });
+	}
+
+	onMount(() => {
+		if ($kitTotal === null) void loadKitTotal();
+	});
+
+	const { applySelection: applyFilterSelection } = createFilterSelection(
 		(key, value) => libraryStore.setFilter(key, value),
 		() => libraryStore.load()
 	);
+
+	function applySelection(selection: Parameters<typeof applyFilterSelection>[0]) {
+		leaveKits();
+		return applyFilterSelection(selection);
+	}
 
 	async function handleDelete(id: string, blockedIds: Set<string>) {
 		const response = await collectionsStore.remove(id);
@@ -43,13 +72,22 @@
 		icon: 'photo',
 		label: 'All uploads',
 		isAll,
-		favoritesOnly,
-		unsorted,
+		favoritesOnly: favoritesOnly && !kitsActive,
+		unsorted: unsorted && !kitsActive,
 		counts: smartCounts,
 		onAll: () => applySelection({}),
 		onFavorites: () => applySelection({ favoritesOnly: true }),
 		onUnsorted: () => applySelection({ unsorted: true })
 	}));
+
+	$: kitsView = {
+		id: 'kits',
+		icon: 'layers',
+		label: 'Kits',
+		active: kitsActive,
+		count: $kitTotal ?? undefined,
+		onSelect: showKits
+	};
 
 	const treeActions: TreeActions = {
 		onSelect: (id) => applySelection({ collectionId: id }),
@@ -82,10 +120,11 @@
 		label="Library"
 		rulesScope="library"
 		{collections}
-		{activeId}
+		activeId={kitsActive ? undefined : activeId}
 		{allView}
 		{favoritesView}
 		{unsortedView}
+		{kitsView}
 		autoOrganizeSubject="uploads"
 		{treeActions}
 		onCreateRoot={(name) => collectionsStore.create(name, null)}

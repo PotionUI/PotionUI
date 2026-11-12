@@ -18,7 +18,7 @@
 	$: if (url) failed = false;
 
 	$: resolvedKind =
-		kind === 'image' || kind === 'video' || kind === 'audio'
+		kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'text'
 			? kind
 			: url && detectVideoFromUrl(url)
 				? 'video'
@@ -27,7 +27,7 @@
 	$: showImage = !failed && !!url && resolvedKind === 'image';
 	$: showVideo = !failed && !!url && resolvedKind === 'video';
 
-	$: iconName = resolvedKind === 'video' ? 'video' : resolvedKind === 'audio' ? 'audio' : 'image';
+	$: iconName = resolvedKind === 'video' ? 'video' : resolvedKind === 'audio' ? 'audio' : resolvedKind === 'text' ? 'document' : 'image';
 
 	$: sizeStyle =
 		size === undefined ? undefined : `width:${typeof size === 'number' ? `${size}px` : size};height:${typeof size === 'number' ? `${size}px` : size};`;

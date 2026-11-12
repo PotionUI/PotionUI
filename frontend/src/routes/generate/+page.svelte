@@ -125,6 +125,9 @@
 	import { classifyGenerationStartError } from '$lib/utils/formValidationErrors';
 	import { getPresetPromptResources } from '$lib/utils/presetPromptResourcesCache';
 	import { tabMergedMarkerUpdates } from '$lib/utils/mergedFieldMarkers';
+	import { kitNoticesOf, kitNoticeText } from '$lib/kits/kitSubmit';
+	import { kitNotices } from '$lib/stores/kitNotices';
+	import { summarizeSkips } from '$lib/kits/kitResolver';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { firstResourceIssue } from '$lib/utils/generationResourceReadiness';
 	import { resolveDefaultModeSelection } from '$lib/utils/modeAutoSelect';
@@ -288,6 +291,13 @@
 	 * `submitVideoDirectorShots`) leaves `buildDirectorRunEntries`' own
 	 * derivation untouched.
 	 */
+	function announceKitNotices(data: unknown) {
+		const notices = kitNoticesOf(data);
+		if (notices.length === 0) return;
+		kitNotices.set(notices);
+		toasts.warning(kitNoticeText(notices));
+	}
+
 	async function submitOneDirectorWireDoc(
 		tabId: string,
 		tab: GenerationTab,
@@ -340,6 +350,7 @@
 		try {
 			const response = await api.startGeneration(request);
 			if (response.success && response.data) {
+				announceKitNotices(response.data);
 				const { generation_id, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
 				const liveTab = findGenerationTab($tabsStore.tabs, tabId) || tab;
@@ -1489,6 +1500,7 @@
 			const response = await api.startGeneration(request);
 
 			if (response.success && response.data) {
+				announceKitNotices(response.data);
 				const { generation_id, status, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
 
@@ -2103,6 +2115,7 @@
 	{#if !toolTabActive}
 	{#key currentTab.id}
 		<GenerationPanel
+			kitSkip={summarizeSkips($kitNotices)}
 			bind:this={generationPanelRef}
 			generation={generation}
 			{isGenerating}

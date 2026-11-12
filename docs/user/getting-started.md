@@ -22,13 +22,12 @@ today, with room to add remote workers later), **remote** (no GPU here — a
 VPS or laptop that dispatches to a remote worker; local and hybrid pull the
 full CUDA stack, remote installs CPU-only PyTorch instead), and **worker** (a
 separate GPU box that only serves another PotionUI instance, via `./potionui
-worker doctor`/`worker start`). See the README's [Install](../../README.md#install)
-section for the full table and commands, and [Remote Native](../remote-native.md)
+worker doctor`/`worker start`). See the [install guide](install.md)
+for the full table and commands, and [Remote Native](../remote-native.md)
 for how a worker is wired to the instance that dispatches to it.
 
-PotionUI also runs natively on Windows — see the README's
-[Windows (native)](../../README.md#windows-native) section for prerequisites
-and what the Windows CI covers.
+PotionUI also runs natively on Windows — see the
+[install guide](install.md#windows) for prerequisites.
 
 ## First run: claiming the instance
 

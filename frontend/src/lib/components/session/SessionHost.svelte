@@ -67,6 +67,6 @@
 
 <SessionScriptDialog
 	sessionId={$dialogState.scriptSessionId}
-	sessionName={$session.sessions.find((item) => item.id === $dialogState.scriptSessionId)?.name ?? ''}
+	sessionName={$session.sessions?.find((item) => item.id === $dialogState.scriptSessionId)?.name ?? ''}
 	onClose={dialogs.close}
 />

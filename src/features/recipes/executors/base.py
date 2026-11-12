@@ -101,6 +101,7 @@ class StepResult:
     error_code: Optional[str] = None
     safe_error_detail: Optional[str] = None
     suggested_repair: Optional[str] = None
+    technical_detail: Optional[str] = None
     awaiting_consent: bool = False
     consent_request: Optional[Dict[str, Any]] = None
 
@@ -114,12 +115,14 @@ class StepResult:
         error_code: str,
         detail: str,
         suggested_repair: Optional[str] = None,
+        technical_detail: Optional[str] = None,
     ) -> "StepResult":
         return cls(
             success=False,
             error_code=error_code,
             safe_error_detail=detail,
             suggested_repair=suggested_repair,
+            technical_detail=technical_detail,
         )
 
     @classmethod
@@ -149,6 +152,8 @@ class StepResult:
         out = dict(self.safe_output)
         if self.suggested_repair:
             out["suggested_repair"] = self.suggested_repair
+        if self.technical_detail:
+            out["technical_detail"] = self.technical_detail[:2000]
         if self.consent_request is not None:
             out["consent_request"] = self.consent_request
         return out

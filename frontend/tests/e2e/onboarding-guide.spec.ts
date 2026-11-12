@@ -107,8 +107,11 @@ test.describe('claim explainer', () => {
 			await expect(page.getByRole('heading', { name: 'A local studio for AI images and video' })).toBeVisible({
 				timeout: 20000
 			});
-			await expect(page.getByText('Runs on your computer', { exact: true }).first()).toBeVisible();
-			await expect(page.getByText('ComfyUI is optional')).toBeVisible();
+			await expect(page.getByText('You will need')).toBeVisible();
+			await expect(page.getByText('Disk space')).toBeVisible();
+			await expect(page.getByText('Internet', { exact: true })).toBeVisible();
+			await expect(page.getByText('What setup will do')).toHaveCount(0);
+			await expect(page.getByText('ComfyUI is optional')).toHaveCount(0);
 			await expect(page.getByRole('button', { name: 'Skip the guide, go to the app' })).toHaveCount(0);
 			await noHorizontalOverflow(page);
 			await screenshot(page, JOURNEY, `welcome-${viewport.name}`);
@@ -118,7 +121,7 @@ test.describe('claim explainer', () => {
 			await expect(page.getByText('This account lives only on this computer.')).toBeVisible();
 			await expect(page.getByText('storage/db.sqlite')).toBeVisible();
 			await expect(page.getByText('Sign-up is closed once you exist.')).toBeVisible();
-			await expect(page.getByText('Step 2 of 7 - Required')).toBeVisible();
+			await expect(page.getByText('Step 2 of 6 - Required')).toBeVisible();
 						await expect(page.locator('label[for="email"]')).toHaveText(/^\s*Email\s*$/);
 			await expect(page.getByRole('button', { name: 'Create owner account' })).toBeVisible();
 			await expect(page.getByRole('button', { name: 'Skip guide' })).toHaveCount(0);
@@ -144,7 +147,7 @@ test.describe('claim explainer', () => {
 test.describe('guide in the app shell', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test('stepper progresses and the starter cards show size, source host and graphics memory', async ({ page }) => {
+	test('stepper progresses and the starter cards show the plain line, the model, the size and the fit', async ({ page }) => {
 		await mockGuideApi(page);
 		await page.goto('/setup');
 
@@ -157,28 +160,30 @@ test.describe('guide in the app shell', () => {
 		await screenshot(page, JOURNEY, 'computer');
 
 		await page.getByRole('button', { name: 'Continue' }).click();
-		await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
-		await expect(page.locator('[aria-current="step"]')).toContainText('Models');
-		await expect(page.getByRole('button', { name: 'Back to Computer' })).toBeVisible();
-		await page.getByRole('button', { name: 'Continue' }).click();
 
+		await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toHaveCount(0);
 		await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible();
 		await expect(page.locator('[aria-current="step"]')).toContainText('Starter');
 		const cards = page.getByRole('radio');
 		await expect(cards).toHaveCount(3);
-		await expect(cards.nth(0)).toContainText('Z-Image Starter');
+		await expect(cards.nth(0)).toContainText('Fast and compact.');
+		await expect(cards.nth(0)).toContainText('Z-Image');
 		await expect(cards.nth(0)).toContainText('Recommended for your card');
 		await expect(cards.nth(0)).toHaveAttribute('aria-checked', 'true');
-		await expect(cards.nth(0)).toContainText('19.27 GB');
-		await expect(cards.nth(0)).toContainText('huggingface.co');
-		await expect(cards.nth(0)).toContainText('12 to 16 GB suggested');
+		await expect(cards.nth(0)).toContainText('19.27 GB download');
 		await expect(cards.nth(0)).toContainText('Fits your card');
-		await expect(cards.nth(1)).toContainText('SDXL Starter');
-		await expect(cards.nth(1)).toContainText('6.62 GB');
-		await expect(cards.nth(1)).toContainText('8 GB minimum');
-		await expect(cards.nth(2)).toContainText('Qwen-Image Starter');
-		await expect(cards.nth(2)).toContainText('28 GB');
-		await expect(cards.nth(2)).toContainText('16 GB recommended');
+		await expect(cards.nth(0)).not.toContainText('huggingface.co');
+		await expect(cards.nth(0)).not.toContainText('Graphics memory');
+		await expect(cards.nth(1)).toContainText('The classic all-rounder.');
+		await expect(cards.nth(1)).toContainText('SDXL');
+		await expect(cards.nth(1)).toContainText('6.62 GB download');
+		await expect(cards.nth(2)).toContainText('Strong at readable text inside images.');
+		await expect(cards.nth(2)).toContainText('Qwen-Image');
+		await expect(cards.nth(2)).toContainText('28 GB download');
+		await expect(page.getByText('Saved to')).toBeVisible();
+		await expect(page.getByText('/data/potionui/models')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Change' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Use a folder you already have' })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Review 19.27 GB download' })).toBeVisible();
 		await screenshot(page, JOURNEY, 'starter');
 
@@ -187,14 +192,13 @@ test.describe('guide in the app shell', () => {
 		await page.keyboard.press('ArrowDown');
 		await expect(cards.nth(2)).toHaveAttribute('aria-checked', 'true');
 
-		await page.getByRole('button', { name: 'Back to Models' }).click();
-		await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
+		await page.getByRole('button', { name: 'Back to Computer' }).click();
+		await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible();
 	});
 
 	test('skip leads to the app and Resume setup in the sidebar leads back', async ({ page }) => {
 		await mockGuideApi(page);
 		await page.goto('/setup');
-		await page.getByRole('button', { name: 'Continue' }).click();
 		await page.getByRole('button', { name: 'Continue' }).click();
 		await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible();
 
@@ -315,7 +319,7 @@ test.describe('guide on a phone', () => {
 		await mockGuideApi(page);
 		await page.goto('/setup');
 
-		await expect(page.getByText('Step 3 of 7').first()).toBeVisible({ timeout: 20000 });
+		await expect(page.getByText('Step 3 of 6').first()).toBeVisible({ timeout: 20000 });
 		await noHorizontalOverflow(page);
 		await screenshot(page, JOURNEY, 'computer-390');
 
@@ -331,6 +335,225 @@ test.describe('guide on a phone', () => {
 		await screenshot(page, JOURNEY, 'settings-resume-390');
 		await row.click();
 		await page.waitForURL(/\/setup/);
-		await expect(page.getByText('Step 3 of 7').first()).toBeVisible();
+		await expect(page.getByText('Step 3 of 6').first()).toBeVisible();
+	});
+});
+
+function smokeAttempt(overrides: Record<string, unknown>) {
+	return {
+		step_key: 'generation.smoke',
+		attempt: 1,
+		status: 'action_required',
+		progress_current: null,
+		progress_total: null,
+		progress_unit: null,
+		safe_output: null,
+		error_code: 'GENERATION_SMOKE_FAILED',
+		safe_error_detail: "The test didn't finish: it took longer than 5 minutes.",
+		safe_suggested_action: 'Make a picture in Generate to try again.',
+		safe_technical_detail: 'timed out waiting for completion after 300s',
+		started_at: null,
+		finished_at: '2026-11-12T10:00:00Z',
+		...overrides
+	};
+}
+
+function succeededStep(kind: string, ordinal: number, output: Record<string, unknown>) {
+	return {
+		step_key: kind,
+		title: kind,
+		kind,
+		ordinal,
+		status: 'succeeded',
+		attempts: [
+			{
+				step_key: kind,
+				attempt: 1,
+				status: 'succeeded',
+				progress_current: null,
+				progress_total: null,
+				progress_unit: null,
+				safe_output: output,
+				error_code: null,
+				safe_error_detail: null,
+				safe_suggested_action: null,
+				started_at: null,
+				finished_at: '2026-11-12T10:00:00Z'
+			}
+		]
+	};
+}
+
+const COMPLETED_WITH_FAILED_TEST = {
+	id: 'run-done',
+	recipe_id: 'zimage-starter',
+	recipe_version: 2,
+	scope: 'instance',
+	mode: 'onboarding',
+	status: 'completed',
+	current_step: 'workspace.activate',
+	safe_input: { card_memory_gb: 6, needed_memory_gb: 12, below_graphics_memory: true },
+	safe_output: null,
+	error_code: null,
+	safe_error_detail: null,
+	created_at: null,
+	updated_at: null,
+	completed_at: '2026-11-12T10:01:00Z',
+	attempts: [],
+	steps: [
+		succeededStep('preset.ensure', 1, { preset_id: 'preset-zimage' }),
+		succeededStep('pipeline.render', 2, { mode: 'txt2img' }),
+		{
+			step_key: 'generation.smoke',
+			title: 'Test picture',
+			kind: 'generation.smoke',
+			ordinal: 3,
+			status: 'action_required',
+			attempts: [smokeAttempt({})]
+		},
+		succeededStep('workspace.activate', 4, {})
+	]
+};
+
+test.describe('a card below the starter and a test that did not finish', () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	test('the small-card confirm can be cancelled, then accepted, and the run starts with the acknowledgement', async ({
+		page
+	}) => {
+		const consentRun = { ...COMPLETED_WITH_FAILED_TEST, status: 'awaiting_consent', steps: [], safe_input: {} };
+		await mockGuideApi(page, consentRun);
+		await page.route('**/api/setup/machine', (route) =>
+			fulfillJson(route, {
+				...MACHINE,
+				gpu: { ...MACHINE.gpu, vram_bytes: 6 * GIB }
+			})
+		);
+		let startBody: any = null;
+		await page.route('**/api/setup/runs', (route) => {
+			if (route.request().method() === 'POST') startBody = route.request().postDataJSON();
+			return route.fulfill({ json: consentRun });
+		});
+
+		await page.goto('/setup');
+		await page.getByRole('button', { name: 'Continue' }).click();
+		await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible();
+		await page.getByRole('radio', { name: /Fast and compact\./ }).click();
+		await page.getByRole('button', { name: /^Review .* download$/ }).click();
+
+		const dialog = page.getByRole('alertdialog');
+		await expect(dialog).toContainText('This starter needs a bigger graphics card');
+		await expect(dialog).toContainText('Needs a 12 GB graphics card. Yours has 6 GB.');
+		await expect(dialog).toContainText('It will probably not run here.');
+		await screenshot(page, JOURNEY, 'small-card-confirm');
+
+		await dialog.getByRole('button', { name: 'Pick another' }).click();
+		await expect(dialog).toHaveCount(0);
+		expect(startBody).toBeNull();
+
+		await page.getByRole('button', { name: /^Review .* download$/ }).click();
+		await page.getByRole('alertdialog').getByRole('button', { name: 'Install anyway' }).click();
+		await expect.poll(() => startBody).not.toBeNull();
+		expect(startBody.recipe_id).toBe('zimage-starter');
+		expect(startBody.safe_input).toEqual({
+			card_memory_gb: 6,
+			needed_memory_gb: 12,
+			below_graphics_memory: true
+		});
+	});
+
+	test('a finished run whose test did not finish says so on Ready, and still does after a reload', async ({ page }) => {
+		await mockGuideApi(page);
+		await page.route('**/api/recipes/runs*', (route) =>
+			fulfillJson(route, { runs: [COMPLETED_WITH_FAILED_TEST] })
+		);
+		await page.route('**/api/setup/runs/run-done', (route) => fulfillJson(route, COMPLETED_WITH_FAILED_TEST));
+
+		for (const attempt of ['first load', 'after a reload']) {
+			if (attempt === 'after a reload') await page.reload();
+			else await page.goto('/setup');
+			await expect(page.getByRole('heading', { name: /Z-Image Starter is installed/ })).toBeVisible({
+				timeout: 20000
+			});
+			await expect(page.getByText('Test failed')).toBeVisible();
+			await expect(page.getByText("The test didn't finish: it took longer than 5 minutes.")).toBeVisible();
+			await expect(page.getByText('Make a picture in Generate to try again.')).toBeVisible();
+			await expect(page.getByText('This card is below what Z-Image Starter needs.')).toBeVisible();
+			await expect(page.getByRole('button', { name: 'Try it in Generate' })).toBeVisible();
+			await expect(page.getByRole('link', { name: 'Run the check again' })).toHaveAttribute(
+				'href',
+				'/admin?tab=recipes'
+			);
+			await expect(page.getByRole('button', { name: 'Create your first image' })).toHaveCount(0);
+			await expect(page.getByText('a test image was made')).toHaveCount(0);
+			const details = page.locator('details', { hasText: 'timed out waiting for completion after 300s' });
+			await expect(details).not.toHaveJSProperty('open', true);
+		}
+		await screenshot(page, JOURNEY, 'ready-test-failed');
+	});
+
+	test('Try it in Generate opens the preset the run installed', async ({ page }) => {
+		await mockGuideApi(page);
+		await page.route('**/api/recipes/runs*', (route) =>
+			fulfillJson(route, { runs: [COMPLETED_WITH_FAILED_TEST] })
+		);
+		await page.route('**/api/setup/runs/run-done', (route) => fulfillJson(route, COMPLETED_WITH_FAILED_TEST));
+		await page.goto('/setup');
+		await page.getByRole('button', { name: 'Try it in Generate' }).click();
+		await page.waitForURL(/\/generate/);
+	});
+});
+
+test.describe('a computer with no NVIDIA card', () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	async function noCard(page: Page) {
+		await mockGuideApi(page);
+		await page.route('**/api/setup/machine', (route) => fulfillJson(route, { ...MACHINE, gpu: null }));
+	}
+
+	test('Computer, Starter and Ready all name the three ways to make pictures somewhere else', async ({ page }) => {
+		await noCard(page);
+		await page.goto('/setup');
+		await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible({ timeout: 20000 });
+		await expect(page.getByText('another computer with an NVIDIA card')).toBeVisible();
+		await page.getByRole('button', { name: 'Continue' }).click();
+
+		await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible();
+		await expect(
+			page.getByText('This computer has no NVIDIA graphics card, so pictures are made somewhere else.')
+		).toBeVisible();
+		for (const title of ['Another computer with an NVIDIA card', 'A ComfyUI server', 'An online service']) {
+			await expect(page.getByText(title, { exact: true })).toBeVisible();
+		}
+		await expect(page.getByRole('button', { name: /^Review/ })).toHaveCount(0);
+		await screenshot(page, JOURNEY, 'starter-no-card');
+
+		await page.getByRole('button', { name: 'Continue without a starter' }).click();
+		await expect(page.getByRole('heading', { name: 'Your account is ready' })).toBeVisible();
+		await expect(page.getByText('An online service', { exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Create your first image' })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: 'Connect a backend' })).toHaveAttribute(
+			'href',
+			'/admin?tab=backends'
+		);
+		await screenshot(page, JOURNEY, 'ready-no-card');
+	});
+
+	test('each option links to its admin tab and its how-to page', async ({ page }) => {
+		await noCard(page);
+		await page.goto('/setup');
+		await page.getByRole('button', { name: 'Continue' }).click();
+		const rows = page.locator('[data-no-card-option]');
+		await expect(rows).toHaveCount(3);
+		await expect(rows.nth(0).getByRole('link', { name: 'How to' })).toHaveAttribute('href', '/docs?doc=remote-native');
+		await expect(rows.nth(1).getByRole('link', { name: 'How to' })).toHaveAttribute(
+			'href',
+			'/docs?doc=user/comfyui-presets'
+		);
+		await expect(rows.nth(2).getByRole('link', { name: 'Admin → Plugins' })).toHaveAttribute(
+			'href',
+			'/admin?tab=plugins'
+		);
 	});
 });

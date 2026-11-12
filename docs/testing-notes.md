@@ -440,3 +440,42 @@ pointed at that install's venv took ~13s). Local/hybrid pull the full CUDA
 stack (multi-GB) and `worker` needs a real GPU — exercise those yourself with
 `--profiles local,hybrid,worker` when you have the hardware and bandwidth for
 it; don't run them on a shared box.
+
+## Fresh install checks
+
+A first-run bug shows up only on an instance that starts from nothing, so these checks never seed a
+database and never skip a wizard call. There are three layers.
+
+**Stub engine, no graphics card.** `tests/e2e/harness/stub_engine_app.py` is an app module that builds
+the container with a stub pipeline executor (`build_container(generation_engine_factory=...)`) and
+hands it to `create_app`. Everything above the pipes is real: routing, the orchestrator, saving,
+history and readiness. The stub reads the file named by `E2E_STUB_ENGINE_CONTROL` on every
+generation:
+
+| File content | The generation |
+|---|---|
+| `ok` (or no file) | emits one small saved picture |
+| `fail <text>` | emits an error carrying `<text>`, then raises it (try `CUDA out of memory. Tried to allocate 2.00 GiB`) |
+| `hang` | waits until it is cancelled |
+
+`ThrowawayApp(app_module="tests.e2e.harness.stub_engine_app:app", extra_env={...})` boots it.
+`POTIONUI_PRESETS_DIR` (default `content/presets`) points the preset loader at another tree, the way
+`POTIONUI_RECIPES_DIR` does for recipes, so a copy of a preset can pin its downloads to small fake files.
+The logic is covered without a server by `tests/e2e/harness/test_stub_engine.py` and
+`tests/bootstrap/test_container_seams.py`.
+
+**Journeys.** `tests/e2e/journeys/fresh_setup_stub_engine.py` runs the shipped `sdxl-starter.yml` with only
+its artifact size and checksum changed to match a fake payload, through exactly the wizard's calls
+(readiness, machine, recipes, create run, poll, grant consent): a run that succeeds; a run whose test
+picture fails (the run completes, the test row needs attention, the sentence has no exception text,
+`generation_proven` stays not ready until a good picture is made); and a SIGKILL during the download
+that the run survives on its own with a Range request. It is skipped unless `E2E_STUB_ENGINE=1`, because
+the stub path has not been proven on a machine without a card yet: run it once with
+`E2E_STUB_ENGINE=1 python tests/e2e/journeys/run.py fresh_setup_stub_engine`, then drop the opt-in.
+
+**Browser.** `frontend/tests/e2e/fresh-install-guided-setup.spec.ts` clicks the real wizard on an unclaimed
+instance; `frontend/tests/e2e/onboarding-guide.spec.ts` covers the small-card confirm, a test that did not
+finish (including a reload) and the no-card options with mocked responses.
+
+**By hand.** The real wizard on a truly fresh instance on Linux and on the Windows VM is still the gate for
+an onboarding fix; the click-through is in `design-proposals/onboarding-review/click-through.md`.

@@ -22,6 +22,10 @@ from fresh_install_guided_setup import RECIPE_ID, SOURCE_RECIPE, build_recipe, r
 SPEC_NAMES = {"fresh-install-guided-setup"}
 
 
+def card_label(recipe: dict) -> str:
+    return recipe.get("blurb") or recipe["summary"]
+
+
 def wants_fresh_install(chunk_names) -> bool:
     return any(name in SPEC_NAMES for name in chunk_names)
 
@@ -40,10 +44,11 @@ class FreshInstall:
             shutil.copyfile(shipped, self.recipes_dir / shipped.name)
             data = yaml.safe_load(shipped.read_text(encoding="utf-8"))
             if data.get("first_run"):
-                self.shipped_starters.append(data["name"])
+                self.shipped_starters.append(card_label(data))
         (self.recipes_dir / f"{RECIPE_ID}.yml").write_text(yaml.safe_dump(recipe, sort_keys=False), encoding="utf-8")
         self.models_dir = scratch / "no-models"
         self.recipe_name = recipe["name"]
+        self.recipe_label = card_label(recipe)
 
     def env(self) -> Dict[str, str]:
         return {"HF_ENDPOINT": self.server.url}
@@ -51,6 +56,7 @@ class FreshInstall:
     def spec_env(self) -> Dict[str, str]:
         return {
             "E2E_FRESH_RECIPE_NAME": self.recipe_name,
+            "E2E_FRESH_RECIPE_LABEL": self.recipe_label,
             "E2E_FRESH_SHIPPED_STARTERS": json.dumps(self.shipped_starters),
         }
 

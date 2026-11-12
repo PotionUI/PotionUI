@@ -79,7 +79,8 @@ async function gotoSetup(page: Page) {
 	await page.goto('/setup');
 	await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible({ timeout: 15000 });
 	await page.getByRole('button', { name: 'Continue' }).click();
-	await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible();
+	await expect(page.locator('[data-models-row]')).toBeVisible();
 }
 
 async function gotoAdminModelsFolders(page: Page) {

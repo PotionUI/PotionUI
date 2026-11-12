@@ -261,7 +261,9 @@ def test_executor_exception_is_contained_not_propagated(file_db):
 
     assert run.status == RecipeRunStatus.FAILED
     assert run.error_code == "STEP_EXECUTOR_ERROR"
-    assert "kaboom" in run.safe_error_detail
+    assert "kaboom" not in run.safe_error_detail
+    attempt = manager.list_attempts(run.id)[-1]
+    assert "kaboom" in attempt.safe_output["technical_detail"]
 
 
 def test_recipe_not_found_fails_the_run(file_db):
@@ -500,3 +502,110 @@ def test_recipe_with_no_steps_completes_immediately(file_db):
     run = manager.execute_current_step(run.id)
 
     assert run.status == RecipeRunStatus.COMPLETED
+
+
+class AdvisoryFailsExecutor:
+    advisory = True
+
+    def execute(self, context: StepContext) -> StepResult:
+        return StepResult.fail(
+            "CHECK_FAILED",
+            "The test didn't finish.",
+            suggested_repair="Try it again later.",
+            technical_detail="RuntimeError: raw text",
+        )
+
+
+def _advisory_manager(recipe, advisory_executor, **others):
+    manager = RecipeRunner()
+    manager.register_executor_registry(
+        RecipeExecutorRegistry(FakeCatalog(recipe), {"kind.one": advisory_executor, **others})
+    )
+    return manager
+
+
+def test_a_failing_advisory_step_records_action_required_and_the_run_moves_on(file_db):
+    step_two = AlwaysSucceedsExecutor()
+    manager = _advisory_manager(_two_step_recipe(), AdvisoryFailsExecutor(), **{"kind.two": step_two})
+    run = manager.create_run("fake-recipe")
+
+    run = manager.execute_current_step(run.id)
+
+    assert run.status == RecipeRunStatus.RUNNING
+    assert run.current_step == "step-two"
+    assert run.error_code is None
+    attempt = manager.list_attempts(run.id)[0]
+    assert attempt.status == RecipeStepStatus.ACTION_REQUIRED
+    assert attempt.error_code == "CHECK_FAILED"
+    assert attempt.safe_error_detail == "The test didn't finish."
+    assert attempt.safe_output["technical_detail"] == "RuntimeError: raw text"
+    assert attempt.finished_at is not None
+
+
+def test_a_failing_advisory_step_does_not_stop_the_steps_after_it(file_db):
+    step_two = AlwaysSucceedsExecutor()
+    manager = _advisory_manager(_two_step_recipe(), AdvisoryFailsExecutor(), **{"kind.two": step_two})
+    run = manager.create_run("fake-recipe")
+
+    run = manager.drive(run.id)
+
+    assert run.status == RecipeRunStatus.COMPLETED
+    assert step_two.calls == 1
+
+
+def test_a_failing_advisory_step_at_the_end_completes_the_run(file_db):
+    recipe = Recipe(
+        id="fake-recipe",
+        schema_version=1,
+        version=1,
+        name="Fake Recipe",
+        engine="native",
+        steps=[RecipeStep(key="step-one", kind="kind.one", title="Step One")],
+    )
+    manager = _advisory_manager(recipe, AdvisoryFailsExecutor())
+    run = manager.create_run("fake-recipe")
+
+    run = manager.drive(run.id)
+
+    assert run.status == RecipeRunStatus.COMPLETED
+    assert manager.list_attempts(run.id)[-1].status == RecipeStepStatus.ACTION_REQUIRED
+
+
+def test_a_failing_step_that_is_not_advisory_still_fails_the_run(file_db):
+    manager = _advisory_manager(_two_step_recipe(), AlwaysFailsExecutor(), **{"kind.two": AlwaysSucceedsExecutor()})
+    run = manager.create_run("fake-recipe")
+
+    run = manager.drive(run.id)
+
+    assert run.status == RecipeRunStatus.FAILED
+    assert manager.list_attempts(run.id)[0].status == RecipeStepStatus.FAILED
+
+
+def test_a_run_cancelled_during_an_advisory_step_ends_cancelled(file_db):
+    manager = RecipeRunner()
+    executor = CancelledMidStepExecutor(manager, StepResult.fail("CHECK_FAILED", "Stopped."))
+    executor.advisory = True
+    manager.register_executor_registry(
+        RecipeExecutorRegistry(FakeCatalog(_two_step_recipe()), {"kind.one": executor, "kind.two": AlwaysSucceedsExecutor()})
+    )
+    run = manager.create_run("fake-recipe")
+
+    run = manager.drive(run.id)
+
+    assert run.status == RecipeRunStatus.CANCELLED
+    assert manager.list_attempts(run.id)[0].status == RecipeStepStatus.CANCELLED
+
+
+def test_the_technical_text_reaches_the_attempt_view_as_its_own_field(file_db):
+    from src.features.recipes.dto import RecipeStepAttemptView
+
+    manager = _advisory_manager(_two_step_recipe(), AdvisoryFailsExecutor(), **{"kind.two": AlwaysSucceedsExecutor()})
+    run = manager.create_run("fake-recipe")
+    manager.execute_current_step(run.id)
+
+    view = RecipeStepAttemptView.from_record(manager.list_attempts(run.id)[0])
+
+    assert view.status == "action_required"
+    assert view.safe_technical_detail == "RuntimeError: raw text"
+    assert view.safe_suggested_action == "Try it again later."
+    assert "technical_detail" not in (view.safe_output or {})

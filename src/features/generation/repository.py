@@ -647,7 +647,6 @@ class GenerationRepository:
                 for row in cursor.fetchall()
             ]
 
-            # Models: `name` is the filename the filter query matches on, `label` is what to show.
             model_join = ""
             model_params: List[Any] = [user_id or ""]
             where = ""

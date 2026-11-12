@@ -37,13 +37,21 @@ fields:
         ai_hint: "The still the loop starts from and returns to; its look, colours and framing are kept. Leave it empty to make the scene from the prompt alone."
 
       - name: "loop_seconds"
-        type: "slider"
+        type: "select"
         formula: "size"
-        label: "Length (seconds)"
+        label: "Length"
         default: 6
-        description: "Rounded to the nearest 0.7 s, or 2.1 s with sound."
-        ai_hint: "How long one pass of the loop lasts. It is made in two passes, so the cost is about two clips of half this length each. Up to 26.9 seconds, 25.5 with sound. The loop is cut on the model's own 17-frame steps, so the result can be a little shorter or longer than asked."
-        configuration: {min: 1, max: 26, step: 0.5}
+        description: "Cut on whole 0.7 s steps, 2.1 s with sound."
+        ai_hint: "How long one pass of the loop lasts: 2, 3, 4, 5, 6, 8 or 10 seconds, and nothing else. 2 to 4 seconds suits a wallpaper. The loop is cut on the model's own 17-frame steps, so it can run a fraction of a second longer or shorter than picked (4 s gives 4.25 s); with sound it moves in 2.1 s steps, so 3 s gives 2.1 s and 5 s gives 4.25 s. It is made in two passes: one as long as the loop and one about half that."
+        configuration:
+          options:
+            - { label: "2 s", value: 2 }
+            - { label: "3 s", value: 3 }
+            - { label: "4 s", value: 4 }
+            - { label: "5 s", value: 5 }
+            - { label: "6 s", value: 6 }
+            - { label: "8 s", value: 8 }
+            - { label: "10 s", value: 10 }
 
       - name: "movement"
         type: "select"

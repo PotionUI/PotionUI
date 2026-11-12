@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.forms.binding import bind_form
+from src.features.forms.binding import FormBindingError, bind_form
 from src.features.presets.mode_labels import MODE_NAMES_FILE
 from src.features.presets.processor import PresetProcessor
 from src.pipelines.pipes.generator.video_minimax_h3.loop import max_loop_seconds, plan_loop
@@ -78,23 +78,34 @@ def test_a_start_picture_is_the_first_frame_and_the_scene_in_the_prompt(h3_templ
 
 
 def test_sound_lively_movement_resolution_and_length_reach_the_generator(h3_template):
-    pipes = _pipes(h3_template, {"sound": True, "movement": "lively", "resolution": "768x1344", "loop_seconds": 8.5})
+    pipes = _pipes(h3_template, {"sound": True, "movement": "lively", "resolution": "768x1344", "loop_seconds": 8})
     generator = _pipe(pipes, "generator")["config"]
 
     assert generator["audio_source"] == "generate"
     assert generator["resolution"] == "768x1344"
-    assert generator["frames"] == 204
+    assert generator["frames"] == 192
     assert "Steady, clearly visible movement: the reeds sway" in _document(pipes)
     assert "overall_soundscape: Quiet ambient sound" in _document(pipes)
 
 
-@pytest.mark.parametrize("sound", [False, True])
-def test_the_length_slider_never_asks_for_more_than_two_windows_allow(h3_template, sound):
+def test_the_length_is_a_pick_of_whole_seconds_each_a_loop_the_mode_can_make(h3_template):
     fields = {field.name: field for field in _walk(h3_template.modes["loop"].forms[0].fields)}
-    top = fields["loop_seconds"].configuration["max"]
+    length = fields["loop_seconds"]
+    offered = [option["value"] for option in length.configuration["options"]]
 
-    assert plan_loop(round(top * 24), with_sound=sound).seconds <= max_loop_seconds(with_sound=sound)
-    assert top + 1 > max_loop_seconds(with_sound=False)
+    assert length.type == "select"
+    assert offered == [2, 3, 4, 5, 6, 8, 10]
+    for seconds in offered:
+        for sound in (False, True):
+            plan = plan_loop(round(seconds * 24), with_sound=sound)
+            assert plan.seconds <= max_loop_seconds(with_sound=sound)
+            assert abs(plan.seconds - seconds) <= (1.1 if sound else 0.36)
+
+
+@pytest.mark.parametrize("seconds", [4.5, 1, 26])
+def test_a_length_that_is_not_offered_is_refused_at_the_server(h3_template, seconds):
+    with pytest.raises(FormBindingError, match="loop_seconds"):
+        _pipes(h3_template, {"loop_seconds": seconds})
 
 
 def _walk(fields):
@@ -194,3 +205,18 @@ def test_a_prompt_that_is_already_a_full_document_is_not_wrapped_in_a_second_one
 
     assert document == written
     assert document.count("integrated_multimodal_description:") == 1
+
+
+def test_the_gpu_check_measures_a_picture_that_arrives_early_and_holds_until_the_wrap():
+    import numpy as np
+
+    from tests.manual.h3_perfect_loop_check import seam_metric
+
+    travel = 100 + 2 * np.minimum(np.arange(74), 74 - np.arange(74))
+    hold = np.full(28, travel[-1])
+    hold[[3, 11, 16, 20]] += 1
+    report = seam_metric(_clip(np.concatenate([travel, hold])))
+
+    assert not report["pass"]
+    assert report["stops"] == [{"start": 73, "frames": 29}]
+    assert not report["jumps"]

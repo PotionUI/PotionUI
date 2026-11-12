@@ -17,7 +17,7 @@ Tensor = torch.Tensor
 
 PARTIAL_LATENTS = 2
 MIN_BRIDGE_CHUNKS = 3
-MIN_LOOP_CHUNKS = 1 + MIN_BRIDGE_CHUNKS - 2
+MIN_LOOP_CHUNKS = MIN_BRIDGE_CHUNKS
 SOUND_CHUNK_STEP = 3
 MAX_WINDOW_CHUNKS = (int(MAX_DURATION_S * FPS) - LATENTS_PER_CHUNK) // FRAMES_PER_CHUNK
 CHUNK_AUDIO_LATENTS = FRAMES_PER_CHUNK * AUDIO_LATENTS_PER_SECOND // FPS
@@ -41,7 +41,11 @@ class LoopPlan:
 
     @property
     def loop_chunks(self) -> int:
-        return self.anchor_chunks + self.bridge_chunks - 2
+        return self.anchor_chunks
+
+    @property
+    def head_chunk(self) -> int:
+        return self.anchor_chunks - self.bridge_chunks + 1
 
     @property
     def loop_frames(self) -> int:
@@ -69,7 +73,7 @@ class LoopPlan:
 
     @property
     def head_start(self) -> int:
-        return LATENTS_PER_CHUNK * (self.anchor_chunks - 1)
+        return LATENTS_PER_CHUNK * self.head_chunk
 
     @property
     def head_latents(self) -> int:
@@ -93,7 +97,7 @@ class LoopPlan:
 
     @property
     def head_audio_start(self) -> int:
-        return audio_offset(self.anchor_chunks - 1)
+        return audio_offset(self.head_chunk)
 
     @property
     def head_audio_latents(self) -> int:
@@ -118,7 +122,7 @@ class LoopPlan:
 
 def max_loop_chunks(*, with_sound: bool) -> int:
     step = SOUND_CHUNK_STEP if with_sound else 1
-    return 2 * step * ((MAX_WINDOW_CHUNKS - 1) // step)
+    return step * (MAX_WINDOW_CHUNKS // step)
 
 
 def max_loop_seconds(*, with_sound: bool) -> float:
@@ -134,17 +138,12 @@ def plan_loop(requested_frames: int, *, with_sound: bool) -> LoopPlan:
     if chunks > max_loop_chunks(with_sound=with_sound):
         raise LoopRequestError(
             f"A perfect loop can be at most {max_loop_seconds(with_sound=False):.1f} seconds long "
-            f"({max_loop_seconds(with_sound=True):.1f} with sound), because it is made of two passes of "
-            f"at most {MAX_DURATION_S:g} seconds each. {requested_frames / FPS:.1f} seconds were asked for."
+            f"({max_loop_seconds(with_sound=True):.1f} with sound), because its first pass renders the whole "
+            f"loop and one pass is at most {MAX_DURATION_S:g} seconds. {requested_frames / FPS:.1f} seconds "
+            f"were asked for."
         )
-    if with_sound:
-        groups = chunks // step
-        bridge_groups = max(1, groups // 2)
-        anchor, bridge = 1 + step * (groups - bridge_groups), 1 + step * bridge_groups
-    else:
-        bridge = max(MIN_BRIDGE_CHUNKS, (chunks + 2) // 2)
-        anchor = chunks + 2 - bridge
-    return LoopPlan(anchor_chunks=anchor, bridge_chunks=bridge, with_sound=with_sound)
+    bridge = max(MIN_BRIDGE_CHUNKS, (chunks + 2) // 2)
+    return LoopPlan(anchor_chunks=chunks, bridge_chunks=bridge, with_sound=with_sound)
 
 
 def bridge_head(anchor_latent: Tensor, plan: LoopPlan) -> Tensor:

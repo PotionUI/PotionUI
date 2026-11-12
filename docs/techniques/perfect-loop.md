@@ -32,11 +32,15 @@ cross-fading its first 5 frames with the previous chunk's look-ahead. So if ever
 neighbouring chunks in a sequence was denoised together, the decoded sequence has no seam anywhere.
 The loop is built so that this holds around the wrap too.
 
-1. **Anchor pass.** One ordinary window of `17a + 5` frames: text-to-video, or image-to-video from
-   the Start picture, which is fitted to the picked resolution once, keeping its aspect ratio (cover crop). Only
-   its first frame is held. Its latent chunks are `A0 … A(a-1)` plus a 2-latent tail.
-2. **Bridge pass.** A second window of `17b + 5` frames whose first chunk is pinned to `A(a-1)` and
-   whose last chunk and tail are pinned to `A0` and the first two latents of `A1`. Pinned spans are
+1. **Anchor pass.** One ordinary window as long as the loop, `17C + 5` frames: text-to-video, or
+   image-to-video from the Start picture, which is fitted to the picked resolution once, keeping its
+   aspect ratio (cover crop). Only its first frame is held. Its latent chunks are `A0 … A(C-1)` plus a
+   2-latent tail. The prompt asks for the end to look like the start, and the anchor does that on its
+   own: it travels out and makes its way back over its closing chunks.
+2. **Bridge pass.** A second window of `17b + 5` frames whose first chunk is pinned to `A(h)`,
+   `h = C - b + 1`, and whose last chunk and tail are pinned to `A0` and the first two latents of `A1`.
+   Its `b - 2` free chunks re-render the anchor's `A(h+1) … A(C-1)`: the stretch where the anchor
+   makes its way back, now with the true opening as its target. Pinned spans are
    whole chunks at chunk boundaries, so every pinned latent sits at the phase it was made for and no
    pixels are re-encoded. Each pinned span enters twice:
    - as keyframe condition rows at the same latent positions (`latent_condition_rows`), the route
@@ -44,7 +48,8 @@ The loop is built so that this holds around the wrap too.
    - as pinned target rows (`pins.py`): on every step the velocity of a pinned row is replaced by
      the one whose clean estimate is the source latent, so the row walks the source's own noised
      path under any sampler, and after the last step the source is written back exactly.
-3. **Join.** The loop is `A0 … A(a-2)` followed by the bridge up to its pinned tail. Its last chunk
+3. **Join.** The loop is `A0 … A(h-1)` followed by the bridge up to its pinned tail, `C` chunks in
+   all, so the bridge has as long to come back as the anchor took. Its last chunk
    was denoised next to the bridge's pinned copy of `A0`, which is bit for bit the loop's first
    chunk.
 4. **Decode with wrap-around context.** The loop latent is decoded as
@@ -56,21 +61,38 @@ The loop is built so that this holds around the wrap too.
    at the same instants, and the track is decoded with up to 4 seconds of the loop's own end before it
    and start after it, then cut to exactly the video's length.
    Audio runs at 40 latents a second against 24 frames, which meet on a whole latent every 3 chunks,
-   so with sound the loop length moves in 51-frame (2.125 s) steps.
+   so with sound the loop length moves in 51-frame (2.125 s) steps and the track is exactly as long as
+   the video. The two joins inside the period sit on the nearest whole audio latent, at most a third
+   of a latent (8 ms) from the chunk boundary.
 
 ## Frame arithmetic
 
-`C` loop chunks deliver `17 C` frames. Without sound `C = round(frames / 17)`, at least 2; the bridge
-gets `max(3, (C + 2) // 2)` chunks and the anchor the rest, `a + b = C + 2`. With sound `C` is a
-multiple of 3, and `a - 1` and `b - 1` are too. Each window stays within 345 frames (14.4 s), so a
-loop is at most 38 chunks (26.9 s), or 36 (25.5 s) with sound.
+`C` loop chunks deliver `17 C` frames. Without sound `C = round(frames / 17)`, at least 3; with sound
+`C` is a multiple of 3. The anchor gets `C` chunks, the bridge `b = max(3, (C + 2) // 2)`, and the
+bridge's head is the anchor's chunk `h = C - b + 1`, at least 1. The anchor stays within 345 frames
+(14.4 s), so a loop is at most 20 chunks (14.2 s), or 18 (12.75 s) with sound. The mode offers 2, 3,
+4, 5, 6, 8 and 10 seconds.
 
-| Asked | Sound | Loop | Anchor | Bridge | Pinned in the bridge |
-|---|---|---|---|---|---|
-| 4 s | off | 102 frames (4.25 s) | 73 | 73 | latents 0-4 and 15-21 of 22 |
-| 8 s | off | 187 frames (7.79 s) | 124 | 107 | latents 0-4 and 25-31 of 32 |
-| 4 s | on | 102 frames (4.25 s) | 73 | 73 | latents 0-4 and 15-21; audio 0-27 and 85-121 |
-| 8 s | on | 204 frames (8.50 s) | 124 | 124 | latents 0-4 and 30-36; audio 0-27 and 170-206 |
+| Asked | Sound | Loop | Anchor | Bridge | Head `h` | Pinned in the bridge |
+|---|---|---|---|---|---|---|
+| 2 s | off | 51 frames (2.13 s) | 56 | 56 | 1 | latents 0-4 and 10-16 of 17 |
+| 3 s | off | 68 frames (2.83 s) | 73 | 56 | 2 | latents 0-4 and 10-16 of 17 |
+| 4 s | off | 102 frames (4.25 s) | 107 | 73 | 3 | latents 0-4 and 15-21 of 22 |
+| 8 s | off | 187 frames (7.79 s) | 192 | 107 | 6 | latents 0-4 and 25-31 of 32 |
+| 4 s | on | 102 frames (4.25 s) | 107 | 73 | 3 | latents 0-4 and 15-21; audio 0-27 and 85-121 |
+| 8 s | on | 204 frames (8.50 s) | 209 | 124 | 6 | latents 0-4 and 30-36; audio 0-27 and 170-206 |
+
+## Why the bridge replaces the anchor's return instead of following it
+
+Until 2026-11-12 the loop was the anchor up to its last full chunk followed by `b - 2` new bridge
+chunks (`a + b = C + 2`). The anchor already came back on its own: in a real 4 s Quality run at
+544x960 (anchor 73 frames, bridge 73) the anchor's distance from its first frame peaked at frame 40
+and was falling by a luma level a frame at frame 67, five frames before its own end. The bridge
+then had 34 frames to cover those five: it got home by frame 73 and held the picture for the
+remaining 29 frames (1.2 s, steps under 0.35x the median from frame 73 to the wrap). The hold is
+`17 (b - 2) - 5` frames at any length (12 at 2-3 s, 29 at 4-5 s, 46 at 6 s). Re-rendering the
+anchor's closing chunks instead gives the bridge the anchor's own time to come back, `17 (b - 2)`
+frames for a way the anchor made in `17 (b - 2) + 5`.
 
 ## Presets
 
@@ -79,8 +101,8 @@ loop is at most 38 chunks (26.9 s), or 36 (25.5 s) with sound.
 
 ## Tradeoffs and limitations
 
-- Cost is two windows whose lengths add up to the loop plus two chunks, plus one extra chunk of
-  decode.
+- Cost is a window as long as the loop plus one about half as long, plus one extra chunk of decode.
+  At 4 s and 544x960 with a Start picture that is 19,207 and 19,717 tokens.
 - It needs the full step count. At 24 steps the bridge brings the scene back (a measured run: largest
   step 1.8x the median, the wrap 1.6x, no zoom). At 4 steps, shift 12, every model evaluation sees the
   pinned rows at sigma 0.8 or above, the pins are nearly invisible to the model, and the first real

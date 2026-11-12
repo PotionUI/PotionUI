@@ -1136,12 +1136,14 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             PipeConfigSpec(
                 "loop", bool, False,
                 "Perfect loop: 'frames' is the loop's length, rounded to whole 17-frame VAE chunks. The pipe "
-                "renders an anchor window (text-to-video, or image-to-video from one 'image' anchored 'first'), "
-                "then a bridge window whose first chunk is the anchor's last full chunk and whose last chunk "
-                "and a half are the anchor's own opening latents, pinned exactly on every step. The loop is "
-                "the anchor up to its last chunk plus the bridge up to its pinned tail, decoded with "
-                "wrap-around context, so its last frame flows into its first like any other frame step. "
-                "With sound the length is rounded to 51-frame steps so the audio wraps on a latent boundary.",
+                "renders an anchor window as long as the loop (text-to-video, or image-to-video from one 'image' "
+                "anchored 'first'), then a bridge window whose first chunk is an anchor chunk partway through "
+                "and whose last chunk and a half are the anchor's own opening latents, pinned exactly on every "
+                "step. The bridge re-renders the anchor's closing chunks, where the anchor makes its own way "
+                "back, so it has as long to come back as the anchor took. The loop is the anchor up to that "
+                "chunk plus the bridge up to its pinned tail, decoded with wrap-around context, so its last "
+                "frame flows into its first like any other frame step. With sound the length is rounded to "
+                "51-frame steps so the audio wraps on a latent boundary.",
                 required=False,
             ),
             PipeConfigSpec(

@@ -51,6 +51,27 @@ STOP_RATIO = 0.35
 RESET_GAP = 12
 
 
+def still_spans(slow: np.ndarray) -> list[dict]:
+    count = len(slow)
+    if slow.all():
+        return [{"start": 0, "frames": count}]
+    origin = int(np.flatnonzero(~slow)[0])
+    runs: list[list[int]] = []
+    for offset in range(1, count + 1):
+        index = (origin + offset) % count
+        if slow[index] and not slow[index - 1]:
+            runs.append([offset, offset])
+        elif slow[index]:
+            runs[-1][1] = offset
+    merged: list[list[int]] = []
+    for first, last in (run for run in runs if run[1] > run[0]):
+        if merged and first - merged[-1][1] <= CADENCE:
+            merged[-1][1] = last
+        else:
+            merged.append([first, last])
+    return [{"start": int((origin + first) % count), "frames": last - first + 2} for first, last in merged]
+
+
 def seam_metric(frames: np.ndarray) -> dict:
     y = luma(frames)
     steps = np.abs(np.diff(y, axis=0)).mean(axis=(1, 2))
@@ -70,8 +91,7 @@ def seam_metric(frames: np.ndarray) -> dict:
             "frames": [int(index), int((index + 1) % len(y))], "step": float(cycle[index]),
             "back_to": back_to, "at_wrap": index == count - 1,
         })
-    slow = cycle < STOP_RATIO * median
-    stops = [index for index in range(count) if slow[index] and slow[(index + 1) % count] and not slow[index - 1]]
+    stops = still_spans(cycle < STOP_RATIO * median)
     largest = int(np.argmax(steps))
     return {
         "frames": int(frames.shape[0]),
@@ -242,7 +262,8 @@ def main() -> int:
         where = " (the wrap)" if jump["at_wrap"] else ""
         print(f"jump at frames {jump['frames'][0]}-{jump['frames'][1]}{where}: step {jump['step']:.2f}{back}")
     for stop in report["stops"]:
-        print(f"motion stops at frame {stop} and restarts")
+        print(f"motion stops at frame {stop['start']} and the picture holds for {stop['frames']} frames "
+              f"({stop['frames'] / fps:.2f} s)")
     print(f"zoom against frame 0          worst {report['worst_zoom']:.3f} at frame {report['worst_zoom_at']} "
           f"(limit 1 +/- {ZOOM_LIMIT})")
     print(f"{'PASS' if report['pass'] else 'FAIL'}: no step of the period, the wrap included, jumps above "

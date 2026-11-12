@@ -234,3 +234,36 @@ class TestGenerate:
         self.post(setup, world, {}, session_id="kit")
 
         assert setup.generation.calls[0][0].prompts[0].positive == f"{cite} at dawn"
+
+
+class TestRefusedRuns:
+    def test_a_run_the_plan_refuses_starts_nothing_and_the_refusal_is_passed_through(self, world, setup):
+        from fastapi import HTTPException
+
+        async def refuse(request, user):
+            setup.generation.calls.append((request, user))
+            raise HTTPException(status_code=429, detail={"error": "plan_limit_reached", "message": "Daily limit reached"})
+
+        setup.generation.start_generation = refuse
+        headers = key_for(world, world.alice, "generate")
+
+        response = setup.client.post("/api/sessions/alice-1/generate", json={}, headers=headers)
+
+        assert (response.status_code, error_of(response)) == (429, "plan_limit_reached")
+        assert "generation_id" not in response.text
+
+    def test_a_model_override_the_user_cannot_use_is_refused_before_anything_starts(self, world, setup):
+        headers = key_for(world, world.alice, "generate")
+
+        response = setup.client.post(
+            "/api/sessions/alice-1/generate", json={"overrides": {"form": {"checkpoint": "model:forbidden"}}}, headers=headers
+        )
+
+        assert (response.status_code, error_of(response)) == (403, "session_model_unavailable")
+        assert setup.generation.calls == []
+
+    def test_a_session_of_another_user_with_the_same_preset_is_not_usable_even_if_it_is_shared_in_the_app(self, world, setup):
+        headers = key_for(world, world.alice, "read", "generate")
+
+        assert setup.client.get("/api/sessions/bob-1/request", headers=headers).status_code == 404
+        assert setup.client.post("/api/sessions/bob-1/generate", json={}, headers=headers).status_code == 404

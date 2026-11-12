@@ -191,11 +191,17 @@ class SessionRequests:
             logger.warning("could not load preset %s for a session", preset_id, exc_info=True)
             return None
 
-    def _storage_dir(self, user_id: str) -> Optional[str]:
+    def _storage_dir(self, user_id: str) -> str:
         try:
-            return self.settings.get_file_storage_directory(user_id)
+            storage = self.settings.get_file_storage_directory(user_id)
         except Exception:
-            return None
+            logger.error("could not resolve the storage root for a session run", exc_info=True)
+            storage = None
+        if not storage:
+            raise SessionRequestError(
+                503, "storage_unavailable", "Your storage location could not be resolved, so input files cannot be checked. Try again later."
+            )
+        return storage
 
     def _locks(self, preset_id: str, mode: str) -> Dict[str, Any]:
         try:
@@ -237,11 +243,13 @@ class SessionRequests:
         except Exception:
             return model_id
 
-    def _missing_inputs(self, user_id: str, fields: Mapping[str, Any], values: Mapping[str, Any]) -> List[Dict[str, str]]:
+    def _missing_inputs(
+        self, user_id: str, fields: Mapping[str, Any], values: Mapping[str, Any], skip: set
+    ) -> List[Dict[str, str]]:
         storage = self._storage_dir(user_id)
         missing: List[Dict[str, str]] = []
         for name, spec in fields.items():
-            if field_kind(spec.type) != KIND_MEDIA:
+            if field_kind(spec.type) != KIND_MEDIA or name in skip:
                 continue
             for path in missing_media_paths(values.get(name), storage):
                 missing.append({"field": name, "path": path})
@@ -306,20 +314,27 @@ class SessionRequests:
         for item in self._unavailable_models(user_id, form_values, locked):
             problems.append({"code": "session_model_unavailable", **item,
                              "message": f"The model '{item['name']}' in '{item['field']}' is no longer available to you."})
-        for item in self._missing_inputs(user_id, fields, form_values):
+        try:
+            missing = self._missing_inputs(user_id, fields, form_values, locked)
+        except SessionRequestError as error:
+            missing = []
+            problems.append({"code": error.code, "message": error.message})
+        for item in missing:
             problems.append({"code": "input_missing", **item, "message": f"The input file {item['path']!r} for '{item['field']}' no longer exists."})
         try:
             resolved = resolve(
                 entry, session.preset_id, mode, vars_, None, None, self.prompt_batch(getattr(template, "engine", None))
             )
-            base["resolved_request"] = self._sanitized(resolved.request)
+            base["resolved_request"] = self._sanitized(resolved.request, locked)
         except RequestRefused as refused:
             problems.append({"code": refused.code, "message": refused.message})
         return base
 
     @staticmethod
-    def _sanitized(request: Dict[str, Any]) -> Dict[str, Any]:
-        return {key: value for key, value in request.items() if key not in ("tab_id",)}
+    def _sanitized(request: Mapping[str, Any], locked: set) -> Dict[str, Any]:
+        clean = {key: copy.deepcopy(value) for key, value in request.items() if key not in ("tab_id", "idempotency_key")}
+        clean["form_data"] = {name: value for name, value in (clean.get("form_data") or {}).items() if name not in locked}
+        return clean
 
     def _summary(self, session: Session, template: Any, mode: str, entry: Mapping[str, Any]) -> Dict[str, Any]:
         return {
@@ -419,7 +434,7 @@ class SessionRequests:
                 f"The model {names} is no longer available to you; choose another one in the session or override form.<field>.",
                 {"models": missing_models},
             )
-        missing_inputs = self._missing_inputs(user_id, fields, form_values)
+        missing_inputs = self._missing_inputs(user_id, fields, form_values, locked)
         if missing_inputs:
             first = missing_inputs[0]
             raise SessionRequestError(
@@ -437,9 +452,8 @@ class SessionRequests:
         request.pop("tab_id", None)
         if overrides.idempotency_key:
             request["idempotency_key"] = overrides.idempotency_key
-        self._validate_form(template, mode, request, user_id, locks)
-        snapshot = copy.deepcopy(request)
-        snapshot.pop("idempotency_key", None)
+        self._validate_form(template, mode, request, user_id, locks, locked)
+        snapshot = self._sanitized(request, locked)
         summary = {
             "id": session.id, "mode": mode, "version": session.version, "settings_hash": current,
         }
@@ -447,7 +461,9 @@ class SessionRequests:
             request=GenerationRequest(**request), resolved_request=snapshot, session=summary, notes=notes + resolved.notes,
         )
 
-    def _validate_form(self, template: Any, mode: str, request: Mapping[str, Any], user_id: str, locks: Mapping[str, Any]) -> None:
+    def _validate_form(
+        self, template: Any, mode: str, request: Mapping[str, Any], user_id: str, locks: Mapping[str, Any], locked: set
+    ) -> None:
         try:
             bind_form(
                 template, mode, request.get("form_name"), split_kit_rows(request.get("form_data") or {})[0], user_id,
@@ -456,7 +472,11 @@ class SessionRequests:
         except FormBindingError as exc:
             raise SessionRequestError(
                 422, "form_validation_failed", str(exc),
-                {"field_errors": exc.field_errors, "coercions": exc.coercions, "stripped": exc.stripped},
+                {
+                    "field_errors": {k: v for k, v in exc.field_errors.items() if k not in locked},
+                    "coercions": [c for c in exc.coercions if c.split(":", 1)[0] not in locked],
+                    "stripped": [k for k in exc.stripped if k not in locked],
+                },
             ) from exc
         except FormNotFoundException as exc:
             raise SessionRequestError(422, "mode_not_available", str(exc)) from exc

@@ -426,3 +426,76 @@ class TestTheSessionIsNeverWritten:
         snapshot = copy.deepcopy(world.sessions.get_by_id("s1").data)
         prepare(service, prompt="x", negative_prompt="y", form={"steps": 1})
         assert world.sessions.get_by_id("s1").data == snapshot
+
+
+LOCK_A = 17
+LOCK_B = 40
+
+
+def locked_world(world, saved=LOCK_A):
+    save(world.sessions, data={"txt2img": entry(formData={"seed": 5, "quantity": 2, "steps": saved})})
+    overrides = {PRESET: {"txt2img": {"steps": {"editable": False, "default": LOCK_B}}}}
+    return build_service(world.sessions, world.storage, overrides=overrides)
+
+
+class TestLockedValuesNeverComeBack:
+    def test_neither_value_is_in_the_template_the_snapshot_or_the_errors(self, world):
+        service = locked_world(world)
+
+        described = service.describe("u1", False, "s1", None)
+        prepared = prepare(service)
+        bad = refusal(prepare, service, form={"resolution": "nope"})
+
+        assert "steps" not in described["resolved_request"]["form_data"]
+        assert "steps" not in prepared.resolved_request["form_data"]
+        assert str(LOCK_A) not in str(described["fields"]) and str(LOCK_B) not in str(described["fields"])
+        assert "steps" not in bad.detail.get("field_errors", {})
+        assert prepared.request.form_data["steps"] == LOCK_A
+
+    def test_a_missing_file_in_a_locked_media_field_is_not_reported(self, world):
+        save(world.sessions, data={"txt2img": entry(formData={"image": "uploads/secret-name.png"})})
+        overrides = {PRESET: {"txt2img": {"image": {"editable": False, "default": None}}}}
+        service = build_service(world.sessions, world.storage, overrides=overrides)
+
+        described = service.describe("u1", False, "s1", None)
+
+        assert "secret-name" not in str(described)
+        assert prepare(service).session["id"] == "s1"
+
+    def test_a_model_override_the_user_cannot_use_is_refused(self, world):
+        save(world.sessions)
+        error = refusal(prepare, build_service(world.sessions, world.storage), form={"checkpoint": "model:m2"})
+        assert (error.status, error.code) == (403, "session_model_unavailable")
+
+
+class TestStorage:
+    def test_a_storage_root_that_cannot_be_resolved_refuses_instead_of_skipping_checks(self, world):
+        save(world.sessions)
+        service = build_service(world.sessions, world.storage)
+
+        def broken(user_id):
+            raise OSError("disk gone")
+
+        service.settings.get_file_storage_directory = broken
+
+        error = refusal(prepare, service)
+        described = service.describe("u1", False, "s1", None)
+
+        assert (error.status, error.code) == (503, "storage_unavailable")
+        assert any(problem["code"] == "storage_unavailable" for problem in described["problems"])
+
+    def test_a_media_override_outside_the_callers_storage_is_refused_here(self, world, tmp_path_factory):
+        outside = tmp_path_factory.mktemp("elsewhere") / "private.png"
+        outside.write_bytes(b"x")
+        save(world.sessions)
+        service = build_service(world.sessions, world.storage)
+
+        for path in (str(outside), "../../etc/passwd", "uploads/../../outside.png"):
+            error = refusal(prepare, service, form={"image": path})
+            assert error.status == 422 and error.code in ("form_validation_failed", "input_missing"), path
+
+
+def test_sessions_are_owner_only_and_carry_no_sharing_field():
+    from src.features.sessions.dto import Session
+
+    assert not [name for name in Session.model_fields if "share" in name or "member" in name or "workspace" in name]

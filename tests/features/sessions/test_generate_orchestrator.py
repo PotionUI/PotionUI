@@ -2,11 +2,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.features.forms.binding import BoundForm
+from src.features.forms.binding import BoundForm, FormBindingError, bind_form
 from tests.features.generation.test_orchestrator_fixed_prompt import FILM, PREFIX, SUFFIX, make_orchestrator, pipeline_prompts
 from tests.features.kits.test_orchestrator import Harness
 from src.features.sessions.generate import Overrides
-from tests.features.sessions.support import build_service, entry, field, memory_sessions, save, segment, template
+from tests.features.sessions.support import PresetDb, build_service, entry, field, memory_sessions, save, segment, template
 
 
 @pytest.fixture(autouse=True)
@@ -68,3 +68,45 @@ async def test_a_kit_citation_in_a_sessions_prompt_expands_like_the_ui_because_i
     assert prepared.resolved_request["prompts"][0]["positive"] == f"{cite} smiles"
     assert prepared.request.prompts[0].positive == "<Picture 1> smiles"
     assert result["kits"]["used"][0]["name"] == "face"
+
+
+@pytest.mark.asyncio
+async def test_a_locked_field_runs_with_the_admins_value_not_the_stale_saved_one(sessions, generation_repo):
+    repository, storage = sessions
+    save(repository, data={"txt2img": entry(formData={"seed": 5, "quantity": 1, "steps": 17})})
+    locks = {"flux-test": {"txt2img": {"steps": {"editable": False, "default": 40}}}}
+    service = build_service(repository, storage, overrides=locks)
+    prepared = service.prepare("u1", False, "s1", None, Overrides(prompt="x", count=1))
+    orchestrator, _, _ = make_orchestrator(None)
+    orchestrator.preset_template_loader.load_preset_by_id = lambda preset_id: template()
+    orchestrator.database_preset_repository = PresetDb({}, locks)
+    orchestrator.settings.get_file_storage_directory = lambda user_id: storage
+
+    with patch("src.features.generation.orchestrator.bind_form", wraps=bind_form):
+        with patch("src.features.generation.orchestrator.generate_ulid", return_value="g1"):
+            result = await orchestrator.start_generation(prepared.request, "u1")
+
+    form = orchestrator.pipeline_builder.build_pipeline.call_args.kwargs["form_data"]
+    assert form["steps"] == 40
+    assert "steps" not in prepared.resolved_request["form_data"]
+
+
+@pytest.mark.asyncio
+async def test_the_orchestrator_still_refuses_a_media_path_outside_storage(sessions, generation_repo, tmp_path_factory):
+    repository, storage = sessions
+    outside = tmp_path_factory.mktemp("elsewhere") / "private.png"
+    outside.write_bytes(b"x")
+    save(repository)
+    service = build_service(repository, storage)
+    prepared = service.prepare("u1", False, "s1", None, Overrides(count=1))
+    prepared.request.form_data["image"] = str(outside)
+    orchestrator, _, _ = make_orchestrator(None)
+    orchestrator.preset_template_loader.load_preset_by_id = lambda preset_id: template()
+    orchestrator.database_preset_repository = PresetDb({}, {})
+    orchestrator.settings.get_file_storage_directory = lambda user_id: storage
+
+    with patch("src.features.generation.orchestrator.bind_form", wraps=bind_form):
+        with pytest.raises(FormBindingError):
+            await orchestrator.start_generation(prepared.request, "u1")
+
+    orchestrator.pipeline_builder.build_pipeline.assert_not_called()

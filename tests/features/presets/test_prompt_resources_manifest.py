@@ -346,7 +346,7 @@ class TestShippedPromptResources:
     def test_qwen_image21_combine_uses_the_encoder_image_label(self, shipped_presets):
         preset = shipped_presets["Qwen-Image-2.1"]
         assert preset.prompt_resources == {"combine": [
-            {"field": "images", "kind": "image", "label": "Images", "token": "<image@>"},
+            {"field": "images", "kind": "image", "label": "Images", "token": "<image@>", "limit": 10},
         ]}
 
     def test_shipped_mappings_lint_clean(self):

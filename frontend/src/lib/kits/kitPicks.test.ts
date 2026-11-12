@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LibraryItem } from '$lib/services/api/library';
-import { describeLimit, kindOfMediaType, pickFromLibraryItem, picksFromLibraryItems, picksNames, toNewItems } from './kitPicks';
+import { describeLimit, kindOfMediaType, pickFromLibraryItem, picksFromHistoryFiles, picksFromLibraryItems, picksNames, toNewItems } from './kitPicks';
 
 function library(id: string, media_type: string, extra: Partial<LibraryItem> = {}): LibraryItem {
 	return { id, filename: `${id}.bin`, media_type, url: `/u/${id}`, tags: [], ...extra };
@@ -57,5 +57,26 @@ describe('describeLimit', () => {
 	it('says how much room is left', () => {
 		expect(describeLimit(48, 5, 50)).toBe('A kit holds 50 items. There is room for 2 more.');
 		expect(describeLimit(50, 1, 50)).toBe('A kit holds 50 items and this one is full.');
+	});
+});
+
+describe('picks from History', () => {
+	const file = (id: number, file_type: string) => ({ id, file_path: `out/g/${id}.bin`, file_type });
+	const thumb = (id: string) => `/t/${id}`;
+
+	it('references the generation file by id and names it after the file', () => {
+		const [pick] = picksFromHistoryFiles([file(7, 'image')], thumb);
+		expect(pick).toMatchObject({ kind: 'image', label: '7.bin', historyFileId: '7', mediaRef: null, thumbnail: '/t/7' });
+	});
+
+	it('skips meshes, repeats and gives audio no thumbnail', () => {
+		const picks = picksFromHistoryFiles([file(1, 'mesh'), file(2, 'audio'), file(2, 'audio'), file(3, 'video')], thumb);
+		expect(picks.map((pick) => pick.historyFileId)).toEqual(['2', '3']);
+		expect(picks[0].thumbnail).toBeNull();
+	});
+
+	it('sends the file id, not an upload reference', () => {
+		const picks = picksFromHistoryFiles([file(7, 'image')], thumb);
+		expect(toNewItems(picks, ['face'])).toEqual([{ kind: 'image', name: 'face', history_file_id: '7' }]);
 	});
 });

@@ -1646,10 +1646,14 @@ def build_container() -> AppContainer:
         limit_guard=limit_guard,
     )
     library_controller = LibraryController(library_collaborators)
+    from src.features.library import operations as library_operations
+
     kit_controller = KitController(
         kit_repository, kit_expander, preset_template_loader.load_preset_by_id, media_store,
+        copy_to_library=lambda file_id, user_id: library_operations.copy_generation_file(
+            library_collaborators, file_id, user_id
+        ).id,
     )
-    from src.features.library import operations as library_operations
 
     collection_controller = CollectionController(
         collection_repository,

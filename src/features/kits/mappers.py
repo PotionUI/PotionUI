@@ -21,6 +21,7 @@ def media_to_dict(upload: Upload) -> Dict[str, Any]:
         "height": upload.height,
         "duration_seconds": upload.duration_seconds,
         "size": upload.file_size,
+        "generation_id": upload.source_generation_id,
     }
 
 
@@ -35,6 +36,7 @@ def item_to_dict(view: ItemView) -> Dict[str, Any]:
         "path": f"kits.{kit.handle}.{item.name}",
         "ref": citations.item_key(kit.id, item.id),
         "text": item.text if item.is_text else None,
+        "source": None if item.is_text else ("history" if view.upload is not None and view.upload.source_generation_id else "library"),
         "media": media_to_dict(view.upload) if view.upload is not None else None,
         "missing": view.missing,
         "created_at": dt_iso(item.created_at),

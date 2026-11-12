@@ -11,6 +11,7 @@ from src.platform.http.errors import ConflictError
 from src.platform.database.rows import dt_column, dt_iso, now_iso
 
 THUMBNAILS_PER_KIT = 4
+GENERATION_FILE_KINDS = {"IMAGE": "image", "VIDEO": "video", "AUDIO": "audio"}
 
 
 def new_kit_id() -> str:
@@ -287,6 +288,20 @@ class KitRepository:
             upload_id: upload for upload_id, upload in found.items()
             if upload.user_id == owner_id and upload.purpose == "user_upload" and upload.media_type in MEDIA_KINDS
         }
+
+    def owned_generation_files(self, owner_id: str, file_ids: Iterable[str]) -> Dict[str, str]:
+        ids = [value for value in dict.fromkeys(file_ids) if value]
+        if not ids:
+            return {}
+        with get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT id, file_type FROM files WHERE user_id = ? AND id IN ({_marks(ids)})", (owner_id, *ids)
+            )
+            return {
+                row["id"]: GENERATION_FILE_KINDS[row["file_type"].upper()]
+                for row in cursor.fetchall()
+                if (row["file_type"] or "").upper() in GENERATION_FILE_KINDS
+            }
 
     def thumbnails_for(self, kit_ids: Sequence[str]) -> Dict[str, List[dict]]:
         thumbnails: Dict[str, List[dict]] = {kit_id: [] for kit_id in kit_ids}

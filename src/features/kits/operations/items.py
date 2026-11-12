@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.features.kits import rules
 from src.features.kits.operations.kits import create_kit, get_kit
@@ -74,6 +74,48 @@ def add_library_items(
     missing = [upload_id for upload_id in ordered if upload_id not in owned]
     if missing:
         raise NotFoundError("library_item_not_found", "Library item not found", missing=missing)
+    kinds = {upload_id: owned[upload_id].media_type for upload_id in ordered}
+    return _add_batch(repository, owner_id, ordered, kinds, lambda ids: {i: i for i in ids}, kit_id, new_kit_name, new_kit_label, names)
+
+
+def add_history_items(
+    repository: KitRepository,
+    copy_to_library: Callable[[str, str], str],
+    owner_id: str,
+    file_ids: Sequence[str],
+    kit_id: Optional[str] = None,
+    new_kit_name: Optional[str] = None,
+    new_kit_label: Optional[str] = None,
+    names: Optional[Dict[str, str]] = None,
+) -> Tuple[Kit, List[KitItem]]:
+    ordered = list(dict.fromkeys(file_ids))
+    if not ordered:
+        raise InvalidInputError("no_items", "Pick at least one History item")
+    owned = repository.owned_generation_files(owner_id, ordered)
+    missing = [file_id for file_id in ordered if file_id not in owned]
+    if missing:
+        raise NotFoundError("history_item_not_found", "History item not found", missing=missing)
+
+    def copy_all(ids: Sequence[str]) -> Dict[str, str]:
+        try:
+            return {file_id: copy_to_library(file_id, owner_id) for file_id in ids}
+        except ValueError:
+            raise NotFoundError("history_item_not_found", "History item not found", missing=list(ids))
+
+    return _add_batch(repository, owner_id, ordered, owned, copy_all, kit_id, new_kit_name, new_kit_label, names)
+
+
+def _add_batch(
+    repository: KitRepository,
+    owner_id: str,
+    ordered: List[str],
+    kinds: Dict[str, str],
+    resolve_refs: Callable[[Sequence[str]], Dict[str, str]],
+    kit_id: Optional[str],
+    new_kit_name: Optional[str],
+    new_kit_label: Optional[str],
+    names: Optional[Dict[str, str]],
+) -> Tuple[Kit, List[KitItem]]:
     if (kit_id is None) == (new_kit_name is None):
         raise InvalidInputError("kit_target_required", "Name an existing kit or a new one, not both")
     names = names or {}
@@ -83,9 +125,9 @@ def add_library_items(
     plan: List[Tuple[str, str]] = []
     used: List[str] = []
     existing = set() if kit_id is None else {item.name for item in repository.items(kit_id)}
-    for upload_id in ordered:
-        kind = owned[upload_id].media_type
-        requested = names.get(upload_id)
+    for source_id in ordered:
+        kind = kinds[source_id]
+        requested = names.get(source_id)
         if requested is not None and requested.strip():
             chosen = rules.validate_path_name(requested, "item")
             if chosen in existing | set(used):
@@ -94,14 +136,15 @@ def add_library_items(
         else:
             chosen = rules.default_item_name(kind, existing | set(used))
         used.append(chosen)
-        plan.append((upload_id, chosen))
+        plan.append((source_id, chosen))
     if len(ordered) > rules.MAX_ITEMS_PER_KIT:
         raise ConflictError("kit_full", f"A kit holds at most {rules.MAX_ITEMS_PER_KIT} items", limit=rules.MAX_ITEMS_PER_KIT)
+    refs = resolve_refs(ordered)
     if kit_id is None:
         kit = create_kit(repository, owner_id, new_kit_name, label=new_kit_label)
     added = [
-        repository.add_item(kit.id, owned[upload_id].media_type, chosen, media_ref=upload_id)
-        for upload_id, chosen in plan
+        repository.add_item(kit.id, kinds[source_id], chosen, media_ref=refs[source_id])
+        for source_id, chosen in plan
     ]
     return repository.get(kit.id, owner_id), added
 

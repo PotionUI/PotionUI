@@ -3,7 +3,8 @@
 1. `EnabledForEngine` - seeds the candidate list.
 2. `ModelAvailability` - drops a backend that doesn't hold every selected model.
 3. `RequirementsEligibility` - drops a backend with a cached hard-missing requirement.
-4. `Preference` - annotates (never drops) which survivor is preferred.
+4. `HealthEligibility` - drops a backend whose last health probe failed, unless every survivor is down.
+5. `Preference` - annotates (never drops) which survivor is preferred.
 
 See docs/generation-routing.md for the full picture (a flowchart of this
 chain, a decision table per rule, and worked examples) - the docstring on
@@ -166,6 +167,35 @@ async def _refresh_requirements(preset, backend, ctx: RoutingContext) -> None:
         )
     except Exception:
         logger.debug(f"Background requirements refresh failed for backend {backend.backend_id}", exc_info=True)
+
+
+class HealthEligibility:
+    name = "health_eligibility"
+
+    async def apply(
+        self, candidates: List[Candidate], request: RoutingRequest, ctx: RoutingContext
+    ) -> List[Candidate]:
+        health = ctx.health
+        if health is None:
+            return candidates
+
+        from src.features.generation.routing.health import probes_remotely
+
+        live = [c for c in candidates if not c.dropped]
+        for c in live:
+            if ctx.schedule_background is not None and probes_remotely(c.backend) and health.needs_probe(c.backend_id):
+                ctx.schedule_background(health.probe(c.backend))
+
+        down = [c for c in live if not health.is_healthy(c.backend_id)]
+        if not down:
+            return candidates
+        if len(down) == len(live):
+            for c in down:
+                c.annotate(f"unhealthy ({health.reason(c.backend_id)}); the job waits for it to recover")
+            return candidates
+        for c in down:
+            c.drop(f"unhealthy: {health.reason(c.backend_id)}")
+        return candidates
 
 
 class Preference:

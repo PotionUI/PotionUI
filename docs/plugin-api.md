@@ -1173,7 +1173,15 @@ own poll loop so the UI can render progress before the step finishes. Besides `o
 `fail`, a step can return `StepResult.awaiting(consent_request)` to park the run until an
 admin explicitly approves — that is how a multi-GB download gets a go-ahead. Failure
 messages are read by a non-technical owner mid-setup, so write them as a plain sentence
-and put any admin-shaped fix in `suggested_repair`.
+and put any admin-shaped fix in `suggested_repair`. Keep exception text out of that sentence: pass
+it as `StepResult.fail(..., technical_detail="...")`, which the wizard and Admin → Recipes show
+only behind a "Details" disclosure.
+
+A step kind can set a class attribute `advisory = True` to make its failure advisory: the attempt
+is recorded as `action_required` ("Needs attention") with the same sentence, repair hint and
+technical text, and the run carries on with the next step instead of failing. Use it for a check
+whose failure should not strand an install, such as core's `generation.smoke` test picture. A
+step that is not advisory still fails the run.
 
 Registration makes the kind both runnable and lintable: `scripts/recipe_lint.py` and the
 running catalog accept recipes using it, while an unregistered kind stays an unknown-kind

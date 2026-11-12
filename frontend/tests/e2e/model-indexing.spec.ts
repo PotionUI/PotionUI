@@ -378,7 +378,8 @@ for (const viewport of [
 
 			await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible({ timeout: 15000 });
 			await page.getByRole('button', { name: 'Continue' }).click();
-			await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
+			await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible();
+			await expect(page.locator('[data-models-row]')).toBeVisible();
 			await expect(
 				page.getByText("487 models found. They're usable now; you'll choose how to index them after setup.")
 			).toBeVisible();

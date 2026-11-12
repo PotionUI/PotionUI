@@ -996,7 +996,7 @@ class TestEventStreamReconnect(NativeRemoteBackendTestCase):
             def __getattr__(self, name):
                 return getattr(real_transport, name)
 
-            async def stream_events(self, execution_id, after=0):
+            async def stream_events(self, execution_id, after=0, on_alive=None):
                 if self._first_call:
                     self._first_call = False
                     async for event in real_transport.stream_events(execution_id, after=after):

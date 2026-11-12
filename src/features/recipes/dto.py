@@ -163,6 +163,7 @@ class RecipeStepAttemptView(BaseModel):
     # `ReadinessCheck`'s message/action split, so the UI never has to fish a
     # magic key out of a free-form output dict.
     safe_suggested_action: Optional[str] = None
+    safe_technical_detail: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
@@ -176,6 +177,7 @@ class RecipeStepAttemptView(BaseModel):
         # in place inside `safe_output` rather than promoted - the frontend
         # reads it at `attempt.safe_output.consent_request`.
         suggested_action = safe_output.pop("suggested_repair", None)
+        technical_detail = safe_output.pop("technical_detail", None)
         return cls(
             step_key=attempt.step_key,
             attempt=attempt.attempt,
@@ -187,6 +189,7 @@ class RecipeStepAttemptView(BaseModel):
             error_code=attempt.error_code,
             safe_error_detail=attempt.safe_error_detail,
             safe_suggested_action=suggested_action,
+            safe_technical_detail=technical_detail,
             started_at=attempt.started_at,
             finished_at=attempt.finished_at,
         )

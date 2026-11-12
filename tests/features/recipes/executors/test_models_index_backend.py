@@ -75,4 +75,5 @@ def test_indexer_failure_reported_cleanly():
 
     assert result.success is False
     assert result.error_code == "MODEL_INDEX_FAILED"
-    assert "connection reset" in result.safe_error_detail
+    assert "connection reset" not in result.safe_error_detail
+    assert "connection reset" in result.technical_detail

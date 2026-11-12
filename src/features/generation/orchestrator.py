@@ -69,7 +69,10 @@ from src.features.generation.output_processor import OutputProcessor
 from src.features.generation.prompt_batch import PROMPT_BATCH_SPLIT_NOTICE, PromptBatch, check_prompt_batch
 from src.features.generation.prompt_batch_split_repository import PromptBatchSplitRepository
 from src.features.generation.output_bridge import OutputBridge
+from src.features.generation.backend_balancer import BackendBalancer
 from src.features.generation.queue import QueuedGeneration
+from src.features.generation.routing.health import BackendHealthTracker
+from src.features.generation.routing.load import BackendLoadLedger
 from src.features.generation.queue_dispatcher import CancelledBeforeStart, QueueDispatcher
 from src.features.generation.scheduling import FAIR, SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
@@ -684,12 +687,32 @@ class GenerationOrchestrator:
         self.status_tracker = status_tracker or GenerationStatusTracker()
 
         self._scheduling_policy_for = scheduling_policy_for or (lambda backend_id: SchedulingPolicy())
+        self.backend_health = BackendHealthTracker()
         self._queue_dispatcher = QueueDispatcher(
             status_tracker=self.status_tracker,
             dispatch=self._start_generation,
             policy_for=scheduling_policy_for,
             capacity_for=self._backend_capacity,
+            hold_reason=self._hold_reason,
         )
+        self.load_ledger = BackendLoadLedger(
+            counts=self._queue_dispatcher.queue.counts, capacity=self._backend_capacity
+        )
+        self._balancer = BackendBalancer(
+            dispatcher=self._queue_dispatcher,
+            get_router=lambda: self.router,
+            status_tracker=self.status_tracker,
+            health=self.backend_health,
+            get_backend=backend_registry.get_backend,
+            list_backends=backend_registry.get_all_backends,
+            fail_job=self._record_failure,
+            run_backend_for=lambda generation_id: self._run_backends.get(generation_id),
+            resolve_form=lambda form, backend: resolve_form_model_refs(form, backend, self.model_locator),
+        )
+        self.backend_health.add_listener(self._balancer.on_health_changed)
+        register_departure = getattr(backend_registry, 'add_departure_listener', None)
+        if callable(register_departure):
+            register_departure(self._balancer.on_backend_departed)
         self._prompt_expander = PromptExpander(plugin_registry=plugin_registry)
         self._notifier = GenerationNotifier(notification_manager=notification_manager, grids=grid_repo)
 
@@ -719,6 +742,29 @@ class GenerationOrchestrator:
     def queue(self):
         """The single generation queue, owned by the QueueDispatcher."""
         return self._queue_dispatcher.queue
+
+    def start_backend_probes(self) -> None:
+        self._balancer.start_probing()
+
+    async def stop_backend_probes(self) -> None:
+        await self._balancer.stop_probing()
+
+    def _hold_reason(self, backend_id: str) -> Optional[str]:
+        if self.backend_health.is_healthy(backend_id):
+            return None
+        return self.backend_health.reason(backend_id) or 'unhealthy'
+
+    def backend_load_snapshot(self, backend_id: str) -> Dict[str, Any]:
+        load = self.load_ledger.load(backend_id)
+        return {
+            'queued': load.queued,
+            'running': load.running,
+            'max_concurrent_runs': load.capacity,
+            'unhealthy_reason': self._hold_reason(backend_id),
+        }
+
+    def get_queue_info(self, generation_id: str) -> Optional[Dict[str, Any]]:
+        return self._queue_dispatcher.queue_info(generation_id)
 
     def _read_vram_gb(self) -> tuple:
         if self.gpu_monitor is None or not getattr(self.gpu_monitor, "available", True):
@@ -1135,7 +1181,7 @@ class GenerationOrchestrator:
             form_data=form_data or {},
             user_id=user_id,
             mode=mode,
-        ))
+        ), reserve=True)
         return decision.chosen, decision, decision.summary()
 
     def _persist_side_records(
@@ -1245,6 +1291,7 @@ class GenerationOrchestrator:
 
         self._enforce_preset_access(request.preset_id, user_id)
         admitted_ref: Optional[str] = None
+        reserved_backend_id: Optional[str] = None
         try:
             logger.info(f"Starting generation for user={user_id}, preset={request.preset_id}")
 
@@ -1331,9 +1378,12 @@ class GenerationOrchestrator:
             if generation_origins:
                 _validate_generation_origins(generation_origins, user_id)
 
+            routed_form_data = request.form_data
             backend, decision, routing_summary = await self._route(
-                engine, preset_template, request.form_data, user_id, mode
+                engine, preset_template, routed_form_data, user_id, mode
             )
+            if getattr(decision, 'reserved', False) is True:
+                reserved_backend_id = backend.backend_id
 
             logger.debug(f"Selected backend: {backend.name} (engine={backend.engine})")
 
@@ -1513,9 +1563,18 @@ class GenerationOrchestrator:
                     'backend': backend,
                     'db_generation': db_generation,
                     'output_callback': output_callback,
+                    'routing': RoutingRequest(
+                        engine=engine,
+                        preset=preset_template,
+                        form_data=routed_form_data or {},
+                        user_id=user_id,
+                        mode=mode,
+                    ),
                 },
             ))
             admitted_ref = None
+            self._release_reservation(reserved_backend_id)
+            reserved_backend_id = None
 
             await self._queue_dispatcher.publish_positions()
 
@@ -1543,11 +1602,16 @@ class GenerationOrchestrator:
             return submitted
 
         except BaseException as e:
+            self._release_reservation(reserved_backend_id)
             if admitted_ref is not None:
                 self.limit_guard.refund(admitted_ref)
             if isinstance(e, Exception):
                 logger.error(f"Failed to start generation: {str(e)}", exc_info=True)
             raise
+
+    def _release_reservation(self, backend_id: Optional[str]) -> None:
+        if backend_id is not None and self.router is not None:
+            self.router.release(backend_id)
 
     def set_queue_listener(self, listener: Callable[[str, Dict[str, Any]], Any]) -> None:
         """Register the callback that broadcasts `queue_update` messages."""

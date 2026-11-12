@@ -115,12 +115,13 @@ async function gotoSetup(page: Page) {
 	await page.goto('/setup');
 	await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible({ timeout: 15000 });
 	await page.getByRole('button', { name: 'Continue' }).click();
-	await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible();
+	await expect(page.locator('[data-models-row]')).toBeVisible();
 }
 
 async function gotoSetupExisting(page: Page) {
 	await gotoSetup(page);
-	await page.getByRole('radio', { name: /Use an existing folder/ }).click();
+	await page.getByRole('button', { name: 'Use a folder you already have' }).click();
 	await expect(page.getByLabel('Folder path')).toBeVisible();
 }
 
@@ -183,13 +184,15 @@ test.describe('model roots - setup wizard', () => {
 			return route.fallback();
 		});
 		await gotoSetup(page);
+		await page.getByRole('button', { name: 'Change' }).click();
 		await expect(page.getByRole('radio', { name: /Start fresh/ })).toHaveAttribute('aria-checked', 'true');
 		await expect(page.getByText('Models will be saved to')).toBeVisible();
 		await expect(page.locator('[data-panel="fresh"]').getByText('models', { exact: true })).toBeVisible();
 		await expect(page.getByLabel('Folder path')).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'wizard-start-fresh');
-		await page.getByRole('button', { name: 'Continue' }).click();
+		await page.getByRole('button', { name: 'Keep this folder' }).click();
 		await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible();
+		await expect(page.locator('[data-models-row]')).toBeVisible();
 		expect(created).toBe(false);
 		await screenshot(page, JOURNEY, 'wizard-start-fresh-continued');
 	});
@@ -425,6 +428,7 @@ test.describe('model roots - phone', () => {
 		await mockIndexingStatus(page);
 		await mockReadiness(page);
 		await gotoSetup(page);
+		await page.getByRole('button', { name: 'Change' }).click();
 		await expectNoHorizontalOverflow(page);
 		await screenshot(page, JOURNEY, 'wizard-phone-choice');
 		await page.getByRole('radio', { name: /Use an existing folder/ }).click();

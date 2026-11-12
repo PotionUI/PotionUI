@@ -44,6 +44,7 @@ from src.features.remote_execution.records import (
     RemoteExecutionState,
 )
 from src.features.remote_execution.repository import RemoteExecutionRepository
+from src.features.remote_execution.submit import SETTLED_OUTCOMES, SubmitAmbiguous, submit_checked
 from src.features.remote_execution.transport import (
     WorkerProtocolError,
     WorkerTransport,
@@ -83,6 +84,10 @@ _CUDA_UNAVAILABLE_MESSAGE = (
     "Worker reports CUDA unavailable — generation would run on CPU. The pod's "
     "driver is too old for the worker image's torch build."
 )
+
+
+class WorkerSilent(WorkerTransportError):
+    error_code = "backend_unreachable"
 
 
 class RemoteNativeBackend(BaseBackend):
@@ -364,7 +369,7 @@ class RemoteNativeBackend(BaseBackend):
             await self._dispatch(generation_id, preset_id, pipes, emit_from_worker)
         except Exception as exc:
             logger.error(f"[NATIVE_REMOTE_BACKEND] Generation {generation_id} failed: {exc}")
-            emit_from_worker(ErrorGenerationOutput(error=str(exc)))
+            emit_from_worker(ErrorGenerationOutput(error=str(exc), error_code=getattr(exc, "error_code", None)))
         finally:
             self._active.discard(generation_id)
             emit(None)
@@ -505,9 +510,15 @@ class RemoteNativeBackend(BaseBackend):
         renew_task = asyncio.create_task(self._renew_lease_loop(row.id, claimed.lease_epoch))
         try:
             try:
-                await transport.submit(package)
+                answer = await submit_checked(
+                    transport, package,
+                    attempts=self._policy.submit_attempts,
+                    retry_delay=self._policy.submit_retry_delay_seconds,
+                    busy_wait_seconds=self._policy.busy_wait_seconds,
+                    on_busy=lambda delay: self._announce_busy(emit, delay),
+                )
 
-                if package.input_assets is not None:
+                if package.input_assets is not None and answer.outcome not in SETTLED_OUTCOMES:
                     for asset in package.input_assets.assets:
                         source_path = sources.get(asset.logical_id)
                         if source_path is None:
@@ -518,26 +529,29 @@ class RemoteNativeBackend(BaseBackend):
 
                 await self._consume_events(row.id, package, transport, storage_dir, emit)
             except Exception as exc:
-                # Anything that goes wrong between claiming the row and a
-                # terminal worker event (submit failing, an upload failing,
-                # the SSE connection dying mid-stream) must still terminate
-                # the row - otherwise it is stuck DISPATCHING/STAGING/RUNNING
-                # forever, since nothing else in this single-slot MVP retries
-                # it. A no-op when the event loop already reached a terminal
-                # state (e.g. the failure happened on cleanup, after
-                # `succeeded` was already applied).
-                current = self._repository.get_by_id(row.id)
-                if current is not None and not current.is_terminal:
-                    self._repository.apply_state(
-                        row.id, RemoteExecutionState.FAILED,
-                        error_code="dispatch_error", error_message=str(exc),
-                    )
+                await self._fail_dispatch(row.id, exc, transport)
                 raise
         finally:
             renew_task.cancel()
             try:
                 await renew_task
             except asyncio.CancelledError:
+                pass
+
+    async def _announce_busy(self, emit, delay: float) -> None:
+        emit(ProgressGenerationOutput(state=f"The worker is busy with another job, retrying in {int(delay)}s"))
+
+    async def _fail_dispatch(self, row_id: str, exc: Exception, transport: WorkerTransport) -> None:
+        current = self._repository.get_by_id(row_id)
+        if current is not None and not current.is_terminal:
+            self._repository.apply_state(
+                row_id, RemoteExecutionState.FAILED,
+                error_code="dispatch_error", error_message=str(exc),
+            )
+        if isinstance(exc, (WorkerSilent, SubmitAmbiguous)):
+            try:
+                await transport.cancel(row_id)
+            except WorkerTransportError:
                 pass
 
     async def _renew_lease_loop(self, execution_id: str, epoch: int) -> None:
@@ -563,8 +577,29 @@ class RemoteNativeBackend(BaseBackend):
         imports_dir = storage_dir / "remote_imports" / execution_id
 
         cursor = 0
+        heard_from_worker = False
         for attempt in range(_MAX_EVENT_STREAM_RECONNECTS):
-            async for event in transport.stream_events(execution_id, after=cursor):
+            deadline = {"cm": None}
+
+            def alive() -> None:
+                cm = deadline["cm"]
+                if cm is not None and cm.when() is not None:
+                    cm.reschedule(asyncio.get_running_loop().time() + self._policy.event_idle_timeout_seconds)
+
+            events = transport.stream_events(execution_id, after=cursor, on_alive=alive).__aiter__()
+            while True:
+                limit = self._policy.event_idle_timeout_seconds if heard_from_worker else self._policy.first_event_timeout_seconds
+                try:
+                    async with asyncio.timeout(limit) as cm:
+                        deadline["cm"] = cm if heard_from_worker else None
+                        event = await anext(events)
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    raise WorkerSilent(
+                        f"The worker took the job but sent nothing for {int(limit)} seconds, so it was stopped."
+                    ) from None
+                heard_from_worker = True
                 cursor = event.cursor
                 self._repository.apply_job_event(execution_id, event)
                 await self._handle_event(

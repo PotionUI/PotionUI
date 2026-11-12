@@ -653,7 +653,7 @@ def _bind_model_types(repository: ModelRootRepository, resolver: ModelRootResolv
     resolver.invalidate()
 
 
-def build_container() -> AppContainer:
+def build_container(generation_engine_factory: Optional[Callable[[], Any]] = None) -> AppContainer:
     # Initialize settings repository and manager first
     setting_repository = SettingRepository()
     settings = Settings(setting_repository)
@@ -838,8 +838,9 @@ def build_container() -> AppContainer:
     from src.features.presets.repository import DatabasePresetRepository
 
     database_preset_repository = DatabasePresetRepository()
+    presets_root = os.getenv("POTIONUI_PRESETS_DIR", "content/presets")
     preset_template_loader = PresetTemplateLoader(
-        ["content/presets/marketplace", "content/presets/local"],
+        [f"{presets_root}/marketplace", f"{presets_root}/local"],
         plugin_registry=plugin_registry,
         overlay_source=functools.partial(read_overlays, database_preset_repository),
     )
@@ -998,7 +999,7 @@ def build_container() -> AppContainer:
         )
 
     backend_registry = BackendRegistry(
-        generation_engine_factory=make_generation_engine,
+        generation_engine_factory=generation_engine_factory or make_generation_engine,
         plugin_registry=plugin_registry,
         pipe_catalog=pipe_catalog,
         model_locator=model_locator,
@@ -1833,6 +1834,8 @@ def build_container() -> AppContainer:
         model_index=model_index_manager,
         gpu_monitor=gpu_monitor,
     )
+    generation_orchestrator.router.bind_load(generation_orchestrator.load_ledger)
+    generation_orchestrator.router.bind_health(generation_orchestrator.backend_health)
 
     # Prompt enhancement pipeline (used by the enhance_prompt tool)
 

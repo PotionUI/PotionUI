@@ -140,6 +140,8 @@ def test_assignment_failure_is_reported():
 
     assert result.success is False
     assert result.error_code == "PRESET_ASSIGN_FAILED"
+    assert "InvalidUsers" not in result.safe_error_detail
+    assert "InvalidUsers" in result.technical_detail
 
 
 def test_missing_preset_id_param_is_misconfiguration():

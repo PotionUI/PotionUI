@@ -11,8 +11,15 @@ import {
 	runPhase,
 	showsSkipGuide,
 	skipToastMessage,
+	hasLocalCard,
+	runAcknowledgedShortfall,
+	shortfallAcknowledgement,
+	shortfallSentence,
 	starterFit,
-	starterNeedText,
+	starterFloorGb,
+	starterShortfall,
+	NO_CARD_SENTENCE,
+	SETUP_STEPS,
 	stepStatus,
 	type SetupStepId
 } from './setupGuide';
@@ -132,9 +139,17 @@ describe('starterFit', () => {
 		expect(starterFit(ZIMAGE, machine(24))).toEqual({ tone: 'good', text: 'Fits your card' });
 	});
 
-	it('says wants for a recommended figure and needs for a minimum', () => {
-		expect(starterFit(ZIMAGE, machine(8)).text).toBe('Wants 16 GB, you have 8 GB');
-		expect(starterFit(SDXL, machine(6)).text).toBe('Needs 8 GB, you have 6 GB');
+	it('says needs for a tested minimum and not tested for a bare recommendation, as full sentences', () => {
+		expect(starterFit(ZIMAGE, machine(8))).toEqual({
+			tone: 'low',
+			text: 'Needs a 12 GB graphics card. Yours has 8 GB.'
+		});
+		expect(starterFit(SDXL, machine(6)).text).toBe('Needs an 8 GB graphics card. Yours has 6 GB.');
+		expect(starterFit(QWEN, machine(12)).text).toBe('Not tested below 16 GB. Yours has 12 GB.');
+	});
+
+	it('fits a card that meets the minimum even when it is under the recommendation', () => {
+		expect(starterFit(ZIMAGE, machine(12)).tone).toBe('good');
 	});
 
 	it('is neutral without a declared figure or a readable machine', () => {
@@ -147,12 +162,56 @@ describe('starterFit', () => {
 	});
 });
 
-describe('starterNeedText', () => {
-	it('describes the declared figures', () => {
-		expect(starterNeedText(ZIMAGE)).toBe('12 to 16 GB suggested');
-		expect(starterNeedText(SDXL)).toBe('8 GB minimum');
-		expect(starterNeedText(QWEN)).toBe('16 GB recommended');
-		expect(starterNeedText(recipe({}))).toBe('Not yet measured');
+describe('starterFloorGb and starterShortfall', () => {
+	it('takes the minimum, else the recommendation, else nothing', () => {
+		expect(starterFloorGb(ZIMAGE)).toBe(12);
+		expect(starterFloorGb(QWEN)).toBe(16);
+		expect(starterFloorGb(recipe({}))).toBeNull();
+	});
+
+	it('is none at exactly the floor and above it', () => {
+		expect(starterShortfall(ZIMAGE, machine(12))).toBeNull();
+		expect(starterShortfall(ZIMAGE, machine(24))).toBeNull();
+	});
+
+	it('reports a tested minimum below the floor', () => {
+		expect(starterShortfall(ZIMAGE, machine(8))).toEqual({ neededGb: 12, cardGb: 8, tested: true });
+	});
+
+	it('reports a bare recommendation as not tested below', () => {
+		const shortfall = starterShortfall(QWEN, machine(12));
+		expect(shortfall).toEqual({ neededGb: 16, cardGb: 12, tested: false });
+		expect(shortfallSentence(shortfall!)).toBe('Not tested below 16 GB. Yours has 12 GB.');
+	});
+
+	it('is none when the recipe declares nothing, the memory is unknown or there is no card', () => {
+		expect(starterShortfall(recipe({}), machine(4))).toBeNull();
+		expect(starterShortfall(ZIMAGE, null)).toBeNull();
+		expect(starterShortfall(ZIMAGE, machine(null))).toBeNull();
+		const unreadable = machine(8);
+		unreadable.gpu!.vram_bytes = 0;
+		expect(starterShortfall(ZIMAGE, unreadable)).toBeNull();
+	});
+
+	it('writes an acknowledgement the server keeps and the redaction does not drop', () => {
+		const ack = shortfallAcknowledgement({ neededGb: 12, cardGb: 8, tested: true });
+		expect(ack).toEqual({ card_memory_gb: 8, needed_memory_gb: 12, below_graphics_memory: true });
+		const redacted = /(token|secret|password|passwd|credential|api[_-]?key|apikey|authorization|auth|private[_-]?key|access[_-]?key|session|cookie|bearer|signature)/i;
+		expect(Object.keys(ack).some((key) => redacted.test(key))).toBe(false);
+		expect(runAcknowledgedShortfall({ safe_input: ack })).toBe(true);
+		expect(runAcknowledgedShortfall({ safe_input: {} })).toBe(false);
+		expect(runAcknowledgedShortfall(null)).toBe(false);
+	});
+});
+
+describe('hasLocalCard', () => {
+	it('is false for no card, an unsupported card and an unknown machine', () => {
+		expect(hasLocalCard(machine(24))).toBe(true);
+		expect(hasLocalCard(machine(null))).toBe(false);
+		const old = machine(8);
+		old.gpu!.supported = false;
+		expect(hasLocalCard(old)).toBe(false);
+		expect(hasLocalCard(null)).toBe(false);
 	});
 });
 
@@ -171,6 +230,16 @@ describe('machineVerdict', () => {
 		expect(machineVerdict(machine(8)).kind).toBe('sdxl');
 		expect(machineVerdict(machine(24)).kind).toBe('good');
 	});
+
+	it('names the three ways to generate without a card', () => {
+		const body = machineVerdict(machine(null)).body;
+		expect(body).toContain('another computer with an NVIDIA card');
+		expect(body).toContain('ComfyUI server');
+		expect(body).toContain('online service');
+		expect(NO_CARD_SENTENCE).toBe(
+			'This computer has no NVIDIA graphics card, so pictures are made somewhere else.'
+		);
+	});
 });
 
 describe('diskStatus', () => {
@@ -185,7 +254,6 @@ describe('deriveCurrentStep', () => {
 		ownerExists: true,
 		welcomeSeen: true,
 		computerSeen: false,
-		modelsDone: false,
 		run: null,
 		instanceReady: false
 	};
@@ -195,10 +263,20 @@ describe('deriveCurrentStep', () => {
 		expect(deriveCurrentStep({ ...base, ownerExists: false })).toBe('account');
 	});
 
-	it('moves through computer, models and starter from the persisted flags', () => {
+	it('moves from computer to starter from the persisted flag, with no models step between', () => {
 		expect(deriveCurrentStep(base)).toBe('computer');
-		expect(deriveCurrentStep({ ...base, computerSeen: true })).toBe('models');
-		expect(deriveCurrentStep({ ...base, computerSeen: true, modelsDone: true })).toBe('starter');
+		expect(deriveCurrentStep({ ...base, computerSeen: true })).toBe('starter');
+	});
+
+	it('has six steps and none of them is the models step', () => {
+		expect(SETUP_STEPS.map((s) => s.id)).toEqual([
+			'welcome',
+			'account',
+			'computer',
+			'starter',
+			'install',
+			'ready'
+		]);
 	});
 
 	it('follows the run: install while active, consent or failed, ready when completed', () => {
@@ -210,7 +288,7 @@ describe('deriveCurrentStep', () => {
 
 	it('treats a cancelled run as no run', () => {
 		expect(
-			deriveCurrentStep({ ...base, computerSeen: true, modelsDone: true, run: { status: 'cancelled' } })
+			deriveCurrentStep({ ...base, computerSeen: true, run: { status: 'cancelled' } })
 		).toBe('starter');
 	});
 
@@ -235,16 +313,17 @@ describe('runPhase and step status', () => {
 
 describe('canNavigateToStep and skip visibility', () => {
 	it('allows only earlier steps and never the locked ones once an owner exists', () => {
-		expect(canNavigateToStep('models', 'starter', true)).toBe(true);
+		expect(canNavigateToStep('computer', 'install', true)).toBe(true);
+		expect(canNavigateToStep('starter', 'install', true)).toBe(true);
 		expect(canNavigateToStep('starter', 'starter', true)).toBe(false);
 		expect(canNavigateToStep('computer', 'starter', true)).toBe(true);
 		expect(canNavigateToStep('account', 'starter', true)).toBe(false);
 		expect(canNavigateToStep('welcome', 'account', false)).toBe(true);
 	});
 
-	it('shows skip on steps 3 to 6 only', () => {
-		const ids: SetupStepId[] = ['welcome', 'account', 'computer', 'models', 'starter', 'install', 'ready'];
-		expect(ids.map(showsSkipGuide)).toEqual([false, false, true, true, true, true, false]);
+	it('shows skip on steps 3 to 5 only', () => {
+		const ids: SetupStepId[] = ['welcome', 'account', 'computer', 'starter', 'install', 'ready'];
+		expect(ids.map(showsSkipGuide)).toEqual([false, false, true, true, true, false]);
 	});
 });
 

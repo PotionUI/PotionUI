@@ -61,6 +61,18 @@ class GenerationRouter:
         # nothing else holds a reference to it, and a fire-and-forget task
         # with no referent is eligible for GC mid-flight.
         self._background_tasks: set = set()
+        self._load: Optional[Any] = None
+        self._health: Optional[Any] = None
+
+    def bind_load(self, ledger: Any) -> None:
+        self._load = ledger
+
+    def bind_health(self, tracker: Any) -> None:
+        self._health = tracker
+
+    def release(self, backend_id: str) -> None:
+        if self._load is not None:
+            self._load.release(backend_id)
 
     def _schedule_background(self, coro) -> None:
         task = asyncio.ensure_future(coro)
@@ -74,9 +86,27 @@ class GenerationRouter:
             model_index=self._model_index,
             gpu_monitor=self._gpu_monitor,
             schedule_background=self._schedule_background,
+            load=self._load,
+            health=self._health,
         )
 
-    async def route(self, request: RoutingRequest) -> RoutingDecision:
+    def _pick_least_loaded(self, kept: List[Candidate], engine: str) -> Any:
+        default_config = self._backend_registry.backend_config_store.get_default_backend(engine)
+        default_id = getattr(default_config, "id", None) if default_config is not None else None
+        ranked = sorted(
+            enumerate(kept),
+            key=lambda pair: (
+                self._load.load(pair[1].backend_id).weighted,
+                0 if pair[1].backend_id == default_id else 1,
+                pair[0],
+            ),
+        )
+        winner = ranked[0][1]
+        load = self._load.load(winner.backend_id)
+        winner.annotate(f"least loaded of {len(kept)} eligible backend(s): {load.describe()}")
+        return winner.backend
+
+    async def route(self, request: RoutingRequest, reserve: bool = False) -> RoutingDecision:
         """Run the full rule chain for one `request` and return the
         resulting `RoutingDecision`.
 
@@ -111,12 +141,19 @@ class GenerationRouter:
         if not kept:
             raise NoEligibleBackendError(request.engine, RoutingDecision(chosen=None, candidates=candidates, rule_trace=trace))
 
-        chosen = self._backend_registry.select_backend_for_generation(
-            engine=request.engine,
-            allowed_backend_ids=[c.backend_id for c in kept],
-        )
+        if self._load is not None:
+            chosen = self._pick_least_loaded(kept, request.engine)
+        else:
+            chosen = self._backend_registry.select_backend_for_generation(
+                engine=request.engine,
+                allowed_backend_ids=[c.backend_id for c in kept],
+            )
 
-        decision = RoutingDecision(chosen=chosen, candidates=candidates, rule_trace=trace)
+        reserved = reserve and self._load is not None
+        if reserved:
+            self._load.reserve(chosen.backend_id)
+
+        decision = RoutingDecision(chosen=chosen, candidates=candidates, rule_trace=trace, reserved=reserved)
         total_ms = sum(t.ms for t in trace)
         logger.debug(
             f"[ROUTER] chose '{chosen.name}' ({chosen.backend_id}) for engine '{request.engine}' "

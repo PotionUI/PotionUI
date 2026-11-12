@@ -26,7 +26,9 @@ import {
 	computeTransferStats,
 	extractConsentRequest,
 	extractGenerationHandoff,
-	extractSmokeGeneration
+	extractSmokeGeneration,
+	extractSmokeFailure,
+	newestFinishedOnboardingRun
 } from './setupRunDisplay';
 import type {
 	SetupRun,
@@ -298,8 +300,11 @@ describe('decideRunDiscovery', () => {
 		expect(decideRunDiscovery('not_found', { status: 'failed' })).toEqual({ show: 'stored-failed' });
 	});
 
-	it('gives up on a stored run that finished terminally in a non-failed way', () => {
-		expect(decideRunDiscovery('not_found', { status: 'completed' })).toEqual({ show: 'none' });
+	it('keeps a stored run that completed, so the ready screen still knows what was installed', () => {
+		expect(decideRunDiscovery('not_found', { status: 'completed' })).toEqual({ show: 'stored-completed' });
+	});
+
+	it('gives up on a stored run that was cancelled', () => {
 		expect(decideRunDiscovery('not_found', { status: 'cancelled' })).toEqual({ show: 'none' });
 	});
 
@@ -921,8 +926,34 @@ describe('consentKindLabel', () => {
 });
 
 describe('runProgressPercent', () => {
-	const group = (status: string) =>
-		({ stepKey: status, title: '', kind: '', ordinal: 0, status, latest: null, attempts: [] }) as any;
+	const group = (status: string, finished = false) =>
+		({
+			stepKey: status,
+			title: '',
+			kind: '',
+			ordinal: 0,
+			status,
+			latest: finished ? attempt({ status: status as SetupStepStatus, finished_at: '2026-01-01T00:00:00Z' }) : null,
+			attempts: []
+		}) as any;
+
+	it('counts a finished step that needs attention as done, so a completed run reads 100%', () => {
+		expect(
+			runProgressPercent({
+				groups: [group('succeeded'), group('action_required', true)],
+				hasManifest: true
+			})
+		).toBe(100);
+	});
+
+	it('does not count a step that needs attention and has not finished', () => {
+		expect(
+			runProgressPercent({
+				groups: [group('succeeded'), group('action_required', false)],
+				hasManifest: true
+			})
+		).toBe(50);
+	});
 
 	it('is the share of succeeded steps', () => {
 		expect(runProgressPercent({ groups: [], hasManifest: true })).toBe(0);
@@ -932,5 +963,80 @@ describe('runProgressPercent', () => {
 				hasManifest: true
 			})
 		).toBe(50);
+	});
+});
+
+describe('extractSmokeFailure', () => {
+	const smokeRun = (attempts: SetupStepAttempt[]) =>
+		run({
+			steps: [
+				stepView({
+					step_key: 'generation.smoke',
+					kind: 'generation.smoke',
+					status: attempts[attempts.length - 1]?.status ?? 'pending',
+					attempts
+				})
+			]
+		});
+
+	it('reads the sentence, the next action and the technical text from a smoke that needs attention', () => {
+		const failure = extractSmokeFailure(
+			smokeRun([
+				attempt({
+					step_key: 'generation.smoke',
+					status: 'action_required',
+					safe_error_detail: "The test didn't finish: it took longer than 5 minutes.",
+					safe_suggested_action: 'Make a picture in Generate to try again.',
+					safe_technical_detail: 'timed out waiting for completion after 300s'
+				})
+			])
+		);
+		expect(failure).toEqual({
+			reason: "The test didn't finish: it took longer than 5 minutes.",
+			action: 'Make a picture in Generate to try again.',
+			technical: 'timed out waiting for completion after 300s'
+		});
+	});
+
+	it('is null when the smoke succeeded', () => {
+		expect(extractSmokeFailure(smokeRun([attempt({ step_key: 'generation.smoke', status: 'succeeded' })]))).toBeNull();
+	});
+
+	it('only looks at the latest attempt', () => {
+		const failure = extractSmokeFailure(
+			smokeRun([
+				attempt({ step_key: 'generation.smoke', attempt: 1, status: 'action_required' }),
+				attempt({ step_key: 'generation.smoke', attempt: 2, status: 'succeeded' })
+			])
+		);
+		expect(failure).toBeNull();
+	});
+
+	it('is null when the recipe has no smoke step', () => {
+		expect(extractSmokeFailure(run())).toBeNull();
+	});
+
+	it('falls back to a plain sentence when the attempt carries none', () => {
+		const failure = extractSmokeFailure(
+			smokeRun([attempt({ step_key: 'generation.smoke', status: 'action_required' })])
+		);
+		expect(failure?.reason).toBe("The test didn't finish.");
+		expect(failure?.technical).toBeNull();
+	});
+});
+
+describe('newestFinishedOnboardingRun', () => {
+	it('picks the first completed onboarding run of a newest-first list', () => {
+		const runs = [
+			{ id: 'a', mode: 'admin', status: 'completed' },
+			{ id: 'b', mode: 'onboarding', status: 'failed' },
+			{ id: 'c', mode: 'onboarding', status: 'completed' },
+			{ id: 'd', mode: 'onboarding', status: 'completed' }
+		] as const;
+		expect(newestFinishedOnboardingRun(runs)?.id).toBe('c');
+	});
+
+	it('is null when no onboarding run completed', () => {
+		expect(newestFinishedOnboardingRun([{ mode: 'admin', status: 'completed' }])).toBeNull();
 	});
 });

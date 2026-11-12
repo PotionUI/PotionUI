@@ -26,7 +26,7 @@
 		<div class="min-w-0">
 			<p class="text-lg font-semibold leading-5 text-fg">Set up PotionUI</p>
 			<p class="text-base text-fg-subtle max-sm:hidden">
-				Seven short steps. Nothing downloads without your approval.
+				Six short steps. Nothing downloads without your approval.
 			</p>
 		</div>
 	</header>

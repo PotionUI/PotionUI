@@ -12,7 +12,7 @@ name: "Z-Image Starter"
 engine: "native"
 category: "image"
 summary: "Get a working Z-Image setup on your local GPU and produce a first image."
-blurb: "Fast, sharp images in about 8 steps."
+blurb: "Makes sharp, detailed pictures quickly."
 first_run: true
 description: >
   Installs the bundled Z-Image preset on the native (in-process) engine,

@@ -1,9 +1,14 @@
+from pathlib import Path
+
 import pytest
+import yaml
 
 from src.pipelines.pipes._shared.video.ltx_common import snap_ltx_geometry
 
 from .test_ltx25_ic_lora_captions import ltx25_template, process_images
 
+ROOT = Path(__file__).resolve().parents[3]
+INGREDIENTS = ROOT / "content/presets/marketplace/LTX-2.5/modes/ingredients"
 ACTION = "The knight walks into the tavern and sits beside the fox"
 NEUTRAL_SHEET = "a sheet of panels, each showing a character or a prop"
 NEGATIVE = "worst quality, inconsistent motion, blurry, jittery, distorted"
@@ -38,12 +43,8 @@ def test_a_prompt_that_starts_with_the_format_is_used_verbatim(ltx25_template, f
 
 
 def test_the_form_has_no_text_box_besides_the_prompt(ltx25_template):
-    from pathlib import Path
-
-    import yaml
-
     names = []
-    for path in Path("content/presets/marketplace/LTX-2.5/modes/ingredients/tabs").glob("*.yml"):
+    for path in (INGREDIENTS / "tabs").glob("*.yml"):
         names += [f.get("name") for f in yaml.safe_load(path.read_text())["fields"] if f.get("type") == "string"]
 
     assert names == []
@@ -104,7 +105,7 @@ def test_a_written_negative_prompt_wins_over_the_default(ltx25_template):
     assert pipes["prompt_encoder"]["config"]["n_prompt"]["input"] == "extra fingers"
 
 
-@pytest.mark.parametrize("seconds, frames", [(1, 25), (3, 73), (5, 121), (8, 193), (10, 241)])
+@pytest.mark.parametrize("seconds, frames", [(5, 121), (7, 169), (8, 193), (10, 241)])
 def test_seconds_become_frames_on_the_legal_grid_at_24_fps(ltx25_template, seconds, frames):
     config = render(ltx25_template, pictures=pictures(None), duration=seconds)["generator"]["config"]
 
@@ -177,53 +178,31 @@ def test_the_mode_guide_keeps_the_writer_off_the_sheet_labels(ltx25_template):
 
 
 def test_the_ingredients_lora_is_declared_for_the_downloader(ltx25_template):
-    import yaml
-    from pathlib import Path
-
-    fields = yaml.safe_load(Path("content/presets/marketplace/LTX-2.5/files/form/models_effect.yml").read_text())["fields"]
+    fields = yaml.safe_load((ROOT / "content/presets/marketplace/LTX-2.5/files/form/models_effect.yml").read_text())["fields"]
     lora = next(f for f in fields if f["name"] == "effect_lora")
-    generation = Path("content/presets/marketplace/LTX-2.5/modes/ingredients/tabs/generation.yml").read_text()
+    generation = (INGREDIENTS / "tabs/generation.yml").read_text()
 
     assert lora["required"] is True
     assert "ltx-2.5-22b-ic-lora-ingredients-0.9.safetensors" in generation
     assert "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients" in generation
 
 
-def manual_check():
-    import importlib.util
-    from pathlib import Path
+def test_a_form_value_named_hold_cannot_change_the_placement(ltx25_template):
+    pipes = render(ltx25_template, pictures=pictures(None), hold=False)
 
-    spec = importlib.util.spec_from_file_location("ltx_ingredients_check", Path("tests/manual/ltx_ingredients_check.py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    assert pipes["generator"]["config"]["media_placements"][0]["hold"] is True
 
 
-@pytest.mark.parametrize("names", [[], ["a knight"], ["a knight", "a red fox"], ["a knight", "a red fox", "a brass lantern"]])
-def test_the_manual_check_writes_the_same_caption_as_the_mode(ltx25_template, names):
-    check = manual_check()
-    labels = names or [None, None]
-    expected = caption(ltx25_template, pictures=pictures(*labels))
-    count = len(labels)
+def test_no_form_field_of_the_mode_is_called_hold():
+    names = set()
+    for path in INGREDIENTS.rglob("*.yml"):
+        text = path.read_text()
+        names |= {line.split(":", 1)[1].strip().strip('"') for line in text.splitlines() if line.strip().startswith("- name:")}
 
-    assert check.caption(check.sheet_text(names, count), ACTION) == expected
-
-
-def test_the_manual_check_writes_the_same_neutral_caption_for_a_ready_sheet(ltx25_template):
-    check = manual_check()
-
-    assert check.caption(check.sheet_text([], 0), ACTION) == caption(ltx25_template, reference_sheet="/media/sheet.png")
+    assert "hold" not in names
 
 
-def test_the_manual_check_counts_frames_like_the_mode(ltx25_template):
-    check = manual_check()
-
-    for seconds in (1, 5, 10):
-        assert check.frame_count(seconds) == render(ltx25_template, pictures=pictures(None), duration=seconds)["generator"]["config"]["frames"]
-
-
-def test_the_manual_check_also_keeps_a_full_format_prompt_verbatim():
-    check = manual_check()
-    full = "Reference sheet: a fox. Generated video: it runs."
-
-    assert check.caption("anything", full) == full
+@pytest.mark.parametrize("seconds", [1, 2, 4])
+def test_a_clip_shorter_than_the_training_length_is_refused(ltx25_template, seconds):
+    with pytest.raises(Exception, match="duration"):
+        render(ltx25_template, pictures=pictures(None), duration=seconds)

@@ -17,34 +17,9 @@ DESCRIPTION = (
     "the real model loader, prompt encoder, sheet and generator pipes, and writes the clip, the reference sheet "
     "and a contact sheet with the reference sheet beside frames of the result, so a person can judge whether "
     "the characters and props carried over. Pass --sheet instead of pictures to try a ready-made sheet, and "
-    "--hold-frames/--no-hold to compare the repeated still sheet against a single-frame reference."
+    "--no-hold to compare the repeated still sheet against a single-frame reference."
 )
-PRESET = ROOT / "content/presets/marketplace/LTX-2.5/preset.yml"
-NEGATIVE = "worst quality, inconsistent motion, blurry, jittery, distorted"
 TILES = 8
-NUMBERS = ["", "one", "two", "three", "four", "five", "six"]
-
-
-def sheet_text(names: list[str], count: int) -> str:
-    if count and len(names) == count:
-        joined = names[0] if count == 1 else ", ".join(names[:-1]) + " and " + names[-1]
-        return f"{NUMBERS[count]} {'panel' if count == 1 else 'panels'} showing {joined}"
-    if count == 1:
-        return "one panel showing a character or a prop"
-    if count:
-        return f"{NUMBERS[count]} panels, each showing a character or a prop"
-    return "a sheet of panels, each showing a character or a prop"
-
-
-def caption(described: str, action: str) -> str:
-    action = action.strip()
-    if action[:16].lower() == "reference sheet:":
-        return action
-    return f"Reference sheet: {described}. Generated video: {action}"
-
-
-def frame_count(seconds: float) -> int:
-    return round(seconds * 3) * 8 + 1
 
 
 def contact_sheet(sheet: Image.Image, frames: list[Image.Image], path: Path, *, tile: int = 320) -> None:
@@ -75,9 +50,40 @@ def pick_frames(frames: list[Image.Image], count: int) -> list[Image.Image]:
     return picked
 
 
-def render(args, sheet_input: list[Image.Image], panels: int, prompt: str):
-    import yaml
+def mode_pipes(args, labels: list[str | None], prompt: str):
+    from unittest.mock import Mock
 
+    from src.features.forms.binding import bind_form
+    from src.features.presets import PresetTemplateLoader
+    from src.features.presets.processor import PresetProcessor
+    from src.platform.templating.processor import TemplateProcessor
+
+    loader = PresetTemplateLoader([str(ROOT / "content/presets")])
+    loader.load_presets()
+    template = next(p for p in loader.presets if Path(p.path).as_posix().endswith("marketplace/LTX-2.5"))
+    raw = {
+        "quantity": 1, "seed": args.seed, "resolution": args.size, "duration": round(args.seconds),
+        "speed_profile": args.profile, "effect_strength": args.strength, "manual_sigmas": "",
+        "model": str(args.dit), "text_encoder": str(args.text_encoder), "video_vae": str(args.video_vae),
+        "effect_lora": str(args.lora),
+    }
+    if args.sheet:
+        raw["reference_sheet"] = str(args.sheet)
+    else:
+        raw["pictures"] = [
+            {"path": str(path), **({"label": label} if label else {})} for path, label in zip(args.picture, labels)
+        ]
+    bound = bind_form(template, "ingredients", form_name=None, raw_form_data=raw, user_id=None, storage_dir=None)
+    processor = PresetProcessor(
+        template_processor=TemplateProcessor(settings=Mock()), settings=Mock(), preset_template_loader=Mock(),
+    )
+    pipes = processor.process(template, {
+        "prompts": [{"positive": prompt, "negative": ""}], "mode": "ingredients", "form_data": dict(bound.values),
+    })
+    return {pipe.get("id") or pipe["name"]: pipe["config"] for pipe in pipes}
+
+
+def render(args, sheet_input: list[Image.Image], labels: list[str | None], prompt: str):
     from src.pipelines.contracts import PipeInput
     from src.pipelines.pipes.generator.video_ltx.main import GeneratorLtxVideoPipe
     from src.pipelines.pipes.image_sheet.main import ImageSheetPipe
@@ -87,59 +93,40 @@ def render(args, sheet_input: list[Image.Image], panels: int, prompt: str):
     def sink(*_args, **_kwargs):
         return None
 
-    def file(path):
-        return {"file_path": str(path), "name": Path(path).name}
+    configs = mode_pipes(args, labels, prompt)
+    print(configs["prompt_encoder"]["p_prompt"]["output"])
 
-    preset = yaml.safe_load(PRESET.read_text(encoding="utf-8"))
-    profile = preset["speed_profiles"][args.profile]
-    recipe = preset["vars"]["distilled_sigma_recipe"] if args.profile == "distilled" else ""
-
-    sheet = ImageSheetPipe({
-        **ImageSheetPipe.get_default_config(), "resolution": args.size, "pictures": panels,
-    }).process(PipeInput(input={"image": sheet_input}), sink).output["image"][0]
+    sheet = ImageSheetPipe({**ImageSheetPipe.get_default_config(), **configs["image_sheet"]}).process(
+        PipeInput(input={"image": sheet_input}), sink).output["image"][0]
     sheet.save(args.out / "reference-sheet.png")
 
-    loader = ModelLoaderLtxPipe({
-        **ModelLoaderLtxPipe.get_default_config(), "model": file(args.dit), "text_encoder": file(args.text_encoder),
-        "vae": file(args.video_vae), "loras": [],
-    })
-    models = loader.process(PipeInput(input={}), sink).output
+    models = ModelLoaderLtxPipe({**ModelLoaderLtxPipe.get_default_config(), **configs["model_loader/ltx"]}).process(
+        PipeInput(input={}), sink).output
+    encoded = PromptEncoderPipe({**PromptEncoderPipe.get_default_config(), **configs["prompt_encoder"]}).process(
+        PipeInput(input={"text_encoder": models["text_encoder"]}), sink)
 
-    cfg = float(profile["guidance"])
-    encoder = PromptEncoderPipe({
-        **PromptEncoderPipe.get_default_config(), "p_prompt": {"input": prompt, "output": prompt},
-        "n_prompt": {"input": NEGATIVE, "output": NEGATIVE},
-        "pairs": [{"positive": prompt, "negative": NEGATIVE}], "quantity": 1,
-        "guidance_scale": cfg, "negative_applied": cfg > 1,
-    })
-    encoded = encoder.process(PipeInput(input={"text_encoder": models["text_encoder"]}), sink)
-
-    placement = {"source": "image", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}
-    if args.hold:
-        placement["hold"] = True
-    generator = GeneratorLtxVideoPipe({
-        **GeneratorLtxVideoPipe.get_default_config(), "quantity": 1, "decode": True, "audio": False,
-        "resolution": args.size, "frames": frame_count(args.seconds), "fps": 24.0, "steps": int(profile["steps"]),
-        "cfg": cfg, "sampler": profile["sampler"], "schedule": "ltx_dynamic", "manual_sigmas": recipe,
-        "media_placements": [placement],
-        "scoped_loras": [{"file_path": str(args.lora), "weight": args.strength}], "device": args.device,
-    })
-    result = generator.process(PipeInput(input={
-        "model": models["model"], "conditioning": encoded.output["conditioning"], "seed": [args.seed],
-        "image": [sheet],
+    generator_config = {**GeneratorLtxVideoPipe.get_default_config(), **configs["generator"], "device": args.device}
+    if not args.hold:
+        generator_config["media_placements"] = [
+            {key: value for key, value in placement.items() if key != "hold"}
+            for placement in generator_config["media_placements"]
+        ]
+    result = GeneratorLtxVideoPipe(generator_config).process(PipeInput(input={
+        "model": models["model"], "conditioning": encoded.output["conditioning"],
+        "seed": [args.seed], "image": [sheet],
     }), sink)
     target = args.out / "clip.mp4"
     target.write_bytes(Path(result.output["video"][0]).read_bytes())
-    return sheet, target
+    return sheet, target, configs
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument("--out", type=Path, required=True, help="directory for clip.mp4, reference-sheet.png, contact-sheet.png, run.json")
     parser.add_argument("--picture", type=Path, action="append", default=[], help="a character or prop picture; repeat up to 6 times")
-    parser.add_argument("--name", action="append", default=[], help="a name for the matching --picture; repeat to name them all")
+    parser.add_argument("--name", action="append", default=[], help="the optional label of the matching --picture")
     parser.add_argument("--sheet", type=Path, help="a ready-made reference sheet, instead of pictures")
-    parser.add_argument("--prompt", required=True, help="what happens")
+    parser.add_argument("--prompt", required=True, help="the prompt, as typed in the app")
     parser.add_argument("--seconds", type=float, default=5.0)
     parser.add_argument("--size", default="768x448")
     parser.add_argument("--profile", default="distilled", choices=["distilled", "balanced", "quality"])
@@ -158,19 +145,16 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
 
     images = [Image.open(path).convert("RGB") for path in (args.picture or [args.sheet])]
-    panels = len(args.picture)
-    described = sheet_text(args.name, panels)
-    prompt = caption(described, args.prompt)
-    print(prompt)
+    labels = [*args.name, *[None] * len(args.picture)][: len(args.picture)]
 
-    sheet, clip = render(args, images, panels, prompt)
+    sheet, clip, configs = render(args, images, labels, args.prompt)
 
     from src.pipelines.pipes._shared.media.video_read import read_video_frames
 
     frames, fps = read_video_frames(clip)
     contact_sheet(sheet, pick_frames(frames, TILES), args.out / "contact-sheet.png")
     (args.out / "run.json").write_text(json.dumps({
-        "prompt": prompt, "frames": len(frames), "fps": fps, "size": args.size, "profile": args.profile,
+        "prompt": configs["prompt_encoder"]["p_prompt"]["output"], "frames": len(frames), "fps": fps, "size": args.size, "profile": args.profile,
         "strength": args.strength, "hold": args.hold, "seed": args.seed,
     }, indent=2), encoding="utf-8")
     print(f"{len(frames)} frames at {fps:g} fps")

@@ -62,9 +62,20 @@ def test_the_hold_follows_the_clip_length(frames):
     assert c.prepared.n_extra == ((frames - 1) // 8 + 1) * 2 * 2
 
 
-def test_hold_is_refused_on_a_keyframe():
-    with pytest.raises(ValueError, match="'hold' media placement must have role 'reference'"):
-        build([{"source": "image", "index": 0, "frame": "first", "strength": 1.0, "role": "keyframe", "hold": True}])
+@pytest.mark.parametrize("placement, message", [
+    ({"source": "image", "index": 0, "frame": "first", "strength": 1.0, "hold": True}, "must have role 'reference'"),
+    ({"source": "image", "index": 0, "frame": "first", "strength": 1.0, "role": "keyframe", "hold": True}, "must have role 'reference'"),
+    ({"source": "image", "index": 0, "frame": "first", "strength": 1.0, "role": "keyframe", "hold": "true"}, "must have role 'reference'"),
+    ({"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference", "hold": True}, "must use an image"),
+    ({"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference", "hold": "true"}, "must use an image"),
+])
+def test_hold_is_refused_unless_it_is_a_reference_image(placement, message):
+    with pytest.raises(ValueError, match=message):
+        build([placement])
+
+
+def test_a_string_true_holds_like_a_real_true():
+    assert build([{**REFERENCE, "hold": "true"}], frames=17).prepared.n_extra == 12
 
 
 @pytest.mark.parametrize("placement", [

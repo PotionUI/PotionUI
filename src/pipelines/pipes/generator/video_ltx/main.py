@@ -481,6 +481,8 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                         raise ValueError("a 'hold' media placement must have role 'reference'")
                     media_frames = hold_frames(media_frames, frames)
             elif source == "video":
+                if as_flag(p.get("hold", False)):
+                    raise ValueError("a 'hold' media placement must use an image")
                 if idx >= len(videos):
                     raise ValueError(f"media placement references video[{idx}] but only {len(videos)} provided")
                 media_frames = load_video_frames(videos[idx], frames, start=video_start)

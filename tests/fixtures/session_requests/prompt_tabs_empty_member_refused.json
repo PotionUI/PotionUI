@@ -1,0 +1,30 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "promptTabs": [
+      {
+        "id": "p1",
+        "name": "First",
+        "prompt": "red fox",
+        "negativePrompt": "",
+        "promptSegments": [],
+        "negativePromptSegments": []
+      },
+      {
+        "id": "p4",
+        "prompt": "",
+        "promptSegments": [],
+        "negativePromptSegments": []
+      }
+    ],
+    "activePromptTab": 0
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": true,
+  "tab_id": "tab-fixture",
+  "expected_refusal": "no_prompt"
+}

@@ -1,0 +1,80 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "prompt": "<<if $mood = \"noir\">>dark<<else>>bright<<end>> city ${mood} ${mood}",
+    "variables": {
+      "mood": {
+        "type": "choice",
+        "options": [
+          "noir",
+          "sunlit"
+        ],
+        "mode": "shuffle",
+        "pinnedIndex": null
+      }
+    }
+  },
+  "overrides": {},
+  "random": [
+    0.1,
+    0.6
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "<<if $mood = \"noir\">>dark<<else>>bright<<end>> city ${mood} ${mood}",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {},
+    "variables": {
+      "mood": "noir"
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "<<if $mood = \"noir\">>dark<<else>>bright<<end>> city ${mood} ${mood}",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "<<if $mood = \"noir\">>dark<<else>>bright<<end>> city ${mood} ${mood}",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": [],
+      "variables": {
+        "mood": {
+          "type": "choice",
+          "options": [
+            "noir",
+            "sunlit"
+          ],
+          "mode": "shuffle",
+          "pinnedIndex": null
+        }
+      }
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "<<if $mood = \"noir\">>dark<<else>>bright<<end>> city ${mood} ${mood}",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

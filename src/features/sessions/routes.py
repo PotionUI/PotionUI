@@ -4,14 +4,25 @@ Session Controller
 Handles CRUD operations for user sessions (saved preset configurations).
 Delegates mutations to `src.features.sessions.operations`.
 """
+import asyncio
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from src.platform.http.base_controller import APIError, APIResponse, BaseController
 from src.platform.http.errors import AccessDeniedError, NotFoundError
-from src.platform.security.api_scopes import ApiScope, key_access
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
-from src.features.sessions.dto import PinSessionRequest, SaveSessionRequest, UpdateSessionRequest
+from src.features.generation.details_url import generation_details_url
+from src.features.generation.routes import generation_controller_for
+from src.features.mcp.routes import request_origin
+from src.features.sessions.dto import (
+    GenerateFromSessionRequest,
+    PinSessionRequest,
+    SaveSessionRequest,
+    UpdateSessionRequest,
+)
+from src.features.sessions.generate import SessionRequestError, overrides_from
+from src.platform.security.user import owner_is_admin
 from src.features.sessions import operations
 from src.features.sessions.live import CLIENT_HEADER, WriteOrigin, announce, browser_or_api_origin
 from src.features.sessions.operations.save import SessionVersionConflict
@@ -178,6 +189,78 @@ class SessionController(BaseController):
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.session_controller
     router = APIRouter(prefix="/api/sessions", tags=["Sessions"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
+
+    def refused(error: SessionRequestError) -> HTTPException:
+        return HTTPException(status_code=error.status, detail=error.payload())
+
+    @router.get(
+        "",
+        response_model=APIResponse,
+        summary="List Sessions",
+        description="List the caller's sessions across presets.",
+    )
+    async def list_sessions(
+        preset_id: Optional[str] = Query(None),
+        name: Optional[str] = Query(None),
+        q: Optional[str] = Query(None),
+        current_user=Depends(get_current_active_user),
+    ):
+        data = await asyncio.to_thread(container.session_requests.listing, current_user.id, preset_id, name, q)
+        return APIResponse(success=True, data=data)
+
+    @router.get(
+        "/{session_id}/request",
+        response_model=APIResponse,
+        summary="Describe What A Session Accepts",
+        description="Machine-readable template: the fields a script may change and the request they resolve to.",
+    )
+    async def describe_session(
+        session_id: str, mode: Optional[str] = Query(None), current_user=Depends(get_current_active_user)
+    ):
+        try:
+            data = await asyncio.to_thread(
+                container.session_requests.describe, current_user.id, owner_is_admin(current_user), session_id, mode
+            )
+        except SessionRequestError as error:
+            raise refused(error)
+        return APIResponse(success=True, data=data)
+
+    @router.post(
+        "/{session_id}/generate",
+        response_model=APIResponse,
+        summary="Generate From A Session",
+        description="Start a generation from a saved session, sending only what changes.",
+        dependencies=[key_scope(ApiScope.GENERATE)],
+    )
+    async def generate_from_session(
+        session_id: str,
+        body: GenerateFromSessionRequest,
+        http: Request,
+        current_user=Depends(get_current_active_user),
+    ):
+        try:
+            prepared = await asyncio.to_thread(
+                container.session_requests.prepare,
+                current_user.id, owner_is_admin(current_user), session_id, body.mode, overrides_from(body),
+            )
+        except SessionRequestError as error:
+            raise refused(error)
+        if body.dry_run:
+            return APIResponse(
+                success=True,
+                data={"dry_run": True, "session": prepared.session, "resolved_request": prepared.resolved_request, "notes": prepared.notes},
+            )
+        response = await generation_controller_for(container).start_generation(prepared.request, current_user)
+        if response.success and isinstance(response.data, dict):
+            generation_id = response.data.get("generation_id", "")
+            response.data = {
+                **response.data,
+                "details_url": generation_details_url(generation_id, container.settings, request_origin(http)) if generation_id else "",
+                "session": prepared.session,
+                "resolved_request": prepared.resolved_request,
+                "notes": prepared.notes,
+            }
+        return response
 
     @router.get("/preset/{preset_id}", response_model=APIResponse, summary="Get Sessions for Preset")
     async def get_sessions_for_preset(preset_id: str, current_user=Depends(get_current_active_user)):

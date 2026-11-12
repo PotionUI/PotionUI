@@ -1043,6 +1043,10 @@ def _get_generation_controller(container: "AppContainer") -> GenerationControlle
     return controller
 
 
+def generation_controller_for(container: "AppContainer") -> "GenerationController":
+    return _get_generation_controller(container)
+
+
 def build_router(container: "AppContainer") -> APIRouter:
     controller = _get_generation_controller(container)
 

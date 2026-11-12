@@ -1,0 +1,225 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "promptTabs": [
+      {
+        "id": "p1",
+        "name": "First",
+        "prompt": "red fox",
+        "negativePrompt": "",
+        "promptSegments": [],
+        "negativePromptSegments": []
+      },
+      {
+        "id": "p2",
+        "prompt": "blue fox",
+        "negativePrompt": "dull",
+        "promptSegments": [
+          {
+            "id": "s2",
+            "type": "content",
+            "content": "blue fox",
+            "chips": {},
+            "enabled": true
+          }
+        ],
+        "negativePromptSegments": [
+          {
+            "id": "n2",
+            "type": "content",
+            "content": "dull",
+            "chips": {},
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": "p3",
+        "prompt": "",
+        "negativePrompt": "",
+        "promptSegments": [
+          {
+            "id": "s3",
+            "type": "content",
+            "content": "green fox",
+            "chips": {},
+            "enabled": true
+          }
+        ],
+        "negativePromptSegments": []
+      }
+    ],
+    "activePromptTab": 1,
+    "promptSegments": [
+      {
+        "id": "s2",
+        "type": "content",
+        "content": "blue fox",
+        "chips": {},
+        "enabled": true
+      }
+    ],
+    "negativePromptSegments": [
+      {
+        "id": "n2",
+        "type": "content",
+        "content": "dull",
+        "chips": {},
+        "enabled": true
+      }
+    ],
+    "prompt": "blue fox",
+    "negativePrompt": "dull",
+    "formData": {
+      "quantity": 2
+    }
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": true,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "red fox",
+        "negative": ""
+      },
+      {
+        "positive": "blue fox",
+        "negative": "dull"
+      },
+      {
+        "positive": "green fox",
+        "negative": ""
+      }
+    ],
+    "batch_prompts": true,
+    "mode": "txt2img",
+    "form_data": {
+      "quantity": 2
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "red fox",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "red fox",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": [],
+      "prompts": [
+        {
+          "prompt": "red fox",
+          "negativePrompt": "",
+          "promptSegments": [
+            {
+              "id": "seeded-positive",
+              "type": "content",
+              "content": "red fox",
+              "chips": {},
+              "enabled": true,
+              "isDisabled": false
+            }
+          ],
+          "negativePromptSegments": []
+        },
+        {
+          "prompt": "blue fox",
+          "negativePrompt": "dull",
+          "promptSegments": [
+            {
+              "id": "s2",
+              "type": "content",
+              "content": "blue fox",
+              "chips": {},
+              "enabled": true
+            }
+          ],
+          "negativePromptSegments": [
+            {
+              "id": "n2",
+              "type": "content",
+              "content": "dull",
+              "chips": {},
+              "enabled": true
+            }
+          ]
+        },
+        {
+          "prompt": "",
+          "negativePrompt": "",
+          "promptSegments": [
+            {
+              "id": "s3",
+              "type": "content",
+              "content": "green fox",
+              "chips": {},
+              "enabled": true
+            }
+          ],
+          "negativePromptSegments": []
+        }
+      ]
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "red fox",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "positive",
+        "prompt_index": 1,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "blue fox",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "negative",
+        "prompt_index": 1,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "dull",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "positive",
+        "prompt_index": 2,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "green fox",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "formData": {
+      "steps": 8
+    }
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected_refusal": "no_prompt"
+}

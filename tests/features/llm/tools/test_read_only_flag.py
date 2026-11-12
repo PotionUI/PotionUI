@@ -20,6 +20,7 @@ READ_ONLY = {
     "get_video_director",
     "list_library_items",
     "list_models",
+    "list_sessions",
     "list_phrasebook_categories",
     "list_presets",
     "list_prompts",

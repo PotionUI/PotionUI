@@ -1,0 +1,135 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "prompt": "${style} ${palette}",
+    "variables": {
+      "palette": {
+        "type": "choice",
+        "mode": "shuffle",
+        "pinnedIndex": null,
+        "options": [
+          {
+            "text": "vivid",
+            "when": {
+              "var": "style",
+              "values": [
+                "pop"
+              ]
+            }
+          },
+          {
+            "text": "muted",
+            "when": {
+              "var": "style",
+              "values": [
+                "film"
+              ]
+            }
+          },
+          "plain"
+        ]
+      },
+      "style": {
+        "type": "choice",
+        "mode": "shuffle",
+        "pinnedIndex": null,
+        "options": [
+          "pop",
+          "film"
+        ]
+      }
+    }
+  },
+  "overrides": {},
+  "random": [
+    0.6,
+    0.1,
+    0.8,
+    0.3
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "${style} ${palette}",
+        "negative": ""
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {},
+    "variables": {
+      "style": "film",
+      "palette": "muted"
+    },
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "${style} ${palette}",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "${style} ${palette}",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": [],
+      "variables": {
+        "palette": {
+          "type": "choice",
+          "mode": "shuffle",
+          "pinnedIndex": null,
+          "options": [
+            {
+              "text": "vivid",
+              "when": {
+                "var": "style",
+                "values": [
+                  "pop"
+                ]
+              }
+            },
+            {
+              "text": "muted",
+              "when": {
+                "var": "style",
+                "values": [
+                  "film"
+                ]
+              }
+            },
+            "plain"
+          ]
+        },
+        "style": {
+          "type": "choice",
+          "mode": "shuffle",
+          "pinnedIndex": null,
+          "options": [
+            "pop",
+            "film"
+          ]
+        }
+      }
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "${style} ${palette}",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

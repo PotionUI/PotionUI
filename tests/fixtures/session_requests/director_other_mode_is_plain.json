@@ -1,0 +1,63 @@
+{
+  "preset_vars": {
+    "video_director": {
+      "modes": {
+        "t2v": {}
+      },
+      "preset_modes": [
+        "txt2vid"
+      ]
+    }
+  },
+  "mode": "upscale",
+  "entry": {
+    "prompt": "plain"
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "plain",
+        "negative": ""
+      }
+    ],
+    "mode": "upscale",
+    "form_data": {},
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "plain",
+      "negativePrompt": "",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "plain",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": []
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "plain",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

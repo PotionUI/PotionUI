@@ -51,7 +51,7 @@ EXPECTED_TOOLS = {
     "write_memory", "read_memory", "update_memory", "delete_memory",
     "manage_collections", "organize_gallery", "start_generation", "run_media_tool",
     "get_prompt_variables", "manage_prompt_variables", "list_tab_drafts", "write_condition",
-    "list_models",
+    "list_models", "list_sessions",
 }
 
 

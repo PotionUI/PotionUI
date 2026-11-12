@@ -1,60 +1,15 @@
-import copy
 from datetime import datetime, timezone
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping
 
-LAYOUT_KEYS = frozenset(
-    {
-        "workbenchMaxHeight",
-        "leftPanelWidth",
-        "leftPanelCollapsed",
-        "workbenchCollapsed",
-        "layoutMode",
-        "promptPanelWidth",
-        "positiveSegmentsCollapsed",
-        "negativeSegmentsCollapsed",
-        "sectionCollapsed",
-    }
+from src.features.sessions.request import (
+    LAYOUT_KEYS,
+    OVERRIDE_KEYS,
+    SessionModeMissing,
+    apply_overrides,
+    mode_payload,
 )
 
-OVERRIDE_KEYS = frozenset(
-    {
-        "formData",
-        "prompt",
-        "negativePrompt",
-        "promptSegments",
-        "negativePromptSegments",
-        "promptTabs",
-        "activePromptTab",
-        "promptRelay",
-        "variables",
-        "seed",
-        "videoDirector",
-        "musicDirector",
-    }
-)
-
-
-class SessionModeMissing(LookupError):
-    pass
-
-
-def mode_payload(session_data: Mapping[str, Any], mode: str) -> Dict[str, Any]:
-    payload = (session_data or {}).get(mode)
-    if not isinstance(payload, Mapping):
-        raise SessionModeMissing(mode)
-    return {key: copy.deepcopy(value) for key, value in payload.items() if key not in LAYOUT_KEYS}
-
-
-def apply_overrides(snapshot: Optional[Mapping[str, Any]], overrides: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
-    effective = copy.deepcopy(dict(snapshot or {}))
-    for key, value in (overrides or {}).items():
-        if key == "formData":
-            merged = dict(effective.get("formData") or {})
-            merged.update(copy.deepcopy(value or {}))
-            effective["formData"] = merged
-        else:
-            effective[key] = copy.deepcopy(value)
-    return effective
+__all__ = ["LAYOUT_KEYS", "OVERRIDE_KEYS", "SessionModeMissing", "apply_overrides", "mode_payload", "session_copy"]
 
 
 def session_copy(snapshot: Mapping[str, Any], mode: str) -> Dict[str, Any]:

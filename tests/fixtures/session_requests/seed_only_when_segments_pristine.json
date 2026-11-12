@@ -1,0 +1,93 @@
+{
+  "preset_vars": {},
+  "mode": "txt2img",
+  "entry": {
+    "prompt": "from text",
+    "promptSegments": [
+      {
+        "id": "blank",
+        "type": "content",
+        "content": "",
+        "chips": {},
+        "enabled": true
+      }
+    ],
+    "negativePrompt": "neg text",
+    "negativePromptSegments": [
+      {
+        "id": "n",
+        "type": "content",
+        "content": "kept neg segment",
+        "chips": {},
+        "enabled": true
+      }
+    ]
+  },
+  "overrides": {},
+  "random": [
+    0
+  ],
+  "can_batch": false,
+  "tab_id": "tab-fixture",
+  "expected": {
+    "preset_id": "preset-fixture",
+    "prompts": [
+      {
+        "positive": "from text",
+        "negative": "kept neg segment"
+      }
+    ],
+    "mode": "txt2img",
+    "form_data": {},
+    "tab_id": "tab-fixture",
+    "prompt_state": {
+      "prompt": "from text",
+      "negativePrompt": "neg text",
+      "promptSegments": [
+        {
+          "id": "seeded-positive",
+          "type": "content",
+          "content": "from text",
+          "chips": {},
+          "enabled": true,
+          "isDisabled": false
+        }
+      ],
+      "negativePromptSegments": [
+        {
+          "id": "n",
+          "type": "content",
+          "content": "kept neg segment",
+          "chips": {},
+          "enabled": true
+        }
+      ]
+    },
+    "segments": [
+      {
+        "channel": "positive",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "from text",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      },
+      {
+        "channel": "negative",
+        "prompt_index": 0,
+        "segment_index": 0,
+        "segment_type": "content",
+        "text": "kept neg segment",
+        "is_disabled": false,
+        "name": null,
+        "color": null,
+        "description": null,
+        "phrasebooks": []
+      }
+    ]
+  }
+}

@@ -115,6 +115,7 @@ class ToolServices:
     tab_drafts: Any = None
     media_tool_service: Any = None
     elixirs: Any = None
+    sessions: Any = None
 
 
 @dataclass
@@ -160,6 +161,7 @@ class ToolContext:
     tab_drafts: Any = None
     media_tool_service: Any = None
     elixirs: Any = None
+    sessions: Any = None
     chat_session: bool = True
     acts_as_admin: bool = False
 

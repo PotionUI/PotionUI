@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import sys
+
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,27 +47,36 @@ def _compose(tmp_path, **env):
     return json.loads(done.stdout.strip().splitlines()[-1])
 
 
-def test_the_engine_factory_is_the_one_composition_normally_builds(tmp_path):
-    report = _compose(tmp_path)
-
-    assert report["factory_is_the_given_one"] is False
-    assert report["factory_builds_a_generation_engine"] == "GenerationEngine"
+@pytest.fixture(scope="module")
+def default_report(tmp_path_factory):
+    return _compose(tmp_path_factory.mktemp("default"))
 
 
-def test_a_given_engine_factory_replaces_the_real_one(tmp_path):
-    report = _compose(tmp_path, PROBE_FACTORY="1")
-
-    assert report["factory_is_the_given_one"] is True
-
-
-def test_the_presets_roots_default_to_the_shipped_tree(tmp_path):
-    assert _compose(tmp_path)["preset_roots"] == ["content/presets/marketplace", "content/presets/local"]
+@pytest.fixture(scope="module")
+def presets_dir(tmp_path_factory):
+    return tmp_path_factory.mktemp("presets")
 
 
-def test_the_presets_root_can_be_pointed_somewhere_else(tmp_path):
-    report = _compose(tmp_path, POTIONUI_PRESETS_DIR=str(tmp_path / "presets"))
+@pytest.fixture(scope="module")
+def seamed_report(tmp_path_factory, presets_dir):
+    return _compose(tmp_path_factory.mktemp("seamed"), PROBE_FACTORY="1", POTIONUI_PRESETS_DIR=str(presets_dir))
 
-    assert report["preset_roots"] == [
-        (tmp_path / "presets" / "marketplace").as_posix(),
-        (tmp_path / "presets" / "local").as_posix(),
+
+def test_the_engine_factory_is_the_one_composition_normally_builds(default_report):
+    assert default_report["factory_is_the_given_one"] is False
+    assert default_report["factory_builds_a_generation_engine"] == "GenerationEngine"
+
+
+def test_a_given_engine_factory_replaces_the_real_one(seamed_report):
+    assert seamed_report["factory_is_the_given_one"] is True
+
+
+def test_the_presets_roots_default_to_the_shipped_tree(default_report):
+    assert default_report["preset_roots"] == ["content/presets/marketplace", "content/presets/local"]
+
+
+def test_the_presets_root_can_be_pointed_somewhere_else(seamed_report, presets_dir):
+    assert seamed_report["preset_roots"] == [
+        (presets_dir / "marketplace").as_posix(),
+        (presets_dir / "local").as_posix(),
     ]

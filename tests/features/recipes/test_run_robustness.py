@@ -107,8 +107,36 @@ def test_the_third_interruption_of_the_same_step_gives_up(file_db):
     gave_up = runner.get_run(run.id)
     assert gave_up.status == RecipeRunStatus.FAILED
     assert gave_up.error_code == "RUN_INTERRUPTED"
-    assert gave_up.safe_error_detail == "This step was interrupted by a restart. Retry it to pick up where it left off."
+    assert gave_up.safe_error_detail == "Setup was interrupted several times in a row. Continue to start it again."
     assert runner.apply_action(run.id, "retry_step").status == RecipeRunStatus.RUNNING
+
+
+def test_a_crash_before_any_attempt_exists_is_counted_and_gives_up_on_the_third_boot(file_db):
+    runner = _runner(_recipe(_step("fetch"), _step("render")), fetch=_Counting(), render=_Counting())
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+    runner.transition(run.id, RecipeRunStatus.RUNNING, current_step="fetch")
+
+    assert runner.reconcile_interrupted() == run.id
+    assert runner.reconcile_interrupted() == run.id
+    assert runner.reconcile_interrupted() is None
+
+    gave_up = runner.get_run(run.id)
+    assert gave_up.status == RecipeRunStatus.FAILED
+    assert gave_up.error_code == "RUN_INTERRUPTED"
+    assert "several times" in gave_up.safe_error_detail
+    assert runner.apply_action(run.id, "retry_step").status == RecipeRunStatus.RUNNING
+
+
+def test_a_run_that_reached_a_new_step_between_interruptions_is_counted_per_step(file_db):
+    runner = _runner(_recipe(_step("fetch"), _step("render")), fetch=_Counting(), render=_Counting())
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+    runner.transition(run.id, RecipeRunStatus.RUNNING, current_step="fetch")
+    runner.reconcile_interrupted()
+    runner.reconcile_interrupted()
+    runner.repo.update_run(run.id, current_step="render")
+
+    assert runner.reconcile_interrupted() == run.id
+    assert runner.get_run(run.id).status == RecipeRunStatus.RUNNING
 
 
 def test_an_interruption_of_another_step_starts_its_own_count(file_db):

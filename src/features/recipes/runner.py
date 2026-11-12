@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 INTERRUPTED_CODE = "RUN_INTERRUPTED"
 INTERRUPTED_DETAIL = "This step was interrupted by a restart. Retry it to pick up where it left off."
+INTERRUPTED_REPEATEDLY_DETAIL = "Setup was interrupted several times in a row. Continue to start it again."
 INTERRUPTED_ADVISORY_DETAIL = "PotionUI stopped while making the test picture."
 INTERRUPTED_ADVISORY_ACTION = "Make a picture in Generate to try it again."
 MAX_AUTOMATIC_RESUMES = 2
@@ -536,12 +537,22 @@ class RecipeRunner:
                 run = self.transition(run.id, RecipeRunStatus.RUNNING)
             run = self._executor_registry.advance_past(self, run, step)
             return None if run.is_terminal else run.id
-        if step is not None and closed_for_step and self._interruption_count(run.id, step.key) > MAX_AUTOMATIC_RESUMES:
+        step_key = run.current_step or "start"
+        if not closed_for_step:
+            self.repo.insert_attempt(
+                run.id,
+                step_key,
+                RecipeStepStatus.FAILED,
+                error_code=INTERRUPTED_CODE,
+                safe_error_detail=INTERRUPTED_DETAIL,
+                finished=True,
+            )
+        if self._interruption_count(run.id, step_key) > MAX_AUTOMATIC_RESUMES:
             self.repo.update_run(
                 run.id,
                 status=RecipeRunStatus.FAILED,
                 error_code=INTERRUPTED_CODE,
-                safe_error_detail=INTERRUPTED_DETAIL,
+                safe_error_detail=INTERRUPTED_REPEATEDLY_DETAIL,
             )
             return None
         return run.id

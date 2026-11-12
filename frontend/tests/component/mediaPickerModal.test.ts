@@ -300,7 +300,7 @@ describe('thumbnail size', () => {
 		expect(q('[data-picker-body]').getAttribute('style')).toContain('--pk-m: 1');
 		await click(q('[data-size="large"]'));
 		expect(storage.get('history-tile-size')).toBe('large');
-		expect(q('[data-picker-body]').getAttribute('style')).toContain('--pk-m: 1.35');
+		expect(q('[data-picker-body]').getAttribute('style')).toContain('--pk-m: 2.1');
 		await click(q('[data-size="small"]'));
 		expect(storage.get('history-tile-size')).toBe('small');
 		expect(q('[data-size="small"]').getAttribute('aria-checked')).toBe('true');

@@ -84,6 +84,51 @@ export interface ApiKeyUpdateRequest {
 	scopes?: ApiKeyScope[];
 }
 
+export interface ApiKeyOwner {
+	id: string;
+	username: string | null;
+}
+
+export interface AdminApiKey extends ApiKey {
+	owner: ApiKeyOwner;
+}
+
+export type AdminKeyStatusFilter = 'all' | ApiKeyStatus;
+
+export interface AdminApiKeysQuery {
+	status?: AdminKeyStatusFilter;
+	userId?: string | null;
+	query?: string;
+	page?: number;
+	pageSize?: number;
+}
+
+export interface AdminKeyCounts {
+	all: number;
+	active: number;
+	expired: number;
+	revoked: number;
+}
+
+export interface AdminApiKeysPage {
+	items: AdminApiKey[];
+	total: number;
+	counts?: AdminKeyCounts;
+	page: number;
+	page_size: number;
+}
+
+export interface UserKeyCounts {
+	active: number;
+	total: number;
+}
+
+export interface UserApiAccess {
+	keys_enabled: boolean;
+	mcp_enabled: boolean;
+	keys?: UserKeyCounts;
+}
+
 export interface ApiKeyRevoked {
 	id: string;
 	revoked: boolean;
@@ -115,6 +160,41 @@ export function createApiKeysApi(client: AxiosInstance) {
 
 		async revokeApiKey(keyId: string): Promise<APIResponse<ApiKeyRevoked>> {
 			const response = await client.delete(`/api/keys/${encodeURIComponent(keyId)}`);
+			return response.data;
+		},
+
+		async listAdminApiKeys(query: AdminApiKeysQuery = {}): Promise<APIResponse<AdminApiKeysPage>> {
+			const params: Record<string, string | number> = {
+				status: query.status ?? 'all',
+				page: query.page ?? 1,
+				page_size: query.pageSize ?? 50
+			};
+			if (query.userId) params.user_id = query.userId;
+			if (query.query?.trim()) params.q = query.query.trim();
+			const response = await client.get('/api/admin/keys', { params });
+			return response.data;
+		},
+
+		async revokeAdminApiKey(keyId: string): Promise<APIResponse<ApiKeyRevoked>> {
+			const response = await client.delete(`/api/admin/keys/${encodeURIComponent(keyId)}`);
+			return response.data;
+		},
+
+		async listAdminApiKeyEvents(keyId: string): Promise<APIResponse<ApiKeyEvent[]>> {
+			const response = await client.get(`/api/admin/keys/${encodeURIComponent(keyId)}/events`);
+			return response.data;
+		},
+
+		async getUserApiAccess(userId: string): Promise<APIResponse<UserApiAccess>> {
+			const response = await client.get(`/api/admin/users/${encodeURIComponent(userId)}/api-access`);
+			return response.data;
+		},
+
+		async setUserApiAccess(userId: string, access: UserApiAccess): Promise<APIResponse<UserApiAccess>> {
+			const response = await client.put(`/api/admin/users/${encodeURIComponent(userId)}/api-access`, {
+				keys_enabled: access.keys_enabled,
+				mcp_enabled: access.mcp_enabled
+			});
 			return response.data;
 		}
 	};

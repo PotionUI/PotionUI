@@ -89,11 +89,11 @@ class ApiKeyController(BaseController):
         return self.success_response(data={"id": key_id, "revoked": True})
 
     async def admin_list(
-        self, status: str, user_id: Optional[str], page: int, page_size: int
+        self, status: str, user_id: Optional[str], page: int, page_size: int, query: Optional[str] = None
     ) -> APIResponse:
         now = now_utc()
         keys, total = self._c.keys.list_page(
-            status, user_id, now.isoformat(), page_size, (page - 1) * page_size
+            status, user_id, now.isoformat(), page_size, (page - 1) * page_size, query
         )
         owners = self._c.keys.usernames(key.user_id for key in keys)
         return self.success_response(data={
@@ -101,6 +101,7 @@ class ApiKeyController(BaseController):
             "total": total,
             "page": page,
             "page_size": page_size,
+            "counts": self._c.keys.status_counts(user_id, now.isoformat(), query),
         })
 
     async def admin_revoke(self, key_id: str, admin: User) -> APIResponse:
@@ -138,7 +139,12 @@ class ApiKeyController(BaseController):
             access = access_operations.get_user_access(self._c.access, self._users, user_id)
         except ApiKeyError as exc:
             self._fail(exc)
-        return self.success_response(data=access_to_dict(access))
+        return self.success_response(data=self._access_with_keys(user_id, access))
+
+    def _access_with_keys(self, user_id: str, access) -> dict:
+        data = access_to_dict(access)
+        data["keys"] = self._c.keys.counts_by_user(user_id, now_utc().isoformat())
+        return data
 
     async def set_user_access(self, user_id: str, request: UserApiAccessRequest, admin: User) -> APIResponse:
         try:
@@ -200,9 +206,10 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
         user_id: Optional[str] = None,
         page: int = Query(1, ge=1),
         page_size: int = Query(50, ge=1, le=200),
+        q: Optional[str] = Query(None, max_length=100),
         _admin: User = Depends(get_current_admin_user),
     ) -> APIResponse:
-        return await controller.admin_list(status, user_id, page, page_size)
+        return await controller.admin_list(status, user_id, page, page_size, q)
 
     @router.delete("/keys/{key_id}", response_model=APIResponse, summary="Revoke any API key")
     async def admin_revoke(key_id: str, admin: User = Depends(get_current_admin_user)) -> APIResponse:

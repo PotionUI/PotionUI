@@ -185,7 +185,15 @@ export type {
 	ApiKeyUpdateRequest,
 	ApiKeyExpiryDays,
 	ApiKeyEvent,
-	ApiKeyEventsPage
+	ApiKeyEventsPage,
+	AdminApiKey,
+	AdminApiKeysPage,
+	AdminApiKeysQuery,
+	AdminKeyStatusFilter,
+	AdminKeyCounts,
+	UserKeyCounts,
+	ApiKeyOwner,
+	UserApiAccess
 } from './apiKeys';
 export type {
 	McpTool,

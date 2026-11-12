@@ -51,4 +51,55 @@ describe('createApiKeysApi', () => {
 
 		expect(del).toHaveBeenCalledWith('/api/keys/a%2Fb');
 	});
+
+	describe('admin routes', () => {
+		it('lists every key with the status, owner and numeric page it is given', async () => {
+			const get = vi.fn().mockResolvedValue({ data: { success: true, data: { items: [], total: 0, page: 2, page_size: 10 } } });
+			const api = createApiKeysApi({ get } as unknown as AxiosInstance);
+
+			await api.listAdminApiKeys({ status: 'active', userId: 'u1', query: '  raycast ', page: 2, pageSize: 10 });
+
+			expect(get).toHaveBeenCalledWith('/api/admin/keys', { params: { status: 'active', page: 2, page_size: 10, user_id: 'u1', q: 'raycast' } });
+		});
+
+		it('defaults to all statuses, the first page and no owner filter', async () => {
+			const get = vi.fn().mockResolvedValue({ data: { success: true } });
+			const api = createApiKeysApi({ get } as unknown as AxiosInstance);
+
+			await api.listAdminApiKeys();
+
+			expect(get).toHaveBeenCalledWith('/api/admin/keys', { params: { status: 'all', page: 1, page_size: 50 } });
+		});
+
+		it('revokes another user\'s key through the admin route', async () => {
+			const del = vi.fn().mockResolvedValue({ data: { success: true, data: { id: 'k1', revoked: true } } });
+			const api = createApiKeysApi({ delete: del } as unknown as AxiosInstance);
+
+			await api.revokeAdminApiKey('k1');
+
+			expect(del).toHaveBeenCalledWith('/api/admin/keys/k1');
+		});
+
+		it('reads a key\'s history', async () => {
+			const get = vi.fn().mockResolvedValue({ data: { success: true, data: [] } });
+			const api = createApiKeysApi({ get } as unknown as AxiosInstance);
+
+			await api.listAdminApiKeyEvents('k/1');
+
+			expect(get).toHaveBeenCalledWith('/api/admin/keys/k%2F1/events');
+		});
+
+		it('reads and writes a user\'s API access', async () => {
+			const get = vi.fn().mockResolvedValue({ data: { success: true, data: { keys_enabled: true, mcp_enabled: false } } });
+			const put = vi.fn().mockResolvedValue({ data: { success: true, data: { keys_enabled: false, mcp_enabled: false } } });
+			const api = createApiKeysApi({ get, put } as unknown as AxiosInstance);
+
+			const read = await api.getUserApiAccess('u1');
+			await api.setUserApiAccess('u1', { keys_enabled: false, mcp_enabled: false, keys: { active: 1, total: 2 } });
+
+			expect(get).toHaveBeenCalledWith('/api/admin/users/u1/api-access');
+			expect(read.data?.mcp_enabled).toBe(false);
+			expect(put).toHaveBeenCalledWith('/api/admin/users/u1/api-access', { keys_enabled: false, mcp_enabled: false });
+		});
+	});
 });

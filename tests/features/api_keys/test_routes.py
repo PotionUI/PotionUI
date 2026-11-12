@@ -277,6 +277,48 @@ class TestAdminRoutes:
         assert mine["total"] == 2 and len(mine["items"]) == 1 and mine["page"] == 2
         assert everything["items"][0]["owner"]["username"] in {"alice", "bob"}
 
+    def test_search_covers_every_key_not_the_page(self, client, world):
+        world.mint(world.alice, name="Home Assistant")
+        world.mint(world.alice, name="Raycast")
+        world.mint(world.bob, name="Nightly backup")
+        key, _ = world.mint(world.bob, name="Raycast two")
+        headers = world.session("root")
+
+        by_name = client.get("/api/admin/keys?q=RAYCAST&page_size=1&page=2", headers=headers).json()["data"]
+        by_owner = client.get("/api/admin/keys?q=Bob", headers=headers).json()["data"]
+        by_prefix = client.get(f"/api/admin/keys?q={key.display_prefix[:9].upper()}", headers=headers).json()["data"]
+
+        assert by_name["total"] == 2 and len(by_name["items"]) == 1
+        assert {item["name"] for item in by_owner["items"]} == {"Nightly backup", "Raycast two"}
+        assert by_prefix["total"] == 1 and by_prefix["items"][0]["id"] == key.id
+        assert client.get("/api/admin/keys?q=pui_", headers=headers).json()["data"]["total"] == 4
+
+    def test_search_text_is_data_not_sql_or_a_wildcard(self, client, world):
+        world.mint(world.alice, name="plain")
+        headers = world.session("root")
+
+        assert client.get("/api/admin/keys?q=%25", headers=headers).json()["data"]["total"] == 0
+        assert client.get("/api/admin/keys?q=_____", headers=headers).json()["data"]["total"] == 0
+        assert client.get("/api/admin/keys?q=%27%20OR%201%3D1%20--", headers=headers).json()["data"]["total"] == 0
+        assert client.get("/api/admin/keys?q=" + "x" * 101, headers=headers).status_code == 422
+
+    def test_counts_per_status_follow_the_owner_and_the_search_but_not_the_status(self, client, world):
+        world.mint(world.alice, name="a1")
+        world.mint(world.alice, name="a2", days=30)
+        gone, _ = world.mint(world.alice, name="a3")
+        world.mint(world.bob, name="b1")
+        client.delete(f"/api/keys/{gone.id}", headers=world.session("alice"))
+        headers = world.session("root")
+
+        everyone = client.get("/api/admin/keys?status=revoked", headers=headers).json()["data"]
+        alice = client.get(f"/api/admin/keys?user_id={world.alice.id}", headers=headers).json()["data"]
+        searched = client.get("/api/admin/keys?q=a2", headers=headers).json()["data"]
+
+        assert everyone["counts"] == {"all": 4, "active": 3, "expired": 0, "revoked": 1}
+        assert everyone["total"] == 1
+        assert alice["counts"] == {"all": 3, "active": 2, "expired": 0, "revoked": 1}
+        assert searched["counts"] == {"all": 1, "active": 1, "expired": 0, "revoked": 0}
+
     def test_bad_paging_and_status_are_validation_errors(self, client, world):
         headers = world.session("root")
 
@@ -346,7 +388,25 @@ class TestUserAccessSwitches:
     def test_the_default_is_everything_on(self, client, world):
         response = client.get(f"/api/admin/users/{world.alice.id}/api-access", headers=world.session("root"))
 
-        assert response.json()["data"] == {"keys_enabled": True, "mcp_enabled": True}
+        assert response.json()["data"] == {"keys_enabled": True, "mcp_enabled": True, "keys": {"active": 0, "total": 0}}
+
+    def test_the_access_read_carries_the_users_key_counts(self, client, world):
+        world.mint(world.alice, name="a1")
+        world.mint(world.alice, name="a2", days=30)
+        gone, _ = world.mint(world.alice, name="a3")
+        world.mint(world.bob, name="b1")
+        client.delete(f"/api/keys/{gone.id}", headers=world.session("alice"))
+        headers = world.session("root")
+
+        alice = client.get(f"/api/admin/users/{world.alice.id}/api-access", headers=headers).json()["data"]
+        bob = client.get(f"/api/admin/users/{world.bob.id}/api-access", headers=headers).json()["data"]
+        saved = client.put(
+            f"/api/admin/users/{world.alice.id}/api-access", json={"keys_enabled": True, "mcp_enabled": True}, headers=headers
+        ).json()["data"]
+
+        assert alice["keys"] == {"active": 2, "total": 3}
+        assert bob["keys"] == {"active": 1, "total": 1}
+        assert saved == {"keys_enabled": True, "mcp_enabled": True}
 
     def test_switching_keys_off_rejects_the_users_keys_at_once_and_back_on_restores_them(self, client, world):
         key, secret = world.mint(world.alice, scopes=("read",))

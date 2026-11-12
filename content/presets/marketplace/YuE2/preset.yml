@@ -120,7 +120,7 @@ modes:
   - song
 
 prompt_syntax:
-  song:
+  "*":
     - token: "[Intro]"
       kind: "marker"
       pattern: '\[[Ii]ntro\]'

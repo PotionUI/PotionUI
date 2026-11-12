@@ -14,7 +14,9 @@ backend internals assumed. Read in this order, or jump to whatever you need:
 - [Bringing Your Own ComfyUI Workflows](comfyui-presets.md) — turn a ComfyUI workflow you already have into a preset.
 - [History & Tags](history-and-tags.md) — finding past generations, inspecting how something was made, tagging and cleanup.
 - [Prompts Workspace](prompts-library.md) — the four reusable prompt-composition libraries in one place.
-- [LLM Assistant](llm-chat.md) — the optional AI chat assistant for writing prompts and taking actions.
+- [PotionAI](llm-chat.md) — the optional AI chat assistant for writing prompts and taking actions.
+- [API keys and MCP](mcp.md) — keys for scripts and MCP clients, and how to connect them.
+- [Kits](kits.md) — named sets of pictures, clips, audio and text that you cite in prompts as `@kits.name`.
 - [Segments](segments.md) — the composable cards (subject, style, lighting, camera, ...) that build a prompt.
 - [Prompt Phrasebook](phrasebook.md) — inline suggestions for terms you use often, so you don't retype or misremember them.
 - [Models](models.md) — the installed model files (checkpoints, LoRAs, VAEs, upscalers) and how they connect to presets.

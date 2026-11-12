@@ -45,9 +45,8 @@ Settings tab (`frontend/src/routes/admin/components/SystemSettingsTab.svelte`) o
 hand-picked allowlist of settings, which does not include `model_cache_scope`. The code does read a
 `model_cache_scope` setting (`"preset"`, the default eviction-on-switch behavior described above,
 versus `"global"`, which keeps every preset's models cached until plain RAM pressure forces
-eviction) through the standard settings-by-key API, and the row IS seeded — migration
-`080_add_model_cache_scope_setting.py` inserts it (default `"preset"`) whenever the `settings` table
-exists. That makes it reachable through the generic `PUT /api/settings/model_cache_scope` endpoint
+eviction) through the standard settings-by-key API, and the row IS seeded — the
+baseline schema inserts it (default `"preset"`). That makes it reachable through the generic `PUT /api/settings/model_cache_scope` endpoint
 (`{"value": "global"}`), which any admin account can call directly even without a UI control for it —
 it's a `SYSTEM`-typed setting, so `src/features/settings/routes.py`'s admin check is the only gate.
 Treat this as a setting with no dedicated admin control today, changeable only by calling the

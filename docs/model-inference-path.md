@@ -332,7 +332,7 @@ When a generation behaves unexpectedly, inspect the layers in this order:
 2. **Backend/model routing:** `src/features/generation/orchestrator.py`,
    `src/features/backends/backend_registry.py`, `src/features/models/`
 3. **Rendered pipeline:** `src/features/generation/pipeline_builder.py`
-4. **Pipe validation/execution:** `src/features/generation/generation.py`
+4. **Pipe validation/execution:** `src/features/generation/engine.py`
 5. **Lifecycle cache:** `src/platform/runtime/model_lifecycle/lifecycle.py`
 6. **Native-v2 loading/placement:** `src/platform/runtime/native/engine.py`, `src/platform/runtime/native/memory/`
 7. **Native-v2 sampling:** `src/platform/runtime/native/sampling/`

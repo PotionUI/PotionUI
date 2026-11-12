@@ -148,7 +148,7 @@ llm:
     describe the whole new picture, not the guide.
 
 prompt_syntax:
-  txt2img:
+  "*":
     - token: "(tag:1.2)"
       kind: "weight"
       pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
@@ -158,57 +158,6 @@ prompt_syntax:
       kind: "marker"
       help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
       tone: "accent"
-  inpaint:
-    - token: "(tag:1.2)"
-      kind: "weight"
-      pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
-      insert: "({}:{weight=1.2})"
-      help: "Explicit attention weight; above 1 emphasizes, below 1 de-emphasizes"
-    - token: "BREAK"
-      kind: "marker"
-      help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
-      tone: "accent"
-  refine_faces:
-    - token: "(tag:1.2)"
-      kind: "weight"
-      pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
-      insert: "({}:{weight=1.2})"
-      help: "Explicit attention weight; above 1 emphasizes, below 1 de-emphasizes"
-    - token: "BREAK"
-      kind: "marker"
-      help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
-      tone: "accent"
-  upscale:
-    - token: "(tag:1.2)"
-      kind: "weight"
-      pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
-      insert: "({}:{weight=1.2})"
-      help: "Explicit attention weight; above 1 emphasizes, below 1 de-emphasizes"
-    - token: "BREAK"
-      kind: "marker"
-      help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
-      tone: "accent"
-  restyle:
-    - token: "(tag:1.2)"
-      kind: "weight"
-      pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
-      insert: "({}:{weight=1.2})"
-      help: "Explicit attention weight; above 1 emphasizes, below 1 de-emphasizes"
-    - token: "BREAK"
-      kind: "marker"
-      help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
-      tone: "accent"
-  control:
-    - token: "(tag:1.2)"
-      kind: "weight"
-      pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
-      insert: "({}:{weight=1.2})"
-      help: "Explicit attention weight; above 1 emphasizes, below 1 de-emphasizes"
-    - token: "BREAK"
-      kind: "marker"
-      help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
-      tone: "accent"
-
 formulas:
   groups:
     speed:      { label: "Speed and sampling" }

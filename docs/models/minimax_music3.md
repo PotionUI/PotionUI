@@ -40,22 +40,22 @@ Three files, all required, no optional component:
 
 ## Presets & modes
 
-`content/presets/marketplace/MiniMax-Music3` ships a single `song` mode. There
-is no plain-field caption form — the Generation tab carries only `seed`; every
-real submission arrives as a [Music Director](../music-director.md) document
-(`frontend/src/lib/components/music-director/`), the ONLY caption/lyrics/
-duration surface. The preset declares `t2m` and `director` composition modes
-alongside `song` (no `references` — see Limitations); the editor has no
-visible mode switch (mirrors Video Director's modeless Stage & Rail
-precedent) — `mode` is derived from the document's structure
-(`deriveMusicDirectorMode` in `frontend/src/lib/utils/musicDirector.ts`) plus
-an explicit "Instrumental (no vocals)" toggle, which derives `t2m` (no lyrics
-capability at all) rather than a separate `instrumental` preset mode; the
-pipeline composes the literal `"[instrumental]"` lyrics string whenever the
-submitted mode is `t2m`. `modes/song/pipeline.yml`'s `caption` is the
-document's `description` and its `lyrics` is `compiled_lyrics` (the document's
-`sections` timeline serialized to bracket-tagged lyrics, `compile_sections_to_lyrics`)
-— both empty-safe for a doc-less API/MCP submission.
+`content/presets/marketplace/MiniMax-Music3` ships a single `song` mode. Its
+Generation tab has a required **Style description** (the caption: genre, tempo,
+mood, vocals and arrangement in plain text), **Max duration (seconds, 0 =
+auto)**, an **Instrumental (no vocals)** toggle, a **Seed**, and the model
+pickers. The lyrics are the standard Prompt box, with bracket section tags such
+as `[verse]` and `[chorus]` typed by hand or written by the assistant. The
+duration is a cap, not a target: the model ends a song with its own stop token
+when the lyrics run out.
+
+`modes/song/pipeline.yml` hands the caption (`form.description`) and the
+resolved positive prompt (the lyrics) to the generator as written, with no
+compiler in between. When **Instrumental** is on, the pipeline sends the
+literal lyrics string `"[instrumental]"` whatever the Prompt box contains. A
+submission that skipped form binding (an API or MCP caller) gets an empty
+caption and a 60 second cap. The preset does not use the
+[Music Director](../music-director.md) document.
 
 ## Prompt contract
 

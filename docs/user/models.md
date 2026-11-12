@@ -14,7 +14,7 @@ Models are shown as a grid of cards. The toolbar lets you narrow and order the l
 - **Type filter** — pills across the top, one per model type present on your server (for example checkpoint, LoRA, VAE, upscaler), each with a count. Click **All** to see everything or a type to focus on it.
 - **Tags** — filter to models carrying particular tags.
 - **Search** — find a model by name.
-- **Sort** — by **Date Added**, **Name**, or **File Size**, in ascending or descending order.
+- **Sort** — by **Name** or **Type**, in ascending or descending order.
 - **Per page** — choose 12, 24, 48, or 96 cards per page and page through the rest.
 
 A **Clear filters** control resets everything when a filter is active.
@@ -40,7 +40,7 @@ You don't generate directly from the Models page — you generate from **presets
 - **LoRA slots** in a preset's form pull from your installed LoRAs, so anything you see under the LoRA type here is available to stack in a generation.
 - After a run, the generation's details list exactly which models were applied — you can see that both in **History** and, for a model, on its detail page.
 
-So the Models page is your inventory: it tells you what's on the server and available to presets. To add new models, an administrator uses the download and management tools (often via the **Model Downloader** plugin). See **Presets & Forms** for how models are chosen at generation time, and **Administration** for how they're added.
+So the Models page is your inventory: it tells you what's on the server and available to presets. To add new models, an administrator uses the download queue and the model tools in Administration. See **Presets & Forms** for how models are chosen at generation time, and **Administration** for how they're added.
 
 ## Model licensing
 

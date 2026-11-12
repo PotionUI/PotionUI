@@ -840,6 +840,8 @@ def _validate_prompt_resources(prompt_resources: Dict[str, List[PromptResourceSp
     return problems
 
 
+PROMPT_SYNTAX_DEFAULT_KEY = "*"
+
 PROMPT_SYNTAX_TONES = ("signal", "success", "warning", "info", "accent", "danger", "muted")
 
 _JS_LOOKBEHIND_RE = re.compile(r"\(\?<[=!]")

@@ -10,6 +10,8 @@
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import { DetailHeader, DetailBody, DetailLayout, DetailFooter } from '$lib/components/detail';
 	import AccessPanel from './settings/AccessPanel.svelte';
+	import AdminApiKeysPanel from './apikeys/AdminApiKeysPanel.svelte';
+	import { CeilingDraft } from './apikeys/ceilingDraft.svelte';
 	import ContentSafetyPanel from './settings/ContentSafetyPanel.svelte';
 	import FileStoragePanel from './settings/FileStoragePanel.svelte';
 	import ThumbnailsPanel from './settings/ThumbnailsPanel.svelte';
@@ -54,12 +56,20 @@
 		const before = JSON.parse(snapshot) as Record<string, any>;
 		return USER_CONFIGURABLE_KEYS.filter((k) => !jsonEqual(settings[k], before[k]));
 	});
-	let dirtyGroups = $derived(computeDirtyGroups(dirtyKeys));
-	let unsavedChanges = $derived(dirtyKeys.length > 0);
+	const ceiling = new CeilingDraft();
+	let keysTotal = $state<number | null>(null);
+	let dirtyCount = $derived(dirtyKeys.length + ceiling.count);
+	let dirtyGroups = $derived.by(() => {
+		const groups = computeDirtyGroups(dirtyKeys);
+		if (ceiling.count > 0) groups.add('access');
+		return groups;
+	});
+	let unsavedChanges = $derived(dirtyCount > 0);
 	let activeGroupLabel = $derived(SETTINGS_GROUPS.find((g) => g.id === activeGroup)?.label ?? '');
 
 	onMount(() => {
 		loadSettings();
+		void ceiling.load();
 	});
 
 	async function loadSettings() {
@@ -84,17 +94,22 @@
 	function discardSettings() {
 		const before = JSON.parse(snapshot) as Record<string, any>;
 		settings = { ...settings, ...before };
+		ceiling.discard();
 	}
 
 	async function saveSettings() {
 		try {
 			saving = true;
-			const userConfigurableSettings = Object.fromEntries(
-				USER_CONFIGURABLE_KEYS.map((k) => [k, settings[k]])
-			);
-			const response = await adminApi.updateSettings(userConfigurableSettings);
-			if (response.success) {
+			if (dirtyKeys.length > 0) {
+				const userConfigurableSettings = Object.fromEntries(
+					USER_CONFIGURABLE_KEYS.map((k) => [k, settings[k]])
+				);
+				const response = await adminApi.updateSettings(userConfigurableSettings);
+				if (!response.success) return;
 				snapshot = snapshotOf(settings);
+			}
+			if (ceiling.count > 0 && !(await ceiling.save())) {
+				toasts.error('The MCP tool limits could not be saved. Please try again.');
 			}
 		} catch (error) {
 			logger.error('Failed to save settings:', error);
@@ -128,13 +143,21 @@
 		</div>
 	{:else}
 		<div class="flex h-full min-h-0 flex-col">
-			<DetailHeader title={activeGroupLabel} />
+			<DetailHeader title={activeGroupLabel}>
+				{#snippet chips()}
+					{#if activeGroup === 'api_keys' && keysTotal !== null}
+						<span class="font-mono text-sm tabular-nums text-fg-subtle" data-testid="admin-keys-total">{keysTotal}</span>
+					{/if}
+				{/snippet}
+			</DetailHeader>
 
 			<DetailBody>
 				<DetailLayout>
 					{#snippet main()}
 						{#if activeGroup === 'access'}
-							<AccessPanel {settings} onSettingChange={handleSettingChange} />
+							<AccessPanel {settings} savedSnapshot={snapshot} {ceiling} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'api_keys'}
+							<AdminApiKeysPanel onTotal={(total) => (keysTotal = total)} />
 						{:else if activeGroup === 'content_safety'}
 							<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
 						{:else if activeGroup === 'media_storage'}
@@ -164,7 +187,7 @@
 
 			{#if settingsGroupHasFooter(activeGroup)}
 				<DetailFooter
-					dirtyCount={dirtyKeys.length}
+					dirtyCount={dirtyCount}
 					{saving}
 					canSave={unsavedChanges}
 					onSave={saveSettings}

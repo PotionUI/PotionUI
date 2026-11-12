@@ -7,6 +7,7 @@
 
 export type SettingsGroupId =
 	| 'access'
+	| 'api_keys'
 	| 'content_safety'
 	| 'media_storage'
 	| 'backups'
@@ -25,6 +26,7 @@ export interface SettingsGroupDescriptor {
 
 export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
 	{ id: 'access', label: 'Access', icon: 'group' },
+	{ id: 'api_keys', label: 'API keys', icon: 'key' },
 	{ id: 'content_safety', label: 'Content Safety', icon: 'shield' },
 	{ id: 'media_storage', label: 'Media storage', icon: 'photo' },
 	{ id: 'backups', label: 'Backups', icon: 'save' },
@@ -48,7 +50,7 @@ export function resolveSettingsGroupId(requested: string | null): SettingsGroupI
 }
 
 export function settingsGroupHasFooter(id: SettingsGroupId): boolean {
-	return id !== 'logs';
+	return id !== 'logs' && id !== 'api_keys';
 }
 
 export function computeDirtyGroups(dirtyKeys: readonly string[]): Set<SettingsGroupId> {
@@ -100,6 +102,9 @@ export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	media_vision_device: 'search_tagging',
 	media_vision_auto_download: 'search_tagging',
 	mcp_enabled: 'access',
+	api_keys_enabled: 'access',
+	api_key_scopes_allowed: 'access',
+	api_key_max_lifetime_days: 'access',
 	public_base_url: 'access',
 	workbench_single_result_gallery: 'generation',
 	compare_confirm_above: 'generation',

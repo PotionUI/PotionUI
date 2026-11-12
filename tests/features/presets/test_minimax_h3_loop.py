@@ -220,3 +220,22 @@ def test_the_gpu_check_measures_a_picture_that_arrives_early_and_holds_until_the
     assert not report["pass"]
     assert report["stops"] == [{"start": 73, "frames": 29}]
     assert not report["jumps"]
+
+
+def test_the_gpu_check_reports_motion_either_side_of_the_wrap_and_fails_an_ease_into_the_seam():
+    import numpy as np
+
+    from tests.manual.h3_perfect_loop_check import seam_metric
+
+    steady = np.full(80, 4.0)
+    signs = np.where(np.arange(80) < 40, 1, -1)
+    report = seam_metric(_clip(40 + np.cumsum(steady * signs) - (steady * signs)[0]))
+    assert report["pass"]
+    assert report["before_seam_over_median"] == pytest.approx(1.0, abs=0.15)
+    assert report["after_seam_over_median"] == pytest.approx(1.0, abs=0.15)
+
+    easing = np.where(np.arange(80) < 68, 4.0, 1.0)
+    path = np.cumsum(easing * signs)
+    report = seam_metric(_clip(40 + path - path.min()))
+    assert report["before_seam_over_median"] < 0.5
+    assert not report["seam_motion_ok"] and not report["pass"]

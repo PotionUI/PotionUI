@@ -18,6 +18,7 @@ Tensor = torch.Tensor
 PARTIAL_LATENTS = 2
 MIN_BRIDGE_CHUNKS = 3
 MIN_LOOP_CHUNKS = MIN_BRIDGE_CHUNKS
+OPENING_CHUNKS = 1
 SOUND_CHUNK_STEP = 3
 MAX_WINDOW_CHUNKS = (int(MAX_DURATION_S * FPS) - LATENTS_PER_CHUNK) // FRAMES_PER_CHUNK
 CHUNK_AUDIO_LATENTS = FRAMES_PER_CHUNK * AUDIO_LATENTS_PER_SECOND // FPS
@@ -35,13 +36,21 @@ def audio_offset(chunks: int) -> int:
 
 @dataclass(frozen=True)
 class LoopPlan:
-    anchor_chunks: int
+    loop_chunks: int
     bridge_chunks: int
     with_sound: bool
 
     @property
-    def loop_chunks(self) -> int:
-        return self.anchor_chunks
+    def anchor_chunks(self) -> int:
+        return self.loop_chunks + OPENING_CHUNKS
+
+    @property
+    def opening_start(self) -> int:
+        return LATENTS_PER_CHUNK * OPENING_CHUNKS
+
+    @property
+    def opening_audio_start(self) -> int:
+        return audio_offset(OPENING_CHUNKS)
 
     @property
     def head_chunk(self) -> int:
@@ -105,15 +114,16 @@ class LoopPlan:
 
     @property
     def tail_audio_start(self) -> int:
-        return audio_offset(self.bridge_chunks - 1)
+        return self.loop_audio_latents - (self.head_audio_start - self.opening_audio_start)
 
     @property
     def tail_audio_latents(self) -> int:
-        return min(self.bridge_audio_latents - self.tail_audio_start, self.anchor_audio_latents)
+        return min(self.bridge_audio_latents - self.tail_audio_start,
+                   self.anchor_audio_latents - self.opening_audio_start)
 
     @property
     def loop_audio_latents(self) -> int:
-        return self.head_audio_start + self.tail_audio_start
+        return audio_offset(self.loop_chunks)
 
     @property
     def bridge_anchors(self) -> tuple[int, ...]:
@@ -122,7 +132,7 @@ class LoopPlan:
 
 def max_loop_chunks(*, with_sound: bool) -> int:
     step = SOUND_CHUNK_STEP if with_sound else 1
-    return step * (MAX_WINDOW_CHUNKS // step)
+    return step * ((MAX_WINDOW_CHUNKS - OPENING_CHUNKS) // step)
 
 
 def max_loop_seconds(*, with_sound: bool) -> float:
@@ -139,11 +149,11 @@ def plan_loop(requested_frames: int, *, with_sound: bool) -> LoopPlan:
         raise LoopRequestError(
             f"A perfect loop can be at most {max_loop_seconds(with_sound=False):.1f} seconds long "
             f"({max_loop_seconds(with_sound=True):.1f} with sound), because its first pass renders the whole "
-            f"loop and one pass is at most {MAX_DURATION_S:g} seconds. {requested_frames / FPS:.1f} seconds "
+            f"loop and the moment before it, and one pass is at most {MAX_DURATION_S:g} seconds. {requested_frames / FPS:.1f} seconds "
             f"were asked for."
         )
-    bridge = max(MIN_BRIDGE_CHUNKS, (chunks + 2) // 2)
-    return LoopPlan(anchor_chunks=chunks, bridge_chunks=bridge, with_sound=with_sound)
+    bridge = max(MIN_BRIDGE_CHUNKS, (chunks + 2) // 2) + OPENING_CHUNKS
+    return LoopPlan(loop_chunks=chunks, bridge_chunks=bridge, with_sound=with_sound)
 
 
 def bridge_head(anchor_latent: Tensor, plan: LoopPlan) -> Tensor:
@@ -151,7 +161,7 @@ def bridge_head(anchor_latent: Tensor, plan: LoopPlan) -> Tensor:
 
 
 def bridge_tail(anchor_latent: Tensor, plan: LoopPlan) -> Tensor:
-    return anchor_latent[:, :, : plan.tail_latents]
+    return anchor_latent[:, :, plan.opening_start: plan.opening_start + plan.tail_latents]
 
 
 def bridge_head_audio(anchor_audio: Tensor, plan: LoopPlan) -> Tensor:
@@ -159,16 +169,19 @@ def bridge_head_audio(anchor_audio: Tensor, plan: LoopPlan) -> Tensor:
 
 
 def bridge_tail_audio(anchor_audio: Tensor, plan: LoopPlan) -> Tensor:
-    return anchor_audio[..., : plan.tail_audio_latents]
+    return anchor_audio[..., plan.opening_audio_start: plan.opening_audio_start + plan.tail_audio_latents]
 
 
 def assemble_loop_latent(anchor_latent: Tensor, bridge_latent: Tensor, plan: LoopPlan) -> Tensor:
-    return torch.cat([anchor_latent[:, :, : plan.head_start], bridge_latent[:, :, : plan.tail_start]], dim=2)
+    return torch.cat(
+        [anchor_latent[:, :, plan.opening_start: plan.head_start], bridge_latent[:, :, : plan.tail_start]], dim=2,
+    )
 
 
 def assemble_loop_audio(anchor_audio: Tensor, bridge_audio: Tensor, plan: LoopPlan) -> Tensor:
     return torch.cat(
-        [anchor_audio[..., : plan.head_audio_start], bridge_audio[..., : plan.tail_audio_start]], dim=-1,
+        [anchor_audio[..., plan.opening_audio_start: plan.head_audio_start], bridge_audio[..., : plan.tail_audio_start]],
+        dim=-1,
     )
 
 

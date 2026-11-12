@@ -34,7 +34,7 @@ fields:
         type: "image"
         label: "Start picture"
         description: "Optional. The picture that comes to life."
-        ai_hint: "The still the loop starts from and returns to; its look, colours and framing are kept. Leave it empty to make the scene from the prompt alone."
+        ai_hint: "The picture the loop is made from; its look, colours and framing are kept. The loop begins a moment after the picture, once it is moving, so the wrap never eases into a still. Leave it empty to make the scene from the prompt alone."
 
       - name: "loop_seconds"
         type: "select"
@@ -42,7 +42,7 @@ fields:
         label: "Length"
         default: 6
         description: "Cut on whole 0.7 s steps, 2.1 s with sound."
-        ai_hint: "How long one pass of the loop lasts: 2, 3, 4, 5, 6, 8 or 10 seconds, and nothing else. 2 to 4 seconds suits a wallpaper. The loop is cut on the model's own 17-frame steps, so it can run a fraction of a second longer or shorter than picked (4 s gives 4.25 s); with sound it moves in 2.1 s steps, so 3 s gives 2.1 s and 5 s gives 4.25 s. It is made in two passes: one as long as the loop and one about half that."
+        ai_hint: "How long one pass of the loop lasts: 2, 3, 4, 5, 6, 8 or 10 seconds, and nothing else. 2 to 4 seconds suits a wallpaper. The loop is cut on the model's own 17-frame steps, so it can run a fraction of a second longer or shorter than picked (4 s gives 4.25 s); with sound it moves in 2.1 s steps, so 3 s gives 2.1 s and 5 s gives 4.25 s. It is made in two passes: one 0.7 s longer than the loop and one a little over half of it."
         configuration:
           options:
             - { label: "2 s", value: 2 }

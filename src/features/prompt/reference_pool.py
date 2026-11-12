@@ -61,6 +61,16 @@ def pool_entry_keys(entry: Tuple[str, Any]) -> Tuple[str, ...]:
     return (item.key,) if isinstance(item, BundlePoolMember) else media_item_keys(item)
 
 
+def pool_entry_name(entry: Tuple[str, Any]) -> Optional[str]:
+    item = entry[1]
+    if not isinstance(item, Mapping):
+        return None
+    kit_item = item.get("kit_item")
+    if isinstance(kit_item, Mapping) and isinstance(kit_item.get("name"), str):
+        return kit_item["name"]
+    return None
+
+
 def _kind_rank(kind: Optional[str]) -> int:
     return MEDIA_KINDS.index(kind) if kind in MEDIA_KINDS else len(MEDIA_KINDS)
 

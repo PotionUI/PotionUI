@@ -488,6 +488,7 @@ class ChatController(BaseController):
                     "icon": s.icon,
                     "attachable": s.attachable,
                     "badge": s.badge,
+                    **({"ref": s.ref} if s.ref else {}),
                 }
                 for s in suggestions
             ]

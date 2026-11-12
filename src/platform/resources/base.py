@@ -64,6 +64,7 @@ class ResourceSuggestion:
     icon: Optional[str] = None
     attachable: bool = False
     badge: Optional[str] = None
+    ref: Optional[str] = None
 
 
 @dataclass

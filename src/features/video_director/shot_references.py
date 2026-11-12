@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.features.presets.schema import PROMPT_RESOURCE_INDEX_PLACEHOLDER
@@ -7,6 +7,7 @@ from src.features.prompt.reference_pool import (
     build_reference_pool,
     bundle_field_sources,
     pool_entry_keys,
+    pool_entry_name,
 )
 from src.features.prompt.resource_sources import BundleMembersResolver, source_label
 from src.features.prompt.resources import RESOURCE_MARKER_RE, spec_for_item, specs_by_field
@@ -19,6 +20,7 @@ class ShotReferences:
     indices: List[int]
     kinds: List[str]
     problems: List[str]
+    names: List[Optional[str]] = field(default_factory=list)
 
 
 def packed_reference_pool(
@@ -112,4 +114,7 @@ def derive_shot_references(
         RESOURCE_MARKER_RE.sub(replace, text) if isinstance(text, str) and "@[" in text else text
         for text in texts
     ]
-    return ShotReferences(texts=resolved, indices=indices, kinds=kinds, problems=problems)
+    return ShotReferences(
+        texts=resolved, indices=indices, kinds=kinds, problems=problems,
+        names=[pool_entry_name(pool[index]) for index in indices],
+    )

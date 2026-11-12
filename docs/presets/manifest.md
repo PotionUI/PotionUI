@@ -219,6 +219,11 @@ mapped once per kind (MiniMax-H3's `references` holds images, videos and audio):
 covers only that kind's items, and `@` is the item's position among the field's items of that
 kind. The marker carries no kind; it comes from the item's `type`, else its file extension.
 
+An entry may also carry `limit:` (the most items of its kind a kit expansion adds to the field) and
+`limit_total:` (the most items of any kind in the field). They only bound items that arrive through
+a kit; items loaded straight into the field are never counted against them. A bare kit citation
+fills the field up to these limits and reports what did not fit.
+
 An entry with a `source:` maps a field whose rows are bundles a prompt resource source reads,
 instead of a media picker. A source is registered by a plugin (manifest `prompt_resource_sources:`,
 see [the plugin API](../plugin-api.md#contributing-a-prompt-resource-source)) and names the

@@ -276,6 +276,10 @@ from src.features.media_tools.routes import MediaToolController
 from src.features.media_tools.service import MediaToolService
 from src.features.library import LibraryCollaborators, LibraryRepository
 from src.features.library.routes import LibraryController
+from src.features.kits import KitRepository
+from src.features.kits.expansion import KitExpander
+from src.features.kits.resource_provider import KitsResourceProvider
+from src.features.kits.routes import KitController
 from src.features.inspirations import InspirationCollaborators, InspirationRepository
 from src.features.inspirations.routes import InspirationController
 from src.features.presets.routes import PresetController
@@ -538,6 +542,10 @@ class AppContainer:
     library_collaborators: "LibraryCollaborators"
     library_controller: "LibraryController"
 
+    kit_repository: "KitRepository"
+    kit_expander: "KitExpander"
+    kit_controller: "KitController"
+
     # Inspirations
     inspiration_repository: "InspirationRepository"
     inspiration_collaborators: "InspirationCollaborators"
@@ -752,6 +760,9 @@ def build_container() -> AppContainer:
 
     resource_registry = ResourceRegistry()
     register_builtin_resource_providers(resource_registry)
+    kit_repository = KitRepository()
+    kit_expander = KitExpander(kit_repository)
+    resource_registry.register(KitsResourceProvider(kit_repository), source="builtin")
 
     # Automation module node-type registry (src.platform.plugins.automation_nodes) -
     # created before the plugin registry so plugin-provided
@@ -1340,6 +1351,7 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         fixed_prompt_repository=preset_fixed_prompt_repository,
         applied_prompt_repository=generation_applied_prompt_repository,
+        kit_expander=kit_expander,
     )
 
     # Initialize generation history manager
@@ -1634,6 +1646,9 @@ def build_container() -> AppContainer:
         limit_guard=limit_guard,
     )
     library_controller = LibraryController(library_collaborators)
+    kit_controller = KitController(
+        kit_repository, kit_expander, preset_template_loader.load_preset_by_id, media_store,
+    )
     from src.features.library import operations as library_operations
 
     collection_controller = CollectionController(

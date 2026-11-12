@@ -9,6 +9,11 @@ fields:
         configuration: {icon: "generation", icon_display: "icon_only"}
         children: "{{ paths.preset }}/modes/first_last/tabs/generation.yml"
       - type: "tab"
+        anchor: "references"
+        label: "References"
+        configuration: {icon: "image", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/first_last/tabs/references.yml"
+      - type: "tab"
         anchor: "lora"
         label: "LoRA"
         configuration: {icon: "lora", icon_display: "icon_only"}

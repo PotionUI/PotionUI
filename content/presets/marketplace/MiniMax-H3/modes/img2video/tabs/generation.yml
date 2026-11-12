@@ -44,13 +44,6 @@ fields:
             width: "2/5"
             full_width: true
 
-      - name: "start_image"
-        type: "image"
-        label: "Start picture"
-        required: true
-        description: "The first frame of the video."
-        ai_hint: "The picture the video opens on; its look, subject and framing are carried into the motion. The prompt then says what happens, not what the picture already shows."
-
       - name: "duration"
         type: "slider"
         formula: "size"

@@ -15,6 +15,9 @@ VDN = "01KX47H3VDNMINIMAX000000VA"
 WITH_REFERENCES = ["Generation", "References", "LoRA", "Advanced"]
 
 TABS = {
+    (H3, "txt2video"): ["Generation", "LoRA", "Enhance", "Advanced"],
+    (H3, "img2video"): ["Generation", "References", "LoRA", "Enhance", "Advanced"],
+    (H3, "first_last"): ["Generation", "References", "LoRA", "Enhance", "Advanced"],
     (H3, "video"): ["Generation", "LoRA", "Enhance", "Advanced"],
     (H3, "refs"): WITH_REFERENCES,
     (H3, "upscale"): WITH_REFERENCES,
@@ -39,6 +42,8 @@ REFERENCE_MEDIA = {
     (H3, "talk"): {"portrait", "voice"},
     (H3, "motion_transfer"): {"input_image", "input_video"},
     (H3, "loop"): {"start_picture"},
+    (H3, "img2video"): {"start_image"},
+    (H3, "first_last"): {"start_image", "end_image"},
     (FAST, "refine_faces"): {"input_video"},
     (FAST, "extend"): {"source_video"},
 }
@@ -52,9 +57,9 @@ ICONS = {
 }
 
 MEDIA_TYPES = {"image", "video", "audio", "media"}
-KEYFRAME_MODES = {(H3, "video"), (FAST, "video"), (VDN, "video")}
+KEYFRAME_MODES = {(H3, "txt2video"), (H3, "img2video"), (H3, "first_last"), (H3, "video"), (FAST, "video"), (VDN, "video")}
 STAGE_TWO_KNOBS = {"refine_video_sigma_shift", "refine_manual_sigmas", "refine_manual_audio_sigmas", "audio_refine"}
-REFINE_MODES = {(H3, "video"), (H3, "upscale"), (FAST, "video")}
+REFINE_MODES = {(H3, "txt2video"), (H3, "img2video"), (H3, "first_last"), (H3, "video"), (H3, "upscale"), (FAST, "video")}
 
 FIXED_RECIPES = {
     (H3, "upscale"): 4,
@@ -79,6 +84,13 @@ def schemas():
         (pid, mode): serializer.process_form_fields(presets[pid].modes[mode].forms[0], pid)
         for pid, mode in CASES
     }
+
+
+@pytest.fixture(scope="module")
+def h3_template_for_layout():
+    loader = PresetTemplateLoader(["content/presets/marketplace"])
+    loader.load_presets()
+    return next(p for p in loader.presets if p.id == H3)
 
 
 def _tabs(schema):
@@ -232,3 +244,27 @@ def test_the_loop_follows_the_tabs_and_input_placement_of_the_input_media_modes(
     assert list(_fields(_tab(schemas[LOOP], "References"))) == ["start_picture"]
     video = _fields(next(c for c in _tab(schemas[LOOP], "Generation")["children"] if c.get("title") == "Video"))
     assert {"seed", "quantity", "resolution", "loop_seconds", "movement", "sound"} <= set(video)
+
+
+def test_the_single_clip_modes_keep_their_pictures_off_the_generation_tab(schemas):
+    for mode, pictures in (("txt2video", set()), ("img2video", {"start_image"}), ("first_last", {"start_image", "end_image"})):
+        schema = schemas[(H3, mode)]
+        generation = _fields(_tab(schema, "Generation"))
+        assert not pictures & set(generation), mode
+        assert {"seed", "quantity", "resolution", "duration"} <= set(generation)
+        if pictures:
+            assert set(_fields(_tab(schema, "References"))) == pictures
+        else:
+            assert "References" not in [t.get("title") for t in _tabs(schema)]
+
+
+def test_values_saved_under_the_old_layout_still_bind_by_field_name(h3_template_for_layout):
+    from src.features.forms.binding import bind_form
+
+    saved = {"start_image": "/media/first.png", "end_image": "/media/last.png", "duration": 7, "seed": 3,
+             "model": "/m/a.safetensors", "text_encoder": "/m/b.safetensors",
+             "video_vae": "/m/c.safetensors", "audio_vae": "/m/d.safetensors", "resolution": "832x480"}
+    bound = bind_form(h3_template_for_layout, "first_last", form_name=None, raw_form_data=saved, user_id=None, storage_dir=None)
+    assert bound.values["start_image"] == "/media/first.png"
+    assert bound.values["end_image"] == "/media/last.png"
+    assert bound.values["duration"] == 7

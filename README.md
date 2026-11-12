@@ -73,15 +73,15 @@ Floor: 8 GB VRAM + 16 GB RAM (SDXL). More in [Install](#install).
 <td valign="top"><b>Generate images</b><br>Pick a model and get a form with only the controls it understands. Previews stream in while it renders, and every tab keeps its own preset, prompts and results.<br><a href="docs/user/generating.md">Generating images</a></td>
 </tr>
 <tr>
-<td width="45%" valign="top"><img src="docs/media/potionui-image-editor.png" width="100%" alt="The image editor with paint, selection and crop tools and layers"></td>
+<td width="45%" valign="top"><img src="docs/media/readme-edit-images.webp" width="100%" alt="The image editor on the Looks tool, with a look tray, the edit stack and a before and after toggle"></td>
 <td valign="top"><b>Edit images</b><br>Edit with the Qwen-Image and FLUX 3 edit modes, or fix a picture in the built-in editor: adjust, crop, paint and layer, then save a new copy.<br><a href="docs/user/history-and-tags.md">Image editing</a></td>
 </tr>
 <tr>
-<td width="45%" valign="top"><img src="docs/media/potionui-ltx-modes.png" width="100%" alt="The LTX-2.5 mode picker listing its modes"></td>
+<td width="45%" valign="top"><img src="docs/media/readme-generate-video.webp" width="100%" alt="An LTX-2.5 video rendering, with a live preview, step progress and the form beside it"></td>
 <td valign="top"><b>Generate video</b><br>Text to video and image to video with Wan, LTX and MiniMax-H3 (which also takes reference images), with audio where the model makes it. Each model's modes sit behind one picker.<br><a href="docs/models/ltx.md">Video models</a></td>
 </tr>
 <tr>
-<td width="45%" valign="top"><img src="docs/media/potionui-h3-upscale-scene.png" width="100%" alt="MiniMax-H3 Upscale with an input clip and a scene prompt"></td>
+<td width="45%" valign="top"><img src="docs/media/readme-edit-video.webp" width="100%" alt="The video editor trimming a clip, with the timeline, the edit stack and a film grain edit"></td>
 <td valign="top"><b>Edit video</b><br>Restore, colorize, relight, extend, remove objects, refine faces and upscale a clip, keeping the source's audio and length.<br><a href="docs/models/ltx.md">LTX modes</a></td>
 </tr>
 <tr>
@@ -101,11 +101,11 @@ Floor: 8 GB VRAM + 16 GB RAM (SDXL). More in [Install](#install).
 <td valign="top"><b>Administration</b><br>Users, groups and access, presets and models per user, backends, plans, recipes and backups, all from one panel.<br><a href="docs/user/admin.md">Administration</a></td>
 </tr>
 <tr>
-<td width="45%" valign="top"><img src="docs/media/potionui-generation-assistant.png" width="100%" alt="The assistant proposing a rewrite for each prompt segment"></td>
+<td width="45%" valign="top"><img src="docs/media/readme-potionai-mcp.webp" width="100%" alt="The assistant proposing a rewrite for each prompt segment, each with an Apply button"></td>
 <td valign="top"><b>PotionAI and MCP</b><br>PotionAI brainstorms and rewrites prompts and adjusts the form, with your approval on every change. Per-user MCP tokens let Claude Desktop or any MCP client drive your instance.<br><a href="docs/user/mcp.md">MCP</a></td>
 </tr>
 <tr>
-<td width="45%" valign="top"><img src="docs/media/potionui-qwen-modes.png" width="100%" alt="The Qwen-Image 2.1 mode picker"></td>
+<td width="45%" valign="top"><img src="docs/media/readme-plugins-presets.webp" width="100%" alt="The plugins page with the ComfyUI import designing a preset form from a workflow"></td>
 <td valign="top"><b>Plugins and presets</b><br>Each preset targets one model and renders its own form. Plugins add providers, backends, pipes, field types and cloud models, and your ComfyUI workflows import as presets.<br><a href="docs/user/plugins.md">Plugins</a></td>
 </tr>
 </table>

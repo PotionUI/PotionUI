@@ -103,7 +103,9 @@ async def test_the_heartbeat_sweeps_without_anyone_calling_it():
     socket = FakeSocket()
     registry._register(socket, _grant("k1", dt_iso(now_utc() + timedelta(milliseconds=30))))
 
-    await asyncio.sleep(0.3)
+    deadline = asyncio.get_running_loop().time() + 5
+    while not socket.closed and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.02)
 
     assert socket.closed == [(KEY_CLOSE_CODE, EXPIRED_REASON)]
 
@@ -291,8 +293,166 @@ async def test_the_shared_registry_rechecks_a_key_when_it_is_changed():
         key_sockets._unregister(other)
 
 
-def test_track_is_the_only_public_way_to_follow_a_socket():
-    public = {name for name in dir(KeySocketRegistry) if not name.startswith("_")}
+SOCKET_MODULES = [
+    "src/features/generation/routes.py",
+    "src/features/notifications/routes.py",
+    "src/features/system_monitor/routes.py",
+    "src/features/downloads/routes.py",
+    "src/features/automation/routes.py",
+    "src/features/settings/admin_websocket.py",
+]
 
-    assert {"register", "attach", "unregister"}.isdisjoint(public)
-    assert "track" in public
+
+def test_every_socket_route_module_under_features_tracks_its_key_sockets():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3] / "src" / "features"
+    with_sockets = sorted(
+        str(path.relative_to(root.parent.parent))
+        for path in root.rglob("*.py")
+        if ".websocket(" in path.read_text(encoding="utf-8") or "@router.websocket(" in path.read_text(encoding="utf-8")
+    )
+
+    assert with_sockets == sorted(SOCKET_MODULES)
+    for module in with_sockets:
+        assert "key_sockets.track(" in (root.parent.parent / module).read_text(encoding="utf-8"), module
+
+
+@pytest.mark.asyncio
+async def test_track_unregisters_when_the_body_raises():
+    registry = KeySocketRegistry()
+    user = SimpleNamespace(key=_grant("k1"), account_type=AccountType.USER)
+
+    with pytest.raises(RuntimeError):
+        with registry.track(FakeSocket(), user):
+            assert registry.count_for_key("k1") == 1
+            raise RuntimeError("handler failed")
+
+    assert registry.count_for_key("k1") == 0
+
+
+@pytest.mark.asyncio
+async def test_track_unregisters_when_the_task_is_cancelled():
+    registry = KeySocketRegistry()
+    user = SimpleNamespace(key=_grant("k1"), account_type=AccountType.USER)
+    entered = asyncio.Event()
+
+    async def handler():
+        with registry.track(FakeSocket(), user):
+            entered.set()
+            await asyncio.sleep(60)
+
+    task = asyncio.create_task(handler())
+    await entered.wait()
+    assert registry.count_for_key("k1") == 1
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert registry.count_for_key("k1") == 0
+
+
+class CountingResolver(Resolver):
+    def __init__(self):
+        super().__init__()
+        self.calls = []
+        self.broken = set()
+
+    def resolve_id(self, key_id):
+        self.calls.append(key_id)
+        if key_id in self.broken:
+            raise RuntimeError("database is locked")
+        return super().resolve_id(key_id)
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_resolves_each_key_once_however_many_sockets_it_has():
+    resolver = CountingResolver()
+    resolver.set("k1", {ApiScope.READ})
+    resolver.set("k2", {ApiScope.READ})
+    registry = KeySocketRegistry()
+    for index in range(100):
+        registry._register(FakeSocket(), _grant("k1" if index % 2 else "k2"), READ)
+    registry.set_resolver(resolver)
+
+    registry.sweep()
+
+    assert sorted(resolver.calls) == ["k1", "k2"]
+
+
+@pytest.mark.asyncio
+async def test_a_key_that_cannot_be_re_read_does_not_stop_the_sweep_for_other_keys():
+    resolver = CountingResolver()
+    resolver.set("good", set())
+    resolver.broken.add("bad")
+    registry = KeySocketRegistry()
+    bad, good = FakeSocket(), FakeSocket()
+    registry._register(bad, _grant("bad"), READ)
+    registry._register(good, _grant("good"), READ)
+    registry.set_resolver(resolver)
+
+    assert registry.sweep() == 1
+    await _settle()
+
+    assert bad.closed == []
+    assert good.closed == [(KEY_CLOSE_CODE, NARROWED_REASON)]
+
+
+@pytest.mark.asyncio
+async def test_a_failing_check_after_registering_is_logged_not_lost(caplog):
+    resolver = CountingResolver()
+    resolver.broken.add("k1")
+    registry = KeySocketRegistry()
+    registry.set_resolver(resolver)
+    registry._check = lambda items, moment=None: (_ for _ in ()).throw(RuntimeError("boom"))
+
+    registry._register(FakeSocket(), _grant("k1"), READ)
+    await _settle()
+
+    assert "API key socket check failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_resolving_for_a_changed_key_happens_off_the_event_loop():
+    import threading
+
+    threads = []
+
+    class Spy(Resolver):
+        def resolve_id(self, key_id):
+            threads.append(threading.get_ident())
+            return super().resolve_id(key_id)
+
+    resolver = Spy()
+    resolver.set("k1", {ApiScope.READ})
+    registry = KeySocketRegistry()
+    registry._register(FakeSocket(), _grant("k1"), READ)
+    registry.set_resolver(resolver)
+
+    registry.check_key("k1")
+    await _settle()
+    registry.set_resolver(None)
+
+    assert threads and threading.get_ident() not in threads
+
+
+@pytest.mark.asyncio
+async def test_the_post_register_check_resolves_off_the_event_loop():
+    import threading
+
+    threads = []
+
+    class Spy(Resolver):
+        def resolve_id(self, key_id):
+            threads.append(threading.get_ident())
+            return super().resolve_id(key_id)
+
+    resolver = Spy()
+    resolver.set("k1", {ApiScope.READ})
+    registry = KeySocketRegistry()
+    registry.set_resolver(resolver)
+
+    registry._register(FakeSocket(), _grant("k1"), READ)
+    await _settle()
+
+    assert threads and threading.get_ident() not in threads

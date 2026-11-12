@@ -411,6 +411,28 @@ class TestSessionFlowUnchanged:
 
 
 class TestChangesToAKeyReachItsOpenSockets:
+    @pytest.mark.parametrize("path", ADMIN_SOCKETS)
+    def test_narrowing_a_key_closes_it_on_every_admin_socket(self, world, sockets, path):
+        key, secret = world.mint(world.root, scopes=("admin",), days=30)
+
+        with sockets.websocket_connect(path, headers=world.bearer(secret)) as ws:
+            ws.receive_json()
+            sockets.patch(f"/api/keys/{key.id}", json={"scopes": ["read"]}, headers=world.session("root"))
+            closed = wait_for_close(ws, 1.0)
+
+        assert closed is not None and closed.code == 4001
+
+    @pytest.mark.parametrize("path", READ_SOCKETS)
+    def test_narrowing_a_key_to_nothing_it_may_use_closes_every_read_socket(self, world, sockets, path):
+        key, secret = world.mint(world.alice, scopes=("read", "generate"))
+
+        with sockets.websocket_connect(path, headers=world.bearer(secret)) as ws:
+            ws.receive_json()
+            sockets.patch(f"/api/keys/{key.id}", json={"scopes": ["generate"]}, headers=world.session("alice"))
+            closed = wait_for_close(ws, 1.0)
+
+        assert closed is not None and closed.code == 4001
+
     def test_narrowing_a_key_closes_its_admin_socket_and_keeps_its_read_socket(self, world, sockets):
         key, secret = world.mint(world.root, scopes=("admin",), days=30)
 
@@ -500,6 +522,22 @@ class TestTicketRouteLimits:
 
         assert refused.status_code == 429
         assert owners.status_code == 200
+
+    def test_a_session_gets_a_burst_of_thirty_tickets_and_the_limit_resets_after_the_window(self, world, sockets, monkeypatch):
+        from src.features.auth.routes import WS_TICKETS_PER_WINDOW
+        from src.platform.security import attempt_limiter
+
+        clock = {"now": 1000.0}
+        monkeypatch.setattr(attempt_limiter.time, "monotonic", lambda: clock["now"])
+        ask = lambda: sockets.post(
+            "/api/auth/ws-ticket", json={"path": "/ws/generation"}, headers=world.session("alice")
+        ).status_code
+
+        assert [ask() for _ in range(30)] == [200] * 30
+        assert [ask() for _ in range(WS_TICKETS_PER_WINDOW - 30)] == [200] * (WS_TICKETS_PER_WINDOW - 30)
+        assert ask() == 429
+        clock["now"] += 61
+        assert ask() == 200
 
     def test_a_keys_tickets_never_evict_its_owners_browser_ticket(self, world, sockets):
         browser = ticket_for(sockets, "/ws/generation", world.session("alice"))

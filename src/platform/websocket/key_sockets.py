@@ -3,7 +3,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Dict, FrozenSet, Iterator, Optional
+from typing import Dict, FrozenSet, Iterator, Optional, Set
 
 from fastapi import WebSocket
 
@@ -31,6 +31,9 @@ class _Tracked:
     was_admin: bool
 
 
+_UNCHECKED = object()
+
+
 class KeySocketRegistry:
     def __init__(self, heartbeat_seconds: float = HEARTBEAT_SECONDS):
         self._heartbeat_seconds = heartbeat_seconds
@@ -38,6 +41,7 @@ class KeySocketRegistry:
         self._lock = threading.Lock()
         self._sweeper: Optional[asyncio.Task] = None
         self._resolver: Optional[KeyResolver] = None
+        self._checks: Set[asyncio.Task] = set()
 
     def set_resolver(self, resolver: Optional[KeyResolver]) -> None:
         self._resolver = resolver
@@ -69,7 +73,14 @@ class KeySocketRegistry:
         if self._sweeper is None or self._sweeper.done() or self._sweeper.get_loop() is not loop:
             self._sweeper = loop.create_task(self._sweep_forever())
         if self._resolver is not None:
-            loop.create_task(asyncio.to_thread(self._check, [item]))
+            task = loop.create_task(asyncio.to_thread(self._check, [item]))
+            self._checks.add(task)
+            task.add_done_callback(self._checked)
+
+    def _checked(self, task: asyncio.Task) -> None:
+        self._checks.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logger.error("API key socket check failed", exc_info=task.exception())
 
     def _unregister(self, websocket: WebSocket) -> None:
         with self._lock:
@@ -85,10 +96,15 @@ class KeySocketRegistry:
         for item in targets:
             self._dispatch(item, REVOKED_REASON)
 
-    def check_key(self, key_id: str) -> int:
+    def check_key(self, key_id: str) -> None:
         with self._lock:
             targets = [item for item in self._tracked.values() if item.grant.key_id == key_id]
-        return self._check(targets)
+        if not targets:
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(asyncio.to_thread(self._check, targets), targets[0].loop)
+        except RuntimeError:
+            logger.debug("Event loop closed before API key %s could be checked", key_id)
 
     def sweep(self, now=None) -> int:
         with self._lock:
@@ -102,7 +118,13 @@ class KeySocketRegistry:
         for item in items:
             key_id = item.grant.key_id
             if key_id not in live:
-                live[key_id] = self._resolver.resolve_id(key_id) if self._resolver is not None else item
+                try:
+                    live[key_id] = self._resolver.resolve_id(key_id) if self._resolver is not None else item
+                except Exception:
+                    logger.exception("Could not re-check API key %s", item.grant.display_prefix)
+                    live[key_id] = _UNCHECKED
+            if live[key_id] is _UNCHECKED:
+                continue
             reason = self._verdict(item, live[key_id], moment)
             if reason:
                 self._dispatch(item, reason)

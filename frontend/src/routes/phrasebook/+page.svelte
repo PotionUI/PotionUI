@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
 	import { page } from '$app/stores';
+	import { replaceUrl } from '$lib/utils/replaceUrl';
 	import { DetailEmptyState } from '$lib/components/master-detail';
 	import {
 		phrasebookStore,
@@ -130,8 +131,7 @@
 
 		const newUrl = params.toString() ? `/phrasebook?${params.toString()}` : '/phrasebook';
 
-		const url = new URL(newUrl, window.location.origin);
-		window.history.replaceState(window.history.state, '', url);
+		replaceUrl(newUrl);
 	}
 
 	// Restore selection from URL and expand tree path

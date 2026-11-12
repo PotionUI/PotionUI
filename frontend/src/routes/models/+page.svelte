@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { collectionQueryParams } from '$lib/components/collections/selection';
 	import { goto } from '$app/navigation';
+	import { replaceUrl } from '$lib/utils/replaceUrl';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { isAxiosError } from 'axios';
@@ -109,7 +110,7 @@
 		if (directOnly) params.set('direct', 'true');
 
 		const newUrl = params.toString() ? `?${params.toString()}` : '/models';
-		window.history.replaceState({}, '', newUrl);
+		replaceUrl(newUrl);
 	}
 
 	function loadFiltersFromUrl() {

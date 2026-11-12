@@ -207,6 +207,7 @@ import type { KitCreateResponse } from '$lib/services/api/kits';
 
 <ConfirmDialog
 	isOpen={true}
+	submitOnInputEnter
 	size="lg"
 	{title}
 	{busy}
@@ -259,6 +260,7 @@ import type { KitCreateResponse } from '$lib/services/api/kits';
 						type="text"
 						class="input w-full py-1.5 pl-8 text-sm"
 						placeholder="Search kits"
+						data-enter-passthrough
 						aria-label="Search kits"
 						bind:value={existingSearch}
 						oninput={() => {

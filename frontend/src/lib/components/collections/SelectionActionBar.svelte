@@ -41,7 +41,7 @@
 	{#if activeMenu}
 		<span hidden use:dismiss={{ onDismiss: closeMenus, ignore: [barEl] }}></span>
 	{/if}
-	<div class="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50">
+	<div class="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 w-max max-w-[calc(100vw-2rem)]">
 		<div
 			class="bg-surface-1 text-fg rounded-xl shadow-overlay px-2 py-1.5 flex items-center gap-1 border border-line-strong"
 			in:fly={{ y: 10, duration: 200, easing: quartOut }}
@@ -70,7 +70,7 @@
 			<div class="flex items-center gap-1 px-1">
 				{#if selectedCount < totalCount}
 					<button
-						class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors"
+						class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors"
 						on:click={onSelectAll}
 					>
 						Select All
@@ -78,7 +78,7 @@
 				{/if}
 				{#if selectedCount > 0}
 					<button
-						class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors"
+						class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors"
 						on:click={onClearSelection}
 					>
 						Clear

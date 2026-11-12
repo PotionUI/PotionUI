@@ -63,6 +63,38 @@ describe('ConfirmDialog', () => {
 		expect(onConfirm).not.toHaveBeenCalled();
 	});
 
+	it('submits on Enter in a single-line input only when the dialog opts in', () => {
+		const field = () => document.querySelector('[data-testid="field"]')!;
+		const off = mountDialog();
+		press('Enter', {}, field());
+		expect(off.onConfirm).not.toHaveBeenCalled();
+		unmount(instance!);
+		document.body.innerHTML = '';
+
+		const on = mountDialog({ submitOnInputEnter: true });
+		const event = press('Enter', {}, field());
+		expect(on.onConfirm).toHaveBeenCalledTimes(1);
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it('with the opt-in, still leaves Enter alone in a textarea, a passthrough input, a button, and respects confirmDisabled', () => {
+		const area = createRawSnippet(() => ({
+			render: () =>
+				'<div><textarea data-testid="area"></textarea><input data-testid="search" data-enter-passthrough /><button data-testid="inner">Inner</button></div>'
+		}));
+		const { onConfirm } = mountDialog({ submitOnInputEnter: true, children: area });
+		press('Enter', {}, document.querySelector('[data-testid="area"]')!);
+		press('Enter', {}, document.querySelector('[data-testid="search"]')!);
+		press('Enter', {}, document.querySelector('[data-testid="inner"]')!);
+		expect(onConfirm).not.toHaveBeenCalled();
+		unmount(instance!);
+		document.body.innerHTML = '';
+
+		const disabled = mountDialog({ submitOnInputEnter: true, confirmDisabled: true, children: body });
+		press('Enter', {}, document.querySelector('[data-testid="field"]')!);
+		expect(disabled.onConfirm).not.toHaveBeenCalled();
+	});
+
 	it('ignores repeated Enter', () => {
 		const { onConfirm } = mountDialog();
 		press('Enter', { repeat: true });

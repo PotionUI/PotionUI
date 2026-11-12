@@ -17,6 +17,7 @@ import torch
 
 from src.pipelines.models import BaseModel
 from src.platform.runtime.device import clear_gpu_memory
+from src.platform.runtime.guarded_import import guarded_from
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ class MayaModel:
     def _load_model(self):
         """Load Maya TTS model and tokenizer."""
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            AutoModelForCausalLM, AutoTokenizer = guarded_from("transformers", "AutoModelForCausalLM", "AutoTokenizer")
 
             model_id = self.config.get("model_id", "maya-research/maya1")
 

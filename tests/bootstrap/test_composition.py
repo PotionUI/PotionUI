@@ -558,12 +558,18 @@ def test_the_mcp_endpoint_is_the_only_mcp_route_and_needs_the_mcp_scope(report):
 def test_the_mcp_tool_routes_are_mounted_and_session_only(report):
     wiring = report["api_keys_wiring"]
     assert wiring["mcp_tool_routes"] == [
+        "DELETE /api/mcp/tokens/{token_id}",
         "GET /api/admin/mcp/tools",
+        "GET /api/mcp/admin/users/{user_id}",
         "GET /api/mcp/keys/{key_id}/tools",
+        "GET /api/mcp/status",
+        "GET /api/mcp/tokens",
         "GET /api/mcp/tools",
         "PATCH /api/admin/mcp/tools",
         "PATCH /api/mcp/keys/{key_id}/tools",
         "PATCH /api/mcp/tools",
+        "POST /api/mcp/tokens",
+        "PUT /api/mcp/admin/users/{user_id}",
     ]
     assert wiring["mcp_tool_routes_a_key_can_reach"] == []
     assert wiring["mcp_tool_policy_is_built_on_the_container_settings_and_registry"] is True

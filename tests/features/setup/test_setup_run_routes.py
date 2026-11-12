@@ -427,7 +427,7 @@ def test_unknown_recipe_is_404_and_creates_no_run(file_db):
     assert resp.status_code == 404
     assert client.get("/api/setup/runs/active").status_code == 404
 
-def test_stale_recipe_version_in_body_is_ignored(file_db):
+def test_a_pinned_recipe_version_in_the_body_is_kept_not_replaced_by_the_current_one(file_db):
     catalog = _FakeCatalog([_plain_recipe("v2-starter", version=2)])
     client = _client(_user(AccountType.ADMIN), recipe_catalog=catalog)
 
@@ -436,6 +436,16 @@ def test_stale_recipe_version_in_body_is_ignored(file_db):
     )
 
     assert resp.status_code == 201
+    assert resp.json()["recipe_version"] == 1
+
+def test_a_matching_pinned_recipe_version_runs_that_version(file_db):
+    catalog = _FakeCatalog([_plain_recipe("v2-starter", version=2)])
+    client = _client(_user(AccountType.ADMIN), recipe_catalog=catalog)
+
+    resp = client.post(
+        "/api/setup/runs", json={"recipe_id": "v2-starter", "recipe_version": 2, "safe_input": {}}
+    )
+
     assert resp.json()["recipe_version"] == 2
 
 def test_every_shipped_recipe_starts_a_run_at_its_own_version(file_db):

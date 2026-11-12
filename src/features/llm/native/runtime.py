@@ -40,6 +40,7 @@ from src.platform.runtime.model_lifecycle.lifecycle import (
     file_size_gb,
     get_model_lifecycle,
 )
+from src.platform.runtime.guarded_import import guarded_from
 
 logger = logging.getLogger(__name__)
 
@@ -308,7 +309,7 @@ class NativeRuntime:
                 f"Native LLM provider: quantized loading ({quant_mode}) needs the optional "
                 f"'bitsandbytes' package, which isn't installed (pip install bitsandbytes)"
             ) from e
-        from transformers import BitsAndBytesConfig
+        BitsAndBytesConfig = guarded_from("transformers", "BitsAndBytesConfig")
 
         if quant_mode == "int8":
             return BitsAndBytesConfig(load_in_8bit=True)
@@ -325,7 +326,7 @@ class NativeRuntime:
 
         quant_config = NativeRuntime._bnb_config(quant_mode)
         import bitsandbytes as bnb
-        from transformers.integrations.bitsandbytes import replace_with_bnb_linear
+        replace_with_bnb_linear = guarded_from("transformers.integrations.bitsandbytes", "replace_with_bnb_linear")
 
         originals = {
             name: module for name, module in model.named_modules()
@@ -351,12 +352,19 @@ class NativeRuntime:
         return model
 
     def _build(self, path: str, load_kwargs: Dict[str, Any]) -> _LoadedCheckpoint:
-        from transformers import (
+        (
             AutoConfig,
             AutoModelForCausalLM,
             AutoModelForImageTextToText,
             AutoProcessor,
             AutoTokenizer,
+        ) = guarded_from(
+            "transformers",
+            "AutoConfig",
+            "AutoModelForCausalLM",
+            "AutoModelForImageTextToText",
+            "AutoProcessor",
+            "AutoTokenizer",
         )
 
         load_kwargs = dict(load_kwargs)
@@ -724,7 +732,7 @@ class NativeRuntime:
     @staticmethod
     def _jinja_parse_environment():
         try:
-            from transformers.utils.chat_template_utils import _compile_jinja_template
+            _compile_jinja_template = guarded_from("transformers.utils.chat_template_utils", "_compile_jinja_template")
 
             return _compile_jinja_template("").environment
         except Exception:
@@ -835,7 +843,7 @@ class NativeRuntime:
         stats: RunStats,
     ) -> AsyncIterator[str]:
         import torch
-        from transformers import StoppingCriteria, StoppingCriteriaList, TextIteratorStreamer
+        StoppingCriteria, StoppingCriteriaList, TextIteratorStreamer = guarded_from("transformers", "StoppingCriteria", "StoppingCriteriaList", "TextIteratorStreamer")
 
         path, is_te = self._resolve_model(config.model)
         key = self._cache_key(path, is_te)

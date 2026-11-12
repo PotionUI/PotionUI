@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 
 import torch
+from src.platform.runtime.guarded_import import guarded_from
 
 # Special-token id table, asserted against the checkpoint's own tokenizer blob at
 # construction (see MiniMaxMusic3Tokenizer) rather than trusted blindly — a
@@ -143,7 +144,7 @@ class MiniMaxMusic3Tokenizer:
     """
 
     def __init__(self, tokenizer_json_bytes: bytes) -> None:
-        from tokenizers import Tokenizer
+        Tokenizer = guarded_from("tokenizers", "Tokenizer")
 
         self._tok = Tokenizer.from_str(tokenizer_json_bytes.decode("utf-8"))
         for token, expected in SPECIAL_TOKEN_IDS.items():

@@ -30,6 +30,7 @@ from .config import DINO_V3_VIT_L16, DinoV3Config
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from PIL.Image import Image as PILImage
+from src.platform.runtime.guarded_import import guarded_from
 
 __all__ = [
     "DinoV3ImageConditioner",
@@ -69,7 +70,7 @@ def build_dino_v3(config: DinoV3Config = DINO_V3_VIT_L16):
     the architecture, and the weights arrive from a local file.
     """
     try:
-        from transformers import DINOv3ViTConfig, DINOv3ViTModel
+        DINOv3ViTConfig, DINOv3ViTModel = guarded_from("transformers", "DINOv3ViTConfig", "DINOv3ViTModel")
     except ImportError as exc:
         raise RuntimeError(
             "The installed transformers version does not ship DINOv3 "

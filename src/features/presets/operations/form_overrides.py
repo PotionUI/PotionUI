@@ -21,6 +21,7 @@ from src.features.presets.form_overrides import (
     build_inventory_entries,
     validate_form_overrides,
 )
+from src.features.presets.retired_modes import replacement_for
 from src.features.presets.templates import sorted_forms
 from src.platform.security.user import User, AccountType
 
@@ -39,7 +40,7 @@ def _validate_mode_exists(found_preset, preset_id: str, mode: Optional[str]) -> 
     if mode is None:
         return mode_keys[0]
     if mode not in mode_keys:
-        raise ModeNotFoundException(preset_id, mode, mode_keys)
+        raise ModeNotFoundException(preset_id, mode, mode_keys, replaced_by=replacement_for(getattr(found_preset, 'vars', None), mode))
     return mode
 
 

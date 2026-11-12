@@ -465,6 +465,7 @@ class TestSettingsDeadModelDirectoryRoutesRemoved:
             setting_repository=Mock(spec=SettingRepository),
             gpu_monitor=Mock(spec=GpuMonitor),
             backend_registry=MagicMock(spec=BackendRegistry),
+            api_key_collaborators=SimpleNamespace(access=Mock()),
         )
         router = build_router(container)
         paths = {route.path for route in router.routes}

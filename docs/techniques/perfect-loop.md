@@ -32,15 +32,17 @@ cross-fading its first 5 frames with the previous chunk's look-ahead. So if ever
 neighbouring chunks in a sequence was denoised together, the decoded sequence has no seam anywhere.
 The loop is built so that this holds around the wrap too.
 
-1. **Anchor pass.** One ordinary window as long as the loop, `17C + 5` frames: text-to-video, or
-   image-to-video from the Start picture, which is fitted to the picked resolution once, keeping its
-   aspect ratio (cover crop). Only its first frame is held. Its latent chunks are `A0 … A(C-1)` plus a
-   2-latent tail. The prompt asks for the end to look like the start, and the anchor does that on its
-   own: it travels out and makes its way back over its closing chunks.
+1. **Anchor pass.** One ordinary window one chunk longer than the loop, `17 (C + 1) + 5` frames:
+   text-to-video, or image-to-video from the Start picture, which is fitted to the picked resolution
+   once, keeping its aspect ratio (cover crop). Only its first frame is held. Its latent chunks are
+   `A0 … A(C)` plus a 2-latent tail. The prompt asks for the end to look like the start, and the anchor
+   does that on its own: it travels out and makes its way back over its closing chunks. `A0` is where
+   it starts from rest (image-to-video eases in from the still picture), so the loop leaves it out
+   and opens on `A1`.
 2. **Bridge pass.** A second window of `17b + 5` frames whose first chunk is pinned to `A(h)`,
-   `h = C - b + 1`, and whose last chunk and tail are pinned to `A0` and the first two latents of `A1`.
-   Its `b - 2` free chunks re-render the anchor's `A(h+1) … A(C-1)`: the stretch where the anchor
-   makes its way back, now with the true opening as its target. Pinned spans are
+   `h = C + 2 - b`, and whose last chunk and tail are pinned to `A1` and the first two latents of `A2`.
+   Its `b - 2` free chunks re-render the anchor's `A(h+1) … A(C)`: the stretch where the anchor
+   makes its way back, now with the true, moving opening as its target. Pinned spans are
    whole chunks at chunk boundaries, so every pinned latent sits at the phase it was made for and no
    pixels are re-encoded. Each pinned span enters twice:
    - as keyframe condition rows at the same latent positions (`latent_condition_rows`), the route
@@ -48,9 +50,9 @@ The loop is built so that this holds around the wrap too.
    - as pinned target rows (`pins.py`): on every step the velocity of a pinned row is replaced by
      the one whose clean estimate is the source latent, so the row walks the source's own noised
      path under any sampler, and after the last step the source is written back exactly.
-3. **Join.** The loop is `A0 … A(h-1)` followed by the bridge up to its pinned tail, `C` chunks in
-   all, so the bridge has as long to come back as the anchor took. Its last chunk
-   was denoised next to the bridge's pinned copy of `A0`, which is bit for bit the loop's first
+3. **Join.** The loop is `A1 … A(h-1)` followed by the bridge up to its pinned tail, `C` chunks in
+   all. Its last chunk
+   was denoised next to the bridge's pinned copy of `A1`, which is bit for bit the loop's first
    chunk.
 4. **Decode with wrap-around context.** The loop latent is decoded as
    `[last chunk] + loop + [first 2 latents]` and the first 17 and last 5 decoded frames are dropped.
@@ -62,25 +64,26 @@ The loop is built so that this holds around the wrap too.
    and start after it, then cut to exactly the video's length.
    Audio runs at 40 latents a second against 24 frames, which meet on a whole latent every 3 chunks,
    so with sound the loop length moves in 51-frame (2.125 s) steps and the track is exactly as long as
-   the video. The two joins inside the period sit on the nearest whole audio latent, at most a third
-   of a latent (8 ms) from the chunk boundary.
+   the video. The joins inside the period sit on whole audio latents, at most two thirds of a latent
+   (17 ms) from the chunk boundary.
 
 ## Frame arithmetic
 
 `C` loop chunks deliver `17 C` frames. Without sound `C = round(frames / 17)`, at least 3; with sound
-`C` is a multiple of 3. The anchor gets `C` chunks, the bridge `b = max(3, (C + 2) // 2)`, and the
-bridge's head is the anchor's chunk `h = C - b + 1`, at least 1. The anchor stays within 345 frames
-(14.4 s), so a loop is at most 20 chunks (14.2 s), or 18 (12.75 s) with sound. The mode offers 2, 3,
-4, 5, 6, 8 and 10 seconds.
+`C` is a multiple of 3. The anchor gets `C + 1` chunks, the bridge `b = max(3, (C + 2) // 2) + 1`,
+and the bridge's head is the anchor's chunk `h = C + 2 - b`, at least 1. The anchor stays within
+345 frames (14.4 s), so a loop is at most 19 chunks (13.5 s), or 18 (12.75 s) with sound. The mode
+offers 2, 3, 4, 5, 6, 8 and 10 seconds. `OPENING_CHUNKS` in `loop.py` is the one chunk left out;
+set to 0 it gives back the loop that opens on the picture (anchor `C` chunks, bridge one chunk shorter).
 
 | Asked | Sound | Loop | Anchor | Bridge | Head `h` | Pinned in the bridge |
 |---|---|---|---|---|---|---|
-| 2 s | off | 51 frames (2.13 s) | 56 | 56 | 1 | latents 0-4 and 10-16 of 17 |
-| 3 s | off | 68 frames (2.83 s) | 73 | 56 | 2 | latents 0-4 and 10-16 of 17 |
-| 4 s | off | 102 frames (4.25 s) | 107 | 73 | 3 | latents 0-4 and 15-21 of 22 |
-| 8 s | off | 187 frames (7.79 s) | 192 | 107 | 6 | latents 0-4 and 25-31 of 32 |
-| 4 s | on | 102 frames (4.25 s) | 107 | 73 | 3 | latents 0-4 and 15-21; audio 0-27 and 85-121 |
-| 8 s | on | 204 frames (8.50 s) | 209 | 124 | 6 | latents 0-4 and 30-36; audio 0-27 and 170-206 |
+| 2 s | off | 51 frames (2.13 s) | 73 | 73 | 1 | latents 0-4 and 15-21 of 22 |
+| 3 s | off | 68 frames (2.83 s) | 90 | 73 | 2 | latents 0-4 and 15-21 of 22 |
+| 4 s | off | 102 frames (4.25 s) | 124 | 90 | 3 | latents 0-4 and 20-26 of 27 |
+| 8 s | off | 187 frames (7.79 s) | 209 | 124 | 6 | latents 0-4 and 30-36 of 37 |
+| 4 s | on | 102 frames (4.25 s) | 124 | 90 | 3 | latents 0-4 and 20-26; audio 0-27 and 113-149 |
+| 8 s | on | 204 frames (8.50 s) | 226 | 141 | 6 | latents 0-4 and 35-41; audio 0-27 and 198-234 |
 
 ## Why the bridge replaces the anchor's return instead of following it
 
@@ -94,15 +97,21 @@ remaining 29 frames (1.2 s, steps under 0.35x the median from frame 73 to the wr
 anchor's closing chunks instead gives the bridge the anchor's own time to come back, `17 (b - 2)`
 frames for a way the anchor made in `17 (b - 2) + 5`.
 
+That run (4 s, Quality) had no hold left, and one ease: the first 4 frames after the wrap moved at
+about half the clip's median (optical flow 0.52x, one step at 0.20x) while the last half second
+before the wrap ran at 1.24x. Those frames were the anchor's own start from the still picture, which
+the loop opened on. Opening on `A1` instead puts moving frames on both sides of the wrap; the bridge
+gets one more free chunk because it now also carries the motion from the picture into `A1`.
+
 ## Presets
 
 - **MiniMax-H3 → Perfect loop** (`modes/loop`): Start picture (optional), What moves (the prompt),
-  Length, Movement (Subtle by default), Resolution, Sound (off by default), speed profile.
+  Length, Movement (Subtle by default), Resolution, Sound (off by default). No speed profile: Steps (24) is on the Advanced tab.
 
 ## Tradeoffs and limitations
 
-- Cost is a window as long as the loop plus one about half as long, plus one extra chunk of decode.
-  At 4 s and 544x960 with a Start picture that is 19,207 and 19,717 tokens.
+- Cost is a window one chunk longer than the loop plus one a little over half as long, plus one extra
+  chunk of decode. At 4 s and 544x960 with a Start picture that is 21,757 and 22,267 tokens.
 - It needs the full step count. At 24 steps the bridge brings the scene back (a measured run: largest
   step 1.8x the median, the wrap 1.6x, no zoom). At 4 steps, shift 12, every model evaluation sees the
   pinned rows at sigma 0.8 or above, the pins are nearly invisible to the model, and the first real
@@ -114,7 +123,7 @@ frames for a way the anchor made in `17 (b - 2) + 5`.
   the picture and solves that with a cut back to its own opening: a visible reset about four fifths
   of the way through.
 - The pins make the seam exact in latent space and in the decoder. Whether the bridge's free middle
-  moves naturally into and out of its pinned ends, at every speed profile, is what a GPU run has to
+  moves naturally into and out of its pinned ends is what a GPU run has to
   show (`tests/manual/h3_perfect_loop_check.py`).
 - The camera has to stay fixed for a loop to close; the mode's prompt asks for that.
 - Not validated on real weights.

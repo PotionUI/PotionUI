@@ -1,0 +1,21 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children: "{{ paths.preset }}/files/form/advanced_sampling_loop.yml"
+
+  - type: "section"
+    label: "Sparse attention"
+    formula: "sparse"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_sparse.yml"
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    formula: "cache"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_step_cache.yml"
+
+  - name: "preview"
+    type: "checkbox"
+    label: "Live preview"
+    default: true

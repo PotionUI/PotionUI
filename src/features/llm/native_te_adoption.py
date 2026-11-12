@@ -60,6 +60,7 @@ from typing import Any, Optional
 
 from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.runtime.model_headers.reader import read_safetensors_header
+from src.platform.runtime.guarded_import import guarded_from
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +397,7 @@ def _qwen3_config_from_state_dict(sd: dict, tied: bool):
     non-shape constants a single file can't carry (rope theta, norm eps, max
     positions). Shapes recovered the same way the native TE loader's
     ``_build_config`` does."""
-    from transformers import Qwen3Config
+    Qwen3Config = guarded_from("transformers", "Qwen3Config")
 
     embed = sd["model.embed_tokens.weight"]
     vocab_size, hidden_size = int(embed.shape[0]), int(embed.shape[1])
@@ -447,7 +448,7 @@ def _gemma3_config_from_state_dict(sd: dict, tied: bool):
     attention pattern on a 1024-token window, and the dual rope (global theta
     1e6 with an 8x long-context linear scale / local theta 1e4 unscaled) —
     see ``_GEMMA3_ROPE_PARAMETERS``."""
-    from transformers import Gemma3TextConfig
+    Gemma3TextConfig = guarded_from("transformers", "Gemma3TextConfig")
 
     embed = sd["model.embed_tokens.weight"]
     vocab_size, hidden_size = int(embed.shape[0]), int(embed.shape[1])
@@ -618,7 +619,7 @@ def _strip_gemma3_multimodal_extras(sd: dict) -> dict:
 
 
 def _load_chat_tokenizer(family: str, resolver: ModelRootResolver):
-    from transformers import AutoTokenizer
+    AutoTokenizer = guarded_from("transformers", "AutoTokenizer")
 
     if family == "gemma3":
         d = gemma3_chat_tokenizer_dir(resolver)
@@ -652,7 +653,7 @@ def build_adopted_te(path: str, resolver: ModelRootResolver) -> tuple[Any, Any, 
     ``ValueError`` for any other family — already gated out of the eligible
     listing, so this is defence in depth."""
     from safetensors.torch import load_file
-    from transformers import AutoModelForCausalLM
+    AutoModelForCausalLM = guarded_from("transformers", "AutoModelForCausalLM")
 
     header = read_safetensors_header(path)
     keys = {k for k in header if k != "__metadata__"}

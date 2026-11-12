@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 
 import torch
+from src.platform.runtime.guarded_import import guarded_from
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +107,7 @@ CLIP_LEN = 77
 
 def _load_tokenizer(subdir: str, cls_name: str):
     """Load a bundled transformers tokenizer fully offline."""
-    import transformers
-
-    cls = getattr(transformers, cls_name)
+    cls = guarded_from("transformers", cls_name)
     path = _ASSETS / subdir
     if not path.is_dir():
         raise FileNotFoundError(f"bundled tokenizer assets missing: {path}")
@@ -473,7 +472,7 @@ class Gemma4Tokenizer:
     """
 
     def __init__(self, tokenizer_json_bytes: bytes) -> None:
-        from tokenizers import Tokenizer
+        Tokenizer = guarded_from("tokenizers", "Tokenizer")
 
         self._tok = Tokenizer.from_str(tokenizer_json_bytes.decode("utf-8"))
         bos_id = self._tok.token_to_id("<bos>")
@@ -499,7 +498,7 @@ MOSS_IMAGE_MAX_TOKENS = 4096
 
 class MossImageTokenizer:
     def __init__(self) -> None:
-        from tokenizers import Tokenizer
+        Tokenizer = guarded_from("tokenizers", "Tokenizer")
 
         path = _ASSETS / "qwen35_tokenizer" / "tokenizer.json"
         if not path.is_file():

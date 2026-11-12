@@ -52,7 +52,7 @@ import from those — the names are identical, so it is purely a matter of taste
 
 | Group | Module | Exports |
 |---|---|---|
-| **Identity** — who is calling, and signing them in | `.identity` | `User`, `AccountType`, `get_current_active_user`, `ApiScope`, `key_access`, `key_scope`, `SESSION_ONLY` (see [API keys on plugin routes](#api-keys-on-plugin-routes)), `get_user` (a user by id, or `None`, for background work that acts as a known user), `register_login_provider`, `unregister_login_provider`, `sign_in_external`, `ExternalSession`, `ExternalLoginError` |
+| **Identity** — who is calling, and signing them in | `.identity` | `User`, `AccountType`, `get_current_active_user`, `ApiScope`, `key_access`, `key_scope`, `SESSION_ONLY` (see [API keys on plugin routes](#api-keys-on-plugin-routes)), `authenticate_websocket` and the deprecated `authenticate_websocket_token` (see [WebSocket authentication](#websocket-authentication)), `get_user` (a user by id, or `None`, for background work that acts as a known user), `register_login_provider`, `unregister_login_provider`, `sign_in_external`, `ExternalSession`, `ExternalLoginError` |
 | **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_app_loop`, `run_on_app_loop`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context`, `is_certificate_error`, `certificate_failure_message`, `HttpMarketplaceProvider`, `register_provider`, `retry_after_from_headers` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
@@ -363,6 +363,23 @@ async def connect(...): ...
 - `SESSION_ONLY` refuses keys on that route whatever else is declared. Use it for anything that manages credentials or keys.
 - A route that depends on `get_current_admin_user` needs a key with `admin` automatically.
 - A key without `admin` sees its owner as a regular user, so an inline `account_type` check refuses it. Keep admin-only logic on `get_current_admin_user` or on that check.
+
+## WebSocket authentication
+
+`authenticate_websocket(websocket)` authenticates a plugin WebSocket by hand, before `accept()`. It reads a single-use `?ticket=` (minted by `POST /api/auth/ws-ticket`, the browser path), an `Authorization: Bearer` header (a session token or an API key), and, for plugins written against v0.1.0, a session token in `?token=`. The order is ticket, header, then `?token=`. A key in `?token=` is always refused. Declare what an API key needs on the route with `key_scope`.
+
+```python
+@ws_router.websocket("/ws/plugins/my-plugin", dependencies=[key_scope(ApiScope.READ)])
+async def endpoint(websocket: WebSocket):
+    user, error = await authenticate_websocket(websocket)
+    if user is None:
+        await websocket.accept()
+        await websocket.close(code=4001, reason=error or "Authentication failed")
+        return
+    await websocket.accept()
+```
+
+`authenticate_websocket_token(token)` is the v0.1.0 helper and keeps its signature and behaviour: it takes the bare session token you read from `?token=` and returns `(user, error)` synchronously. It is deprecated; it never accepts a ticket, a header or an API key. A `?token=` connection logs one deprecation line per process with the token redacted.
 
 ## Login providers
 
@@ -2905,7 +2922,7 @@ before anything is sent.
 | `fetchRaw(path, init?)` | your `init` (`method`, `headers`, `body`, `signal`, plus `timeout` and `onUploadProgress`) | the `Response` itself, for binary bodies and ranges. Never throws on a status |
 | `fetchRawFromApp(path, init?)` | as `fetchRaw`, on an app route taken from the site root (`/api/media/upload`) | as `fetchRaw` |
 | `download(path, filename?)` | `GET` through `fetchRaw`, then saves the body as a file | once the browser has been asked to save it. Throws on an error status |
-| `getToken()` | — | the current token, or `null`. HTTP calls never need it. A WebSocket you open yourself does not take it either: a browser WebSocket cannot send headers, and `?token=` is no longer accepted, so `POST /api/auth/ws-ticket` with `{"path": "/ws/generation"}` and open the socket with the single-use `?ticket=` it returns |
+| `getToken()` | — | the current token, or `null`. HTTP calls never need it. A WebSocket you open yourself can still pass it as `?token=` (deprecated, and a deprecation line is logged once per process); prefer `POST /api/auth/ws-ticket` with `{"path": "/ws/generation"}` and open the socket with the single-use `?ticket=` it returns. An API key is never accepted in the URL |
 
 **Errors.** `get`, `post`, `put`, `delete`, `uploadFile` and `fetchFromApp` do not look at the
 HTTP status: they resolve with the parsed JSON of any response, error responses included, or

@@ -17,6 +17,7 @@ from src.platform.filesystem.model_weights import weights_status
 if TYPE_CHECKING:
     from src.features.downloads import DownloadQueue
     from src.platform.settings.settings import Settings
+from src.platform.runtime.guarded_import import guarded_from
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +158,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             if self._model is not None:
                 return
 
-            from transformers import AutoModel, AutoTokenizer
+            AutoModel, AutoTokenizer = guarded_from("transformers", "AutoModel", "AutoTokenizer")
 
             source: Optional[str] = str(self._local_path()) if self._weights_present() else None
             if source is None:

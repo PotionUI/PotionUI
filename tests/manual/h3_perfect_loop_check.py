@@ -19,7 +19,8 @@ DESCRIPTION = (
     "absolute luma difference between neighbouring frames around the whole period, the wrap included. PASS "
     "when no step is above 2.5x the median and 1.8x the steps four frames away (the VAE's own cadence), which "
     "would be a jump or a reset (with the earlier frame it jumps back to), and "
-    "motion never drops below 0.35x the median for two steps (a stop and restart), and the view never zooms "
+    "motion never drops below 0.35x the median for two steps (a stop and restart) nor below 0.5x on average in "
+    "the half second either side of the wrap (an ease into or out of the seam), and the view never zooms "
     "more than 1 percent against the first frame."
 )
 PRESET = ROOT / "content/presets/marketplace/MiniMax-H3/preset.yml"
@@ -49,6 +50,8 @@ CADENCE = 4
 CADENCE_RATIO = 1.8
 STOP_RATIO = 0.35
 RESET_GAP = 12
+SEAM_WINDOW = 12
+SEAM_MOTION_MIN = 0.5
 
 
 def still_spans(slow: np.ndarray) -> list[dict]:
@@ -92,6 +95,10 @@ def seam_metric(frames: np.ndarray) -> dict:
             "back_to": back_to, "at_wrap": index == count - 1,
         })
     stops = still_spans(cycle < STOP_RATIO * median)
+    scale = median if median else 1.0
+    before_seam = float(cycle[-1 - SEAM_WINDOW: -1].mean() / scale)
+    after_seam = float(cycle[:SEAM_WINDOW].mean() / scale)
+    seam_motion_ok = min(before_seam, after_seam) >= SEAM_MOTION_MIN
     largest = int(np.argmax(steps))
     return {
         "frames": int(frames.shape[0]),
@@ -103,7 +110,10 @@ def seam_metric(frames: np.ndarray) -> dict:
         "seam_over_median": seam / median if median else float("inf"),
         "jumps": jumps,
         "stops": stops,
-        "pass": not jumps and not stops,
+        "before_seam_over_median": before_seam,
+        "after_seam_over_median": after_seam,
+        "seam_motion_ok": seam_motion_ok,
+        "pass": not jumps and not stops and seam_motion_ok,
     }
 
 
@@ -261,6 +271,9 @@ def main() -> int:
         back = f", the picture jumps back to frame {jump['back_to']}" if jump["back_to"] is not None else ""
         where = " (the wrap)" if jump["at_wrap"] else ""
         print(f"jump at frames {jump['frames'][0]}-{jump['frames'][1]}{where}: step {jump['step']:.2f}{back}")
+    print(f"motion in the last / first {SEAM_WINDOW} steps around the wrap, over the median  "
+          f"{report['before_seam_over_median']:.2f} / {report['after_seam_over_median']:.2f} "
+          f"(at least {SEAM_MOTION_MIN})")
     for stop in report["stops"]:
         print(f"motion stops at frame {stop['start']} and the picture holds for {stop['frames']} frames "
               f"({stop['frames'] / fps:.2f} s)")
@@ -268,7 +281,8 @@ def main() -> int:
           f"(limit 1 +/- {ZOOM_LIMIT})")
     print(f"{'PASS' if report['pass'] else 'FAIL'}: no step of the period, the wrap included, jumps above "
           f"{SPIKE_RATIO}x the median and {CADENCE_RATIO}x the steps {CADENCE} frames away, and motion never "
-          f"drops below {STOP_RATIO}x the median for two steps")
+          f"drops below {STOP_RATIO}x the median for two steps nor below {SEAM_MOTION_MIN}x on average in the "
+          f"{SEAM_WINDOW} steps either side of the wrap")
     return 0 if report["pass"] else 1
 
 

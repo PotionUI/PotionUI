@@ -8,8 +8,12 @@
  * Build a WebSocket URL for the given path (e.g. '/ws/generation').
  * Uses the current page host so it works over LAN.
  */
-export function getWsUrl(path: string): string {
+export function getWsUrl(path: string, token?: string | null): string {
 	const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
 	const host = window.location.host; // includes port if non-default
-	return `${protocol}://${host}${path}`;
+	const url = `${protocol}://${host}${path}`;
+	if (token) {
+		return `${url}?token=${encodeURIComponent(token)}`;
+	}
+	return url;
 }

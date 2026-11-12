@@ -300,10 +300,30 @@ class TestHeaderHandshake:
         assert outcome(sockets, "/ws/notifications", world.bearer(secret)) == 4001
 
 
-class TestQueryTokenIsGone:
+class TestQueryTokenStillWorks:
+    @pytest.fixture(autouse=True)
+    def fresh_warning(self, monkeypatch):
+        monkeypatch.setattr(current_user, "_query_token_warned", False)
+
     @pytest.mark.parametrize("path", list(SOCKETS))
-    def test_a_session_token_in_the_query_is_refused(self, world, sockets, path):
-        assert outcome(sockets, f"{path}?token=jwt.root.token") == 4001
+    def test_a_session_token_in_the_query_opens_every_socket(self, world, sockets, path):
+        assert outcome(sockets, f"{path}?token=jwt.root.token") == CONNECTED
+
+    @pytest.mark.parametrize("path", ["/ws/downloads", "/ws/admin"])
+    def test_a_non_admin_session_token_in_the_query_keeps_the_admin_socket_closed(self, world, sockets, path):
+        assert outcome(sockets, f"{path}?token=jwt.alice.token") == 4001
+
+    @pytest.mark.parametrize("path", READ_SOCKETS + ["/ws/automations"])
+    def test_a_non_admin_session_token_in_the_query_opens_the_read_sockets(self, world, sockets, path):
+        assert outcome(sockets, f"{path}?token=jwt.alice.token") == CONNECTED
+
+    @pytest.mark.parametrize("path", list(SOCKETS))
+    def test_a_made_up_token_in_the_query_is_refused(self, sockets, path):
+        assert outcome(sockets, f"{path}?token=nope") == 4001
+
+    @pytest.mark.parametrize("path", list(SOCKETS))
+    def test_an_empty_token_in_the_query_is_refused(self, sockets, path):
+        assert outcome(sockets, f"{path}?token=") == 4001
 
     @pytest.mark.parametrize("path", list(SOCKETS))
     def test_a_key_in_the_query_is_refused(self, world, sockets, path):
@@ -311,15 +331,31 @@ class TestQueryTokenIsGone:
 
         assert outcome(sockets, f"{path}?token={secret}") == 4001
 
-    @pytest.mark.parametrize("path", list(SOCKETS))
-    def test_a_query_token_is_refused_even_beside_a_valid_header(self, world, sockets, path):
-        assert outcome(sockets, f"{path}?token=anything", world.session("root")) == 4001
+    def test_a_key_in_the_query_is_refused_without_a_deprecation_line(self, world, sockets, caplog):
+        _, secret = world.mint(world.root, scopes=("admin",), days=30)
 
-    @pytest.mark.parametrize("path", list(SOCKETS))
-    def test_a_query_token_is_refused_even_beside_a_valid_ticket(self, world, sockets, path):
-        ticket = ticket_for(sockets, path, world.session("root"))
+        outcome(sockets, f"/ws/notifications?token={secret}")
 
-        assert outcome(sockets, f"{path}?ticket={ticket}&token=anything") == 4001
+        assert "Deprecated" not in caplog.text
+
+    def test_the_header_wins_over_a_query_token(self, world, sockets):
+        assert outcome(sockets, "/ws/notifications?token=nope", world.session("root")) == CONNECTED
+
+    def test_a_ticket_wins_over_a_query_token(self, world, sockets):
+        ticket = ticket_for(sockets, "/ws/notifications", world.session("root"))
+
+        assert outcome(sockets, f"/ws/notifications?ticket={ticket}&token=nope") == CONNECTED
+
+    def test_the_deprecation_is_logged_once_per_process_with_the_token_redacted(self, world, sockets, caplog):
+        with caplog.at_level("WARNING"):
+            outcome(sockets, "/ws/notifications?token=jwt.root.token")
+            outcome(sockets, "/ws/generation?token=jwt.root.token")
+            outcome(sockets, "/ws/system?token=jwt.root.token")
+
+        lines = [r.getMessage() for r in caplog.records if "Deprecated" in r.getMessage()]
+        assert len(lines) == 1
+        assert "jwt.root.token" not in caplog.text
+        assert "token=***" in lines[0]
 
 
 def wait_for_close(ws, seconds):

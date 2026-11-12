@@ -1,0 +1,13 @@
+fields:
+  - name: "start_image"
+    type: "image"
+    label: "Start picture"
+    required: true
+    description: "The first frame of the video."
+    ai_hint: "The picture the video opens on; its look, subject and framing are carried into the motion. The prompt then says what happens, not what the picture already shows."
+  - name: "end_image"
+    type: "image"
+    label: "End picture"
+    required: true
+    description: "The last frame of the video."
+    ai_hint: "The picture the video arrives at. The model invents the motion between the start and end pictures, so the prompt should describe that path, never re-describe either picture."

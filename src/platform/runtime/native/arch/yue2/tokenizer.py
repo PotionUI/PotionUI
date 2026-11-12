@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import unicodedata
 from pathlib import Path
+from src.platform.runtime.guarded_import import guarded_from
 
 _ASSET_PATH = Path(__file__).resolve().parents[2] / "text_encoders" / "assets" / "qwen3_tokenizer"
 
@@ -33,7 +34,7 @@ class YuE2Tokenizer:
     special_ids = SPECIAL_IDS
 
     def __init__(self) -> None:
-        from transformers import Qwen2Tokenizer
+        Qwen2Tokenizer = guarded_from("transformers", "Qwen2Tokenizer")
 
         self._tok = Qwen2Tokenizer.from_pretrained(str(_ASSET_PATH), local_files_only=True)
 

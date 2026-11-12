@@ -114,6 +114,7 @@ vars:
   fps: 24
   default_frames: 124
   optional_prompt_modes: ["talk", "upscale", "motion_transfer"]
+  retired_modes: { long: video }
   motion_identity: "first_frame"
 
   prompt:

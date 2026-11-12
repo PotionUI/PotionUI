@@ -270,7 +270,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         try:
             run = runner.create_run(
                 recipe.id,
-                recipe_version=recipe.version,
+                recipe_version=body.recipe_version or recipe.version,
                 mode=MODE_ADMIN,
                 safe_input={PRESELECT_KEY: list(body.preselect_modes)} if body.preselect_modes else None,
                 created_by=current_user.id,

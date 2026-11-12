@@ -49,12 +49,12 @@ def test_the_loop_mode_is_listed_and_named_for_a_person(h3_template):
     assert "Perfect loop mode" in h3_template.llm["modes"]["loop"]["guide"]
 
 
-def test_defaults_make_a_silent_subtle_six_second_desktop_loop(h3_template):
+def test_defaults_make_a_silent_subtle_four_second_desktop_loop(h3_template):
     pipes = _pipes(h3_template)
     generator = _pipe(pipes, "generator")["config"]
 
     assert generator["loop"] is True
-    assert generator["frames"] == 144
+    assert generator["frames"] == 96
     assert generator["audio_source"] == "none"
     assert generator["resolution"] == "1344x768"
     assert generator["keyframe_anchors"] == []
@@ -220,3 +220,22 @@ def test_the_gpu_check_measures_a_picture_that_arrives_early_and_holds_until_the
     assert not report["pass"]
     assert report["stops"] == [{"start": 73, "frames": 29}]
     assert not report["jumps"]
+
+
+def test_the_gpu_check_reports_motion_either_side_of_the_wrap_and_fails_an_ease_into_the_seam():
+    import numpy as np
+
+    from tests.manual.h3_perfect_loop_check import seam_metric
+
+    steady = np.full(80, 4.0)
+    signs = np.where(np.arange(80) < 40, 1, -1)
+    report = seam_metric(_clip(40 + np.cumsum(steady * signs) - (steady * signs)[0]))
+    assert report["pass"]
+    assert report["before_seam_over_median"] == pytest.approx(1.0, abs=0.15)
+    assert report["after_seam_over_median"] == pytest.approx(1.0, abs=0.15)
+
+    easing = np.where(np.arange(80) < 68, 4.0, 1.0)
+    path = np.cumsum(easing * signs)
+    report = seam_metric(_clip(40 + path - path.min()))
+    assert report["before_seam_over_median"] < 0.5
+    assert not report["seam_motion_ok"] and not report["pass"]

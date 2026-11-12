@@ -27,12 +27,14 @@ class PresetNotFoundException(PresetException):
 class ModeNotFoundException(PresetException):
     """Raised when a mode is not found in a preset."""
 
-    def __init__(self, preset_id: str, mode: str, available_modes: list = None):
+    def __init__(self, preset_id: str, mode: str, available_modes: list = None, replaced_by: str = None):
         self.preset_id = preset_id
         self.mode = mode
         self.available_modes = available_modes or []
+        self.replaced_by = replaced_by
         modes_str = f" Available modes: {available_modes}" if available_modes else ""
-        super().__init__(f"Mode '{mode}' not found in preset '{preset_id}'.{modes_str}")
+        replaced_str = f" Mode '{mode}' was replaced by '{replaced_by}'." if replaced_by else ""
+        super().__init__(f"Mode '{mode}' not found in preset '{preset_id}'.{modes_str}{replaced_str}")
 
 
 class NoModesAvailableException(PresetException):

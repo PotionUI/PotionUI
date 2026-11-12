@@ -508,7 +508,7 @@ describe('link sanitization', () => {
 	// Descriptions are editable by any authenticated user and rendered with {@html},
 	// so a link target is untrusted input. The entity pass only escapes `< > &`.
 	it('escapes a quote that would close the href and inject an attribute', () => {
-		const html = processMarkdown('[click](" onmouseover="alert(1))');
+		const html = processMarkdown('[click](https://a.example/" onmouseover="alert(1))');
 		const tag = html.match(/<a\b[^>]*>/)?.[0] ?? '';
 		const attrs = [...tag.matchAll(/\s([a-zA-Z-]+)=/g)].map((m) => m[1]);
 

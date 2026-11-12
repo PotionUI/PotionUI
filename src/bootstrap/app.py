@@ -28,6 +28,7 @@ from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
 from src.features.generation.memory_advisory import resolve_device_evidence
 from src.features.providers.registry import ensure_providers_discovered
+from src.platform.runtime.guarded_import import warm_up_heavy_imports
 from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_damage
 from src.platform.runtime.offload.pool import shutdown_offload
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
@@ -353,6 +354,22 @@ def warm_up(container: AppContainer, ready: threading.Event) -> None:
         ready.set()
 
 
+def start_import_warm_up(app: FastAPI) -> asyncio.Task:
+    task = asyncio.create_task(asyncio.to_thread(warm_up_heavy_imports))
+    app.state.import_warm_up_task = task
+    return task
+
+
+async def stop_import_warm_up(app: FastAPI) -> None:
+    task = getattr(app.state, "import_warm_up_task", None)
+    if task is None:
+        return
+    if not task.done():
+        task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    app.state.import_warm_up_task = None
+
+
 def start_warm_up(app: FastAPI, container: AppContainer, ready: threading.Event) -> asyncio.Task:
     task = asyncio.create_task(asyncio.to_thread(warm_up, container, ready))
     app.state.warm_up_task = task
@@ -418,6 +435,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         from src.bootstrap.middleware import DEBUG_MODE
         from src.platform.database.database import Database
         logging.info("Starting PotionUI API server...")
+        start_import_warm_up(app)
         logging.info(f"DEBUG mode: {'ENABLED' if DEBUG_MODE else 'DISABLED'} (set DEBUG=true to enable verbose logging)")
         # Note: Migrations are run synchronously before app creation (see run_migrations_sync())
 
@@ -538,6 +556,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         await asyncio.to_thread(container.model_index_manager.indexing.shutdown)
         await asyncio.to_thread(container.model_index_manager.digests.stop)
         await stop_warm_up(app)
+        await stop_import_warm_up(app)
         await asyncio.to_thread(container.media_tool_service.shutdown)
         await container.housekeeping_worker.stop()
         container.organize_worker.stop()

@@ -17,6 +17,7 @@ from src.pipelines.contracts import (
     PipeOutputSpec,
     PipeConfigSpec,
 )
+from src.platform.runtime.guarded_import import guarded_from
 
 
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -86,7 +87,7 @@ class ControlNetLoaderSDXLPipe(BasePipe):
     def _load_controlnet(self, file_path: str, controlnet_config: Dict[str, Any]) -> Any:
         """Load a single ControlNet model"""
         try:
-            from diffusers import ControlNetModel
+            ControlNetModel = guarded_from("diffusers", "ControlNetModel")
 
             controlnet_name = controlnet_config.get('name', Path(file_path).stem)
             controlnet_type = controlnet_config.get('type', 'unknown')

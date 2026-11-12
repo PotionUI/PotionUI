@@ -22,6 +22,7 @@ from src.platform.runtime.device import log_memory_usage
 from src.pipelines.pipes.checkpoint_loader.sdxl.model_type_detector import SDXLModelTypeDetector, SDXLModelTypeInfo
 from src.pipelines.pipes.checkpoint_loader.sdxl.memory_strategy import apply_to_pipeline
 from src.platform.runtime.model_lifecycle.memory_policy import MemoryPolicy
+from src.platform.runtime.guarded_import import guarded_from
 
 # Vendored diffusers-format pipeline config (model_index.json + per-component
 # config.json + CLIP tokenizer vocab) for stabilityai/stable-diffusion-xl-base-1.0.
@@ -510,7 +511,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
             force_reload: Whether to force reload the pipeline
         """
         try:
-            from diffusers import MultiControlNetModel
+            MultiControlNetModel = guarded_from("diffusers", "MultiControlNetModel")
         except ImportError:
             raise ValueError("[MODEL][SDXL] ControlNet support requires standard diffusers library")
 

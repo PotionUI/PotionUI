@@ -9,6 +9,7 @@ import torch
 
 from src.platform.runtime.primitives.clip import ClipTextEncoder, ConditioningModel
 from src.pipelines.models import BaseModel
+from src.platform.runtime.guarded_import import guarded_from
 
 if TYPE_CHECKING:
     from transformers import CLIPTokenizer
@@ -334,7 +335,7 @@ class SDXLClipTextEncoder(ClipTextEncoder):
             self._load_textual_inversion_embeddings(embedding_files)
 
         # 2) Handle textual inversion conversion if needed
-        from diffusers.loaders import TextualInversionLoaderMixin
+        TextualInversionLoaderMixin = guarded_from("diffusers.loaders", "TextualInversionLoaderMixin")
 
         if isinstance(self.pipe, TextualInversionLoaderMixin):
             prompt = self.pipe.maybe_convert_prompt(prompt, self.tokenizer)

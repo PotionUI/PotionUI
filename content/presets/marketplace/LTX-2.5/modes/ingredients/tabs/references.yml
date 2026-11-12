@@ -1,0 +1,22 @@
+fields:
+  - name: "pictures"
+    type: "image"
+    label: "Pictures"
+    description: "Characters and props to keep in the video, one per picture. Name each one if you like."
+    configuration:
+      multi: true
+      max_items: 6
+    ai_hint: "Up to 6 pictures of characters and props, each laid out in its own panel of one reference sheet. Fewer pictures get bigger panels, and bigger panels carry over more faithfully. Use one clean subject per picture on a plain background; cluttered pictures make identities drift. Only what is on the sheet can appear in the video. An item's label names what it shows and is used to write the sheet description. Give either Pictures or a Reference sheet, not both."
+
+  - name: "reference_sheet"
+    type: "image"
+    label: "Reference sheet"
+    description: "Already have a sheet of panels? Use it here instead of Pictures."
+    ai_hint: "One ready-made reference sheet: a single picture with a panel per character or prop. It is fitted to the video size without stretching and is not rearranged. Give either Pictures or a Reference sheet, not both."
+
+  - name: "effect_strength"
+    type: "slider"
+    label: "Strength"
+    default: 1.0
+    description: "The Ingredients LoRA is already scaled for 1.0."
+    configuration: {min: 0.5, max: 1.5, step: 0.05}

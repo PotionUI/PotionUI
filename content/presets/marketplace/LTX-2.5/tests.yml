@@ -107,6 +107,27 @@ cases:
       min_outputs: 1
       not_black: true
 
+  - name: "ltx25-ingredients-fast"
+    mode: "ingredients"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      speed_profile: "distilled"
+      duration: 5
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      effect_lora:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
   - name: "ltx25-transparent-video-fast"
     mode: "transparent_video"
     kind: "video"

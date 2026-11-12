@@ -1,0 +1,149 @@
+pipeline:
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      auto_detect_type: true
+      media:
+        "@loop":
+          items: "{{ (form.pictures | default([], true)) + ([form.reference_sheet] if form.reference_sheet else []) }}"
+          template:
+            type: "image"
+            path: "{{ item.path | default(item) }}"
+
+  - name: "image_sheet"
+    id: "image_sheet"
+    input:
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      resolution: "{{ form.resolution }}"
+      pictures: "{{ (form.pictures | default([], true)) | length }}"
+
+  - name: "model_loader/ltx"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/ltx", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: &caption "{% set pictures = form.pictures | default([], true) %}{% set count = pictures | length %}{% set names = pictures | selectattr('label', 'defined') | map(attribute='label') | select | list %}{% set described = '' %}{% if not described %}{% if count and names | length == count %}{% set described = ['', 'one panel showing ', 'two panels showing ', 'three panels showing ', 'four panels showing ', 'five panels showing ', 'six panels showing '][count] ~ ((names[:-1] | join(', ') ~ ' and ' ~ names[-1]) if count > 1 else names[0]) %}{% elif count == 1 %}{% set described = 'one panel showing a character or a prop' %}{% elif count %}{% set described = ['', '', 'two', 'three', 'four', 'five', 'six'][count] ~ ' panels, each showing a character or a prop' %}{% else %}{% set described = 'a sheet of panels, each showing a character or a prop' %}{% endif %}{% endif %}{% set action = ((item.positive if item is defined else generation.prompts.first.positive) or '').strip() %}{% if action[:16] | lower == 'reference sheet:' %}{{ action }}{% else %}Reference sheet: {{ described }}. Generated video: {{ action }}{% endif %}"
+        output: *caption
+      n_prompt:
+        input: &negative "{{ (item.negative if item is defined else generation.prompts.first.negative) | text_or('worst quality, inconsistent motion, blurry, jittery, distorted') }}"
+        output: *negative
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *caption
+            negative: *negative
+      quantity: "{{ form.quantity }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.effect_lora }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
+        - ["strength", "{{ form.effect_strength }}"]
+        - ["resolution", "{{ form.resolution }}"]
+
+  - name: "generator/video_ltx"
+    id: "generator"
+    input:
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "image_sheet", "image"]
+    enabled: true
+    configuration:
+      quantity: "{{ form.quantity }}"
+      decode: true
+      audio: false
+      resolution: "{{ form.resolution }}"
+      frames: "{{ ((form.duration * 3) | round | int) * 8 + 1 }}"
+      fps: 24.0
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile == 'distilled') else ('' if (form.speed_profile == 'quality') else (form.manual_sigmas)) }}"
+      quality_mode: "{{ (form.speed_profile) == 'quality' }}"
+      quality_cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      quality_stg: "{{ preset.vars.quality_stg }}"
+      quality_rescale: "{{ preset.vars.quality_rescale }}"
+      quality_modality: "{{ preset.vars.quality_modality }}"
+      quality_stg_blocks: "{{ preset.vars.quality_stg_blocks }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
+      media_placements:
+        - { source: "image", index: 0, frame: "first", strength: 1.0, role: "reference", hold: true }
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
+      scoped_loras:
+        - file_path: "{{ form.effect_lora }}"
+          weight: "{{ form.effect_strength }}"
+
+  - name: "gallery"
+    input:
+      - ["video", "generator", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

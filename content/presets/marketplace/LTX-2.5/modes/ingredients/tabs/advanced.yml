@@ -1,0 +1,17 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      file: "{{ paths.preset }}/files/form/sampling.yml"
+      vars: {steps: 8, cfg: 1.0, quality_cfg: 3.0}
+
+  - type: "section"
+    label: "Sigma schedule"
+    children: "{{ paths.preset }}/files/form/manual_sigmas.yml"
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    formula: "cache"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/step_cache.yml"

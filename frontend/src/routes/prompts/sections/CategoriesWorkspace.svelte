@@ -478,7 +478,7 @@
 	onClose={clearSelection}
 	feedback={null}
 >
-	<svelte:fragment slot="actionsAfterCollection">
+	<svelte:fragment slot="pinnedActions">
 		<button
 			type="button"
 			class="flex items-center gap-2 rounded bg-danger-solid px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-danger-solid/90"

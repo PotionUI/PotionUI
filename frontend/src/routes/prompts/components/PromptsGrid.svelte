@@ -197,6 +197,8 @@
 				Export
 			</button>
 		</Tooltip>
+	</svelte:fragment>
+	<svelte:fragment slot="pinnedActions">
 		<button
 			class="flex items-center gap-2 rounded bg-danger-solid px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-danger-solid/90"
 			onclick={onBulkDelete}

@@ -1096,7 +1096,7 @@
 				onClearSelection={() => (selectedAttributeIds = clearAll())}
 				onClose={() => (selectedAttributeIds = clearAll())}
 			>
-				<svelte:fragment slot="actionsBeforeCollection">
+				<svelte:fragment slot="pinnedActions">
 					<Tooltip text={selectionHasBuiltIn(definitions, selectedAttributeIds) ? 'Built-in attributes in this selection can’t be deleted' : 'Delete'}>
 						<button
 							class="px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium disabled:opacity-50"

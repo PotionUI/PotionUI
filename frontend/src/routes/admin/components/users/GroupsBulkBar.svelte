@@ -65,7 +65,7 @@
 	onClearSelection={() => (selected = clearAll())}
 	onClose={() => (selected = clearAll())}
 >
-	<svelte:fragment slot="actionsBeforeCollection">
+	<svelte:fragment slot="pinnedActions">
 		<button
 			class="px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium"
 			onclick={bulkDelete}

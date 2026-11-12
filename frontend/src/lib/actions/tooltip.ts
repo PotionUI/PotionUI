@@ -69,6 +69,8 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 		queueMicrotask(mountBubble);
 	}
 
+	node.setAttribute('data-has-tooltip', '');
+
 	const unwatch = watchTooltipTrigger(node, {
 		delay: () => options.delay ?? 200,
 		open: reveal,
@@ -86,6 +88,7 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 		destroy() {
 			unwatch();
 			hide();
+			node.removeAttribute('data-has-tooltip');
 		}
 	};
 }

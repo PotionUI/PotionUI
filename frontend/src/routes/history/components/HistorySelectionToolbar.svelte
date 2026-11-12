@@ -153,7 +153,9 @@
 			onPick={(tool) => onToolSelect(tool, toolContext)}
 		/>
 
-		<!-- Delete Button -->
+	</svelte:fragment>
+
+	<svelte:fragment slot="pinnedActions">
 		<button
 			class="whitespace-nowrap px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium"
 			on:click={onBulkDeleteClick}

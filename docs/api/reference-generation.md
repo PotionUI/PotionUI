@@ -1268,6 +1268,22 @@ Response `200`: the standard envelope (`success`, `data`, `message`, `error`). T
 
 ## Sessions
 
+### GET /api/sessions
+
+**List Sessions**
+
+List the caller's sessions across presets.
+
+Key permission: `read`.
+
+Query parameters:
+
+- `preset_id` (string, optional)
+- `name` (string, optional)
+- `q` (string, optional)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ### GET /api/sessions/preset/{preset_id}
 
 **Get Sessions for Preset**
@@ -1349,6 +1365,30 @@ Path parameters:
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
+### POST /api/sessions/{session_id}/generate
+
+**Generate From A Session**
+
+Start a generation from a saved session, sending only what changes.
+
+Key permission: `generate`.
+
+Path parameters:
+
+- `session_id` (string, required)
+
+JSON body, `GenerateFromSessionRequest`:
+
+- `mode` (string, optional)
+- `overrides` (SessionOverrides, optional)
+- `if_settings_hash` (string, optional)
+- `idempotency_key` (string, optional, 1 to 200 characters)
+- `tag_ids` (array of string, optional)
+- `collection_ids` (array of string, optional)
+- `dry_run` (boolean, optional, default false)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ### PUT /api/sessions/{session_id}/pin
 
 **Pin or Unpin Session**
@@ -1362,6 +1402,24 @@ Path parameters:
 JSON body, `PinSessionRequest`:
 
 - `pinned` (boolean, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### GET /api/sessions/{session_id}/request
+
+**Describe What A Session Accepts**
+
+Machine-readable template: the fields a script may change and the request they resolve to.
+
+Key permission: `read`.
+
+Path parameters:
+
+- `session_id` (string, required)
+
+Query parameters:
+
+- `mode` (string, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 

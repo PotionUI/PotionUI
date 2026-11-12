@@ -23,11 +23,11 @@ Your instance serves interactive documentation of its own routes on the backend 
 
 ## Pages
 
-714 routes in total.
+717 routes in total.
 
 | Page | Routes | What is in it |
 | --- | --- | --- |
-| Reference: Generation and media | 94 | Starting, following, cancelling and fetching generations, uploads and media files, saved sessions and media tools. |
+| Reference: Generation and media | 97 | Starting, following, cancelling and fetching generations, uploads and media files, saved sessions and media tools. |
 | Reference: Presets, forms and models | 49 | What can be generated with: presets and their forms, models, backends and downloads. |
 | Reference: History, library and prompts | 171 | Your own content: the library, kits, collections, tags, saved prompts and segments, phrasebook and workspaces. |
 | Reference: Account, keys and MCP | 15 | Signing in, API keys, MCP and users. |

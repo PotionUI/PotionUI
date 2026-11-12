@@ -8,7 +8,7 @@ foreach ($item in $template.data.fields) {
     Write-Output "$($item.name)  $($item.type)  $($item.value)"
 }
 
-$body = '{"overrides": {"prompt": "a glass potion bottle on a shelf", "count": 1}}'
+$body = '{"overrides": {"prompt": "a glass potion bottle on a shelf", "seed": -1}}'
 $started = Invoke-RestMethod -Method Post -Uri "$base/api/sessions/$session/generate" -Headers $headers -ContentType "application/json" -Body $body
 $id = $started.data.generation_id
 

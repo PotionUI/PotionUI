@@ -22,7 +22,7 @@ $headers = @{ Authorization = "Bearer $($env:POTIONUI_KEY)" }
 
 ## The whole script
 
-This script prints the fields the session lets you change, generates from it with a new prompt and one image, waits for the result and saves it. Put the session id in `POTIONUI_SESSION`.
+This script prints the fields the session lets you change, generates from it with a new prompt and a new seed, waits for the result and saves it. Put the session id in `POTIONUI_SESSION`.
 
 `examples/generate_from_session.sh`
 ```bash
@@ -37,7 +37,7 @@ curl -sS --fail-with-body "$BASE/api/sessions/$POTIONUI_SESSION/request" \
 STARTED=$(curl -sS --fail-with-body -X POST "$BASE/api/sessions/$POTIONUI_SESSION/generate" \
   -H "Authorization: Bearer $POTIONUI_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"overrides": {"prompt": "a glass potion bottle on a shelf", "count": 1}}')
+  -d '{"overrides": {"prompt": "a glass potion bottle on a shelf", "seed": -1}}')
 ID=$(echo "$STARTED" | jq -r '.data.generation_id')
 
 while true; do
@@ -71,7 +71,7 @@ foreach ($item in $template.data.fields) {
     Write-Output "$($item.name)  $($item.type)  $($item.value)"
 }
 
-$body = '{"overrides": {"prompt": "a glass potion bottle on a shelf", "count": 1}}'
+$body = '{"overrides": {"prompt": "a glass potion bottle on a shelf", "seed": -1}}'
 $started = Invoke-RestMethod -Method Post -Uri "$base/api/sessions/$session/generate" -Headers $headers -ContentType "application/json" -Body $body
 $id = $started.data.generation_id
 
@@ -112,7 +112,7 @@ for item in template.json()["data"]["fields"]:
 
 started = client.post(
     f"/api/sessions/{session_id}/generate",
-    json={"overrides": {"prompt": "a glass potion bottle on a shelf", "count": 1}},
+    json={"overrides": {"prompt": "a glass potion bottle on a shelf", "seed": -1}},
 )
 started.raise_for_status()
 generation_id = started.json()["data"]["generation_id"]
@@ -203,7 +203,7 @@ Invoke-RestMethod -Uri "$base/api/sessions/SESSION_ID/request" -Headers $headers
 }
 ```
 
-- `fields` is the session's form, flattened. `kind` is `value`, `media` or `model`. A field the administrator locked has `locked: true` and no `value`.
+- `fields` is the session's form, flattened. `kind` is `value`, `media` or `model`. A field the administrator locked has `locked: true` and no `value` or `default`; fields the administrator hid are not listed, and neither their values nor any hidden text appears in any answer.
 - `shortcuts` names the form fields that `seed` and `count` set (`null` when the form has none).
 - `problems` lists what would stop a generation, with a `200` answer: `session_preset_unavailable`, `preset_not_found`, `session_model_unavailable`, `input_missing`, `field_locked`, `mode_not_available`, `no_prompt`.
 - `resolved_request` is the request the session resolves to, ready for `POST /api/generations/start`. Shuffled choices and variables are drawn again on each call, like a click on Generate. Sending it to `/start` makes a frozen copy that no longer depends on the session.
@@ -230,8 +230,8 @@ Invoke-RestMethod -Method Post -Uri "$base/api/sessions/SESSION_ID/generate" -He
 | `negative_prompt` | Replaces the negative side. |
 | `prompts` | A batch: `[{"positive": "...", "negative": "..."}]`, up to 20. Cannot be combined with `prompt`. More than one needs a preset that supports batches. |
 | `variables` | Values for variables the session defines, as `{name: template}`. |
-| `seed` | Sets the form's seed field; `-1` picks a new seed. |
-| `count` | Sets the form's quantity field. |
+| `seed` | Sets the form's seed field; `-1` picks a new seed. Refused with `seed_not_supported` when the form has none. |
+| `count` | Sets the form's `quantity` field. A form whose count field has another name (see `shortcuts` in the template) refuses it with `count_not_supported`; set that field through `form` instead. |
 | `form` | Any field of the session's form, by name, applied after `seed` and `count` and checked like `/start` checks a form. |
 
 Other keys of the body: `mode`, `if_settings_hash` (see below), `idempotency_key`, `tag_ids`, `collection_ids` and `dry_run`. You cannot override the preset, the form variant, the layout or a Director document.
@@ -275,6 +275,7 @@ Errors of the session routes, in the usual `{"detail": {"success": false, "error
 | 400 | `mode_required` | `modes` |
 | 404 | `session_not_found`, `preset_not_found` | |
 | 404 | `session_mode_not_found` | `modes` |
+| 503 | `storage_unavailable` | Your storage location could not be resolved, so input files cannot be checked; try again later |
 | 403 | `session_preset_unavailable` | `preset_id`, `preset_name` |
 | 403 | `session_model_unavailable` | `models`: a list of `field`, `model_id`, `name` |
 | 403 | `insufficient_scope` | The `WWW-Authenticate` header names the permission |
@@ -290,4 +291,4 @@ Errors that `/api/generations/start` can give, such as `model_not_found`, `idemp
 
 ## From an MCP assistant
 
-The same session can be used from MCP. The `list_sessions` tool lists your sessions, or describes one when you give its `session_id`. The `start_generation` tool takes `session_id` instead of `preset_id`, together with `prompt`, `seed`, `count`, `variables` and `form_overrides` (the `form` override); the two ids cannot be combined. `start_generation` spends, so it stays off until you allow it in your MCP tool settings. A refusal comes back as a tool error with the same text as the `message` above.
+The same session can be used from MCP. The `list_sessions` tool lists your sessions, or describes one when you give its `session_id`. The `start_generation` tool takes `session_id` instead of `preset_id`, together with `prompt`, `seed`, `count`, `variables` and `form_overrides` (the `form` override); the two ids cannot be combined. Giving both ids is refused with `conflicting_arguments`. `start_generation` spends, so it stays off until you allow it in your MCP tool settings. A refusal comes back as a tool error with the same text as the `message` above.

@@ -9,7 +9,7 @@ curl -sS --fail-with-body "$BASE/api/sessions/$POTIONUI_SESSION/request" \
 STARTED=$(curl -sS --fail-with-body -X POST "$BASE/api/sessions/$POTIONUI_SESSION/generate" \
   -H "Authorization: Bearer $POTIONUI_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"overrides": {"prompt": "a glass potion bottle on a shelf", "count": 1}}')
+  -d '{"overrides": {"prompt": "a glass potion bottle on a shelf", "seed": -1}}')
 ID=$(echo "$STARTED" | jq -r '.data.generation_id')
 
 while true; do

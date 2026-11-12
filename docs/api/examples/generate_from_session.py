@@ -18,7 +18,7 @@ for item in template.json()["data"]["fields"]:
 
 started = client.post(
     f"/api/sessions/{session_id}/generate",
-    json={"overrides": {"prompt": "a glass potion bottle on a shelf", "count": 1}},
+    json={"overrides": {"prompt": "a glass potion bottle on a shelf", "seed": -1}},
 )
 started.raise_for_status()
 generation_id = started.json()["data"]["generation_id"]

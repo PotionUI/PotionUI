@@ -8,10 +8,17 @@ from src.platform.observability import profiling
 from src.platform.runtime import cuda_allocator
 from src.platform.runtime.native import engine as engine_mod
 from src.platform.runtime.native.engine import NativeGenerator, NativeModel, TextEncoderStreaming
+from src.platform.runtime.native.errors import HostMemoryExhaustedError
 from src.platform.runtime.native.memory import residency
 from src.platform.runtime.native.memory.device_plan import DevicePlan
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
-from src.platform.runtime.native.memory.residency import get_residency_registry, module_size_gb, run_text_encode
+from src.platform.runtime.native.memory.residency import (
+    TextEncodeWorkingMemoryError,
+    get_residency_registry,
+    module_size_gb,
+    run_text_encode,
+    run_text_encode_batch,
+)
 from src.platform.runtime.native.memory.text_encoder import (
     configure_text_encoder_placement,
     reset_text_encoder_placement,
@@ -318,6 +325,226 @@ def test_pipe_path_tears_down_when_the_encode_itself_fails(monkeypatch, fake_str
     with pytest.raises(RuntimeError, match="encode failed"):
         run_text_encode(encoder, _DEV, boom)
     assert fake_streaming[-1] == ("stream.teardown",)
+
+
+def _encode_needing(encoder, working_gb: float):
+    return run_text_encode_batch(
+        encoder, _DEV, [lambda: encoder.encode(["prompt"])],
+        working_gb_for=lambda _encoder, _misses: working_gb,
+    )
+
+
+def _driver_oom_is_fatal(monkeypatch, fatal: bool, host_room_gb: float | None = 60.0):
+    monkeypatch.setattr(residency, "driver_oom_retries", lambda: not fatal)
+    monkeypatch.setattr(residency, "_host_room_gb", lambda: host_room_gb)
+
+
+def _streamed_room(encoder, available: float) -> float:
+    return available - text_encoder_footprint(encoder).dequant_peak_gb - residency._fixed_gb(encoder)
+
+
+def test_pipe_path_streams_more_of_the_te_to_leave_room_for_the_requests_working_memory(monkeypatch, fake_streaming):
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+    budget = round(_h3_budget(10.0) + 1.0 - residency.te_working_need_gb(2.5), 3)
+
+    _encode_needing(encoder, 2.5)
+
+    assert [e for e in log if e[0] != "note_offloaded"] == [
+        ("stream.apply", _DEV, budget),
+        ("encode", "cpu"),
+        ("stream.teardown",),
+        ("mark", "streamed", pytest.approx(budget, abs=1e-3)),
+    ]
+
+
+def test_pipe_path_keeps_the_historical_budget_when_the_working_memory_fits_the_reserve(monkeypatch, fake_streaming):
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    _encode_needing(encoder, 0.6)
+
+    assert ("stream.apply", _DEV, _h3_budget(10.0)) in log
+
+
+def test_pipe_path_where_a_driver_oom_is_fatal_encodes_on_the_cpu_what_cannot_fit_even_fully_streamed(monkeypatch, fake_streaming, caplog):
+    _driver_oom_is_fatal(monkeypatch, True)
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+    working = _streamed_room(encoder, 10.0)
+
+    with caplog.at_level("WARNING"):
+        out = _encode_needing(encoder, working)
+
+    assert out[0]["context"].shape == (1, 4, 8)
+    assert [e for e in log if e[0] != "note_offloaded"] == [("mark", "cpu-fallback", None), ("encode", "cpu")]
+    assert "encoding on the CPU instead" in caplog.text
+    assert cuda_allocator.allocator_damage() is None
+
+
+def test_pipe_path_counts_the_weights_that_stay_on_the_card_even_fully_streamed(monkeypatch, fake_streaming):
+    _driver_oom_is_fatal(monkeypatch, True)
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+    fixed = residency._fixed_gb(encoder)
+    assert fixed > 0.5
+    target = _streamed_room(encoder, 10.0) + fixed / 2
+    working = (-residency._TE_FRAGMENTATION_BASE + (residency._TE_FRAGMENTATION_BASE ** 2
+               + 4 * residency._TE_FRAGMENTATION_PER_GB * target) ** 0.5) / (2 * residency._TE_FRAGMENTATION_PER_GB)
+    assert residency.te_working_need_gb(working) == pytest.approx(target)
+
+    _encode_needing(encoder, working)
+
+    assert not [e for e in log if e[0].startswith("stream.")]
+    assert ("mark", "cpu-fallback", None) in log
+
+
+def test_pipe_path_refuses_before_any_encode_what_neither_the_card_nor_the_ram_can_hold(monkeypatch, fake_streaming):
+    _driver_oom_is_fatal(monkeypatch, True, host_room_gb=20.0)
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    with pytest.raises(TextEncodeWorkingMemoryError, match="RAM left") as refused:
+        _encode_needing(encoder, 40.0)
+
+    assert isinstance(refused.value, HostMemoryExhaustedError)
+    assert refused.value.room_gb == 20.0
+    assert refused.value.working_gb == 40.0
+    assert not [e for e in log if e[0].startswith("stream.") or e[0] in ("encode", "encoder.to")]
+
+
+def _cpu_encode_of_a_resident_te(monkeypatch, log, *, host_room_gb, working_gb, roomier_after_eviction=None):
+    encoder = minimax_h3_te(log)
+    rooms = [host_room_gb, roomier_after_eviction if roomier_after_eviction is not None else host_room_gb]
+    made_room = []
+    monkeypatch.setattr(residency, "encoder_gb_on_device", lambda _encoder, _device: 25.4)
+    monkeypatch.setattr(residency, "_host_room_gb", lambda: rooms[min(len(made_room), 1)])
+    monkeypatch.setattr(residency, "_make_room_in_ram", lambda needed_gb: made_room.append(needed_gb))
+    registry = get_residency_registry()
+    monkeypatch.setattr(registry, "note_offloaded", lambda model: log.append(("note_offloaded", type(model).__name__)))
+    monkeypatch.setattr(residency.torch.cuda, "empty_cache", lambda: None)
+    monkeypatch.setattr(profiling, "get_profiler", lambda: _Recorder(log))
+    out = residency._encode_on_cpu_instead(
+        encoder, _DEV, lambda: encoder.encode(["prompt"]), working_gb,
+        size_gb=25.4, free_gb=20.0, needed_gb=40.0, count_fields={"count": 1},
+    )
+    return out, made_room, encoder
+
+
+def test_a_cpu_encode_brings_a_te_left_on_the_card_back_to_the_cpu_first(monkeypatch):
+    log: list = []
+
+    _out, _made_room, encoder = _cpu_encode_of_a_resident_te(monkeypatch, log, host_room_gb=60.0, working_gb=20.0)
+
+    assert log.index(("encoder.to", "cpu")) < log.index(("note_offloaded", "FamilyEncoder")) < log.index(("encode", "cpu"))
+    assert encoder._device == torch.device("cpu")
+    assert ("mark", "cpu-fallback", None) in log
+
+
+def test_a_cpu_encode_counts_the_weights_coming_back_to_ram_before_it_starts(monkeypatch):
+    log: list = []
+
+    with pytest.raises(TextEncodeWorkingMemoryError) as refused:
+        _cpu_encode_of_a_resident_te(monkeypatch, log, host_room_gb=30.0, working_gb=20.0)
+
+    assert refused.value.room_gb == 30.0
+    assert ("encoder.to", "cpu") not in log and ("encode", "cpu") not in log
+
+
+def test_a_cpu_encode_asks_the_model_cache_for_ram_before_it_refuses(monkeypatch):
+    log: list = []
+
+    _out, made_room, _encoder = _cpu_encode_of_a_resident_te(
+        monkeypatch, log, host_room_gb=30.0, working_gb=20.0, roomier_after_eviction=60.0,
+    )
+
+    assert made_room == [pytest.approx(20.0 + 25.4 + residency._TE_HOST_MARGIN_GB)]
+    assert ("encode", "cpu") in log
+
+
+@pytest.mark.parametrize("working_gb", [10.0, 28.0, 52.0, 200.0])
+def test_the_fragmentation_margin_stops_growing_past_what_was_measured(working_gb):
+    assert residency.te_working_need_gb(working_gb) == pytest.approx(working_gb * residency._TE_FRAGMENTATION_CAP)
+
+
+def test_the_fragmentation_margin_grows_with_the_working_memory_below_its_cap():
+    assert residency.te_working_need_gb(1.6) / 1.6 < residency.te_working_need_gb(6.0) / 6.0 < residency._TE_FRAGMENTATION_CAP
+
+
+def test_room_in_ram_is_asked_of_the_model_lifecycle_under_its_lock(monkeypatch):
+    import threading
+
+    from src.platform.runtime.model_lifecycle import lifecycle as lifecycle_mod
+
+    calls = []
+
+    class _Lifecycle:
+        _lock = threading.RLock()
+
+        def _make_room_for_ram(self, needed_gb=None):
+            calls.append((needed_gb, self._lock._is_owned()))
+
+    monkeypatch.setattr(lifecycle_mod, "get_model_lifecycle", lambda: _Lifecycle())
+
+    residency._make_room_in_ram(12.5)
+
+    assert calls == [(12.5, True)]
+
+
+def test_the_model_lifecycle_still_offers_the_ram_eviction_the_cpu_encode_relies_on():
+    import inspect
+
+    from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+
+    assert list(inspect.signature(ModelLifecycle._make_room_for_ram).parameters) == ["self", "needed_gb"]
+    assert hasattr(ModelLifecycle(), "_lock")
+
+
+def test_pipe_path_where_a_driver_oom_can_be_retried_keeps_the_streamed_attempt_and_its_cpu_fallback(monkeypatch, fake_streaming):
+    _driver_oom_is_fatal(monkeypatch, False, host_room_gb=1.0)
+    _FakeStreaming.oom_budgets = {0.0}
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    _encode_needing(encoder, 40.0)
+
+    assert [e for e in log if e[0] != "note_offloaded"] == [
+        ("stream.apply", _DEV, 0.0),
+        ("stream.teardown",),
+        ("mark", "cpu-fallback", None),
+        ("encode", "cpu"),
+    ]
+
+
+def test_pipe_path_streams_a_te_whose_weights_fit_but_not_beside_its_working_memory(monkeypatch, fake_streaming):
+    log = fake_streaming
+    encoder = minimax_h3_te(log)
+    size = module_size_gb(encoder)
+    _fake_card(monkeypatch, log, capacity_gb=size + 3.0, others_gb=0.5)
+    dequant = text_encoder_footprint(encoder).dequant_peak_gb
+
+    _encode_needing(encoder, 4.0)
+
+    assert ("encoder.to", _DEV) not in log
+    assert ("stream.apply", _DEV, round(size + 2.5 - residency.te_working_need_gb(4.0) - dequant, 3)) in log
+
+
+def test_pipe_path_moves_the_same_te_whole_when_its_working_memory_fits_beside_it(monkeypatch, fake_streaming):
+    log = fake_streaming
+    encoder = minimax_h3_te(log)
+    size = module_size_gb(encoder)
+    _fake_card(monkeypatch, log, capacity_gb=size + 3.0, others_gb=0.5)
+
+    _encode_needing(encoder, 1.0)
+
+    assert not [e for e in log if e[0].startswith("stream.")]
+    assert log[-1][:2] == ("mark", "co-resident")
 
 
 class _FakeSpec:

@@ -83,6 +83,14 @@ def test_text_classification_recognises_a_cublas_execution_failure():
     assert classification.category == "cuda_oom"
 
 
+def test_a_text_encode_refused_for_its_working_memory_is_shown_as_a_host_ram_failure_not_a_gpu_one():
+    from src.platform.runtime.native.memory.residency import TextEncodeWorkingMemoryError
+
+    exc = TextEncodeWorkingMemoryError("MiniMax-H3-Image cannot read these 16 pictures", working_gb=56.0, room_gb=40.0)
+
+    assert classify_generation_error(exc).category == "host_ram_oom"
+
+
 def test_host_memory_exhausted_classifies_as_host_ram_oom():
     exc = HostMemoryExhaustedError("partial-residency streaming needs ~40.0GB pinned host RAM but only 8.0GB is free")
 

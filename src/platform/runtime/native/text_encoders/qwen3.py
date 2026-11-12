@@ -49,6 +49,7 @@ from .qwen3_vl_vision import (
     VISION_TEMPORAL_PATCH_SIZE,
     Qwen3VLVisionTower,
     splice_vision_inputs,
+    _smart_resize_grid,
     preprocess_qwen3_vl_image,
     preprocess_qwen3_vl_video,
 )
@@ -133,6 +134,11 @@ MINIMAX_H3_TEXT_ENCODER_LAYER_INDEX = 49
 MINIMAX_H3_TEXT_TAG = 1
 MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID = 151643
 MINIMAX_H3_VIDEO_TAG = 0
+
+MINIMAX_H3_ENCODE_HIDDEN_COPIES = 7.5
+MINIMAX_H3_ENCODE_MLP_COPIES = 3
+MINIMAX_H3_ENCODE_ATTENTION_COPIES = 4
+MINIMAX_H3_ENCODE_VISION_COPIES = 6
 
 # The rate MiniMax-H3's conditioner READS a `ref2va` video reference at
 # (`MiniMaxH3Ref2VATextEncoderStep.__init__`'s `video_sample_fps`), and the
@@ -1025,6 +1031,40 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
             deepstack_embeds=deepstack_embeds, visual_pos_mask=visual_pos_mask,
         )
         return {"context": stacked.squeeze(1)}
+
+    def vision_token_count(
+        self, height: int, width: int,
+        min_pixels: int = H3_VISION_MIN_PIXELS, max_pixels: int = H3_VISION_MAX_PIXELS,
+    ) -> int:
+        visual: Qwen3VLVisionTower = self.module.visual
+        factor = visual.patch_size * visual.spatial_merge_size
+        h_bar, w_bar = _smart_resize_grid(height, width, factor=factor, min_pixels=min_pixels, max_pixels=max_pixels)
+        return (h_bar // factor) * (w_bar // factor)
+
+    def request_token_counts(
+        self, text: str, image_sizes: list[tuple[int, int]] | None = None,
+        min_pixels: int = H3_VISION_MIN_PIXELS, max_pixels: int = H3_VISION_MAX_PIXELS,
+        picture_label: str = "<Picture {}>: ", max_prompt_tokens: int | None = None,
+    ) -> tuple[int, int]:
+        prompt_ids = self.tokenizer(text) if image_sizes else self._text_presentation(text)
+        prompt_tokens = len(prompt_ids) if max_prompt_tokens is None else min(len(prompt_ids), max_prompt_tokens)
+        vision_tokens = 0
+        label_tokens = 0
+        for index, (width, height) in enumerate(image_sizes or ()):
+            vision_tokens += self.vision_token_count(height, width, min_pixels=min_pixels, max_pixels=max_pixels)
+            label_tokens += len(self.tokenizer(picture_label.format(index + 1))) + 2
+        return prompt_tokens + label_tokens + vision_tokens, vision_tokens
+
+    def encode_working_gb(self, num_tokens: int, num_vision_tokens: int = 0) -> float:
+        cfg = self.module.cfg
+        width = _qwen3_te_activation_dtype().itemsize
+        hidden = MINIMAX_H3_ENCODE_HIDDEN_COPIES * cfg.hidden_size
+        mlp = MINIMAX_H3_ENCODE_MLP_COPIES * cfg.intermediate_size
+        attention = MINIMAX_H3_ENCODE_ATTENTION_COPIES * cfg.num_attention_heads * cfg.head_dim
+        per_token = (hidden + max(mlp, attention)) * width
+        per_vision_token = MINIMAX_H3_ENCODE_VISION_COPIES * cfg.hidden_size * torch.float32.itemsize
+        mask = num_tokens * num_tokens * width
+        return (num_tokens * per_token + num_vision_tokens * per_vision_token + mask) / (1024 ** 3)
 
     def encode_request(
         self, text: str, images: list[torch.Tensor] | None = None,

@@ -296,31 +296,30 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             connection_hub.disconnect(client_id)
             return
 
-        key_sockets.attach(websocket, user.key)
-        heartbeat_task = asyncio.create_task(_send_heartbeat(connection_hub, websocket, client_id))
+        with key_sockets.track(websocket, user):
+            heartbeat_task = asyncio.create_task(_send_heartbeat(connection_hub, websocket, client_id))
 
-        try:
-            while True:
-                data = await websocket.receive_text()
-                try:
-                    message = json.loads(data)
-                    await _handle_ws_message(connection_hub, client_id, message)
-                except json.JSONDecodeError:
-                    logger.warning("Invalid JSON from downloads client %s: %s", client_id, data)
-                    await websocket.send_json({"type": "error", "message": "Invalid JSON format"})
-
-        except WebSocketDisconnect:
-            logger.info("Downloads client %s disconnected", client_id)
-        except Exception as e:
-            logger.error("Downloads WebSocket error for client %s: %s", client_id, e)
-        finally:
-            heartbeat_task.cancel()
             try:
-                await heartbeat_task
-            except asyncio.CancelledError:
-                pass
-            key_sockets.unregister(websocket)
-            connection_hub.disconnect(client_id)
+                while True:
+                    data = await websocket.receive_text()
+                    try:
+                        message = json.loads(data)
+                        await _handle_ws_message(connection_hub, client_id, message)
+                    except json.JSONDecodeError:
+                        logger.warning("Invalid JSON from downloads client %s: %s", client_id, data)
+                        await websocket.send_json({"type": "error", "message": "Invalid JSON format"})
+
+            except WebSocketDisconnect:
+                logger.info("Downloads client %s disconnected", client_id)
+            except Exception as e:
+                logger.error("Downloads WebSocket error for client %s: %s", client_id, e)
+            finally:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
+                connection_hub.disconnect(client_id)
 
     return ws_router
 

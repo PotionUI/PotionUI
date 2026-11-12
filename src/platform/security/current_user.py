@@ -22,6 +22,7 @@ from src.platform.security.attempt_limiter import LoginAttemptLimiter
 from src.platform.security.media_session import media_cookie_token
 from src.platform.security.principal import KEY_PREFIX, KeyResolver, Principal, ResolvedKey
 from src.platform.security.user import User, AccountType
+from src.platform.websocket.key_sockets import key_sockets
 from src.platform.websocket.tickets import TicketEntry, ws_tickets
 
 # OAuth2 scheme - tokenUrl should match the login endpoint
@@ -67,6 +68,7 @@ def get_auth() -> Auth:
 def set_key_resolver(resolver: Optional[KeyResolver]) -> None:
     global _key_resolver
     _key_resolver = resolver
+    key_sockets.set_resolver(resolver)
 
 
 def _bearer_token(request: Request) -> Optional[str]:
@@ -246,30 +248,27 @@ def _socket_required(websocket: WebSocket, scope: ScopeSpec) -> Optional[FrozenS
     return required_scopes(websocket.scope.get("route"), "GET")
 
 
-def _scope_refusal(required: Optional[FrozenSet[ApiScope]], held) -> Optional[str]:
+def _scope_refusal(required: Optional[FrozenSet[ApiScope]], held) -> Optional[Tuple[str, str]]:
     if required is None:
-        return "This socket cannot be used with an API key"
+        return "key_not_allowed", "This socket cannot be used with an API key."
     if not (expand_scopes(held) & required):
         needed = " ".join(scope.value for scope in ApiScope if scope in required)
-        return f"This API key needs the '{needed}' scope for this socket"
+        return "insufficient_scope", f"This API key needs the '{needed}' scope for this socket."
     return None
 
 
 def ensure_socket_scope(principal: Principal, required: Optional[FrozenSet[ApiScope]]) -> None:
     if principal.key is None:
         return
-    if required is None:
-        raise _key_error(
-            status.HTTP_403_FORBIDDEN, "key_not_allowed",
-            "This socket cannot be used with an API key.",
-        )
-    if not (expand_scopes(principal.key.scopes) & required):
+    refusal = _scope_refusal(required, principal.key.scopes)
+    if refusal is None:
+        return
+    error, message = refusal
+    headers = None
+    if error == "insufficient_scope":
         needed = " ".join(scope.value for scope in ApiScope if scope in required)
-        raise _key_error(
-            status.HTTP_403_FORBIDDEN, "insufficient_scope",
-            f"This API key needs the '{needed}' scope for this socket.",
-            headers={"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{needed}"'},
-        )
+        headers = {"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{needed}"'}
+    raise _key_error(status.HTTP_403_FORBIDDEN, error, message, headers=headers)
 
 
 def _user_for_ticket(entry: TicketEntry, required: Optional[FrozenSet[ApiScope]]) -> Tuple[Optional[User], Optional[str]]:
@@ -282,7 +281,7 @@ def _user_for_ticket(entry: TicketEntry, required: Optional[FrozenSet[ApiScope]]
         return None, "The API key is no longer valid"
     refusal = _scope_refusal(required, expand_scopes(resolved.grant.scopes) & expand_scopes(entry.scopes))
     if refusal:
-        return None, refusal
+        return None, refusal[1]
     return _key_user(resolved), None
 
 
@@ -299,7 +298,7 @@ def _user_for_key_secret(websocket: WebSocket, secret: str, required: Optional[F
         return None, "The API key is not valid"
     refusal = _scope_refusal(required, resolved.grant.scopes)
     if refusal:
-        return None, refusal
+        return None, refusal[1]
     try:
         _key_resolver.record_use(resolved.grant, "api")
     except Exception:

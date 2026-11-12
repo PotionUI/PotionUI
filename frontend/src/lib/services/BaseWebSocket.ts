@@ -13,7 +13,6 @@ export type BaseWebSocketMessage = {
  * - Connection management (connect, disconnect)
  * - Heartbeat / ping-pong
  * - Exponential backoff reconnection
- * - Auth token injection via query param
  */
 export abstract class BaseWebSocket {
 	protected ws: WebSocket | null = null;
@@ -38,8 +37,7 @@ export abstract class BaseWebSocket {
 	// ─── Public API ──────────────────────────────────────────────────────────
 
 	/**
-	 * Open the WebSocket connection. Subclasses call super.connect() or use
-	 * the buildWsUrl() helper directly.
+	 * Open the WebSocket connection.
 	 */
 	connect(): void {
 		// CONNECTING counts too: a second connect() while the handshake is in

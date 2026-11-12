@@ -512,21 +512,20 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
 
         client_id = str(uuid.uuid4())
         await automation_connection_hub.connect(websocket, client_id, is_admin=user.account_type == AccountType.ADMIN)
-        key_sockets.attach(websocket, user.key)
+        with key_sockets.track(websocket, user):
 
-        try:
-            await websocket.send_json({"type": "connection_established", "client_id": client_id})
+            try:
+                await websocket.send_json({"type": "connection_established", "client_id": client_id})
 
-            while True:
-                data = await websocket.receive_json()
-                if data.get("type") == "ping":
-                    await websocket.send_json({"type": "pong"})
-        except WebSocketDisconnect:
-            pass
-        except Exception as e:
-            logging.error(f"Automation WebSocket handler error for client {client_id}: {e}")
-        finally:
-            key_sockets.unregister(websocket)
-            automation_connection_hub.disconnect(client_id)
+                while True:
+                    data = await websocket.receive_json()
+                    if data.get("type") == "ping":
+                        await websocket.send_json({"type": "pong"})
+            except WebSocketDisconnect:
+                pass
+            except Exception as e:
+                logging.error(f"Automation WebSocket handler error for client {client_id}: {e}")
+            finally:
+                automation_connection_hub.disconnect(client_id)
 
     return ws_router

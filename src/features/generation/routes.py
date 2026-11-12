@@ -1292,7 +1292,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         logging.info(f"WebSocket connected: user={user.username}, client_id={client_id}")
 
         try:
-            with key_sockets.track(websocket, user.key):
+            with key_sockets.track(websocket, user):
                 await controller.handle_websocket(websocket, client_id, user)
         except Exception as e:
             logging.error(f"WebSocket handler error for client {client_id}: {e}")

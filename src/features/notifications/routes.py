@@ -214,26 +214,25 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
 
         client_id = str(uuid.uuid4())
         await notification_connection_hub.connect(websocket, client_id, user.id)
-        key_sockets.attach(websocket, user.key)
+        with key_sockets.track(websocket, user):
 
-        try:
-            unread_count = await asyncio.to_thread(controller.repository.unread_count, user.id)
-            await websocket.send_json({
-                "type": "connection_established",
-                "client_id": client_id,
-                "unread_count": unread_count
-            })
+            try:
+                unread_count = await asyncio.to_thread(controller.repository.unread_count, user.id)
+                await websocket.send_json({
+                    "type": "connection_established",
+                    "client_id": client_id,
+                    "unread_count": unread_count
+                })
 
-            while True:
-                data = await websocket.receive_json()
-                if data.get("type") == "ping":
-                    await websocket.send_json({"type": "pong"})
-        except WebSocketDisconnect:
-            pass
-        except Exception as e:
-            logging.error(f"Notification WebSocket handler error for client {client_id}: {e}")
-        finally:
-            key_sockets.unregister(websocket)
-            notification_connection_hub.disconnect(client_id)
+                while True:
+                    data = await websocket.receive_json()
+                    if data.get("type") == "ping":
+                        await websocket.send_json({"type": "pong"})
+            except WebSocketDisconnect:
+                pass
+            except Exception as e:
+                logging.error(f"Notification WebSocket handler error for client {client_id}: {e}")
+            finally:
+                notification_connection_hub.disconnect(client_id)
 
     return ws_router

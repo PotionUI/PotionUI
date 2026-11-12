@@ -126,7 +126,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             return
 
         client_id = str(uuid.uuid4())
-        with key_sockets.track(websocket, user.key):
+        with key_sockets.track(websocket, user):
             await controller.handle_websocket(
                 websocket,
                 client_id,

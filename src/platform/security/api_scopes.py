@@ -33,17 +33,13 @@ def parse_scopes(values: Iterable[str]) -> FrozenSet[ApiScope]:
     return frozenset(ApiScope(value) for value in values)
 
 
-def _coerce(spec: ScopeSpec) -> Optional[FrozenSet[ApiScope]]:
+def coerce_scopes(spec: ScopeSpec) -> Optional[FrozenSet[ApiScope]]:
     if spec is None:
         return None
     if isinstance(spec, ApiScope):
         return frozenset({spec})
     scopes = frozenset(spec)
     return scopes or None
-
-
-def coerce_scopes(spec: ScopeSpec) -> Optional[FrozenSet[ApiScope]]:
-    return _coerce(spec)
 
 
 @dataclass(frozen=True)
@@ -62,7 +58,7 @@ def _marker(access: KeyAccess):
 
 
 def key_access(read: ScopeSpec = None, write: ScopeSpec = None):
-    return _marker(KeyAccess(read=_coerce(read), write=_coerce(write)))
+    return _marker(KeyAccess(read=coerce_scopes(read), write=coerce_scopes(write)))
 
 
 def key_scope(*scopes: Union[ApiScope, Iterable[ApiScope]]):

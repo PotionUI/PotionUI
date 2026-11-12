@@ -1,7 +1,10 @@
 from src.platform.security.api_scopes import ApiScope
+import pytest
+
 from src.platform.websocket.tickets import (
+    TicketStoreFull,
     MAX_TICKETS,
-    MAX_TICKETS_PER_USER,
+    MAX_TICKETS_PER_CALLER,
     TICKET_TTL_SECONDS,
     WsTicketStore,
 )
@@ -101,25 +104,48 @@ def test_expired_tickets_are_dropped_when_the_next_one_is_issued():
 def test_one_user_cannot_hold_more_than_the_per_user_cap_and_loses_the_oldest():
     store, _ = _store()
     first = store.issue("/ws/generation", "u1")
-    for _ in range(MAX_TICKETS_PER_USER):
+    for _ in range(MAX_TICKETS_PER_CALLER):
         store.issue("/ws/generation", "u1")
 
-    assert store.size() == MAX_TICKETS_PER_USER
+    assert store.size() == MAX_TICKETS_PER_CALLER
     assert store.redeem(first, "/ws/generation") is None
+
+
+def test_a_keys_flood_leaves_its_owners_session_tickets_alone():
+    store, _ = _store()
+    session = store.issue("/ws/generation", "u1")
+    for _ in range(MAX_TICKETS_PER_CALLER * 3):
+        store.issue("/ws/generation", "u1", "key-1", frozenset({ApiScope.READ}))
+
+    assert store.redeem(session, "/ws/generation") is not None
+
+
+def test_one_keys_flood_leaves_another_keys_tickets_alone():
+    store, _ = _store()
+    other = store.issue("/ws/generation", "u1", "key-2", frozenset({ApiScope.READ}))
+    for _ in range(MAX_TICKETS_PER_CALLER * 3):
+        store.issue("/ws/generation", "u1", "key-1", frozenset({ApiScope.READ}))
+
+    assert store.redeem(other, "/ws/generation") is not None
 
 
 def test_one_users_flood_leaves_another_users_ticket_alone():
     store, _ = _store()
     other = store.issue("/ws/generation", "u2")
-    for _ in range(MAX_TICKETS_PER_USER * 3):
+    for _ in range(MAX_TICKETS_PER_CALLER * 3):
         store.issue("/ws/generation", "u1")
 
     assert store.redeem(other, "/ws/generation") is not None
 
 
-def test_the_store_never_grows_past_its_global_bound():
+def test_a_full_store_refuses_a_new_ticket_instead_of_evicting_anyone():
     store, _ = _store()
-    for index in range(MAX_TICKETS + 50):
+    first = store.issue("/ws/generation", "user-0")
+    for index in range(1, MAX_TICKETS):
         store.issue("/ws/generation", f"user-{index}")
 
+    with pytest.raises(TicketStoreFull):
+        store.issue("/ws/generation", "latecomer")
+
     assert store.size() == MAX_TICKETS
+    assert store.redeem(first, "/ws/generation") is not None

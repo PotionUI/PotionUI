@@ -28,10 +28,13 @@ from src.platform.security.attempt_limiter import LoginAttemptLimiter
 from src.platform.security.login_handoff import LoginHandoffStore
 from src.platform.security.principal import Principal
 from src.platform.security.user import User
-from src.platform.websocket.tickets import TICKET_TTL_SECONDS, ws_tickets
+from src.platform.websocket.tickets import TICKET_TTL_SECONDS, TicketStoreFull, caller_of, ws_tickets
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
+
+
+WS_TICKETS_PER_WINDOW = 60
 
 
 class AuthController(BaseController):
@@ -50,6 +53,8 @@ class AuthController(BaseController):
         self.login_limiter = LoginAttemptLimiter()
         self.change_password_limiter = LoginAttemptLimiter()
         self.exchange_limiter = LoginAttemptLimiter()
+        self.ws_ticket_limiter = LoginAttemptLimiter("Too many socket tickets requested. Please try again shortly.")
+        self.ws_ticket_limiter.max_attempts = WS_TICKETS_PER_WINDOW
 
     async def register(self, user_data: UserCreate, request: Request) -> APIResponse:
         """
@@ -185,11 +190,17 @@ class AuthController(BaseController):
             self.error_response(error="unknown_socket", message="There is no such socket", status_code=404)
         ensure_socket_scope(principal, required_scopes(route, "GET"))
         key = principal.key
-        ticket = ws_tickets.issue(
-            route.path, principal.user.id,
-            key.key_id if key else None,
-            key.scopes if key else frozenset(),
-        )
+        limiter_key = caller_of(principal.user.id, key.key_id if key else None)
+        self.ws_ticket_limiter.check(limiter_key)
+        self.ws_ticket_limiter.record_failure(limiter_key)
+        try:
+            ticket = ws_tickets.issue(
+                route.path, principal.user.id,
+                key.key_id if key else None,
+                key.scopes if key else frozenset(),
+            )
+        except TicketStoreFull:
+            self.error_response(error="too_many_tickets", message="Too many socket tickets are outstanding", status_code=429)
         return self.success_response(data={"ticket": ticket, "expires_in": TICKET_TTL_SECONDS})
 
     async def change_password(

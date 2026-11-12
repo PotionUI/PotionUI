@@ -65,38 +65,35 @@ async def admin_websocket_endpoint(
         admin_connection_hub.disconnect(client_id)
         return
 
-    key_sockets.attach(websocket, user.key)
-    heartbeat_task = asyncio.create_task(send_heartbeat(websocket, client_id))
+    with key_sockets.track(websocket, user):
+        heartbeat_task = asyncio.create_task(send_heartbeat(websocket, client_id))
 
-    try:
-        while True:
-            # Receive and handle messages
-            data = await websocket.receive_text()
-
-            try:
-                message = json.loads(data)
-                await handle_message(client_id, message)
-            except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON from client {client_id}: {data}")
-                await websocket.send_json({
-                    'type': 'error',
-                    'message': 'Invalid JSON format'
-                })
-
-    except WebSocketDisconnect:
-        logger.info(f"Admin client {client_id} disconnected")
-    except Exception as e:
-        logger.error(f"Admin WebSocket error for client {client_id}: {e}")
-    finally:
-        # Cancel heartbeat
-        heartbeat_task.cancel()
         try:
-            await heartbeat_task
-        except asyncio.CancelledError:
-            pass
+            while True:
+                data = await websocket.receive_text()
 
-        key_sockets.unregister(websocket)
-        admin_connection_hub.disconnect(client_id)
+                try:
+                    message = json.loads(data)
+                    await handle_message(client_id, message)
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON from client {client_id}: {data}")
+                    await websocket.send_json({
+                        'type': 'error',
+                        'message': 'Invalid JSON format'
+                    })
+
+        except WebSocketDisconnect:
+            logger.info(f"Admin client {client_id} disconnected")
+        except Exception as e:
+            logger.error(f"Admin WebSocket error for client {client_id}: {e}")
+        finally:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
+            admin_connection_hub.disconnect(client_id)
 
 
 async def send_heartbeat(websocket: WebSocket, client_id: str):

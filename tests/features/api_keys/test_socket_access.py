@@ -17,6 +17,7 @@ from src.features.notifications import routes as notification_routes
 from src.features.settings import admin_websocket
 from src.features.system_monitor import routes as system_routes
 from src.platform.database.rows import now_utc
+from src.platform.database import get_cursor
 from src.platform.security import current_user
 from src.platform.security.current_user import authenticate_websocket, refuse_websocket
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
@@ -166,7 +167,6 @@ class TestTicketRoute:
         assert reply.status_code == 403
 
     def test_a_generate_key_without_read_is_refused_a_read_socket(self, world, sockets):
-        _, secret = world.mint(world.alice, scopes=("read", "generate"))
         key, only_generate = world.mint(world.alice, scopes=("generate",))
 
         reply = sockets.post("/api/auth/ws-ticket", json={"path": "/ws/generation"}, headers=world.bearer(only_generate))
@@ -408,6 +408,106 @@ class TestSessionFlowUnchanged:
         second = ticket_for(sockets, "/ws/notifications", world.session("alice"))
         assert second != first
         assert outcome(sockets, f"/ws/notifications?ticket={second}") == CONNECTED
+
+
+class TestChangesToAKeyReachItsOpenSockets:
+    def test_narrowing_a_key_closes_its_admin_socket_and_keeps_its_read_socket(self, world, sockets):
+        key, secret = world.mint(world.root, scopes=("admin",), days=30)
+
+        with sockets.websocket_connect("/ws/admin", headers=world.bearer(secret)) as admin, \
+                sockets.websocket_connect("/ws/notifications", headers=world.bearer(secret)) as read:
+            admin.receive_json()
+            read.receive_json()
+            assert sockets.patch(
+                f"/api/keys/{key.id}", json={"scopes": ["read"]}, headers=world.session("root")
+            ).status_code == 200
+            closed = wait_for_close(admin, 1.0)
+            read.send_json({"type": "ping"})
+            assert read.receive_json() == {"type": "pong"}
+
+        assert closed is not None and closed.code == 4001
+
+    def test_the_ceiling_dropping_admin_closes_admin_sockets_at_the_sweep(self, world, sockets):
+        _, secret = world.mint(world.root, scopes=("admin",), days=30)
+
+        with sockets.websocket_connect("/ws/admin", headers=world.bearer(secret)) as ws:
+            ws.receive_json()
+            world.stack.settings.set_setting("api_key_scopes_allowed", ["read", "generate", "content", "mcp"])
+            assert key_sockets.sweep() == 1
+            closed = wait_for_close(ws, 1.0)
+
+        assert closed is not None and closed.code == 4001
+
+    def test_switching_api_keys_off_closes_open_key_sockets_at_the_sweep(self, world, sockets):
+        _, secret = world.mint(world.alice, scopes=("read",))
+
+        with sockets.websocket_connect("/ws/notifications", headers=world.bearer(secret)) as ws:
+            ws.receive_json()
+            world.stack.settings.set_setting("api_keys_enabled", False)
+            assert key_sockets.sweep() == 1
+            closed = wait_for_close(ws, 1.0)
+
+        assert closed is not None and closed.code == 4001
+
+    def test_a_demoted_owners_admin_key_loses_its_admin_socket_at_the_sweep(self, world, sockets):
+        _, secret = world.mint(world.root, scopes=("admin",), days=30)
+
+        with sockets.websocket_connect("/ws/admin", headers=world.bearer(secret)) as ws:
+            ws.receive_json()
+            with get_cursor() as cursor:
+                cursor.execute("UPDATE users SET account_type = 'USER' WHERE id = ?", (world.root.id,))
+            assert key_sockets.sweep() == 1
+            closed = wait_for_close(ws, 1.0)
+
+        assert closed is not None and closed.code == 4001
+
+
+class TestSessionTicketsFollowTheUser:
+    def test_a_demoted_admins_session_ticket_is_refused_on_an_admin_socket(self, world, sockets):
+        ticket = ticket_for(sockets, "/ws/admin", world.session("root"))
+        with get_cursor() as cursor:
+            cursor.execute("UPDATE users SET account_type = 'USER' WHERE id = ?", (world.root.id,))
+
+        assert outcome(sockets, f"/ws/admin?ticket={ticket}") == 4001
+
+    def test_a_session_ticket_of_a_deleted_user_is_refused(self, world, sockets):
+        ticket = ticket_for(sockets, "/ws/notifications", world.session("bob"))
+        with get_cursor() as cursor:
+            cursor.execute("DELETE FROM users WHERE id = ?", (world.bob.id,))
+
+        assert outcome(sockets, f"/ws/notifications?ticket={ticket}") == 4001
+
+    def test_a_key_narrowed_between_ticket_and_handshake_is_refused(self, world, sockets):
+        key, secret = world.mint(world.root, scopes=("admin",), days=30)
+        ticket = ticket_for(sockets, "/ws/admin", world.bearer(secret))
+        sockets.patch(f"/api/keys/{key.id}", json={"scopes": ["read"]}, headers=world.session("root"))
+
+        assert outcome(sockets, f"/ws/admin?ticket={ticket}") == 4001
+
+
+class TestTicketRouteLimits:
+    def test_the_route_is_rate_limited_per_caller(self, world, sockets):
+        from src.features.auth.routes import WS_TICKETS_PER_WINDOW
+
+        _, secret = world.mint(world.alice, scopes=("read",))
+        for _ in range(WS_TICKETS_PER_WINDOW):
+            assert sockets.post(
+                "/api/auth/ws-ticket", json={"path": "/ws/generation"}, headers=world.bearer(secret)
+            ).status_code == 200
+
+        refused = sockets.post("/api/auth/ws-ticket", json={"path": "/ws/generation"}, headers=world.bearer(secret))
+        owners = sockets.post("/api/auth/ws-ticket", json={"path": "/ws/generation"}, headers=world.session("alice"))
+
+        assert refused.status_code == 429
+        assert owners.status_code == 200
+
+    def test_a_keys_tickets_never_evict_its_owners_browser_ticket(self, world, sockets):
+        browser = ticket_for(sockets, "/ws/generation", world.session("alice"))
+        _, secret = world.mint(world.alice, scopes=("read",))
+        for _ in range(40):
+            sockets.post("/api/auth/ws-ticket", json={"path": "/ws/generation"}, headers=world.bearer(secret))
+
+        assert outcome(sockets, f"/ws/generation?ticket={browser}") == CONNECTED
 
 
 class TestASocketThatDeclaresNothing:

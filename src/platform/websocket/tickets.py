@@ -10,7 +10,7 @@ from src.platform.security.api_scopes import ApiScope
 
 TICKET_TTL_SECONDS = 30
 MAX_TICKETS = 2048
-MAX_TICKETS_PER_USER = 32
+MAX_TICKETS_PER_CALLER = 32
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,14 @@ class TicketEntry:
 
 def _digest(ticket: str) -> str:
     return hashlib.sha256(ticket.encode("utf-8")).hexdigest()
+
+
+class TicketStoreFull(Exception):
+    pass
+
+
+def caller_of(user_id: str, key_id: Optional[str]) -> str:
+    return f"key:{key_id}" if key_id else f"session:{user_id}"
 
 
 class WsTicketStore:
@@ -44,11 +52,15 @@ class WsTicketStore:
         entry = TicketEntry(path, user_id, key_id, frozenset(scopes), now + TICKET_TTL_SECONDS)
         with self._lock:
             self._prune(now)
-            owned = [digest for digest, held in self._entries.items() if held.user_id == user_id]
-            while len(owned) >= MAX_TICKETS_PER_USER:
+            caller = caller_of(user_id, key_id)
+            owned = [
+                digest for digest, held in self._entries.items()
+                if caller_of(held.user_id, held.key_id) == caller
+            ]
+            while len(owned) >= MAX_TICKETS_PER_CALLER:
                 del self._entries[owned.pop(0)]
-            while len(self._entries) >= MAX_TICKETS:
-                self._entries.popitem(last=False)
+            if len(self._entries) >= MAX_TICKETS:
+                raise TicketStoreFull()
             self._entries[_digest(ticket)] = entry
         return ticket
 

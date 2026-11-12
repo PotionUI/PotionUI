@@ -153,6 +153,7 @@ def update(
             key.id, key.user_id, owner.id, ACTION_SCOPES_CHANGED,
             {"before": key.scope_values, "after": updated.scope_values}, dt_iso(now),
         )
+        key_revocation.notify_changed(key.id)
     return updated
 
 

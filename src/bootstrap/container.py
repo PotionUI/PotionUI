@@ -1836,6 +1836,8 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         model_index=model_index_manager,
         gpu_monitor=gpu_monitor,
     )
+    generation_orchestrator.router.bind_load(generation_orchestrator.load_ledger)
+    generation_orchestrator.router.bind_health(generation_orchestrator.backend_health)
 
     # Prompt enhancement pipeline (used by the enhance_prompt tool)
 

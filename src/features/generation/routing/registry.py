@@ -11,6 +11,7 @@ from typing import List, Optional
 from src.features.generation.routing.contracts import RoutingRule
 from src.features.generation.routing.rules import (
     EnabledForEngine,
+    HealthEligibility,
     ModelAvailability,
     Preference,
     PresetDriver,
@@ -25,6 +26,7 @@ BUILTIN_RULES: List[RoutingRule] = [
     PresetDriver(),
     ModelAvailability(),
     RequirementsEligibility(),
+    HealthEligibility(),
     Preference(),
 ]
 

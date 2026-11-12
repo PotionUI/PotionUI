@@ -35,13 +35,14 @@ flowchart TD
         Drv["2 · PresetDriver\ndrop backends whose driver is not the preset's"]
         Avail["3 · ModelAvailability\ndrop backends missing a selected model"]
         Req["4 · RequirementsEligibility\ndrop backends with a hard-missing requirement"]
-        Pref["5 · Preference\nannotate the default / highest-priority survivor"]
-        Seed --> Drv --> Avail --> Req --> Pref
+        Health["5 · HealthEligibility\ndrop backends whose last health probe failed"]
+        Pref["6 · Preference\nannotate the default / highest-priority survivor"]
+        Seed --> Drv --> Avail --> Req --> Health --> Pref
     end
 
     Pref --> AnyLeft{"any candidate\nstill kept?"}
     AnyLeft -- "no" --> Fail(["raise NoEligibleBackendError\n(names each drop reason)"])
-    AnyLeft -- "yes" --> Pick["BackendRegistry.select_backend_for_generation\n(default backend, else highest priority)"]
+    AnyLeft -- "yes" --> Pick["least loaded survivor\n(queued + running per slot; ties: default, then priority)"]
     Pick --> Decision(["RoutingDecision\nchosen + candidates + rule_trace"])
 
     style Fail fill:#4a1f1f,stroke:#a33,color:#fff
@@ -75,9 +76,10 @@ sequenceDiagram
     Rules->>RC: peek_backend_missing(preset, backend_id) — per candidate, cache read only
     RC-->>Rules: [] / [names] / None (unknown)
     Note over Rules,RC: unknown → kept + a background refresh is scheduled,<br/>never awaited here
+    R->>Rules: HealthEligibility.apply(candidates)
+    Note over Rules: last probe failed → dropped (unless every survivor is down);<br/>a stale probe is refreshed in the background, never awaited here
     R->>Rules: Preference.apply(candidates)
-    R->>BR: select_backend_for_generation(engine, allowed_backend_ids)
-    BR-->>R: chosen backend
+    R->>R: least loaded survivor, reserve one slot of load for it
     R-->>O: RoutingDecision
     O-->>C: {generation_id, status, queue_position}
     Note over O: RoutingDecision is persisted to the generation record<br/>(Admin → Generations "Routing" panel) - never returned to the caller
@@ -91,7 +93,20 @@ sequenceDiagram
 | `PresetDriver` | yes | no | A preset that declares `driver:` (every `engine: cloud` preset does) must run on a backend of that driver, never on another provider's backend of the same engine | The preset declares a `driver:` | `"preset requires driver cloud.openrouter; this backend uses cloud.fal"` |
 | `ModelAvailability` | yes | no | A selected checkpoint/LoRA may only be downloaded to one backend | The form references `model:<id>` values AND at least one backend of the engine has been indexed, or is authoritative about its models (cloud backends are) | `"does not hold every selected model"` |
 | `RequirementsEligibility` | yes | yes | A backend can lack something the preset needs (a ComfyUI custom node, a model file) — see [Preset Authoring Guide](presets.md) "Requirements" | The preset declares `requirements:` AND a requirements cache is wired | `"missing requirement(s): FaceDetailer node"` (dropped) / `"requirements not yet checked"` (kept, refresh scheduled) / `"requirements satisfied"` |
-| `Preference` | no | yes | Explains which survivor the final pick will choose, without re-deciding it | At least one candidate survived | `"default backend for this engine"` / `"highest priority (5) among eligible backends"` |
+| `HealthEligibility` | yes | yes | A backend whose worker or server is down would only fail the job. Probes run in the background for backends that do not run on this host's GPU, at most once per 30 seconds | The router has a health tracker bound (the application always binds one) | `"unhealthy: connection refused"` (dropped) / `"unhealthy (...); the job waits for it to recover"` (kept: every survivor was down, so the job waits instead of failing) |
+| `Preference` | no | yes | Annotates the engine's default backend, or the highest priority one | At least one candidate survived | `"default backend for this engine"` / `"highest priority (5) among eligible backends"` |
+
+### The final pick
+
+Among the survivors the router picks the **least loaded** backend: `(queued + running + in-flight
+submissions) / max_concurrent_runs`, compared exactly. Ties go to the engine's default backend, then
+to the higher `priority`. The pick and its one-slot reservation happen together with no `await`
+between them, so two jobs arriving at once never both count the same free slot; the orchestrator
+gives the reservation back as soon as the job is queued (or its submit failed). A router with no load
+source bound (standalone tooling, most tests) falls back to
+`BackendRegistry.select_backend_for_generation` (default, else highest priority). The chosen
+candidate's reasons then include `"least loaded of N eligible backend(s): 2 queued or running on 1
+slot(s)"`.
 
 `ModelAvailability` and `RequirementsEligibility` never treat "can't tell from here" as a reason to
 drop — an unindexed backend or an unchecked requirement is **unknown**, not missing, and stays a

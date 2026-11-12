@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import re
 from datetime import datetime, timezone
 
@@ -37,6 +38,8 @@ from src.platform.worker_protocol.model_fetch import ModelFetchRequestV1
 #: artifact_id is always uuid4().hex - reject anything else before it ever
 #: reaches a filesystem path.
 _ARTIFACT_ID_RE = re.compile(r"\A[0-9a-f]{32}\Z")
+
+HEARTBEAT_SECONDS = 15.0
 
 _SUBMIT_STATUS_CODES = {
     SubmitOutcome.ACCEPTED: 202,
@@ -134,6 +137,7 @@ def build_worker_router(container, *, cuda_probe=probe_cuda) -> APIRouter:
 
         async def event_stream():
             cursor = after
+            last_sent = time.monotonic()
             while True:
                 record = container.coordinator.record_for(execution_id)
                 finished = record is not None and record.is_terminal
@@ -143,8 +147,12 @@ def build_worker_router(container, *, cuda_probe=probe_cuda) -> APIRouter:
                     cursor = event.cursor
                     terminal = terminal or event.is_terminal
                     yield f"data: {json.dumps(envelope(event))}\n\n"
+                    last_sent = time.monotonic()
                 if terminal or finished:
                     return
+                if time.monotonic() - last_sent >= HEARTBEAT_SECONDS:
+                    last_sent = time.monotonic()
+                    yield ": keepalive\n\n"
                 await asyncio.sleep(0.02)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")

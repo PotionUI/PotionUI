@@ -568,6 +568,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         container.elixirs.runtime.start()
 
+        container.generation_orchestrator.start_backend_probes()
+
         announce_claim_code(container)
 
         yield
@@ -583,6 +585,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         await container.housekeeping_worker.stop()
         container.organize_worker.stop()
         container.organize_manager.shutdown()
+        await container.generation_orchestrator.stop_backend_probes()
         await container.elixirs.runtime.stop()
         await container.content_safety.stop()
         await container.compute_status_monitor.stop()

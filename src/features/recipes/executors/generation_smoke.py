@@ -32,6 +32,7 @@ import logging
 import time
 from typing import Any, Callable, Dict, Optional
 
+from src.features.generation.error_classification import UNCLASSIFIED, classification_for_code, classify_error_text
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.recipes.executors._async_bridge import run_sync
 from src.features.recipes.executors._fixture_form import RequiredModelMissing, build_fixture_form_data
@@ -44,7 +45,28 @@ logger = logging.getLogger(__name__)
 _TERMINAL_STATES = {"completed", "failed", "cancelled"}
 
 
+def _span(seconds: int) -> str:
+    if seconds >= 120:
+        return f"{seconds // 60} minutes"
+    return f"{seconds} second" if seconds == 1 else f"{seconds} seconds"
+
+
+def _plain_reason(raw: Optional[str], code: Optional[str] = None, message: Optional[str] = None) -> str:
+    classification = classification_for_code(code) if code else None
+    if classification is None or classification.category == UNCLASSIFIED:
+        classification = classify_error_text(raw)
+    if classification.category == UNCLASSIFIED and message:
+        return message.rstrip(".")
+    return classification.summary.rstrip(".")
+
+
+def _did_not_finish(reason: str) -> str:
+    return f"The test didn't finish: {reason[:1].lower()}{reason[1:]}."
+
+
 class GenerationSmokeExecutor:
+    advisory = True
+
     def __init__(
         self,
         preset_template_loader: PresetTemplateLoader,
@@ -133,7 +155,8 @@ class GenerationSmokeExecutor:
         except Exception as exc:
             return StepResult.fail(
                 "GENERATION_SMOKE_FORM_FAILED",
-                f"Couldn't prepare a test generation for '{preset_template.name}': {exc}",
+                f"The test picture for '{preset_template.name}' couldn't be prepared.",
+                technical_detail=f"{type(exc).__name__}: {exc}",
             )
 
         try:
@@ -141,8 +164,9 @@ class GenerationSmokeExecutor:
         except RuntimeError as exc:
             return StepResult.fail(
                 "GENERATION_SMOKE_NO_APP_LOOP",
-                f"The test generation can't start: {exc}.",
-                suggested_repair="Wait for the app to finish starting, then retry this step.",
+                "The test didn't start because PotionUI was still starting up.",
+                suggested_repair="Wait a moment, then make a picture in Generate to try again.",
+                technical_detail=str(exc),
             )
 
         try:
@@ -163,11 +187,12 @@ class GenerationSmokeExecutor:
         except Exception as exc:
             return StepResult.fail(
                 "GENERATION_SMOKE_FAILED",
-                f"Running a test generation failed: {exc}",
+                _did_not_finish(_plain_reason(str(exc))),
                 suggested_repair=(
                     "Make sure a backend for this preset's engine is running and reachable, "
-                    "then retry this step."
+                    "then make a picture in Generate to try again."
                 ),
+                technical_detail=f"{type(exc).__name__}: {exc}",
             )
 
         if outcome.get("run_cancelled"):
@@ -179,14 +204,23 @@ class GenerationSmokeExecutor:
             )
 
         if outcome["state"] != "completed" or outcome["output_count"] < 1:
-            detail = outcome.get("error") or f"the generation ended as '{outcome['state']}' with no output"
+            raw = outcome.get("error")
+            if outcome.get("timed_out"):
+                reason = f"it took longer than {_span(outcome['timeout_seconds'])}"
+            elif raw:
+                reason = _plain_reason(raw, outcome.get("error_code"), outcome.get("message"))
+            else:
+                reason = "no picture came out"
             return StepResult.fail(
                 "GENERATION_SMOKE_FAILED",
-                f"The test generation didn't produce an image: {detail}.",
-                suggested_repair=(
+                _did_not_finish(reason),
+                suggested_repair=outcome.get("hint")
+                or (
                     "Check that a backend for this preset's engine (a GPU worker, or a configured "
-                    "server) is running, then retry this step."
+                    "server) is running, then make a picture in Generate to try again."
                 ),
+                technical_detail=raw
+                or f"The generation ended as '{outcome['state']}' with no output.",
             )
 
         filename, file_path = self._first_output_file(outcome["generation_id"])
@@ -245,7 +279,7 @@ class GenerationSmokeExecutor:
         final_media = (ImageGenerationOutput, VideoGenerationOutput, AudioGenerationOutput, MeshGenerationOutput)
 
         output_count = 0
-        error_box: Dict[str, str] = {}
+        error_box: Dict[str, Any] = {}
         done_event = asyncio.Event()
         last_progress_at = {"t": 0.0}
 
@@ -268,7 +302,12 @@ class GenerationSmokeExecutor:
                     if not getattr(item, "temporary", False)
                 )
             elif isinstance(output, ErrorGenerationOutput):
-                error_box["error"] = output.error or output.message or "generation error"
+                error_box["error"] = " ".join(
+                    part for part in (output.error, output.detail) if part
+                ) or output.message or "generation error"
+                error_box["hint"] = (output.hints or [None])[0]
+                error_box["code"] = output.error_code
+                error_box["message"] = output.message
             elif isinstance(output, ProgressGenerationOutput) and report_progress is not None:
                 # Sampling steps as the step's own progress ("3 of 8 steps"),
                 # throttled to about once a second; the first and last tick
@@ -306,6 +345,8 @@ class GenerationSmokeExecutor:
                 "state": "failed",
                 "output_count": output_count,
                 "error": f"timed out waiting for completion after {timeout_seconds}s",
+                "timed_out": True,
+                "timeout_seconds": timeout_seconds,
             }
 
         if run_cancelled:
@@ -329,6 +370,9 @@ class GenerationSmokeExecutor:
             "state": state,
             "output_count": output_count,
             "error": error,
+            "hint": error_box.get("hint"),
+            "error_code": error_box.get("code"),
+            "message": error_box.get("message"),
         }
 
     async def _abandon(self, generation_id: Optional[str]) -> None:

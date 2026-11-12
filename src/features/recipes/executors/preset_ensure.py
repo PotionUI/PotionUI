@@ -56,11 +56,17 @@ class PresetEnsureExecutor:
         except PresetAlreadyInstalledException:
             pass  # already installed - nothing to do, not an error
         except (PresetNotFoundException, PermissionDeniedException) as exc:
-            return StepResult.fail("PRESET_INSTALL_FAILED", f"Installing the preset failed: {exc}")
+            return StepResult.fail(
+                "PRESET_INSTALL_FAILED", "Installing the preset failed.", technical_detail=f"{type(exc).__name__}: {exc}"
+            )
 
         try:
             operations.assign_preset_to_users(self.preset_collaborators, preset_id, [owner.id], owner)
         except (PresetNotInstalledException, InvalidUsersException, PermissionDeniedException) as exc:
-            return StepResult.fail("PRESET_ASSIGN_FAILED", f"Assigning the preset to your account failed: {exc}")
+            return StepResult.fail(
+                "PRESET_ASSIGN_FAILED",
+                "Assigning the preset to your account failed.",
+                technical_detail=f"{type(exc).__name__}: {exc}",
+            )
 
         return StepResult.ok({"preset_id": preset_id, "assigned_to": owner.id})

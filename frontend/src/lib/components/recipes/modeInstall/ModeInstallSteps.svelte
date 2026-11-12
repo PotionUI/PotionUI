@@ -24,10 +24,11 @@
 		progress: ModeDownloadProgress | null;
 	} = $props();
 
-	function state(status: string): 'done' | 'active' | 'failed' | 'pending' {
+	function state(status: string): 'done' | 'active' | 'failed' | 'attention' | 'pending' {
 		if (status === 'succeeded') return 'done';
 		if (status === 'failed') return 'failed';
-		if (status === 'running' || status === 'awaiting_consent' || status === 'action_required') return 'active';
+		if (status === 'action_required') return 'attention';
+		if (status === 'running' || status === 'awaiting_consent') return 'active';
 		return 'pending';
 	}
 </script>
@@ -43,7 +44,9 @@
 						? 'border-signal text-signal'
 						: current === 'failed'
 							? 'border-danger text-danger'
-							: 'border-line-strong text-fg-subtle'}"
+							: current === 'attention'
+								? 'border-warning text-warning'
+								: 'border-line-strong text-fg-subtle'}"
 				aria-hidden="true"
 			>
 				{#if current === 'done'}
@@ -52,15 +55,19 @@
 					<span class="h-1.5 w-1.5 rounded-full bg-signal-solid"></span>
 				{:else if current === 'failed'}
 					<Icon name="close" className="h-3 w-3" />
+				{:else if current === 'attention'}
+					<Icon name="warning" className="h-3 w-3" />
 				{/if}
 			</span>
 			<span class="min-w-0 flex-1">
 				<span class="block text-base {current === 'pending' ? 'text-fg-subtle' : 'text-fg'}">{group.title}</span>
 				<span class="block text-sm {current === 'pending' ? 'text-fg-subtle' : 'text-fg-muted'}">
-					{stepDetailLine(group.kind, current, plan, modeCount, progress)}
+					{stepDetailLine(group.kind, current === 'attention' ? 'failed' : current, plan, modeCount, progress)}
 				</span>
-				{#if current === 'failed' && group.latest?.safe_error_detail}
-					<span class="mt-1 block text-sm text-danger">{group.latest.safe_error_detail}</span>
+				{#if (current === 'failed' || current === 'attention') && group.latest?.safe_error_detail}
+					<span class="mt-1 block text-sm {current === 'failed' ? 'text-danger' : 'text-warning'}">
+						{group.latest.safe_error_detail}
+					</span>
 					{#if group.latest.safe_suggested_action}
 						<span class="block text-sm text-fg-muted">{group.latest.safe_suggested_action}</span>
 					{/if}

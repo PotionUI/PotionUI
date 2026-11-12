@@ -296,10 +296,6 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
     except Exception as e:
         logging.warning(f"Could not load the native backend's engine settings: {e}")
 
-    # Setup claim token lifecycle. While the instance has no owner, ensure a
-    # one-time token exists on disk (0600) so a remote operator can claim it via
-    # the bootstrap CLI; once claimed, make sure no stale token lingers. Never
-    # logs the token value itself (only its path, inside ClaimTokenStore).
     try:
         if container.instance_claim_repository.is_claimed():
             container.claim_token_store.clear()
@@ -307,6 +303,26 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
             container.claim_token_store.ensure_token()
     except Exception as e:
         logging.warning(f"Could not initialize the setup claim token: {e}")
+
+
+def announce_claim_code(container: AppContainer) -> bool:
+    try:
+        if container.instance_claim_repository.is_claimed():
+            return False
+        code = container.claim_token_store.ensure_token()
+    except Exception as e:
+        logging.warning(f"Could not read the setup claim token: {e}")
+        return False
+    if not code:
+        return False
+    print("This instance has no owner yet.", flush=True)
+    print(f"Claim code: {code}", flush=True)
+    print(
+        "The claim code is asked for when the first account is created from another computer. "
+        "It stops working once the owner exists.",
+        flush=True,
+    )
+    return True
 
 
 def mount_plugin_routers(app: FastAPI, container: AppContainer) -> None:
@@ -467,15 +483,19 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         if reconciled:
             logging.info(f"Reconciled {reconciled} interrupted generation(s) as failed after restart")
 
+        resume_run_id = None
         try:
-            if container.recipe_runner.reconcile_interrupted():
-                logging.info("Marked a recipe run interrupted by the restart as failed; it can be retried")
+            resume_run_id = container.recipe_runner.reconcile_interrupted()
         except Exception as exc:
             logging.error(f"Reconciling interrupted recipe runs failed at startup: {exc}")
 
         container.app_loop = asyncio.get_running_loop()
         container.plugin_registry.run_ready_hooks()
         start_warm_up(app, container, warmed_up)
+
+        if resume_run_id:
+            logging.info("Resuming the setup run the restart interrupted")
+            container.recipe_runner.drive_async(resume_run_id)
 
         try:
             await ensure_providers_discovered()
@@ -549,6 +569,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         container.elixirs.runtime.start()
 
         container.generation_orchestrator.start_backend_probes()
+
+        announce_claim_code(container)
 
         yield
 

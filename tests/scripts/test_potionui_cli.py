@@ -15,10 +15,25 @@ import pytest
 
 from scripts import potionui_cli as cli
 
+REAL_PROBE_PYTHON_CANDIDATES = cli.probe_python_candidates
+
 
 @pytest.fixture(autouse=True)
 def _posix_by_default(monkeypatch):
     monkeypatch.setattr(cli, "is_windows", lambda: False)
+    monkeypatch.setattr(cli, "is_macos", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def _start_tests_have_a_graphics_card_unless_they_say_otherwise(request, monkeypatch):
+    if not request.node.name.startswith("test_cmd_start") or "no_nvidia" in request.node.name:
+        return
+    original = FakeProbe.which
+    monkeypatch.setattr(
+        FakeProbe,
+        "which",
+        lambda self, name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else original(self, name),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -132,14 +147,54 @@ def test_check_python_prefers_the_pinned_minor_over_a_newer_one():
     assert "3.12.2" in result.message
 
 
-def test_check_python_warns_when_only_a_newer_minor_exists():
+def test_check_python_stops_a_new_install_when_only_a_newer_minor_exists(tmp_path):
     probe = FakeProbe(
         which={"python3.13": "/usr/bin/python3.13"},
         run={"/usr/bin/python3.13": cp(stdout="3.13.0\n")},
     )
-    result = cli.check_python(probe)
+    result = cli.check_python(probe, tmp_path)
+    assert result.severity == cli.Severity.ERROR
+    assert result.blocking is True
+    assert result.message == "Python 3.13 is not supported yet (found 3.13.0 at /usr/bin/python3.13)."
+    assert result.repair == "Install Python 3.12 next to it; ./potionui start picks it up by itself."
+
+
+def test_check_python_without_a_repo_root_treats_the_install_as_new():
+    probe = FakeProbe(
+        which={"python3.13": "/usr/bin/python3.13"},
+        run={"/usr/bin/python3.13": cp(stdout="3.13.0\n")},
+    )
+    assert cli.check_python(probe).severity == cli.Severity.ERROR
+
+
+def test_check_python_keeps_an_existing_install_on_a_newer_minor_starting_with_a_warning(tmp_path):
+    venv_python = cli.venv_python(tmp_path)
+    probe = FakeProbe(
+        which={"python3.13": "/usr/bin/python3.13"},
+        run={
+            "/usr/bin/python3.13": cp(stdout="3.13.0\n"),
+            (str(venv_python), "-c", cli.PYTHON_VERSION_PROBE_CODE): cp(stdout="3.13.0\n"),
+        },
+        exists={str(venv_python)},
+    )
+    result = cli.check_python(probe, tmp_path)
     assert result.severity == cli.Severity.WARNING
     assert "3.13.0" in result.message and "3.12" in result.repair
+
+
+def test_check_python_trusts_the_virtualenvs_own_interpreter_over_the_newer_one_on_path(tmp_path):
+    venv_python = cli.venv_python(tmp_path)
+    probe = FakeProbe(
+        which={"python3.13": "/usr/bin/python3.13"},
+        run={
+            "/usr/bin/python3.13": cp(stdout="3.13.0\n"),
+            (str(venv_python), "-c", cli.PYTHON_VERSION_PROBE_CODE): cp(stdout="3.12.4\n"),
+        },
+        exists={str(venv_python)},
+    )
+    result = cli.check_python(probe, tmp_path)
+    assert result.severity == cli.Severity.OK
+    assert "3.12" in result.message
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +254,9 @@ def test_check_python_windows_py_launcher_display_includes_flag(monkeypatch):
         },
     )
     result = cli.check_python(probe)
-    assert result.severity == cli.Severity.WARNING
+    assert result.severity == cli.Severity.ERROR
     assert "py.exe -3.13" in result.message
+    assert result.repair == "Install Python 3.12 next to it; .\\potionui.cmd start picks it up by itself."
 
 
 # ---------------------------------------------------------------------------
@@ -2581,3 +2637,126 @@ def test_cmd_status_is_silent_about_a_claim_code_when_there_is_no_code_file(monk
     cli.cmd_status(cli.build_parser().parse_args(["status"]))
 
     assert "claim code" not in capsys.readouterr().out
+
+
+def _no_card_stub(monkeypatch, tmp_path, deps_importable=False):
+    (tmp_path / "constraints.txt").write_text("torch==2.12.1\n")
+    return _stub_cmd_start_for_profile(monkeypatch, tmp_path, deps_importable=deps_importable)
+
+
+def test_cmd_start_no_nvidia_card_on_the_implicit_default_stops_before_pip_and_prints_both_commands(
+    monkeypatch, tmp_path, capsys
+):
+    captured, marked = _no_card_stub(monkeypatch, tmp_path)
+
+    code = cli.cmd_start(cli.build_parser().parse_args(["start"]))
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "pip_cmd" not in captured
+    assert marked == []
+    assert "No NVIDIA graphics card was found on this computer, so nothing was installed." in out
+    assert "./potionui start --profile remote" in out
+    assert "./potionui start --profile local" in out
+    assert "Install the full GPU software anyway." in out
+    assert "Connect another computer with an NVIDIA card, a ComfyUI server" in out
+
+
+def test_cmd_start_no_nvidia_card_stop_never_creates_the_virtualenv(monkeypatch, tmp_path, capsys):
+    _no_card_stub(monkeypatch, tmp_path)
+    created = []
+    monkeypatch.setattr(
+        cli,
+        "run_streamed",
+        lambda cmd, cwd, env, label: created.append(label) or True,
+    )
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start"])) == 1
+    assert created == []
+
+
+def test_cmd_start_no_nvidia_card_on_windows_names_the_cmd_launcher(monkeypatch, tmp_path, capsys):
+    _no_card_stub(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
+    monkeypatch.setattr(cli, "venv_python", lambda repo_root: tmp_path / "venv" / "bin" / "python")
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start"])) == 1
+    out = capsys.readouterr().out
+    assert ".\\potionui.cmd start --profile remote" in out
+    assert ".\\potionui.cmd start --profile local" in out
+
+
+def test_cmd_start_no_nvidia_card_on_macos_offers_only_the_remote_command(monkeypatch, tmp_path, capsys):
+    _no_card_stub(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "is_macos", lambda: True)
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start"])) == 1
+    out = capsys.readouterr().out
+    assert "./potionui start --profile remote" in out
+    assert "--profile local" not in out
+
+
+def test_cmd_start_no_nvidia_card_with_the_local_profile_given_goes_ahead(monkeypatch, tmp_path):
+    captured, marked = _no_card_stub(monkeypatch, tmp_path)
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start", "--profile", "local"])) == 0
+    assert captured["pip_cmd"][1:] == ["install", "-r", "requirements.txt", "-c", "constraints.txt"]
+    assert marked == ["local"]
+
+
+def test_cmd_start_no_nvidia_card_with_the_remote_profile_given_goes_ahead(monkeypatch, tmp_path):
+    captured, marked = _no_card_stub(monkeypatch, tmp_path)
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start", "--profile", "remote"])) == 0
+    assert captured["pip_cmd"][1:] == cli.backend_pip_install_args_no_gpu()
+
+
+def test_cmd_start_no_nvidia_card_with_a_persisted_profile_goes_ahead(monkeypatch, tmp_path):
+    captured, _marked = _no_card_stub(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "install_profile_active", lambda: "local")
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start"])) == 0
+    assert "pip_cmd" in captured
+
+
+def test_cmd_start_no_nvidia_card_with_the_dependencies_already_installed_goes_ahead(monkeypatch, tmp_path):
+    captured, _marked = _no_card_stub(monkeypatch, tmp_path, deps_importable=True)
+    venv_python = str(tmp_path / "venv" / "bin" / "python")
+    monkeypatch.setattr(
+        cli, "RealProbe", lambda: FakeProbe(run={venv_python: cp(returncode=0)}, exists={venv_python})
+    )
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start"])) == 0
+    assert "pip_cmd" not in captured
+
+
+def test_cmd_start_a_newer_python_with_no_virtualenv_stops_before_anything_is_installed(monkeypatch, tmp_path, capsys):
+    captured, _marked = _stub_cmd_start_for_profile(monkeypatch, tmp_path)
+    (tmp_path / "venv" / "bin" / "python").unlink()
+    monkeypatch.setattr(
+        cli,
+        "RealProbe",
+        lambda: FakeProbe(
+            which={"python3.13": "/usr/bin/python3.13", "nvidia-smi": "/usr/bin/nvidia-smi"},
+            run={"/usr/bin/python3.13": cp(stdout="3.13.0\n")},
+        ),
+    )
+    monkeypatch.setattr(cli, "probe_python_candidates", REAL_PROBE_PYTHON_CANDIDATES)
+    monkeypatch.setattr(cli, "run_doctor", lambda probe, repo_root, *a, **k: [cli.check_python(probe, repo_root)])
+
+    code = cli.cmd_start(cli.build_parser().parse_args(["start"]))
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "pip_cmd" not in captured
+    assert "Python 3.13 is not supported yet" in out
+    assert "Install Python 3.12 next to it" in out
+
+
+def test_check_gpu_no_card_stays_a_non_blocking_warning_so_doctor_keeps_exiting_zero():
+    result = cli.check_gpu(FakeProbe())
+
+    assert result.severity == cli.Severity.WARNING
+    assert result.blocking is False
+    assert "CPU-only is fine" not in result.repair
+    assert "./potionui start --profile remote" in result.repair

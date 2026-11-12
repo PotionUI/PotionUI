@@ -105,7 +105,8 @@ def test_enable_failure_surfaces_plugin_error():
     result = executor.execute(_context(["downloader"]))
 
     assert result.success is False
-    assert "missing dependency: ffmpeg" in result.safe_error_detail
+    assert "missing dependency: ffmpeg" not in result.safe_error_detail
+    assert "missing dependency: ffmpeg" in result.technical_detail
 
 
 def test_enable_exception_message_is_the_fallback_detail():
@@ -120,4 +121,5 @@ def test_enable_exception_message_is_the_fallback_detail():
     result = PluginsEnsureExecutor(registry, enable).execute(_context(["downloader"]))
 
     assert result.success is False
-    assert "boom" in result.safe_error_detail
+    assert "boom" not in result.safe_error_detail
+    assert "boom" in result.technical_detail

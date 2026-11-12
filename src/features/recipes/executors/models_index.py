@@ -17,7 +17,8 @@ class ModelsIndexExecutor:
         except Exception as exc:
             return StepResult.fail(
                 "MODEL_INDEX_FAILED",
-                f"Scanning for model files failed: {exc}",
+                "Looking for your model files failed.",
+                technical_detail=f"{type(exc).__name__}: {exc}",
                 suggested_repair="Check that the models directory exists and is readable, then retry.",
             )
 

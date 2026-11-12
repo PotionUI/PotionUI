@@ -30,7 +30,7 @@ export function validateClaimFields(fields: ClaimFields): string | null {
 	if (password.length < 8) return 'Password must be at least 8 characters.';
 	if (password !== confirmPassword) return 'Passwords do not match.';
 	if (claimCodeRequired && !claimCode) {
-		return 'Enter the setup token. It is saved in a file on the server.';
+		return 'Enter the claim code. PotionUI printed it when it started.';
 	}
 	return null;
 }

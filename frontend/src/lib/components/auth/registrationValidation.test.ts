@@ -56,7 +56,7 @@ describe('validateClaimFields', () => {
 
 	it('requires a claim code only when claimCodeRequired is set', () => {
 		expect(validateClaimFields({ ...validClaim, claimCodeRequired: true, claimCode: '' })).toBe(
-			'Enter the setup token. It is saved in a file on the server.'
+			'Enter the claim code. PotionUI printed it when it started.'
 		);
 		expect(validateClaimFields({ ...validClaim, claimCodeRequired: true, claimCode: 'abc123' })).toBeNull();
 		expect(validateClaimFields({ ...validClaim, claimCodeRequired: false, claimCode: '' })).toBeNull();

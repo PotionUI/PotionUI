@@ -67,6 +67,7 @@ export interface SetupStepAttempt {
 	 * out of `safe_output` server-side so the UI never has to fish a magic
 	 * key out of a free-form output dict. */
 	safe_suggested_action: string | null;
+	safe_technical_detail?: string | null;
 	started_at: string | null;
 	finished_at: string | null;
 }

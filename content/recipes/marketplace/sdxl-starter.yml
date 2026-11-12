@@ -12,7 +12,7 @@ name: "SDXL Starter"
 engine: "native"
 category: "image"
 summary: "Get a working SDXL setup on your local GPU and produce a first image."
-blurb: "Classic all-rounder with a huge library of styles and LoRAs."
+blurb: "Classic all-rounder with a huge library of styles to choose from."
 first_run: true
 description: >
   Installs the bundled SDXL preset on the native (in-process) engine, makes

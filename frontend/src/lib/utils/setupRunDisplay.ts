@@ -234,40 +234,19 @@ export function runNeedsConsent(run: Pick<SetupRun, 'status'>): boolean {
 	return isConsentStatus(run.status);
 }
 
-/**
- * What the /setup panel should show once it knows (a) whether
- * `GET /runs/active` found a run and (b) what (if anything) was cached
- * locally from a previous visit.
- *
- * `/runs/active` is always the authoritative answer to "is something in
- * progress right now" — a failed run is deliberately excluded from it (see
- * `ACTIVE_STATUSES`), which would otherwise make a failed run vanish (and
- * its "Try again" with it) the instant the page reloads. So on a 404, this
- * gives a failed *stored* run one more look before giving up on it; a
- * completed/cancelled stored run, or no stored run at all, has nothing left
- * to retry and clears normally.
- */
 export type RunDiscoveryOutcome =
 	| { show: 'active' }
 	| { show: 'stored-failed' }
+	| { show: 'stored-completed' }
 	| { show: 'none' };
 
-/**
- * Decide what to show given whether the active-run check found something and
- * what (if anything) the locally-cached run id resolved to.
- *
- * @param activeResult `'found'` when `GET /runs/active` returned a run,
- *   `'not_found'` on its 404.
- * @param storedRun The run `GET /runs/{storedId}` resolved to (only its
- *   `status` matters here), or `null` when there was no stored id or it
- *   404'd/couldn't be resolved.
- */
 export function decideRunDiscovery(
 	activeResult: 'found' | 'not_found',
 	storedRun: Pick<SetupRun, 'status'> | null
 ): RunDiscoveryOutcome {
 	if (activeResult === 'found') return { show: 'active' };
 	if (storedRun && storedRun.status === 'failed') return { show: 'stored-failed' };
+	if (storedRun && storedRun.status === 'completed') return { show: 'stored-completed' };
 	return { show: 'none' };
 }
 
@@ -403,8 +382,10 @@ export function consentKindLabel(kind: string): string {
 export function runProgressPercent(resolved: ResolvedStepGroups): number {
 	const { groups } = resolved;
 	if (groups.length === 0) return 0;
-	const succeeded = groups.filter((g) => g.status === 'succeeded').length;
-	return Math.round((succeeded / groups.length) * 100);
+	const done = groups.filter(
+		(g) => g.status === 'succeeded' || (g.status === 'action_required' && g.latest?.finished_at != null)
+	).length;
+	return Math.round((done / groups.length) * 100);
 }
 
 /**
@@ -697,6 +678,29 @@ export function extractSmokeGeneration(
 	const filename =
 		typeof rawFilename === 'string' && rawFilename ? rawFilename.split('/').pop() || null : null;
 	return { generationId, filename };
+}
+
+export interface SmokeFailure {
+	reason: string;
+	action: string | null;
+	technical: string | null;
+}
+
+export function extractSmokeFailure(run: Pick<SetupRun, 'steps' | 'attempts'>): SmokeFailure | null {
+	const step = findStepByKind(run, 'generation.smoke');
+	const latest = step && step.attempts.length > 0 ? step.attempts[step.attempts.length - 1] : null;
+	if (!latest || latest.status !== 'action_required') return null;
+	return {
+		reason: latest.safe_error_detail || "The test didn't finish.",
+		action: latest.safe_suggested_action ?? null,
+		technical: latest.safe_technical_detail ?? null
+	};
+}
+
+export function newestFinishedOnboardingRun<T extends Pick<SetupRun, 'mode' | 'status'>>(
+	runs: readonly T[]
+): T | null {
+	return runs.find((r) => r.mode === 'onboarding' && r.status === 'completed') ?? null;
 }
 
 // --- generation.smoke result media -----------------------------------

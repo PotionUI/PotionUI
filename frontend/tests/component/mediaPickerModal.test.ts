@@ -115,7 +115,7 @@ beforeEach(() => {
 	}));
 	apiMocks.getHistoryFacets.mockResolvedValue({
 		success: true,
-		data: { modes: [], presets: [{ id: 'p1', name: 'Text to image', count: 2 }], models: [{ name: 'Flux 3', count: 2 }] }
+		data: { modes: [], presets: [{ id: 'p1', name: 'Text to image', count: 2 }], models: [{ name: 'flux_fp8_scaled.safetensors', label: 'Flux 3', count: 2 }] }
 	});
 	apiMocks.listCollections.mockResolvedValue({ success: true, data: { collections: [{ id: 'c1', name: 'Cars', parent_id: null }] } });
 	apiMocks.getTags.mockResolvedValue({ success: true, data: { tags: [{ id: 't1', name: 'night', color: '#336699', type: 'GENERATION' }] } });
@@ -178,8 +178,10 @@ describe('filters reach each tab\'s own list query', () => {
 		await click(q('[data-filters-trigger]'));
 		await click(q('[data-date="last_week"]'));
 		await vi.waitFor(() => expect(lastHistoryRequest().createdFrom).toBeTruthy());
-		await change(q<HTMLSelectElement>('#pk-filter-model'), 'Flux 3');
-		await vi.waitFor(() => expect(lastHistoryRequest().modelName).toBe('Flux 3'));
+		const modelOptions = Array.from(q<HTMLSelectElement>('#pk-filter-model').options).map((o) => o.textContent?.trim());
+		expect(modelOptions).toEqual(['Any', 'Flux 3']);
+		await change(q<HTMLSelectElement>('#pk-filter-model'), 'flux_fp8_scaled.safetensors');
+		await vi.waitFor(() => expect(lastHistoryRequest().modelName).toBe('flux_fp8_scaled.safetensors'));
 		await change(q<HTMLSelectElement>('#pk-filter-preset'), 'p1');
 		await vi.waitFor(() => expect(lastHistoryRequest().presetId).toBe('p1'));
 

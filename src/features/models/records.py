@@ -62,6 +62,25 @@ class ModelInfo:
         }
 
 
+def model_display_name(
+    custom_name: Optional[str],
+    provider_name: Optional[str],
+    filename: Optional[str],
+    model_type: Optional[str] = None,
+    fallback: Optional[str] = None,
+) -> str:
+    if custom_name:
+        return custom_name
+    if provider_name:
+        return provider_name
+    if filename:
+        if model_type in VIRTUAL_MODEL_TYPES:
+            return filename
+        stem, _, _ = filename.rpartition('.')
+        return stem or filename
+    return fallback or ''
+
+
 @dataclass
 class Model:
     """Represents a model file in the models directory"""
@@ -132,21 +151,13 @@ class Model:
         freshly indexed library has no custom names and no provider metadata, so without
         it every model would be unlabelled.
         """
-        if self.custom_name:
-            return self.custom_name
-
-        for info in self.providers or []:
-            name = getattr(info, 'name', None)
-            if name:
-                return name
-
-        if self.filename:
-            if self.model_type in VIRTUAL_MODEL_TYPES:
-                return self.filename
-            stem, _, _ = self.filename.rpartition('.')
-            return stem or self.filename
-
-        return self.id or ''
+        provider_name = next(
+            (name for name in (getattr(info, 'name', None) for info in self.providers or []) if name),
+            None,
+        )
+        return model_display_name(
+            self.custom_name, provider_name, self.filename, self.model_type, self.id
+        )
 
     def to_dict(
         self,

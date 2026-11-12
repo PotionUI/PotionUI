@@ -234,7 +234,7 @@ export interface GenerationHistoryFilters {
 export interface HistoryFacets {
 	modes: Array<{ value: string; count: number }>;
 	presets: Array<{ id: string; name: string; count: number }>;
-	models: Array<{ name: string; count: number }>;
+	models: Array<{ name: string; label?: string; count: number }>;
 }
 
 export interface HistoryPageState {

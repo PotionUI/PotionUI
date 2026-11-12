@@ -42,6 +42,7 @@
 	import AttributesList from './models/AttributesList.svelte';
 	import AttributeDetailPage from './models/AttributeDetailPage.svelte';
 	import ModelDetailPage from './models/ModelDetailPage.svelte';
+	import ModelRowTags from './models/ModelRowTags.svelte';
 	import BulkTagModal from './models/BulkTagModal.svelte';
 	import FoldersPane from '$lib/model-folders/FoldersPane.svelte';
 	import FoldersSidebar from '$lib/model-folders/FoldersSidebar.svelte';
@@ -721,15 +722,7 @@
 {/snippet}
 
 {#snippet tagsCell(model: ModelListItem)}
-	{@const tags = (model.tags as { id: string; name: string }[] | undefined) || []}
-	{#if tags.length === 0}
-		<span class="text-fg-subtle">—</span>
-	{:else}
-		<div class="flex items-center gap-1 min-w-0">
-			<Badge variant="neutral" size="sm">{tags[0].name}</Badge>
-			{#if tags.length > 1}<Badge variant="neutral" size="sm">+{tags.length - 1}</Badge>{/if}
-		</div>
-	{/if}
+	<ModelRowTags tags={(model.tags as { id: string; name: string }[] | undefined) || []} />
 {/snippet}
 
 {#snippet modelCard(model: ModelListItem)}
@@ -738,6 +731,9 @@
 		<ModelTypeBadge modelType={model.model_type as string} />
 		<span class="font-mono text-2xs text-fg-subtle">{model.file_size ? formatBytes(model.file_size as number) : ''}</span>
 	</div>
+	{#if ((model.tags as unknown[] | undefined) || []).length > 0}
+		<div class="mt-1"><ModelRowTags tags={model.tags as { id: string; name: string }[]} /></div>
+	{/if}
 {/snippet}
 
 <LibraryShell
@@ -814,6 +810,15 @@
 				filterCount={activeFilterCount}
 			>
 				{#snippet searchAddon()}
+					<Tooltip text={selectedModelIds.size > 0 ? 'Tag selected models' : 'Tag models: tick rows to select them'} position="bottom">
+						<IconButton
+							icon="tag"
+							label="Tag selected models"
+							size="xs"
+							disabled={selectedModelIds.size === 0}
+							onclick={() => (bulkTagModelIds = [...selectedModelIds])}
+						/>
+					</Tooltip>
 					<Tooltip text="Regular expression" position="bottom">
 						<IconButton
 							icon="regex"

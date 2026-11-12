@@ -14,6 +14,7 @@
 	export let allowCreate: boolean = true;
 	export let className: string = '';
 	export let compact: boolean = false;
+	export let triggerLabel: string | undefined = undefined;
 	export let iconOnly: boolean = false; // shorthand for triggerStyle="icon"
 	/** How the closed trigger renders. 'pills' shows the current selection inline, replacing the
 	 * icon/text button - this is the former AutoTagSelector presentation. */
@@ -258,7 +259,9 @@
 			>
 				<Icon name="tag" className="w-4 h-4" />
 				<span>
-					{#if selectedTags.length === 0}
+					{#if triggerLabel}
+						{triggerLabel}
+					{:else if selectedTags.length === 0}
 						{placeholder}
 					{:else}
 						{selectedTags.length} {selectedTags.length === 1 ? 'tag' : 'tags'}

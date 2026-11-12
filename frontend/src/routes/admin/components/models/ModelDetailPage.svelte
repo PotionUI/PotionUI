@@ -27,6 +27,7 @@
 	import ModelTechnicalDetailsCard from '$lib/components/modals/model-details/ModelTechnicalDetailsCard.svelte';
 	import ModelAvailabilityCard from '$lib/components/modals/model-details/ModelAvailabilityCard.svelte';
 	import ModelMirrorsCard from '$lib/components/modals/model-details/ModelMirrorsCard.svelte';
+	import ModelTagsSection from './ModelTagsSection.svelte';
 	import ModelOtherVariants from '$lib/components/recipes/ModelOtherVariants.svelte';
 	import { createAdminModelDetailsController } from '$lib/components/modals/model-details/modelDetailsController';
 	import { overviewDraftFromModel, overviewDraftIsDirty, type ModelOverviewDraft } from './modelOverviewDraft';
@@ -343,6 +344,7 @@
 								</DetailField>
 							</div>
 						</DetailSection>
+						<ModelTagsSection tags={$selectedTags} onChange={(ids) => controller.updateTags(ids)} />
 						<ModelOtherVariants modelId={$model.id} />
 						<DetailSection label="Previews">
 							<ModelPreviewGallery bare modelId={$model.id} on:primarychange={handlePrimaryChange} />

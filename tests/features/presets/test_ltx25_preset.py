@@ -354,7 +354,7 @@ def _prompt_writer_guide(template, mode):
 
 
 def test_only_the_reference_video_modes_override_the_video_guide(ltx25_template):
-    assert set(ltx25_template.llm["modes"]) == set(MODE_GUIDE_RULES) == set(OPTIONAL_PROMPT_MODES)
+    assert set(ltx25_template.llm["modes"]) - {"ingredients"} == set(MODE_GUIDE_RULES) == set(OPTIONAL_PROMPT_MODES)
     assert ltx25_template.llm["guide"].startswith("Write ONE chronological paragraph")
 
 

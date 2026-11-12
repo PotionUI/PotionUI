@@ -199,6 +199,10 @@
     "label": "Perfect Loop",
     "icon": "mode-cinemagraph"
   },
+  "ingredients": {
+    "label": "Ingredients",
+    "icon": "mode-refs"
+  },
   "transition": {
     "label": "Transition",
     "icon": "mode-transition"

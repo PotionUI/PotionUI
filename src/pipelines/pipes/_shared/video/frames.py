@@ -18,6 +18,10 @@ def to_frames_tensor(image: Any) -> Tensor:
     return arr
 
 
+def hold_frames(frames: Tensor, count: int) -> Tensor:
+    return frames[:1].expand(int(count), *frames.shape[1:])
+
+
 def load_video_frames(path: str, max_frames: int, start: int = 0) -> Tensor:
     import cv2
 

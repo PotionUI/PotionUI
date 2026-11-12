@@ -84,6 +84,7 @@ CASES = [
     ("presets/marketplace/LTX-2.5", "motion_transfer", {"input_video", "input_image"}),
     ("presets/marketplace/LTX-2.5", "cinemagraph", {"input_image"}),
     ("presets/marketplace/LTX-2.5", "transition", {"first_image", "last_image"}),
+    ("presets/marketplace/LTX-2.5", "ingredients", {"pictures", "reference_sheet"}),
     ("presets/marketplace/LTX-2.5", "follow_motion", {"input_video", "input_image"}),
     ("presets/marketplace/LTX-2.5", "transparent_video", {"input_video"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),

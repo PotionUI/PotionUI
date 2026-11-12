@@ -318,6 +318,17 @@ llm:
         The prompt is optional, and the mode writes a default caption when it is empty.
         Never type zhuanchang; the mode adds that trigger word itself when the
         Transition LoRA is selected.
+    ingredients:
+      guide: |
+        Ingredients mode: an IC-LoRA keeps the characters and props of a reference sheet
+        consistent in a new video, so never write the 4-8 sentence video paragraph. Write
+        only what happens and how it is shot: the action, the place, the camera
+        ("the knight walks into the tavern and sits beside the fox; medium shot, slow
+        push in"). Name the characters and props the way the sheet shows them; never
+        describe how they look, the sheet supplies that. Only what is on the sheet can
+        appear, so never add a character or prop that has no panel.
+        The mode writes the "Reference sheet:" and "Generated video:" parts itself, so
+        never type those labels or number the panels.
 
 formulas:
   groups:
@@ -346,3 +357,4 @@ modes:
   - transition
   - transparent_video
   - follow_motion
+  - ingredients

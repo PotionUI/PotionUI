@@ -145,7 +145,7 @@ from src.pipelines.pipes._shared.vae.ltx_tiled_decode import decode_fits_beside
 from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
 from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
 from src.pipelines.pipes._shared.media.inputs import as_flag
-from src.pipelines.pipes._shared.video.frames import load_video_frames, probe_video_stream, to_frames_tensor
+from src.pipelines.pipes._shared.video.frames import hold_frames, load_video_frames, probe_video_stream, to_frames_tensor
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes._shared.video.ltx_common import (
     decode_ltx_video,
@@ -398,7 +398,8 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             preview_decoder_config_spec(),
             PipeConfigSpec("media_placements", list, [],
                            "Media conditioning placements: [{source: image|video, index, frame: int|first|last|end, "
-                           "strength, role: keyframe|reference}]. Empty with image inputs present = image[0] as "
+                           "strength, role: keyframe|reference, hold: bool}]. hold repeats a role=reference image for "
+                           "every frame of the clip. Empty with image inputs present = image[0] as "
                            "first frame (i2v) and image[1] (if any) as last frame (FLF).", required=False),
             PipeConfigSpec("audio", bool, False, "Produce an audio track", required=False),
             PipeConfigSpec("audio_source", str, "generate",
@@ -475,7 +476,13 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 if idx >= len(images):
                     raise ValueError(f"media placement references image[{idx}] but only {len(images)} provided")
                 media_frames = to_frames_tensor(images[idx])
+                if as_flag(p.get("hold", False)):
+                    if role != "reference":
+                        raise ValueError("a 'hold' media placement must have role 'reference'")
+                    media_frames = hold_frames(media_frames, frames)
             elif source == "video":
+                if as_flag(p.get("hold", False)):
+                    raise ValueError("a 'hold' media placement must use an image")
                 if idx >= len(videos):
                     raise ValueError(f"media placement references video[{idx}] but only {len(videos)} provided")
                 media_frames = load_video_frames(videos[idx], frames, start=video_start)

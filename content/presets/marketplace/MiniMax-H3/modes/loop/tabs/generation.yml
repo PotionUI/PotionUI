@@ -50,7 +50,7 @@ fields:
         type: "select"
         label: "Movement"
         default: "subtle"
-        ai_hint: "Subtle asks for slight, slow movement, the kind that gives a still picture life on a wallpaper. Lively asks for steadier, more visible movement. The restart hides best when something clearly moves over much of the frame (water, waves, grass, clouds, snow); in a dark, nearly still scene where only fog, haze or reflections drift, it can show as a faint tick."
+        ai_hint: "Subtle asks for slight, slow movement, the kind that gives a still picture life on a wallpaper. Lively asks for steadier, more visible movement. The loop hides best when motion renews or stays in place over much of the frame (flowing water, waves, rain, snow, swaying grass). Something large drifting slowly one way, such as clouds, has to return to its start and can snap back mid-clip; in a dark, nearly still scene where only fog, haze or reflections drift, the restart can show as a faint tick."
         configuration:
           options:
             - { label: "Subtle", value: "subtle" }

@@ -493,11 +493,14 @@ llm:
         that starts, ends or travels across the frame (a person walking in, a car
         driving past, a door opening), and never ask for camera movement: the
         camera is fixed so the loop can close. With a Start picture, do not
-        describe the scene again; the picture supplies it. Loops close best on
-        scenes where something clearly moves over much of the frame (water,
-        waves, grass, clouds, snow). In a dark, nearly still scene where only
-        fog, haze or reflections drift, the restart can show as a faint tick:
-        suggest more visible motion or Lively.
+        describe the scene again; the picture supplies it. Loops close best
+        when the motion renews itself or stays in place: flowing or falling
+        water, waves, rain, snow, fire, steam, grass or leaves swaying. Warn
+        about anything large that slowly travels one way (drifting clouds, a
+        moving shadow or patch of light, a boat crossing): the loop has to pull
+        it back to where it started and it can visibly snap back. In a dark,
+        nearly still scene where only fog, haze or reflections drift, the
+        restart can show as a faint tick: suggest more visible motion or Lively.
 
     upscale:
       guide: |

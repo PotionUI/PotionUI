@@ -278,3 +278,101 @@ def test_the_gpu_check_ignores_a_wrap_step_too_small_to_see_whatever_its_ratio()
 
     visible = seam_metric(_subtle_clip(wrap_offset=9.0, scale=0.1, chunk_bump=0.0))
     assert visible["seam_step"] > 0.5 and visible["jumps"]
+
+
+def _drifting_clip(offsets):
+    import numpy as np
+
+    x = np.arange(192, dtype=np.float64)[None, :]
+    y = np.arange(128, dtype=np.float64)[:, None]
+    frames = []
+    for shift in offsets:
+        phase = 2 * np.pi * (x + shift) / 192
+        value = (128 + 40 * np.sin(phase) * (0.7 + 0.3 * np.sin(2 * np.pi * y / 41))
+                 + 25 * np.sin(2 * phase + 1.3) * (0.6 + 0.4 * np.cos(2 * np.pi * y / 29))
+                 + 15 * np.sin(3 * phase + 0.4) * np.sin(2 * np.pi * y / 53 + 0.8))
+        frames.append(np.clip(value, 0, 255).astype(np.uint8)[:, :, None].repeat(3, 2))
+    return np.stack(frames)
+
+
+def _rewinding_offsets(rewind_steps):
+    import numpy as np
+
+    steps = np.where(np.isin(np.arange(48), rewind_steps), -30.0, 2.0)
+    return np.concatenate([[0.0], np.cumsum(steps)[:-1]])
+
+
+def test_the_gpu_check_passes_a_loop_that_flows_one_way_all_round():
+    pytest.importorskip("cv2")
+    import numpy as np
+
+    from tests.manual.h3_perfect_loop_check import rewinds, seam_metric
+
+    clip = _drifting_clip(4.0 * np.arange(48))
+    report = rewinds(clip)
+
+    assert report["rewind_check"] == "flow" and report["rewinds"] == [] and report["rewind_ok"]
+    assert seam_metric(clip)["pass"]
+
+
+def test_the_gpu_check_passes_a_sway_whose_motion_turns_back_smoothly():
+    pytest.importorskip("cv2")
+    import numpy as np
+
+    from tests.manual.h3_perfect_loop_check import rewinds
+
+    assert rewinds(_drifting_clip(20 * np.sin(2 * np.pi * np.arange(48) / 48)))["rewinds"] == []
+
+
+def test_the_gpu_check_fails_a_drift_that_snaps_back_inside_the_clip():
+    pytest.importorskip("cv2")
+    from tests.manual.h3_perfect_loop_check import rewinds
+
+    report = rewinds(_drifting_clip(_rewinding_offsets([30, 31, 32])))
+
+    assert not report["rewind_ok"]
+    assert sorted({rewind["step"] for rewind in report["rewinds"]}) == [30, 31, 32]
+    assert min(rewind["speed_over_usual"] for rewind in report["rewinds"]) >= 8
+
+
+def test_the_gpu_check_fails_a_drift_whose_velocity_reverses_across_the_wrap():
+    pytest.importorskip("cv2")
+    from tests.manual.h3_perfect_loop_check import rewinds
+
+    report = rewinds(_drifting_clip(_rewinding_offsets([45, 46, 47])))
+
+    assert not report["rewind_ok"]
+    assert any(rewind["at_wrap"] for rewind in report["rewinds"])
+
+
+def test_the_gpu_check_skips_the_rewind_rule_with_a_note_when_opencv_is_missing(monkeypatch):
+    import builtins
+
+    import numpy as np
+
+    from tests.manual.h3_perfect_loop_check import rewinds
+
+    real_import = builtins.__import__
+
+    def no_cv2(name, *args, **kwargs):
+        if name == "cv2":
+            raise ImportError("no cv2")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_cv2)
+    report = rewinds(_drifting_clip(_rewinding_offsets([30, 31, 32])))
+
+    assert report["rewind_ok"] and report["rewinds"] == []
+    assert report["rewind_check"].startswith("skipped")
+
+
+def test_the_gpu_check_does_not_call_a_fast_burst_along_the_drift_a_rewind():
+    pytest.importorskip("cv2")
+    import numpy as np
+
+    from tests.manual.h3_perfect_loop_check import rewinds
+
+    steps = np.where(np.isin(np.arange(48), [30, 31, 32]), 34.0, 2.0)
+    report = rewinds(_drifting_clip(np.concatenate([[0.0], np.cumsum(steps)[:-1]])))
+
+    assert report["rewinds"] == []

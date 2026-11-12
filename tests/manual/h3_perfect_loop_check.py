@@ -21,8 +21,10 @@ DESCRIPTION = (
     "and 1.8x the steps 17 frames away (the VAE's chunk boundaries), and at least 0.5 luma levels, "
     "which would be a jump or a reset (with the earlier frame it jumps back to), and "
     "motion never drops below 0.35x the median for two steps (a stop and restart) nor below 0.5x on average in "
-    "the half second either side of the wrap (an ease into or out of the seam), and the view never zooms "
-    "more than 1 percent against the first frame."
+    "the half second either side of the wrap (an ease into or out of the seam), the view never zooms "
+    "more than 1 percent against the first frame, and no part of the picture that drifts one way runs back "
+    "against its own drift at 8x its usual speed (a rewind, such as clouds snapping back; needs OpenCV, "
+    "skipped with a note without it)."
 )
 PRESET = ROOT / "content/presets/marketplace/MiniMax-H3/preset.yml"
 SEAM_TILES = 8
@@ -124,6 +126,44 @@ def seam_metric(frames: np.ndarray) -> dict:
 
 ZOOM_LIMIT = 0.01
 ZOOM_STEP = 12
+
+
+REWIND_GRID = 4
+REWIND_SPEED = 8.0
+REWIND_COS = -0.5
+REWIND_COHERENCE = 0.5
+REWIND_MIN_PX = 0.5
+
+
+def rewinds(frames: np.ndarray) -> dict:
+    try:
+        import cv2
+    except ImportError:
+        return {"rewind_check": "skipped: OpenCV is not importable", "rewinds": [], "rewind_ok": True}
+    gray = [np.asarray(Image.fromarray(frame).convert("L").resize((frame.shape[1] // 2, frame.shape[0] // 2)))
+            for frame in frames]
+    count = len(gray)
+    height, width = gray[0].shape[0] // REWIND_GRID, gray[0].shape[1] // REWIND_GRID
+    velocity = np.zeros((count, REWIND_GRID * REWIND_GRID, 2))
+    for index in range(count):
+        flow = cv2.calcOpticalFlowFarneback(gray[index], gray[(index + 1) % count], None, 0.5, 3, 15, 3, 5, 1.2, 0)
+        cells = flow[: height * REWIND_GRID, : width * REWIND_GRID]
+        velocity[index] = cells.reshape(REWIND_GRID, height, REWIND_GRID, width, 2).mean(axis=(1, 3)).reshape(-1, 2)
+    speed = np.linalg.norm(velocity, axis=2)
+    usual = np.median(velocity, axis=0)
+    usual_speed = np.linalg.norm(usual, axis=1)
+    median_speed = np.median(speed, axis=0)
+    cosine = (velocity * usual).sum(axis=2) / (speed * usual_speed + 1e-9)
+    drifting = usual_speed >= REWIND_COHERENCE * median_speed
+    hit = ((speed >= REWIND_SPEED * np.maximum(median_speed, 1e-3)) & (speed >= REWIND_MIN_PX)
+           & (cosine <= REWIND_COS) & drifting)
+    found = [
+        {"step": int(step), "region": [int(cell // REWIND_GRID), int(cell % REWIND_GRID)],
+         "speed_over_usual": float(speed[step, cell] / max(median_speed[cell], 1e-3)),
+         "at_wrap": bool(step == count - 1)}
+        for step, cell in zip(*np.nonzero(hit))
+    ]
+    return {"rewind_check": "flow", "rewinds": found, "rewind_ok": not found}
 
 
 def zoom_drift(frames: np.ndarray, *, size: tuple[int, int] = (96, 168)) -> dict:
@@ -264,7 +304,8 @@ def main() -> int:
     contact_sheet(frames, args.out / "seam-sheet.png")
     report = seam_metric(frames)
     report.update(zoom_drift(frames))
-    report["pass"] = report["pass"] and report["zoom_ok"]
+    report.update(rewinds(frames))
+    report["pass"] = report["pass"] and report["zoom_ok"] and report["rewind_ok"]
     (args.out / "seam.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     print(f"frames {report['frames']} at {fps:g} fps")
@@ -284,11 +325,20 @@ def main() -> int:
               f"({stop['frames'] / fps:.2f} s)")
     print(f"zoom against frame 0          worst {report['worst_zoom']:.3f} at frame {report['worst_zoom_at']} "
           f"(limit 1 +/- {ZOOM_LIMIT})")
+    if report["rewind_check"] != "flow":
+        print(f"rewind check {report['rewind_check']}")
+    steps = sorted({rewind["step"] for rewind in report["rewinds"]})
+    if steps:
+        regions = len({tuple(rewind["region"]) for rewind in report["rewinds"]})
+        worst = max(rewind["speed_over_usual"] for rewind in report["rewinds"])
+        print(f"rewind at steps {steps}: {regions} of {REWIND_GRID * REWIND_GRID} regions run back against their "
+              f"own drift, up to {worst:.0f}x their usual speed")
     print(f"{'PASS' if report['pass'] else 'FAIL'}: no step of the period, the wrap included, jumps above "
           f"{SPIKE_RATIO}x the median, {CADENCE_RATIO}x the steps {CADENCE} and {CHUNK_FRAMES} frames away and "
           f"{JUMP_MIN_LUMA} luma levels, and motion never "
           f"drops below {STOP_RATIO}x the median for two steps nor below {SEAM_MOTION_MIN}x on average in the "
-          f"{SEAM_WINDOW} steps either side of the wrap")
+          f"{SEAM_WINDOW} steps either side of the wrap, and nothing that drifts one way runs back at "
+          f"{REWIND_SPEED:g}x its usual speed")
     return 0 if report["pass"] else 1
 
 

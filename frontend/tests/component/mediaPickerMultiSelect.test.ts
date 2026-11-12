@@ -115,6 +115,7 @@ function isChecked(el: HTMLInputElement): boolean {
 }
 
 beforeEach(() => {
+	Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1440 });
 	restoreWidth = stubClientWidth(1000);
 	apiMocks.getGenerationHistory.mockResolvedValue({ success: true, data: { generations: GENERATIONS, total: 2 } });
 	apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: LIBRARY, total: 3 } });
@@ -158,7 +159,9 @@ describe('GenerationHistoryModal multi-select', () => {
 		await tick();
 		const calls = apiMocks.getGenerationHistory.mock.calls.length;
 
-		buttonByText('7 Days')!.click();
+		document.querySelector<HTMLButtonElement>('[data-filters-trigger]')!.click();
+		await vi.waitFor(() => expect(document.querySelector('[data-date="last_week"]')).not.toBeNull());
+		document.querySelector<HTMLButtonElement>('[data-date="last_week"]')!.click();
 		await vi.waitFor(() => expect(apiMocks.getGenerationHistory.mock.calls.length).toBeGreaterThan(calls));
 		await vi.waitFor(() => expect(document.querySelector('input[aria-label^="Select a.png"]')).not.toBeNull());
 
@@ -214,8 +217,9 @@ describe('GenerationHistoryModal multi-select', () => {
 			expect(lastQuery()).toMatchObject({ media_type: 'video', collection_id: 'c1' });
 
 			pending = loaded();
-			await vi.waitFor(() => expect(buttonByText('Mara')).toBeDefined());
-			buttonByText('Mara')!.click();
+			document.querySelector<HTMLButtonElement>('[data-filter-tags]')!.click();
+			await vi.waitFor(() => expect([...document.querySelectorAll('[role="option"]')].some((el) => el.textContent?.includes('Mara'))).toBe(true));
+			[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((el) => el.textContent?.includes('Mara'))!.click();
 			await pending;
 			expect(lastQuery()).toMatchObject({ media_type: 'video', collection_id: 'c1', tag_ids: 't1' });
 		});
@@ -333,18 +337,6 @@ describe('GenerationHistoryModal multi-select', () => {
 		expect(onConfirm).not.toHaveBeenCalled();
 	});
 
-	it('previewing a file does not select it', async () => {
-		const onSelectionChange = vi.fn();
-		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
-		await settle();
-
-		document.querySelector<HTMLElement>('button[aria-label="Preview a.png (Preset)"]')!.click();
-		await tick();
-
-		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
-		expect(onSelectionChange).not.toHaveBeenCalled();
-	});
-
 	it('clicking the tile image toggles the selection', async () => {
 		const onSelectionChange = vi.fn();
 		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
@@ -354,7 +346,7 @@ describe('GenerationHistoryModal multi-select', () => {
 		tileButton.click();
 		await tick();
 		expect(historyCheckbox('a.png').checked).toBe(true);
-		expect(document.querySelector('[data-testid="picker-preview"]')).toBeNull();
+		expect(document.querySelector('button[aria-label^="Preview"]')).toBeNull();
 		tileButton.click();
 		await tick();
 		expect(historyCheckbox('a.png').checked).toBe(false);
@@ -407,7 +399,7 @@ describe('GenerationHistoryModal multi-select', () => {
 });
 
 describe('UploadLibraryModal multi-select', () => {
-	it('clicking the tile image toggles the selection and the preview button only previews', async () => {
+	it('clicking the tile image toggles the selection and no tile offers a preview button', async () => {
 		const onSelectionChange = vi.fn();
 		mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
 		await settle();
@@ -415,12 +407,7 @@ describe('UploadLibraryModal multi-select', () => {
 		document.querySelector<HTMLElement>('button[aria-hidden="true"][data-file="one.png"]')!.click();
 		await tick();
 		expect(checkbox('one.png').checked).toBe(true);
-		expect(document.querySelector('[data-testid="picker-preview"]')).toBeNull();
-
-		document.querySelector<HTMLElement>('button[aria-label="Preview one.png"]')!.click();
-		await tick();
-		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
-		expect(checkbox('one.png').checked).toBe(true);
+		expect(document.querySelector('button[aria-label^="Preview"]')).toBeNull();
 	});
 
 	it('reports typed keys and items for library selections', async () => {
@@ -519,7 +506,7 @@ describe('UploadLibraryModal multi-select', () => {
 		await settle();
 
 		expect(document.querySelector('input[type="checkbox"]')).toBeNull();
-		document.querySelector<HTMLButtonElement>('[aria-label="Use one.png"]')!.click();
+		document.querySelector<HTMLButtonElement>('[aria-label="Select one.png"]')!.click();
 		expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'l1' }));
 	});
 });

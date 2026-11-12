@@ -98,7 +98,7 @@ test('DynamicForm image field survives a History pick alongside onOriginChange',
 	const dropzone = dropHint.locator('xpath=ancestor::*[contains(@class, "border-dashed")][1]');
 	await dropzone.getByText('History', { exact: true }).click();
 
-	const historyModal = page.getByText('Select Image from Generation History');
+	const historyModal = page.getByRole('heading', { name: 'Choose image' });
 	await expect(historyModal).toBeVisible({ timeout: 20000 });
 
 	const thumbnail = page.locator(`img[src*="${generationId}"]`).first();

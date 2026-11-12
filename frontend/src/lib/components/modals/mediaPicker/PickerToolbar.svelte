@@ -140,7 +140,7 @@
 			value={search}
 			{placeholder}
 			aria-label="Search"
-			data-autofocus
+			data-autofocus={tier === 'sm' ? undefined : ''}
 			data-picker-search
 			class="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder-fg-subtle outline-none"
 			oninput={(event) => setSearch(event.currentTarget.value)}
@@ -181,7 +181,7 @@
 					class="{pill(!!collectionName)} max-w-[12rem]"
 					aria-haspopup="listbox"
 					aria-expanded={open}
-					data-filter-collection
+					data-collection-filter
 					onclick={toggle}
 				>
 					<Icon name="folder" className="h-4 w-4 flex-shrink-0" />
@@ -278,7 +278,7 @@
 			active={current.favorites}
 			ariaPressed={current.favorites}
 			class="flex-shrink-0 {current.favorites ? '' : 'bg-surface-2'}"
-			data-filter-favorites
+			data-favorites-filter
 			onclick={setFavorites}
 		/>
 	{/if}

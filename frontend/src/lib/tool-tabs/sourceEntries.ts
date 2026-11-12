@@ -3,7 +3,7 @@ import { confirmDialog } from '$lib/stores/confirm';
 import type { MediaRef } from '$lib/types/tabs';
 import type { ToolTabHost } from './types';
 
-export type SourceEntryId = 'library' | 'history' | 'browse';
+export type SourceEntryId = 'history' | 'library' | 'kits' | 'browse';
 
 export interface SourceEntry {
 	id: SourceEntryId;
@@ -15,8 +15,9 @@ export type SourceKind = 'image' | 'video';
 
 export function sourceEntries(kind: SourceKind, phone = false): SourceEntry[] {
 	const shared: SourceEntry[] = [
+		{ id: 'history', label: 'History', icon: 'clock' },
 		{ id: 'library', label: 'Library', icon: 'photo' },
-		{ id: 'history', label: 'History', icon: 'clock' }
+		{ id: 'kits', label: 'Kits', icon: 'layers' }
 	];
 	if (kind === 'video') return shared;
 	return [...shared, { id: 'browse', label: phone ? 'Photos' : 'Upload file', icon: 'upload' }];

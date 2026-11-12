@@ -27,10 +27,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getFileURL: vi.fn((id: string, size?: string) => `/api/media/files/${id}?size=${size}`)
 	}
 }));
-vi.mock('$lib/components/modals/GenerationHistoryModal.svelte', async () => ({
-	default: (await import('./fixtures/HistoryPickerStub.svelte')).default
-}));
-vi.mock('$lib/components/modals/UploadLibraryModal.svelte', async () => ({
+vi.mock('$lib/components/modals/mediaPicker/MediaPickerModal.svelte', async () => ({
 	default: (await import('./fixtures/HistoryPickerStub.svelte')).default
 }));
 vi.mock('$lib/components/modals/MediaPreviewModal.svelte', async () => ({

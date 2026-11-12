@@ -318,6 +318,19 @@ for (const size of SIZES) {
 			await screenshot(page, JOURNEY, `single-image-${size.tag}`);
 		});
 
+		test('Replace opens the same named sources the empty tile offers, with Kits as one item', async ({ page }) => {
+			const host = await mountField(page, size, {
+				config: { title: 'Image', accept: 'image/*' },
+				value: imageItem(1)
+			});
+			await host.getByRole('button', { name: 'Replace' }).click();
+			const menu = page.locator('[data-source-menu="change"]');
+			await expect(menu.getByText('Replace image')).toBeVisible();
+			await expect(menu.getByRole('menuitem')).toHaveText([/Upload file/, /History/, /Library/, /Kits.*one item/, /Paste/]);
+			await page.keyboard.press('Escape');
+			await expect(menu).toHaveCount(0);
+		});
+
 		test('tab order walks the preview, Replace, Tools and Remove', async ({ page }) => {
 			const host = await mountField(page, size, {
 				config: { title: 'Image', accept: 'image/*' },
@@ -640,7 +653,7 @@ for (const size of SIZES) {
 
 			const single = await mountField(page, size, { config: { title: 'Voice', accept: 'audio/*' }, value: null });
 			await single.getByRole('button', { name: 'History' }).click();
-			const modalTitle = page.getByText('Select Audio from Generation History');
+			const modalTitle = page.getByRole('heading', { name: 'Choose audio' });
 			await expect(modalTitle).toBeVisible();
 			const historyCards = page.getByRole('dialog').locator('[data-testid="history-file-tile"] button');
 			await expect(historyCards).toHaveCount(1);
@@ -659,7 +672,7 @@ for (const size of SIZES) {
 			const mixed = await mountField(page, size, { config: MIXED, value: [imageItem(1)] });
 			await mixed.locator('[data-media-add="audio"]').click();
 			await page.locator('[data-source-menu] [data-source="history"]').click();
-			await expect(page.getByText('Select Audio from Generation History')).toBeVisible();
+			await expect(page.getByRole('heading', { name: 'Choose audio' })).toBeVisible();
 			const mixedDialog = page.getByRole('dialog');
 			const mixedChecks = mixedDialog.getByRole('checkbox');
 			await expect(mixedChecks).toHaveCount(1);

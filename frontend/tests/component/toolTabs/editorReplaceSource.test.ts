@@ -190,7 +190,7 @@ describe('image editor Replace control', () => {
 		q<HTMLButtonElement>('[data-frame-replace]')!.click();
 		flushSync();
 		const entries = Array.from(document.querySelectorAll<HTMLElement>('[data-replace-entry]')).map((row) => row.dataset.replaceEntry);
-		expect(entries).toEqual(['library', 'history', 'browse']);
+		expect(entries).toEqual(['history', 'library', 'kits', 'browse']);
 	});
 
 	it('is absent from the empty state', () => {

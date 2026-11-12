@@ -104,7 +104,7 @@ async function openPicker(page: Page, props: Record<string, unknown>) {
 }
 
 async function frameSize(page: Page, fileId: number) {
-	const box = await page.locator(`[data-file-id="${fileId}"] .media-zoom`).boundingBox();
+	const box = await page.locator(`[data-file-id="${fileId}"] [style*="aspect-ratio"]`).boundingBox();
 	if (!box) throw new Error(`no frame for file ${fileId}`);
 	return box;
 }
@@ -131,19 +131,6 @@ for (const viewport of VIEWPORTS) {
 		await screenshot(page, JOURNEY, `single-${viewport.name}`);
 
 		const tileButton = dialog.getByRole('button', { name: 'Select salt-02.png (salt flats at noon)' });
-		const tileImage = tileButton.locator('.media-zoom img').first();
-		await expect(tileImage).toHaveCSS('transform', 'none');
-		await tileButton.hover();
-		await expect(tileImage).not.toHaveCSS('transform', 'none');
-		await expect(tileButton.locator('.tile-frame')).toHaveCSS('border-top-color', await page.evaluate(() => {
-			const probe = document.createElement('div');
-			probe.className = 'border-line-hover border';
-			document.body.appendChild(probe);
-			const color = getComputedStyle(probe).borderTopColor;
-			probe.remove();
-			return color;
-		}));
-
 		await tileButton.click();
 		const selected = await page.evaluate(() => (window as any).__pickerEvents.selected);
 		expect(selected).toEqual({ generationId: 'gen-landscape', fileId: 4 });
@@ -169,15 +156,7 @@ for (const viewport of VIEWPORTS) {
 		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('3 selected');
 		await dialog.locator('[data-file-id="2"] button[aria-hidden="true"]').click();
 		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('2 selected');
-		await expect(dialog.getByTestId('picker-preview')).toHaveCount(0);
-		await dialog.getByRole('button', { name: 'Preview teapot.png (ceramic teapot)' }).click();
-		await expect(dialog.getByTestId('picker-preview')).toBeVisible();
-		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('2 selected');
-		const preview = dialog.getByTestId('picker-preview');
-		await expect(preview.getByText('Failed to load')).toHaveCount(0);
-		const previewImage = preview.locator('img');
-		await expect(previewImage).toBeVisible();
-		await expect.poll(() => previewImage.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+		await expect(dialog.getByRole('button', { name: /^Preview/ })).toHaveCount(0);
 
 		await screenshot(page, JOURNEY, `multi-${viewport.name}`);
 

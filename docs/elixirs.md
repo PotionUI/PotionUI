@@ -7,7 +7,7 @@ order: 47
 # Elixirs
 
 Elixirs chain presets and media as cards that flow left to right. A preset step runs a copy
-of a saved session; a files card holds files picked from History or the Library; a prompt
+of a saved session; a files card holds files picked from History, the Library or a kit; a prompt
 writer writes one prompt per file for the step after it. Each card sits to the right of the
 step it takes its files from, its input slots pick that source from a menu, and a brew runs
 every step in order.
@@ -51,6 +51,10 @@ source of thousands of files keeps a bounded number of tiles and lazily loaded t
 During a random pick the card puts the drawn files first. A library file's width and height are
 stored on its asset entry (`width`, `height`, set by the server, never trusted from the client);
 files without them are measured as they load.
+
+A step's History, Library and Kits buttons all open the one media picker, on the tab of the
+button used; switching tabs keeps the selection, and only the kinds the step takes can be
+selected (the others are dimmed with the reason). A kit item counts as a Library file.
 
 Files can be added by upload as well as picked. The step's settings have an Upload button, and
 files can be dropped onto the card or the settings, or pasted (Ctrl/Cmd+V) while the card or the

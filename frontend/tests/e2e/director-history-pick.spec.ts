@@ -114,7 +114,7 @@ test('director history pick — i2v leading-frame media slot renders the picked 
 
 	await slotDropzone.getByRole('button', { name: 'History' }).click();
 
-	const historyModal = page.getByText('Select Image from Generation History');
+	const historyModal = page.getByRole('heading', { name: 'Choose image' });
 	await expect(historyModal).toBeVisible({ timeout: 20000 });
 
 	const thumbnail = page.locator(`img[src*="${generationId}"]`).first();

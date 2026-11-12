@@ -399,13 +399,30 @@ test.describe('Kits and History', () => {
 		await page.goto('/library?view=kits&kit=kt_7f3a1c2e');
 		for (const name of ['Library', 'History', 'Upload', 'Text']) await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
 		await page.getByRole('button', { name: 'History', exact: true }).click();
-		await expect(page.getByText('Add to Mara from Generation History')).toBeVisible();
-		await page.locator('[data-generation-card]').first().click();
-		await page.locator('[data-generation-card]').nth(1).click();
+		await expect(page.getByRole('heading', { name: 'Add to Mara' })).toBeVisible();
+		await page.getByTestId('history-file-tile').first().getByRole('checkbox').check();
+		await page.getByTestId('history-file-tile').nth(1).getByRole('checkbox').check();
 		await page.getByRole('button', { name: 'Use selected' }).click();
 		await expect.poll(() => backend.submitted.length).toBe(1);
 		expect(backend.submitted[0].file_ids).toEqual(['501', '502']);
 		expect(backend.kits[0].items).toHaveLength(5);
+	});
+
+	test('the Add to kit picker has History, Library and Kits tabs and lets a kit item be picked', async ({ page }) => {
+		await mockLibrary(page);
+		await mockHistory(page);
+		await mockKits(page, [seedMara()]);
+		await page.goto('/library?view=kits&kit=kt_7f3a1c2e');
+		await page.getByRole('button', { name: 'History', exact: true }).click();
+		const dialog = page.getByRole('dialog', { name: 'Add to Mara' });
+		await expect(dialog.getByRole('navigation', { name: 'Source' }).getByRole('button')).toHaveText([/History/, /Library/, /Kits/]);
+		await dialog.getByRole('navigation', { name: 'Source' }).getByRole('button', { name: /Kits/ }).click();
+		await dialog.getByRole('button', { name: 'Open Mara' }).click();
+		await expect(dialog.getByRole('button', { name: 'All kits' })).toBeVisible();
+		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('0 selected');
+		await dialog.getByTestId('library-file-tile').first().or(dialog.locator('[data-pick-tile]').first()).getByRole('checkbox').check();
+		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('1 selected');
+		await expect(dialog.getByRole('button', { name: 'Add to kit' })).toBeEnabled();
 	});
 
 	test('adds a History selection to a new kit with Add to kit', async ({ page }) => {
@@ -470,10 +487,10 @@ test.describe('Kits in a generation', () => {
 		});
 
 		await page.getByRole('button', { name: 'Kits' }).first().click();
-		const dialog = page.getByRole('dialog', { name: 'Load a kit' });
-		await expect(dialog.locator('[data-kit-load-list] [role="option"]')).toHaveCount(1);
-		await dialog.locator('[data-kit-load-list] [role="option"]').first().click();
-		await dialog.getByRole('button', { name: /^Load Mara/ }).click();
+		const dialog = page.getByRole('dialog', { name: /^Choose / });
+		await expect(dialog.locator('[data-pick-kit]')).toHaveCount(1);
+		await dialog.locator('[data-pick-kit]').first().getByRole('checkbox').check();
+		await dialog.getByRole('button', { name: 'Use selected' }).click();
 		await expect(page.locator('[data-loaded-kit]')).toContainText('Mara');
 		await screenshot(page, JOURNEY, 'loader-1440');
 
@@ -497,9 +514,9 @@ test.describe('Kits in a generation', () => {
 		await mockKits(page, [seedMara()]);
 		test.skip(!(await openReferencePreset(page)), 'a MiniMax H3 preset with a References mode is not available on this instance');
 		await page.getByRole('button', { name: 'Kits' }).first().click();
-		const dialog = page.getByRole('dialog', { name: 'Load a kit' });
-		await dialog.locator('[data-kit-load-list] [role="option"]').first().click();
-		await dialog.getByRole('button', { name: /^Load Mara/ }).click();
+		const dialog = page.getByRole('dialog', { name: /^Choose / });
+		await dialog.locator('[data-pick-kit]').first().getByRole('checkbox').check();
+		await dialog.getByRole('button', { name: 'Use selected' }).click();
 		await expect(page.locator('[data-loaded-kit]')).toContainText('Mara');
 
 		const editor = page.locator('.segment-composer [contenteditable="true"]').first();
@@ -524,9 +541,9 @@ test.describe('Kits in a generation', () => {
 		await mockKits(page, [seedMara()]);
 		test.skip(!(await openReferencePreset(page)), 'a MiniMax H3 preset with a References mode is not available on this instance');
 		await page.getByRole('button', { name: 'Kits' }).first().click();
-		const dialog = page.getByRole('dialog', { name: 'Load a kit' });
-		await dialog.locator('[data-kit-load-list] [role="option"]').first().click();
-		await dialog.getByRole('button', { name: /^Load Mara/ }).click();
+		const dialog = page.getByRole('dialog', { name: /^Choose / });
+		await dialog.locator('[data-pick-kit]').first().getByRole('checkbox').check();
+		await dialog.getByRole('button', { name: 'Use selected' }).click();
 		await expect(page.locator('[data-loaded-kit]')).toBeVisible();
 		await page.getByTestId('preset-header-mode').getByRole('button').first().click();
 		await page.getByRole('option').nth(0).click();
@@ -541,9 +558,9 @@ test.describe('Kits in a generation', () => {
 		const backend = await mockKits(page, [seedMara()]);
 		test.skip(!(await openReferencePreset(page)), 'a MiniMax H3 preset with a References mode is not available on this instance');
 		await page.getByRole('button', { name: 'Kits' }).first().click();
-		const dialog = page.getByRole('dialog', { name: 'Load a kit' });
-		await dialog.locator('[data-kit-load-list] [role="option"]').first().click();
-		await dialog.getByRole('button', { name: /^Load Mara/ }).click();
+		const dialog = page.getByRole('dialog', { name: /^Choose / });
+		await dialog.locator('[data-pick-kit]').first().getByRole('checkbox').check();
+		await dialog.getByRole('button', { name: 'Use selected' }).click();
 		const editor = page.locator('.segment-composer [contenteditable="true"]').first();
 		await editor.click();
 		await page.keyboard.type('@kits.mara.');

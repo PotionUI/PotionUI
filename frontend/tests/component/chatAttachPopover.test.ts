@@ -169,7 +169,7 @@ describe('ChatAttachPopover', () => {
 		component.$destroy?.();
 	});
 
-	it('shows the regular media field as one dropzone with Browse, History and Library', async () => {
+	it('shows the regular media field as one dropzone with Upload file, History and Library', async () => {
 		const { component } = mount({ onClose: vi.fn() });
 		await tick();
 
@@ -179,7 +179,7 @@ describe('ChatAttachPopover', () => {
 		const doors = Array.from(document.body.querySelectorAll('[data-media-dropzone] button')).map(
 			(b) => b.textContent?.trim()
 		);
-		for (const door of ['Browse', 'History', 'Library']) expect(doors).toContain(door);
+		for (const door of ['Upload file', 'History', 'Library']) expect(doors).toContain(door);
 
 		component.$destroy?.();
 	});

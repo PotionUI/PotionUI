@@ -89,7 +89,7 @@ test('chat vision picker - History pick lands the image in the field', async ({ 
 	// --- Open History from the compact field and pick the seeded generation.
 	await dropzone.getByRole('button', { name: 'History' }).click();
 
-	const historyModal = page.getByText('Select Image from Generation History');
+	const historyModal = page.getByRole('heading', { name: 'Choose image' });
 	await expect(historyModal).toBeVisible({ timeout: 20000 });
 	await screenshot(page, JOURNEY, '02-history-modal-open');
 

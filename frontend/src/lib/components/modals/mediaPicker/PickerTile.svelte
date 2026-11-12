@@ -9,6 +9,7 @@
 		multiple,
 		selected = false,
 		disabled = false,
+		readonly = false,
 		reason = '',
 		onActivate,
 		onToggle
@@ -17,6 +18,7 @@
 		multiple: boolean;
 		selected?: boolean;
 		disabled?: boolean;
+		readonly?: boolean;
 		reason?: string;
 		onActivate: (entry: PickerEntry) => void;
 		onToggle: (entry: PickerEntry) => void;
@@ -28,16 +30,26 @@
 	);
 </script>
 
-<div class="flex min-w-0 flex-col" style={sizing} data-pick-tile={entry.key} data-selected={selected ? 'true' : undefined} data-disabled={disabled ? 'true' : undefined}>
+<div
+	class="flex min-w-0 flex-col"
+	style={sizing}
+	data-pick-tile={entry.key}
+	data-testid={entry.picked.file ? 'history-file-tile' : entry.picked.item ? 'library-file-tile' : undefined}
+	data-file-id={entry.picked.file?.id}
+	data-item-id={entry.picked.item?.id}
+	data-selected={selected ? 'true' : 'false'}
+	data-disabled={disabled ? 'true' : undefined}
+>
 	<div class="group relative">
 		<button
 			type="button"
-			{disabled}
-			tabindex={multiple ? -1 : 0}
+			disabled={disabled || readonly}
+			tabindex={readonly || multiple ? -1 : 0}
 			aria-hidden={multiple ? 'true' : undefined}
 			aria-label={multiple ? undefined : `Select ${entry.accessibleName}`}
 			data-pick-main
-			data-pick-focus={multiple ? undefined : ''}
+			data-file={entry.label}
+			data-pick-focus={multiple || readonly ? undefined : ''}
 			class="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal {disabled
 				? 'cursor-not-allowed'
 				: 'cursor-pointer'}"
@@ -55,7 +67,7 @@
 				{/if}
 			</span>
 		</button>
-		{#if multiple}
+		{#if multiple && !readonly}
 			<label
 				class="absolute left-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded border border-line-strong bg-surface-1/90 focus-within:ring-2 focus-within:ring-signal {disabled
 					? 'cursor-not-allowed'
@@ -67,6 +79,7 @@
 					checked={selected}
 					{disabled}
 					data-pick-focus
+					data-file={entry.label}
 					aria-label={`Select ${entry.accessibleName}`}
 					onchange={() => onToggle(entry)}
 					onkeydown={(event) => {
@@ -86,6 +99,9 @@
 			<span class="block truncate">{reason}</span>
 		</p>
 	{:else}
-		<p class="truncate font-mono text-sm tabular-nums text-fg-subtle">{entry.sublabel}</p>
+		<p class="flex min-w-0 font-mono text-sm tabular-nums text-fg-subtle" data-pick-sublabel>
+			<span class="truncate">{entry.sublabel}</span>
+			{#if entry.date}<span class="shrink-0 whitespace-nowrap">{entry.sublabel ? '\u00a0·\u00a0' : ''}{entry.date}</span>{/if}
+		</p>
 	{/if}
 </div>

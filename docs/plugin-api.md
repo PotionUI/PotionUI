@@ -2771,7 +2771,7 @@ the tab never stores them inline.
 
 ## Extending the image editor
 
-The media loader's image editor (**Edit** on a loaded image, **Draw a new image** on an empty
+The media loader's image editor (**Edit** on a loaded image, **Draw** on an empty
 field) is built on registries a plugin frontend can
 extend through `window.__potionui.imageEditor`. Every `register*` call returns an unregister
 function. Registrations are global and survive editor sessions, so register once when your
@@ -3335,6 +3335,38 @@ const handle = modal.mount(el, {
 });
 ```
 
+### Media pickers
+
+Every place the app picks existing media (media loader fields, the editors, kits, Elixirs) opens
+one picker, `MediaPickerModal`: source tabs History, Library and Kits on the title row, one
+filter row (search, kind, collection, tags, favourites, a Filters popover, sort, tile size), a
+grid that scrolls on its own and a one-row footer with numeric pagination. Single select has no
+confirm button: a click on a tile picks it. Multi select adds a checkbox to every tile, an
+`n of m selected` count and a confirm button. The tile size (S / M / L) is the setting the
+History and Library pages already use.
+
+`GenerationHistoryModal` and `UploadLibraryModal` stay as documented below: they are the same
+picker with the source fixed (History or Library, no tab strip), with the same props, callbacks
+and key shapes they have always had. `MediaPickerModal` is available to plugins the same way
+(`window.__potionui.components.MediaPickerModal`, loaded on first use):
+
+| Prop | Meaning |
+| --- | --- |
+| `isOpen`, `onClose`, `title` | As for the two wrappers. The default title is `Choose image`, `Choose video` and so on. |
+| `sources` | Any of `['history', 'library', 'kits']`, default `['history', 'library']`. One entry hides the tab strip. |
+| `initialSource` | The tab shown on open. |
+| `mediaType`, `mediaTypes` | The kind, or the kinds, that are listed. The kind switch is shown only when more than one is listed. |
+| `selectableMediaTypes` | Kinds that can be selected; other listed files are dimmed with the reason. |
+| `multiple`, `maxCount` | Multi select, and an optional cap. Unselected tiles are dimmed with `Limit of n reached` at the cap. |
+| `selectedKeys`, `onSelectionChange(keys, items)`, `onConfirm(keys, items)`, `confirmLabel` | As documented below; `confirmLabel` replaces `Use selected`. |
+| `onPick(item)` | Single select: called with one item (the shape below) for every source. |
+| `kits` | `{accepted?, mediaRoom?, loadedIds?, onLoad?(kits)}`. With `onLoad` and `multiple`, a kit card gets a checkbox that means "use the whole kit" and counts the kit's acceptable items against `maxCount`; `onLoad` receives the kit details on confirm. |
+
+On the Kits tab a kit is a card: it opens to its items, which are picked like any other tile;
+items and kits the caller cannot take are dimmed with the reason. A picked kit item has
+`origin: {kind: 'kit', kitId, itemId}`, `kitItem` and `kit`, and the key `kit:<itemId>`; a whole
+kit is the key `kit:all:<kitId>`, which is never reported through `onConfirm`.
+
 ### Media pickers with multi-select
 
 `GenerationHistoryModal` and `UploadLibraryModal` are mountable from a plugin
@@ -3344,7 +3376,8 @@ Both keep their single-select behaviour unless `multiple` is set:
 | Prop | Meaning |
 | --- | --- |
 | `isOpen`, `onClose`, `title`, `mediaType` | As for single-select. `mediaType` filters what is listed. |
-| `multiple` | Switches to multi-select: every file gets its own checkbox, a separate preview button, a selected count and Cancel / Use selected buttons. `onSelect` is not called. |
+| `onSelect` | Single select only: `(generation, file)` from `GenerationHistoryModal`, `(item)` from `UploadLibraryModal`. The host closes the picker. |
+| `multiple` | Switches to multi-select: every file gets its own checkbox, a selected count and Cancel / Use selected buttons. `onSelect` is not called. |
 | `selectedKeys` | The selection, as a string array. Optional; when given the picker follows it, so a plugin can keep the selection across closing and reopening, and across switching between the two pickers. |
 | `onSelectionChange(keys, items)` | Called on every toggle with the new keys and the picked items the picker has seen. |
 | `onConfirm(keys, items)` | Called by Use selected, which is disabled while nothing is selected; the picker then calls `onClose`. |

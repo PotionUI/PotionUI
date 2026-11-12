@@ -5,7 +5,7 @@
 	import { mediaCountOf } from '$lib/kits/kitCounts';
 	import { kitDirectory } from '$lib/stores/kits';
 	import type { KitDetail, KitRow } from '$lib/kits/types';
-	import KitLoadDialog from './KitLoadDialog.svelte';
+	import MediaPickerModal from '$lib/components/modals/mediaPicker/MediaPickerModal.svelte';
 
 	let {
 		formData,
@@ -45,12 +45,15 @@
 </script>
 
 {#if $kitLoadRequest && target}
-	<KitLoadDialog
-		loadedIds={target.rows.map((row) => row.kit)}
-		accepted={target.accepted}
-		{modelName}
-		subtitle="Reference media"
-		onLoad={loaded}
+	<MediaPickerModal
+		isOpen={true}
 		onClose={clearKitLoadRequest}
+		title="Load a kit"
+		sources={['kits']}
+		mediaTypes={['image', 'video', 'audio']}
+		multiple
+		kitItems={false}
+		kits={{ accepted: target.accepted, loadedIds: target.rows.map((row) => row.kit), onLoad: loaded }}
+		confirmLabel={({ count, kitNames }) => (count === 0 ? 'Load' : kitNames.length === 1 ? `Load ${kitNames[0]}` : `Load ${kitNames.length} kits`)}
 	/>
 {/if}

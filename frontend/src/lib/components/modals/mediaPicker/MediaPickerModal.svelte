@@ -65,7 +65,8 @@
 		acceptedOnlyReason,
 		type ArrowKey
 	} from './pickerSelection';
-	import type { MediaPickerKits } from './types';
+	import type { MediaPickerKits, PickerConfirmLabel } from './types';
+	import { rememberKit } from '$lib/stores/kits';
 
 	type Status = 'loading' | 'ready' | 'error';
 
@@ -91,6 +92,7 @@
 		onPick,
 		confirmLabel = 'Use selected',
 		closeOnPick = true,
+		kitItems = true,
 		kits
 	}: {
 		isOpen?: boolean;
@@ -107,8 +109,9 @@
 		onSelectionChange?: (keys: string[], items: PickedMedia[]) => void;
 		onConfirm?: (keys: string[], items: PickedMedia[]) => void;
 		onPick?: (picked: PickedMedia) => void;
-		confirmLabel?: string;
+		confirmLabel?: PickerConfirmLabel;
 		closeOnPick?: boolean;
+		kitItems?: boolean;
 		kits?: MediaPickerKits;
 	} = $props();
 
@@ -123,6 +126,7 @@
 	let reasonText = $derived(constrained ? mediaTypeConstraintMessage(constrained) : acceptedOnlyReason(kinds));
 	let maxItems = $derived(maxCount ?? kits?.mediaRoom ?? null);
 	let wholeKit = $derived(multiple && !!kits?.onLoad);
+	let itemsPickable = $derived(kitItems);
 	let heading = $derived(title ?? `Choose ${kinds.length === 1 ? NOUNS[kinds[0]] : 'media'}`);
 
 	function kindsFor(src: PickerSourceId): PickerMediaType[] {
@@ -145,6 +149,7 @@
 	let reloadTick = $state(0);
 	let notice = $state('');
 	let busy = $state(false);
+	let justLoaded = $state<string[]>([]);
 
 	let historyView = $state({ generations: [] as GenerationHistoryItem[], total: 0, status: 'loading' as Status, loaded: false });
 	let libraryView = $state({ items: [] as LibraryItem[], total: 0, status: 'loading' as Status, loaded: false });
@@ -163,6 +168,7 @@
 	let gridEl = $state<HTMLDivElement>();
 
 	const seq: Record<PickerSourceId, number> = { history: 0, library: 0, kits: 0 };
+	const lastKey: Record<PickerSourceId, string> = { history: '', library: '', kits: '' };
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 	let wasOpen = false;
 	let facetsLoaded = false;
@@ -245,6 +251,8 @@
 		openKit = null;
 		notice = '';
 		busy = false;
+		justLoaded = [];
+		lastKey.history = lastKey.library = lastKey.kits = '';
 		source = initialSource && sources.includes(initialSource) ? initialSource : (sources[0] ?? 'history');
 		void loadTags();
 		void primeFacets();
@@ -285,7 +293,12 @@
 				: src === 'library'
 					? toLibraryRequest(draft as PickerFilters['library'], { kinds: kindList, page: current, pageSize: size })
 					: toKitRequest(draft as PickerFilters['kits'], current);
-		untrack(() => void load(src, request));
+		const key = JSON.stringify([src, request, reloadTick]);
+		untrack(() => {
+			if (lastKey[src] === key) return;
+			lastKey[src] = key;
+			void load(src, request);
+		});
 	});
 
 	$effect(() => {
@@ -335,6 +348,7 @@
 		} catch (error) {
 			if (mine !== seq[src]) return;
 			logger.error(`Failed to load ${src} for the media picker:`, error);
+			lastKey[src] = '';
 			if (src === 'history') historyView.status = 'error';
 			else if (src === 'library') libraryView.status = 'error';
 			else kitsView.status = 'error';
@@ -396,25 +410,46 @@
 		onClose();
 	}
 
+	function whyFailed(error: unknown): string {
+		const status = (error as { response?: { status?: number } } | null)?.response?.status;
+		return status === 404 ? 'no longer exists' : 'could not be reached';
+	}
+
 	async function confirm() {
 		const keys = get(selection);
 		if (keys.length === 0 || busy) return;
 		const { itemKeys, kitIds } = splitKeys(keys);
 		busy = true;
 		notice = '';
+		const loaded: KitDetail[] = [];
+		const failures: string[] = [];
+		const failedIds: string[] = [];
 		try {
-			const details: KitDetail[] = [];
 			for (const id of kitIds) {
-				const response = await api.getKit(id);
-				if (!response.success || !response.data) {
-					notice = `Could not load ${directory[id]?.name ?? 'that kit'}. Try again.`;
-					return;
+				const name = directory[id]?.name ?? id;
+				try {
+					const response = await api.getKit(id);
+					if (response.success && response.data) {
+						rememberKit(response.data);
+						loaded.push(response.data);
+					} else {
+						failures.push(`${name} could not be loaded`);
+						failedIds.push(id);
+					}
+				} catch (error) {
+					failures.push(`${name} ${whyFailed(error)}`);
+					failedIds.push(id);
 				}
-				details.push(response.data);
 			}
 			if (itemKeys.length > 0) onConfirm?.(itemKeys, picker.resolve(itemKeys));
-			if (details.length > 0) kits?.onLoad?.(details);
-			onClose();
+			if (loaded.length > 0) kits?.onLoad?.(loaded);
+			if (failures.length === 0) {
+				onClose();
+				return;
+			}
+			justLoaded = [...justLoaded, ...loaded.map((kit) => kit.id)];
+			picker.set(failedIds.map(wholeKitKey), undefined);
+			notice = `${loaded.length > 0 ? 'Some kits were loaded. ' : ''}Could not load: ${failures.join('; ')}.`;
 		} catch (error) {
 			logger.error('Failed to confirm the media picker:', error);
 			notice = 'Could not load the selected kit. Try again.';
@@ -464,7 +499,7 @@
 
 	function kitDim(kit: Kit) {
 		const key = wholeKitKey(kit.id);
-		const loadedAlready = (kits?.loadedIds ?? []).includes(kit.id);
+		const loadedAlready = [...(kits?.loadedIds ?? []), ...justLoaded].includes(kit.id);
 		if (loadedAlready) return { disabled: true, reason: 'Already loaded' };
 		return kitCardDim({
 			fit: fitOf(kit),
@@ -502,7 +537,14 @@
 				? 'Upload files or take them from History and they show up here.'
 				: 'Make a kit in the Library and it shows up here.'
 	);
-	let confirmText = $derived(confirmLabel);
+	let confirmText = $derived(
+		typeof confirmLabel === 'function'
+			? confirmLabel({
+					count: used,
+					kitNames: splitKeys($selection).kitIds.map((id) => directory[id]?.name ?? 'kit')
+				})
+			: confirmLabel
+	);
 	let rangeLabel = $derived(
 		inKit
 			? `${kitEntries.length} items`
@@ -594,7 +636,7 @@
 	<div class="pk-grid relative min-h-full" style="--pk-m:{tileScale}" data-picker-body aria-busy={status === 'loading'}>
 		{#if notice}
 			<div class="px-4 pt-4 md:px-5">
-				<p class="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger" role="alert" data-picker-notice>
+				<p class="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger" role="alert" data-picker-notice data-kit-load-problems>
 					<Icon name="warning" className="h-4 w-4 flex-shrink-0" />{notice}
 				</p>
 			</div>
@@ -613,9 +655,10 @@
 							<PickerTile
 								{entry}
 								{multiple}
+								readonly={!itemsPickable}
 								selected={$selection.includes(entry.key)}
-								disabled={dim.disabled}
-								reason={dim.reason}
+								disabled={itemsPickable && dim.disabled}
+								reason={itemsPickable ? dim.reason : ''}
 								onActivate={handlePick}
 								onToggle={(tile) => emitToggle(tile.key)}
 							/>

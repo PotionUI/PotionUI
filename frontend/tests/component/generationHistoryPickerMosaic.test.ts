@@ -76,7 +76,11 @@ function tile(fileId: number): HTMLElement {
 }
 
 function frame(fileId: number): HTMLElement {
-	return tile(fileId).querySelector<HTMLElement>('.media-zoom')!;
+	return tile(fileId).querySelector<HTMLElement>('[style*="aspect-ratio"]')!;
+}
+
+function frameRatio(fileId: number): number {
+	return parseFloat(/aspect-ratio:\s*([\d.]+)/.exec(frame(fileId).getAttribute('style') ?? '')?.[1] ?? 'NaN');
 }
 
 beforeEach(() => {
@@ -94,18 +98,14 @@ afterEach(() => {
 });
 
 describe('history picker mosaic', () => {
-	it.each([false, true])('renders History cards with native aspect ratios (multiple=%s)', async (multiple) => {
+	it.each([false, true])('renders History tiles with native aspect ratios (multiple=%s)', async (multiple) => {
 		await mount({ multiple });
 
-		expect(document.querySelectorAll('[data-generation-card]').length).toBe(5);
-		const wide = frame(1);
-		const tall = frame(2);
-		expect(wide.style.height).toBe(tall.style.height);
-		const wideWidth = parseFloat(tile(1).style.width);
-		const tallWidth = parseFloat(tile(2).style.width);
-		expect(tallWidth).toBeLessThan(wideWidth);
-		expect(wideWidth / parseFloat(wide.style.height)).toBeCloseTo(16 / 9, 1);
-		expect(tallWidth / parseFloat(tall.style.height)).toBeCloseTo(9 / 16, 1);
+		expect(document.querySelectorAll('[data-pick-tile]').length).toBe(5);
+		expect(frameRatio(1)).toBeCloseTo(16 / 9, 1);
+		expect(frameRatio(2)).toBeCloseTo(9 / 16, 1);
+		expect(frameRatio(3)).toBeCloseTo(1, 1);
+		expect(frameRatio(2)).toBeLessThan(frameRatio(1));
 	});
 
 	it('offers one tile per file of a multi-file generation', async () => {
@@ -118,13 +118,13 @@ describe('history picker mosaic', () => {
 		await mount({ multiple: true });
 		expect(tile(1).textContent).toContain('harbour at dusk');
 		expect(document.querySelector('input[aria-label="Select wide.png (harbour at dusk)"]')).not.toBeNull();
-		expect(document.querySelector('button[aria-label="Preview wide.png (harbour at dusk)"]')).not.toBeNull();
+		expect(document.querySelector('button[aria-label^="Preview"]')).toBeNull();
 	});
 
-	it('keeps audio pickable in a square box', async () => {
+	it('keeps audio pickable in a waveform tile', async () => {
 		const onSelect = vi.fn();
 		await mount({ onSelect });
-		expect(parseFloat(tile(5).style.width)).toBeCloseTo(parseFloat(frame(5).style.height), 0);
+		expect(frame(5).querySelector('i')).not.toBeNull();
 		tile(5).querySelector<HTMLElement>('button')!.click();
 		expect(onSelect).toHaveBeenCalledTimes(1);
 		expect(onSelect.mock.calls[0][0]).toMatchObject({ id: 'song' });
@@ -174,14 +174,5 @@ describe('history picker mosaic', () => {
 		image.click();
 		await tick();
 		expect(onSelectionChange).toHaveBeenLastCalledWith([], expect.any(Array));
-	});
-
-	it('opens the preview from the preview button without selecting', async () => {
-		const onSelectionChange = vi.fn();
-		await mount({ multiple: true, onSelectionChange });
-		tile(1).querySelector<HTMLButtonElement>('button[aria-label^="Preview wide.png"]')!.click();
-		await tick();
-		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
-		expect(onSelectionChange).not.toHaveBeenCalled();
 	});
 });

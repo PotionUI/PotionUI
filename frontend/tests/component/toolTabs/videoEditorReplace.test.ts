@@ -45,12 +45,12 @@ afterEach(() => {
 });
 
 describe('video editor Replace control', () => {
-	it('is offered while a clip is open and lists Library and History', () => {
+	it('is offered while a clip is open and lists History, Library and Kits', () => {
 		const { q } = renderEditor(CLIP);
 		q<HTMLButtonElement>('[data-frame-replace]')!.click();
 		flushSync();
 		const entries = Array.from(document.querySelectorAll<HTMLElement>('[data-replace-entry]')).map((row) => row.dataset.replaceEntry);
-		expect(entries).toEqual(['library', 'history']);
+		expect(entries).toEqual(['history', 'library', 'kits']);
 	});
 
 	it('is absent from the empty state', () => {

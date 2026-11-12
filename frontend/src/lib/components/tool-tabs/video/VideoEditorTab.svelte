@@ -19,7 +19,10 @@
 	import SaveMenuRows from '$lib/components/tool-tabs/frame/SaveMenuRows.svelte';
 	import ReplaceMenu from '$lib/components/tool-tabs/frame/ReplaceMenu.svelte';
 	import { replaceSource, sourceEntries, type SourceEntryId } from '$lib/tool-tabs/sourceEntries';
-	import MediaFieldPickers from '$lib/components/form-fields/MediaFieldPickers.svelte';
+	import { currentSourceOf } from '$lib/components/form-fields/mediaFieldSources';
+	import MediaPickerModal from '$lib/components/modals/mediaPicker/MediaPickerModal.svelte';
+	import { routePicked } from '$lib/components/modals/mediaPicker/pickedMedia';
+	import type { PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import { pickFromGeneration } from '$lib/components/form-fields/mediaLoaderPicks';
 	import { buildEditedMediaItem } from '$lib/components/form-fields/mediaLoaderEdited';
 	import { fitViewport } from '$lib/tool-tabs/frame/viewport';
@@ -219,7 +222,7 @@
 	let beforeFrame = $state<{ key: string; url: string } | null>(null);
 	let clipPreview = $state<{ key: string; sig: string; state: 'rendering' | 'ready'; url: string | null; runId: string | null } | null>(null);
 	let busy = $state<string | null>(null);
-	let pickers = $state<'library' | 'history' | 'audio' | null>(null);
+	let pickers = $state<'library' | 'history' | 'kits' | 'audio' | null>(null);
 	let fieldsByTab = $state<Record<string, VideoField[]>>({});
 	let preferredSend = $state<string | null>(null);
 	let audioInput = $state<HTMLInputElement | null>(null);
@@ -913,6 +916,13 @@
 		void changeSource({ path, relative_path: path, url: upload.url, name: upload.original_filename || upload.filename, type: 'video', item_id: upload.id } as MediaRef);
 	}
 
+	function pickedMedia(media: PickedMedia) {
+		routePicked(media, {
+			history: (_generation, file) => pickHistory(_generation, file as never),
+			library: (item) => pickLibrary(item as never)
+		});
+	}
+
 	function pickHistory(_generation: unknown, file: { id?: string | number; file_path: string } & Record<string, unknown>) {
 		pickers = null;
 		if (!file) return;
@@ -935,7 +945,7 @@
 	}
 
 	function openReplacePicker(id: SourceEntryId) {
-		if (id === 'library' || id === 'history') pickers = id;
+		if (id === 'library' || id === 'history' || id === 'kits') pickers = id;
 	}
 
 	function videoInnerStyle(): { box: string; media: string } {
@@ -1248,7 +1258,7 @@
 {/snippet}
 
 {#snippet replaceMenu()}
-	<ReplaceMenu label="Replace clip" entries={sourceEntries('video')} disabled={!!render || starting} {phone} onselect={openReplacePicker} />
+	<ReplaceMenu label="Replace clip" entries={sourceEntries('video')} current={currentSourceOf(source) as SourceEntryId | null} disabled={!!render || starting} {phone} onselect={openReplacePicker} />
 {/snippet}
 
 {#snippet barContent()}
@@ -1316,14 +1326,14 @@
 
 <input bind:this={audioInput} type="file" accept="audio/*,video/*" class="hidden" onchange={uploadAudio} data-replace-input />
 
-<MediaFieldPickers
-	historyOpen={pickers === 'history'}
-	libraryOpen={pickers === 'library' || pickers === 'audio'}
-	kind={pickers === 'audio' ? 'audio' : 'video'}
-	onHistoryClose={() => (pickers = null)}
-	onLibraryClose={() => (pickers = null)}
-	onHistorySelect={pickHistory}
-	onLibrarySelect={pickLibrary}
+<MediaPickerModal
+	isOpen={pickers !== null}
+	onClose={() => (pickers = null)}
+	sources={pickers === 'audio' ? ['library', 'kits'] : ['history', 'library', 'kits']}
+	initialSource={pickers === 'history' ? 'history' : pickers === 'kits' ? 'kits' : 'library'}
+	mediaTypes={[pickers === 'audio' ? 'audio' : 'video']}
+	title={source && pickers !== 'audio' ? 'Replace video' : undefined}
+	onPick={pickedMedia}
 />
 
 {#if !source}

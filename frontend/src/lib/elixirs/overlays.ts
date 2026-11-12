@@ -70,6 +70,7 @@ export function createOverlayRegistry(): OverlayRegistry {
 	return {
 		GenerationDetailsModal: lazyEntry('GenerationDetailsModal', () => import('$lib/components/modals/GenerationDetailsModal.svelte')),
 		MediaPreviewModal: lazyEntry('MediaPreviewModal', () => import('$lib/components/modals/MediaPreviewModal.svelte')),
+		MediaPickerModal: lazyEntry('MediaPickerModal', () => import('$lib/components/modals/mediaPicker/MediaPickerModal.svelte')),
 		GenerationHistoryModal: lazyEntry('GenerationHistoryModal', () => import('$lib/components/modals/GenerationHistoryModal.svelte')),
 		UploadLibraryModal: lazyEntry('UploadLibraryModal', () => import('$lib/components/modals/UploadLibraryModal.svelte'))
 	};
@@ -77,10 +78,18 @@ export function createOverlayRegistry(): OverlayRegistry {
 
 export const coreOverlays: OverlayRegistry = createOverlayRegistry();
 
-const PICKERS = {
-	history: { name: 'GenerationHistoryModal', title: 'Choose files from History' },
-	library: { name: 'UploadLibraryModal', title: 'Choose files from the Library' }
-};
+export type MediaPickerSource = 'history' | 'library' | 'kits';
+
+function libraryOrigin(item: PickedItem & { kitItem?: { media_ref?: string | null; name?: string; kind?: string } }): PickedItem {
+	if (item.origin?.kind !== 'kit') return item;
+	const kitItem = item.kitItem;
+	return {
+		key: item.key,
+		origin: { kind: 'library', itemId: kitItem?.media_ref ?? item.origin.itemId },
+		mediaType: item.mediaType ?? kitItem?.kind ?? null,
+		filename: kitItem?.name ?? item.filename ?? null
+	};
+}
 
 export interface MediaPickerOptions {
 	selectedKeys: string[];
@@ -88,9 +97,8 @@ export interface MediaPickerOptions {
 	onConfirm: (keys: string[], items: PickedItem[]) => void;
 }
 
-export function openMediaPicker(kind: keyof typeof PICKERS, { selectedKeys, mediaTypes, onConfirm }: MediaPickerOptions, registry: OverlayRegistry = coreOverlays): void {
-	const picker = PICKERS[kind];
-	const entry = registry[picker.name];
+export function openMediaPicker(kind: MediaPickerSource, { selectedKeys, mediaTypes, onConfirm }: MediaPickerOptions, registry: OverlayRegistry = coreOverlays): void {
+	const entry = registry.MediaPickerModal;
 	if (!entry) {
 		toasts.show('error', 'The media picker is not available.');
 		return;
@@ -105,10 +113,12 @@ export function openMediaPicker(kind: keyof typeof PICKERS, { selectedKeys, medi
 	handle = entry.mount(el, {
 		isOpen: true,
 		multiple: true,
-		title: picker.title,
+		title: 'Choose files',
+		sources: ['history', 'library', 'kits'],
+		initialSource: kind,
 		selectedKeys,
-		selectableMediaTypes: mediaTypes,
-		onConfirm: (keys: string[], items: PickedItem[]) => onConfirm(keys, items),
+		mediaTypes,
+		onConfirm: (keys: string[], items: PickedItem[]) => onConfirm(keys, items.map(libraryOrigin)),
 		onClose: () => setTimeout(close, 0)
 	});
 }

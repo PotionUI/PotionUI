@@ -1,6 +1,8 @@
 <script lang="ts">
-	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
-	import UploadLibraryModal from '$lib/components/modals/UploadLibraryModal.svelte';
+	import MediaPickerModal from '$lib/components/modals/mediaPicker/MediaPickerModal.svelte';
+	import { routePicked } from '$lib/components/modals/mediaPicker/pickedMedia';
+	import type { PickerSourceId } from '$lib/components/modals/mediaPicker/pickerModel';
+	import type { PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import type { LibraryItem } from '$lib/services/api/library';
 	import { historyFileRef, libraryItemRef } from '$lib/tool-tabs/image/sourceRefs';
 	import type { SourceEntryId } from '$lib/tool-tabs/sourceEntries';
@@ -15,24 +17,26 @@
 		onfile: (file: File) => void;
 	} = $props();
 
-	let showHistory = $state(false);
-	let showLibrary = $state(false);
+	let picking = $state<PickerSourceId | null>(null);
 	let input = $state<HTMLInputElement>();
 
 	export function open(id: SourceEntryId) {
-		if (id === 'history') showHistory = true;
-		else if (id === 'library') showLibrary = true;
+		if (id === 'history' || id === 'library' || id === 'kits') picking = id;
 		else input?.click();
 	}
 
 	function fromHistory(_generation: unknown, file: GenerationFile) {
-		showHistory = false;
+		picking = null;
 		if (file?.file_path) onpick(historyFileRef(file));
 	}
 
 	function fromLibrary(item: LibraryItem) {
-		showLibrary = false;
+		picking = null;
 		onpick(libraryItemRef(item));
+	}
+
+	function picked(media: PickedMedia) {
+		routePicked(media, { history: fromHistory, library: fromLibrary });
 	}
 
 	function browse(event: Event) {
@@ -44,5 +48,11 @@
 </script>
 
 <input bind:this={input} type="file" accept="image/*" class="hidden" onchange={browse} data-image-browse />
-<GenerationHistoryModal isOpen={showHistory} onClose={() => (showHistory = false)} onSelect={fromHistory} mediaType="image" title="Select an image from History" />
-<UploadLibraryModal isOpen={showLibrary} onClose={() => (showLibrary = false)} onSelect={fromLibrary} mediaType="image" title="Select an image from your Library" />
+<MediaPickerModal
+	isOpen={picking !== null}
+	onClose={() => (picking = null)}
+	sources={['history', 'library', 'kits']}
+	initialSource={picking ?? 'history'}
+	mediaTypes={['image']}
+	onPick={picked}
+/>

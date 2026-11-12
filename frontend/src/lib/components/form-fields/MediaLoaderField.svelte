@@ -18,7 +18,7 @@
 	import { buildUploadedMediaItem, postUpload, type UploadedMediaItem } from './mediaLoaderUpload';
 	import { fetchMediaMetadata } from './mediaLoaderMetadata';
 	import { readSingleValue, type SingleValue } from './mediaLoaderValue';
-	import { pickFromGeneration, pickFromUpload } from './mediaLoaderPicks';
+	import { pickFromGeneration, pickFromUpload, type MediaPick } from './mediaLoaderPicks';
 	import { clickIsOutside, fileDrop, readPastedImage } from './mediaFieldInput';
 	import { itemLimitFor, readMediaLoaderConfig, type MediaKind } from './mediaLoaderConfig';
 	import { kindFromMimeType, kindFromFilename, kindOfMediaItem } from './mediaLoaderKind';
@@ -47,11 +47,12 @@
 	import { currentSourceOf, type MediaSource } from './mediaFieldSources';
 	import MediaDropzone from './MediaDropzone.svelte';
 	import MediaFieldEditors from './MediaFieldEditors.svelte';
-	import MediaFieldPickers from './MediaFieldPickers.svelte';
+	import MediaPickerModal from '$lib/components/modals/mediaPicker/MediaPickerModal.svelte';
+	import { libraryItemOf, routePicked } from '$lib/components/modals/mediaPicker/pickedMedia';
+	import type { PickerSourceId } from '$lib/components/modals/mediaPicker/pickerModel';
 	import { historyTileLabel, type PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import MediaInspector from './MediaInspector.svelte';
 	import MediaStrip from './MediaStrip.svelte';
-	import KitLoadDialog from '$lib/components/kits/KitLoadDialog.svelte';
 	import LoadedKitHost from '$lib/components/kits/LoadedKitHost.svelte';
 	import { acceptedFrom, mediaCountOf } from '$lib/kits/kitCounts';
 	import { addKitRow, removeKitRow, snapshotOf, splitKitRows, withKitRows } from '$lib/kits/kitMarker';
@@ -93,7 +94,6 @@
 
 	$: limits = readMediaLoaderConfig(config);
 	$: kinds = limits.kinds;
-	$: soleKind = kinds.length === 1 ? kinds[0] : null;
 	$: acceptedTypes = limits.accept;
 	$: multiple = limits.multiple;
 	$: byKindLimits = Object.keys(limits.maxItemsByKind).length > 0;
@@ -111,7 +111,6 @@
 	}, 0);
 	$: canKits = multiple && !!name && kitSpecKinds.length > 0;
 	const kitRowsHosted = getContext<Readable<boolean> | undefined>(KIT_ROWS_HOSTED_CONTEXT_KEY) ?? NOT_HOSTED;
-	let showKitDialog = false;
 	onMount(() => {
 		if (kitIds.length > 0) void ensureKits(kitIds, { refresh: true });
 	});
@@ -189,8 +188,8 @@
 	}
 
 	let isPasteActive = autoPaste;
-	let showHistoryModal = false;
-	let showUploadLibraryModal = false;
+	let pickerOpen = false;
+	let pickerSource: PickerSourceId = 'history';
 
 	let existingMaskUrl: string | null = null;
 	let maskSubject: string | null = null;
@@ -286,7 +285,7 @@
 		if (!isPasteActive) return;
 		const swap = pasteReplace;
 		if (!swap && ((!multiple && previewUrl) || allFull)) return;
-		if (showHistoryModal || showUploadLibraryModal) return;
+		if (pickerOpen) return;
 
 		e.preventDefault();
 		e.stopPropagation();
@@ -583,21 +582,28 @@
 		.flatMap((group) => group.items.map((entry) => ({ group, entry })))
 		.find((found) => found.entry.flatIndex === selected);
 
-	function handleHistoryConfirm(items: PickedMedia[]) {
-		if (!name) {
-			showHistoryModal = false;
-			return;
+	function closePicker() {
+		pickerOpen = false;
+		replacing = null;
+	}
+
+	function pickOf(picked: PickedMedia): MediaPick | null {
+		if (picked.generation && picked.file) {
+			return pickFromGeneration(picked.file, historyTileLabel(picked.generation, picked.file).label);
 		}
-		if (!multiple) {
-			const first = items.find((picked) => picked.file && picked.generation);
-			if (first) handleGeneration(first.generation, first.file);
-			else showHistoryModal = false;
+		const library = libraryItemOf(picked);
+		return library ? pickFromUpload(library as UploadFileInfo) : null;
+	}
+
+	function handlePickerConfirm(items: PickedMedia[]) {
+		if (!name) {
+			closePicker();
 			return;
 		}
 		const accepted: Item[] = [];
 		for (const picked of items) {
-			if (!picked.file || !picked.generation) continue;
-			const pick = pickFromGeneration(picked.file, historyTileLabel(picked.generation, picked.file).label);
+			const pick = pickOf(picked);
+			if (!pick) continue;
 			const verdict = evaluateCandidate(
 				pick.candidate,
 				limits,
@@ -618,7 +624,14 @@
 			selected = multiItems.length + accepted.length - 1;
 			emitMulti([...multiItems, ...accepted]);
 		}
-		showHistoryModal = false;
+		closePicker();
+	}
+
+	function handlePicked(picked: PickedMedia) {
+		routePicked(picked, {
+			history: handleGeneration,
+			library: (item) => handleSelectFromUpload(item as UploadFileInfo)
+		});
 	}
 
 	function handleGeneration(generation: any, file: any) {
@@ -635,8 +648,7 @@
 			setOriginKey(generation.id, originFileIndex(generation, file));
 			clearMask();
 		}
-		showHistoryModal = false;
-		replacing = null;
+		closePicker();
 	}
 
 	function commitSingle(item: Item) {
@@ -649,9 +661,10 @@
 		onChange(name, item);
 	}
 
-	function openHistoryModal(kind: MediaKind | null = null) {
+	function openPicker(kind: MediaKind | null, source: PickerSourceId) {
 		pendingKind = kind;
-		showHistoryModal = true;
+		pickerSource = source;
+		pickerOpen = true;
 	}
 
 	function handleSelectFromUpload(upload: UploadFileInfo) {
@@ -667,13 +680,7 @@
 			clearOriginKey();
 			clearMask();
 		}
-		showUploadLibraryModal = false;
-		replacing = null;
-	}
-
-	function openUploadLibraryModal(kind: MediaKind | null = null) {
-		pendingKind = kind;
-		showUploadLibraryModal = true;
+		closePicker();
 	}
 
 	function applyMaskPath(maskPath: string) {
@@ -683,7 +690,8 @@
 		maskSubject = maskSubjectKey(value);
 	}
 
-	$: pickerKind = pendingKind ?? soleKind;
+	$: pickerKinds = pendingKind ? [pendingKind] : kinds;
+	$: pickerNoun = pickerKinds.length === 1 ? pickerKinds[0] : 'media';
 	$: sizeHint = limits.maxFileSizeBytes ? `max ${formatBytes(limits.maxFileSizeBytes, 0)}` : null;
 
 	$: face = chooseFace({
@@ -825,13 +833,9 @@
 				isPasteActive = true;
 				break;
 			case 'history':
-				openHistoryModal(kind);
-				break;
 			case 'library':
-				openUploadLibraryModal(kind);
-				break;
 			case 'kits':
-				showKitDialog = true;
+				openPicker(kind, source);
 				break;
 			case 'draw':
 				editors?.draw();
@@ -960,7 +964,7 @@
 				dragging={isDragging}
 				pasteArmed={isPasteActive}
 				offersDraw={canDraw}
-				offersKits={canKits}
+				offersKits={true}
 				maxLabelLength={MAX_LABEL_LENGTH}
 				toolGroupsFor={(flatIndex) => rowToolGroups(toolEnv, flatIndex)}
 				handleFor={rowHandle}
@@ -999,6 +1003,7 @@
 				onClearMask={clearMask}
 				current={currentSourceOf(multiple ? selectedItem : singleRecord)}
 				offersDraw={canDraw}
+				offersKits={true}
 				onSource={(source) => replaceVia(multiple ? selected : null, source)}
 				onRemove={() => (multiple ? selected !== null && removeMultiItem(selected) : handleClear())}
 				onPreview={() => inspectorKind && openPreview(inspectorKind, multiple ? selectedItem : singleRecord)}
@@ -1014,7 +1019,7 @@
 					adding={addingKind}
 					addingProgress={uploadProgress}
 					offersDraw={false}
-					offersKits={canKits}
+					offersKits={true}
 					onSelect={selectItem}
 					onReorder={reorderItems}
 					onRemove={removeMultiItem}
@@ -1027,7 +1032,7 @@
 				dragging={isDragging}
 				pasteArmed={isPasteActive}
 				offersDraw={canDraw}
-				offersKits={canKits}
+				offersKits={true}
 				{sizeHint}
 				onSource={(source) => handleSource(null, source)}
 			/>
@@ -1037,7 +1042,7 @@
 	{#if multiple && kitRows.length > 0 && !$kitRowsHosted}
 		<div class="space-y-2 {compact ? 'mt-2' : 'mt-3'}" data-loaded-kits>
 			{#each kitRows as row (row.kit)}
-				<LoadedKitHost {row} accepted={kitAccepted} {compact} onRemove={removeKit} onChoose={() => (showKitDialog = true)} />
+				<LoadedKitHost {row} accepted={kitAccepted} {compact} onRemove={removeKit} onChoose={() => openPicker(null, 'kits')} />
 			{/each}
 		</div>
 	{/if}
@@ -1045,34 +1050,18 @@
 	<input bind:this={fileInput} type="file" on:change={handleFileSelect} accept={acceptedTypes} class="hidden" />
 </div>
 
-{#if showKitDialog}
-	<KitLoadDialog
-		loadedIds={kitIds}
-		accepted={kitAccepted}
-		mediaRoom={kitRoom}
-		subtitle={label || 'Reference media'}
-		onLoad={handleKitsLoaded}
-		onClose={() => (showKitDialog = false)}
-	/>
-{/if}
-
-<MediaFieldPickers
-	historyOpen={showHistoryModal}
-	libraryOpen={showUploadLibraryModal}
-	kind={pickerKind}
-	replacing={replacing !== null}
-	onHistoryClose={() => {
-		showHistoryModal = false;
-		replacing = null;
-	}}
-	onLibraryClose={() => {
-		showUploadLibraryModal = false;
-		replacing = null;
-	}}
-	onHistorySelect={handleGeneration}
-	historyMultiple={multiple && replacing === null}
-	onHistoryConfirm={handleHistoryConfirm}
-	onLibrarySelect={handleSelectFromUpload}
+<MediaPickerModal
+	isOpen={pickerOpen}
+	onClose={closePicker}
+	title={replacing !== null ? `Replace ${pickerNoun}` : undefined}
+	sources={['history', 'library', 'kits']}
+	initialSource={pickerSource}
+	mediaTypes={pickerKinds}
+	multiple={multiple && replacing === null}
+	maxCount={multiple && replacing === null ? kitRoom : null}
+	kits={canKits ? { accepted: kitAccepted, loadedIds: kitIds, onLoad: handleKitsLoaded } : undefined}
+	onPick={handlePicked}
+	onConfirm={(_keys, items) => handlePickerConfirm(items)}
 />
 
 <MediaFieldEditors

@@ -31,6 +31,13 @@ export function parseServerDate(value: string | number | Date | null | undefined
 	return Number.isNaN(date.getTime()) ? null : date;
 }
 
+export function shortDate(value: string | number | Date | null | undefined, now: Date = new Date()): string {
+	const date = parseServerDate(value);
+	if (!date) return '';
+	const label = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+	return date.getFullYear() === now.getFullYear() ? label : `${label} ${date.getFullYear()}`;
+}
+
 export function timeAgo(dateString?: string, now: Date = new Date()): string {
 	if (!dateString) return '';
 	const date = parseServerDate(dateString);
@@ -45,8 +52,7 @@ export function timeAgo(dateString?: string, now: Date = new Date()): string {
 	const days = Math.floor(hours / 24);
 	if (days < 7) return `${days}d ago`;
 
-	const label = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
-	return date.getFullYear() === now.getFullYear() ? label : `${label} ${date.getFullYear()}`;
+	return shortDate(date, now);
 }
 
 /** Day bucket label for gallery group headers: "Today", "Yesterday", "Jul 3", "Jul 3 2025". */
@@ -58,8 +64,7 @@ export function dayLabel(dateString: string, now: Date = new Date()): string {
 	if (dayDiff === 0) return 'Today';
 	if (dayDiff === 1) return 'Yesterday';
 
-	const label = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
-	return date.getFullYear() === now.getFullYear() ? label : `${label} ${date.getFullYear()}`;
+	return shortDate(date, now);
 }
 
 /** Stable key for grouping items by local calendar day. */

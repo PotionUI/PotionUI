@@ -110,33 +110,7 @@ async function box(page: Page, selector: string) {
 }
 
 async function frameBox(page: Page, itemId: string) {
-	return box(page, `[data-item-id="${itemId}"] .media-zoom`);
-}
-
-async function borderColorOfClass(page: Page, className: string): Promise<string> {
-	return page.evaluate((className) => {
-		const probe = document.createElement('div');
-		probe.className = `${className} border`;
-		document.body.appendChild(probe);
-		const color = getComputedStyle(probe).borderTopColor;
-		probe.remove();
-		return color;
-	}, className);
-}
-
-async function rows(page: Page) {
-	const tiles = await page.locator('[data-testid="library-file-tile"]').evaluateAll((els) =>
-		els.map((el) => {
-			const rect = el.getBoundingClientRect();
-			return { id: el.getAttribute('data-item-id')!, top: Math.round(rect.top), left: rect.left, width: rect.width };
-		})
-	);
-	const grouped = new Map<number, typeof tiles>();
-	for (const tile of tiles) {
-		const key = [...grouped.keys()].find((top) => Math.abs(top - tile.top) <= 2) ?? tile.top;
-		grouped.set(key, [...(grouped.get(key) ?? []), tile]);
-	}
-	return [...grouped.values()];
+	return box(page, `[data-item-id="${itemId}"] [style*="aspect-ratio"]`);
 }
 
 for (const viewport of VIEWPORTS) {
@@ -155,49 +129,21 @@ for (const viewport of VIEWPORTS) {
 		const square = await frameBox(page, 'lib-square');
 		const landscape = await frameBox(page, 'lib-landscape');
 		const video = await frameBox(page, 'lib-video');
-		const bareVideo = await frameBox(page, 'lib-video-bare');
 		const audio = await frameBox(page, 'lib-audio');
 		expect(portrait.width / portrait.height).toBeCloseTo(832 / 1216, 1);
 		expect(square.width / square.height).toBeCloseTo(1, 1);
 		expect(landscape.width / landscape.height).toBeCloseTo(1536 / 864, 1);
 		expect(video.width / video.height).toBeCloseTo(1280 / 720, 1);
-		expect(bareVideo.width / bareVideo.height).toBeCloseTo(1, 1);
-		expect(audio.width / audio.height).toBeCloseTo(1, 1);
-
-		for (const id of ['lib-portrait', 'lib-landscape']) {
-			const img = dialog.locator(`[data-item-id="${id}"] .media-zoom img`);
-			await expect(img).toHaveCSS('object-fit', 'contain');
-			const frame = await frameBox(page, id);
-			const picture = await box(page, `[data-item-id="${id}"] .media-zoom img`);
-			expect(Math.abs(picture.width - frame.width)).toBeLessThan(1.5);
-			expect(Math.abs(picture.height - frame.height)).toBeLessThan(1.5);
-		}
-
-		const mosaicWidth = (await box(page, '[data-testid="library-mosaic"]')).width;
-		const mosaicRows = await rows(page);
-		expect(mosaicRows.length).toBeGreaterThan(1);
-		for (const row of mosaicRows.slice(0, -1)) {
-			const filled = row.reduce((sum, tile) => sum + tile.width, 0) + 12 * (row.length - 1);
-			expect(Math.abs(filled - mosaicWidth)).toBeLessThan(4);
-		}
+		expect(audio.width / audio.height).toBeCloseTo(16 / 9, 1);
 
 		await screenshot(page, JOURNEY, `single-${viewport.name}`);
 
-		const tileButton = dialog.getByRole('button', { name: 'Use salt-flats.png' });
-		const tileImage = tileButton.locator('.media-zoom img').first();
-		await expect(tileImage).toHaveCSS('transform', 'none');
-		await tileButton.hover();
-		await expect(tileImage).not.toHaveCSS('transform', 'none');
-		await expect(tileButton.locator('[data-library-card-body] > div').first()).toHaveCSS(
-			'border-top-color',
-			await borderColorOfClass(page, 'border-line-hover')
-		);
-
+		const tileButton = dialog.getByRole('button', { name: 'Select salt-flats.png' });
 		await tileButton.click();
 		expect(await page.evaluate(() => (window as any).__pickerEvents.selected)).toBe('lib-landscape');
 	});
 
-	test(`upload picker mosaic single-pick delete at ${viewport.name}`, async ({ page }) => {
+	test(`upload picker offers no delete control on a tile at ${viewport.name}`, async ({ page }) => {
 		await page.setViewportSize({ width: viewport.width, height: viewport.height });
 		await mockMedia(page);
 		await loginAsOwner(page);
@@ -206,19 +152,7 @@ for (const viewport of VIEWPORTS) {
 		await openPicker(page, { multiple: false });
 		const dialog = page.getByRole('dialog');
 		await expect(dialog.locator('[data-item-id="lib-square"]')).toBeVisible({ timeout: 20000 });
-
-		const trash = dialog.getByRole('button', { name: 'Delete teapot.png' });
-		await trash.click();
-		await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
-		await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-		await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
-		await expect(dialog.locator('[data-item-id="lib-square"]')).toHaveCount(1);
-
-		await trash.click();
-		await screenshot(page, JOURNEY, `single-delete-${viewport.name}`);
-		await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
-		await expect(dialog.locator('[data-item-id="lib-square"]')).toHaveCount(0);
-		await expect(dialog.locator('[data-testid="library-file-tile"]')).toHaveCount(6);
+		await expect(dialog.getByRole('button', { name: /^Delete / })).toHaveCount(0);
 		expect(await page.evaluate(() => (window as any).__pickerEvents.selected)).toBeNull();
 	});
 
@@ -244,14 +178,7 @@ for (const viewport of VIEWPORTS) {
 		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('3 selected');
 		await dialog.locator('[data-item-id="lib-square"] button[aria-hidden="true"]').click();
 		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('2 selected');
-		await expect(dialog.getByTestId('picker-preview')).toHaveCount(0);
-
-		await dialog.getByRole('button', { name: 'Preview teapot.png' }).click();
-		await expect(dialog.getByTestId('picker-preview')).toBeVisible();
-		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('2 selected');
-		const previewImage = dialog.getByTestId('picker-preview').locator('img');
-		await expect(previewImage).toBeVisible();
-		await expect.poll(() => previewImage.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+		await expect(dialog.getByRole('button', { name: /^Preview/ })).toHaveCount(0);
 
 		await screenshot(page, JOURNEY, `multi-${viewport.name}`);
 
@@ -265,3 +192,19 @@ for (const viewport of VIEWPORTS) {
 		expect(confirmed).toEqual(['lib-portrait', 'lib-landscape']);
 	});
 }
+
+test('the Library wrapper keeps its one source: no tab strip, and the shared tile size control persists', async ({ page }) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await mockMedia(page);
+	await loginAsOwner(page);
+	await page.waitForFunction(() => !!(window as any).__potionui?.components?.UploadLibraryModal);
+
+	await openPicker(page, { multiple: false });
+	const dialog = page.getByRole('dialog');
+	await expect(dialog.locator('[data-item-id="lib-portrait"]')).toBeVisible({ timeout: 20000 });
+	await expect(dialog.getByRole('navigation', { name: 'Source' })).toHaveCount(0);
+	await dialog.getByRole('radio', { name: 'Large tiles' }).click();
+	await expect.poll(() => page.evaluate(() => window.localStorage.getItem('history-tile-size'))).toBe('large');
+	await expect(dialog.getByRole('radio', { name: 'Large tiles' })).toHaveAttribute('aria-checked', 'true');
+});
+

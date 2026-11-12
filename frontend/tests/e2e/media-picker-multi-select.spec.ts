@@ -135,10 +135,7 @@ for (const viewport of VIEWPORTS) {
 		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('2 selected');
 		await dialog.locator('button[aria-hidden="true"][data-file="market.png"]').click();
 		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('3 selected');
-		await expect(dialog.getByTestId('picker-preview')).toHaveCount(0);
-		await dialog.getByRole('button', { name: 'Preview market.png' }).click();
-		await expect(dialog.getByTestId('picker-preview')).toBeVisible();
-		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('3 selected');
+		await expect(dialog.getByRole('button', { name: /^Preview/ })).toHaveCount(0);
 
 		await screenshot(page, JOURNEY, `library-${viewport.name}`);
 
@@ -148,3 +145,34 @@ for (const viewport of VIEWPORTS) {
 		expect(selection).toEqual([]);
 	});
 }
+
+test('History search and the Filters popover reach the list, and Escape restores the opening selection', async ({ page }) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await mockMedia(page);
+	await loginAsOwner(page);
+	await page.waitForFunction(() => !!(window as any).__potionui?.components?.GenerationHistoryModal);
+
+	const requests: string[] = [];
+	page.on('request', (request) => {
+		if (request.url().includes('/api/generations/history?')) requests.push(request.url());
+	});
+	await openPicker(page, 'GenerationHistoryModal', { selectedKeys: ['gen-1:1'], multiple: true });
+	const dialog = page.getByRole('dialog');
+	await expect(dialog.getByLabel('Select dunes-01.png')).toBeVisible({ timeout: 20000 });
+	await expect(dialog.getByTestId('picker-selected-count')).toHaveText('1 selected');
+
+	await dialog.getByLabel('Search').fill('dunes');
+	await expect.poll(() => requests.some((url) => url.includes('search=dunes'))).toBe(true);
+	await dialog.getByRole('button', { name: 'Filters' }).click();
+	await page.getByRole('button', { name: '7 Days' }).click();
+	await expect.poll(() => requests.some((url) => url.includes('created_from='))).toBe(true);
+	await page.keyboard.press('Escape');
+	await dialog.getByLabel('Select dunes-02.png').check();
+	await expect(dialog.getByTestId('picker-selected-count')).toHaveText('2 selected');
+
+	await page.keyboard.press('Escape');
+	await expect(dialog).toHaveCount(0);
+	const selection = await page.evaluate(() => (window as any).__pickerEvents.selection);
+	expect(selection).toEqual(['gen-1:1']);
+});
+

@@ -1487,17 +1487,17 @@
 		dropPending(nodeId);
 	}
 
-	function pickMedia(kind: 'history' | 'library') {
+	function pickMedia(kind: 'history' | 'library' | 'kits') {
 		const node = settingsNode;
 		if (!node) return;
 		const nodeId = node.id;
 		openMediaPicker(kind, {
-			selectedKeys: pickerKeys(node.assets, kind).filter((key): key is string => !!key),
+			selectedKeys: [...pickerKeys(node.assets, 'history'), ...pickerKeys(node.assets, 'library')].filter((key): key is string => !!key),
 			mediaTypes: node.media_type ? [node.media_type] : ['image', 'video'],
 			onConfirm: (_keys: unknown, items: PickedItem[]) => {
 				const current = definition?.nodes.find((item) => item.id === nodeId);
 				if (!current) return;
-				const assets = mergePicked(current.assets, kind, items);
+				const assets = mergePicked(mergePicked(current.assets, 'history', items), 'library', items);
 				const media_type = current.media_type ?? mediaTypeOf(assets);
 				if (!current.media_type && assets.length > 0 && !media_type) {
 					toast('warning', 'Pick only images or only videos for one media source.');

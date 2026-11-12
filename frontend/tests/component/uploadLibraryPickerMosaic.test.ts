@@ -19,7 +19,6 @@ const { default: UploadLibraryModal } = await import('$lib/components/modals/Upl
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
 const { stubClientWidth } = await import('./helpers/stubClientWidth');
-const { formatSeconds } = await import('$lib/utils/format');
 
 function libraryItem(id: string, mediaType: string, name: string, extra: Record<string, unknown> = {}) {
 	return {
@@ -47,8 +46,6 @@ const ITEMS = [
 	libraryItem('song', 'audio', 'song.wav', { duration_seconds: 12 })
 ];
 
-const FIRST_ROW = ['wide', 'tall', 'square', 'clip'];
-
 let components: Array<{ $destroy: () => void }> = [];
 let restoreWidth: () => void = () => {};
 
@@ -75,15 +72,11 @@ function tile(id: string): HTMLElement {
 }
 
 function frame(id: string): HTMLElement {
-	return tile(id).querySelector<HTMLElement>('.media-zoom')!;
+	return tile(id).querySelector<HTMLElement>('[style*="aspect-ratio"]')!;
 }
 
-function tileWidth(id: string): number {
-	return parseFloat(tile(id).style.width);
-}
-
-function frameHeight(id: string): number {
-	return parseFloat(frame(id).style.height);
+function frameRatio(id: string): number {
+	return parseFloat(/aspect-ratio:\s*([\d.]+)/.exec(frame(id).getAttribute('style') ?? '')?.[1] ?? 'NaN');
 }
 
 function checkbox(name: string): HTMLInputElement {
@@ -120,85 +113,51 @@ afterEach(() => {
 });
 
 describe('library picker mosaic', () => {
-	it.each([false, true])('renders Library cards at native aspect ratios (multiple=%s)', async (multiple) => {
+	it.each([false, true])('renders Library tiles at native aspect ratios (multiple=%s)', async (multiple) => {
 		await mount({ multiple });
 
-		expect(document.querySelectorAll('[data-library-card-body]').length).toBe(ITEMS.length);
-		expect(new Set(FIRST_ROW.map(frameHeight)).size).toBe(1);
-		expect(tileWidth('wide') / frameHeight('wide')).toBeCloseTo(16 / 9, 1);
-		expect(tileWidth('tall') / frameHeight('tall')).toBeCloseTo(9 / 16, 1);
-		expect(tileWidth('square') / frameHeight('square')).toBeCloseTo(1, 1);
-		expect(tileWidth('clip') / frameHeight('clip')).toBeCloseTo(16 / 9, 1);
-		expect(tileWidth('tall')).toBeLessThan(tileWidth('wide'));
+		expect(document.querySelectorAll('[data-pick-tile]').length).toBe(ITEMS.length);
+		expect(frameRatio('wide')).toBeCloseTo(16 / 9, 1);
+		expect(frameRatio('tall')).toBeCloseTo(9 / 16, 1);
+		expect(frameRatio('square')).toBeCloseTo(1, 1);
+		expect(frameRatio('clip')).toBeCloseTo(16 / 9, 1);
+		expect(frameRatio('tall')).toBeLessThan(frameRatio('wide'));
 	});
 
-	it('justifies each row edge to edge and keeps the last row at the preferred height', async () => {
+	it('sizes each tile by its own ratio so a tall one is narrower than a wide one', async () => {
 		await mount({ multiple: true });
 
-		const rowWidth = FIRST_ROW.reduce((sum, id) => sum + tileWidth(id), 0) + 12 * (FIRST_ROW.length - 1);
-		expect(rowWidth).toBeGreaterThan(1000 - FIRST_ROW.length);
-		expect(rowWidth).toBeLessThanOrEqual(1000);
-		expect(frameHeight('wide')).toBeLessThan(217);
-
-		expect(frameHeight('bare')).toBe(217);
-		expect(frameHeight('song')).toBe(217);
-		const wrappers = [...document.querySelectorAll<HTMLElement>('[data-testid="library-mosaic"] > div')];
-		expect(wrappers.map((el) => el.getAttribute('data-row-end'))).toEqual([
-			'false',
-			'false',
-			'false',
-			'true',
-			'false',
-			'true'
-		]);
-		expect(wrappers.map((el) => el.style.flex.split(' ').slice(0, 2).join(' '))).toEqual([
-			'0 0',
-			'0 0',
-			'0 0',
-			'1 1',
-			'0 0',
-			'1 1'
-		]);
+		const basis = (id: string) => parseFloat(/--r:\s*([\d.]+)/.exec(tile(id).getAttribute('style') ?? '')?.[1] ?? 'NaN');
+		expect(basis('wide')).toBeCloseTo(16 / 9, 1);
+		expect(basis('tall')).toBeLessThan(basis('wide'));
+		expect(tile('wide').getAttribute('style')).toContain('flex:');
 	});
 
-	it('never crops an image: the frame has the native aspect and the picture is contained', async () => {
+	it('shows the picture in a frame of the native aspect, from the thumbnail when there is one', async () => {
 		await mount({ multiple: true });
 
-		for (const id of ['wide', 'tall', 'square']) {
-			const img = frame(id).querySelector<HTMLImageElement>('img')!;
-			expect(img.classList.contains('object-contain')).toBe(true);
-			expect(img.classList.contains('object-cover')).toBe(false);
-		}
 		expect(frame('wide').querySelector('img')!.getAttribute('src')).toBe('/thumb/wide.png');
 		expect(frame('square').querySelector('img')!.getAttribute('src')).toBe('/media/square');
+		expect(frame('wide').querySelector('img')!.classList.contains('object-cover')).toBe(true);
 	});
 
-	it('shows a video through its thumbnail, a bare video as a square, and audio as a placeholder', async () => {
+	it('shows a video through its thumbnail and audio as a waveform with its duration', async () => {
 		await mount({ multiple: true });
 
 		expect(frame('clip').querySelector('img')!.getAttribute('src')).toBe('/thumb/clip.png');
 		expect(frame('clip').querySelector('video')).toBeNull();
-
-		expect(frame('bare').querySelector('video')).not.toBeNull();
-		expect(tileWidth('bare')).toBeCloseTo(frameHeight('bare'), 0);
+		expect(frame('clip').textContent).toContain('0:08');
 
 		expect(frame('song').querySelector('img, video')).toBeNull();
-		expect(tileWidth('song')).toBeCloseTo(frameHeight('song'), 0);
-		expect(frame('song').textContent).toContain(formatSeconds(12));
+		expect(frame('song').querySelector('i')).not.toBeNull();
+		expect(frame('song').textContent).toContain('0:12');
+		expect(frameRatio('song')).toBeCloseTo(16 / 9, 1);
 	});
 
 	it('captions each tile with the file name', async () => {
 		await mount({ multiple: true });
 		expect(tile('wide').textContent).toContain('wide.png');
 		expect(tile('song').textContent).toContain('song.wav');
-	});
-
-	it('renders each card inert so only the tile controls take input', async () => {
-		await mount({ multiple: false });
-		for (const id of ['wide', 'clip', 'song']) {
-			const wrapper = tile(id).querySelector('span[inert]')!;
-			expect(wrapper.querySelector('[data-library-card-body]')).not.toBeNull();
-		}
 	});
 
 	it('shows the empty state instead of a mosaic when nothing matches', async () => {
@@ -213,8 +172,7 @@ describe('library picker mosaic', () => {
 			})
 		);
 		await vi.waitFor(() => expect(document.body.textContent).toContain('Nothing here yet'));
-		expect(document.querySelector('[data-testid="library-mosaic"]')).toBeNull();
-		expect(document.querySelectorAll('[data-library-card-body]').length).toBe(0);
+		expect(document.querySelectorAll('[data-pick-tile]').length).toBe(0);
 	});
 });
 
@@ -245,7 +203,7 @@ describe('library picker mosaic multi-select', () => {
 		expect(onSelectionChange).toHaveBeenLastCalledWith(['clip'], expect.any(Array));
 		expect(checkbox('clip.mp4').checked).toBe(true);
 		expect(tile('clip').getAttribute('data-selected')).toBe('true');
-		expect(document.querySelector('[data-testid="picker-preview"]')).toBeNull();
+		expect(document.querySelector('button[aria-label^="Preview"]')).toBeNull();
 
 		tileButton('clip').click();
 		await tick();
@@ -259,20 +217,6 @@ describe('library picker mosaic multi-select', () => {
 		expect(tile('tall').querySelector('.bg-signal\\/15')).toBeNull();
 	});
 
-	it('opens the preview from the magnifier without selecting', async () => {
-		const onSelectionChange = vi.fn();
-		await mount({ multiple: true, onSelectionChange });
-
-		tile('wide').querySelector<HTMLButtonElement>('button[aria-label="Preview wide.png"]')!.click();
-		await tick();
-
-		const preview = document.querySelector('[data-testid="picker-preview"]');
-		expect(preview).not.toBeNull();
-		expect(preview!.querySelector('img')!.getAttribute('src')).toBe('/media/wide');
-		expect(onSelectionChange).not.toHaveBeenCalled();
-		expect(checkbox('wide.png').checked).toBe(false);
-	});
-
 	it('disables media outside the type constraint and states the reason on that tile', async () => {
 		const onSelectionChange = vi.fn();
 		await mount({ multiple: true, onSelectionChange, selectableMediaTypes: ['image'] });
@@ -280,9 +224,7 @@ describe('library picker mosaic multi-select', () => {
 		const box = checkbox('song.wav');
 		expect(box.disabled).toBe(true);
 		expect(tile('song').textContent).toContain('Only image files can be selected here');
-		expect(tile('song').querySelector('.opacity-50')).not.toBeNull();
-		const reason = document.getElementById(box.getAttribute('aria-describedby')!);
-		expect(reason?.textContent).toContain('Only image files can be selected here');
+		expect(tile('song').querySelector('.opacity-40')).not.toBeNull();
 
 		box.click();
 		expect(tileButton('song').disabled).toBe(true);
@@ -291,14 +233,7 @@ describe('library picker mosaic multi-select', () => {
 
 		expect(checkbox('wide.png').disabled).toBe(false);
 		expect(tile('wide').textContent).not.toContain('Only image files can be selected here');
-		expect(tile('wide').querySelector('.opacity-50')).toBeNull();
-	});
-
-	it('keeps the preview available on a disabled tile', async () => {
-		await mount({ multiple: true, selectableMediaTypes: ['image'] });
-		tile('song').querySelector<HTMLButtonElement>('button[aria-label="Preview song.wav"]')!.click();
-		await tick();
-		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
+		expect(tile('wide').querySelector('.opacity-40')).toBeNull();
 	});
 
 	it('confirms the picked tiles', async () => {
@@ -324,41 +259,25 @@ describe('library picker mosaic single-pick', () => {
 		expect(document.querySelector('input[type="checkbox"]')).toBeNull();
 		expect(document.querySelector('[data-testid="picker-selected-count"]')).toBeNull();
 		expect(document.querySelector('button[aria-label^="Preview "]')).toBeNull();
-		expect(document.querySelectorAll('button[aria-label^="Use "]').length).toBe(ITEMS.length);
+		expect(document.querySelectorAll('button[aria-label^="Select "]').length).toBe(ITEMS.length);
 	});
 
 	it('hands the clicked library item to onSelect', async () => {
 		const onSelect = vi.fn();
 		await mount({ multiple: false, onSelect });
 
-		document.querySelector<HTMLButtonElement>('button[aria-label="Use tall.png"]')!.click();
+		document.querySelector<HTMLButtonElement>('button[aria-label="Select tall.png"]')!.click();
 		expect(onSelect).toHaveBeenCalledTimes(1);
 		expect(onSelect.mock.calls[0][0]).toMatchObject({ id: 'tall', original_filename: 'tall.png' });
 
-		document.querySelector<HTMLButtonElement>('button[aria-label="Use song.wav"]')!.click();
+		document.querySelector<HTMLButtonElement>('button[aria-label="Select song.wav"]')!.click();
 		expect(onSelect.mock.calls[1][0]).toMatchObject({ id: 'song', media_type: 'audio' });
 	});
 
-	it('keeps the inline delete confirmation on a tile', async () => {
-		const onSelect = vi.fn();
-		await mount({ multiple: false, onSelect });
+	it('offers no delete control on a tile: the Library page owns deletion', async () => {
+		await mount({ multiple: false });
 
-		document.querySelector<HTMLButtonElement>('button[aria-label="Delete square.png"]')!.click();
-		await tick();
-		expect(buttonByText('Delete')).toBeDefined();
-		expect(onSelect).not.toHaveBeenCalled();
-
-		buttonByText('Cancel')!.click();
-		await tick();
-		expect(buttonByText('Delete')).toBeUndefined();
+		expect(document.querySelector('button[aria-label^="Delete "]')).toBeNull();
 		expect(apiMocks.deleteLibraryItem).not.toHaveBeenCalled();
-		expect(document.querySelector('button[aria-label="Delete square.png"]')).not.toBeNull();
-
-		document.querySelector<HTMLButtonElement>('button[aria-label="Delete square.png"]')!.click();
-		await tick();
-		buttonByText('Delete')!.click();
-		await vi.waitFor(() => expect(document.querySelector('[data-item-id="square"]')).toBeNull());
-		expect(apiMocks.deleteLibraryItem).toHaveBeenCalledWith('square');
-		expect(document.querySelectorAll('[data-testid="library-file-tile"]').length).toBe(ITEMS.length - 1);
 	});
 });

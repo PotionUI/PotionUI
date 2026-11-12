@@ -157,7 +157,7 @@
 						role="radio"
 						aria-checked={$historyTileSize === size.value}
 						use:tooltip={size.title}
-						class="w-6 py-1 font-mono text-2xs rounded-sm transition-colors duration-100 {$historyTileSize ===
+						class="w-7 py-1 font-mono text-sm rounded-sm transition-colors duration-100 {$historyTileSize ===
 						size.value
 							? 'bg-signal/10 text-signal'
 							: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"

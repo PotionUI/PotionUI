@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
+	import MediaPickerModal from '$lib/components/modals/mediaPicker/MediaPickerModal.svelte';
+	import { libraryItemOf } from '$lib/components/modals/mediaPicker/pickedMedia';
+	import type { PickerSourceId } from '$lib/components/modals/mediaPicker/pickerModel';
 	import MediaPreviewModal from '$lib/components/modals/MediaPreviewModal.svelte';
-	import UploadLibraryModal from '$lib/components/modals/UploadLibraryModal.svelte';
 	import type { PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import { fileDrop, readPastedImage } from '$lib/components/form-fields/mediaFieldInput';
 	import { Button, CopyButton, EmptyState, IconButton, LoadErrorState, Menu, Spinner } from '$lib/components/ui';
@@ -45,8 +46,7 @@
 	let titleDraft = $state('');
 	let showDetails = $state(false);
 	let textDialog = $state<{ item: KitItem | null } | null>(null);
-	let libraryOpen = $state(false);
-	let historyOpen = $state(false);
+	let picking = $state<PickerSourceId | null>(null);
 	let preview = $state<KitItem | null>(null);
 	let dragId = $state<string | null>(null);
 	let dropIndex = $state<number | null>(null);
@@ -152,14 +152,13 @@
 		}
 	}
 
-	function handleLibraryConfirm(_keys: string[], picked: PickedMedia[]) {
-		const libraryItems = picked.map((entry) => entry.item).filter((entry): entry is NonNullable<typeof entry> => !!entry);
-		void addItems(picksFromLibraryItems(libraryItems));
-	}
-
-	function handleHistoryConfirm(picked: PickedMedia[]) {
+	function handlePickerConfirm(_keys: string[], picked: PickedMedia[]) {
+		const libraryItems = picked.map(libraryItemOf).filter((entry): entry is NonNullable<typeof entry> => !!entry);
 		const files = picked.map((entry) => entry.file).filter((entry): entry is NonNullable<typeof entry> => !!entry);
-		void addItems(picksFromHistoryFiles(files, (fileId) => api.getFileURL(fileId, 'small')));
+		void addItems([
+			...picksFromLibraryItems(libraryItems),
+			...picksFromHistoryFiles(files, (fileId) => api.getFileURL(fileId, 'small'))
+		]);
 	}
 
 	async function uploadFiles(files: File[]) {
@@ -232,8 +231,7 @@
 			toasts.error(describeLimit(items.length, 1, KIT_ITEM_LIMIT) ?? 'This kit is full.');
 			return;
 		}
-		if (id === 'library') libraryOpen = true;
-		else if (id === 'history') historyOpen = true;
+		if (id === 'library' || id === 'history') picking = id;
 		else if (id === 'upload') fileInput?.click();
 		else if (id === 'paste') void pasteFromClipboard();
 		else if (id === 'text') textDialog = { item: null };
@@ -563,21 +561,16 @@
 		/>
 	{/if}
 
-	<UploadLibraryModal
-		isOpen={libraryOpen}
-		onClose={() => (libraryOpen = false)}
+	<MediaPickerModal
+		isOpen={picking !== null}
+		onClose={() => (picking = null)}
+		sources={['history', 'library', 'kits']}
+		initialSource={picking ?? 'library'}
+		mediaTypes={['image', 'video', 'audio']}
 		multiple
-		title="Add to {kit.name} from your Library"
-		onConfirm={handleLibraryConfirm}
-	/>
-	<GenerationHistoryModal
-		isOpen={historyOpen}
-		onClose={() => (historyOpen = false)}
-		multiple
-		onSelect={() => {}}
-		onConfirm={(_keys, picked) => handleHistoryConfirm(picked)}
-		selectableMediaTypes={['image', 'video', 'audio']}
-		title="Add to {kit.name} from Generation History"
+		title="Add to {kit.name}"
+		confirmLabel="Add to kit"
+		onConfirm={handlePickerConfirm}
 	/>
 
 	<MediaPreviewModal

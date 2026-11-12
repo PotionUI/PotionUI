@@ -64,7 +64,7 @@
 		onfollowsource?: () => void;
 		onupdatefromsession?: () => void;
 		onsaveassession?: () => void;
-		onpickmedia: (kind: 'history' | 'library') => void;
+		onpickmedia: (kind: 'history' | 'library' | 'kits') => void;
 		onremoveasset: (index: number) => void;
 		onclearmedia?: () => void;
 		onupload?: (files: File[]) => void;
@@ -583,6 +583,7 @@
 				<div class="flex flex-wrap gap-2">
 					<Button variant="secondary" size="sm" icon="clock" onclick={() => onpickmedia('history')}>History</Button>
 					<Button variant="secondary" size="sm" icon="photo" onclick={() => onpickmedia('library')}>Library</Button>
+					<Button variant="secondary" size="sm" icon="layers" onclick={() => onpickmedia('kits')}>Kits</Button>
 					{#if onupload}
 						<Button variant="secondary" size="sm" icon="upload" onclick={() => fileInput?.click()}>Upload</Button>
 						<input

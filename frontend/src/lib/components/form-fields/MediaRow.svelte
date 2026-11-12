@@ -217,6 +217,7 @@
 							intent="change"
 							current={currentSourceOf(item)}
 							offersDraw={offersDraw && !multiple}
+							{offersKits}
 							align="right"
 							onPick={(source) => onChangeSource(entry.flatIndex, source)}
 						>

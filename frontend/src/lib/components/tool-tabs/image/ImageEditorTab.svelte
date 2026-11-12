@@ -164,7 +164,8 @@
 	import ImageSourcePicker from './ImageSourcePicker.svelte';
 	import RecentPictures from './RecentPictures.svelte';
 	import ReplaceMenu from '../frame/ReplaceMenu.svelte';
-	import { replaceSource, sourceEntries } from '$lib/tool-tabs/sourceEntries';
+	import { replaceSource, sourceEntries, type SourceEntryId } from '$lib/tool-tabs/sourceEntries';
+	import { currentSourceOf } from '$lib/components/form-fields/mediaFieldSources';
 	import { isEditableTarget } from '$lib/utils/editableTarget';
 	import MaskLayer from './MaskLayer.svelte';
 	import PaintOptions from './PaintOptions.svelte';
@@ -1850,7 +1851,7 @@
 {/snippet}
 
 {#snippet replaceMenu()}
-	<ReplaceMenu label="Replace picture" entries={sourceEntries('image', phone)} disabled={replaceBlocked} {phone} onselect={(id) => replacePicker?.open(id)}>
+	<ReplaceMenu label="Replace picture" entries={sourceEntries('image', phone)} current={currentSourceOf(source) as SourceEntryId | null} disabled={replaceBlocked} {phone} onselect={(id) => replacePicker?.open(id)}>
 		{#snippet footer(close)}
 			<RecentPictures
 				columns="grid-cols-3"

@@ -10,6 +10,7 @@
 		entries,
 		disabled = false,
 		phone = false,
+		current = null,
 		onselect,
 		footer
 	}: {
@@ -17,6 +18,7 @@
 		entries: SourceEntry[];
 		disabled?: boolean;
 		phone?: boolean;
+		current?: SourceEntryId | null;
 		onselect: (id: SourceEntryId) => void;
 		footer?: Snippet<[() => void]>;
 	} = $props();
@@ -33,8 +35,11 @@
 			<button
 				type="button"
 				role="menuitem"
-				class="flex h-9 max-md:h-11 w-full items-center gap-2.5 rounded px-2.5 text-left text-sm text-fg hover:bg-surface-3 focus-visible:bg-surface-3 focus-visible:outline-none"
+				class="flex h-9 max-md:h-11 w-full items-center gap-2.5 rounded px-2.5 text-left text-sm hover:bg-surface-3 focus-visible:bg-surface-3 focus-visible:outline-none {current === entry.id
+					? 'text-signal'
+					: 'text-fg'}"
 				data-replace-entry={entry.id}
+				aria-current={current === entry.id ? 'true' : undefined}
 				onclick={() => {
 					close(true);
 					onselect(entry.id);
@@ -42,6 +47,7 @@
 			>
 				<Icon name={entry.icon} className="h-4 w-4 flex-shrink-0" />
 				<span class="min-w-0 flex-1 truncate">{entry.label}</span>
+				{#if current === entry.id}<Icon name="check" className="h-4 w-4 flex-shrink-0" />{/if}
 			</button>
 		{/each}
 		{#if footer}

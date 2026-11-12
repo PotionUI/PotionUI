@@ -3,7 +3,8 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 const apiMocks = vi.hoisted(() => ({
 	getGenerationHistory: vi.fn(),
-	getTags: vi.fn()
+	getTags: vi.fn(),
+	getGenerationThumbnailURL: (id: string, name: string) => `/thumb/${id}/${name}`
 }));
 
 vi.mock('$lib/services/api/index', () => ({
@@ -91,8 +92,9 @@ describe('single-pick history modal', () => {
 		await mountSingle({ mediaType: 'video' });
 		for (const id of [1, 2, 3, 4]) {
 			const tile = document.querySelector(`[data-file-id="${id}"]`)!;
-			expect(tile.querySelector('.media-zoom .min-h-\\[8rem\\]')).toBeNull();
-			expect(tile.querySelector('.media-zoom')!.children.length).toBeGreaterThan(0);
+			const picture = tile.querySelector('img');
+			expect(picture).not.toBeNull();
+			expect(picture!.getAttribute('src')).toBe(`/thumb/film/${id === 5 ? 'cover.png' : id + '.mp4'}`);
 		}
 	});
 

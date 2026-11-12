@@ -172,7 +172,7 @@ describe('filters reach each tab\'s own list query', () => {
 		search.dispatchEvent(new Event('input', { bubbles: true }));
 		await vi.waitFor(() => expect(lastHistoryRequest().search).toBe('harbour'), { timeout: 1500 });
 
-		await click(q('[data-filter-favorites]'));
+		await click(q('[data-favorites-filter]'));
 		await vi.waitFor(() => expect(lastHistoryRequest().favoritesOnly).toBe(true));
 
 		await click(q('[data-filters-trigger]'));
@@ -214,10 +214,10 @@ describe('filters reach each tab\'s own list query', () => {
 		await click(buttonByText('Videos')!);
 		await vi.waitFor(() => expect(lastLibraryRequest().media_type).toBe('video'));
 
-		await click(q('[data-filter-favorites]'));
+		await click(q('[data-favorites-filter]'));
 		await vi.waitFor(() => expect(lastLibraryRequest().favorites_only).toBe(true));
 
-		await click(q('[data-filter-collection]'));
+		await click(q('[data-collection-filter]'));
 		await vi.waitFor(() => expect(document.querySelector('[role="option"]')).not.toBeNull());
 		const names = all('[role="listbox"][aria-label="Collections"] [role="option"]').map((o) => o.textContent!.trim());
 		expect(names.slice(0, 2)).toEqual(['All items', 'Unsorted']);
@@ -269,7 +269,7 @@ describe('the Filters popover', () => {
 		setWidth(1024);
 		mountPicker({ sources: ['history'], mediaTypes: ['image'] });
 		await ready();
-		expect(document.querySelector('[data-filter-collection]')).toBeNull();
+		expect(document.querySelector('[data-collection-filter]')).toBeNull();
 		expect(document.querySelector('[data-filter-tags]')).toBeNull();
 		await click(q('[data-filters-trigger]'));
 		expect(document.querySelector('#pk-filter-collection')).not.toBeNull();
@@ -284,7 +284,7 @@ describe('the Filters popover', () => {
 		mountPicker({ sources: ['history'], mediaTypes: ['image', 'video'] });
 		await ready();
 		expect(document.querySelector('[data-kind-filter]')).toBeNull();
-		expect(document.querySelector('[data-filter-favorites]')).toBeNull();
+		expect(document.querySelector('[data-favorites-filter]')).toBeNull();
 		expect(document.querySelector('select[aria-label="Sort"]')).toBeNull();
 		expect(document.querySelector('[data-tile-size]')).not.toBeNull();
 		await click(q('[data-filters-trigger]'));
@@ -517,7 +517,7 @@ describe('states', () => {
 		apiMocks.getGenerationHistory.mockResolvedValue({ success: true, data: { generations: [], total: 0 } });
 		mountPicker({ sources: ['history'], mediaTypes: ['image'] });
 		await vi.waitFor(() => expect(document.body.textContent).toContain('Nothing here yet'));
-		await click(q('[data-filter-favorites]'));
+		await click(q('[data-favorites-filter]'));
 		await vi.waitFor(() => expect(document.body.textContent).toContain('No matches'));
 		apiMocks.getGenerationHistory.mockResolvedValue({ success: true, data: { generations: GENERATIONS, total: 3 } });
 		await click(buttonByText('Clear filters')!);
@@ -547,7 +547,7 @@ describe('states', () => {
 			success: true,
 			data: { generations: [{ ...GENERATIONS[0], files: [GENERATIONS[0].files[0]] }], total: 1 }
 		});
-		await click(q('[data-filter-favorites]'));
+		await click(q('[data-favorites-filter]'));
 		await ready();
 		release({ success: true, data: { generations: GENERATIONS, total: 3 } });
 		await settle(3);
@@ -616,5 +616,32 @@ describe('keyboard and focus', () => {
 		await ready();
 		expect(q('[data-pick-main]').getAttribute('tabindex')).toBe('-1');
 		expect(q('[data-pick-tile] input').hasAttribute('data-pick-focus')).toBe(true);
+	});
+});
+
+describe('short dates and phone focus', () => {
+	it('shows the date in the short app format in its own non-shrinking span, and the model part may truncate', async () => {
+		mountPicker({ sources: ['history', 'library'], mediaTypes: ['image'] });
+		await ready();
+		const sub = q('[data-pick-tile="g1:1"] [data-pick-sublabel]');
+		expect(sub.textContent).toContain('Jan 1');
+		expect(sub.textContent).not.toContain('2026-01-01');
+		expect(sub.lastElementChild!.className).toContain('shrink-0');
+		expect(sub.firstElementChild!.className).toContain('truncate');
+		await click(tab('Library'));
+		await ready();
+		expect(q('[data-pick-tile="l1"] [data-pick-sublabel]').textContent).toContain('Feb 3');
+	});
+
+	it('focuses the search field on desktop but not on a phone', async () => {
+		const desktop = mountPicker({ sources: ['history'], mediaTypes: ['image'] });
+		await ready();
+		expect(q('[data-picker-search]').hasAttribute('data-autofocus')).toBe(true);
+		desktop.view.destroy();
+		document.body.innerHTML = '';
+		setWidth(390);
+		mountPicker({ sources: ['history'], mediaTypes: ['image'] });
+		await ready();
+		expect(q('[data-picker-search]').hasAttribute('data-autofocus')).toBe(false);
 	});
 });

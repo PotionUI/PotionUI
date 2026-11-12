@@ -31,11 +31,8 @@ vi.mock('$lib/components/form-fields/mediaLoaderUpload', async (importOriginal) 
 	postUpload: (...args: unknown[]) => postUpload(...args)
 }));
 
-vi.mock('$lib/components/modals/GenerationHistoryModal.svelte', async () => ({
-	default: (await import('./fixtures/ReplaceHistoryStub.svelte')).default
-}));
-vi.mock('$lib/components/modals/UploadLibraryModal.svelte', async () => ({
-	default: (await import('./fixtures/ReplaceLibraryStub.svelte')).default
+vi.mock('$lib/components/modals/mediaPicker/MediaPickerModal.svelte', async () => ({
+	default: (await import('./fixtures/ReplacePickerStub.svelte')).default
 }));
 
 const { default: MediaLoaderField } = await import('$lib/components/form-fields/MediaLoaderField.svelte');
@@ -90,12 +87,12 @@ async function choose(menu: HTMLElement, source: string) {
 	await tick();
 }
 
-function stub(kind: 'history' | 'library'): HTMLElement | null {
-	return document.body.querySelector<HTMLElement>(`[data-stub="${kind}"]`);
+function stub(): HTMLElement | null {
+	return document.body.querySelector<HTMLElement>('[data-stub="picker"]');
 }
 
-async function pickInStub(kind: 'history' | 'library') {
-	stub(kind)!.querySelector<HTMLButtonElement>('[data-stub-pick]')!.click();
+async function pickInStub(kind: 'history' | 'library' | 'kit') {
+	stub()!.querySelector<HTMLButtonElement>(`[data-stub-pick="${kind}"]`)!.click();
 	await tick();
 }
 
@@ -124,6 +121,7 @@ describe('the Replace menu on a filled single loader', () => {
 			'Upload file',
 			'History',
 			'Library',
+			'Kits',
 			'Paste',
 			'Draw'
 		]);
@@ -154,8 +152,10 @@ describe('the Replace menu on a filled single loader', () => {
 		await tick();
 
 		await choose(await openReplace(target), 'history');
-		expect(stub('history')!.dataset.title).toBe('Replace image');
-		expect(stub('history')!.dataset.multiple).toBe('false');
+		expect(stub()!.dataset.title).toBe('Replace image');
+		expect(stub()!.dataset.multiple).toBe('false');
+		expect(stub()!.dataset.source).toBe('history');
+		expect(stub()!.dataset.mediaTypes).toBe('image');
 		await pickInStub('history');
 
 		expect(onChange).toHaveBeenCalledTimes(1);
@@ -169,10 +169,29 @@ describe('the Replace menu on a filled single loader', () => {
 		await tick();
 
 		await choose(await openReplace(target), 'library');
-		expect(stub('library')!.dataset.title).toBe('Replace image');
+		expect(stub()!.dataset.title).toBe('Replace image');
+		expect(stub()!.dataset.source).toBe('library');
 		await pickInStub('library');
 
 		expect(onChange).toHaveBeenCalledWith('ref', expect.objectContaining({ url: '/api/media/uploads/lib-new.png' }));
+	});
+
+	it('replaces the item with one item from a kit, offered as one item', async () => {
+		const onChange = vi.fn();
+		const { target } = mount({ name: 'ref', config: singleConfig, value: historyItem('g1'), onChange });
+		await tick();
+
+		const menu = await openReplace(target);
+		expect(menu.querySelector('[data-source="kits"]')!.textContent).toContain('one item');
+		await choose(menu, 'kits');
+		expect(stub()!.dataset.source).toBe('kits');
+		expect(stub()!.dataset.multiple).toBe('false');
+		await pickInStub('kit');
+
+		expect(onChange).toHaveBeenCalledWith(
+			'ref',
+			expect.objectContaining({ url: '/api/media/uploads/kit-face.png', name: 'kit-face', relative_path: 'uploads/kit-face.png' })
+		);
 	});
 
 	it('replaces the item with an uploaded file', async () => {
@@ -250,7 +269,7 @@ describe('the Replace menu on a multi loader', () => {
 		await selectTile(target, 1);
 
 		await choose(await openReplace(target), 'history');
-		expect(stub('history')!.dataset.multiple).toBe('false');
+		expect(stub()!.dataset.multiple).toBe('false');
 		await pickInStub('history');
 
 		const next = onChange.mock.calls.at(-1)![1] as Record<string, unknown>[];
@@ -305,6 +324,41 @@ describe('the Replace menu on a multi loader', () => {
 	});
 });
 
+describe('adding through the unified picker', () => {
+	it('opens in multi mode on the source asked for, limited to the room left, and takes a mixed pick in order', async () => {
+		const onChange = vi.fn();
+		const { target } = mount({
+			name: 'refs',
+			config: { title: 'Reference images', accept: 'image/*', multiple: true, max_items: 4 },
+			value: [uploadItem('u1', 'first')],
+			onChange
+		});
+		await tick();
+
+		target.querySelector<HTMLButtonElement>('[data-media-add="image"]')!.click();
+		await tick();
+		await tick();
+		document.body.querySelector<HTMLButtonElement>('[data-source-menu="add"] [data-source="library"]')!.click();
+		await tick();
+		await tick();
+
+		expect(stub()!.dataset.multiple).toBe('true');
+		expect(stub()!.dataset.source).toBe('library');
+		expect(stub()!.dataset.maxCount).toBe('3');
+		expect(stub()!.dataset.title).toBe('');
+		stub()!.querySelector<HTMLButtonElement>('[data-stub-confirm]')!.click();
+		await tick();
+
+		const next = onChange.mock.calls.at(-1)![1] as Record<string, unknown>[];
+		expect(next.map((item) => item.url)).toEqual([
+			'/api/media/uploads/u1.png',
+			'/api/media/generations/gen-new/new.png',
+			'/api/media/uploads/lib-new.png',
+			'/api/media/uploads/kit-face.png'
+		]);
+	});
+});
+
 describe('the Replace menu on a row', () => {
 	it('opens from the row and replaces that row only', async () => {
 		const onChange = vi.fn();
@@ -349,6 +403,6 @@ describe('the empty tile', () => {
 		const { target } = mount({ name: 'ref', config: singleConfig, value: null, onChange: vi.fn() });
 		await tick();
 		const labels = Array.from(target.querySelectorAll('[data-media-dropzone] button')).map((b) => b.textContent!.trim());
-		expect(labels).toEqual(['Upload file', 'History', 'Library', 'Paste', 'Draw']);
+		expect(labels).toEqual(['Upload file', 'History', 'Library', 'Kits', 'Paste', 'Draw']);
 	});
 });

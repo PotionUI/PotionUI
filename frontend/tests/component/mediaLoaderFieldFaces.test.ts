@@ -762,7 +762,8 @@ describe('mixed kinds in one field', () => {
 		expect(Array.from(menu.querySelectorAll('[data-source]')).map((el) => el.getAttribute('data-source'))).toEqual([
 			'browse',
 			'history',
-			'library'
+			'library',
+			'kits'
 		]);
 	});
 
@@ -913,22 +914,19 @@ describe('library pick', () => {
 		await tick();
 		await tick();
 
-		const named = document.body.querySelector<HTMLButtonElement>('[aria-label="Use sunset_beach.png"]');
+		const named = document.body.querySelector<HTMLInputElement>('input[aria-label="Select sunset_beach.png"]');
 		expect(named).toBeTruthy();
-		named!.click();
-
-		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange.mock.calls[0][1][0]).toMatchObject({
-			name: 'sunset_beach.png',
-			label: 'sunset_beach.png'
-		});
-
-		onChange.mockClear();
-		const untitled = document.body.querySelector<HTMLButtonElement>('[aria-label="Use Untitled"]');
+		const untitled = document.body.querySelector<HTMLInputElement>('input[aria-label="Select Untitled"]');
 		expect(untitled).toBeTruthy();
+		named!.click();
 		untitled!.click();
+		await tick();
+		document.body.querySelector<HTMLButtonElement>('[data-picker-confirm]')!.click();
+		await tick();
 
 		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange.mock.calls[0][1][0]).not.toHaveProperty('label');
+		const items = onChange.mock.calls[0][1];
+		expect(items[0]).toMatchObject({ name: 'sunset_beach.png', label: 'sunset_beach.png' });
+		expect(items[1]).not.toHaveProperty('label');
 	});
 });

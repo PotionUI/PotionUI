@@ -19,7 +19,7 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 });
 
 const { default: KitComposeDialog } = await import('$lib/components/kits/KitComposeDialog.svelte');
-const { default: KitLoadDialog } = await import('$lib/components/kits/KitLoadDialog.svelte');
+const { default: MediaPickerModal } = await import('$lib/components/modals/mediaPicker/MediaPickerModal.svelte');
 const { default: KitDetailPane } = await import('$lib/components/kits/KitDetailPane.svelte');
 const { default: ConfirmHost } = await import('$lib/components/modals/ConfirmHost.svelte');
 const { resetKitDirectory } = await import('$lib/stores/kits');
@@ -114,10 +114,22 @@ describe('add to kit dialog', () => {
 	});
 });
 
-describe('load dialog', () => {
+describe('load dialog (the Kits tab of the media picker)', () => {
+	const loadProps = (onLoad: unknown, onClose: unknown) => ({
+		isOpen: true,
+		title: 'Load a kit',
+		sources: ['kits'],
+		multiple: true,
+		kitItems: false,
+		kits: { onLoad },
+		onClose
+	});
+	const card = (name: string) => document.querySelector<HTMLInputElement>(`input[aria-label="Use whole kit ${name}"]`);
+	const confirm = () => document.querySelector<HTMLButtonElement>('[data-picker-confirm]');
+
 	it('closes on Escape and takes focus', async () => {
 		const onClose = vi.fn();
-		mountDialog(KitLoadDialog, { onLoad: vi.fn(), onClose });
+		mountDialog(MediaPickerModal, loadProps(vi.fn(), onClose));
 		await vi.waitFor(() => expect(dialog()?.contains(document.activeElement)).toBe(true));
 		escape();
 		await settle();
@@ -128,13 +140,13 @@ describe('load dialog', () => {
 		const onClose = vi.fn();
 		const onLoad = vi.fn();
 		calls.getKit.mockRejectedValue({ response: { status: 404 } });
-		mountDialog(KitLoadDialog, { onLoad, onClose });
-		await vi.waitFor(() => expect(document.querySelector('[data-kit-load-list] [role="option"]')).not.toBeNull());
-		document.querySelector<HTMLElement>('[data-kit-load-list] [role="option"]')!.click();
+		mountDialog(MediaPickerModal, loadProps(onLoad, onClose));
+		await vi.waitFor(() => expect(card('Mara')).not.toBeNull());
+		card('Mara')!.click();
 		await settle();
-		button('Load')?.click();
+		confirm()?.click();
 		await settle();
-		expect(document.querySelector('[data-kit-load-problems]')?.textContent).toContain('Mara no longer exists');
+		await vi.waitFor(() => expect(document.querySelector('[data-kit-load-problems]')?.textContent).toContain('Mara no longer exists'));
 		expect(onClose).not.toHaveBeenCalled();
 		expect(onLoad).not.toHaveBeenCalled();
 	});
@@ -142,13 +154,13 @@ describe('load dialog', () => {
 	it('stays open and says so on a network error', async () => {
 		const onClose = vi.fn();
 		calls.getKit.mockRejectedValue(new Error('Network Error'));
-		mountDialog(KitLoadDialog, { onLoad: vi.fn(), onClose });
-		await vi.waitFor(() => expect(document.querySelector('[data-kit-load-list] [role="option"]')).not.toBeNull());
-		document.querySelector<HTMLElement>('[data-kit-load-list] [role="option"]')!.click();
+		mountDialog(MediaPickerModal, loadProps(vi.fn(), onClose));
+		await vi.waitFor(() => expect(card('Mara')).not.toBeNull());
+		card('Mara')!.click();
 		await settle();
-		button('Load')?.click();
+		confirm()?.click();
 		await settle();
-		expect(document.querySelector('[data-kit-load-problems]')?.textContent).toContain('could not be reached');
+		await vi.waitFor(() => expect(document.querySelector('[data-kit-load-problems]')?.textContent).toContain('could not be reached'));
 		expect(onClose).not.toHaveBeenCalled();
 	});
 
@@ -161,15 +173,15 @@ describe('load dialog', () => {
 		});
 		const onLoad = vi.fn();
 		const onClose = vi.fn();
-		mountDialog(KitLoadDialog, { onLoad, onClose });
-		await vi.waitFor(() => expect(document.querySelectorAll('[data-kit-load-list] [role="option"]')).toHaveLength(2));
-		for (const option of Array.from(document.querySelectorAll<HTMLElement>('[data-kit-load-list] [role="option"]'))) {
-			option.click();
+		mountDialog(MediaPickerModal, loadProps(onLoad, onClose));
+		await vi.waitFor(() => expect(document.querySelectorAll('[data-pick-kit]')).toHaveLength(2));
+		for (const name of ['Mara', 'Old harbour']) {
+			card(name)!.click();
 			await settle();
 		}
-		button('Load')?.click();
+		confirm()?.click();
 		await settle();
-		expect(onLoad).toHaveBeenCalledTimes(1);
+		await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
 		expect(onLoad.mock.calls[0][0].map((kit: { id: string }) => kit.id)).toEqual([mara.id]);
 		expect(onClose).not.toHaveBeenCalled();
 		await vi.waitFor(() => {
@@ -177,6 +189,31 @@ describe('load dialog', () => {
 			expect(document.querySelector('[data-kit-load-problems]')?.textContent).toContain('Some kits were loaded');
 		});
 		expect(document.querySelector('[data-kit-load-problems]')?.textContent).toContain('Old harbour no longer exists');
+		expect(document.querySelector('[data-pick-kit]')?.textContent).toContain('Already loaded');
+	});
+
+	it('loads the chosen kits and closes when every one loads', async () => {
+		calls.getKit.mockResolvedValue({ success: true, data: mara });
+		const onLoad = vi.fn();
+		const onClose = vi.fn();
+		mountDialog(MediaPickerModal, loadProps(onLoad, onClose));
+		await vi.waitFor(() => expect(card('Mara')).not.toBeNull());
+		card('Mara')!.click();
+		await settle();
+		confirm()?.click();
+		await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+		expect(onLoad.mock.calls[0][0].map((kit: { id: string }) => kit.id)).toEqual([mara.id]);
+	});
+
+	it('shows the kit items read-only when the caller loads whole kits only', async () => {
+		calls.getKit.mockResolvedValue({ success: true, data: mara });
+		mountDialog(MediaPickerModal, loadProps(vi.fn(), vi.fn()));
+		await vi.waitFor(() => expect(document.querySelector('[aria-label="Open Mara"]')).not.toBeNull());
+		document.querySelector<HTMLElement>('[aria-label="Open Mara"]')!.click();
+		await vi.waitFor(() => expect(document.querySelector('[data-pick-tile]')).not.toBeNull());
+		expect(document.querySelectorAll('[data-pick-tile] input[type="checkbox"]')).toHaveLength(0);
+		expect(document.querySelector<HTMLButtonElement>('[data-pick-tile] [data-pick-main]')!.disabled).toBe(true);
+		expect(document.querySelector('[data-use-whole-kit]')).not.toBeNull();
 	});
 });
 

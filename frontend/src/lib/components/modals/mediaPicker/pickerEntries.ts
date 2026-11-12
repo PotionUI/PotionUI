@@ -5,6 +5,7 @@ import type { Kit, KitItem } from '$lib/kits/types';
 import { libraryItemDisplayName, libraryItemGridSrc } from '$lib/library/libraryItemMeta';
 import { clampAspect } from '$lib/utils/justifiedLayout';
 import { formatBytes } from '$lib/utils/format';
+import { shortDate } from '$lib/utils/relativeTime';
 import {
 	historyTileLabel,
 	pickedFromHistoryFile,
@@ -24,6 +25,7 @@ export interface PickerEntry {
 	label: string;
 	accessibleName: string;
 	sublabel: string;
+	date: string;
 	ratio: number;
 	thumb: string | null;
 	duration: string | null;
@@ -32,6 +34,7 @@ export interface PickerEntry {
 }
 
 const DEFAULT_RATIO = 1.33;
+const AUDIO_RATIO = 1.78;
 
 export function ratioOf(width?: number | null, height?: number | null): number {
 	if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
@@ -85,8 +88,9 @@ export function entryFromHistory(generation: GenerationHistoryItem, file: Genera
 		kind,
 		label,
 		accessibleName: filename && filename !== label ? `${filename} (${label})` : label,
-		sublabel,
-		ratio: ratioOf(file.width, file.height),
+		sublabel: sublabel.replace(/\s*·?\s*\d{4}-\d{2}-\d{2}$/, ''),
+		date: shortDate(generation.created_at),
+		ratio: kind === 'audio' ? AUDIO_RATIO : ratioOf(file.width, file.height),
 		thumb: historyThumb(generation, file),
 		duration: durationText(kind, file.duration_seconds),
 		text: null,
@@ -113,7 +117,6 @@ export function historyEntries(
 export function entryFromLibrary(item: LibraryItem): PickerEntry {
 	const picked = pickedFromLibraryItem(item);
 	const kind = kindOf(item.media_type);
-	const date = typeof item.created_at === 'string' ? item.created_at.slice(0, 10) : '';
 	const size = typeof item.size === 'number' && item.size > 0 ? formatBytes(item.size) : '';
 	const label = libraryItemDisplayName(item);
 	return {
@@ -121,8 +124,9 @@ export function entryFromLibrary(item: LibraryItem): PickerEntry {
 		kind,
 		label,
 		accessibleName: label,
-		sublabel: [size, date].filter(Boolean).join(' · '),
-		ratio: kind === 'audio' ? DEFAULT_RATIO : ratioOf(item.width, item.height),
+		sublabel: size,
+		date: shortDate(item.created_at),
+		ratio: kind === 'audio' ? AUDIO_RATIO : ratioOf(item.width, item.height),
 		thumb: kind === 'audio' ? null : (libraryItemGridSrc(item) ?? null),
 		duration: durationText(kind, item.duration_seconds),
 		text: null,
@@ -154,7 +158,8 @@ export function entryFromKitItem(kit: Pick<Kit, 'id' | 'name' | 'handle'>, item:
 		label: item.name,
 		accessibleName: item.name,
 		sublabel: meta,
-		ratio: kind === 'image' || kind === 'video' ? ratioOf(item.width, item.height) : DEFAULT_RATIO,
+		date: '',
+		ratio: kind === 'image' || kind === 'video' ? ratioOf(item.width, item.height) : kind === 'audio' ? AUDIO_RATIO : DEFAULT_RATIO,
 		thumb: item.missing ? null : (item.thumbnail_url ?? (kind === 'image' ? item.url : null)),
 		duration: durationText(kind, item.duration_seconds),
 		text: kind === 'text' ? (item.text ?? '') : null,

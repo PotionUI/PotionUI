@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import dismiss from '$lib/actions/dismiss';
-	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
-	import UploadLibraryModal from '$lib/components/modals/UploadLibraryModal.svelte';
+	import Icon from '$lib/components/Icon.svelte';
+	import MediaPickerModal from '$lib/components/modals/mediaPicker/MediaPickerModal.svelte';
+	import { routePicked } from '$lib/components/modals/mediaPicker/pickedMedia';
+	import type { PickerSourceId } from '$lib/components/modals/mediaPicker/pickerModel';
+	import type { PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import { Spinner } from '$lib/components/ui';
 	import { primaryModifier } from '$lib/utils/platform';
 	import { PAINT_ICONS } from './icons';
@@ -15,8 +18,7 @@
 	export let onPick: (image: PickedImage) => void;
 	export let onClose: () => void;
 
-	let showHistory = false;
-	let showLibrary = false;
+	let picking: PickerSourceId | null = null;
 	let busy = false;
 	let failure: string | null = null;
 	let fileInput: HTMLInputElement;
@@ -43,7 +45,7 @@
 	}
 
 	function fromHistory(_generation: unknown, file: { file_path?: string } | null) {
-		showHistory = false;
+		picking = null;
 		const url = file?.file_path ? generationImageUrl(file.file_path) : null;
 		if (!url || !file?.file_path) return;
 		const name = file.file_path.split('/').pop() ?? 'image.png';
@@ -51,13 +53,17 @@
 	}
 
 	function fromLibrary(item: { url: string; original_filename?: string; filename: string }) {
-		showLibrary = false;
+		picking = null;
 		finish(
 			canvasFromUrl(item.url).then((canvas) => ({
 				canvas,
 				name: displayName([item.original_filename, item.filename], 'image.png')
 			}))
 		);
+	}
+
+	function picked(media: PickedMedia) {
+		routePicked(media, { history: fromHistory, library: fromLibrary });
 	}
 
 	function fromFile(event: Event) {
@@ -141,13 +147,17 @@
 		</p>
 	{/if}
 
-	<button type="button" role="menuitem" class={row} disabled={busy} on:click={() => (showHistory = true)}>
+	<button type="button" role="menuitem" class={row} disabled={busy} on:click={() => (picking = 'history')}>
 		<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
 		History
 	</button>
-	<button type="button" role="menuitem" class={row} disabled={busy} on:click={() => (showLibrary = true)}>
+	<button type="button" role="menuitem" class={row} disabled={busy} on:click={() => (picking = 'library')}>
 		<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
 		Library
+	</button>
+	<button type="button" role="menuitem" class={row} disabled={busy} on:click={() => (picking = 'kits')}>
+		<Icon name="layers" className="w-4 h-4 shrink-0" strokeWidth={1.8} />
+		Kits
 	</button>
 	<button type="button" role="menuitem" class={row} disabled={busy} on:click={() => fileInput.click()}>
 		<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.open} /></svg>
@@ -177,17 +187,11 @@
 	<input bind:this={fileInput} type="file" accept="image/*" class="hidden" on:change={fromFile} />
 </div>
 
-<GenerationHistoryModal
-	isOpen={showHistory}
-	onClose={() => (showHistory = false)}
-	onSelect={fromHistory}
-	mediaType="image"
-	title="Select an image from History"
-/>
-<UploadLibraryModal
-	isOpen={showLibrary}
-	onClose={() => (showLibrary = false)}
-	onSelect={fromLibrary}
-	mediaType="image"
-	title="Select an image from your Library"
+<MediaPickerModal
+	isOpen={picking !== null}
+	onClose={() => (picking = null)}
+	sources={['history', 'library', 'kits']}
+	initialSource={picking ?? 'history'}
+	mediaTypes={['image']}
+	onPick={picked}
 />

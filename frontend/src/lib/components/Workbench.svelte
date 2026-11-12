@@ -20,7 +20,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
-	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
+	import MediaPickerModal from '$lib/components/modals/mediaPicker/MediaPickerModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import { pluginStore } from '$lib/stores/plugins';
 	import { fade } from 'svelte/transition';
@@ -1350,12 +1350,18 @@
 </div>
 
 <!-- Generation History Modal for Image Comparison -->
-<GenerationHistoryModal
+<MediaPickerModal
 	isOpen={showCompareModal}
 	onClose={() => showCompareModal = false}
-	onSelect={displayFileType === 'video' ? handleSelectComparisonVideo : handleSelectComparisonImage}
-	mediaType={displayFileType === 'video' ? 'video' : 'image'}
-	title={displayFileType === 'video' ? 'Select Video for Comparison' : 'Select Image for Comparison'}
+	sources={['history']}
+	mediaTypes={[displayFileType === 'video' ? 'video' : 'image']}
+	title={displayFileType === 'video' ? 'Choose video to compare' : 'Choose image to compare'}
+	closeOnPick={false}
+	onPick={(picked) => {
+		if (!picked.generation || !picked.file) return;
+		if (displayFileType === 'video') handleSelectComparisonVideo(picked.generation, picked.file);
+		else handleSelectComparisonImage(picked.generation, picked.file);
+	}}
 />
 
 <!-- Image/Video Preview Modal -->

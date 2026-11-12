@@ -421,7 +421,7 @@
 				{/snippet}
 			</SegmentedPromptEditor>
 			<div class="mt-3 space-y-2 empty:hidden">
-				<KitSkippedLine texts={kitCiteTexts} specs={promptResourceSpecs} formData={resourceFieldValues} presetId={selectedPreset || null} mode={selectedMode || null} />
+				<KitSkippedLine texts={kitCiteTexts} specs={promptResourceSpecs} formData={resourceFieldValues} {tabId} presetId={selectedPreset || null} mode={selectedMode || null} />
 			</div>
 			{#if summary.overCap}
 				<Alert variant="danger" density="compact" icon class="mt-4">

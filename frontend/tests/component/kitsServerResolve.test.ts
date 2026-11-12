@@ -46,6 +46,7 @@ describe('KitSkippedLine asks the server', () => {
 				texts: [`@[refs:${encodeKitKey(mara.id)}]`],
 				specs: [{ field: 'refs', kind: 'image' }],
 				formData: { refs: [{ kit: mara.id }] },
+				tabId: 'A',
 				presetId: 'minimax',
 				mode: 'refs'
 			}
@@ -56,7 +57,8 @@ describe('KitSkippedLine asks the server', () => {
 		expect(resolveKitCitations).toHaveBeenCalledTimes(1);
 		expect(resolveKitCitations.mock.calls[0][0]).toMatchObject({ loaded: [mara.id], field: 'refs', preset_id: 'minimax', mode: 'refs' });
 		expect(target.querySelector('[data-kit-skipped-line]')?.textContent?.trim()).toBe('This model does not take audio: voice is skipped.');
-		expect(get(kitNotices)).toEqual([notice]);
+		expect(get(kitNotices).A.live).toEqual([notice]);
+		expect(get(kitNotices).B).toBeUndefined();
 	});
 
 	it('does not call the server for a prompt that cites no kit', async () => {

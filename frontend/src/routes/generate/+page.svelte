@@ -125,8 +125,8 @@
 	import { classifyGenerationStartError } from '$lib/utils/formValidationErrors';
 	import { getPresetPromptResources } from '$lib/utils/presetPromptResourcesCache';
 	import { tabMergedMarkerUpdates } from '$lib/utils/mergedFieldMarkers';
-	import { kitNoticesOf, kitNoticeText } from '$lib/kits/kitSubmit';
-	import { kitNotices } from '$lib/stores/kitNotices';
+	import { announceKitNotices } from '$lib/kits/kitSubmit';
+	import { kitNotices, effectiveNotices, pruneKitNotices } from '$lib/stores/kitNotices';
 	import { summarizeSkips } from '$lib/kits/kitResolver';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { firstResourceIssue } from '$lib/utils/generationResourceReadiness';
@@ -291,13 +291,6 @@
 	 * `submitVideoDirectorShots`) leaves `buildDirectorRunEntries`' own
 	 * derivation untouched.
 	 */
-	function announceKitNotices(data: unknown) {
-		const notices = kitNoticesOf(data);
-		if (notices.length === 0) return;
-		kitNotices.set(notices);
-		toasts.warning(kitNoticeText(notices));
-	}
-
 	async function submitOneDirectorWireDoc(
 		tabId: string,
 		tab: GenerationTab,
@@ -350,7 +343,7 @@
 		try {
 			const response = await api.startGeneration(request);
 			if (response.success && response.data) {
-				announceKitNotices(response.data);
+				announceKitNotices(tabId, response.data);
 				const { generation_id, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
 				const liveTab = findGenerationTab($tabsStore.tabs, tabId) || tab;
@@ -680,6 +673,7 @@
 
 	// Reactive subscriptions
 	$: tabs = generationTabs($tabsStore.tabs);
+	$: pruneKitNotices($tabsStore.tabs.map((entry) => entry.id));
 	$: activeTabId = $activeTab.id;
 	$: currentTab = $activeTab;
 	$: stepBar = $activeToolTab ? $stepBars[$activeToolTab.id] ?? null : null;
@@ -1500,7 +1494,7 @@
 			const response = await api.startGeneration(request);
 
 			if (response.success && response.data) {
-				announceKitNotices(response.data);
+				announceKitNotices(activeTabId, response.data);
 				const { generation_id, status, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
 
@@ -2115,7 +2109,7 @@
 	{#if !toolTabActive}
 	{#key currentTab.id}
 		<GenerationPanel
-			kitSkip={summarizeSkips($kitNotices)}
+			kitSkip={summarizeSkips(effectiveNotices($kitNotices[currentTab.id]))}
 			bind:this={generationPanelRef}
 			generation={generation}
 			{isGenerating}

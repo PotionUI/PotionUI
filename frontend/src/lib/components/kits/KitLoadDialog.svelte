@@ -46,7 +46,8 @@
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let requestId = 0;
 
-	let loadedSet = $derived(new Set(loadedIds));
+	let justLoaded = $state<string[]>([]);
+	let loadedSet = $derived(new Set([...loadedIds, ...justLoaded]));
 	let chosenSet = $derived(new Set(chosen));
 	let pages = $derived(data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1);
 	let from = $derived(data && data.kits.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0);
@@ -82,16 +83,25 @@
 		}
 	}
 
+	let problems = $state<Record<string, string>>({});
+
+	function why(error: unknown): string {
+		const status = (error as { response?: { status?: number } } | null)?.response?.status;
+		return status === 404 ? 'no longer exists' : 'could not be reached';
+	}
+
 	async function fetchDetail(id: string): Promise<KitDetail | null> {
 		if (details[id]) return details[id];
 		try {
 			const response = await api.getKit(id);
 			if (response.success && response.data) {
 				details[id] = response.data;
+				delete problems[id];
 				return response.data;
 			}
-		} catch {
-			return null;
+			problems[id] = 'could not be loaded';
+		} catch (error) {
+			problems[id] = why(error);
 		}
 		return null;
 	}
@@ -133,10 +143,24 @@
 			}
 		}
 		busy = false;
-		if (loaded.length === 0) return false;
-		onLoad(loaded);
-		onClose();
-		return true;
+		if (loaded.length > 0) onLoad(loaded);
+		if (loaded.length === chosen.length) {
+			onClose();
+			return true;
+		}
+		justLoaded = [...justLoaded, ...loaded.map((kit) => kit.id)];
+		chosen = chosen.filter((id) => !loaded.some((kit) => kit.id === id));
+		return false;
+	}
+
+	let failedNames = $derived(
+		Object.keys(problems)
+			.filter((id) => chosen.includes(id))
+			.map((id) => `${nameOf(id)} ${problems[id]}`)
+	);
+
+	function nameOf(id: string): string {
+		return data?.kits.find((kit) => kit.id === id)?.name ?? id;
 	}
 
 	onMount(() => {
@@ -181,6 +205,12 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if failedNames.length > 0}
+			<div class="border-b border-danger/25 bg-danger/10 px-5 py-2 text-sm text-danger" role="alert" data-kit-load-problems>
+				{#if justLoaded.length > 0}Some kits were loaded. {/if}Could not load: {failedNames.join('; ')}.
+			</div>
+		{/if}
 
 		<div class="min-h-[120px]" role="listbox" aria-multiselectable="true" aria-label="Kits" data-kit-load-list>
 			{#if loading && !data}

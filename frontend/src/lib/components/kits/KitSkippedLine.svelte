@@ -8,18 +8,20 @@
 	import { defaultKitField, kitCapableFields, kitFieldsOf, type PromptSpecLike } from '$lib/kits/promptKits';
 	import { resourceMarkerRegex } from '$lib/utils/promptResources';
 	import { ensureKits, kitDirectory } from '$lib/stores/kits';
-	import { kitNotices } from '$lib/stores/kitNotices';
+	import { setLiveKitNotices } from '$lib/stores/kitNotices';
 
 	let {
 		texts,
 		specs,
 		formData = null,
+		tabId = '',
 		presetId = null,
 		mode = null
 	}: {
 		texts: readonly (string | null | undefined)[];
 		specs: readonly PromptSpecLike[];
 		formData?: Record<string, unknown> | null;
+		tabId?: string;
 		presetId?: string | null;
 		mode?: string | null;
 	} = $props();
@@ -27,7 +29,7 @@
 	const resolver = createKitResolver((request) => api.resolveKitCitations(request));
 	onDestroy(() => {
 		resolver.cancel();
-		kitNotices.set([]);
+		setLiveKitNotices(tabId, null);
 	});
 
 	let cites = $derived.by(() => {
@@ -53,13 +55,14 @@
 				loaded: fields.flatMap((entry) => entry.rows.map((row) => row.kit)),
 				field: defaultKitField(fields),
 				presetId,
-				mode
+				mode,
+				formData
 			})
 		);
 	});
 
 	$effect(() => {
-		kitNotices.set($resolver.result?.skipped ?? []);
+		setLiveKitNotices(tabId, $resolver.result?.skipped ?? null);
 	});
 
 	$effect(() => {

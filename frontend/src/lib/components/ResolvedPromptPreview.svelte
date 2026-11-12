@@ -54,7 +54,8 @@
 					loaded: kitFields.flatMap((entry) => entry.rows.map((row) => row.kit)),
 					field: defaultKitField(kitFields),
 					presetId,
-					mode
+					mode,
+					formData: resourceFieldValues
 				})
 			: null
 	);

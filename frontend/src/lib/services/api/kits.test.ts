@@ -136,7 +136,7 @@ describe('createKitsApi', () => {
 	it('creates an empty kit with POST /api/kits', async () => {
 		const { fn, api } = client('post', { success: true, data: { kit: wireKit({ items: [] }) } });
 		await api.createKit({ name: 'Mara', label: 'Actor' });
-		expect(fn).toHaveBeenCalledWith('/api/kits', { name: 'Mara', handle: undefined, label: 'Actor' });
+		expect(fn).toHaveBeenCalledWith('/api/kits', { name: 'Mara', label: 'Actor' });
 	});
 
 	it('creates a kit from Library items in one request, naming each by upload id', async () => {
@@ -169,6 +169,29 @@ describe('createKitsApi', () => {
 		expect(post.mock.calls[0][0]).toBe('/api/kits/add-library-items');
 		expect(post.mock.calls[0][1]).toMatchObject({ kit_id: 'kt_00000001', upload_ids: ['up_1'] });
 		expect(post.mock.calls[1]).toEqual(['/api/kits/kt_00000001/items', { text: 'Warm', name: 'look' }]);
+	});
+
+	it('reports a kit that exists but whose text items failed, with what is left to add', async () => {
+		const ok = { data: { success: true, data: { kit: wireKit() } } };
+		const post = vi
+			.fn()
+			.mockResolvedValueOnce(ok)
+			.mockResolvedValueOnce(ok)
+			.mockRejectedValueOnce({ response: { status: 500, data: { detail: { error: 'x', message: 'Disk full' } } } });
+		const api = createKitsApi({ post } as unknown as AxiosInstance);
+		const result = await api.createKit({
+			name: 'Mara',
+			items: [
+				{ kind: 'image', media_ref: 'up_1', name: 'face' },
+				{ kind: 'text', name: 'look', text: 'a' },
+				{ kind: 'text', name: 'mood', text: 'b' },
+				{ kind: 'text', name: 'tone', text: 'c' }
+			]
+		});
+		expect(result.success).toBe(false);
+		expect(result.partial?.created.id).toBe('kt_00000001');
+		expect(result.partial?.pending.map((item) => item.name)).toEqual(['mood', 'tone']);
+		expect(result.partial?.message).toBe('Disk full');
 	});
 
 	it('uploads a file into a kit as multipart', async () => {

@@ -9,7 +9,7 @@ import pytest
 
 from src.features.backends.native_remote_backend import RemoteNativeBackend, WorkerSilent
 from src.features.remote_execution.policy import RemoteExecutionPolicy
-from src.features.remote_execution.submit import SubmitFailed, submit_checked
+from src.features.remote_execution.submit import SubmitAmbiguous, SubmitFailed, submit_checked
 from src.features.remote_execution.transport import WorkerTransport, WorkerTransportError
 from src.pipelines.outputs import ErrorGenerationOutput
 
@@ -216,16 +216,67 @@ async def test_a_worker_that_never_answers_fails_as_unreachable_and_says_the_job
 
 
 @pytest.mark.asyncio
-async def test_a_busy_worker_is_retried_and_a_busy_one_that_stays_busy_fails_plainly():
-    clears = Script(_json(429, {"execution_id": "job-1", "outcome": "busy"}), _accepted())
-    response, _ = await _submit(clears)
+async def test_a_busy_worker_is_waited_for_with_a_growing_back_off_and_then_takes_the_job():
+    busy = _json(429, {"execution_id": "job-1", "outcome": "busy"})
+    script = Script(*([busy] * 6), _accepted())
+    announced = []
+
+    async def on_busy(delay):
+        announced.append(delay)
+
+    transport = WorkerTransport("http://worker", "t", transport=httpx.MockTransport(script))
+    sleeps = []
+
+    async def sleep(seconds):
+        sleeps.append(seconds)
+
+    response = await submit_checked(transport, PACKAGE, on_busy=on_busy, sleep=sleep)
+
+    assert response.outcome == "accepted"
+    assert sleeps == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0]
+    assert announced == sleeps
+    assert len(script.requests) == 7
+
+
+@pytest.mark.asyncio
+async def test_busy_never_uses_up_the_failure_attempts():
+    busy = _json(429, {"execution_id": "job-1", "outcome": "busy"})
+    script = Script(*([busy] * 10), _accepted())
+
+    response, _ = await _submit(script, attempts=1)
+
     assert response.outcome == "accepted"
 
-    stuck = Script(_json(429, {"execution_id": "job-1", "outcome": "busy"}))
+
+@pytest.mark.asyncio
+async def test_a_worker_that_stays_busy_past_the_bound_fails_without_being_marked_ambiguous():
+    script = Script(_json(429, {"execution_id": "job-1", "outcome": "busy"}))
+    transport = WorkerTransport("http://worker", "t", transport=httpx.MockTransport(script))
+
+    async def sleep(seconds):
+        return None
+
     with pytest.raises(SubmitFailed) as caught:
-        await _submit(stuck)
-    assert "busy" in str(caught.value)
+        await submit_checked(transport, PACKAGE, busy_wait_seconds=10, sleep=sleep)
+
+    assert not isinstance(caught.value, SubmitAmbiguous)
     assert caught.value.error_code is None
+    assert len(script.requests) == 5
+
+
+@pytest.mark.asyncio
+async def test_giving_up_after_5xx_or_lost_answers_is_ambiguous_and_a_definite_refusal_is_not():
+    for script in (Script(_json(503, {})), Script(httpx.ConnectTimeout("x"))):
+        with pytest.raises(SubmitAmbiguous):
+            await _submit(script, attempts=2)
+    for script in (
+        Script(_json(409, {"execution_id": "job-1", "outcome": "digest_conflict"})),
+        Script(_json(422, {"detail": "no"})),
+        Script(httpx.Response(200, text="not json")),
+    ):
+        with pytest.raises(SubmitFailed) as caught:
+            await _submit(script)
+        assert not isinstance(caught.value, SubmitAmbiguous)
 
 
 @pytest.mark.asyncio
@@ -251,7 +302,7 @@ class HangingTransport:
         self.events = list(events)
         self.cancelled = []
 
-    async def stream_events(self, execution_id, after=0):
+    async def stream_events(self, execution_id, after=0, on_alive=None):
         for event in self.events:
             yield event
         await asyncio.sleep(3600)
@@ -269,7 +320,6 @@ async def test_a_job_that_never_reports_back_fails_after_the_first_event_timeout
     with pytest.raises(WorkerSilent) as caught:
         await backend._consume_events("job-1", package, HangingTransport(), Path("/nonexistent"), Mock())
 
-    assert "nothing for 0 seconds" in str(caught.value)
     assert caught.value.error_code == "backend_unreachable"
 
 
@@ -291,8 +341,11 @@ async def test_a_silent_job_is_failed_cancelled_on_the_worker_and_frees_the_slot
     backend = _backend(RemoteExecutionPolicy())
     outputs = []
 
+    backend._policy = RemoteExecutionPolicy(first_event_timeout_seconds=0.05)
+
     async def silent(*args, **kwargs):
-        raise WorkerSilent("The worker took the job but sent nothing for 120 seconds, so it was stopped.")
+        package = SimpleNamespace(processed_pipes=SimpleNamespace(pipes=[]))
+        await backend._consume_events("job-1", package, HangingTransport(), Path("/nonexistent"), Mock())
 
     backend._dispatch = silent
     backend._active.add("job-1")
@@ -304,7 +357,6 @@ async def test_a_silent_job_is_failed_cancelled_on_the_worker_and_frees_the_slot
     errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
     assert len(errors) == 1
     assert errors[0].error_code == "backend_unreachable"
-    assert "sent nothing" in errors[0].error
 
 
 @pytest.mark.asyncio
@@ -348,3 +400,65 @@ async def test_a_submit_failure_reaches_the_user_as_a_failed_generation_and_free
     assert [o.error for o in outputs if isinstance(o, ErrorGenerationOutput)] == [
         "The worker already holds a different job under this job's id."
     ]
+
+
+@pytest.mark.asyncio
+async def test_failing_an_ambiguous_submit_cancels_on_the_worker_but_a_definite_refusal_does_not():
+    backend = _backend(RemoteExecutionPolicy())
+    backend._repository.get_by_id.return_value = SimpleNamespace(is_terminal=False)
+    ambiguous, refused = HangingTransport(), HangingTransport()
+
+    await backend._fail_dispatch("job-1", SubmitAmbiguous("maybe"), ambiguous)
+    await backend._fail_dispatch("job-1", SubmitFailed("conflict"), refused)
+
+    assert ambiguous.cancelled == ["job-1"]
+    assert refused.cancelled == []
+
+
+@pytest.mark.asyncio
+async def test_a_busy_worker_shows_the_user_why_the_job_is_waiting():
+    backend = _backend(RemoteExecutionPolicy())
+    outputs = []
+
+    await backend._announce_busy(outputs.append, 4.0)
+
+    assert len(outputs) == 1
+    assert outputs[0].state
+
+
+class LiveTransport(HangingTransport):
+    def __init__(self, beats, then_event=None):
+        super().__init__()
+        self.beats = beats
+        self.then_event = then_event
+
+    async def stream_events(self, execution_id, after=0, on_alive=None):
+        yield_first = SimpleNamespace(cursor=1, is_terminal=False, payload=None, kind="running", pipe_id=None, error=None, artifacts=[])
+        yield yield_first
+        for _ in range(self.beats):
+            await asyncio.sleep(0.03)
+            on_alive()
+        if self.then_event is not None:
+            yield self.then_event
+        await asyncio.sleep(3600)
+
+
+@pytest.mark.asyncio
+async def test_a_worker_that_keeps_sending_heartbeats_is_not_stopped_while_it_loads_a_model():
+    backend = _backend(RemoteExecutionPolicy(first_event_timeout_seconds=5, event_idle_timeout_seconds=0.1))
+    package = SimpleNamespace(processed_pipes=SimpleNamespace(pipes=[]))
+    done = SimpleNamespace(cursor=2, is_terminal=True, payload=None, kind="succeeded", pipe_id=None, error=None, artifacts=[])
+
+    await backend._consume_events("job-1", package, LiveTransport(8, done), Path("/nonexistent"), Mock())
+
+    assert backend._repository.apply_job_event.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_worker_whose_heartbeats_stop_is_stopped_after_the_idle_timeout():
+    backend = _backend(RemoteExecutionPolicy(first_event_timeout_seconds=5, event_idle_timeout_seconds=0.1))
+    package = SimpleNamespace(processed_pipes=SimpleNamespace(pipes=[]))
+
+    async with asyncio.timeout(3):
+        with pytest.raises(WorkerSilent):
+            await backend._consume_events("job-1", package, LiveTransport(2), Path("/nonexistent"), Mock())

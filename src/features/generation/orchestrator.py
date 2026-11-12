@@ -698,7 +698,17 @@ class GenerationOrchestrator:
         self.load_ledger = BackendLoadLedger(
             counts=self._queue_dispatcher.queue.counts, capacity=self._backend_capacity
         )
-        self._balancer = BackendBalancer(self)
+        self._balancer = BackendBalancer(
+            dispatcher=self._queue_dispatcher,
+            get_router=lambda: self.router,
+            status_tracker=self.status_tracker,
+            health=self.backend_health,
+            get_backend=backend_registry.get_backend,
+            list_backends=backend_registry.get_all_backends,
+            fail_job=self._record_failure,
+            run_backend_for=lambda generation_id: self._run_backends.get(generation_id),
+            resolve_form=lambda form, backend: resolve_form_model_refs(form, backend, self.model_locator),
+        )
         self.backend_health.add_listener(self._balancer.on_health_changed)
         register_departure = getattr(backend_registry, 'add_departure_listener', None)
         if callable(register_departure):
@@ -732,6 +742,12 @@ class GenerationOrchestrator:
     def queue(self):
         """The single generation queue, owned by the QueueDispatcher."""
         return self._queue_dispatcher.queue
+
+    def start_backend_probes(self) -> None:
+        self._balancer.start_probing()
+
+    async def stop_backend_probes(self) -> None:
+        await self._balancer.stop_probing()
 
     def _hold_reason(self, backend_id: str) -> Optional[str]:
         if self.backend_health.is_healthy(backend_id):

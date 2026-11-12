@@ -2,13 +2,15 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 HEALTHY_STATUSES = frozenset({"healthy", "available"})
 PROBE_TTL_SECONDS = 30.0
 PROBE_TIMEOUT_SECONDS = 10.0
+FAILURES_TO_DOWN = 2
+SUSPECT_RETRY_SECONDS = 5.0
 
 
 @dataclass
@@ -29,7 +31,12 @@ class BackendHealthTracker:
         clock: Callable[[], float] = time.monotonic,
         ttl_seconds: float = PROBE_TTL_SECONDS,
         probe_timeout_seconds: float = PROBE_TIMEOUT_SECONDS,
+        failures_to_down: int = FAILURES_TO_DOWN,
+        suspect_retry_seconds: float = SUSPECT_RETRY_SECONDS,
     ):
+        self._failures_to_down = max(1, failures_to_down)
+        self._suspect_retry = suspect_retry_seconds
+        self._suspect: Dict[str, Tuple[int, float]] = {}
         self._clock = clock
         self._ttl = ttl_seconds
         self._probe_timeout = probe_timeout_seconds
@@ -55,13 +62,18 @@ class BackendHealthTracker:
     def needs_probe(self, backend_id: str) -> bool:
         if backend_id in self._probing:
             return False
+        suspect = self._suspect.get(backend_id)
+        if suspect is not None:
+            return self._clock() - suspect[1] >= self._suspect_retry
         state = self._state.get(backend_id)
         return state is None or self._clock() - state.checked_at >= self._ttl
 
     def forget(self, backend_id: str) -> None:
         self._state.pop(backend_id, None)
+        self._suspect.pop(backend_id, None)
 
     def record(self, backend_id: str, healthy: bool, reason: Optional[str] = None) -> None:
+        self._suspect.pop(backend_id, None)
         previous = self._state.get(backend_id)
         failures = 0 if healthy else (previous.consecutive_failures if previous else 0) + 1
         self._state[backend_id] = _Health(healthy, None if healthy else reason, self._clock(), failures)
@@ -89,8 +101,18 @@ class BackendHealthTracker:
             healthy, reason = False, f"the health check failed: {exc}"
         finally:
             self._probing.discard(backend_id)
-        self.record(backend_id, healthy, reason)
-        return healthy
+        return self._settle(backend_id, healthy, reason)
+
+    def _settle(self, backend_id: str, healthy: bool, reason: Optional[str]) -> bool:
+        if healthy or not self.is_healthy(backend_id):
+            self.record(backend_id, healthy, reason)
+            return healthy
+        count = self._suspect.get(backend_id, (0, 0.0))[0] + 1
+        if count >= self._failures_to_down:
+            self.record(backend_id, False, reason)
+            return False
+        self._suspect[backend_id] = (count, self._clock())
+        return True
 
 
 def _reason_from(result: Any, status: Optional[str]) -> str:

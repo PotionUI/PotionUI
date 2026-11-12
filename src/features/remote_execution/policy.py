@@ -30,8 +30,9 @@ class RemoteExecutionPolicy:
     lease_seconds: int = 60
     submit_attempts: int = 3
     submit_retry_delay_seconds: float = 0.5
+    busy_wait_seconds: float = 3600.0
     first_event_timeout_seconds: float = 120.0
-    event_idle_timeout_seconds: float = 900.0
+    event_idle_timeout_seconds: float = 1800.0
 
     def default_limits(self) -> ExecutionLimitsV1:
         """The ExecutionLimitsV1 a package gets when the caller supplies none.

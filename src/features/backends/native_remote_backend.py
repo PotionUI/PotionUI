@@ -44,7 +44,7 @@ from src.features.remote_execution.records import (
     RemoteExecutionState,
 )
 from src.features.remote_execution.repository import RemoteExecutionRepository
-from src.features.remote_execution.submit import SETTLED_OUTCOMES, submit_checked
+from src.features.remote_execution.submit import SETTLED_OUTCOMES, SubmitAmbiguous, submit_checked
 from src.features.remote_execution.transport import (
     WorkerProtocolError,
     WorkerTransport,
@@ -514,6 +514,8 @@ class RemoteNativeBackend(BaseBackend):
                     transport, package,
                     attempts=self._policy.submit_attempts,
                     retry_delay=self._policy.submit_retry_delay_seconds,
+                    busy_wait_seconds=self._policy.busy_wait_seconds,
+                    on_busy=lambda delay: self._announce_busy(emit, delay),
                 )
 
                 if package.input_assets is not None and answer.outcome not in SETTLED_OUTCOMES:
@@ -536,6 +538,9 @@ class RemoteNativeBackend(BaseBackend):
             except asyncio.CancelledError:
                 pass
 
+    async def _announce_busy(self, emit, delay: float) -> None:
+        emit(ProgressGenerationOutput(state=f"The worker is busy with another job, retrying in {int(delay)}s"))
+
     async def _fail_dispatch(self, row_id: str, exc: Exception, transport: WorkerTransport) -> None:
         current = self._repository.get_by_id(row_id)
         if current is not None and not current.is_terminal:
@@ -543,7 +548,7 @@ class RemoteNativeBackend(BaseBackend):
                 row_id, RemoteExecutionState.FAILED,
                 error_code="dispatch_error", error_message=str(exc),
             )
-        if isinstance(exc, WorkerSilent):
+        if isinstance(exc, (WorkerSilent, SubmitAmbiguous)):
             try:
                 await transport.cancel(row_id)
             except WorkerTransportError:
@@ -574,11 +579,19 @@ class RemoteNativeBackend(BaseBackend):
         cursor = 0
         heard_from_worker = False
         for attempt in range(_MAX_EVENT_STREAM_RECONNECTS):
-            events = transport.stream_events(execution_id, after=cursor).__aiter__()
+            deadline = {"cm": None}
+
+            def alive() -> None:
+                cm = deadline["cm"]
+                if cm is not None and cm.when() is not None:
+                    cm.reschedule(asyncio.get_running_loop().time() + self._policy.event_idle_timeout_seconds)
+
+            events = transport.stream_events(execution_id, after=cursor, on_alive=alive).__aiter__()
             while True:
                 limit = self._policy.event_idle_timeout_seconds if heard_from_worker else self._policy.first_event_timeout_seconds
                 try:
-                    async with asyncio.timeout(limit):
+                    async with asyncio.timeout(limit) as cm:
+                        deadline["cm"] = cm if heard_from_worker else None
                         event = await anext(events)
                 except StopAsyncIteration:
                     break

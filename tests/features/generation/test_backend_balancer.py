@@ -34,7 +34,7 @@ class World:
     def __init__(self, ids=("A", "B")):
         self.backends = {i: _backend(i) for i in ids}
         self.tracker = GenerationStatusTracker()
-        self.health = BackendHealthTracker()
+        self.health = BackendHealthTracker(failures_to_down=1)
         self.started = []
         self.failures = []
 
@@ -62,17 +62,20 @@ class World:
             self.failures.append((generation_id, failure))
             await self.tracker.transition_async(generation_id, GenerationState.FAILED, failure)
 
-        self.orchestrator = SimpleNamespace(
-            _queue_dispatcher=self.dispatcher,
-            router=self.router,
+        self.run_backends = {}
+        self.balancer = BackendBalancer(
+            dispatcher=self.dispatcher,
+            get_router=lambda: self.router,
             status_tracker=self.tracker,
-            model_locator=None,
-            backend_registry=registry,
-            backend_health=self.health,
-            _run_backends={},
-            _record_failure=record_failure,
+            health=self.health,
+            get_backend=lambda bid: self.backends.get(bid),
+            list_backends=lambda: dict(self.backends),
+            fail_job=record_failure,
+            run_backend_for=self.run_backends.get,
+            resolve_form=lambda form, backend: {**form, "on": backend.backend_id},
+            recovery_interval=0.01,
+            sweep_interval=0.01,
         )
-        self.balancer = BackendBalancer(self.orchestrator, recovery_interval=0.01)
 
     async def submit(self, gid, backend_id):
         request = Mock(form_data={"x": 1})
@@ -91,8 +94,7 @@ class World:
 
 @pytest.fixture(autouse=True)
 def _patches():
-    with patch("src.features.generation.backend_balancer.generation_repo") as repo, \
-         patch("src.features.generation.backend_balancer.resolve_form_model_refs", side_effect=lambda form, backend, locator: {**form, "on": backend.backend_id}):
+    with patch("src.features.generation.backend_balancer.generation_repo") as repo:
         yield repo
 
 
@@ -173,7 +175,7 @@ async def test_a_running_job_on_a_down_but_not_removed_backend_is_left_to_its_ba
 async def test_removing_a_backend_fails_its_running_job_with_a_plain_reason_and_frees_the_slot():
     world = World()
     await world.submit("a0", "A")
-    world.orchestrator._run_backends["a0"] = world.backends["A"]
+    world.run_backends["a0"] = world.backends["A"]
     del world.backends["A"]
 
     result = await world.balancer.rebalance("A", gone=True)
@@ -205,10 +207,8 @@ async def test_a_queued_job_no_other_backend_can_run_fails_when_its_backend_is_r
     await world.submit("a0", "A")
     await world.submit("a1", "A")
     del world.backends["A"]
-    with patch(
-        "src.features.generation.backend_balancer.resolve_form_model_refs", side_effect=RuntimeError("model missing")
-    ):
-        result = await world.balancer.rebalance("A", gone=True)
+    world.balancer._resolve_form = Mock(side_effect=RuntimeError("model missing"))
+    result = await world.balancer.rebalance("A", gone=True)
 
     assert result["failed"] == 2
     assert world.tracker.get("a1").state == GenerationState.FAILED
@@ -222,10 +222,8 @@ async def test_a_job_whose_model_is_missing_on_the_other_backend_stays_put_when_
     await world.submit("a0", "A")
     await world.submit("a1", "A")
     world.health.record("A", False, "down")
-    with patch(
-        "src.features.generation.backend_balancer.resolve_form_model_refs", side_effect=RuntimeError("model missing")
-    ):
-        result = await world.balancer.rebalance("A", gone=False)
+    world.balancer._resolve_form = Mock(side_effect=RuntimeError("model missing"))
+    result = await world.balancer.rebalance("A", gone=False)
 
     assert result == {"moved": 0, "failed": 0}
     assert world.tracker.get("a1").backend_id == "A"
@@ -307,3 +305,122 @@ async def test_a_departing_backend_triggers_a_rebalance():
 
     assert world.tracker.get("a1").backend_id == "B"
     assert world.tracker.get("a0").state == GenerationState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_a_job_that_started_before_the_move_lands_is_left_untouched():
+    world = World()
+    await world.submit("a0", "A")
+    db = await world.submit("a1", "A")
+    item = world.dispatcher.queue.pending_for_backend("A")[0]
+    request_before = item.payload["request"].form_data
+    backend_before = item.payload["backend"]
+    await world.dispatcher.queue.cancel("a1")
+
+    moved = await world.balancer._move(item, "A")
+
+    assert moved is False
+    assert item.payload["request"].form_data == request_before
+    assert item.payload["backend"] is backend_before
+    assert db.backend_id == "A"
+    assert world.ledger.load("B").reserved == 0
+
+
+@pytest.mark.asyncio
+async def test_the_payload_swap_happens_inside_the_queue_lock_with_the_reassignment():
+    world = World()
+    await world.submit("a0", "A")
+    await world.submit("a1", "A")
+    item = world.dispatcher.queue.pending_for_backend("A")[0]
+    seen = []
+    real = world.dispatcher.queue.reassign
+
+    async def watching(gid, backend_id, apply=None):
+        def traced():
+            seen.append(("applied", item.backend_id, world.dispatcher.queue._lock.locked()))
+            apply()
+        return await real(gid, backend_id, traced)
+
+    world.dispatcher.queue.reassign = watching
+    world.health.record("A", False, "down")
+
+    assert await world.balancer._move(item, "A") is True
+
+    assert seen == [("applied", "B", True)]
+    assert item.payload["backend"] is world.backends["B"]
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_probes_remote_backends_that_have_work_and_skips_idle_and_local_ones():
+    world = World(("A", "B", "C"))
+    probed = []
+    for bid, backend in world.backends.items():
+        backend.execution_device = "remote"
+
+        async def check(bid=bid):
+            probed.append(bid)
+            return {"status": "healthy"}
+
+        backend.health_check = check
+    world.backends["C"].execution_device = "this_host_gpu"
+    await world.submit("a0", "A")
+    await world.submit("c0", "C")
+
+    assert await world.balancer.probe_busy_backends() == 1
+
+    assert probed == ["A"]
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_notices_a_backend_that_died_while_jobs_sat_queued_on_it():
+    world = World(("A", "B"))
+    world.health = BackendHealthTracker(failures_to_down=1)
+    world.balancer._health = world.health
+    world.health.add_listener(world.balancer.on_health_changed)
+    world.router.bind_health(world.health)
+    world.backends["A"].execution_device = "remote"
+
+    async def dead():
+        return {"status": "offline", "error": "refused"}
+
+    world.backends["A"].health_check = dead
+    await world.submit("a0", "A")
+    await world.submit("a1", "A")
+
+    await world.balancer.probe_busy_backends()
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        if world.tracker.get("a1").backend_id == "B":
+            break
+
+    assert not world.health.is_healthy("A")
+    assert world.tracker.get("a1").backend_id == "B"
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_loop_runs_until_stopped_and_never_overlaps_itself():
+    world = World(("A",))
+    running = []
+    peak = []
+    world.backends["A"].execution_device = "remote"
+
+    async def slow():
+        running.append(1)
+        peak.append(len(running))
+        await asyncio.sleep(0.05)
+        running.pop()
+        return {"status": "healthy"}
+
+    world.backends["A"].health_check = slow
+    world.health._ttl = 0
+    await world.submit("a0", "A")
+
+    world.balancer.start_probing()
+    await asyncio.sleep(0.2)
+    await world.balancer.stop_probing()
+
+    assert peak and max(peak) == 1
+    assert world.balancer._sweeper is None
+    count = len(peak)
+    await asyncio.sleep(0.05)
+    assert len(peak) == count

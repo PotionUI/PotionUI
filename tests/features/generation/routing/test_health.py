@@ -45,7 +45,7 @@ async def test_a_healthy_or_available_answer_is_routable(status):
     ({"status": "inactive", "message": "disabled"}, "disabled"),
 ])
 async def test_any_other_answer_makes_the_backend_unroutable_with_a_reason(answer, reason):
-    tracker = BackendHealthTracker()
+    tracker = BackendHealthTracker(failures_to_down=1)
 
     assert await tracker.probe(_backend(answer)) is False
     assert not tracker.is_healthy("b")
@@ -54,7 +54,7 @@ async def test_any_other_answer_makes_the_backend_unroutable_with_a_reason(answe
 
 @pytest.mark.asyncio
 async def test_a_probe_that_raises_or_times_out_is_a_failed_probe():
-    tracker = BackendHealthTracker(probe_timeout_seconds=0.02)
+    tracker = BackendHealthTracker(probe_timeout_seconds=0.02, failures_to_down=1)
 
     assert await tracker.probe(_backend(error=RuntimeError("boom"))) is False
     assert "boom" in tracker.reason("b")
@@ -140,3 +140,41 @@ def test_only_backends_that_do_not_share_this_hosts_gpu_are_probed():
     other.execution_device = "unestablished"
 
     assert [probes_remotely(b) for b in (local, remote, other)] == [False, True, True]
+
+
+@pytest.mark.asyncio
+async def test_one_failed_probe_does_not_take_a_backend_down_but_a_second_does():
+    clock = Clock()
+    tracker = BackendHealthTracker(clock=clock, failures_to_down=2, suspect_retry_seconds=5)
+    heard = []
+    tracker.add_listener(lambda backend_id, healthy: heard.append(healthy))
+    flaky = _backend({"status": "offline", "error": "timeout"})
+
+    assert await tracker.probe(flaky) is True
+    assert tracker.is_healthy("b") and heard == []
+    assert not tracker.needs_probe("b")
+    clock.now = 5
+    assert tracker.needs_probe("b")
+
+    assert await tracker.probe(flaky) is False
+    assert not tracker.is_healthy("b") and heard == [False]
+
+
+@pytest.mark.asyncio
+async def test_a_good_probe_between_two_failures_resets_the_count():
+    tracker = BackendHealthTracker(failures_to_down=2)
+
+    await tracker.probe(_backend({"status": "offline"}))
+    await tracker.probe(_backend({"status": "healthy"}))
+    await tracker.probe(_backend({"status": "offline"}))
+
+    assert tracker.is_healthy("b")
+
+
+@pytest.mark.asyncio
+async def test_a_down_backend_recovers_on_the_first_good_probe():
+    tracker = BackendHealthTracker(failures_to_down=2)
+    tracker.record("b", False, "x")
+
+    assert await tracker.probe(_backend({"status": "healthy"})) is True
+    assert tracker.is_healthy("b")

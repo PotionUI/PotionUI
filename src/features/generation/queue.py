@@ -328,12 +328,16 @@ class GenerationQueue:
     def is_dispatchable(self, backend_id: str) -> bool:
         return self._is_dispatchable(backend_id)
 
-    async def reassign(self, generation_id: str, backend_id: str) -> Optional[str]:
+    async def reassign(
+        self, generation_id: str, backend_id: str, apply: Optional[Callable[[], None]] = None
+    ) -> Optional[str]:
         async with self._lock:
             for item in self._pending:
                 if item.generation_id == generation_id:
                     previous = item.backend_id
                     item.backend_id = backend_id
+                    if apply is not None:
+                        apply()
                     return previous
         return None
 

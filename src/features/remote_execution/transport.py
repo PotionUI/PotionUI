@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, Callable, List, Optional
 
 import httpx
 
@@ -346,7 +346,9 @@ class WorkerTransport:
         except (json.JSONDecodeError, KeyError) as exc:
             raise WorkerProtocolError(f"transfer listing returned an unreadable body: {exc}") from exc
 
-    async def stream_events(self, execution_id: str, after: int = 0) -> AsyncIterator[JobEventV1]:
+    async def stream_events(
+        self, execution_id: str, after: int = 0, on_alive: Optional[Callable[[], None]] = None
+    ) -> AsyncIterator[JobEventV1]:
         """Yield every `JobEventV1` for ``execution_id`` with cursor > ``after``,
         journaled events first, then live events, until a terminal event closes
         the worker's stream."""
@@ -369,6 +371,8 @@ class WorkerTransport:
                             f"event stream for {execution_id!r} failed: HTTP {resp.status_code}"
                         )
                     async for line in resp.aiter_lines():
+                        if on_alive is not None:
+                            on_alive()
                         if not line.startswith("data: "):
                             continue
                         try:

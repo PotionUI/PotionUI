@@ -29,7 +29,7 @@ class Cluster:
         registry._backends_cache = {b.backend_id: b for b in self.backends}
         registry.backend_config_store = Mock()
         registry.backend_config_store.get_default_backend.return_value = Mock(id=default_id) if default_id else None
-        self.health = BackendHealthTracker()
+        self.health = BackendHealthTracker(failures_to_down=1)
         self.ledger = BackendLoadLedger(
             counts=lambda bid: (self.queued.get(bid, 0), self.running.get(bid, 0)),
             capacity=lambda bid: self.capacity[bid],

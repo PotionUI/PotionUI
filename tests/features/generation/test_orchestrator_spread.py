@@ -234,3 +234,27 @@ async def test_the_queued_item_remembers_how_it_was_routed_so_it_can_be_moved(re
 
     assert item.payload['routing'].engine == 'native'
     assert item.payload['routing'].user_id == 'user_1'
+
+
+@pytest.mark.asyncio
+async def test_a_backend_that_fails_to_start_gives_its_reservation_back(repo):
+    setup = Setup([1, 1])
+    for backend in setup.backends.values():
+        backend.start_generation = AsyncMock(side_effect=RuntimeError('worker refused'))
+
+    with pytest.raises(RuntimeError):
+        await setup.start('t0', 'g0')
+
+    assert setup.orchestrator.load_ledger.load('b0').reserved == 0
+    assert setup.orchestrator.load_ledger.load('b1').reserved == 0
+
+
+@pytest.mark.asyncio
+async def test_the_probe_loop_starts_and_stops_with_the_orchestrator(repo):
+    setup = Setup([1])
+
+    setup.orchestrator.start_backend_probes()
+    assert setup.orchestrator._balancer._sweeper is not None
+    await setup.orchestrator.stop_backend_probes()
+
+    assert setup.orchestrator._balancer._sweeper is None

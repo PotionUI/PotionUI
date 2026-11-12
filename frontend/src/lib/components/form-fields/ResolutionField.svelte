@@ -16,6 +16,7 @@
 		parseCustomResolution,
 		type ResolutionOptionLike
 	} from './resolutionPicker';
+	import { resolveSwap } from './resolutionSwap';
 
 	interface ResolutionOptionObject extends ResolutionOptionLike {
 		value: string;
@@ -91,6 +92,15 @@
 			onChange(name, res);
 		}
 		closePanel();
+	}
+
+	$: swap = resolveSwap(localValue, normalizedOptions, {
+		maxPixels: typeof config.max_pixels === 'number' ? config.max_pixels : null
+	});
+
+	function handleSwap() {
+		if (disabled || !swap.enabled || !swap.target) return;
+		handleSelect(swap.target);
 	}
 
 	function getOptValue(opt: ResolutionOption): string {
@@ -315,6 +325,7 @@
 	{/if}
 
 	<!-- Sunken trigger + a searchable, tier-grouped floating panel. -->
+	<div class="flex items-center gap-1.5">
 		<button
 			type="button"
 			bind:this={triggerRef}
@@ -322,7 +333,7 @@
 			disabled={disabled}
 			aria-haspopup="listbox"
 			aria-expanded={panelOpen}
-			class="input flex items-center gap-2.5 text-left hover:bg-surface-3 {panelOpen
+			class="input flex-1 min-w-0 flex items-center gap-2.5 text-left hover:bg-surface-3 {panelOpen
 				? 'ring-2 ring-accent border-transparent'
 				: ''} {disabled ? 'opacity-50 cursor-not-allowed hover:bg-field-bg' : 'cursor-pointer'}"
 		>
@@ -349,6 +360,20 @@
 					: ''}"
 			/>
 		</button>
+		{#if swap.visible}
+			<Tooltip text={swap.label} position="top">
+				<IconButton
+					icon="swap"
+					label={swap.label}
+					size="md"
+					variant="secondary"
+					class="flex-shrink-0 !min-w-9 !min-h-9 !w-9 !h-9 !p-1.5"
+					disabled={disabled || !swap.enabled}
+					onclick={handleSwap}
+				/>
+			</Tooltip>
+		{/if}
+	</div>
 
 		{#if panelOpen}
 			<div

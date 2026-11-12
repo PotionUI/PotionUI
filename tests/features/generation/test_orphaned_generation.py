@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import threading
 import time
@@ -106,7 +107,7 @@ def orchestrator(backend):
         connection_hub=Mock(),
         settings=Mock(),
         output_processor=processor,
-        preset_template_loader=loader,
+        preset_template_loader=loader, kit_expander=inert_kit_expander(),
     )
 
 

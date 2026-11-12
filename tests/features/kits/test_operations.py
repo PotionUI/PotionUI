@@ -1,4 +1,7 @@
+from unittest.mock import patch
+
 from src.features.kits import operations
+from src.features.kits.repository import KitRepository
 from src.features.kits.catalog import KitCatalog
 from src.features.media.records import Upload
 from src.platform.http.errors import ConflictError, InvalidInputError, NotFoundError
@@ -386,3 +389,83 @@ class TestCitedInTabs(KitsTestBase):
         total, _films, tabs = self.repo.cited_in_tabs(self.user_id, kit.id, limit=2)
 
         self.assertEqual((total, len(tabs)), (5, 2))
+
+
+def stale_once(repo):
+    real = repo.handle_taken
+    calls = []
+
+    def check(owner_id, handle, except_kit_id=None):
+        calls.append(handle)
+        return False if len(calls) == 1 else real(owner_id, handle, except_kit_id)
+
+    return patch.object(repo, "handle_taken", side_effect=check)
+
+
+class TestConcurrentWrites(KitsTestBase):
+
+    def test_two_creates_of_the_same_path_answer_the_clash_not_a_server_error(self):
+        operations.create_kit(self.repo, self.user_id, "Mara")
+
+        with stale_once(self.repo):
+            with self.assertRaises(ConflictError) as caught:
+                operations.create_kit(self.repo, self.user_id, "Mara")
+
+        self.assertEqual(caught.exception.code, "kit_path_taken")
+        self.assertEqual(caught.exception.extra["suggestion"], "mara2")
+        self.assertEqual(self.repo.list_kits(self.user_id)[1], 1)
+
+    def test_two_renames_onto_one_path_answer_the_clash(self):
+        operations.create_kit(self.repo, self.user_id, "Mara")
+        other = operations.create_kit(self.repo, self.user_id, "Tomas")
+
+        with stale_once(self.repo):
+            with self.assertRaises(ConflictError) as caught:
+                operations.update_kit(self.repo, self.user_id, other.id, handle="mara")
+
+        self.assertEqual(caught.exception.extra["suggestion"], "mara2")
+        self.assertEqual(self.repo.get(other.id, self.user_id).handle, "tomas")
+
+    def test_two_adds_with_the_same_item_name_answer_the_clash(self):
+        kit = operations.create_kit(self.repo, self.user_id, "Mara")
+        operations.add_text_item(self.repo, self.user_id, kit.id, "one", "line")
+
+        with patch("src.features.kits.operations.items._item_name", return_value="line"):
+            with self.assertRaises(ConflictError) as caught:
+                operations.add_text_item(self.repo, self.user_id, kit.id, "two", "line")
+
+        self.assertEqual(caught.exception.code, "item_path_taken")
+        self.assertEqual(self.repo.count_items(kit.id), 1)
+
+    def test_a_rename_onto_a_taken_item_name_answers_the_clash(self):
+        kit = operations.create_kit(self.repo, self.user_id, "Mara")
+        operations.add_text_item(self.repo, self.user_id, kit.id, "one", "line")
+        second = operations.add_text_item(self.repo, self.user_id, kit.id, "two", "other")
+        item = self.repo.get_item(kit.id, second.id)
+        item.name = "line"
+
+        with self.assertRaises(ConflictError) as caught:
+            self.repo.update_item(item)
+
+        self.assertEqual(caught.exception.extra["suggestion"], "line2")
+
+    def test_the_fifty_item_cap_holds_even_when_the_count_check_was_stale(self):
+        kit = operations.create_kit(self.repo, self.user_id, "Mara")
+        for index in range(49):
+            operations.add_text_item(self.repo, self.user_id, kit.id, f"line {index}")
+
+        with patch.object(KitRepository, "count_items", return_value=49):
+            operations.add_text_item(self.repo, self.user_id, kit.id, "the fiftieth")
+            with self.assertRaises(ConflictError) as caught:
+                operations.add_text_item(self.repo, self.user_id, kit.id, "the fifty-first")
+
+        self.assertEqual(caught.exception.code, "kit_full")
+        self.assertEqual(self.repo.items(kit.id).__len__(), 50)
+
+    def test_positions_stay_distinct_when_adds_race_on_a_stale_view(self):
+        kit = operations.create_kit(self.repo, self.user_id, "Mara")
+        with patch.object(KitRepository, "count_items", return_value=0):
+            for index in range(4):
+                operations.add_text_item(self.repo, self.user_id, kit.id, f"line {index}")
+
+        self.assertEqual([item.position for item in self.repo.items(kit.id)], [0, 1, 2, 3])

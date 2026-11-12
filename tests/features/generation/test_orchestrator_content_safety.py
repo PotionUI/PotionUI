@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -62,7 +63,7 @@ def make_orchestrator(backend, manager):
         settings=settings,
         output_processor=processor,
         preset_template_loader=loader,
-        content_safety=manager,
+        content_safety=manager, kit_expander=inert_kit_expander(),
     )
 
 

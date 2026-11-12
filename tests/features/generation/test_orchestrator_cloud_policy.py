@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -25,7 +26,7 @@ def make_orchestrator(engine):
     settings.get_setting = Mock(return_value="/outputs")
     orchestrator = GenerationOrchestrator(
         pipeline_builder=builder, backend_registry=registry, connection_hub=Mock(broadcast_to_generation=AsyncMock()),
-        settings=settings, output_processor=Mock(process_output=AsyncMock()), preset_template_loader=loader,
+        settings=settings, output_processor=Mock(process_output=AsyncMock()), preset_template_loader=loader, kit_expander=inert_kit_expander(),
     )
     return orchestrator, backend
 

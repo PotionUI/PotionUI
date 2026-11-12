@@ -6,6 +6,7 @@ one realization per image before the pipeline is built, so every engine receives
 the same `prompts` contract and `seed_generator` inherits the pinned seed.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import Mock, patch
 
@@ -20,7 +21,7 @@ def orchestrator():
         connection_hub=Mock(),
         settings=Mock(),
         output_processor=Mock(),
-        preset_template_loader=Mock(),
+        preset_template_loader=Mock(), kit_expander=inert_kit_expander(),
     )
 
 

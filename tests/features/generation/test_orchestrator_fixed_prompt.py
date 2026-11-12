@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -99,7 +100,7 @@ def make_orchestrator(fixed=FILM, template_vars=None, content_safety=None, batch
         preset_template_loader=loader,
         content_safety=content_safety,
         fixed_prompt_repository=FixedPrompts(fixed),
-        applied_prompt_repository=applied,
+        applied_prompt_repository=applied, kit_expander=inert_kit_expander(),
     )
     return orchestrator, applied, processed
 

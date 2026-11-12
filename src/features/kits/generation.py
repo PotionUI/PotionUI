@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.features.kits.citations import has_kit_cite
 from src.features.kits.expansion import KitExpander, KitExpansion, field_policies
 from src.features.prompt.resources import mode_prompt_resources
 
@@ -41,8 +42,10 @@ def expand_request(
     loaded: Dict[str, List[str]],
 ) -> KitExpansion:
     form_data = request.form_data if isinstance(request.form_data, dict) else {}
-    prompts = [pair for pair in (getattr(request, "prompts", None) or [])]
-    segments = [segment for segment in (getattr(request, "segments", None) or [])]
+    prompts = getattr(request, "prompts", None)
+    prompts = prompts if isinstance(prompts, list) else []
+    segments = getattr(request, "segments", None)
+    segments = segments if isinstance(segments, list) else []
     prompt_slots = [(pair, channel) for pair in prompts for channel in ("positive", "negative") if isinstance(getattr(pair, channel, None), str)]
     segment_slots = [segment for segment in segments if isinstance(getattr(segment, "text", None), str)]
     director_slots = _director_slots(form_data)
@@ -51,6 +54,8 @@ def expand_request(
         + [segment.text for segment in segment_slots]
         + [form_data["video_director"]["segments"][index][key] for index, key in director_slots]
     )
+    if not loaded and not any(has_kit_cite(text) for text in texts):
+        return KitExpansion(form_data=request.form_data, texts=texts)
     policies = field_policies(mode_prompt_resources(preset_template, mode))
     expansion = expander.expand(owner_id, policies, form_data, loaded, texts)
     if not expansion.touched and expansion.texts == texts:

@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -107,7 +108,7 @@ class TestOrchestratorBind:
 
         return GenerationOrchestrator(
             pipeline_builder=Mock(), backend_registry=Mock(), connection_hub=Mock(), settings=Mock(),
-            output_processor=Mock(), preset_template_loader=Mock(), model_filename_resolver=resolver,
+            output_processor=Mock(), preset_template_loader=Mock(), model_filename_resolver=resolver, kit_expander=inert_kit_expander(),
         )
 
     def _bound(self, engine, resolver):

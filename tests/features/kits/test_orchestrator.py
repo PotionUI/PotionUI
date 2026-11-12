@@ -182,3 +182,20 @@ async def test_a_director_shot_citation_adds_only_what_a_shot_cites(harness):
     assert "never" not in str(stored)
     assert stored["video_director"]["segments"][0]["reference_indices"] == [0]
     assert stored["video_director"]["segments"][0]["prompt"] == "<Picture 1> walks"
+
+
+@pytest.mark.asyncio
+async def test_the_memory_preview_binds_a_form_that_holds_a_kit_row_without_the_row(harness):
+    harness.add("face")
+    harness.backend.config = Mock(driver="native", gpu_max_vram=None)
+    request = harness.request("a street", {"references": [native("uploads/own.png"), {"kit": harness.kit.id}]})
+
+    with patch("src.features.generation.orchestrator.estimate_request_memory") as estimate, patch(
+        "src.features.generation.orchestrator.resolve_device_evidence"
+    ) as device, patch("src.features.generation.orchestrator.resolve_budget_evidence") as budget:
+        estimate.return_value = Mock()
+        device.return_value = Mock(to_dict=lambda: {})
+        budget.return_value = Mock(to_dict=lambda: {})
+        await harness.orchestrator.preview_memory(request, "u1")
+
+    assert SEEN[0]["references"] == [native("uploads/own.png")]

@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -36,7 +37,7 @@ def orchestrator(plugin_registry, generation_repo):
         settings=Mock(),
         output_processor=processor,
         preset_template_loader=Mock(),
-        plugin_registry=plugin_registry,
+        plugin_registry=plugin_registry, kit_expander=inert_kit_expander(),
     )
     with patch('src.platform.plugins.runtime_registries.get_global_notification_manager', return_value=Mock()):
         yield instance

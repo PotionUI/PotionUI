@@ -14,11 +14,16 @@ class ItemView:
 
     @property
     def missing(self) -> bool:
-        return not self.item.is_text and self.upload is None
+        return not self.item.is_text and self.relative_path is None
 
     @property
     def relative_path(self) -> Optional[str]:
-        return f"uploads/{self.upload.filename}" if self.upload is not None else None
+        if self.upload is None:
+            return None
+        name = self.upload.filename
+        if not name or name.startswith(".") or "/" in name or "\\" in name or ".." in name:
+            return None
+        return f"uploads/{name}"
 
 
 @dataclass

@@ -1,10 +1,13 @@
+import sqlite3
 import uuid
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.features.kits.records import Kit, KitItem
+from src.features.kits import rules
 from src.features.kits.rules import ITEM_KINDS, ITEM_ID_PREFIX, KIT_ID_PREFIX, MEDIA_KINDS
 from src.features.media.records import Upload
 from src.platform.database import get_cursor
+from src.platform.http.errors import ConflictError
 from src.platform.database.rows import dt_column, dt_iso, now_iso
 
 THUMBNAILS_PER_KIT = 4
@@ -116,30 +119,36 @@ class KitRepository:
         kit_id = new_kit_id()
         now = now_iso()
         position = self.next_position(owner_id)
-        with get_cursor() as cursor:
-            cursor.execute("DELETE FROM kit_handle_aliases WHERE owner_id = ? AND handle = ?", (owner_id, handle))
-            cursor.execute(
-                "INSERT INTO kits (id, owner_id, name, handle, label, position, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (kit_id, owner_id, name, handle, label, position, now, now),
-            )
+        try:
+            with get_cursor() as cursor:
+                cursor.execute("DELETE FROM kit_handle_aliases WHERE owner_id = ? AND handle = ?", (owner_id, handle))
+                cursor.execute(
+                    "INSERT INTO kits (id, owner_id, name, handle, label, position, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (kit_id, owner_id, name, handle, label, position, now, now),
+                )
+        except sqlite3.IntegrityError:
+            raise rules.clash("kit", handle, lambda candidate: self.handle_taken(owner_id, candidate))
         return self.get(kit_id, owner_id)
 
     def update(self, kit: Kit, previous_handle: Optional[str] = None) -> Kit:
         now = now_iso()
-        with get_cursor() as cursor:
-            if previous_handle and previous_handle != kit.handle:
+        try:
+            with get_cursor() as cursor:
+                if previous_handle and previous_handle != kit.handle:
+                    cursor.execute(
+                        "DELETE FROM kit_handle_aliases WHERE owner_id = ? AND handle = ?", (kit.owner_id, kit.handle)
+                    )
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO kit_handle_aliases (owner_id, handle, kit_id) VALUES (?, ?, ?)",
+                        (kit.owner_id, previous_handle, kit.id),
+                    )
                 cursor.execute(
-                    "DELETE FROM kit_handle_aliases WHERE owner_id = ? AND handle = ?", (kit.owner_id, kit.handle)
+                    "UPDATE kits SET name = ?, handle = ?, label = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
+                    (kit.name, kit.handle, kit.label, now, kit.id, kit.owner_id),
                 )
-                cursor.execute(
-                    "INSERT OR REPLACE INTO kit_handle_aliases (owner_id, handle, kit_id) VALUES (?, ?, ?)",
-                    (kit.owner_id, previous_handle, kit.id),
-                )
-            cursor.execute(
-                "UPDATE kits SET name = ?, handle = ?, label = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
-                (kit.name, kit.handle, kit.label, now, kit.id, kit.owner_id),
-            )
+        except sqlite3.IntegrityError:
+            raise rules.clash("kit", kit.handle, lambda candidate: self.handle_taken(kit.owner_id, candidate, kit.id))
         return self.get(kit.id, kit.owner_id)
 
     def touch(self, kit_id: str) -> None:
@@ -194,23 +203,37 @@ class KitRepository:
         if kind not in ITEM_KINDS:
             raise ValueError(f"unknown kit item kind {kind!r}")
         item_id = new_item_id()
-        with get_cursor() as cursor:
-            cursor.execute("SELECT COALESCE(MAX(position), -1) + 1 AS next FROM kit_items WHERE kit_id = ?", (kit_id,))
-            position = cursor.fetchone()["next"]
-            cursor.execute(
-                "INSERT INTO kit_items (id, kit_id, kind, name, position, media_ref, text, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (item_id, kit_id, kind, name, position, media_ref, text, now_iso()),
+        now = now_iso()
+        try:
+            with get_cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO kit_items (id, kit_id, kind, name, position, media_ref, text, created_at) "
+                    "SELECT ?, ?, ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?, ? FROM kit_items "
+                    "WHERE kit_id = ? HAVING COUNT(*) < ?",
+                    (item_id, kit_id, kind, name, media_ref, text, now, kit_id, rules.MAX_ITEMS_PER_KIT),
+                )
+                added = cursor.rowcount > 0
+                if added:
+                    cursor.execute("UPDATE kits SET updated_at = ? WHERE id = ?", (now, kit_id))
+        except sqlite3.IntegrityError:
+            taken = {item.name for item in self.items(kit_id)}
+            raise rules.clash("item", name, taken.__contains__)
+        if not added:
+            raise ConflictError(
+                "kit_full", f"A kit holds at most {rules.MAX_ITEMS_PER_KIT} items", limit=rules.MAX_ITEMS_PER_KIT,
             )
-            cursor.execute("UPDATE kits SET updated_at = ? WHERE id = ?", (now_iso(), kit_id))
         return self.get_item(kit_id, item_id)
 
     def update_item(self, item: KitItem) -> KitItem:
-        with get_cursor() as cursor:
-            cursor.execute(
-                "UPDATE kit_items SET name = ?, text = ? WHERE id = ? AND kit_id = ?",
-                (item.name, item.text, item.id, item.kit_id),
-            )
+        try:
+            with get_cursor() as cursor:
+                cursor.execute(
+                    "UPDATE kit_items SET name = ?, text = ? WHERE id = ? AND kit_id = ?",
+                    (item.name, item.text, item.id, item.kit_id),
+                )
+        except sqlite3.IntegrityError:
+            taken = {other.name for other in self.items(item.kit_id) if other.id != item.id}
+            raise rules.clash("item", item.name, taken.__contains__)
         self.touch(item.kit_id)
         return self.get_item(item.kit_id, item.id)
 

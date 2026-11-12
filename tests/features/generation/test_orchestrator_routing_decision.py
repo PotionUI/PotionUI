@@ -6,6 +6,7 @@ the newly-created generation record via
 persistence tests (test_orchestrator_segments.py).
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -143,7 +144,7 @@ def orchestrator(
         settings=mock_settings,
         output_processor=mock_output_processor,
         preset_template_loader=mock_preset_template_loader,
-        router=mock_router,
+        router=mock_router, kit_expander=inert_kit_expander(),
     )
 
 
@@ -164,7 +165,7 @@ def orchestrator_no_router(
         connection_hub=mock_connection_manager,
         settings=mock_settings,
         output_processor=mock_output_processor,
-        preset_template_loader=mock_preset_template_loader,
+        preset_template_loader=mock_preset_template_loader, kit_expander=inert_kit_expander(),
     )
 
 

@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import time
 from unittest.mock import Mock, patch
@@ -40,7 +41,7 @@ class TestMediaTaggingAutoTrigger(IndexerTestBase):
             settings=Mock(spec=Settings),
             output_processor=Mock(spec=OutputProcessor),
             preset_template_loader=Mock(),
-            media_indexer=self.media_indexer,
+            media_indexer=self.media_indexer, kit_expander=inert_kit_expander(),
         )
 
     async def _finish_and_settle(self, record):

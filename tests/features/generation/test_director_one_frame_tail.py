@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.fixtures.kits import inert_kit_expander
 
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -134,7 +135,7 @@ def test_the_wan_preset_names_the_5b_recommendation_of_the_i2v_picker_as_its_one
 def test_the_orchestrator_reads_the_sha256_of_a_model_reference_from_the_model_library():
     orchestrator = GenerationOrchestrator(
         pipeline_builder=Mock(), backend_registry=Mock(), connection_hub=Mock(), settings=Mock(),
-        output_processor=Mock(), preset_template_loader=Mock(),
+        output_processor=Mock(), preset_template_loader=Mock(), kit_expander=inert_kit_expander(),
     )
     record = Mock(sha256=FIVE_B_SHA256.upper())
 

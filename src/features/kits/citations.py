@@ -5,7 +5,8 @@ from typing import Optional
 from src.features.prompt.markers import RESOURCE_MARKER_RE
 
 KEY_PREFIX = "kit:"
-PATH_CITE_RE = re.compile(r"(?<![\w@])@kits\.([a-z][a-z0-9_]{0,31})(?:\.([a-z][a-z0-9_]{0,31}))?")
+PATH_BODY = r"(?<![\w@])@kits\.(?P<handle>[a-z][a-z0-9_]{0,31})(?:\.(?P<item>[a-z][a-z0-9_]{0,31}))?"
+PATH_CITE_RE = re.compile(PATH_BODY)
 STABLE_RE = re.compile(r"^(kt_[0-9a-f]{8})(?:/(it_[0-9a-f]{8}))?$")
 
 

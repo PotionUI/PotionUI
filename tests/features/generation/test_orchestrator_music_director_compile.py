@@ -12,6 +12,7 @@ additional attachment.
 Sibling of tests/features/generation/test_orchestrator_video_director.py.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -76,7 +77,7 @@ def orchestrator(
         connection_hub=mock_connection_manager,
         settings=mock_settings,
         output_processor=mock_output_processor,
-        preset_template_loader=mock_preset_template_loader,
+        preset_template_loader=mock_preset_template_loader, kit_expander=inert_kit_expander(),
     )
 
 

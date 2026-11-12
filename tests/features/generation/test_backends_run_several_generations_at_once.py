@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -153,7 +154,7 @@ def orchestrator(backends):
         connection_hub=Mock(),
         settings=Mock(),
         output_processor=processor,
-        preset_template_loader=loader,
+        preset_template_loader=loader, kit_expander=inert_kit_expander(),
     )
 
 

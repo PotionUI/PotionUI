@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import hashlib
 import json
@@ -50,7 +51,7 @@ class Harness:
             settings=Mock(get_setting=Mock(return_value="/outputs")),
             output_processor=Mock(process_output=AsyncMock(return_value={"handler": "H", "processed": True})),
             preset_template_loader=loader,
-            status_tracker=self.tracker,
+            status_tracker=self.tracker, kit_expander=inert_kit_expander(),
         )
 
     def request(self, key=None, prompt="a cat", form_data=None):

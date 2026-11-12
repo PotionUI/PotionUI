@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import json
 from dataclasses import dataclass
@@ -97,7 +98,7 @@ def started_without_callback(mock_db):
             output_processor=Mock(process_output=AsyncMock(return_value={"handler": "H", "processed": True})),
             preset_template_loader=loader,
             status_tracker=tracker,
-            output_broadcaster=broadcaster,
+            output_broadcaster=broadcaster, kit_expander=inert_kit_expander(),
         )
         with patch("src.features.generation.orchestrator.generation_repo"), \
              patch("src.features.generation.status_tracker.generation_repo"), \

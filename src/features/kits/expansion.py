@@ -1,13 +1,17 @@
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.features.kits import citations
+from src.features.kits.citations import PATH_BODY
 from src.features.kits.catalog import ItemView, KitCatalog, KitView
 from src.features.kits.rules import KIND_TEXT, MEDIA_KINDS
-from src.features.prompt.markers import RESOURCE_MARKER_RE
 from src.features.prompt.resources import media_item_keys
 from src.platform.filesystem.media_kinds import media_item_kind
 
+CITE_RE = re.compile(
+    f"(?:@\\[(?P<field>[A-Za-z_][A-Za-z0-9_-]*):(?P<key>[^\\]\\r\\n]+)\\])|(?:{PATH_BODY})"
+)
 PLURAL = {"image": "images", "video": "videos", "audio": "audio"}
 
 
@@ -254,25 +258,25 @@ class KitExpander:
                 if catalog.by_id(kit_id) is None:
                     state.notice("kit_deleted", f"The kit {kit_id} no longer exists, so it is skipped.", kit=kit_id)
 
-        def stored(match):
-            reference = citations.parse_key(match.group(2))
-            if reference is None:
-                return match.group(0)
-            return state.cite(catalog.by_id(reference.kit_id), reference.kit_id, reference.item_id, None, match.group(1))
+        def stored(reference, preferred):
+            return state.cite(catalog.by_id(reference.kit_id), reference.kit_id, reference.item_id, None, preferred)
 
-        def by_path(match):
-            handle, item = match.group(1), match.group(2)
+        def by_path(handle, item):
             kit_view = catalog.by_handle(handle)
             if kit_view is not None and item and kit_view.item_named(item) is None:
                 return (state.cite(kit_view, handle, None, None, None) or "") + f".{item}"
             return state.cite(kit_view, handle, None, item, None)
 
-        rewritten = []
-        for text in texts:
-            if isinstance(text, str) and citations.has_kit_cite(text):
-                text = RESOURCE_MARKER_RE.sub(stored, text)
-                text = citations.PATH_CITE_RE.sub(by_path, text)
-            rewritten.append(text)
+        def substitute(match):
+            if match.group("field") is not None:
+                reference = citations.parse_key(match.group("key"))
+                return match.group(0) if reference is None else stored(reference, match.group("field"))
+            return by_path(match.group("handle"), match.group("item"))
+
+        rewritten = [
+            CITE_RE.sub(substitute, text) if isinstance(text, str) and citations.has_kit_cite(text) else text
+            for text in texts
+        ]
 
         result = form_data
         if state.values:

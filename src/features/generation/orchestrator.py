@@ -540,8 +540,6 @@ class GenerationOrchestrator:
     - Owning generation state via GenerationStatusTracker
     """
 
-    kit_expander: Optional[KitExpander] = None
-
     def __init__(
         self,
         pipeline_builder: PipelineBuilder,
@@ -571,7 +569,8 @@ class GenerationOrchestrator:
         prompt_resource_source_registry: Optional[PromptResourceSourceRegistry] = None,
         fixed_prompt_repository: Optional['PresetFixedPromptRepository'] = None,
         applied_prompt_repository: Optional['GenerationAppliedPromptRepository'] = None,
-        kit_expander: Optional[KitExpander] = None,
+        *,
+        kit_expander: KitExpander,
     ):
         """
         Initialize the generation orchestrator.
@@ -937,7 +936,7 @@ class GenerationOrchestrator:
             ).get(mode, {})
         bound = self._bind(
             preset_template, mode, getattr(request, 'form_name', None),
-            split_kit_rows(request.form_data)[0] if self.kit_expander is not None else request.form_data,
+            split_kit_rows(request.form_data)[0],
             user_id, storage_dir, field_overrides,
         )
 
@@ -1246,19 +1245,15 @@ class GenerationOrchestrator:
                 field_overrides = self.database_preset_repository.get_preset_form_overrides(
                     request.preset_id
                 ).get(mode, {})
-            form_for_bind, loaded_kits = (
-                split_kit_rows(request.form_data) if self.kit_expander is not None else (request.form_data, {})
-            )
+            form_for_bind, loaded_kits = split_kit_rows(request.form_data)
             bound = self._bind(
                 preset_template, mode, getattr(request, 'form_name', None), form_for_bind,
                 user_id, storage_dir, field_overrides,
             )
             request.form_data = bound.values
-            kit_expansion = None
-            if self.kit_expander is not None:
-                kit_expansion = await asyncio.to_thread(
-                    expand_kits_in_request, self.kit_expander, user_id, request, preset_template, mode, loaded_kits,
-                )
+            kit_expansion = await asyncio.to_thread(
+                expand_kits_in_request, self.kit_expander, user_id, request, preset_template, mode, loaded_kits,
+            )
 
             if self.content_safety is not None:
                 self.content_safety.preflight(user_id)
@@ -1506,7 +1501,7 @@ class GenerationOrchestrator:
                 'status': record.model_dump(),
                 'queue_position': queue_position,
             }
-            if kit_expansion is not None and kit_expansion.touched:
+            if kit_expansion.touched:
                 submitted['kits'] = {
                     'used': kit_expansion.used,
                     'notices': [notice.to_dict() for notice in kit_expansion.notices],

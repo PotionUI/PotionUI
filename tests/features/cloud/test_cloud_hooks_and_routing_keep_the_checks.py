@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -63,7 +64,7 @@ def make_orchestrator(env, *, hook=None, router=None, task="txt2img"):
         output_processor=Mock(process_output=AsyncMock()), preset_template_loader=loader,
         plugin_registry=plugins, router=router,
         cloud_capabilities=env.capabilities,
-        cloud_policy=CloudGenerationPolicy(env.repository, model_repo, ModelPresetScopeRepository()),
+        cloud_policy=CloudGenerationPolicy(env.repository, model_repo, ModelPresetScopeRepository()), kit_expander=inert_kit_expander(),
     )
     return orchestrator
 

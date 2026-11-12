@@ -13,6 +13,7 @@ that returned the right page while inserting a row would satisfy every other
 test in this tree and still be the bug being chased.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import io
 import unittest
@@ -335,7 +336,7 @@ class TestSubmittingAPickedValueDoesNotDuplicate(LibraryOverHTTPTestBase):
             settings=settings,
             output_processor=output_processor,
             preset_template_loader=preset_template_loader,
-            plugin_registry=PluginRegistry(),
+            plugin_registry=PluginRegistry(), kit_expander=inert_kit_expander(),
         )
 
         with patch("src.features.generation.orchestrator.generation_repo") as repo:

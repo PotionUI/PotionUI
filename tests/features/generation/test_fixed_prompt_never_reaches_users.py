@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import json
 from types import SimpleNamespace
@@ -89,7 +90,7 @@ def finished_run(mock_db):
         output_processor=OutputProcessor(Mock()),
         preset_template_loader=loader,
         fixed_prompt_repository=PresetFixedPromptRepository(),
-        applied_prompt_repository=GenerationAppliedPromptRepository(),
+        applied_prompt_repository=GenerationAppliedPromptRepository(), kit_expander=inert_kit_expander(),
     )
     hub = ConnectionHub()
     broadcaster = GenerationOutputBroadcaster(

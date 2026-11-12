@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -14,6 +15,7 @@ def _request(preset_id="family/variant"):
 
 def _orchestrator(available, account_type=AccountType.USER, user_known=True):
     instance = object.__new__(orch.GenerationOrchestrator)
+    instance.kit_expander = inert_kit_expander()
     repo = Mock()
     repo.get_available_preset_ids_for_user.return_value = list(available)
     users = Mock()

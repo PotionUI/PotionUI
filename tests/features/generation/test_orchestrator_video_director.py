@@ -10,6 +10,7 @@ where it's called, what it's called with, and what happens when it rejects a
 document.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -75,7 +76,7 @@ def orchestrator(
         connection_hub=mock_connection_manager,
         settings=mock_settings,
         output_processor=mock_output_processor,
-        preset_template_loader=mock_preset_template_loader,
+        preset_template_loader=mock_preset_template_loader, kit_expander=inert_kit_expander(),
     )
 
 
@@ -311,7 +312,7 @@ class TestTimingProfileAttachment:
             connection_hub=mock_connection_manager,
             settings=mock_settings,
             output_processor=mock_output_processor,
-            preset_template_loader=loader,
+            preset_template_loader=loader, kit_expander=inert_kit_expander(),
         )
 
     @pytest.mark.asyncio

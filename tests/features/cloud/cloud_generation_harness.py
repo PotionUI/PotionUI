@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import textwrap
 from pathlib import Path
@@ -242,7 +243,7 @@ class CloudGeneration:
             content_safety=self.content_safety,
             cloud_capabilities=CloudCapabilities(
                 backend_registry=self.registry, repository=repository, model_repository=model_repo
-            ),
+            ), kit_expander=inert_kit_expander(),
         )
         self.baseline = len(self.executors)
         return self

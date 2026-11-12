@@ -21,6 +21,17 @@ def native(path, kind="image"):
     return {"path": path, "relative_path": path, "type": kind}
 
 
+HARD = [
+    {"field": "references", "kind": "image", "token": "<Picture @>", "limit": 9, "limit_total": 12},
+    {"field": "references", "kind": "video", "token": "<Video @>", "limit": 3},
+    {"field": "references", "kind": "audio", "token": "<Audio @>", "limit": 3},
+]
+
+
+def media_kind(item):
+    return item.get("type")
+
+
 def request(positive="", negative="", form_data=None, segments=None):
     return SimpleNamespace(
         prompts=[SimpleNamespace(positive=positive, negative=negative)],
@@ -305,6 +316,19 @@ class TestSkipped(ExpansionBase):
         self.assertNotIn("kit_item", str(req.form_data))
 
 
+class TestUnsafeFiles(ExpansionBase):
+
+    def test_a_library_row_whose_name_escapes_the_uploads_folder_is_never_cited(self):
+        for index, filename in enumerate(("../secret.png", "a/b.png", "..", ".hidden.png")):
+            upload = self.upload(filename)
+            item = operations.add_media_item(self.repo, self.user_id, self.kit.id, upload.id, name=f"bad{index}")
+
+            req, expansion = self.go(self.cite(item))
+
+            self.assertEqual(req.form_data["references"], [], filename)
+            self.assertEqual(self.codes(expansion), ["file_missing"], filename)
+
+
 class TestPathsAndRenames(ExpansionBase):
 
     def test_a_plain_path_in_a_prompt_resolves_by_name(self):
@@ -421,3 +445,83 @@ class TestDirector(ExpansionBase):
         self.assertEqual([pool_entry_name(entry) for entry in pool], [None, "face"])
         derived = derive_shot_references(["@[references:uploads/face.png]"], pool, ALL_KINDS)
         self.assertEqual((derived.indices, derived.names), ([1], ["face"]))
+
+
+class TestInsertedTextIsNeverScanned(ExpansionBase):
+
+    def setUp(self):
+        super().setUp()
+        self.big = operations.create_kit(self.repo, self.user_id, "Big")
+        upload = self.upload("big.png")
+        operations.add_media_item(self.repo, self.user_id, self.big.id, upload.id, name="pic")
+
+    def test_a_text_item_holding_a_path_citation_stays_plain_text_by_stored_marker(self):
+        note = self.text("then @kits.big.pic appears", "note")
+
+        req, expansion = self.go(self.cite(note), loaded={"references": [self.kit.id, self.big.id]})
+
+        self.assertEqual(req.prompts[0].positive, "then @kits.big.pic appears")
+        self.assertEqual(req.form_data["references"], [])
+        self.assertEqual(expansion.notices, [])
+
+    def test_and_by_path(self):
+        self.text("then @kits.big.pic appears", "note")
+
+        req, _ = self.go("@kits.mara.note", loaded={"references": [self.kit.id, self.big.id]})
+
+        self.assertEqual(req.prompts[0].positive, "then @kits.big.pic appears")
+        self.assertEqual(req.form_data["references"], [])
+
+    def test_a_text_item_holding_a_stored_marker_stays_plain_text_too(self):
+        face, _ = self.media("face")
+        note = self.text(f"see {self.cite(face)}", "note")
+
+        req, _ = self.go(f"@kits.mara.note {self.cite(note)}")
+
+        self.assertEqual(req.prompts[0].positive, f"see {self.cite(face)} see {self.cite(face)}")
+        self.assertEqual(req.form_data["references"], [])
+
+    def test_a_bare_kit_of_text_items_is_expanded_once(self):
+        self.text("one @kits.big", "a")
+        self.text("two @kits.big", "b")
+
+        req, _ = self.go(self.cite(), loaded={"references": [self.kit.id, self.big.id]})
+
+        self.assertEqual(req.prompts[0].positive, "one @kits.big two @kits.big")
+
+
+class TestSeveralKitsInOnePrompt(KitsTestBase):
+
+    def test_limits_are_shared_across_kits_with_natives_counted_first_and_the_rest_reported(self):
+        expander = KitExpander(self.repo)
+        kits = []
+        for index in range(3):
+            kit = operations.create_kit(self.repo, self.user_id, f"Kit{index}")
+            for n in range(4):
+                operations.add_media_item(self.repo, self.user_id, kit.id, self.upload(f"k{index}i{n}.png").id, name=f"pic{n}")
+            operations.add_media_item(self.repo, self.user_id, kit.id, self.upload(f"k{index}v.mp4", "video").id, name="clip")
+            operations.add_media_item(self.repo, self.user_id, kit.id, self.upload(f"k{index}a.wav", "audio").id, name="voice")
+            kits.append(kit)
+        natives = [native("uploads/n1.png"), native("uploads/n2.png"), native("uploads/n.mp4", "video")]
+        req = request(
+            " ".join(f"@[references:kit:{kit.id}]" for kit in kits), "", {"references": natives},
+        )
+
+        expansion = expand_request(
+            expander, self.user_id, req, template(HARD), "refs", {"references": [kit.id for kit in kits]},
+        )
+
+        items = req.form_data["references"]
+        kinds = [media_kind(item) for item in items]
+        self.assertEqual(items[:3], natives)
+        self.assertEqual((kinds.count("image"), kinds.count("video"), kinds.count("audio")), (9, 2, 1))
+        self.assertEqual(len(items), 12)
+        self.assertEqual([item["label"] for item in items[3:7]], ["pic0", "pic1", "pic2", "pic3"])
+        self.assertEqual({notice.code for notice in expansion.notices}, {"limit"})
+        self.assertEqual(
+            sorted((notice.kit, notice.item) for notice in expansion.notices),
+            sorted(
+                [("kit1", "pic3"), ("kit1", "clip"), ("kit1", "voice")]
+                + [("kit2", name) for name in ("pic0", "pic1", "pic2", "pic3", "clip", "voice")]
+            ),
+        )

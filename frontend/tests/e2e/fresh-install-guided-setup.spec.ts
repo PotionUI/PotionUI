@@ -4,9 +4,10 @@ import { dirname } from 'node:path';
 import { screenshot, shotPath } from './helpers';
 
 const JOURNEY = 'fresh-install-guided-setup';
-const RECIPE_NAME = process.env.E2E_FRESH_RECIPE_NAME ?? '';
+const RECIPE_LABEL = process.env.E2E_FRESH_RECIPE_LABEL ?? '';
 const SHIPPED_STARTERS: string[] = JSON.parse(process.env.E2E_FRESH_SHIPPED_STARTERS ?? '[]');
 const PASSWORD = 'fresh-owner-pw-7c1e44';
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -58,22 +59,20 @@ test('a fresh instance runs Guided setup from the real wizard', async ({ page })
 		await screenshot(page, JOURNEY, '03-computer');
 		await page.getByRole('button', { name: 'Continue' }).click();
 
-		await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
-		await expect(page.getByRole('radio', { name: /Start fresh/ })).toHaveAttribute('aria-checked', 'true');
-		await screenshot(page, JOURNEY, '04-models-location');
-		await page.getByRole('button', { name: 'Continue' }).click();
-
+		await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toHaveCount(0);
 		await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible({ timeout: 20000 });
-		await expect(page.getByText(RECIPE_NAME)).toBeVisible({ timeout: 20000 });
+		await expect(page.locator('[data-models-row]')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Use a folder you already have' })).toBeVisible();
+		await expect(page.getByText(RECIPE_LABEL)).toBeVisible({ timeout: 20000 });
 		expect(SHIPPED_STARTERS.length).toBeGreaterThan(0);
-		for (const name of SHIPPED_STARTERS) {
-			await expect(page.getByRole('radio', { name })).toBeVisible();
+		for (const label of SHIPPED_STARTERS) {
+			await expect(page.getByRole('radio', { name: new RegExp(escapeRegExp(label)) })).toBeVisible();
 		}
 		expect(machineStatuses.length).toBeGreaterThan(0);
 		expect(machineStatuses.every((status) => status === 200)).toBe(true);
 		await screenshot(page, JOURNEY, '05-starter');
 
-		await page.getByRole('radio', { name: new RegExp(RECIPE_NAME) }).click();
+		await page.getByRole('radio', { name: new RegExp(escapeRegExp(RECIPE_LABEL)) }).click();
 		const review = page.getByRole('button', { name: /^Review( .+)? download$/ });
 		await expect(async () => {
 			if ((await review.count()) > 0 && (await review.isEnabled())) await review.click();

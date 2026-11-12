@@ -203,6 +203,14 @@ def is_windows() -> bool:
     return os.name == "nt"
 
 
+def launcher_command(arguments: str) -> str:
+    return f".\\potionui.cmd {arguments}" if is_windows() else f"./potionui {arguments}"
+
+
+def is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
 def venv_python(repo_root: Path) -> Path:
     """Path to the venv's python interpreter. POSIX layout is
     venv/bin/python; a Windows venv is laid out venv\\Scripts\\python.exe."""
@@ -367,13 +375,45 @@ def probe_python_candidates(probe, candidates: Optional[Sequence] = None) -> Opt
     return None
 
 
-def check_python(probe) -> CheckResult:
+def venv_python_version(probe, repo_root: Path) -> Optional[tuple[int, int]]:
+    venv_python_path = venv_python(repo_root)
+    if not probe.path_exists(venv_python_path):
+        return None
+    try:
+        result = probe.run([str(venv_python_path), "-c", PYTHON_VERSION_PROBE_CODE], timeout=10.0)
+        major, minor = (int(x) for x in result.stdout.strip().split(".")[:2])
+    except Exception:
+        return None
+    return major, minor
+
+
+def check_python(probe, repo_root: Optional[Path] = None) -> CheckResult:
     found = probe_python_candidates(probe)
     if found:
         python_bin, version_str = found
         display = " ".join(python_argv(python_bin))
         major, minor = (int(x) for x in version_str.split(".")[:2])
         if (major, minor) > PINNED_PYTHON:
+            venv_has_interpreter = repo_root is not None and probe.path_exists(venv_python(repo_root))
+            if not venv_has_interpreter:
+                return CheckResult(
+                    "PY312",
+                    Severity.ERROR,
+                    f"Python {major}.{minor} is not supported yet (found {version_str} at {display}).",
+                    repair=(
+                        f"Install Python {PINNED_PYTHON[0]}.{PINNED_PYTHON[1]} next to it; "
+                        f"{launcher_command('start')} picks it up by itself."
+                    ),
+                    blocking=True,
+                )
+            venv_version = venv_python_version(probe, repo_root)
+            if venv_version is not None and venv_version <= PINNED_PYTHON:
+                return CheckResult(
+                    "PY312",
+                    Severity.OK,
+                    f"Python {venv_version[0]}.{venv_version[1]} in the existing virtualenv.",
+                    blocking=True,
+                )
             return CheckResult(
                 "PY312", Severity.WARNING,
                 f"Python {version_str} found at {display}; the pinned dependency stack targets "
@@ -623,9 +663,9 @@ def check_gpu(probe, no_gpu: bool = False, required: bool = False) -> CheckResul
             Severity.WARNING,
             "nvidia-smi not found — no NVIDIA GPU/driver detected.",
             repair=(
-                "CPU-only is fine for setup/testing; for GPU generation install NVIDIA "
-                "drivers (and a CUDA-matching PyTorch build), or run `./potionui start "
-                "--profile remote` for remote-worker hosting."
+                "Local generation needs an NVIDIA graphics card. Install the NVIDIA drivers, or run "
+                f"`{launcher_command('start --profile remote')}` to connect another computer, a "
+                "ComfyUI server or cloud models."
             ),
             blocking=False,
         )
@@ -970,7 +1010,7 @@ def run_doctor(
     runtime_checks = [check_vc_runtime(probe)] if is_windows() else []
     return [
         *runtime_checks,
-        check_python(probe),
+        check_python(probe, repo_root),
         check_venv(probe, repo_root),
         check_backend_deps(probe, repo_root, no_gpu=no_gpu),
         check_node(probe),
@@ -1001,7 +1041,7 @@ def resolve_worker_dir(repo_root: Path) -> Path:
 
 def run_worker_doctor(probe, repo_root: Path, port: int, worker_dir: Path, env: Optional[dict] = None) -> list[CheckResult]:
     return [
-        check_python(probe),
+        check_python(probe, repo_root),
         check_venv(probe, repo_root),
         check_backend_deps(probe, repo_root, no_gpu=False),
         check_ffmpeg(probe),
@@ -1471,6 +1511,31 @@ def _print_claim_token_hint(repo_root: Path, port: int) -> None:
         )
 
 
+def backend_deps_installed(probe, repo_root: Path) -> bool:
+    venv_python_path = venv_python(repo_root)
+    if not probe.path_exists(venv_python_path):
+        return False
+    try:
+        return probe.run([str(venv_python_path), "-c", BACKEND_MARKER_IMPORT], timeout=20.0).returncode == 0
+    except Exception:
+        return False
+
+
+def print_no_card_stop() -> None:
+    print("\nNo NVIDIA graphics card was found on this computer, so nothing was installed.\n")
+    print("Choose how this install should work:")
+    print(
+        f"  {launcher_command('start --profile remote')}\n"
+        "      No local generation. Connect another computer with an NVIDIA card, a ComfyUI server\n"
+        "      or cloud models in Admin -> Backends."
+    )
+    if not is_macos():
+        print(
+            f"  {launcher_command('start --profile local')}\n"
+            "      Install the full GPU software anyway."
+        )
+
+
 def _print_remote_profile_hint(profile: str) -> None:
     if profile != "remote":
         return
@@ -1607,6 +1672,15 @@ def cmd_start(args) -> int:
     for node_warning in (r for r in results if r.code == "NODE" and r.severity == Severity.WARNING):
         print(f"[WARN] {node_warning.code}  {node_warning.message}")
         print(f"         -> {node_warning.repair}")
+
+    if (
+        not explicit_profile
+        and install_profile_active() is None
+        and probe.which("nvidia-smi") is None
+        and not backend_deps_installed(probe, REPO_ROOT)
+    ):
+        print_no_card_stop()
+        return 1
 
     if explicit_profile and install_profile_active() != profile:
         mark_install_profile(profile)

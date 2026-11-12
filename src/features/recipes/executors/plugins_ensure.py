@@ -30,6 +30,7 @@ class PluginsEnsureExecutor:
         enabled: List[str] = []
         already_enabled: List[str] = []
         problems: List[str] = []
+        technical: List[str] = []
 
         for plugin_id in plugin_ids:
             manifest = self.plugin_registry.get_plugin(plugin_id)
@@ -45,7 +46,8 @@ class PluginsEnsureExecutor:
                 self.enable_plugin(plugin_id)
             except Exception as e:
                 error = self.plugin_registry.get_plugin_error(plugin_id) or str(e) or "it failed to start"
-                problems.append(f"'{manifest.name}' could not be enabled ({error})")
+                problems.append(f"'{manifest.name}' could not be enabled")
+                technical.append(f"{manifest.name}: {error}")
             else:
                 enabled.append(plugin_id)
 
@@ -54,6 +56,7 @@ class PluginsEnsureExecutor:
                 "PLUGIN_ENSURE_FAILED",
                 "Some required plugins aren't ready: " + "; ".join(problems) + ".",
                 suggested_repair="Open Administration -> Plugins and enable or reinstall the plugin(s) listed above.",
+                technical_detail="; ".join(technical) or None,
             )
 
         return StepResult.ok({"enabled": enabled, "already_enabled": already_enabled})

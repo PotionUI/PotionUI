@@ -5,7 +5,6 @@ export type SetupStepId =
 	| 'welcome'
 	| 'account'
 	| 'computer'
-	| 'models'
 	| 'starter'
 	| 'install'
 	| 'ready';
@@ -14,7 +13,6 @@ export const SETUP_STEPS: ReadonlyArray<{ id: SetupStepId; label: string }> = [
 	{ id: 'welcome', label: 'Welcome' },
 	{ id: 'account', label: 'Account' },
 	{ id: 'computer', label: 'Computer' },
-	{ id: 'models', label: 'Models' },
 	{ id: 'starter', label: 'Starter' },
 	{ id: 'install', label: 'Install' },
 	{ id: 'ready', label: 'Ready' }
@@ -23,6 +21,9 @@ export const SETUP_STEPS: ReadonlyArray<{ id: SetupStepId; label: string }> = [
 export const SETUP_STEP_COUNT = SETUP_STEPS.length;
 
 export const GUIDE_LOCKED_STEP_COUNT = 2;
+
+export const NO_CARD_SENTENCE =
+	'This computer has no NVIDIA graphics card, so pictures are made somewhere else.';
 
 export const TRUST_LINE =
 	'Runs on your computer. Your account and images stay here. Setup downloads from Hugging Face only after you approve.';
@@ -59,7 +60,6 @@ export interface GuideFacts {
 	ownerExists: boolean;
 	welcomeSeen: boolean;
 	computerSeen: boolean;
-	modelsDone: boolean;
 	run: Pick<SetupRun, 'status'> | null;
 	instanceReady: boolean;
 }
@@ -71,7 +71,6 @@ export function deriveCurrentStep(facts: GuideFacts): SetupStepId {
 	if (phase === 'completed') return 'ready';
 	if (facts.instanceReady) return 'ready';
 	if (!facts.computerSeen) return 'computer';
-	if (!facts.modelsDone) return 'models';
 	return 'starter';
 }
 
@@ -97,8 +96,6 @@ export function stepStatus(id: SetupStepId, run: Pick<SetupRun, 'status'> | null
 			return { text: 'Required', tone: 'signal' };
 		case 'computer':
 			return { text: 'Nothing to do', tone: 'signal' };
-		case 'models':
-			return { text: 'Default is fine, change any time', tone: 'signal' };
 		case 'starter':
 			return { text: 'Optional, skip any time', tone: 'signal' };
 		case 'install': {
@@ -114,7 +111,7 @@ export function stepStatus(id: SetupStepId, run: Pick<SetupRun, 'status'> | null
 }
 
 export function showsSkipGuide(id: SetupStepId): boolean {
-	return id === 'computer' || id === 'models' || id === 'starter' || id === 'install';
+	return id === 'computer' || id === 'starter' || id === 'install';
 }
 
 const BYTES_PER_GIB = 1024 ** 3;
@@ -181,24 +178,58 @@ export interface StarterFit {
 	text: string;
 }
 
-export function starterFit(recipe: StarterNeeds, machine: SetupMachine | null): StarterFit {
-	if (machine === null) return { tone: 'dim', text: "Couldn't check your card" };
-	if (!machine.gpu || machine.gpu.supported === false) return { tone: 'low', text: 'Needs an NVIDIA GPU' };
-	const required = starterRequiredGb(recipe);
-	if (required == null) return { tone: 'dim', text: 'Not yet measured on smaller cards' };
-	const vram = vramGb(machine);
-	if (vram == null) return { tone: 'dim', text: "Couldn't read your card's memory" };
-	if (vram >= required) return { tone: 'good', text: 'Fits your card' };
-	const verb = recipe.recommended_vram_gb != null ? 'Wants' : 'Needs';
-	return { tone: 'low', text: `${verb} ${required} GB, you have ${vram} GB` };
+export function starterFloorGb(recipe: StarterNeeds): number | null {
+	return recipe.min_vram_gb ?? recipe.recommended_vram_gb ?? null;
 }
 
-export function starterNeedText(recipe: StarterNeeds): string {
-	const { min_vram_gb: min, recommended_vram_gb: rec } = recipe;
-	if (min != null && rec != null && rec !== min) return `${min} to ${rec} GB suggested`;
-	if (rec != null) return `${rec} GB recommended`;
-	if (min != null) return `${min} GB minimum`;
-	return 'Not yet measured';
+export interface StarterShortfall {
+	neededGb: number;
+	cardGb: number;
+	tested: boolean;
+}
+
+export function hasLocalCard(machine: SetupMachine | null): boolean {
+	return machine !== null && !!machine.gpu && machine.gpu.supported !== false;
+}
+
+export function starterShortfall(recipe: StarterNeeds, machine: SetupMachine | null): StarterShortfall | null {
+	if (!hasLocalCard(machine)) return null;
+	const floor = starterFloorGb(recipe);
+	const cardGb = vramGb(machine);
+	if (floor == null || cardGb == null || cardGb >= floor) return null;
+	return { neededGb: floor, cardGb, tested: recipe.min_vram_gb != null };
+}
+
+export function shortfallSentence(shortfall: StarterShortfall): string {
+	return shortfall.tested
+		? `Needs ${/^(8|11|18)/.test(String(shortfall.neededGb)) ? 'an' : 'a'} ${shortfall.neededGb} GB graphics card. Yours has ${shortfall.cardGb} GB.`
+		: `Not tested below ${shortfall.neededGb} GB. Yours has ${shortfall.cardGb} GB.`;
+}
+
+export function shortfallAcknowledgement(shortfall: StarterShortfall): Record<string, unknown> {
+	return {
+		card_memory_gb: shortfall.cardGb,
+		needed_memory_gb: shortfall.neededGb,
+		below_graphics_memory: true
+	};
+}
+
+export function runAcknowledgedShortfall(run: Pick<SetupRun, 'safe_input'> | null | undefined): boolean {
+	return run?.safe_input?.below_graphics_memory === true;
+}
+
+export function starterFit(recipe: StarterNeeds, machine: SetupMachine | null): StarterFit {
+	if (machine === null) return { tone: 'dim', text: "Couldn't check your card" };
+	if (!hasLocalCard(machine)) return { tone: 'low', text: 'Needs an NVIDIA GPU' };
+	if (starterFloorGb(recipe) == null) return { tone: 'dim', text: 'Not yet measured on smaller cards' };
+	if (vramGb(machine) == null) return { tone: 'dim', text: "Couldn't read your card's memory" };
+	const shortfall = starterShortfall(recipe, machine);
+	if (shortfall) return { tone: 'low', text: shortfallSentence(shortfall) };
+	return { tone: 'good', text: 'Fits your card' };
+}
+
+export function starterModelName(recipe: Pick<SetupRecipe, 'name' | 'presets'>): string {
+	return recipe.presets[0]?.name ?? recipe.name.replace(/\s+Starter$/i, '');
 }
 
 export function starterSourceText(recipe: Pick<SetupRecipe, 'sources'>): string {
@@ -229,11 +260,11 @@ export function machineVerdict(machine: SetupMachine | null): MachineVerdict {
 			body: 'You can continue anyway. Every model shows what it needs so you can judge for yourself.'
 		};
 	}
-	if (!machine.gpu || machine.gpu.supported === false) {
+	if (!hasLocalCard(machine)) {
 		return {
 			kind: 'no-gpu',
 			title: 'Local generation needs an NVIDIA graphics card.',
-			body: 'GTX 10-series and older cards cannot run PotionUI. You can still finish setup, then connect a cloud provider or a ComfyUI server on another machine from Admin → Backends.'
+			body: 'GTX 10-series and older cards cannot run PotionUI. You can still finish setup, then connect another computer with an NVIDIA card, a ComfyUI server, or an online service from Admin → Backends.'
 		};
 	}
 	const vram = vramGb(machine);

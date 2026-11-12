@@ -37,20 +37,138 @@ def _step(key, kind=None):
     return RecipeStep(key=key, kind=kind or key, title=key.title())
 
 
-def test_restart_reconciles_a_running_run_to_a_retryable_failure(file_db):
-    runner = RecipeRunner()
-    run = runner.create_run("demo", mode=MODE_ADMIN)
-    runner.transition(run.id, RecipeRunStatus.RUNNING, current_step="fetch")
-    runner.record_step_attempt(run.id, "fetch", RecipeStepStatus.RUNNING, progress_current=5, progress_total=10)
+class _Counting:
+    def __init__(self):
+        self.calls = 0
 
-    assert runner.reconcile_interrupted() == 1
-    reconciled = runner.get_run(run.id)
-    assert reconciled.status == RecipeRunStatus.FAILED
-    assert reconciled.error_code == "RUN_INTERRUPTED"
+    def execute(self, context: StepContext) -> StepResult:
+        self.calls += 1
+        return StepResult.ok({})
+
+
+class _AdvisoryStep(_Counting):
+    advisory = True
+
+
+def _runner(recipe, **executors):
+    runner = RecipeRunner()
+    runner.register_executor_registry(RecipeExecutorRegistry(Catalog(recipe), executors))
+    return runner
+
+
+def _interrupt(runner, run_id, step_key, *, progress=5):
+    if runner.get_run(run_id).status == RecipeRunStatus.RUNNING:
+        runner.repo.update_run(run_id, current_step=step_key)
+    else:
+        runner.transition(run_id, RecipeRunStatus.RUNNING, current_step=step_key)
+    runner.record_step_attempt(run_id, step_key, RecipeStepStatus.RUNNING, progress_current=progress, progress_total=10)
+
+
+def test_a_restart_resumes_a_running_run_on_the_same_step(file_db):
+    recipe = _recipe(_step("fetch"), _step("render"))
+    runner = _runner(recipe, fetch=_Counting(), render=_Counting())
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+    _interrupt(runner, run.id, "fetch")
+
+    assert runner.reconcile_interrupted() == run.id
+
+    resumed = runner.get_run(run.id)
+    assert resumed.status == RecipeRunStatus.RUNNING
+    assert resumed.current_step == "fetch"
+    assert resumed.error_code is None
     attempt = runner.list_attempts(run.id)[-1]
     assert (attempt.status, attempt.error_code, attempt.finished_at is not None) == (RecipeStepStatus.FAILED, "RUN_INTERRUPTED", True)
+
+
+def test_the_resumed_run_drives_on_and_completes(file_db):
+    fetch, render = _Counting(), _Counting()
+    runner = _runner(_recipe(_step("fetch"), _step("render")), fetch=fetch, render=render)
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+    _interrupt(runner, run.id, "fetch")
+
+    runner.drive(runner.reconcile_interrupted())
+
+    assert runner.get_run(run.id).status == RecipeRunStatus.COMPLETED
+    assert (fetch.calls, render.calls) == (1, 1)
+
+
+def test_the_third_interruption_of_the_same_step_gives_up(file_db):
+    recipe = _recipe(_step("fetch"), _step("render"))
+    runner = _runner(recipe, fetch=_Counting(), render=_Counting())
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+
+    _interrupt(runner, run.id, "fetch")
+    assert runner.reconcile_interrupted() == run.id
+    _interrupt(runner, run.id, "fetch")
+    assert runner.reconcile_interrupted() == run.id
+    _interrupt(runner, run.id, "fetch")
+    assert runner.reconcile_interrupted() is None
+
+    gave_up = runner.get_run(run.id)
+    assert gave_up.status == RecipeRunStatus.FAILED
+    assert gave_up.error_code == "RUN_INTERRUPTED"
+    assert gave_up.safe_error_detail == "This step was interrupted by a restart. Retry it to pick up where it left off."
     assert runner.apply_action(run.id, "retry_step").status == RecipeRunStatus.RUNNING
-    assert runner.reconcile_interrupted() == 1
+
+
+def test_an_interruption_of_another_step_starts_its_own_count(file_db):
+    recipe = _recipe(_step("fetch"), _step("render"))
+    runner = _runner(recipe, fetch=_Counting(), render=_Counting())
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+    _interrupt(runner, run.id, "fetch")
+    runner.reconcile_interrupted()
+    _interrupt(runner, run.id, "fetch")
+    runner.reconcile_interrupted()
+
+    _interrupt(runner, run.id, "render")
+
+    assert runner.reconcile_interrupted() == run.id
+    assert runner.get_run(run.id).status == RecipeRunStatus.RUNNING
+
+
+def test_an_interrupted_advisory_step_is_recorded_as_needing_attention_and_skipped(file_db):
+    recipe = _recipe(_step("smoke"), _step("activate"))
+    runner = _runner(recipe, smoke=_AdvisoryStep(), activate=_Counting())
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+    _interrupt(runner, run.id, "smoke")
+
+    assert runner.reconcile_interrupted() == run.id
+
+    moved = runner.get_run(run.id)
+    assert moved.status == RecipeRunStatus.RUNNING
+    assert moved.current_step == "activate"
+    attempt = runner.list_attempts(run.id)[-1]
+    assert attempt.status == RecipeStepStatus.ACTION_REQUIRED
+    assert attempt.error_code == "RUN_INTERRUPTED"
+    assert attempt.safe_error_detail == "PotionUI stopped while making the test picture."
+
+
+def test_an_interrupted_advisory_step_never_loops_even_after_many_restarts(file_db):
+    runner = _runner(_recipe(_step("smoke"), _step("activate")), smoke=_AdvisoryStep(), activate=_Counting())
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+    _interrupt(runner, run.id, "smoke")
+    runner.reconcile_interrupted()
+    _interrupt(runner, run.id, "activate")
+    runner.reconcile_interrupted()
+
+    assert sum(1 for a in runner.list_attempts(run.id) if a.step_key == "smoke") == 1
+
+
+def test_an_interrupted_last_advisory_step_completes_the_run(file_db):
+    runner = _runner(_recipe(_step("smoke")), smoke=_AdvisoryStep())
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+    _interrupt(runner, run.id, "smoke")
+
+    assert runner.reconcile_interrupted() is None
+    assert runner.get_run(run.id).status == RecipeRunStatus.COMPLETED
+
+
+def test_a_pending_run_is_resumed_too(file_db):
+    runner = _runner(_recipe(_step("fetch")), fetch=_Counting())
+    run = runner.create_run("demo", mode=MODE_ADMIN)
+
+    assert runner.reconcile_interrupted() == run.id
+    assert runner.get_run(run.id).status == RecipeRunStatus.PENDING
 
 
 def test_parked_runs_survive_a_restart(file_db):
@@ -58,8 +176,62 @@ def test_parked_runs_survive_a_restart(file_db):
     run = runner.create_run("demo", mode=MODE_ADMIN)
     runner.transition(run.id, RecipeRunStatus.AWAITING_CONSENT, current_step="plan")
 
-    assert runner.reconcile_interrupted() == 0
+    assert runner.reconcile_interrupted() is None
     assert runner.get_run(run.id).status == RecipeRunStatus.AWAITING_CONSENT
+
+
+def test_nothing_to_reconcile_returns_nothing(file_db):
+    assert RecipeRunner().reconcile_interrupted() is None
+
+
+class _FailingSmoke:
+    advisory = True
+
+    def execute(self, context: StepContext) -> StepResult:
+        return StepResult.fail("GENERATION_SMOKE_FAILED", "The test didn't finish: it took longer than 5 minutes.")
+
+
+def test_a_smoke_that_needs_attention_still_lets_activation_finish_the_run(file_db):
+    from src.features.setup.records import OnboardingStatus
+    from src.features.setup.workspace_activate import WorkspaceActivateExecutor
+
+    class Repos:
+        def __init__(self, runner):
+            self.runner = runner
+            self.upserts = []
+
+        def list_attempts(self, run_id):
+            return self.runner.list_attempts(run_id)
+
+        def upsert_onboarding_state(self, user_id, *, status=None, first_generation_id=None, dismissed=False):
+            self.upserts.append((user_id, status, first_generation_id))
+
+    recipe = _recipe(
+        RecipeStep(key="generation.smoke", kind="generation.smoke", title="Test"),
+        RecipeStep(key="workspace.activate", kind="workspace.activate", title="Finish"),
+    )
+    runner = RecipeRunner()
+    repos = Repos(runner)
+    runner.register_executor_registry(
+        RecipeExecutorRegistry(
+            Catalog(recipe),
+            {
+                "generation.smoke": _FailingSmoke(),
+                "workspace.activate": WorkspaceActivateExecutor(repos, repos),
+            },
+        )
+    )
+    run = runner.create_run("demo", mode=MODE_ADMIN, created_by="owner-1")
+
+    run = runner.drive(run.id)
+
+    assert run.status == RecipeRunStatus.COMPLETED
+    statuses = {a.step_key: a.status for a in runner.list_attempts(run.id)}
+    assert statuses == {
+        "generation.smoke": RecipeStepStatus.ACTION_REQUIRED,
+        "workspace.activate": RecipeStepStatus.SUCCEEDED,
+    }
+    assert repos.upserts == [("owner-1", OnboardingStatus.COMPLETED, None)]
 
 
 class CancelledMidStep:

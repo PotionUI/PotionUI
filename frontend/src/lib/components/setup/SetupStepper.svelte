@@ -66,7 +66,11 @@
 			<span class="text-fg-subtle">Step {currentIndex + 1} of {SETUP_STEP_COUNT}</span>
 			<span class="text-fg">{stepLabel(current)}</span>
 		</div>
-		<div class="grid grid-cols-7 gap-[3px]" aria-hidden="true">
+		<div
+			class="grid gap-[3px]"
+			style="grid-template-columns: repeat({SETUP_STEP_COUNT}, minmax(0, 1fr))"
+			aria-hidden="true"
+		>
 			{#each SETUP_STEPS as step, i (step.id)}
 				<i
 					class="block h-1 rounded-sm {i === currentIndex

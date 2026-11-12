@@ -98,7 +98,7 @@ def step_summary(run: dict) -> list:
 
 def restart(app: ThrowawayApp) -> SetupClient:
     stop_backend_process(app.instance)
-    spawn_backend(app.instance, app.repo_root, extra_env=app.extra_env)
+    spawn_backend(app.instance, app.repo_root, extra_env=app.extra_env, app_module=app.app_module)
     client = SetupClient(app.base_url)
     stage_wait_for_health(client)
     login(client, username=app.username, password=app.password)

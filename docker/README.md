@@ -14,6 +14,11 @@ docker run --gpus all -p 26730:26730 \
 # open http://localhost:26730
 ```
 
+The first screen asks for a claim code. Read it with `docker logs <container>`:
+the server prints it on every start until the first account exists. It is also in
+`storage/setup_claim_token` inside the storage volume, and it stops working once
+the owner exists.
+
 To pin a release instead of `latest`, use its version tag: `:0.0.10` (or
 `:v0.0.10` from 0.0.11 on), or `:0.0` for the newest patch of a minor line.
 The worker image, `ghcr.io/potionui/potionui-worker`, carries the same tags.

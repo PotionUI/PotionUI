@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 INTERRUPTED_CODE = "RUN_INTERRUPTED"
 INTERRUPTED_DETAIL = "This step was interrupted by a restart. Retry it to pick up where it left off."
+INTERRUPTED_ADVISORY_DETAIL = "PotionUI stopped while making the test picture."
+INTERRUPTED_ADVISORY_ACTION = "Make a picture in Generate to try it again."
+MAX_AUTOMATIC_RESUMES = 2
 
 
 class RecipeRunError(Exception):
@@ -500,26 +503,64 @@ class RecipeRunner:
                 outputs[attempt.step_key] = dict(attempt.safe_output or {})
         return outputs
 
-    def reconcile_interrupted(self) -> int:
+    def reconcile_interrupted(self) -> Optional[str]:
         run = self.repo.get_active_run()
         if run is None or run.status not in (RecipeRunStatus.PENDING, RecipeRunStatus.RUNNING):
-            return 0
+            return None
+        step = self._interrupted_step(run)
+        advisory = bool(step is not None and getattr(self._step_executor(step), "advisory", False))
+        closed_for_step = 0
         for attempt in self.repo.list_attempts(run.id):
             if attempt.status == RecipeStepStatus.RUNNING and attempt.finished_at is None:
-                self.repo.update_attempt(
-                    attempt.id,
-                    status=RecipeStepStatus.FAILED,
-                    error_code=INTERRUPTED_CODE,
-                    safe_error_detail=INTERRUPTED_DETAIL,
-                    finished=True,
-                )
-        self.repo.update_run(
-            run.id,
-            status=RecipeRunStatus.FAILED,
-            error_code=INTERRUPTED_CODE,
-            safe_error_detail=INTERRUPTED_DETAIL,
+                if advisory:
+                    self.repo.update_attempt(
+                        attempt.id,
+                        status=RecipeStepStatus.ACTION_REQUIRED,
+                        error_code=INTERRUPTED_CODE,
+                        safe_error_detail=INTERRUPTED_ADVISORY_DETAIL,
+                        safe_output={"suggested_repair": INTERRUPTED_ADVISORY_ACTION},
+                        finished=True,
+                    )
+                else:
+                    self.repo.update_attempt(
+                        attempt.id,
+                        status=RecipeStepStatus.FAILED,
+                        error_code=INTERRUPTED_CODE,
+                        safe_error_detail=INTERRUPTED_DETAIL,
+                        finished=True,
+                    )
+                if step is not None and attempt.step_key == step.key:
+                    closed_for_step += 1
+        if advisory:
+            if run.status == RecipeRunStatus.PENDING:
+                run = self.transition(run.id, RecipeRunStatus.RUNNING)
+            run = self._executor_registry.advance_past(self, run, step)
+            return None if run.is_terminal else run.id
+        if step is not None and closed_for_step and self._interruption_count(run.id, step.key) > MAX_AUTOMATIC_RESUMES:
+            self.repo.update_run(
+                run.id,
+                status=RecipeRunStatus.FAILED,
+                error_code=INTERRUPTED_CODE,
+                safe_error_detail=INTERRUPTED_DETAIL,
+            )
+            return None
+        return run.id
+
+    def _interrupted_step(self, run: RecipeRun):
+        if self._executor_registry is None or not run.current_step:
+            return None
+        recipe = self._executor_registry.catalog.get_recipe(run.recipe_id, run.recipe_version)
+        return recipe.get_step(run.current_step) if recipe else None
+
+    def _step_executor(self, step):
+        return self._executor_registry.get_executor(step.kind)
+
+    def _interruption_count(self, run_id: str, step_key: str) -> int:
+        return sum(
+            1
+            for attempt in self.repo.list_attempts(run_id)
+            if attempt.step_key == step_key and attempt.error_code == INTERRUPTED_CODE
         )
-        return 1
 
     def grant_consent(
         self,

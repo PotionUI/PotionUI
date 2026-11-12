@@ -373,9 +373,26 @@
 
 	{#if run.status === 'failed'}
 		{@const failedRunStatus = run.status}
-		<Alert variant="danger" density="compact" title="Setup couldn't finish">
-			{#if run.safe_error_detail}
+		{@const interrupted = run.error_code === 'RUN_INTERRUPTED'}
+		{@const failedAttempt = [...resolvedSteps.groups].reverse().find((g) => g.latest?.status === 'failed')?.latest ?? null}
+		<Alert
+			variant={interrupted ? 'warning' : 'danger'}
+			density="compact"
+			title={interrupted ? 'Setup was interrupted' : "Setup couldn't finish"}
+		>
+			{#if interrupted}
+				<p>Files already downloaded are kept. Continue to pick up where it stopped.</p>
+			{:else if run.safe_error_detail}
 				<p>{run.safe_error_detail}</p>
+			{/if}
+			{#if !interrupted && failedAttempt?.safe_suggested_action}
+				<p class="text-xs mt-1">{failedAttempt.safe_suggested_action}</p>
+			{/if}
+			{#if !interrupted && failedAttempt?.safe_technical_detail}
+				<details class="mt-1">
+					<summary class="text-xs cursor-pointer">Details</summary>
+					<p class="mt-1 break-words font-mono text-xs text-fg-muted">{failedAttempt.safe_technical_detail}</p>
+				</details>
 			{/if}
 			{#if retryError}
 				<p class="text-xs mt-1">{retryError}</p>
@@ -394,7 +411,7 @@
 			{#snippet actions()}
 				{#if canRetryRun(failedRunStatus)}
 					<Button size="sm" variant="secondary" loading={retryBusy} onclick={retryRun}>
-						Try again
+						{interrupted ? 'Continue' : 'Try again'}
 					</Button>
 				{/if}
 			{/snippet}
@@ -509,14 +526,26 @@
 						{/if}
 					{/if}
 
-					{#if group.latest?.status === 'failed' && group.latest.safe_error_detail}
+					{#if (group.latest?.status === 'failed' || group.latest?.status === 'action_required') && group.latest.safe_error_detail}
 						<details class="mt-1">
-							<summary class="text-sm text-danger cursor-pointer">Why it didn't finish</summary>
+							<summary
+								class="text-sm cursor-pointer {group.latest.status === 'failed' ? 'text-danger' : 'text-warning'}"
+							>
+								Why it didn't finish
+							</summary>
 							<p class="text-sm text-fg-muted mt-1">
 								{group.latest.safe_error_detail}
 							</p>
 							{#if group.latest.safe_suggested_action}
 								<p class="text-sm text-fg-muted mt-1">{group.latest.safe_suggested_action}</p>
+							{/if}
+							{#if group.latest.safe_technical_detail}
+								<details class="mt-1">
+									<summary class="text-sm text-fg-subtle cursor-pointer">Details</summary>
+									<p class="mt-1 break-words font-mono text-xs text-fg-muted">
+										{group.latest.safe_technical_detail}
+									</p>
+								</details>
 							{/if}
 						</details>
 					{/if}

@@ -176,8 +176,10 @@
 					autocomplete="off"
 					class="mt-1.5 h-[30px] w-full border-b border-line-strong bg-transparent font-mono text-[15px] text-fg transition-colors focus:border-signal focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 				/>
-				<p class="mt-1.5 text-2xs text-fg-subtle">
-					Saved in a file on the server. If it is wrong, the error says where to find it.
+				<p class="mt-1.5 text-sm text-fg-subtle" data-claim-code-hint>
+					PotionUI printed it when it started. In Docker, run
+					<span class="font-mono">docker logs &lt;container&gt;</span>. It is also in
+					<span class="font-mono">storage/setup_claim_token</span> on the server.
 				</p>
 			</div>
 		{/if}

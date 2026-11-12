@@ -223,12 +223,20 @@ class RecipeExecutorRegistry:
                 logger.exception("Setup step '%s' (%s) raised", step.key, step.kind)
                 result = StepResult.fail(
                     "STEP_EXECUTOR_ERROR",
-                    f"'{step.title or step.key}' failed unexpectedly: {exc}",
+                    f"'{step.title or step.key}' stopped because of an unexpected problem.",
+                    technical_detail=f"{type(exc).__name__}: {exc}",
                 )
 
         if not _is_cancelled():
             try:
-                return self._record_outcome(runner, run, step, result, _attempt_id)
+                return self._record_outcome(
+                    runner,
+                    run,
+                    step,
+                    result,
+                    _attempt_id,
+                    advisory=bool(getattr(executor, "advisory", False)),
+                )
             except IllegalRecipeRunTransition:
                 if not _is_cancelled():
                     raise
@@ -248,6 +256,7 @@ class RecipeExecutorRegistry:
         step,
         result: StepResult,
         attempt_id: Dict[str, Optional[str]],
+        advisory: bool = False,
     ) -> RecipeRun:
         if result.awaiting_consent:
             # Parked, not finished: no terminal `finished_at` on this attempt -
@@ -265,10 +274,16 @@ class RecipeExecutorRegistry:
                 run.id, RecipeRunStatus.AWAITING_CONSENT, current_step=step.key
             )
 
+        if result.success:
+            status = RecipeStepStatus.SUCCEEDED
+        elif advisory:
+            status = RecipeStepStatus.ACTION_REQUIRED
+        else:
+            status = RecipeStepStatus.FAILED
         attempt_id["value"] = runner.record_step_attempt(
             run.id,
             step.key,
-            RecipeStepStatus.SUCCEEDED if result.success else RecipeStepStatus.FAILED,
+            status,
             attempt_id=attempt_id["value"],
             safe_output=result.to_safe_output(),
             error_code=result.error_code,
@@ -276,7 +291,7 @@ class RecipeExecutorRegistry:
             finished=True,
         ).id
 
-        if not result.success:
+        if not result.success and not advisory:
             return runner.transition(
                 run.id,
                 RecipeRunStatus.FAILED,

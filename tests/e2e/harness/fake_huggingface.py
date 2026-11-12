@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import http.server
 import threading
+import time
 from typing import Dict
 
 
 class FakeHuggingFace:
-    def __init__(self, files: Dict[str, bytes]):
+    def __init__(self, files: Dict[str, bytes], chunk_delay: float = 0.0, chunk_size: int = 65536):
         self.files = files
         self.requests: list = []
+        self.range_requests: list = []
+        self.chunk_delay = chunk_delay
+        self.chunk_size = chunk_size
         owner = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -39,6 +43,7 @@ class FakeHuggingFace:
                 if range_header and range_header.startswith("bytes="):
                     start = int(range_header[6:].split("-", 1)[0] or 0)
                     status = 206
+                    owner.range_requests.append((self.path, range_header))
                 chunk = data[start:]
                 self.send_response(status)
                 self.send_header("Content-Type", "application/octet-stream")
@@ -47,7 +52,13 @@ class FakeHuggingFace:
                     self.send_header("Content-Range", f"bytes {start}-{len(data) - 1}/{len(data)}")
                 self.end_headers()
                 if not head:
-                    self.wfile.write(chunk)
+                    if owner.chunk_delay <= 0:
+                        self.wfile.write(chunk)
+                    else:
+                        for offset in range(0, len(chunk), owner.chunk_size):
+                            self.wfile.write(chunk[offset : offset + owner.chunk_size])
+                            self.wfile.flush()
+                            time.sleep(owner.chunk_delay)
 
             def do_GET(self):
                 self._serve(False)

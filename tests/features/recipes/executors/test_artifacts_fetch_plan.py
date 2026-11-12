@@ -143,7 +143,8 @@ def test_a_failed_file_fails_the_step_and_cancels_the_rest():
     result = _executor(queue).execute(_context())
 
     assert result.error_code == "ARTIFACT_DOWNLOAD_FAILED"
-    assert "HTTP 403" in result.safe_error_detail
+    assert "HTTP 403" not in result.safe_error_detail
+    assert result.technical_detail == "HTTP 403"
     assert result.suggested_repair is not None
     assert queue.cancelled == ["dl-2"]
 
@@ -163,7 +164,8 @@ def test_queueing_that_breaks_partway_cancels_what_was_already_queued():
     result = _executor(queue).execute(_context())
 
     assert result.error_code == "ARTIFACT_DOWNLOAD_FAILED"
-    assert "queue refused" in result.safe_error_detail
+    assert "queue refused" not in result.safe_error_detail
+    assert "queue refused" in result.technical_detail
     assert queue.cancelled == ["dl-1"]
 
 

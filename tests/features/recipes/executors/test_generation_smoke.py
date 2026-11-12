@@ -221,7 +221,9 @@ def test_generation_error_fails_with_plain_message_and_repair():
 
     assert result.success is False
     assert result.error_code == "GENERATION_SMOKE_FAILED"
-    assert "backend unavailable" in result.safe_error_detail
+    assert "backend unavailable" not in result.safe_error_detail
+    assert result.safe_error_detail.startswith("The test didn't finish:")
+    assert result.technical_detail == "backend unavailable"
     assert result.suggested_repair
 
 
@@ -242,7 +244,9 @@ def test_failure_reported_only_on_the_status_record_reaches_the_step():
     result = executor.execute(_context(_recipe()))
 
     assert result.success is False
-    assert "CUDA out of memory while loading the text encoder" in result.safe_error_detail
+    assert result.safe_error_detail == "The test didn't finish: ran out of GPU memory (VRAM) during generation."
+    assert "CUDA out of memory" not in result.safe_error_detail
+    assert result.technical_detail == "CUDA out of memory while loading the text encoder"
 
 
 class SafeAndRawErrorOrchestrator(FakeOrchestrator):
@@ -261,13 +265,15 @@ class SafeAndRawErrorOrchestrator(FakeOrchestrator):
         return {"status": "failed", "message": "A model file this preset needs is missing."}
 
 
-def test_the_admin_step_reports_the_raw_error_not_the_safe_message():
+def test_the_raw_error_goes_to_the_technical_field_not_the_sentence():
     executor = GenerationSmokeExecutor(FakePresetLoader(FakePresetTemplate()), object(), SafeAndRawErrorOrchestrator(), FakeFileRepository())
 
     result = executor.execute(_context(_recipe()))
 
     assert result.success is False
-    assert "FileNotFoundError: /srv/models/unet.safetensors" in result.safe_error_detail
+    assert result.technical_detail == "FileNotFoundError: /srv/models/unet.safetensors"
+    assert "FileNotFoundError" not in result.safe_error_detail
+    assert result.safe_error_detail == "The test didn't finish: a model file this preset needs is missing."
 
 
 class SafeStatusOnlyFailureOrchestrator(FakeOrchestrator):
@@ -279,7 +285,7 @@ class SafeStatusOnlyFailureOrchestrator(FakeOrchestrator):
         return {"status": "failed", "message": "Something went wrong while generating."}
 
 
-def test_a_status_only_failure_reports_the_stored_detail(monkeypatch):
+def test_a_status_only_failure_keeps_the_stored_detail_as_technical_text(monkeypatch):
     monkeypatch.setattr(
         GenerationSmokeExecutor,
         "_stored_failure_detail",
@@ -290,7 +296,8 @@ def test_a_status_only_failure_reports_the_stored_detail(monkeypatch):
     result = executor.execute(_context(_recipe()))
 
     assert result.success is False
-    assert "KeyError: 'unet' at /srv/app/src/pipe.py:12" in result.safe_error_detail
+    assert result.technical_detail == "KeyError: 'unet' at /srv/app/src/pipe.py:12"
+    assert "KeyError" not in result.safe_error_detail
 
 
 def test_missing_preset_fails_clearly():
@@ -460,7 +467,8 @@ def test_the_timeout_failure_names_the_recipe_timeout(monkeypatch):
 
     assert result.success is False
     assert result.error_code == "GENERATION_SMOKE_FAILED"
-    assert "timed out waiting for completion after 900s" in result.safe_error_detail
+    assert result.safe_error_detail == "The test didn't finish: it took longer than 15 minutes."
+    assert "timed out waiting for completion after 900s" == result.technical_detail
 
 
 def test_a_generation_that_never_finishes_fails_once_the_recipe_timeout_elapses():
@@ -469,7 +477,8 @@ def test_a_generation_that_never_finishes_fails_once_the_recipe_timeout_elapses(
     result = _executor(NeverCompletingOrchestrator()).execute(_context(recipe))
 
     assert result.success is False
-    assert "timed out waiting for completion after 1s" in result.safe_error_detail
+    assert result.safe_error_detail == "The test didn't finish: it took longer than 1 second."
+    assert result.technical_detail == "timed out waiting for completion after 1s"
 
 
 def test_a_generation_left_behind_by_the_timeout_is_cancelled():
@@ -491,7 +500,8 @@ def test_a_cancel_that_fails_after_the_timeout_still_reports_the_timeout():
     result = _executor(CancelRefusingOrchestrator()).execute(_context(recipe))
 
     assert result.success is False
-    assert "timed out waiting for completion after 1s" in result.safe_error_detail
+    assert result.safe_error_detail == "The test didn't finish: it took longer than 1 second."
+    assert result.technical_detail == "timed out waiting for completion after 1s"
 
 
 def test_a_finished_generation_is_not_cancelled():
@@ -592,7 +602,8 @@ def test_a_missing_app_loop_fails_clearly_without_starting_a_generation(monkeypa
 
     assert result.success is False
     assert result.error_code == "GENERATION_SMOKE_NO_APP_LOOP"
-    assert "Application event loop not available yet" in result.safe_error_detail
+    assert "Application event loop" not in result.safe_error_detail
+    assert "Application event loop not available yet" in result.technical_detail
     assert orchestrator.loops == []
 
 
@@ -609,7 +620,8 @@ def test_an_app_loop_that_is_not_running_fails_clearly_without_starting_a_genera
         idle.close()
 
     assert result.error_code == "GENERATION_SMOKE_NO_APP_LOOP"
-    assert "Application event loop is not running" in result.safe_error_detail
+    assert "Application event loop" not in result.safe_error_detail
+    assert "Application event loop is not running" in result.technical_detail
     assert orchestrator.loops == []
 
 
@@ -658,3 +670,61 @@ def test_without_a_preset_store_the_smoke_passes_no_admin_defaults(monkeypatch):
     executor.execute(_context(_recipe()))
 
     assert captured["admin_defaults"] == {}
+
+
+def test_the_smoke_step_is_advisory():
+    assert GenerationSmokeExecutor.advisory is True
+
+
+@pytest.mark.parametrize(
+    "raw, reason",
+    [
+        ("torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB", "ran out of GPU memory (VRAM) during generation"),
+        ("HTTPConnectionPool(host='127.0.0.1', port=8188): connection refused", "could not reach the configured backend"),
+        ("IndexError: list index out of range at /srv/app/pipe.py:44", "something went wrong while generating"),
+    ],
+)
+def test_a_failed_test_says_why_in_plain_words_and_keeps_the_raw_text_apart(raw, reason):
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), FakeOrchestrator(error=raw), FakeFileRepository()
+    )
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is False
+    assert result.safe_error_detail == f"The test didn't finish: {reason}."
+    assert result.technical_detail == raw
+    assert result.to_safe_output()["technical_detail"] == raw
+
+
+def test_an_exception_from_the_run_is_kept_out_of_the_sentence(monkeypatch):
+    def boom(coro, loop=None):
+        coro.close()
+        raise RuntimeError("CUDA out of memory in /srv/app/native/loader.py")
+
+    monkeypatch.setattr(generation_smoke, "run_sync", boom)
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), FakeOrchestrator(), FakeFileRepository()
+    )
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.safe_error_detail == "The test didn't finish: ran out of GPU memory (VRAM) during generation."
+    assert "loader.py" in result.technical_detail
+    assert "loader.py" not in result.safe_error_detail
+
+
+def test_a_form_that_cannot_be_prepared_keeps_the_exception_out_of_the_sentence(monkeypatch):
+    def raise_form(*a, **k):
+        raise KeyError("unet_path")
+
+    monkeypatch.setattr(generation_smoke, "build_fixture_form_data", raise_form)
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), FakeOrchestrator(), FakeFileRepository()
+    )
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.error_code == "GENERATION_SMOKE_FORM_FAILED"
+    assert "unet_path" not in result.safe_error_detail
+    assert "unet_path" in result.technical_detail

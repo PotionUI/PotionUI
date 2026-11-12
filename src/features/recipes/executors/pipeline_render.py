@@ -75,10 +75,11 @@ class PipelineRenderExecutor:
             return StepResult.fail(
                 "PIPELINE_RENDER_FAILED",
                 (
-                    f"The '{mode}' setup for '{preset_template.name}' didn't check out: {exc} "
+                    f"The '{mode}' setup for '{preset_template.name}' didn't check out. "
                     "This usually points at a problem in the preset itself, not your setup."
                 ),
                 suggested_repair="Report this to the preset's maintainer, or try a different recipe.",
+                technical_detail=f"{type(exc).__name__}: {exc}",
             )
 
         return StepResult.ok(
@@ -122,10 +123,11 @@ class PipelineRenderExecutor:
                     return StepResult.fail(
                         "PIPELINE_RENDER_FAILED",
                         (
-                            f"The '{mode}' setup for '{preset_template.name}' didn't check out: {exc} "
+                            f"The '{mode}' setup for '{preset_template.name}' didn't check out. "
                             "This usually points at a problem in the preset itself, not your setup."
                         ),
                         suggested_repair="Report this to the preset's maintainer, or try a different recipe.",
+                        technical_detail=f"{type(exc).__name__}: {exc}",
                     )
                 rendered.append({"mode": mode, "pipe_count": len(built.pipes)})
         return StepResult.ok({"modes": rendered})

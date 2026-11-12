@@ -10,7 +10,7 @@ export const ORGANIZE_SUBJECTS: readonly {
 	scope: OrganizeCollectionScope;
 }[] = [
 	{ subject: 'generation', slug: 'generations', label: 'Generations', icon: 'clock', scope: 'history' },
-	{ subject: 'upload', slug: 'uploads', label: 'Uploads', icon: 'image', scope: 'library' },
+	{ subject: 'upload', slug: 'uploads', label: 'Library', icon: 'image', scope: 'library' },
 	{ subject: 'model', slug: 'models', label: 'Models', icon: 'cube', scope: 'models' }
 ];
 

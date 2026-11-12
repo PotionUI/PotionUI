@@ -1,5 +1,6 @@
 """VRAM snapshot + estimate the orchestrator attaches to generation.before_start."""
 
+from tests.fixtures.kits import inert_kit_expander
 import types
 from unittest.mock import MagicMock
 
@@ -26,7 +27,7 @@ def _orchestrator(gpu_monitor=None):
         settings=MagicMock(),
         output_processor=MagicMock(),
         preset_template_loader=MagicMock(),
-        gpu_monitor=gpu_monitor,
+        gpu_monitor=gpu_monitor, kit_expander=inert_kit_expander(),
     )
 
 

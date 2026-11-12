@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -53,7 +54,7 @@ def orchestrator(backend):
         connection_hub=hub,
         settings=settings,
         output_processor=Mock(spec=OutputProcessor),
-        preset_template_loader=loader,
+        preset_template_loader=loader, kit_expander=inert_kit_expander(),
     )
 
 

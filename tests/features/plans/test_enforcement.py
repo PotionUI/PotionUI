@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import os
 import shutil
 import threading
@@ -88,7 +89,7 @@ def orchestrator_for(backend, guard):
     settings.get_setting = Mock(return_value="/out")
     return GenerationOrchestrator(
         pipeline_builder=builder, backend_registry=registry, connection_hub=Mock(), settings=settings,
-        output_processor=Mock(), preset_template_loader=loader, limit_guard=guard,
+        output_processor=Mock(), preset_template_loader=loader, limit_guard=guard, kit_expander=inert_kit_expander(),
     )
 
 

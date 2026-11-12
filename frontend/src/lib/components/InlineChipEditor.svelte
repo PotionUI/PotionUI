@@ -39,6 +39,24 @@
 	} from '$lib/utils/promptResources';
 	import { bundleMenuEntries, resourceMenuEntries } from '$lib/utils/resourceMenuEntries';
 	import { bundleInfo, bundleName, bundleRefs, bundleSourceLabel, isBundleSpec } from '$lib/utils/bundleResources';
+	import {
+		KITS_GROUP,
+		bareKitDescription,
+		groupDescription,
+		itemDescription,
+		itemMatches,
+		kitCapable,
+		kitCapableFields,
+		kitFieldsOf,
+		kitMatches,
+		kitPickerState,
+		kitRowDescription,
+		defaultKitField,
+		loadedKits
+	} from '$lib/kits/promptKits';
+	import { encodeKitKey, isKitKey } from '$lib/kits/kitMarker';
+	import { ensureKits, kitDirectory } from '$lib/stores/kits';
+	import { requestKitLoad } from '$lib/stores/kitLoadRequests';
 	import { bundleDirectories, loadBundles } from '$lib/stores/bundleDirectory';
 	import { countChoiceGroups } from '$lib/utils/choiceGroups';
 	import {
@@ -255,6 +273,7 @@
 
 	let isResourcePickerOpen = false;
 	let resourceGroupField: string | null = null;
+	let resourceKitId: string | null = null;
 	let resourceQuery = '';
 	let resourceTriggerNode: Text | null = null;
 	let resourceTriggerOffset = -1;
@@ -346,6 +365,80 @@
 	}
 
 	$: loadBundles(bundleRefs(promptResources, resourceFieldValues));
+
+	$: kitFields = kitFieldsOf(promptResources, resourceFieldValues);
+	$: void ensureKits(kitFields.flatMap((entry) => entry.rows.map((row) => row.kit)));
+	$: loadedKitList = loadedKits(kitFields, $kitDirectory);
+	$: kitState = kitPickerState(resourceGroupField, resourceKitId, resourceQuery, loadedKitList);
+	$: kitCategories = kitState.kitMode && !kitState.drilled
+		? (loadedKitList
+				.filter((entry) => kitMatches(entry, kitState.filter))
+				.map((entry) => ({
+					id: entry.kit.id,
+					name: entry.kit.name,
+					path: entry.kit.handle,
+					description: kitRowDescription(entry),
+					created_at: '',
+					updated_at: '',
+					attachable: true,
+					thumbnails: entry.kit.items
+						.filter((item) => item.kind === 'image' || item.kind === 'video')
+						.slice(0, 4)
+						.map((item) => item.thumbnail_url ?? item.url)
+						.filter((url): url is string => !!url)
+				})) as DropdownAutocompleteCategory[])
+		: [];
+	$: kitSuggestions = kitState.kitMode && kitState.drilled
+		? ([
+				...(kitState.filter === '' || kitState.drilled.kit.handle.includes(kitState.filter)
+					? [
+							{
+								id: encodeKitKey(kitState.drilled.kit.id),
+								category_id: kitState.drilled.field,
+								label: kitState.drilled.kit.handle,
+								value: bareKitDescription(kitState.drilled),
+								sort_order: -1,
+								created_at: '',
+								updated_at: '',
+								preview_file_id: kitState.drilled.kit.items.find((item) => item.thumbnail_url)?.thumbnail_url ?? undefined,
+								kind: 'image'
+							}
+						]
+					: []),
+				...kitState.drilled.kit.items
+					.filter((item) => itemMatches(item, kitState.filter))
+					.map((item, order) => ({
+						id: encodeKitKey(kitState.drilled!.kit.id, item.id),
+						category_id: kitState.drilled!.field,
+						label: item.name,
+						value: itemDescription(item, kitState.drilled!.accepted),
+						sort_order: order,
+						created_at: '',
+						updated_at: '',
+						preview_file_id: item.thumbnail_url ?? (item.kind === 'image' ? (item.url ?? undefined) : undefined),
+						kind: item.kind
+					}))
+			] as DropdownAutocompleteValue[])
+		: [];
+	$: kitPickerPath = kitState.kitMode
+		? kitState.drilled
+			? `kits.${kitState.drilled.kit.handle}.${kitState.filter}`
+			: `kits.${kitState.filter}`
+		: '';
+	$: kitsRootCategory = kitCapable(kitFields) && !resourceGroupField && !kitState.kitMode && 'kits'.includes(resourceQuery.trim().toLowerCase())
+		? ([
+				{
+					id: KITS_GROUP,
+					name: 'Kits',
+					path: 'kits',
+					description: groupDescription(loadedKitList.length),
+					created_at: '',
+					updated_at: ''
+				}
+			] as DropdownAutocompleteCategory[])
+		: [];
+	$: pickerCategories = kitState.kitMode ? kitCategories : resourceGroupField ? [] : [...resourceGroupCategories, ...kitsRootCategory];
+	$: pickerSuggestions = kitState.kitMode ? kitSuggestions : resourceGroupField ? resourceItemSuggestions : [];
 
 	$: menuSpecs = promptResources.filter(
 		(spec, index) =>
@@ -575,7 +668,7 @@
 		}
 
 		if (isResourcePickerOpen) {
-			const totalItems = resourceGroupField ? resourceItemSuggestions.length : resourceGroupCategories.length;
+			const totalItems = pickerCategories.length + pickerSuggestions.length;
 
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
@@ -584,6 +677,10 @@
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
 				resourceSelectedIndex = stepIndex(resourceSelectedIndex, -1, totalItems);
+				return;
+			} else if (e.key === 'ArrowRight' && kitState.kitMode && !kitState.drilled && pickerCategories[resourceSelectedIndex]) {
+				e.preventDefault();
+				drillKit(pickerCategories[resourceSelectedIndex].id);
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -1185,7 +1282,7 @@
 
 	function handleSelectResourceGroup(field: string) {
 		const group = findSpecByGroupKey(promptResources, field);
-		if (!group || resourceItemCount(group, resourceFieldValues) === 0) return;
+		if (field !== KITS_GROUP && (!group || resourceItemCount(group, resourceFieldValues) === 0)) return;
 		if (resourceSwitchContainer) {
 			resourceGroupField = field;
 			resourceQuery = '';
@@ -1223,6 +1320,7 @@
 			}
 		});
 
+		resourceKitId = null;
 		resourceGroupField = field;
 		resourceQuery = '';
 		resourceSelectedIndex = 0;
@@ -1233,11 +1331,52 @@
 
 	function handleNavigateUpResource() {
 		if (!resourceGroupField) return;
+		if (resourceGroupField === KITS_GROUP && resourceKitId) {
+			resourceKitId = null;
+			resourceSelectedIndex = 0;
+			return;
+		}
 		resourceGroupField = null;
 		resourceSelectedIndex = 0;
 	}
 
+	function kitFieldOf(kitId: string): string | null {
+		return loadedKitList.find((entry) => entry.kit.id === kitId)?.field ?? defaultKitField(kitFields);
+	}
+
+	function attachKit(kitId: string) {
+		const field = kitFieldOf(kitId);
+		if (field) handleSelectResourceItem(encodeKitKey(kitId), field);
+	}
+
+	function drillKit(kitId: string) {
+		if (resourceGroupField === KITS_GROUP) {
+			resourceKitId = kitId;
+			resourceQuery = '';
+			resourceSelectedIndex = 0;
+			return;
+		}
+		handleSelectResourceGroup(KITS_GROUP);
+		resourceKitId = kitId;
+	}
+
+	function openKitBrowse() {
+		const field = kitState.drilled?.field ?? defaultKitField(kitFields);
+		closeResourcePicker();
+		requestKitLoad(field);
+	}
+
 	function selectActiveResourceOption() {
+		if (kitState.kitMode) {
+			if (kitState.drilled) {
+				const picked = kitSuggestions[resourceSelectedIndex];
+				if (picked) handleSelectResourceItem(picked.id, picked.category_id);
+			} else {
+				const picked = kitCategories[resourceSelectedIndex];
+				if (picked) attachKit(picked.id);
+			}
+			return;
+		}
 		if (resourceGroupField) {
 			const item = resourceItemSuggestions[resourceSelectedIndex];
 			if (item) handleSelectResourceItem(item.id);
@@ -1339,8 +1478,8 @@
 		applyResourceSelection(span.start, span.end, field, itemKey, resourceIdToReuse);
 	}
 
-	function handleSelectResourceItem(itemKey: string) {
-		const field = activeResourceSpec?.field;
+	function handleSelectResourceItem(itemKey: string, fieldOverride?: string) {
+		const field = fieldOverride ?? activeResourceSpec?.field;
 		if (!field) {
 			closeResourcePicker();
 			return;
@@ -1371,6 +1510,7 @@
 	function closeResourcePicker() {
 		isResourcePickerOpen = false;
 		resourceGroupField = null;
+		resourceKitId = null;
 		resourceQuery = '';
 		resourceTriggerNode = null;
 		resourceTriggerOffset = -1;
@@ -2087,9 +2227,10 @@
 					item,
 					fieldLabel: resourceFieldLabels[ref.field],
 					displayName: state.spec && isBundleSpec(state.spec) ? bundleName(ref.item_key, bundleInfo($bundleDirectories, state.spec, ref.item_key)) : null,
+					kitAccepted: kitCapableFields(promptResources).get(ref.field) ?? null,
 					disabled: isDisabled,
 					onRemove: () => handleResourceRemove(el),
-					onSwitch: () => openResourceSwitcher(el, state.spec ? resourceGroupKey(promptResources, state.spec) : ref.field),
+					onSwitch: isKitKey(ref.item_key) ? undefined : () => openResourceSwitcher(el, state.spec ? resourceGroupKey(promptResources, state.spec) : ref.field),
 					variant
 				}
 			});
@@ -2552,15 +2693,20 @@
 
 	{#if isResourcePickerOpen && browseModalTrigger === null}
 		<AutocompleteDropdown
-			categories={resourceGroupField ? [] : resourceGroupCategories}
-			suggestions={resourceGroupField ? resourceItemSuggestions : []}
+			categories={pickerCategories}
+			suggestions={pickerSuggestions}
 			selectedIndex={resourceSelectedIndex}
-			onSelectCategory={(category) => handleSelectResourceGroup(category.id)}
-			onSelectValue={(suggestion) => handleSelectResourceItem(suggestion.id)}
+			onSelectCategory={(category) => (kitState.kitMode ? drillKit(category.id) : handleSelectResourceGroup(category.id))}
+			onAttachCategory={kitState.kitMode && !kitState.drilled ? (category) => attachKit(category.id) : undefined}
+			onSelectValue={(suggestion) => (kitState.kitMode ? handleSelectResourceItem(suggestion.id, suggestion.category_id) : handleSelectResourceItem(suggestion.id))}
+			categoriesTitle={kitState.kitMode ? 'Kits loaded' : 'Categories'}
+			categoriesNote={kitState.kitMode ? `${loadedKitList.length} in this form` : 'Browse deeper'}
 			isLoading={false}
-			currentPath={resourceGroupField
-				? `${activeResourceSpec ? resourceGroupLabel(activeResourceSpec) : resourceGroupField}.${resourceQuery}`
-				: resourceQuery}
+			currentPath={kitState.kitMode
+				? kitPickerPath
+				: resourceGroupField
+					? `${activeResourceSpec ? resourceGroupLabel(activeResourceSpec) : resourceGroupField}.${resourceQuery}`
+					: resourceQuery}
 			triggerChar="@"
 			emptyHint="Prompt references — type @ to pick a picture, video, or audio reference"
 			onClose={closeResourcePicker}
@@ -2568,7 +2714,8 @@
 			parentRef={containerRef}
 			getImageUrl={(url) => url}
 			contextLabel="References"
-			onBrowseAll={variant === 'segment-composer' ? openResourceBrowse : undefined}
+			onBrowseAll={variant === 'segment-composer' ? (kitState.kitMode ? openKitBrowse : openResourceBrowse) : undefined}
+				browseLabel={kitState.kitMode ? 'kits' : undefined}
 			{variant}
 		/>
 	{/if}

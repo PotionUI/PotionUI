@@ -280,9 +280,11 @@ describe('InlineChipEditor picker arrow keys wrap around a non-empty list', () =
 		press(editor, 'ArrowDown');
 		expect(activeRow()).toContain('Videos');
 		press(editor, 'ArrowDown');
+		expect(activeRow()).toContain('Kits');
+		press(editor, 'ArrowDown');
 		expect(activeRow()).toContain('Pictures');
 		press(editor, 'ArrowUp');
-		expect(activeRow()).toContain('Videos');
+		expect(activeRow()).toContain('Kits');
 	});
 
 	it('the # picker moves between values and wraps at both ends, and Enter picks the active one', async () => {

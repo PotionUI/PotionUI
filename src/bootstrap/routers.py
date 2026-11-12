@@ -59,6 +59,7 @@ from src.features.media.routes import (
 )
 from src.features.media_tools.routes import build_router as build_media_tools_router
 from src.features.library.routes import build_router as build_library_router
+from src.features.kits.routes import build_router as build_kits_router
 from src.features.inspirations.routes import (
     build_router as build_inspiration_router,
     build_media_router as build_inspiration_media_router,
@@ -148,6 +149,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_media_router(container))  # Media endpoints
     app.include_router(build_media_tools_router(container))
     app.include_router(build_library_router(container))  # User media library
+    app.include_router(build_kits_router(container))
     app.include_router(build_inspiration_router(container))  # Inspirations - cross-user publishing
     app.include_router(build_inspiration_media_router(container))  # Serves copied inspiration media
     app.include_router(build_system_router(container))

@@ -5,6 +5,7 @@ Verifies that tag_ids on a GenerationRequest are applied to the
 newly-created generation record via TagRepository.add_tag_to_generation.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, call
 
@@ -121,7 +122,7 @@ def orchestrator(
         connection_hub=mock_connection_manager,
         settings=mock_settings,
         output_processor=mock_output_processor,
-        preset_template_loader=mock_preset_template_loader,
+        preset_template_loader=mock_preset_template_loader, kit_expander=inert_kit_expander(),
     )
 
 

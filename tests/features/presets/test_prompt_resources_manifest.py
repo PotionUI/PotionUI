@@ -84,6 +84,16 @@ class TestPromptResourcesSchema:
         assert errors == []
         assert manifest.prompt_resources["refs"][0].token == "<Picture @>"
 
+    def test_kit_limits_are_accepted_and_must_be_positive(self):
+        manifest, errors = _manifest({"refs": [
+            {"field": "references", "kind": "image", "token": "<Picture @>", "limit": 9, "limit_total": 12},
+        ]})
+        assert errors == []
+        assert (manifest.prompt_resources["refs"][0].limit, manifest.prompt_resources["refs"][0].limit_total) == (9, 12)
+        for key in ("limit", "limit_total"):
+            rejected, problems = _manifest({"refs": [{"field": "f", "kind": "image", "token": "<P @>", key: 0}]})
+            assert rejected is None and any(key in problem for problem in problems)
+
     def test_token_without_placeholder_is_rejected(self):
         manifest, errors = _manifest({"refs": [
             {"field": "references", "kind": "image", "token": "<Picture 1>"},
@@ -328,9 +338,9 @@ class TestShippedPromptResources:
     def test_minimax_h3_refs_maps_pictures_videos_and_audio(self, shipped_presets):
         preset = shipped_presets["MiniMax-H3"]
         assert preset.prompt_resources == {"refs": [
-            {"field": "references", "kind": "image", "label": "Pictures", "token": "<Picture @>"},
-            {"field": "references", "kind": "video", "label": "Videos", "token": "<Video @>"},
-            {"field": "references", "kind": "audio", "label": "Audio", "token": "<Audio @>"},
+            {"field": "references", "kind": "image", "label": "Pictures", "token": "<Picture @>", "limit": 9, "limit_total": 12},
+            {"field": "references", "kind": "video", "label": "Videos", "token": "<Video @>", "limit": 3},
+            {"field": "references", "kind": "audio", "label": "Audio", "token": "<Audio @>", "limit": 3},
         ]}
 
     def test_qwen_image21_combine_uses_the_encoder_image_label(self, shipped_presets):

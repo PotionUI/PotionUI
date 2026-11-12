@@ -148,6 +148,8 @@ from src.features.forms.binding import bind_form, form_field_index, FormBindingE
 from src.features.prompt.resource_sources import BundleMembersResolver, member_kinds_resolver, prompt_resource_sources
 from src.platform.plugins.prompt_resource_sources import PromptResourceCaller, PromptResourceSourceRegistry
 from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
+from src.features.kits.expansion import KitExpander, split_kit_rows
+from src.features.kits.generation import expand_request as expand_kits_in_request
 from src.features.generation.memory_advisory import (
     _WEIGHT_LOAD_MARGIN,
     _activation_headroom_gb,
@@ -594,6 +596,8 @@ class GenerationOrchestrator:
         prompt_resource_source_registry: Optional[PromptResourceSourceRegistry] = None,
         fixed_prompt_repository: Optional['PresetFixedPromptRepository'] = None,
         applied_prompt_repository: Optional['GenerationAppliedPromptRepository'] = None,
+        *,
+        kit_expander: KitExpander,
     ):
         """
         Initialize the generation orchestrator.
@@ -655,6 +659,7 @@ class GenerationOrchestrator:
         self._prompt_batch_splitter = PromptBatchSplitRepository()
         self.fixed_prompt_repository = fixed_prompt_repository
         self.applied_prompt_repository = applied_prompt_repository
+        self.kit_expander = kit_expander
         self._fixed_prompt_runs: Dict[str, FixedPromptRun] = {}
         self.generation_stats_repository = generation_stats_repository
         # Cheap stateless wrapper over `preset_template_loader`, used solely to
@@ -957,7 +962,8 @@ class GenerationOrchestrator:
                 request.preset_id
             ).get(mode, {})
         bound = self._bind(
-            preset_template, mode, getattr(request, 'form_name', None), request.form_data,
+            preset_template, mode, getattr(request, 'form_name', None),
+            split_kit_rows(request.form_data)[0],
             user_id, storage_dir, field_overrides,
         )
 
@@ -1267,11 +1273,15 @@ class GenerationOrchestrator:
                 field_overrides = self.database_preset_repository.get_preset_form_overrides(
                     request.preset_id
                 ).get(mode, {})
+            form_for_bind, loaded_kits = split_kit_rows(request.form_data)
             bound = self._bind(
-                preset_template, mode, getattr(request, 'form_name', None), request.form_data,
+                preset_template, mode, getattr(request, 'form_name', None), form_for_bind,
                 user_id, storage_dir, field_overrides,
             )
             request.form_data = bound.values
+            kit_expansion = await asyncio.to_thread(
+                expand_kits_in_request, self.kit_expander, user_id, request, preset_template, mode, loaded_kits,
+            )
 
             if self.content_safety is not None:
                 self.content_safety.preflight(user_id)
@@ -1518,11 +1528,21 @@ class GenerationOrchestrator:
                    else f"started on {backend.name}")
             )
 
-            return {
+            submitted = {
                 'generation_id': generation_id,
                 'status': record.model_dump(),
                 'queue_position': queue_position,
             }
+            if kit_expansion.touched:
+                submitted['kits'] = {
+                    'used': kit_expansion.used,
+                    'notices': [notice.to_dict() for notice in kit_expansion.notices],
+                }
+                if kit_expansion.notices:
+                    self._notifier.notify_warning(
+                        generation_id, user_id, " ".join(notice.message for notice in kit_expansion.notices),
+                    )
+            return submitted
 
         except BaseException as e:
             if admitted_ref is not None:

@@ -53,6 +53,9 @@
 	import ResolvedPromptPreview from '$lib/components/ResolvedPromptPreview.svelte';
 	import { getPresetPromptResources } from '$lib/utils/presetPromptResourcesCache';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import KitLoadHost from '$lib/components/kits/KitLoadHost.svelte';
+	import KitSessionNotice from '$lib/components/kits/KitSessionNotice.svelte';
+	import KitSkippedLine from '$lib/components/kits/KitSkippedLine.svelte';
 	import { getPresetPromptSyntax } from '$lib/utils/presetPromptSyntaxCache';
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import { authStore } from '$lib/stores/auth';
@@ -197,6 +200,12 @@
 	let promptSyntaxSpecs = $state.raw<PromptSyntaxSpec[]>(EMPTY_SYNTAX_SPECS);
 	let presetFixedPrompt = $state.raw<PresetFixedPrompt | null>(null);
 
+	function writeKitField(field: string, value: unknown[]) {
+		tabsStore.updateTab(tabId, { formData: { ...(tab.formData || {}), [field]: value } });
+	}
+
+	const kitCiteTexts = $derived([...promptSegments, ...negativePromptSegments].map((segment) => segment.content));
+
 	const isAdmin = $derived($authStore.user?.account_type === 'ADMIN');
 	const fixedPromptParts = $derived(
 		isAdmin
@@ -283,6 +292,7 @@
 
 <!-- Prompt Editors -->
 <div class="space-y-4 {spacingClass}">
+	<KitSessionNotice formData={resourceFieldValues} specs={promptResourceSpecs} onChange={writeKitField} />
 	<LiveSyncPending tabId={tab.id} />
 	{#if promptRelayActive}
 		<!-- PromptRelayEditor doesn't render its own toolbar/header, so it needs
@@ -410,6 +420,9 @@
 					</PromptTabs>
 				{/snippet}
 			</SegmentedPromptEditor>
+			<div class="mt-3 space-y-2 empty:hidden">
+				<KitSkippedLine texts={kitCiteTexts} specs={promptResourceSpecs} formData={resourceFieldValues} {tabId} presetId={selectedPreset || null} mode={selectedMode || null} />
+			</div>
 			{#if summary.overCap}
 				<Alert variant="danger" density="compact" icon class="mt-4">
 					<span class="font-medium">{BATCH_CAP_MESSAGE}</span>
@@ -440,11 +453,15 @@
 					{variables}
 					compilePrompt={regionalCompile}
 					fixedPrompt={fixedPromptParts}
+					presetId={selectedPreset || null}
+					mode={selectedMode || null}
 				/>
 			</div>
 		</div>
 	{/if}
 </div>
+
+<KitLoadHost formData={resourceFieldValues} specs={promptResourceSpecs} onChange={writeKitField} />
 
 <VariableManagerModal
 	isOpen={variablesModalOpen}

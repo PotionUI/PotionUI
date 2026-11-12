@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -41,7 +42,7 @@ class Harness:
             settings=Mock(get_setting=Mock(return_value="/outputs")),
             output_processor=Mock(process_output=AsyncMock(return_value={"handler": "H", "processed": True})),
             preset_template_loader=Mock(load_preset_by_id=Mock(return_value=preset)),
-            status_tracker=self.tracker,
+            status_tracker=self.tracker, kit_expander=inert_kit_expander(),
         )
 
     def request(self, key=None):

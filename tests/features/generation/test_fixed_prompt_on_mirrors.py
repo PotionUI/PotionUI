@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import json
 from types import SimpleNamespace
@@ -70,7 +71,7 @@ class Studio:
             output_processor=OutputProcessor(Mock()),
             preset_template_loader=world.loader,
             fixed_prompt_repository=self.fixed,
-            applied_prompt_repository=self.applied,
+            applied_prompt_repository=self.applied, kit_expander=inert_kit_expander(),
         )
         recorder = RunReportRecorder(GenerationRunReportRepository())
         tracker = self.orchestrator.status_tracker

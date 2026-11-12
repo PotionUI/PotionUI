@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import json
 from decimal import Decimal
 from types import SimpleNamespace
@@ -43,7 +44,7 @@ def orchestrator():
     return GenerationOrchestrator(
         pipeline_builder=Mock(spec=PipelineBuilder), backend_registry=Mock(), connection_hub=Mock(),
         settings=Mock(), output_processor=OutputProcessor(Mock()), preset_template_loader=Mock(),
-        status_tracker=tracker,
+        status_tracker=tracker, kit_expander=inert_kit_expander(),
     )
 
 

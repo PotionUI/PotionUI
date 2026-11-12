@@ -10,6 +10,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, IconButton } from '$lib/components/ui';
 	import StageCard from '../stage-rail/StageCard.svelte';
+	import ShotKitsCard from '$lib/components/kits/ShotKitsCard.svelte';
 
 	let {
 		doc,
@@ -85,6 +86,7 @@
 	</div>
 {:else}
 	<div class="flex flex-col gap-3" data-testid="shot-references">
+		<ShotKitsCard {doc} {caps} {shotId} {formData} specs={promptResources} {onDoc} />
 		{#if poolSize === 0}
 			<p class="text-xs text-fg-subtle">No items on the reference pool yet — add some on the form's References tab.</p>
 		{:else}

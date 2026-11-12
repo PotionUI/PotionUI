@@ -4,6 +4,9 @@
 	import MediaThumb from './media/MediaThumb.svelte';
 	import { kindLabel, resourceHandleLabel, type PromptResourceSpec } from '$lib/utils/promptResources';
 	import { bundleSourceLabel, isBundleSpec } from '$lib/utils/bundleResources';
+	import KitResourceChip from '$lib/components/kits/KitResourceChip.svelte';
+	import { isKitKey } from '$lib/kits/kitMarker';
+	import type { AcceptedKinds } from '$lib/kits/kitCounts';
 
 	export let field: string;
 	export let itemKey: string;
@@ -16,6 +19,8 @@
 	export let onRemove: (() => void) | undefined = undefined;
 	export let onSwitch: (() => void) | undefined = undefined;
 	export let variant: 'default' | 'segment-composer' = 'default';
+	export let kitAccepted: AcceptedKinds = null;
+	export let modelName: string | null = null;
 
 	$: dangling = !spec || position === null;
 	$: canSwitch = Boolean(onSwitch) && !disabled;
@@ -51,7 +56,9 @@
 			: `${kindLabel(spec!.kind)} · ${itemName}`;
 </script>
 
-{#if variant === 'segment-composer'}
+{#if isKitKey(itemKey)}
+	<KitResourceChip {itemKey} accepted={kitAccepted} {modelName} {disabled} {variant} {onRemove} {onSwitch} />
+{:else if variant === 'segment-composer'}
 	<span
 		class="chip resource-chip {dangling ? 'border-danger/50 bg-danger/10 text-danger dangling' : ''} {disabled
 			? 'opacity-50'

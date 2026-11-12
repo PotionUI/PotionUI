@@ -1028,3 +1028,11 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .condition-chip.broken { color: rgb(var(--warning)); background: color-mix(in srgb, rgb(var(--warning)) 10%, rgb(var(--surface-2))); border-color: color-mix(in srgb, rgb(var(--warning)) 40%, rgb(var(--line))); }
 .condition-chip.broken .chip-mark, .condition-chip.broken .chip-context { color: rgb(var(--warning)); }
 .row-copy .row-copy-variable { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+.row-thumb-mosaic { width: 100%; height: 100%; display: grid; gap: 1px; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; background: rgb(var(--line)); }
+.row-thumb-mosaic[data-count="1"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.row-thumb-mosaic[data-count="2"] { grid-template-rows: 1fr; }
+.row-thumb-mosaic[data-count="3"] img:first-child { grid-row: span 2; }
+.row-drill { flex: 0 0 auto; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 4px; color: rgb(var(--fg-subtle)); cursor: pointer; }
+.row-drill:hover { color: rgb(var(--fg)); background: rgb(var(--surface-3) / 0.6); }
+.row-drill .icon { width: 14px; height: 14px; }

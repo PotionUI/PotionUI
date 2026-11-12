@@ -509,14 +509,18 @@ prompt_resources:
       kind: "image"
       label: "Pictures"
       token: "<Picture @>"
+      limit: 9
+      limit_total: 12
     - field: "references"
       kind: "video"
       label: "Videos"
       token: "<Video @>"
+      limit: 3
     - field: "references"
       kind: "audio"
       label: "Audio"
       token: "<Audio @>"
+      limit: 3
 
 prompt_syntax:
   video: &h3_prompt_syntax

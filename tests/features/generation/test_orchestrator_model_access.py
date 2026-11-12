@@ -4,6 +4,7 @@
   except refs living under an admin-pinned field name.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -17,6 +18,7 @@ from src.features.models.exceptions import ModelAccessDeniedException, ModelNotF
 
 def _orchestrator(**overrides):
     instance = object.__new__(orch.GenerationOrchestrator)
+    instance.kit_expander = inert_kit_expander()
     instance.database_preset_repository = overrides.get("database_preset_repository")
     instance.model_access_policy = overrides.get("model_access_policy")
     instance.user_repository = overrides.get("user_repository")
@@ -214,6 +216,7 @@ def _bind_form_records_kwargs(monkeypatch):
 class TestFieldOverridesThreadedFromRepository:
     def _build_orchestrator(self, database_preset_repository):
         instance = object.__new__(orch.GenerationOrchestrator)
+        instance.kit_expander = inert_kit_expander()
         instance.model_locator = None
         instance.content_safety = None
         instance.database_preset_repository = database_preset_repository

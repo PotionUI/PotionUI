@@ -17,6 +17,7 @@ document.
 """
 
 from __future__ import annotations
+from tests.fixtures.kits import inert_kit_expander
 
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
@@ -130,7 +131,7 @@ def _orchestrator(wan_preset_template, storage_dir: str) -> GenerationOrchestrat
         connection_hub=Mock(),
         settings=settings,
         output_processor=Mock(),
-        preset_template_loader=preset_template_loader,
+        preset_template_loader=preset_template_loader, kit_expander=inert_kit_expander(),
     )
 
 

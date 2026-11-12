@@ -6,6 +6,7 @@ is mocked, orchestrator constructed directly rather than through the
 container.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import time
 from unittest.mock import Mock, patch
@@ -109,7 +110,7 @@ def orchestrator(
         settings=mock_settings,
         output_processor=mock_output_processor,
         preset_template_loader=mock_preset_template_loader,
-        media_indexer=fake_media_indexer,
+        media_indexer=fake_media_indexer, kit_expander=inert_kit_expander(),
     )
 
 

@@ -5,6 +5,7 @@ Fixture pattern mirrors test_orchestrator_auto_tags.py: every collaborator is
 mocked, orchestrator constructed directly rather than through the container.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import time
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -86,7 +87,7 @@ def orchestrator(
         settings=mock_settings,
         output_processor=mock_output_processor,
         preset_template_loader=mock_preset_template_loader,
-        generation_stats_repository=mock_generation_stats_repository,
+        generation_stats_repository=mock_generation_stats_repository, kit_expander=inert_kit_expander(),
     )
 
 
@@ -185,7 +186,7 @@ class TestRecordCompletionWiring:
             connection_hub=mock_connection_manager,
             settings=mock_settings,
             output_processor=mock_output_processor,
-            preset_template_loader=mock_preset_template_loader,
+            preset_template_loader=mock_preset_template_loader, kit_expander=inert_kit_expander(),
         )  # no generation_stats_repository passed -- defaults to None
         record = _completed_record()
         orchestrator.status_tracker.get = Mock(return_value=record)

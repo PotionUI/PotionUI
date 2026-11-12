@@ -15,6 +15,7 @@ sync, thread-safe ``emit`` callable (backed by OutputBridge) instead of a
 raw callback kwarg.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -155,7 +156,7 @@ def orchestrator(
         connection_hub=mock_connection_manager,
         settings=mock_settings,
         output_processor=mock_output_processor,
-        preset_template_loader=mock_preset_template_loader
+        preset_template_loader=mock_preset_template_loader, kit_expander=inert_kit_expander()
     )
 
 
@@ -200,7 +201,7 @@ class TestGenerationOrchestratorInitialization:
             settings=mock_settings,
             output_processor=mock_output_processor,
             preset_template_loader=mock_preset_template_loader,
-            status_tracker=tracker
+            status_tracker=tracker, kit_expander=inert_kit_expander()
         )
 
         assert orchestrator.status_tracker is tracker

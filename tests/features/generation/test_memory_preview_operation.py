@@ -7,6 +7,7 @@ remote and no-GPU backends, and that it never enqueues, hooks, persists, or
 starts a real generation.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -152,7 +153,7 @@ def _orchestrator(backend, gpu_monitor=None, pipes=_KNOWN_PIPES, build_error=Fal
         preset_template_loader=_preset_template_loader(),
         gpu_monitor=gpu_monitor,
         router=router,
-        plugin_registry=plugin_registry,
+        plugin_registry=plugin_registry, kit_expander=inert_kit_expander(),
     )
 
 

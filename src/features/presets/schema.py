@@ -793,6 +793,8 @@ class PromptResourceSpec(BaseModel):
     source: Optional[str] = None
     label: Optional[str] = None
     token: str
+    limit: Optional[int] = Field(default=None, ge=1)
+    limit_total: Optional[int] = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _validate_shape(self) -> "PromptResourceSpec":

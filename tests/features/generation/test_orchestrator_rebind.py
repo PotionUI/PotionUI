@@ -10,6 +10,7 @@ Also covers `form_name` persistence: the `Generation` record must carry
 ran last (the original bind, or the post-hook re-bind).
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -111,7 +112,7 @@ def orchestrator(
         settings=mock_settings,
         output_processor=mock_output_processor,
         preset_template_loader=mock_preset_template_loader,
-        plugin_registry=plugin_registry,
+        plugin_registry=plugin_registry, kit_expander=inert_kit_expander(),
     )
 
 

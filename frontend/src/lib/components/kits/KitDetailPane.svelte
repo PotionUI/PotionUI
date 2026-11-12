@@ -15,7 +15,7 @@
 	import { primaryModifier } from '$lib/utils/platform';
 	import { moveItem } from '$lib/components/form-fields/mediaLoaderReorder';
 	import { isNameClash, kitErrorMessage, kitErrorSuggestion } from '$lib/kits/kitErrors';
-	import { kindOfMediaType, describeLimit, picksFromLibraryItems, picksNames, takenNames, toNewItems, type KitPick } from '$lib/kits/kitPicks';
+	import { kindOfMediaType, describeLimit, picksFromHistoryFiles, picksFromLibraryItems, picksNames, takenNames, toNewItems, type KitPick } from '$lib/kits/kitPicks';
 	import { formatItemCount } from '$lib/kits/kitCounts';
 	import { formatKitPath } from '$lib/kits/kitPath';
 	import { defaultItemName } from '$lib/kits/kitNaming';
@@ -157,18 +157,9 @@
 		void addItems(picksFromLibraryItems(libraryItems));
 	}
 
-	async function handleHistoryConfirm(picked: PickedMedia[]) {
-		const picks: KitPick[] = [];
-		for (const entry of picked) {
-			if (!entry.file) continue;
-			try {
-				const response = await api.copyGenerationFileToLibrary(String(entry.file.id));
-				if (response.success && response.data?.item) picks.push(...picksFromLibraryItems([response.data.item]));
-			} catch (caught) {
-				problem(caught, 'Could not copy a file to the Library.');
-			}
-		}
-		await addItems(picks);
+	function handleHistoryConfirm(picked: PickedMedia[]) {
+		const files = picked.map((entry) => entry.file).filter((entry): entry is NonNullable<typeof entry> => !!entry);
+		void addItems(picksFromHistoryFiles(files, (fileId) => api.getFileURL(fileId, 'small')));
 	}
 
 	async function uploadFiles(files: File[]) {
@@ -533,6 +524,7 @@
 					{#if !full}
 						<div class="flex flex-wrap items-center justify-center gap-1">
 							<Button variant="ghost" size="xs" icon="grid" onclick={() => pickSource('library')}>Library</Button>
+							<Button variant="ghost" size="xs" icon="clock" onclick={() => pickSource('history')}>History</Button>
 							<Button variant="ghost" size="xs" icon="upload" onclick={() => pickSource('upload')}>Upload</Button>
 							<Button variant="ghost" size="xs" icon="document" onclick={() => pickSource('text')}>Text</Button>
 						</div>
@@ -583,7 +575,8 @@
 		onClose={() => (historyOpen = false)}
 		multiple
 		onSelect={() => {}}
-		onConfirm={(_keys, picked) => void handleHistoryConfirm(picked)}
+		onConfirm={(_keys, picked) => handleHistoryConfirm(picked)}
+		selectableMediaTypes={['image', 'video', 'audio']}
 		title="Add to {kit.name} from Generation History"
 	/>
 

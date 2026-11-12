@@ -140,6 +140,17 @@ async function mockKits(page: Page, seed: WireKit[] = []): Promise<Backend> {
 			for (const uploadId of body.upload_ids as string[]) kit.items.push(newItem(backend, kit, 'image', body.names?.[uploadId], null));
 			return json(route, { kit: detail(kit), added: [] });
 		}
+		if (path === 'add-history-items' && method === 'POST') {
+			let kit = body.kit_id ? find(body.kit_id) : undefined;
+			if (!kit) {
+				backend.counter += 1;
+				kit = { id: `kt_${backend.counter.toString(16).padStart(8, '0')}`, name: body.new_kit.name, handle: body.new_kit.name.toLowerCase().replace(/\s+/g, '_'), label: body.new_kit.label ?? null, items: [] };
+				backend.kits.push(kit);
+			}
+			backend.submitted.push(body);
+			for (const fileId of body.file_ids as string[]) kit.items.push(newItem(backend, kit, 'image', body.names?.[fileId], null));
+			return json(route, { kit: detail(kit), added: [] });
+		}
 		if (path === 'usage') return json(route, { usage: {} });
 		if (path === 'resolve') {
 			return json(route, { field: 'references', items: [], skipped: backend.notices, expanded: '', text: String(body.text ?? ''), takes: { image: true, video: true, audio: false, text: true }, limits: {} });
@@ -311,6 +322,70 @@ test.describe('Kits in the Library', () => {
 		await page.getByRole('alertdialog').getByRole('button', { name: 'Delete kit' }).click();
 		await expect.poll(() => backend.kits.length).toBe(0);
 		await expect(page).toHaveURL(/view=kits$/);
+	});
+});
+
+function historyFile(id: number, name: string) {
+	return { id, file_path: `out/${name}`, file_type: 'image', is_final: true, width: 96, height: 96, created_at: NOW, thumbnail_small: PNG_URL, thumbnail_medium: PNG_URL, thumbnail_large: PNG_URL };
+}
+
+const HISTORY = [
+	{ id: 'gen-a', preset_name: 'Portrait', status: 'completed', progress: 1, created_at: NOW, updated_at: NOW, form_data: { prompt: 'a woman in the rain' }, files: [historyFile(501, 'rain.png')], rating: 0, is_favorite: false, tags: [] },
+	{ id: 'gen-b', preset_name: 'Portrait', status: 'completed', progress: 1, created_at: NOW, updated_at: NOW, form_data: { prompt: 'a woman at dawn' }, files: [historyFile(502, 'dawn.png')], rating: 0, is_favorite: false, tags: [] }
+];
+
+async function mockHistory(page: Page) {
+	await page.route(/\/api\/generations\/history(\?.*)?$/, (route) => json(route, { generations: HISTORY, total: HISTORY.length }));
+	await page.route(/\/api\/media\/files\/\d+(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+	await page.route(/\/api\/media\/generations\/[^/]+\/.+$/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+}
+
+test.describe('Kits and History', () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await loginAsOwner(page);
+	});
+
+	test('adds items to a kit from the History picker, beside Library, Upload and Text', async ({ page }) => {
+		await mockLibrary(page);
+		await mockHistory(page);
+		const backend = await mockKits(page, [seedMara()]);
+		await page.goto('/library?view=kits&kit=kt_7f3a1c2e');
+		for (const name of ['Library', 'History', 'Upload', 'Text']) await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+		await page.getByRole('button', { name: 'History', exact: true }).click();
+		await expect(page.getByText('Add to Mara from Generation History')).toBeVisible();
+		await page.locator('[data-generation-card]').first().click();
+		await page.locator('[data-generation-card]').nth(1).click();
+		await page.getByRole('button', { name: 'Use selected' }).click();
+		await expect.poll(() => backend.submitted.length).toBe(1);
+		expect(backend.submitted[0].file_ids).toEqual(['501', '502']);
+		expect(backend.kits[0].items).toHaveLength(5);
+	});
+
+	test('adds a History selection to a new kit with Add to kit', async ({ page }) => {
+		await mockHistory(page);
+		const backend = await mockKits(page);
+		await page.goto('/history');
+		await page.locator('[data-generation-card]').first().hover();
+		await page.getByRole('button', { name: 'Select generation' }).first().click();
+		await page.locator('[data-add-to-kit]').click();
+		await expect(page.getByRole('dialog')).toContainText('to a kit');
+		await page.getByLabel('Name', { exact: true }).fill('Rain');
+		await page.getByRole('button', { name: 'Create kit' }).click();
+		await expect.poll(() => backend.kits.length).toBe(1);
+		expect(backend.submitted[0].file_ids).toEqual(['501']);
+	});
+
+	test('adds the open generation to a kit from its details', async ({ page }) => {
+		await mockHistory(page);
+		const backend = await mockKits(page, [seedMara()]);
+		await page.goto('/history?generation=gen-a');
+		await page.getByRole('button', { name: 'Add to kit' }).click();
+		await page.getByRole('button', { name: 'Existing kit' }).click();
+		await page.getByRole('button', { name: /Mara/ }).first().click();
+		await page.getByRole('button', { name: 'Add to kit' }).last().click();
+		await expect.poll(() => backend.submitted.length).toBe(1);
+		expect(backend.submitted[0]).toMatchObject({ kit_id: 'kt_7f3a1c2e', file_ids: ['501'] });
 	});
 });
 

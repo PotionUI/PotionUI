@@ -12,6 +12,7 @@
 	import { api } from '$lib/services/api/index';
 	import { toasts } from '$lib/stores/toast';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { requestAddToKit } from '$lib/stores/kitAddRequests';
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
 	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
@@ -242,7 +243,8 @@
 		rate: (ctx, rating) => ctx.generations[0] && historyStore.setRating(ctx.generations[0].id, rating),
 		favorite: (ctx) => ctx.generations[0] && historyStore.toggleFavorite(ctx.generations[0].id),
 		copyToLibrary,
-		addToCollection
+		addToCollection,
+		addToKit: (ctx) => requestAddToKit(ctx.files.map((entry) => entry.file))
 	};
 
 	$: entryMenu = createHistoryEntryMenu({

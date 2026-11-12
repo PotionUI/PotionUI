@@ -4,6 +4,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 const apiMocks = vi.hoisted(() => ({
 	getGenerationHistory: vi.fn(),
 	listLibraryItems: vi.fn(),
+	listCollections: vi.fn(),
 	getTags: vi.fn(),
 	getClient: () => ({ get: vi.fn().mockResolvedValue({ data: { data: {} } }) })
 }));
@@ -178,6 +179,101 @@ describe('GenerationHistoryModal multi-select', () => {
 		expect(isChecked(historyCheckbox('b.png'))).toBe(true);
 		expect(isChecked(historyCheckbox('c.mp4'))).toBe(true);
 		expect(count()).toBe('2 selected');
+	});
+
+	describe('Library filters', () => {
+		const lastQuery = () => apiMocks.listLibraryItems.mock.calls.at(-1)![0] as Record<string, unknown>;
+		const loaded = () => {
+			const calls = apiMocks.listLibraryItems.mock.calls.length;
+			return vi.waitFor(() => expect(apiMocks.listLibraryItems.mock.calls.length).toBeGreaterThan(calls), { timeout: 3000 });
+		};
+
+		beforeEach(() => {
+			apiMocks.getTags.mockResolvedValue({ success: true, data: { tags: [{ id: 't1', name: 'Mara', color: '#88aaff' }] } });
+			apiMocks.listCollections.mockResolvedValue({
+				success: true,
+				data: { collections: [{ id: 'c1', name: 'Faces', parent_id: null }] }
+			});
+		});
+
+		it('passes the chosen kind, collection and tag to the list query', async () => {
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn() });
+			await settle();
+
+			let pending = loaded();
+			buttonByText('Videos')!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ media_type: 'video' });
+
+			pending = loaded();
+			document.querySelector<HTMLButtonElement>('[data-collection-filter]')!.click();
+			await vi.waitFor(() => expect(document.querySelector('[role="option"]')).not.toBeNull());
+			await vi.waitFor(() => expect(document.body.textContent).toContain('Faces'));
+			[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((el) => el.textContent?.includes('Faces'))!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ media_type: 'video', collection_id: 'c1' });
+
+			pending = loaded();
+			await vi.waitFor(() => expect(buttonByText('Mara')).toBeDefined());
+			buttonByText('Mara')!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ media_type: 'video', collection_id: 'c1', tag_ids: 't1' });
+		});
+
+		it('offers Unsorted and Favorites and sends them', async () => {
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn() });
+			await settle();
+
+			let pending = loaded();
+			document.querySelector<HTMLButtonElement>('[data-favorites-filter]')!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ favorites_only: true });
+
+			pending = loaded();
+			document.querySelector<HTMLButtonElement>('[data-collection-filter]')!.click();
+			await vi.waitFor(() => expect([...document.querySelectorAll('[role="option"]')].some((el) => el.textContent?.trim() === 'Unsorted')).toBe(true));
+			[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((el) => el.textContent?.trim() === 'Unsorted')!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ unsorted: true });
+		});
+
+		it('keeps the selection when a filter changes', async () => {
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn() });
+			await settle();
+			checkbox('one.png').click();
+			await tick();
+
+			apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: [LIBRARY[2]], total: 1 } });
+			const pending = loaded();
+			buttonByText('Videos')!.click();
+			await pending;
+			await vi.waitFor(() => expect(document.querySelector('input[data-file="one.png"]')).toBeNull());
+			expect(count()).toBe('1 selected');
+
+			apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: LIBRARY, total: 3 } });
+			buttonByText('All')!.click();
+			await vi.waitFor(() => expect(document.querySelector('input[data-file="one.png"]')).not.toBeNull());
+			expect(checkbox('one.png').checked).toBe(true);
+		});
+
+		it('hides the kind filter when the caller already fixed the kind', async () => {
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn(), mediaType: 'image' });
+			await settle();
+			expect(buttonByText('Videos')).toBeUndefined();
+			expect(lastQuery()).toMatchObject({ media_type: 'image' });
+		});
+
+		it('pages with numbered pagination and a bounded page size', async () => {
+			apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: LIBRARY, total: 55 } });
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn() });
+			await settle();
+			expect(lastQuery()).toMatchObject({ limit: 20, offset: 0 });
+			expect(document.querySelector('nav[aria-label="Pagination"]')).not.toBeNull();
+			const pending = loaded();
+			buttonByText('2')!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ limit: 20, offset: 20 });
+		});
 	});
 
 	it('dims files outside the media type constraint and explains why', async () => {

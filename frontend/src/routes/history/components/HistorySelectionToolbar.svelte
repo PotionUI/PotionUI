@@ -9,6 +9,7 @@
 	import { createMembershipActions } from '$lib/components/collections/scopeActions';
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
+	import { requestAddGenerationsToKit } from '$lib/stores/kitAddRequests';
 	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 	import {
 		buildHistoryToolContext,
@@ -58,6 +59,10 @@
 		} finally {
 			copyingToLibrary = false;
 		}
+	}
+
+	function handleAddToKit(): void {
+		requestAddGenerationsToKit(generations.filter((generation) => selectedIds.includes(generation.id)));
 	}
 
 	function handleSelectAll() {
@@ -126,6 +131,17 @@
 				Remove from collection
 			</button>
 		{/if}
+
+		<button
+			class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+			disabled={selectedIds.length === 0}
+			data-add-to-kit
+			use:tooltip={'Add the selected media to a kit'}
+			on:click={handleAddToKit}
+		>
+			<Icon name="layers" className="w-4 h-4" />
+			Add to kit
+		</button>
 
 		<ToolsMenu
 			open={activeMenu === 'tools'}

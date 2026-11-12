@@ -104,6 +104,7 @@ prompt_resources:
       kind: "image"
       label: "Images"
       token: "<image@>"
+      limit: 10
 
 prompt_syntax:
   txt2img:

@@ -47,6 +47,7 @@ prompt_resources:
       kind: "image"
       label: "Images"
       token: "<image@>"
+      limit: 10
 
 formulas:
   groups:

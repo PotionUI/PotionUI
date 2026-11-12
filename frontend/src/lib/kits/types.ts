@@ -70,6 +70,7 @@ export interface NewKitItem {
 	kind: KitItemKind;
 	name?: string;
 	media_ref?: string;
+	history_file_id?: string;
 	text?: string;
 }
 

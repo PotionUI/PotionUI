@@ -191,18 +191,36 @@ export function createKitsApi(client: AxiosInstance) {
 		return detailOf(response.data);
 	}
 
-	async function addMedia(
-		items: NewKitItem[],
-		target: { kit_id?: string; new_kit?: { name: string; label?: string | null } }
-	): Promise<APIResponse<KitDetail>> {
-		const names: Record<string, string> = {};
-		for (const item of items) if (item.media_ref && item.name) names[item.media_ref] = item.name;
-		const response = await client.post('/api/kits/add-library-items', {
-			upload_ids: items.map((item) => item.media_ref),
-			names,
-			...target
-		});
-		return detailOf(response.data);
+	type MediaTarget = { kit_id?: string; new_kit?: { name: string; label?: string | null } };
+
+	async function addMedia(items: NewKitItem[], target: MediaTarget): Promise<APIResponse<KitDetail>> {
+		const library = items.filter((item) => item.media_ref && !item.history_file_id);
+		const history = items.filter((item) => item.history_file_id);
+		let latest: APIResponse<KitDetail> | null = null;
+		let next = target;
+		if (library.length > 0) {
+			const names: Record<string, string> = {};
+			for (const item of library) if (item.media_ref && item.name) names[item.media_ref] = item.name;
+			const response = await client.post('/api/kits/add-library-items', {
+				upload_ids: library.map((item) => item.media_ref),
+				names,
+				...next
+			});
+			latest = detailOf(response.data);
+			if (!latest.success || !latest.data) return latest;
+			next = { kit_id: latest.data.id };
+		}
+		if (history.length > 0) {
+			const names: Record<string, string> = {};
+			for (const item of history) if (item.history_file_id && item.name) names[item.history_file_id] = item.name;
+			const response = await client.post('/api/kits/add-history-items', {
+				file_ids: history.map((item) => item.history_file_id),
+				names,
+				...next
+			});
+			latest = detailOf(response.data);
+		}
+		return latest ?? { success: false, message: 'Nothing to add' };
 	}
 
 	return {
@@ -229,7 +247,7 @@ export function createKitsApi(client: AxiosInstance) {
 
 		async createKit(body: NewKit): Promise<KitCreateResponse> {
 			const items = body.items ?? [];
-			const media = items.filter((item) => item.kind !== 'text' && item.media_ref);
+			const media = items.filter((item) => item.kind !== 'text' && (item.media_ref || item.history_file_id));
 			const texts = items.filter((item) => item.kind === 'text');
 			let created: APIResponse<KitDetail>;
 			if (media.length > 0) {
@@ -274,7 +292,7 @@ export function createKitsApi(client: AxiosInstance) {
 		},
 
 		async addKitItems(id: string, items: NewKitItem[]): Promise<APIResponse<KitDetail>> {
-			const media = items.filter((item) => item.kind !== 'text' && item.media_ref);
+			const media = items.filter((item) => item.kind !== 'text' && (item.media_ref || item.history_file_id));
 			let latest: APIResponse<KitDetail> | null = null;
 			if (media.length > 0) latest = await addMedia(media, { kit_id: id });
 			if (latest && !latest.success) return latest;

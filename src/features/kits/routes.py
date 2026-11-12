@@ -8,6 +8,7 @@ from src.features.kits import operations
 from src.features.kits.catalog import KitCatalog
 from src.features.kits.dto import (
     AddItemRequest,
+    AddHistoryItemsRequest,
     AddLibraryItemsRequest,
     CreateKitRequest,
     OrderRequest,
@@ -16,6 +17,7 @@ from src.features.kits.dto import (
     UpdateKitRequest,
 )
 from src.features.kits.expansion import KitExpander
+from src.features.kits.field_limits import form_limits
 from src.features.kits.mappers import kit_with_items, summary_to_dict
 from src.features.kits.repository import KitRepository
 from src.features.kits.resolve import resolve_citations
@@ -43,12 +45,14 @@ class KitController(BaseController):
         expander: KitExpander,
         preset_lookup: Optional[PresetLookup] = None,
         media_store: Any = None,
+        copy_to_library: Optional[Callable[[str, str], str]] = None,
     ):
         super().__init__()
         self.repository = repository
         self.expander = expander
         self.preset_lookup = preset_lookup
         self.media_store = media_store
+        self.copy_to_library = copy_to_library
 
     def _view(self, owner_id: str, kit_id: str) -> APIResponse:
         view = KitCatalog(self.repository, owner_id).by_id(kit_id)
@@ -152,6 +156,21 @@ class KitController(BaseController):
         response.data["added"] = [item.id for item in added]
         return response
 
+    @guarded(fallback=Fail("add_history_items_failed", "Failed to add the History items", 400))
+    async def add_history_items(self, request: AddHistoryItemsRequest, user) -> APIResponse:
+        if self.copy_to_library is None:
+            raise InvalidInputError("history_unavailable", "History items cannot be added here")
+        kit, added = await asyncio.to_thread(
+            operations.add_history_items,
+            self.repository, self.copy_to_library, user.id, request.file_ids, request.kit_id,
+            request.new_kit.name if request.new_kit else None,
+            request.new_kit.label if request.new_kit else None,
+            request.names,
+        )
+        response = await asyncio.to_thread(self._view, user.id, kit.id)
+        response.data["added"] = [item.id for item in added]
+        return response
+
     @guarded(fallback=Fail("update_item_failed", "Failed to update the item", 400))
     async def update_item(self, kit_id: str, item_id: str, request: UpdateItemRequest, user) -> APIResponse:
         await asyncio.to_thread(
@@ -186,14 +205,16 @@ class KitController(BaseController):
     @guarded(fallback=Fail("resolve_kits_failed", "Failed to resolve the kit citations", 400))
     async def resolve(self, request: ResolveRequest, user) -> APIResponse:
         specs: Optional[List[Dict[str, Any]]] = None
+        form = None
         if request.preset_id:
             template = self.preset_lookup(request.preset_id) if self.preset_lookup is not None else None
             if template is None:
                 raise NotFoundError("preset_not_found", "The selected preset is not available")
             specs = mode_prompt_resources(template, request.mode)
+            form = form_limits(template, request.mode)
         result = await asyncio.to_thread(
             resolve_citations, self.expander, user.id, specs, request.field, request.text, request.cites,
-            request.loaded, specs, request.form_data,
+            request.loaded, specs, request.form_data, form,
         )
         return self.success_response(data=result)
 
@@ -223,6 +244,10 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.post("/add-library-items", response_model=APIResponse, summary="Add Library Items To A Kit")
     async def add_library_items(request: AddLibraryItemsRequest, current_user=Depends(get_current_active_user)) -> APIResponse:
         return await controller.add_library_items(request, current_user)
+
+    @router.post("/add-history-items", response_model=APIResponse, summary="Add History Items To A Kit")
+    async def add_history_items(request: AddHistoryItemsRequest, current_user=Depends(get_current_active_user)) -> APIResponse:
+        return await controller.add_history_items(request, current_user)
 
     @router.get("/usage", response_model=APIResponse, summary="Kits Using Library Items")
     async def usage(upload_ids: str = Query(...), current_user=Depends(get_current_active_user)) -> APIResponse:

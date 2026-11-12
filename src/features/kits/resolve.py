@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from src.features.kits import citations
 from src.features.kits.catalog import KitCatalog
+from src.features.kits.field_limits import FormLimit
 from src.features.kits.expansion import FieldPolicy, KitExpander, field_policies, split_kit_rows
 from src.features.kits.rules import MEDIA_KINDS
 from src.features.prompt.markers import RESOURCE_MARKER_RE
@@ -50,8 +51,9 @@ def resolve_citations(
     loaded: Optional[List[str]],
     token_specs: Optional[List[Mapping[str, Any]]] = None,
     form_data: Optional[Mapping[str, Any]] = None,
+    form: Optional[Mapping[str, FormLimit]] = None,
 ) -> Dict[str, Any]:
-    policies = field_policies(specs or [])
+    policies = field_policies(specs or [], form if specs is not None else None)
     name = field or next(iter(policies), "references")
     if specs is None:
         policies = {name: FieldPolicy(name, MEDIA_KINDS)}

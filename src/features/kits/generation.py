@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.kits.citations import has_kit_cite
+from src.features.kits.field_limits import form_limits
 from src.features.kits.expansion import KitExpander, KitExpansion, field_policies
 from src.features.prompt.resources import mode_prompt_resources
 
@@ -56,7 +57,7 @@ def expand_request(
     )
     if not loaded and not any(has_kit_cite(text) for text in texts):
         return KitExpansion(form_data=request.form_data, texts=texts)
-    policies = field_policies(mode_prompt_resources(preset_template, mode))
+    policies = field_policies(mode_prompt_resources(preset_template, mode), form_limits(preset_template, mode))
     expansion = expander.expand(owner_id, policies, form_data, loaded, texts)
     if not expansion.touched and expansion.texts == texts:
         return expansion

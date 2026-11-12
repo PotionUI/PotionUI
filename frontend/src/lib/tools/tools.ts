@@ -78,6 +78,7 @@ export interface ToolRunHost {
 	favorite?: (ctx: MediaToolContext) => void;
 	copyToLibrary?: (ctx: MediaToolContext) => void;
 	addToCollection?: (ctx: MediaToolContext, collectionId: string) => void;
+	addToKit?: (ctx: MediaToolContext) => void;
 }
 
 export interface ToolRunExtra {

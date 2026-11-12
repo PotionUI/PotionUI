@@ -25,6 +25,7 @@
 	import type { AudioTrack, AudioTrackType } from '$lib/types/audio';
 	import StarRating from '$lib/components/StarRating.svelte';
 	import { historyStore } from '$lib/stores/history';
+	import { requestAddToKit } from '$lib/stores/kitAddRequests';
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
 	import { toasts } from '$lib/stores/toast';
@@ -608,6 +609,13 @@
 				tooltip: 'Copy this file to your library (the generation stays in history)',
 				loading: copying,
 				onclick: handleCopyToLibrary
+			});
+			actions.push({
+				id: 'add-to-kit',
+				label: 'Add to kit',
+				icon: 'layers',
+				tooltip: 'Add this file to a kit',
+				onclick: () => currentFile && requestAddToKit([currentFile])
 			});
 		}
 		return actions;

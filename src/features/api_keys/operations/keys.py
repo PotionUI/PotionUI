@@ -9,6 +9,7 @@ from src.features.api_keys.operations.limits import InstanceLimits, load_limits
 from src.features.api_keys.records import STATUS_ACTIVE, ApiKey, ApiKeyEvent, UserApiAccess
 from src.platform.database.rows import dt_column, dt_iso, now_iso, now_utc
 from src.features.api_keys.repository import ApiKeyEventRepository, ApiKeyRepository, UserApiAccessRepository
+from src.platform.security import key_revocation
 from src.platform.security.api_scopes import ApiScope
 from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
@@ -152,6 +153,7 @@ def update(
             key.id, key.user_id, owner.id, ACTION_SCOPES_CHANGED,
             {"before": key.scope_values, "after": updated.scope_values}, dt_iso(now),
         )
+        key_revocation.notify_changed(key.id)
     return updated
 
 
@@ -162,6 +164,7 @@ def revoke(c: ApiKeyCollaborators, key: ApiKey, actor: User) -> ApiKey:
             key.id, key.user_id, actor.id, ACTION_REVOKED,
             {"by_owner": actor.id == key.user_id}, now,
         )
+    key_revocation.notify(key.id)
     return c.keys.get_by_id(key.id) or key
 
 

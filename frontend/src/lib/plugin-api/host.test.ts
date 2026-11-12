@@ -14,6 +14,13 @@ import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContex
 import { activeConfirm, cancelAllConfirms, settleConfirm } from '$lib/stores/confirm';
 import type { WebSocketService } from '$lib/services/websocket';
 
+vi.mock('$lib/services/wsTicket', () => ({
+	ticketedWsUrl: vi.fn(async (path: string) => `ws://test.invalid${path}?ticket=t`),
+	isAuthRefusal: () => false
+}));
+
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
 class FakeBrowserSocket {
 	static readonly CONNECTING = 0;
 	static readonly OPEN = 1;
@@ -392,11 +399,12 @@ describe('window.__potionui.generation.subscribe', () => {
 		expect(typeof host().generation.prepareRequest).toBe('function');
 	});
 
-	it('opens one generation socket for every subscription and subscribes each id', () => {
+	it('opens one generation socket for every subscription and subscribes each id', async () => {
 		stubSocket();
 		const generation = host().generation;
 		const stopFirst = generation.subscribe('gen-1', () => {});
 		const stopSecond = generation.subscribe('gen-2', () => {});
+		await settle();
 		expect(FakeBrowserSocket.instances).toHaveLength(1);
 		const socket = FakeBrowserSocket.instances[0];
 		expect(socket.url).toContain('/ws/generation');
@@ -413,12 +421,13 @@ describe('window.__potionui.generation.subscribe', () => {
 		stopThird();
 	});
 
-	it('delivers only the four generation events of the subscribed id', () => {
+	it('delivers only the four generation events of the subscribed id', async () => {
 		stubSocket();
 		const first: GenerationEvent[] = [];
 		const second: GenerationEvent[] = [];
 		const stopFirst = host().generation.subscribe('gen-1', (event) => first.push(event));
 		const stopSecond = host().generation.subscribe('gen-2', (event) => second.push(event));
+		await settle();
 		const socket = FakeBrowserSocket.instances[0];
 		socket.open();
 		socket.receive({ type: 'subscribed', generation_id: 'gen-1' });
@@ -438,12 +447,13 @@ describe('window.__potionui.generation.subscribe', () => {
 		stopSecond();
 	});
 
-	it('stops a handler on unsubscribe and closes the socket after the last one', () => {
+	it('stops a handler on unsubscribe and closes the socket after the last one', async () => {
 		stubSocket();
 		const kept: GenerationEvent[] = [];
 		const dropped: GenerationEvent[] = [];
 		const stopDropped = host().generation.subscribe('gen-1', (event) => dropped.push(event));
 		const stopKept = host().generation.subscribe('gen-1', (event) => kept.push(event));
+		await settle();
 		const socket = FakeBrowserSocket.instances[0];
 		socket.open();
 		expect(socket.sent).toHaveLength(1);
@@ -456,17 +466,19 @@ describe('window.__potionui.generation.subscribe', () => {
 		stopKept();
 		expect(socket.closed).toBe(true);
 		const stopAgain = host().generation.subscribe('gen-1', () => {});
+		await settle();
 		expect(FakeBrowserSocket.instances).toHaveLength(2);
 		stopAgain();
 	});
 
-	it('keeps other handlers running when one throws', () => {
+	it('keeps other handlers running when one throws', async () => {
 		stubSocket();
 		const received: GenerationEvent[] = [];
 		const stopThrowing = host().generation.subscribe('gen-1', () => {
 			throw new Error('plugin bug');
 		});
 		const stopReceiving = host().generation.subscribe('gen-1', (event) => received.push(event));
+		await settle();
 		const socket = FakeBrowserSocket.instances[0];
 		socket.open();
 		socket.receive({ type: 'generation_complete', data: { id: 'gen-1' } });
@@ -475,15 +487,17 @@ describe('window.__potionui.generation.subscribe', () => {
 		stopReceiving();
 	});
 
-	it('revives a dropped socket when a new generation is followed', () => {
+	it('revives a dropped socket when a new generation is followed', async () => {
 		stubSocket();
 		const received: GenerationEvent[] = [];
 		const stopFirst = host().generation.subscribe('gen-1', (event) => received.push(event));
+		await settle();
 		const dropped = FakeBrowserSocket.instances[0];
 		dropped.open();
 		dropped.readyState = FakeBrowserSocket.CLOSED;
 		dropped.onclose?.({ code: 1006 } as CloseEvent);
 		const stopSecond = host().generation.subscribe('gen-2', () => {});
+		await settle();
 		expect(FakeBrowserSocket.instances).toHaveLength(2);
 		const revived = FakeBrowserSocket.instances[1];
 		revived.open();
@@ -497,13 +511,14 @@ describe('window.__potionui.generation.subscribe', () => {
 		stopSecond();
 	});
 
-	it('leaves a newer subscription alone when an old unsubscribe runs again', () => {
+	it('leaves a newer subscription alone when an old unsubscribe runs again', async () => {
 		stubSocket();
 		const received: GenerationEvent[] = [];
 		const stopOld = host().generation.subscribe('gen-1', () => {});
 		stopOld();
 		const stopNew = host().generation.subscribe('gen-1', (event) => received.push(event));
 		stopOld();
+		await settle();
 		const socket = FakeBrowserSocket.instances.at(-1)!;
 		socket.open();
 		socket.receive({ type: 'generation_complete', data: { id: 'gen-1' } });

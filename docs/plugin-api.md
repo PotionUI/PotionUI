@@ -2905,7 +2905,7 @@ before anything is sent.
 | `fetchRaw(path, init?)` | your `init` (`method`, `headers`, `body`, `signal`, plus `timeout` and `onUploadProgress`) | the `Response` itself, for binary bodies and ranges. Never throws on a status |
 | `fetchRawFromApp(path, init?)` | as `fetchRaw`, on an app route taken from the site root (`/api/media/upload`) | as `fetchRaw` |
 | `download(path, filename?)` | `GET` through `fetchRaw`, then saves the body as a file | once the browser has been asked to save it. Throws on an error status |
-| `getToken()` | — | the current token, or `null`. HTTP calls never need it; it is only for a WebSocket you open yourself (a browser WebSocket cannot send headers, so pass it as `?token=`) |
+| `getToken()` | — | the current token, or `null`. HTTP calls never need it. A WebSocket you open yourself does not take it either: a browser WebSocket cannot send headers, and `?token=` is no longer accepted, so `POST /api/auth/ws-ticket` with `{"path": "/ws/generation"}` and open the socket with the single-use `?ticket=` it returns |
 
 **Errors.** `get`, `post`, `put`, `delete`, `uploadFile` and `fetchFromApp` do not look at the
 HTTP status: they resolve with the parsed JSON of any response, error responses included, or

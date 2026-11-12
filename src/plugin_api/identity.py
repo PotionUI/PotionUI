@@ -15,13 +15,17 @@ route that manages global, cross-user state.
     async def do_it(user: User = Depends(get_current_admin_user)):
         ...
 
-`authenticate_websocket_token` is the WebSocket counterpart. WebSocket routes
-cannot use `Depends`, so authenticate the query-string token by hand before
-accepting the connection:
+`authenticate_websocket` is the WebSocket counterpart. WebSocket routes
+cannot use `Depends`, so authenticate the handshake by hand before accepting
+the connection. It reads a single-use `?ticket=` (minted by
+`POST /api/auth/ws-ticket`, the browser path) or an `Authorization: Bearer`
+header (scripts: a session token or an API key). `?token=` is never accepted.
+Declare what an API key needs on the route with `key_scope`; a socket without
+a declaration refuses keys.
 
-    @ws_router.websocket("/ws/plugins/<id>")
-    async def endpoint(websocket: WebSocket, token: str = Query(None)):
-        user, error = authenticate_websocket_token(token)
+    @ws_router.websocket("/ws/plugins/<id>", dependencies=[key_scope(ApiScope.READ)])
+    async def endpoint(websocket: WebSocket):
+        user, error = await authenticate_websocket(websocket)
         if user is None:
             await websocket.accept()
             await websocket.close(code=4001, reason=error or "Authentication failed")
@@ -43,7 +47,7 @@ from src.platform.plugins.login_providers import (
 from src.platform.plugins.runtime_registries import get_container
 from src.platform.security.api_scopes import SESSION_ONLY, ApiScope, key_access, key_scope
 from src.platform.security.current_user import (
-    authenticate_websocket_token,
+    authenticate_websocket,
     get_current_active_user,
     get_current_admin_user,
 )
@@ -58,7 +62,7 @@ __all__ = [
     "InvalidLoginProviderError",
     "SESSION_ONLY",
     "User",
-    "authenticate_websocket_token",
+    "authenticate_websocket",
     "get_current_active_user",
     "get_current_admin_user",
     "get_user",

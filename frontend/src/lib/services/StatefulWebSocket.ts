@@ -49,10 +49,11 @@ export abstract class StatefulWebSocket extends BaseWebSocket {
 
 	protected constructor(
 		private readonly connectionState: Writable<ConnectionState>,
+		path: string,
 		/** Only used in log lines ("admin WebSocket connected", "downloader reconnect failed"). */
 		private readonly serviceName: string
 	) {
-		super('');
+		super(path);
 	}
 
 	connectAsync(): Promise<void> {
@@ -105,6 +106,12 @@ export abstract class StatefulWebSocket extends BaseWebSocket {
 		// pending through the retry chain - it settles on the next open, or on
 		// scheduleReconnect() rejecting it once attempts are exhausted.
 		super.onClose(event); // BaseWebSocket.onClose() -> this.scheduleReconnect()
+	}
+
+	protected override onAuthRefused(error: unknown): void {
+		logger.error(`${this.serviceName} WebSocket ticket refused:`, error);
+		this.connectionState.set('disconnected');
+		this.settleWaiters('reject', error);
 	}
 
 	protected override onConstructError(error: unknown): void {

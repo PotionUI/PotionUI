@@ -6,8 +6,6 @@
  */
 
 import { writable, type Writable } from 'svelte/store';
-import { getWsUrl } from './wsUrl';
-import { api } from '$lib/services/api';
 import { logger } from '$lib/utils/logger';
 import type { BaseWebSocketMessage } from './BaseWebSocket';
 import { StatefulWebSocket, type ConnectionState } from './StatefulWebSocket';
@@ -44,11 +42,7 @@ class AdminWebSocketService extends StatefulWebSocket {
 	private connectedCallbacks: Set<ConnectedCallback> = new Set();
 
 	constructor() {
-		super(adminConnectionState, 'admin');
-	}
-
-	protected override buildWsUrl(): string {
-		return getWsUrl('/ws/admin', api.getToken());
+		super(adminConnectionState, '/ws/admin', 'admin');
 	}
 
 	protected override onMessage(message: BaseWebSocketMessage): void {

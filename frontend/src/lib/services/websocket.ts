@@ -1,7 +1,6 @@
 import { logger } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
 import { authStore } from '$lib/stores/auth';
-import { getWsUrl } from './wsUrl';
 import { BaseWebSocket, type BaseWebSocketMessage } from './BaseWebSocket';
 import { generationIdOf } from '$lib/generation/messages/wire';
 
@@ -17,8 +16,8 @@ export class WebSocketService extends BaseWebSocket {
 	private connectionCallbacks: Set<(connected: boolean) => void> = new Set();
 	private onAuthFailedCallback: (() => void) | null = null;
 
-	constructor(url: string, getToken: () => string | null) {
-		super(url, getToken);
+	constructor(path: string) {
+		super(path);
 	}
 
 	// ─── Overrides ────────────────────────────────────────────────────────────
@@ -67,6 +66,11 @@ export class WebSocketService extends BaseWebSocket {
 		} else {
 			logger.warn(`Message ${wsMessage.type} has no generation_id`);
 		}
+	}
+
+	protected override onAuthRefused(): void {
+		logger.warn('WebSocket ticket refused, not reconnecting');
+		this.onAuthFailedCallback?.();
 	}
 
 	protected override onClose(event: CloseEvent): void {
@@ -131,7 +135,7 @@ export class WebSocketService extends BaseWebSocket {
 // (logout + redirect to login) already wired, so every call site reacts the
 // same way to an expired/invalid token instead of going silent.
 export function createGenerationSocket(): WebSocketService {
-	const ws = new WebSocketService(getWsUrl('/ws/generation'), () => api.getToken());
+	const ws = new WebSocketService('/ws/generation');
 	ws.onAuthFailed(() => {
 		authStore.expireSession(api.getToken());
 	});

@@ -19,9 +19,14 @@ def _walk(dependant):
 
 
 def _authenticated(route) -> bool:
+    from fastapi.routing import APIWebSocketRoute
+
     from src.platform.security import current_user as cu
 
-    guards = {cu.get_current_user, cu.get_current_active_user, cu.get_current_admin_user, cu.require_media_viewer, cu.get_media_viewer}
+    if isinstance(route, APIWebSocketRoute):
+        return True
+
+    guards = {cu.get_principal, cu.get_current_user, cu.get_current_active_user, cu.get_current_admin_user, cu.require_media_viewer, cu.get_media_viewer}
     return any(dep.call in guards for dep in _walk(route.dependant))
 
 
@@ -47,8 +52,8 @@ def render(app):
             if not hasattr(route, "dependant") or not _authenticated(route):
                 rows.append((route.path, method, "-", "-", SOURCE_PUBLIC))
                 continue
-            scopes = _cell(required_scopes(route, method))
-            read, write = (scopes, "-") if method in READ_METHODS else ("-", scopes)
+            scopes = _cell(required_scopes(route, "GET" if method == "WS" else method))
+            read, write = (scopes, "-") if method in READ_METHODS or method == "WS" else ("-", scopes)
             rows.append((route.path, method, read, write, policy_source(route, method)))
     rows.sort()
     return [HEADER] + [f"{method}\t{path}\t{read}\t{write}\t{source}" for path, method, read, write, source in rows]

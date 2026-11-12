@@ -39,6 +39,7 @@ from src.features.generation.criteria_delete import (
     preview_generations,
 )
 from src.platform.websocket import ConnectionHub
+from src.platform.websocket.key_sockets import key_sockets
 from src.features.generation.websocket_handler import WebSocketHandler
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.forms.binding import FormBindingError
@@ -1276,39 +1277,23 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
     ws_router = APIRouter(tags=["WebSocket"])
 
     # WebSocket endpoint for real-time generation updates
-    @ws_router.websocket("/ws/generation")
-    async def websocket_generation_endpoint(websocket: WebSocket, token: str = Query(None)):
+    @ws_router.websocket("/ws/generation", dependencies=[key_scope(ApiScope.READ)])
+    async def websocket_generation_endpoint(websocket: WebSocket):
         """WebSocket endpoint for real-time generation progress updates and status changes."""
-        from src.platform.security.current_user import authenticate_websocket_token
+        from src.platform.security.current_user import authenticate_websocket, refuse_websocket
 
-        # Authenticate the user before accepting connection
-        try:
-            user, auth_error = authenticate_websocket_token(token)
-        except Exception as e:
-            logging.error(f"WebSocket auth exception: {e}")
-            try:
-                await websocket.accept()
-                await websocket.close(code=4001, reason="Authentication error")
-            except Exception as close_error:
-                logging.error(f"Failed to close WebSocket after auth error: {close_error}")
-            return
-
+        user, auth_error = await authenticate_websocket(websocket)
         if user is None:
-            logging.warning(f"WebSocket auth failed: {auth_error}")
-            try:
-                await websocket.accept()
-                await websocket.close(code=4001, reason=auth_error or "Authentication failed")
-            except Exception as e:
-                logging.error(f"Error closing WebSocket after auth failure: {e}")
+            await refuse_websocket(websocket, auth_error)
             return
 
-        # Authentication successful, now handle the connection
         import uuid
         client_id = str(uuid.uuid4())
         logging.info(f"WebSocket connected: user={user.username}, client_id={client_id}")
 
         try:
-            await controller.handle_websocket(websocket, client_id, user)
+            with key_sockets.track(websocket, user):
+                await controller.handle_websocket(websocket, client_id, user)
         except Exception as e:
             logging.error(f"WebSocket handler error for client {client_id}: {e}")
             import traceback

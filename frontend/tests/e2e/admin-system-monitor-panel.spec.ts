@@ -68,7 +68,15 @@ async function mountWidget(page: Page, isAdmin = true): Promise<void> {
 				apiBaseUrl: location.origin,
 				token: authToken,
 				isAdmin: admin,
-				wsUrl: (path: string, t: string) => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}?token=${t}`
+				wsUrl: async (path: string) => {
+					const reply = await fetch(`${location.origin}/api/auth/ws-ticket`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+						body: JSON.stringify({ path })
+					});
+					const ticket = (await reply.json()).data.ticket;
+					return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}?ticket=${ticket}`;
+				}
 			}
 		});
 	}, { authToken: token, admin: isAdmin });

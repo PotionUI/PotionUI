@@ -52,14 +52,20 @@ class FakeController:
         await websocket.close()
 
 
+def _auth(result):
+    async def authenticate(websocket, scope=None):
+        return result
+    return authenticate
+
+
 def _user(account_type):
-    return SimpleNamespace(id="u", account_type=account_type)
+    return SimpleNamespace(id="u", account_type=account_type, key=None)
 
 
 def _client(repo, account_type, monkeypatch):
     user = _user(account_type)
     monkeypatch.setattr(routes, "detect_gpu_profile", lambda: build_gpu_profile((8, 9), 24.04, "RTX"))
-    monkeypatch.setattr(routes, "authenticate_websocket_token", lambda token: (user, None))
+    monkeypatch.setattr(routes, "authenticate_websocket", _auth((user, None)))
     container = SimpleNamespace(system_monitor_controller=FakeController(), plugin_repository=repo)
     app_controller = container.system_monitor_controller
     app = FastAPI()
@@ -78,7 +84,7 @@ def _registry():
 
 def _ws_connects(client):
     try:
-        with client.websocket_connect("/ws/system?token=t") as ws:
+        with client.websocket_connect("/ws/system") as ws:
             return ws.receive_text() == "hello"
     except WebSocketDisconnect:
         return False

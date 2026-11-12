@@ -8,7 +8,15 @@ from src.features.notifications import routes as notification_routes
 from src.platform.security.user import AccountType, User
 
 
+def _auth(result):
+    async def authenticate(websocket, scope=None):
+        return result
+    return authenticate
+
+
 class _FakeWebSocket:
+    scope = {}
+
     def __init__(self):
         self.sent = []
 
@@ -29,7 +37,7 @@ class _FakeWebSocket:
 async def test_connect_reports_the_unread_count_read_off_the_event_loop(monkeypatch):
     user = User(id="u-1", username="u", email="u@example.com", password_hash="h", account_type=AccountType.USER)
     monkeypatch.setattr(
-        "src.platform.security.current_user.authenticate_websocket_token", lambda token: (user, None),
+        notification_routes, "authenticate_websocket", _auth((user, None)),
     )
     hub = Mock(connect=AsyncMock(), disconnect=Mock())
     monkeypatch.setattr(notification_routes, "notification_connection_hub", hub)
@@ -39,7 +47,7 @@ async def test_connect_reports_the_unread_count_read_off_the_event_loop(monkeypa
     endpoint = notification_routes.build_ws_router(Mock(notification_controller=controller)).routes[0].endpoint
     websocket = _FakeWebSocket()
 
-    await endpoint(websocket, token="t")
+    await endpoint(websocket)
 
     assert websocket.sent[0]["type"] == "connection_established"
     assert websocket.sent[0]["unread_count"] == 7

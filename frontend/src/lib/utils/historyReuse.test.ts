@@ -193,3 +193,83 @@ describe('buildReuseTabTitle', () => {
 		expect(title).toBe('Reused: Unknown preset');
 	});
 });
+
+describe('reusing a Long video generation', () => {
+	const longRow = () =>
+		makeGeneration({
+			preset_id: 'h3',
+			mode: 'long',
+			form_name: 'custom',
+			prompt_state: { prompt: 'a paper boat' },
+			seed: 99,
+			form_data: {
+				seed: 99,
+				total_seconds: 30,
+				piece_seconds: 10,
+				piece_prompts: 'drifting\n',
+				start_image: '/storage/boat.png',
+				soundtrack: '/storage/rain.mp3',
+				speed_profile: 'quality',
+				drift_correction: 0.5,
+				resolution: '832x480'
+			}
+		});
+
+	it('opens it as Video Director shots on the Video Director mode', () => {
+		const { tabData, converted } = buildHistoryReuseTabData(longRow());
+
+		expect(tabData.selectedPreset).toBe('h3');
+		expect(tabData.selectedMode).toBe('video');
+		expect(tabData.selectedVariant).toBeNull();
+		const chain = (tabData.videoDirector as any).chain;
+		expect(chain.segments.map((s: any) => s.prompt)).toEqual(['drifting', 'a paper boat', 'a paper boat', 'a paper boat']);
+		expect(chain.segments[0].keyframe).toEqual({ path: '/storage/boat.png', type: 'image' });
+		expect(chain.audio[0].media).toEqual({ path: '/storage/rain.mp3', type: 'audio' });
+		expect(converted?.from).toBe('long');
+		expect(converted?.to).toBe('video');
+	});
+
+	it('hands the shared settings to the Director form and drops the Long-only ones', () => {
+		const { tabData } = buildHistoryReuseTabData(longRow());
+
+		expect(tabData.formData).toEqual({
+			seed: 99,
+			speed_profile: 'quality',
+			drift_correction: 0.5,
+			resolution: '832x480'
+		});
+		expect(tabData.seed).toBe(99);
+	});
+
+	it('also converts it when reused in place on the open tab', () => {
+		const result = buildActiveTabReuseUpdate(longRow(), { selectedPreset: 'h3' });
+
+		expect(result.tabData.selectedMode).toBe('video');
+		expect(result.converted?.notes.length).toBeGreaterThan(0);
+	});
+
+	it('converts an imported bundle the same way', () => {
+		const { tabData, converted } = buildImportBundleTabData({
+			preset_id: 'h3',
+			mode: 'long',
+			form_data: { total_seconds: 12, piece_seconds: 5, piece_prompts: '' },
+			prompt_state: { prompt: 'x' }
+		} as unknown as ImportBundleReuse);
+
+		expect(tabData.selectedMode).toBe('video');
+		expect(converted?.from).toBe('long');
+	});
+
+	it('leaves a row that merely shares the mode name but not the setup alone', () => {
+		const { tabData, converted } = buildHistoryReuseTabData(
+			makeGeneration({ mode: 'long', form_data: { seed: 1, steps: 8 } })
+		);
+
+		expect(tabData.selectedMode).toBe('long');
+		expect(converted).toBeUndefined();
+	});
+
+	it('does not touch an ordinary row', () => {
+		expect(buildHistoryReuseTabData(makeGeneration()).converted).toBeUndefined();
+	});
+});

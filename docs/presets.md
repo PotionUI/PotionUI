@@ -119,6 +119,12 @@ Rules the loader (`src/features/presets/loader.py`) and linter (`src/features/pr
   `GET /api/presets/<id>/modes` serves it as `modes[].short_description` (the default variant's
   value; each `variants[]` entry carries its own). Over 100 characters → **warning**; a preset with
   two or more modes where a mode has neither `short_description` nor `description` → **info**.
+- A mode's `pipeline.yml` may be the single line `pipeline_from: <mode>` instead of a `pipeline:`
+  list. The loader then uses that sibling mode's pipeline, rendered against this mode's own form,
+  so two modes that differ only in their form share one pipeline file. The target must be a
+  sibling mode directory that has a `pipeline:` list of its own (no chain of pointers, no cycle,
+  no other keys beside `pipeline_from`); anything else is a lint **error**. Goldens still render
+  each mode separately.
 - Users never see a raw mode key: everywhere the UI names a mode it shows a plain name, served as
   `modes[].label` (`name` stays the key). The name comes from, in order:
   1. `mode_label:` in the mode's own `modes/<mode>/form.yml` (not a variant's form; `label:` there

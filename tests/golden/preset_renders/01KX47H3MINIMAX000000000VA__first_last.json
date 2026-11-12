@@ -1,5 +1,5 @@
 {
-  "mode": "long",
+  "mode": "first_last",
   "pipes": [
     {
       "config": {
@@ -31,6 +31,14 @@
           "type": "str",
           "value": "/GOLDEN/models/text_encoder.safetensors"
         },
+        "upscale_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/upscale_model.safetensors"
+        },
+        "upscale_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/upscale_model.safetensors"
+        },
         "video_vae.file_path": {
           "type": "str",
           "value": "/GOLDEN/models/video_vae.safetensors"
@@ -53,6 +61,15 @@
         "type": "bool",
         "value": false
       },
+      "id": "keyframes",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
       "id": "director_media",
       "name": "media_loader"
     },
@@ -62,9 +79,13 @@
           "type": "float",
           "value": 1.0
         },
+        "image_pixel_budget": {
+          "type": "str",
+          "value": "0"
+        },
         "output_resolution": {
           "type": "str",
-          "value": "832x480"
+          "value": "1344x768"
         },
         "p_prompt.input": {
           "type": "str",
@@ -78,33 +99,30 @@
           "type": "list",
           "value": [
             {
-              "negative": "",
-              "positive": "golden positive prompt"
-            },
-            {
-              "negative": "",
-              "positive": "golden positive prompt"
-            },
-            {
-              "negative": "",
-              "positive": "golden positive prompt"
-            },
-            {
-              "negative": "",
+              "negative": "golden negative prompt",
               "positive": "golden positive prompt"
             }
           ]
         },
         "quantity": {
           "type": "int",
-          "value": 4
+          "value": 1
         }
       },
       "enabled": {
         "type": "bool",
         "value": true
       },
-      "id": "prompt_encoder",
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "prompt_encoder_director",
       "name": "prompt_encoder"
     },
     {
@@ -124,6 +142,29 @@
       },
       "id": null,
       "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
     },
     {
       "config": {
@@ -160,7 +201,10 @@
               "model",
               "/GOLDEN/models/audio_vae.safetensors"
             ],
-            [],
+            [
+              "model",
+              "/GOLDEN/models/upscale_model.safetensors"
+            ],
             [],
             [
               "positive_prompt",
@@ -168,6 +212,7 @@
                 "golden positive prompt"
               ]
             ],
+            [],
             [
               "steps",
               4
@@ -178,11 +223,16 @@
             ],
             [
               "resolution",
-              "832x480"
+              "1344x768"
             ],
             [
-              "duration",
-              30
+              "latent_upscale",
+              "off"
+            ],
+            [],
+            [
+              "frames",
+              120
             ],
             [
               "fps",
@@ -242,7 +292,15 @@
         },
         "document.mode": {
           "type": "str",
-          "value": "director"
+          "value": "t2v"
+        },
+        "document.needs_i2v_set": {
+          "type": "bool",
+          "value": false
+        },
+        "document.needs_t2v_set": {
+          "type": "bool",
+          "value": true
         },
         "document.schema_version": {
           "type": "int",
@@ -257,97 +315,46 @@
               "frames": null,
               "id": "seg-0",
               "loras": null,
-              "negative_prompt": "",
+              "negative_prompt": "golden negative prompt",
               "prompt": "golden positive prompt",
               "seed": null,
               "start": null,
               "steps": null,
               "sub_type": "t2v"
-            },
-            {
-              "cfg": null,
-              "end": null,
-              "frames": null,
-              "id": "seg-1",
-              "loras": null,
-              "negative_prompt": "",
-              "prompt": "golden positive prompt",
-              "seed": null,
-              "start": null,
-              "steps": null,
-              "sub_type": "chain"
-            },
-            {
-              "cfg": null,
-              "end": null,
-              "frames": null,
-              "id": "seg-2",
-              "loras": null,
-              "negative_prompt": "",
-              "prompt": "golden positive prompt",
-              "seed": null,
-              "start": null,
-              "steps": null,
-              "sub_type": "chain"
-            },
-            {
-              "cfg": null,
-              "end": null,
-              "frames": null,
-              "id": "seg-3",
-              "loras": null,
-              "negative_prompt": "",
-              "prompt": "golden positive prompt",
-              "seed": null,
-              "start": null,
-              "steps": null,
-              "sub_type": "chain"
             }
           ]
         },
-        "document.settings.continuation.overlap_frames": {
-          "type": "int",
-          "value": 17
-        },
-        "document.settings.continuation.source": {
-          "type": "str",
-          "value": "tail_frames"
-        },
-        "document.settings.continuation.stitch": {
-          "type": "bool",
-          "value": true
-        },
-        "document.settings.duration": {
+        "document.settings.continuation": {
           "type": "NoneType",
           "value": null
+        },
+        "document.settings.duration": {
+          "type": "float",
+          "value": 5.0
         },
         "document.settings.fps": {
           "type": "int",
           "value": 24
-        },
-        "document.settings.long.part_seconds": {
-          "type": "int",
-          "value": 10
-        },
-        "document.settings.long.total_seconds": {
-          "type": "int",
-          "value": 30
         },
         "document.settings.resolution": {
           "type": "str",
           "value": ""
         },
         "document.settings.seed": {
-          "type": "NoneType",
-          "value": null
+          "type": "int",
+          "value": 42
         },
         "drift_correction": {
           "type": "float",
-          "value": 0.5
+          "value": 0.0
         },
         "frames": {
           "type": "int",
-          "value": 243
+          "value": 120
+        },
+        "keyframe_anchors": {
+          "type": "list",
+          "value": []
         },
         "manual_audio_sigmas": {
           "type": "str",
@@ -375,7 +382,7 @@
         },
         "resolution": {
           "type": "str",
-          "value": "832x480"
+          "value": "1344x768"
         },
         "runtime_loras": {
           "type": "list",
@@ -434,30 +441,26 @@
         "type": "bool",
         "value": true
       },
-      "id": "generator",
+      "id": "generator_stage1",
       "name": "generator/video_minimax_h3"
     },
     {
-      "config": {
-        "keep": {
-          "type": "str",
-          "value": "head"
-        },
-        "keep_audio": {
-          "type": "bool",
-          "value": true
-        },
-        "seconds": {
-          "type": "int",
-          "value": 30
-        }
-      },
+      "config": {},
       "enabled": {
         "type": "bool",
-        "value": true
+        "value": false
       },
-      "id": "trim",
-      "name": "video_trim"
+      "id": "latent_upscaler",
+      "name": "latent_upscaler/minimax_h3"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "generator_stage2",
+      "name": "generator/video_minimax_h3"
     },
     {
       "config": {},

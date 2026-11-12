@@ -52,7 +52,7 @@ class PromptExpander:
         form_data = request.form_data or {}
 
         video_director = form_data.get('video_director')
-        if isinstance(video_director, dict):
+        if isinstance(video_director, dict) and getattr(request, '_one_shot_director', False) is not True:
             self._expand_director_segments(generation_id, request, video_director, on_warning)
             first = (video_director.get('segments') or [None])[0]
             if prompts and isinstance(first, dict):

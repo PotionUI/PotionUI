@@ -49,12 +49,6 @@ Trim the value and return it, or the fallback when it is None or only whitespace
 
 - `{{ generation.prompts.first.positive | text_or('A cinematic shot') }}` → The trimmed prompt, or 'A cinematic shot' when it is blank
 
-**`long_video_parts`** — `total_seconds | long_video_parts(part_seconds: float, fps: int = 24, overlap_frames: int = 17) -> list`
-
-Frame count of every part of a chained long video: parts of part_seconds on the 17n+5 frame lattice, each continuing the one before with overlap_frames replayed, the last part sized to what remains. The list length is the number of parts.
-
-- `{{ 30 | long_video_parts(10, 24) | length }}` → 4
-
 **`default`** — `value | default(fallback: Any, boolean: bool = False) -> Any`
 
 Jinja's builtin default filter - the ONLY way to tolerate a missing value. The environment uses StrictUndefined, so any reference to a field/key that wasn't provided RAISES a build error unless it is guarded by `| default(...)`. Use it on every optional form field.

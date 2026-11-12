@@ -1,0 +1,31 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children: "{{ paths.preset }}/files/form/advanced_sampling.yml"
+
+  - type: "section"
+    label: "Refine"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_refine.yml"
+
+  - type: "section"
+    label: "Sparse attention"
+    formula: "sparse"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_sparse.yml"
+
+  - type: "section"
+    label: "Keyframe encoding"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_keyframe.yml"
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    formula: "cache"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_step_cache.yml"
+
+  - name: "preview"
+    type: "checkbox"
+    label: "Live preview"
+    default: true

@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.features.presets.fixed_prompt import FixedPrompt
+from src.features.video_director.simple_modes import simple_mode_spec
 from src.pipelines.outputs import GenerationOutput, ParamGenerationOutput, RenderedPromptGenerationOutput
 
 PROMPT_PARAMETERS = {"positive_prompt": "positive", "negative_prompt": "negative"}
@@ -21,7 +22,14 @@ def fixed_prompt_applies(
         return False
     if mode in _promptless_modes(template):
         return False
+    if simple_mode_spec(_director_capabilities(template), mode) is not None:
+        return True
     return not any(isinstance((form_data or {}).get(key), dict) for key in DIRECTOR_DOCUMENTS)
+
+
+def _director_capabilities(template: Any) -> Any:
+    variables = getattr(template, "vars", None)
+    return variables.get("video_director") if isinstance(variables, dict) else None
 
 
 def _promptless_modes(template: Any) -> List[str]:

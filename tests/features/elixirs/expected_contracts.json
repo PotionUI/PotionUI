@@ -46,7 +46,7 @@
         }
       }
     },
-    "label": "Video",
+    "label": "Video Director",
     "outputs": {
       "videos": {
         "label": "Final videos",

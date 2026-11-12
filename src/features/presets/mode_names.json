@@ -31,6 +31,10 @@
     "label": "Image to Video",
     "icon": "video"
   },
+  "first_last": {
+    "label": "First to Last Frame",
+    "icon": "mode-transition"
+  },
   "vid2vid": {
     "label": "Video to Video",
     "icon": "film"

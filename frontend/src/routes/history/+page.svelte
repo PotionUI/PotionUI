@@ -22,6 +22,7 @@
 	import { tabsStore } from '$lib/stores/tabs';
 	import { WebSocketService, createGenerationSocket, type WebSocketMessage } from '$lib/services/websocket';
 	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
+	import { announceReuseConversion } from '$lib/utils/reuseNotice';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
@@ -428,9 +429,10 @@
 		if (!generation.preset_id) return;
 
 		const tabName = buildReuseTabTitle('Reused', generation, resolvePresetName);
-		const { tabData } = buildHistoryReuseTabData(generation);
+		const reuse = buildHistoryReuseTabData(generation);
 
-		tabsStore.addTabWithData(tabName, tabData);
+		tabsStore.addTabWithData(tabName, reuse.tabData);
+		announceReuseConversion(reuse);
 
 		handleModalClose();
 		goto('/generate');

@@ -37,7 +37,8 @@ def check_prompt_batch(request, backend) -> None:
     if not is_prompt_batch(request):
         return
     form_data = getattr(request, 'form_data', None) or {}
-    if isinstance(form_data.get('video_director'), dict) or isinstance(form_data.get('music_director'), dict):
+    authored_video = isinstance(form_data.get('video_director'), dict) and getattr(request, '_one_shot_director', False) is not True
+    if authored_video or isinstance(form_data.get('music_director'), dict):
         raise PromptBatchError(
             "Batch prompts cannot be combined with the Video Director or Music Director, which already "
             "plan their own shots and sections. Send a single prompt instead."

@@ -33,6 +33,7 @@ class SegmentInput(BaseModel):
 
 class GenerationRequest(BaseModel):
     _acts_as_admin: bool = PrivateAttr(default=False)
+    _one_shot_director: bool = PrivateAttr(default=False)
     preset_id: str
     prompt: Optional[str] = ""  # Legacy single prompt (deprecated, use prompts array)
     negative_prompt: Optional[str] = ""  # Legacy single negative (deprecated)

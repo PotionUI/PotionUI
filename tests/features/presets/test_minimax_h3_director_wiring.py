@@ -98,7 +98,7 @@ def test_a_director_document_normalizes_against_the_declared_capabilities(capabi
 
 
 @pytest.mark.parametrize("kwargs,message", [
-    ({"segment_count": 7}, "at most 6 segments"),
+    ({"segment_count": 31}, "at most 30 segments"),
     ({"overlap": 51}, "max_overlap_frames"),
 ])
 def test_the_declared_caps_are_enforced_by_the_normalizer(capabilities, tmp_path, kwargs, message):

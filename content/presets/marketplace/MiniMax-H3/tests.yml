@@ -307,18 +307,68 @@ cases:
       min_outputs: 1
       not_black: true
 
-  - name: "minimax-h3-long-fast"
-    mode: "long"
+  - name: "minimax-h3-text-to-video-fast"
+    mode: "txt2video"
     kind: "video"
     seed: 12345
     tags: ["fast", "needs-model"]
     form:
       prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
       resolution: "832x480"
-      total_seconds: 12
-      piece_seconds: 5
+      duration: 5
       speed_profile: "turbo"
       steps: 4
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  - name: "minimax-h3-image-to-video-fast"
+    mode: "img2video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+      resolution: "832x480"
+      duration: 5
+      speed_profile: "turbo"
+      steps: 4
+      start_image: "PLACEHOLDER/minimax-h3-first-frame.png"
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  - name: "minimax-h3-first-to-last-fast"
+    mode: "first_last"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+      resolution: "832x480"
+      duration: 5
+      speed_profile: "turbo"
+      steps: 4
+      start_image: "PLACEHOLDER/minimax-h3-first-frame.png"
+      end_image: "PLACEHOLDER/minimax-h3-last-frame.png"
     models:
       model:
         sha256: "0000000000000000000000000000000000000000000000000000000000000000"

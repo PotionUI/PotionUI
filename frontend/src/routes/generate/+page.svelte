@@ -119,6 +119,7 @@
 	import { resolvePresetSegmentTemplates } from '$lib/utils/presetSegmentTemplates';
 	import { toasts } from '$lib/stores/toast';
 	import { buildActiveTabReuseUpdate } from '$lib/utils/historyReuse';
+	import { announceReuseConversion } from '$lib/utils/reuseNotice';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { formValidationStore } from '$lib/stores/formValidation';
@@ -1263,7 +1264,7 @@
 	function handleReuseInActiveTab(generation: GenerationHistoryItem) {
 		if (!generation.preset_id) return;
 		const tab = currentTab;
-		const { tabData, presetChanged } = buildActiveTabReuseUpdate(generation, tab);
+		const { tabData, presetChanged, converted } = buildActiveTabReuseUpdate(generation, tab);
 
 		if (presetChanged) {
 			// Drop the stale mode manifest so the mode dropdown doesn't flash the
@@ -1278,6 +1279,7 @@
 		tabsStore.updateTab(tab.id, tabData);
 
 		toasts.success(`Reused generation from ${timeAgo(generation.created_at)}`);
+		announceReuseConversion({ converted });
 	}
 
 	function createTabHandlers(tabId: string) {

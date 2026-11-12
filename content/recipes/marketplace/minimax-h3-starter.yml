@@ -101,8 +101,8 @@ steps:
     params:
       preset_id: "01KX47H3MINIMAX000000000VA"
       modes: "all"
-      selected: ["video"]
-      locked: ["video"]
+      selected: ["txt2video", "img2video", "first_last", "video"]
+      locked: ["txt2video", "video"]
       extras: "offer"
 
   - key: "artifacts.fetch"

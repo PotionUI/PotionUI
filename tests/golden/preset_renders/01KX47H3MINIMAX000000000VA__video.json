@@ -344,6 +344,10 @@
           "type": "int",
           "value": 42
         },
+        "drift_correction": {
+          "type": "float",
+          "value": 0.0
+        },
         "frames": {
           "type": "int",
           "value": 120

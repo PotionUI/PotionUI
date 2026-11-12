@@ -50,6 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.features.presets.linter import PresetLinter, LintIssue  # noqa: E402
 from src.features.presets.loader import plugin_preset_roots  # noqa: E402
+from src.features.presets.pipeline_source import resolve_mode_pipeline_file
 from src.features.presets.schema import SEMVER_RE  # noqa: E402
 from src.platform.plugins.loader import PluginLoader  # noqa: E402
 from src.platform.filesystem.yaml_io import load_yaml, load_yaml_file
@@ -183,7 +184,7 @@ def detect_engine(preset_dir: Path, mode_names: List[str]) -> str:
         return "comfyui"
 
     for mode_name in mode_names:
-        pipeline_file = preset_dir / "modes" / mode_name / "pipeline.yml"
+        pipeline_file = resolve_mode_pipeline_file(preset_dir / "modes" / mode_name)
         if not pipeline_file.exists():
             continue
         try:

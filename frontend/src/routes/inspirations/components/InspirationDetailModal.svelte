@@ -14,6 +14,7 @@
 	import { inspirationsStore } from '$lib/stores/inspirations';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { buildImportBundleTabData, UNKNOWN_PRESET_LABEL } from '$lib/utils/historyReuse';
+	import { announceReuseConversion } from '$lib/utils/reuseNotice';
 	import { buildInspirationReuseSource, formatOmittedFieldsHint } from '$lib/inspirations/reuseAdapter';
 	import type { PresetInfo } from '$lib/types/api';
 	import { canModerateInspiration } from '$lib/inspirations/inspirationCardMeta';
@@ -116,9 +117,10 @@
 			}
 
 			const source = buildInspirationReuseSource(paramsResponse.data);
-			const { tabData } = buildImportBundleTabData(source);
+			const imported = buildImportBundleTabData(source);
 			const tabName = `Reused: ${paramsResponse.data.preset_name ?? item.title}`;
-			tabsStore.addTabWithData(tabName, tabData);
+			tabsStore.addTabWithData(tabName, imported.tabData);
+			announceReuseConversion(imported);
 			const omittedHint = formatOmittedFieldsHint(paramsResponse.data.omitted_fields ?? []);
 			if (omittedHint) {
 				toasts.info(omittedHint);

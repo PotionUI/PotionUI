@@ -22,7 +22,9 @@ _MODE_INPUTS = {
     "extend": {"source_video": "/media/clip.mp4"},
     "remix": {"source_video": "/media/clip.mp4"},
     "talk": {"portrait": "/media/face.png", "voice": "/media/voice.wav"},
-    "long": {},
+    "txt2video": {},
+    "img2video": {"start_image": "/media/first.png"},
+    "first_last": {"start_image": "/media/first.png", "end_image": "/media/last.png"},
     "motion_transfer": {
         "control_model": "/models/h3_control_int8.safetensors",
         "input_image": "/media/person.png",

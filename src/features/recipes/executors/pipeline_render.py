@@ -13,9 +13,11 @@ from __future__ import annotations
 
 from src.features.generation.orchestrator import _prepare_director_form_data
 from src.features.generation.pipeline_builder import PipelineBuilder
+from src.features.presets.fixture_form import VIDEO_DIRECTOR_FIXTURE_PROMPT
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.recipes.executors._fixture_form import build_fixture_form_data
 from src.features.recipes.executors.base import StepContext, StepResult
+from src.features.video_director.simple_modes import simple_mode_spec
 from src.platform.templating import TemplateProcessor
 
 
@@ -63,6 +65,8 @@ class PipelineRenderExecutor:
                 self._build_fixture_form_data(preset_template, mode),
                 context.owner_user_id,
                 self.template_processor.settings,
+                prompt_pair=(VIDEO_DIRECTOR_FIXTURE_PROMPT, ""),
+                dry_run=True,
             )
             built = self.pipeline_builder.build_pipeline(
                 preset_template, form_data, mode=mode, user_id=context.owner_user_id
@@ -101,9 +105,16 @@ class PipelineRenderExecutor:
                 if mode not in preset_template.modes:
                     return StepResult.fail("MODE_NOT_FOUND", f"Preset '{preset_template.name}' has no '{mode}' mode to check.")
                 try:
+                    form_data = self._build_fixture_form_data(preset_template, mode)
+                    if simple_mode_spec((getattr(preset_template, "vars", None) or {}).get("video_director"), mode):
+                        form_data = _prepare_director_form_data(
+                            preset_template, mode, form_data, context.owner_user_id,
+                            self.template_processor.settings,
+                            prompt_pair=(VIDEO_DIRECTOR_FIXTURE_PROMPT, ""), dry_run=True,
+                        )
                     built = self.pipeline_builder.build_pipeline(
                         preset_template,
-                        self._build_fixture_form_data(preset_template, mode),
+                        form_data,
                         mode=mode,
                         user_id=context.owner_user_id,
                     )

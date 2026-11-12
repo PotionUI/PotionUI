@@ -12,6 +12,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { logger } from '$lib/utils/logger';
 	import { buildImportBundleTabData, buildReuseTabTitle, resolveReusePresetLabel } from '$lib/utils/historyReuse';
+	import { announceReuseConversion } from '$lib/utils/reuseNotice';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 	import { PageHeader, PageTitle, IconButton, ModelPickTrigger } from '$lib/components/ui';
@@ -266,8 +267,9 @@
 			}
 
 			const tabName = buildReuseTabTitle('Imported', reuse, resolvePresetName);
-			const { tabData } = buildImportBundleTabData(reuse);
-			tabsStore.addTabWithData(tabName, tabData);
+			const imported = buildImportBundleTabData(reuse);
+			tabsStore.addTabWithData(tabName, imported.tabData);
+			announceReuseConversion(imported);
 			goto('/generate');
 		} catch (e) {
 			logger.error('Import bundle failed:', e);

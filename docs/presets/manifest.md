@@ -72,6 +72,8 @@ native video preset supports, plus per-mode capability flags (director audio/IC-
 chain per-segment LoRAs, keyframe limits) and defaults (fps, duration). See
 [Video Director → Preset capability declaration](../video-director.md#preset-capability-declaration)
 for the full schema and worked examples.
+`simple_modes` in the same block turns preset modes into plain single-clip forms backed by the same pipeline (see
+[Single-clip modes](../video-director.md#single-clip-modes-simple_modes)).
 
 A cloud video preset adds `model_field: "model"`: the chosen model's own capabilities
 (allowed clip lengths, start and end pictures, shot count) are then merged on top of the block

@@ -404,6 +404,6 @@ def test_the_preset_list_offers_only_installed_modes_with_matching_contracts(har
     offered = [(item["preset_name"], item["mode"]) for item in presets]
     assert offered == [("Krea-2", "txt2img"), ("MiniMax-H3", "upscale"), ("MiniMax-H3", "video")]
     video = presets[2]
-    assert video["mode_label"] == "Video"
+    assert video["mode_label"] == "Video Director"
     assert video["inputs"]["first_frame"] == {"label": "First frame", "media_type": "image", "target": "video_director_role", "role": "first"}
     assert video["outputs"]["videos"] == {"label": "Final videos", "media_type": "video"}

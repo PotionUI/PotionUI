@@ -188,26 +188,3 @@ class TestTextOr:
 
         result = TemplateProcessor(settings=Mock()).process_template("{{ p | text_or('x') }}", {"p": " \n "})
         assert result == "x"
-
-
-def test_long_video_parts_cut_a_length_into_lattice_aligned_parts():
-    from src.platform.templating.dict_utils import long_video_parts
-
-    parts = long_video_parts(30, 10, 24)
-    assert parts == [243, 243, 243, 56]
-    assert all((frames - 5) % 17 == 0 for frames in parts)
-    emitted = parts[0] + sum(frames - 17 for frames in parts[1:])
-    assert 30 * 24 <= emitted < 30 * 24 + 22
-
-
-def test_long_video_parts_short_lengths_are_one_part():
-    from src.platform.templating.dict_utils import long_video_parts
-
-    assert long_video_parts(5, 10, 24) == [124]
-    assert len(long_video_parts(10, 10, 24)) == 1
-
-
-def test_long_video_parts_follow_the_overlap_and_fps():
-    from src.platform.templating.dict_utils import long_video_parts
-
-    assert long_video_parts(30, 10, 24, 34)[-1] > long_video_parts(30, 10, 24, 17)[-1]

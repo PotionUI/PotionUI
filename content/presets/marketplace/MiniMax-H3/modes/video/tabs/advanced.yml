@@ -6,41 +6,7 @@ fields:
   - type: "section"
     label: "Refine"
     audience: "advanced"
-    children:
-      - name: "refine_video_sigma_shift"
-        type: "slider"
-        label: "Refine video sigma shift"
-        audience: "advanced"
-        default: 9.0
-        ai_hint: "The video stream's exponential-shift constant for the Enhance tab's stage-2 refine pass (the audio stream's own shift, 3.0, is unaffected and not exposed here). 9 is the released recipe -- lower than a fresh generation's 12, since a refine starts from the upsampled latent rather than pure noise. Only has an effect when the Enhance tab's Latent Upscale is not Off."
-        configuration: {min: 0.1, max: 50.0, step: 0.5}
-
-      - name: "refine_manual_sigmas"
-        type: "textbox"
-        label: "Refine manual sigmas (video)"
-        default: ""
-        ai_hint: "An expert escape hatch for reshaping the stage-2 refine's own schedule -- prefer the Enhance tab's Refine denoise/Refine steps for ordinary use. Only reach for this when the user explicitly asks for a custom or non-uniform refine sigma schedule. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps. Independent of this tab's own Manual sigmas (video), which is stage 1's."
-        configuration:
-          placeholder: "e.g. 0.9, 0.7, 0.4, 0.0"
-
-      - name: "refine_manual_audio_sigmas"
-        type: "textbox"
-        label: "Refine manual sigmas (audio)"
-        default: ""
-        ai_hint: "Rarely needed on its own for the stage-2 refine. Leave blank even when Refine manual sigmas (video) is set, unless the user specifically wants a different noise curve for the refine's soundtrack. If both lists are filled they must have the same number of values. No effect while Refine audio is Lock, since locked audio rows never sample."
-        configuration:
-          placeholder: "blank = matched to the refine's video schedule"
-
-      - name: "audio_refine"
-        type: "select"
-        label: "Refine audio"
-        audience: "advanced"
-        default: "lock"
-        ai_hint: "How the stage-2 refine treats the audio stage 1 already sampled. Lock (default) keeps stage 1's audio and lip-sync exactly as sampled -- the right choice for almost every refine, and what prevents noise from leaking into the refined picture through the shared attention. Resample lets the refine touch the audio too, the same way it touches video; only suggest it when the user explicitly wants the refine to also change the soundtrack. Only has an effect when Latent Upscale is not Off."
-        configuration:
-          options:
-            - { label: "Lock (keep stage-1 audio)", value: "lock" }
-            - { label: "Resample (let the refine touch audio too)", value: "resample" }
+    children: "{{ paths.preset }}/files/form/advanced_refine.yml"
 
   - type: "section"
     label: "Sparse attention"
@@ -51,18 +17,12 @@ fields:
   - type: "section"
     label: "Keyframe encoding"
     audience: "advanced"
-    children:
-      - name: "keyframe_pixel_budget"
-        type: "select"
-        label: "Keyframe detail budget"
-        default: "0"
-        ai_hint: "Only has any effect when the Video Director attaches a first/last frame. The keyframe reaches the model twice -- as condition frames (always at the picked Resolution) and as a picture the text encoder reads for style/content; only the second read is capped here. Uncapped reads up to 16MP and is paid for by area. '0' (uncapped) is the safest answer when the user cares about keyframe fidelity. Suggest 2x as the speed/fidelity compromise, or 1x when keyframe encoding is slow and the keyframe is a large photo. Values are multiples of the output canvas AREA, not edge length."
-        configuration:
-          options:
-            - { label: "Uncapped (model default)", value: "0" }
-            - { label: "1x output area (fastest)", value: "1" }
-            - { label: "2x output area", value: "2" }
-            - { label: "4x output area", value: "4" }
+    children: "{{ paths.preset }}/files/form/advanced_keyframe.yml"
+
+  - type: "section"
+    label: "Across shots"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_colour_hold.yml"
 
   - type: "section"
     label: "Step cache (FBCache)"

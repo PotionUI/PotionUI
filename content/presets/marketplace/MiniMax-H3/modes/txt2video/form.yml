@@ -1,6 +1,6 @@
 name: "custom"
-mode_label: "Long video"
-short_description: "Chain parts into one long, seamless video."
+mode_icon: "text-cursor-input"
+short_description: "Describe a video and generate it."
 fields:
   - type: "tabs"
     children:
@@ -8,15 +8,20 @@ fields:
         anchor: "generation"
         label: "Generation"
         configuration: {icon: "generation", icon_display: "icon_only"}
-        children: "{{ paths.preset }}/modes/long/tabs/generation.yml"
+        children: "{{ paths.preset }}/modes/txt2video/tabs/generation.yml"
       - type: "tab"
         anchor: "lora"
         label: "LoRA"
         configuration: {icon: "lora", icon_display: "icon_only"}
         children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
       - type: "tab"
+        anchor: "enhance"
+        label: "Enhance"
+        configuration: {icon: "sparkles", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/video/tabs/enhance.yml"
+      - type: "tab"
         anchor: "advanced"
         label: "Advanced"
         audience: "advanced"
         configuration: {icon: "settings", icon_display: "icon_only"}
-        children: "{{ paths.preset }}/modes/long/tabs/advanced.yml"
+        children: "{{ paths.preset }}/modes/txt2video/tabs/advanced.yml"

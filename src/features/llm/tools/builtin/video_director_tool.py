@@ -599,7 +599,9 @@ class GetVideoDirectorTool(BaseTool):
     def description(self) -> str:
         return (
             "Read the Video Director document currently loaded on the user's generation "
-            "form, if the active preset/mode exposes one. Video Director composes a video "
+            "form, if the active preset/mode exposes one (only the Video Director mode does; "
+            "a preset's single-clip modes such as text to video or image to video have none). "
+            "Video Director composes a video "
             "generation in one of four modes: 't2v' (text only, no media), 'i2v' (one start "
             "image), 'flf' (a first+last frame pair), or 'director' -- a multi-part "
             "composition whose shape depends on the preset's capabilities rather than its "

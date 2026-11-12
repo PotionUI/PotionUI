@@ -212,3 +212,50 @@ class TestGeometryPreflightNoOp:
             result = await orchestrator.start_generation(request, 'user_123')
 
         assert result['generation_id'] == 'gen_geom_7'
+
+
+class TestGeometryPreflightOnSimpleModes:
+    SIMPLE = {
+        'modes': {'t2v': {}},
+        'limits': {'default_duration': 5, 'default_fps': 24, 'max_duration': 15},
+        'simple_modes': {'txt2video': {'composition': 't2v'}},
+    }
+
+    @pytest.fixture
+    def with_simple_mode(self, mock_preset_template_loader):
+        preset = mock_preset_template_loader.load_preset_by_id.return_value
+        preset.vars = {'video_director': self.SIMPLE}
+        preset.prompt_resources = {}
+
+    @pytest.mark.asyncio
+    async def test_a_simple_mode_is_checked_like_the_director_mode(
+        self, orchestrator, mock_generation_repo, with_simple_mode
+    ):
+        request = _request({'resolution': '960x544', 'upscale': '1.5x', 'duration': 5}, mode='txt2video')
+
+        with pytest.raises(ValueError, match="not achievable"):
+            await orchestrator.start_generation(request, 'user_123')
+
+        mock_generation_repo.create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_simple_mode_with_a_reachable_resolution_goes_through(
+        self, orchestrator, mock_generation_repo, with_simple_mode
+    ):
+        request = _request({'resolution': '768x512', 'upscale': '1.5x', 'duration': 5}, mode='txt2video')
+
+        with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_geom_7'):
+            result = await orchestrator.start_generation(request, 'user_123')
+
+        assert result['generation_id'] == 'gen_geom_7'
+
+    @pytest.mark.asyncio
+    async def test_a_mode_that_is_not_a_simple_mode_stays_unchecked(
+        self, orchestrator, mock_generation_repo, with_simple_mode
+    ):
+        request = _request({'resolution': '960x544', 'upscale': '1.5x'}, mode='upscale')
+
+        with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_geom_8'):
+            result = await orchestrator.start_generation(request, 'user_123')
+
+        assert result['generation_id'] == 'gen_geom_8'

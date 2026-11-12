@@ -1,10 +1,15 @@
 import type { GenerationHistoryItem, ImportBundleReuse } from '$lib/types/history';
 import type { GenerationTab } from '$lib/types/tabs';
 import { clearedModeStateByMode } from '$lib/utils/modeState';
+import { DIRECTOR_MODE, LONG_MODE, convertLongVideo, isLongVideoForm } from '$lib/utils/longVideoConversion';
 
 export interface HistoryReuseResult {
 	/** Partial tab data to hand to `tabsStore.addTabWithData`. */
 	tabData: Partial<GenerationTab>;
+	/** Set when the reused generation was made with a mode the preset no
+	 *  longer has and was carried over to its replacement. `notes` lists
+	 *  everything that could not be carried over. */
+	converted?: { from: string; to: string; notes: string[] };
 }
 
 /** Common fields `buildHistoryReuseTabData` and `buildImportBundleTabData`
@@ -20,7 +25,30 @@ interface ReusableSettings {
 	seed?: number | null;
 }
 
+function buildLongVideoReuse(source: ReusableSettings): HistoryReuseResult {
+	const promptState = source.prompt_state ?? {};
+	const prompt = typeof promptState.prompt === 'string' ? promptState.prompt : '';
+	const conversion = convertLongVideo({ prompt, formData: source.form_data });
+	const formData: Record<string, unknown> = {
+		...conversion.formPatch,
+		...(source.seed !== undefined && source.seed !== null ? { seed: source.seed } : {})
+	};
+	const tabData: Partial<GenerationTab> = {
+		selectedPreset: source.preset_id ?? null,
+		selectedMode: DIRECTOR_MODE,
+		selectedVariant: null,
+		formData,
+		...promptState,
+		videoDirector: conversion.directorValue
+	};
+	if (source.seed !== undefined && source.seed !== null) {
+		tabData.seed = source.seed;
+	}
+	return { tabData, converted: { from: LONG_MODE, to: DIRECTOR_MODE, notes: conversion.notes } };
+}
+
 function buildReuseTabData(source: ReusableSettings): HistoryReuseResult {
+	if (source.mode === LONG_MODE && isLongVideoForm(source.form_data)) return buildLongVideoReuse(source);
 	const mode = source.mode || 'txt2img';
 	const promptState = source.prompt_state ?? {};
 
@@ -108,7 +136,7 @@ export function buildActiveTabReuseUpdate(
 	generation: GenerationHistoryItem,
 	currentTab: Pick<GenerationTab, 'selectedPreset'>
 ): ActiveTabReuseResult {
-	const { tabData } = buildHistoryReuseTabData(generation);
+	const { tabData, converted } = buildHistoryReuseTabData(generation);
 	const presetChanged = (tabData.selectedPreset ?? null) !== (currentTab.selectedPreset ?? null);
 
 	const resetFields: Partial<GenerationTab> = {
@@ -121,5 +149,5 @@ export function buildActiveTabReuseUpdate(
 		modeStateByMode: clearedModeStateByMode()
 	};
 
-	return { tabData: { ...resetFields, ...tabData }, presetChanged };
+	return { tabData: { ...resetFields, ...tabData }, presetChanged, converted };
 }

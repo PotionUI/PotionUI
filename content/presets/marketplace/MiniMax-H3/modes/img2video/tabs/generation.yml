@@ -1,0 +1,78 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "turbo"
+    ai_hint: >-
+      Turbo is a 4-step recipe. It works on the base model alone — MiniMax-H3
+      turns out to be a capable few-step generator on its own schedule — so no
+      LoRA is required; expect softer detail than the 24-step Quality profile.
+      The turbo distillation LoRA on the LoRA tab sharpens it further, but read
+      that field's hint before loading one: the original ModelTC file omits its
+      PEFT alpha metadata and produces noise unless its strength is set to 0.125
+      by hand, while Kijai's conversion is correct at about 0.75. Pick Quality
+      for anything final. Custom pins nothing and hands the Steps slider to the
+      user — suggest it whenever they ask for a specific step count.
+      Flex is a 6-step recipe built on the Pika Flex adapter, which needs the
+      Flex adapter model on the Models section. It is fast, and it ignores the
+      LoRA tab and the sampler settings, so suggest it for quick drafts rather
+      than combining it with turbo LoRAs.
+    configuration:
+      options:
+        - { label: "Quality", value: "quality", sub_label: "24 steps" }
+        - { label: "Turbo", value: "turbo", sub_label: "4 steps · distillation LoRA optional" }
+        - { label: "Flex", value: "flex", sub_label: "6 steps · Flex adapter" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps, left alone" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "start_image"
+        type: "image"
+        label: "Start picture"
+        required: true
+        description: "The first frame of the video."
+        ai_hint: "The picture the video opens on; its look, subject and framing are carried into the motion. The prompt then says what happens, not what the picture already shows."
+
+      - name: "duration"
+        type: "slider"
+        formula: "size"
+        label: "Length (seconds)"
+        default: 5
+        description: "One continuous clip, up to 15 seconds."
+        ai_hint: "Seconds of finished video, one continuous clip. Rounded to the length the model can make, so the result can differ from the request by a fraction of a second. For a film in several shots use Video Director."
+        configuration: {min: 1, max: 15, step: 0.5}
+
+      - name: "resolution"
+        type: "resolution"
+        formula: "size"
+        label: "Resolution"
+        ai_hint: "Both axes must be multiples of 32, aspect ratio between 1:4 and 4:1 — the offered sizes are what MiniMax-H3's own canvas math produces. Area is the dominant cost."
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_canvas.yml", group: "Native canvas (768 short edge)" }
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_fast.yml", group: "Faster (below native canvas)" }
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_480p.yml", group: "480p (Flex-trained)" }
+        default: "1344x768"
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models_fl2va.yml"

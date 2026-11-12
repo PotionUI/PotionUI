@@ -2,6 +2,7 @@
 	import SessionScope from '$lib/components/session/SessionScope.svelte';
 	import StepEditBar from '$lib/components/elixirs/StepEditBar.svelte';
 	import ContextToolbar from './ContextToolbar.svelte';
+	import LongVideoNotice from './LongVideoNotice.svelte';
 	import type { GenerationTab } from '$lib/types/tabs';
 	import type { PresetInfo } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
@@ -88,6 +89,9 @@
 					leading={embedded ? stepLead : undefined}
 					trailing={embedded ? stepActions : undefined}
 				/>
+			{/if}
+			{#if !embedded}
+				<LongVideoNotice {tab} modeNames={availableModes.map((mode) => mode.id)} class="mx-4 mt-2" />
 			{/if}
 			<div class="min-h-0 flex-1">
 				<slot />

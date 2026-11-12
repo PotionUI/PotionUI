@@ -15,6 +15,7 @@
 	import { showDeleteError } from '$lib/elixirs/openBrew';
 	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
+	import { announceReuseConversion } from '$lib/utils/reuseNotice';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import type { ActiveGrid } from '$lib/generation/compare/compareStore.svelte';
 	import CompareGrid from '$lib/components/compare/view/CompareGrid.svelte';
@@ -80,8 +81,9 @@
 
 	function reuse(generation: GenerationHistoryItem) {
 		if (!generation.preset_id) return;
-		const { tabData } = buildHistoryReuseTabData(generation);
-		tabsStore.addTabWithData(buildReuseTabTitle('Reused', generation, () => null), tabData);
+		const reuse = buildHistoryReuseTabData(generation);
+		tabsStore.addTabWithData(buildReuseTabTitle('Reused', generation, () => null), reuse.tabData);
+		announceReuseConversion(reuse);
 		onClose();
 		goto('/generate');
 	}

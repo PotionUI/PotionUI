@@ -280,6 +280,7 @@ pipeline:
       # lists). Absent for every ordinary request, which is what leaves this
       # pipe on its single-generation path with the knobs below as the request.
       document: "{{ form.video_director if form.video_director is defined else none }}"
+      drift_correction: "{{ form.drift_correction | default(0.0) }}"
       # The profile supplies the baseline; the visible Steps slider (baked to
       # the profile's exact value by the reactions in tabs/generation.yml) is
       # what actually wins once a profile is selected.

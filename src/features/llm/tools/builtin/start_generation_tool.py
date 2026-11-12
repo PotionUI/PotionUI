@@ -64,7 +64,7 @@ class StartGenerationTool(BaseTool):
             "type": "object",
             "properties": {
                 "preset_id": {"type": "string", "description": "The preset id to generate with."},
-                "mode": {"type": "string", "description": "One of the preset's modes (see get_preset_info). Defaults to txt2img when the preset has it, else its first mode."},
+                "mode": {"type": "string", "description": "One of the preset's modes (see get_preset_info); default txt2img, else the first. For one video use a single-clip mode, not Video Director."},
                 "prompt": {"type": "string"},
                 "negative_prompt": {"type": "string"},
                 "prompts": {

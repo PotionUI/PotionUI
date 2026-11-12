@@ -32,6 +32,7 @@ from src.features.presets.templates import PresetTemplate, default_form_name
 from src.features.presets.negative_prompt import negative_prompt_applies
 
 from .loader import PresetTemplateLoader
+from .pipeline_source import resolve_mode_pipeline_file
 
 # @loop expansion is capped so a runaway `items:`/`count:` expression (e.g. an
 # accidental cartesian product) can't hang preset processing or blow up memory.
@@ -526,7 +527,7 @@ class PresetProcessor:
         # Process all pipes configurations recursively
         processed_pipes = []
         pipe_templates = mode_data.pipes
-        source_file = (Path(preset_template.path) / 'modes' / mode / 'pipeline.yml').as_posix()
+        source_file = resolve_mode_pipeline_file(Path(preset_template.path) / 'modes' / mode).as_posix()
 
         for pipe in pipe_templates:
             try:

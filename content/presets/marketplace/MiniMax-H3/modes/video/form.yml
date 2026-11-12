@@ -1,5 +1,6 @@
 name: "custom"
-short_description: "Generate a video from a prompt or a starting image."
+mode_label: "Video Director"
+short_description: "Plan a video shot by shot, with keyframes and sound."
 fields:
   - type: "tabs"
     children:

@@ -13,6 +13,7 @@
 	import { representativeDirectorPrompt } from '$lib/utils/videoDirector';
 	import StudioCanvas from './StudioCanvas.svelte';
 	import StudioTopBar from './StudioTopBar.svelte';
+	import LongVideoNotice from '../LongVideoNotice.svelte';
 	import StudioDock from './StudioDock.svelte';
 	import StudioPromptSheet from './StudioPromptSheet.svelte';
 	import StudioSettingsSheet from './StudioSettingsSheet.svelte';
@@ -116,6 +117,10 @@
 			onOpenTabsSheet={() => (openSheet = 'tabs')}
 			onOpenChatSheet={() => chatPanelStore.open()}
 		/>
+	{/if}
+
+	{#if !tab.embedded}
+		<LongVideoNotice {tab} modeNames={availableModes.map((mode) => mode.id)} class="absolute inset-x-3 top-16 z-20" />
 	{/if}
 
 	<StudioDock

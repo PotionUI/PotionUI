@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from src.features.presets import operations
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.linter import PresetLinter
-from src.features.presets.loader import PresetTemplateLoader
+from src.features.presets.loader import PresetTemplateLoader, read_mode_naming
 from src.features.presets.mode_labels import (
     MODE_ICONS,
     MODE_LABELS,
@@ -171,7 +171,7 @@ def test_modes_of_one_shipped_preset_never_share_an_icon(preset):
     modes_dir = ROOT / "content" / "presets" / "marketplace" / preset / "modes"
     keys = sorted(path.name for path in modes_dir.iterdir() if path.is_dir())
     assert len(keys) >= 3
-    icons = [mode_display_icon(key) for key in keys]
+    icons = [mode_display_icon(key, read_mode_naming(modes_dir / key)["mode_icon"]) for key in keys]
     assert None not in icons
     assert len(set(icons)) == len(icons)
 

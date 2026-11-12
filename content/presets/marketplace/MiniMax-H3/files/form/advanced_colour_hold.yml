@@ -1,0 +1,9 @@
+fields:
+  - name: "drift_correction"
+    type: "slider"
+    label: "Colour hold"
+    audience: "advanced"
+    default: 0.0
+    description: "Keeps colour steady across shots."
+    ai_hint: "How strongly each shot's colour and brightness are pulled back toward the first shot's, in a film of several shots that continue from one another. 0 leaves every shot as generated; around 0.5 steadies a long chain without flattening a deliberate scene change. Raise it when the film slowly turns darker, brighter or tinted; lower it when the story changes lighting on purpose. It has no effect on a single shot."
+    configuration: {min: 0.0, max: 1.0, step: 0.05}

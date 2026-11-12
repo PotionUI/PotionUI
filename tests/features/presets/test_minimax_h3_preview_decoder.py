@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from src.features.presets import PresetTemplateLoader
+from src.features.presets.pipeline_source import resolve_mode_pipeline_file
 
 PRESETS_ROOT = Path("content/presets/marketplace")
 GENERATOR = "generator/video_minimax_h3"
@@ -24,7 +25,7 @@ def _cases():
     for preset_file in sorted(PRESETS_ROOT.glob("MiniMax-H3*/preset.yml")):
         preset_id = yaml.safe_load(preset_file.read_text(encoding="utf-8"))["id"]
         for pipeline_file in sorted(preset_file.parent.glob("modes/*/pipeline.yml")):
-            generators = list(_previewing_generators(pipeline_file))
+            generators = list(_previewing_generators(resolve_mode_pipeline_file(pipeline_file.parent)))
             if generators:
                 mode = pipeline_file.parent.name
                 cases.append(pytest.param(preset_id, mode, generators, id=f"{preset_file.parent.name}-{mode}"))

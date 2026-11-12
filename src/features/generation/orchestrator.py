@@ -38,7 +38,7 @@ import time
 import traceback
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, Callable, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.features.presets.repository import DatabasePresetRepository
@@ -129,6 +129,11 @@ from src.features.video_director import (
     compile_shot_plan,
     normalize_video_director,
 )
+from src.features.video_director.simple_modes import (
+    build_simple_mode_document,
+    is_director_backed,
+    simple_mode_spec,
+)
 from src.features.music_director import (
     apply_preset_mode_overlay as apply_music_director_mode_overlay,
     compile_sections_to_lyrics,
@@ -182,7 +187,8 @@ def _check_ltx_two_stage_geometry(preset_template, mode: str, form_data: Dict[st
     hardcoded preset id, so any current/future LTX-tagged preset sharing this
     `upscale`/`resolution` form shape is covered.
     """
-    if mode != "video" or "ltx" not in (getattr(preset_template, "tags", None) or []):
+    director_capabilities = (getattr(preset_template, "vars", None) or {}).get("video_director")
+    if not is_director_backed(director_capabilities, mode) or "ltx" not in (getattr(preset_template, "tags", None) or []):
         return
     scale = _LTX_UPSCALE_SCALES.get(form_data.get("upscale"))
     if scale is None:
@@ -237,6 +243,15 @@ def _is_form_default(preset_template: PresetTemplate, mode: str, field_name: str
     return field is not None and value == field.default
 
 
+def _request_prompt_pair(request) -> Tuple[str, str]:
+    prompts = getattr(request, 'prompts', None)
+    if not isinstance(prompts, (list, tuple)) or not prompts:
+        return '', ''
+    positive = getattr(prompts[0], 'positive', '')
+    negative = getattr(prompts[0], 'negative', '')
+    return (positive if isinstance(positive, str) else ''), (negative if isinstance(negative, str) else '')
+
+
 def _prepare_director_form_data(
     preset_template: PresetTemplate,
     mode: str,
@@ -246,6 +261,7 @@ def _prepare_director_form_data(
     model_overlay: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
     bundle_members: Optional[BundleMembersResolver] = None,
     model_sha256: Optional[Callable[[Any], Optional[str]]] = None,
+    prompt_pair: Optional[Tuple[str, str]] = None,
 ) -> Dict[str, Any]:
     """Pure Video/Music Director canonicalization, shared by `start_generation`
     and `GenerationOrchestrator.preview_memory` so a preview's active loader
@@ -270,6 +286,13 @@ def _prepare_director_form_data(
             the API boundary), never something silently swallowed.
     """
     form_data = dict(form_data or {})
+
+    simple_spec = simple_mode_spec((preset_template.vars or {}).get('video_director'), mode)
+    if simple_spec is not None:
+        positive, negative = prompt_pair or ('', '')
+        form_data['video_director'] = build_simple_mode_document(
+            simple_spec, (preset_template.vars or {}).get('video_director'), form_data, positive, negative,
+        )
 
     if isinstance(form_data.get('video_director'), dict):
         capabilities = (preset_template.vars or {}).get('video_director') or {}
@@ -953,6 +976,7 @@ class GenerationOrchestrator:
                 model_overlay=self._director_model_overlay(preset_template),
                 bundle_members=self._bundle_members(user_id),
                 model_sha256=self._model_sha256,
+                prompt_pair=_request_prompt_pair(request),
             )
             built = self.pipeline_builder.build_pipeline(
                 preset_id=preset_template,
@@ -1272,6 +1296,7 @@ class GenerationOrchestrator:
                     model_overlay=self._director_model_overlay(preset_template),
                     bundle_members=self._bundle_members(user_id),
                     model_sha256=self._model_sha256,
+                    prompt_pair=_request_prompt_pair(request),
                 )
 
             # LTX two-stage upscale geometry: fail fast, before the (expensive)

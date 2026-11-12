@@ -43,6 +43,7 @@ from src.features.presets.templates import (
 from src.features.presets.overlays import PresetOverlays, apply_overlays
 from src.features.presets.mode_fields import resolve_requirement_fields
 from src.features.presets.extensions import apply_preset_extensions, contained, duplicate_anchor_errors, plugin_preset_extensions
+from src.features.presets.pipeline_source import load_mode_pipeline
 from src.platform.filesystem.yaml_io import load_yaml_file
 from src.features.prompt.resource_sources import declared_prompt_resource_sources
 from .schema import (
@@ -493,9 +494,11 @@ class PresetTemplateLoader:
             return None, [f"modes/{mode_name}/pipeline.yml: file not found"]
 
         try:
-            pipeline_data = load_yaml_file(pipeline_file) or {}
+            pipeline_data, pointer_errors = load_mode_pipeline(mode_dir)
         except Exception as e:
             return None, [f"modes/{mode_name}/pipeline.yml: failed to parse: {e}"]
+        if pointer_errors:
+            return None, [f"modes/{mode_name}/pipeline.yml: {problem}" for problem in pointer_errors]
 
         _, pipeline_errors = validate_pipeline_file(pipeline_data, prefix=f"modes/{mode_name}/pipeline.yml")
 

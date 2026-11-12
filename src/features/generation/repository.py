@@ -741,6 +741,14 @@ class GenerationRepository:
             )
             return cursor.rowcount > 0
 
+    def update_backend(self, generation_id: str, backend_id: str) -> bool:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE generations SET backend_id = ? WHERE id = ?",
+                (backend_id, generation_id)
+            )
+            return cursor.rowcount > 0
+
     def update_progress(self, generation_id: str, progress: float) -> bool:
         """Update generation progress"""
         with get_cursor() as cursor:

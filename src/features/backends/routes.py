@@ -92,8 +92,10 @@ class BackendController(BaseController):
         backend_registry: BackendRegistry,
         model_lifecycle=None,
         model_indexing_coordinator=None,
+        load_source=None,
     ):
         super().__init__()
+        self.load_source = load_source
         self.settings = settings
         self.backend_registry = backend_registry
         self.model_lifecycle = model_lifecycle
@@ -177,11 +179,16 @@ class BackendController(BaseController):
         return serialize_backend(backend, default_ids)
 
     @guarded(None, _failed("backend_list_failed", "Failed to list backends"))
-    async def list_backends(self) -> APIResponse:
+    async def list_backends(self, include_load: bool = False) -> APIResponse:
         """List all configured backends"""
         backends = self.backend_config_store.get_backends()
         default_ids = self.backend_config_store.get_default_backend_ids()
         backend_data = [self._serialize(b, default_ids) for b in backends]
+        if include_load and self.load_source is not None:
+            for entry in backend_data:
+                snapshot = self.load_source(entry["id"])
+                if isinstance(snapshot, dict):
+                    entry.update(snapshot)
         return self.success_response(data=backend_data)
 
     @guarded(None, _failed("enabled_backends_failed", "Failed to get enabled backends"))
@@ -843,13 +850,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         container.backend_registry,
         container.model_lifecycle,
         model_indexing_coordinator=container.model_index_manager.indexing,
+        load_source=getattr(getattr(container, "generation_orchestrator", None), "backend_load_snapshot", None),
     )
     router = APIRouter(prefix="/api/backends", tags=["Backends"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.ADMIN)])
 
     @router.get("", response_model=APIResponse, summary="Get All Backends")
     async def list_backends(current_user=Depends(get_current_active_user)):
         """Get all configured backends including local and cloud instances."""
-        return await controller.list_backends()
+        return await controller.list_backends(include_load=current_user.account_type == AccountType.ADMIN)
 
     @router.get("/enabled", response_model=APIResponse, summary="Get Enabled Backends")
     async def get_enabled_backends(current_user=Depends(get_current_active_user)):

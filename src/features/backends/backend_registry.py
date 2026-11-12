@@ -382,6 +382,18 @@ class BackendRegistry:
             self._backends_cache[backend_config.id] = self._create_backend_instance(backend_config)
             logger.info(f"[BACKEND_REGISTRY] Added backend: {backend_config.name}")
 
+    def add_departure_listener(self, listener: Callable[[str], None]) -> None:
+        if not hasattr(self, "_departure_listeners"):
+            self._departure_listeners = []
+        self._departure_listeners.append(listener)
+
+    def _notify_departure(self, backend_id: str) -> None:
+        for listener in list(getattr(self, "_departure_listeners", ())):
+            try:
+                listener(backend_id)
+            except Exception as e:
+                logger.error(f"[BACKEND_REGISTRY] Departure listener failed for {backend_id}: {e}")
+
     async def update_backend(self, backend_id: str, backend_config: BaseBackendConfig):
         """Update an existing backend in the registry"""
         self._ensure_backends_initialized()
@@ -392,6 +404,8 @@ class BackendRegistry:
         if backend_config.enabled:
             self._backends_cache[backend_config.id] = self._create_backend_instance(backend_config)
             logger.info(f"[BACKEND_REGISTRY] Updated backend: {backend_config.name}")
+        else:
+            self._notify_departure(backend_id)
 
     async def remove_backend(self, backend_id: str):
         """Remove a backend from the registry"""
@@ -401,4 +415,5 @@ class BackendRegistry:
         self._backend_health_cache.pop(backend_id, None)
 
         logger.info(f"[BACKEND_REGISTRY] Removed backend: {backend_id}")
+        self._notify_departure(backend_id)
 

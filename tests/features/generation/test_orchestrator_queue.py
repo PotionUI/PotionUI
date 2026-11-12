@@ -272,13 +272,18 @@ class TestQueueingThroughTheOrchestrator:
 
         assert running[0]['generation_id'] == 'gen_1'
         assert running[0]['queue_position'] is None
-        assert pending[-1] == {
+        assert {key: pending[-1][key] for key in (
+            'type', 'generation_id', 'tab_id', 'status', 'queue_position',
+        )} == {
             'type': 'queue_update',
             'generation_id': 'gen_2',
             'tab_id': 'tab_b',
             'status': 'pending',
             'queue_position': 0,
         }
+        assert pending[-1]['queue_depth'] == 1
+        assert pending[-1]['waiting_reason'] is None
+        assert pending[-1]['admin_detail'] == {'backend_id': 'native_1', 'backend_name': 'native_1'}
 
     async def test_started_at_is_only_set_on_dispatch(self, orchestrator, backends, repo):
         await _start(orchestrator, 'tab_a', 'gen_1')

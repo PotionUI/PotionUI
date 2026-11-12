@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse, FileResponse, PlainTextResponse
 # Import services - needed for injector
 from src.platform.filesystem import FileStore
 from src.features.generation.orchestrator import GenerationOrchestrator
+from src.features.generation.preview_clip_message import ADMIN_DETAIL_KEY
 from src.features.generation import profile_paths
 from src.platform.observability.profiling import render_report_from_file
 
@@ -160,7 +161,11 @@ class GenerationController(BaseController):
 
     async def _broadcast_queue_update(self, generation_id: str, message: dict) -> None:
         """Push a `queue_update` to the clients subscribed to this generation."""
-        await self.connection_hub.broadcast_to_generation(generation_id, message)
+        if ADMIN_DETAIL_KEY not in message:
+            await self.connection_hub.broadcast_to_generation(generation_id, message)
+            return
+        viewer_message = {key: value for key, value in message.items() if key != ADMIN_DETAIL_KEY}
+        await self.connection_hub.broadcast_to_generation(generation_id, viewer_message, message)
 
     async def start_generation(self, request: GenerationRequest, current_user, grid_cell=None) -> APIResponse:
         """Start a new generation using the generation orchestrator"""
@@ -322,7 +327,13 @@ class GenerationController(BaseController):
                 status_code=404
             )
 
-        return self.success_response(data=scope_generation_state(state.payload, GenerationPolicy.is_admin(current_user)))
+        is_admin = GenerationPolicy.is_admin(current_user)
+        payload = scope_generation_state(state.payload, is_admin)
+        queue_info = self.generation_orchestrator.get_queue_info(generation_id)
+        if isinstance(queue_info, dict) and payload.get('status') == 'pending':
+            detail = queue_info.pop(ADMIN_DETAIL_KEY, None)
+            payload = {**payload, **queue_info, **(detail if is_admin and isinstance(detail, dict) else {})}
+        return self.success_response(data=payload)
 
     async def get_generation_profile(
         self, generation_id: str, current_user, file: Optional[str] = None,

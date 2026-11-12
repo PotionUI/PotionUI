@@ -1,5 +1,5 @@
 import type { ApiKey, ApiKeyScope } from '$lib/services/api/apiKeys';
-import { parseServerDate } from '$lib/utils/relativeTime';
+import { parseServerDate, shortDate } from '$lib/utils/relativeTime';
 
 export const KEYS_PAGE_SIZE = 10;
 export const EXPIRING_SOON_DAYS = 7;
@@ -66,6 +66,11 @@ export function usedPhrase(lastUsedAt: string | null, now: Date = new Date()): s
 	return used.getFullYear() === now.getFullYear() ? `used ${month}` : `used ${month}, ${used.getFullYear()}`;
 }
 
+export function expiryPhrase(expiresAt: string | null, now: Date = new Date()): string {
+	const label = shortDate(expiresAt, now);
+	return label ? `expires ${label}` : 'never expires';
+}
+
 export function scopeLine(scopes: readonly ApiKeyScope[]): string {
 	if (scopes.includes('admin')) return SCOPE_LABELS.admin;
 	return (['read', 'generate', 'content'] as const)
@@ -91,6 +96,7 @@ export function keyLine(key: ApiKey, opts: { mcpPaused?: boolean; now?: Date } =
 		parts.push(http);
 	}
 	parts.push(usedPhrase(key.last_used_at, opts.now));
+	if (key.status === 'active') parts.push(expiryPhrase(key.expires_at, opts.now));
 	return parts.join(' · ');
 }
 

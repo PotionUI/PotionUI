@@ -52,6 +52,7 @@
 
 <ConfirmDialog
 	isOpen={true}
+	submitOnInputEnter
 	size="md"
 	title="Kit details"
 	{busy}

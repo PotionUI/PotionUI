@@ -20,6 +20,7 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 
 const { default: KitComposeDialog } = await import('$lib/components/kits/KitComposeDialog.svelte');
 const { default: MediaPickerModal } = await import('$lib/components/modals/mediaPicker/MediaPickerModal.svelte');
+const { default: KitDetailsDialog } = await import('$lib/components/kits/KitDetailsDialog.svelte');
 const { default: KitDetailPane } = await import('$lib/components/kits/KitDetailPane.svelte');
 const { default: ConfirmHost } = await import('$lib/components/modals/ConfirmHost.svelte');
 const { resetKitDirectory } = await import('$lib/stores/kits');
@@ -63,6 +64,28 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
+describe('kit details dialog', () => {
+	it('saves a renamed kit on Enter in the Name field', async () => {
+		const onSave = vi.fn().mockResolvedValue({ error: null });
+		mountDialog(KitDetailsDialog, { kit: mara, labels: [], onSave, onDelete: vi.fn(), onClose: vi.fn() });
+		const name = document.querySelector<HTMLInputElement>('#kit-name')!;
+		name.value = 'Mara Two';
+		name.dispatchEvent(new Event('input', { bubbles: true }));
+		flushSync();
+		name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+		await settle();
+		expect(onSave).toHaveBeenCalledTimes(1);
+	});
+
+	it('does nothing on Enter while nothing changed', async () => {
+		const onSave = vi.fn();
+		mountDialog(KitDetailsDialog, { kit: mara, labels: [], onSave, onDelete: vi.fn(), onClose: vi.fn() });
+		document.querySelector<HTMLInputElement>('#kit-name')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+		await settle();
+		expect(onSave).not.toHaveBeenCalled();
+	});
+});
+
 describe('new kit dialog', () => {
 	it('puts focus inside, closes on Escape, and shows the server suggestion on a 409', async () => {
 		const onClose = vi.fn();
@@ -76,6 +99,24 @@ describe('new kit dialog', () => {
 		escape();
 		await settle();
 		expect(onClose).toHaveBeenCalled();
+	});
+
+	it('creates the kit when Enter is pressed in the Name field', async () => {
+		const onDone = vi.fn();
+		mountDialog(KitComposeDialog, { picks: [], initialName: 'Mara', onDone, onClose: vi.fn() });
+		calls.createKit.mockResolvedValue({ success: true, data: mara });
+		const name = document.querySelector<HTMLInputElement>('#compose-name')!;
+		name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+		await settle();
+		expect(calls.createKit).toHaveBeenCalledTimes(1);
+		expect(onDone).toHaveBeenCalled();
+	});
+
+	it('does not create a kit on Enter while the name is empty', async () => {
+		mountDialog(KitComposeDialog, { picks: [], initialName: '', onDone: vi.fn(), onClose: vi.fn() });
+		document.querySelector<HTMLInputElement>('#compose-name')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+		await settle();
+		expect(calls.createKit).not.toHaveBeenCalled();
 	});
 
 	it('keeps a kit that was created when a text item failed, and adds the rest to it on retry', async () => {

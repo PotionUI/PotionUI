@@ -109,7 +109,7 @@
 	<svelte:fragment slot="actionsBeforeCollection">
 		<!-- Copy the selected generations' media into the private library -->
 		<button
-			class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+			class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
 			disabled={copyingToLibrary}
 			use:tooltip={'Copy the selected media into your library (the generations stay in history)'}
 			on:click={handleCopyToLibrary}
@@ -123,7 +123,7 @@
 		{#if activeCollectionId}
 			<!-- Remove from the collection currently being browsed -->
 			<button
-				class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
+				class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
 				use:tooltip={'Remove the selected items from this collection'}
 				on:click={handleRemoveFromCollection}
 			>
@@ -133,7 +133,7 @@
 		{/if}
 
 		<button
-			class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+			class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
 			disabled={selectedIds.length === 0}
 			data-add-to-kit
 			use:tooltip={'Add the selected media to a kit'}
@@ -155,7 +155,7 @@
 
 		<!-- Delete Button -->
 		<button
-			class="px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium"
+			class="whitespace-nowrap px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium"
 			on:click={onBulkDeleteClick}
 		>
 			<Icon name="trash" className="w-4 h-4" />

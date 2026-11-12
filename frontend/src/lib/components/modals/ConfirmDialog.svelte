@@ -6,6 +6,7 @@
 	import {
 		createConfirmSettlementGate,
 		getConfirmKeyboardAction,
+		isSingleLineInputEnter,
 		settleIfEligible
 	} from './confirmKeyboard';
 
@@ -24,6 +25,7 @@
 		busy = false,
 		closeable,
 		keyboard = true,
+		submitOnInputEnter = false,
 		resetKey,
 		confirmLabel,
 		confirmVariant = 'primary',
@@ -59,6 +61,7 @@
 		busy?: boolean;
 		closeable?: boolean;
 		keyboard?: boolean;
+		submitOnInputEnter?: boolean;
 		resetKey?: unknown;
 		confirmLabel: string;
 		confirmVariant?: 'primary' | 'danger';
@@ -125,6 +128,11 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Enter' || !isOpen || !keyboard || locked) return;
+		if (submitOnInputEnter && isSingleLineInputEnter(event)) {
+			event.preventDefault();
+			confirm();
+			return;
+		}
 		const { action, suppress } = getConfirmKeyboardAction(event);
 		if (action === 'confirm') confirm();
 		if (suppress) event.preventDefault();

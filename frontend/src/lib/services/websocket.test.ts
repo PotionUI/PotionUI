@@ -4,8 +4,16 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 const warn = vi.hoisted(() => vi.fn());
 vi.mock('$lib/utils/logger', () => ({ logger: { warn, error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock('$lib/stores/auth', () => ({ authStore: { expireSession: vi.fn() } }));
-const tokenRef = vi.hoisted(() => ({ current: null as string | null }));
-vi.mock('$lib/services/api/index', () => ({ api: { getToken: () => tokenRef.current } }));
+const ticketRef = vi.hoisted(() => ({ issued: 0, fail: null as unknown }));
+vi.mock('$lib/services/api/index', () => ({ api: { getToken: () => 'session-token' } }));
+vi.mock('./wsTicket', () => ({
+	ticketedWsUrl: vi.fn(async (path: string) => {
+		if (ticketRef.fail) throw ticketRef.fail;
+		ticketRef.issued += 1;
+		return `ws://test.invalid${path}?ticket=ticket-${ticketRef.issued}`;
+	}),
+	isAuthRefusal: (error: unknown) => (error as { response?: { status?: number } })?.response?.status === 401
+}));
 
 import { authStore } from '$lib/stores/auth';
 import { createGenerationSocket } from './websocket';
@@ -46,28 +54,100 @@ describe('generation socket reconnect', () => {
 	afterEach(() => {
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
-		tokenRef.current = null;
+		ticketRef.issued = 0;
+		ticketRef.fail = null;
 		RecordingSocket.urls = [];
 	});
 
-	it('reconnects with the token that is current at that moment, not the one it was created with', async () => {
-		vi.useFakeTimers();
+	it('connects with a ticket and never puts a token in the URL', async () => {
 		vi.stubGlobal('WebSocket', RecordingSocket);
-		tokenRef.current = 'first-token';
 		const ws = createGenerationSocket();
 
 		ws.connect();
-		expect(RecordingSocket.urls[0]).toContain('token=first-token');
+		await vi.waitFor(() => expect(RecordingSocket.urls).toHaveLength(1));
 
-		tokenRef.current = 'renewed-token';
+		expect(RecordingSocket.urls[0]).toContain('ticket=ticket-1');
+		expect(RecordingSocket.urls[0]).not.toContain('token=');
+		ws.disconnect();
+	});
+
+	it('fetches a fresh ticket for every reconnect', async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal('WebSocket', RecordingSocket);
+		const ws = createGenerationSocket();
+
+		ws.connect();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(RecordingSocket.urls[0]).toContain('ticket=ticket-1');
+
 		const socket = (ws as unknown as { ws: RecordingSocket }).ws;
 		socket.readyState = RecordingSocket.CLOSED;
 		socket.onclose?.({ code: 1006 } as CloseEvent);
 		await vi.advanceTimersByTimeAsync(5000);
 
 		expect(RecordingSocket.urls).toHaveLength(2);
-		expect(RecordingSocket.urls[1]).toContain('token=renewed-token');
-		expect(RecordingSocket.urls[1]).not.toContain('first-token');
+		expect(RecordingSocket.urls[1]).toContain('ticket=ticket-2');
+		expect(ticketRef.issued).toBe(2);
+		ws.disconnect();
+	});
+
+	it('does not fetch a second ticket while the first connect is still waiting for one', async () => {
+		vi.stubGlobal('WebSocket', RecordingSocket);
+		const ws = createGenerationSocket();
+
+		ws.connect();
+		ws.connect();
+		ws.connect();
+		await vi.waitFor(() => expect(RecordingSocket.urls).toHaveLength(1));
+
+		expect(ticketRef.issued).toBe(1);
+		ws.disconnect();
+	});
+
+	it('opens no socket when disconnect() lands while the ticket is in flight', async () => {
+		vi.stubGlobal('WebSocket', RecordingSocket);
+		const ws = createGenerationSocket();
+
+		ws.connect();
+		ws.disconnect();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(RecordingSocket.urls).toHaveLength(0);
+	});
+
+	it('backs off between attempts when tickets cannot be fetched instead of hammering the route', async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal('WebSocket', RecordingSocket);
+		ticketRef.fail = new Error('network down');
+		const ws = createGenerationSocket();
+
+		ws.connect();
+		await vi.advanceTimersByTimeAsync(0);
+		const afterFirst = vi.mocked((await import('./wsTicket')).ticketedWsUrl).mock.calls.length;
+		await vi.advanceTimersByTimeAsync(999);
+		const beforeSecondDelay = vi.mocked((await import('./wsTicket')).ticketedWsUrl).mock.calls.length;
+		await vi.advanceTimersByTimeAsync(1);
+		const afterSecondDelay = vi.mocked((await import('./wsTicket')).ticketedWsUrl).mock.calls.length;
+
+		expect(beforeSecondDelay).toBe(afterFirst);
+		expect(afterSecondDelay).toBe(afterFirst + 1);
+		expect(RecordingSocket.urls).toHaveLength(0);
+		ws.disconnect();
+	});
+
+	it('expires the session and stops retrying when the ticket route refuses the credential', async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal('WebSocket', RecordingSocket);
+		ticketRef.fail = { response: { status: 401 } };
+		vi.mocked(authStore.expireSession).mockClear();
+		const ws = createGenerationSocket();
+
+		ws.connect();
+		await vi.advanceTimersByTimeAsync(60000);
+
+		expect(authStore.expireSession).toHaveBeenCalledTimes(1);
+		expect(ticketRef.issued).toBe(0);
+		expect(RecordingSocket.urls).toHaveLength(0);
 		ws.disconnect();
 	});
 });

@@ -13,6 +13,12 @@ from src.platform.security.user import User, AccountType
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
 
 
+def _auth(result):
+    async def authenticate(websocket, scope=None):
+        return result
+    return authenticate
+
+
 def _user(account_type):
     return User(
         id="u-1", username="u", email="u@example.com",
@@ -21,6 +27,8 @@ def _user(account_type):
 
 
 class _FakeWebSocket:
+    scope = {}
+
     def __init__(self):
         self.accepted = False
         self.closed_code = None
@@ -42,30 +50,30 @@ def _ws_endpoint(connection_hub):
 @pytest.mark.asyncio
 async def test_missing_token_is_rejected(monkeypatch):
     monkeypatch.setattr(
-        downloads_routes, "authenticate_websocket_token",
-        lambda token: (None, "No token"),
+        downloads_routes, "authenticate_websocket",
+        _auth((None, "No token")),
     )
     ws = _FakeWebSocket()
-    await _ws_endpoint(DownloadConnectionHub())(ws, client_id=None, token=None)
+    await _ws_endpoint(DownloadConnectionHub())(ws, client_id=None)
     assert ws.closed_code == 4001
 
 
 @pytest.mark.asyncio
 async def test_non_admin_is_rejected(monkeypatch):
     monkeypatch.setattr(
-        downloads_routes, "authenticate_websocket_token",
-        lambda token: (_user(AccountType.USER), None),
+        downloads_routes, "authenticate_websocket",
+        _auth((_user(AccountType.USER), None)),
     )
     ws = _FakeWebSocket()
-    await _ws_endpoint(DownloadConnectionHub())(ws, client_id=None, token="t")
+    await _ws_endpoint(DownloadConnectionHub())(ws, client_id=None)
     assert ws.closed_code == 4001
 
 
 @pytest.mark.asyncio
 async def test_admin_passes_gate(monkeypatch):
     monkeypatch.setattr(
-        downloads_routes, "authenticate_websocket_token",
-        lambda token: (_user(AccountType.ADMIN), None),
+        downloads_routes, "authenticate_websocket",
+        _auth((_user(AccountType.ADMIN), None)),
     )
     # Fail the connection right after the gate so the handler returns without
     # entering the receive loop; a False return proves the gate was passed.
@@ -76,5 +84,5 @@ async def test_admin_passes_gate(monkeypatch):
 
     monkeypatch.setattr(connection_hub, "connect", _reject_connect)
     ws = _FakeWebSocket()
-    await _ws_endpoint(connection_hub)(ws, client_id=None, token="t")
+    await _ws_endpoint(connection_hub)(ws, client_id=None)
     assert ws.closed_code != 4001

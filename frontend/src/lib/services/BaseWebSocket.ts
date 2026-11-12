@@ -1,4 +1,5 @@
 import { logger } from '$lib/utils/logger';
+import { isAuthRefusal, ticketedWsUrl } from './wsTicket';
 
 export type BaseWebSocketMessage = {
 	type: string;
@@ -30,11 +31,9 @@ export abstract class BaseWebSocket {
 	 * this.ws, the heartbeat, or connection state again.
 	 */
 	protected generation = 0;
+	private pendingAttempt: number | null = null;
 
-	constructor(
-		protected readonly url: string,
-		protected readonly getToken: () => string | null = () => null
-	) {}
+	constructor(protected readonly path: string) {}
 
 	// ─── Public API ──────────────────────────────────────────────────────────
 
@@ -46,6 +45,7 @@ export abstract class BaseWebSocket {
 		// CONNECTING counts too: a second connect() while the handshake is in
 		// flight would orphan the first socket with its handlers still attached.
 		if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
+		if (this.pendingAttempt !== null && this.pendingAttempt === this.generation) return;
 
 		// Retire whatever attempt currently owns this.ws/generation (typically a
 		// CLOSING socket the guard above let through) before trying a
@@ -54,11 +54,35 @@ export abstract class BaseWebSocket {
 		// resurrect a retry cycle once its own belated close arrives.
 		this.retireCurrentAttempt();
 
-		const wsUrl = this.buildWsUrl();
+		const attempt = this.generation;
+		let built: string | Promise<string>;
+		try {
+			built = this.buildWsUrl();
+		} catch (error) {
+			this.onTicketError(error);
+			return;
+		}
+		if (typeof built === 'string') {
+			this.openSocket(built, attempt);
+			return;
+		}
+		this.pendingAttempt = attempt;
+		built.then(
+			(wsUrl) => {
+				if (this.pendingAttempt === attempt) this.pendingAttempt = null;
+				if (attempt === this.generation) this.openSocket(wsUrl, attempt);
+			},
+			(error) => {
+				if (this.pendingAttempt === attempt) this.pendingAttempt = null;
+				if (attempt === this.generation) this.onTicketError(error);
+			}
+		);
+	}
 
+	private openSocket(wsUrl: string, attempt: number): void {
 		try {
 			const socket = new WebSocket(wsUrl);
-			const token = ++this.generation;
+			const token = attempt;
 			this.ws = socket;
 			// True once this specific socket+token is still the active attempt -
 			// every handler below checks this before touching shared state.
@@ -103,6 +127,8 @@ export abstract class BaseWebSocket {
 	disconnect(): void {
 		this.cancelReconnect();
 		this.stopHeartbeat();
+		this.generation++;
+		this.pendingAttempt = null;
 		if (this.ws) {
 			// Detach handlers BEFORE closing: close() fires onclose
 			// asynchronously, and the base onClose schedules a reconnect —
@@ -140,6 +166,17 @@ export abstract class BaseWebSocket {
 		this.scheduleReconnect();
 	}
 
+	protected onTicketError(error: unknown): void {
+		logger.error(`[${this.constructor.name}] Failed to get a WebSocket ticket:`, error);
+		if (isAuthRefusal(error)) {
+			this.onAuthRefused(error);
+			return;
+		}
+		this.scheduleReconnect();
+	}
+
+	protected onAuthRefused(_error: unknown): void {}
+
 	/** Called when `new WebSocket()` itself throws. Base implementation schedules reconnect. */
 	protected onConstructError(_error: unknown): void {
 		this.scheduleReconnect();
@@ -147,9 +184,8 @@ export abstract class BaseWebSocket {
 
 	// ─── Helpers ─────────────────────────────────────────────────────────────
 
-	protected buildWsUrl(): string {
-		const token = this.getToken();
-		return token ? `${this.url}?token=${encodeURIComponent(token)}` : this.url;
+	protected buildWsUrl(): string | Promise<string> {
+		return ticketedWsUrl(this.path);
 	}
 
 	protected send(data: unknown): void {

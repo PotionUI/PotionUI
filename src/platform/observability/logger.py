@@ -46,7 +46,7 @@ _FILE_MARK = "_potionui_file_handler"
 # them propagate puts every line through the same two handlers.
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
-_SECRET_QUERY_PARAMS = ("token", "access_token", "api_key")
+_SECRET_QUERY_PARAMS = ("token", "access_token", "api_key", "ticket")
 _SECRET_QUERY_PATTERN = re.compile(
     r"(?i)\b(" + "|".join(_SECRET_QUERY_PARAMS) + r")=([^&\s\"']+)"
 )

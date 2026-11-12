@@ -64,7 +64,7 @@ class TestSocket extends StatefulWebSocket {
 	messages: unknown[] = [];
 
 	constructor(state = writable<ConnectionState>('disconnected')) {
-		super(state, 'test');
+		super(state, '/ws/test', 'test');
 	}
 
 	protected override buildWsUrl(): string {

@@ -15,9 +15,10 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from src.platform.database.rows import now_iso
-from src.platform.security.api_scopes import ApiScope, key_access
-from src.platform.security.current_user import authenticate_websocket_token, get_current_admin_user
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
+from src.platform.security.current_user import authenticate_websocket, get_current_admin_user, refuse_websocket
 from src.platform.security.user import AccountType, User
+from src.platform.websocket.key_sockets import key_sockets
 
 from src.features.downloads.dto import (
     QueueModelDownloadRequest,
@@ -254,11 +255,10 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
 
     ws_router = APIRouter(tags=["WebSocket"])
 
-    @ws_router.websocket("/ws/downloads")
+    @ws_router.websocket("/ws/downloads", dependencies=[key_scope(ApiScope.ADMIN)])
     async def downloads_websocket_endpoint(
         websocket: WebSocket,
         client_id: str = Query(default=None),
-        token: str = Query(default=None),
     ):
         """
         WebSocket endpoint for real-time download progress and status updates.
@@ -273,10 +273,9 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         - subscribe_all_downloads: Subscribe to all download updates
         - ping: Heartbeat ping
         """
-        user, auth_error = authenticate_websocket_token(token)
+        user, auth_error = await authenticate_websocket(websocket)
         if user is None or user.account_type != AccountType.ADMIN:
-            await websocket.accept()
-            await websocket.close(code=4001, reason=auth_error or "Authentication failed")
+            await refuse_websocket(websocket, auth_error)
             return
 
         if not client_id:
@@ -297,7 +296,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             connection_hub.disconnect(client_id)
             return
 
-        # Start heartbeat task
+        key_sockets.attach(websocket, user.key)
         heartbeat_task = asyncio.create_task(_send_heartbeat(connection_hub, websocket, client_id))
 
         try:
@@ -320,6 +319,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
                 await heartbeat_task
             except asyncio.CancelledError:
                 pass
+            key_sockets.unregister(websocket)
             connection_hub.disconnect(client_id)
 
     return ws_router

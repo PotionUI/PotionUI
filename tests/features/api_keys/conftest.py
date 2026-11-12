@@ -64,6 +64,10 @@ def world(stack, monkeypatch):
     world = World(stack)
     auth = Mock()
     auth.get_user_from_token.side_effect = lambda token: world.sessions.get(token)
+    auth.authenticate_websocket.side_effect = lambda token: (
+        (world.sessions[token], None) if token in world.sessions else (None, "Invalid token")
+    )
+    auth.users = stack.users
     previous_auth, previous_resolver = current_user._auth, current_user._key_resolver
     current_user.set_auth(auth)
     current_user.set_key_resolver(stack.resolver)

@@ -2,7 +2,7 @@
 Authentication Data Transfer Objects (DTOs) for API requests and responses.
 """
 from typing import Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from src.features.auth.validators import validate_password_policy, validate_username_policy
 from src.platform.security.email_address import EmailAddress
@@ -37,6 +37,10 @@ class ChangePasswordRequest(BaseModel):
     @classmethod
     def validate_new_password(cls, value: str) -> str:
         return validate_password_policy(value)
+
+
+class WsTicketRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=200)
 
 
 class Token(BaseModel):

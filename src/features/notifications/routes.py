@@ -13,12 +13,13 @@ from fastapi import APIRouter, Query, Depends, WebSocket, WebSocketDisconnect
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import soft_guarded
-from src.platform.security.api_scopes import ApiScope, key_access
-from src.platform.security.current_user import get_current_active_user
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
+from src.platform.security.current_user import authenticate_websocket, get_current_active_user, refuse_websocket
 from src.features.notifications.dto import CreateNotificationRequest, UpdateNotificationPreferencesRequest
 from src.features.notifications import NotificationCollaborators
 from src.features.notifications import operations
 from src.platform.security.user import User
+from src.platform.websocket.key_sockets import key_sockets
 from src.platform.websocket.notification_connection_hub import notification_connection_hub
 
 if TYPE_CHECKING:
@@ -203,33 +204,17 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
 
     ws_router = APIRouter(tags=["WebSocket"])
 
-    @ws_router.websocket("/ws/notifications")
-    async def websocket_notifications_endpoint(websocket: WebSocket, token: str = Query(None)):
+    @ws_router.websocket("/ws/notifications", dependencies=[key_scope(ApiScope.READ)])
+    async def websocket_notifications_endpoint(websocket: WebSocket):
         """WebSocket endpoint for real-time per-user notification push."""
-        from src.platform.security.current_user import authenticate_websocket_token
-
-        try:
-            user, auth_error = authenticate_websocket_token(token)
-        except Exception as e:
-            logging.error(f"Notification WebSocket auth exception: {e}")
-            try:
-                await websocket.accept()
-                await websocket.close(code=4001, reason="Authentication error")
-            except Exception as close_error:
-                logging.error(f"Failed to close notification WebSocket after auth error: {close_error}")
-            return
-
+        user, auth_error = await authenticate_websocket(websocket)
         if user is None:
-            logging.warning(f"Notification WebSocket auth failed: {auth_error}")
-            try:
-                await websocket.accept()
-                await websocket.close(code=4001, reason=auth_error or "Authentication failed")
-            except Exception as e:
-                logging.error(f"Error closing notification WebSocket after auth failure: {e}")
+            await refuse_websocket(websocket, auth_error)
             return
 
         client_id = str(uuid.uuid4())
         await notification_connection_hub.connect(websocket, client_id, user.id)
+        key_sockets.attach(websocket, user.key)
 
         try:
             unread_count = await asyncio.to_thread(controller.repository.unread_count, user.id)
@@ -248,6 +233,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         except Exception as e:
             logging.error(f"Notification WebSocket handler error for client {client_id}: {e}")
         finally:
+            key_sockets.unregister(websocket)
             notification_connection_hub.disconnect(client_id)
 
     return ws_router

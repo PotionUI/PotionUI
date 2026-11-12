@@ -26,6 +26,13 @@ class ApiKeyResolver:
         key = self._keys.get_by_hash(presented_hash)
         if key is None or not secrets.compare_digest(key.secret_hash, presented_hash):
             return None
+        return self._grant_for(key)
+
+    def resolve_id(self, key_id: str) -> Optional[ResolvedKey]:
+        key = self._keys.get_by_id(key_id)
+        return None if key is None else self._grant_for(key)
+
+    def _grant_for(self, key) -> Optional[ResolvedKey]:
         if key.is_revoked or key.is_expired():
             return None
         limits = load_limits(self._settings)

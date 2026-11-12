@@ -309,19 +309,3 @@ class TestPresetModelsOperationalFieldsFollowAuthority:
         controller.get_preset_models.reset_mock()
         client.get("/api/presets/p1/models", headers=world.session("root"))
         assert controller.get_preset_models.call_args.args[9] is True
-
-
-class TestSocketsStayJwtOnly:
-    def test_a_key_is_not_a_websocket_credential_until_the_ticket_work_lands(self, world):
-        from src.platform.security import Auth
-
-        auth = Auth(
-            user_repository=Mock(), password_hasher=Mock(), token_codec=Mock(decode_token=Mock(return_value=None)),
-            auth_config=Mock(), plugin_registry=Mock(), instance_claim=Mock(), claim_tokens=Mock(), settings=Mock(),
-        )
-        _, secret = world.mint(world.root, scopes=("read",))
-
-        user, error = auth.authenticate_websocket(secret)
-
-        assert user is None and error == "Invalid token"
-        auth.tokens.decode_token.assert_called_once_with(secret)

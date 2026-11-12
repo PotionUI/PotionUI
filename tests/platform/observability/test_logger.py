@@ -246,6 +246,22 @@ def test_uvicorn_websocket_access_line_redacts_token_from_args_and_from_a_plain_
     assert "api_key=***" in lines[1]
 
 
+def test_uvicorn_websocket_access_line_redacts_a_socket_ticket(root_logger, log_env):
+    configure_logging()
+
+    logging.getLogger("uvicorn.error").info(
+        '%s - "%s %s" [accepted]',
+        "127.0.0.1:54321",
+        "WebSocket",
+        "/ws/generation?ticket=Zm9vYmFyZm9vYmFyZm9vYmFyZm9vYmFyZm9vYmFyZm9v",
+    )
+    _file_handlers(root_logger)[0].flush()
+
+    line = (log_env / "potionui.log").read_text(encoding="utf-8").splitlines()[-1]
+    assert "Zm9vYmFy" not in line
+    assert "ticket=***" in line
+
+
 def test_default_directory_is_under_storage(monkeypatch):
     monkeypatch.delenv("POTIONUI_LOG_DIR", raising=False)
     monkeypatch.delenv("POTIONUI_LOG_FILE", raising=False)

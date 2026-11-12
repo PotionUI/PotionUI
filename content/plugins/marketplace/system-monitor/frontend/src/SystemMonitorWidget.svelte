@@ -50,11 +50,23 @@
     let tooltipStyle = $state('');
     // Plain variables - NOT $state to avoid reactivity loops inside $effect
     let ws = null;
+    let connecting = false;
+    let disposed = false;
     let reconnectTimeout = null;
     let tooltipAnchor = null;
     let tooltipTimeout = null;
 
-    function connectWebSocket() {
+    function scheduleReconnect() {
+        if (disposed || reconnectTimeout || !context.token) return;
+        reconnectTimeout = setTimeout(() => {
+            reconnectTimeout = null;
+            connectWebSocket();
+        }, 30000); // 30 seconds
+    }
+
+    async function connectWebSocket() {
+        if (connecting || disposed) return;
+        connecting = true;
         try {
             // Don't connect if already connected
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -76,7 +88,10 @@
                 return;
             }
 
-            const wsInstance = new WebSocket(context.wsUrl('/ws/system', token));
+            const url = await context.wsUrl('/ws/system');
+            if (disposed) return;
+
+            const wsInstance = new WebSocket(url);
 
             wsInstance.onopen = () => {
                 console.debug('[SystemMonitor] WebSocket connected');
@@ -108,14 +123,8 @@
                 connected = false;
                 ws = null;
 
-                if (![1000, 1001, 4001, 4003].includes(event.code) && !reconnectTimeout) {
-                    const token = context.token;
-                    if (token) {
-                        reconnectTimeout = setTimeout(() => {
-                            reconnectTimeout = null;
-                            connectWebSocket();
-                        }, 30000); // 30 seconds
-                    }
+                if (![1000, 1001, 4001, 4003].includes(event.code)) {
+                    scheduleReconnect();
                 }
             };
 
@@ -127,6 +136,9 @@
             ws = wsInstance;
         } catch (err) {
             console.error('[SystemMonitor] Failed to connect:', err);
+            if (err?.response?.status !== 401 && err?.response?.status !== 403) scheduleReconnect();
+        } finally {
+            connecting = false;
         }
     }
 
@@ -221,7 +233,9 @@
         if (context.token && context.wsUrl) {
             connectWebSocket();
         }
+        disposed = false;
         return () => {
+            disposed = true;
             if (reconnectTimeout) clearTimeout(reconnectTimeout);
             if (tooltipTimeout) clearTimeout(tooltipTimeout);
             if (ws) ws.close(1000, 'Widget unmounting');

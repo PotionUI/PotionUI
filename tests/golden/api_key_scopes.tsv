@@ -82,6 +82,7 @@ POST	/api/auth/logout	-	-	public
 GET	/api/auth/me	read	-	marker
 GET	/api/auth/providers	-	-	public
 POST	/api/auth/register	-	-	public
+POST	/api/auth/ws-ticket	-	read	marker
 GET	/api/automations	admin	-	admin_dependency
 POST	/api/automations	-	admin	admin_dependency
 POST	/api/automations/http-request/test	-	admin	admin_dependency
@@ -689,9 +690,9 @@ GET	/docs	-	-	public
 GET	/docs/oauth2-redirect	-	-	public
 GET	/openapi.json	-	-	public
 GET	/redoc	-	-	public
-WS	/ws/admin	-	-	public
-WS	/ws/automations	-	-	public
-WS	/ws/downloads	-	-	public
-WS	/ws/generation	-	-	public
-WS	/ws/notifications	-	-	public
-WS	/ws/system	-	-	public
+WS	/ws/admin	admin	-	marker
+WS	/ws/automations	admin	-	marker
+WS	/ws/downloads	admin	-	marker
+WS	/ws/generation	read	-	marker
+WS	/ws/notifications	read	-	marker
+WS	/ws/system	read	-	marker

@@ -13,8 +13,8 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
-from src.platform.security.api_scopes import ApiScope, key_access
-from src.platform.security.current_user import get_current_active_user, get_current_admin_user
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
+from src.platform.security.current_user import authenticate_websocket, get_current_active_user, get_current_admin_user, refuse_websocket
 from src.features.automation.dto import (
     CreateAutomationRequest,
     ImportAutomationRequest,
@@ -36,6 +36,7 @@ from src.platform.plugins.automation_nodes import NodeTypeRegistry, node_type_re
 from src.platform.security.failure_text import failure_detail
 from src.platform.security.user import AccountType, User
 from src.platform.websocket.automation_connection_hub import automation_connection_hub
+from src.platform.websocket.key_sockets import key_sockets
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -501,33 +502,17 @@ def build_router(container: "AppContainer") -> APIRouter:
 def build_ws_router(container: "AppContainer") -> APIRouter:
     ws_router = APIRouter(tags=["WebSocket"])
 
-    @ws_router.websocket("/ws/automations")
-    async def websocket_automations_endpoint(websocket: WebSocket, token: str = Query(None)):
+    @ws_router.websocket("/ws/automations", dependencies=[key_scope(ApiScope.ADMIN)])
+    async def websocket_automations_endpoint(websocket: WebSocket):
         """WebSocket endpoint for real-time automation run status (broadcast to all authenticated clients)."""
-        from src.platform.security.current_user import authenticate_websocket_token
-
-        try:
-            user, auth_error = authenticate_websocket_token(token)
-        except Exception as e:
-            logging.error(f"Automation WebSocket auth exception: {e}")
-            try:
-                await websocket.accept()
-                await websocket.close(code=4001, reason="Authentication error")
-            except Exception as close_error:
-                logging.error(f"Failed to close automation WebSocket after auth error: {close_error}")
-            return
-
+        user, auth_error = await authenticate_websocket(websocket)
         if user is None:
-            logging.warning(f"Automation WebSocket auth failed: {auth_error}")
-            try:
-                await websocket.accept()
-                await websocket.close(code=4001, reason=auth_error or "Authentication failed")
-            except Exception as e:
-                logging.error(f"Error closing automation WebSocket after auth failure: {e}")
+            await refuse_websocket(websocket, auth_error)
             return
 
         client_id = str(uuid.uuid4())
         await automation_connection_hub.connect(websocket, client_id, is_admin=user.account_type == AccountType.ADMIN)
+        key_sockets.attach(websocket, user.key)
 
         try:
             await websocket.send_json({"type": "connection_established", "client_id": client_id})
@@ -541,6 +526,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         except Exception as e:
             logging.error(f"Automation WebSocket handler error for client {client_id}: {e}")
         finally:
+            key_sockets.unregister(websocket)
             automation_connection_hub.disconnect(client_id)
 
     return ws_router

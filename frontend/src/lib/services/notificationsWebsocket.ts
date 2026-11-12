@@ -8,10 +8,8 @@
  */
 
 import { get } from 'svelte/store';
-import { getWsUrl } from './wsUrl';
 import { logger } from '$lib/utils/logger';
 import { BaseWebSocket, type BaseWebSocketMessage } from './BaseWebSocket';
-import { api } from '$lib/services/api';
 import { notifications } from '$lib/stores/notifications';
 import { toasts, type ToastType } from '$lib/stores/toast';
 import { playNotificationChime } from '$lib/utils/notificationChime';
@@ -27,12 +25,7 @@ class NotificationsWebSocketService extends BaseWebSocket {
 	private intentionalDisconnect = false;
 
 	constructor() {
-		// URL + token are resolved dynamically in buildWsUrl (token can change on login).
-		super('');
-	}
-
-	protected override buildWsUrl(): string {
-		return getWsUrl('/ws/notifications', api.getToken());
+		super('/ws/notifications');
 	}
 
 	connect(): void {

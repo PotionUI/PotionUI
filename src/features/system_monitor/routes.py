@@ -6,11 +6,12 @@ Delegates business logic to SystemMonitorCoordinator in the core layer.
 """
 import uuid
 from typing import TYPE_CHECKING
-from fastapi import APIRouter, WebSocket, Depends, Query
+from fastapi import APIRouter, WebSocket, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.security.api_scopes import ApiScope, key_access
-from src.platform.security.current_user import get_current_active_user, get_current_admin_user, authenticate_websocket_token
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
+from src.platform.security.current_user import get_current_active_user, get_current_admin_user, authenticate_websocket
+from src.platform.websocket.key_sockets import key_sockets
 from src.features.system_monitor import SystemMonitorCoordinator
 from src.features.system_monitor.backend_snapshots import collect_backend_snapshots
 from src.features.system_monitor.access import monitor_visible_to, require_monitor_access
@@ -111,11 +112,11 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
     ws_router = APIRouter(tags=["WebSocket"])
 
     # WebSocket endpoints for system monitoring
-    @ws_router.websocket("/ws/system")
-    async def websocket_system_endpoint(websocket: WebSocket, token: str = Query(None)):
+    @ws_router.websocket("/ws/system", dependencies=[key_scope(ApiScope.READ)])
+    async def websocket_system_endpoint(websocket: WebSocket):
         """WebSocket endpoint for real-time system monitoring and GPU statistics."""
         # Authenticate the user before accepting connection
-        user, auth_error = authenticate_websocket_token(token)
+        user, auth_error = await authenticate_websocket(websocket)
         if user is None:
             await websocket.close(code=4001, reason=auth_error)
             return
@@ -125,11 +126,12 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             return
 
         client_id = str(uuid.uuid4())
-        await controller.handle_websocket(
-            websocket,
-            client_id,
-            still_allowed=lambda: monitor_visible_to(container.plugin_repository, user),
-        )
+        with key_sockets.track(websocket, user.key):
+            await controller.handle_websocket(
+                websocket,
+                client_id,
+                still_allowed=lambda: monitor_visible_to(container.plugin_repository, user),
+            )
 
     return ws_router
 

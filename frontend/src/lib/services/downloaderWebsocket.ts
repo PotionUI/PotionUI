@@ -8,8 +8,6 @@
  */
 
 import { writable, type Writable } from 'svelte/store';
-import { getWsUrl } from './wsUrl';
-import { api } from '$lib/services/api';
 import { logger } from '$lib/utils/logger';
 import type { BaseWebSocketMessage } from './BaseWebSocket';
 import { StatefulWebSocket, type ConnectionState } from './StatefulWebSocket';
@@ -50,11 +48,7 @@ class DownloaderWebSocketService extends StatefulWebSocket {
 	private downloadStatusCallbacks: Set<DownloadStatusCallback> = new Set();
 
 	constructor() {
-		super(downloaderConnectionState, 'downloader');
-	}
-
-	protected override buildWsUrl(): string {
-		return getWsUrl('/ws/downloads', api.getToken());
+		super(downloaderConnectionState, '/ws/downloads', 'downloader');
 	}
 
 	protected override onMessage(message: BaseWebSocketMessage): void {

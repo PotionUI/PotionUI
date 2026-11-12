@@ -11,9 +11,11 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from uuid import uuid4
 
 from src.platform.database.rows import now_iso
-from src.platform.security.current_user import authenticate_websocket_token
+from src.platform.security.api_scopes import ApiScope, key_scope
+from src.platform.security.current_user import authenticate_websocket, refuse_websocket
 from src.platform.security.user import AccountType
 from src.platform.websocket.admin_connection_hub import admin_connection_hub
+from src.platform.websocket.key_sockets import key_sockets
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -23,11 +25,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.websocket("/ws/admin")
+@router.websocket("/ws/admin", dependencies=[key_scope(ApiScope.ADMIN)])
 async def admin_websocket_endpoint(
     websocket: WebSocket,
     client_id: str = Query(default=None),
-    token: str = Query(default=None)
 ):
     """
     WebSocket endpoint for admin panel operations.
@@ -39,10 +40,9 @@ async def admin_websocket_endpoint(
     Message types supported:
     - ping: Heartbeat ping
     """
-    user, auth_error = authenticate_websocket_token(token)
+    user, auth_error = await authenticate_websocket(websocket)
     if user is None or user.account_type != AccountType.ADMIN:
-        await websocket.accept()
-        await websocket.close(code=4001, reason=auth_error or "Authentication failed")
+        await refuse_websocket(websocket, auth_error)
         return
 
     # Generate client ID if not provided
@@ -65,7 +65,7 @@ async def admin_websocket_endpoint(
         admin_connection_hub.disconnect(client_id)
         return
 
-    # Start heartbeat task
+    key_sockets.attach(websocket, user.key)
     heartbeat_task = asyncio.create_task(send_heartbeat(websocket, client_id))
 
     try:
@@ -95,7 +95,7 @@ async def admin_websocket_endpoint(
         except asyncio.CancelledError:
             pass
 
-        # Clean up connection
+        key_sockets.unregister(websocket)
         admin_connection_hub.disconnect(client_id)
 
 

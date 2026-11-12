@@ -42,6 +42,10 @@ def _coerce(spec: ScopeSpec) -> Optional[FrozenSet[ApiScope]]:
     return scopes or None
 
 
+def coerce_scopes(spec: ScopeSpec) -> Optional[FrozenSet[ApiScope]]:
+    return _coerce(spec)
+
+
 @dataclass(frozen=True)
 class KeyAccess:
     read: Optional[FrozenSet[ApiScope]]

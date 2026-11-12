@@ -7,10 +7,8 @@
  * disconnects in `onDestroy`, rather than keeping one global singleton alive
  * for the whole authenticated session.
  */
-import { getWsUrl } from './wsUrl';
 import { logger } from '$lib/utils/logger';
 import { BaseWebSocket, type BaseWebSocketMessage } from './BaseWebSocket';
-import { api } from '$lib/services/api';
 import { automationRuns } from '$lib/stores/automationRuns';
 import type { AutomationRunUpdateMessage } from '$lib/types/automations';
 
@@ -18,12 +16,7 @@ class AutomationRunsWebSocketService extends BaseWebSocket {
 	private intentionalDisconnect = false;
 
 	constructor() {
-		// URL + token are resolved dynamically in buildWsUrl (token can change on login).
-		super('');
-	}
-
-	protected override buildWsUrl(): string {
-		return getWsUrl('/ws/automations', api.getToken());
+		super('/ws/automations');
 	}
 
 	connect(): void {

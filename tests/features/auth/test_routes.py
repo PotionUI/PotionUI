@@ -13,7 +13,6 @@ from src.platform.security.current_user import (
     get_current_user,
     get_current_active_user,
     get_principal,
-    authenticate_websocket_token,
     set_auth,
 )
 from src.platform.http.base_controller import APIResponse
@@ -358,35 +357,6 @@ class TestAuthController:
         """Test get_current_active_user passes through user."""
         result = await get_current_active_user(sample_user)
         assert result == sample_user
-
-    # WebSocket authentication tests
-
-    def test_authenticate_websocket_token_valid(self, auth_controller, mock_auth_manager, sample_user):
-        """Test WebSocket auth with valid token."""
-        mock_auth_manager.authenticate_websocket.return_value = (sample_user, None)
-
-        user, error = authenticate_websocket_token("valid.token")
-
-        assert user == sample_user
-        assert error is None
-
-    def test_authenticate_websocket_token_no_token(self, auth_controller, mock_auth_manager):
-        """Test WebSocket auth with no token."""
-        mock_auth_manager.authenticate_websocket.return_value = (None, "Authentication required")
-
-        user, error = authenticate_websocket_token(None)
-
-        assert user is None
-        assert error == "Authentication required"
-
-    def test_authenticate_websocket_token_invalid(self, auth_controller, mock_auth_manager):
-        """Test WebSocket auth with invalid token."""
-        mock_auth_manager.authenticate_websocket.return_value = (None, "Invalid token")
-
-        user, error = authenticate_websocket_token("invalid.token")
-
-        assert user is None
-        assert error == "Invalid token"
 
     # DTO model tests
 

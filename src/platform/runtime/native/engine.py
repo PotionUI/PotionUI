@@ -1389,6 +1389,7 @@ class NativeGenerator:
         """
         if ref_latents is None:
             return []
+        ref_latents = getattr(ref_latents, "latents", ref_latents)
         items = ref_latents if isinstance(ref_latents, (list, tuple)) else [ref_latents]
         out: list[tuple[tuple[int, int], int]] = []
         for ref in items:

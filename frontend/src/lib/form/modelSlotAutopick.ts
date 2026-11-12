@@ -11,6 +11,8 @@ export interface AutopickSlot {
 	unquantizedOnly: boolean;
 	filterTagIds: string[];
 	tagFilters: string[];
+	families?: string[];
+	current?: string;
 }
 
 export interface AutopickSearchResult {
@@ -38,10 +40,16 @@ export function decideAutopick(input: AutopickDecisionInput): any | null {
 	return models[0]?.id ? models[0] : null;
 }
 
+export function modelWire(value: unknown): string {
+	const wire = fromComponentValue('model', value);
+	return typeof wire === 'string' ? wire.trim() : '';
+}
+
 export function collectAutopickSlots(
 	fields: FieldConfig[],
 	data: Record<string, unknown>,
-	presetId: string
+	presetId: string,
+	includeFilled = false
 ): AutopickSlot[] {
 	const slots: AutopickSlot[] = [];
 	const visit = (list: FieldConfig[]) => {
@@ -53,7 +61,7 @@ export function collectAutopickSlots(
 				field.visible !== false &&
 				!field.readonly &&
 				!field.disabled &&
-				!hasModelValue(field, data[field.name])
+				(includeFilled || !hasModelValue(field, data[field.name]))
 			) {
 				const configuration = field.configuration ?? {};
 				const modelTypes = Array.isArray(configuration.model_types) ? configuration.model_types : [];
@@ -67,7 +75,11 @@ export function collectAutopickSlots(
 						modelTypes,
 						unquantizedOnly: configuration.unquantized_only === true,
 						filterTagIds: Array.isArray(configuration.filter_tags) ? configuration.filter_tags : [],
-						tagFilters: current?.tagFilters ?? configuration.tags ?? []
+						tagFilters: current?.tagFilters ?? configuration.tags ?? [],
+						...(Array.isArray(configuration.families) && configuration.families.length > 0
+							? { families: configuration.families }
+							: {}),
+						...(includeFilled ? { current: modelWire(data[field.name]) } : {})
 					});
 				}
 			}
@@ -111,8 +123,43 @@ export function slotSearchRequest(slot: AutopickSlot, tagIds: string[]) {
 		tagIds,
 		anyTagIds: slot.filterTagIds,
 		modelTypes: slot.modelTypes,
-		unquantizedOnly: slot.unquantizedOnly
+		unquantizedOnly: slot.unquantizedOnly,
+		families: slot.families
 	});
+}
+
+export type SlotVerdict = 'usable' | 'unusable' | 'unknown';
+
+export type SlotDecision =
+	| { action: 'keep' }
+	| { action: 'pick'; model: any }
+	| { action: 'clear' };
+
+export interface SlotDecisionInput {
+	current: string;
+	restored: boolean;
+	cleared: boolean;
+	verdict: SlotVerdict;
+	result: AutopickSearchResult | null | undefined;
+}
+
+export function decideSlotValue(input: SlotDecisionInput): SlotDecision {
+	if (!input.current) {
+		const model = decideAutopick({ hasValue: false, restored: false, cleared: input.cleared, result: input.result });
+		return model ? { action: 'pick', model } : { action: 'keep' };
+	}
+	if (input.verdict !== 'unusable') return { action: 'keep' };
+	if (input.restored) return { action: 'clear' };
+	const model = decideAutopick({ hasValue: false, restored: false, cleared: false, result: input.result });
+	return model ? { action: 'pick', model } : { action: 'clear' };
+}
+
+export function clearedSlotValue(slot: AutopickSlot) {
+	return { modelPath: '', tagFilters: slot.tagFilters };
+}
+
+export function unavailableNotice(label: string): string {
+	return `${label} was cleared: the model that was set is not available to your account. Pick one of your models.`;
 }
 
 const clearedByTab = new Map<string, Set<string>>();
@@ -141,6 +188,9 @@ export interface AutopickSyncInput {
 	isPinned: (name: string) => boolean;
 	isEmpty: (name: string) => boolean;
 	onPick: (slot: AutopickSlot, model: any) => void;
+	currentWire?: (name: string) => string;
+	onClear?: (slot: AutopickSlot) => void;
+	onPending?: (names: ReadonlySet<string>) => void;
 }
 
 export interface ModelSlotAutopick {
@@ -151,6 +201,7 @@ export interface ModelSlotAutopick {
 export interface ModelSlotAutopickDeps {
 	tabKey: string;
 	search: (slot: AutopickSlot) => Promise<AutopickSearchResult | null>;
+	check?: (slot: AutopickSlot, wire: string) => Promise<SlotVerdict>;
 	debounceMs?: number;
 }
 
@@ -158,25 +209,44 @@ export function createModelSlotAutopick(deps: ModelSlotAutopickDeps): ModelSlotA
 	const debounceMs = deps.debounceMs ?? 150;
 	let currentLoadKey = '';
 	let requested = new Set<string>();
+	let pending = new Set<string>();
 	let queue: Array<{ slot: AutopickSlot; input: AutopickSyncInput }> = [];
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let disposed = false;
 
+	function settlePending(input: AutopickSyncInput, name: string) {
+		if (!pending.delete(name)) return;
+		input.onPending?.(new Set(pending));
+	}
+
 	async function run(slot: AutopickSlot, input: AutopickSyncInput) {
+		const wire = slot.current ?? '';
+		const stale = () =>
+			disposed ||
+			input.loadKey !== currentLoadKey ||
+			(input.currentWire ? input.currentWire(slot.name) !== wire : wire === '' ? !input.isEmpty(slot.name) : false);
+		let verdict: SlotVerdict = 'unknown';
 		let result: AutopickSearchResult | null = null;
 		try {
-			result = await deps.search(slot);
+			if (wire && deps.check) verdict = await deps.check(slot, wire);
+			if (!stale() && (!wire || verdict === 'unusable')) result = await deps.search(slot);
 		} catch {
 			result = null;
 		}
-		if (disposed || input.loadKey !== currentLoadKey) return;
-		const model = decideAutopick({
-			hasValue: !input.isEmpty(slot.name),
+		if (stale()) {
+			if (!disposed && input.loadKey === currentLoadKey) settlePending(input, slot.name);
+			return;
+		}
+		const decision = decideSlotValue({
+			current: wire,
 			restored: input.isPinned(slot.name),
 			cleared: isSlotCleared(deps.tabKey, slot.name),
+			verdict,
 			result
 		});
-		if (model) input.onPick(slot, model);
+		if (decision.action === 'pick') input.onPick(slot, decision.model);
+		else if (decision.action === 'clear') input.onClear?.(slot);
+		settlePending(input, slot.name);
 	}
 
 	function flush() {
@@ -192,14 +262,18 @@ export function createModelSlotAutopick(deps: ModelSlotAutopickDeps): ModelSlotA
 			if (input.loadKey !== currentLoadKey) {
 				currentLoadKey = input.loadKey;
 				requested = new Set();
+				pending = new Set();
 				queue = [];
 			}
 			for (const slot of input.slots) {
-				if (input.isPinned(slot.name) || isSlotCleared(deps.tabKey, slot.name)) continue;
+				const wire = slot.current ?? '';
+				if (isSlotCleared(deps.tabKey, slot.name) && !wire) continue;
 				if (requested.has(slot.name)) continue;
 				requested.add(slot.name);
+				if (wire) pending.add(slot.name);
 				queue.push({ slot, input });
 			}
+			if (pending.size > 0) input.onPending?.(new Set(pending));
 			if (queue.length > 0 && timer === undefined) timer = setTimeout(flush, debounceMs);
 		},
 		dispose() {

@@ -286,3 +286,104 @@ class TestFieldOverridesThreadedFromRepository:
             await instance.start_generation(self._request(), "user_1")
 
         assert _bind_form_records_kwargs[-1]["field_overrides"] is None
+
+
+class _Spec:
+    def __init__(self, type_, configuration=None):
+        self.type = type_
+        self.configuration = configuration or {}
+        self.name = None
+        self.children = None
+
+
+class _Form:
+    def __init__(self, fields):
+        self.fields = fields
+
+
+def _template(mode, **fields):
+    specs = []
+    for name, spec in fields.items():
+        spec.name = name
+        specs.append(spec)
+    mode_template = Mock()
+    mode_template.forms = [_Form(specs)]
+    template = Mock()
+    template.modes = {mode: mode_template}
+    return template
+
+
+class TestEnforceModelAccessBareFilenames:
+    def _policy(self, rows, allowed):
+        from src.features.models.access_policy import ModelAccessPolicy
+
+        repo = Mock()
+        repo.get_by_filename.return_value = rows
+        repo.get_available_model_ids_for_user.return_value = allowed
+        return ModelAccessPolicy(repo)
+
+    def _user_repo(self, owner_admin=False):
+        from src.platform.security.user import AccountType
+
+        user = Mock()
+        user.id = "user_1"
+        user.owner_account_type = AccountType.ADMIN if owner_admin else AccountType.USER
+        repo = Mock()
+        repo.get_by_id.return_value = user
+        return repo
+
+    def _row(self, model_id, model_type="diffusion_model"):
+        row = Mock()
+        row.id = model_id
+        row.model_type = model_type
+        row.is_available = True
+        return row
+
+    def test_a_bare_filename_the_user_is_not_assigned_is_refused(self):
+        policy = self._policy([self._row("m1")], allowed=["other"])
+        instance = _orchestrator(model_access_policy=policy, user_repository=self._user_repo())
+        template = _template("txt2img", model=_Spec("model", {"model_type": "diffusion_model"}))
+        bound = BoundForm(values={"model": "dit_fp8.safetensors"}, form_name="custom")
+
+        with pytest.raises(ModelAccessDeniedException):
+            instance._enforce_model_access(bound, "user_1", template, "txt2img")
+
+    def test_a_bare_filename_the_user_is_assigned_is_accepted(self):
+        policy = self._policy([self._row("m1")], allowed=["m1"])
+        instance = _orchestrator(model_access_policy=policy, user_repository=self._user_repo())
+        template = _template("txt2img", model=_Spec("model", {"model_type": "diffusion_model"}))
+        bound = BoundForm(values={"model": "/models/dit_fp8.safetensors"}, form_name="custom")
+
+        instance._enforce_model_access(bound, "user_1", template, "txt2img")
+
+    def test_a_file_of_another_type_does_not_count_as_the_slots_model(self):
+        policy = self._policy([self._row("m1", "vae")], allowed=[])
+        instance = _orchestrator(model_access_policy=policy, user_repository=self._user_repo())
+        template = _template("txt2img", model=_Spec("model", {"model_type": "diffusion_model"}))
+        bound = BoundForm(values={"model": "x.safetensors"}, form_name="custom")
+
+        instance._enforce_model_access(bound, "user_1", template, "txt2img")
+
+    def test_an_admin_keeps_reaching_every_file(self):
+        policy = self._policy([self._row("m1")], allowed=[])
+        instance = _orchestrator(model_access_policy=policy, user_repository=self._user_repo(owner_admin=True))
+        template = _template("txt2img", model=_Spec("model", {"model_type": "diffusion_model"}))
+        bound = BoundForm(values={"model": "dit_fp8.safetensors"}, form_name="custom")
+
+        instance._enforce_model_access(bound, "user_1", template, "txt2img")
+
+    def test_an_admin_pinned_slot_is_skipped(self):
+        policy = self._policy([self._row("m1")], allowed=[])
+        instance = _orchestrator(model_access_policy=policy, user_repository=self._user_repo())
+        template = _template("txt2img", model=_Spec("model", {"model_type": "diffusion_model"}))
+        bound = BoundForm(values={"model": "dit_fp8.safetensors"}, form_name="custom", admin_pinned=["model"])
+
+        instance._enforce_model_access(bound, "user_1", template, "txt2img")
+
+    def test_a_file_unknown_to_the_catalog_is_left_to_the_engine(self):
+        policy = self._policy([], allowed=[])
+        instance = _orchestrator(model_access_policy=policy, user_repository=self._user_repo())
+        template = _template("txt2img", model=_Spec("model", {"model_type": "diffusion_model"}))
+        bound = BoundForm(values={"model": "unknown.safetensors"}, form_name="custom")
+
+        instance._enforce_model_access(bound, "user_1", template, "txt2img")

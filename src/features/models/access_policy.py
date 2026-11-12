@@ -54,6 +54,23 @@ class ModelAccessPolicy:
 
         return model
 
+    def verify_filename_access(self, value: str, model_types: List[str], user: User) -> None:
+        if owner_is_admin(user):
+            return
+        filename = value.replace("\\", "/").rsplit("/", 1)[-1]
+        if not filename:
+            return
+        matches = [
+            model
+            for model in self.model_repo.get_by_filename(filename)
+            if getattr(model, "is_available", True) and (not model_types or model.model_type in model_types)
+        ]
+        if not matches:
+            return
+        allowed = set(self.model_repo.get_available_model_ids_for_user(user.id))
+        if not any(model.id in allowed for model in matches):
+            raise ModelAccessDeniedException(f"Access denied to model '{filename}'")
+
     def explain_assignment_failure(self, model_id: str, user_id: str) -> ModelAssignmentException:
         """Turn a failed insert into an exception that says what actually went wrong.
 

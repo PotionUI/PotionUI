@@ -19,6 +19,7 @@ export interface ModelSearchInput {
 	favoritesOnly?: boolean;
 	modelTypes?: string[];
 	unquantizedOnly?: boolean;
+	families?: string[];
 }
 
 export type ModelSearchRequest =
@@ -34,6 +35,7 @@ export type ModelSearchRequest =
 				favoritesOnly?: boolean;
 				modelTypes?: string;
 				unquantizedOnly?: boolean;
+				families?: string;
 			};
 	  }
 	| {
@@ -71,7 +73,8 @@ export function buildModelSearchRequest(input: ModelSearchInput): ModelSearchReq
 				anyTagIds,
 				favoritesOnly,
 				modelTypes: input.modelTypes && input.modelTypes.length > 1 ? input.modelTypes.join(',') : undefined,
-				unquantizedOnly: input.unquantizedOnly || undefined
+				unquantizedOnly: input.unquantizedOnly || undefined,
+				families: joinIds(input.families)
 			}
 		};
 	}

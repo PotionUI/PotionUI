@@ -107,6 +107,7 @@ from src.features.models.form_refs import (
 )
 from src.features.models.exceptions import ModelAccessDeniedException
 from src.features.presets.exceptions import PresetNotFoundException
+from src.features.presets.mode_fields import model_fields
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, Progress, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
 from src.features.generation.records import Generation
@@ -860,7 +861,7 @@ class GenerationOrchestrator:
         if built.needs_admin_authority:
             raise AdminAuthorityRequired("This preset is restricted to administrators")
 
-    def _enforce_model_access(self, bound, user_id: str) -> None:
+    def _enforce_model_access(self, bound, user_id: str, preset_template=None, mode: Optional[str] = None) -> None:
         """Verify every `model:<id>` reference in `bound.values` is one
         `user_id` may reach, skipping references that live only under a
         field name in `bound.admin_pinned`.
@@ -883,7 +884,9 @@ class GenerationOrchestrator:
                 continue
             model_ids.update(collect_model_ids(value))
 
-        if not model_ids:
+        slot_files = self._unresolved_slot_files(bound, pinned, preset_template, mode)
+
+        if not model_ids and not slot_files:
             return
 
         user = self.user_repository.get_by_id(user_id)
@@ -892,6 +895,23 @@ class GenerationOrchestrator:
 
         for model_id in model_ids:
             self.model_access_policy.verify_model_access(model_id, user)
+        for value, model_types in slot_files:
+            self.model_access_policy.verify_filename_access(value, model_types, user)
+
+    @staticmethod
+    def _unresolved_slot_files(bound, pinned: set, preset_template, mode: Optional[str]) -> list:
+        mode_template = ((getattr(preset_template, "modes", None) or {}).get(mode)) if preset_template is not None else None
+        if mode_template is None:
+            return []
+        found = []
+        for name, spec in model_fields(mode_template).items():
+            value = bound.values.get(name)
+            if name in pinned or not isinstance(value, str) or not value.strip() or is_model_ref(value):
+                continue
+            configuration = spec.configuration or {}
+            types = configuration.get("model_types") or ([configuration["model_type"]] if configuration.get("model_type") else [])
+            found.append((value, [str(item) for item in types]))
+        return found
 
     def _bind(
         self,
@@ -1338,7 +1358,7 @@ class GenerationOrchestrator:
             # scope by design). Raises ModelNotFoundException/
             # ModelAccessDeniedException, mapped by the controller to the house
             # 404-not-403 pattern.
-            self._enforce_model_access(bound, user_id)
+            self._enforce_model_access(bound, user_id, preset_template, mode)
             self._enforce_admin_authority(preset_template, mode, bound, user_id, request)
 
             # Video/Music Director documents, if present, are untrusted client

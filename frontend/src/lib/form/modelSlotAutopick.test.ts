@@ -4,6 +4,7 @@ import {
 	collectAutopickSlots,
 	createModelSlotAutopick,
 	decideAutopick,
+	decideSlotValue,
 	forgetClearedSlots,
 	isSlotClearEdit,
 	resolveSlotTagIds,
@@ -239,12 +240,13 @@ describe('createModelSlotAutopick', () => {
 		expect(t.picks).toEqual([]);
 	});
 
-	it('does not request restored slots', async () => {
+	it('requests a restored slot that is empty, never one that holds a value', async () => {
 		const t = setup({ vae: one });
 		t.pinned.add('vae');
 		t.sync('k1', ['vae']);
 		await vi.advanceTimersByTimeAsync(500);
-		expect(t.search).not.toHaveBeenCalled();
+		expect(t.search).toHaveBeenCalledTimes(1);
+		expect(t.picks).toEqual(['vae']);
 	});
 
 	it('does not refill a slot the user cleared, across loads', async () => {
@@ -319,5 +321,167 @@ describe('createModelSlotAutopick', () => {
 		controller.sync({ ...input, loadKey: 'k2' });
 		await vi.advanceTimersByTimeAsync(500);
 		expect(search).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('decideSlotValue', () => {
+	const input = {
+		current: '',
+		restored: false,
+		cleared: false,
+		verdict: 'unknown' as const,
+		result: { models: [model('a')], total: 1 }
+	};
+
+	it('picks the only model for an empty slot', () => {
+		expect(decideSlotValue(input)).toEqual({ action: 'pick', model: model('a') });
+	});
+
+	it('leaves an empty slot alone with several models, none, or after the user cleared it', () => {
+		expect(decideSlotValue({ ...input, result: { models: [model('a'), model('b')], total: 2 } })).toEqual({ action: 'keep' });
+		expect(decideSlotValue({ ...input, result: { models: [], total: 0 } })).toEqual({ action: 'keep' });
+		expect(decideSlotValue({ ...input, cleared: true })).toEqual({ action: 'keep' });
+	});
+
+	it('keeps a usable default and a value whose check could not tell', () => {
+		expect(decideSlotValue({ ...input, current: 'x.safetensors', verdict: 'usable' })).toEqual({ action: 'keep' });
+		expect(decideSlotValue({ ...input, current: 'x.safetensors', verdict: 'unknown' })).toEqual({ action: 'keep' });
+	});
+
+	it('replaces an unusable default by the only model that fits', () => {
+		expect(decideSlotValue({ ...input, current: 'x.safetensors', verdict: 'unusable' })).toEqual({
+			action: 'pick',
+			model: model('a')
+		});
+	});
+
+	it('clears an unusable default when several models or none fit', () => {
+		const current = 'x.safetensors';
+		expect(
+			decideSlotValue({ ...input, current, verdict: 'unusable', result: { models: [model('a'), model('b')], total: 2 } })
+		).toEqual({ action: 'clear' });
+		expect(decideSlotValue({ ...input, current, verdict: 'unusable', result: { models: [], total: 0 } })).toEqual({
+			action: 'clear'
+		});
+		expect(decideSlotValue({ ...input, current, verdict: 'unusable', result: null })).toEqual({ action: 'clear' });
+	});
+
+	it('clears an unusable restored value instead of substituting another', () => {
+		expect(decideSlotValue({ ...input, current: 'model:gone', restored: true, verdict: 'unusable' })).toEqual({
+			action: 'clear'
+		});
+	});
+});
+
+describe('slot families and filled slots', () => {
+	const field = (over: Record<string, unknown>) => ({
+		type: 'model',
+		required: true,
+		configuration: { model_type: 'diffusion_model', families: ['minimax_h3'] },
+		...over
+	});
+
+	it('carries the declared families into the slot and its search request', () => {
+		const [slot] = collectAutopickSlots([field({ name: 'model' })] as any, {}, 'p1');
+		expect(slot.families).toEqual(['minimax_h3']);
+		const request = slotSearchRequest(slot, []);
+		expect(request.kind === 'preset' && request.opts.families).toBe('minimax_h3');
+	});
+
+	it('does not add a families key for a slot that declares none', () => {
+		const [slot] = collectAutopickSlots([field({ name: 'model', configuration: { model_type: 'vae' } })] as any, {}, 'p1');
+		expect('families' in slot).toBe(false);
+	});
+
+	it('lists a filled slot with its current value only when asked to', () => {
+		const data = { model: { modelPath: 'model:1', tagFilters: [] } };
+		expect(collectAutopickSlots([field({ name: 'model' })] as any, data, 'p1')).toEqual([]);
+		const [slot] = collectAutopickSlots([field({ name: 'model' })] as any, data, 'p1', true);
+		expect(slot.current).toBe('model:1');
+	});
+});
+
+describe('createModelSlotAutopick value checks', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		forgetClearedSlots();
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const filled = (name: string, current: string): AutopickSlot => ({
+		name,
+		presetId: 'p1',
+		modelType: name,
+		modelTypes: [],
+		unquantizedOnly: false,
+		filterTagIds: [],
+		tagFilters: [],
+		current
+	});
+
+	function build(verdict: 'usable' | 'unusable' | 'unknown', models: any[] = [model('only')], pinned = false) {
+		const search = vi.fn(async () => ({ models, total: models.length }));
+		const check = vi.fn(async () => verdict);
+		const picks: string[] = [];
+		const clears: string[] = [];
+		const pendings: string[][] = [];
+		const controller = createModelSlotAutopick({ tabKey: 'tab1', search, check });
+		controller.sync({
+			loadKey: 'k1',
+			slots: [filled('vae', 'admins.safetensors')],
+			isPinned: () => pinned,
+			isEmpty: () => false,
+			currentWire: () => 'admins.safetensors',
+			onPick: (s, m) => picks.push(`${s.name}:${m.id}`),
+			onClear: (s) => clears.push(s.name),
+			onPending: (names) => pendings.push([...names])
+		});
+		return { search, check, picks, clears, pendings };
+	}
+
+	it('marks a filled slot as being checked, then settles it', async () => {
+		const t = build('usable');
+		expect(t.pendings[0]).toEqual(['vae']);
+		await vi.advanceTimersByTimeAsync(500);
+		expect(t.pendings.at(-1)).toEqual([]);
+		expect(t.check).toHaveBeenCalledWith(expect.objectContaining({ name: 'vae' }), 'admins.safetensors');
+	});
+
+	it('keeps a usable value and never searches', async () => {
+		const t = build('usable');
+		await vi.advanceTimersByTimeAsync(500);
+		expect(t.search).not.toHaveBeenCalled();
+		expect(t.picks).toEqual([]);
+		expect(t.clears).toEqual([]);
+	});
+
+	it('swaps an unusable default for the only fitting model', async () => {
+		const t = build('unusable');
+		await vi.advanceTimersByTimeAsync(500);
+		expect(t.picks).toEqual(['vae:only']);
+		expect(t.clears).toEqual([]);
+	});
+
+	it('clears an unusable default when two models fit', async () => {
+		const t = build('unusable', [model('a'), model('b')]);
+		await vi.advanceTimersByTimeAsync(500);
+		expect(t.picks).toEqual([]);
+		expect(t.clears).toEqual(['vae']);
+	});
+
+	it('clears an unusable restored value even when one model fits', async () => {
+		const t = build('unusable', [model('only')], true);
+		await vi.advanceTimersByTimeAsync(500);
+		expect(t.picks).toEqual([]);
+		expect(t.clears).toEqual(['vae']);
+	});
+
+	it('leaves the value when the check cannot tell', async () => {
+		const t = build('unknown');
+		await vi.advanceTimersByTimeAsync(500);
+		expect(t.picks).toEqual([]);
+		expect(t.clears).toEqual([]);
 	});
 });

@@ -111,6 +111,15 @@ class TestModelFieldTypeList(unittest.TestCase):
         self.assertNotIn('unquantized_only', self._config(unquantized_only=False))
         self.assertNotIn('unquantized_only', self._config(unquantized_only='yes'))
 
+    def test_families_are_served_trimmed_and_deduplicated_and_only_when_present(self):
+        self.assertEqual(self._config(families=['minimax_h3', ' z_image ', 'minimax_h3', 7, ''])['families'], ['minimax_h3', 'z_image'])
+        self.assertNotIn('families', self._config(families=[]))
+        self.assertNotIn('families', self._config(families='minimax_h3'))
+        self.assertNotIn('families', self._config())
+
+    def test_families_is_declared_in_the_field_configuration_spec(self):
+        self.assertIn('families', {spec.name for spec in Model.configuration()})
+
     def test_both_options_are_declared_in_the_field_configuration_spec(self):
         names = {spec.name for spec in Model.configuration()}
         self.assertTrue({'model_types', 'unquantized_only'} <= names)

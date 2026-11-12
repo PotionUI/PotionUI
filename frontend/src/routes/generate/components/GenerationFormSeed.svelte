@@ -2,7 +2,8 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { formAudienceStore } from '$lib/stores/formAudience';
 	import { createFormStateSeed } from '$lib/form/formStateSeed';
-	import { loadCloudCapabilities, loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
+	import { checkSlotValue, loadCloudCapabilities, loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
+	import { toasts } from '$lib/stores/toast';
 	import { sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import { clearMissingModel, publishMissingModel } from '$lib/generation/requiredModelField';
 	import type { GenerationTab } from '$lib/types/tabs';
@@ -20,6 +21,8 @@
 	const seed = createFormStateSeed({
 		loadSchema: (presetId, mode, variant) => loadPresetFormSchema(presetId, mode, variant),
 		search: searchAutopickSlot,
+		check: checkSlotValue,
+		notify: (message) => toasts.warning(message, 8000),
 		loadCapabilities: loadCloudCapabilities,
 		capabilityOf: (modelId) => sharedCapabilityCache.get(modelId),
 		publish: (data) => onFormDataChange(data),

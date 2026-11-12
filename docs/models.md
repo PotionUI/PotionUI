@@ -167,6 +167,11 @@ MiniMax-H3 files. It does not apply to:
 - ComfyUI, which lists its diffusion models by folder, so a file in `checkpoints` cannot be picked
   there.
 
+A slot can also name the families it accepts (`families: [minimax_h3]`, see
+[presets/forms.md](presets/forms.md)). The picker then drops a file, full checkpoints included,
+whose header says it belongs to another family. A file with no header verdict, or one the admin
+tagged for the slot, is still offered.
+
 ### Changing a type by hand
 
 On a model's page in Admin → Models an admin can set the type. It applies to every copy of that
@@ -734,6 +739,20 @@ resolution fails loudly.
 The same asymmetry governs selection: availability narrows the candidate backends only when at
 least one backend of the engine has been indexed. Enforcing it against an empty index would fail
 every generation on that engine instead of degrading to the previous behaviour.
+
+### Which model a slot starts with
+
+A slot's initial value is always a model the signed-in user can use. The preset's default (or the
+admin's default for the field) is kept when it is one of the user's models. When it is not, the
+slot takes the user's only model that fits the slot's type, family and tag filters; with none or
+several to choose from it starts empty, and the form says which slot to pick. A value restored from
+a saved session, a tab draft or History that the user can no longer use is cleared with a notice. A
+saved empty slot is filled again when exactly one model fits.
+
+On submit, a non-admin's slot value that names an installed file they are not assigned is refused
+with the same "selected models are not available" answer as a `model:` reference they cannot
+reach. Admins are unaffected. A mode's `requirements_missing` counts a required model the user
+has not been assigned, not only one missing from the depot.
 
 ## Portable generation bundles
 

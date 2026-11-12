@@ -279,6 +279,13 @@ before. `unquantized_only: true` additionally hides safetensors files whose head
 quantized tensors (an fp8 dtype, scale or `comfy_quant` entries) and every non-safetensors file;
 it is applied server-side, before paging.
 
+`families: [minimax_h3]` names the model families a slot accepts (the family names the header
+detection reports, see [How a model's type is decided](../models.md#how-a-models-type-is-decided)).
+A preset-scoped picker then drops a file whose header says it belongs to another family, including
+full checkpoints a `diffusion_model` slot would otherwise list
+(`GET /api/presets/{id}/models?families=a,b`). A file with no header verdict (a folder not read for
+headers) is still offered, and so is any model the admin tagged for the slot through `filter_tags`.
+
 `recommendations` (a `model` field's list of downloadable models offered when the picker is empty)
 supports two entry shapes:
 

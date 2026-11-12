@@ -26,7 +26,8 @@ function isEmptyTagsValue(value: unknown): boolean {
 
 export function missingRequiredModelField(
 	fields: FieldConfig[],
-	formData: Record<string, unknown> | null | undefined
+	formData: Record<string, unknown> | null | undefined,
+	unverified: ReadonlySet<string> = new Set()
 ): MissingModelField | null {
 	const data = formData ?? {};
 
@@ -35,7 +36,7 @@ export function missingRequiredModelField(
 
 		if (field.name && field.type === 'model' && field.required && !field.readonly) {
 			const wireValue = fromComponentValue(field.type, data[field.name]);
-			if (typeof wireValue !== 'string' || wireValue.trim() === '') {
+			if (typeof wireValue !== 'string' || wireValue.trim() === '' || unverified.has(field.name)) {
 				return { name: field.name, label: field.title || field.name };
 			}
 		}
@@ -47,12 +48,16 @@ export function missingRequiredModelField(
 		}
 
 		if (Array.isArray(field.children)) {
-			const nested = missingRequiredModelField(field.children, data);
+			const nested = missingRequiredModelField(field.children, data, unverified);
 			if (nested) return nested;
 		}
 	}
 
 	return null;
+}
+
+export function missingModelMessage(missing: MissingModelField): string {
+	return `Select ${missing.label} to generate`;
 }
 
 const published = writable<Record<string, PublishedMissingModel>>({});

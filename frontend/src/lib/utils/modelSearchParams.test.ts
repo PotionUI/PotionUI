@@ -120,6 +120,20 @@ describe('buildModelSearchRequest', () => {
 		expect(JSON.stringify(global)).not.toContain('unet');
 	});
 
+	it('joins the slot families on the preset branch and omits them when none are declared', () => {
+		const declared = buildModelSearchRequest({
+			modelType: 'diffusion_model',
+			families: ['minimax_h3', 'krea2'],
+			presetId: 'p1',
+			limit: 10
+		});
+		expect(declared).toMatchObject({ kind: 'preset', opts: { families: 'minimax_h3,krea2' } });
+		const none = buildModelSearchRequest({ modelType: 'diffusion_model', families: [], presetId: 'p1', limit: 10 });
+		expect(none).toMatchObject({ opts: { families: undefined } });
+		const global = buildModelSearchRequest({ modelType: 'diffusion_model', families: ['krea2'], limit: 10 });
+		expect(JSON.stringify(global)).not.toContain('krea2');
+	});
+
 	it('keeps the single-type request untouched when model_types is absent or holds one type', () => {
 		const none = buildModelSearchRequest({ modelType: 'lora', presetId: 'p1', limit: 10 });
 		expect(none).toMatchObject({ opts: { modelTypes: undefined, unquantizedOnly: undefined } });

@@ -2,12 +2,15 @@ import { extractAllFields, type FieldConfig } from './reactions';
 import { cloudModelId, collectCapabilityModelFields } from './capabilityBinder';
 import {
 	autopickValue,
+	clearedSlotValue,
 	collectAutopickSlots,
-	decideAutopick,
+	decideSlotValue,
 	hasModelValue,
 	isSlotCleared,
+	unavailableNotice,
 	type AutopickSearchResult,
-	type AutopickSlot
+	type AutopickSlot,
+	type SlotVerdict
 } from './modelSlotAutopick';
 import { flattenFormData, hydrateFormData, settleFormReactions, type CapabilityLookup } from './formState';
 import { missingRequiredModelField, type MissingModelField } from '$lib/generation/requiredModelField';
@@ -31,6 +34,8 @@ export interface FormSeedTarget {
 export interface FormSeedDeps {
 	loadSchema: (presetId: string, mode: string, variant: string | undefined) => Promise<any>;
 	search: (slot: AutopickSlot) => Promise<AutopickSearchResult | null>;
+	check?: (slot: AutopickSlot, wire: string) => Promise<SlotVerdict>;
+	notify?: (message: string) => void;
 	loadCapabilities: (modelId: string) => Promise<void>;
 	capabilityOf: CapabilityLookup;
 	publish: (data: Record<string, unknown>) => void;
@@ -125,43 +130,59 @@ export function createFormStateSeed(deps: FormSeedDeps): FormStateSeed {
 			});
 
 		let state = settle(hydrateFormData(schema, incoming), null);
+		let unverified: ReadonlySet<string> = new Set();
 		const report = () => {
 			reportedTab = target.tabId;
 			deps.publishMissing(
 				target.tabId,
 				key,
-				missingRequiredModelField(extractAllFields(state.pass.processedSchema), state.data)
+				missingRequiredModelField(extractAllFields(state.pass.processedSchema), state.data, unverified)
 			);
 		};
 		report();
 
 		applyAudienceVisibilityToSchema(state.pass.processedSchema, target.audience, undefined, target.videoDirectorActive);
-		const slots = collectAutopickSlots(
-			Object.values(state.pass.processedSchema?.properties ?? {}) as FieldConfig[],
-			state.data,
-			presetId
-		).filter((slot) => !pinned.has(slot.name) && !isSlotCleared(target.tabId, slot.name));
+		const slotFields = Object.values(state.pass.processedSchema?.properties ?? {}) as FieldConfig[];
+		const labels = new Map(extractAllFields(state.pass.processedSchema).map((field) => [field.name, field.title || field.name]));
+		const slots = collectAutopickSlots(slotFields, state.data, presetId, true).filter(
+			(slot) => slot.current || !isSlotCleared(target.tabId, slot.name)
+		);
+		const waiting = new Set(slots.filter((slot) => slot.current).map((slot) => slot.name));
+		unverified = waiting;
+		report();
 
 		await Promise.all(
 			slots.map(async (slot) => {
+				const wire = slot.current ?? '';
+				let verdict: SlotVerdict = 'unknown';
 				let result: AutopickSearchResult | null = null;
 				try {
-					result = await deps.search(slot);
+					if (wire && deps.check) verdict = await deps.check(slot, wire);
+					if (isCurrent(id) && (!wire || verdict === 'unusable')) result = await deps.search(slot);
 				} catch {
 					result = null;
 				}
 				if (!isCurrent(id)) return;
-				const model = decideAutopick({
-					hasValue: hasModelValue(MODEL_FIELD, state.data[slot.name]),
-					restored: false,
+				waiting.delete(slot.name);
+				const restored = hasModelValue(MODEL_FIELD, incoming[slot.name]);
+				const decision = decideSlotValue({
+					current: wire,
+					restored,
 					cleared: isSlotCleared(target.tabId, slot.name),
+					verdict,
 					result
 				});
-				if (!model) return;
-				state = settle({ ...state.data, [slot.name]: autopickValue(slot, model) }, state.data);
+				if (decision.action === 'pick') {
+					state = settle({ ...state.data, [slot.name]: autopickValue(slot, decision.model) }, state.data);
+				} else if (decision.action === 'clear') {
+					state = settle({ ...state.data, [slot.name]: clearedSlotValue(slot) }, state.data);
+					if (restored) deps.notify?.(unavailableNotice(labels.get(slot.name) ?? slot.name));
+				}
 				report();
 			})
 		);
+		unverified = new Set();
+		report();
 		if (!isCurrent(id)) return;
 
 		const cloudIds = [...new Set(modelFields.map((field) => cloudModelId(state.data[field])))].filter(

@@ -45,6 +45,7 @@
 	$: modelTypes = (Array.isArray(fieldConfig?.model_types) ? fieldConfig.model_types : []) as string[];
 	$: modelType = fieldConfig?.model_type || modelTypes[0] || 'checkpoint';
 	$: unquantizedOnly = fieldConfig?.unquantized_only === true;
+	$: families = Array.isArray(fieldConfig?.families) ? (fieldConfig.families as string[]) : [];
 	$: allowTagFilters = fieldConfig?.allow_tag_filters !== false;
 	$: limit = fieldConfig?.limit || 100;
 	$: recommendations = (fieldConfig?.recommendations || null) as ModelRecommendation[] | null;
@@ -615,6 +616,7 @@
 					{modelType}
 					{modelTypes}
 					{unquantizedOnly}
+					{families}
 					{presetId}
 					{limit}
 					{searchQuery}

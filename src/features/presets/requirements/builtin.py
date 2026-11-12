@@ -268,11 +268,15 @@ class ModelRequirementChecker:
 
     @staticmethod
     def _admin_default(ctx: RequirementContext, group: Dict[str, Any]) -> Optional[str]:
-        overrides = ((ctx.form_overrides or {}).get(group.get("mode")) or {}).get(group.get("field"))
+        model = ModelRequirementChecker.admin_default_model(ctx.models.model_repo, ctx.form_overrides, group)
+        return model.filename if model is not None else None
+
+    @staticmethod
+    def admin_default_model(repo: Any, form_overrides: Optional[Dict[str, Any]], group: Dict[str, Any]) -> Optional[Any]:
+        overrides = ((form_overrides or {}).get(group.get("mode")) or {}).get(group.get("field"))
         value = overrides.get("default") if isinstance(overrides, dict) else None
         if not isinstance(value, str) or not value.strip():
             return None
-        repo = ctx.models.model_repo
         if value.startswith(MODEL_REF_PREFIX):
             model = repo.get_by_id(value[len(MODEL_REF_PREFIX):], include_providers=False)
         else:
@@ -282,7 +286,7 @@ class ModelRequirementChecker:
                 model = next((m for m in repo.get_by_filename(name) or [] if m.is_available), None)
         if model is None or not getattr(model, "is_available", True):
             return None
-        return model.filename
+        return model
 
     @staticmethod
     def _unverified_files(ctx: RequirementContext) -> int:

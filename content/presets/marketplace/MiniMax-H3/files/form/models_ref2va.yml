@@ -10,6 +10,7 @@ fields:
     the ref2va partition; do not suggest running the reference mode on it.
   configuration:
     model_type: diffusion_model
+    families: [minimax_h3]
     placeholder: minimax_h3_ref2va_pruned_fp8_scaled...
     filter_tags: '@config:checkpoint_tags'
     recommendations:

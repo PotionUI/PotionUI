@@ -6,7 +6,8 @@
 	import { type FieldConfig, extractAllFields } from '$lib/form/reactions';
 	import { valuesEqual } from './dynamicFormReactionApply';
 	import { flattenFormData, hydrateFormData, settleFormReactions } from '$lib/form/formState';
-	import { loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
+	import { checkSlotValue, loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
+	import { toasts } from '$lib/stores/toast';
 	import { createLatestRequestGuard } from '$lib/form/schemaCache';
 	import { formAudienceStore } from '$lib/stores/formAudience';
 	import { applyAudienceVisibilityToSchema, type FormAudience } from '$lib/utils/audienceFilter';
@@ -30,11 +31,14 @@
 	import { compareSchemaSignature, schemaForCompare } from '$lib/generation/compare/compareSchema';
 	import {
 		autopickValue,
+		clearedSlotValue,
 		collectAutopickSlots,
 		createModelSlotAutopick,
 		hasModelValue,
 		isSlotClearEdit,
-		markSlotCleared
+		markSlotCleared,
+		modelWire,
+		unavailableNotice
 	} from '$lib/form/modelSlotAutopick';
 
 	const PUBLISHED_SNAPSHOT_LIMIT = 8;
@@ -206,7 +210,7 @@
 			publishMissingModel(
 				tabId,
 				compareSchemaKey,
-				missingRequiredModelField(extractAllFields(pass.processedSchema), data)
+				missingRequiredModelField(extractAllFields(pass.processedSchema), data, unverifiedModelSlots)
 			);
 		}
 		applyAudienceVisibilityToSchema(
@@ -221,6 +225,7 @@
 		}
 	}
 
+	let unverifiedModelSlots: ReadonlySet<string> = new Set();
 	let reactionBaseline: Record<string, any> | null = null;
 	let reactionPinned: Set<string> = new Set();
 
@@ -288,17 +293,41 @@
 		}
 	}
 
-	const modelSlotAutopick = createModelSlotAutopick({ tabKey: tabId ?? '', search: searchAutopickSlot });
+	const modelSlotAutopick = createModelSlotAutopick({
+		tabKey: tabId ?? '',
+		search: searchAutopickSlot,
+		check: checkSlotValue
+	});
+
+	function republishMissingModel() {
+		if (tabId && compareSchemaKey && initialLoadComplete && processedSchema) {
+			publishMissingModel(
+				tabId,
+				compareSchemaKey,
+				missingRequiredModelField(extractAllFields(processedSchema), formData, unverifiedModelSlots)
+			);
+		}
+	}
 
 	function syncModelSlotAutopick(schema: any, loadKey: string) {
 		if (!tabId) return;
 		modelSlotAutopick.sync({
 			loadKey,
-			slots: collectAutopickSlots(Object.values(schema?.properties ?? {}) as FieldConfig[], formData, presetId),
+			slots: collectAutopickSlots(Object.values(schema?.properties ?? {}) as FieldConfig[], formData, presetId, true),
 			isPinned: (name) => reactionPinned.has(name),
 			isEmpty: (name) => !hasModelValue({ type: 'model' }, formData[name]),
+			currentWire: (name) => modelWire(formData[name]),
+			onPending: (names) => {
+				unverifiedModelSlots = names;
+				republishMissingModel();
+			},
 			onPick: (slot, model) => {
 				formData = { ...formData, [slot.name]: autopickValue(slot, model) };
+			},
+			onClear: (slot) => {
+				const label = allFields.find((f) => f.name === slot.name)?.title || slot.name;
+				if (reactionPinned.has(slot.name)) toasts.warning(unavailableNotice(label), 8000);
+				formData = { ...formData, [slot.name]: clearedSlotValue(slot) };
 			}
 		});
 	}

@@ -200,6 +200,7 @@ class PresetController(BaseController):
         tasks: Optional[str] = None,
         model_types: Optional[str] = None,
         unquantized_only: bool = False,
+        families: Optional[str] = None,
     ) -> APIResponse:
         """Models this preset could actually load, with the backends that hold each.
 
@@ -245,6 +246,7 @@ class PresetController(BaseController):
             backend_registry=self.backend_registry,
             model_type=model_type,
             model_types=type_list,
+            families=[f.strip() for f in families.split(",") if f.strip()] if families else None,
             unquantized_only=unquantized_only,
             path_for_model=locator.path_for_model if locator is not None else None,
             search=search,
@@ -299,6 +301,7 @@ class PresetController(BaseController):
         """Get available modes for a specific preset."""
         await operations.refresh_mode_requirements(self.collaborators, preset_id)
         data = operations.get_available_modes(self.collaborators, preset_id)
+        await asyncio.to_thread(operations.apply_user_model_scope, self.collaborators, preset_id, data, current_user)
         install = (
             await asyncio.to_thread(
                 self.recipe_links.mode_install,
@@ -541,6 +544,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         tasks: Optional[str] = None,
         model_types: Optional[str] = None,
         unquantized_only: bool = False,
+        families: Optional[str] = None,
         current_user=Depends(preset_access)
     ):
         """List models loadable by this preset's engine, each badged with the backends holding it.
@@ -558,6 +562,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             tasks=tasks,
             model_types=model_types,
             unquantized_only=unquantized_only,
+            families=families,
         )
 
     @router.get("/{preset_id}/modes", response_model=APIResponse, summary="Get Preset Modes")

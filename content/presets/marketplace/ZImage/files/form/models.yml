@@ -5,6 +5,7 @@ fields:
     required: true
     configuration:
       model_type: "diffusion_model"
+      families: ["z_image"]
       placeholder: "Select Z-Image NextDiT (e.g. zImage_turbo)..."
       filter_tags: "@config:checkpoint_tags"
       recommendations:

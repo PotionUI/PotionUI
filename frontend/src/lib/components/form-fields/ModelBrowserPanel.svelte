@@ -45,6 +45,7 @@
 	export let modelType: string;
 	export let modelTypes: string[] = [];
 	export let unquantizedOnly: boolean = false;
+	export let families: string[] = [];
 	export let presetId: string = '';
 	export let limit: number = 100;
 	export let searchQuery: string = '';
@@ -180,6 +181,7 @@
 			modelType,
 			modelTypes: [...modelTypes],
 			unquantizedOnly,
+			families: [...families],
 			presetId,
 			searchQuery,
 			limit,
@@ -202,7 +204,8 @@
 				anyTagIds: scope.filterTagIds,
 				favoritesOnly: scope.favoritesOnly,
 				modelTypes: scope.modelTypes,
-				unquantizedOnly: scope.unquantizedOnly
+				unquantizedOnly: scope.unquantizedOnly,
+				families: scope.families
 			});
 			const response =
 				request.kind === 'preset'

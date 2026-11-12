@@ -51,6 +51,25 @@ describe('missingRequiredModelField', () => {
 	});
 });
 
+describe('missingRequiredModelField with values not yet checked', () => {
+	it('names a filled slot while its value is still being checked', () => {
+		expect(missingRequiredModelField([modelField()], { model: 'model:abc' }, new Set(['model']))).toEqual({
+			name: 'model',
+			label: 'Model'
+		});
+	});
+
+	it('does not name a filled slot once it is checked', () => {
+		expect(missingRequiredModelField([modelField()], { model: 'model:abc' }, new Set())).toBeNull();
+		expect(missingRequiredModelField([modelField()], { model: 'model:abc' })).toBeNull();
+	});
+
+	it('names the slot inside a nested group', () => {
+		const group = { type: 'group', children: [modelField()] } as unknown as FieldConfig;
+		expect(missingRequiredModelField([group], { model: 'model:abc' }, new Set(['model']))?.name).toBe('model');
+	});
+});
+
 describe('missingRequiredModelField for required tags fields', () => {
 	const tagsField = { type: 'tags', name: 'style', title: 'Style tags', required: true } as FieldConfig;
 

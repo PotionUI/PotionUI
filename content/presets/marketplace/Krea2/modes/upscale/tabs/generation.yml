@@ -57,6 +57,7 @@ fields:
         required: true
         configuration:
           model_type: "diffusion_model"
+          families: ["krea2"]
           placeholder: "Select Krea-2 DiT (bf16)..."
           filter_tags: "@config:checkpoint_tags"
           recommendations:

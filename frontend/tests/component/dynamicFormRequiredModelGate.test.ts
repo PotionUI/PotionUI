@@ -48,6 +48,8 @@ describe('DynamicForm required model gate', () => {
 	it('reports nothing once the field holds a model', async () => {
 		const key = mount(schemaWith([modelField]), { diffusion_model: 'model:abc' });
 		await settle(10);
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		await settle(10);
 		expect(get(missingModelByTab)['tab-1']?.key).toBe(key);
 		expect(missingModelFor(get(missingModelByTab), 'tab-1', key)).toBeNull();
 	});

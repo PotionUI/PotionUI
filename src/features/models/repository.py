@@ -40,6 +40,14 @@ def _type_clause(model_type: str, include_extractable_checkpoints: bool):
         return clause, [model_type, CHECKPOINT_MODEL_TYPE, *families]
     return "m.model_type = ?", [model_type]
 
+def _families_clause(families: List[str]):
+    placeholders = ",".join("?" * len(families))
+    clause = (
+        "m.id NOT IN (SELECT v.model_id FROM model_verdicts v "
+        f"WHERE v.status = 'decided' AND v.family IS NOT NULL AND v.family NOT IN ({placeholders}))"
+    )
+    return clause, list(families)
+
 def _types_clause(model_types: List[str]):
     placeholders = ",".join("?" * len(model_types))
     return f"m.model_type IN ({placeholders})", list(model_types)
@@ -248,7 +256,8 @@ class ModelRepository:
                 include_usage: bool = False,
                 include_undefined: bool = False,
                 include_extractable_checkpoints: bool = False,
-                model_types: Optional[List[str]] = None) -> List[Model]:
+                model_types: Optional[List[str]] = None,
+                families: Optional[List[str]] = None) -> List[Model]:
         """Get all models with optional filtering.
 
         `tag_ids` requires ALL listed tags (AND, used by the library's multi-tag
@@ -370,6 +379,10 @@ class ModelRepository:
                     f"m.id IN (SELECT DISTINCT model_id FROM model_tags WHERE tag_id IN ({placeholders}))"
                 )
                 params.extend(any_tag_ids)
+            elif families:
+                family_clause, family_params = _families_clause(families)
+                additional_clauses.append(family_clause)
+                params.extend(family_params)
 
             if additional_clauses:
                 query += " AND " + " AND ".join(additional_clauses)
@@ -428,6 +441,10 @@ class ModelRepository:
                     f"m.id IN (SELECT DISTINCT model_id FROM model_tags WHERE tag_id IN ({placeholders}))"
                 )
                 params.extend(any_tag_ids)
+            elif families:
+                family_clause, family_params = _families_clause(families)
+                where_clauses.append(family_clause)
+                params.extend(family_params)
 
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)

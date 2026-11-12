@@ -37,6 +37,7 @@ fields:
         required: true
         configuration:
           model_type: "diffusion_model"
+          families: ["qwen_image21"]
           placeholder: "Select Qwen-Image-2.1 MMDiT (e.g. qwen_image_2.1_bf16)..."
           filter_tags: "@config:checkpoint_tags"
           recommendations:

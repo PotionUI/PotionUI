@@ -60,7 +60,7 @@
 	import { createDisconnectBanner } from '$lib/utils/disconnectBanner';
 	import { presetUnavailableReason } from '$lib/components/preset/presetDropdownModel';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
-	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
+	import { missingModelByTab, missingModelFor, missingModelMessage } from '$lib/generation/requiredModelField';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
 	import { setGenerationAttachHost } from '$lib/generation/restore/attachHost';
@@ -1823,7 +1823,7 @@
 				: unavailable ||
 					resourceIssue ||
 					(batchBlocked ? BATCH_CAP_MESSAGE : !hasPrompt ? noPromptReason : limitGate?.reason) ||
-					(missingModelField ? `Select ${missingModelField.label} to generate` : undefined);
+					(missingModelField ? missingModelMessage(missingModelField) : undefined);
 	}
 
 	// Workbench event handlers

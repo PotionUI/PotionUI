@@ -45,6 +45,9 @@ class Model(BaseField):
             schema['configuration']['model_types'] = model_types
         if field_info['configuration'].get('unquantized_only') is True:
             schema['configuration']['unquantized_only'] = True
+        families = self._clean_families(field_info['configuration'].get('families'))
+        if families:
+            schema['configuration']['families'] = families
 
         # Lets the frontend source options from this preset's engine
         # (`GET /api/presets/{preset_id}/models`) instead of the global library.
@@ -62,6 +65,12 @@ class Model(BaseField):
             if item in pickable and item not in cleaned:
                 cleaned.append(item)
         return cleaned
+
+    @staticmethod
+    def _clean_families(raw: Any) -> List[str]:
+        if not isinstance(raw, (list, tuple)):
+            return []
+        return list(dict.fromkeys(item.strip() for item in raw if isinstance(item, str) and item.strip()))
 
     @staticmethod
     def _serialize_recommendations(recommendations: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
@@ -128,6 +137,18 @@ class Model(BaseField):
                     "(no fp8 dtype, scale or comfy_quant entries). Preset-scoped pickers only."
                 ),
                 example=True
+            ),
+            FieldConfigSpec(
+                name="families",
+                param_type=list,
+                default=None,
+                description=(
+                    "Model families this slot accepts (header-detected family names such as "
+                    "minimax_h3, z_image, krea2). A preset-scoped picker then hides a file whose "
+                    "header says it belongs to another family; a file with no header verdict, or "
+                    "one the admin tagged through `filter_tags`, is still offered."
+                ),
+                example=["minimax_h3"]
             ),
             FieldConfigSpec(
                 name="placeholder",

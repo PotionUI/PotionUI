@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFormStateSeed, type FormSeedDeps, type FormSeedTarget } from './formStateSeed';
-import { forgetClearedSlots, markSlotCleared, type AutopickSlot } from './modelSlotAutopick';
+import { forgetClearedSlots, markSlotCleared, type AutopickSlot, type SlotVerdict } from './modelSlotAutopick';
 
-const modelField = (name: string, title: string) => ({
+const modelField = (name: string, title: string, fallback?: string) => ({
 	name,
 	type: 'model',
 	title,
 	required: true,
+	...(fallback ? { default: fallback } : {}),
 	configuration: { model_type: name }
 });
 
-function schemaFor(stepsDefault = 30) {
+function schemaFor(stepsDefault = 30, defaults: Record<string, string> = {}) {
 	return {
 		properties: {
 			root: {
@@ -32,9 +33,9 @@ function schemaFor(stepsDefault = 30) {
 								default: stepsDefault,
 								reactions: [{ when: { field: 'speed_profile', equals: 'turbo' }, then: { set_value: 8 } }]
 							},
-							modelField('diffusion_model', 'Diffusion Model'),
-							modelField('text_encoder', 'Text Encoder'),
-							modelField('vae', 'VAE')
+							modelField('diffusion_model', 'Diffusion Model', defaults.diffusion_model),
+							modelField('text_encoder', 'Text Encoder', defaults.text_encoder),
+							modelField('vae', 'VAE', defaults.vae)
 						]
 					}
 				]
@@ -166,13 +167,22 @@ describe('form state seed without a mounted form', () => {
 		expect(searched).not.toContain('diffusion_model');
 	});
 
-	it('leaves a slot the session saved empty and reports it missing', async () => {
+	it('fills a slot the session saved empty when exactly one model fits', async () => {
 		const { seed, published, missing, searched } = harness();
 		seed.sync(target({ formData: { vae: '' } }));
 		await settled();
 
-		expect(published[0]).toMatchObject({ vae: '', diffusion_model: 'model:dm-1' });
-		expect(searched).not.toContain('vae');
+		expect(published[0]).toMatchObject({ vae: 'model:vae-1', diffusion_model: 'model:dm-1' });
+		expect(searched).toContain('vae');
+		expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: null });
+	});
+
+	it('leaves a slot the session saved empty when several models fit, and reports it missing', async () => {
+		const { seed, published, missing } = harness({ rows: { ...SINGLE, vae: [{ id: 'vae-1' }, { id: 'vae-2' }] } });
+		seed.sync(target({ formData: { vae: '' } }));
+		await settled();
+
+		expect(published[0]).toMatchObject({ vae: '' });
 		expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: 'vae' });
 	});
 
@@ -360,5 +370,92 @@ describe('form state seed without a mounted form', () => {
 		expect(published).toHaveLength(1);
 		expect(published[0]).toMatchObject({ ...chosen, steps: 22 });
 		expect(deps.search).not.toHaveBeenCalled();
+	});
+
+	describe('a value the user cannot use', () => {
+		const ADMINS = 'admins-vae.safetensors';
+		const withCheck = (verdict: SlotVerdict | Promise<SlotVerdict>, rows = SINGLE) => {
+			const notify = vi.fn();
+			const check = vi.fn(async () => verdict);
+			const built = harness({
+				rows,
+				schemas: { txt2img: schemaFor(30, { vae: ADMINS }) },
+				deps: { check, notify }
+			});
+			return { ...built, check, notify };
+		};
+
+		it('replaces an unusable default with the only model that fits the slot', async () => {
+			const { seed, published, missing, check } = withCheck('unusable');
+			seed.sync(target());
+			await settled();
+
+			expect(check).toHaveBeenCalledWith(expect.objectContaining({ name: 'vae' }), ADMINS);
+			expect(published[0]).toMatchObject({ vae: 'model:vae-1' });
+			expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: null });
+		});
+
+		it('clears an unusable default when several models fit and names the slot as missing', async () => {
+			const { seed, published, missing, notify } = withCheck('unusable', {
+				...SINGLE,
+				vae: [{ id: 'vae-1' }, { id: 'vae-2' }]
+			});
+			seed.sync(target());
+			await settled();
+
+			expect(published[0]).toMatchObject({ vae: '' });
+			expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: 'vae' });
+			expect(notify).not.toHaveBeenCalled();
+		});
+
+		it('clears an unusable default when nothing fits', async () => {
+			const { seed, published, missing } = withCheck('unusable', { ...SINGLE, vae: [] });
+			seed.sync(target());
+			await settled();
+
+			expect(published[0]).toMatchObject({ vae: '' });
+			expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: 'vae' });
+		});
+
+		it('keeps a default the user can use without searching for another', async () => {
+			const { seed, published, searched } = withCheck('usable');
+			seed.sync(target());
+			await settled();
+
+			expect(published[0]).toMatchObject({ vae: ADMINS });
+			expect(searched).not.toContain('vae');
+		});
+
+		it('keeps the value when the check could not tell', async () => {
+			const { seed, published, missing } = withCheck('unknown');
+			seed.sync(target());
+			await settled();
+
+			expect(published[0]).toMatchObject({ vae: ADMINS });
+			expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: null });
+		});
+
+		it('clears a restored value with a notice naming the slot, and does not substitute another', async () => {
+			const { seed, published, missing, notify } = withCheck('unusable');
+			seed.sync(target({ formData: { vae: 'model:gone' } }));
+			await settled();
+
+			expect(published[0]).toMatchObject({ vae: '' });
+			expect(notify).toHaveBeenCalledTimes(1);
+			expect(notify.mock.calls[0][0]).toContain('VAE');
+			expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: 'vae' });
+		});
+
+		it('does not call a form ready while a value is still being checked', async () => {
+			const pending = deferred<SlotVerdict>();
+			const { seed, missing } = withCheck(pending.promise);
+			seed.sync(target());
+			await settled();
+
+			expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: 'vae' });
+			pending.resolve('usable');
+			await settled();
+			expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: null });
+		});
 	});
 });

@@ -622,6 +622,16 @@ class TestPresetControllerModelTypeOptions:
         assert kwargs["model_types"] == ["diffusion_model", "unet", "text_encoder"]
 
     @pytest.mark.asyncio
+    async def test_families_are_split_trimmed_and_forwarded(self, controller, admin):
+        kwargs = await self.call(controller, admin, families="minimax_h3, krea2,,")
+        assert kwargs["families"] == ["minimax_h3", "krea2"]
+
+    @pytest.mark.asyncio
+    async def test_no_families_forwards_none(self, controller, admin):
+        kwargs = await self.call(controller, admin)
+        assert kwargs["families"] is None
+
+    @pytest.mark.asyncio
     async def test_absent_options_keep_the_single_type_call_unchanged(self, controller, admin):
         kwargs = await self.call(controller, admin, model_type="lora")
         assert kwargs["model_type"] == "lora"

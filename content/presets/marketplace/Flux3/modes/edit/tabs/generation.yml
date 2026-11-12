@@ -41,6 +41,7 @@ fields:
         required: true
         configuration:
           model_type: "diffusion_model"
+          families: ["flux3"]
           placeholder: "Select a FLUX 3 Image Klein checkpoint (distilled or base)..."
           filter_tags: "@config:checkpoint_tags"
           recommendations:

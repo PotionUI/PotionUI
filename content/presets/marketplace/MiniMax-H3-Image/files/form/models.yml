@@ -5,6 +5,7 @@ fields:
   required: true
   configuration:
     model_type: diffusion_model
+    families: [minimax_h3_image]
     placeholder: minimax_h3_image_pruned_int8_convrot...
     filter_tags: '@config:checkpoint_tags'
     recommendations:

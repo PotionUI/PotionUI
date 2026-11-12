@@ -3,13 +3,14 @@ import { tagCatalog } from '$lib/stores/tagCatalog';
 import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
 import { getCachedSchema } from './schemaCache';
 import { buildModelSearchRequest } from '$lib/utils/modelSearchParams';
-import { findModelForValue } from '$lib/utils/modelRef';
+import { findModelForValue, MODEL_REF_PREFIX } from '$lib/utils/modelRef';
 import { sharedCapabilityCache } from './capabilityTracker';
 import {
 	resolveSlotTagIds,
 	slotSearchRequest,
 	type AutopickSearchResult,
-	type AutopickSlot
+	type AutopickSlot,
+	type SlotVerdict
 } from './modelSlotAutopick';
 
 export function loadPresetFormSchema(
@@ -70,4 +71,30 @@ export async function findInstalledModel(slot: AutopickSlot, value: string): Pro
 	const response = await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts);
 	if (!response.success || !response.data) return null;
 	return findModelForValue(value, response.data.models ?? []) ?? null;
+}
+
+export async function checkSlotValue(slot: AutopickSlot, wire: string): Promise<SlotVerdict> {
+	try {
+		let name = wire;
+		if (wire.startsWith(MODEL_REF_PREFIX)) {
+			const response = await api.getModelById(wire.slice(MODEL_REF_PREFIX.length));
+			if (!response?.success) return response?.error === 'model_not_found' ? 'unusable' : 'unknown';
+			const filename = response.data?.model?.filename;
+			if (!filename) return 'unknown';
+			name = filename;
+		}
+		const request = buildModelSearchRequest({
+			modelType: slot.modelType,
+			presetId: slot.presetId,
+			searchQuery: name.split('/').pop() ?? name,
+			limit: 10,
+			modelTypes: slot.modelTypes
+		});
+		if (request.kind !== 'preset') return 'unknown';
+		const response = await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts);
+		if (!response?.success || !response.data) return 'unknown';
+		return findModelForValue(wire, response.data.models ?? []) ? 'usable' : 'unusable';
+	} catch {
+		return 'unknown';
+	}
 }

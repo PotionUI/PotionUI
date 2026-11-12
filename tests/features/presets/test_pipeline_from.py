@@ -16,14 +16,15 @@ def write_preset(root, modes, extra_modes=None):
     names = "\n".join(f"  - {name}" for name in modes)
     (preset_dir / "preset.yml").write_text(
         f'schema: 1\nid: "01PIPELINEFROMAAAAAAAAAAAAA"\nname: "Test"\nversion: "1.0.0"\n'
-        f'category: "video"\nengine: "native"\nmodes:\n{names}\n'
+        f'category: "video"\nengine: "native"\nmodes:\n{names}\n',
+        encoding="utf-8",
     )
-    (preset_dir / "tests.yml").write_text("schema: 1\ncases: []\n")
+    (preset_dir / "tests.yml").write_text("schema: 1\ncases: []\n", encoding="utf-8")
     for name, pipeline in {**{m: PIPELINE for m in modes}, **(extra_modes or {})}.items():
         mode_dir = preset_dir / "modes" / name
         mode_dir.mkdir(parents=True, exist_ok=True)
-        (mode_dir / "pipeline.yml").write_text(pipeline)
-        (mode_dir / "form.yml").write_text(FORM)
+        (mode_dir / "pipeline.yml").write_text(pipeline, encoding="utf-8")
+        (mode_dir / "form.yml").write_text(FORM, encoding="utf-8")
     return preset_dir
 
 
@@ -77,3 +78,17 @@ def test_the_linter_reports_a_bad_pointer_and_accepts_a_good_one(tmp_path):
     write_preset(bad, ["a", "b"], {"b": "pipeline_from: nowhere\n"})
     errors = [i for i in PresetLinter([str(bad)]).lint() if i.level == "error"]
     assert any("modes/b/pipeline.yml" in i.message and "not found" in i.message for i in errors)
+
+
+def test_a_yaml_error_in_a_pointer_file_is_a_problem_and_never_taken_for_no_pointer(tmp_path):
+    preset = write_preset(tmp_path, ["a", "b"], {"b": "pipeline_from: [unclosed\n"})
+    assert any("failed to parse" in problem for problem in pointer_problems(preset / "modes" / "b"))
+    data, errors = load_mode_pipeline(preset / "modes" / "b")
+    assert data is None and errors
+    mode, load_errors = PresetTemplateLoader([str(tmp_path)])._load_mode(preset / "preset.yml", "b")
+    assert mode is None and load_errors
+
+
+def test_a_yaml_error_in_the_target_is_reported_on_the_pointing_mode(tmp_path):
+    preset = write_preset(tmp_path, ["a", "b"], {"a": "pipeline: [unclosed\n", "b": "pipeline_from: a\n"})
+    assert any("failed to parse" in problem for problem in pointer_problems(preset / "modes" / "b"))

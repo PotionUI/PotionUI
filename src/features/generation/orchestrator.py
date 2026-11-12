@@ -262,6 +262,7 @@ def _prepare_director_form_data(
     bundle_members: Optional[BundleMembersResolver] = None,
     model_sha256: Optional[Callable[[Any], Optional[str]]] = None,
     prompt_pair: Optional[Tuple[str, str]] = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Pure Video/Music Director canonicalization, shared by `start_generation`
     and `GenerationOrchestrator.preview_memory` so a preview's active loader
@@ -292,7 +293,10 @@ def _prepare_director_form_data(
         positive, negative = prompt_pair or ('', '')
         form_data['video_director'] = build_simple_mode_document(
             simple_spec, (preset_template.vars or {}).get('video_director'), form_data, positive, negative,
+            placeholders=dry_run,
         )
+        if dry_run:
+            return form_data
 
     if isinstance(form_data.get('video_director'), dict):
         capabilities = (preset_template.vars or {}).get('video_director') or {}
@@ -1298,6 +1302,9 @@ class GenerationOrchestrator:
                     model_sha256=self._model_sha256,
                     prompt_pair=_request_prompt_pair(request),
                 )
+                request._one_shot_director = simple_mode_spec(
+                    (preset_template.vars or {}).get('video_director'), mode,
+                ) is not None
 
             # LTX two-stage upscale geometry: fail fast, before the (expensive)
             # stage-1 render, when the picked resolution/upscale combination

@@ -62,6 +62,8 @@ def build_simple_mode_document(
     form_data: Dict[str, Any],
     positive_prompt: str,
     negative_prompt: str = "",
+    *,
+    placeholders: bool = False,
 ) -> Dict[str, Any]:
     composition = spec["composition"]
     needs_first, needs_last = _COMPOSITIONS[composition]
@@ -70,8 +72,11 @@ def build_simple_mode_document(
     errors: List[str] = []
     duration = form_data.get(spec.get("duration_field", "duration"))
     if isinstance(duration, bool) or not isinstance(duration, (int, float)) or duration <= 0:
-        errors.append(f"{spec.get('duration_field', 'duration')}: a length in seconds is required")
-        duration = 0
+        if placeholders:
+            duration = limits.get("default_duration", 5)
+        else:
+            errors.append(f"{spec.get('duration_field', 'duration')}: a length in seconds is required")
+            duration = 0
 
     pictures: Dict[str, Dict[str, Any]] = {}
     for role, needed in (("first", needs_first), ("last", needs_last)):
@@ -79,6 +84,8 @@ def build_simple_mode_document(
             continue
         field = spec[role]
         ref = _media_ref(form_data.get(field))
+        if ref is None and placeholders:
+            ref = {"path": f"/SETUP-CHECK/media/{field}.png", "type": "image"}
         if ref is None:
             errors.append(f"{field}: a picture is required")
         else:

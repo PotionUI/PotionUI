@@ -19,14 +19,15 @@ def write_preset(root, caps):
     (preset_dir / "preset.yml").write_text(
         'schema: 1\nid: "01SIMPLEMODESAAAAAAAAAAAAA"\nname: "Test"\nversion: "1.0.0"\n'
         'category: "video"\nengine: "native"\nmodes:\n  - txt2video\n  - img2video\n  - video\n'
-        f"vars:\n  video_director:\n{caps}"
+        f"vars:\n  video_director:\n{caps}",
+        encoding="utf-8",
     )
-    (preset_dir / "tests.yml").write_text("schema: 1\ncases: []\n")
+    (preset_dir / "tests.yml").write_text("schema: 1\ncases: []\n", encoding="utf-8")
     for mode in ("txt2video", "img2video", "video"):
         mode_dir = preset_dir / "modes" / mode
         mode_dir.mkdir(parents=True)
-        (mode_dir / "pipeline.yml").write_text(PIPELINE)
-        (mode_dir / "form.yml").write_text(FORM)
+        (mode_dir / "pipeline.yml").write_text(PIPELINE, encoding="utf-8")
+        (mode_dir / "form.yml").write_text(FORM, encoding="utf-8")
     return preset_dir
 
 

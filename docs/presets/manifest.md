@@ -38,7 +38,7 @@ The manifest is `PresetManifest` in `src/features/presets/schema.py`, validated 
 | `requirements` | no | list | Typed requirements checked live against the instance. See [Requirements](requirements.md). |
 | `negative_prompt` | no | mapping | `applies_when`: whether the preset takes a negative prompt. See [When the negative prompt applies](../presets.md#when-the-negative-prompt-applies). |
 | `prompt_resources` | no | mapping | Per mode, the media picker fields a prompt may reference with `@`. See [Prompt resources](#prompt-resources). |
-| `prompt_syntax` | no | mapping | Per mode, the inline prompt notation the model actually understands (speaker markers, weighting, `BREAK`, ...), highlighted in the segment editor and offered with `/`. See [Prompt syntax](#prompt-syntax). |
+| `prompt_syntax` | no | mapping | Per mode (or `"*"` for every mode), the inline prompt notation the model actually understands (speaker markers, weighting, `BREAK`, ...), highlighted in the segment editor and offered with `/`. See [Prompt syntax](#prompt-syntax). |
 | `modes` | yes | list | Non-empty **list** of mode-name strings (each needs a `modes/<name>/` dir). |
 
 **Removed / rejected** (do not use — they fail validation): a top-level `form:`, an inline
@@ -288,7 +288,7 @@ trained on (see its `llm:` guide or model notes); leave a field out rather than 
 `prompt_syntax:` declares the inline notation a preset's own model was trained on — speaker
 markers, dialogue tags, section labels, attention weighting, `BREAK` — so the segment editor can
 highlight it and offer it through a `/` picker instead of the user having to memorize or copy it
-from the `llm:` guide. Keys are mode names; each entry is one token:
+from the `llm:` guide. Keys are mode names, plus the optional `"*"` default; each entry is one token:
 
 ```yaml
 prompt_syntax:
@@ -299,6 +299,21 @@ prompt_syntax:
       insert: "(S1)"                      # template inserted by the / picker; {} = selection/caret, {name=default} = an editable param
       help: "Stable speaker ID, established at first appearance"
       tone: "accent"                      # signal | success | warning | info | accent | danger | muted; omit to use the kind's default
+```
+
+The `"*"` key is a preset-wide default: every mode with a prompt field (a mode whose `form.yml`
+sets `prompt: "none"` gets nothing) that has no entry of its own uses it, so a mode added later
+inherits the family's notation without anyone remembering to list it. A mode's own entry replaces
+the default entirely, and `<mode>: []` opts that mode out. A preset with no `"*"` key resolves
+exactly as before: a mode without an entry gets no syntax. `scripts/preset_lint.py` warns when a
+preset declares syntax for some modes, has no `"*"` default, and a mode with a prompt field has
+no entry of its own.
+
+```yaml
+prompt_syntax:
+  "*": [...]            # every mode without its own entry
+  loop: [...]           # replaces the default for this mode
+  remix: []             # no notation here
 ```
 
 `tone` picks one of the design system's semantic colors. For a preset whose own notation calls for

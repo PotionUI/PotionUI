@@ -59,6 +59,14 @@ class ArgumentError(Exception):
     pass
 
 
+def unknown_arguments(tool: BaseTool, kwargs: Dict[str, Any]) -> Optional[ToolResult]:
+    allowed = set((tool.parameters.get("properties") or {}))
+    extra = sorted(set(kwargs) - allowed)
+    if not extra:
+        return None
+    return failure(f"Unknown argument(s): {', '.join(extra)}. This tool takes: {', '.join(sorted(allowed)) or 'no arguments'}.")
+
+
 class DomainTool(BaseTool):
     modes = ["mcp"]
     mcp = True
@@ -76,7 +84,7 @@ class DomainTool(BaseTool):
         return getattr(context.domains, self.domain)
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        refused = self.refusal(context)
+        refused = self.refusal(context) or unknown_arguments(self, kwargs)
         if refused is not None:
             return refused
         try:

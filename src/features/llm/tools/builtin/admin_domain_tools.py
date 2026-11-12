@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from typing import Any, Dict
 
 from pydantic import ValidationError
@@ -21,12 +22,18 @@ from src.features.automation.dto import RunNowRequest
 from src.features.providers.base_provider import ProviderCapability
 from src.features.providers.registry import ensure_providers_discovered
 
+logger = logging.getLogger(__name__)
+
 SEARCH_DEFAULT = 10
 SEARCH_MAX = 25
 RUNS_DEFAULT = 5
 RUNS_MAX = 20
 DOWNLOADS_DEFAULT = 20
 DOWNLOADS_MAX = 50
+SEARCH_TIMEOUT_SECONDS = 20
+DOWNLOAD_ARGUMENTS = (
+    "url", "model_type", "filename", "subdir", "provider_id", "checksum_sha256", "tags", "destination_backend_id",
+)
 
 
 class AutomationTool(DomainTool):
@@ -177,13 +184,27 @@ class SearchProviderModelsTool(DownloadTool):
         ]
         if not ids:
             return failure("No model marketplace that can search is set up on this server.")
-        results = []
-        for provider_id in ids:
-            found = await registry.search_models(
-                provider_id, query, model_type=kwargs.get("model_type") or None, limit=limit,
-            )
-            results.extend(item.to_dict() for item in found if not item.nsfw)
-        return payload({"results": [without(item, "thumbnail_url", "nsfw") for item in results[:limit * len(ids)]]})
+        model_type = kwargs.get("model_type") or None
+
+        async def ask(provider_id):
+            return await registry.search_models(provider_id, query, model_type=model_type, limit=limit)
+
+        tasks = {provider_id: asyncio.ensure_future(ask(provider_id)) for provider_id in ids}
+        await asyncio.wait(list(tasks.values()), timeout=SEARCH_TIMEOUT_SECONDS)
+        results, unanswered = [], []
+        for provider_id, task in tasks.items():
+            if not task.done():
+                task.cancel()
+                unanswered.append(provider_id)
+            elif task.exception() is not None:
+                logger.warning("provider search failed for %s", provider_id, exc_info=task.exception())
+                unanswered.append(provider_id)
+            else:
+                results.extend(item.to_dict() for item in task.result() if not item.nsfw)
+        answer = {"results": [without(item, "thumbnail_url", "nsfw") for item in results[: limit * len(ids)]]}
+        if unanswered:
+            answer["note"] = f"No answer from: {', '.join(unanswered)}. Results from the others are shown."
+        return payload(answer)
 
 
 class DownloadModelTool(DownloadTool):
@@ -219,7 +240,7 @@ class DownloadModelTool(DownloadTool):
     async def run(self, context: ToolContext, **kwargs) -> ToolResult:
         try:
             request = QueueModelDownloadRequest(**{
-                key: kwargs.get(key) for key in QueueModelDownloadRequest.model_fields if kwargs.get(key) is not None
+                key: kwargs[key] for key in DOWNLOAD_ARGUMENTS if kwargs.get(key) is not None
             })
         except ValidationError:
             return failure("'url' is required, and every other field must be text.")

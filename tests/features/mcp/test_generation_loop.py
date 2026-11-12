@@ -67,6 +67,9 @@ class FakeStore:
         self.upload_media = AsyncMock(side_effect=self._upload)
         self.check_upload_size = Mock()
 
+    def served_size(self, file_id, size=None):
+        return self.sizes[size]
+
     def get_file_by_id(self, file_id, size=None):
         self.fetched.append((file_id, size))
         return MediaResult(content=b"x" * self.sizes[size], media_type="image/webp")
@@ -404,7 +407,7 @@ class FakeClock:
     def monotonic(self):
         return self.now
 
-    async def sleep(self, seconds):
+    async def sleep(self, event, seconds):
         self.sleeps.append(seconds)
         self.now += seconds
 
@@ -413,7 +416,7 @@ class FakeClock:
 def clock(monkeypatch):
     fake = FakeClock()
     monkeypatch.setattr(loop_tools.time, "monotonic", fake.monotonic)
-    monkeypatch.setattr(loop_tools.asyncio, "sleep", fake.sleep)
+    monkeypatch.setattr(loop_tools, "_await_signal", fake.sleep)
     return fake
 
 
@@ -440,17 +443,17 @@ class TestLoopWaitForGeneration:
         await start(orchestrator, "gen_1")
         real_sleep = clock.sleep
 
-        async def finishing_sleep(seconds):
-            await real_sleep(seconds)
+        async def finishing_sleep(event, seconds):
+            await real_sleep(event, seconds)
             if clock.now >= 3:
                 await finish(orchestrator, "gen_1")
 
-        monkeypatch.setattr(loop_tools.asyncio, "sleep", finishing_sleep)
+        monkeypatch.setattr(loop_tools, "_await_signal", finishing_sleep)
 
         body = payload(await call(collaborators, "wait_for_generation", {"generation_id": "gen_1", "timeout_seconds": 30}))
 
         assert (body["status"], body["finished"], body["timed_out"]) == ("completed", True, False)
-        assert clock.now == pytest.approx(3)
+        assert clock.now == pytest.approx(loop_tools.WAIT_RECHECK_SECONDS)
 
     @pytest.mark.asyncio
     async def test_an_already_finished_run_returns_at_once(self, collaborators, orchestrator, clock):
@@ -476,6 +479,69 @@ class TestLoopWaitForGeneration:
         result = await call(collaborators, "wait_for_generation", {"generation_id": "gen_1", "timeout_seconds": "soon"})
 
         assert result["isError"] is True
+
+
+class TestLoopWaitBounds:
+    @pytest.mark.asyncio
+    async def test_a_finish_wakes_the_wait_at_once_without_polling(self, collaborators, orchestrator):
+        import asyncio
+
+        await start(orchestrator, "gen_1")
+        waiting = asyncio.ensure_future(
+            call(collaborators, "wait_for_generation", {"generation_id": "gen_1", "timeout_seconds": 30})
+        )
+        await asyncio.sleep(0.05)
+        await finish(orchestrator, "gen_1")
+
+        result = await asyncio.wait_for(waiting, 5)
+
+        assert payload(result)["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_waits_beyond_the_per_account_limit_answer_at_once_with_a_note(self, collaborators, orchestrator, monkeypatch):
+        import asyncio
+
+        from src.features.llm.tools.builtin.generation_loop import MAX_CONCURRENT_WAITS
+
+        await start(orchestrator, "gen_1")
+        gate = asyncio.Event()
+
+        async def held(event, seconds):
+            await gate.wait()
+
+        monkeypatch.setattr(loop_tools, "_await_signal", held)
+        first = [
+            asyncio.ensure_future(call(collaborators, "wait_for_generation", {"generation_id": "gen_1"}))
+            for _ in range(MAX_CONCURRENT_WAITS)
+        ]
+        await asyncio.sleep(0.05)
+
+        extra = payload(await call(collaborators, "wait_for_generation", {"generation_id": "gen_1"}))
+
+        await finish(orchestrator, "gen_1")
+        gate.set()
+        await asyncio.gather(*first)
+        assert extra["finished"] is False and "Too many waits" in extra["note"]
+
+    @pytest.mark.asyncio
+    async def test_a_slot_is_given_back_after_a_wait_ends(self, collaborators, orchestrator, clock):
+        await start(orchestrator, "gen_1")
+        for _ in range(loop_tools.MAX_CONCURRENT_WAITS + 2):
+            body = payload(await call(collaborators, "wait_for_generation", {"generation_id": "gen_1", "timeout_seconds": 2}))
+            assert "note" not in body
+
+    @pytest.mark.asyncio
+    async def test_the_limit_is_per_account(self, orchestrator):
+        from src.features.llm.tools.builtin.generation_loop import MAX_CONCURRENT_WAITS, waits_for
+
+        registry = waits_for(orchestrator.status_tracker)
+        mine = [registry.enter(OWNER, "gen_x") for _ in range(MAX_CONCURRENT_WAITS)]
+
+        assert registry.enter(OWNER, "gen_x") is None
+        assert registry.enter(OTHER, "gen_x") is not None
+        for event in mine:
+            registry.leave(OWNER, "gen_x", event)
+        assert registry.enter(OWNER, "gen_x") is not None
 
 
 class TestLoopGetGenerationResults:
@@ -549,7 +615,7 @@ class TestLoopGetGenerationResults:
 
         result = await call(collaborators, "get_generation_results", {"generation_id": "gen_1"})
 
-        assert store.fetched == [("f1", "large"), ("f1", "medium"), ("f1", "small")]
+        assert store.fetched == [("f1", "small")]
         image = next(block for block in result["content"] if block["type"] == "image")
         assert len(base64.b64decode(image["data"])) == 100_000
 
@@ -561,6 +627,25 @@ class TestLoopGetGenerationResults:
         result = await call(collaborators, "get_generation_results", {"generation_id": "gen_1"})
 
         assert [block["type"] for block in result["content"]] == ["text", "resource_link"]
+
+    @pytest.mark.asyncio
+    async def test_a_file_over_the_cap_is_never_read(self, collaborators, done, store):
+        done.details["gen_1"] = completed_detail([image_file("f1")])
+        store.sizes = {"large": 40_000_000, "medium": 40_000_000, "small": 40_000_000}
+
+        result = await call(collaborators, "get_generation_results", {"generation_id": "gen_1"})
+
+        assert store.fetched == []
+        assert [block["type"] for block in result["content"]] == ["text", "resource_link"]
+
+    @pytest.mark.asyncio
+    async def test_a_file_that_does_not_fit_the_remaining_budget_is_never_read(self, collaborators, done, store):
+        done.details["gen_1"] = completed_detail([image_file(f"f{i}") for i in range(6)])
+        store.sizes = {"large": 1_400_000, "medium": 1_400_000, "small": 1_400_000}
+
+        await call(collaborators, "get_generation_results", {"generation_id": "gen_1", "max_images": 8})
+
+        assert len(store.fetched) == 4
 
     @pytest.mark.asyncio
     async def test_the_total_inline_bytes_are_bounded(self, collaborators, done, store):
@@ -673,6 +758,19 @@ class TestLoopUploadMedia:
             file_data=PNG, filename="ref.png", content_type="image/png", user_id=OWNER, purpose="user_upload",
         )
         store.check_upload_size.assert_called_once_with(OWNER, len(PNG), "user_upload", "image/png")
+
+    @pytest.mark.asyncio
+    async def test_an_m4a_is_audio_not_video(self, collaborators, store):
+        result = await call(collaborators, "upload_media", {"filename": "a.mp4", "data_base64": b64(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 32)})
+
+        assert payload(result)["media_type"] == "audio"
+        assert store.upload_media.await_args.kwargs["filename"] == "a.m4a"
+
+    @pytest.mark.asyncio
+    async def test_a_bmp_or_avi_is_not_accepted_even_though_the_app_knows_them(self, collaborators, store):
+        result = await call(collaborators, "upload_media", {"filename": "a.bmp", "data_base64": b64(b"BM" + b"\x00" * 40)})
+
+        assert result["isError"] is True
 
     @pytest.mark.asyncio
     async def test_the_extension_follows_the_content_not_the_name(self, collaborators, store):

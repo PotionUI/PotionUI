@@ -42,7 +42,13 @@
  ],
  "tools": {
   "add_prompt": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Saved prompts",
+   "mcp": true,
+   "modes": [
+    "prompts"
+   ],
    "parameters": {
     "properties": {
      "name": {
@@ -197,12 +203,21 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "create_phrasebook_category": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Phrasebook vocabulary",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "phrasebook"
+   ],
    "parameters": {
     "properties": {
      "description": {
@@ -223,12 +238,21 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "create_phrasebook_values": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Phrasebook vocabulary",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "phrasebook"
+   ],
    "parameters": {
     "properties": {
      "category_id": {
@@ -265,12 +289,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "create_saved_segment": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "category_id": {
@@ -319,12 +351,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "create_segment_category": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "color": {
@@ -343,12 +383,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "create_segment_template": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "description": {
@@ -417,12 +465,18 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "delete_memory": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Memory",
+   "mcp": true,
+   "modes": null,
    "parameters": {
     "properties": {
      "note_id": {
@@ -435,12 +489,21 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "delete_phrasebook_category": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Phrasebook vocabulary",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "phrasebook"
+   ],
    "parameters": {
     "properties": {
      "category": {
@@ -453,12 +516,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "delete_prompt": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Saved prompts",
+   "mcp": true,
+   "modes": [
+    "prompts"
+   ],
    "parameters": {
     "properties": {
      "prompt_id": {
@@ -470,12 +541,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "delete_saved_segment": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "segment_id": {
@@ -487,12 +566,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "delete_segment_category": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "category_id": {
@@ -504,12 +591,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "delete_segment_template": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "template_id": {
@@ -521,12 +616,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "edit_prompt": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Saved prompts",
+   "mcp": true,
+   "modes": [
+    "prompts"
+   ],
    "parameters": {
     "properties": {
      "name": {
@@ -677,12 +780,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "enhance_prompt": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Prompt writing",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "brief": {
@@ -706,33 +817,66 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": true,
    "unavailable": null,
    "writes": false
   },
   "get_active_models": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Models & presets",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
    "writes": false
   },
   "get_current_segments": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
    "writes": false
   },
   "get_form_state": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
    "writes": false
   },
   "get_model_info": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Models & presets",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "models"
+   ],
    "parameters": {
     "properties": {
      "fields": {
@@ -758,19 +902,37 @@
     ],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "get_music_director": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
    "writes": false
   },
   "get_phrasebook_values": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Phrasebook vocabulary",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "phrasebook",
+    "elixirs"
+   ],
    "parameters": {
     "properties": {
      "category": {
@@ -795,12 +957,21 @@
     ],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "get_preset_info": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Models & presets",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "elixirs"
+   ],
    "parameters": {
     "properties": {
      "mode": {
@@ -815,12 +986,21 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "get_prompt": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Saved prompts",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "prompts"
+   ],
    "parameters": {
     "properties": {
      "prompt_id": {
@@ -832,12 +1012,20 @@
     ],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "get_prompt_variables": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "limit": {
@@ -867,12 +1055,20 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "get_saved_segments": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "category_id": {
@@ -883,30 +1079,55 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "get_segment_templates": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {},
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "get_video_director": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
    "writes": false
   },
   "list_library_items": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Generation",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "history"
+   ],
    "parameters": {
     "properties": {
      "collection_id": {
@@ -940,12 +1161,21 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "list_models": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Models & presets",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "models"
+   ],
    "parameters": {
     "properties": {
      "limit": {
@@ -965,23 +1195,42 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "list_phrasebook_categories": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Phrasebook vocabulary",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "phrasebook",
+    "elixirs"
+   ],
    "parameters": {
     "properties": {},
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "list_presets": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Models & presets",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "elixirs"
+   ],
    "parameters": {
     "properties": {
      "engine": {
@@ -1007,12 +1256,21 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "list_prompts": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Saved prompts",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "prompts"
+   ],
    "parameters": {
     "properties": {
      "limit": {
@@ -1033,34 +1291,58 @@
     },
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "list_segment_categories": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {},
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "list_tab_drafts": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {},
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "manage_collections": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Collections",
+   "mcp": true,
+   "modes": [
+    "history"
+   ],
    "parameters": {
     "properties": {
      "collection_id": {
@@ -1123,12 +1405,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "manage_prompt_variables": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "operations": {
@@ -1254,12 +1544,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "organize_gallery": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Generation",
+   "mcp": true,
+   "modes": [
+    "history"
+   ],
    "parameters": {
     "properties": {
      "created_from": {
@@ -1326,12 +1624,18 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "read_memory": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Memory",
+   "mcp": true,
+   "modes": null,
    "parameters": {
     "properties": {
      "scope": {
@@ -1355,12 +1659,21 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "remove_phrasebook_values": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Phrasebook vocabulary",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "phrasebook"
+   ],
    "parameters": {
     "properties": {
      "category_id": {
@@ -1384,19 +1697,36 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "run_generation": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Generation",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": "Drives the open Generate form. Use start_generation over MCP.",
    "writes": true
   },
   "run_media_tool": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Generation",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "history"
+   ],
    "parameters": {
     "properties": {
      "items": {
@@ -1483,12 +1813,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": true,
    "unavailable": null,
    "writes": true
   },
   "search_gallery": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Generation",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "limit": {
@@ -1509,12 +1847,21 @@
     ],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "search_model_prompts": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Prompt writing",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "prompts"
+   ],
    "parameters": {
     "properties": {
      "limit": {
@@ -1539,12 +1886,21 @@
     ],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "search_models": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Models & presets",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "models"
+   ],
    "parameters": {
     "properties": {
      "limit": {
@@ -1570,26 +1926,50 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "set_prompt_relay_timeline": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Prompt writing",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
    "writes": true
   },
   "set_regional_prompt": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Prompt writing",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
    "writes": true
   },
   "start_generation": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Generation",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "form_overrides": {
@@ -1635,19 +2015,33 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": true,
    "unavailable": null,
    "writes": true
   },
   "update_form_settings": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
    "writes": true
   },
   "update_memory": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Memory",
+   "mcp": true,
+   "modes": null,
    "parameters": {
     "properties": {
      "content": {
@@ -1685,19 +2079,36 @@
     "required": [],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "update_music_director": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": false,
+   "modes": [
+    "generation"
+   ],
    "parameters": null,
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
    "writes": true
   },
   "update_phrasebook_category": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Phrasebook vocabulary",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "phrasebook"
+   ],
    "parameters": {
     "properties": {
      "category": {
@@ -1722,12 +2133,21 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "update_phrasebook_values": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Phrasebook vocabulary",
+   "mcp": true,
+   "modes": [
+    "generation",
+    "phrasebook"
+   ],
    "parameters": {
     "properties": {
      "category": {
@@ -1765,12 +2185,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "update_saved_segment": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "category_id": {
@@ -1821,12 +2249,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "update_segment_category": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "category_id": {
@@ -1848,12 +2284,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "update_segment_template": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "description": {
@@ -1924,12 +2368,20 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": true,
    "spends": false,
    "unavailable": null,
    "writes": true
   },
   "write_condition": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Form & segments",
+   "mcp": true,
+   "modes": [
+    "generation"
+   ],
    "parameters": {
     "properties": {
      "branches": {
@@ -2030,12 +2482,18 @@
     "required": [],
     "type": "object"
    },
+   "read_only": true,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": false
   },
   "write_memory": {
+   "admin_only": false,
+   "destructive": false,
    "group": "Memory",
+   "mcp": true,
+   "modes": null,
    "parameters": {
     "properties": {
      "content": {
@@ -2069,6 +2527,8 @@
     ],
     "type": "object"
    },
+   "read_only": false,
+   "requires_approval": false,
    "spends": false,
    "unavailable": null,
    "writes": true

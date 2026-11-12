@@ -1,5 +1,7 @@
 import asyncio
 import re
+import threading
+import weakref
 from typing import Any, Dict, Optional
 
 from src.features.generation.failure import scope_generation_state
@@ -105,3 +107,48 @@ async def status_payload(context: ToolContext, generation_id: str, run: Dict[str
     if status == "pending":
         payload.update(queue_position(context, generation_id))
     return {key: value for key, value in payload.items() if value is not None}
+
+
+MAX_CONCURRENT_WAITS = 3
+
+
+class WaitRegistry:
+    def __init__(self, tracker: Any):
+        self._lock = threading.Lock()
+        self._waiting: Dict[str, list] = {}
+        self._active: Dict[str, int] = {}
+        tracker.add_terminal_listener(self._on_terminal)
+
+    def _on_terminal(self, record: Any) -> None:
+        with self._lock:
+            waiting = self._waiting.pop(record.id, [])
+        for loop, event in waiting:
+            loop.call_soon_threadsafe(event.set)
+
+    def enter(self, user_id: str, generation_id: str) -> Optional[asyncio.Event]:
+        with self._lock:
+            if self._active.get(user_id, 0) >= MAX_CONCURRENT_WAITS:
+                return None
+            self._active[user_id] = self._active.get(user_id, 0) + 1
+            event = asyncio.Event()
+            self._waiting.setdefault(generation_id, []).append((asyncio.get_running_loop(), event))
+            return event
+
+    def leave(self, user_id: str, generation_id: str, event: asyncio.Event) -> None:
+        with self._lock:
+            self._active[user_id] = max(0, self._active.get(user_id, 1) - 1)
+            entries = [entry for entry in self._waiting.get(generation_id, []) if entry[1] is not event]
+            if entries:
+                self._waiting[generation_id] = entries
+            else:
+                self._waiting.pop(generation_id, None)
+
+
+_REGISTRIES: "weakref.WeakKeyDictionary[Any, WaitRegistry]" = weakref.WeakKeyDictionary()
+
+
+def waits_for(tracker: Any) -> WaitRegistry:
+    registry = _REGISTRIES.get(tracker)
+    if registry is None:
+        registry = _REGISTRIES[tracker] = WaitRegistry(tracker)
+    return registry

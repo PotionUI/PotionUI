@@ -31,6 +31,7 @@ from src.features.elixirs.brewing import (
     begin_brew,
     fail,
     owned,
+    progress_of,
     refused,
     run_detail,
     session_pins,
@@ -117,6 +118,12 @@ def _owned_run(coordinator: Coordinator, run_id: str, user: User) -> Dict[str, A
         fail(404, "run_not_found", "That brew does not exist.")
     return run
 
+
+
+_writer, _fail, _owned, _with_followed, _session_pins, _refused = (
+    writer_for, fail, owned, with_followed, session_pins, refused,
+)
+_progress = progress_of
 
 
 def build_router(container: "AppContainer") -> APIRouter:

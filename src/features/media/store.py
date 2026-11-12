@@ -968,6 +968,23 @@ class MediaStore:
 
     # ========== File by ID ==========
 
+    def _served_key(self, file_record: Any, size: Optional[str]) -> str:
+        key = file_record.file_path
+        if size and size in ['small', 'medium', 'large']:
+            thumbnail_path = self.file_resolver.get_thumbnail_path(file_record, size)
+            if thumbnail_path:
+                base_key = Path(file_record.file_path).parent
+                thumbnail_key = (base_key / thumbnail_path).as_posix()
+                if self.storage_driver.exists(thumbnail_key):
+                    return thumbnail_key
+        return key
+
+    def served_size(self, file_id: str, size: Optional[str] = None) -> Optional[int]:
+        file_record = self.file_repo.get_by_id(file_id)
+        if not file_record:
+            return None
+        return self.storage_driver.size(self._served_key(file_record, size))
+
     def get_file_by_id(
         self,
         file_id: str,
@@ -1007,16 +1024,7 @@ class MediaStore:
                 if generation:
                     user_id = generation.user_id
 
-        # Resolve which key to serve - the original, or a thumbnail beside it
-        key = file_record.file_path
-        if size and size in ['small', 'medium', 'large']:
-            thumbnail_path = self.file_resolver.get_thumbnail_path(file_record, size)
-            if thumbnail_path:
-                base_key = Path(file_record.file_path).parent
-                thumbnail_key = (base_key / thumbnail_path).as_posix()
-                if self.storage_driver.exists(thumbnail_key):
-                    key = thumbnail_key
-                    logger.debug(f"Serving {size} thumbnail: {thumbnail_key}")
+        key = self._served_key(file_record, size)
 
         if not self.storage_driver.exists(key):
             logger.error(f"File not found on disk: {key}")

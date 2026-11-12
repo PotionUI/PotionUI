@@ -161,3 +161,76 @@ class TestThroughTheProtocol:
 
         assert entries["wipe"].destructive is True and entries["add"].destructive is False
         assert tool_to_dict(entries["wipe"], ToolState.OFF, False)["destructive"] is True
+
+
+from src.features.chat.modes.builtin import (
+    build_conversation_mode,
+    build_elixirs_mode,
+    build_generation_mode,
+    build_history_mode,
+    build_models_mode,
+    build_phrasebook_mode,
+    build_prompts_mode,
+)
+from src.features.llm.tools.builtin import register_builtin_tools
+from tests.features.mcp.support import ADDED_AFTER_SEED
+
+
+@pytest.fixture(scope="module")
+def real_registry():
+    registry = ToolRegistry()
+    register_builtin_tools(registry)
+    return registry
+
+
+class TestMcpOnlyTools:
+    @pytest.mark.parametrize("build", [
+        build_generation_mode, build_elixirs_mode, build_history_mode, build_models_mode,
+        build_phrasebook_mode, build_prompts_mode, build_conversation_mode,
+    ])
+    def test_chat_never_sees_a_tool_added_for_mcp(self, real_registry, build):
+        offered = {tool.name for tool in real_registry.get_for_mode(build())}
+
+        assert offered.isdisjoint(ADDED_AFTER_SEED - {"list_models"})
+
+    def test_the_new_tools_are_offered_to_the_mcp_mode_only(self, real_registry):
+        added = ADDED_AFTER_SEED - {"list_models"}
+
+        assert {tool.name for tool in real_registry.get_all() if tool.modes == ["mcp"]} == added
+
+    def test_anything_destructive_admin_only_or_uploading_is_mcp_only(self, real_registry):
+        risky = [
+            tool for tool in real_registry.get_all()
+            if tool.destructive or getattr(tool, "admin_only", False) or tool.name == "upload_media"
+        ]
+
+        assert risky and all(tool.modes == ["mcp"] for tool in risky)
+
+
+class TestStateOfNewToolsAfterAnUpgrade:
+    @pytest.mark.asyncio
+    async def test_a_key_with_no_stored_choices_gets_no_destructive_tool_and_only_reads_under_read_only(self, mcp_db, real_registry):
+        seed_user(mcp_db, "old")
+        ApiKeyRepository().create(api_key(KEY_ID, "old"))
+        llm = Mock()
+        llm.get_default_configuration.return_value = None
+        collaborators = build_collaborators(real_registry, ToolServices(llm_repository=llm))
+
+        names = {t["name"] for t in (await handle_method(collaborators, "tools/list", {}, "old"))["tools"]}
+
+        assert names.isdisjoint({"delete_generation", "delete_library_item", "cancel_generation", "upload_media", "run_elixir", "download_model", "publish_inspiration", "mark_notifications_read", "run_automation"})
+        assert {"get_generation_status", "list_elixirs", "list_notifications"} <= names
+
+    @pytest.mark.asyncio
+    async def test_everything_on_still_withholds_every_destructive_tool(self, mcp_db, real_registry):
+        seed_user(mcp_db, "all")
+        McpToolRepository().apply_default("all", POLICY_ALL_ON, {})
+        ApiKeyRepository().create(api_key(KEY_ID, "all"))
+        llm = Mock()
+        llm.get_default_configuration.return_value = None
+        collaborators = build_collaborators(real_registry, ToolServices(llm_repository=llm))
+
+        names = {t["name"] for t in (await handle_method(collaborators, "tools/list", {}, "all"))["tools"]}
+
+        assert names.isdisjoint({"delete_generation", "delete_library_item"})
+        assert "cancel_generation" in names

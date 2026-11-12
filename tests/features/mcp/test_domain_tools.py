@@ -491,7 +491,7 @@ class TestDownloads:
         world.domains.downloads.queue_model_download.return_value = download
 
         data = body(await call(world, "download_model", {
-            "url": "https://example.test/m.safetensors", "model_type": "lora", "tags": ["x"], "ignored": 1,
+            "url": "https://example.test/m.safetensors", "model_type": "lora", "tags": ["x"],
         }, **ADMIN))
 
         assert data == {"id": "d1", "status": "queued"}
@@ -499,6 +499,13 @@ class TestDownloads:
         assert (kwargs["url"], kwargs["model_type"], kwargs["tags"], kwargs["created_by"]) == (
             "https://example.test/m.safetensors", "lora", ["x"], ALICE,
         )
+
+    @pytest.mark.asyncio
+    async def test_a_destination_the_schema_does_not_declare_is_refused(self, world):
+        result = await call(world, "download_model", {"url": "https://x.test/m", "destination_dir": "/etc"}, **ADMIN)
+
+        assert "Unknown argument(s): destination_dir" in error(result)
+        world.domains.downloads.queue_model_download.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_download_needs_a_url(self, world):
@@ -608,6 +615,49 @@ class TestSharing:
     @pytest.mark.asyncio
     async def test_a_title_is_required(self, world):
         assert "'title' are required" in error(await call(world, "publish_inspiration", {"generation_id": "gen_1"}))
+
+
+class TestSearchResilience:
+    @pytest.fixture
+    def two(self, monkeypatch):
+        class Registry(FakeProvidersRegistry):
+            def get_providers_with_capability(self, capability):
+                return [SimpleNamespace(get_metadata=lambda i=i: SimpleNamespace(id=i)) for i in ("good", "broken", "slow")]
+
+            async def search_models(self, provider_id, query, model_type=None, limit=20, offset=0):
+                import asyncio
+
+                if provider_id == "broken":
+                    raise RuntimeError("token=SECRET at /srv/x")
+                if provider_id == "slow":
+                    await asyncio.sleep(60)
+                return await super().search_models(provider_id, query, model_type, limit, offset)
+
+        monkeypatch.setattr(admin_domain_tools, "ensure_providers_discovered", AsyncMock(return_value=Registry()))
+        monkeypatch.setattr(admin_domain_tools, "SEARCH_TIMEOUT_SECONDS", 0.2)
+
+    @pytest.mark.asyncio
+    async def test_a_failing_and_a_slow_provider_do_not_sink_the_rest_and_leak_nothing(self, world, two):
+        result = await call(world, "search_provider_models", {"query": "flux"}, **ADMIN)
+
+        data = body(result)
+        assert [r["name"] for r in data["results"]] == ["Safe"]
+        assert "broken" in data["note"] and "slow" in data["note"]
+        assert "SECRET" not in result["content"][0]["text"] and "/srv" not in result["content"][0]["text"]
+
+
+ALL_NEW_TOOLS = READS + WRITES + DESTRUCTIVE + (
+    "get_generation_status", "wait_for_generation", "get_generation_results", "cancel_generation", "upload_media",
+)
+
+
+class TestUndeclaredArguments:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("name", ALL_NEW_TOOLS)
+    async def test_every_new_tool_refuses_an_argument_it_did_not_declare(self, world, name):
+        result = await call(world, name, {"surprise": 1}, **ADMIN)
+
+        assert "Unknown argument(s): surprise" in error(result)
 
 
 class TestWhenAServiceIsMissing:

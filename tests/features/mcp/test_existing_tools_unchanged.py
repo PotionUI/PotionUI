@@ -69,3 +69,15 @@ def test_every_new_tool_result_field_is_optional():
 
 def test_a_tool_services_bundle_still_builds_empty():
     assert ToolServices().media_store is None
+
+
+@pytest.mark.parametrize("name", sorted(BASELINE["tools"]))
+def test_a_released_tool_keeps_its_modes_flags_and_availability(current, name):
+    before, tool = BASELINE["tools"][name], current[name].tool
+
+    assert tool.modes == before["modes"]
+    assert tool.read_only == before["read_only"]
+    assert tool.mcp == before["mcp"]
+    assert tool.requires_approval == before["requires_approval"]
+    assert getattr(tool, "admin_only", False) is before["admin_only"] is False
+    assert tool.destructive is before["destructive"] is False

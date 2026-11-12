@@ -14,10 +14,13 @@ from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.generation_loop import (
     TERMINAL_STATES,
     RunLookupUnavailable,
+    waits_for,
+    MAX_CONCURRENT_WAITS,
     find_run,
     status_payload,
 )
 from src.features.llm.tools.builtin.media_sniff import sniff_media
+from src.features.llm.tools.builtin.domain_support import unknown_arguments
 from src.features.llm.tools.errors import unexpected
 from src.features.media.validators import UPLOAD_PURPOSE_USER
 from src.platform.http.base_controller import PassThrough
@@ -26,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 WAIT_DEFAULT_SECONDS = 30
 WAIT_MAX_SECONDS = 55
-WAIT_POLL_SECONDS = 1.0
+WAIT_RECHECK_SECONDS = 5.0
 RESULT_IMAGES_DEFAULT = 4
 RESULT_IMAGES_MAX = 8
 RESULT_IMAGE_BYTES = 1_500_000
@@ -62,6 +65,15 @@ class GenerationLoopTool(BaseTool):
     group = "Generation"
     context_group = "library"
 
+    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        unknown = unknown_arguments(self, kwargs)
+        if unknown is not None:
+            return unknown
+        return await self.run(context, **kwargs)
+
+    async def run(self, context: ToolContext, **kwargs) -> ToolResult:
+        raise NotImplementedError
+
     def _generation_id_property(self) -> Dict[str, Any]:
         return {"type": "string", "description": "The generation_id start_generation returned."}
 
@@ -88,7 +100,7 @@ class GetGenerationStatusTool(GenerationLoopTool):
             "required": ["generation_id"],
         }
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+    async def run(self, context: ToolContext, **kwargs) -> ToolResult:
         generation_id = _generation_id(kwargs)
         if not generation_id:
             return ToolResult(success=False, data="", error="'generation_id' is required")
@@ -132,7 +144,7 @@ class WaitForGenerationTool(GenerationLoopTool):
             "required": ["generation_id"],
         }
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+    async def run(self, context: ToolContext, **kwargs) -> ToolResult:
         generation_id = _generation_id(kwargs)
         if not generation_id:
             return ToolResult(success=False, data="", error="'generation_id' is required")
@@ -143,6 +155,11 @@ class WaitForGenerationTool(GenerationLoopTool):
         timeout = min(max(1, timeout), WAIT_MAX_SECONDS)
         deadline = time.monotonic() + timeout
         try:
+            registry = waits_for(context.generation_orchestrator.status_tracker)
+        except AttributeError:
+            return _unavailable(RunLookupUnavailable("Generation is not available on this server."))
+        event = registry.enter(context.user_id, generation_id)
+        try:
             while True:
                 run = await find_run(context, generation_id)
                 if run is None:
@@ -150,13 +167,21 @@ class WaitForGenerationTool(GenerationLoopTool):
                 if str(run.get("status")) in TERMINAL_STATES:
                     break
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if event is None or remaining <= 0:
                     break
-                await asyncio.sleep(min(WAIT_POLL_SECONDS, remaining))
+                await _await_signal(event, min(WAIT_RECHECK_SECONDS, remaining))
         except RunLookupUnavailable as exc:
             return _unavailable(exc)
+        finally:
+            if event is not None:
+                registry.leave(context.user_id, generation_id, event)
         payload = await status_payload(context, generation_id, run)
         payload["timed_out"] = not payload["finished"]
+        if event is None and not payload["finished"]:
+            payload["note"] = (
+                f"Too many waits are open for this account (at most {MAX_CONCURRENT_WAITS}); this is the current "
+                "status. Try again shortly."
+            )
         return ToolResult(success=True, data=json.dumps(payload))
 
 
@@ -180,7 +205,7 @@ class CancelGenerationTool(GenerationLoopTool):
             "required": ["generation_id"],
         }
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+    async def run(self, context: ToolContext, **kwargs) -> ToolResult:
         generation_id = _generation_id(kwargs)
         if not generation_id:
             return ToolResult(success=False, data="", error="'generation_id' is required")
@@ -221,6 +246,13 @@ class CancelGenerationTool(GenerationLoopTool):
         return ToolResult(success=True, data=json.dumps(payload))
 
 
+async def _await_signal(event: asyncio.Event, seconds: float) -> None:
+    try:
+        await asyncio.wait_for(event.wait(), seconds)
+    except asyncio.TimeoutError:
+        pass
+
+
 def _first(values: Any) -> Any:
     if isinstance(values, list):
         return values[0] if values else None
@@ -237,13 +269,14 @@ def _fetch_images(store: Any, file_ids: List[str], sizes: Tuple[str, ...]) -> Di
     spent = 0
     for file_id in file_ids:
         for size in sizes:
+            stored = store.served_size(file_id, size)
+            if stored is None or stored > RESULT_IMAGE_BYTES or spent + stored > RESULT_TOTAL_BYTES:
+                continue
             try:
                 result = store.get_file_by_id(file_id, size=size)
             except ValueError:
                 break
             content = result.content or b""
-            if len(content) > RESULT_IMAGE_BYTES or spent + len(content) > RESULT_TOTAL_BYTES:
-                continue
             spent += len(content)
             blocks[file_id] = {
                 "type": "image",
@@ -288,7 +321,7 @@ class GetGenerationResultsTool(GenerationLoopTool):
             "required": ["generation_id"],
         }
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+    async def run(self, context: ToolContext, **kwargs) -> ToolResult:
         generation_id = _generation_id(kwargs)
         if not generation_id:
             return ToolResult(success=False, data="", error="'generation_id' is required")
@@ -447,7 +480,7 @@ class UploadMediaTool(GenerationLoopTool):
         stem = PurePosixPath(filename.replace("\\", "/")).stem or "upload"
         return data, f"{stem}{extension}", mime, None
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+    async def run(self, context: ToolContext, **kwargs) -> ToolResult:
         filename, encoded = kwargs.get("filename"), kwargs.get("data_base64")
         if not isinstance(filename, str) or not filename.strip():
             return ToolResult(success=False, data="", error="'filename' is required")

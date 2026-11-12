@@ -15,6 +15,7 @@ from src.features.llm.tools.builtin.domain_support import (
     payload,
     required_text,
     run_controller,
+    unknown_arguments,
 )
 
 FEED_DEFAULT = 20
@@ -47,6 +48,9 @@ class DeleteGenerationTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        unknown = unknown_arguments(self, kwargs)
+        if unknown is not None:
+            return unknown
         generation_id = required_text(kwargs, "generation_id")
         if not generation_id:
             return failure("'generation_id' is required")

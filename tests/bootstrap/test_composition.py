@@ -135,6 +135,16 @@ report = {
             t.name == "tab_drafts" for t in c.housekeeping_worker.tasks
         ),
     },
+    "mcp_domain_wiring": {
+        "uploads_use_the_container_media_store": c.mcp_tool_collaborators.services.media_store is c.media_store,
+        "automation_is_the_container_controller": c.mcp_tool_collaborators.services.domains.automation is c.automation_controller,
+        "library_is_the_container_controller": c.mcp_tool_collaborators.services.domains.library is c.library_controller,
+        "notifications_are_the_container_controller": c.mcp_tool_collaborators.services.domains.notifications is c.notification_controller,
+        "inspirations_are_the_container_controller": c.mcp_tool_collaborators.services.domains.inspirations is c.inspiration_controller,
+        "downloads_are_the_container_queue": c.mcp_tool_collaborators.services.domains.downloads is c.download_queue,
+        "elixirs_are_the_container_components": c.mcp_tool_collaborators.services.domains.elixirs is c.elixirs,
+        "sessions_are_the_container_repository": c.mcp_tool_collaborators.services.domains.sessions is not None,
+    },
     "media_tool_wiring": {
         "chat_tools_use_the_container_service": c.chat_runtime.tool_services.media_tool_service is c.media_tool_service,
         "mcp_tools_use_the_container_service": c.mcp_tool_collaborators.services.media_tool_service is c.media_tool_service,
@@ -417,6 +427,10 @@ def test_tab_drafts_are_composed_and_swept_by_housekeeping(report):
 
 def test_chat_mcp_and_automation_run_media_tools_through_the_one_service_and_catalog(report):
     assert [k for k, v in report["media_tool_wiring"].items() if not v] == []
+
+
+def test_the_mcp_tools_reach_the_container_services_their_http_routes_use(report):
+    assert [k for k, v in report["mcp_domain_wiring"].items() if not v] == []
 
 
 def test_chat_turns_are_stored_durably_by_the_one_container_store(report):

@@ -293,6 +293,7 @@ from src.features.prompt_database.routes import PromptDatabaseController
 from src.features.prompt_enhancement import PromptEnhancementCollaborators
 from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
 from src.features.llm.tools.base import ToolServices
+from src.features.llm.tools.domains import DomainServices
 from src.features.mcp.operations.tools import counts_for_keys
 from src.features.mcp.tool_repository import McpToolRepository
 from src.features.api_keys.operations.keys import ApiKeyCollaborators
@@ -1922,6 +1923,16 @@ def build_container() -> AppContainer:
         tab_drafts=tab_draft_manager,
         media_tool_service=media_tool_service,
         elixirs=elixir_assistant,
+        media_store=media_store,
+        domains=DomainServices(
+            automation=automation_controller,
+            library=library_controller,
+            sessions=session_repository,
+            notifications=notification_controller,
+            inspirations=inspiration_controller,
+            downloads=download_queue,
+            elixirs=elixirs,
+        ),
     )
     mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,

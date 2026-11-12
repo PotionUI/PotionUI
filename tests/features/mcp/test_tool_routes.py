@@ -104,7 +104,7 @@ class TestUserDefaultListing:
 
         assert tool == {
             "name": "live_e", "label": "Live E", "group": "Group", "description": "live_e description",
-            "writes": False, "spends": False, "unavailable_reason": "Needs the live Generate form",
+            "writes": False, "spends": False, "destructive": False, "unavailable_reason": "Needs the live Generate form",
             "state": "unavailable",
             "reviewed": False,
         }

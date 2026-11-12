@@ -7,8 +7,9 @@ from src.features.llm.tools.base import MCP_NEEDS_LIVE_FORM, MCP_USE_START_GENER
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.mcp.catalog import build_catalog
+from tests.features.mcp.support import ADDED_AFTER_SEED, ADDED_AFTER_SEED_READS
 
-SPENDS = {"enhance_prompt", "start_generation", "run_media_tool"}
+SPENDS = {"enhance_prompt", "start_generation", "run_media_tool", "run_elixir", "run_automation"}
 
 READS = {
     "list_segment_categories", "get_saved_segments", "get_segment_templates",
@@ -16,6 +17,8 @@ READS = {
     "list_phrasebook_categories", "get_phrasebook_values",
     "enhance_prompt", "search_model_prompts", "search_gallery", "get_prompt", "list_prompts",
     "list_library_items", "read_memory", "get_prompt_variables", "list_tab_drafts", "write_condition",
+    "get_generation_status", "wait_for_generation", "get_generation_results",
+    "list_elixirs", "describe_elixir", "get_elixir_run", "list_automations", "get_automation_status", "search_provider_models", "get_download_status", "list_inspirations", "list_sessions", "get_session", "list_notifications",
 }
 
 WRITES = {
@@ -27,7 +30,8 @@ WRITES = {
     "add_prompt", "edit_prompt", "delete_prompt",
     "write_memory", "update_memory", "delete_memory",
     "manage_collections", "organize_gallery", "start_generation", "run_media_tool",
-    "manage_prompt_variables",
+    "manage_prompt_variables", "cancel_generation", "upload_media",
+    "run_elixir", "run_automation", "download_model", "delete_generation", "delete_library_item", "publish_inspiration", "mark_notifications_read",
 }
 
 CANNOT_RUN = {
@@ -92,9 +96,11 @@ def test_the_tools_the_migration_keeps_on_are_exactly_those_that_write_or_spend(
     spec.loader.exec_module(module)
     offered = [entry for entry in build_catalog(registry) if not entry.unavailable_reason]
 
-    assert set(module._KEPT_ON) == {entry.name for entry in offered if entry.writes or entry.spends}
-    assert set(module._WRITE_TOOLS) == {entry.name for entry in offered if entry.writes}
-    assert set(module._READ_TOOLS) == {entry.name for entry in offered if not entry.writes and not entry.spends} - {"list_models"}
+    assert set(module._KEPT_ON) == {entry.name for entry in offered if entry.writes or entry.spends} - ADDED_AFTER_SEED
+    assert set(module._WRITE_TOOLS) == {entry.name for entry in offered if entry.writes} - ADDED_AFTER_SEED
+    assert set(module._READ_TOOLS) == {
+        entry.name for entry in offered if not entry.writes and not entry.spends
+    } - ADDED_AFTER_SEED_READS
 
 
 class _Tool(BaseTool):

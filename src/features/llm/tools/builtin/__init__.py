@@ -43,6 +43,11 @@ from src.features.llm.tools.builtin.search_gallery_tool import SearchGalleryTool
 from src.features.llm.tools.builtin.manage_prompts_tool import (
     AddPromptTool, DeletePromptTool, EditPromptTool, GetPromptTool, ListPromptsTool,
 )
+from src.features.llm.tools.builtin.account_tools import ACCOUNT_TOOLS
+from src.features.llm.tools.builtin.admin_domain_tools import ADMIN_DOMAIN_TOOLS
+from src.features.llm.tools.builtin.elixir_domain_tools import ELIXIR_DOMAIN_TOOLS
+from src.features.llm.tools.builtin.generation_loop_tools import GENERATION_LOOP_TOOLS
+from src.features.llm.tools.builtin.library_social_tools import LIBRARY_SOCIAL_TOOLS
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
 from src.features.llm.tools.builtin.list_models_tool import ListModelsTool, SearchModelsTool
 from src.features.llm.tools.builtin.library_items_tool import ListLibraryItemsTool
@@ -130,6 +135,11 @@ def register_builtin_tools(registry, media_tool_registry=None) -> None:
         StartGenerationTool(),
         RunMediaToolTool(media_tool_registry),
         *(tool() for tool in ELIXIR_TOOLS),
+        *(tool() for tool in GENERATION_LOOP_TOOLS),
+        *(tool() for tool in ELIXIR_DOMAIN_TOOLS),
+        *(tool() for tool in ADMIN_DOMAIN_TOOLS),
+        *(tool() for tool in LIBRARY_SOCIAL_TOOLS),
+        *(tool() for tool in ACCOUNT_TOOLS),
     ]
     for tool in tools:
         registry.register(tool)

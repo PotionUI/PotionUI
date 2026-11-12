@@ -1,0 +1,2077 @@
+{
+ "tool_context_fields": [
+  "user_id",
+  "mode_id",
+  "is_admin",
+  "session_metadata",
+  "segment_category_repository",
+  "saved_segment_repository",
+  "segment_template_repository",
+  "model_index_manager",
+  "preset_collaborators",
+  "phrasebook_category_repository",
+  "phrasebook_value_repository",
+  "llm_repository",
+  "prompt_database",
+  "generation_orchestrator",
+  "llm_memory_repository",
+  "prompt_enhancement_manager",
+  "media_indexer",
+  "settings",
+  "llm_id",
+  "collection_repository",
+  "tag_repository",
+  "plugin_registry",
+  "generation_history_facade",
+  "content_safety",
+  "library_collaborators",
+  "tab_drafts",
+  "media_tool_service",
+  "elixirs",
+  "chat_session",
+  "acts_as_admin"
+ ],
+ "tool_result_fields": [
+  "success",
+  "data",
+  "error",
+  "sources",
+  "image_data",
+  "preview",
+  "retryable"
+ ],
+ "tools": {
+  "add_prompt": {
+   "group": "Saved prompts",
+   "parameters": {
+    "properties": {
+     "name": {
+      "description": "Optional library name.",
+      "type": "string"
+     },
+     "segments": {
+      "items": {
+       "properties": {
+        "chips": {
+         "description": "Complete phrasebook chip state keyed by chip id.",
+         "type": "object"
+        },
+        "color": {
+         "type": "string"
+        },
+        "content": {
+         "default": "",
+         "type": "string"
+        },
+        "description": {
+         "type": "string"
+        },
+        "enabled": {
+         "default": true,
+         "type": "boolean"
+        },
+        "name": {
+         "type": "string"
+        },
+        "type": {
+         "default": "content",
+         "enum": [
+          "content"
+         ],
+         "type": "string"
+        }
+       },
+       "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "usage_hint": {
+      "enum": [
+       "positive",
+       "negative"
+      ],
+      "type": "string"
+     },
+     "variables": {
+      "additionalProperties": {
+       "properties": {
+        "max": {
+         "type": "number"
+        },
+        "min": {
+         "type": "number"
+        },
+        "mode": {
+         "description": "choice or number",
+         "enum": [
+          "shuffle",
+          "pin",
+          "per-image"
+         ],
+         "type": "string"
+        },
+        "options": {
+         "description": "choice only",
+         "items": {
+          "anyOf": [
+           {
+            "type": "string"
+           },
+           {
+            "properties": {
+             "text": {
+              "type": "string"
+             },
+             "when": {
+              "properties": {
+               "values": {
+                "items": {
+                 "type": "string"
+                },
+                "type": "array"
+               },
+               "var": {
+                "type": "string"
+               }
+              },
+              "required": [
+               "var",
+               "values"
+              ],
+              "type": "object"
+             }
+            },
+            "required": [
+             "text"
+            ],
+            "type": "object"
+           }
+          ]
+         },
+         "type": "array"
+        },
+        "pinnedIndex": {
+         "description": "choice + pin only",
+         "type": "integer"
+        },
+        "step": {
+         "type": "number"
+        },
+        "type": {
+         "enum": [
+          "text",
+          "choice",
+          "number"
+         ],
+         "type": "string"
+        },
+        "value": {
+         "oneOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "number"
+          }
+         ]
+        }
+       },
+       "required": [
+        "type"
+       ],
+       "type": "object"
+      },
+      "description": "Prompt ${name} variables, keyed by name.",
+      "type": "object"
+     }
+    },
+    "required": [
+     "segments"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "create_phrasebook_category": {
+   "group": "Phrasebook vocabulary",
+   "parameters": {
+    "properties": {
+     "description": {
+      "description": "Optional description of the category.",
+      "type": "string"
+     },
+     "name": {
+      "description": "Display name for the category. Defaults to the last path segment.",
+      "type": "string"
+     },
+     "path": {
+      "description": "Dot-separated category path, e.g. 'camera.angles'. Each segment may contain letters, digits, underscores, and single spaces.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "path"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "create_phrasebook_values": {
+   "group": "Phrasebook vocabulary",
+   "parameters": {
+    "properties": {
+     "category_id": {
+      "description": "Category ID to add values to. Prefer category_path when possible.",
+      "type": "string"
+     },
+     "category_path": {
+      "description": "Dot-separated path of the category to add values to, e.g. 'camera.angles'.",
+      "type": "string"
+     },
+     "values": {
+      "description": "Values to create.",
+      "items": {
+       "properties": {
+        "label": {
+         "description": "Display label for the value.",
+         "type": "string"
+        },
+        "value": {
+         "description": "Prompt text this value inserts. Defaults to the label.",
+         "type": "string"
+        }
+       },
+       "required": [
+        "label"
+       ],
+       "type": "object"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "values"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "create_saved_segment": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "category_id": {
+      "description": "Category id from list_segment_categories.",
+      "type": "string"
+     },
+     "chips": {
+      "description": "Complete phrasebook chip state keyed by chip id.",
+      "type": "object"
+     },
+     "color": {
+      "type": "string"
+     },
+     "content": {
+      "type": "string"
+     },
+     "description": {
+      "type": "string"
+     },
+     "enabled": {
+      "type": "boolean"
+     },
+     "name": {
+      "type": "string"
+     },
+     "prefix": {
+      "type": "string"
+     },
+     "resources": {
+      "description": "Resource references keyed by id.",
+      "type": "object"
+     },
+     "suffix": {
+      "type": "string"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "category_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "create_segment_category": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "color": {
+      "description": "Hex color such as #3B82F6.",
+      "type": "string"
+     },
+     "description": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "create_segment_template": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "description": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "segments": {
+      "items": {
+       "properties": {
+        "chips": {
+         "description": "Complete phrasebook chip state keyed by chip id.",
+         "type": "object"
+        },
+        "color": {
+         "type": "string"
+        },
+        "content": {
+         "default": "",
+         "type": "string"
+        },
+        "description": {
+         "type": "string"
+        },
+        "enabled": {
+         "default": true,
+         "type": "boolean"
+        },
+        "name": {
+         "type": "string"
+        },
+        "prefix": {
+         "type": "string"
+        },
+        "resources": {
+         "description": "Resource references keyed by id.",
+         "type": "object"
+        },
+        "suffix": {
+         "type": "string"
+        },
+        "type": {
+         "default": "content",
+         "enum": [
+          "content"
+         ],
+         "type": "string"
+        }
+       },
+       "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "segments"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "delete_memory": {
+   "group": "Memory",
+   "parameters": {
+    "properties": {
+     "note_id": {
+      "description": "The ID of the memory note to delete.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "note_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "delete_phrasebook_category": {
+   "group": "Phrasebook vocabulary",
+   "parameters": {
+    "properties": {
+     "category": {
+      "description": "Category id or dot-separated path, e.g. 'camera.angles'.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "category"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "delete_prompt": {
+   "group": "Saved prompts",
+   "parameters": {
+    "properties": {
+     "prompt_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "prompt_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "delete_saved_segment": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "segment_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "segment_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "delete_segment_category": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "category_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "category_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "delete_segment_template": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "template_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "template_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "edit_prompt": {
+   "group": "Saved prompts",
+   "parameters": {
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "prompt_id": {
+      "type": "string"
+     },
+     "segments": {
+      "items": {
+       "properties": {
+        "chips": {
+         "description": "Complete phrasebook chip state keyed by chip id.",
+         "type": "object"
+        },
+        "color": {
+         "type": "string"
+        },
+        "content": {
+         "default": "",
+         "type": "string"
+        },
+        "description": {
+         "type": "string"
+        },
+        "enabled": {
+         "default": true,
+         "type": "boolean"
+        },
+        "name": {
+         "type": "string"
+        },
+        "type": {
+         "default": "content",
+         "enum": [
+          "content"
+         ],
+         "type": "string"
+        }
+       },
+       "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+     },
+     "usage_hint": {
+      "enum": [
+       "positive",
+       "negative"
+      ],
+      "type": "string"
+     },
+     "variables": {
+      "additionalProperties": {
+       "properties": {
+        "max": {
+         "type": "number"
+        },
+        "min": {
+         "type": "number"
+        },
+        "mode": {
+         "description": "choice or number",
+         "enum": [
+          "shuffle",
+          "pin",
+          "per-image"
+         ],
+         "type": "string"
+        },
+        "options": {
+         "description": "choice only",
+         "items": {
+          "anyOf": [
+           {
+            "type": "string"
+           },
+           {
+            "properties": {
+             "text": {
+              "type": "string"
+             },
+             "when": {
+              "properties": {
+               "values": {
+                "items": {
+                 "type": "string"
+                },
+                "type": "array"
+               },
+               "var": {
+                "type": "string"
+               }
+              },
+              "required": [
+               "var",
+               "values"
+              ],
+              "type": "object"
+             }
+            },
+            "required": [
+             "text"
+            ],
+            "type": "object"
+           }
+          ]
+         },
+         "type": "array"
+        },
+        "pinnedIndex": {
+         "description": "choice + pin only",
+         "type": "integer"
+        },
+        "step": {
+         "type": "number"
+        },
+        "type": {
+         "enum": [
+          "text",
+          "choice",
+          "number"
+         ],
+         "type": "string"
+        },
+        "value": {
+         "oneOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "number"
+          }
+         ]
+        }
+       },
+       "required": [
+        "type"
+       ],
+       "type": "object"
+      },
+      "description": "Prompt ${name} variables, keyed by name.",
+      "type": "object"
+     }
+    },
+    "required": [
+     "prompt_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "enhance_prompt": {
+   "group": "Prompt writing",
+   "parameters": {
+    "properties": {
+     "brief": {
+      "description": "Short description of the desired image. If omitted, the user's current prompt segments are used as the brief.",
+      "type": "string"
+     },
+     "model_id": {
+      "description": "Model to ground on, when no Generate tab is open.",
+      "type": "string"
+     },
+     "n_candidates": {
+      "default": 1,
+      "description": "Number of enhanced prompts to produce (default 1).",
+      "type": "integer"
+     },
+     "preset_id": {
+      "description": "Preset whose prompting guide to follow, when no Generate tab is open.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": true,
+   "unavailable": null,
+   "writes": false
+  },
+  "get_active_models": {
+   "group": "Models & presets",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
+   "writes": false
+  },
+  "get_current_segments": {
+   "group": "Form & segments",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
+   "writes": false
+  },
+  "get_form_state": {
+   "group": "Form & segments",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
+   "writes": false
+  },
+  "get_model_info": {
+   "group": "Models & presets",
+   "parameters": {
+    "properties": {
+     "fields": {
+      "description": "Extra fields to include beyond the compact core. Request 'description' only when you actually need the long-form text. 'model_metadata' returns the model's per-type custom attributes (e.g. a LoRA's default strength).",
+      "items": {
+       "enum": [
+        "description",
+        "tags",
+        "provider",
+        "model_metadata"
+       ],
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "model_id": {
+      "description": "The model id (from search_models), or its file path or filename.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "model_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "get_music_director": {
+   "group": "Form & segments",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
+   "writes": false
+  },
+  "get_phrasebook_values": {
+   "group": "Phrasebook vocabulary",
+   "parameters": {
+    "properties": {
+     "category": {
+      "description": "Category id or dot-separated path, e.g. 'camera.angles'.",
+      "type": "string"
+     },
+     "limit": {
+      "description": "Max values to return. Defaults to 100, hard max 200.",
+      "type": "integer"
+     },
+     "offset": {
+      "description": "Number of matching values to skip. Defaults to 0.",
+      "type": "integer"
+     },
+     "search": {
+      "description": "Optional case-insensitive substring match against each value's label or text.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "category"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "get_preset_info": {
+   "group": "Models & presets",
+   "parameters": {
+    "properties": {
+     "mode": {
+      "description": "Mode whose form fields to describe; one of the preset's modes.",
+      "type": "string"
+     },
+     "preset_id": {
+      "description": "Preset id from list_presets. Optional only when a Generate tab is open.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "get_prompt": {
+   "group": "Saved prompts",
+   "parameters": {
+    "properties": {
+     "prompt_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "prompt_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "get_prompt_variables": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "limit": {
+      "description": "Rows (default 50, max 100) or options (default 100, max 200).",
+      "type": "integer"
+     },
+     "names": {
+      "description": "Variable names without ${}. Omit to list all.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "offset": {
+      "description": "Rows or options to skip. Defaults to 0.",
+      "type": "integer"
+     },
+     "search": {
+      "description": "Case-insensitive filter on names and option texts (list), or on options (detail).",
+      "type": "string"
+     },
+     "tab_id": {
+      "description": "MCP only; ignored in chat.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "get_saved_segments": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "category_id": {
+      "description": "Optional Segment Category ID.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "get_segment_templates": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "get_video_director": {
+   "group": "Form & segments",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
+   "writes": false
+  },
+  "list_library_items": {
+   "group": "Generation",
+   "parameters": {
+    "properties": {
+     "collection_id": {
+      "description": "Only items in this library collection.",
+      "type": "string"
+     },
+     "limit": {
+      "default": 50,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+     },
+     "media_type": {
+      "enum": [
+       "image",
+       "video",
+       "audio"
+      ],
+      "type": "string"
+     },
+     "offset": {
+      "default": 0,
+      "minimum": 0,
+      "type": "integer"
+     },
+     "search": {
+      "description": "Match against file names.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "list_models": {
+   "group": "Models & presets",
+   "parameters": {
+    "properties": {
+     "limit": {
+      "default": 20,
+      "description": "Max results to return (default 20).",
+      "type": "integer"
+     },
+     "model_type": {
+      "description": "Filter by model type: checkpoint, lora, vae, embedding, controlnet, upscaler.",
+      "type": "string"
+     },
+     "query": {
+      "description": "Search filter for model name.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "list_phrasebook_categories": {
+   "group": "Phrasebook vocabulary",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "list_presets": {
+   "group": "Models & presets",
+   "parameters": {
+    "properties": {
+     "engine": {
+      "description": "Only presets for this engine.",
+      "type": "string"
+     },
+     "limit": {
+      "default": 50,
+      "maximum": 200,
+      "minimum": 1,
+      "type": "integer"
+     },
+     "offset": {
+      "default": 0,
+      "minimum": 0,
+      "type": "integer"
+     },
+     "query": {
+      "description": "Case-insensitive match on id, name, tags and description.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "list_prompts": {
+   "group": "Saved prompts",
+   "parameters": {
+    "properties": {
+     "limit": {
+      "default": 20,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+     },
+     "offset": {
+      "default": 0,
+      "minimum": 0,
+      "type": "integer"
+     },
+     "search": {
+      "description": "Match against name and text.",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "list_segment_categories": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "list_tab_drafts": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "manage_collections": {
+   "group": "Collections",
+   "parameters": {
+    "properties": {
+     "collection_id": {
+      "description": "Required for rename/delete/add_items/remove_items.",
+      "type": "string"
+     },
+     "generation_ids": {
+      "description": "Generation history ids. Only valid with scope='history'. Exactly one of generation_ids/upload_ids/prompt_ids is required for add_items/remove_items - never combine kinds in one call.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "name": {
+      "description": "Required for create/rename.",
+      "type": "string"
+     },
+     "operation": {
+      "enum": [
+       "list",
+       "create",
+       "rename",
+       "delete",
+       "add_items",
+       "remove_items"
+      ],
+      "type": "string"
+     },
+     "parent_id": {
+      "description": "Optional parent collection id for create (nests it; must be the same scope; omit for a root collection).",
+      "type": "string"
+     },
+     "prompt_ids": {
+      "description": "Saved prompt ids. Only valid with scope='prompts'. Exactly one of generation_ids/upload_ids/prompt_ids is required for add_items/remove_items - never combine kinds in one call.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "scope": {
+      "description": "Which collection tree this call operates on. 'history' for generation folders and 'library' for library-item folders are the two primary surfaces; 'prompts' collections (saved prompts) also exist. Required for every operation, no default.",
+      "enum": [
+       "history",
+       "library",
+       "prompts"
+      ],
+      "type": "string"
+     },
+     "upload_ids": {
+      "description": "Library item ids (distinct from generation ids). Only valid with scope='library'. Exactly one of generation_ids/upload_ids/prompt_ids is required for add_items/remove_items - never combine kinds in one call.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "operation",
+     "scope"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "manage_prompt_variables": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "operations": {
+      "description": "List of variable operations to propose",
+      "items": {
+       "properties": {
+        "max": {
+         "type": "number"
+        },
+        "min": {
+         "type": "number"
+        },
+        "mode": {
+         "description": "Choice or number resolution; defaults to 'shuffle'",
+         "enum": [
+          "shuffle",
+          "pin",
+          "per-image"
+         ],
+         "type": "string"
+        },
+        "name": {
+         "description": "The variable name, without ${} or $",
+         "type": "string"
+        },
+        "op": {
+         "description": "'set' creates or replaces the variable, 'remove' deletes it",
+         "enum": [
+          "set",
+          "remove"
+         ],
+         "type": "string"
+        },
+        "options": {
+         "description": "Option texts, for a 'set' with type 'choice'. Each entry is a plain string, or {text, when: {var, values}} to make it conditionally eligible.",
+         "items": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "properties": {
+             "text": {
+              "type": "string"
+             },
+             "when": {
+              "properties": {
+               "values": {
+                "description": "Exact option texts of that variable this option is eligible for",
+                "items": {
+                 "type": "string"
+                },
+                "type": "array"
+               },
+               "var": {
+                "description": "Name of another choice variable this option depends on",
+                "type": "string"
+               }
+              },
+              "required": [
+               "var",
+               "values"
+              ],
+              "type": "object"
+             }
+            },
+            "required": [
+             "text"
+            ],
+            "type": "object"
+           }
+          ]
+         },
+         "type": "array"
+        },
+        "pinned_index": {
+         "description": "Index into options to pin, when mode is 'pin'",
+         "type": "integer"
+        },
+        "reason": {
+         "description": "Optional explanation for why this change is proposed",
+         "type": "string"
+        },
+        "step": {
+         "type": "number"
+        },
+        "type": {
+         "description": "Required for 'set' on a new variable; defaults to the existing variable's type when updating one.",
+         "enum": [
+          "text",
+          "choice",
+          "number"
+         ],
+         "type": "string"
+        },
+        "value": {
+         "description": "Text value, or the pinned number for type 'number'",
+         "oneOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "number"
+          }
+         ]
+        }
+       },
+       "required": [
+        "op",
+        "name"
+       ],
+       "type": "object"
+      },
+      "type": "array"
+     },
+     "tab_id": {
+      "description": "MCP only; ignored in chat.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "operations"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "organize_gallery": {
+   "group": "Generation",
+   "parameters": {
+    "properties": {
+     "created_from": {
+      "description": "list_recent only: ISO 8601 lower bound on creation time.",
+      "type": "string"
+     },
+     "created_to": {
+      "description": "list_recent only: ISO 8601 upper bound on creation time.",
+      "type": "string"
+     },
+     "generation_id": {
+      "description": "Required for tag/untag/rate/get.",
+      "type": "string"
+     },
+     "limit": {
+      "description": "Max results for list_recent (default 20, max 100).",
+      "type": "integer"
+     },
+     "min_rating": {
+      "description": "list_recent only: minimum rating.",
+      "maximum": 5,
+      "minimum": 0,
+      "type": "integer"
+     },
+     "model_name": {
+      "description": "list_recent only: filter to generations that used this model.",
+      "type": "string"
+     },
+     "operation": {
+      "enum": [
+       "tag",
+       "untag",
+       "rate",
+       "list_recent",
+       "get",
+       "list_tags"
+      ],
+      "type": "string"
+     },
+     "preset_id": {
+      "description": "list_recent only: filter to one preset id.",
+      "type": "string"
+     },
+     "rating": {
+      "description": "Required for rate; 0 clears the rating.",
+      "maximum": 5,
+      "minimum": 0,
+      "type": "integer"
+     },
+     "tags": {
+      "description": "Tag names. Required for tag/untag.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "text": {
+      "description": "list_recent only: free-text search over the prompt.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "operation"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "read_memory": {
+   "group": "Memory",
+   "parameters": {
+    "properties": {
+     "scope": {
+      "default": "all",
+      "description": "Filter by scope. 'all' returns global plus the open tab's preset, model, mode and session notes, or every note when no tab is open.",
+      "enum": [
+       "all",
+       "global",
+       "preset",
+       "model",
+       "mode",
+       "session"
+      ],
+      "type": "string"
+     },
+     "scope_ref": {
+      "description": "Preset, model, mode or saved-session id to filter scoped notes. Auto-resolved from the open Generate tab if omitted.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "remove_phrasebook_values": {
+   "group": "Phrasebook vocabulary",
+   "parameters": {
+    "properties": {
+     "category_id": {
+      "description": "Optional category id. Prefer category_path when possible.",
+      "type": "string"
+     },
+     "category_path": {
+      "description": "Optional dot-separated category path. When given, only value_ids belonging to this category are deleted; the rest are reported as failed.",
+      "type": "string"
+     },
+     "value_ids": {
+      "description": "Exact value ids to delete. Never free-text labels.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "value_ids"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "run_generation": {
+   "group": "Generation",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Drives the open Generate form. Use start_generation over MCP.",
+   "writes": true
+  },
+  "run_media_tool": {
+   "group": "Generation",
+   "parameters": {
+    "properties": {
+     "items": {
+      "description": "The media to edit; each entry has exactly one of item_id or generation_file_id.",
+      "items": {
+       "properties": {
+        "generation_file_id": {
+         "description": "Generated file id.",
+         "type": "string"
+        },
+        "item_id": {
+         "description": "Library item id.",
+         "type": "string"
+        }
+       },
+       "type": "object"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "type": "array"
+     },
+     "mode": {
+      "default": "new",
+      "description": "'new' keeps the original; 'replace' overwrites one library item and needs approval.",
+      "enum": [
+       "new",
+       "replace"
+      ],
+      "type": "string"
+     },
+     "steps": {
+      "description": "Steps in the order they run.",
+      "items": {
+       "properties": {
+        "params": {
+         "description": "Params named in the tool list; omit for the defaults.",
+         "type": "object"
+        },
+        "tool": {
+         "description": "Tool id from the list.",
+         "enum": [
+          "trim",
+          "crop",
+          "resize",
+          "rotate",
+          "flip",
+          "speed",
+          "fit_canvas",
+          "color_key",
+          "crop_subject",
+          "frame",
+          "split",
+          "concat",
+          "cut_finder",
+          "mute",
+          "volume",
+          "replace_audio",
+          "paint_layer",
+          "slice",
+          "fade",
+          "film_grain",
+          "fix_colors",
+          "ken_burns",
+          "look",
+          "lut",
+          "vignette"
+         ],
+         "type": "string"
+        }
+       },
+       "required": [
+        "tool"
+       ],
+       "type": "object"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+     }
+    },
+    "required": [
+     "steps",
+     "items"
+    ],
+    "type": "object"
+   },
+   "spends": true,
+   "unavailable": null,
+   "writes": true
+  },
+  "search_gallery": {
+   "group": "Generation",
+   "parameters": {
+    "properties": {
+     "limit": {
+      "default": 5,
+      "description": "Number of results to return per concept (default 5, max 25).",
+      "type": "integer"
+     },
+     "queries": {
+      "description": "List of ATOMIC visual concepts to search, one per element (e.g. [\"red fox\", \"snowy forest\", \"night\"]). Do NOT combine concepts into one element \u2014 the search is semantic and compound phrases match poorly. At most 6 concepts are searched.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "queries"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "search_model_prompts": {
+   "group": "Prompt writing",
+   "parameters": {
+    "properties": {
+     "limit": {
+      "default": 3,
+      "description": "Number of results to return per concept (default 3).",
+      "type": "integer"
+     },
+     "model_id": {
+      "description": "Model ID to search prompts for.{{#if get_active_models}} Get this from get_active_models.{{/if}} If omitted, uses the model of the open Generate tab when there is one, else searches prompts for every model.",
+      "type": "string"
+     },
+     "queries": {
+      "description": "List of ATOMIC concepts to search, one per element (e.g. [\"red fox\", \"pine forest\", \"golden hour lighting\"]). Do NOT combine concepts into one element like \"fox in forest\" \u2014 the search is semantic and compound phrases match poorly. Break the desired image into subject / environment / style / lighting / composition / mood and pass each separately. At most 6 concepts are searched.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "queries"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "search_models": {
+   "group": "Models & presets",
+   "parameters": {
+    "properties": {
+     "limit": {
+      "default": 20,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+     },
+     "offset": {
+      "default": 0,
+      "minimum": 0,
+      "type": "integer"
+     },
+     "query": {
+      "description": "Match against model name and filename.",
+      "type": "string"
+     },
+     "type": {
+      "description": "Model type, e.g. checkpoint or lora.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "set_prompt_relay_timeline": {
+   "group": "Prompt writing",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
+   "writes": true
+  },
+  "set_regional_prompt": {
+   "group": "Prompt writing",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
+   "writes": true
+  },
+  "start_generation": {
+   "group": "Generation",
+   "parameters": {
+    "properties": {
+     "form_overrides": {
+      "description": "Field overrides on top of the preset's defaults (e.g. {'width': 1024, 'seed': 12345, 'batch_size': 4}). Field names must match the preset's form fields (see get_preset_info). An image/video/audio/media field takes a storage-root-relative path exactly as returned in a search_gallery result's `path` (e.g. 'generations/2026-08-12/01ABC.../1.png'). Never construct one from a generation id: the date segment is not derivable and videos have no index 0. If get_preset_info shows a 'regional_prompt' section, set 'regional_prompt' to {enabled: true, items: [{x, y, w, h, caption}]} (fractions, top-left origin).",
+      "type": "object"
+     },
+     "mode": {
+      "description": "One of the preset's modes (see get_preset_info); default txt2img, else the first. For one video use a single-clip mode, not Video Director.",
+      "type": "string"
+     },
+     "negative_prompt": {
+      "type": "string"
+     },
+     "preset_id": {
+      "description": "The preset id to generate with.",
+      "type": "string"
+     },
+     "prompt": {
+      "type": "string"
+     },
+     "prompts": {
+      "description": "Several distinct prompts rendered in one generation, in order. Use instead of 'prompt'/'negative_prompt'. Each prompt is expanded 'quantity' times; the total image count (prompts x quantity) is capped at 20.",
+      "items": {
+       "properties": {
+        "negative": {
+         "type": "string"
+        },
+        "positive": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "positive"
+       ],
+       "type": "object"
+      },
+      "maxItems": 20,
+      "type": "array"
+     }
+    },
+    "required": [
+     "preset_id"
+    ],
+    "type": "object"
+   },
+   "spends": true,
+   "unavailable": null,
+   "writes": true
+  },
+  "update_form_settings": {
+   "group": "Form & segments",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
+   "writes": true
+  },
+  "update_memory": {
+   "group": "Memory",
+   "parameters": {
+    "properties": {
+     "content": {
+      "description": "New note content. Omit to keep the current content.",
+      "type": "string"
+     },
+     "key": {
+      "description": "The note's CURRENT key, as shown in your injected memory context. Required (with 'scope') when note_id is not given.",
+      "type": "string"
+     },
+     "new_key": {
+      "description": "New key to rename this note to. Omit to keep the current key.",
+      "type": "string"
+     },
+     "note_id": {
+      "description": "The ID of the memory note to edit, if known. Usually unnecessary \u2014 prefer 'scope' + 'key' to address the note directly.",
+      "type": "string"
+     },
+     "scope": {
+      "description": "The scope of the note to edit, as shown alongside it in your injected memory context. Required (with 'key') when note_id is not given. 'session' is the saved Generate session of the current tab, not this chat conversation.",
+      "enum": [
+       "global",
+       "preset",
+       "model",
+       "mode",
+       "session"
+      ],
+      "type": "string"
+     },
+     "scope_ref": {
+      "description": "Preset, model, or mode ID for a scoped note. Auto-resolved from the active preset/model/mode if omitted.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "update_music_director": {
+   "group": "Form & segments",
+   "parameters": null,
+   "spends": false,
+   "unavailable": "Needs the live Generate form \u2014 available when called from chat.",
+   "writes": true
+  },
+  "update_phrasebook_category": {
+   "group": "Phrasebook vocabulary",
+   "parameters": {
+    "properties": {
+     "category": {
+      "description": "Category id or dot-separated path, e.g. 'camera.angles'.",
+      "type": "string"
+     },
+     "description": {
+      "description": "New description for the category. An empty string clears it.",
+      "type": "string"
+     },
+     "is_active": {
+      "description": "Set false to switch the category off, true to switch it back on.",
+      "type": "boolean"
+     },
+     "name": {
+      "description": "New display name for the category.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "category"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "update_phrasebook_values": {
+   "group": "Phrasebook vocabulary",
+   "parameters": {
+    "properties": {
+     "category": {
+      "description": "Category id or dot-separated path, e.g. 'camera.angles'.",
+      "type": "string"
+     },
+     "edits": {
+      "description": "Edits to apply. Never invent an id \u2014 get them from get_phrasebook_values.",
+      "items": {
+       "properties": {
+        "id": {
+         "description": "Exact value id to edit.",
+         "type": "string"
+        },
+        "new_label": {
+         "description": "New display label.",
+         "type": "string"
+        },
+        "new_value": {
+         "description": "New prompt text this value inserts.",
+         "type": "string"
+        }
+       },
+       "required": [
+        "id"
+       ],
+       "type": "object"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "category",
+     "edits"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "update_saved_segment": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "category_id": {
+      "description": "Category id from list_segment_categories.",
+      "type": "string"
+     },
+     "chips": {
+      "description": "Complete phrasebook chip state keyed by chip id.",
+      "type": "object"
+     },
+     "color": {
+      "type": "string"
+     },
+     "content": {
+      "type": "string"
+     },
+     "description": {
+      "type": "string"
+     },
+     "enabled": {
+      "type": "boolean"
+     },
+     "name": {
+      "type": "string"
+     },
+     "prefix": {
+      "type": "string"
+     },
+     "resources": {
+      "description": "Resource references keyed by id.",
+      "type": "object"
+     },
+     "segment_id": {
+      "type": "string"
+     },
+     "suffix": {
+      "type": "string"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "segment_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "update_segment_category": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "category_id": {
+      "type": "string"
+     },
+     "color": {
+      "description": "Hex color such as #3B82F6.",
+      "type": "string"
+     },
+     "description": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "category_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "update_segment_template": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "description": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "segments": {
+      "items": {
+       "properties": {
+        "chips": {
+         "description": "Complete phrasebook chip state keyed by chip id.",
+         "type": "object"
+        },
+        "color": {
+         "type": "string"
+        },
+        "content": {
+         "default": "",
+         "type": "string"
+        },
+        "description": {
+         "type": "string"
+        },
+        "enabled": {
+         "default": true,
+         "type": "boolean"
+        },
+        "name": {
+         "type": "string"
+        },
+        "prefix": {
+         "type": "string"
+        },
+        "resources": {
+         "description": "Resource references keyed by id.",
+         "type": "object"
+        },
+        "suffix": {
+         "type": "string"
+        },
+        "type": {
+         "default": "content",
+         "enum": [
+          "content"
+         ],
+         "type": "string"
+        }
+       },
+       "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "template_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "template_id"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  },
+  "write_condition": {
+   "group": "Form & segments",
+   "parameters": {
+    "properties": {
+     "branches": {
+      "description": "Build: branches in order; the first true one wins.",
+      "items": {
+       "properties": {
+        "join": {
+         "enum": [
+          "and",
+          "or"
+         ],
+         "type": "string"
+        },
+        "tests": {
+         "items": {
+          "properties": {
+           "op": {
+            "enum": [
+             "=",
+             "!=",
+             "<",
+             "<=",
+             ">",
+             ">=",
+             "in",
+             "not in",
+             "contains",
+             "not contains",
+             "is empty",
+             "is not empty"
+            ],
+            "type": "string"
+           },
+           "value": {
+            "description": "A number, or option text exactly as written",
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "number"
+             }
+            ]
+           },
+           "values": {
+            "description": "in / not in: options, or [from, to] for a number",
+            "items": {
+             "oneOf": [
+              {
+               "type": "string"
+              },
+              {
+               "type": "number"
+              }
+             ]
+            },
+            "type": "array"
+           },
+           "var": {
+            "description": "Variable name without $",
+            "type": "string"
+           }
+          },
+          "required": [
+           "var",
+           "op"
+          ],
+          "type": "object"
+         },
+         "type": "array"
+        },
+        "text": {
+         "description": "Prompt words for this branch",
+         "type": "string"
+        }
+       },
+       "required": [
+        "tests",
+        "text"
+       ],
+       "type": "object"
+      },
+      "type": "array"
+     },
+     "otherwise": {
+      "description": "Words when no branch matches; omit for none",
+      "type": "string"
+     },
+     "tab_id": {
+      "description": "MCP only; ignored in chat.",
+      "type": "string"
+     },
+     "text": {
+      "description": "Check: condition or segment text you wrote",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": false
+  },
+  "write_memory": {
+   "group": "Memory",
+   "parameters": {
+    "properties": {
+     "content": {
+      "description": "The note content to remember.",
+      "type": "string"
+     },
+     "key": {
+      "description": "A short identifier for this note (e.g. 'preferred_style', 'cfg_preference').",
+      "type": "string"
+     },
+     "scope": {
+      "description": "REQUIRED, choose deliberately -- do not default to 'global'. 'global' is only for facts true regardless of preset, model, or chat mode. 'preset' is for anything tied to the active preset (e.g. a setting that only behaves this way on this preset) -- scope_ref auto-resolves, omit it. 'model' is for anything tied to the active checkpoint/LoRA -- scope_ref auto-resolves, omit it. 'mode' is for anything tied to this chat mode's own workflow (not the Generate form) -- scope_ref auto-resolves to the session's mode, omit it. 'session' is for facts tied to the saved Generate session of the current tab (not this chat conversation) -- scope_ref auto-resolves to that session, omit it. If the note names or only applies to one preset/model/mode/session, it MUST use that scope. A preset's image/video mode has no scope of its own; name it in the content.",
+      "enum": [
+       "global",
+       "preset",
+       "model",
+       "mode",
+       "session"
+      ],
+      "type": "string"
+     },
+     "scope_ref": {
+      "description": "Preset, model, mode or saved-session id for a scoped note. Auto-resolved from the open Generate tab when there is one; required otherwise.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key",
+     "content",
+     "scope"
+    ],
+    "type": "object"
+   },
+   "spends": false,
+   "unavailable": null,
+   "writes": true
+  }
+ }
+}

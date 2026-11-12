@@ -50,6 +50,7 @@ class McpToolsDocumenter:
             "group": entry.group,
             "mutating": entry.writes,
             "spends": entry.spends,
+            "destructive": entry.destructive,
             "parameters": parameters,
         }
 

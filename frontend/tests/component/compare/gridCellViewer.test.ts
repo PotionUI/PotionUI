@@ -121,6 +121,7 @@ describe('grid cell viewer', () => {
 		const card = document.body.querySelector('[data-testid="cell-viewer-card"]') as HTMLElement;
 		const panel = document.body.querySelector('[data-details-panel]') as HTMLElement;
 		expect(card.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(card.parentElement?.className).toContain('empty:hidden');
 	});
 
 	it('lists the seed once, labelled by the axis, when the seed is an axis', async () => {

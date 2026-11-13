@@ -13,7 +13,7 @@ EXPECTED_OUTPUT = {
     "generate_and_wait": r"saved \S+\.png",
     "follow_websocket": r"generation_complete",
     "upload_and_use": r"saved \S+\.png",
-    "download_history": r"saved history/\S+\.png",
+    "download_history": r"saved history[/\\]\S+\.png",
     "make_kit": r"kits\.mara -> .*sailor with a red scarf",
     "generate_from_session": r"saved \S+\.png",
 }

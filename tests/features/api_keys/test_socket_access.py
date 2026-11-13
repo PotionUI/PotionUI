@@ -544,6 +544,14 @@ class TestSessionTicketsFollowTheUser:
 
 
 class TestTicketRouteLimits:
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [(None, 60), ("", 60), ("abc", 60), ("0", 60), ("-5", 60), ("1.5", 60), ("  200 ", 200)],
+    )
+    def test_the_ticket_allowance_falls_back_to_sixty_on_a_bad_value(self, raw, expected):
+        environ = {} if raw is None else {auth_routes.WS_TICKETS_ENV: raw}
+        assert auth_routes.ws_tickets_per_window(environ) == expected
+
     def test_the_route_is_rate_limited_per_caller(self, world, sockets):
         from src.features.auth.routes import WS_TICKETS_PER_WINDOW
 

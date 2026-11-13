@@ -75,6 +75,11 @@ class SequentialWindowClipTextEncoder(ClipTextEncoder):
         straight to ``run_text_encode``."""
         raise NotImplementedError
 
+    def _encode_working_gb_for(
+        self, requests: List[Dict[str, Any]],
+    ) -> Optional[Callable[[NativeTextEncoder, List[int]], float]]:
+        return None
+
     def _pack(self, request: Dict[str, Any], result: Any) -> ConditioningModel:
         embeds, n_embeds = result
         return ConditioningModel(
@@ -131,8 +136,10 @@ class SequentialWindowClipTextEncoder(ClipTextEncoder):
         # (every other family, today) pays nothing extra: the thunk is a
         # cheap attribute read, called at the exact same point `self.encoder`
         # used to be evaluated.
+        working_gb_for = self._encode_working_gb_for(requests)
+        extra = {} if working_gb_for is None else {"working_gb_for": working_gb_for}
         results = run_text_encode_batch(
             None, self.device, encode_fns, cache_keys=cache_keys,
-            encoder_provider=lambda: self.encoder,
+            encoder_provider=lambda: self.encoder, **extra,
         )
         return [self._pack(request, result) for request, result in zip(requests, results)]

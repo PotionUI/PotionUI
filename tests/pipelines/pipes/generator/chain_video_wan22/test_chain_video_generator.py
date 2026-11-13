@@ -438,6 +438,36 @@ def test_concat_encode_routes_through_the_shared_oom_ladder_not_raw_encode():
     assert seen_encode["fn"] is sentinel
 
 
+def test_each_a14b_shot_makes_room_on_the_card_before_it_encodes_its_conditioning_frames():
+    doc = _document(n_segments=2, start_on_seg0=True)
+    pipe = _pipe(document=doc)
+    bundle = _bundle(in_dim=36)
+    pi = _inputs(model=bundle, conditioning=_cond(2), image=[torch.rand(8, 8, 3)])
+    order = []
+    kept = []
+    bundle.vae.move_to = lambda d: order.append("vae.move_to")
+    build, _ = _fake_build_i2v_concat_factory()
+
+    sizes = []
+
+    def recording_build(*args, **kwargs):
+        order.append("encode")
+        sizes.append((kwargs["width"], kwargs["height"]))
+        return build(*args, **kwargs)
+
+    def make_room(device, vae, width, height, keep):
+        order.append("make_room")
+        kept.append((vae, (width, height), [id(m) for m in keep if m is not None]))
+
+    p1, p2, p3, p4 = _patches(fake_build=recording_build)
+    with p1, p2, p3, p4, _no_stitch(),          patch("src.pipelines.pipes.generator.chain_video_wan22.main.make_room_for_wan_concat_encode",
+               side_effect=make_room):
+        pipe.process(pi, lambda o: None)
+
+    assert order == ["make_room", "vae.move_to", "encode"] * 2
+    assert kept == [(bundle.vae, size, [id(bundle.high_dit), id(bundle.low_dit)]) for size in sizes]
+
+
 def test_per_segment_sub_type_override_forces_t2v_mid_chain():
     doc = _document(n_segments=2, start_on_seg0=True)
     doc["segments"][1]["sub_type"] = "t2v"  # hard cut, fresh shot

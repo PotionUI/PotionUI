@@ -28,6 +28,13 @@ def vision_reference_size(width: int, height: int) -> tuple[int, int]:
     return short_edge_size(width, height, REFERENCE_SHORT_EDGE, REFERENCE_SHORT_EDGE)
 
 
+def image_size(image: Any) -> tuple[int, int]:
+    if isinstance(image, Image.Image):
+        return image.size
+    height, width = np.asarray(image).shape[:2]
+    return int(width), int(height)
+
+
 def as_rgb(image: Any) -> Image.Image:
     if isinstance(image, Image.Image):
         return image.convert("RGB")

@@ -45,6 +45,14 @@ Model downloads themselves are built in: they run through the download queue in 
 
 Because plugins can bring in new interfaces, the best way to learn a specific plugin is to open its page and explore — each provides its own controls for the job it does.
 
+## Plugins from a catalog
+
+An administrator can also install plugins published outside PotionUI, with **Install from catalog** on the **Plugins** tab of the **Administration** area. A catalog is a `plugins.json` file at an https address. Plugins from a catalog are maintained by their authors, not by the PotionUI project.
+
+Community catalogs:
+
+- **[potionui-plugins](https://github.com/M4-S4/potionui-plugins)** — **Video Producer**, a page for making short films with AI video, from synopsis and shots to takes, editing, sound and export, and **Preset Editor**, to create, edit, check and publish presets without leaving PotionUI. Catalog address: `https://raw.githubusercontent.com/M4-S4/potionui-plugins/main/plugins.json`
+
 ## Plugins and the Prompts workspace
 
 A provider plugin may advertise prompt importing. Its imported examples become ordinary detached Prompts in the **Prompts** workspace. Positive text creates one Prompt; negative text, when supplied, creates a second independent Prompt with the same source metadata and a negative-use hint.

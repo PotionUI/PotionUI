@@ -18,9 +18,11 @@ from typing import Any, Callable, Iterable
 
 import torch
 
+from src.pipelines.pipes._shared.generation.dit_placement import _release_idle_pool
 from src.platform.runtime.native.errors import retry_after_cuda_oom
-from src.platform.runtime.native.memory.residency import get_residency_registry
-from src.platform.runtime.native.vae.tiling import tiled_encode_causal3d
+from src.platform.runtime.native.memory.residency import effective_free_vram_gb, free_vram_gb, get_residency_registry
+from src.platform.runtime.native.memory.tiering import activation_headroom_gb
+from src.platform.runtime.native.vae.tiling import VAE_SPATIAL_DOWNSCALE, tiled_encode_causal3d
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,8 @@ logger = logging.getLogger(__name__)
 # giving up -- below this the tiling overhead dominates and a genuine OOM should
 # surface rather than be masked.
 ENCODE_TILE_FLOOR = 128
+
+_CONCAT_ENCODE_MB_PER_LATENT_PX = 0.5
 
 
 def make_wan_vae_encode(vae_module: Any, width: int, height: int, *, log_prefix: str = "GENERATOR WAN") -> Callable[[torch.Tensor], torch.Tensor]:
@@ -77,3 +81,33 @@ def make_room_for_wan_vae_encode(device: str, keep: Iterable[Any]) -> None:
     if evicted:
         logger.info("[WAN VAE ENCODE] offloaded %d resident component(s) before the encode", len(evicted))
     torch.cuda.empty_cache()
+
+
+def wan_concat_encode_need_gb(vae: Any, width: int, height: int) -> float:
+    spike = activation_headroom_gb(
+        (height // VAE_SPATIAL_DOWNSCALE, width // VAE_SPATIAL_DOWNSCALE),
+        decode_mb_per_latent_px=_CONCAT_ENCODE_MB_PER_LATENT_PX,
+    )
+    if str(getattr(vae, "device", "cpu")).startswith("cuda"):
+        return spike
+    return spike + float(getattr(vae, "estimated_vram_gb", None) or 0.0)
+
+
+def make_room_for_wan_concat_encode(device: str, vae: Any, width: int, height: int, keep: Iterable[Any] = ()) -> None:
+    if not str(device).startswith("cuda") or not torch.cuda.is_available():
+        return
+    need = wan_concat_encode_need_gb(vae, width, height)
+    free = free_vram_gb(device)
+    if free is None or free >= need:
+        return
+    if (effective_free_vram_gb(device) or 0.0) > free:
+        _release_idle_pool(device)
+        free = free_vram_gb(device)
+        if free is None or free >= need:
+            return
+    exclude = [vae, *(m for m in keep if m is not None)]
+    evicted = get_residency_registry().ensure_free(device, need, free, exclude=exclude)
+    if evicted:
+        logger.info("[WAN VAE ENCODE] evicted %d resident component(s) (%s) before the encode: %.2fGB needed, "
+                    "%.2fGB free", len(evicted), ", ".join(type(m).__name__ for m in evicted), need, free)
+        _release_idle_pool(device)

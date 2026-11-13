@@ -32,6 +32,7 @@ from typing import Any, Callable, Iterable
 
 import torch
 
+from src.platform.runtime.cuda_allocator import driver_oom_retries
 from src.platform.runtime.system_memory import get_system_memory
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes
 from src.platform.settings.runtime_flags import runtime_flag
@@ -42,6 +43,7 @@ from .text_encoder import (
     TextEncoderPlacementSettings,
     encoder_gb_on_device,
     text_encoder_footprint,
+    text_encoder_modules,
     text_encoder_placement_settings,
 )
 from .tiering import ComponentPlacement, plan_text_encoder_placement
@@ -701,6 +703,15 @@ def total_vram_gb(device: str | torch.device) -> float | None:
 # activation transients when EVICTING to make room (the pessimistic path).
 _TE_ACTIVATION_FACTOR = 1.5
 
+_TE_FRAGMENTATION_BASE = 1.10
+_TE_FRAGMENTATION_PER_GB = 0.02
+_TE_FRAGMENTATION_CAP = 1.3
+_TE_HOST_MARGIN_GB = 1.0
+
+
+def te_working_need_gb(working_gb: float) -> float:
+    return working_gb * min(_TE_FRAGMENTATION_BASE + _TE_FRAGMENTATION_PER_GB * working_gb, _TE_FRAGMENTATION_CAP)
+
 
 def minimum_inference_memory_gb() -> float:
     """VRAM (GB) kept free on top of the resident weights — ComfyUI's
@@ -755,6 +766,7 @@ def run_text_encode_batch(
     reserve_gb: float | None = None,
     cache_keys: "list[str | None] | None" = None,
     encoder_provider: "Callable[[], Any] | None" = None,
+    working_gb_for: "Callable[[Any, list[int]], float] | None" = None,
 ) -> list:
     """Run N independent ``encode_fns`` under at most ONE GPU-resident window.
 
@@ -817,8 +829,9 @@ def run_text_encode_batch(
     def _run_misses() -> list:
         return [encode_fns[i]() for i in miss_indices]
 
+    working_gb = 0.0 if working_gb_for is None else max(0.0, float(working_gb_for(encoder, miss_indices)))
     miss_results = _run_text_encode_uncached(
-        encoder, device, _run_misses, reserve_gb=reserve_gb, count=len(miss_indices),
+        encoder, device, _run_misses, reserve_gb=reserve_gb, count=len(miss_indices), working_gb=working_gb,
     )
     for idx, result in zip(miss_indices, miss_results):
         results[idx] = result
@@ -835,6 +848,7 @@ def _run_text_encode_uncached(
     *,
     reserve_gb: float | None = None,
     count: int | None = None,
+    working_gb: float = 0.0,
 ) -> Any:
     """Run ``encode_fn()`` with ``encoder`` on ``device`` instead of the CPU.
 
@@ -950,8 +964,10 @@ def _run_text_encode_uncached(
         return encode_fn()
 
     # 1) Co-residency: weights + reserve already fit -> no eviction, no ping-pong.
+    working_need = te_working_need_gb(working_gb)
+    headroom = max(reserve, working_need)
     free = free_vram_gb(dev)
-    needed_gb = size_gb + reserve
+    needed_gb = size_gb + headroom
     if free is None or (settings.mode != "stream" and free >= needed_gb):
         try:
             result = _attempt_on_gpu()
@@ -968,11 +984,20 @@ def _run_text_encode_uncached(
 
     # 2) Make room (offload LRU-resident components), then retry on the GPU.
     free = free_vram_gb(dev) or 0.0
-    manager.ensure_free(dev, size_gb * _TE_ACTIVATION_FACTOR + reserve, free, exclude=[encoder])
+    manager.ensure_free(dev, size_gb * _TE_ACTIVATION_FACTOR + headroom, free, exclude=[encoder])
     torch.cuda.empty_cache()
     if settings.mode != "gpu":
-        te_plan, footprint, live_free = _plan_encode_after_evict(encoder, dev, settings, size_gb, reserve)
+        te_plan, footprint, live_free = _plan_encode_after_evict(
+            encoder, dev, settings, size_gb, headroom, fit_headroom_gb=working_need,
+        )
         if te_plan is not None and te_plan.streamed and footprint is not None:
+            if not driver_oom_retries() and not _working_memory_fits_streamed(
+                encoder, dev, footprint, live_free, working_need,
+            ):
+                return _encode_on_cpu_instead(
+                    encoder, dev, encode_fn, working_gb,
+                    size_gb=size_gb, free_gb=live_free, needed_gb=needed_gb, count_fields=count_fields,
+                )
             return _run_streamed_encode(
                 encoder, dev, encode_fn, te_plan, footprint,
                 size_gb=size_gb, free_gb=live_free, needed_gb=needed_gb,
@@ -1007,6 +1032,8 @@ def _plan_encode_after_evict(
     settings: TextEncoderPlacementSettings,
     size_gb: float,
     reserve_gb: float,
+    *,
+    fit_headroom_gb: float = 0.0,
 ) -> tuple[ComponentPlacement | None, TextEncoderFootprint | None, float | None]:
     footprint = text_encoder_footprint(encoder)
     if footprint is None:
@@ -1020,10 +1047,103 @@ def _plan_encode_after_evict(
         mode=settings.mode,
         dequant_peak_gb=footprint.dequant_peak_gb,
         working_headroom_gb=reserve_gb,
-        fit_headroom_gb=0.0,
+        fit_headroom_gb=fit_headroom_gb,
         resident_cap_gb=settings.vram_budget_gb,
     )
     return plan, footprint, live_free
+
+
+class TextEncodeWorkingMemoryError(HostMemoryExhaustedError):
+    def __init__(self, message: str, *, working_gb: float, room_gb: float) -> None:
+        super().__init__(message)
+        self.working_gb = working_gb
+        self.room_gb = room_gb
+
+
+def _working_memory_fits_streamed(
+    encoder: Any,
+    device: str,
+    footprint: TextEncoderFootprint,
+    live_free: float | None,
+    working_gb: float,
+) -> bool:
+    if working_gb <= 0.0 or live_free is None:
+        return True
+    room_gb = live_free + encoder_gb_on_device(encoder, device) - footprint.dequant_peak_gb - _fixed_gb(encoder)
+    return room_gb >= working_gb
+
+
+def _host_room_gb() -> float | None:
+    from src.platform.runtime.model_lifecycle.lifecycle import host_ram_reserve_gb
+
+    try:
+        mem = get_system_memory()
+    except Exception:
+        logger.debug("residency: system RAM read failed before a CPU text encode", exc_info=True)
+        return None
+    return max(0.0, mem.available_gb - host_ram_reserve_gb(mem.total_gb))
+
+
+def _make_room_in_ram(needed_gb: float) -> None:
+    from src.platform.runtime.model_lifecycle.lifecycle import get_model_lifecycle
+
+    lifecycle = get_model_lifecycle()
+    if lifecycle is not None:
+        with lifecycle._lock:
+            lifecycle._make_room_for_ram(needed_gb)
+
+
+def _encode_on_cpu_instead(
+    encoder: Any,
+    device: str,
+    encode_fn: "Callable[[], Any]",
+    working_gb: float,
+    *,
+    size_gb: float,
+    free_gb: float | None,
+    needed_gb: float,
+    count_fields: dict[str, Any],
+) -> Any:
+    from src.platform.observability.profiling import get_profiler
+
+    on_device_gb = encoder_gb_on_device(encoder, device)
+    host_need_gb = working_gb + on_device_gb + _TE_HOST_MARGIN_GB
+    room_gb = _host_room_gb()
+    if room_gb is not None and room_gb < host_need_gb:
+        _make_room_in_ram(host_need_gb)
+        room_gb = _host_room_gb()
+    if room_gb is not None and room_gb < host_need_gb:
+        raise TextEncodeWorkingMemoryError(
+            f"The text encoder needs about {working_gb:.1f} GB of working memory for this request: more than "
+            f"{device} can hold even with every weight streamed, and with its weights more than the {room_gb:.1f} GB "
+            "of RAM left for encoding it on the CPU. Send it less: fewer or smaller reference images, or a shorter "
+            "prompt",
+            working_gb=working_gb, room_gb=room_gb,
+        )
+    if on_device_gb > 0.0:
+        encoder.to("cpu")
+        for real in _iter_real_modules(encoder):
+            real.to("cpu")
+        get_residency_registry().note_offloaded(encoder)
+        torch.cuda.empty_cache()
+    logger.warning(
+        "residency: the text encoder needs about %.1f GB of working memory for %d request(s), more than %s can "
+        "hold even with every weight streamed, and a driver out-of-memory error would leave this process unable "
+        "to use the GPU: encoding on the CPU instead, which takes minutes to tens of minutes",
+        working_gb, count_fields.get("count", 1), device,
+    )
+    get_profiler().mark(
+        "te.encode", device="cpu", size_gb=size_gb, path="cpu-fallback",
+        weights_gb=_weights_gb_by_device(encoder), free_gb=free_gb, needed_gb=needed_gb, **count_fields,
+    )
+    return encode_fn()
+
+
+def _fixed_gb(encoder: Any) -> float:
+    from .partial import plan_residency_split
+
+    fixed = sum(plan_residency_split(module, 0.0, stream_nvfp4=True).fixed_bytes for module in text_encoder_modules(encoder))
+    return fixed / _BYTES_PER_GB
 
 
 def _teardown_quietly(streaming: Any) -> None:

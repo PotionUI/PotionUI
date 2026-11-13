@@ -65,16 +65,17 @@ def test_restarting_the_backend_stops_it_through_the_shared_helper_then_relaunch
 
     events = []
     app = SimpleNamespace(
-        instance=object(), repo_root=Path("."), extra_env={"X": "1"}, client=object(), username="u", password="p",
+        instance=object(), repo_root=Path("."), extra_env={"X": "1"}, app_module="api:app",
+        client=object(), username="u", password="p",
     )
     monkeypatch.setattr(cloud_fake, "stop_backend_process", lambda instance, stage: events.append(("stop", stage)))
-    monkeypatch.setattr(cloud_fake, "spawn_backend", lambda instance, root, extra_env: events.append(("spawn", extra_env)))
+    monkeypatch.setattr(cloud_fake, "spawn_backend", lambda instance, root, extra_env, app_module: events.append(("spawn", extra_env, app_module)))
     monkeypatch.setattr(cloud_fake, "stage_wait_for_health", lambda client: events.append(("health", None)))
     monkeypatch.setattr(cloud_fake, "login", lambda client, username, password: events.append(("login", username)))
 
     cloud_fake.restart_backend(app)
 
-    assert events == [("stop", "cloud-fake"), ("spawn", {"X": "1"}), ("health", None), ("login", "u")]
+    assert events == [("stop", "cloud-fake"), ("spawn", {"X": "1"}, "api:app"), ("health", None), ("login", "u")]
 
 
 def test_the_plugin_env_points_the_backend_at_the_plugin_folder():

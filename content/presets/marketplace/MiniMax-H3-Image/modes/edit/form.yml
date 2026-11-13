@@ -19,6 +19,13 @@ fields:
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/edit/tabs/references.yml"
       - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
+      - type: "tab"
         anchor: "advanced"
         label: "Advanced"
         audience: "advanced"

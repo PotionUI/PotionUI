@@ -11,6 +11,12 @@ pipeline:
       diffusion_model: { file_path: "{{ form.diffusion_model }}", name: "{{ form.diffusion_model }}" }
       text_encoder: { file_path: "{{ form.text_encoder }}", name: "{{ form.text_encoder }}" }
       vae: { file_path: "{{ form.vae }}", name: "{{ form.vae }}" }
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([], true) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
 
   - name: "prompt_encoder"
     input:
@@ -56,6 +62,9 @@ pipeline:
         - ["model", "{{ form.diffusion_model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([], true) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["steps", "{{ preset.vars.steps }}"]
         - ["sampler", "euler"]

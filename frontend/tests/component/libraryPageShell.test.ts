@@ -144,7 +144,7 @@ describe('library page', () => {
 		await settle();
 
 		expect(mounted.text()).toContain('sunset.png');
-		expect(mounted.text()).toContain('1024×512');
+		expect(mounted.text()).toContain('1024 × 512');
 
 		document.body.querySelector<HTMLElement>('[data-bar-item="more"]')!.click();
 		await settle();

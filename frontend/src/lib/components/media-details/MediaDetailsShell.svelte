@@ -12,6 +12,8 @@
 		headerIconName = 'image',
 		onClose,
 		onKeyDown,
+		customHeader = false,
+		iconBox,
 		loading = false,
 		ready = true,
 		scrollRestore,
@@ -27,6 +29,8 @@
 		headerIconName?: string;
 		onClose: () => void;
 		onKeyDown?: (event: KeyboardEvent) => void;
+		customHeader?: boolean;
+		iconBox?: Snippet;
 		loading?: boolean;
 		ready?: boolean;
 		scrollRestore?: () => number | null;
@@ -42,11 +46,15 @@
 <svelte:window onkeydowncapture={onKeyDown} />
 
 <div use:portal>
-	<BaseModal {isOpen} {title} sizeClass="md:w-[85vw] md:h-[85vh]" on:close={onClose}>
+	<BaseModal {isOpen} {title} hideTitle={customHeader} closeClass="max-md:!min-h-10 max-md:!min-w-10" sizeClass="md:w-[85vw] md:h-[85vh]" on:close={onClose}>
 		<svelte:fragment slot="headerIcon">
-			<div class="w-[30px] h-[30px] rounded bg-surface-2 border border-line flex items-center justify-center flex-shrink-0">
-				<Icon name={headerIconName} className="w-4 h-4 text-fg-muted" />
-			</div>
+			{#if iconBox}
+				{@render iconBox()}
+			{:else}
+				<div class="w-[30px] h-[30px] rounded bg-surface-2 border border-line flex items-center justify-center flex-shrink-0">
+					<Icon name={headerIconName} className="w-4 h-4 text-fg-muted" />
+				</div>
+			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="header">
 			{@render headerRight?.()}
@@ -60,7 +68,7 @@
 				</div>
 			</div>
 		{:else if ready}
-			<div class="flex flex-col md:flex-row h-full min-h-0" bind:this={root} data-details-window>
+			<div class="flex flex-col md:flex-row h-full min-h-0 outline-none" bind:this={root} data-details-window tabindex="0" data-autofocus>
 				<div class="group relative flex min-h-0 min-w-0 flex-1 flex-col">
 					{@render toolbar?.()}
 					<div data-details-stage class="relative min-h-0 flex-1 overflow-hidden bg-black">

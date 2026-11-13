@@ -26,7 +26,8 @@
 		imageEl = $bindable(),
 		onImageSettled,
 		audioTracks = [],
-		tagNames = []
+		tagNames = [],
+		formatLabel
 	}: {
 		file: StageFile;
 		src: string;
@@ -45,6 +46,7 @@
 		onImageSettled?: () => void;
 		audioTracks?: AudioTrack[];
 		tagNames?: string[];
+		formatLabel?: string;
 	} = $props();
 </script>
 
@@ -81,7 +83,7 @@
 
 			{#if file.file_type}
 				<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg uppercase">
-					{stageFormatLabel(file)}
+					{formatLabel ?? stageFormatLabel(file)}
 				</span>
 			{/if}
 		</div>

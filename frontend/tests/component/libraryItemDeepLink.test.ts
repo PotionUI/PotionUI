@@ -189,3 +189,31 @@ describe('items handed over from History', () => {
 		expect(takePendingFresh()).toEqual([]);
 	});
 });
+
+describe('walking the listed items from the open modal', () => {
+	it('moves to the next item with the arrow key and keeps ?item= in step', async () => {
+		await libraryStore.load();
+		linkTo('row-1');
+		mountPage();
+		await settle();
+		expect(selectedId()).toBe('row-1');
+		expect(document.body.querySelector('[data-library-position]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('1 / 2');
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+		await settle();
+
+		expect(selectedId()).toBe('row-2');
+		expect(goto).toHaveBeenCalledWith('/library?item=row-2', expect.objectContaining({ replaceState: true }));
+		expect(document.body.querySelector('[data-library-position]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('2 / 2');
+	});
+
+	it('stops at the last item', async () => {
+		await libraryStore.load();
+		linkTo('row-2');
+		mountPage();
+		await settle();
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+		await settle();
+		expect(selectedId()).toBe('row-2');
+	});
+});

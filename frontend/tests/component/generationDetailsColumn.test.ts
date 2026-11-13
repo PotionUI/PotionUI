@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const response: { data: Record<string, unknown> } = { data: { parameters: {}, models: [] } };
@@ -131,15 +130,15 @@ afterEach(() => {
 });
 
 describe('details column order', () => {
-	it('puts Information first, then Parameters and Models for a minimal generation', async () => {
+	it('starts the column with Parameters, then Models for a minimal generation', async () => {
 		await mountModal(generation());
-		expect(sectionIds()).toEqual(['info', 'parameters', 'models']);
+		expect(sectionIds()).toEqual(['parameters', 'models']);
 	});
 
-	it('orders an image with auto tags: Information, Parameters, Models, Auto tags', async () => {
+	it('orders an image with auto tags: Parameters, Models, Auto tags', async () => {
 		response.data = { parameters: { steps: 20 }, models: models(2) };
 		await mountModal(generation({}, tags(3)));
-		expect(sectionIds()).toEqual(['info', 'parameters', 'models', 'autotags']);
+		expect(sectionIds()).toEqual(['parameters', 'models', 'autotags']);
 	});
 
 	it('orders a video with segments and director shots and plugin sections', async () => {
@@ -148,7 +147,6 @@ describe('details column order', () => {
 			extraSections: [{ id: 'send', title: 'Send to', rows: [], actions: [] }]
 		});
 		expect(sectionIds()).toEqual([
-			'info',
 			'parameters',
 			'segments',
 			'director',
@@ -172,28 +170,30 @@ describe('details column order', () => {
 	});
 });
 
-describe('Information', () => {
-	it('is a heading with preset and version, one human line and a copyable full id', async () => {
+describe('identity lives in the header', () => {
+	it('shows preset with version, one human line and a copyable full id in the header only', async () => {
 		await mountModal(generation());
-		const info = section('info') as HTMLElement;
-		const text = info.textContent?.replace(/\s+/g, ' ') ?? '';
+		const header = document.body.querySelector('[data-details-header]') as HTMLElement;
+		const text = header.textContent?.replace(/\s+/g, ' ') ?? '';
 		expect(text).toContain('v1.4');
 		expect(text).toContain('took 1 min 42 s');
-		expect(info.querySelector('h3')).toBeNull();
-		expect(info.querySelector('button[aria-label="Copy ID"]')).not.toBeNull();
-		expect(info.querySelector('button[aria-label="Copy preset"]')).not.toBeNull();
-		expect(text).toContain('Auto-file items like this');
-		expect(text).not.toContain('Created');
+		expect(header.querySelector('button[aria-label="Copy ID"]')).not.toBeNull();
+		expect(header.querySelector('button[aria-label="Rate 4 stars"]')).not.toBeNull();
+		const column = document.body.querySelector('[data-details-info]') as HTMLElement;
+		expect(column.querySelector('button[aria-label="Copy ID"]')).toBeNull();
+		expect(column.textContent).not.toContain('took');
+		expect(column.querySelector('[data-details-section]')?.getAttribute('data-details-section')).toBe('parameters');
 	});
 
-	it('shows the full id up to 26 characters and a middle ellipsis beyond', async () => {
-		await mountModal(generation({ id: '01JF7KXQ4M8VT2N3P5R6S7T8W9' }));
-		expect(section('info')?.textContent).toContain('01JF7KXQ4M8VT2N3P5R6S7T8W9');
+	it('shows the full id up to 17 characters and a middle ellipsis beyond', async () => {
+		await mountModal(generation({ id: 'short-id-1' }));
+		expect(document.body.querySelector('[data-details-meta] code')?.textContent).toBe('short-id-1');
 		mountedModal?.$destroy();
 		target?.remove();
 		await mountModal(generation({ id: '3f2b8c1e-9d4a-4e7b-a1c2-5d6e7f8a9b0c' }));
-		expect(section('info')?.textContent).toContain('…');
-		expect(section('info')?.textContent).not.toContain('3f2b8c1e-9d4a-4e7b-a1c2-5d6e7f8a9b0c');
+		const shown = document.body.querySelector('[data-details-meta] code')?.textContent ?? '';
+		expect(shown).toContain('…');
+		expect(shown).toHaveLength(17);
 	});
 
 	it('keeps the exact times behind a focusable control that carries the tooltip', async () => {
@@ -206,7 +206,14 @@ describe('Information', () => {
 		expect(document.activeElement).toBe(line);
 	});
 
-	it('keeps the rating working from the Information header', async () => {
+	it('offers Auto-file in the action bar instead of the column', async () => {
+		await mountModal(generation());
+		const ids = Array.from(document.body.querySelectorAll<HTMLElement>('[data-details-action-bar] [data-bar-item]')).map((node) => node.dataset.barItem);
+		expect(ids).toContain('auto-file');
+		expect(document.body.querySelector('[data-details-info]')?.textContent).not.toContain('Auto-file items like this');
+	});
+
+	it('keeps the rating working from the header', async () => {
 		const setRating = vi.spyOn(historyStore, 'setRating').mockImplementation(() => undefined as never);
 		await mountModal(generation({ id: 'gen-rate' }));
 		await click(document.body.querySelector('button[aria-label="Rate 4 stars"]'));
@@ -406,10 +413,10 @@ describe('failure notice', () => {
 		expect(alertText()).toContain('Cancelled');
 	});
 
-	it('orders a failed generation: alert, then Information, Parameters, Models', async () => {
+	it('orders a failed generation: alert, then Parameters, Models', async () => {
 		signInAs('ADMIN');
 		await mountModal(generation({ status: 'failed', error_message: 'x' }));
-		expect(sectionIds()).toEqual(['info', 'parameters', 'models']);
+		expect(sectionIds()).toEqual(['parameters', 'models']);
 		expect(document.body.querySelectorAll('[data-failure-alert]')).toHaveLength(1);
 	});
 });

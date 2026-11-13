@@ -4,7 +4,8 @@ import {
 	generationQueueLabel,
 	generationRunSummary,
 	formatHumanDuration,
-	formatRunLine
+	formatRunLine,
+	formatShortDay
 } from './generationTime';
 
 const file = (over: Record<string, unknown> = {}) =>
@@ -139,5 +140,19 @@ describe('formatRunLine', () => {
 	it('adds the year for another year', () => {
 		const line = formatRunLine(base, { ...options, now: new Date('2027-02-01T00:00:00Z') });
 		expect(line.when).toContain('2026');
+	});
+});
+
+describe('formatShortDay', () => {
+	const options = { locale: 'en-GB', timeZone: 'UTC', now: new Date('2026-11-13T00:00:00Z') };
+
+	it('gives the day and month without the time', () => {
+		expect(formatShortDay('2026-11-12T20:49:00Z', options)).toBe('12 Nov');
+	});
+
+	it('adds the year for another year and tolerates bad input', () => {
+		expect(formatShortDay('2025-11-12T20:49:00Z', options)).toBe('12 Nov 2025');
+		expect(formatShortDay(undefined, options)).toBe('');
+		expect(formatShortDay('nope', options)).toBe('');
 	});
 });

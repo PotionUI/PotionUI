@@ -300,7 +300,7 @@ async def test_a_departing_backend_triggers_a_rebalance():
     world.balancer.on_backend_departed("A")
     for _ in range(50):
         await asyncio.sleep(0.01)
-        if world.tracker.get("a1").backend_id == "B":
+        if world.tracker.get("a1").backend_id == "B" and world.tracker.get("a0").state == GenerationState.FAILED:
             break
 
     assert world.tracker.get("a1").backend_id == "B"

@@ -2459,6 +2459,7 @@ Load a native MiniMax-H3-Image checkpoint set (DiT + Qwen3-VL-32B TE + image VAE
 | `diffusion_model` | `dict` | — | yes | — | — | — | MiniMax-H3-Image DiT (int8 ConvRot or bf16) |
 | `text_encoder` | `dict` | — | yes | — | — | — | Qwen3-VL-32B text encoder, shared with MiniMax-H3 |
 | `vae` | `dict` | — | yes | — | — | — | MiniMax-H3-Image VAE |
+| `loras` | `list` | `[]` | no | — | — | — | DiT LoRAs (applied at load; a change reloads the DiT, not the text encoder or VAE) |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `dtype` | `str` | `"bfloat16"` | no | `bfloat16`, `float16`, `float32` | — | — | Compute dtype |
 | `vram_limit_gb` | `float` | — | no | — | — | — | VRAM budget hint (backend-injected) |

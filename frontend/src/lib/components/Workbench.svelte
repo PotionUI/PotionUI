@@ -26,6 +26,7 @@
 	import { fade } from 'svelte/transition';
 	import GalleryStrip from '$lib/components/workbench/GalleryStrip.svelte';
 	import { batchCaption } from '$lib/components/workbench/promptGroups';
+	import type { GenerationParameterMeta, GenerationParamModel } from '$lib/types/generation';
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
 	import { authStore } from '$lib/stores/auth';
@@ -307,6 +308,9 @@
 	}
 
 	let fetchedParams: Record<string, any> = {};
+	let fetchedParamMeta: Record<string, GenerationParameterMeta> | null = null;
+	let fetchedParamOrder: string[] | null = null;
+	let fetchedParamModels: GenerationParamModel[] = [];
 	let imageMetadata: MediaMetadata | null = null;
 	let generationFiles: any[] = [];
 
@@ -573,11 +577,17 @@
 
 			if (response.success && response.data) {
 				fetchedParams = response.data.parameters || {};
+				fetchedParamMeta = response.data.parameter_meta ?? null;
+				fetchedParamOrder = response.data.parameter_order ?? null;
+				fetchedParamModels = response.data.models ?? [];
 				lastFetchedParamsKey = `${currentGeneration.id}-${workbenchIndex}`;
 			} else {
 				const currentItem = getCurrentWorkbenchItem();
 				if (currentItem) {
 					fetchedParams = buildParamsFromItem(currentItem);
+					fetchedParamMeta = null;
+					fetchedParamOrder = null;
+					fetchedParamModels = [];
 				}
 				lastFetchedParamsKey = `${currentGeneration.id}-${workbenchIndex}`;
 			}
@@ -586,6 +596,9 @@
 			const currentItem = getCurrentWorkbenchItem();
 			if (currentItem) {
 				fetchedParams = buildParamsFromItem(currentItem);
+				fetchedParamMeta = null;
+				fetchedParamOrder = null;
+				fetchedParamModels = [];
 			}
 			lastFetchedParamsKey = `${currentGeneration.id}-${workbenchIndex}`;
 		}
@@ -1474,6 +1487,9 @@
 <WorkbenchParametersModal
 	isOpen={showParamsModal}
 	params={fetchedParams}
+	meta={fetchedParamMeta}
+	order={fetchedParamOrder}
+	models={fetchedParamModels}
 	metadata={imageMetadata}
 	index={workbenchIndex}
 	on:close={() => (showParamsModal = false)}

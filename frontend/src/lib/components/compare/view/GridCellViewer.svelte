@@ -115,6 +115,14 @@
 		return tags;
 	});
 
+	let axisParamMeta = $derived.by(() => {
+		const meta: Record<string, { label: string }> = {};
+		for (const field of Object.keys(cell.axisValues)) {
+			meta[field] = { label: configAxisLabel(field, grid.config) };
+		}
+		return meta;
+	});
+
 	function navigate(direction: -1 | 1): boolean {
 		const next = stepCell(grid, index, direction);
 		if (next === index) return false;
@@ -150,6 +158,7 @@
 	headerIconName={plain ? 'image' : 'grid'}
 	{axisTags}
 	axisValues={cell.axisValues}
+	{axisParamMeta}
 	onNavigate={(direction) => navigate(direction)}
 	hasPrevious={index > 0}
 	hasNext={index < grid.cells.length - 1}

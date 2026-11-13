@@ -115,6 +115,12 @@ def finished_run(mock_db):
             ParamGenerationOutput(name='positive_prompt', values=[pair['positive'] for pair in applied]),
             ParamGenerationOutput(name='negative_prompt', values=[pair['negative'] for pair in applied]),
             ParamGenerationOutput(name='steps', values=[30, 30]),
+            ParamGenerationOutput(name='prompter', values=[pair['positive'] for pair in applied], declared=True),
+            ParamGenerationOutput(
+                name='style_note', values=[f"{pair['positive']} / {pair['negative']}" for pair in applied], declared=True,
+            ),
+            ParamGenerationOutput(name='lead_in', values=['kodachrome still,'] * 2, declared=True),
+            ParamGenerationOutput(name='mood', values=['calm', 'calm'], declared=True),
             *[
                 RenderedPromptGenerationOutput(index=i, positive=pair['positive'], negative=pair['negative'])
                 for i, pair in enumerate(applied)
@@ -177,3 +183,36 @@ def test_the_export_bundle_is_the_users_version(finished_run):
 
     assert_user_version(envelope)
     assert envelope['generation']['parameters'][0]['positive_prompt'] == 'a red fox'
+
+def test_a_declared_name_cannot_carry_the_fixed_text_into_storage(finished_run):
+    with finished_run.db.get_cursor() as cursor:
+        cursor.execute("SELECT parameter_name, parameter_value FROM generation_parameters WHERE generation_id = 'g1'")
+        stored = {row[0]: row[1] for row in cursor.fetchall()}
+
+    assert not {'prompter', 'style_note', 'lead_in'} & set(stored)
+    assert json.loads(stored['mood']) == 'calm'
+    assert_user_version(stored)
+
+def test_a_declared_name_never_reaches_the_params_endpoint_or_history_with_the_fixed_text(finished_run):
+    query = GenerationHistoryQuery(generation_repo=GenerationRepository(), preset_name_resolver=_Names())
+
+    by_index = [query.get_params('g1', index, 'u1') for index in (0, 1)]
+    details = query.get_by_id('g1', 'u1', include_files=False)
+
+    assert_user_version(by_index)
+    assert_user_version(details)
+    assert by_index[0]['parameters']['mood'] == 'calm'
+    assert 'prompter' not in by_index[0]['parameters']
+    assert 'prompter' not in by_index[0]['parameter_order']
+
+def test_a_declared_name_never_reaches_the_export_or_the_stats_with_the_fixed_text(finished_run):
+    repository = GenerationRepository()
+    archive = GenerationHistoryArchive(
+        repository, Mock(), Mock(),
+        GenerationHistoryQuery(generation_repo=repository, preset_name_resolver=_Names()), Mock(),
+    )
+
+    assert_user_version(archive._build_bundle_envelope(repository.get_by_id('g1', user_id='u1'), 'u1'))
+    with finished_run.db.get_cursor() as cursor:
+        cursor.execute("SELECT * FROM generation_parameters")
+        assert_user_version([tuple(row) for row in cursor.fetchall()])

@@ -327,17 +327,22 @@ class GenerationParameter:
     parameter_index: int = 0
     id: Optional[str] = None
     created_at: Optional[datetime] = None
+    meta: Optional[str] = None
+    position: Optional[int] = None
 
     @classmethod
     def from_row(cls, row) -> 'GenerationParameter':
         """Create GenerationParameter instance from database row"""
+        columns = row.keys()
         return cls(
             id=row['id'],
             generation_id=row['generation_id'],
             parameter_name=row['parameter_name'],
             parameter_value=row['parameter_value'],
             parameter_index=row['parameter_index'],
-            created_at=dt_column(row['created_at'])
+            created_at=dt_column(row['created_at']),
+            meta=row['meta'] if 'meta' in columns else None,
+            position=row['position'] if 'position' in columns else None,
         )
 
     def to_dict(self) -> dict:

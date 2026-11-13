@@ -32,9 +32,16 @@ class GenerationParameterRepository:
             
             return GenerationParameter.from_row(row)
     
-    def create_batch(self, generation_id: str, param_name: str, values: List[Any]) -> List[GenerationParameter]:
+    def create_batch(
+        self,
+        generation_id: str,
+        param_name: str,
+        values: List[Any],
+        meta: Optional[Dict[str, str]] = None,
+    ) -> List[GenerationParameter]:
         """Create multiple parameters for a generation"""
         parameters = []
+        meta_json = json.dumps(meta) if meta else None
 
         with get_cursor() as cursor:
             for index, value in enumerate(values):
@@ -55,16 +62,24 @@ class GenerationParameterRepository:
                 json_value = json.dumps(value)
                 
                 cursor.execute("""
+                    SELECT COALESCE(MAX(position), -1) + 1 FROM generation_parameters
+                    WHERE generation_id = ? AND parameter_index = ?
+                """, (generation_id, index))
+                position = cursor.fetchone()[0]
+
+                cursor.execute("""
                     INSERT INTO generation_parameters (
-                        id, generation_id, parameter_name, 
-                        parameter_value, parameter_index
-                    ) VALUES (?, ?, ?, ?, ?)
+                        id, generation_id, parameter_name,
+                        parameter_value, parameter_index, meta, position
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
                     param_id,
                     generation_id,
                     param_name,
                     json_value,
-                    index
+                    index,
+                    meta_json,
+                    position
                 ))
                 
                 cursor.execute("SELECT * FROM generation_parameters WHERE id = ?", (param_id,))

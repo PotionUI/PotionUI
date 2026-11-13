@@ -1171,7 +1171,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.get("/{generation_id}/params/{index}", response_model=APIResponse, summary="Get Generation Parameters by Index")
     async def get_generation_params(generation_id: str, index: int, current_user = Depends(get_current_active_user)):
-        """Get parameters for a specific generation and image index."""
+        """Get parameters for a specific generation and image index. `data` carries `parameters` ({name: value}), `models`, `parameter_meta` ({name: {label?, type?, unit?}}, only names with recorded meta) and `parameter_order` (names in the order the preset emitted them, unordered names after them alphabetically); the last two are empty for generations recorded before parameter meta existed."""
         return await controller.get_generation_params(generation_id, index, current_user)
 
     @router.put("/{generation_id}/rating", response_model=APIResponse, summary="Set Generation Rating", dependencies=[key_scope(ApiScope.CONTENT)])

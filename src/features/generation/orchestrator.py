@@ -77,6 +77,7 @@ from src.features.generation.queue_dispatcher import CancelledBeforeStart, Queue
 from src.features.generation.scheduling import FAIR, SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
 from src.features.generation.fixed_prompt import FixedPromptRun, apply_fixed_prompt, fixed_prompt_applies
+from src.features.generation.parameter_meta import ParamMetaStamp
 from src.features.generation.notifier import GenerationNotifier
 from src.features.generation.grids.repository import grid_repo
 from src.features.generation.policy import GenerationPolicy
@@ -663,6 +664,7 @@ class GenerationOrchestrator:
         self.applied_prompt_repository = applied_prompt_repository
         self.kit_expander = kit_expander
         self._fixed_prompt_runs: Dict[str, FixedPromptRun] = {}
+        self._param_meta: Dict[str, ParamMetaStamp] = {}
         self.generation_stats_repository = generation_stats_repository
         # Cheap stateless wrapper over `preset_template_loader`, used solely to
         # resolve a preset's display name at generation_stats write time (see
@@ -1763,6 +1765,11 @@ class GenerationOrchestrator:
                 if self.applied_prompt_repository is not None:
                     self.applied_prompt_repository.save(generation_id, fixed_run.records())
                 self._fixed_prompt_runs[generation_id] = fixed_run
+            param_meta = ParamMetaStamp.plan(
+                built_pipeline.preset_template, mode, getattr(request, 'form_name', None)
+            )
+            if param_meta is not None:
+                self._param_meta[generation_id] = param_meta
         except Exception as e:
             logger.error(f"Failed to build pipeline: {str(e)}", exc_info=True)
             failure = failure_from_exception(e, traceback.format_exc())
@@ -1931,6 +1938,9 @@ class GenerationOrchestrator:
         fixed_run = self._fixed_prompt_runs.get(generation_id)
         if fixed_run is not None:
             fixed_run.mask(output)
+        param_meta = self._param_meta.get(generation_id)
+        if param_meta is not None:
+            param_meta.stamp(output)
 
         if output_type_registry.is_server_only(output):
             try:
@@ -2069,6 +2079,7 @@ class GenerationOrchestrator:
         backend = self._run_backends.pop(generation_id, None)
         prompt_batch = self._prompt_batches.pop(generation_id, None)
         self._fixed_prompt_runs.pop(generation_id, None)
+        self._param_meta.pop(generation_id, None)
         record = self.status_tracker.get(generation_id)
         if record is None:
             return
@@ -2390,6 +2401,7 @@ class GenerationOrchestrator:
         self._cancel_requested.discard(generation_id)
         self._prompt_batches.pop(generation_id, None)
         self._fixed_prompt_runs.pop(generation_id, None)
+        self._param_meta.pop(generation_id, None)
         self._content_tally.pop(generation_id, None)
 
     async def clear_tab_queue(self, user_id: str, tab_id: str) -> List[str]:

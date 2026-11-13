@@ -377,6 +377,8 @@ class ComfyUIWorkflowGenerationOutput(GenerationOutput):
 class ParamGenerationOutput(GenerationOutput):
     name: str  # Name of the parameter (e.g., "seed", "cfg", "steps")
     values: List[Any]  # List of values, one per generated image
+    meta: Optional[Dict[str, str]] = None
+    declared: bool = False
 
 
 @dataclass

@@ -221,3 +221,30 @@ async def test_an_api_key_cannot_write_the_old_key(controller, access, admin):
 
     assert refused.value.status_code == 403
     assert access.rows == {}
+
+
+@pytest.mark.asyncio
+async def test_a_batch_naming_the_old_key_applies_none_of_its_other_settings(controller, repository, access, member):
+    with pytest.raises(HTTPException) as refused:
+        await controller.update_settings({"mcp_user_enabled": True, "media_nsfw_filter_mode": "hide"}, member)
+
+    assert refused.value.status_code == 403
+    assert access.rows == {}
+    repository.apply_bulk_updates.assert_not_called()
+    controller.settings.set_setting.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_member_still_writes_and_deletes_an_ordinary_user_setting(controller, repository, member):
+    from src.platform.settings.records import SettingType
+
+    repository.get_setting_by_key.return_value = Mock(type=SettingType.USER)
+    controller.settings.set_setting.return_value = True
+    controller.settings.delete_user_setting.return_value = True
+
+    written = await controller.update_setting_by_key("media_nsfw_filter_mode", SettingUpdateRequest(value="hide"), member)
+    deleted = await controller.delete_user_setting("media_nsfw_filter_mode", member)
+
+    assert payload(written)["success"] is True
+    assert payload(deleted)["success"] is True
+    controller.settings.set_setting.assert_called_once_with("media_nsfw_filter_mode", "hide", user_id=member.id)

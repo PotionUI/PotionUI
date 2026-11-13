@@ -214,7 +214,7 @@
 		</div>
 	{:else if loadError}
 		<EmptyState title="Requirements check unavailable" description={loadError} icon="warning" compact>
-			{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={() => load()}>Try again</Button>{/snippet}
+			{#snippet actions()}<Button size="sm" variant="secondary" icon="refresh" onclick={() => load()}>Try again</Button>{/snippet}
 		</EmptyState>
 	{:else if total === 0}
 		<EmptyState title="No requirements declared" description="This preset declares no requirements." icon="check" compact />

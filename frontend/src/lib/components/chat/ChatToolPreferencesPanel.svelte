@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { IconButton } from '$lib/components/ui';
+	import { EmptyState, IconButton } from '$lib/components/ui';
 	import { onMount } from 'svelte';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
@@ -114,7 +114,7 @@
 				<Spinner />
 			</div>
 		{:else if tools.length === 0}
-			<div class="px-2 py-6 text-xs text-fg-subtle text-center">No tools available</div>
+			<EmptyState compact icon="shield" title="No tools available" />
 		{:else}
 			<p class="text-2xs text-fg-subtle px-1 pb-2">
 				Turn a tool off here and it stays off across every session, until you turn it back on.

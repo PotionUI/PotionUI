@@ -258,9 +258,9 @@
 		description="It's stopped or still starting. Models will show up here once it's back. Models are looked up under POTIONUI_WORKER_MODEL_DIR on the worker (default /models), one folder per model type — the same layout as this host's models folder."
 	>
 		{#snippet actions()}
-			<Button variant="secondary" size="sm" onclick={retry}>Retry</Button>
+			<Button variant="secondary" onclick={retry}>Retry</Button>
 			{#if onOpenInfrastructure}
-				<Button variant="secondary" size="sm" onclick={onOpenInfrastructure}>Open Infrastructure</Button>
+				<Button variant="secondary" onclick={onOpenInfrastructure}>Open Infrastructure</Button>
 			{/if}
 		{/snippet}
 	</EmptyState>
@@ -313,7 +313,7 @@
 			</p>
 		{/if}
 		{#if rows.length === 0}
-			<p class="px-4 py-6 text-sm text-fg-muted">No models are known on the host yet.</p>
+			<EmptyState compact icon="model" title="No models yet" description="No models are known on the host yet." />
 		{:else}
 			<div class="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-line">
 				<div class="relative w-56">
@@ -384,7 +384,7 @@
 				{#if filteredRows.length === 0}
 					<EmptyState compact icon="search" title="No models match" description="Try a different search or filter.">
 						{#snippet actions()}
-							<Button variant="secondary" size="sm" onclick={clearFilters}>Clear filters</Button>
+							<Button size="sm" variant="secondary" onclick={clearFilters}>Clear filters</Button>
 						{/snippet}
 					</EmptyState>
 				{:else}

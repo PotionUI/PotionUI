@@ -412,8 +412,8 @@
 					<Spinner size="lg" />
 				</div>
 			{:else if visible.length === 0}
-				<div class="flex h-full items-center justify-center">
-					<EmptyState
+				<div class="p-2">
+						<EmptyState
 						icon="layout-template"
 						title={narrowed ? 'No templates match these filters' : 'No templates yet'}
 						description={narrowed
@@ -422,11 +422,11 @@
 					>
 						{#snippet actions()}
 							{#if narrowed}
-								<Button size="sm" variant="ghost" onclick={() => updateFilters(templateFilters.clearAll(filters))}>
+								<Button variant="secondary" onclick={() => updateFilters(templateFilters.clearAll(filters))}>
 									Clear filters
 								</Button>
 							{:else}
-								<Button size="sm" variant="primary" icon="plus" onclick={newTemplate}>Create a template</Button>
+								<Button variant="secondary" icon="plus" onclick={newTemplate}>Create a template</Button>
 							{/if}
 						{/snippet}
 					</EmptyState>

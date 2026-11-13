@@ -793,7 +793,7 @@
 					<Spinner size="lg" />
 				{:else}
 					<EmptyState title="Backend not found" description="This backend may have been removed." icon="server" compact>
-						{#snippet actions()}<Button variant="ghost" size="sm" onclick={backToList}>Back to backends</Button>{/snippet}
+						{#snippet actions()}<Button size="sm" variant="secondary" onclick={backToList}>Back to backends</Button>{/snippet}
 					</EmptyState>
 				{/if}
 			</div>
@@ -1014,7 +1014,7 @@
 											compact
 										>
 											{#snippet actions()}
-												<Button variant="secondary" size="sm" icon="server" onclick={() => (detailTab = 'infrastructure')}>
+												<Button size="sm" variant="secondary" icon="server" onclick={() => (detailTab = 'infrastructure')}>
 													Go to Infrastructure
 												</Button>
 											{/snippet}
@@ -1060,7 +1060,7 @@
 										</div>
 									{:else if backendStatsError}
 										<EmptyState title="Stats unavailable" description={backendStatsError} icon="warning" compact>
-											{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={() => activeBackend && loadBackendStats(activeBackend.id)}>Try again</Button>{/snippet}
+											{#snippet actions()}<Button size="sm" variant="secondary" icon="refresh" onclick={() => activeBackend && loadBackendStats(activeBackend.id)}>Try again</Button>{/snippet}
 										</EmptyState>
 									{:else if backendStats}
 										<DetailSection label="Stats">
@@ -1118,19 +1118,20 @@
 			>
 				{#snippet emptyState()}
 					<EmptyState
+						compact
 						icon="server"
 						title="No backends configured yet"
 						description="A backend tells PotionUI where to run generations for an engine — for example, the built-in native engine or a ComfyUI server. Add one to start generating."
 					>
 						{#snippet actions()}
-							<Button variant="primary" icon="plus" onclick={openCreateModal}>Add backend</Button>
+							<Button size="sm" variant="secondary" icon="plus" onclick={openCreateModal}>Add backend</Button>
 						{/snippet}
 					</EmptyState>
 				{/snippet}
 				{#snippet filteredEmptyState()}
 					<EmptyState icon="search" title="No backends match" description="Try a different name or engine." compact>
 						{#snippet actions()}
-							<Button variant="ghost" size="sm" onclick={() => (filters = backendsFilters.clearAll(filters))}>Clear filters</Button>
+							<Button size="sm" variant="secondary" onclick={() => (filters = backendsFilters.clearAll(filters))}>Clear filters</Button>
 						{/snippet}
 					</EmptyState>
 				{/snippet}

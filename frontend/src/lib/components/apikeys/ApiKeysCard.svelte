@@ -63,7 +63,7 @@
 		{#if !keys.length}
 			<EmptyState icon="key" title="No keys yet" description="Create a key for a script or an MCP client.">
 				{#snippet actions()}
-					<Button variant="primary" size="sm" icon="plus" disabled={keysOff} onclick={onCreate}>Create key</Button>
+					<Button variant="secondary" icon="plus" disabled={keysOff} onclick={onCreate}>Create key</Button>
 				{/snippet}
 			</EmptyState>
 		{:else}
@@ -71,7 +71,7 @@
 				{#each page.rows as apiKey (apiKey.id)}
 					<ApiKeyRow {apiKey} mcpPaused={!limits.mcp_enabled} revoking={revokingId === apiKey.id} {onEdit} {onRevoke} />
 				{:else}
-					<p class="px-3 py-6 text-center text-sm text-fg-subtle">No active keys</p>
+					<EmptyState compact icon="key" title="No active keys" />
 				{/each}
 			</div>
 			{#if rows.inactive.length}

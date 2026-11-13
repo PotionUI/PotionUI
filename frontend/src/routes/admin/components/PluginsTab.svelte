@@ -287,7 +287,7 @@
 			description={`Place plugins in content/plugins/local/ or content/plugins/marketplace/, then click "Scan for Plugins".`}
 		>
 			{#snippet actions()}
-				<Button variant="primary" icon={scanning ? undefined : 'search'} loading={scanning} disabled={scanning} onclick={scanForPlugins}>
+				<Button variant="secondary" icon={scanning ? undefined : 'search'} loading={scanning} disabled={scanning} onclick={scanForPlugins}>
 					{scanning ? 'Scanning...' : 'Scan for Plugins'}
 				</Button>
 				{#if isAdmin}
@@ -577,13 +577,11 @@
 							/>
 						{/if}
 					{:else}
-						<div class="flex h-full items-center justify-center">
-							<EmptyState icon="document" title="Plugin not found" description="This plugin may have been removed.">
-								{#snippet actions()}
-									<Button variant="ghost" size="sm" onclick={backToList}>Back to plugins</Button>
-								{/snippet}
-							</EmptyState>
-						</div>
+						<EmptyState icon="document" title="Plugin not found" description="This plugin may have been removed.">
+							{#snippet actions()}
+								<Button variant="secondary" onclick={backToList}>Back to plugins</Button>
+							{/snippet}
+						</EmptyState>
 					{/if}
 				</div>
 			{:else}
@@ -604,7 +602,7 @@
 							<div class="flex h-full items-center justify-center">
 								<EmptyState icon="search" title="No plugins match" description="No plugins match the current search and filters." compact>
 									{#snippet actions()}
-										<Button variant="ghost" size="sm" onclick={() => updateFilters(pluginFilters.clearAll(filters))}>Clear filters</Button>
+										<Button size="sm" variant="secondary" onclick={() => updateFilters(pluginFilters.clearAll(filters))}>Clear filters</Button>
 									{/snippet}
 								</EmptyState>
 							</div>

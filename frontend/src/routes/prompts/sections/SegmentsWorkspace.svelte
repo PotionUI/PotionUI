@@ -543,8 +543,8 @@
 						<Spinner size="lg" />
 					</div>
 				{:else if visible.length === 0}
-					<div class="flex h-full items-center justify-center">
-						<EmptyState
+					<div class="p-2">
+							<EmptyState
 							icon="list"
 							title={filtersActive ? 'No segments match these filters' : 'No segments yet'}
 							description={filtersActive
@@ -553,11 +553,11 @@
 						>
 							{#snippet actions()}
 								{#if filtersActive}
-									<Button size="sm" variant="ghost" onclick={() => updateFilters({ ...segmentFilters.clearAll(filters), q: '' })}>
+									<Button variant="secondary" onclick={() => updateFilters({ ...segmentFilters.clearAll(filters), q: '' })}>
 										Clear filters
 									</Button>
 								{:else}
-									<Button size="sm" variant="primary" icon="plus" onclick={startNew}>Create a segment</Button>
+									<Button variant="secondary" icon="plus" onclick={startNew}>Create a segment</Button>
 								{/if}
 							{/snippet}
 						</EmptyState>

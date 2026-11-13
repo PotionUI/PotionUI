@@ -422,8 +422,8 @@
 						<Spinner size="lg" />
 					</div>
 				{:else if visible.length === 0}
-					<div class="flex h-full items-center justify-center">
-						<EmptyState
+					<div class="p-2">
+							<EmptyState
 							icon="folder"
 							title={filtersActive ? 'No categories match these filters' : 'No categories yet'}
 							description={filtersActive
@@ -432,11 +432,11 @@
 						>
 							{#snippet actions()}
 								{#if filtersActive}
-									<Button size="sm" variant="ghost" onclick={() => updateFilters({ ...categoryFilters.clearAll(filters), q: '' })}>
+									<Button variant="secondary" onclick={() => updateFilters({ ...categoryFilters.clearAll(filters), q: '' })}>
 										Clear filters
 									</Button>
 								{:else}
-									<Button size="sm" variant="primary" icon="plus" onclick={startNew}>Create a category</Button>
+									<Button variant="secondary" icon="plus" onclick={startNew}>Create a category</Button>
 								{/if}
 							{/snippet}
 						</EmptyState>

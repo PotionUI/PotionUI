@@ -340,7 +340,7 @@
 		{:else if detailError && !detail}
 			<div class="flex h-full items-center justify-center">
 				<EmptyState title="Could not load generation" description={detailError} icon="warning" compact>
-					{#snippet actions()}<Button variant="ghost" size="sm" onclick={backToList}>Back to generations</Button>{/snippet}
+					{#snippet actions()}<Button size="sm" variant="secondary" onclick={backToList}>Back to generations</Button>{/snippet}
 				</EmptyState>
 			</div>
 		{:else if detail}
@@ -412,7 +412,7 @@
 						description="Try a different search, status, or date range."
 						compact
 					>
-						{#snippet actions()}<Button variant="ghost" size="sm" onclick={onClearAllFilters}>Clear filters</Button>{/snippet}
+						{#snippet actions()}<Button size="sm" variant="secondary" onclick={onClearAllFilters}>Clear filters</Button>{/snippet}
 					</EmptyState>
 				{/snippet}
 			</DataTable>

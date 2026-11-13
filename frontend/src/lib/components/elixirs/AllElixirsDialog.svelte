@@ -3,7 +3,7 @@
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Menu, Spinner, LoadErrorState } from '$lib/components/ui';
+	import { Button, EmptyState, Menu, Spinner, LoadErrorState } from '$lib/components/ui';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
@@ -313,7 +313,7 @@
 						</div>
 					</div>
 				{:else}
-					<p class="px-4 py-8 text-center text-sm text-fg-muted">{query.trim() || filter !== 'all' ? 'No elixir matches.' : 'No elixirs yet.'}</p>
+					<EmptyState compact icon="flask" title={query.trim() || filter !== 'all' ? 'No elixir matches' : 'No elixirs yet'} />
 				{/each}
 			{/if}
 		</div>

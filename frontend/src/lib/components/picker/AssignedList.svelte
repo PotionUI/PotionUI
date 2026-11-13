@@ -166,7 +166,7 @@
 				<EmptyState icon={kind.icon} title={`No ${kind.plural} assigned`} description={`Nothing is assigned here yet.`} compact>
 					{#snippet actions()}
 						{#if canEdit}
-							<Button variant="primary" size="sm" icon="plus" onclick={() => (pickerOpen = true)}>{resolvedAddLabel}</Button>
+							<Button size="sm" variant="secondary" icon="plus" onclick={() => (pickerOpen = true)}>{resolvedAddLabel}</Button>
 						{/if}
 						{@render emptyAction?.()}
 					{/snippet}

@@ -527,7 +527,7 @@
 					<Spinner size="lg" />
 				{:else}
 					<EmptyState title="Preset not found" description="This preset may have been removed from the catalog." icon="cube" compact>
-						{#snippet actions()}<Button variant="ghost" size="sm" onclick={backToGrid}>Back to presets</Button>{/snippet}
+						{#snippet actions()}<Button size="sm" variant="secondary" onclick={backToGrid}>Back to presets</Button>{/snippet}
 					</EmptyState>
 				{/if}
 			</div>
@@ -871,7 +871,7 @@
 									{/key}
 								{:else if adminDetailError}
 									<EmptyState title="Display settings unavailable" description={adminDetailError} icon="warning" compact>
-										{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={() => loadAdminDetail(activePreset.id)}>Try again</Button>{/snippet}
+										{#snippet actions()}<Button size="sm" variant="secondary" icon="refresh" onclick={() => loadAdminDetail(activePreset.id)}>Try again</Button>{/snippet}
 									</EmptyState>
 								{:else}
 									<div class="flex items-center justify-center py-10">
@@ -935,7 +935,7 @@
 								{:else}
 									<EmptyState title="Install before assigning access" description="Only installed presets can be made available to users and groups." icon="download">
 										{#snippet actions()}
-											<Button variant="primary" size="sm" icon="download" loading={mutatingPresetId === activePreset.id} onclick={() => handleInstall(activePreset)}>Install preset</Button>
+											<Button variant="secondary" icon="download" loading={mutatingPresetId === activePreset.id} onclick={() => handleInstall(activePreset)}>Install preset</Button>
 										{/snippet}
 									</EmptyState>
 								{/if}
@@ -954,7 +954,7 @@
 			{:else if loadError && presets.length === 0}
 				<div class="flex h-full items-center justify-center">
 					<EmptyState title="Preset catalog unavailable" description={loadError} icon="warning" compact>
-						{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={() => loadPresets()}>Try again</Button>{/snippet}
+						{#snippet actions()}<Button size="sm" variant="secondary" icon="refresh" onclick={() => loadPresets()}>Try again</Button>{/snippet}
 					</EmptyState>
 				</div>
 			{:else if presets.length === 0}
@@ -964,7 +964,7 @@
 			{:else if visiblePresets.length === 0}
 				<div class="flex h-full items-center justify-center">
 					<EmptyState title="No matching presets" description="Try a different name, category, engine, or installation status." icon="search" compact>
-						{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => updateFilters(presetFilters.clearAll(filters))}>Clear filters</Button>{/snippet}
+						{#snippet actions()}<Button size="sm" variant="secondary" onclick={() => updateFilters(presetFilters.clearAll(filters))}>Clear filters</Button>{/snippet}
 					</EmptyState>
 				</div>
 			{:else}

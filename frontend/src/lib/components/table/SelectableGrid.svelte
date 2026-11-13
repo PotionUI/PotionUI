@@ -291,8 +291,8 @@
 				</div>
 			{/each}
 		{:else if rows.length === 0}
-			<div class="flex flex-col items-center gap-2.5 px-5 py-11 text-center" role="row">
-				<div role="gridcell">
+			<div class="px-3 py-4 text-center" role="row">
+				<div role="gridcell" class="w-full">
 					{#if isFiltered && filteredEmptyState}
 						{@render filteredEmptyState()}
 					{:else if emptyState}

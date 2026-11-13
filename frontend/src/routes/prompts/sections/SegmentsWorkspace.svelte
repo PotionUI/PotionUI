@@ -543,25 +543,24 @@
 						<Spinner size="lg" />
 					</div>
 				{:else if visible.length === 0}
-					<div class="p-2">
-							<EmptyState
-							icon="list"
-							title={filtersActive ? 'No segments match these filters' : 'No segments yet'}
-							description={filtersActive
-								? 'Try clearing a filter or broadening the search.'
-								: 'Save reusable prompt fragments to insert into any prompt.'}
-						>
-							{#snippet actions()}
-								{#if filtersActive}
-									<Button variant="secondary" onclick={() => updateFilters({ ...segmentFilters.clearAll(filters), q: '' })}>
-										Clear filters
-									</Button>
-								{:else}
-									<Button variant="secondary" icon="plus" onclick={startNew}>Create a segment</Button>
-								{/if}
-							{/snippet}
-						</EmptyState>
-					</div>
+					<EmptyState
+						page
+						icon="list"
+						title={filtersActive ? 'No segments match these filters' : 'No segments yet'}
+						description={filtersActive
+							? 'Try clearing a filter or broadening the search.'
+							: 'Save reusable prompt fragments to insert into any prompt.'}
+					>
+						{#snippet actions()}
+							{#if filtersActive}
+								<Button variant="secondary" onclick={() => updateFilters({ ...segmentFilters.clearAll(filters), q: '' })}>
+									Clear filters
+								</Button>
+							{:else}
+								<Button variant="secondary" icon="plus" onclick={startNew}>Create a segment</Button>
+							{/if}
+						{/snippet}
+					</EmptyState>
 				{:else}
 					<div
 						bind:this={gridEl}

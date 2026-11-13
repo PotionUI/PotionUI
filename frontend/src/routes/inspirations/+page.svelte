@@ -50,7 +50,7 @@
 		</aside>
 	{/if}
 
-	<div class="flex-1 min-w-0">
+	<div class="flex-1 min-w-0 flex flex-col">
 		<div class="sticky top-0 z-30">
 			<InspirationsToolbar {sidebarOpen} onOpenSidebar={() => (sidebarOpen = true)} />
 		</div>

@@ -332,7 +332,7 @@
 	{/if}
 
 	<!-- Right column: existing grid content -->
-	<div class="flex-1 min-w-0">
+	<div class="flex-1 min-w-0 flex flex-col">
 	<!-- Top Bar with Filters -->
 	<div class="sticky top-0 z-30">
 	<PageHeader wrap sticky={false}>
@@ -470,10 +470,10 @@
 	/>
 
 	<!-- Content Area -->
-	<div class="px-3 py-3 md:px-6 md:py-6">
+	<div class="px-3 py-3 md:px-6 md:py-6 flex-1 flex flex-col">
 
 	<!-- Model Grid -->
-	<div>
+	<div class="flex-1 flex flex-col">
 		{#if loading}
 			<div
 				class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3 md:gap-6"
@@ -524,6 +524,7 @@
 			{/if}
 		{:else}
 			<EmptyState
+				page
 				icon={hasActiveFilters ? 'search' : 'model'}
 				title={hasActiveFilters ? 'No Results Found' : 'No Models Available'}
 				description={hasActiveFilters

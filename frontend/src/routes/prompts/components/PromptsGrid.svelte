@@ -111,23 +111,22 @@
 				<Spinner size="lg" />
 			</div>
 		{:else if prompts.length === 0}
-			<div class="p-2">
-					<EmptyState
-					icon="document"
-					title={filtered ? 'No prompts match these filters' : 'No prompts yet'}
-					description={filtered
-						? 'Try clearing a filter or broadening the search.'
-						: 'Save your first prompt to start the library.'}
-				>
-					{#snippet actions()}
-						{#if filtered}
-							<Button variant="secondary" onclick={clearAll}>Clear filters</Button>
-						{:else}
-							<Button variant="secondary" icon="plus" onclick={onNewPrompt}>Create a prompt</Button>
-						{/if}
-					{/snippet}
-				</EmptyState>
-			</div>
+			<EmptyState
+				page
+				icon="document"
+				title={filtered ? 'No prompts match these filters' : 'No prompts yet'}
+				description={filtered
+					? 'Try clearing a filter or broadening the search.'
+					: 'Save your first prompt to start the library.'}
+			>
+				{#snippet actions()}
+					{#if filtered}
+						<Button variant="secondary" onclick={clearAll}>Clear filters</Button>
+					{:else}
+						<Button variant="secondary" icon="plus" onclick={onNewPrompt}>Create a prompt</Button>
+					{/if}
+				{/snippet}
+			</EmptyState>
 		{:else}
 			<div
 				bind:this={gridEl}

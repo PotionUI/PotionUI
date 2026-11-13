@@ -53,8 +53,8 @@
 	}
 </script>
 
-<div class="px-3 py-3 md:px-6 md:py-6">
-	<div bind:clientWidth={gridWidth}>
+<div class="px-3 py-3 md:px-6 md:py-6 flex flex-1 flex-col">
+	<div bind:clientWidth={gridWidth} class="flex flex-1 flex-col">
 		{#if state.loading}
 			{#if gridWidth > 0}
 				<div class="space-y-3">
@@ -96,6 +96,7 @@
 			{/if}
 		{:else if items.length === 0}
 			<EmptyState
+				page
 				icon={filtered ? 'search' : 'lightbulb'}
 				title={filtered ? 'No results found' : 'No inspirations yet'}
 				description={filtered

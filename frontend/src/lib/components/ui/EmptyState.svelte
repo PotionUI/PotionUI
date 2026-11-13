@@ -8,6 +8,7 @@
 		icon = 'image',
 		tone = 'default',
 		compact = false,
+		page = false,
 		actions,
 		extra
 	}: {
@@ -16,12 +17,16 @@
 		icon?: string;
 		tone?: 'default' | 'danger';
 		compact?: boolean;
+		page?: boolean;
 		actions?: Snippet;
 		extra?: Snippet;
 	} = $props();
 </script>
 
-<div class="dot-grid text-center rounded-lg {compact ? 'px-4 py-8' : 'px-6 py-20'}" data-empty-state={compact ? 'compact' : 'default'}>
+<div
+	class="text-center {page ? 'dot-grid flex h-full flex-1 min-h-72 items-center justify-center rounded-lg px-6 py-10' : compact ? 'px-4 py-8' : 'px-6 py-14'}"
+	data-empty-state={page ? 'page' : compact ? 'compact' : 'default'}
+>
 	<div class="max-w-md mx-auto">
 		<div
 			class="flex items-center justify-center mx-auto rounded-lg bg-surface-2 border border-line {compact ? 'w-12 h-12 mb-4' : 'w-16 h-16 mb-6'}"

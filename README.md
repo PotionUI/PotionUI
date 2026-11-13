@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Beta 0.1.0 · Linux and Windows x86_64 + NVIDIA · WSL2 or
+*Beta 0.2.0 · Linux and Windows x86_64 + NVIDIA · WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
 [Ko-fi](https://ko-fi.com/A3B325D031)*

@@ -3,6 +3,114 @@
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
 
+### 0.2.0 — 2026-11-13
+
+- Kits: a kit is a named set of pictures, clips, audio and text in the Library; cite an item in a
+  prompt as @kits.name.item and only the cited items reach the model; kits load into the reference
+  fields and the Video Director form, the prompt picker opens a kit instead of inserting it whole,
+  items can be added from History, a whole kit never exceeds the field's own maximum, a load names
+  any kit it could not use, and creating a kit resumes after a partial failure.
+- Media picker: History, Library and Kits are tabs of one picker used by every media field, with
+  their filters (the Library picker gains collection, kind and favourite filters), Small, Medium and
+  Large tile sizes and one footer; Replace on a loaded item opens the source menu and swaps the
+  chosen item in place; the sources read Upload file, History and Library everywhere; History and
+  picker Model filters show model names instead of file names.
+- Video modes: MiniMax-H3 Video becomes Video Director, with Text to Video, Image to Video and First
+  to Last Frame as single-clip modes whose pictures sit on a References tab like the other modes;
+  Long video is gone, and sessions and entries that used it open in Video Director; single-clip modes
+  take a mirror's fixed prompt text and expand prompt variations per clip; Perfect loop turns a
+  picture and a description of what moves into a clip whose end flows into its start, with a length
+  picked from fixed values (4 seconds by default), the family's resolution picker, a start picture
+  fitted once for both ends, no speed profiles that cannot loop, a check that flags jumps, stops
+  and zoom, and a note on which scenes loop best; LTX-2.5 gets Ingredients, which keeps characters
+  and props from your pictures consistent in a new video, starting at the trained 5 seconds.
+- MiniMax-H3-Image: a new family that loads the ComfyUI single-file weights, with text to image and
+  edit presets and prompt guides for the language model; the VAE runs in fp16 with exact noise levels
+  and the reference's tile blending, edits make room for the text encoder and encode on the CPU what
+  the card cannot hold, and reference pictures count toward placement (M4-S4).
+- MOSS-Image regional prompting: a Text / Regional switch by the prompt title opens a canvas at the
+  resolution's aspect where you draw regions with a description each; the compiled prompt shows in
+  Resolved prompt, chat and MCP can set regions, and the prompt guide follows OpenMOSS's advice.
+- Presets: admins can rename a preset and create mirrors that reuse its files under their own name,
+  cover, defaults and modes; fixed prompt text added to every generation of a preset stays hidden
+  from regular users, is checked against banned words when saved and follows each image's own prompt;
+  a preset with mirrors cannot be removed; a preset can name its own recorded parameters, with a
+  label, unit and type; the prompt syntax is a preset-wide default that reaches every mode with a
+  prompt, with a lint warning for modes left out.
+- Generation details: the modal has a two-row header with the status as a coloured media icon and
+  the rating beside the title; parameters sit in bordered boxes with a copy icon, long text copies
+  whole on click, short values fold into a list, sections carry count badges and remember their
+  folds, and a failed or cancelled generation shows its notice at the top; recorded parameters keep
+  their labels, units and order; Library items open in the same modal with previous and next, file
+  facts, tags, source and source parameters.
+- Generate: reference tokens in long prompts show as readable thumbnail chips that keep their
+  trailing punctuation; the resolution picker has a button that swaps to the mirrored size when the
+  model offers it; Delete removes the current generation from the Workbench, History and Library
+  selections get Delete, and a collection can delete all its entries and stay; the selection bar
+  stays on one line at every width; a model slot starts with a model you can use, and a submit
+  naming a model you are not assigned is refused.
+- API keys and MCP: API keys replace MCP tokens; create, edit and revoke keys in Settings, choose
+  what each can do, see its activity and set its MCP tools, with three levels that only narrow (the
+  admin ceiling, the user's default, the key); every core route declares what a key needs and a key
+  acts with its own authority, so without the admin scope it cannot start an administrator-only
+  preset; admins get switches, ceilings, per-person access and a list of every key with search,
+  counts and revoke; sockets take a single-use ticket or an Authorization header, and revoking or
+  narrowing a key closes its sockets; MCP tools can follow a generation to its results and reach
+  elixirs, automation, downloads, sessions, notifications, sharing and deletes, and a tool that
+  spends on the server's account is off until someone turns it on.
+- Sessions API and guide: generate from a saved session over the API and MCP by naming it and
+  sending only what changes, a saved session has a Use from a script dialog, and answers never show
+  locked or hidden values; a new API guide covers authentication, generating, sessions, your content
+  and MCP, with a reference generated from the real routes and examples that run in the test suite;
+  the user guide and reference were corrected in 83 places and gained a Kits page.
+- Queue routing: jobs spread across the backends of an engine, to the least loaded first, with a
+  queue position per backend; a busy worker makes a job wait instead of failing it, a silent worker
+  times out, health probes need two failures and run on their own, and a loading worker keeps the
+  connection alive.
+- Plugins: install a plugin from a catalog in Admin, with no failure path ending with unconfirmed
+  code enabled, and a plugin page can ship its own scoped stylesheet; the plugin API gains face
+  detection and face vectors, image embeddings, frame grabs, Library storage, listing the presets a
+  user may run and binding media into a Video Director document, a memory preview, enabled backends
+  and cloud pricing, scratch databases for tests, and more page-host helpers; the Plugins page lists
+  a community catalog (M4-S4).
+- Admin and Library: models get a Tags section on their page, tags on list rows and a Tags button in
+  the toolbar; Auto-organize calls the Library area Library; Admin Recipes shows one card per
+  model.
+- Video and upscale tools: RTX Upscale gains an interpolate mode that multiplies a video's frame
+  rate by 2 or 4 or converts it to a target rate, keeping the duration and the sound, an exact target
+  short side and a strength; the RIFE interpolator takes a target frame rate and loads the 4.21 to
+  4.26 checkpoints; SeedVR2 keeps the default 1080p video upscale within 12 GB cards; effects work
+  again with ffmpeg 8; a cancelled RTX Video Super Resolution stops and cleans up its files (M4-S4).
+- Onboarding: the wizard is six steps, a failed test generation no longer fails setup, setup resumes
+  after a restart and stops resuming after repeated interruptions, an unsupported setup stops with a
+  plain message, starters whose recipe has moved past its first version install, the start page waits
+  for the server and an unclaimed instance's login opens the claim screen, and the launcher says why
+  a backend that died while starting did; recipe test generations take each model from the preset's
+  admin default; README and getting started say Windows is supported and which Python to use.
+- Native engine: Wan VAE decodes make room first, then decode whole, in temporal chunks or in
+  spatial tiles, so long clips fit; Wan 2.2 TI2V-5B gains image-to-video and Director continuations
+  from a first frame, and the Wan 2.2 A14B start-image encode makes room when it does not fit; the
+  idle Wan 2.2 expert stays page-locked between generations; a failed sampling run frees its
+  activations before the model offloads; MiniMax-Music3 streams its text-encoder layers when the card
+  cannot hold them; the Qwen-Image-2.1 reference encode logs when it falls back to tiles (M4-S4).
+- Security: the first account needs the setup token unless the whole request is local, counting
+  forwarded addresses, the forwarded host and the browser's origin; a user can no longer switch
+  their own MCP access back on; a submit naming a preset or model file the user is not assigned is
+  refused, and preset configuration is readable by admins only; fixed prompt text that is hidden from
+  users no longer reaches them under any parameter name; MCP tools refuse undeclared arguments, check
+  file sizes before reading and limit concurrent waits; an encoded javascript link in Markdown is no
+  longer rendered as a link; RIFE downloads are pinned to their checksums.
+- Fixes: the first generation after a start no longer fails on a half-loaded module until restart;
+  Perfect loop opens on a moving frame so motion no longer slows just after the seam; the MiniMax-H3
+  latent upscaler recommendations download again; the Library scrolls only its content again.
+- Upgrading: migrations run on the first start and cannot be undone, so back up your data first;
+  MCP tokens become API keys and the old tokens table is dropped after copying,
+  and kits, preset mirrors and fixed prompt text, and recorded parameter labels add their own tables
+  and columns; the old MCP token routes and the token in a socket URL still work this release but are
+  deprecated, so move scripts to API keys and tickets; MiniMax-H3 Video is now Video Director and Long video is removed, and old
+  sessions and entries still open in Video Director; a model slot that
+  names a model its user is not assigned is now refused.
+
 ### 0.1.0 — 2026-11-06
 
 - Editors: the Image editor and the Video editor are now tabs on Generate, opened from the + menu,
@@ -282,69 +390,3 @@ The three most recent releases; older history lives in the
   default, and the context window and `num_ctx` settings move from the configuration form to the
   Profile tab; plugins that used the `history_tools` key move to `media_tools`, and anything that
   called `/api/media/edit` or `/api/media/split` must use the media tools API.
-
-### 0.0.17 — 2026-10-22
-
-- Model indexing: a scan only lists files and reads headers, so models are usable at once, and
-  hashing runs afterwards in a paced, low-priority pool that pauses during generation and that an
-  admin can slow down or pause; a first-run choice (index all, pick models or later) is asked after
-  setup instead of over the wizard, onboarding never waits for hashing, and recipes verify at most
-  two same-size files before downloading.
-- Prompts: if / else if / otherwise conditions pick text per image from a prompt's variables, edited
-  in a wide condition editor (typing << opens it) with a per-image preview and warnings for
-  unfinished branches; Number variables join Choice variables; variables are kept on the server per
-  user, where PotionAI and MCP can read and change them; PotionAI understands conditions and can add
-  or delete segments; a literal $, % or # is plain text instead of silently switching off every
-  choice; Save as prompt keeps every variable.
-- Generate: a context toolbar under the tabs holds preset, mode, variant and session on the left and
-  Save plus the tools on the right; the preset dropdown has search, Recent, Pinned and families, and
-  a preset without a backend can be picked with Generate disabled and the reason shown; the
-  generation panel becomes a now-playing deck with a result thumbnail and a soft glow of the last
-  result; tabs show a dot for unsaved session changes, sessions can be reloaded from the last
-  snapshot, and a required model slot fills itself when one installed model matches.
-- History: cards show run time; `/history?generation=<id>` opens a generation's Details; deleting an
-  X/Y compare removes the whole compare after one confirm; History, Library, Prompts, Inspirations
-  and Models share a redesigned collections sidebar with search, Include subcollections and a phone
-  sheet; prompt search is faster.
-- Model Tools: a new admin-only preset for the local native backend quantizes to FP8, INT8, INT8
-  ConvRot, NVFP4 or INT4 ConvRot, bakes LoRA and LoKr into a model and merges LoRAs, writing the
-  result next to its source as a model card in the Workbench and History; layers a format cannot
-  hold stay in source precision and are reported; FLUX 3 Klein loads fused-QKV INT8 ConvRot
-  checkpoints, LoRAs included, and INT4 ConvRot files load too.
-- Native engine: MOSS-Image arrives with SFT and Base presets, a LoRA tab, a starter recipe and an
-  optional step cache; Krea-2 gets an experimental Text Enhancer (off by default) for stronger
-  prompt adherence and a Text Scale slider; torch.compile also runs on fp8-scaled and streamed DiTs;
-  a streamed MiniMax-H3 pins 19.5 GB of system memory instead of 30.6 GB and keeps more of long
-  clips on the GPU.
-- Chat: a configuration's Show thinking to users switch (off by default) shows the model's reasoning
-  in a foldable block above each reply, live with a timer and never sent back as context; Ollama's
-  Thinking Mode loses Automatic; LLM configurations get one Context window field with a Detect
-  button, detected from the server or checkpoint when unset; chat sends shorter prompts and only the
-  tools a mode and window need.
-- Sign-in: the OIDC plugin can send signed-out visitors straight to the identity provider (off by
-  default), with `/login?local=1` as the local recovery form; every login returns to the page you
-  were on; registration accepts local-domain emails; MCP generation tools return a details link per
-  generation, built from a new Public address setting or the request's origin.
-- Automations and plugins: an admin-only HTTP request action with a test panel, a public-address
-  guard and encrypted secret headers; Auto-organize can file generations by Media Tagging tags;
-  plugin pages call the app through an authenticated host API; Admin > Presets keeps its open tab in
-  the URL; the account menu links to the community.
-- Phones and keyboard: Chat sits in the bottom nav on every page, the deck sits above the tab bar,
-  and headers, Generation Details and confirm dialogs fit a phone; focus rings show only while the
-  keyboard is in use, tooltips open on keyboard focus, Escape closes only the topmost popover, and
-  shortcut hints show the command key on macOS.
-- Pinokio: media loads when PotionUI is embedded in Pinokio's window.
-- Reliability: the backend keeps serving past 10,000 requests; History queries are indexed; heavy
-  calls no longer block the server; unexpected errors no longer leak text or paths to regular users.
-- Fixes: Krea-2 Enhance no longer leaves noise; cancelling a cloud generation on a provider that
-  cannot cancel shows the calm notice; approving a prompt-variable change in chat reports what was
-  applied; the $, /, @ and # pickers insert at the typed character in a multi-line prompt; typing in
-  a choice group's options no longer triggers global shortcuts; MiniMax-H3 finds the bundled ffmpeg
-  and fails before sampling rather than after; Model Browser previews load without a referrer.
-- Upgrading: Ollama configurations on Thinking Mode Automatic (off during tool calls, on otherwise)
-  become Disabled, and thinking stays hidden until Show thinking to users is on; installs where any
-  model already had a hash keep verifying in the background, while one with none and a large library
-  (over 20 files or 64 GiB) is asked once and hashes nothing until it answers, models being usable
-  either way; prompt variables kept in the browser move to the server on first load; a stored S3
-  secret key and plugin credentials saved in clear are encrypted on first start; the installer needs
-  Node.js 22 or newer.

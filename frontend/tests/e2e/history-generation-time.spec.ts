@@ -110,7 +110,7 @@ for (const viewport of [
 
 		await openDetails(page, 0);
 		const row = page.getByTestId('detail-generation-time');
-		await expect(row).toHaveText('took 1 min 32 s · 4 images · queued 12 s');
+		await expect(row).toHaveText('1 min 32 s · 4 images · queued 12 s');
 		await page.locator('[data-stage-meta]').hover();
 		const bar = page.locator('[data-details-action-bar]');
 		await expect(bar).toBeVisible();
@@ -127,7 +127,7 @@ for (const viewport of [
 		await page.keyboard.press('Escape');
 
 		await openDetails(page, 1);
-		await expect(page.getByTestId('detail-generation-time')).toHaveText('took 8 s');
+		await expect(page.getByTestId('detail-generation-time')).toHaveText('8 s');
 		await page.keyboard.press('Escape');
 
 		await openDetails(page, 2);

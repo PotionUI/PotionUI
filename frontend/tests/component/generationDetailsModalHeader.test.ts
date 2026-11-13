@@ -114,4 +114,23 @@ describe('GenerationDetailsModal header', () => {
 		expect(document.body.querySelector('h2')?.textContent).toBe('Compare grid');
 		expect(document.body.querySelector('[data-details-meta]')?.textContent).toContain('Unknown preset');
 	});
+
+	it('gives the date, duration and id a decorative leading icon and no dot separators', () => {
+		mountWith({ generation: { ...generation, run_seconds: 102, completed_at: '2026-01-01T00:02:00Z' } as never });
+
+		const meta = document.body.querySelector('[data-details-meta]') as HTMLElement;
+		const icons = [...meta.querySelectorAll('[aria-hidden="true"] svg')];
+		expect(icons).toHaveLength(3);
+		expect(meta.textContent).not.toContain('·');
+		expect(meta.querySelector('[data-testid="detail-run-line"] svg')).not.toBeNull();
+		expect(meta.querySelector('[data-testid="detail-generation-time"]')?.parentElement?.querySelector('svg')).not.toBeNull();
+	});
+
+	it('words the duration without "took" and keeps "failed after" for a failure', () => {
+		mountWith({ generation: { ...generation, run_seconds: 102, completed_at: '2026-01-01T00:02:00Z' } as never });
+		expect(document.body.querySelector('[data-testid="detail-generation-time"]')?.textContent).toBe('1 min 42 s');
+		document.body.innerHTML = '';
+		mountWith({ generation: { ...generation, status: 'failed', run_seconds: 38, completed_at: undefined } as never });
+		expect(document.body.querySelector('[data-testid="detail-generation-time"]')?.textContent).toBe('failed after 38 s');
+	});
 });

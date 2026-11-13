@@ -25,7 +25,7 @@
 			<h2 class="truncate text-lg font-semibold leading-6 text-fg">{title}{@render version?.()}</h2>
 		</div>
 		<div
-			class="flex min-w-0 items-center gap-2 text-sm leading-4 text-fg-muted max-sm:col-start-1 max-sm:row-start-2"
+			class="flex min-w-0 items-center gap-3 text-sm leading-4 text-fg-muted max-sm:col-start-1 max-sm:row-start-2"
 			data-details-meta
 		>
 			{@render meta?.()}

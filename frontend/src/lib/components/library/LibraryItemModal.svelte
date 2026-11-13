@@ -259,13 +259,13 @@
 				{#if addedShort}
 					<button
 						type="button"
-						class="min-w-0 cursor-default truncate rounded text-left"
+						class="inline-flex min-w-0 cursor-default items-center gap-1 rounded text-left"
 						data-testid="library-added"
 						use:tooltip={{ text: addedExact, focusSelf: true, wrap: true }}
 					>
-						<span class="max-sm:hidden">Added {addedShort}</span><span class="sm:hidden">{addedPhone}</span>
+						<span aria-hidden="true" class="flex-shrink-0 text-fg-subtle"><Icon name="calendar" className="h-3.5 w-3.5" /></span>
+						<span class="whitespace-nowrap max-sm:hidden">Added {addedShort}</span><span class="whitespace-nowrap sm:hidden">{addedPhone}</span>
 					</button>
-					<span aria-hidden="true">·</span>
 				{/if}
 				<span class="shrink-0 uppercase tracking-wide" data-library-kind>{kind || 'media'}</span>
 				<CopyButton text={displayName} ariaLabel="Copy file name" size="xs" class="flex-shrink-0 max-sm:hidden" />

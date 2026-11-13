@@ -176,7 +176,7 @@ describe('identity lives in the header', () => {
 		const header = document.body.querySelector('[data-details-header]') as HTMLElement;
 		const text = header.textContent?.replace(/\s+/g, ' ') ?? '';
 		expect(text).toContain('v1.4');
-		expect(text).toContain('took 1 min 42 s');
+		expect(text).toContain('1 min 42 s');
 		expect(header.querySelector('button[aria-label="Copy ID"]')).not.toBeNull();
 		expect(header.querySelector('button[aria-label="Rate 4 stars"]')).not.toBeNull();
 		const column = document.body.querySelector('[data-details-info]') as HTMLElement;

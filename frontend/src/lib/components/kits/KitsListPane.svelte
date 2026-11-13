@@ -139,14 +139,15 @@
 {/if}
 </div>
 
-<main>
+<main class="flex flex-1 flex-col">
 	{#if failed && !data}
 		<div class="p-4 sm:p-6"><LoadErrorState title="Could not load kits" message="Check the connection and try again." onRetry={() => void load()} /></div>
 	{:else if loading && !data}
 		<div class="flex justify-center py-16"><Spinner /></div>
 	{:else if empty}
-		<div class="p-4 sm:p-6">
+		<div class="flex flex-1 flex-col p-4 sm:p-6">
 			<EmptyState
+				page
 				icon="layers"
 				title="No kits yet"
 				description="A kit keeps the pictures, clips, sounds and notes that belong together. Load one into a prompt and call its parts with @."

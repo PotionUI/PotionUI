@@ -412,25 +412,24 @@
 					<Spinner size="lg" />
 				</div>
 			{:else if visible.length === 0}
-				<div class="p-2">
-						<EmptyState
-						icon="layout-template"
-						title={narrowed ? 'No templates match these filters' : 'No templates yet'}
-						description={narrowed
-							? 'Try clearing a filter or broadening the search.'
-							: 'A template is a reusable slot layout you can drop into any prompt.'}
-					>
-						{#snippet actions()}
-							{#if narrowed}
-								<Button variant="secondary" onclick={() => updateFilters(templateFilters.clearAll(filters))}>
-									Clear filters
-								</Button>
-							{:else}
-								<Button variant="secondary" icon="plus" onclick={newTemplate}>Create a template</Button>
-							{/if}
-						{/snippet}
-					</EmptyState>
-				</div>
+				<EmptyState
+					page
+					icon="layout-template"
+					title={narrowed ? 'No templates match these filters' : 'No templates yet'}
+					description={narrowed
+						? 'Try clearing a filter or broadening the search.'
+						: 'A template is a reusable slot layout you can drop into any prompt.'}
+				>
+					{#snippet actions()}
+						{#if narrowed}
+							<Button variant="secondary" onclick={() => updateFilters(templateFilters.clearAll(filters))}>
+								Clear filters
+							</Button>
+						{:else}
+							<Button variant="secondary" icon="plus" onclick={newTemplate}>Create a template</Button>
+						{/if}
+					{/snippet}
+				</EmptyState>
 			{:else}
 				<div
 					bind:this={gridEl}

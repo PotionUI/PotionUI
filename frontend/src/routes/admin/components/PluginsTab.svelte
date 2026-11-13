@@ -282,6 +282,7 @@
 		<LoadErrorState title="Error loading plugins" message={$error} onRetry={() => pluginStore.loadPlugins()} retrying={$loading} />
 	{:else if $plugins.length === 0}
 		<EmptyState
+			page
 			icon="extension"
 			title="No plugins found yet"
 			description={`Place plugins in content/plugins/local/ or content/plugins/marketplace/, then click "Scan for Plugins".`}
@@ -577,7 +578,7 @@
 							/>
 						{/if}
 					{:else}
-						<EmptyState icon="document" title="Plugin not found" description="This plugin may have been removed.">
+						<EmptyState page icon="document" title="Plugin not found" description="This plugin may have been removed.">
 							{#snippet actions()}
 								<Button variant="secondary" onclick={backToList}>Back to plugins</Button>
 							{/snippet}

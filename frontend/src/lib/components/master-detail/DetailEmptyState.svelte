@@ -7,7 +7,7 @@
 	const iconNames = { document: 'document', folder: 'folder', command: 'code', style: 'layers' } as const;
 </script>
 
-<EmptyState icon={iconNames[icon]} title={message}>
+<EmptyState page icon={iconNames[icon]} title={message}>
 	{#snippet extra()}
 		<span class="inline-flex items-center gap-1">Use <Kbd keys="arrow keys" /> to navigate</span>
 	{/snippet}

@@ -281,11 +281,11 @@
 	}
 </script>
 
-<div class="px-3 py-3 md:px-6 md:py-6">
+<div class="px-3 py-3 md:px-6 md:py-6 flex flex-1 flex-col">
 	<div
 		bind:this={gridRootEl}
 		bind:clientWidth={gridWidth}
-		class="relative"
+		class="relative flex flex-1 flex-col"
 		class:select-none={marqueeState.active}
 		role="listbox"
 		aria-multiselectable={currentState.selectionMode}
@@ -398,6 +398,7 @@
 			{/if}
 		{:else if generations.length === 0}
 			<EmptyState
+				page
 				icon={hasActiveFilters ? 'search' : 'image'}
 				title={hasActiveFilters ? 'No results found' : 'No generations yet'}
 				description={hasActiveFilters

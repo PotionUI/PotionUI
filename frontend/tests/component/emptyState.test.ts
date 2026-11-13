@@ -31,7 +31,7 @@ describe('EmptyState', () => {
 		expect(root.querySelector('[data-empty-state-description]')!.textContent).toBe('Install one to begin.');
 		expect(root.querySelector('svg')).not.toBeNull();
 		expect(root.querySelector('[data-action]')!.textContent).toBe('Do it');
-		expect(root.querySelector('.dot-grid')).not.toBeNull();
+		expect(root.querySelector('.dot-grid')).toBeNull();
 		expect(root.querySelector('.w-16.h-16')).not.toBeNull();
 	});
 
@@ -47,6 +47,26 @@ describe('EmptyState', () => {
 		expect(root.querySelector('.w-12.h-12')).not.toBeNull();
 		expect(root.querySelector('.w-16.h-16')).toBeNull();
 		expect(root.querySelector('[data-empty-state-title]')).not.toBeNull();
+	});
+
+	it('draws the dotted surface and centres the block only for the page level', () => {
+		const page = render({ title: 'Nothing', page: true });
+		const surface = page.querySelector('[data-empty-state]')!;
+		expect(surface.getAttribute('data-empty-state')).toBe('page');
+		expect(surface.className).toContain('dot-grid');
+		expect(surface.className).toContain('items-center');
+		expect(surface.className).toContain('justify-center');
+		expect(surface.className).toContain('h-full');
+	});
+
+	it('draws no dotted surface for default or compact', () => {
+		for (const compact of [false, true]) {
+			const root = render({ title: 'Nothing', compact });
+			expect(root.querySelector('.dot-grid')).toBeNull();
+			unmount(component!);
+			component = null;
+			root.remove();
+		}
 	});
 
 	it('tints the eyebrow with the danger tone', () => {

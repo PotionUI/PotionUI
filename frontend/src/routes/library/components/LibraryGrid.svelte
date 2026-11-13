@@ -163,11 +163,11 @@
 	}
 </script>
 
-<div class="px-3 py-3 md:px-6 md:py-6">
+<div class="px-3 py-3 md:px-6 md:py-6 flex flex-1 flex-col">
 	<div
 		bind:this={gridRootEl}
 		bind:clientWidth={gridWidth}
-		class="relative"
+		class="relative flex flex-1 flex-col"
 		class:select-none={marqueeState.active}
 		role="listbox"
 		aria-multiselectable={state.selectionMode}
@@ -274,6 +274,7 @@
 			{/if}
 		{:else if items.length === 0}
 			<EmptyState
+				page
 				icon={filtered ? 'search' : 'photo'}
 				title={filtered ? 'No results found' : 'Your library is empty'}
 				description={filtered

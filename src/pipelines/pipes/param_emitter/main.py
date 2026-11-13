@@ -2,6 +2,7 @@ from typing import Any, List
 from collections import defaultdict
 
 from src.pipelines.outputs import ParamGenerationOutput
+from src.pipelines.param_meta import normalize_param_meta
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
     PipeInput,
@@ -60,13 +61,20 @@ class ParamEmitterPipe(BasePipe):
                 logger.warning(f"[PARAM EMITTER] Invalid parameter format: {item}, skipping")
 
         # Now process the flattened parameters
+        param_meta = {}
+        declared_names = set()
         for param in flat_parameters:
-            if not isinstance(param, (list, tuple)) or len(param) != 2:
+            if not isinstance(param, (list, tuple)) or len(param) not in (2, 3):
                 logger.warning(f"[PARAM EMITTER] Invalid parameter format after flattening: {param}, skipping")
                 continue
 
-            param_name, param_value = param
+            param_name, param_value = param[0], param[1]
             param_groups[param_name].append(param_value)
+            declared_names.add(param_name)
+            if len(param) == 3 and param_name not in param_meta:
+                meta = normalize_param_meta(param[2])
+                if meta:
+                    param_meta[param_name] = meta
 
         # Add parameters from inputs (e.g., seed from from_iotype, prompts from prompt_expander)
         # Inputs have priority - if present, they override configuration parameters
@@ -81,6 +89,7 @@ class ParamEmitterPipe(BasePipe):
 
                 # If this parameter was already added from config, replace it with input value
                 if param_name in param_groups:
+                    declared_names.discard(param_name)
                     logger.debug(f"[PARAM EMITTER] Overriding parameter '{param_name}' from input: {input_value}")
                     param_groups[param_name] = [input_value]
                 else:
@@ -96,7 +105,9 @@ class ParamEmitterPipe(BasePipe):
             # Emit ParamGenerationOutput
             generation_outputs(ParamGenerationOutput(
                 name=param_name,
-                values=processed_values
+                values=processed_values,
+                meta=param_meta.get(param_name),
+                declared=param_name in declared_names,
             ))
 
             all_params[param_name] = processed_values
@@ -146,7 +157,7 @@ class ParamEmitterPipe(BasePipe):
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts"""
         return [
-            PipeConfigSpec("parameters", list, [], "List of [name, value] parameter pairs", required=True),
+            PipeConfigSpec("parameters", list, [], "List of [name, value] or [name, value, {label, unit, type}] parameter pairs", required=True),
             PipeConfigSpec("quantity", int, 1, "Number of outputs being generated", required=False,
                           min_value=1, max_value=20),
             PipeConfigSpec("passes", int, 1,

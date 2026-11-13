@@ -140,10 +140,12 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
                     recorded_values = [_reduce_leaked_model_path(v) for v in output.values]
 
                 # Save parameters directly to generation with index
+                meta_kwargs = {'meta': output.meta} if output.meta else {}
                 saved_params = generation_parameter_repo.create_batch(
                     self.generation_id,
                     output.name,
-                    recorded_values
+                    recorded_values,
+                    **meta_kwargs
                 )
 
                 metadata['saved_count'] = len(saved_params)

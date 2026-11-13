@@ -2846,7 +2846,7 @@ _No inputs._
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `parameters` | `list` | `[]` | yes | — | — | — | List of [name, value] parameter pairs |
+| `parameters` | `list` | `[]` | yes | — | — | — | List of [name, value] or [name, value, {label, unit, type}] parameter pairs |
 | `quantity` | `int` | `1` | no | — | 1 | 20 | Number of outputs being generated |
 | `passes` | `int` | `1` | no | — | 1 | 8 | How many times the batch is saved to the gallery (a refinement pass that saves alongside the base batch is a second pass). One parameter row is written per saved index, i.e. quantity x passes rows. |
 

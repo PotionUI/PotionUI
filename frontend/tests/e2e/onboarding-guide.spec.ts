@@ -79,6 +79,33 @@ async function mockGuideApi(page: Page, consentRun?: unknown) {
 	});
 	await page.route('**/api/readiness*', (route) => fulfillJson(route, NOT_READY));
 	await page.route('**/api/setup/machine', (route) => fulfillJson(route, MACHINE));
+	await page.route('**/api/models/roots', (route) => {
+		if (route.request().method() !== 'GET') return route.continue();
+		return fulfillJson(route, {
+			success: true,
+			data: {
+				roots: [
+					{
+						id: 'home',
+						label: 'Models',
+						path: '/data/potionui/models',
+						kind: 'home',
+						read_only: false,
+						case_insensitive: false,
+						state: 'online',
+						state_reason: null,
+						state_checked_at: null,
+						bindings: []
+					}
+				],
+				types: [],
+				unplaced: [],
+				indexing: { state: 'idle' },
+				server_os: 'Linux',
+				path_style: 'posix'
+			}
+		});
+	});
 	await page.route('**/api/setup/recipes', (route) => fulfillJson(route, { recipes: RECIPES }));
 	await page.route('**/api/setup/runs/active', (route) => fulfillJson(route, { detail: 'none' }, 404));
 	if (consentRun) {

@@ -105,3 +105,88 @@ def test_multiple_values_for_one_name_are_untouched_by_passes():
     })
 
     assert params["model"] == ["unet.safetensors", "vae.safetensors"]
+
+
+def _emitted(config, pipe_input=None):
+    emitted = []
+    ParamEmitterPipe(config=config).process(pipe_input or PipeInput(input={}), emitted.append)
+    return {o.name: o for o in emitted if isinstance(o, ParamGenerationOutput)}
+
+
+def test_two_element_pairs_carry_no_meta_and_are_declared():
+    outputs = _emitted({"quantity": 1, "parameters": [["steps", 8]]})
+
+    assert outputs["steps"].values == [8]
+    assert outputs["steps"].meta is None
+    assert outputs["steps"].declared is True
+
+
+def test_three_element_pairs_carry_label_unit_and_type():
+    outputs = _emitted({
+        "quantity": 2,
+        "parameters": [["duration", 5, {"label": "Length", "unit": "s", "type": "number"}]],
+    })
+
+    assert outputs["duration"].values == [5, 5]
+    assert outputs["duration"].meta == {"label": "Length", "unit": "s", "type": "number"}
+
+
+def test_unknown_keys_and_non_string_values_in_the_third_element_are_ignored():
+    outputs = _emitted({
+        "quantity": 1,
+        "parameters": [["a", 1, {"label": "A", "color": "red", "unit": 5, "type": "  "}]],
+    })
+
+    assert outputs["a"].meta == {"label": "A"}
+
+
+def test_meta_strings_are_length_capped():
+    outputs = _emitted({
+        "quantity": 1,
+        "parameters": [["a", 1, {"label": "L" * 500, "unit": "u" * 500, "type": "t" * 500}]],
+    })
+
+    assert len(outputs["a"].meta["label"]) == 80
+    assert len(outputs["a"].meta["unit"]) == 16
+    assert len(outputs["a"].meta["type"]) == 40
+
+
+def test_a_malformed_third_element_is_dropped_but_the_value_is_kept():
+    outputs = _emitted({"quantity": 1, "parameters": [["a", 1, "not a dict"], ["b", 2, {}]]})
+
+    assert outputs["a"].values == [1]
+    assert outputs["a"].meta is None
+    assert outputs["b"].meta is None
+
+
+def test_pairs_of_other_lengths_are_still_skipped():
+    outputs = _emitted({"quantity": 1, "parameters": [["a"], ["b", 1, {}, 4], ["c", 3]]})
+
+    assert set(outputs) == {"c"}
+
+
+def test_loop_expanded_nested_pairs_keep_their_meta():
+    outputs = _emitted({
+        "quantity": 1,
+        "parameters": [[["a", 1, {"label": "A"}], ["b", 2]]],
+    })
+
+    assert outputs["a"].meta == {"label": "A"}
+    assert outputs["b"].meta is None
+
+
+def test_a_name_overridden_by_an_input_is_no_longer_declared():
+    outputs = _emitted(
+        {"quantity": 1, "parameters": [["secret", 1], ["steps", 2]]},
+        PipeInput(input={"secret": "from-input"}),
+    )
+
+    assert outputs["secret"].values == ["from-input"]
+    assert outputs["secret"].declared is False
+    assert outputs["steps"].declared is True
+
+
+def test_a_name_that_only_arrives_as_an_input_is_not_declared():
+    outputs = _emitted({"quantity": 1, "parameters": []}, PipeInput(input={"internal": "x"}))
+
+    assert outputs["internal"].declared is False

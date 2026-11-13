@@ -7,6 +7,7 @@ from src.pipelines.outputs import GenerationOutput, ParamGenerationOutput, Rende
 
 PROMPT_PARAMETERS = {"positive_prompt": "positive", "negative_prompt": "negative"}
 DIRECTOR_DOCUMENTS = ("video_director", "music_director")
+MIN_HIDDEN_SCAN_LENGTH = 4
 
 
 def fixed_prompt_applies(
@@ -48,6 +49,25 @@ def _join(parts: Sequence[str], separator: str) -> str:
 class FixedPromptRun:
     visible: List[Dict[str, str]]
     applied: List[Dict[str, str]] = field(default_factory=list)
+    hidden_texts: List[str] = field(default_factory=list)
+
+    def _carries_hidden_text(self, value: Any) -> bool:
+        if isinstance(value, (list, tuple)):
+            return any(self._carries_hidden_text(item) for item in value)
+        if isinstance(value, dict):
+            return any(self._carries_hidden_text(item) for item in value.values())
+        if not isinstance(value, str):
+            return False
+        text = value.strip()
+        if not text:
+            return False
+        for entry in self.applied:
+            if text in (entry.get("positive", "").strip(), entry.get("negative", "").strip()):
+                return True
+        return any(
+            hidden == text or (len(hidden) >= MIN_HIDDEN_SCAN_LENGTH and hidden in text)
+            for hidden in self.hidden_texts
+        )
 
     def _visible_text(self, channel: str, index: int) -> str:
         return self.visible[index % len(self.visible)].get(channel, "")
@@ -64,6 +84,9 @@ class FixedPromptRun:
             output.values = [
                 self._visible_text(channel, index) for index in range(len(output.values or []))
             ]
+        elif isinstance(output, ParamGenerationOutput) and self._carries_hidden_text(output.values):
+            output.values = []
+            output.declared = False
 
     def records(self) -> List[Dict[str, str]]:
         return [
@@ -81,7 +104,12 @@ def apply_fixed_prompt(
             "positive": _join([prefix, pair.get("positive", ""), suffix], " "),
             "negative": _join([pair.get("negative", ""), negative], ", "),
         })
-    return FixedPromptRun(visible=[dict(pair) for pair in visible], applied=applied)
+    hidden = []
+    for prefix, suffix, negative in parts:
+        for text in (prefix, suffix, negative):
+            if isinstance(text, str) and text.strip() and text.strip() not in hidden:
+                hidden.append(text.strip())
+    return FixedPromptRun(visible=[dict(pair) for pair in visible], applied=applied, hidden_texts=hidden)
 
 
 def _applied_text(entries: List[Dict[str, str]], channel: str, index: int) -> str:

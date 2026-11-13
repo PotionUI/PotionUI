@@ -5,6 +5,7 @@ them with filters, or checks ownership - and none of them mutate a generation or
 touch the filesystem. Writes and file IO live in GenerationHistoryArchive.
 """
 
+import json
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
@@ -18,6 +19,7 @@ from src.features.generation import profile_paths
 from src.features.generation.history_filter import HistoryFilter
 from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
+from src.pipelines.param_meta import normalize_param_meta
 
 if TYPE_CHECKING:
     from src.features.content_safety.manager import ContentSafetyManager
@@ -711,14 +713,30 @@ class GenerationHistoryQuery:
         # Verify the user owns this generation
         self._get_generation_or_raise(generation_id, user_id)
 
-        param_dict, models = self._resolve_params_and_models(generation_id, index, visited=set())
+        param_dict, models, meta, positioned = self._resolve_params_and_models(
+            generation_id, index, visited=set()
+        )
+        ordered = [name for name in positioned if name in param_dict]
+        listed = set(ordered)
+        ordered.extend(name for name in sorted(param_dict) if name not in listed)
 
         return {
             "generation_id": generation_id,
             "index": index,
             "parameters": param_dict,
             "models": models,
+            "parameter_meta": {name: meta[name] for name in param_dict if name in meta},
+            "parameter_order": ordered,
         }
+
+    @staticmethod
+    def _row_meta(row) -> Optional[Dict[str, str]]:
+        if not row.meta:
+            return None
+        try:
+            return normalize_param_meta(json.loads(row.meta))
+        except (TypeError, ValueError):
+            return None
 
     def _resolve_params_and_models(
         self,
@@ -726,7 +744,7 @@ class GenerationHistoryQuery:
         index: int,
         visited: set,
         depth: int = 0,
-    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]], Dict[str, Dict[str, str]], List[str]]:
         """Own params/models for (generation_id, index), merged with whatever
         `generation_id`'s provenance link (if any) inherits from its source.
         See `get_params`'s docstring for the exact merge rule. No ownership
@@ -737,6 +755,17 @@ class GenerationHistoryQuery:
 
         own_param_rows = generation_parameter_repo.get_by_generation_and_index(generation_id, index)
         own_params = {p.parameter_name: p.to_dict()['parameter_value'] for p in own_param_rows}
+        own_meta = {}
+        for row in own_param_rows:
+            row_meta = self._row_meta(row)
+            if row_meta:
+                own_meta[row.parameter_name] = row_meta
+        own_positioned = [
+            row.parameter_name
+            for row in sorted(
+                (r for r in own_param_rows if r.position is not None), key=lambda r: r.position
+            )
+        ]
 
         own_models = [
             model.to_dict(include_providers=True, include_tags=False, admin=False)
@@ -746,17 +775,17 @@ class GenerationHistoryQuery:
         ]
 
         if generation_id in visited or depth >= self._MAX_PROVENANCE_DEPTH:
-            return own_params, own_models
+            return own_params, own_models, own_meta, own_positioned
 
         source_link = generation_source_repo.get_primary_for_generation(generation_id)
         if source_link is None:
-            return own_params, own_models
+            return own_params, own_models, own_meta, own_positioned
 
         source_generation = self.generation_repo.get_by_id(source_link.source_generation_id)
         if source_generation is None:
-            return own_params, own_models
+            return own_params, own_models, own_meta, own_positioned
 
-        inherited_params, inherited_models = self._resolve_params_and_models(
+        inherited_params, inherited_models, inherited_meta, inherited_positioned = self._resolve_params_and_models(
             source_link.source_generation_id,
             source_link.source_file_index,
             visited | {generation_id},
@@ -764,9 +793,18 @@ class GenerationHistoryQuery:
         )
 
         merged_params = dict(own_params)
+        merged_meta = dict(own_meta)
         for key, value in inherited_params.items():
             if key not in merged_params or merged_params[key] in (None, ""):
                 merged_params[key] = value
+                if key in inherited_meta:
+                    merged_meta[key] = inherited_meta[key]
+
+        merged_positioned = list(own_positioned)
+        merged_positioned.extend(
+            name for name in inherited_positioned
+            if name not in own_positioned and name in merged_params and name not in own_params
+        )
 
         merged_models = list(own_models)
         seen_ids = {m.get('id') for m in own_models}
@@ -778,7 +816,7 @@ class GenerationHistoryQuery:
             if model_id is not None:
                 seen_ids.add(model_id)
 
-        return merged_params, merged_models
+        return merged_params, merged_models, merged_meta, merged_positioned
 
     def get_tags(self, generation_id: str, user_id: str) -> List[Dict[str, Any]]:
         """Get all tags for a generation.

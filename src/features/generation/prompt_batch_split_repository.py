@@ -167,7 +167,7 @@ class PromptBatchSplitRepository:
     @staticmethod
     def _split_parameters(cursor, generation_id: str, new_ids: Dict[int, str], per_prompt: int) -> None:
         cursor.execute(
-            "SELECT id, parameter_name, parameter_value, parameter_index FROM generation_parameters "
+            "SELECT id, parameter_name, parameter_value, parameter_index, meta, position FROM generation_parameters "
             "WHERE generation_id = ?",
             (generation_id,),
         )
@@ -180,9 +180,9 @@ class PromptBatchSplitRepository:
                 for new_id in new_ids.values():
                     cursor.execute(
                         "INSERT INTO generation_parameters (id, generation_id, parameter_name, parameter_value, "
-                        "parameter_index) VALUES (?, ?, ?, ?, ?)",
+                        "parameter_index, meta, position) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (generate_ulid(), new_id, entry["parameter_name"], entry["parameter_value"],
-                         entry["parameter_index"]),
+                         entry["parameter_index"], entry["meta"], entry["position"]),
                     )
                 continue
             owner = entry["parameter_index"] // per_prompt

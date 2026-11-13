@@ -86,6 +86,12 @@ async function mockMedia(page: Page) {
 	);
 }
 
+async function openTools(page: Page) {
+	const more = page.locator('[data-bar-more]').getByRole('button', { name: 'More actions' });
+	if (await more.isVisible()) await more.click();
+	await page.locator('[data-tools-trigger]').first().click();
+}
+
 for (const viewport of VIEWPORTS) {
 	test.describe(`at ${viewport.name}`, () => {
 		test.beforeEach(async ({ page }) => {
@@ -100,7 +106,7 @@ for (const viewport of VIEWPORTS) {
 			await expect(selectors).toHaveCount(2);
 
 			await selectors.nth(1).click();
-			await page.locator('[data-tools-trigger]').first().click();
+			await openTools(page);
 			const item = page.locator('[data-tools-menu] [data-tool="edit-image"]');
 			await expect(item).toBeVisible();
 			await expect(item).toHaveAttribute('aria-disabled', 'false');
@@ -116,7 +122,7 @@ for (const viewport of VIEWPORTS) {
 		test('opens an Image editor tab from the Library Tools menu', async ({ page }) => {
 			await page.goto('/library');
 			await page.getByRole('button', { name: 'Select item' }).first().click();
-			await page.locator('[data-tools-trigger]').first().click();
+			await openTools(page);
 			const item = page.locator('[data-tools-menu] [data-tool="edit-image"]');
 			await expect(item).toBeVisible();
 			await expect(item).toHaveAttribute('aria-disabled', 'false');

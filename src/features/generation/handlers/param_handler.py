@@ -120,7 +120,7 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
             # on the same catalog lookup instead of resolving twice.
             resolved_models = self._resolve_models(output.values) if output.name == "model" else None
 
-            if not is_display_parameter(output.name):
+            if not (output.declared or is_display_parameter(output.name)):
                 logger.debug(f"[PARAM HANDLER] '{output.name}' is not a display parameter, not recording")
             elif any(_looks_unrendered(v) for v in output.values):
                 # All-or-nothing per parameter: dropping only the offending
@@ -140,10 +140,12 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
                     recorded_values = [_reduce_leaked_model_path(v) for v in output.values]
 
                 # Save parameters directly to generation with index
+                meta_kwargs = {'meta': output.meta} if output.meta else {}
                 saved_params = generation_parameter_repo.create_batch(
                     self.generation_id,
                     output.name,
-                    recorded_values
+                    recorded_values,
+                    **meta_kwargs
                 )
 
                 metadata['saved_count'] = len(saved_params)

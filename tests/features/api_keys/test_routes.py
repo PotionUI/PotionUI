@@ -304,7 +304,7 @@ class TestAdminRoutes:
 
     def test_counts_per_status_follow_the_owner_and_the_search_but_not_the_status(self, client, world):
         world.mint(world.alice, name="a1")
-        world.mint(world.alice, name="a2", days=30)
+        world.mint(world.alice, name="quartz needle", days=30)
         gone, _ = world.mint(world.alice, name="a3")
         world.mint(world.bob, name="b1")
         client.delete(f"/api/keys/{gone.id}", headers=world.session("alice"))
@@ -312,7 +312,7 @@ class TestAdminRoutes:
 
         everyone = client.get("/api/admin/keys?status=revoked", headers=headers).json()["data"]
         alice = client.get(f"/api/admin/keys?user_id={world.alice.id}", headers=headers).json()["data"]
-        searched = client.get("/api/admin/keys?q=a2", headers=headers).json()["data"]
+        searched = client.get("/api/admin/keys?q=quartz", headers=headers).json()["data"]
 
         assert everyone["counts"] == {"all": 4, "active": 3, "expired": 0, "revoked": 1}
         assert everyone["total"] == 1

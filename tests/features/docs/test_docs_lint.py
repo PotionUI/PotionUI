@@ -131,7 +131,15 @@ def test_known_family_keys_includes_registry_and_sdxl():
     assert "flux" in keys and "wan" in keys and "sdxl" in keys
 
 
-def test_cli_main_exit_code(tmp_path):
+def test_cli_main_exit_code(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    clean = types.SimpleNamespace(warnings=[], errors=[])
+    monkeypatch.setattr(docs_lint_cli, "check_pipes_reference", lambda: clean)
+    monkeypatch.setitem(
+        sys.modules, "scripts.api_reference", types.SimpleNamespace(check=lambda: clean)
+    )
     _docs(tmp_path, {"bad.md": "---\ntype: technique\ntitle: X\nstatus: stable\n---\nB."})
     assert docs_lint_cli.main(["--docs-root", str(tmp_path / "docs")]) == 1
     ok_root = _docs(tmp_path / "ok", {"g.md": _VALID_TECH})

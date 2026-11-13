@@ -1053,7 +1053,7 @@
 						<Spinner size="lg" />
 					{:else}
 						<EmptyState title="Attribute not found" description="This attribute may have been removed." icon="sliders" compact>
-							{#snippet actions()}<Button variant="ghost" size="sm" onclick={backToList}>Back to attributes</Button>{/snippet}
+							{#snippet actions()}<Button size="sm" variant="secondary" onclick={backToList}>Back to attributes</Button>{/snippet}
 						</EmptyState>
 					{/if}
 				</div>
@@ -1072,7 +1072,7 @@
 					<Spinner size="lg" />
 				{:else}
 					<EmptyState title="Model not found" description="This model may have been removed from the index." icon="model" compact>
-						{#snippet actions()}<Button variant="ghost" size="sm" onclick={backToList}>Back to models</Button>{/snippet}
+						{#snippet actions()}<Button size="sm" variant="secondary" onclick={backToList}>Back to models</Button>{/snippet}
 					</EmptyState>
 				{/if}
 			</div>
@@ -1174,12 +1174,12 @@
 							title="No models indexed yet"
 							description="Index models from the backend that loads them. They will appear here once found."
 						>
-							{#snippet actions()}<Button variant="primary" icon="server" href="/admin?tab=backends">Open Backends</Button>{/snippet}
+							{#snippet actions()}<Button variant="secondary" icon="server" href="/admin?tab=backends">Open Backends</Button>{/snippet}
 						</EmptyState>
 					{/snippet}
 					{#snippet filteredEmptyState()}
 						<EmptyState title="No models match your filters" description="Try adjusting your search criteria or filters." icon="search" compact>
-							{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => updateFilters(DEFAULT_MODELS_FILTERS)}>Clear all filters</Button>{/snippet}
+							{#snippet actions()}<Button size="sm" variant="secondary" onclick={() => updateFilters(DEFAULT_MODELS_FILTERS)}>Clear all filters</Button>{/snippet}
 						</EmptyState>
 					{/snippet}
 				</DataTable>
@@ -1233,7 +1233,7 @@
 						{#if hasActiveFilters}
 							<Button variant="secondary" icon="close" onclick={() => updateFilters(DEFAULT_MODELS_FILTERS)}>Clear All Filters</Button>
 						{:else}
-							<Button variant="primary" icon="server" href="/admin?tab=backends">Open Backends</Button>
+							<Button variant="secondary" icon="server" href="/admin?tab=backends">Open Backends</Button>
 						{/if}
 					{/snippet}
 				</EmptyState>

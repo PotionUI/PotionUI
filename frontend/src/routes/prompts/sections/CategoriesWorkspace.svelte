@@ -432,11 +432,11 @@
 						>
 							{#snippet actions()}
 								{#if filtersActive}
-									<Button size="sm" variant="ghost" onclick={() => updateFilters({ ...categoryFilters.clearAll(filters), q: '' })}>
+									<Button variant="secondary" onclick={() => updateFilters({ ...categoryFilters.clearAll(filters), q: '' })}>
 										Clear filters
 									</Button>
 								{:else}
-									<Button size="sm" variant="primary" icon="plus" onclick={startNew}>Create a category</Button>
+									<Button variant="secondary" icon="plus" onclick={startNew}>Create a category</Button>
 								{/if}
 							{/snippet}
 						</EmptyState>

@@ -395,7 +395,7 @@
 					<Spinner size="lg" />
 				{:else}
 					<EmptyState title="Download not found" description="This download may have been removed from history." icon="download" compact>
-						{#snippet actions()}<Button variant="ghost" size="sm" onclick={backToList}>Back to downloads</Button>{/snippet}
+						{#snippet actions()}<Button size="sm" variant="secondary" onclick={backToList}>Back to downloads</Button>{/snippet}
 					</EmptyState>
 				{/if}
 			</div>
@@ -479,7 +479,7 @@
 					{:else}
 						<EmptyState icon="download" title="No downloads yet" description="Queue a model or media file to download. Your download history will appear here.">
 							{#snippet actions()}
-								<Button variant="primary" icon="plus" onclick={() => (showAddModal = true)}>Add Your First Download</Button>
+								<Button variant="secondary" icon="plus" onclick={() => (showAddModal = true)}>Add Your First Download</Button>
 							{/snippet}
 						</EmptyState>
 					{/if}
@@ -487,7 +487,7 @@
 				{#snippet filteredEmptyState()}
 					<EmptyState icon="search" title="No downloads match" description="No downloads match the current section and search." compact>
 						{#snippet actions()}
-							<Button variant="ghost" size="sm" onclick={() => (filters = { ...DEFAULT_DOWNLOADER_FILTERS })}>Clear filters</Button>
+							<Button size="sm" variant="secondary" onclick={() => (filters = { ...DEFAULT_DOWNLOADER_FILTERS })}>Clear filters</Button>
 						{/snippet}
 					</EmptyState>
 				{/snippet}

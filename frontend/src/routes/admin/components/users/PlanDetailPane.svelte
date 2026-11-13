@@ -105,7 +105,7 @@
 			<Spinner size="lg" />
 		{:else}
 			<EmptyState title="Plan not found" description="This plan may have been removed." icon="layers" compact>
-				{#snippet actions()}<Button variant="ghost" size="sm" onclick={onBack}>Back to plans</Button>{/snippet}
+				{#snippet actions()}<Button size="sm" variant="secondary" onclick={onBack}>Back to plans</Button>{/snippet}
 			</EmptyState>
 		{/if}
 	</div>

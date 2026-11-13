@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Pane, PaneTree, PaneRow, type PaneTreeNode } from '$lib/components/pane';
 	import { phrasebookStore, type CategoryWithChildren } from '$lib/stores/phrasebook';
+	import { EmptyState } from '$lib/components/ui';
 
 	// Self-contained: reads/writes phrasebookStore directly. Extracted
 	// verbatim from phrasebook/+page.svelte (left category tree pane).
@@ -47,9 +48,7 @@
 		bodyRole="tree"
 	>
 		{#snippet empty()}
-			<div class="text-center py-8 px-4">
-				<p class="text-sm text-fg-subtle">No categories</p>
-			</div>
+			<EmptyState compact icon="folder" title="No categories" />
 		{/snippet}
 
 		{#snippet children()}

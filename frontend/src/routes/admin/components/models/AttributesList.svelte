@@ -64,14 +64,14 @@
 
 {#snippet filteredEmptyState()}
 	<EmptyState title="No attributes match your search" description="Try a different key or label." icon="search" compact>
-		{#snippet actions()}<Button variant="ghost" size="sm" onclick={onClearFilters}>Clear filters</Button>{/snippet}
+		{#snippet actions()}<Button size="sm" variant="secondary" onclick={onClearFilters}>Clear filters</Button>{/snippet}
 	</EmptyState>
 {/snippet}
 
 {#if error}
 	<div class="flex h-full items-center justify-center p-5">
 		<EmptyState title="Error loading attributes" description={error} icon="warning" compact>
-			{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={onRetry}>Try again</Button>{/snippet}
+			{#snippet actions()}<Button size="sm" variant="secondary" icon="refresh" onclick={onRetry}>Try again</Button>{/snippet}
 		</EmptyState>
 	</div>
 {:else}

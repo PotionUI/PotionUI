@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { DetailSection } from '$lib/components/detail';
-	import { Spinner } from '$lib/components/ui';
+	import { EmptyState, Spinner } from '$lib/components/ui';
 	import LoadErrorState from '$lib/components/ui/LoadErrorState.svelte';
 	import McpToolsList from '$lib/components/apikeys/McpToolsList.svelte';
 	import EffectNote from './EffectNote.svelte';
@@ -13,7 +13,7 @@
 <DetailSection label="MCP tools">
 	<div data-testid="mcp-ceiling">
 		{#if ceiling.unavailable}
-			<p class="rounded border border-line px-4 py-6 text-center text-sm text-fg-muted" role="status">MCP tools are not available yet.</p>
+			<div role="status"><EmptyState compact icon="key" title="MCP tools are not available yet" /></div>
 		{:else if ceiling.loading && !ceiling.listing}
 			<div class="flex items-center justify-center py-8"><Spinner /></div>
 		{:else if ceiling.failed && !ceiling.listing}

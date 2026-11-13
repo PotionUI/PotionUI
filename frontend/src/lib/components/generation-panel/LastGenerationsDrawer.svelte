@@ -4,7 +4,7 @@
 	import { api } from '$lib/services/api/index';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Spinner, Pagination } from '$lib/components/ui';
+	import { EmptyState, Spinner, Pagination } from '$lib/components/ui';
 	import JustifiedGenerationGallery from '$lib/components/JustifiedGenerationGallery.svelte';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
 	import { currentPageFromOffset, totalPagesFromCount, offsetForPage } from '$lib/utils/offsetPagination';
@@ -132,12 +132,7 @@
 			</div>
 		{/if}
 	{:else}
-		<div class="dot-grid text-center py-10 rounded-lg">
-			<div class="w-12 h-12 flex items-center justify-center mx-auto mb-3 rounded-lg bg-surface-2 border border-line">
-				<Icon name="clock" className="h-6 w-6 text-fg-subtle" strokeWidth={1.5} />
-			</div>
-			<p class="text-sm text-fg-subtle">No generations yet for this preset</p>
-		</div>
+		<EmptyState compact icon="clock" title="No generations yet" description="Nothing has been generated with this preset." />
 	{/if}
 </div>
 

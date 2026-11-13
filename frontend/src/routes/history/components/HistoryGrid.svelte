@@ -406,7 +406,7 @@
 			>
 				{#snippet actions()}
 					{#if hasActiveFilters}
-						<Button variant="secondary" size="sm" icon="close" onclick={handleClearAllFilters}>
+						<Button variant="secondary" icon="close" onclick={handleClearAllFilters}>
 							Clear All Filters
 						</Button>
 					{/if}

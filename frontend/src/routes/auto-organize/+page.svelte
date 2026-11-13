@@ -358,7 +358,7 @@
 						compact
 					>
 						{#snippet actions()}
-							<Button variant="primary" size="sm" icon="plus" onclick={newRule}>New rule</Button>
+							<Button size="sm" variant="secondary" icon="plus" onclick={newRule}>New rule</Button>
 						{/snippet}
 					</EmptyState>
 				{:else if visibleRules.length === 0}

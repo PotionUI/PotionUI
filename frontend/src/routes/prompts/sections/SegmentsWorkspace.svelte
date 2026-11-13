@@ -553,11 +553,11 @@
 						>
 							{#snippet actions()}
 								{#if filtersActive}
-									<Button size="sm" variant="ghost" onclick={() => updateFilters({ ...segmentFilters.clearAll(filters), q: '' })}>
+									<Button variant="secondary" onclick={() => updateFilters({ ...segmentFilters.clearAll(filters), q: '' })}>
 										Clear filters
 									</Button>
 								{:else}
-									<Button size="sm" variant="primary" icon="plus" onclick={startNew}>Create a segment</Button>
+									<Button variant="secondary" icon="plus" onclick={startNew}>Create a segment</Button>
 								{/if}
 							{/snippet}
 						</EmptyState>

@@ -422,11 +422,11 @@
 					>
 						{#snippet actions()}
 							{#if narrowed}
-								<Button size="sm" variant="ghost" onclick={() => updateFilters(templateFilters.clearAll(filters))}>
+								<Button variant="secondary" onclick={() => updateFilters(templateFilters.clearAll(filters))}>
 									Clear filters
 								</Button>
 							{:else}
-								<Button size="sm" variant="primary" icon="plus" onclick={newTemplate}>Create a template</Button>
+								<Button variant="secondary" icon="plus" onclick={newTemplate}>Create a template</Button>
 							{/if}
 						{/snippet}
 					</EmptyState>

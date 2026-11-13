@@ -1944,11 +1944,11 @@
 							{#snippet actions()}
 								{#if presetsEmptyState.showSetupLink}
 									{#if installModels}
-										<Button variant="primary" size="md" href={installModels.href} icon="download">
+										<Button variant="secondary" href={installModels.href} icon="download">
 											{installModels.label}
 										</Button>
 									{:else}
-										<Button variant="primary" size="md" href="/setup" icon="arrow-right">
+										<Button variant="secondary" href="/setup" icon="arrow-right">
 											Go to Setup
 										</Button>
 									{/if}

@@ -220,9 +220,9 @@
 				{#snippet actions()}
 					{#if emptyState.showSetupLink}
 						{#if installModels}
-							<Button variant="primary" size="sm" href={installModels.href} icon="download">{installModels.label}</Button>
+							<Button size="sm" variant="secondary" href={installModels.href} icon="download">{installModels.label}</Button>
 						{:else}
-							<Button variant="primary" size="sm" href="/setup" icon="arrow-right">Go to Setup</Button>
+							<Button size="sm" variant="secondary" href="/setup" icon="arrow-right">Go to Setup</Button>
 						{/if}
 					{/if}
 				{/snippet}

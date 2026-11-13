@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { ToolTab } from '$lib/types/tabs';
-	import { Spinner } from '$lib/components/ui';
-	import Icon from '$lib/components/Icon.svelte';
+	import { EmptyState, Spinner } from '$lib/components/ui';
 	import { toolKindStore, resolveToolComponent } from './registry';
 	import { createToolTabHost } from './host';
 	import { setToolTabActions } from './actions';
@@ -62,12 +61,8 @@
 			<Tool {host} />
 		{/key}
 	{:else if failed || (!kind && ($extensionRegistrations > 0 || !tab.tool.includes('.')))}
-		<div class="dot-grid flex flex-1 items-center justify-center p-6">
-			<div class="flex max-w-sm flex-col items-center rounded-lg border border-line bg-surface-1 px-8 py-10 text-center" data-testid="tool-tab-unavailable">
-				<Icon name="extension" className="mb-3 h-8 w-8 text-fg-subtle" strokeWidth={1.5} />
-				<h2 class="text-sm font-semibold text-fg">This tool isn't available</h2>
-				<p class="mt-1 text-sm text-fg-muted">It was turned off or removed. The tab keeps its edits until you close it.</p>
-			</div>
+		<div class="flex flex-1 items-center justify-center p-6" data-testid="tool-tab-unavailable">
+			<EmptyState icon="extension" title="This tool isn't available" description="It was turned off or removed. The tab keeps its edits until you close it." />
 		</div>
 	{:else}
 		<div class="flex flex-1 items-center justify-center">

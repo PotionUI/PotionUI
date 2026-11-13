@@ -7,7 +7,7 @@
 	import DrawerGroupHead from '$lib/components/drawer/DrawerGroupHead.svelte';
 	import DrawerRow from '$lib/components/drawer/DrawerRow.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Menu, Spinner } from '$lib/components/ui';
+	import { Button, EmptyState, Menu, Spinner } from '$lib/components/ui';
 	import FormulaSaveView from './FormulaSaveView.svelte';
 	import FormulaApplyView from './FormulaApplyView.svelte';
 	import FormulaAppliedBar from './FormulaAppliedBar.svelte';
@@ -448,10 +448,12 @@
 						<Button variant="secondary" size="sm" onclick={() => loadFormulas(tab.selectedPreset ?? '', tab.selectedMode ?? '')}>Try again</Button>
 					</div>
 				{:else if filtered.length === 0}
-					<div class="px-6 py-8 text-center text-sm text-fg-muted">
-						<b class="mb-1 block font-semibold text-fg">{query ? `No formulas match “${query}”` : 'No formulas for this mode yet'}</b>
-						{query ? 'Only formulas for this preset and mode are searched.' : 'Save the settings you like and reuse them in any session.'}
-					</div>
+					<EmptyState
+						compact
+						icon={query ? 'search' : 'sliders'}
+						title={query ? `No formulas match “${query}”` : 'No formulas for this mode yet'}
+						description={query ? 'Only formulas for this preset and mode are searched.' : 'Save the settings you like and reuse them in any session.'}
+					/>
 				{:else}
 					<DrawerGroupHead label="Your formulas" count={filtered.length} />
 					<ul class="m-0 list-none p-0">

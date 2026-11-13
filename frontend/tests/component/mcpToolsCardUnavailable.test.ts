@@ -27,7 +27,7 @@ describe('McpToolsCard when the routes answer 404', () => {
 		instance = mount(McpToolsCard, { target, props: { keys: [], mcpEnabled: true } });
 		for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
 		flushSync();
-		expect(target.textContent).toContain('MCP tools are not available yet.');
+		expect(target.textContent).toContain('MCP tools are not available yet');
 		expect(target.querySelector('[data-root]')).toBeNull();
 		expect(target.textContent).not.toContain('could not be loaded');
 		expect(hoisted.error).not.toHaveBeenCalled();

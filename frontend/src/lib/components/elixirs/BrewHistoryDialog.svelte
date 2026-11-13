@@ -407,13 +407,13 @@
 					{#if filtered}
 						<EmptyState title="No brews match" description="Nothing in this elixir fits these filters. Try a wider date range, or clear them to see every brew." icon="search" compact>
 							{#snippet actions()}
-								<Button variant="secondary" size="sm" icon="close" onclick={clearFilters}>Clear filters</Button>
+								<Button size="sm" variant="secondary" icon="close" onclick={clearFilters}>Clear filters</Button>
 							{/snippet}
 						</EmptyState>
 					{:else}
 						<EmptyState title="No brews yet" description="Brew this elixir and every run lands here, with its status and outputs." icon="flask" compact>
 							{#snippet actions()}
-								<Button variant="primary" size="sm" icon="play" onclick={onbrew}>Brew</Button>
+								<Button size="sm" variant="secondary" icon="play" onclick={onbrew}>Brew</Button>
 							{/snippet}
 						</EmptyState>
 					{/if}

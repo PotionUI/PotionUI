@@ -1,7 +1,7 @@
 <script lang="ts">
 	import tooltip from '$lib/actions/tooltip';
 	import { api } from '$lib/services/api/index';
-	import { Badge, IconButton } from '$lib/components/ui';
+	import { Badge, Button, EmptyState, IconButton } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Pane, PaneRow } from '$lib/components/pane';
 	import {
@@ -69,19 +69,14 @@
 		{#snippet empty()}
 			{#if !current.selectedCategoryId}
 				<div class="flex items-center justify-center h-full">
-					<p class="text-sm text-fg-subtle">Select a category</p>
+					<EmptyState compact icon="folder" title="Select a category" />
 				</div>
 			{:else}
-				<div class="text-center py-8 px-4">
-					<p class="text-sm text-fg-subtle">No values</p>
-					<button
-						type="button"
-						class="mt-2 text-xs text-fg-muted hover:text-fg underline"
-						onclick={() => phrasebookStore.handleNewValue()}
-					>
-						Add first value
-					</button>
-				</div>
+				<EmptyState compact icon="document" title="No values">
+					{#snippet actions()}
+						<Button size="sm" variant="secondary" icon="plus" onclick={() => phrasebookStore.handleNewValue()}>Add first value</Button>
+					{/snippet}
+				</EmptyState>
 			{/if}
 		{/snippet}
 

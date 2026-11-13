@@ -121,9 +121,9 @@
 				>
 					{#snippet actions()}
 						{#if filtered}
-							<Button size="sm" variant="ghost" onclick={clearAll}>Clear filters</Button>
+							<Button variant="secondary" onclick={clearAll}>Clear filters</Button>
 						{:else}
-							<Button size="sm" variant="primary" icon="plus" onclick={onNewPrompt}>Create a prompt</Button>
+							<Button variant="secondary" icon="plus" onclick={onNewPrompt}>Create a prompt</Button>
 						{/if}
 					{/snippet}
 				</EmptyState>

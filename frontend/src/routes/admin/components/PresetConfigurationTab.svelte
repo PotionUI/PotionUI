@@ -100,7 +100,7 @@
 		</div>
 	{:else if loadError}
 		<EmptyState title="Configuration unavailable" description={loadError} icon="warning" compact>
-			{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={load}>Try again</Button>{/snippet}
+			{#snippet actions()}<Button size="sm" variant="secondary" icon="refresh" onclick={load}>Try again</Button>{/snippet}
 		</EmptyState>
 	{:else if entries.length === 0}
 		<EmptyState title="No configuration" description="This preset does not declare any configuration entries." icon="sliders" compact />

@@ -153,8 +153,8 @@
 					description="A kit keeps the pictures, clips, sounds and notes that belong together. Load one into a prompt and call its parts with @."
 				>
 					{#snippet actions()}
-						<Button variant="primary" size="md" icon="plus" onclick={onNew}>New kit</Button>
-						<Button variant="secondary" size="md" icon="photo" onclick={onPickFromLibrary}>Pick items in All uploads</Button>
+						<Button variant="secondary" icon="plus" onclick={onNew}>New kit</Button>
+						<Button variant="secondary" icon="photo" onclick={onPickFromLibrary}>Pick items in All uploads</Button>
 					{/snippet}
 				</EmptyState>
 			</div>
@@ -168,7 +168,7 @@
 				description="Try another label or clear the search."
 			>
 				{#snippet actions()}
-					<Button variant="secondary" size="sm" onclick={() => { search = ''; pickLabel(null); }}>Clear filters</Button>
+					<Button size="sm" variant="secondary" onclick={() => { search = ''; pickLabel(null); }}>Clear filters</Button>
 				{/snippet}
 			</EmptyState>
 		</div>

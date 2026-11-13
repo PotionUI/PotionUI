@@ -254,7 +254,7 @@
 				{/snippet}
 				{#snippet filteredEmptyState()}
 					<EmptyState icon="search" title="No people match your search" description="Try a different name." compact>
-						{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => (peopleQuery = '')}>Clear search</Button>{/snippet}
+						{#snippet actions()}<Button size="sm" variant="secondary" onclick={() => (peopleQuery = '')}>Clear search</Button>{/snippet}
 					</EmptyState>
 				{/snippet}
 			</DataTable>

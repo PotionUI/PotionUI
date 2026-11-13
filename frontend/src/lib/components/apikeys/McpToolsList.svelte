@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Input } from '$lib/components/ui';
+	import { Button, EmptyState, Input } from '$lib/components/ui';
 	import { compileTextMatcher } from '$lib/utils/textMatch';
 	import type { McpTool, McpToolsListing } from '$lib/services/api/mcpTools';
 	import McpToolGroup from './McpToolGroup.svelte';
@@ -161,13 +161,16 @@
 				{/each}
 			</div>
 		{:else}
-			<div class="rounded border border-line px-4 py-8 text-center">
-				<p class="text-sm font-medium text-fg">{query.trim() ? `No tools match “${query.trim()}”` : 'No tools in this view'}</p>
-				<p class="mt-1 text-sm text-fg-subtle">
-					{!query.trim() && filter !== 'all' ? 'Switch the filter to see the rest.' : 'Try a tool name, a group, or a word from its description.'}
-				</p>
-				<Button size="xs" class="mt-3" onclick={clearView}>{query.trim() ? 'Clear search' : 'Show all tools'}</Button>
-			</div>
+			<EmptyState
+				compact
+				icon="search"
+				title={query.trim() ? `No tools match “${query.trim()}”` : 'No tools in this view'}
+				description={!query.trim() && filter !== 'all' ? 'Switch the filter to see the rest.' : 'Try a tool name, a group, or a word from its description.'}
+			>
+				{#snippet actions()}
+					<Button size="sm" variant="secondary" onclick={clearView}>{query.trim() ? 'Clear search' : 'Show all tools'}</Button>
+				{/snippet}
+			</EmptyState>
 		{/if}
 	</div>
 </div>

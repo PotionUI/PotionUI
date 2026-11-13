@@ -688,7 +688,7 @@
 						compact
 					>
 						{#snippet actions()}
-							<Button variant="secondary" size="sm" icon="close" onclick={clearFilters}>Clear filters</Button>
+							<Button size="sm" variant="secondary" icon="close" onclick={clearFilters}>Clear filters</Button>
 						{/snippet}
 					</EmptyState>
 				{:else}

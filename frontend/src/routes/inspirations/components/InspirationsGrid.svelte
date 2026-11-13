@@ -104,7 +104,7 @@
 			>
 				{#snippet actions()}
 					{#if filtered}
-						<Button variant="secondary" size="sm" icon="close" onclick={handleClearFilters}>
+						<Button variant="secondary" icon="close" onclick={handleClearFilters}>
 							Clear filters
 						</Button>
 					{/if}

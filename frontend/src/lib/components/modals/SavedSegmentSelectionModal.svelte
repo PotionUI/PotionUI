@@ -3,7 +3,7 @@
 	import { api } from '$lib/services/api';
 	import type { SavedSegment, SegmentCategory } from '$lib/types/segments';
 	import SegmentModal from './SegmentModal.svelte';
-	import { Badge, Spinner, Alert, Button } from '$lib/components/ui';
+	import { Badge, Spinner, Alert, Button, EmptyState } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 
 	export let isOpen = false;
@@ -118,19 +118,22 @@
 				{:else if error}
 					<div class="p-2"><Alert variant="danger" density="compact" live="polite">{error}</Alert></div>
 				{:else if filtered.length === 0}
-					<div class="flex flex-col items-center gap-3 px-5 py-10 text-center text-base text-fg-subtle" data-testid="saved-segment-empty">
+					<div data-testid="saved-segment-empty">
 						{#if segments.length === 0}
-							<span>No saved Segments yet.</span>
+							<EmptyState compact icon="document" title="No saved Segments yet" />
 						{:else}
-							<span>No saved Segments match{query ? ` “${search.trim()}”` : ''}.</span>
-							<Button
-								variant="secondary"
-								size="sm"
-								onclick={() => {
-									search = '';
-									categoryId = '';
-								}}>Clear search</Button
-							>
+							<EmptyState compact icon="search" title="No saved Segments match" description={query ? `“${search.trim()}”` : undefined}>
+								{#snippet actions()}
+									<Button
+										variant="secondary"
+										size="sm"
+										onclick={() => {
+											search = '';
+											categoryId = '';
+										}}>Clear search</Button
+									>
+								{/snippet}
+							</EmptyState>
 						{/if}
 					</div>
 				{:else}

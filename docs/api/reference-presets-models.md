@@ -649,6 +649,7 @@ Query parameters:
 - `tasks` (string, optional)
 - `model_types` (string, optional)
 - `unquantized_only` (boolean, optional, default false)
+- `families` (string, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 

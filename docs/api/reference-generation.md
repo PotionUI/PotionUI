@@ -753,7 +753,7 @@ Response `200`: the standard envelope (`success`, `data`, `message`, `error`). T
 
 **Get Generation Parameters by Index**
 
-Get parameters for a specific generation and image index.
+Get parameters for a specific generation and image index. `data` carries `parameters` ({name: value}), `models`, `parameter_meta` ({name: {label?, type?, unit?}}, only names with recorded meta) and `parameter_order` (names in the order the preset emitted them, unordered names after them alphabetically); the last two are empty for generations recorded before parameter meta existed.
 
 Key permission: `read`.
 

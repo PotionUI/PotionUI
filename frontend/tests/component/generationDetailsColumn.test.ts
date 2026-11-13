@@ -287,11 +287,18 @@ describe('toolbar alignment', () => {
 		expect(bar.className).toContain('border-b');
 	});
 
-	it('gives only the first section the strip and the same gutter to the rest', async () => {
+	it('gives only the first section the strip and full-width dividers with the same gutter to the rest', async () => {
 		response.data = { parameters: {}, models: models(2) };
 		await mountModal(generation());
 		expect(section('models')?.hasAttribute('data-details-strip')).toBe(false);
-		expect(section('models')?.className).toContain('mx-4');
+		const modelsSection = section('models') as HTMLElement;
+		expect(modelsSection.className).not.toContain('mx-');
+		expect(modelsSection.className).toContain('border-t');
+		expect(modelsSection.className).toContain('border-line');
+		expect(modelsSection.className).not.toContain('border-line-strong');
+		const header = modelsSection.firstElementChild as HTMLElement;
+		expect(header.className).toContain('px-4');
+		expect(modelsSection.querySelector('[id$="-body"]')?.className).toContain('px-1');
 	});
 
 	it('keeps the failure notice above the strip with its own top padding', async () => {

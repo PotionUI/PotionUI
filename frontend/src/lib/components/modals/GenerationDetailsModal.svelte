@@ -851,7 +851,7 @@
 					{/if}
 
 					{#if $$slots.afterInformation}
-						<div class="px-4 pb-4 pt-4">
+						<div class="px-4 pb-4 pt-4 empty:hidden">
 							<slot name="afterInformation" />
 						</div>
 					{/if}

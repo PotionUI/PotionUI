@@ -53,6 +53,7 @@
 	import GenerationFailureAlert from '$lib/components/generation/GenerationFailureAlert.svelte';
 	import { failureNotice } from '$lib/components/generation/failureNotice';
 	import { authStore } from '$lib/stores/auth';
+	import { middleEllipsis } from '$lib/components/generation/idDisplay';
 	import FoldButton from '$lib/components/generation/FoldButton.svelte';
 	import FoldedList from '$lib/components/generation/FoldedList.svelte';
 	import { detailsPrefs, loadDetailsPrefs, setDetailsPref } from '$lib/components/generation/detailsPrefs';
@@ -921,9 +922,9 @@
 										{presetLabel}{#if activeGeneration.preset_version}<span class="whitespace-nowrap text-fg-muted">{' · v'}{activeGeneration.preset_version}</span>{/if}
 									</DetailRow>
 								{/if}
-								<DetailRow label="ID" copy={activeGenerationId} copyLabel="Copy ID">{shortGenerationId}…</DetailRow>
+								<DetailRow label="ID" copy={activeGenerationId} copyLabel="Copy ID" copyAlways>{middleEllipsis(activeGenerationId)}</DetailRow>
 								<DetailRow label="When" mono={false}>
-									{runLine?.when}{#if runLine?.detail}{' · '}<span data-testid="detail-generation-time">{runLine.detail}</span>{/if}
+									<span class="whitespace-nowrap">{runLine?.when}</span>{#if runLine?.detail}{' · '}<span data-testid="detail-generation-time">{#each runLine.detail.split(' · ') as part, i}{i > 0 ? ' · ' : ''}<span class="whitespace-nowrap">{part}</span>{/each}</span>{/if}
 								</DetailRow>
 							</dl>
 							<div class="px-3">
@@ -1066,7 +1067,7 @@
 									{#snippet item(model)}
 										<button
 											type="button"
-											class="flex w-full items-center gap-2.5 rounded bg-surface-3 px-2 py-1 text-left hover:outline hover:outline-1 hover:outline-line-hover"
+											class="flex w-full items-center gap-2.5 rounded px-2 py-1 text-left enabled:hover:bg-surface-2"
 											on:click={() => openModelInTab(model)}
 											disabled={!model.id}
 										>

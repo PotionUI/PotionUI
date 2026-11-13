@@ -855,12 +855,7 @@
 					{/if}
 
 					<div data-details-panel>
-						<DetailsSection id="parameters" title="Parameters" collapsible={false}>
-							{#snippet headerRight()}
-								{#if currentFile}
-									<Badge variant="neutral" size="sm" class="font-mono">#{currentFileIndex + 1}</Badge>
-								{/if}
-							{/snippet}
+						<DetailsSection id="parameters" title={mediaFiles.length > 1 ? `Parameters · image ${currentFileIndex + 1}` : 'Parameters'} icon="sliders" collapsible={false}>
 							<ParametersView
 								params={shownParams}
 								meta={shownParamMeta}
@@ -872,7 +867,7 @@
 						</DetailsSection>
 
 						{#if segments.length > 0}
-							<DetailsSection id="segments" title="Segments" count={segments.length} defaultOpen={false}>
+							<DetailsSection id="segments" title="Segments" icon="document" count={segments.length} defaultOpen={false}>
 								<FoldedList id="segments" items={[...positiveSegments, ...negativeSegments]} above={5} show={3}>
 									{#snippet item(seg)}
 										<div class={seg.is_disabled ? 'opacity-50' : ''}>
@@ -920,7 +915,7 @@
 						{/if}
 
 						{#if directorSegments.length > 0}
-							<DetailsSection id="director" title="Director shots" count={directorSegments.length}>
+							<DetailsSection id="director" title="Director shots" icon="document" count={directorSegments.length}>
 								{#if directorKeyframeCount > 0 || directorAudioCount > 0}
 									<div class="flex flex-wrap gap-1 px-3 pb-2">
 										{#if directorKeyframeCount > 0}
@@ -950,7 +945,7 @@
 							</DetailsSection>
 						{/if}
 
-						<DetailsSection id="models" title="Models" count={currentModels.length > 0 ? currentModels.length : undefined}>
+						<DetailsSection id="models" title="Models" icon="model" count={currentModels.length > 0 ? currentModels.length : undefined}>
 							{#if paramsLoading}
 								<div class="flex items-center justify-center py-4">
 									<Spinner size="sm" />
@@ -988,7 +983,7 @@
 
 						{#each extraSections as section (section.id)}
 							<div data-extra-section={section.id}>
-								<DetailsSection id="x-{section.id}" title={section.title}>
+								<DetailsSection id="x-{section.id}" title={section.title} icon={section.icon ?? 'plug'}>
 									{#if section.rows?.length}
 										<ul>
 											{#each section.rows as row (row.id)}
@@ -1019,7 +1014,7 @@
 						{/each}
 
 						{#if systemTags.length > 0}
-							<DetailsSection id="autotags" title="Auto tags" count={systemTags.length} defaultOpen={false}>
+							<DetailsSection id="autotags" title="Auto tags" icon="sparkles" count={systemTags.length} defaultOpen={false}>
 								<FoldedList id="autotags" items={systemTags} above={8} show={6} class="flex flex-wrap gap-1 px-3">
 									{#snippet item(st)}
 										<button

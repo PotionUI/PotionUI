@@ -171,6 +171,14 @@ describe('sections by data', () => {
 		expect(document.body.querySelector('[data-library-favorite-mark]')).toBeNull();
 	});
 
+	it('gives the Library sections a decorative icon', async () => {
+		await mountModal({ item: item('a', { source_generation_id: 'gen-1' }) });
+		for (const id of ['library-file', 'library-tags', 'library-source', 'library-parameters']) {
+			const icon = section(id)?.querySelector('span[aria-hidden="true"] svg');
+			expect(icon, id).not.toBeNull();
+		}
+	});
+
 	it('has no Source or Parameters for a plain upload', async () => {
 		await mountModal({});
 		expect(sectionIds()).toEqual(['library-file', 'library-tags']);

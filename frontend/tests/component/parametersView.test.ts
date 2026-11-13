@@ -125,46 +125,95 @@ describe('ParametersView', () => {
 	});
 });
 
-describe('ParametersView grid', () => {
+describe('ParametersView tiles', () => {
 	const grid = () => document.body.querySelector('dl') as HTMLElement;
+	const span = (cell: Element) => (cell as HTMLElement).style.gridColumn;
 
-	it('uses two columns and leaves the last cell of an odd count empty', () => {
-		mountComponent(ParametersView, { params: { a: 1, b: 2, c: 3 } });
+	it('uses three columns in a 400 px column and leaves the last cell of an odd count empty', () => {
+		vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 368);
+		mountComponent(ParametersView, { params: { a: 1, b: 2, c: 3, d: 4 } });
+		flushSync();
+		expect(grid().getAttribute('data-columns')).toBe('3');
+		expect(grid().style.gridTemplateColumns).toContain('repeat(3');
+		expect(rows()).toHaveLength(4);
+	});
+
+	it('uses two columns on a very narrow container', () => {
+		vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 260);
+		mountComponent(ParametersView, { params: { a: 1 } });
+		flushSync();
 		expect(grid().getAttribute('data-columns')).toBe('2');
-		expect(grid().style.gridTemplateColumns).toContain('repeat(2');
-		expect(rows()).toHaveLength(3);
 	});
 
-	it('spans both columns for a value longer than about 22 characters', () => {
-		mountComponent(ParametersView, { params: { short: 'euler', long: 'dpmpp_2m_sde_gpu_karras_extra' } });
+	it('spans two or three columns for long values and never more than the columns', () => {
+		vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 368);
+		mountComponent(ParametersView, {
+			params: { short: 'euler', mid: 'dpmpp_2m_sde_gpu_karras', long: 'dpmpp_2m_sde_gpu_karras_extra_long_name' }
+		});
+		flushSync();
 		const cells = rows();
-		expect(cells[0].className).not.toContain('col-span-full');
-		expect(cells[1].className).toContain('col-span-full');
+		expect(span(cells[0])).toContain('span 1');
+		expect(span(cells[1])).toContain('span 2');
+		expect(span(cells[2])).toContain('span 3');
 	});
 
-	it('shows the label above the value', () => {
-		mountComponent(ParametersView, { params: { steps: 24 } });
-		const cell = rows()[0];
-		expect(cell.querySelector('dt')?.textContent).toContain('Steps');
-		expect(cell.querySelector('dd')?.textContent?.trim()).toBe('24');
-		expect(cell.querySelector('dd')?.className).toContain('font-mono');
+	it('puts the value above its label in bold, mono for numbers and sans for words', () => {
+		mountComponent(ParametersView, { params: { steps: 24, sampler: 'euler' } });
+		const [steps, sampler] = rows();
+		expect(steps.querySelector('dt')?.textContent).toContain('Steps');
+		expect(steps.className).toContain('flex-col-reverse');
+		const value = steps.querySelector('dd') as HTMLElement;
+		expect(value.textContent?.trim()).toBe('24');
+		expect(value.className).toContain('font-semibold');
+		expect(value.className).toContain('font-mono');
+		expect(sampler.querySelector('dd')?.className).not.toContain('font-mono');
 	});
 
-	it('uses three columns at 560 px and four at 760 px, folding by whole rows', async () => {
-		let width = 600;
+	it('writes the unit beside the value in muted weight', () => {
+		mountComponent(ParametersView, { params: { duration: 4 }, meta: { duration: { unit: 's' } } });
+		const value = rows()[0].querySelector('dd') as HTMLElement;
+		expect(value.textContent?.replace(/\s+/g, ' ').trim()).toBe('4 s');
+		expect(value.querySelector('span')?.className).toContain('text-fg-muted');
+	});
+
+	it('shows Off at normal colour', () => {
+		mountComponent(ParametersView, { params: { enhance: false } });
+		const value = rows()[0].querySelector('dd') as HTMLElement;
+		expect(value.textContent?.trim()).toBe('Off');
+		expect(value.className).not.toContain('text-fg-muted');
+	});
+
+	it('folds by whole rows at three columns and four columns', async () => {
+		let width = 368;
 		vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
 		const view = mountComponent(ParametersView, { params: manyParams(14, false) });
-		await flush();
 		flushSync();
 		expect(grid().getAttribute('data-columns')).toBe('3');
 		expect(rows()).toHaveLength(9);
 		view.destroy();
-		width = 800;
+		width = 680;
 		mountComponent(ParametersView, { params: manyParams(14, false) });
-		await flush();
 		flushSync();
 		expect(grid().getAttribute('data-columns')).toBe('4');
 		expect(rows()).toHaveLength(8);
+	});
+});
+
+describe('ParametersView quote blocks', () => {
+	it('draws long text as a quote with a left rule and no filled box', () => {
+		mountComponent(ParametersView, { params: { notes: 'q'.repeat(200) } });
+		const block = document.body.querySelector('[data-testid="parameter-block"]') as HTMLElement;
+		const quote = block.querySelector('div.border-l-2') as HTMLElement;
+		expect(quote.className).toContain('border-line-strong');
+		expect(quote.className).toContain('pl-3');
+		expect(block.innerHTML).not.toContain('bg-surface-2');
+		expect(block.querySelector('.clamp')?.className).toContain('leading-relaxed');
+	});
+
+	it('keeps the copy button visible without hover on a quote block', () => {
+		mountComponent(ParametersView, { params: { notes: 'q'.repeat(200) } });
+		const button = document.body.querySelector('[data-testid="parameter-block"] button[aria-label="Copy Notes"]') as HTMLElement;
+		expect(button.className).not.toContain('opacity-0');
 	});
 });
 

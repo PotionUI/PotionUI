@@ -241,13 +241,52 @@ describe('section headers', () => {
 		expect(section('models')?.querySelector('h3 span')?.textContent).toBe('3');
 	});
 
-	it('gives plugin sections the same header without an icon', async () => {
+	it('gives plugin sections the same eyebrow header', async () => {
 		await mountModal(generation(), { extraSections: [{ id: 'send', title: 'Send to', icon: 'sparkles', rows: [], actions: [] }] });
 		const box = document.body.querySelector('[data-extra-section="send"]') as HTMLElement;
 		const title = box.querySelector('h3') as HTMLElement;
 		expect(title.className).toContain('uppercase');
 		expect(title.textContent).toBe('Send to');
 		expect(box.querySelector('h3 svg')).toBeNull();
+	});
+});
+
+describe('section icons', () => {
+	const iconOf = (id: string) => section(id)?.querySelector(':scope > button > span span[aria-hidden="true"], :scope > div > span span[aria-hidden="true"]');
+
+	it('gives every section header a decorative leading icon outside the heading', async () => {
+		response.data = { parameters: {}, models: models(2) };
+		await mountModal(generation({ segments: segments(2), form_data: director(1) }, tags(2)));
+		for (const id of ['parameters', 'segments', 'director', 'models', 'autotags']) {
+			const icon = iconOf(id);
+			expect(icon, id).not.toBeNull();
+			expect(icon?.querySelector('svg')).not.toBeNull();
+			expect(icon?.className).toContain('text-fg-muted');
+			expect(section(id)?.querySelector('h3 svg')).toBeNull();
+		}
+	});
+
+	it('uses the plugin section icon when supplied and a neutral default otherwise', async () => {
+		await mountModal(generation(), {
+			extraSections: [
+				{ id: 'a', title: 'With icon', icon: 'sparkles', rows: [], actions: [] },
+				{ id: 'b', title: 'No icon', rows: [], actions: [] }
+			]
+		});
+		expect(iconOf('x-a')?.querySelector('svg')).not.toBeNull();
+		expect(iconOf('x-b')?.querySelector('svg')).not.toBeNull();
+		expect(iconOf('x-a')?.innerHTML).not.toBe(iconOf('x-b')?.innerHTML);
+	});
+
+	it('names the image only when the generation has more than one output', async () => {
+		await mountModal(generation());
+		expect(section('parameters')?.querySelector('h3')?.textContent?.trim()).toBe('Parameters');
+		mountedModal?.$destroy();
+		target?.remove();
+		const two = generation();
+		two.files = [two.files[0], { ...two.files[0], id: 2, file_path: 'b.png' }];
+		await mountModal(two);
+		expect(section('parameters')?.querySelector('h3')?.textContent?.trim()).toBe('Parameters · image 1');
 	});
 });
 

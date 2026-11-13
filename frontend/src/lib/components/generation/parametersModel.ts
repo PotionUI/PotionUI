@@ -20,7 +20,7 @@ export interface ParameterRow {
 	unitSpaced: boolean;
 	mono: boolean;
 	off: boolean;
-	wide: boolean;
+	span: 1 | 2 | 3;
 }
 
 export interface ParameterView {
@@ -45,8 +45,9 @@ export interface FoldResult {
 export const LONG_TEXT_CHARS = 80;
 export const FOLD_ABOVE = 10;
 export const FOLD_SHOW = 8;
-export const WIDE_VALUE_CHARS = 22;
-export const MIN_COLUMN_WIDTHS = [560, 760] as const;
+export const SPAN_TWO_CHARS = 14;
+export const SPAN_THREE_CHARS = 28;
+export const MIN_COLUMN_WIDTHS = [300, 520] as const;
 
 const TEXT_TYPES = new Set(['prompt', 'textarea', 'markdown']);
 const BOOL_TYPES = new Set(['checkbox', 'boolean', 'switch']);
@@ -109,10 +110,11 @@ function isTruthy(value: unknown): boolean {
 	return /^(true|1)$/i.test(String(value).trim());
 }
 
-function withWide(row: ParameterRow): ParameterRow {
+function withSpan(row: ParameterRow): ParameterRow {
 	if (row.kind !== 'short') return row;
 	const shown = row.display + (row.unit ? (row.unitSpaced ? ' ' : '') + row.unit : '');
-	return { ...row, wide: shown.length > WIDE_VALUE_CHARS };
+	const span = shown.length > SPAN_THREE_CHARS ? 3 : shown.length > SPAN_TWO_CHARS ? 2 : 1;
+	return { ...row, span };
 }
 
 export function classifyParameter(
@@ -121,7 +123,7 @@ export function classifyParameter(
 	meta?: Record<string, ParameterMeta> | null
 ): ParameterRow | null {
 	const row = classifyUnwidened(key, value, meta);
-	return row ? withWide(row) : null;
+	return row ? withSpan(row) : null;
 }
 
 function classifyUnwidened(
@@ -142,7 +144,7 @@ function classifyUnwidened(
 		display: '',
 		mono: false,
 		off: false,
-		wide: false
+		span: 1 as const
 	};
 
 	if (isBooleanValue(value, type)) {

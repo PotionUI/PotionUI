@@ -6,6 +6,7 @@
 	let {
 		id,
 		title,
+		icon,
 		count,
 		collapsible = true,
 		defaultOpen = true,
@@ -14,6 +15,7 @@
 	}: {
 		id: string;
 		title: string;
+		icon?: string;
 		count?: number;
 		collapsible?: boolean;
 		defaultOpen?: boolean;
@@ -38,9 +40,14 @@
 			aria-controls={bodyId}
 			onclick={() => setDetailsPref(`section:${id}`, !open)}
 		>
-			<h3 class="text-sm font-semibold uppercase tracking-wide text-fg-muted">
-				{title}{#if count !== undefined}<span class="ml-1.5 font-normal tabular-nums">{count}</span>{/if}
-			</h3>
+			<span class="flex min-w-0 items-center gap-2">
+				{#if icon}
+					<span aria-hidden="true" class="flex-shrink-0 text-fg-muted"><Icon name={icon} className="h-4 w-4" /></span>
+				{/if}
+				<h3 class="text-sm font-semibold uppercase tracking-wide text-fg-muted">
+					{title}{#if count !== undefined}<span class="ml-1.5 font-normal tabular-nums">{count}</span>{/if}
+				</h3>
+			</span>
 			<Icon
 				name="chevron-down"
 				className="h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}"
@@ -48,9 +55,14 @@
 		</button>
 	{:else}
 		<div class="flex min-h-6 items-center justify-between gap-2 pb-2">
-			<h3 class="text-sm font-semibold uppercase tracking-wide text-fg-muted">
-				{title}{#if count !== undefined}<span class="ml-1.5 font-normal tabular-nums">{count}</span>{/if}
-			</h3>
+			<span class="flex min-w-0 items-center gap-2">
+				{#if icon}
+					<span aria-hidden="true" class="flex-shrink-0 text-fg-muted"><Icon name={icon} className="h-4 w-4" /></span>
+				{/if}
+				<h3 class="text-sm font-semibold uppercase tracking-wide text-fg-muted">
+					{title}{#if count !== undefined}<span class="ml-1.5 font-normal tabular-nums">{count}</span>{/if}
+				</h3>
+			</span>
 			{@render headerRight?.()}
 		</div>
 	{/if}

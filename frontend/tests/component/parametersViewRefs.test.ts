@@ -80,6 +80,19 @@ describe('reference tokens in long text', () => {
 		expect(copyText).not.toHaveBeenCalled();
 	});
 
+	it('keeps a chip and the punctuation after it in one non-wrapping unit', () => {
+		mountComponent(ParametersView, { params: { notes: `${'z'.repeat(70)} outfit of @[references:${KIT}]. next @[references:${UP}], end` } });
+		const chips = [...block().querySelectorAll('[data-ref-chip]')];
+		expect(chips).toHaveLength(2);
+		const units = chips.map((chip) => chip.parentElement as HTMLElement);
+		expect(units.map((unit) => unit.className)).toEqual(['whitespace-nowrap', 'whitespace-nowrap']);
+		expect(units.map((unit) => unit.textContent?.trim().slice(-1))).toEqual(['.', ',']);
+		expect(chips[0].className).toContain('align-middle');
+		expect(chips[0].className).toContain('-my-px');
+		expect(chips[0].className).toContain('[&_.resource-chip]:py-0');
+		expect(chips[0].className).toContain('[&_.resource-chip]:text-fg');
+	});
+
 	it('leaves a value without tokens as plain text, with no chip machinery', () => {
 		mountComponent(ParametersView, { params: { positive_prompt: 'a red bicycle '.repeat(10) } });
 		expect(block().querySelector('[data-ref-chip]')).toBeNull();

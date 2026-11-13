@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeRefs, hasRefTokens, kindFromKey, tokenizeRefs, uploadUrl } from './promptRefs';
+import { describeRefs, groupRefs, hasRefTokens, kindFromKey, tokenizeRefs, uploadUrl } from './promptRefs';
 
 const UP = 'uploads/3f2b8c1e-9d4a-4e7b-a1c2-5d6e7f8a9b0c.png';
 const UP2 = 'uploads/aaaaaaaa-9d4a-4e7b-a1c2-5d6e7f8a9b0c.jpg';
@@ -84,5 +84,43 @@ describe('helpers', () => {
 		expect(kindFromKey('a/b')).toBeNull();
 		expect(uploadUrl(UP)).toBe(`/api/media/uploads/${UP.split('/')[1]}`);
 		expect(uploadUrl('generations/x.png')).toBeNull();
+	});
+});
+
+describe('groupRefs', () => {
+	const nodes = (text: string) => groupRefs(tokenizeRefs(text));
+	const ref = `@[references:${UP}]`;
+
+	it.each([['.'], [','], [')'], ['.)'], ['!?'], [';']])('keeps a chip together with the punctuation %s right after it', (punct) => {
+		expect(nodes(`with ${ref}${punct} then`)).toEqual([
+			{ type: 'text', text: 'with ' },
+			{ type: 'ref', raw: ref, field: 'references', key: UP, trailing: punct },
+			{ type: 'text', text: ' then' }
+		]);
+	});
+
+	it('leaves nothing trailing when a space follows the chip', () => {
+		const result = nodes(`with ${ref} then`);
+		expect(result[1]).toMatchObject({ type: 'ref', trailing: '' });
+		expect(result[2]).toEqual({ type: 'text', text: ' then' });
+	});
+
+	it('takes the whole non-space run after the chip and handles the end of the text', () => {
+		expect(nodes(`${ref}word-after`)[0]).toMatchObject({ trailing: 'word-after' });
+		const end = nodes(`last ${ref}.`);
+		expect(end).toHaveLength(2);
+		expect(end[1]).toMatchObject({ trailing: '.' });
+	});
+
+	it('groups two chips in a row without losing text', () => {
+		const result = nodes(`${ref}, ${ref}.`);
+		expect(result.map((n) => (n.type === 'ref' ? `ref:${n.trailing}` : `text:${n.text}`))).toEqual(['ref:,', 'text: ', 'ref:.']);
+	});
+
+	it('does not change plain text and never drops characters', () => {
+		const text = `a ${ref}. b ${ref}, c\n\n(${ref}) d`;
+		const rebuilt = nodes(text).map((n) => (n.type === 'text' ? n.text : n.raw + n.trailing)).join('');
+		expect(rebuilt).toBe(text);
+		expect(nodes('plain text')).toEqual([{ type: 'text', text: 'plain text' }]);
 	});
 });

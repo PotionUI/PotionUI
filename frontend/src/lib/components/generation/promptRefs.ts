@@ -14,6 +14,33 @@ export type RefPart =
 	| { type: 'text'; text: string }
 	| { type: 'ref'; raw: string; field: string; key: string };
 
+export type RefNode =
+	| { type: 'text'; text: string }
+	| { type: 'ref'; raw: string; field: string; key: string; trailing: string };
+
+export function groupRefs(parts: readonly RefPart[]): RefNode[] {
+	const list: RefPart[] = [...parts];
+	const nodes: RefNode[] = [];
+	for (let index = 0; index < list.length; index += 1) {
+		const part = list[index];
+		if (part.type === 'text') {
+			if (part.text) nodes.push({ type: 'text', text: part.text });
+			continue;
+		}
+		let trailing = '';
+		const next = list[index + 1];
+		if (next && next.type === 'text') {
+			const run = /^\S+/.exec(next.text);
+			if (run) {
+				trailing = run[0];
+				list[index + 1] = { type: 'text', text: next.text.slice(trailing.length) };
+			}
+		}
+		nodes.push({ type: 'ref', raw: part.raw, field: part.field, key: part.key, trailing });
+	}
+	return nodes;
+}
+
 export type RefView =
 	| { type: 'kit'; field: string; key: string }
 	| {

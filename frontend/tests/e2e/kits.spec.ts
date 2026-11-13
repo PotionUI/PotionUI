@@ -268,7 +268,7 @@ test.describe('Kits in the Library', () => {
 		await page.getByRole('button', { name: 'New kit' }).first().click();
 		await page.getByLabel('Name', { exact: true }).fill('Old harbour');
 		await expect(page.getByText('@kits.old_harbour')).toBeVisible();
-		await page.getByRole('button', { name: 'Create' }).click();
+		await page.getByRole('dialog').getByRole('button', { name: 'Create', exact: true }).click();
 		await expect(page.getByLabel('Kit name')).toHaveValue('Old harbour');
 		expect(backend.kits).toHaveLength(1);
 
@@ -402,7 +402,7 @@ test.describe('Kits and History', () => {
 		await expect(page.getByRole('heading', { name: 'Add to Mara' })).toBeVisible();
 		await page.getByTestId('history-file-tile').first().getByRole('checkbox').check();
 		await page.getByTestId('history-file-tile').nth(1).getByRole('checkbox').check();
-		await page.getByRole('button', { name: 'Use selected' }).click();
+		await page.getByRole('dialog', { name: 'Add to Mara' }).getByRole('button', { name: 'Add to kit' }).click();
 		await expect.poll(() => backend.submitted.length).toBe(1);
 		expect(backend.submitted[0].file_ids).toEqual(['501', '502']);
 		expect(backend.kits[0].items).toHaveLength(5);
@@ -440,6 +440,7 @@ test.describe('Kits and History', () => {
 	});
 
 	test('adds the open generation to a kit from its details', async ({ page }) => {
+		await page.setViewportSize({ width: 1920, height: 1080 });
 		await mockHistory(page);
 		const backend = await mockKits(page, [seedMara()]);
 		await page.goto('/history?generation=gen-a');

@@ -132,7 +132,7 @@ async function openPicture(page: Page, from: 'library' | 'history', buffer = sol
 	await expect(empty).toContainText('Open a picture to edit');
 	if (from === 'library') {
 		await empty.getByRole('button', { name: 'Library', exact: true }).click();
-		await page.getByRole('button', { name: /^Use / }).first().click();
+		await page.locator('[data-pick-tile] [data-pick-main]').first().click();
 	} else {
 		await empty.locator('[data-recent-history] button').first().click();
 	}

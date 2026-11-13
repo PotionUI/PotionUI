@@ -163,7 +163,7 @@ test('History search and the Filters popover reach the list, and Escape restores
 
 	await dialog.getByLabel('Search').fill('dunes');
 	await expect.poll(() => requests.some((url) => url.includes('search=dunes'))).toBe(true);
-	await dialog.getByRole('button', { name: 'Filters' }).click();
+	await dialog.getByRole('button', { name: 'Filters', exact: true }).click();
 	await page.getByRole('button', { name: '7 Days' }).click();
 	await expect.poll(() => requests.some((url) => url.includes('created_from='))).toBe(true);
 	await page.keyboard.press('Escape');

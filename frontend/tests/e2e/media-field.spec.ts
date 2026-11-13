@@ -326,7 +326,7 @@ for (const size of SIZES) {
 			await host.getByRole('button', { name: 'Replace' }).click();
 			const menu = page.locator('[data-source-menu="change"]');
 			await expect(menu.getByText('Replace image')).toBeVisible();
-			await expect(menu.getByRole('menuitem')).toHaveText([/Upload file/, /History/, /Library/, /Kits.*one item/, /Paste/]);
+			await expect(menu.getByRole('menuitem')).toHaveText([/Upload file/, /History/, /Library/, /Kits.*one item/, /Paste/, /Draw/]);
 			await page.keyboard.press('Escape');
 			await expect(menu).toHaveCount(0);
 		});
@@ -493,7 +493,7 @@ for (const size of SIZES) {
 			await tiles.nth(1).click();
 			await expect(host.locator('[data-media-tile="1"]')).toHaveAttribute('data-selected', 'true');
 			await expectNoOverflow(page, host);
-			await expectToolsReachable(page, host, ['edit', 'crop', 'full', 'earlier', 'later', 'replace', 'remove-all'], `tools-multi-${size.tag}`);
+			await expectToolsReachable(page, host, ['edit', 'crop', 'full', 'earlier', 'later', 'remove-all'], `tools-multi-${size.tag}`);
 			await screenshot(page, JOURNEY, `multi-three-${size.tag}`);
 		});
 
@@ -694,7 +694,7 @@ for (const size of SIZES) {
 			const box = await row.boundingBox();
 			expect(box!.height).toBeLessThan(64);
 			await expectNoOverflow(page, host);
-			await expectToolsReachable(page, host, ['edit', 'crop', 'full', 'replace', 'remove']);
+			await expectToolsReachable(page, host, ['edit', 'crop', 'full', 'remove']);
 			await screenshot(page, JOURNEY, `compact-single-${size.tag}`);
 		});
 

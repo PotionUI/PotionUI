@@ -133,7 +133,7 @@ test('an image picked from the upload library keeps its preview after a page rel
 	const field = root.locator('[data-field-name]:has(input[type="file"])').first();
 	await field.scrollIntoViewIfNeeded();
 	await field.getByRole('button', { name: 'Library', exact: true }).click();
-	await page.getByRole('button', { name: /^Use / }).first().click();
+	await page.locator('[data-pick-tile] [data-pick-main]').first().click();
 	await expectPreviewLoaded(page);
 	await page.waitForTimeout(1000);
 

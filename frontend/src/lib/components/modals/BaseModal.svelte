@@ -32,6 +32,9 @@
 	/** Set false when the caller owns Escape itself (e.g. ConfirmModal), so it isn't handled twice. */
 	export let handleEscapeKey: boolean = true;
 	export let compact: boolean = false;
+	/** Keep `title` as the dialog's accessible name but let the header slot draw its own title. */
+	export let hideTitle: boolean = false;
+	export let closeClass: string = '';
 
 	const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -122,15 +125,15 @@
 			use:focusTrap
 		>
 			<!-- Header (rendered only when title or close button is needed) -->
-			{#if title || subtitle || $$slots.header || (!hideCloseButton && closeable)}
+			{#if (title && !hideTitle) || subtitle || $$slots.header || (!hideCloseButton && closeable)}
 				<div class="flex items-center justify-between gap-3 min-h-[52px] py-[7px] pl-4 pr-2 md:min-h-14 md:py-[9px] md:pl-5 md:pr-2.5 border-b border-line flex-shrink-0">
 					<div class="flex flex-wrap items-center gap-3 flex-1 min-w-0">
 						{#if $$slots.headerIcon}
 							<slot name="headerIcon" />
 						{/if}
-						{#if title || subtitle}
+						{#if (title && !hideTitle) || subtitle}
 							<div class="min-w-[8rem] flex-1">
-								{#if title}
+								{#if title && !hideTitle}
 									<h2 class="text-lg font-semibold text-fg truncate">{title}</h2>
 								{/if}
 								{#if subtitle}
@@ -141,7 +144,7 @@
 						<slot name="header" />
 					</div>
 					{#if !hideCloseButton && closeable}
-						<IconButton icon="close" label="Close modal" size="sm" onclick={handleClose} />
+						<IconButton icon="close" label="Close modal" size="sm" class={closeClass} onclick={handleClose} />
 					{/if}
 				</div>
 			{/if}

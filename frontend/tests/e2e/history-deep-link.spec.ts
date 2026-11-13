@@ -70,7 +70,7 @@ async function mockHistory(page: Page) {
 	});
 }
 
-const detailsTitle = (page: Page) => page.getByText('Generation Details');
+const detailsTitle = (page: Page) => page.getByRole('dialog', { name: 'Generation Details' });
 
 test.describe('history deep link', () => {
 	test.beforeEach(async ({ page }) => {

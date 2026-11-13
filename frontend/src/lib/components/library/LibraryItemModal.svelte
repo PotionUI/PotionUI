@@ -1,9 +1,10 @@
 <script lang="ts">
 	import tooltip from '$lib/actions/tooltip';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Badge, CopyButton, IconButton } from '$lib/components/ui';
+	import { CopyButton, IconButton } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import MediaDetailsShell from '$lib/components/media-details/MediaDetailsShell.svelte';
+	import MediaDetailsHeader from '$lib/components/media-details/MediaDetailsHeader.svelte';
 	import MediaStage from '$lib/components/media-details/MediaStage.svelte';
 	import FactGrid, { type Fact } from '$lib/components/media-details/FactGrid.svelte';
 	import DetailsSection from '$lib/components/generation/DetailsSection.svelte';
@@ -11,7 +12,7 @@
 	import { detailsPrefs } from '$lib/components/generation/detailsPrefs';
 	import type { GenerationParameterMeta } from '$lib/types/generation';
 	import { parseServerDate } from '$lib/utils/relativeTime';
-	import { formatShortWhen } from '$lib/utils/generationTime';
+	import { formatShortDay, formatShortWhen } from '$lib/utils/generationTime';
 	import { libraryStore, LIBRARY_TAG_TYPE } from '$lib/stores/library';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
 	import { libraryItemDisplayName, libraryItemIcon, sliceOrigin, sliceOriginLabel } from '$lib/library/libraryItemMeta';
@@ -73,6 +74,7 @@
 	};
 	$: formatLabel = (item.mime_type?.split('/')[1] ?? '').toUpperCase() || undefined;
 	$: addedShort = formatShortWhen(item.created_at);
+	$: addedPhone = formatShortDay(item.created_at);
 	$: addedExact = item.created_at ? (parseServerDate(item.created_at)?.toLocaleString() ?? '') : '';
 
 	$: facts = [
@@ -225,25 +227,50 @@
 	{onClose}
 	onKeyDown={handleKeyDown}
 	bind:root={detailsRoot}
+	customHeader
 >
 	{#snippet headerRight()}
-		<div class="flex-1"></div>
-		<Badge variant="neutral" class="flex-shrink-0 uppercase tracking-wide">{kind || 'media'}</Badge>
-		{#if canNavigate}
-			<div class="flex flex-shrink-0 items-center gap-1">
-				<Tooltip text="Previous item" kbd="←" position="bottom">
-					<IconButton icon="chevron-left" label="Previous item" disabled={!hasPrevious} onclick={() => navigate(-1)} />
-				</Tooltip>
-				{#if position}
-					<span class="font-mono tabular-nums text-xs text-fg-subtle" data-library-position>
-						{position.index} / {position.total}
+		<MediaDetailsHeader title={displayName}>
+			{#snippet rating()}
+				{#if item.is_favorite}
+					<span class="inline-flex text-signal" role="img" aria-label="Favorite" data-library-favorite-mark use:tooltip={"Favorite"}>
+						<svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
 					</span>
 				{/if}
-				<Tooltip text="Next item" kbd="→" position="bottom">
-					<IconButton icon="chevron-right" label="Next item" disabled={!hasNext} onclick={() => navigate(1)} />
-				</Tooltip>
-			</div>
-		{/if}
+			{/snippet}
+			{#snippet tools()}
+				{#if canNavigate}
+					<div class="flex flex-shrink-0 items-center gap-1">
+						<Tooltip text="Previous item" kbd="←" position="bottom">
+							<IconButton icon="chevron-left" label="Previous item" disabled={!hasPrevious} onclick={() => navigate(-1)} />
+						</Tooltip>
+						{#if position}
+							<span class="font-mono tabular-nums text-xs text-fg-subtle max-sm:hidden" data-library-position>
+								{position.index} / {position.total}
+							</span>
+						{/if}
+						<Tooltip text="Next item" kbd="→" position="bottom">
+							<IconButton icon="chevron-right" label="Next item" disabled={!hasNext} onclick={() => navigate(1)} />
+						</Tooltip>
+					</div>
+				{/if}
+			{/snippet}
+			{#snippet meta()}
+				{#if addedShort}
+					<button
+						type="button"
+						class="min-w-0 cursor-default truncate rounded text-left"
+						data-testid="library-added"
+						use:tooltip={{ text: addedExact, focusSelf: true, wrap: true }}
+					>
+						<span class="max-sm:hidden">Added {addedShort}</span><span class="sm:hidden">{addedPhone}</span>
+					</button>
+					<span aria-hidden="true">·</span>
+				{/if}
+				<span class="shrink-0 uppercase tracking-wide" data-library-kind>{kind || 'media'}</span>
+				<CopyButton text={displayName} ariaLabel="Copy file name" size="xs" class="flex-shrink-0 max-sm:hidden" />
+			{/snippet}
+		</MediaDetailsHeader>
 	{/snippet}
 
 	{#snippet toolbar()}
@@ -276,29 +303,6 @@
 
 	{#snippet columnContent()}
 		<div class="py-4">
-			<div class="px-4" data-library-item-heading>
-				<div class="flex items-start justify-between gap-2">
-					<div class="flex min-w-0 items-start gap-1 text-base font-semibold text-fg">
-						<span class="min-w-0 [overflow-wrap:anywhere]">{displayName}</span>
-						<CopyButton text={displayName} ariaLabel="Copy file name" size="xs" class="shrink-0 font-normal" />
-					</div>
-					{#if item.is_favorite}
-						<Badge variant="signal" size="sm" class="mt-0.5 shrink-0">Favorite</Badge>
-					{/if}
-				</div>
-				{#if addedShort}
-					<button
-						type="button"
-						class="mt-0.5 block max-w-full cursor-default rounded text-left text-sm text-fg-muted"
-						data-testid="library-added"
-						use:tooltip={{ text: addedExact, focusSelf: true, wrap: true }}
-					>
-						Added {addedShort}
-					</button>
-				{/if}
-				<ProvenanceLine itemType="upload" itemId={item.id} />
-			</div>
-
 			{#if facts.length > 0}
 				<DetailsSection id="library-file" title="File" collapsible={false}>
 					<FactGrid {facts} />
@@ -365,6 +369,7 @@
 					/>
 				</DetailsSection>
 			{/if}
+			<div class="mx-4 mt-4 empty:hidden"><ProvenanceLine itemType="upload" itemId={item.id} /></div>
 		</div>
 	{/snippet}
 </MediaDetailsShell>

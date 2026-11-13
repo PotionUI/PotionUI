@@ -82,7 +82,7 @@ async function openDetails(page: Page, index: number) {
 	const actions = page.locator('[data-generation-card]').getByRole('button', { name: 'Item actions' });
 	await actions.nth(index).click({ force: true });
 	await page.getByRole('menuitem', { name: 'Open details' }).click();
-	await expect(page.getByText('Generation Details')).toBeVisible({ timeout: 15000 });
+	await expect(page.getByRole('dialog', { name: 'Generation Details' })).toBeVisible({ timeout: 15000 });
 }
 
 for (const viewport of [

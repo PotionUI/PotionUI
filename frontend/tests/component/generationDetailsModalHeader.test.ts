@@ -58,20 +58,60 @@ function mountWith(props: Record<string, unknown>) {
 }
 
 describe('GenerationDetailsModal header', () => {
-	it('hides the id chip on phones and keeps the status badge', () => {
+	it('keeps the id as a chip hidden on phones next to a copy button, with no status badge', () => {
 		mountWith({});
 
-		const chip = document.body.querySelector('code');
-		expect(chip?.textContent).toBe('gen-head');
+		const chip = document.body.querySelector('[data-details-meta] code');
+		expect(chip?.textContent).toBe('gen-header');
 		expect(chip?.className).toContain('hidden');
 		expect(chip?.className).toContain('sm:inline');
-		expect(document.body.textContent).toContain('completed');
+		expect(document.body.querySelector('[data-details-meta] button[aria-label="Copy ID"]')).not.toBeNull();
+		expect(document.body.textContent).not.toMatch(/completed/i);
 	});
 
-	it('reserves a minimum width for the title so header actions wrap below it', () => {
+	it('reserves a minimum width for the title', () => {
 		mountWith({});
 
 		const title = document.body.querySelector('h2');
 		expect(title?.parentElement?.className).toContain('min-w-[8rem]');
+	});
+
+	it('keeps Generation Details as the dialog name while the title shows the preset', () => {
+		mountWith({});
+
+		expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Generation Details');
+	});
+
+	it.each([
+		['completed', 'text-success'],
+		['failed', 'text-danger'],
+		['running', 'text-signal'],
+		['pending', 'text-warning'],
+		['cancelled', 'text-fg-muted']
+	])('colours the media icon for a %s generation', (status, cls) => {
+		mountWith({ generation: { ...generation, status } as never });
+
+		const icon = document.body.querySelector('[data-details-status]') as HTMLButtonElement;
+		expect(icon.getAttribute('data-details-status')).toBe(status);
+		expect(icon.querySelector('svg')?.getAttribute('class')).toContain(cls);
+		expect(icon.getAttribute('aria-label')).toContain(status);
+	});
+
+	it('shows the status word in the tooltip and reaches it by keyboard', () => {
+		mountWith({ generation: { ...generation, status: 'failed' } as never });
+
+		const icon = document.body.querySelector('[data-details-status]') as HTMLButtonElement;
+		expect(icon.tagName).toBe('BUTTON');
+		expect(icon.tabIndex).toBe(0);
+		expect(icon.hasAttribute('data-has-tooltip')).toBe(true);
+		icon.focus();
+		expect(document.activeElement).toBe(icon);
+	});
+
+	it('moves the preset name into the meta line when the host passes a title', () => {
+		mountWith({ title: 'Compare grid' });
+
+		expect(document.body.querySelector('h2')?.textContent).toBe('Compare grid');
+		expect(document.body.querySelector('[data-details-meta]')?.textContent).toContain('Unknown preset');
 	});
 });

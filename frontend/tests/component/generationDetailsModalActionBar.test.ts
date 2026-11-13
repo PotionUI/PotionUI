@@ -166,6 +166,7 @@ describe('GenerationDetailsModal action bar', () => {
 			'reuse',
 			'copy-to-library',
 			'add-to-kit',
+			'auto-file',
 			'download',
 			'more'
 		]);
@@ -226,7 +227,7 @@ describe('GenerationDetailsModal action bar', () => {
 	it('shows nothing to edit for a mesh but keeps the generation actions', async () => {
 		await open(generation('mesh'));
 
-		expect(barIds()).toEqual(['favorite', 'tags', 'reuse', 'download', 'more']);
+		expect(barIds()).toEqual(['favorite', 'tags', 'reuse', 'auto-file', 'download', 'more']);
 	});
 
 	it('leaves the media corner with only what describes the media', async () => {
@@ -325,7 +326,7 @@ describe('GenerationDetailsModal generation actions', () => {
 	it('leaves out Reuse settings for a generation with no preset', async () => {
 		await open(generation('image', { preset_id: null }));
 
-		expect(barIds()).toEqual(['edit', 'effects', 'favorite', 'tags', 'copy-to-library', 'add-to-kit', 'download', 'more']);
+		expect(barIds()).toEqual(['edit', 'effects', 'favorite', 'tags', 'copy-to-library', 'add-to-kit', 'auto-file', 'download', 'more']);
 	});
 
 	it('dispatches reuse with the generation when Reuse settings is pressed', async () => {

@@ -12,7 +12,8 @@
 		headerIconName = 'image',
 		onClose,
 		onKeyDown,
-		labelledBy,
+		customHeader = false,
+		iconBox,
 		loading = false,
 		ready = true,
 		scrollRestore,
@@ -28,7 +29,8 @@
 		headerIconName?: string;
 		onClose: () => void;
 		onKeyDown?: (event: KeyboardEvent) => void;
-		labelledBy?: string;
+		customHeader?: boolean;
+		iconBox?: Snippet;
 		loading?: boolean;
 		ready?: boolean;
 		scrollRestore?: () => number | null;
@@ -44,11 +46,15 @@
 <svelte:window onkeydowncapture={onKeyDown} />
 
 <div use:portal>
-	<BaseModal {isOpen} title={labelledBy ? '' : title} {labelledBy} sizeClass="md:w-[85vw] md:h-[85vh]" on:close={onClose}>
+	<BaseModal {isOpen} {title} hideTitle={customHeader} closeClass="max-md:!min-h-10 max-md:!min-w-10" sizeClass="md:w-[85vw] md:h-[85vh]" on:close={onClose}>
 		<svelte:fragment slot="headerIcon">
-			<div class="w-[30px] h-[30px] rounded bg-surface-2 border border-line flex items-center justify-center flex-shrink-0">
-				<Icon name={headerIconName} className="w-4 h-4 text-fg-muted" />
-			</div>
+			{#if iconBox}
+				{@render iconBox()}
+			{:else}
+				<div class="w-[30px] h-[30px] rounded bg-surface-2 border border-line flex items-center justify-center flex-shrink-0">
+					<Icon name={headerIconName} className="w-4 h-4 text-fg-muted" />
+				</div>
+			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="header">
 			{@render headerRight?.()}

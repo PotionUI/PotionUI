@@ -8,7 +8,7 @@
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { resolveReusePresetLabel } from '$lib/utils/historyReuse';
-	import { formatHumanDuration, formatRunLine, generationQueueLabel } from '$lib/utils/generationTime';
+	import { formatHumanDuration, formatRunLine, formatShortDay, generationQueueLabel } from '$lib/utils/generationTime';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
 	import { isTypingInField } from '$lib/utils/editableTarget';
@@ -39,6 +39,8 @@
 	import { withAxisParams } from '$lib/generation/compare/view/gridModel';
 	import MediaDetailsShell from '$lib/components/media-details/MediaDetailsShell.svelte';
 	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
+	import MediaDetailsHeader from '$lib/components/media-details/MediaDetailsHeader.svelte';
+	import { libraryItemIcon } from '$lib/library/libraryItemMeta';
 	import MediaStage from '$lib/components/media-details/MediaStage.svelte';
 	import { audioTracksFor, isAudioFile, isMeshFile, isVideoFile, resolveAudioFormat } from '$lib/components/media-details/mediaFile';
 	import ParametersView from '$lib/components/generation/ParametersView.svelte';
@@ -76,9 +78,6 @@
 	export let axisTags: Record<string, string> = {};
 	export let axisValues: Record<string, string> = {};
 	export let axisParamMeta: Record<string, GenerationParameterMeta> = {};
-	export let headerLayout: 'bar' | 'lines' = 'bar';
-
-	const headerTitleId = `details-title-${Math.random().toString(36).slice(2, 9)}`;
 	$: hostTitle = title !== 'Generation Details';
 
 	const dispatch = createEventDispatcher();
@@ -184,7 +183,15 @@
 	let isSavingTags: boolean = false;
 
 	$: failure = activeGeneration ? failureNotice(activeGeneration, $authStore.user?.account_type === 'ADMIN') : null;
+	$: statusVariant = getStatusVariant(activeGeneration?.status ?? '');
+	$: statusIconClass = STATUS_ICON_CLASS[statusVariant];
+	$: statusBoxClass = STATUS_BOX_CLASS[statusVariant];
+	$: statusName = activeGeneration?.status ? activeGeneration.status.charAt(0).toUpperCase() + activeGeneration.status.slice(1) : '';
+	$: headerIcon = headerIconName !== 'image' || !currentFile ? headerIconName : libraryItemIcon(currentFile.file_type);
+	$: headerKindLabel = headerIconName === 'grid' ? 'Compare grid' : currentFile?.file_type ? currentFile.file_type.charAt(0).toUpperCase() + currentFile.file_type.slice(1) : 'Generation';
 	$: runLine = activeGeneration ? formatRunLine(activeGeneration) : null;
+	$: phoneWhen = activeGeneration ? formatShortDay(activeGeneration.completed_at ?? activeGeneration.created_at) : '';
+	$: phoneDetail = (runLine?.detail?.split(' · ')[0] ?? '').replace(/^took /, '').replace(/^(failed|cancelled) after /, '$1 ');
 	$: runTime =
 		activeGeneration && activeGeneration.status === 'completed' && activeGeneration.completed_at
 			? formatHumanDuration(activeGeneration.run_seconds)
@@ -397,6 +404,23 @@
 	}
 
 	type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'signal';
+
+	const STATUS_ICON_CLASS: Record<BadgeVariant, string> = {
+		success: 'text-success',
+		danger: 'text-danger',
+		warning: 'text-warning',
+		signal: 'text-signal',
+		info: 'text-info',
+		neutral: 'text-fg-muted'
+	};
+	const STATUS_BOX_CLASS: Record<BadgeVariant, string> = {
+		success: 'border-success/30 bg-success/10',
+		danger: 'border-danger/30 bg-danger/10',
+		warning: 'border-warning/30 bg-warning/10',
+		signal: 'border-signal/30 bg-signal/10',
+		info: 'border-info/30 bg-info/10',
+		neutral: 'border-line bg-surface-2'
+	};
 
 	function getStatusVariant(status: string): BadgeVariant {
 		switch (status) {
@@ -667,27 +691,35 @@
 	{headerIconName}
 	onClose={handleClose}
 	onKeyDown={handleKeyDown}
-	labelledBy={headerTitleId}
+	customHeader
 	{loading}
 	ready={!!activeGeneration}
 	scrollRestore={() => takeDetailsScroll(activeGenerationId)}
 	bind:root={detailsRoot}
 	bind:column={infoPanel}
 >
+	{#snippet iconBox()}
+		<button
+			type="button"
+			class="flex h-[30px] w-[30px] flex-shrink-0 cursor-default items-center justify-center rounded border {statusBoxClass}"
+			aria-label={statusName ? `${headerKindLabel}, ${statusName.toLowerCase()}` : headerKindLabel}
+			data-details-status={activeGeneration?.status ?? ''}
+			use:tooltip={statusName}
+		>
+			<Icon name={headerIcon} className="h-4 w-4 {statusIconClass}" />
+		</button>
+	{/snippet}
+
 	{#snippet headerRight()}
 		{#if activeGeneration}
-			<div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
-				<div class="order-1 flex min-w-0 items-center gap-2">
-					<div class="min-w-[8rem]">
-						<h2 id={headerTitleId} class="truncate text-lg font-semibold text-fg">
-							{hostTitle ? title : presetLabel}{#if !hostTitle && activeGeneration.preset_version}<span class="font-normal text-fg-muted">{' v'}{activeGeneration.preset_version}</span>{/if}
-						</h2>
-					</div>
-					<Badge variant={getStatusVariant(activeGeneration.status)} dot class="flex-shrink-0 uppercase tracking-wide">
-						{activeGeneration.status}
-					</Badge>
-				</div>
-				<div class="order-2 ml-auto flex flex-shrink-0 items-center gap-2 {headerLayout === 'bar' ? 'min-[1280px]:order-3 min-[1280px]:ml-0' : ''}">
+			<MediaDetailsHeader title={hostTitle ? title : presetLabel}>
+				{#snippet version()}
+					{#if !hostTitle && activeGeneration.preset_version}<span class="font-normal text-fg-muted">{' v'}{activeGeneration.preset_version}</span>{/if}
+				{/snippet}
+				{#snippet rating()}
+					<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />
+				{/snippet}
+				{#snippet tools()}
 					{#if currentFile}
 						<div class="flex-shrink-0">
 							<PluginSlot
@@ -716,7 +748,7 @@
 								/>
 							</Tooltip>
 							{#if position}
-								<span class="font-mono tabular-nums text-xs text-fg-subtle" data-generation-position>
+								<span class="font-mono tabular-nums text-xs text-fg-subtle max-sm:hidden" data-generation-position>
 									{position.index} / {position.total}
 								</span>
 							{/if}
@@ -730,15 +762,11 @@
 							</Tooltip>
 						</div>
 					{/if}
-					<span class="order-first"><StarRating value={activeGeneration.rating} onChange={handleRatingChange} /></span>
-				</div>
-				<div
-					class="order-3 flex min-w-0 basis-full items-center gap-2 text-sm text-fg-muted {headerLayout === 'bar' ? 'min-[1280px]:order-2 min-[1280px]:basis-0 min-[1280px]:flex-1' : ''}"
-					data-details-meta
-				>
+				{/snippet}
+				{#snippet meta()}
 					{#if hostTitle && presetLabel}
-						<span class="shrink-0 font-medium text-fg">{presetLabel}</span>
-						<span aria-hidden="true">·</span>
+						<span class="max-w-[40%] shrink-0 truncate font-medium text-fg max-sm:hidden">{presetLabel}</span>
+						<span aria-hidden="true" class="max-sm:hidden">·</span>
 					{/if}
 					<button
 						type="button"
@@ -746,12 +774,12 @@
 						data-testid="detail-run-line"
 						use:tooltip={{ text: exactTimes, focusSelf: true, wrap: true }}
 					>
-						<span class="whitespace-nowrap">{runLine?.when}</span>{#if runLine?.detail}{' · '}<span data-testid="detail-generation-time">{#each runLine.detail.split(' · ') as part, i}{i > 0 ? ' · ' : ''}<span class="whitespace-nowrap">{part}</span>{/each}</span>{/if}
+						<span class="whitespace-nowrap max-sm:hidden">{runLine?.when}</span><span class="whitespace-nowrap sm:hidden">{phoneWhen}</span>{#if runLine?.detail}<span class="max-sm:hidden">{' · '}<span data-testid="detail-generation-time">{#each runLine.detail.split(' · ') as part, i}{i > 0 ? ' · ' : ''}<span class="whitespace-nowrap">{part}</span>{/each}</span></span><span class="whitespace-nowrap sm:hidden">{' · '}{phoneDetail}</span>{/if}
 					</button>
 					<code class="hidden flex-shrink-0 font-mono tabular-nums sm:inline">{middleEllipsis(activeGenerationId, 17)}</code>
 					<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" class="flex-shrink-0" />
-				</div>
-			</div>
+				{/snippet}
+			</MediaDetailsHeader>
 		{/if}
 	{/snippet}
 

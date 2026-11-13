@@ -94,6 +94,21 @@ export function formatShortWhen(iso: string | undefined, options: RunLineOptions
 	return format(!sameYear);
 }
 
+export function formatShortDay(iso: string | undefined, options: RunLineOptions = {}): string {
+	if (!iso) return '';
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return '';
+	const now = options.now ?? new Date();
+	const year = (d: Date) =>
+		new Intl.DateTimeFormat(options.locale, { year: 'numeric', timeZone: options.timeZone }).format(d);
+	return new Intl.DateTimeFormat(options.locale, {
+		day: 'numeric',
+		month: 'short',
+		...(year(date) === year(now) ? {} : { year: 'numeric' }),
+		timeZone: options.timeZone
+	}).format(date);
+}
+
 export function formatRunLine(
 	generation: Pick<
 		GenerationHistoryItem,

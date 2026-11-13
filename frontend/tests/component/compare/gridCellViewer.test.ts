@@ -331,7 +331,7 @@ describe('grid cell viewer', () => {
 		await flush();
 		(mounted.button('Open generation details') as HTMLButtonElement).click();
 		await flush();
-		expect(mounted.text()).toContain('Generation Details');
+		expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Generation Details');
 		expect(document.body.querySelector('[data-testid="grid-details-card"]')).not.toBeNull();
 		(mounted.button('Back to compare view') as HTMLButtonElement).click();
 		await flush();

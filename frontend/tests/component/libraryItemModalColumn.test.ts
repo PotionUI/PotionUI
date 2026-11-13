@@ -96,6 +96,18 @@ describe('navigation', () => {
 		expect(onSelect).toHaveBeenLastCalledWith(items[0]);
 	});
 
+	it('does not navigate past the ends or from a disabled button', async () => {
+		const onSelect = vi.fn();
+		await mountModal({ item: items[2], navigation: { items, onSelect } });
+		expect(button('Next item')!.disabled).toBe(true);
+		button('Next item')!.click();
+		press('ArrowRight');
+		expect(onSelect).not.toHaveBeenCalled();
+		press('ArrowLeft');
+		expect(onSelect).toHaveBeenCalledTimes(1);
+		expect(onSelect).toHaveBeenCalledWith(items[1]);
+	});
+
 	it('walks with the arrow keys and disables the ends', async () => {
 		const onSelect = vi.fn();
 		await mountModal({ item: items[0], navigation: { items, onSelect } });
@@ -137,17 +149,26 @@ describe('sections by data', () => {
 		expect(document.body.querySelector('[data-library-item-tags]')?.textContent).toContain('No tags yet');
 	});
 
-	it('shows the heading with a copyable name and the added time behind a focusable tooltip', async () => {
+	it('puts the name, favourite mark and added time in the header, not in the column', async () => {
 		await mountModal({ item: item('a', { is_favorite: true }) });
-		const heading = document.body.querySelector('[data-library-item-heading]') as HTMLElement;
-		expect(heading.textContent).toContain('a-name.png');
-		expect(heading.querySelector('button[aria-label="Copy file name"]')).not.toBeNull();
-		expect(heading.textContent).toContain('Favorite');
-		const added = document.body.querySelector('[data-testid="library-added"]') as HTMLButtonElement;
+		const header = document.body.querySelector('[data-details-header]') as HTMLElement;
+		expect(header.querySelector('h2')?.textContent).toBe('a-name.png');
+		expect(header.querySelector('[data-library-favorite-mark]')?.getAttribute('aria-label')).toBe('Favorite');
+		expect(header.querySelector('button[aria-label="Copy file name"]')).not.toBeNull();
+		expect(header.querySelector('[data-library-kind]')?.textContent).toBe('image');
+		const added = header.querySelector('[data-testid="library-added"]') as HTMLButtonElement;
 		expect(added.textContent).toContain('Added');
 		expect(added.hasAttribute('data-has-tooltip')).toBe(true);
 		added.focus();
 		expect(document.activeElement).toBe(added);
+		const column = document.body.querySelector('[data-details-info]') as HTMLElement;
+		expect(column.querySelector('[data-library-item-heading]')).toBeNull();
+		expect(column.querySelector('[data-details-section]')?.getAttribute('data-details-section')).toBe('library-file');
+	});
+
+	it('shows no favourite mark for an item that is not a favourite', async () => {
+		await mountModal({});
+		expect(document.body.querySelector('[data-library-favorite-mark]')).toBeNull();
 	});
 
 	it('has no Source or Parameters for a plain upload', async () => {

@@ -422,8 +422,8 @@
 						<Spinner size="lg" />
 					</div>
 				{:else if visible.length === 0}
-					<div class="flex h-full items-center justify-center">
-						<EmptyState
+					<div class="p-2">
+							<EmptyState
 							icon="folder"
 							title={filtersActive ? 'No categories match these filters' : 'No categories yet'}
 							description={filtersActive

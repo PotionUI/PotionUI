@@ -68,9 +68,7 @@
 
 		{#snippet empty()}
 			{#if !current.selectedCategoryId}
-				<div class="flex items-center justify-center h-full">
-					<EmptyState compact icon="folder" title="Select a category" />
-				</div>
+				<EmptyState compact icon="folder" title="Select a category" />
 			{:else}
 				<EmptyState compact icon="document" title="No values">
 					{#snippet actions()}

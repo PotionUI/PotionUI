@@ -477,9 +477,9 @@
 					{#if $error}
 						<LoadErrorState message={$error} onRetry={() => downloadStore.loadDownloads()} retrying={$loading} />
 					{:else}
-						<EmptyState icon="download" title="No downloads yet" description="Queue a model or media file to download. Your download history will appear here.">
+						<EmptyState compact icon="download" title="No downloads yet" description="Queue a model or media file to download. Your download history will appear here.">
 							{#snippet actions()}
-								<Button variant="secondary" icon="plus" onclick={() => (showAddModal = true)}>Add Your First Download</Button>
+								<Button size="sm" variant="secondary" icon="plus" onclick={() => (showAddModal = true)}>Add Your First Download</Button>
 							{/snippet}
 						</EmptyState>
 					{/if}

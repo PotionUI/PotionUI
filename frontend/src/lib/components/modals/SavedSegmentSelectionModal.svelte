@@ -124,9 +124,8 @@
 						{:else}
 							<EmptyState compact icon="search" title="No saved Segments match" description={query ? `“${search.trim()}”` : undefined}>
 								{#snippet actions()}
-									<Button
+									<Button size="sm"
 										variant="secondary"
-										size="sm"
 										onclick={() => {
 											search = '';
 											categoryId = '';

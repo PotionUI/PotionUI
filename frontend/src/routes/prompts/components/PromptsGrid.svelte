@@ -111,8 +111,8 @@
 				<Spinner size="lg" />
 			</div>
 		{:else if prompts.length === 0}
-			<div class="flex h-full items-center justify-center">
-				<EmptyState
+			<div class="p-2">
+					<EmptyState
 					icon="document"
 					title={filtered ? 'No prompts match these filters' : 'No prompts yet'}
 					description={filtered

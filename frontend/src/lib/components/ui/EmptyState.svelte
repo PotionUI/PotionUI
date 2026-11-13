@@ -8,7 +8,8 @@
 		icon = 'image',
 		tone = 'default',
 		compact = false,
-		actions
+		actions,
+		extra
 	}: {
 		title: string;
 		description?: string;
@@ -16,6 +17,7 @@
 		tone?: 'default' | 'danger';
 		compact?: boolean;
 		actions?: Snippet;
+		extra?: Snippet;
 	} = $props();
 </script>
 
@@ -33,6 +35,9 @@
 		<p class="font-mono text-xs uppercase tracking-[0.06em] {tone === 'danger' ? 'text-danger' : 'text-fg-subtle'}" data-empty-state-title>{title}</p>
 		{#if description}
 			<p class="text-fg-muted leading-relaxed text-sm break-words {compact ? 'mt-2' : 'mt-3'}" data-empty-state-description>{description}</p>
+		{/if}
+		{#if extra}
+			<div class="text-sm text-fg-subtle {compact ? 'mt-2' : 'mt-3'}">{@render extra()}</div>
 		{/if}
 		{#if actions}
 			<div class="flex flex-wrap items-center justify-center gap-3 {compact ? 'mt-4' : 'mt-8'}">{@render actions()}</div>

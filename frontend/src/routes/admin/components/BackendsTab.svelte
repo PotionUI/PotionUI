@@ -1118,12 +1118,13 @@
 			>
 				{#snippet emptyState()}
 					<EmptyState
+						compact
 						icon="server"
 						title="No backends configured yet"
 						description="A backend tells PotionUI where to run generations for an engine — for example, the built-in native engine or a ComfyUI server. Add one to start generating."
 					>
 						{#snippet actions()}
-							<Button variant="secondary" icon="plus" onclick={openCreateModal}>Add backend</Button>
+							<Button size="sm" variant="secondary" icon="plus" onclick={openCreateModal}>Add backend</Button>
 						{/snippet}
 					</EmptyState>
 				{/snippet}

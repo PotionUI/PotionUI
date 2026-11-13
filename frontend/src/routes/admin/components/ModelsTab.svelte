@@ -1170,11 +1170,12 @@
 				>
 					{#snippet emptyState()}
 						<EmptyState
+							compact
 							icon="model"
 							title="No models indexed yet"
 							description="Index models from the backend that loads them. They will appear here once found."
 						>
-							{#snippet actions()}<Button variant="secondary" icon="server" href="/admin?tab=backends">Open Backends</Button>{/snippet}
+							{#snippet actions()}<Button size="sm" variant="secondary" icon="server" href="/admin?tab=backends">Open Backends</Button>{/snippet}
 						</EmptyState>
 					{/snippet}
 					{#snippet filteredEmptyState()}

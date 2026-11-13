@@ -577,13 +577,11 @@
 							/>
 						{/if}
 					{:else}
-						<div class="flex h-full items-center justify-center">
-							<EmptyState icon="document" title="Plugin not found" description="This plugin may have been removed.">
-								{#snippet actions()}
-									<Button variant="secondary" onclick={backToList}>Back to plugins</Button>
-								{/snippet}
-							</EmptyState>
-						</div>
+						<EmptyState icon="document" title="Plugin not found" description="This plugin may have been removed.">
+							{#snippet actions()}
+								<Button variant="secondary" onclick={backToList}>Back to plugins</Button>
+							{/snippet}
+						</EmptyState>
 					{/if}
 				</div>
 			{:else}

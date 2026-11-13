@@ -543,8 +543,8 @@
 						<Spinner size="lg" />
 					</div>
 				{:else if visible.length === 0}
-					<div class="flex h-full items-center justify-center">
-						<EmptyState
+					<div class="p-2">
+							<EmptyState
 							icon="list"
 							title={filtersActive ? 'No segments match these filters' : 'No segments yet'}
 							description={filtersActive

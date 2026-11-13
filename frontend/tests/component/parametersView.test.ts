@@ -23,7 +23,7 @@ const foldButton = () =>
 	[...document.body.querySelectorAll('button')].find((b) => /^(Show all|Show less)/.test(b.textContent ?? '')) as
 		| HTMLButtonElement
 		| undefined;
-const rows = () => [...document.body.querySelectorAll('dl .kv')];
+const rows = () => [...document.body.querySelectorAll('[data-param-cell]')];
 const clickSync = (el: Element) => {
 	(el as HTMLElement).click();
 	flushSync();
@@ -86,7 +86,7 @@ describe('ParametersView', () => {
 		});
 		const tags = [...document.body.querySelectorAll('[data-testid="axis-tag"]')];
 		expect(tags.map((t) => t.textContent?.trim())).toEqual(['Y', 'X']);
-		expect(tags[1].parentElement?.parentElement?.textContent).toContain('er_sde');
+		expect(tags[1].closest('[data-param-cell]')?.textContent).toContain('er_sde');
 	});
 
 	it('hides a value that duplicates a model', () => {
@@ -122,6 +122,49 @@ describe('ParametersView', () => {
 		const button = document.body.querySelector('dl button') as HTMLButtonElement;
 		expect(button.className).toContain('[@media(hover:none)]:opacity-100');
 		expect(button.className).toContain('group-focus-within:opacity-100');
+	});
+});
+
+describe('ParametersView grid', () => {
+	const grid = () => document.body.querySelector('dl') as HTMLElement;
+
+	it('uses two columns and leaves the last cell of an odd count empty', () => {
+		mountComponent(ParametersView, { params: { a: 1, b: 2, c: 3 } });
+		expect(grid().getAttribute('data-columns')).toBe('2');
+		expect(grid().style.gridTemplateColumns).toContain('repeat(2');
+		expect(rows()).toHaveLength(3);
+	});
+
+	it('spans both columns for a value longer than about 22 characters', () => {
+		mountComponent(ParametersView, { params: { short: 'euler', long: 'dpmpp_2m_sde_gpu_karras_extra' } });
+		const cells = rows();
+		expect(cells[0].className).not.toContain('col-span-full');
+		expect(cells[1].className).toContain('col-span-full');
+	});
+
+	it('shows the label above the value', () => {
+		mountComponent(ParametersView, { params: { steps: 24 } });
+		const cell = rows()[0];
+		expect(cell.querySelector('dt')?.textContent).toContain('Steps');
+		expect(cell.querySelector('dd')?.textContent?.trim()).toBe('24');
+		expect(cell.querySelector('dd')?.className).toContain('font-mono');
+	});
+
+	it('uses three columns at 560 px and four at 760 px, folding by whole rows', async () => {
+		let width = 600;
+		vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
+		const view = mountComponent(ParametersView, { params: manyParams(14, false) });
+		await flush();
+		flushSync();
+		expect(grid().getAttribute('data-columns')).toBe('3');
+		expect(rows()).toHaveLength(9);
+		view.destroy();
+		width = 800;
+		mountComponent(ParametersView, { params: manyParams(14, false) });
+		await flush();
+		flushSync();
+		expect(grid().getAttribute('data-columns')).toBe('4');
+		expect(rows()).toHaveLength(8);
 	});
 });
 

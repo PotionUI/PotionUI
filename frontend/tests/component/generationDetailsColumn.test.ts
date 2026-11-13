@@ -173,32 +173,37 @@ describe('details column order', () => {
 });
 
 describe('Information', () => {
-	it('shows preset with version, a copyable id and one human line, with exact times folded', async () => {
+	it('is a heading with preset and version, one human line and a copyable full id', async () => {
 		await mountModal(generation());
 		const info = section('info') as HTMLElement;
 		const text = info.textContent?.replace(/\s+/g, ' ') ?? '';
-		expect(text).toContain('Preset');
 		expect(text).toContain('v1.4');
 		expect(text).toContain('took 1 min 42 s');
+		expect(info.querySelector('h3')).toBeNull();
 		expect(info.querySelector('button[aria-label="Copy ID"]')).not.toBeNull();
+		expect(info.querySelector('button[aria-label="Copy preset"]')).not.toBeNull();
+		expect(text).toContain('Auto-file items like this');
 		expect(text).not.toContain('Created');
-		expect(info.querySelectorAll('dl > div')).toHaveLength(3);
 	});
 
-	it('unfolds the exact times on demand and remembers it', async () => {
+	it('shows the full id up to 26 characters and a middle ellipsis beyond', async () => {
+		await mountModal(generation({ id: '01JF7KXQ4M8VT2N3P5R6S7T8W9' }));
+		expect(section('info')?.textContent).toContain('01JF7KXQ4M8VT2N3P5R6S7T8W9');
+		mountedModal?.$destroy();
+		target?.remove();
+		await mountModal(generation({ id: '3f2b8c1e-9d4a-4e7b-a1c2-5d6e7f8a9b0c' }));
+		expect(section('info')?.textContent).toContain('…');
+		expect(section('info')?.textContent).not.toContain('3f2b8c1e-9d4a-4e7b-a1c2-5d6e7f8a9b0c');
+	});
+
+	it('keeps the exact times behind a focusable control that carries the tooltip', async () => {
 		await mountModal(generation());
-		const toggle = () =>
-			[...(section('info') as HTMLElement).querySelectorAll('button')].find((b) =>
-				/exact times/.test(b.textContent ?? '')
-			) as HTMLButtonElement;
-		expect(toggle().getAttribute('aria-expanded')).toBe('false');
-		await click(toggle());
-		expect(toggle().getAttribute('aria-expanded')).toBe('true');
-		expect(toggle().textContent?.trim()).toBe('Hide exact times');
-		expect(section('info')?.textContent).toContain('Created');
-		expect(section('info')?.textContent).toContain('Completed');
-		expect(section('info')?.textContent).toContain('Run time');
-		expect(JSON.parse(localStorage.getItem(DETAILS_PREFS_KEY) as string).sections['info:times']).toBe(true);
+		const line = document.body.querySelector('[data-testid="detail-run-line"]') as HTMLButtonElement;
+		expect(line.tagName).toBe('BUTTON');
+		expect(line.tabIndex).toBe(0);
+		expect(line.hasAttribute('data-has-tooltip')).toBe(true);
+		line.focus();
+		expect(document.activeElement).toBe(line);
 	});
 
 	it('keeps the rating working from the Information header', async () => {
@@ -211,6 +216,31 @@ describe('Information', () => {
 	it('shows only the date when the run was not timed', async () => {
 		await mountModal(generation({ run_seconds: null }));
 		expect(document.body.querySelector('[data-testid="detail-generation-time"]')).toBeNull();
+	});
+});
+
+describe('section headers', () => {
+	it('uses a small uppercase eyebrow with a plain count and a chevron, with a divider above', async () => {
+		response.data = { parameters: {}, models: models(3) };
+		await mountModal(generation({ segments: segments(2) }));
+		const seg = section('segments') as HTMLElement;
+		const title = seg.querySelector('h3') as HTMLElement;
+		expect(title.className).toContain('uppercase');
+		expect(title.className).toContain('text-fg-muted');
+		expect(title.firstChild?.textContent?.trim()).toBe('Segments');
+		expect(title.querySelector('span')?.textContent).toBe('2');
+		expect(seg.className).toContain('border-t');
+		expect(header('segments')?.querySelector('svg')).not.toBeNull();
+		expect(section('models')?.querySelector('h3 span')?.textContent).toBe('3');
+	});
+
+	it('gives plugin sections the same header without an icon', async () => {
+		await mountModal(generation(), { extraSections: [{ id: 'send', title: 'Send to', icon: 'sparkles', rows: [], actions: [] }] });
+		const box = document.body.querySelector('[data-extra-section="send"]') as HTMLElement;
+		const title = box.querySelector('h3') as HTMLElement;
+		expect(title.className).toContain('uppercase');
+		expect(title.textContent).toBe('Send to');
+		expect(box.querySelector('h3 svg')).toBeNull();
 	});
 });
 

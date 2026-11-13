@@ -20,6 +20,7 @@ export interface ParameterRow {
 	unitSpaced: boolean;
 	mono: boolean;
 	off: boolean;
+	wide: boolean;
 }
 
 export interface ParameterView {
@@ -44,6 +45,8 @@ export interface FoldResult {
 export const LONG_TEXT_CHARS = 80;
 export const FOLD_ABOVE = 10;
 export const FOLD_SHOW = 8;
+export const WIDE_VALUE_CHARS = 22;
+export const MIN_COLUMN_WIDTHS = [560, 760] as const;
 
 const TEXT_TYPES = new Set(['prompt', 'textarea', 'markdown']);
 const BOOL_TYPES = new Set(['checkbox', 'boolean', 'switch']);
@@ -106,7 +109,22 @@ function isTruthy(value: unknown): boolean {
 	return /^(true|1)$/i.test(String(value).trim());
 }
 
+function withWide(row: ParameterRow): ParameterRow {
+	if (row.kind !== 'short') return row;
+	const shown = row.display + (row.unit ? (row.unitSpaced ? ' ' : '') + row.unit : '');
+	return { ...row, wide: shown.length > WIDE_VALUE_CHARS };
+}
+
 export function classifyParameter(
+	key: string,
+	value: unknown,
+	meta?: Record<string, ParameterMeta> | null
+): ParameterRow | null {
+	const row = classifyUnwidened(key, value, meta);
+	return row ? withWide(row) : null;
+}
+
+function classifyUnwidened(
 	key: string,
 	value: unknown,
 	meta?: Record<string, ParameterMeta> | null
@@ -123,7 +141,8 @@ export function classifyParameter(
 		text: '',
 		display: '',
 		mono: false,
-		off: false
+		off: false,
+		wide: false
 	};
 
 	if (isBooleanValue(value, type)) {
@@ -213,8 +232,18 @@ export function buildParameterView(input: ParameterViewInput): ParameterView {
 	return { longs, shorts };
 }
 
-export function foldShortRows(shorts: ParameterRow[], expanded: boolean): FoldResult {
+export function columnsForWidth(width: number): number {
+	if (width >= MIN_COLUMN_WIDTHS[1]) return 4;
+	if (width >= MIN_COLUMN_WIDTHS[0]) return 3;
+	return 2;
+}
+
+export function foldShowCount(columns: number): number {
+	return Math.ceil(FOLD_SHOW / columns) * columns;
+}
+
+export function foldShortRows(shorts: ParameterRow[], expanded: boolean, columns = 2): FoldResult {
 	const foldable = shorts.length > FOLD_ABOVE;
-	const visible = foldable && !expanded ? shorts.slice(0, FOLD_SHOW) : shorts;
+	const visible = foldable && !expanded ? shorts.slice(0, foldShowCount(columns)) : shorts;
 	return { visible, foldable, total: shorts.length, hidden: shorts.length - visible.length };
 }

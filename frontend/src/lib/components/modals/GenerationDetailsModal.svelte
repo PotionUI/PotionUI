@@ -32,7 +32,7 @@
 	import { nsfwFilterStore, visibleMediaFiles, shouldBlurFile, isUnratedFile } from '$lib/stores/nsfwFilter';
 	import { nsfwRevealStore, revealKey } from '$lib/stores/nsfwReveal';
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
-	import { Badge, Button, Spinner, IconButton, Switch } from '$lib/components/ui';
+	import { Badge, Button, CopyButton, Spinner, IconButton, Switch } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import LoopToggle from '$lib/components/media/LoopToggle.svelte';
 	import { loopVideos } from '$lib/stores/loopVideos';
@@ -49,14 +49,12 @@
 	import ParametersView from '$lib/components/generation/ParametersView.svelte';
 	import ParameterTextBlock from '$lib/components/generation/ParameterTextBlock.svelte';
 	import DetailsSection from '$lib/components/generation/DetailsSection.svelte';
-	import DetailRow from '$lib/components/generation/DetailRow.svelte';
 	import GenerationFailureAlert from '$lib/components/generation/GenerationFailureAlert.svelte';
 	import { failureNotice } from '$lib/components/generation/failureNotice';
 	import { authStore } from '$lib/stores/auth';
 	import { middleEllipsis } from '$lib/components/generation/idDisplay';
-	import FoldButton from '$lib/components/generation/FoldButton.svelte';
 	import FoldedList from '$lib/components/generation/FoldedList.svelte';
-	import { detailsPrefs, loadDetailsPrefs, setDetailsPref } from '$lib/components/generation/detailsPrefs';
+	import { loadDetailsPrefs } from '$lib/components/generation/detailsPrefs';
 	import type { GenerationParameterMeta } from '$lib/types/generation';
 
 	// Support both ways of passing generation data
@@ -196,7 +194,14 @@
 		activeGeneration && generationQueueLabel(activeGeneration)
 			? formatHumanDuration(activeGeneration.queued_seconds)
 			: null;
-	$: timesOpen = $detailsPrefs['info:times'] ?? false;
+	$: exactTimes = [
+		`Created ${activeGeneration ? formatDate(activeGeneration.created_at) : ''}`,
+		activeGeneration?.completed_at ? `Completed ${formatDate(activeGeneration.completed_at)}` : '',
+		queuedTime ? `Queued ${queuedTime}` : '',
+		runTime ? `Run time ${runTime}` : ''
+	]
+		.filter(Boolean)
+		.join(' · ');
 	// Structured prompt segments recorded with this generation (may be absent on
 	// old rows). Split by channel for display.
 	$: segments = activeGeneration?.segments ?? [];
@@ -912,57 +917,41 @@
 					{/if}
 
 					<div data-details-panel>
-						<DetailsSection id="info" title="Information" icon="information-circle" collapsible={false}>
-							{#snippet headerRight()}
+						<div class="px-4" data-details-section="info">
+							<div class="flex items-center justify-between gap-2">
+								<div class="flex min-w-0 items-center gap-1 text-base font-semibold text-fg">
+									<span class="[overflow-wrap:anywhere]">{presetLabel}{#if activeGeneration.preset_version}<span class="font-normal text-fg-muted">{' v'}{activeGeneration.preset_version}</span>{/if}</span>
+									{#if activeGeneration.preset_id}
+										<CopyButton text={activeGeneration.preset_id} ariaLabel="Copy preset" size="xs" class="shrink-0 font-normal" />
+									{/if}
+								</div>
 								<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />
-							{/snippet}
-							<dl class="m-0 px-3 pb-1">
-								{#if activeGeneration.preset_id}
-									<DetailRow label="Preset" copy={activeGeneration.preset_id} copyLabel="Copy preset" mono={false}>
-										{presetLabel}{#if activeGeneration.preset_version}<span class="whitespace-nowrap text-fg-muted">{' · v'}{activeGeneration.preset_version}</span>{/if}
-									</DetailRow>
-								{/if}
-								<DetailRow label="ID" copy={activeGenerationId} copyLabel="Copy ID" copyAlways>{middleEllipsis(activeGenerationId)}</DetailRow>
-								<DetailRow label="When" mono={false}>
-									<span class="whitespace-nowrap">{runLine?.when}</span>{#if runLine?.detail}{' · '}<span data-testid="detail-generation-time">{#each runLine.detail.split(' · ') as part, i}{i > 0 ? ' · ' : ''}<span class="whitespace-nowrap">{part}</span>{/each}</span>{/if}
-								</DetailRow>
-							</dl>
-							<div class="px-3">
-								<FoldButton
-									label={timesOpen ? 'Hide exact times' : 'Show exact times'}
-									expanded={timesOpen}
-									controls="details-exact-times"
-									onToggle={() => setDetailsPref('info:times', !timesOpen)}
-								/>
 							</div>
-							{#if timesOpen}
-								<dl id="details-exact-times" class="m-0 px-3 pb-1">
-									<DetailRow label="Created" mono={false}>{formatDate(activeGeneration.created_at)}</DetailRow>
-									{#if activeGeneration.completed_at}
-										<DetailRow label="Completed" mono={false}>{formatDate(activeGeneration.completed_at)}</DetailRow>
-									{/if}
-									{#if queuedTime}
-										<DetailRow label="Queued" mono={false}>{queuedTime}</DetailRow>
-									{/if}
-									{#if runTime}
-										<DetailRow label="Run time" mono={false}>{runTime}</DetailRow>
-									{/if}
-								</dl>
-							{/if}
-							<div class="space-y-1 px-3 pt-1">
-								<ProvenanceLine itemType="generation" itemId={activeGenerationId} />
-								<button
-									type="button"
-									class="flex min-h-6 items-center gap-1.5 text-sm text-fg-muted hover:text-fg"
-									on:click={() => startRuleFrom(generationItemRule(activeGeneration))}
-								>
-									<Icon name="sparkles" className="h-3.5 w-3.5" />
-									Auto-file items like this…
-								</button>
+							<button
+								type="button"
+								class="mt-0.5 block max-w-full cursor-default rounded text-left text-sm text-fg-muted"
+								data-testid="detail-run-line"
+								use:tooltip={{ text: exactTimes, focusSelf: true, wrap: true }}
+							>
+								<span class="whitespace-nowrap">{runLine?.when}</span>{#if runLine?.detail}{' · '}<span data-testid="detail-generation-time">{#each runLine.detail.split(' · ') as part, i}{i > 0 ? ' · ' : ''}<span class="whitespace-nowrap">{part}</span>{/each}</span>{/if}
+							</button>
+							<div class="mt-1 flex items-center gap-1 text-sm text-fg-muted">
+								<span class="font-mono tabular-nums [overflow-wrap:anywhere]">{middleEllipsis(activeGenerationId)}</span>
+								<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" />
 							</div>
-						</DetailsSection>
+							<ProvenanceLine itemType="generation" itemId={activeGenerationId} />
+							<Button
+								variant="ghost"
+								size="sm"
+								icon="sparkles"
+								class="-ml-2 mt-1"
+								onclick={() => startRuleFrom(generationItemRule(activeGeneration))}
+							>
+								Auto-file items like this…
+							</Button>
+						</div>
 
-						<DetailsSection id="parameters" title="Parameters" icon="sliders" collapsible={false}>
+						<DetailsSection id="parameters" title="Parameters" collapsible={false}>
 							{#snippet headerRight()}
 								{#if currentFile}
 									<Badge variant="neutral" size="sm" class="font-mono">#{currentFileIndex + 1}</Badge>
@@ -979,7 +968,7 @@
 						</DetailsSection>
 
 						{#if segments.length > 0}
-							<DetailsSection id="segments" title="Segments" icon="document" count={segments.length} defaultOpen={false}>
+							<DetailsSection id="segments" title="Segments" count={segments.length} defaultOpen={false}>
 								<FoldedList id="segments" items={[...positiveSegments, ...negativeSegments]} above={5} show={3}>
 									{#snippet item(seg)}
 										<div class={seg.is_disabled ? 'opacity-50' : ''}>
@@ -1027,7 +1016,7 @@
 						{/if}
 
 						{#if directorSegments.length > 0}
-							<DetailsSection id="director" title="Director shots" icon="document" count={directorSegments.length}>
+							<DetailsSection id="director" title="Director shots" count={directorSegments.length}>
 								{#if directorKeyframeCount > 0 || directorAudioCount > 0}
 									<div class="flex flex-wrap gap-1 px-3 pb-2">
 										{#if directorKeyframeCount > 0}
@@ -1057,7 +1046,7 @@
 							</DetailsSection>
 						{/if}
 
-						<DetailsSection id="models" title="Models" icon="model" count={currentModels.length > 0 ? currentModels.length : undefined}>
+						<DetailsSection id="models" title="Models" count={currentModels.length > 0 ? currentModels.length : undefined}>
 							{#if paramsLoading}
 								<div class="flex items-center justify-center py-4">
 									<Spinner size="sm" />
@@ -1080,10 +1069,8 @@
 													<Icon name="model" className="h-4 w-4 text-fg-subtle" />
 												</div>
 											{/if}
-											<span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
-												<span class="text-base font-semibold text-fg [overflow-wrap:anywhere]">{modelDisplayName(model)}</span>
-												<Badge variant="signal" size="sm">{model.model_type}</Badge>
-											</span>
+											<span class="min-w-0 flex-1 text-base text-fg [overflow-wrap:anywhere]">{modelDisplayName(model)}</span>
+											<Badge variant="signal" size="sm">{model.model_type}</Badge>
 											{#if model.id}
 												<Icon name="external-link" className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
 											{/if}
@@ -1097,7 +1084,7 @@
 
 						{#each extraSections as section (section.id)}
 							<div data-extra-section={section.id}>
-								<DetailsSection id="x-{section.id}" title={section.title} icon={section.icon}>
+								<DetailsSection id="x-{section.id}" title={section.title}>
 									{#if section.rows?.length}
 										<ul>
 											{#each section.rows as row (row.id)}
@@ -1128,7 +1115,7 @@
 						{/each}
 
 						{#if systemTags.length > 0}
-							<DetailsSection id="autotags" title="Auto tags" icon="sparkles" count={systemTags.length} defaultOpen={false}>
+							<DetailsSection id="autotags" title="Auto tags" count={systemTags.length} defaultOpen={false}>
 								<FoldedList id="autotags" items={systemTags} above={8} show={6} class="flex flex-wrap gap-1 px-3">
 									{#snippet item(st)}
 										<button

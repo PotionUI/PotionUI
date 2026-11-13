@@ -183,7 +183,7 @@ for (const viewport of [
 			await screenshot(page, JOURNEY, `single-candidates-${viewport.name}`);
 		});
 
-		test('a slot the user cleared stays empty after a reload', async ({ page }) => {
+		test('a slot the user cleared stays empty until a reload, which fills a saved empty slot with the one model that fits', async ({ page }) => {
 			test.setTimeout(120000);
 			await mockForm(page, SINGLE);
 			const preset = await openForm(page, viewport.width < 600);
@@ -193,14 +193,14 @@ for (const viewport of [
 			await field(page, 'vae').getByRole('button', { name: 'Swap', exact: true }).click();
 			await expect(field(page, 'vae').locator('input').first()).toHaveValue('');
 			await page.waitForTimeout(1500);
+			await expect(field(page, 'vae')).not.toContainText('flux3-vae');
 			await page.reload();
 			if (viewport.width < 600) {
 				await page.getByRole('button', { name: 'Settings', exact: true }).click();
 			}
 			await expect(field(page, 'diffusion_model')).toBeVisible({ timeout: 20000 });
 			await expect(field(page, 'diffusion_model')).toContainText('flux3-dev-bf16', { timeout: 10000 });
-			await page.waitForTimeout(1500);
-			await expect(field(page, 'vae')).not.toContainText('flux3-vae');
+			await expect(field(page, 'vae')).toContainText('flux3-vae', { timeout: 10000 });
 			await screenshot(page, JOURNEY, `cleared-stays-empty-${viewport.name}`);
 		});
 

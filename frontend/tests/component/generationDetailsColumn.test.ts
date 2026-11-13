@@ -227,7 +227,7 @@ describe('identity lives in the header', () => {
 });
 
 describe('section headers', () => {
-	it('uses a small uppercase eyebrow with a plain count and a chevron, with a divider above', async () => {
+	it('uses a small uppercase eyebrow with a count badge and a chevron, with a divider above', async () => {
 		response.data = { parameters: {}, models: models(3) };
 		await mountModal(generation({ segments: segments(2) }));
 		const seg = section('segments') as HTMLElement;
@@ -235,10 +235,30 @@ describe('section headers', () => {
 		expect(title.className).toContain('uppercase');
 		expect(title.className).toContain('text-fg-muted');
 		expect(title.firstChild?.textContent?.trim()).toBe('Segments');
-		expect(title.querySelector('span')?.textContent).toBe('2');
+		expect(title.textContent?.replace(/\s+/g, ' ').trim()).toBe('Segments, 2 items');
+		const badge = seg.querySelector('[data-section-count]') as HTMLElement;
+		expect(badge.getAttribute('aria-hidden')).toBe('true');
+		expect(badge.textContent?.trim()).toBe('2');
+		expect(badge.querySelector('span')?.className).toContain('font-mono');
+		expect(badge.querySelector('span')?.className).toContain('rounded');
 		expect(seg.className).toContain('border-t');
 		expect(header('segments')?.querySelector('svg')).not.toBeNull();
-		expect(section('models')?.querySelector('h3 span')?.textContent).toBe('3');
+		expect(section('models')?.querySelector('[data-section-count]')?.textContent?.trim()).toBe('3');
+	});
+
+	it('counts the parameters the section shows, long text included, hidden values and model duplicates left out', async () => {
+		const parameters: Record<string, unknown> = { prompt: 'p'.repeat(120), empty: '', model: 'Model 0' };
+		for (let i = 0; i < 12; i += 1) parameters[`p${i}`] = i + 1;
+		response.data = { parameters, models: models(1) };
+		await mountModal(generation());
+		const badge = section('parameters')?.querySelector('[data-section-count]');
+		expect(badge?.textContent?.trim()).toBe('13');
+		expect(section('parameters')?.querySelector('h3')?.textContent).toContain('13 items');
+	});
+
+	it('has no count badge on a section without one', async () => {
+		await mountModal(generation(), { extraSections: [{ id: 'send', title: 'Send to', rows: [], actions: [] }] });
+		expect(document.body.querySelector('[data-extra-section="send"] [data-section-count]')).toBeNull();
 	});
 
 	it('gives plugin sections the same eyebrow header', async () => {
@@ -309,15 +329,17 @@ describe('section icons', () => {
 		expect(iconOf('x-a')?.innerHTML).not.toBe(iconOf('x-b')?.innerHTML);
 	});
 
-	it('names the image only when the generation has more than one output', async () => {
+	it('names the image beside the count only when the generation has more than one output', async () => {
 		await mountModal(generation());
-		expect(section('parameters')?.querySelector('h3')?.textContent?.trim()).toBe('Parameters');
+		expect(section('parameters')?.querySelector('[data-section-note]')).toBeNull();
 		mountedModal?.$destroy();
 		target?.remove();
 		const two = generation();
 		two.files = [two.files[0], { ...two.files[0], id: 2, file_path: 'b.png' }];
+		response.data = { parameters: { steps: 20 }, models: [] };
 		await mountModal(two);
-		expect(section('parameters')?.querySelector('h3')?.textContent?.trim()).toBe('Parameters · image 1');
+		expect(section('parameters')?.querySelector('[data-section-note]')?.textContent).toBe('image 1');
+		expect(section('parameters')?.querySelector('[data-section-count]')?.textContent?.trim()).toBe('1');
 	});
 });
 

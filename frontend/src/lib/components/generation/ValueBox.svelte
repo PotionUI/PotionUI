@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { CopyButton } from '$lib/components/ui';
+	import { copyFromBox } from './boxCopy';
 
 	let {
 		label,
@@ -17,10 +18,15 @@
 		labelExtra?: Snippet;
 		children?: Snippet;
 	} = $props();
+
+	let box = $state<HTMLElement>();
 </script>
 
 <div
-	class="relative flex min-w-0 flex-col-reverse justify-end rounded border border-line bg-surface-2 px-2.5 py-2"
+	bind:this={box}
+	role="presentation"
+	class="group relative flex min-w-0 cursor-pointer flex-col-reverse justify-end rounded border border-line bg-surface-2 px-2.5 py-2 transition-colors hover:border-line-hover active:bg-surface-3"
+	onclick={(event) => box && copyFromBox(event, box, box.querySelector<HTMLButtonElement>('button'))}
 	style="grid-column: span {span} / span {span}"
 	data-param-cell
 >
@@ -38,7 +44,7 @@
 			text={raw}
 			ariaLabel="Copy {label}"
 			size="xs"
-			class="absolute right-1 top-1 !text-fg-subtle hover:!text-fg"
+			class="absolute right-1 top-1 !text-fg-subtle hover:!text-fg group-hover:!text-fg"
 		/>
 	</dd>
 </div>

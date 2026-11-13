@@ -11,6 +11,7 @@
 	import ParametersView from '$lib/components/generation/ParametersView.svelte';
 	import { detailsPrefs } from '$lib/components/generation/detailsPrefs';
 	import type { GenerationParameterMeta } from '$lib/types/generation';
+	import { countParameters } from '$lib/components/generation/parametersModel';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { formatShortDay, formatShortWhen } from '$lib/utils/generationTime';
 	import { libraryStore, LIBRARY_TAG_TYPE } from '$lib/stores/library';
@@ -184,6 +185,7 @@
 	}
 
 	const PARAMETERS_SECTION = 'section:library-parameters';
+	$: sourceParamsCount = loadedParamsFor && !sourceParamsLoading ? countParameters({ params: sourceParams, meta: sourceMeta, order: sourceOrder, models: sourceModels }) : undefined;
 	$: parametersOpen = $detailsPrefs[PARAMETERS_SECTION] ?? false;
 	$: canShowParameters = !!backLink && generationState !== 'missing';
 	let sourceParams: Record<string, unknown> = {};
@@ -358,7 +360,7 @@
 			{/if}
 
 			{#if canShowParameters}
-				<DetailsSection id="library-parameters" title="Parameters" icon="sliders" defaultOpen={false}>
+				<DetailsSection id="library-parameters" title="Parameters" icon="sliders" count={sourceParamsCount} defaultOpen={false}>
 					<p class="px-3 pb-2 text-sm text-fg-subtle">From the source generation</p>
 					<ParametersView
 						params={sourceParams}

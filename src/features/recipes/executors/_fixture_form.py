@@ -190,6 +190,7 @@ def build_fixture_form_data(
     selections: Optional[Dict[str, str]] = None,
     prompt: Optional[str] = None,
     admin_defaults: Optional[Dict[str, Any]] = None,
+    placeholders: bool = False,
 ) -> Dict[str, Any]:
     """Fixture form data for `preset_template`'s `mode`, with `overrides`
     (e.g. a recipe's `smoke:` field values) applied on top before binding.
@@ -221,7 +222,7 @@ def build_fixture_form_data(
         form_data.update(overrides)
 
     if not isinstance(form_data.get("video_director"), dict):
-        document = fixture_video_director_document(preset_template, mode, form_data, prompt)
+        document = fixture_video_director_document(preset_template, mode, form_data, prompt, placeholders=placeholders)
         if document is not None:
             form_data["video_director"] = document
 

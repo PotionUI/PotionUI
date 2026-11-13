@@ -56,8 +56,12 @@ goes through `bind_form` like a form sent from the Generate page.
   presets), the form's resolution and seed, no media, and the recipe's smoke `prompt` as the segment
   prompt (a neutral prompt for `pipeline.render`). `pipeline.render` normalizes that document the
   way a real generation does. Without it, the Wan, LTX-2 and LTX-2.5 pipelines fail on
-  `form.video_director`, and the MiniMax-H3 ones fall back to the form's `frames`. A recipe can
-  still pass a document of its own as `form.video_director`; it is kept as given.
+  `form.video_director`, and the MiniMax-H3 ones fall back to the form's `frames`. For
+  `pipeline.render` only, a Director that offers no `t2v` sub-mode gets an `i2v` document, or an
+  `flf` one when it offers neither, whose first (and last) picture is an empty placeholder file in
+  the check's temporary storage; `generation.smoke` still gets no document for such a preset, so a
+  test generation never runs on a made-up picture. A recipe can still pass a document of its own as
+  `form.video_director`; it is kept as given.
 - **The clip length comes from that document.** These pipelines read the duration of the Video
   Director document before any `frames` field, so a `frames`, `duration` or `num_frames` value in
   the smoke `form` of such a recipe is never read.

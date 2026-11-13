@@ -3547,7 +3547,7 @@ both would load as the same Python package. A plugin
 belongs to the catalog it was installed from, the URL kept in its `.potionui-catalog.json`
 (scheme and host compared without case, a default port the same as none, path and query
 exactly): any other catalog that lists its id shows it as a conflict, installed from
-another catalog, whose address it names without its query, and cannot replace it. A
+another catalog, whose address it names, and cannot replace it. A
 plugin installed from this catalog is updated only to a strictly newer version, both
 versions read as Python package versions (PEP 440) like `requires.core`: the same version is installed, an older one is listed as older
 than the installed one, and a version either side that is not a PEP 440 version is
@@ -3579,11 +3579,14 @@ in the running server as well. After a rollback, the modules the failed version 
 stay loaded until PotionUI restarts, and the answer says so. A successful install answers
 `needs_restart: true` when the process had imported a file from the plugin's folder before
 the new one was moved in, which is the case once the plugin has been enabled at some point
-since PotionUI started, even if it was disabled again. Its entry points then run again from
-the new files, but the files they import were already imported and are not loaded again,
-so the update is finished only once PotionUI restarts, and the Install from catalog window
-says so. A first install, or an update of a plugin whose code the process never imported,
-answers `needs_restart: false`.
+since PotionUI started, even if it was disabled again or its enable failed half way. Its
+entry points then run again from the new files, but the files they import were already
+imported and are not loaded again, so the answer's message and the Install from catalog
+window ask for a restart of PotionUI. The rule errs on the side of a restart: a plugin
+whose Python code is all in the files its manifest names runs the new version in full and
+is still asked for one. A first install answers `needs_restart: true` only when it replaces
+a copy that was removed from disk while its code was loaded; any other first install, and
+an update of a plugin whose code the process never imported, answers `needs_restart: false`.
 
 PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
 enable step checks it, and the install answer lists it so the admin knows what to
@@ -3593,10 +3596,15 @@ Catalog and archive URLs must be https, to a host that resolves to public addres
 only; every redirect is checked the same way, and the connection goes to the addresses
 that were checked. A host written as a number that is not a full IP address
 (`2130706433`, `127.1`, `0x7f.1`) is refused in every mode, and so is a URL with
-credentials in it. Refusals, statuses and logs name the host, never the whole URL (a
-plugin installed from another catalog names that catalog's address, without its query or
-credentials), so a token in a query or a signed redirect does not end up in them. The catalog URL itself is
-written as given, query included, into the plugin folder's `.potionui-catalog.json`, so a
+credentials in it. Refusals, statuses and logs name the host, never the whole URL, so a
+token in a query or a signed redirect does not end up in them. One status names more: a
+plugin installed from another catalog names the scheme, host, port and path of that
+catalog's URL as recorded, without its path parameters (`;...`) or query, and says when it
+left them out; a token kept in the path itself shows there. Credentials written in the
+standard form (`user:password@host`) are left out without a mention. A recorded URL the
+install could not have written (a hand-edited `.potionui-catalog.json`) is shown as
+`urlsplit` reads it, or as `unknown` when it does not read as an address. The catalog URL
+itself is written as given, query included, into the plugin folder's `.potionui-catalog.json`, so a
 token in a catalog URL is stored there in clear. For a catalog on a local network or a test server, start PotionUI
 with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`: catalog and archive URLs may then point to
 local and private addresses, and use plain http, but only to such an address. A plain http

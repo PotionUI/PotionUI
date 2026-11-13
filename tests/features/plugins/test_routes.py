@@ -1074,15 +1074,18 @@ async def test_update_settings_manifest_unavailable_is_409_not_404(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("needs_restart", "message"),
+    ("previous_version", "needs_restart", "message"),
     [
-        (True, "Plugin 'demo' 1.1.0 installed; restart PotionUI to finish the update"),
-        (False, "Plugin 'demo' 1.1.0 installed"),
+        ("1.0.0", True, "Plugin 'demo' 1.1.0 installed; restart PotionUI to finish the update"),
+        (None, True, "Plugin 'demo' 1.1.0 installed; restart PotionUI to finish the install"),
+        ("1.0.0", False, "Plugin 'demo' 1.1.0 installed"),
     ],
 )
-async def test_a_catalog_install_answer_says_when_a_restart_is_needed(controller, mock_operations, needs_restart, message):
+async def test_a_catalog_install_answer_says_when_a_restart_is_needed(
+    controller, mock_operations, previous_version, needs_restart, message
+):
     mock_operations.install_from_catalog = AsyncMock(
-        return_value=InstallResult("demo", "1.1.0", "1.0.0", True, needs_restart=needs_restart)
+        return_value=InstallResult("demo", "1.1.0", previous_version, True, needs_restart=needs_restart)
     )
 
     response = await controller.install_from_catalog("https://example.com/plugins.json", "demo", "1.1.0", "a" * 64)

@@ -99,13 +99,18 @@ def _catalog_address(recorded: Any) -> str:
         return "unknown"
     try:
         parts = urlsplit(recorded.strip())
+        port = parts.port
     except ValueError:
         return "unknown"
-    host = parts.netloc.rpartition("@")[2]
-    if not parts.scheme or not host:
+    host = parts.hostname
+    if not parts.scheme or not host or "\\" in parts.netloc:
         return "unknown"
-    address = f"{parts.scheme}://{host}{parts.path}"
-    return f"{address}, with a query not shown here" if parts.query else address
+    if ":" in host:
+        host = f"[{host}]"
+    path = "/".join(segment.split(";", 1)[0] for segment in parts.path.split("/"))
+    address = f"{parts.scheme}://{host}{'' if port is None else f':{port}'}{path}"
+    hidden = [name for name, left_out in (("path parameters", path != parts.path), ("a query", bool(parts.query))) if left_out]
+    return f"{address}, with {' and '.join(hidden)} not shown here" if hidden else address
 
 
 def _installed_item(entry: CatalogEntry, installed_version: str) -> Optional[CatalogItem]:

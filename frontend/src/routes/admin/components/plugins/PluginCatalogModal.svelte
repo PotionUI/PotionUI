@@ -120,8 +120,9 @@
 				{installed.plugin_id}
 				{installed.previous_version ? `${installed.previous_version} → ${installed.version}` : installed.version}
 				{#if installed.needs_restart}
-					{installed.enabled ? 'is in place, but' : 'is in the list, disabled until you enable it, and'} PotionUI still runs code from
-					{installed.previous_version ?? 'the copy it replaced'}. Restart PotionUI to finish the update.
+					{installed.enabled ? 'is in place.' : 'is in the list, disabled until you enable it.'} PotionUI had loaded code from an earlier
+					copy of {installed.plugin_id} before this {installed.previous_version ? 'update' : 'install'}. Restart PotionUI so that only the code of
+					{installed.version} is loaded.
 				{:else}
 					{installed.enabled ? 'is running.' : 'is in the list, disabled until you enable it.'}
 				{/if}

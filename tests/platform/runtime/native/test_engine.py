@@ -19,6 +19,7 @@ import torch
 from safetensors.torch import save_file
 
 from src.platform.runtime.native.arch.flux.model import Flux
+from src.platform.runtime.native.arch.minimax_h3.image import ReferenceLatents
 from src.platform.runtime.native.engine import (
     Conditioning,
     NativeEngineLoader,
@@ -394,6 +395,32 @@ def test_ref_hw_frames_handles_4d_and_multi_frame_5d():
     five_d = torch.zeros(1, 4, 3, 10, 12)  # (B,C,T,H,W), T=3
     assert NativeGenerator._ref_hw_frames(four_d) == [((20, 20), 1)]
     assert NativeGenerator._ref_hw_frames(five_d) == [((10, 12), 3)]
+
+
+def test_ref_hw_frames_reads_the_latents_a_minimax_h3_image_reference_set_carries():
+    refs = ReferenceLatents((torch.zeros(1, 32, 1, 128, 374), torch.zeros(1, 32, 1, 64, 80)))
+    assert NativeGenerator._ref_hw_frames(refs) == [((128, 374), 1), ((64, 80), 1)]
+
+
+def test_ref_hw_frames_of_an_empty_minimax_h3_image_reference_set_is_empty():
+    assert NativeGenerator._ref_hw_frames(ReferenceLatents(())) == []
+
+
+def test_dit_weights_budget_shrinks_with_minimax_h3_image_references(monkeypatch):
+    import src.platform.runtime.native.engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "free_vram_gb", lambda device: 50.0)
+    gen = _bare_generator(vram_gb=50.0, dit_gb=20.0)
+    gen._ensure_room_for = lambda need_gb, device: None
+    latents_shape = (1, 32, 1, 128, 192)
+    refs = ReferenceLatents((torch.zeros(1, 32, 1, 128, 374),))
+
+    gap = gen._dit_weights_budget_gb(latents_shape) - gen._dit_weights_budget_gb(latents_shape, ref_latents=refs)
+
+    from src.platform.runtime.native.memory.tiering import ref_latents_headroom_gb
+
+    assert gap == pytest.approx(ref_latents_headroom_gb([((128, 374), 1)]))
+    assert gap > 0
 
 
 def test_ref_hw_frames_none_and_empty_are_empty():

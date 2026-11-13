@@ -29,7 +29,7 @@
 	let open = $derived(collapsible ? ($detailsPrefs[`section:${id}`] ?? defaultOpen) : true);
 </script>
 
-<section class="mx-4 mt-4 border-t border-line-strong pt-4" data-details-section={id}>
+<section class="mx-4 mt-4 border-t border-line-strong pt-4 first:mt-0 first:border-t-0 first:pt-0" data-details-section={id}>
 	{#if collapsible}
 		<button
 			type="button"

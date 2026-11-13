@@ -76,6 +76,10 @@
 	export let axisTags: Record<string, string> = {};
 	export let axisValues: Record<string, string> = {};
 	export let axisParamMeta: Record<string, GenerationParameterMeta> = {};
+	export let headerLayout: 'bar' | 'lines' = 'bar';
+
+	const headerTitleId = `details-title-${Math.random().toString(36).slice(2, 9)}`;
+	$: hostTitle = title !== 'Generation Details';
 
 	const dispatch = createEventDispatcher();
 
@@ -571,6 +575,13 @@
 				onclick: () => currentFile && requestAddToKit([currentFile])
 			});
 		}
+		actions.push({
+			id: 'auto-file',
+			label: 'Auto-file…',
+			icon: 'sparkles',
+			tooltip: 'Create a rule that files items like this one',
+			onclick: () => activeGeneration && startRuleFrom(generationItemRule(activeGeneration))
+		});
 		return actions;
 	}
 
@@ -656,6 +667,7 @@
 	{headerIconName}
 	onClose={handleClose}
 	onKeyDown={handleKeyDown}
+	labelledBy={headerTitleId}
 	{loading}
 	ready={!!activeGeneration}
 	scrollRestore={() => takeDetailsScroll(activeGenerationId)}
@@ -664,54 +676,81 @@
 >
 	{#snippet headerRight()}
 		{#if activeGeneration}
-			<code class="font-mono text-2xs text-fg-disabled flex-shrink-0 hidden sm:inline">{shortGenerationId}</code>
-		{/if}
-		<div class="flex-1"></div>
-		{#if activeGeneration}
-			<Badge variant={getStatusVariant(activeGeneration.status)} dot class="flex-shrink-0 uppercase tracking-wide">
-				{activeGeneration.status}
-			</Badge>
-		{/if}
-		{#if activeGeneration && currentFile}
-			<div class="flex-shrink-0">
-				<PluginSlot
-					hookName="generation.detail.actions"
-					tooltips
-					context={{
-						generationId: activeGenerationId,
-						presetId: activeGeneration.preset_id ?? null,
-						mode: activeGeneration.mode,
-						fileIndex: currentFileIndex,
-						filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
-						fileUrl: getImageUrl(currentFile),
-						fileType: currentFile.file_type
-					}}
-				/>
-			</div>
-		{/if}
-		{#if canNavigate}
-			<div class="flex items-center gap-1 flex-shrink-0">
-				<Tooltip text="Previous generation" kbd="Shift+←" position="bottom">
-					<IconButton
-						icon="chevron-left"
-						label="Previous generation"
-						disabled={!hasPrevious || navigating}
-						onclick={() => navigate(-1)}
-					/>
-				</Tooltip>
-				{#if position}
-					<span class="font-mono tabular-nums text-xs text-fg-subtle" data-generation-position>
-						{position.index} / {position.total}
-					</span>
-				{/if}
-				<Tooltip text="Next generation" kbd="Shift+→" position="bottom">
-					<IconButton
-						icon="chevron-right"
-						label="Next generation"
-						disabled={!hasNext || navigating}
-						onclick={() => navigate(1)}
-					/>
-				</Tooltip>
+			<div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
+				<div class="order-1 flex min-w-0 items-center gap-2">
+					<div class="min-w-[8rem]">
+						<h2 id={headerTitleId} class="truncate text-lg font-semibold text-fg">
+							{hostTitle ? title : presetLabel}{#if !hostTitle && activeGeneration.preset_version}<span class="font-normal text-fg-muted">{' v'}{activeGeneration.preset_version}</span>{/if}
+						</h2>
+					</div>
+					<Badge variant={getStatusVariant(activeGeneration.status)} dot class="flex-shrink-0 uppercase tracking-wide">
+						{activeGeneration.status}
+					</Badge>
+				</div>
+				<div class="order-2 ml-auto flex flex-shrink-0 items-center gap-2 {headerLayout === 'bar' ? 'min-[1280px]:order-3 min-[1280px]:ml-0' : ''}">
+					{#if currentFile}
+						<div class="flex-shrink-0">
+							<PluginSlot
+								hookName="generation.detail.actions"
+								tooltips
+								context={{
+									generationId: activeGenerationId,
+									presetId: activeGeneration.preset_id ?? null,
+									mode: activeGeneration.mode,
+									fileIndex: currentFileIndex,
+									filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
+									fileUrl: getImageUrl(currentFile),
+									fileType: currentFile.file_type
+								}}
+							/>
+						</div>
+					{/if}
+					{#if canNavigate}
+						<div class="flex flex-shrink-0 items-center gap-1">
+							<Tooltip text="Previous generation" kbd="Shift+←" position="bottom">
+								<IconButton
+									icon="chevron-left"
+									label="Previous generation"
+									disabled={!hasPrevious || navigating}
+									onclick={() => navigate(-1)}
+								/>
+							</Tooltip>
+							{#if position}
+								<span class="font-mono tabular-nums text-xs text-fg-subtle" data-generation-position>
+									{position.index} / {position.total}
+								</span>
+							{/if}
+							<Tooltip text="Next generation" kbd="Shift+→" position="bottom">
+								<IconButton
+									icon="chevron-right"
+									label="Next generation"
+									disabled={!hasNext || navigating}
+									onclick={() => navigate(1)}
+								/>
+							</Tooltip>
+						</div>
+					{/if}
+					<span class="order-first"><StarRating value={activeGeneration.rating} onChange={handleRatingChange} /></span>
+				</div>
+				<div
+					class="order-3 flex min-w-0 basis-full items-center gap-2 text-sm text-fg-muted {headerLayout === 'bar' ? 'min-[1280px]:order-2 min-[1280px]:basis-0 min-[1280px]:flex-1' : ''}"
+					data-details-meta
+				>
+					{#if hostTitle && presetLabel}
+						<span class="shrink-0 font-medium text-fg">{presetLabel}</span>
+						<span aria-hidden="true">·</span>
+					{/if}
+					<button
+						type="button"
+						class="min-w-0 cursor-default truncate rounded text-left"
+						data-testid="detail-run-line"
+						use:tooltip={{ text: exactTimes, focusSelf: true, wrap: true }}
+					>
+						<span class="whitespace-nowrap">{runLine?.when}</span>{#if runLine?.detail}{' · '}<span data-testid="detail-generation-time">{#each runLine.detail.split(' · ') as part, i}{i > 0 ? ' · ' : ''}<span class="whitespace-nowrap">{part}</span>{/each}</span>{/if}
+					</button>
+					<code class="hidden flex-shrink-0 font-mono tabular-nums sm:inline">{middleEllipsis(activeGenerationId, 17)}</code>
+					<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" class="flex-shrink-0" />
+				</div>
 			</div>
 		{/if}
 	{/snippet}
@@ -777,40 +816,6 @@
 					{/if}
 
 					<div data-details-panel>
-						<div class="px-4" data-details-section="info">
-							<div class="flex items-center justify-between gap-2">
-								<div class="flex min-w-0 items-center gap-1 text-base font-semibold text-fg">
-									<span class="[overflow-wrap:anywhere]">{presetLabel}{#if activeGeneration.preset_version}<span class="font-normal text-fg-muted">{' v'}{activeGeneration.preset_version}</span>{/if}</span>
-									{#if activeGeneration.preset_id}
-										<CopyButton text={activeGeneration.preset_id} ariaLabel="Copy preset" size="xs" class="shrink-0 font-normal" />
-									{/if}
-								</div>
-								<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />
-							</div>
-							<button
-								type="button"
-								class="mt-0.5 block max-w-full cursor-default rounded text-left text-sm text-fg-muted"
-								data-testid="detail-run-line"
-								use:tooltip={{ text: exactTimes, focusSelf: true, wrap: true }}
-							>
-								<span class="whitespace-nowrap">{runLine?.when}</span>{#if runLine?.detail}{' · '}<span data-testid="detail-generation-time">{#each runLine.detail.split(' · ') as part, i}{i > 0 ? ' · ' : ''}<span class="whitespace-nowrap">{part}</span>{/each}</span>{/if}
-							</button>
-							<div class="mt-1 flex items-center gap-1 text-sm text-fg-muted">
-								<span class="font-mono tabular-nums [overflow-wrap:anywhere]">{middleEllipsis(activeGenerationId)}</span>
-								<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" />
-							</div>
-							<ProvenanceLine itemType="generation" itemId={activeGenerationId} />
-							<Button
-								variant="ghost"
-								size="sm"
-								icon="sparkles"
-								class="-ml-2 mt-1"
-								onclick={() => startRuleFrom(generationItemRule(activeGeneration))}
-							>
-								Auto-file items like this…
-							</Button>
-						</div>
-
 						<DetailsSection id="parameters" title="Parameters" collapsible={false}>
 							{#snippet headerRight()}
 								{#if currentFile}
@@ -992,6 +997,7 @@
 							</DetailsSection>
 						{/if}
 					</div>
+					<div class="mx-4 mt-4 empty:hidden"><ProvenanceLine itemType="generation" itemId={activeGenerationId} /></div>
 				</div>
 		{/if}
 	{/snippet}

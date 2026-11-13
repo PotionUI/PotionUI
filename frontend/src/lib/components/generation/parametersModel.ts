@@ -56,6 +56,7 @@ export function humanizeKey(key: string): string {
 		.replace(/[_\-.]+/g, ' ')
 		.replace(/\s+/g, ' ')
 		.trim();
+	if (/^[A-Za-z0-9]{1,3}$/.test(spaced)) return spaced.toUpperCase();
 	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 

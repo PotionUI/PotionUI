@@ -6,6 +6,7 @@
 		label,
 		copy,
 		copyLabel,
+		copyAlways = false,
 		mono = true,
 		muted = false,
 		labelExtra,
@@ -14,6 +15,7 @@
 		label: string;
 		copy?: string;
 		copyLabel?: string;
+		copyAlways?: boolean;
 		mono?: boolean;
 		muted?: boolean;
 		labelExtra?: Snippet;
@@ -38,7 +40,9 @@
 			text={copy}
 			ariaLabel={copyLabel ?? `Copy ${label}`}
 			size="xs"
-			class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+			class={copyAlways
+				? ''
+				: 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}
 		/>
 	{/if}
 </div>

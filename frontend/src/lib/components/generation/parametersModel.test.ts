@@ -22,6 +22,22 @@ describe('humanizeKey', () => {
 		expect(humanizeKey('grain.seed_lock')).toBe('Grain seed lock');
 		expect(humanizeKey('upscale-factor')).toBe('Upscale factor');
 	});
+
+	it('uppercases keys of three characters or fewer', () => {
+		expect(humanizeKey('cfg')).toBe('CFG');
+		expect(humanizeKey('fps')).toBe('FPS');
+		expect(humanizeKey('id')).toBe('ID');
+		expect(humanizeKey('x')).toBe('X');
+		expect(humanizeKey('seed')).toBe('Seed');
+		expect(humanizeKey('cfg scale')).toBe('Cfg scale');
+		expect(humanizeKey('a_b')).toBe('A b');
+	});
+
+	it('keeps a declared label as written for a short key', () => {
+		expect(classifyParameter('cfg', 1, { cfg: { label: 'Guidance' } })?.label).toBe('Guidance');
+		expect(classifyParameter('cfg', 1, { cfg: { label: 'Cfg' } })?.label).toBe('Cfg');
+		expect(classifyParameter('cfg', 1)?.label).toBe('CFG');
+	});
 });
 
 describe('hiding', () => {

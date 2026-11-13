@@ -498,6 +498,7 @@ def build_backend_env(
     # unset) simply prevent .env from setting them instead.
     env.setdefault("POTIONUI_AUTH_SECRET_KEY", secrets.token_urlsafe(48))
     env["DEBUG"] = env.get("DEBUG", "false")
+    env.setdefault("POTIONUI_WS_TICKETS_PER_WINDOW", "1000")
     if extra_env:
         env.update(extra_env)
     return env

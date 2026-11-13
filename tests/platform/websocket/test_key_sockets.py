@@ -407,7 +407,9 @@ async def test_a_failing_check_after_registering_is_logged_not_lost(caplog):
     registry._check = lambda items, moment=None: (_ for _ in ()).throw(RuntimeError("boom"))
 
     registry._register(FakeSocket(), _grant("k1"), READ)
-    await _settle()
+    deadline = asyncio.get_running_loop().time() + 5
+    while "API key socket check failed" not in caplog.text and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.02)
 
     assert "API key socket check failed" in caplog.text
 

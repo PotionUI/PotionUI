@@ -8,6 +8,7 @@ const hoisted = vi.hoisted(() => ({
 	posts: [] as { url: string; body: any }[],
 	gets: [] as string[],
 	installError: null as null | { status: number; message: string },
+	installResult: null as null | Record<string, unknown>,
 	confirmAnswer: true,
 	confirmCalls: [] as any[]
 }));
@@ -62,7 +63,14 @@ vi.mock('$lib/services/api/index', async () => {
 						return {
 							data: {
 								success: true,
-								data: { plugin_id: body.plugin_id, version: '1.0.0', previous_version: null, enabled: false, dependencies_python: ['numpy>=1.24'] }
+								data: hoisted.installResult ?? {
+									plugin_id: body.plugin_id,
+									version: '1.0.0',
+									previous_version: null,
+									enabled: false,
+									dependencies_python: ['numpy>=1.24'],
+									needs_restart: false
+								}
 							}
 						};
 					}
@@ -109,6 +117,7 @@ beforeEach(() => {
 	hoisted.gets.length = 0;
 	hoisted.confirmCalls.length = 0;
 	hoisted.installError = null;
+	hoisted.installResult = null;
 	hoisted.confirmAnswer = true;
 	onInstalled.mockReset();
 	authState.set({ user: { account_type: 'ADMIN' } });
@@ -166,6 +175,78 @@ describe('the catalog install window', () => {
 		expect(document.body.textContent).toContain('Plugin installed');
 		expect(document.body.textContent).toContain('numpy>=1.24');
 		expect(hoisted.posts[2].url).toBe('/api/plugins/catalog');
+	});
+
+	async function update(result: Record<string, unknown>) {
+		hoisted.installResult = { plugin_id: 'old', version: '2.0.0', previous_version: '1.0.0', dependencies_python: [], ...result };
+		openModal();
+		await readCatalog();
+
+		button('Update to 2.0.0', entryRow('old'))!.click();
+		await settle();
+		flushSync();
+		return document.body.textContent!.replace(/\s+/g, ' ');
+	}
+
+	it('asks for a restart after an update of a plugin whose old code the server had loaded', async () => {
+		const text = await update({ enabled: true, needs_restart: true });
+
+		expect(text).toContain('Plugin updated: restart PotionUI');
+		expect(text).toContain(
+			'old 1.0.0 → 2.0.0 is in place. PotionUI had loaded code from an earlier copy of old before this update. Restart PotionUI so that only the code of 2.0.0 is loaded.'
+		);
+		expect(text).not.toContain('is running');
+	});
+
+	it('asks for a restart after an update of a disabled plugin whose old code the server had loaded', async () => {
+		const text = await update({ enabled: false, needs_restart: true });
+
+		expect(text).toContain(
+			'old 1.0.0 → 2.0.0 is in the list, disabled until you enable it. PotionUI had loaded code from an earlier copy of old before this update. Restart PotionUI so that only the code of 2.0.0 is loaded.'
+		);
+		expect(text).not.toContain('runs code');
+	});
+
+	it('asks for a restart after a first install over a copy whose code the server had loaded, without calling it an update', async () => {
+		hoisted.installResult = {
+			plugin_id: 'demo',
+			version: '1.0.0',
+			previous_version: null,
+			enabled: false,
+			dependencies_python: [],
+			needs_restart: true
+		};
+		openModal();
+		await readCatalog();
+
+		button('Install', entryRow('demo'))!.click();
+		await settle();
+		flushSync();
+		const text = document.body.textContent!.replace(/\s+/g, ' ');
+
+		expect(text).toContain('Plugin installed: restart PotionUI');
+		expect(text).toContain(
+			'demo 1.0.0 is in the list, disabled until you enable it. PotionUI had loaded code from an earlier copy of demo before this install. Restart PotionUI so that only the code of 1.0.0 is loaded.'
+		);
+		expect(text).not.toContain('Plugin updated');
+		expect(text).not.toContain('this update');
+	});
+
+	it('names no version for the loaded code after a second update without a restart', async () => {
+		const text = await update({ previous_version: '1.1.0', enabled: false, needs_restart: true });
+
+		expect(text).toContain(
+			'old 1.1.0 → 2.0.0 is in the list, disabled until you enable it. PotionUI had loaded code from an earlier copy of old before this update.'
+		);
+		expect(text).not.toContain('code from 1.1.0');
+	});
+
+	it('says an update is running when the server needs no restart for it', async () => {
+		const text = await update({ enabled: true, needs_restart: false });
+
+		expect(text).toContain('Plugin updated');
+		expect(text).toContain('old 1.0.0 → 2.0.0 is running.');
+		expect(text).not.toContain('Restart PotionUI');
 	});
 
 	it('sends nothing when the admin declines', async () => {

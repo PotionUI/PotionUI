@@ -112,10 +112,20 @@
 		{/if}
 
 		{#if installed}
-			<Alert variant="success" icon title={installed.previous_version ? 'Plugin updated' : 'Plugin installed'}>
+			<Alert
+				variant={installed.needs_restart ? 'warning' : 'success'}
+				icon
+				title={`${installed.previous_version ? 'Plugin updated' : 'Plugin installed'}${installed.needs_restart ? ': restart PotionUI' : ''}`}
+			>
 				{installed.plugin_id}
 				{installed.previous_version ? `${installed.previous_version} → ${installed.version}` : installed.version}
-				{installed.enabled ? 'is running.' : 'is in the list, disabled until you enable it.'}
+				{#if installed.needs_restart}
+					{installed.enabled ? 'is in place.' : 'is in the list, disabled until you enable it.'} PotionUI had loaded code from an earlier
+					copy of {installed.plugin_id} before this {installed.previous_version ? 'update' : 'install'}. Restart PotionUI so that only the code of
+					{installed.version} is loaded.
+				{:else}
+					{installed.enabled ? 'is running.' : 'is in the list, disabled until you enable it.'}
+				{/if}
 				{#if installed.dependencies_python.length > 0}
 					It declares the Python packages {installed.dependencies_python.join(', ')}; PotionUI does not install them, and enabling the
 					plugin checks that they are there.

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,6 +64,7 @@ class InstallResult:
     previous_version: Optional[str]
     enabled: bool
     dependencies_python: List[str] = field(default_factory=list)
+    needs_restart: bool = False
 
 
 def _install_record(folder: Path) -> Optional[dict]:
@@ -92,10 +94,23 @@ def _same_catalog(recorded: Any, url: str) -> bool:
     return same_origin and (first_parts.path, first_parts.query) == (second_parts.path, second_parts.query)
 
 
-def _catalog_host(recorded: Any) -> str:
+def _catalog_address(recorded: Any) -> str:
     if not isinstance(recorded, str):
         return "unknown"
-    return urlsplit(recorded.strip()).hostname or "unknown"
+    try:
+        parts = urlsplit(recorded.strip())
+        port = parts.port
+    except ValueError:
+        return "unknown"
+    host = parts.hostname
+    if not parts.scheme or not host or "\\" in parts.netloc:
+        return "unknown"
+    if ":" in host:
+        host = f"[{host}]"
+    path = "/".join(segment.split(";", 1)[0] for segment in parts.path.split("/"))
+    address = f"{parts.scheme}://{host}{'' if port is None else f':{port}'}{path}"
+    hidden = [name for name, left_out in (("path parameters", path != parts.path), ("a query", bool(parts.query))) if left_out]
+    return f"{address}, with {' and '.join(hidden)} not shown here" if hidden else address
 
 
 def _installed_item(entry: CatalogEntry, installed_version: str) -> Optional[CatalogItem]:
@@ -160,7 +175,7 @@ def catalog_item(
             return CatalogItem(
                 entry,
                 "conflict",
-                f"This plugin was installed from another catalog ({_catalog_host(record.get('catalog'))}); "
+                f"This plugin was installed from another catalog ({_catalog_address(record.get('catalog'))}); "
                 "only that catalog updates it.",
                 installed_version,
             )
@@ -215,6 +230,19 @@ class _Placement:
     manifest: PluginManifestSchema
     staging: Path
     previous: Optional[Path]
+
+
+def _imports_from(*folders: Path) -> bool:
+    roots = {os.path.normcase(os.path.abspath(folder)) for folder in folders}
+    roots |= {os.path.normcase(os.path.realpath(folder)) for folder in folders}
+    for module in list(sys.modules.values()):
+        location = getattr(module, "__file__", None)
+        if not isinstance(location, str):
+            continue
+        path = os.path.normcase(os.path.abspath(location))
+        if any(path.startswith(root + os.sep) for root in roots):
+            return True
+    return False
 
 
 def _discard_staging(staging: Path) -> None:
@@ -407,6 +435,8 @@ async def _install_downloaded(
     local_dir = local_plugin_dir(registry)
     staged = await asyncio.to_thread(_stage, data, item, local_dir, url)
     try:
+        loaded = registry.get_plugin(plugin_id)
+        needs_restart = _imports_from(local_dir / plugin_id, *([Path(loaded.plugin_dir)] if loaded is not None else []))
         was_enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
         row_was_enabled = _row_enabled(repo, plugin_id)
         if row_was_enabled:
@@ -473,6 +503,7 @@ async def _install_downloaded(
         previous_version=item.installed_version,
         enabled=enabled,
         dependencies_python=list(manifest.dependencies.python),
+        needs_restart=needs_restart,
     )
 
 

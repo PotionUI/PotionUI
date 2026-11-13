@@ -249,9 +249,11 @@ class PluginController(BaseController):
             recipe_catalog=self.recipe_catalog,
             model_layout_catalog=self.model_layout_catalog,
         )
+        finish = "update" if result.previous_version else "install"
         return self.success_response(
             data=install_result_to_response(result).model_dump(),
-            message=f"Plugin '{result.plugin_id}' {result.version} installed",
+            message=f"Plugin '{result.plugin_id}' {result.version} installed"
+            + (f"; restart PotionUI to finish the {finish}" if result.needs_restart else ""),
         )
 
     # ========== Plugin Settings ==========

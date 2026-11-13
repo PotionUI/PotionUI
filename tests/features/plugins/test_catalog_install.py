@@ -1,10 +1,14 @@
 import asyncio
 import hashlib
 import io
+import itertools
 import json
+import os
 import shutil
 import sqlite3
+import sys
 import threading
+import types
 import zipfile
 from pathlib import Path
 from unittest.mock import Mock
@@ -264,7 +268,7 @@ def test_a_plugin_installed_from_one_catalog_is_a_conflict_in_another_catalog_th
         item = catalog_item(_entry(version=version), registry, local, CATALOG_B)
         assert (item.status, item.installed_version) == ("conflict", "1.0.0")
         assert "installed from another catalog" in item.reason
-        assert "(a.example.com)" in item.reason
+        assert "(https://a.example.com/plugins.json)" in item.reason
 
 
 def test_an_install_record_without_its_catalog_is_a_conflict(plugins):
@@ -1235,7 +1239,7 @@ async def test_a_plugin_the_catalog_does_not_list_is_refused(plugins, catalog):
         await _install(repo, registry, catalog, "other")
 
 
-def test_a_conflict_with_another_catalog_names_its_host_and_not_its_query(plugins):
+def test_a_conflict_with_another_catalog_names_its_address_and_not_its_query(plugins):
     registry, _, _, local = plugins
     _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog="https://a.example.com/plugins.json?token=s3cret-value")
     registry.discover_plugins()
@@ -1243,8 +1247,87 @@ def test_a_conflict_with_another_catalog_names_its_host_and_not_its_query(plugin
     item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
 
     assert item.status == "conflict"
-    assert "(a.example.com)" in item.reason
+    assert "(https://a.example.com/plugins.json, with a query not shown here)" in item.reason
     assert "s3cret-value" not in item.reason
+    assert "token" not in item.reason
+
+
+def test_a_conflict_between_two_paths_of_the_same_host_names_the_path_the_plugin_came_from(plugins):
+    registry, _, _, local = plugins
+    pinned = "https://raw.example.com/owner/plugins/0123abc/plugins.json"
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=pinned)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, "https://raw.example.com/owner/plugins/main/plugins.json")
+
+    assert item.status == "conflict"
+    assert item.reason == (
+        f"This plugin was installed from another catalog ({pinned}); only that catalog updates it."
+    )
+
+
+def test_a_conflict_names_the_path_without_its_parameters(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog="https://a.example.com/v1;token=s3cret-value/plugins.json;sig=other?x=1")
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
+
+    assert "(https://a.example.com/v1/plugins.json, with path parameters and a query not shown here)" in item.reason
+    assert "s3cret-value" not in item.reason
+    assert "sig=" not in item.reason
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    [
+        "https://user:pa/ss@a.example.com/plugins.json",
+        "https://user:pa?ss@a.example.com/plugins.json",
+        "https://user:pa#ss@a.example.com/plugins.json",
+        "https://a.example.com\\@evil.example/plugins.json",
+        "https://a.example.com:99999/plugins.json",
+        "https://s3cret-value@/plugins.json",
+    ],
+)
+def test_a_conflict_names_no_address_for_a_malformed_recorded_catalog_url(plugins, recorded):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=recorded)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
+
+    assert "installed from another catalog (unknown)" in item.reason
+
+
+@pytest.mark.parametrize(
+    "pinned",
+    [
+        "https://cdn.example.com/gh/owner/plugins@0123abc/plugins.json",
+        "https://a.example.com:8443/gh/owner/plugins@0123abc/plugins.json",
+        "https://[2001:db8::1]/gh/owner/plugins@0123abc/plugins.json",
+        "http://192.168.1.10:8000/npm/pkg@1.0.0/plugins.json",
+    ],
+)
+def test_a_conflict_names_a_catalog_whose_path_holds_an_at_sign_in_full(plugins, pinned):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=pinned)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
+
+    assert f"({pinned})" in item.reason
+
+
+def test_a_conflict_never_shows_the_credentials_of_a_recorded_catalog_url(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog="https://user:s3cret-value@a.example.com:8443/plugins.json")
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
+
+    assert "(https://a.example.com:8443/plugins.json)" in item.reason
+    assert "s3cret-value" not in item.reason
+    assert "user" not in item.reason
 
 
 async def test_an_install_from_a_catalog_url_with_a_query_logs_its_host_only(plugins, catalog, monkeypatch):
@@ -1337,3 +1420,168 @@ def test_an_update_whose_move_and_move_back_both_fail_keeps_the_installed_versio
     kept = list((local / STAGING_FOLDER).glob("*/previous"))
     assert len(kept) == 1
     assert (kept[0] / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
+
+
+def _archive_with_code(plugin_id: str, version: str) -> bytes:
+    manifest = _manifest(plugin_id, version, hooks={"backend": [{"hook": "generation.before_start", "handler": "handlers.handle"}]})
+    return _archive(
+        plugin_id,
+        version,
+        manifest=manifest,
+        extra=[
+            (f"{plugin_id}/handlers.py", b"from .helper import VERSION\n\n\ndef handle(context):\n    return context\n"),
+            (f"{plugin_id}/helper.py", f"VERSION = {version!r}\n".encode()),
+        ],
+    )
+
+
+_code_plugin_ids = itertools.count()
+
+
+@pytest.fixture
+def code_plugin(monkeypatch):
+    plugin_id = f"restart-demo-{next(_code_plugin_ids)}"
+    package = plugin_id.replace("-", "_")
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    yield plugin_id
+    for name in [name for name in sys.modules if name == package or name.startswith(f"{package}.")]:
+        del sys.modules[name]
+
+
+async def test_a_first_install_needs_no_restart(plugins, catalog, code_plugin):
+    registry, repo, _, _ = plugins
+    catalog.publish(code_plugin, "1.0.0", _archive_with_code(code_plugin, "1.0.0"))
+
+    result = await _install(repo, registry, catalog, code_plugin)
+
+    assert (result.previous_version, result.enabled, result.needs_restart) == (None, False, False)
+
+
+@pytest.mark.parametrize("after", ["enabled", "disabled again"])
+async def test_an_update_of_a_plugin_whose_code_the_server_imported_says_a_restart_is_needed(
+    plugins, catalog, code_plugin, after
+):
+    registry, repo, _, local = plugins
+    catalog.publish(code_plugin, "1.0.0", _archive_with_code(code_plugin, "1.0.0"))
+    await _install(repo, registry, catalog, code_plugin)
+    assert repo.enable_plugin(code_plugin) and registry.enable_plugin(code_plugin)
+    if after == "disabled again":
+        assert repo.disable_plugin(code_plugin) and registry.disable_plugin(code_plugin)
+    catalog.publish(code_plugin, "1.1.0", _archive_with_code(code_plugin, "1.1.0"))
+
+    result = await _install(repo, registry, catalog, code_plugin)
+
+    assert (result.version, result.previous_version) == ("1.1.0", "1.0.0")
+    assert result.enabled is (after == "enabled")
+    assert result.needs_restart is True
+    assert (local / code_plugin / "helper.py").read_text() == "VERSION = '1.1.0'\n"
+
+
+@pytest.mark.parametrize("plugin", ["code never imported", "enabled without python code"])
+async def test_an_update_of_a_plugin_whose_code_the_server_never_imported_needs_no_restart(plugins, catalog, code_plugin, plugin):
+    registry, repo, _, _ = plugins
+    archive = _archive_with_code if plugin == "code never imported" else _archive
+    catalog.publish(code_plugin, "1.0.0", archive(code_plugin, "1.0.0"))
+    await _install(repo, registry, catalog, code_plugin)
+    if plugin == "enabled without python code":
+        assert repo.enable_plugin(code_plugin) and registry.enable_plugin(code_plugin)
+    catalog.publish(code_plugin, "1.1.0", archive(code_plugin, "1.1.0"))
+
+    result = await _install(repo, registry, catalog, code_plugin)
+
+    assert (result.version, result.previous_version) == ("1.1.0", "1.0.0")
+    assert result.enabled is (plugin == "enabled without python code")
+    assert result.needs_restart is False
+
+
+async def test_a_new_install_over_a_copy_removed_while_its_code_ran_says_a_restart_is_needed(plugins, catalog, code_plugin):
+    registry, repo, _, local = plugins
+    catalog.publish(code_plugin, "1.0.0", _archive_with_code(code_plugin, "1.0.0"))
+    await _install(repo, registry, catalog, code_plugin)
+    assert repo.enable_plugin(code_plugin) and registry.enable_plugin(code_plugin)
+    shutil.rmtree(local / code_plugin)
+    catalog.publish(code_plugin, "1.1.0", _archive_with_code(code_plugin, "1.1.0"))
+
+    result = await _install(repo, registry, catalog, code_plugin)
+
+    assert (result.version, result.previous_version, result.enabled) == ("1.1.0", None, False)
+    assert result.needs_restart is True
+
+
+def _linked_folder(tmp_path: Path, target: Path) -> Path:
+    link = tmp_path / "linked"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"this system cannot make a directory link: {error}")
+    return link
+
+
+def test_a_module_imported_through_the_real_path_of_a_linked_plugin_folder_counts_as_loaded(tmp_path, monkeypatch):
+    real = tmp_path / "real"
+    (real / "demo").mkdir(parents=True)
+    linked = _linked_folder(tmp_path, real)
+    module = types.ModuleType("restart_probe_real_path.handlers")
+    module.__file__ = str(real / "demo" / "handlers.py")
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+
+    assert install_ops._imports_from(linked / "demo") is True
+    assert install_ops._imports_from(linked / "other") is False
+
+
+async def test_an_update_counts_the_code_imported_from_the_folder_the_registry_loaded_the_plugin_from(
+    tmp_path, mock_db, catalog, code_plugin, monkeypatch
+):
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "marketplace").mkdir()
+    linked = _linked_folder(tmp_path, real)
+    registry = PluginRegistry(marketplace_dir=str(tmp_path / "marketplace"), local_dir=str(linked))
+    registry.discover_plugins()
+    repo = PluginRepository()
+    catalog.publish(code_plugin, "1.0.0", _archive_with_code(code_plugin, "1.0.0"))
+    await _install(repo, registry, catalog, code_plugin)
+    assert repo.enable_plugin(code_plugin) and registry.enable_plugin(code_plugin)
+    assert Path(registry.get_plugin(code_plugin).plugin_dir) == linked / code_plugin
+    monkeypatch.setattr(install_ops, "local_plugin_dir", lambda registry: real)
+    catalog.publish(code_plugin, "1.1.0", _archive_with_code(code_plugin, "1.1.0"))
+
+    result = await _install(repo, registry, catalog, code_plugin)
+
+    assert (result.version, result.previous_version) == ("1.1.0", "1.0.0")
+    assert result.needs_restart is True
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is a Windows folder link")
+def test_a_module_imported_through_the_real_path_of_a_plugin_folder_reached_by_a_junction_counts_as_loaded(tmp_path, monkeypatch):
+    import _winapi
+
+    real = tmp_path / "real"
+    (real / "demo").mkdir(parents=True)
+    junction = tmp_path / "junction"
+    _winapi.CreateJunction(str(real), str(junction))
+    try:
+        module = types.ModuleType("restart_probe_junction.handlers")
+        module.__file__ = str(real / "demo" / "handlers.py")
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+
+        assert install_ops._imports_from(junction / "demo") is True
+        assert install_ops._imports_from(junction / "other") is False
+    finally:
+        os.rmdir(junction)
+
+
+async def test_a_second_update_without_a_restart_still_asks_for_one(plugins, catalog, code_plugin):
+    registry, repo, _, _ = plugins
+    catalog.publish(code_plugin, "1.0.0", _archive_with_code(code_plugin, "1.0.0"))
+    await _install(repo, registry, catalog, code_plugin)
+    assert repo.enable_plugin(code_plugin) and registry.enable_plugin(code_plugin)
+    assert repo.disable_plugin(code_plugin) and registry.disable_plugin(code_plugin)
+    catalog.publish(code_plugin, "1.1.0", _archive_with_code(code_plugin, "1.1.0"))
+    first = await _install(repo, registry, catalog, code_plugin)
+    catalog.publish(code_plugin, "1.2.0", _archive_with_code(code_plugin, "1.2.0"))
+
+    second = await _install(repo, registry, catalog, code_plugin)
+
+    assert (first.previous_version, first.enabled, first.needs_restart) == ("1.0.0", False, True)
+    assert (second.previous_version, second.enabled, second.needs_restart) == ("1.1.0", False, True)

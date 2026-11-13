@@ -169,4 +169,5 @@ def install_result_to_response(result: "InstallResult") -> PluginCatalogInstallR
         previous_version=result.previous_version,
         enabled=result.enabled,
         dependencies_python=list(result.dependencies_python),
+        needs_restart=result.needs_restart,
     )

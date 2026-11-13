@@ -332,7 +332,7 @@
 	{/if}
 
 	<!-- Right column: existing grid content -->
-	<div class="flex-1 min-w-0 min-h-0 overflow-y-auto flex flex-col">
+	<div class="flex-1 min-w-0 min-h-0 overflow-y-auto flex flex-col dot-grid bg-canvas">
 	<!-- Top Bar with Filters -->
 	<div class="sticky top-0 z-30">
 	<PageHeader wrap sticky={false}>

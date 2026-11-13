@@ -50,7 +50,7 @@
 		</aside>
 	{/if}
 
-	<div class="flex-1 min-w-0 min-h-0 overflow-y-auto flex flex-col">
+	<div class="flex-1 min-w-0 min-h-0 overflow-y-auto flex flex-col dot-grid bg-canvas">
 		<div class="sticky top-0 z-30">
 			<InspirationsToolbar {sidebarOpen} onOpenSidebar={() => (sidebarOpen = true)} />
 		</div>

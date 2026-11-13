@@ -463,7 +463,7 @@
 			<HistoryTagsBar />
 		</div>
 
-		<main class="flex flex-col flex-1 min-h-0 overflow-y-auto">
+		<main class="flex flex-col flex-1 min-h-0 overflow-y-auto dot-grid bg-canvas">
 			<HistorySelectionToolbar
 				onBulkDeleteClick={() => (showBulkDeleteModal = true)}
 				onToolSelect={handleToolSelect}

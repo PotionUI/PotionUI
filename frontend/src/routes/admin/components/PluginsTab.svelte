@@ -270,7 +270,7 @@
 	});
 </script>
 
-<div class="flex h-full flex-col">
+<div class="flex h-full flex-col dot-grid bg-canvas">
 	{#if $loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="text-center">

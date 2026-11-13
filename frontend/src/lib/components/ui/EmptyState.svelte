@@ -30,7 +30,7 @@
 				strokeWidth={1.5}
 			/>
 		</div>
-		<p class="font-mono text-2xs uppercase tracking-[0.07em] {tone === 'danger' ? 'text-danger' : 'text-fg-subtle'}" data-empty-state-title>{title}</p>
+		<p class="font-mono text-xs uppercase tracking-[0.06em] {tone === 'danger' ? 'text-danger' : 'text-fg-subtle'}" data-empty-state-title>{title}</p>
 		{#if description}
 			<p class="text-fg-muted leading-relaxed text-sm break-words {compact ? 'mt-2' : 'mt-3'}" data-empty-state-description>{description}</p>
 		{/if}

@@ -45,32 +45,40 @@ export async function restoreTabSession(tab: GenerationTab, context: RestoreTabS
 					);
 				}
 
-				const restoredPatch = buildSessionRestoreTabPatch(modeData, {
-					promptPanelWidth: tab.promptPanelWidth
-				});
 				const draftReady = await tabDraftSync.settled(4000);
+				const liveTab = findGenerationTab(get(tabsStore).tabs, tab.id);
+				const activeMode = liveTab?.selectedMode ?? selectedMode;
+				const movedOn = activeMode !== selectedMode;
+				const appliedData = movedOn ? session.data[activeMode] : modeData;
+				const restoredPatch = appliedData
+					? buildSessionRestoreTabPatch(appliedData, { promptPanelWidth: tab.promptPanelWidth })
+					: {};
 				const currentVariables = () => findGenerationTab(get(tabsStore).tabs, tab.id)?.variables;
-				const variablesDecision = decideSessionVariables(draftReady, currentVariables());
+				const variablesDecision = appliedData ? decideSessionVariables(draftReady, currentVariables()) : 'keep';
 				const { variables: sessionVariables, ...patchWithoutVariables } = restoredPatch;
 				const appliedPatch = variablesDecision === 'replace' ? restoredPatch : patchWithoutVariables;
+				const identity = appliedData
+					? {
+							selectedPreset: appliedData.selectedPreset || tab.selectedPreset,
+							selectedVariant: appliedData.selectedVariant || null
+						}
+					: {};
 				const restoredTab = {
-					...tab,
-					selectedPreset: modeData.selectedPreset || tab.selectedPreset,
-					selectedVariant: modeData.selectedVariant || null,
+					...(liveTab ?? tab),
+					...identity,
 					selectedSessionId: tab.selectedSessionId,
 					...restoredPatch,
-					modeStateByMode: seedModeStateFromSessionData(session.data, tab.selectedMode)
+					modeStateByMode: seedModeStateFromSessionData(session.data, activeMode)
 				};
 
 				tabsStore.updateTab(tab.id, {
-					selectedPreset: modeData.selectedPreset || tab.selectedPreset,
-					selectedVariant: modeData.selectedVariant || null,
+					...identity,
 					selectedSessionId: tab.selectedSessionId,
 					...appliedPatch,
 					modeStateByMode: restoredTab.modeStateByMode,
 					sessionVersion: session.version,
 					savedSessionSignature: JSON.stringify(
-						collectTabSessionData(restoredTab, tab.selectedMode, session.data, presetForSession?.version)
+						collectTabSessionData(restoredTab, activeMode, session.data, presetForSession?.version)
 					),
 					sessionBaselineAwaitingFormNormalization: true
 				});

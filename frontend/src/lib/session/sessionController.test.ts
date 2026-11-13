@@ -338,6 +338,50 @@ describe('createSessionController', () => {
 		expect(harness.tabs.tab.savedSessionSignature).toBe(baselineForB);
 	});
 
+	describe('picking a session whose data sits under a mode the preset no longer has', () => {
+		const LONG_FORM = { total_seconds: 24, piece_prompts: 'a\nb', start_image: '/data/uploads/start.png' };
+		const retiredSession = () =>
+			makeSession(SESSION_A, {
+				data: { long: { selectedMode: 'long', prompt: 'A lighthouse', promptSegments: [], formData: LONG_FORM } }
+			});
+
+		async function pick() {
+			harness = createHarness({
+				tab: { selectedPreset: PRESET_ID, selectedMode: MODE, formData: { steps: 20 }, prompt: 'live' } as Partial<GenerationTab>
+			});
+			harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [retiredSession()] });
+			harness.api.getSessionById.mockResolvedValue({ success: true, data: retiredSession() });
+			controller = harness.controller;
+			controller.setContext(context());
+			controller.start();
+			await settle();
+			await controller.select(SESSION_A);
+			await settle();
+			return harness;
+		}
+
+		it('caches the retired mode under its own key so its notice can be offered', async () => {
+			await pick();
+			expect(harness.tabs.tab.modeStateByMode?.long?.formData).toEqual(LONG_FORM);
+			expect(harness.tabs.tab.modeStateByMode?.long?.prompt).toBe('A lighthouse');
+		});
+
+		it('never writes the retired keys into the form of the mode the tab is on', async () => {
+			await pick();
+			for (const write of harness.tabs.writes) {
+				const form = (write.formData ?? {}) as Record<string, unknown>;
+				for (const key of Object.keys(LONG_FORM)) expect(form).not.toHaveProperty(key);
+			}
+			expect(harness.tabs.tab.formData ?? {}).not.toHaveProperty('total_seconds');
+		});
+
+		it('keeps the saved baseline convertible: the retired data is still in it', async () => {
+			await pick();
+			const baseline = JSON.parse(harness.tabs.tab.savedSessionSignature as string);
+			expect(baseline.long.formData).toEqual(LONG_FORM);
+		});
+	});
+
 	it('refuses to save a session that belongs to another preset and unlinks it', async () => {
 		await bootWithDirtySession();
 		// The live preset moved on while this session stayed selected.

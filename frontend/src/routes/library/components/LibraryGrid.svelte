@@ -163,7 +163,7 @@
 	}
 </script>
 
-<div class="px-3 py-3 md:px-6 md:py-6 flex flex-1 flex-col">
+<div class="{!state.loading && items.length === 0 ? '' : 'px-3 py-3 md:px-6 md:py-6'} flex flex-1 flex-col">
 	<div
 		bind:this={gridRootEl}
 		bind:clientWidth={gridWidth}

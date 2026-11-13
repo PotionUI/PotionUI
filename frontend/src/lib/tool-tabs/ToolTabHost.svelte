@@ -61,7 +61,7 @@
 			<Tool {host} />
 		{/key}
 	{:else if failed || (!kind && ($extensionRegistrations > 0 || !tab.tool.includes('.')))}
-		<div class="flex flex-1 flex-col p-6" data-testid="tool-tab-unavailable">
+		<div class="flex flex-1 flex-col" data-testid="tool-tab-unavailable">
 			<EmptyState page icon="extension" title="This tool isn't available" description="It was turned off or removed. The tab keeps its edits until you close it." />
 		</div>
 	{:else}

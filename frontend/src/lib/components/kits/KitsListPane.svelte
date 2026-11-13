@@ -145,7 +145,7 @@
 	{:else if loading && !data}
 		<div class="flex justify-center py-16"><Spinner /></div>
 	{:else if empty}
-		<div class="flex flex-1 flex-col p-4 sm:p-6">
+		<div class="flex flex-1 flex-col">
 			<EmptyState
 				page
 				icon="layers"

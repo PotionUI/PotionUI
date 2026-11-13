@@ -416,7 +416,7 @@
 		/>
 	{:else}
 		<div class="flex h-full flex-col overflow-hidden">
-			<div class="min-h-0 flex-1 overflow-y-auto p-4">
+			<div class="min-h-0 flex-1 overflow-y-auto {!loading && visible.length === 0 ? '' : 'p-4'}">
 				{#if loading}
 					<div class="flex h-40 items-center justify-center">
 						<Spinner size="lg" />

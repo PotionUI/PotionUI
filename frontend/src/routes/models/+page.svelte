@@ -470,7 +470,7 @@
 	/>
 
 	<!-- Content Area -->
-	<div class="px-3 py-3 md:px-6 md:py-6 flex-1 flex flex-col">
+	<div class="{!loading && models.length === 0 ? '' : 'px-3 py-3 md:px-6 md:py-6'} flex-1 flex flex-col">
 
 	<!-- Model Grid -->
 	<div class="flex-1 flex flex-col">

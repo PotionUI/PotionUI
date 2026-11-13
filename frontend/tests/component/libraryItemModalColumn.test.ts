@@ -157,6 +157,7 @@ describe('sections by data', () => {
 		expect(header.querySelector('[data-library-kind]')?.textContent).toBe('image');
 		const added = header.querySelector('[data-testid="library-added"]') as HTMLButtonElement;
 		expect(added.textContent).toContain('Added');
+		expect(added.querySelector('[aria-hidden="true"] svg')).not.toBeNull();
 		expect(added.hasAttribute('data-has-tooltip')).toBe(true);
 		added.focus();
 		expect(document.activeElement).toBe(added);

@@ -18,6 +18,7 @@
 		order = null,
 		models = [],
 		axisTags = {},
+		formData = null,
 		loading = false,
 		emptyText = 'No parameters',
 		class: className = ''
@@ -27,6 +28,7 @@
 		order?: string[] | null;
 		models?: ParameterModelRef[] | null;
 		axisTags?: Record<string, string>;
+		formData?: Record<string, unknown> | null;
 		loading?: boolean;
 		emptyText?: string;
 		class?: string;
@@ -60,6 +62,7 @@
 					raw={row.raw}
 					mono={row.mono}
 					axisTag={axisTags[row.key] ?? ''}
+					{formData}
 				/>
 			{/each}
 			{#if view.shorts.length > 0}

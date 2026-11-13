@@ -2,6 +2,8 @@
 	import type { Snippet } from 'svelte';
 	import { CopyButton } from '$lib/components/ui';
 	import { copyFromBox } from './boxCopy';
+	import PromptRefText from './PromptRefText.svelte';
+	import { hasRefTokens } from './promptRefs';
 
 	let {
 		label,
@@ -9,6 +11,7 @@
 		raw,
 		mono = false,
 		axisTag = '',
+		formData = null,
 		prefix,
 		suffix,
 		footer
@@ -18,6 +21,7 @@
 		raw: string;
 		mono?: boolean;
 		axisTag?: string;
+		formData?: Record<string, unknown> | null;
 		prefix?: Snippet;
 		suffix?: Snippet;
 		footer?: Snippet;
@@ -74,7 +78,7 @@
 				: 'text-sm leading-relaxed'}"
 			class:open
 		>
-			{text}
+			{#if hasRefTokens(text)}<PromptRefText {text} {formData} />{:else}{text}{/if}
 		</div>
 		{#if overflowing || open}
 			<button

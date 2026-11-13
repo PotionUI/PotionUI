@@ -179,6 +179,7 @@ test.describe('the bar on History', () => {
 			'reuse',
 			'copy-to-library',
 			'add-to-kit',
+			'auto-file',
 			'download',
 			'more'
 		]);
@@ -254,6 +255,7 @@ test.describe('the bar on History', () => {
 	});
 
 	test('leaves the A1111 export out of a video Download menu and has no Effects for it', async ({ page }) => {
+		await page.setViewportSize({ width: 1920, height: 1080 });
 		await openHistoryDetails(page, 1);
 
 		expect(await barIds(page)).not.toContain('effects');
@@ -274,6 +276,7 @@ test.describe('the bar on History', () => {
 			'Reuse settings',
 			'Copy to Library',
 			'Add to kit',
+			'Auto-file…',
 			'Download file',
 			'Export bundle',
 			'Download with A1111 metadata',

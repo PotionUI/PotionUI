@@ -784,6 +784,7 @@ test.describe('details action bar', () => {
 			'Reuse settings',
 			'Copy to Library',
 			'Add to kit',
+			'Auto-file…',
 			/^\s*Download/,
 			/^\s*More/
 		]);
@@ -842,6 +843,7 @@ test.describe('details action bar', () => {
 			'Reuse settings',
 			'Copy to Library',
 			'Add to kit',
+			'Auto-file…',
 			'Download file',
 			'Export bundle',
 			'Publish to Inspirations',

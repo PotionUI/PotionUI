@@ -26,8 +26,9 @@ The three most recent releases; older history lives in the
   and props from your pictures consistent in a new video, starting at the trained 5 seconds.
 - MiniMax-H3-Image: a new family that loads the ComfyUI single-file weights, with text to image and
   edit presets and prompt guides for the language model; the VAE runs in fp16 with exact noise levels
-  and the reference's tile blending, edits make room for the text encoder and encode on the CPU what
-  the card cannot hold, and reference pictures count toward placement (M4-S4).
+  and the reference's tile blending; for cards with less memory, such as 12 GB, edits make room for
+  the text encoder, encode on the CPU what the card cannot hold, and count reference pictures in
+  placement (M4-S4).
 - MOSS-Image regional prompting: a Text / Regional switch by the prompt title opens a canvas at the
   resolution's aspect where you draw regions with a description each; the compiled prompt shows in
   Resolved prompt, chat and MCP can set regions, and the prompt guide follows OpenMOSS's advice.
@@ -68,11 +69,11 @@ The three most recent releases; older history lives in the
   times out, health probes need two failures and run on their own, and a loading worker keeps the
   connection alive.
 - Plugins: install a plugin from a catalog in Admin, with no failure path ending with unconfirmed
-  code enabled, and a plugin page can ship its own scoped stylesheet; the plugin API gains face
-  detection and face vectors, image embeddings, frame grabs, Library storage, listing the presets a
-  user may run and binding media into a Video Director document, a memory preview, enabled backends
-  and cloud pricing, scratch databases for tests, and more page-host helpers; the Plugins page lists
-  a community catalog (M4-S4).
+  code enabled (M4-S4); a plugin page can ship its own scoped stylesheet and gets more page-host
+  helpers (M4-S4); the plugin API gains face detection and face vectors, image embeddings, frame
+  grabs, Library storage, listing the presets a user may run, binding media into a Video Director
+  document, a memory preview, enabled backends and cloud pricing, and scratch databases for plugin
+  tests (M4-S4); the Plugins page points to plugin catalogs and lists a community one (M4-S4).
 - Admin and Library: models get a Tags section on their page, tags on list rows and a Tags button in
   the toolbar; Auto-organize calls the Library area Library; Admin Recipes shows one card per
   model.

@@ -135,7 +135,7 @@ describe('sections by data', () => {
 		component?.$destroy();
 		target?.remove();
 		await mountModal({ item: item('v', { media_type: 'video', mime_type: 'video/mp4', duration_seconds: 4, fps: 24 }) });
-		const labels = [...document.body.querySelectorAll('[data-fact] dt')].map((el) => el.textContent?.trim());
+		const labels = [...document.body.querySelectorAll('[data-fact-grid] dt')].map((el) => el.textContent?.trim());
 		expect(labels).toEqual(['Type', 'Dimensions', 'Duration', 'Frame rate', 'Size']);
 	});
 

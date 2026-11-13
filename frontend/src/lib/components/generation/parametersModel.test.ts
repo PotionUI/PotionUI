@@ -287,13 +287,14 @@ describe('tiles', () => {
 		expect(classifyParameter('k', 'x'.repeat(100))?.span).toBe(1);
 	});
 
-	it('picks 2 columns on a narrow container, 3 by default and 4 when wide', () => {
+	it('picks 2 columns in the details column and on phones, 3 and 4 when wide', () => {
 		expect(columnsForWidth(0)).toBe(2);
 		expect(columnsForWidth(299)).toBe(2);
-		expect(columnsForWidth(300)).toBe(3);
-		expect(columnsForWidth(368)).toBe(3);
-		expect(columnsForWidth(519)).toBe(3);
-		expect(columnsForWidth(520)).toBe(4);
+		expect(columnsForWidth(368)).toBe(2);
+		expect(columnsForWidth(519)).toBe(2);
+		expect(columnsForWidth(520)).toBe(3);
+		expect(columnsForWidth(759)).toBe(3);
+		expect(columnsForWidth(760)).toBe(4);
 		expect(columnsForWidth(1200)).toBe(4);
 	});
 

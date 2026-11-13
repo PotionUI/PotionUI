@@ -9,6 +9,7 @@
 		icon,
 		count,
 		collapsible = true,
+		strip = false,
 		defaultOpen = true,
 		headerRight,
 		children
@@ -18,6 +19,7 @@
 		icon?: string;
 		count?: number;
 		collapsible?: boolean;
+		strip?: boolean;
 		defaultOpen?: boolean;
 		headerRight?: Snippet;
 		children?: Snippet;
@@ -31,11 +33,11 @@
 	let open = $derived(collapsible ? ($detailsPrefs[`section:${id}`] ?? defaultOpen) : true);
 </script>
 
-<section class="mx-4 mt-4 border-t border-line-strong pt-4 first:mt-0 first:border-t-0 first:pt-0" data-details-section={id}>
+<section class={strip ? '' : 'mx-4 mt-4 border-t border-line-strong pt-4 first:mt-0 first:border-t-0 first:pt-0'} data-details-section={id} data-details-strip={strip || undefined}>
 	{#if collapsible}
 		<button
 			type="button"
-			class="flex min-h-6 w-full items-center justify-between gap-2 pb-2 text-left"
+			class="flex w-full items-center justify-between gap-2 text-left {strip ? 'h-11 border-b border-line px-4 max-sm:h-12' : 'min-h-6 pb-2'}"
 			aria-expanded={open}
 			aria-controls={bodyId}
 			onclick={() => setDetailsPref(`section:${id}`, !open)}
@@ -54,7 +56,7 @@
 			/>
 		</button>
 	{:else}
-		<div class="flex min-h-6 items-center justify-between gap-2 pb-2">
+		<div class="flex items-center justify-between gap-2 {strip ? 'h-11 border-b border-line px-4 max-sm:h-12' : 'min-h-6 pb-2'}">
 			<span class="flex min-w-0 items-center gap-2">
 				{#if icon}
 					<span aria-hidden="true" class="flex-shrink-0 text-fg-muted"><Icon name={icon} className="h-4 w-4" /></span>
@@ -67,7 +69,7 @@
 		</div>
 	{/if}
 	{#if open}
-		<div id={bodyId} class="-mx-3">
+		<div id={bodyId} class={strip ? 'px-1 pt-3' : '-mx-3'}>
 			{@render children?.()}
 		</div>
 	{/if}

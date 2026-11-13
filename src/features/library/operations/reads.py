@@ -33,6 +33,8 @@ def list_items(
     include_descendants: bool = True,
     unsorted: bool = False,
     favorites_only: bool = False,
+    sort_by: str = "added",
+    sort_dir: Optional[str] = None,
 ) -> LibraryListResult:
     """One filtered page of the user's library.
 
@@ -63,7 +65,9 @@ def list_items(
         search=(search or "").strip() or None,
     )
 
-    uploads = collaborators.repository.list_items(user_id, limit=limit, offset=offset, **filters)
+    uploads = collaborators.repository.list_items(
+        user_id, limit=limit, offset=offset, sort_by=sort_by, sort_dir=sort_dir, **filters,
+    )
     total = collaborators.repository.count_items(user_id, **filters)
     tags_by_id = collaborators.tag_repository.get_upload_tags_bulk([u.id for u in uploads])
 

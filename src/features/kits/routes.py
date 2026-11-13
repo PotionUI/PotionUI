@@ -11,6 +11,7 @@ from src.features.kits.dto import (
     AddHistoryItemsRequest,
     AddLibraryItemsRequest,
     CreateKitRequest,
+    KitSortBy,
     OrderRequest,
     ResolveRequest,
     UpdateItemRequest,
@@ -26,6 +27,7 @@ from src.features.prompt.resources import mode_prompt_resources
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.http.errors import InvalidInputError, NotFoundError
+from src.platform.http.sorting import SortDirection
 from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
 
@@ -63,9 +65,11 @@ class KitController(BaseController):
     @guarded(fallback=Fail("list_kits_failed", "Failed to list kits", 400))
     async def list_kits(
         self, user, label: Optional[str] = None, search: Optional[str] = None, limit: int = 50, offset: int = 0,
+        sort_by: str = "manual", sort_dir: Optional[str] = None,
     ) -> APIResponse:
         kits, total = await asyncio.to_thread(
-            self.repository.list_kits, user.id, label, search, max(1, min(limit, 200)), max(0, offset)
+            self.repository.list_kits, user.id, label, search, max(1, min(limit, 200)), max(0, offset),
+            sort_by, sort_dir,
         )
         ids = [kit.id for kit in kits]
         counts = await asyncio.to_thread(self.repository.counts_for, ids)
@@ -229,9 +233,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         search: Optional[str] = Query(None),
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
+        sort_by: Optional[KitSortBy] = Query(None, description="'manual' (default, the saved order; sort_dir ignored) | 'name' | 'created' | 'updated'"),
+        sort_dir: Optional[SortDirection] = Query(None, description="'asc' | 'desc'; default is desc for created and updated, asc for name"),
         current_user=Depends(get_current_active_user),
     ) -> APIResponse:
-        return await controller.list_kits(current_user, label, search, limit, offset)
+        return await controller.list_kits(
+            current_user, label, search, limit, offset,
+            sort_by.value if sort_by else "manual", sort_dir.value if sort_dir else None,
+        )
 
     @router.post("", response_model=APIResponse, summary="Create Kit")
     async def create_kit(request: CreateKitRequest, current_user=Depends(get_current_active_user)) -> APIResponse:

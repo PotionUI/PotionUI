@@ -797,6 +797,8 @@ Query parameters:
 - `saved` (boolean, optional)
 - `include_descendants` (boolean, optional, default true)
 - `unsorted` (boolean, optional, default false)
+- `sort_by` (InspirationSortBy, optional): 'created' (default) | 'title' | 'saved' (most saved) | 'comments' (most commented)
+- `sort_dir` (SortDirection, optional): 'asc' | 'desc'; default is desc for created, saved and comments, asc for title
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
@@ -1091,6 +1093,8 @@ Query parameters:
 - `search` (string, optional)
 - `limit` (integer, optional, 1 to 200, default 50)
 - `offset` (integer, optional, at least 0, default 0)
+- `sort_by` (KitSortBy, optional): 'manual' (default, the saved order; sort_dir ignored) | 'name' | 'created' | 'updated'
+- `sort_dir` (SortDirection, optional): 'asc' | 'desc'; default is desc for created and updated, asc for name
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
@@ -1401,7 +1405,7 @@ Response `200`: the standard envelope (`success`, `data`, `message`, `error`). T
 
 **List Library Items**
 
-List the current user's library items, newest first.
+List the current user's library items, newest first unless sort_by is given.
 
 Key permission: `read`.
 
@@ -1414,6 +1418,8 @@ Query parameters:
 - `include_descendants` (boolean, optional, default true): With collection_id: include sub-collections' items
 - `unsorted` (boolean, optional, default false): Only items in no collection
 - `favorites_only` (boolean, optional, default false): Only favorite items
+- `sort_by` (LibrarySortBy, optional): 'added' (default) | 'name' | 'size'
+- `sort_dir` (SortDirection, optional): 'asc' | 'desc'; default is desc for added and size, asc for name
 - `limit` (integer, optional, default 50)
 - `offset` (integer, optional, default 0)
 

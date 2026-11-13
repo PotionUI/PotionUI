@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.http.sorting import SortDirection
 from src.platform.http.spooled_zip import stream_spooled_zip
 from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
@@ -30,6 +31,7 @@ from src.features.library.dto import (
     BulkDeleteLibraryByCriteriaRequest,
     CopyFromGenerationRequest,
     LibraryExportRequest,
+    LibrarySortBy,
     SetLibraryTagsRequest,
 )
 from src.features.library import operations
@@ -60,8 +62,10 @@ class LibraryController(BaseController):
         include_descendants: bool = True,
         unsorted: bool = False,
         favorites_only: bool = False,
+        sort_by: str = "added",
+        sort_dir: Optional[str] = None,
     ) -> APIResponse:
-        """List the current user's library, newest first."""
+        """List the current user's library, newest first unless sorted."""
         parsed_tag_ids = [t.strip() for t in tag_ids.split(',')] if tag_ids else None
         result = await asyncio.to_thread(
             operations.list_items,
@@ -76,6 +80,8 @@ class LibraryController(BaseController):
             include_descendants=include_descendants,
             unsorted=unsorted,
             favorites_only=favorites_only,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
         return self.success_response(data=result.model_dump())
 
@@ -215,14 +221,17 @@ def build_router(container: "AppContainer") -> APIRouter:
         include_descendants: bool = Query(True, description="With collection_id: include sub-collections' items"),
         unsorted: bool = Query(False, description="Only items in no collection"),
         favorites_only: bool = Query(False, description="Only favorite items"),
+        sort_by: Optional[LibrarySortBy] = Query(None, description="'added' (default) | 'name' | 'size'"),
+        sort_dir: Optional[SortDirection] = Query(None, description="'asc' | 'desc'; default is desc for added and size, asc for name"),
         limit: int = 50,
         offset: int = 0,
         current_user=Depends(get_current_active_user)
     ) -> APIResponse:
-        """List the current user's library items, newest first."""
+        """List the current user's library items, newest first unless sort_by is given."""
         return await controller.list_items(
             current_user, media_type, tag_ids, collection_id, search, limit, offset,
             include_descendants, unsorted, favorites_only,
+            sort_by.value if sort_by else "added", sort_dir.value if sort_dir else None,
         )
 
     @router.get("/facets", response_model=APIResponse, summary="Library Facets")

@@ -6,9 +6,16 @@ collections). It carries no generation fields even when it started life as a
 copy of one - see `src.features.library.operations.copy_generation_file`.
 """
 
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
+
+
+class LibrarySortBy(str, Enum):
+    added = "added"
+    name = "name"
+    size = "size"
 
 
 class LibraryItem(BaseModel):

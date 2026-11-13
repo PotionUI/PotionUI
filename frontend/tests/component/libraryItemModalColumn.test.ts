@@ -157,6 +157,7 @@ describe('sections by data', () => {
 		expect(header.querySelector('[data-library-kind]')?.textContent).toBe('image');
 		const added = header.querySelector('[data-testid="library-added"]') as HTMLButtonElement;
 		expect(added.textContent).toContain('Added');
+		expect(added.querySelector('[aria-hidden="true"] svg')).not.toBeNull();
 		expect(added.hasAttribute('data-has-tooltip')).toBe(true);
 		added.focus();
 		expect(document.activeElement).toBe(added);
@@ -168,6 +169,14 @@ describe('sections by data', () => {
 	it('shows no favourite mark for an item that is not a favourite', async () => {
 		await mountModal({});
 		expect(document.body.querySelector('[data-library-favorite-mark]')).toBeNull();
+	});
+
+	it('gives the Library sections a decorative icon', async () => {
+		await mountModal({ item: item('a', { source_generation_id: 'gen-1' }) });
+		for (const id of ['library-file', 'library-tags', 'library-source', 'library-parameters']) {
+			const icon = section(id)?.querySelector('span[aria-hidden="true"] svg');
+			expect(icon, id).not.toBeNull();
+		}
 	});
 
 	it('has no Source or Parameters for a plain upload', async () => {

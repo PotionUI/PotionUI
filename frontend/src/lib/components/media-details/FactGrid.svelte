@@ -1,18 +1,32 @@
-<script lang="ts">
+<script lang="ts" module>
 	export interface Fact {
 		label: string;
 		value: string;
 		mono?: boolean;
 	}
-
-	let { facts }: { facts: Fact[] } = $props();
 </script>
 
-<dl class="m-0 grid grid-cols-2 gap-x-6 gap-y-3 px-3" data-fact-grid>
+<script lang="ts">
+	let { facts }: { facts: Fact[] } = $props();
+
+	const spanFor = (value: string) => (value.length > 28 ? 3 : value.length > 14 ? 2 : 1);
+</script>
+
+<dl class="m-0 grid grid-cols-3 gap-x-4 gap-y-4 px-3" data-fact-grid>
 	{#each facts as fact (fact.label)}
-		<div class="min-w-0 {fact.value.length > 22 ? 'col-span-full' : ''}" data-fact>
-			<dt class="min-h-5 text-sm text-fg-muted">{fact.label}</dt>
-			<dd class="m-0 text-md text-fg [overflow-wrap:anywhere] {fact.mono ? 'font-mono tabular-nums' : ''}">{fact.value}</dd>
+		<div
+			class="flex min-w-0 flex-col-reverse justify-end"
+			style="grid-column: span {spanFor(fact.value)} / span {spanFor(fact.value)}"
+			data-fact
+		>
+			<dt class="mt-0.5 min-h-5 text-sm text-fg-muted">{fact.label}</dt>
+			<dd
+				class="m-0 text-[15px] font-semibold leading-5 text-fg [overflow-wrap:anywhere] {fact.mono
+					? 'font-mono tabular-nums'
+					: ''}"
+			>
+				{fact.value}
+			</dd>
 		</div>
 	{/each}
 </dl>

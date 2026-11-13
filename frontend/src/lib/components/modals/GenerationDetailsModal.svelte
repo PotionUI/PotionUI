@@ -191,6 +191,7 @@
 	$: headerKindLabel = headerIconName === 'grid' ? 'Compare grid' : currentFile?.file_type ? currentFile.file_type.charAt(0).toUpperCase() + currentFile.file_type.slice(1) : 'Generation';
 	$: runLine = activeGeneration ? formatRunLine(activeGeneration) : null;
 	$: phoneWhen = activeGeneration ? formatShortDay(activeGeneration.completed_at ?? activeGeneration.created_at) : '';
+	$: runDetail = (runLine?.detail ?? '').replace(/^took /, '');
 	$: phoneDetail = (runLine?.detail?.split(' · ')[0] ?? '').replace(/^took /, '').replace(/^(failed|cancelled) after /, '$1 ');
 	$: runTime =
 		activeGeneration && activeGeneration.status === 'completed' && activeGeneration.completed_at
@@ -766,18 +767,28 @@
 				{#snippet meta()}
 					{#if hostTitle && presetLabel}
 						<span class="max-w-[40%] shrink-0 truncate font-medium text-fg max-sm:hidden">{presetLabel}</span>
-						<span aria-hidden="true" class="max-sm:hidden">·</span>
 					{/if}
 					<button
 						type="button"
-						class="min-w-0 cursor-default truncate rounded text-left"
+						class="inline-flex min-w-0 cursor-default items-center gap-1 rounded text-left"
 						data-testid="detail-run-line"
 						use:tooltip={{ text: exactTimes, focusSelf: true, wrap: true }}
 					>
-						<span class="whitespace-nowrap max-sm:hidden">{runLine?.when}</span><span class="whitespace-nowrap sm:hidden">{phoneWhen}</span>{#if runLine?.detail}<span class="max-sm:hidden">{' · '}<span data-testid="detail-generation-time">{#each runLine.detail.split(' · ') as part, i}{i > 0 ? ' · ' : ''}<span class="whitespace-nowrap">{part}</span>{/each}</span></span><span class="whitespace-nowrap sm:hidden">{' · '}{phoneDetail}</span>{/if}
+						<span aria-hidden="true" class="flex-shrink-0 text-fg-subtle"><Icon name="calendar" className="h-3.5 w-3.5" /></span>
+						<span class="whitespace-nowrap max-sm:hidden">{runLine?.when}</span><span class="whitespace-nowrap sm:hidden">{phoneWhen}</span>
 					</button>
-					<code class="hidden flex-shrink-0 font-mono tabular-nums sm:inline">{middleEllipsis(activeGenerationId, 17)}</code>
-					<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" class="flex-shrink-0" />
+					{#if runLine?.detail}
+						<span class="inline-flex min-w-0 items-center gap-1">
+							<span aria-hidden="true" class="flex-shrink-0 text-fg-subtle"><Icon name="clock" className="h-3.5 w-3.5" /></span>
+							<span class="whitespace-nowrap max-sm:hidden" data-testid="detail-generation-time">{runDetail}</span>
+							<span class="whitespace-nowrap sm:hidden">{phoneDetail}</span>
+						</span>
+					{/if}
+					<span class="inline-flex flex-shrink-0 items-center gap-1">
+						<span aria-hidden="true" class="text-fg-subtle max-sm:hidden"><Icon name="hash" className="h-3.5 w-3.5" /></span>
+						<code class="hidden font-mono tabular-nums sm:inline">{middleEllipsis(activeGenerationId, 17)}</code>
+						<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" class="flex-shrink-0" />
+					</span>
 				{/snippet}
 			</MediaDetailsHeader>
 		{/if}
@@ -844,12 +855,7 @@
 					{/if}
 
 					<div data-details-panel>
-						<DetailsSection id="parameters" title="Parameters" collapsible={false}>
-							{#snippet headerRight()}
-								{#if currentFile}
-									<Badge variant="neutral" size="sm" class="font-mono">#{currentFileIndex + 1}</Badge>
-								{/if}
-							{/snippet}
+						<DetailsSection id="parameters" title={mediaFiles.length > 1 ? `Parameters · image ${currentFileIndex + 1}` : 'Parameters'} icon="sliders" collapsible={false}>
 							<ParametersView
 								params={shownParams}
 								meta={shownParamMeta}
@@ -861,7 +867,7 @@
 						</DetailsSection>
 
 						{#if segments.length > 0}
-							<DetailsSection id="segments" title="Segments" count={segments.length} defaultOpen={false}>
+							<DetailsSection id="segments" title="Segments" icon="document" count={segments.length} defaultOpen={false}>
 								<FoldedList id="segments" items={[...positiveSegments, ...negativeSegments]} above={5} show={3}>
 									{#snippet item(seg)}
 										<div class={seg.is_disabled ? 'opacity-50' : ''}>
@@ -909,7 +915,7 @@
 						{/if}
 
 						{#if directorSegments.length > 0}
-							<DetailsSection id="director" title="Director shots" count={directorSegments.length}>
+							<DetailsSection id="director" title="Director shots" icon="document" count={directorSegments.length}>
 								{#if directorKeyframeCount > 0 || directorAudioCount > 0}
 									<div class="flex flex-wrap gap-1 px-3 pb-2">
 										{#if directorKeyframeCount > 0}
@@ -939,7 +945,7 @@
 							</DetailsSection>
 						{/if}
 
-						<DetailsSection id="models" title="Models" count={currentModels.length > 0 ? currentModels.length : undefined}>
+						<DetailsSection id="models" title="Models" icon="model" count={currentModels.length > 0 ? currentModels.length : undefined}>
 							{#if paramsLoading}
 								<div class="flex items-center justify-center py-4">
 									<Spinner size="sm" />
@@ -977,7 +983,7 @@
 
 						{#each extraSections as section (section.id)}
 							<div data-extra-section={section.id}>
-								<DetailsSection id="x-{section.id}" title={section.title}>
+								<DetailsSection id="x-{section.id}" title={section.title} icon={section.icon ?? 'plug'}>
 									{#if section.rows?.length}
 										<ul>
 											{#each section.rows as row (row.id)}
@@ -1008,7 +1014,7 @@
 						{/each}
 
 						{#if systemTags.length > 0}
-							<DetailsSection id="autotags" title="Auto tags" count={systemTags.length} defaultOpen={false}>
+							<DetailsSection id="autotags" title="Auto tags" icon="sparkles" count={systemTags.length} defaultOpen={false}>
 								<FoldedList id="autotags" items={systemTags} above={8} show={6} class="flex flex-wrap gap-1 px-3">
 									{#snippet item(st)}
 										<button

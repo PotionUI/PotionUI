@@ -32,7 +32,6 @@
 	/** Set false when the caller owns Escape itself (e.g. ConfirmModal), so it isn't handled twice. */
 	export let handleEscapeKey: boolean = true;
 	export let compact: boolean = false;
-	/** Keep `title` as the dialog's accessible name but let the header slot draw its own title. */
 	export let hideTitle: boolean = false;
 	export let closeClass: string = '';
 

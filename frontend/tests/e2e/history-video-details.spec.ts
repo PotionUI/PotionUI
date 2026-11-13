@@ -67,9 +67,11 @@ test('history video opens in the details modal with its preset', async ({ page }
 	await actions.first().click({ force: true });
 	await page.getByRole('menuitem', { name: 'Open details' }).click();
 
-	await expect(page.getByRole('dialog', { name: 'Generation Details' })).toBeVisible({ timeout: 15000 });
-	await expect(page.getByText('SeedVR2', { exact: true }).last()).toBeVisible({ timeout: 15000 });
-	await expect(page.getByText(`${GENERATION_ID.slice(0, 8)}...`)).toBeVisible({ timeout: 15000 });
+	const dialog = page.getByRole('dialog', { name: 'Generation Details' });
+	await expect(dialog).toBeVisible({ timeout: 15000 });
+	await expect(dialog.getByRole('heading', { name: 'SeedVR2', exact: true })).toBeVisible({ timeout: 15000 });
+	await expect(dialog.locator('[data-details-meta] code')).toHaveText(/^01SEEDVR.+0000001$/, { timeout: 15000 });
+	await expect(dialog.getByRole('button', { name: 'Copy ID' })).toBeVisible();
 	await expect(page.locator('video').first()).toBeVisible({ timeout: 15000 });
 	await screenshot(page, JOURNEY, '01-details');
 });

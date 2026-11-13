@@ -264,7 +264,7 @@ def test_a_plugin_installed_from_one_catalog_is_a_conflict_in_another_catalog_th
         item = catalog_item(_entry(version=version), registry, local, CATALOG_B)
         assert (item.status, item.installed_version) == ("conflict", "1.0.0")
         assert "installed from another catalog" in item.reason
-        assert "(a.example.com)" in item.reason
+        assert "(https://a.example.com/plugins.json)" in item.reason
 
 
 def test_an_install_record_without_its_catalog_is_a_conflict(plugins):
@@ -1235,7 +1235,7 @@ async def test_a_plugin_the_catalog_does_not_list_is_refused(plugins, catalog):
         await _install(repo, registry, catalog, "other")
 
 
-def test_a_conflict_with_another_catalog_names_its_host_and_not_its_query(plugins):
+def test_a_conflict_with_another_catalog_names_its_address_and_not_its_query(plugins):
     registry, _, _, local = plugins
     _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog="https://a.example.com/plugins.json?token=s3cret-value")
     registry.discover_plugins()
@@ -1243,8 +1243,35 @@ def test_a_conflict_with_another_catalog_names_its_host_and_not_its_query(plugin
     item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
 
     assert item.status == "conflict"
-    assert "(a.example.com)" in item.reason
+    assert "(https://a.example.com/plugins.json, with a query not shown here)" in item.reason
     assert "s3cret-value" not in item.reason
+    assert "token" not in item.reason
+
+
+def test_a_conflict_between_two_paths_of_the_same_host_names_the_path_the_plugin_came_from(plugins):
+    registry, _, _, local = plugins
+    pinned = "https://raw.example.com/owner/plugins/0123abc/plugins.json"
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=pinned)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, "https://raw.example.com/owner/plugins/main/plugins.json")
+
+    assert item.status == "conflict"
+    assert item.reason == (
+        f"This plugin was installed from another catalog ({pinned}); only that catalog updates it."
+    )
+
+
+def test_a_conflict_never_shows_the_credentials_of_a_recorded_catalog_url(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog="https://user:s3cret-value@a.example.com:8443/plugins.json")
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
+
+    assert "(https://a.example.com:8443/plugins.json)" in item.reason
+    assert "s3cret-value" not in item.reason
+    assert "user" not in item.reason
 
 
 async def test_an_install_from_a_catalog_url_with_a_query_logs_its_host_only(plugins, catalog, monkeypatch):

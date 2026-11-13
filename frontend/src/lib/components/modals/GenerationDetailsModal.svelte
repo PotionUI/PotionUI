@@ -50,6 +50,9 @@
 	import ParameterTextBlock from '$lib/components/generation/ParameterTextBlock.svelte';
 	import DetailsSection from '$lib/components/generation/DetailsSection.svelte';
 	import DetailRow from '$lib/components/generation/DetailRow.svelte';
+	import GenerationFailureAlert from '$lib/components/generation/GenerationFailureAlert.svelte';
+	import { failureNotice } from '$lib/components/generation/failureNotice';
+	import { authStore } from '$lib/stores/auth';
 	import FoldButton from '$lib/components/generation/FoldButton.svelte';
 	import FoldedList from '$lib/components/generation/FoldedList.svelte';
 	import { detailsPrefs, loadDetailsPrefs, setDetailsPref } from '$lib/components/generation/detailsPrefs';
@@ -182,6 +185,7 @@
 	let selectedTags: Array<{ id: string; name: string }> = [];
 	let isSavingTags: boolean = false;
 
+	$: failure = activeGeneration ? failureNotice(activeGeneration, $authStore.user?.account_type === 'ADMIN') : null;
 	$: runLine = activeGeneration ? formatRunLine(activeGeneration) : null;
 	$: runTime =
 		activeGeneration && activeGeneration.status === 'completed' && activeGeneration.completed_at
@@ -893,10 +897,20 @@
 
 			<!-- Right Side - Information -->
 			<div bind:this={infoPanel} use:restoreScroll={takeDetailsScroll(activeGenerationId)} data-details-info class="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-line bg-surface-1 overflow-y-auto min-h-0">
-				<div class="p-4 space-y-3">
-					<slot name="afterInformation" />
+				<div class="py-4">
+					{#if failure}
+						<div class="px-4 pb-4">
+							<GenerationFailureAlert notice={failure} />
+						</div>
+					{/if}
 
-					<div class="divide-y divide-line overflow-hidden rounded-lg bg-surface-2" data-details-panel>
+					{#if $$slots.afterInformation}
+						<div class="px-4 pb-4">
+							<slot name="afterInformation" />
+						</div>
+					{/if}
+
+					<div data-details-panel>
 						<DetailsSection id="info" title="Information" icon="information-circle" collapsible={false}>
 							{#snippet headerRight()}
 								<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />
@@ -1014,7 +1028,7 @@
 						{#if directorSegments.length > 0}
 							<DetailsSection id="director" title="Director shots" icon="document" count={directorSegments.length}>
 								{#if directorKeyframeCount > 0 || directorAudioCount > 0}
-									<div class="flex flex-wrap gap-1 px-3 pb-1">
+									<div class="flex flex-wrap gap-1 px-3 pb-2">
 										{#if directorKeyframeCount > 0}
 											<Badge variant="neutral" size="sm">{directorKeyframeCount} keyframe{directorKeyframeCount === 1 ? '' : 's'}</Badge>
 										{/if}

@@ -49,7 +49,7 @@
 		grid-template-columns: 7rem 1fr auto;
 		align-items: center;
 		column-gap: 8px;
-		min-height: 28px;
+		min-height: 32px;
 		break-inside: avoid;
 	}
 </style>

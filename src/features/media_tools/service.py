@@ -38,6 +38,8 @@ from src.features.media_tools.jobs import (
     RunOutcome,
 )
 from src.features.media.validators import UPLOAD_PURPOSE_DERIVED
+from src.features.media_tools.pool_metrics import REJECTION_PREVIEW_BUSY
+from src.features.media_tools.preview_slots import PreviewSlots
 from src.features.media_tools.previews import FramePreview, PreviewCache, digest, is_preview_id
 from src.features.media_tools.publisher import MediaToolPublisher, to_item
 from src.features.media_tools.repository import MediaToolParamsRepository
@@ -121,6 +123,10 @@ class _Plan:
     attachments: dict
     target: Optional[ResolvedInput] = None
     collection_id: Optional[str] = None
+
+
+def _tool_ids(steps: Sequence[Step]) -> List[str]:
+    return [step[0].id for step in steps]
 
 
 def _ref_key(ref: Mapping[str, Any]) -> str:
@@ -266,7 +272,7 @@ class MediaToolService:
         self.scratch_root = Path(scratch_root) if scratch_root else Path(tempfile.gettempdir())
         self._scratch_lock = threading.Lock()
         self._live_scratch: set = set()
-        self._preview_slots = threading.BoundedSemaphore(PREVIEW_CONCURRENCY)
+        self._preview_slots = PreviewSlots(lambda: self.jobs.limits().max_previews)
         self._preview_wait = preview_wait_seconds
         self.previews = PreviewCache(self._preview_dir)
         if sweep_stale:
@@ -444,7 +450,7 @@ class MediaToolService:
         plan = self._plan(user_id, steps, inputs, output)
         if plan.mode == "new":
             self.publisher.precheck(user_id)
-        return self.jobs.submit(user_id, self._work(user_id, plan))
+        return self.jobs.submit(user_id, self._work(user_id, plan), tools=_tool_ids(plan.steps))
 
     def list_runs(self, user: Any) -> List[RunDTO]:
         return self.jobs.list(_user_id(user))
@@ -460,6 +466,35 @@ class MediaToolService:
         if run is None:
             raise NotFoundError("not_found", "Run not found")
         return run
+
+    def admin_cancel_run(self, run_id: str) -> RunDTO:
+        run = self.jobs.cancel_any(run_id)
+        if run is None:
+            raise NotFoundError("not_found", "Run not found")
+        return run
+
+    def pool_overview(self) -> dict:
+        state = self.jobs.pool_state()
+        limits = state["limits"]
+        clips_running = sum(1 for job in state["jobs"] if job["kind"] == "preview" and job["status"] == "running")
+        return {
+            "limits": {
+                "max_concurrent": limits.max_concurrent,
+                "max_previews": limits.max_previews,
+                "max_running_per_user": limits.max_running_per_user,
+                "max_queued_per_user": limits.max_queued_per_user,
+                "ffmpeg_threads": limits.ffmpeg_threads,
+            },
+            "running": state["running"],
+            "queued": state["queued"],
+            "previews": {
+                "limit": limits.max_previews,
+                "in_use": self._preview_slots.in_use,
+                "clips_running": clips_running,
+            },
+            "jobs": state["jobs"],
+            "metrics": state["metrics"],
+        }
 
     def run_blocking(
         self,
@@ -554,6 +589,7 @@ class MediaToolService:
     @contextmanager
     def _preview_slot(self):
         if not self._preview_slots.acquire(timeout=self._preview_wait):
+            self.jobs.metrics.record_rejection(REJECTION_PREVIEW_BUSY)
             raise DomainError(
                 "preview_busy", "Too many previews are rendering; try again in a moment", status_code=429
             )
@@ -650,7 +686,7 @@ class MediaToolService:
                 )
                 return RunOutcome(preview=clip)
 
-        return ClipPreviewResponse(run_id=self.jobs.submit(user_id, work, kind="preview"))
+        return ClipPreviewResponse(run_id=self.jobs.submit(user_id, work, kind="preview", tools=_tool_ids(chain)))
 
     def preview_clip_file(self, user: Any, preview_id: str) -> Tuple[Path, str]:
         found = self.previews.clip_file(_user_id(user), preview_id) if is_preview_id(preview_id) else None

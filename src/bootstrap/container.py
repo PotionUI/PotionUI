@@ -273,7 +273,10 @@ from src.features.backup.settings import repo_root as backup_repo_root
 from src.features.media.preset_prerender import PresetMediaPrerenderQueue
 from src.features.media_tools.repository import MediaToolParamsRepository
 from src.features.media_tools.routes import MediaToolController
+from src.features.media_tools.jobs import MediaToolJobManager
+from src.features.media_tools.pool_limits import SettingsLimits
 from src.features.media_tools.service import MediaToolService
+from src.platform.media_tools.ffmpeg import set_thread_cap_provider as set_ffmpeg_thread_cap_provider
 from src.features.library import LibraryCollaborators, LibraryRepository
 from src.features.library.routes import LibraryController
 from src.features.kits import KitRepository
@@ -1620,6 +1623,9 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
 
 
     media_tool_repository = MediaToolParamsRepository()
+    media_tool_limits = SettingsLimits(settings)
+    set_ffmpeg_thread_cap_provider(lambda: media_tool_limits().ffmpeg_threads)
+    media_tool_jobs = MediaToolJobManager(limits=media_tool_limits)
     media_tool_service = MediaToolService(
         registry=media_tool_registry,
         params_repository=media_tool_repository,
@@ -1630,6 +1636,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         limit_guard=limit_guard,
         artifact_store=media_store,
         collection_repository=collection_repository,
+        jobs=media_tool_jobs,
     )
     media_tool_controller = MediaToolController(media_tool_service)
     automation_services.media_tool_service = media_tool_service

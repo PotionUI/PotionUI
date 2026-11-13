@@ -17,6 +17,8 @@ GET	/api/admin/keys/{key_id}/events	-	-	session_only
 GET	/api/admin/logs/tail	admin	-	admin_dependency
 GET	/api/admin/mcp/tools	-	-	session_only
 PATCH	/api/admin/mcp/tools	-	-	session_only
+POST	/api/admin/media-tools/jobs/{run_id}/cancel	-	admin	admin_dependency
+GET	/api/admin/media-tools/pool	admin	-	admin_dependency
 PUT	/api/admin/organize/controls	-	admin	admin_dependency
 GET	/api/admin/organize/instance/activity	admin	-	admin_dependency
 GET	/api/admin/organize/instance/catalog	admin	-	admin_dependency

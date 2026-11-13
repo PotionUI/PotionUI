@@ -1901,6 +1901,28 @@ Query parameters:
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
+## Media Tools
+
+### POST /api/admin/media-tools/jobs/{run_id}/cancel
+
+**Cancel Any Media Tool Job**
+
+Key permission: `admin`.
+
+Path parameters:
+
+- `run_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### GET /api/admin/media-tools/pool
+
+**Get Media Tool Pool State**
+
+Key permission: `admin`.
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ## Model Layouts
 
 ### GET /api/models/layouts

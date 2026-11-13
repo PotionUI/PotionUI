@@ -11,6 +11,7 @@ from typing import IO, Callable, Iterator, Optional
 
 import numpy as np
 
+from src.platform.media_tools.ffmpeg import apply_thread_cap, current_thread_cap
 from src.platform.media_tools.fastpath import (
     COLOR_TAGS,
     CRF_BY_QUALITY,
@@ -195,6 +196,8 @@ def stream_segments(media: ToolMedia, plan: MergedPlan, ctx: ToolContext, out_pa
     commands = [decode_command(ffmpeg, media, plan)]
     commands += [middle_command(ffmpeg, group, segments[index + 1], rate) for index, group in enumerate(groups[:-1])]
     commands.append(encode_command(ffmpeg, media, plan, last, rate, out_path))
+    cap = current_thread_cap()
+    commands = [apply_thread_cap(command, cap) for command in commands]
     ctx.runner.commands.extend(commands)
 
     processes: list[subprocess.Popen] = []

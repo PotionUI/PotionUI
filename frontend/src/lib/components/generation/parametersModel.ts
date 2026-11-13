@@ -47,7 +47,7 @@ export const FOLD_ABOVE = 10;
 export const FOLD_SHOW = 8;
 export const SPAN_TWO_CHARS = 14;
 export const SPAN_THREE_CHARS = 28;
-export const MIN_COLUMN_WIDTHS = [300, 520] as const;
+export const MIN_COLUMN_WIDTHS = [520, 760] as const;
 
 const TEXT_TYPES = new Set(['prompt', 'textarea', 'markdown']);
 const BOOL_TYPES = new Set(['checkbox', 'boolean', 'switch']);

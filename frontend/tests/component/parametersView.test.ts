@@ -117,35 +117,56 @@ describe('ParametersView', () => {
 		expect(copyText).toHaveBeenCalledWith(text);
 	});
 
-	it('makes row copy buttons reachable on touch and keyboard focus', () => {
-		mountComponent(ParametersView, { params: { a: 1 } });
-		const button = document.body.querySelector('dl button') as HTMLButtonElement;
-		expect(button.className).toContain('[@media(hover:none)]:opacity-100');
-		expect(button.className).toContain('group-focus-within:opacity-100');
+	it('keeps the copy button of every box visible without hover', () => {
+		mountComponent(ParametersView, { params: { a: 1, b: 'euler', c: false } });
+		const buttons = [...document.body.querySelectorAll('[data-param-cell] button')] as HTMLButtonElement[];
+		expect(buttons).toHaveLength(3);
+		for (const button of buttons) {
+			expect(button.className).not.toContain('opacity-0');
+			expect(button.className).toContain('absolute');
+			expect(button.className).toContain('right-1');
+		}
 	});
 });
 
-describe('ParametersView tiles', () => {
+describe('ParametersView boxes', () => {
 	const grid = () => document.body.querySelector('dl') as HTMLElement;
 	const span = (cell: Element) => (cell as HTMLElement).style.gridColumn;
 
-	it('uses three columns in a 400 px column and leaves the last cell of an odd count empty', () => {
+	it('uses two columns in a 400 px column and on phones', () => {
 		vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 368);
-		mountComponent(ParametersView, { params: { a: 1, b: 2, c: 3, d: 4 } });
-		flushSync();
-		expect(grid().getAttribute('data-columns')).toBe('3');
-		expect(grid().style.gridTemplateColumns).toContain('repeat(3');
-		expect(rows()).toHaveLength(4);
-	});
-
-	it('uses two columns on a very narrow container', () => {
-		vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 260);
-		mountComponent(ParametersView, { params: { a: 1 } });
+		mountComponent(ParametersView, { params: { a: 1, b: 2, c: 3 } });
 		flushSync();
 		expect(grid().getAttribute('data-columns')).toBe('2');
+		expect(grid().style.gridTemplateColumns).toContain('repeat(2');
+		expect(rows()).toHaveLength(3);
 	});
 
-	it('spans two or three columns for long values and never more than the columns', () => {
+	it('gives every parameter its own bordered box with equal-height cells in a row', () => {
+		mountComponent(ParametersView, { params: { steps: 24, sampler: 'euler' } });
+		for (const cell of rows()) {
+			expect(cell.className).toContain('border-line');
+			expect(cell.className).toContain('bg-surface-2');
+			expect(cell.className).toContain('rounded');
+			expect(cell.className).toContain('flex-col-reverse');
+		}
+		expect(grid().className).not.toMatch(/items-(start|center|end)/);
+		expect(grid().className).toContain('gap-2');
+	});
+
+	it('copies the raw value from the button inside each box', async () => {
+		mountComponent(ParametersView, { params: { size: '768x1344', flag: 'true', seed: 1117566997 } });
+		const cells = rows();
+		expect(cells[0].textContent).toContain('768 × 1344');
+		for (const [index, raw] of ['768x1344', 'true', '1117566997'].entries()) {
+			copyText.mockClear();
+			(cells[index].querySelector('button') as HTMLButtonElement).click();
+			await flush();
+			expect(copyText).toHaveBeenCalledWith(raw);
+		}
+	});
+
+	it('spans two columns for long values and never more than the columns', () => {
 		vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 368);
 		mountComponent(ParametersView, {
 			params: { short: 'euler', mid: 'dpmpp_2m_sde_gpu_karras', long: 'dpmpp_2m_sde_gpu_karras_extra_long_name' }
@@ -154,14 +175,13 @@ describe('ParametersView tiles', () => {
 		const cells = rows();
 		expect(span(cells[0])).toContain('span 1');
 		expect(span(cells[1])).toContain('span 2');
-		expect(span(cells[2])).toContain('span 3');
+		expect(span(cells[2])).toContain('span 2');
 	});
 
 	it('puts the value above its label in bold, mono for numbers and sans for words', () => {
 		mountComponent(ParametersView, { params: { steps: 24, sampler: 'euler' } });
 		const [steps, sampler] = rows();
 		expect(steps.querySelector('dt')?.textContent).toContain('Steps');
-		expect(steps.className).toContain('flex-col-reverse');
 		const value = steps.querySelector('dd') as HTMLElement;
 		expect(value.textContent?.trim()).toBe('24');
 		expect(value.className).toContain('font-semibold');
@@ -183,15 +203,21 @@ describe('ParametersView tiles', () => {
 		expect(value.className).not.toContain('text-fg-muted');
 	});
 
-	it('folds by whole rows at three columns and four columns', async () => {
+	it('picks columns by width and folds by whole rows', () => {
 		let width = 368;
 		vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
-		const view = mountComponent(ParametersView, { params: manyParams(14, false) });
+		const first = mountComponent(ParametersView, { params: manyParams(14, false) });
+		flushSync();
+		expect(grid().getAttribute('data-columns')).toBe('2');
+		expect(rows()).toHaveLength(8);
+		first.destroy();
+		width = 600;
+		const second = mountComponent(ParametersView, { params: manyParams(14, false) });
 		flushSync();
 		expect(grid().getAttribute('data-columns')).toBe('3');
 		expect(rows()).toHaveLength(9);
-		view.destroy();
-		width = 680;
+		second.destroy();
+		width = 800;
 		mountComponent(ParametersView, { params: manyParams(14, false) });
 		flushSync();
 		expect(grid().getAttribute('data-columns')).toBe('4');
@@ -199,18 +225,20 @@ describe('ParametersView tiles', () => {
 	});
 });
 
-describe('ParametersView quote blocks', () => {
-	it('draws long text as a quote with a left rule and no filled box', () => {
+describe('ParametersView text boxes', () => {
+	it('draws long text in a bordered filled box with the label and copy above', () => {
 		mountComponent(ParametersView, { params: { notes: 'q'.repeat(200) } });
 		const block = document.body.querySelector('[data-testid="parameter-block"]') as HTMLElement;
-		const quote = block.querySelector('div.border-l-2') as HTMLElement;
-		expect(quote.className).toContain('border-line-strong');
-		expect(quote.className).toContain('pl-3');
-		expect(block.innerHTML).not.toContain('bg-surface-2');
+		const box = block.querySelector('div.border') as HTMLElement;
+		expect(box.className).toContain('border-line');
+		expect(box.className).toContain('bg-surface-2');
+		expect(box.className).toContain('rounded');
+		expect(block.querySelector('div.border-l-2')).toBeNull();
 		expect(block.querySelector('.clamp')?.className).toContain('leading-relaxed');
+		expect(block.querySelector('button[aria-label="Copy Notes"]')).not.toBeNull();
 	});
 
-	it('keeps the copy button visible without hover on a quote block', () => {
+	it('keeps the copy button visible without hover on a text box', () => {
 		mountComponent(ParametersView, { params: { notes: 'q'.repeat(200) } });
 		const button = document.body.querySelector('[data-testid="parameter-block"] button[aria-label="Copy Notes"]') as HTMLElement;
 		expect(button.className).not.toContain('opacity-0');

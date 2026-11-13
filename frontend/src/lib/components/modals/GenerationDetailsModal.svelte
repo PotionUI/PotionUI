@@ -50,6 +50,9 @@
 	import ParameterTextBlock from '$lib/components/generation/ParameterTextBlock.svelte';
 	import DetailsSection from '$lib/components/generation/DetailsSection.svelte';
 	import DetailRow from '$lib/components/generation/DetailRow.svelte';
+	import GenerationFailureAlert from '$lib/components/generation/GenerationFailureAlert.svelte';
+	import { failureNotice } from '$lib/components/generation/failureNotice';
+	import { authStore } from '$lib/stores/auth';
 	import FoldButton from '$lib/components/generation/FoldButton.svelte';
 	import FoldedList from '$lib/components/generation/FoldedList.svelte';
 	import { detailsPrefs, loadDetailsPrefs, setDetailsPref } from '$lib/components/generation/detailsPrefs';
@@ -182,6 +185,7 @@
 	let selectedTags: Array<{ id: string; name: string }> = [];
 	let isSavingTags: boolean = false;
 
+	$: failure = activeGeneration ? failureNotice(activeGeneration, $authStore.user?.account_type === 'ADMIN') : null;
 	$: runLine = activeGeneration ? formatRunLine(activeGeneration) : null;
 	$: runTime =
 		activeGeneration && activeGeneration.status === 'completed' && activeGeneration.completed_at
@@ -894,6 +898,10 @@
 			<!-- Right Side - Information -->
 			<div bind:this={infoPanel} use:restoreScroll={takeDetailsScroll(activeGenerationId)} data-details-info class="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-line bg-surface-1 overflow-y-auto min-h-0">
 				<div class="p-4 space-y-3">
+					{#if failure}
+						<GenerationFailureAlert notice={failure} />
+					{/if}
+
 					<slot name="afterInformation" />
 
 					<div class="divide-y divide-line overflow-hidden rounded-lg bg-surface-2" data-details-panel>

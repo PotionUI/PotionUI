@@ -27,6 +27,15 @@ const { default: GenerationDetailsModal } = await import(
 const { createClassComponent } = await import('svelte/legacy');
 const { forgetDetailsPrefs, DETAILS_PREFS_KEY } = await import('$lib/components/generation/detailsPrefs');
 const { historyStore } = await import('$lib/stores/history');
+const { authStore } = await import('$lib/stores/auth');
+
+function signInAs(accountType: string) {
+	vi.spyOn(authStore, 'subscribe').mockImplementation(((run: (value: unknown) => void) => {
+		run({ user: { account_type: accountType }, isAuthenticated: true });
+		return () => {};
+	}) as never);
+}
+
 
 const flush = async () => {
 	for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
@@ -314,5 +323,63 @@ describe('plugin sections', () => {
 		expect(onToggle).toHaveBeenCalledWith(true);
 		await click([...box.querySelectorAll('button')].find((b) => b.textContent?.includes('Run selected')));
 		expect(onClick).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('failure notice', () => {
+	const RAW = 'RuntimeError: failed in /srv/models/private/unet.safetensors';
+	const alertText = () => document.body.querySelector('[data-failure-alert]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+
+	it('shows an admin the stored message above everything else', async () => {
+		signInAs('ADMIN');
+		await mountModal(generation({ status: 'failed', error_message: RAW, error_id: 'E-9' }), {
+			extraSections: []
+		});
+		expect(alertText()).toContain('Failed');
+		expect(alertText()).toContain(RAW);
+		expect(alertText()).toContain('E-9');
+		const alert = document.body.querySelector('[data-failure-alert]') as HTMLElement;
+		const panel = document.body.querySelector('[data-details-panel]') as HTMLElement;
+		expect(alert.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(alert.querySelector('button[aria-label="Copy error message"]')).not.toBeNull();
+	});
+
+	it('shows a regular user only the message the server scoped for them', async () => {
+		signInAs('USER');
+		await mountModal(
+			generation({
+				status: 'failed',
+				error_message: 'Out of memory.',
+				error_user_message: 'Out of memory. Try a smaller size.',
+				error_contact_admin: true,
+				error_id: 'E-10'
+			})
+		);
+		expect(alertText()).toContain('Out of memory. Try a smaller size.');
+		expect(alertText()).toContain('Give this to your admin');
+	});
+
+	it('hides an unscoped raw message from a regular user', async () => {
+		signInAs('USER');
+		await mountModal(generation({ status: 'failed', error_message: RAW }));
+		expect(alertText()).toContain('This generation failed.');
+		expect(document.body.textContent).not.toContain('/srv/models');
+	});
+
+	it('is absent for a completed generation and present for a cancelled one', async () => {
+		signInAs('USER');
+		await mountModal(generation());
+		expect(document.body.querySelector('[data-failure-alert]')).toBeNull();
+		mountedModal?.$destroy();
+		target?.remove();
+		await mountModal(generation({ status: 'cancelled' }));
+		expect(alertText()).toContain('Cancelled');
+	});
+
+	it('orders a failed generation: alert, then Information, Parameters, Models', async () => {
+		signInAs('ADMIN');
+		await mountModal(generation({ status: 'failed', error_message: 'x' }));
+		expect(sectionIds()).toEqual(['info', 'parameters', 'models']);
+		expect(document.body.querySelectorAll('[data-failure-alert]')).toHaveLength(1);
 	});
 });

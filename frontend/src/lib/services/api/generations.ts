@@ -16,7 +16,7 @@ import type {
 	SortBy,
 	SortDir
 } from '$lib/types/history';
-import type { Workspace, GenerationParamModel } from '$lib/types/generation';
+import type { Workspace, GenerationParamsResponse } from '$lib/types/generation';
 
 interface UploadedGenerationFile {
 	id: number;
@@ -203,7 +203,7 @@ export function createGenerationsApi(client: AxiosInstance) {
 		async getGenerationParams(
 			generationId: string,
 			fileIndex: number
-		): Promise<APIResponse<{ parameters: Record<string, unknown>; models: GenerationParamModel[] }>> {
+		): Promise<APIResponse<GenerationParamsResponse>> {
 			const response = await client.get(
 				`/api/generations/${generationId}/params/${fileIndex}`
 			);

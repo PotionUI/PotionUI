@@ -9,6 +9,23 @@ export interface GenerationParamModel {
 	name: string;
 	type: string;
 	weight?: number;
+	filename?: string;
+	model_type?: string;
+}
+
+export interface GenerationParameterMeta {
+	label?: string;
+	type?: string;
+	unit?: string;
+}
+
+export interface GenerationParamsResponse {
+	generation_id?: string;
+	index?: number;
+	parameters: Record<string, unknown>;
+	models: GenerationParamModel[];
+	parameter_meta?: Record<string, GenerationParameterMeta>;
+	parameter_order?: string[];
 }
 
 /** Workspace as stored in the API. */

@@ -1,0 +1,318 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const response: { data: Record<string, unknown> } = { data: { parameters: {}, models: [] } };
+
+vi.mock('$lib/services/api/index', () => ({
+	api: {
+		getOrganizeProvenance: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+		getClient: vi.fn(() => ({
+			get: vi.fn().mockRejectedValue(new Error('not mocked')),
+			post: vi.fn().mockRejectedValue(new Error('not mocked')),
+			put: vi.fn().mockRejectedValue(new Error('not mocked'))
+		})),
+		getGenerationParams: vi.fn(() => Promise.resolve({ success: true, data: response.data })),
+		getGenerationById: vi.fn().mockResolvedValue({ success: false, error: 'not mocked' }),
+		getTags: vi.fn().mockResolvedValue({ success: true, data: { tags: [] } }),
+		getBaseURL: vi.fn(() => ''),
+		getToken: vi.fn(() => null),
+		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn()
+	}
+}));
+
+const { default: GenerationDetailsModal } = await import(
+	'$lib/components/modals/GenerationDetailsModal.svelte'
+);
+const { createClassComponent } = await import('svelte/legacy');
+const { forgetDetailsPrefs, DETAILS_PREFS_KEY } = await import('$lib/components/generation/detailsPrefs');
+const { historyStore } = await import('$lib/stores/history');
+
+const flush = async () => {
+	for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+};
+
+function tags(n: number) {
+	return Array.from({ length: n }, (_, i) => ({ tag: `tag_${i}`, confidence: 0.9 }));
+}
+
+function generation(over: Record<string, unknown> = {}, systemTags: unknown[] = []) {
+	return {
+		id: `gen-${Math.random()}`,
+		form_data: {},
+		status: 'completed',
+		progress: 1,
+		created_at: '2026-11-12T20:40:00Z',
+		completed_at: '2026-11-12T20:49:00Z',
+		updated_at: '2026-11-12T20:49:00Z',
+		run_seconds: 102,
+		preset_id: 'portrait',
+		preset_version: '1.4',
+		segments: [],
+		rating: 0,
+		is_favorite: false,
+		files: [
+			{ id: 1, file_path: 'a.png', file_type: 'image', is_final: true, created_at: '2026-11-12T20:49:00Z', system_tags: systemTags }
+		],
+		...over
+	};
+}
+
+function segments(n: number) {
+	return Array.from({ length: n }, (_, i) => ({
+		prompt_index: 0,
+		segment_index: i,
+		channel: i === 0 ? 'negative' : 'positive',
+		text: `segment text ${i}`
+	}));
+}
+
+function director(shots: number) {
+	return {
+		video_director: {
+			mode: 'x',
+			segments: Array.from({ length: shots }, (_, i) => ({ id: `s${i}`, prompt: `shot text ${i}`, sub_type: 'follow' })),
+			media: [{ role: 'keyframe' }],
+			audio: []
+		}
+	};
+}
+
+function models(n: number) {
+	return Array.from({ length: n }, (_, i) => ({ name: `Model ${i}`, filename: `m${i}.safetensors`, model_type: 'lora' }));
+}
+
+let mountedModal: { $destroy: () => void } | undefined;
+let target: HTMLElement | undefined;
+
+async function mountModal(gen: unknown, props: Record<string, unknown> = {}) {
+	target = document.createElement('div');
+	document.body.appendChild(target);
+	mountedModal = createClassComponent({
+		component: GenerationDetailsModal as never,
+		target,
+		props: { generation: gen as never, isOpen: true, ...props }
+	});
+	await flush();
+}
+
+const sectionIds = () =>
+	[...document.body.querySelectorAll('[data-details-section]')].map((el) => el.getAttribute('data-details-section'));
+const section = (id: string) => document.body.querySelector(`[data-details-section="${id}"]`) as HTMLElement | null;
+const header = (id: string) => section(id)?.querySelector('button[aria-expanded]') as HTMLButtonElement | null;
+const showAll = (id: string) =>
+	[...(section(id)?.querySelectorAll('button') ?? [])].find((b) => /^Show (all|less)/.test(b.textContent?.trim() ?? ''));
+const click = async (el: Element | null | undefined) => {
+	(el as HTMLElement).click();
+	await flush();
+};
+
+beforeEach(() => {
+	localStorage.clear();
+	forgetDetailsPrefs();
+	response.data = { parameters: {}, models: [] };
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
+	mountedModal?.$destroy();
+	target?.remove();
+	mountedModal = undefined;
+	forgetDetailsPrefs();
+});
+
+describe('details column order', () => {
+	it('puts Information first, then Parameters and Models for a minimal generation', async () => {
+		await mountModal(generation());
+		expect(sectionIds()).toEqual(['info', 'parameters', 'models']);
+	});
+
+	it('orders an image with auto tags: Information, Parameters, Models, Auto tags', async () => {
+		response.data = { parameters: { steps: 20 }, models: models(2) };
+		await mountModal(generation({}, tags(3)));
+		expect(sectionIds()).toEqual(['info', 'parameters', 'models', 'autotags']);
+	});
+
+	it('orders a video with segments and director shots and plugin sections', async () => {
+		response.data = { parameters: { steps: 20 }, models: models(2) };
+		await mountModal(generation({ segments: segments(3), form_data: director(2) }, tags(2)), {
+			extraSections: [{ id: 'send', title: 'Send to', rows: [], actions: [] }]
+		});
+		expect(sectionIds()).toEqual([
+			'info',
+			'parameters',
+			'segments',
+			'director',
+			'models',
+			'x-send',
+			'autotags'
+		]);
+	});
+
+	it('omits Segments, Director shots and Auto tags when their data is absent', async () => {
+		await mountModal(generation());
+		expect(section('segments')).toBeNull();
+		expect(section('director')).toBeNull();
+		expect(section('autotags')).toBeNull();
+	});
+
+	it('keeps Parameters and Models when empty', async () => {
+		await mountModal(generation());
+		expect(section('parameters')?.textContent).toContain('No parameters');
+		expect(section('models')?.textContent).toContain('No models');
+	});
+});
+
+describe('Information', () => {
+	it('shows preset with version, a copyable id and one human line, with exact times folded', async () => {
+		await mountModal(generation());
+		const info = section('info') as HTMLElement;
+		const text = info.textContent?.replace(/\s+/g, ' ') ?? '';
+		expect(text).toContain('Preset');
+		expect(text).toContain('v1.4');
+		expect(text).toContain('took 1 min 42 s');
+		expect(info.querySelector('button[aria-label="Copy ID"]')).not.toBeNull();
+		expect(text).not.toContain('Created');
+		expect(info.querySelectorAll('dl > div')).toHaveLength(3);
+	});
+
+	it('unfolds the exact times on demand and remembers it', async () => {
+		await mountModal(generation());
+		const toggle = () =>
+			[...(section('info') as HTMLElement).querySelectorAll('button')].find((b) =>
+				/exact times/.test(b.textContent ?? '')
+			) as HTMLButtonElement;
+		expect(toggle().getAttribute('aria-expanded')).toBe('false');
+		await click(toggle());
+		expect(toggle().getAttribute('aria-expanded')).toBe('true');
+		expect(toggle().textContent?.trim()).toBe('Hide exact times');
+		expect(section('info')?.textContent).toContain('Created');
+		expect(section('info')?.textContent).toContain('Completed');
+		expect(section('info')?.textContent).toContain('Run time');
+		expect(JSON.parse(localStorage.getItem(DETAILS_PREFS_KEY) as string).sections['info:times']).toBe(true);
+	});
+
+	it('keeps the rating working from the Information header', async () => {
+		const setRating = vi.spyOn(historyStore, 'setRating').mockImplementation(() => undefined as never);
+		await mountModal(generation({ id: 'gen-rate' }));
+		await click(document.body.querySelector('button[aria-label="Rate 4 stars"]'));
+		expect(setRating).toHaveBeenCalledWith('gen-rate', 4);
+	});
+
+	it('shows only the date when the run was not timed', async () => {
+		await mountModal(generation({ run_seconds: null }));
+		expect(document.body.querySelector('[data-testid="detail-generation-time"]')).toBeNull();
+	});
+});
+
+describe('folds and defaults', () => {
+	it('starts Segments and Auto tags closed, Models and Director shots open', async () => {
+		response.data = { parameters: {}, models: models(2) };
+		await mountModal(generation({ segments: segments(2), form_data: director(1) }, tags(2)));
+		expect(header('segments')?.getAttribute('aria-expanded')).toBe('false');
+		expect(header('autotags')?.getAttribute('aria-expanded')).toBe('false');
+		expect(header('models')?.getAttribute('aria-expanded')).toBe('true');
+		expect(header('director')?.getAttribute('aria-expanded')).toBe('true');
+		expect(section('segments')?.textContent).not.toContain('segment text');
+		expect(section('models')?.textContent).toContain('Model 0');
+	});
+
+	it('toggles a section and restores the choice on the next mount', async () => {
+		await mountModal(generation({ segments: segments(2) }));
+		await click(header('segments'));
+		expect(header('segments')?.getAttribute('aria-expanded')).toBe('true');
+		expect(section('segments')?.textContent).toContain('segment text 1');
+		mountedModal?.$destroy();
+		target?.remove();
+		forgetDetailsPrefs();
+		await mountModal(generation({ segments: segments(2) }));
+		expect(header('segments')?.getAttribute('aria-expanded')).toBe('true');
+		await click(header('segments'));
+		expect(header('segments')?.getAttribute('aria-expanded')).toBe('false');
+	});
+
+	it('works when localStorage is blocked', async () => {
+		vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+			throw new Error('blocked');
+		});
+		vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+			throw new Error('blocked');
+		});
+		await mountModal(generation({ segments: segments(2) }));
+		await click(header('segments'));
+		expect(header('segments')?.getAttribute('aria-expanded')).toBe('true');
+	});
+
+	it('does not fold 5 models and folds 6 to 3 with Show all (6)', async () => {
+		response.data = { parameters: {}, models: models(5) };
+		await mountModal(generation());
+		expect(showAll('models')).toBeUndefined();
+		expect(section('models')?.querySelectorAll('button[type="button"]:not([aria-expanded])').length).toBeGreaterThanOrEqual(5);
+		mountedModal?.$destroy();
+		target?.remove();
+		response.data = { parameters: {}, models: models(6) };
+		await mountModal(generation());
+		const button = showAll('models') as HTMLButtonElement;
+		expect(button.textContent?.trim()).toBe('Show all (6)');
+		expect(button.getAttribute('aria-expanded')).toBe('false');
+		expect(section('models')?.textContent).toContain('Model 2');
+		expect(section('models')?.textContent).not.toContain('Model 3');
+		await click(button);
+		expect(showAll('models')?.textContent?.trim()).toBe('Show less');
+		expect(section('models')?.textContent).toContain('Model 5');
+	});
+
+	it('folds auto tags above 8 only, showing 6', async () => {
+		await mountModal(generation({}, tags(8)));
+		await click(header('autotags'));
+		expect(showAll('autotags')).toBeUndefined();
+		mountedModal?.$destroy();
+		target?.remove();
+		forgetDetailsPrefs();
+		localStorage.clear();
+		await mountModal(generation({}, tags(9)));
+		await click(header('autotags'));
+		expect(showAll('autotags')?.textContent?.trim()).toBe('Show all (9)');
+		expect(section('autotags')?.textContent).toContain('tag 5');
+		expect(section('autotags')?.textContent).not.toContain('tag 6');
+	});
+
+	it('folds segments and director shots above 5', async () => {
+		await mountModal(generation({ segments: segments(5), form_data: director(5) }));
+		await click(header('segments'));
+		expect(showAll('segments')).toBeUndefined();
+		expect(showAll('director')).toBeUndefined();
+		mountedModal?.$destroy();
+		target?.remove();
+		forgetDetailsPrefs();
+		await mountModal(generation({ segments: segments(6), form_data: director(6) }));
+		expect(showAll('segments')?.textContent?.trim()).toBe('Show all (6)');
+		expect(showAll('director')?.textContent?.trim()).toBe('Show all (6)');
+		expect(section('director')?.textContent).toContain('Shot 3');
+		expect(section('director')?.textContent).not.toContain('Shot 4');
+	});
+});
+
+describe('plugin sections', () => {
+	it('renders title, rows and actions untouched and keeps their handlers', async () => {
+		const onToggle = vi.fn();
+		const onClick = vi.fn();
+		await mountModal(generation(), {
+			extraSections: [
+				{
+					id: 'send',
+					title: 'Send to',
+					rows: [{ id: 'a', label: 'Upscale', checked: false, onToggle }],
+					actions: [{ id: 'run', label: 'Run selected', onClick }]
+				}
+			]
+		});
+		const box = document.body.querySelector('[data-extra-section="send"]') as HTMLElement;
+		expect(box.querySelector('h3')?.textContent).toBe('Send to');
+		expect(box.textContent).toContain('Upscale');
+		await click(box.querySelector('input[type="checkbox"]'));
+		expect(onToggle).toHaveBeenCalledWith(true);
+		await click([...box.querySelectorAll('button')].find((b) => b.textContent?.includes('Run selected')));
+		expect(onClick).toHaveBeenCalledTimes(1);
+	});
+});

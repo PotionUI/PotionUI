@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { CopyButton } from '$lib/components/ui';
 
 	let {
@@ -6,13 +7,21 @@
 		text,
 		raw,
 		mono = false,
-		axisTag = ''
+		axisTag = '',
+		compact = false,
+		prefix,
+		suffix,
+		footer
 	}: {
 		label: string;
 		text: string;
 		raw: string;
 		mono?: boolean;
 		axisTag?: string;
+		compact?: boolean;
+		prefix?: Snippet;
+		suffix?: Snippet;
+		footer?: Snippet;
 	} = $props();
 
 	let open = $state(false);
@@ -33,9 +42,11 @@
 	}
 </script>
 
-<section class="p-3" data-testid="parameter-block">
+<section class={compact ? 'px-3 pb-2 pt-1' : 'p-3'} data-testid="parameter-block">
 	<div class="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-fg-muted">
+		{@render prefix?.()}
 		<span>{label}</span>
+		{@render suffix?.()}
 		{#if axisTag}
 			<span
 				data-testid="axis-tag"
@@ -67,6 +78,7 @@
 			</button>
 		{/if}
 	</div>
+	{@render footer?.()}
 </section>
 
 <style>

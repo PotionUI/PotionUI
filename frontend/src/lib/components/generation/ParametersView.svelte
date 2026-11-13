@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { CopyButton, Spinner } from '$lib/components/ui';
+	import { Spinner } from '$lib/components/ui';
+	import DetailRow from './DetailRow.svelte';
+	import FoldButton from './FoldButton.svelte';
 	import ParameterTextBlock from './ParameterTextBlock.svelte';
 	import {
 		buildParameterView,
@@ -61,9 +63,13 @@
 				<div>
 					<dl id={listId} class="facts m-0 px-3 pb-2 pt-1">
 						{#each fold.visible as row (row.key)}
-							<div class="kv group">
-								<dt class="flex min-w-0 items-center text-sm text-fg-muted">
-									<span>{row.label}</span>
+							<DetailRow
+								label={row.label}
+								copy={row.raw}
+								mono={row.mono}
+								muted={row.off}
+							>
+								{#snippet labelExtra()}
 									{#if axisTags[row.key]}
 										<span
 											data-testid="axis-tag"
@@ -72,36 +78,19 @@
 											{axisTags[row.key]}
 										</span>
 									{/if}
-								</dt>
-								<dd
-									class="m-0 min-w-0 [overflow-wrap:anywhere] {row.mono
-										? 'font-mono text-base tabular-nums'
-										: 'text-md'} {row.off ? 'text-fg-muted' : 'text-fg'}"
-								>
-									{row.display}{#if row.unit}{row.unitSpaced ? ' ' : ''}<span class="text-fg-muted"
-											>{row.unit}</span
-										>{/if}
-								</dd>
-								<CopyButton
-									text={row.raw}
-									ariaLabel="Copy {row.label}"
-									size="xs"
-									class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-								/>
-							</div>
+								{/snippet}
+								{row.display}{#if row.unit}{row.unitSpaced ? ' ' : ''}<span class="text-fg-muted">{row.unit}</span>{/if}
+							</DetailRow>
 						{/each}
 					</dl>
 					{#if fold.foldable}
 						<div class="px-3 pb-2">
-							<button
-								type="button"
-								class="min-h-6 rounded py-1 text-sm text-signal hover:underline"
-								aria-expanded={$parametersExpanded}
-								aria-controls={listId}
-								onclick={() => setFoldPreference(!$parametersExpanded)}
-							>
-								{$parametersExpanded ? 'Show less' : `Show all (${fold.total})`}
-							</button>
+							<FoldButton
+								label={$parametersExpanded ? 'Show less' : `Show all (${fold.total})`}
+								expanded={$parametersExpanded}
+								controls={listId}
+								onToggle={() => setFoldPreference(!$parametersExpanded)}
+							/>
 						</div>
 					{/if}
 				</div>
@@ -122,13 +111,5 @@
 		.facts {
 			columns: 2;
 		}
-	}
-	.kv {
-		display: grid;
-		grid-template-columns: 7rem 1fr auto;
-		align-items: center;
-		column-gap: 8px;
-		min-height: 28px;
-		break-inside: avoid;
 	}
 </style>

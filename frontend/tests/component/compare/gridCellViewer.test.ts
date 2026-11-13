@@ -115,6 +115,14 @@ describe('grid cell viewer', () => {
 		expect(rows[1]).toContain('beta');
 	});
 
+	it('puts the This cell card above the Information and Parameters panel', async () => {
+		mounted = mountViewer({});
+		await flush();
+		const card = document.body.querySelector('[data-testid="cell-viewer-card"]') as HTMLElement;
+		const panel = document.body.querySelector('[data-details-panel]') as HTMLElement;
+		expect(card.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
 	it('lists the seed once, labelled by the axis, when the seed is an axis', async () => {
 		const seed = { field: 'seed', type: 'seed', label: 'Seed', values: [4211984, 7].map((v) => ({ value: v, label: String(v) })) };
 		const base = makeGrid();

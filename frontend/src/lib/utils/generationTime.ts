@@ -49,3 +49,70 @@ export function generationRunSummary(
 	const images = generationImageCount(generation);
 	return images > 1 ? `${label} · ${images} images` : label;
 }
+
+export function formatHumanDuration(seconds: number | null | undefined): string | null {
+	if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return null;
+	const whole = Math.round(seconds);
+	if (whole < 1) return 'under 1 s';
+	if (whole < 60) return `${whole} s`;
+	const minutes = Math.floor(whole / 60);
+	const rest = whole % 60;
+	if (minutes < 60) return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
+	const hours = Math.floor(minutes / 60);
+	const restMinutes = minutes % 60;
+	return restMinutes ? `${hours} h ${restMinutes} min` : `${hours} h`;
+}
+
+export interface RunLine {
+	when: string;
+	detail: string | null;
+}
+
+export interface RunLineOptions {
+	locale?: string;
+	timeZone?: string;
+	now?: Date;
+}
+
+export function formatShortWhen(iso: string | undefined, options: RunLineOptions = {}): string {
+	if (!iso) return '';
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return '';
+	const now = options.now ?? new Date();
+	const format = (withYear: boolean) =>
+		new Intl.DateTimeFormat(options.locale, {
+			day: 'numeric',
+			month: 'short',
+			...(withYear ? { year: 'numeric' } : {}),
+			hour: '2-digit',
+			minute: '2-digit',
+			timeZone: options.timeZone
+		}).format(date);
+	const sameYear =
+		new Intl.DateTimeFormat(options.locale, { year: 'numeric', timeZone: options.timeZone }).format(date) ===
+		new Intl.DateTimeFormat(options.locale, { year: 'numeric', timeZone: options.timeZone }).format(now);
+	return format(!sameYear);
+}
+
+export function formatRunLine(
+	generation: Pick<
+		GenerationHistoryItem,
+		'status' | 'run_seconds' | 'queued_seconds' | 'completed_at' | 'created_at' | 'files'
+	>,
+	options: RunLineOptions = {}
+): RunLine {
+	const when = formatShortWhen(generation.completed_at ?? generation.created_at, options);
+	const parts: string[] = [];
+	if (generation.status === 'completed' && generation.completed_at) {
+		const took = formatHumanDuration(generation.run_seconds);
+		if (took) parts.push(`took ${took}`);
+		const images = generationImageCount(generation);
+		if (images > 1) parts.push(`${images} images`);
+		const queued = generationQueueLabel(generation);
+		if (queued) parts.push(`queued ${formatHumanDuration(generation.queued_seconds)}`);
+	} else if (generation.status === 'failed' || generation.status === 'cancelled') {
+		const after = formatHumanDuration(generation.run_seconds);
+		if (after) parts.push(`${generation.status} after ${after}`);
+	}
+	return { when, detail: parts.length ? parts.join(' · ') : null };
+}

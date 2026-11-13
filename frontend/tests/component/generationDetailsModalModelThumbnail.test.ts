@@ -65,7 +65,7 @@ function mountModal(generation: ReturnType<typeof baseGeneration>) {
 			Array.from(document.body.querySelectorAll('img')).find(
 				(img) => !img.className.includes('absolute')
 			) ?? null,
-		modelIconFallback: () => document.body.querySelector('.w-11.h-11 svg'),
+		modelIconFallback: () => document.body.querySelector('.w-8.h-8 svg'),
 		destroy: () => {
 			component.$destroy();
 			target.remove();

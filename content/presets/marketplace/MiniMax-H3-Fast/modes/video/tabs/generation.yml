@@ -39,8 +39,8 @@ fields:
         ai_hint: "Both axes must be multiples of 32, aspect ratio between 1:4 and 4:1 -- the same sizes as the base MiniMax-H3 preset. The native canvas (768 short edge, 768x1344 max) is what FastVideo trained and released the FastH3 8-Step V2 recipe on; the faster sizes trade quality for speed. Area is the dominant cost."
         configuration:
           files:
-            - { path: "{{ paths.preset }}/files/form/resolutions_canvas.yml", group: "Native canvas (768 short edge)" }
-            - { path: "{{ paths._shared }}/resolutions/minimax_h3_fast.yml", group: "Faster (below native canvas)" }
+            - { path: "{{ paths.preset }}/files/form/resolutions_canvas.yml", group: "Native canvas" }
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_fast.yml", group: "Faster" }
         default: "1344x768"
 
   - type: "section"

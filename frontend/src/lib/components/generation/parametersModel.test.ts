@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
 	FOLD_ABOVE,
 	FOLD_SHOW,
+	WIDE_VALUE_CHARS,
+	columnsForWidth,
+	foldShowCount,
 	buildParameterView,
 	classifyParameter,
 	foldShortRows,
@@ -262,5 +265,39 @@ describe('fold', () => {
 		const order = Array.from({ length: 12 }, (_, i) => `p${11 - i}`);
 		const view = buildParameterView({ params, order });
 		expect(keys(foldShortRows(view.shorts, false).visible)).toEqual(order.slice(0, 8));
+	});
+});
+
+describe('grid cells', () => {
+	it('marks a value wider than 22 characters, unit included, to span both columns', () => {
+		expect(WIDE_VALUE_CHARS).toBe(22);
+		expect(classifyParameter('k', 'a'.repeat(22))?.wide).toBe(false);
+		expect(classifyParameter('k', 'a'.repeat(23))?.wide).toBe(true);
+		expect(classifyParameter('k', 'a'.repeat(20), { k: { unit: 'fps' } })?.wide).toBe(true);
+		expect(classifyParameter('k', 'euler')?.wide).toBe(false);
+		expect(classifyParameter('k', 'x'.repeat(30))?.wide).toBe(true);
+	});
+
+	it('never marks a long block as a cell', () => {
+		expect(classifyParameter('k', 'x'.repeat(100))?.wide).toBe(false);
+	});
+
+	it('picks 2, 3 or 4 columns by container width', () => {
+		expect(columnsForWidth(0)).toBe(2);
+		expect(columnsForWidth(368)).toBe(2);
+		expect(columnsForWidth(559)).toBe(2);
+		expect(columnsForWidth(560)).toBe(3);
+		expect(columnsForWidth(759)).toBe(3);
+		expect(columnsForWidth(760)).toBe(4);
+	});
+
+	it('folds by whole rows: 8 for 2 and 4 columns, 9 for 3', () => {
+		expect(foldShowCount(2)).toBe(8);
+		expect(foldShowCount(3)).toBe(9);
+		expect(foldShowCount(4)).toBe(8);
+		const rows = Array.from({ length: 12 }, (_, i) => classifyParameter(`k${i}`, i + 1) as ParameterRow);
+		expect(foldShortRows(rows, false, 3).visible).toHaveLength(9);
+		expect(foldShortRows(rows, false, 2).visible).toHaveLength(8);
+		expect(foldShortRows(rows, false, 3).hidden).toBe(3);
 	});
 });

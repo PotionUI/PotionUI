@@ -110,7 +110,7 @@ describe('grid cell viewer', () => {
 		for (let i = 0; i < 5; i += 1) await flush();
 		const tags = [...document.body.querySelectorAll('[data-testid="axis-tag"]')];
 		expect(tags.map((tag) => tag.textContent?.trim())).toEqual(['X', 'Y']);
-		const rows = tags.map((tag) => tag.parentElement?.parentElement?.textContent?.replace(/\s+/g, ' ').trim());
+		const rows = tags.map((tag) => tag.closest('[data-param-cell]')?.textContent?.replace(/\s+/g, ' ').trim());
 		expect(rows[0]).toContain('er_sde');
 		expect(rows[1]).toContain('beta');
 	});

@@ -61,7 +61,7 @@
 			</div>
 		{/if}
 
-		<div class="overflow-hidden rounded-lg bg-surface-2">
+		<div class="overflow-hidden rounded-lg border border-line">
 			<ParametersView
 				{params}
 				{meta}

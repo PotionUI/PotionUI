@@ -57,7 +57,7 @@
 		{/if}
 		<CopyButton text={raw} ariaLabel="Copy {label}" size="xs" class="ml-auto -mr-1" />
 	</div>
-	<div class="rounded border border-line bg-surface-1 px-3 py-2.5">
+	<div class="rounded border border-line bg-surface-2 px-3 py-2.5">
 		<div
 			use:watchOverflow={text}
 			class="clamp whitespace-pre-wrap text-fg [overflow-wrap:anywhere] {mono

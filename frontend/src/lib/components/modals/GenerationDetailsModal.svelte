@@ -897,14 +897,20 @@
 
 			<!-- Right Side - Information -->
 			<div bind:this={infoPanel} use:restoreScroll={takeDetailsScroll(activeGenerationId)} data-details-info class="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-line bg-surface-1 overflow-y-auto min-h-0">
-				<div class="p-4 space-y-3">
+				<div class="py-4">
 					{#if failure}
-						<GenerationFailureAlert notice={failure} />
+						<div class="px-4 pb-4">
+							<GenerationFailureAlert notice={failure} />
+						</div>
 					{/if}
 
-					<slot name="afterInformation" />
+					{#if $$slots.afterInformation}
+						<div class="px-4 pb-4">
+							<slot name="afterInformation" />
+						</div>
+					{/if}
 
-					<div class="space-y-3" data-details-panel>
+					<div data-details-panel>
 						<DetailsSection id="info" title="Information" icon="information-circle" collapsible={false}>
 							{#snippet headerRight()}
 								<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />
@@ -1022,7 +1028,7 @@
 						{#if directorSegments.length > 0}
 							<DetailsSection id="director" title="Director shots" icon="document" count={directorSegments.length}>
 								{#if directorKeyframeCount > 0 || directorAudioCount > 0}
-									<div class="flex flex-wrap gap-1 px-3 pb-1">
+									<div class="flex flex-wrap gap-1 px-3 pb-2">
 										{#if directorKeyframeCount > 0}
 											<Badge variant="neutral" size="sm">{directorKeyframeCount} keyframe{directorKeyframeCount === 1 ? '' : 's'}</Badge>
 										{/if}

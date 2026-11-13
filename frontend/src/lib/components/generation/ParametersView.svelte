@@ -49,7 +49,7 @@
 	{:else if isEmpty}
 		<p class="p-3 text-sm text-fg-subtle">{emptyText}</p>
 	{:else}
-		<div class="divide-y divide-line">
+		<div>
 			{#each view.longs as row (row.key)}
 				<ParameterTextBlock
 					label={row.label}

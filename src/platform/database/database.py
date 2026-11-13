@@ -51,7 +51,6 @@ class Database:
         db_path = os.getenv('POTIONUI_DB_PATH', 'storage/db.sqlite')
 
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(exist_ok=True)
         self._initialized = True
 
     @staticmethod
@@ -96,6 +95,7 @@ class Database:
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         refuse_live_database_under_pytest(self.db_path)
         path = os.path.abspath(self.db_path)
+        Path(path).parent.mkdir(exist_ok=True)
         conn = self._pool.checkout(path)
         lease = ConnectionLease(conn)
         try:

@@ -12,17 +12,10 @@
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
 	import { isTypingInField } from '$lib/utils/editableTarget';
-	import portal from '$lib/actions/portal';
 	import { plainLetter, windowOwnsKeys } from '$lib/utils/shortcutGuard';
 	import { canReturnToDetails, rememberDetailsScroll, takeDetailsScroll } from '$lib/tools/detailsReturn';
-	import { restoreScroll } from '$lib/utils/restoreScroll';
-	import BaseModal from './BaseModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
-	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
-	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
-	import type { AudioTrack, AudioTrackType } from '$lib/types/audio';
 	import StarRating from '$lib/components/StarRating.svelte';
 	import { historyStore } from '$lib/stores/history';
 	import { requestAddToKit } from '$lib/stores/kitAddRequests';
@@ -34,8 +27,6 @@
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
 	import { Badge, Button, CopyButton, Spinner, IconButton, Switch } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import LoopToggle from '$lib/components/media/LoopToggle.svelte';
-	import { loopVideos } from '$lib/stores/loopVideos';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
 	import ProvenanceLine from '$lib/components/organize/ProvenanceLine.svelte';
 	import { startRuleFrom } from '$lib/organize/handoff';
@@ -46,6 +37,10 @@
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
 	import type { DetailsExtraSection, DetailsFileChange } from './generationDetailsExtras';
 	import { withAxisParams } from '$lib/generation/compare/view/gridModel';
+	import MediaDetailsShell from '$lib/components/media-details/MediaDetailsShell.svelte';
+	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
+	import MediaStage from '$lib/components/media-details/MediaStage.svelte';
+	import { audioTracksFor, isAudioFile, isMeshFile, isVideoFile, resolveAudioFormat } from '$lib/components/media-details/mediaFile';
 	import ParametersView from '$lib/components/generation/ParametersView.svelte';
 	import ParameterTextBlock from '$lib/components/generation/ParameterTextBlock.svelte';
 	import DetailsSection from '$lib/components/generation/DetailsSection.svelte';
@@ -392,45 +387,6 @@
 		return `/api/media/generations/${activeGenerationId}/${filename}`;
 	}
 
-	function isVideoFile(file: any) {
-		return file?.file_type?.toLowerCase?.() === 'video';
-	}
-
-	function isMeshFile(file: any) {
-		return file?.file_type?.toLowerCase?.() === 'mesh';
-	}
-
-	function isAudioFile(file: any) {
-		return file?.file_type?.toLowerCase?.() === 'audio';
-	}
-
-	// No format column is persisted server-side for history rows at all (see
-	// GenerationFile's track_type/sample_rate/channels comments - format never
-	// made that list either) - derived from the filename exactly like
-	// mapGenerationFiles' mesh_format fallback, so a container format still
-	// shows without one.
-	function resolveAudioFormat(file: any): string {
-		const basename = typeof file?.file_path === 'string' ? file.file_path.split('/').pop() : null;
-		const ext = basename && basename.includes('.') ? basename.split('.').pop() : null;
-		return (ext || 'wav').toLowerCase();
-	}
-
-	function currentAudioTracks(file: any): AudioTrack[] {
-		if (!file) return [];
-		const url = getImageUrl(file);
-		return [
-			{
-				type: (file.track_type as AudioTrackType) || 'mixed',
-				url,
-				originalUrl: url,
-				duration: file.duration_seconds,
-				sample_rate: file.sample_rate,
-				channels: file.channels,
-				format: resolveAudioFormat(file)
-			}
-		];
-	}
-
 	function formatDate(dateString?: string) {
 		if (!dateString) return 'N/A';
 		return parseServerDate(dateString)?.toLocaleString() ?? 'N/A';
@@ -694,25 +650,19 @@
 	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeyDown} />
-
-<!-- Callers may mount this from inside a slide-out drawer or another modal;
-     an ancestor with a `transform` (the drawer's slide animation) becomes the
-     containing block for `position: fixed`, so the dialog must portal to
-     <body> to stay viewport-sized regardless of where it's mounted from. -->
-<div use:portal>
-<BaseModal
+<MediaDetailsShell
 	{isOpen}
 	{title}
-	sizeClass="md:w-[85vw] md:h-[85vh]"
-	on:close={handleClose}
+	{headerIconName}
+	onClose={handleClose}
+	onKeyDown={handleKeyDown}
+	{loading}
+	ready={!!activeGeneration}
+	scrollRestore={() => takeDetailsScroll(activeGenerationId)}
+	bind:root={detailsRoot}
+	bind:column={infoPanel}
 >
-	<svelte:fragment slot="headerIcon">
-		<div class="w-[30px] h-[30px] rounded bg-surface-2 border border-line flex items-center justify-center flex-shrink-0">
-			<Icon name={headerIconName} className="w-4 h-4 text-fg-muted" />
-		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="header">
+	{#snippet headerRight()}
 		{#if activeGeneration}
 			<code class="font-mono text-2xs text-fg-disabled flex-shrink-0 hidden sm:inline">{shortGenerationId}</code>
 		{/if}
@@ -764,145 +714,55 @@
 				</Tooltip>
 			</div>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 
-	<!-- Body (height must fill the modal) -->
-	{#if loading}
-		<div class="flex-1 flex items-center justify-center h-full">
-			<div class="flex flex-col items-center gap-3">
-				<Spinner size="lg" />
-				<p class="text-sm text-fg-muted">Loading...</p>
-			</div>
-		</div>
-	{:else if activeGeneration}
-		<div class="flex flex-col md:flex-row h-full min-h-0" bind:this={detailsRoot} data-details-window>
-			<!-- Left Side - Media -->
-			<div class="group relative flex min-h-0 min-w-0 flex-1 flex-col">
-				{#if currentFile}
-					<DetailsActionBar
-						bind:this={actionBar}
-						items={rowItems}
-						context={rowContext}
-						scope="history"
-						favorite={{ active: !!activeGeneration.is_favorite, onToggle: handleFavoriteToggle }}
-						tags={{ selectedIds: selectedTagIds, onChange: handleBarTagsChange }}
-						pageActions={generationActions}
-						{downloadActions}
-						{moreActions}
-						pluginContext={pluginActionContext}
-						onLaunch={handleLaunch}
-						onOpenedInTab={handleClose}
-					/>
-				{/if}
-			<div data-details-stage class="relative min-h-0 flex-1 overflow-hidden bg-black">
-				{#if currentFile}
-					<!-- Navigation Arrows -->
-					{#if canGoPrev}
-						<IconButton icon="chevron-left" label="Previous file" variant="overlay" onclick={goToPreviousFile} class="absolute left-4 top-1/2 -translate-y-1/2 z-10" />
-					{/if}
+	{#snippet toolbar()}
+		{#if activeGeneration && currentFile}
+			<DetailsActionBar
+				bind:this={actionBar}
+				items={rowItems}
+				context={rowContext}
+				scope="history"
+				favorite={{ active: !!activeGeneration.is_favorite, onToggle: handleFavoriteToggle }}
+				tags={{ selectedIds: selectedTagIds, onChange: handleBarTagsChange }}
+				pageActions={generationActions}
+				{downloadActions}
+				{moreActions}
+				pluginContext={pluginActionContext}
+				onLaunch={handleLaunch}
+				onOpenedInTab={handleClose}
+			/>
+		{/if}
+	{/snippet}
 
-					{#if canGoNext}
-						<IconButton icon="chevron-right" label="Next file" variant="overlay" onclick={goToNextFile} class="absolute right-4 top-1/2 -translate-y-1/2 z-10" />
-					{/if}
+	{#snippet stage()}
+		{#if currentFile}
+			<MediaStage
+				file={currentFile}
+				src={getImageUrl(currentFile)}
+				alt={`Output ${currentFileIndex + 1}`}
+				fileCount={mediaFiles.length}
+				fileIndex={currentFileIndex}
+				canPrev={canGoPrev}
+				canNext={canGoNext}
+				onPrev={goToPreviousFile}
+				onNext={goToNextFile}
+				blur={detailBlur}
+				onReveal={() => nsfwRevealStore.reveal(currentRevealKey)}
+				alphaCheckerboard={currentFileAlphaCheckerboard}
+				imageLoading={stageImageLoading}
+				bind:imageEl={detailImg}
+				onImageSettled={() => (loadedStageSrc = stageImageSrc ?? undefined)}
+				audioTracks={audioTracksFor(currentFile, getImageUrl(currentFile))}
+				tagNames={selectedTags.map((tag) => tag.name)}
+			/>
+		{:else}
+			<slot name="stageEmpty" />
+		{/if}
+	{/snippet}
 
-					<div class="absolute top-4 left-4 z-20 max-w-[calc(100%-2rem)] opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-						<div class="flex flex-col gap-2">
-							<div data-stage-meta class="flex flex-wrap items-center gap-2">
-								{#if mediaFiles.length > 1}
-									<div data-file-counter class="bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded text-sm font-medium shadow-lg">
-										<span class="font-mono tabular-nums">
-											{currentFileIndex + 1} / {mediaFiles.length}
-										</span>
-									</div>
-								{/if}
-
-								{#if currentFile.width && currentFile.height}
-									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
-										{currentFile.width} × {currentFile.height}
-									</span>
-								{/if}
-
-								{#if currentFile.file_size}
-									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
-										{formatBytes(currentFile.file_size)}
-									</span>
-								{/if}
-
-								{#if currentFile.file_type}
-									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg uppercase">
-										{isVideoFile(currentFile) ? 'MP4' : isMeshFile(currentFile) ? resolveMeshFormat(currentFile).toUpperCase() : isAudioFile(currentFile) ? resolveAudioFormat(currentFile).toUpperCase() : 'PNG'}
-									</span>
-								{/if}
-							</div>
-
-							{#if selectedTags.length > 0}
-								<div class="flex flex-wrap gap-1">
-									{#each selectedTags as tag}
-										<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg">
-											{tag.name}
-										</span>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					</div>
-
-					{#if isVideoFile(currentFile)}
-						<video
-							src={getImageUrl(currentFile)}
-							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''}"
-							controls={!detailBlur}
-							loop={$loopVideos}
-							playsinline
-						>
-							<track kind="captions" />
-						</video>
-						{#if !detailBlur}
-							<LoopToggle class="absolute top-4 right-4 z-20" />
-						{/if}
-					{:else if isMeshFile(currentFile)}
-						<div class="absolute inset-0 h-full w-full p-3 md:p-6">
-							<MeshPreview file={{ url: getImageUrl(currentFile), originalUrl: getImageUrl(currentFile) }} />
-						</div>
-					{:else if isAudioFile(currentFile)}
-						<div class="absolute inset-0 h-full w-full flex items-center justify-center p-3 md:p-6">
-							<div class="w-full max-w-2xl">
-								<AudioPlayer tracks={currentAudioTracks(currentFile)} showWaveform={true} showDownload={false} />
-							</div>
-						</div>
-					{:else}
-						{#if stageImageLoading}
-							<div class="absolute inset-0 z-[1] bg-surface-2 animate-pulse" data-stage-skeleton></div>
-						{/if}
-						<img
-							bind:this={detailImg}
-							on:load={() => (loadedStageSrc = stageImageSrc ?? undefined)}
-							on:error={() => (loadedStageSrc = stageImageSrc ?? undefined)}
-							src={getImageUrl(currentFile)}
-							alt={`Output ${currentFileIndex + 1}`}
-							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''} {currentFileAlphaCheckerboard ? 'alpha-checkerboard' : ''}"
-						/>
-					{/if}
-					{#if detailBlur}
-						<button
-							type="button"
-							class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-canvas/40 text-fg cursor-pointer"
-							aria-label="Sensitive content, click to reveal"
-							on:click|stopPropagation={() => nsfwRevealStore.reveal(currentRevealKey)}
-						>
-							<Icon name="eyes" className="w-8 h-8" strokeWidth={1.5} />
-							<span class="text-sm font-medium">Sensitive content</span>
-							<span class="text-xs text-fg-muted">Click to reveal</span>
-						</button>
-					{/if}
-				{:else}
-					<slot name="stageEmpty" />
-				{/if}
-			</div>
-			</div>
-
-			<!-- Right Side - Information -->
-			<div bind:this={infoPanel} use:restoreScroll={takeDetailsScroll(activeGenerationId)} data-details-info class="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-line bg-surface-1 overflow-y-auto min-h-0">
+	{#snippet columnContent()}
+		{#if activeGeneration}
 				<div class="py-4">
 					{#if failure}
 						<div class="px-4 pb-4">
@@ -1133,11 +993,9 @@
 						{/if}
 					</div>
 				</div>
-			</div>
-		</div>
-	{/if}
-</BaseModal>
-</div>
+		{/if}
+	{/snippet}
+</MediaDetailsShell>
 
 {#if showPublishModal && activeGeneration}
 	<PublishToInspirationsModal
@@ -1145,16 +1003,3 @@
 		onClose={() => (showPublishModal = false)}
 	/>
 {/if}
-
-<style>
-	.alpha-checkerboard {
-		background-image:
-			linear-gradient(45deg, rgb(var(--surface-3)) 25%, transparent 25%),
-			linear-gradient(-45deg, rgb(var(--surface-3)) 25%, transparent 25%),
-			linear-gradient(45deg, transparent 75%, rgb(var(--surface-3)) 75%),
-			linear-gradient(-45deg, transparent 75%, rgb(var(--surface-3)) 75%);
-		background-size: 16px 16px;
-		background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-		background-color: rgb(var(--surface-2));
-	}
-</style>

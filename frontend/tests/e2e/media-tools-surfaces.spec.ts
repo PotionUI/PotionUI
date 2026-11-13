@@ -770,6 +770,7 @@ test.describe('details action bar', () => {
 	});
 
 	test('History details: the same Edit and Effects, and the generation actions in the bar', async ({ page }) => {
+		await page.setViewportSize({ width: 1920, height: 1080 });
 		await page.goto('/history');
 		await page.locator('[data-generation-card]').first().locator('.media-zoom').click();
 
@@ -782,6 +783,7 @@ test.describe('details action bar', () => {
 			/^\s*Tags/,
 			'Reuse settings',
 			'Copy to Library',
+			'Add to kit',
 			/^\s*Download/,
 			/^\s*More/
 		]);
@@ -795,6 +797,7 @@ test.describe('details action bar', () => {
 	test('History details: Download holds the file and the bundle, More holds Publish and Open in new tab', async ({
 		page
 	}) => {
+		await page.setViewportSize({ width: 1920, height: 1080 });
 		await page.goto('/history');
 		await page.locator('[data-generation-card]').first().locator('.media-zoom').click();
 
@@ -838,6 +841,7 @@ test.describe('details action bar', () => {
 		expect(await rowLabels(more)).toEqual([
 			'Reuse settings',
 			'Copy to Library',
+			'Add to kit',
 			'Download file',
 			'Export bundle',
 			'Publish to Inspirations',

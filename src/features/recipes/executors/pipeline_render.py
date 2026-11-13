@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 from src.features.generation.orchestrator import _prepare_director_form_data
 from src.features.generation.pipeline_builder import PipelineBuilder
-from src.features.presets.fixture_form import VIDEO_DIRECTOR_FIXTURE_PROMPT
+from src.features.presets.fixture_form import FIXTURE_PICTURES, VIDEO_DIRECTOR_FIXTURE_PROMPT
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.recipes.executors._fixture_form import build_fixture_form_data
 from src.features.recipes.executors.base import StepContext, StepResult
@@ -131,6 +131,8 @@ class PipelineRenderExecutor:
                 if spec.get(key):
                     form_data[spec[key]] = placeholder_name(spec[key])
                     (Path(storage) / placeholder_name(spec[key])).write_bytes(b"")
+            for role in FIXTURE_PICTURES["flf"]:
+                (Path(storage) / placeholder_name(role)).write_bytes(b"")
             settings = SimpleNamespace(get_file_storage_directory=lambda user=None: storage)
             return _prepare_director_form_data(
                 preset_template, mode, form_data, owner_user_id, settings,
@@ -141,4 +143,5 @@ class PipelineRenderExecutor:
         return build_fixture_form_data(
             preset_template,
             mode,
+            placeholders=True,
         )

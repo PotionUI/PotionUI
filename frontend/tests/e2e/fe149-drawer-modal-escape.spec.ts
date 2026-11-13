@@ -101,7 +101,7 @@ test('generation details modal opened from the Last Generations drawer escapes t
 	// --- Structural check: the reworked header carries a status pill next to
 	// the close button, and the generation actions row under the media still
 	// exposes the reuse affordance.
-	await expect(dialog.getByText('completed', { exact: false })).toBeVisible();
+	await expect(dialog.locator('[data-details-status="completed"]')).toBeVisible();
 	const bar = dialog.getByRole('toolbar', { name: 'Actions' });
 	await expect(bar).toBeVisible();
 	const reuse = bar.getByRole('button', { name: 'Reuse settings' });

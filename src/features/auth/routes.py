@@ -1,6 +1,7 @@
 """
 Authentication controller for user registration, login, and token management.
 """
+import os
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
 
-WS_TICKETS_PER_WINDOW = 60
+WS_TICKETS_PER_WINDOW = int(os.environ.get("POTIONUI_WS_TICKETS_PER_WINDOW", "60"))
 
 
 class AuthController(BaseController):

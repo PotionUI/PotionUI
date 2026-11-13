@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -5,6 +6,8 @@ import pytest
 from src.features.presets import operations
 from src.features.presets.linter import PresetLinter
 from src.features.presets.loader import PresetTemplateLoader
+from src.features.presets.schema import validate_manifest
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 _ENTRY = '    - token: "{token}"\n      kind: "marker"\n'
 
@@ -156,5 +159,13 @@ class TestShippedMiniMaxModes:
 
 class TestShippedLintIsQuiet:
     def test_no_prompt_syntax_warnings_for_shipped_presets(self):
-        issues = PresetLinter(["content/presets"]).lint()
-        assert [i.message for i in issues if i.level == "warning" and "prompt_syntax" in i.message] == []
+        linter = PresetLinter(["content/presets"])
+        messages = []
+        for preset_file in sorted(Path("content/presets").rglob("preset.yml")):
+            manifest, _ = validate_manifest(load_yaml_file(preset_file) or {})
+            if manifest is None:
+                continue
+            messages += [
+                i.message for i in linter._lint_prompt_syntax(preset_file, manifest) if i.level == "warning"
+            ]
+        assert messages == []

@@ -319,7 +319,7 @@
 	/>
 {/snippet}
 
-<div class="flex min-h-screen bg-canvas">
+<div class="flex h-[calc(100dvh-var(--tab-bar-height))] md:h-[100dvh] bg-canvas">
 	<!-- Left folder-tree panel (collapsible), pinned while the grid scrolls -->
 	{#if sidebarOpen}
 		<aside
@@ -332,7 +332,7 @@
 	{/if}
 
 	<!-- Right column: existing grid content -->
-	<div class="flex-1 min-w-0 flex flex-col">
+	<div class="flex-1 min-w-0 min-h-0 overflow-y-auto flex flex-col">
 	<!-- Top Bar with Filters -->
 	<div class="sticky top-0 z-30">
 	<PageHeader wrap sticky={false}>

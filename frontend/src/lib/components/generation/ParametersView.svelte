@@ -65,15 +65,19 @@
 				<div class="px-3 pb-2 pt-1">
 					<dl
 						id={listId}
-						class="m-0 grid gap-x-6 gap-y-3"
+						class="m-0 grid gap-x-4 gap-y-4"
 						style="grid-template-columns: repeat({columns}, minmax(0, 1fr))"
 						data-columns={columns}
 					>
 						{#each fold.visible as row (row.key)}
-							<div class="group min-w-0 {row.wide ? 'col-span-full' : ''}" data-param-cell>
-								<dt class="flex min-h-5 min-w-0 items-center justify-between gap-1 text-sm text-fg-muted">
+							<div
+								class="group flex min-w-0 flex-col-reverse justify-end"
+								style="grid-column: span {Math.min(row.span, columns)} / span {Math.min(row.span, columns)}"
+								data-param-cell
+							>
+								<dt class="relative mt-0.5 flex min-h-5 min-w-0 items-center text-sm text-fg-muted">
 									<span class="flex min-w-0 items-center">
-										<span>{row.label}</span>
+										<span class="truncate">{row.label}</span>
 										{#if axisTags[row.key]}
 											<span
 												data-testid="axis-tag"
@@ -87,15 +91,15 @@
 										text={row.raw}
 										ariaLabel="Copy {row.label}"
 										size="xs"
-										class="-my-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+										class="absolute right-0 top-1/2 -translate-y-1/2 bg-surface-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
 									/>
 								</dt>
 								<dd
-									class="m-0 min-w-0 text-md [overflow-wrap:anywhere] {row.mono
+									class="m-0 min-w-0 text-[15px] font-semibold leading-5 text-fg [overflow-wrap:anywhere] {row.mono
 										? 'font-mono tabular-nums'
-										: ''} {row.off ? 'text-fg-muted' : 'text-fg'}"
+										: ''}"
 								>
-									{row.display}{#if row.unit}{row.unitSpaced ? ' ' : ''}<span class="text-fg-muted">{row.unit}</span>{/if}
+									{row.display}{#if row.unit}<span class="font-normal text-fg-muted">{row.unitSpaced ? ' ' : ''}{row.unit}</span>{/if}
 								</dd>
 							</div>
 						{/each}

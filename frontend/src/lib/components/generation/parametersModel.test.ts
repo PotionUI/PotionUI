@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
 	FOLD_ABOVE,
 	FOLD_SHOW,
-	WIDE_VALUE_CHARS,
+	SPAN_THREE_CHARS,
+	SPAN_TWO_CHARS,
 	columnsForWidth,
 	foldShowCount,
 	buildParameterView,
@@ -268,27 +269,32 @@ describe('fold', () => {
 	});
 });
 
-describe('grid cells', () => {
-	it('marks a value wider than 22 characters, unit included, to span both columns', () => {
-		expect(WIDE_VALUE_CHARS).toBe(22);
-		expect(classifyParameter('k', 'a'.repeat(22))?.wide).toBe(false);
-		expect(classifyParameter('k', 'a'.repeat(23))?.wide).toBe(true);
-		expect(classifyParameter('k', 'a'.repeat(20), { k: { unit: 'fps' } })?.wide).toBe(true);
-		expect(classifyParameter('k', 'euler')?.wide).toBe(false);
-		expect(classifyParameter('k', 'x'.repeat(30))?.wide).toBe(true);
+describe('tiles', () => {
+	it('spans two columns above 14 characters and three above 28, unit included', () => {
+		expect(SPAN_TWO_CHARS).toBe(14);
+		expect(SPAN_THREE_CHARS).toBe(28);
+		expect(classifyParameter('k', 'a'.repeat(14))?.span).toBe(1);
+		expect(classifyParameter('k', 'a'.repeat(15))?.span).toBe(2);
+		expect(classifyParameter('k', 'a'.repeat(28))?.span).toBe(2);
+		expect(classifyParameter('k', 'a'.repeat(29))?.span).toBe(3);
+		expect(classifyParameter('k', 'a'.repeat(12), { k: { unit: 'fps' } })?.span).toBe(2);
+		expect(classifyParameter('k', 'euler')?.span).toBe(1);
+		expect(classifyParameter('seed', 1117566997)?.span).toBe(1);
+		expect(classifyParameter('size', '768x1344')?.span).toBe(1);
 	});
 
-	it('never marks a long block as a cell', () => {
-		expect(classifyParameter('k', 'x'.repeat(100))?.wide).toBe(false);
+	it('never spans a long block', () => {
+		expect(classifyParameter('k', 'x'.repeat(100))?.span).toBe(1);
 	});
 
-	it('picks 2, 3 or 4 columns by container width', () => {
+	it('picks 2 columns on a narrow container, 3 by default and 4 when wide', () => {
 		expect(columnsForWidth(0)).toBe(2);
-		expect(columnsForWidth(368)).toBe(2);
-		expect(columnsForWidth(559)).toBe(2);
-		expect(columnsForWidth(560)).toBe(3);
-		expect(columnsForWidth(759)).toBe(3);
-		expect(columnsForWidth(760)).toBe(4);
+		expect(columnsForWidth(299)).toBe(2);
+		expect(columnsForWidth(300)).toBe(3);
+		expect(columnsForWidth(368)).toBe(3);
+		expect(columnsForWidth(519)).toBe(3);
+		expect(columnsForWidth(520)).toBe(4);
+		expect(columnsForWidth(1200)).toBe(4);
 	});
 
 	it('folds by whole rows: 8 for 2 and 4 columns, 9 for 3', () => {
@@ -299,5 +305,11 @@ describe('grid cells', () => {
 		expect(foldShortRows(rows, false, 3).visible).toHaveLength(9);
 		expect(foldShortRows(rows, false, 2).visible).toHaveLength(8);
 		expect(foldShortRows(rows, false, 3).hidden).toBe(3);
+	});
+
+	it('keeps units out of the value text and marks them for muted display', () => {
+		const row = classifyParameter('d', 4, { d: { unit: 's' } });
+		expect(row).toMatchObject({ display: '4', unit: 's', unitSpaced: true });
+		expect(classifyParameter('p', 50, { p: { unit: '%' } })).toMatchObject({ display: '50', unitSpaced: false });
 	});
 });

@@ -304,12 +304,12 @@
 	{#snippet columnContent()}
 		<div class="py-4">
 			{#if facts.length > 0}
-				<DetailsSection id="library-file" title="File" collapsible={false}>
+				<DetailsSection id="library-file" title="File" icon="document" collapsible={false}>
 					<FactGrid {facts} />
 				</DetailsSection>
 			{/if}
 
-			<DetailsSection id="library-tags" title="Tags" count={item.tags.length} collapsible={false}>
+			<DetailsSection id="library-tags" title="Tags" icon="tag" count={item.tags.length} collapsible={false}>
 				<div class="flex flex-wrap gap-1 px-3" data-library-item-tags>
 					{#each item.tags as tag (tag.id)}
 						<span class="rounded border border-line bg-surface-2 px-2 py-0.5 text-sm text-fg-muted">{tag.name}</span>
@@ -320,7 +320,7 @@
 			</DetailsSection>
 
 			{#if backLink || slicedFrom}
-				<DetailsSection id="library-source" title="Source" collapsible={false}>
+				<DetailsSection id="library-source" title="Source" icon="folder" collapsible={false}>
 					<div class="space-y-2 px-3">
 						{#if backLink}
 							<div class="flex items-center gap-2" data-back-to-generation>
@@ -358,7 +358,7 @@
 			{/if}
 
 			{#if canShowParameters}
-				<DetailsSection id="library-parameters" title="Parameters" defaultOpen={false}>
+				<DetailsSection id="library-parameters" title="Parameters" icon="sliders" defaultOpen={false}>
 					<p class="px-3 pb-2 text-sm text-fg-subtle">From the source generation</p>
 					<ParametersView
 						params={sourceParams}

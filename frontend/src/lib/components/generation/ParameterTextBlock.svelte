@@ -57,12 +57,12 @@
 		{/if}
 		<CopyButton text={raw} ariaLabel="Copy {label}" size="xs" class="ml-auto -mr-1" />
 	</div>
-	<div class="rounded border border-line bg-surface-2 px-3 py-2.5">
+	<div class="border-l-2 border-line-strong pl-3">
 		<div
 			use:watchOverflow={text}
 			class="clamp whitespace-pre-wrap text-fg [overflow-wrap:anywhere] {mono
 				? 'font-mono text-sm leading-5 tabular-nums'
-				: 'text-md leading-[22px]'}"
+				: 'text-sm leading-relaxed'}"
 			class:open
 		>
 			{text}
@@ -85,8 +85,8 @@
 	.clamp {
 		display: -webkit-box;
 		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 4;
-		line-clamp: 4;
+		-webkit-line-clamp: 10;
+		line-clamp: 10;
 		overflow: hidden;
 	}
 	.clamp.open {

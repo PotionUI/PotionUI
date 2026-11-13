@@ -12,6 +12,7 @@ from src.features.llm.tools.media_values import missing_media_paths
 from src.features.models.exceptions import ModelAccessDeniedException, ModelNotFoundException
 from src.features.models.form_refs import collect_model_ids
 from src.features.presets.operations.access import preset_available_to_user
+from src.features.presets.retired_modes import replacement_for, replacement_note
 from src.features.sessions.dto import Session
 from src.features.sessions.request import (
     DIRECTOR_REFUSAL,
@@ -115,13 +116,15 @@ def session_modes(session: Session) -> List[str]:
     return [mode for mode, entry in data.items() if isinstance(entry, dict)]
 
 
-def pick_mode(session: Session, requested: Optional[str]) -> str:
+def pick_mode(session: Session, requested: Optional[str], preset_vars: Optional[Mapping[str, Any]] = None) -> str:
     modes = session_modes(session)
     if requested:
         if requested not in modes:
+            replaced_by = replacement_for(preset_vars, requested)
             raise SessionRequestError(
-                404, "session_mode_not_found", f"This session has no saved settings for mode '{requested}'.",
-                {"modes": modes},
+                404, "session_mode_not_found",
+                f"This session has no saved settings for mode '{requested}'.{replacement_note(preset_vars, requested)}",
+                {"modes": modes, **({"replaced_by": replaced_by} if replaced_by else {})},
             )
         return requested
     if len(modes) == 1:
@@ -268,9 +271,9 @@ class SessionRequests:
 
     def describe(self, user_id: str, is_admin: bool, session_id: str, mode: Optional[str]) -> Dict[str, Any]:
         session = self.owned(user_id, session_id)
-        mode = pick_mode(session, mode)
-        entry = mode_payload(session.data, mode)
         template = self._template(session.preset_id)
+        mode = pick_mode(session, mode, getattr(template, "vars", None))
+        entry = mode_payload(session.data, mode)
         problems: List[Dict[str, Any]] = []
         available = preset_available_to_user(self.preset_db, user_id, session.preset_id, is_admin)
         if not available:
@@ -297,7 +300,7 @@ class SessionRequests:
         try:
             fields = self._form_fields(template, mode, form_name)
         except FormNotFoundException:
-            problems.append({"code": "mode_not_available", "message": f"The preset no longer has the mode '{mode}' or the saved form variant."})
+            problems.append({"code": "mode_not_available", "message": f"The preset no longer has the mode '{mode}' or the saved form variant.{replacement_note(vars_, mode)}"})
             return base
         locks = self._locks(session.preset_id, mode)
         form_values = entry.get("formData") if isinstance(entry.get("formData"), dict) else {}
@@ -398,9 +401,9 @@ class SessionRequests:
         self, user_id: str, is_admin: bool, session_id: str, mode: Optional[str], overrides: Overrides
     ) -> Prepared:
         session = self.owned(user_id, session_id)
-        mode = pick_mode(session, mode)
-        entry = mode_payload(session.data, mode)
         template = self._template(session.preset_id)
+        mode = pick_mode(session, mode, getattr(template, "vars", None))
+        entry = mode_payload(session.data, mode)
         self._access(user_id, is_admin, session, template)
         current = settings_hash(entry)
         if overrides.if_settings_hash and overrides.if_settings_hash != current:
@@ -417,7 +420,9 @@ class SessionRequests:
             fields = self._form_fields(template, mode, form_name)
         except FormNotFoundException as exc:
             raise SessionRequestError(
-                422, "mode_not_available", f"The preset no longer has the mode '{mode}' or the saved form variant."
+                422, "mode_not_available",
+                f"The preset no longer has the mode '{mode}' or the saved form variant.{replacement_note(vars_, mode)}",
+                {"replaced_by": replacement_for(vars_, mode)} if replacement_for(vars_, mode) else None,
             ) from exc
         locks = self._locks(session.preset_id, mode)
         can_batch = self.prompt_batch(getattr(template, "engine", None))

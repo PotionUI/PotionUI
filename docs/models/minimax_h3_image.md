@@ -49,6 +49,18 @@ The shipped **MiniMax-H3-Image** preset has `txt2img` and `edit`. The pipes are 
 
 **Prompt enhancement.** The preset's `llm.guide` tells the assistant how this model wants its prompts written: one long, concrete paragraph for text to image, and for an edit a paragraph in three parts that names what it takes from each picture as `<Subject N>` from `<Picture N>`, says what stays (`<Subject N> is fully preserved.`) and then describes only what changes. The guides follow the format of MiniMax's published prompt-expansion instructions (`MiniMaxAI/MiniMax-H3-Image-PE`) and are written in PotionUI's own words; MiniMax's prompt files and its prompt-expansion model are not bundled.
 
+## LoRA
+
+Both modes have a LoRA tab (up to six LoRAs, strength -2 to 2). The loader (`model_loader/minimax_h3_image`) applies them to the DiT when it loads, through the same key mapping MiniMax-H3 uses (`build_minimax_h3_lora_key_map` in `src/platform/runtime/native/lora/key_mapping.py`), because the image DiT is the MiniMax-H3 block stack:
+
+- **Formats.** ComfyUI and kohya keys (`diffusion_model.blocks.N.attn.qkv_proj`, `lora_unet_blocks_N_attn_qkv_proj`), the `base_model.model.` PEFT wrapper, and diffusers/PEFT keys (`transformer_blocks.N.attn.to_q/to_k/to_v/to_out.0`, `ff.net.0.proj`, `ff.net.2`, `token_refiner.refiner_blocks.N.*`, with or without PEFT's adapter name in the key). Split `to_q`, `to_k` and `to_v` land on the matching row slices of the fused `qkv_proj`, and the SwiGLU halves of `ff.net.0.proj` are swapped into the model's `[gate | value]` layout.
+- **Quantised DiT.** On the int8 ConvRot DiT the LoRA is not merged into the weights; its low-rank factors are kept next to each layer and added in every forward. On the bf16 DiT it is merged in place.
+- **Changing LoRAs** reloads the DiT file (the text encoder and the VAE stay cached), because the LoRA is part of the DiT's cache key.
+- **No step window.** The six steps each use their own output head, so a LoRA cannot be switched off for part of the run.
+- **History.** Active LoRAs are listed under Models and come back with Reuse settings.
+
+**MiniMax-H3 video LoRAs** load, but only partly. They are not listed apart from image LoRAs: PotionUI does not read a family from a LoRA file, so the picker lists every LoRA that passes the preset's *LoRA tags* setting, and a tag is the way to keep the two kinds apart. Keys for layers the image model does not have (the audio patch projection, the audio output head, the video model's time embedder) and the AdaLN projections of a video LoRA (their input width belongs to the video checkpoint) are skipped and counted in the run log as unmatched keys; the attention and feed-forward layers still apply. A video distillation LoRA that depends on its AdaLN rows is therefore not equivalent to what it was trained to be.
+
 ## Sampling
 
 The generator runs six Euler steps on the checkpoint's grid (`h3_image_pdd` schedule). Each step uses its own output head: head 0 is a full output layer and heads 1 to 5 are offsets added to it, picked from the step's start and target sigma. The model receives each step's sigma and target sigma in float32, so the time-embedding lookup and the head choice use the exact grid values, and the final latent stays float32 until it is denormalised and cast once to the VAE's precision. The model is called with `t = 1 - sigma`; reference rows run at `max(t, 0.999)` and are mixed with 0.1% noise drawn from the generation seed. The packed sequence is `[text | pictures | image]`: text rows sit on the time axis at their index, each picture one step later than the last, and every picture's spatial grid is normalised to its own area.
@@ -57,11 +69,12 @@ Resolutions are multiples of 32. The preset lists 4, 8 and 16 megapixel sizes; 2
 
 ## Memory
 
-On a 32 GB card the int8 DiT (21 GB) stays resident and the nvfp4 text encoder (15.7 GB) is swapped in only when the prompt changes. Expected activations are about 1 GB at 4 MP and 2 GB at 16 MP (estimates, not measured). The bf16 DiT streams part of its blocks from system RAM. Caching all three files takes about 38 GB of system RAM with the int8 DiT.
+On a 32 GB card the int8 DiT (21 GB) stays resident and the nvfp4 text encoder (15.7 GB) is swapped in only when the prompt changes. Expected activations are about 1 GB at 4 MP and 2 GB at 16 MP (estimates, not measured). The bf16 DiT streams part of its blocks from system RAM. Caching all three files takes about 38 GB of system RAM with the int8 DiT. On the int8 DiT a LoRA adds its rank-sized factors on top of that, roughly 24 MB per block at rank 128 (about 1.2 GB for the 50 blocks), placed on the card the way the other native families place theirs; the placement plan counts the DiT file size only, so on a 12 GB card with streaming the factors come out of the headroom.
 
 ## Limitations
 
 - **No GPU run has been performed.** Everything above is built and CPU-tested with tiny dimensions and the real key lists; nothing has run with real weights.
 - The w4a8 checkpoint does not load.
+- **LoRA support is CPU-tested only.** The key mapping and the in-place and runtime application are proven on a tiny model; a LoRA on the real int8 or bf16 DiT, with and without streaming, has not been run.
 - Steps, sampler and guidance are fixed; other step counts work through the grid but are untested.
 - **The weights are territorially restricted.** MiniMax-H3-Image is published under the MiniMax-H3-Image Community License Agreement, not an open-source license. Its Applicable Territory excludes the European Union, the United Kingdom, the Republic of Korea and the United States of America, and the license does not allow the weights or their outputs to be used outside that territory. Separate, prior written authorization from MiniMax (https://platform.minimax.io/license) is required above US$1 million annualized revenue or for a hosted service offered to third parties, and a commercial product must display "MiniMax-H3-Image" in its interface. Redistribution outside a hosted service needs the NOTICE line "MiniMax-H3-Image is licensed under the MiniMax-H3-Image Community License Agreement, Copyright © 2026 MiniMax. All Rights Reserved." MiniMax claims no rights over outputs. PotionUI ships no weights. The architecture is ported from ComfyUI (GPL-3.0) and diffusers (Apache-2.0), which carry none of these terms.

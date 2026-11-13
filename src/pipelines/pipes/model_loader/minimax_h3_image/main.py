@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List
 
 from src.pipelines.contracts import IOType, PipeConfigSpec, PipeOutputSpec
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 from src.pipelines.pipes._shared.generation.three_component_loader import ThreeComponentLoaderPipe
 from src.pipelines.pipes.model_loader.minimax_h3_image.clip import MiniMaxH3ImageClipTextEncoder
 
@@ -33,6 +34,7 @@ class ModelLoaderMiniMaxH3ImagePipe(ThreeComponentLoaderPipe):
             PipeConfigSpec("diffusion_model", dict, None, "MiniMax-H3-Image DiT (int8 ConvRot or bf16)", required=True),
             PipeConfigSpec("text_encoder", dict, None, "Qwen3-VL-32B text encoder, shared with MiniMax-H3", required=True),
             PipeConfigSpec("vae", dict, None, "MiniMax-H3-Image VAE", required=True),
+            loras_config_spec("DiT LoRAs (applied at load; a change reloads the DiT, not the text encoder or VAE)"),
             *cls.runtime_config_specs(),
         ]
 

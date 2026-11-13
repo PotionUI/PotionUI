@@ -25,7 +25,8 @@ The three most recent releases; older history lives in the
   and zoom, and a note on which scenes loop best; LTX-2.5 gets Ingredients, which keeps characters
   and props from your pictures consistent in a new video, starting at the trained 5 seconds.
 - MiniMax-H3-Image: a new family that loads the ComfyUI single-file weights, with text to image and
-  edit presets and prompt guides for the language model; the VAE runs in fp16 with exact noise levels
+  edit presets that take LoRAs in both modes (ComfyUI, kohya and diffusers keys, picked by tag) and
+  prompt guides for the language model; the VAE runs in fp16 with exact noise levels
   and the reference's tile blending; for cards with less memory, such as 12 GB, edits make room for
   the text encoder, encode on the CPU what the card cannot hold, and count reference pictures in
   placement (M4-S4).
@@ -104,13 +105,16 @@ The three most recent releases; older history lives in the
 - Fixes: the first generation after a start no longer fails on a half-loaded module until restart;
   Perfect loop opens on a moving frame so motion no longer slows just after the seam; the MiniMax-H3
   latent upscaler recommendations download again; the Library scrolls only its content again.
-- Upgrading: migrations run on the first start and cannot be undone, so back up your data first;
-  MCP tokens become API keys and the old tokens table is dropped after copying,
-  and kits, preset mirrors and fixed prompt text, and recorded parameter labels add their own tables
-  and columns; the old MCP token routes and the token in a socket URL still work this release but are
-  deprecated, so move scripts to API keys and tickets; MiniMax-H3 Video is now Video Director and Long video is removed, and old
-  sessions and entries still open in Video Director; a model slot that
-  names a model its user is not assigned is now refused.
+- Upgrading: migrations run on the first start and cannot be undone, so back up your data first; MCP
+  tokens carry over as keys that work for MCP only, so create a new key for the HTTP API, and the
+  old tokens table is dropped after copying; kits, preset mirrors and fixed prompt text, and
+  recorded parameter labels add their own tables and columns; the old MCP token routes and the token
+  in a socket URL still work this release but are deprecated, so move scripts to API keys and
+  tickets; MiniMax-H3 Video is now Video Director and Long video is removed, a saved session on the
+  retired Long video mode opens with an offer to convert it into Video Director, and API and MCP
+  callers naming the retired mode get a refusal that names the replacement; a model slot that names
+  a model its user is not assigned is now refused; startup may log "plugin not found" for two
+  plugins that no longer exist, which is harmless.
 
 ### 0.1.0 — 2026-11-06
 

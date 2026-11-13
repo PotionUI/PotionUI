@@ -251,7 +251,8 @@ class PluginController(BaseController):
         )
         return self.success_response(
             data=install_result_to_response(result).model_dump(),
-            message=f"Plugin '{result.plugin_id}' {result.version} installed",
+            message=f"Plugin '{result.plugin_id}' {result.version} installed"
+            + ("; restart PotionUI to finish the update" if result.needs_restart else ""),
         )
 
     # ========== Plugin Settings ==========

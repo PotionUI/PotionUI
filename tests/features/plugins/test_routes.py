@@ -25,6 +25,7 @@ from src.features.plugins.dto import (
     PluginScanResult,
     PluginSettingsUpdateRequest,
 )
+from src.features.plugins.operations.install import InstallResult
 from src.features.plugins.records import Plugin, PluginHook, PluginSetting
 from src.platform.plugins.registry import PluginState
 from src.platform.plugins.loader import PluginManifest
@@ -1069,3 +1070,22 @@ async def test_update_settings_manifest_unavailable_is_409_not_404(
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail['error'] == 'plugin_manifest_unavailable'
     assert "sk-live-abc" not in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("needs_restart", "message"),
+    [
+        (True, "Plugin 'demo' 1.1.0 installed; restart PotionUI to finish the update"),
+        (False, "Plugin 'demo' 1.1.0 installed"),
+    ],
+)
+async def test_a_catalog_install_answer_says_when_a_restart_is_needed(controller, mock_operations, needs_restart, message):
+    mock_operations.install_from_catalog = AsyncMock(
+        return_value=InstallResult("demo", "1.1.0", "1.0.0", True, needs_restart=needs_restart)
+    )
+
+    response = await controller.install_from_catalog("https://example.com/plugins.json", "demo", "1.1.0", "a" * 64)
+
+    assert response.message == message
+    assert response.data["needs_restart"] is needs_restart

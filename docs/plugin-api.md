@@ -3576,7 +3576,14 @@ cancelled request no longer stops the install half way: the install finishes, or
 back, before the cancellation goes through and before another install can start. If the
 install itself is stopped after the move (the server shutting down), the plugin is disabled
 in the running server as well. After a rollback, the modules the failed version imported
-stay loaded until PotionUI restarts, and the answer says so.
+stay loaded until PotionUI restarts, and the answer says so. A successful install answers
+`needs_restart: true` when the process had imported a file from the plugin's folder before
+the new one was moved in, which is the case once the plugin has been enabled at some point
+since PotionUI started, even if it was disabled again. Its entry points then run again from
+the new files, but the files they import were already imported and are not loaded again,
+so the update is finished only once PotionUI restarts, and the Install from catalog window
+says so. A first install, or an update of a plugin whose code the process never imported,
+answers `needs_restart: false`.
 
 PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
 enable step checks it, and the install answer lists it so the admin knows what to

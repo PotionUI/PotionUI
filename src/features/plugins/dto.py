@@ -142,3 +142,4 @@ class PluginCatalogInstallResponse(BaseModel):
     previous_version: Optional[str] = None
     enabled: bool
     dependencies_python: List[str] = Field(default_factory=list)
+    needs_restart: bool = False

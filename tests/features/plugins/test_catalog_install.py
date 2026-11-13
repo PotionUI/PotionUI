@@ -1,9 +1,11 @@
 import asyncio
 import hashlib
 import io
+import itertools
 import json
 import shutil
 import sqlite3
+import sys
 import threading
 import zipfile
 from pathlib import Path
@@ -1364,3 +1366,89 @@ def test_an_update_whose_move_and_move_back_both_fail_keeps_the_installed_versio
     kept = list((local / STAGING_FOLDER).glob("*/previous"))
     assert len(kept) == 1
     assert (kept[0] / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
+
+
+def _archive_with_code(plugin_id: str, version: str) -> bytes:
+    manifest = _manifest(plugin_id, version, hooks={"backend": [{"hook": "generation.before_start", "handler": "handlers.handle"}]})
+    return _archive(
+        plugin_id,
+        version,
+        manifest=manifest,
+        extra=[
+            (f"{plugin_id}/handlers.py", b"from .helper import VERSION\n\n\ndef handle(context):\n    return context\n"),
+            (f"{plugin_id}/helper.py", f"VERSION = {version!r}\n".encode()),
+        ],
+    )
+
+
+_code_plugin_ids = itertools.count()
+
+
+@pytest.fixture
+def code_plugin(monkeypatch):
+    plugin_id = f"restart-demo-{next(_code_plugin_ids)}"
+    package = plugin_id.replace("-", "_")
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    yield plugin_id
+    for name in [name for name in sys.modules if name == package or name.startswith(f"{package}.")]:
+        del sys.modules[name]
+
+
+async def test_a_first_install_needs_no_restart(plugins, catalog, code_plugin):
+    registry, repo, _, _ = plugins
+    catalog.publish(code_plugin, "1.0.0", _archive_with_code(code_plugin, "1.0.0"))
+
+    result = await _install(repo, registry, catalog, code_plugin)
+
+    assert (result.previous_version, result.enabled, result.needs_restart) == (None, False, False)
+
+
+@pytest.mark.parametrize("after", ["enabled", "disabled again"])
+async def test_an_update_of_a_plugin_whose_code_the_server_imported_says_a_restart_is_needed(
+    plugins, catalog, code_plugin, after
+):
+    registry, repo, _, local = plugins
+    catalog.publish(code_plugin, "1.0.0", _archive_with_code(code_plugin, "1.0.0"))
+    await _install(repo, registry, catalog, code_plugin)
+    assert repo.enable_plugin(code_plugin) and registry.enable_plugin(code_plugin)
+    if after == "disabled again":
+        assert repo.disable_plugin(code_plugin) and registry.disable_plugin(code_plugin)
+    catalog.publish(code_plugin, "1.1.0", _archive_with_code(code_plugin, "1.1.0"))
+
+    result = await _install(repo, registry, catalog, code_plugin)
+
+    assert (result.version, result.previous_version) == ("1.1.0", "1.0.0")
+    assert result.enabled is (after == "enabled")
+    assert result.needs_restart is True
+    assert (local / code_plugin / "helper.py").read_text() == "VERSION = '1.1.0'\n"
+
+
+@pytest.mark.parametrize("plugin", ["code never imported", "enabled without python code"])
+async def test_an_update_of_a_plugin_whose_code_the_server_never_imported_needs_no_restart(plugins, catalog, code_plugin, plugin):
+    registry, repo, _, _ = plugins
+    archive = _archive_with_code if plugin == "code never imported" else _archive
+    catalog.publish(code_plugin, "1.0.0", archive(code_plugin, "1.0.0"))
+    await _install(repo, registry, catalog, code_plugin)
+    if plugin == "enabled without python code":
+        assert repo.enable_plugin(code_plugin) and registry.enable_plugin(code_plugin)
+    catalog.publish(code_plugin, "1.1.0", archive(code_plugin, "1.1.0"))
+
+    result = await _install(repo, registry, catalog, code_plugin)
+
+    assert (result.version, result.previous_version) == ("1.1.0", "1.0.0")
+    assert result.enabled is (plugin == "enabled without python code")
+    assert result.needs_restart is False
+
+
+async def test_a_new_install_over_a_copy_removed_while_its_code_ran_says_a_restart_is_needed(plugins, catalog, code_plugin):
+    registry, repo, _, local = plugins
+    catalog.publish(code_plugin, "1.0.0", _archive_with_code(code_plugin, "1.0.0"))
+    await _install(repo, registry, catalog, code_plugin)
+    assert repo.enable_plugin(code_plugin) and registry.enable_plugin(code_plugin)
+    shutil.rmtree(local / code_plugin)
+    catalog.publish(code_plugin, "1.1.0", _archive_with_code(code_plugin, "1.1.0"))
+
+    result = await _install(repo, registry, catalog, code_plugin)
+
+    assert (result.version, result.previous_version, result.enabled) == ("1.1.0", None, False)
+    assert result.needs_restart is True

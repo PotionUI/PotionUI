@@ -44,6 +44,7 @@ export interface PluginCatalogInstallResult {
 	previous_version: string | null;
 	enabled: boolean;
 	dependencies_python: string[];
+	needs_restart: boolean;
 }
 
 const CATALOG_URL_KEY = 'potionui.admin.pluginCatalogUrl';

@@ -119,7 +119,7 @@ def test_a_catalog_listing_maps_to_its_response_with_each_entry_status_and_probl
 
 
 def test_an_install_result_maps_to_its_response():
-    result = InstallResult("demo", "1.1.0", "1.0.0", True, ["numpy>=1.24"])
+    result = InstallResult("demo", "1.1.0", "1.0.0", True, ["numpy>=1.24"], needs_restart=True)
 
     assert install_result_to_response(result).model_dump() == {
         "plugin_id": "demo",
@@ -127,7 +127,14 @@ def test_an_install_result_maps_to_its_response():
         "previous_version": "1.0.0",
         "enabled": True,
         "dependencies_python": ["numpy>=1.24"],
+        "needs_restart": True,
     }
+
+
+def test_an_install_result_needs_no_restart_unless_it_says_so():
+    response = install_result_to_response(InstallResult("demo", "1.0.0", None, False))
+
+    assert response.model_dump()["needs_restart"] is False
 
 
 def test_the_catalog_install_uses_the_public_rescan_of_the_lifecycle():

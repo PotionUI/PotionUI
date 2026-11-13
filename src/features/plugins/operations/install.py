@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,6 +64,7 @@ class InstallResult:
     previous_version: Optional[str]
     enabled: bool
     dependencies_python: List[str] = field(default_factory=list)
+    needs_restart: bool = False
 
 
 def _install_record(folder: Path) -> Optional[dict]:
@@ -223,6 +225,19 @@ class _Placement:
     manifest: PluginManifestSchema
     staging: Path
     previous: Optional[Path]
+
+
+def _imports_from(*folders: Path) -> bool:
+    roots = {os.path.normcase(os.path.abspath(folder)) for folder in folders}
+    roots |= {os.path.normcase(os.path.realpath(folder)) for folder in folders}
+    for module in list(sys.modules.values()):
+        location = getattr(module, "__file__", None)
+        if not isinstance(location, str):
+            continue
+        path = os.path.normcase(os.path.abspath(location))
+        if any(path.startswith(root + os.sep) for root in roots):
+            return True
+    return False
 
 
 def _discard_staging(staging: Path) -> None:
@@ -415,6 +430,8 @@ async def _install_downloaded(
     local_dir = local_plugin_dir(registry)
     staged = await asyncio.to_thread(_stage, data, item, local_dir, url)
     try:
+        loaded = registry.get_plugin(plugin_id)
+        needs_restart = _imports_from(local_dir / plugin_id, *([Path(loaded.plugin_dir)] if loaded is not None else []))
         was_enabled = registry.get_plugin_state(plugin_id) == PluginState.ENABLED
         row_was_enabled = _row_enabled(repo, plugin_id)
         if row_was_enabled:
@@ -481,6 +498,7 @@ async def _install_downloaded(
         previous_version=item.installed_version,
         enabled=enabled,
         dependencies_python=list(manifest.dependencies.python),
+        needs_restart=needs_restart,
     )
 
 

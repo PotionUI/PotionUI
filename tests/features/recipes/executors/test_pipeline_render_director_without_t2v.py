@@ -3,6 +3,7 @@ import pytest
 from scripts.preset_render import StubSettings, build_processor
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.presets.loader import PresetTemplateLoader
+from src.features.recipes.derived import PLAN_STEP_KEY, build_derived_recipes
 from src.features.recipes.executors._fixture_form import build_fixture_form_data
 from src.features.recipes.executors.base import StepContext
 from src.features.recipes.executors.pipeline_render import PipelineRenderExecutor
@@ -76,3 +77,17 @@ def test_a_test_generation_gets_no_made_up_picture(loader):
     form_data = build_fixture_form_data(_offering(loader, "i2v"), "video")
 
     assert "video_director" not in form_data
+
+
+def test_the_check_each_mode_step_of_a_preset_install_recipe_passes_without_text_to_video(loader):
+    preset = _offering(loader, "i2v")
+    recipes, _ = build_derived_recipes([preset])
+    recipe = next(recipe for recipe in recipes.values() if any(link.preset_id == WAN_PRESET_ID for link in recipe.presets))
+    step = next(step for step in recipe.steps if step.kind == "pipeline.render")
+    executor = PipelineRenderExecutor(loader, TemplateProcessor(settings=StubSettings()), PipelineBuilder(loader, build_processor()))
+    run = RecipeRun(id="r1", recipe_id=recipe.id, recipe_version=1, scope="instance", status=RecipeRunStatus.RUNNING)
+    outputs = {PLAN_STEP_KEY: {"plan": {"preset_id": WAN_PRESET_ID, "modes": list(preset.modes)}}}
+
+    result = executor.execute(StepContext(run=run, recipe=recipe, step=step, step_outputs=outputs))
+
+    assert result.success is True, result.safe_error_detail

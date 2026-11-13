@@ -16,7 +16,7 @@
 	import ModelCard from '$lib/components/ModelCard.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import QuickTagFilterBar from '$lib/components/QuickTagFilterBar.svelte';
-	import { PageHeader, PageTitle, IconButton, Pagination } from '$lib/components/ui';
+	import { PageHeader, PageTitle, IconButton, Pagination, EmptyState, Button } from '$lib/components/ui';
 	import ModelLibrarySidebar from './components/ModelLibrarySidebar.svelte';
 	import CollectionSidebarSheet from '$lib/components/collections/CollectionSidebarSheet.svelte';
 	import SubcollectionFilters from '$lib/components/collections/SubcollectionFilters.svelte';
@@ -523,74 +523,32 @@
 				</div>
 			{/if}
 		{:else}
-			<div class="dot-grid text-center py-20 rounded-lg">
-				<div class="max-w-md mx-auto">
-					<div
-						class="w-16 h-16 flex items-center justify-center mx-auto mb-6 rounded-lg bg-surface-2 border border-line"
-					>
-						<Icon
-							name={hasActiveFilters ? 'search' : 'model'}
-							className="h-8 w-8 text-fg-subtle"
-							strokeWidth={1.5}
-						/>
-					</div>
-					<p class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-3">
-						{hasActiveFilters ? 'No Results Found' : 'No Models Available'}
-					</p>
-					<p class="text-fg-muted mb-8 leading-relaxed text-sm">
-						{hasActiveFilters
-							? "Try adjusting your search criteria or filters to find what you're looking for."
-							: isAdmin
-								? installModels
-									? 'No models are available yet. Install the models a recipe brings, or add one directly in Downloads.'
-									: 'No models are available yet. Run guided setup to install one, or add one directly in Downloads.'
-								: 'No models are available yet. Ask your administrator to set up models for this instance.'}
-					</p>
+			<EmptyState
+				icon={hasActiveFilters ? 'search' : 'model'}
+				title={hasActiveFilters ? 'No Results Found' : 'No Models Available'}
+				description={hasActiveFilters
+					? "Try adjusting your search criteria or filters to find what you're looking for."
+					: isAdmin
+						? installModels
+							? 'No models are available yet. Install the models a recipe brings, or add one directly in Downloads.'
+							: 'No models are available yet. Run guided setup to install one, or add one directly in Downloads.'
+						: 'No models are available yet. Ask your administrator to set up models for this instance.'}
+			>
+				{#snippet actions()}
 					{#if hasActiveFilters}
-						<button
-							class="px-4 py-2 bg-surface-2 text-fg rounded hover:bg-surface-3 transition-colors font-medium inline-flex items-center gap-2 text-sm"
-							on:click={handleClearAllFilters}
-						>
-							<Icon name="close" className="w-4 h-4" />
-							Clear All Filters
-						</button>
+						<Button variant="secondary" icon="close" onclick={handleClearAllFilters}>Clear All Filters</Button>
 					{:else if isAdmin}
-						<div class="flex items-center justify-center gap-3">
-							{#if installModels}
-								<a
-									href={installModels.href}
-									class="px-4 py-2 bg-surface-2 text-fg rounded hover:bg-surface-3 transition-colors font-medium inline-flex items-center gap-2 text-sm"
-								>
-									<Icon name="download" className="w-4 h-4" />
-									{installModels.label}
-								</a>
-							{:else}
-								<a
-									href="/setup"
-									class="px-4 py-2 bg-surface-2 text-fg rounded hover:bg-surface-3 transition-colors font-medium inline-flex items-center gap-2 text-sm"
-								>
-									<Icon name="sparkles" className="w-4 h-4" />
-									Run guided setup
-								</a>
-							{/if}
-							<a
-								href="/admin?tab=downloads"
-								class="px-4 py-2 bg-surface-2 text-fg rounded hover:bg-surface-3 transition-colors font-medium inline-flex items-center gap-2 text-sm"
-							>
-								<Icon name="download" className="w-4 h-4" />
-								Open Downloads
-							</a>
-						</div>
+						{#if installModels}
+							<Button variant="secondary" icon="download" href={installModels.href}>{installModels.label}</Button>
+						{:else}
+							<Button variant="secondary" icon="sparkles" href="/setup">Run guided setup</Button>
+						{/if}
+						<Button variant="secondary" icon="download" href="/admin?tab=downloads">Open Downloads</Button>
 					{:else}
-						<a
-							href="/setup"
-							class="text-sm text-fg-subtle hover:text-fg-muted underline decoration-dotted"
-						>
-							Check setup status
-						</a>
+						<Button variant="secondary" href="/setup">Check setup status</Button>
 					{/if}
-				</div>
-			</div>
+				{/snippet}
+			</EmptyState>
 		{/if}
 	</div>
 	</div>

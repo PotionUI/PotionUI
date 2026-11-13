@@ -19,9 +19,23 @@
 	} = $props();
 </script>
 
-<div class="dot-grid flex flex-col items-center justify-center text-center rounded-lg border border-line bg-surface-1 {compact ? 'px-4 py-8' : 'px-6 py-14'}">
-	<Icon name={icon} className="w-9 h-9 mb-3 {tone === 'danger' ? 'text-danger' : 'text-fg-subtle'}" strokeWidth={1.5} />
-	<h2 class="text-sm font-semibold text-fg">{title}</h2>
-	{#if description}<p class="text-sm text-fg-muted mt-1 max-w-md">{description}</p>{/if}
-	{#if actions}<div class="flex flex-wrap items-center justify-center gap-2 mt-4">{@render actions()}</div>{/if}
+<div class="dot-grid text-center rounded-lg {compact ? 'px-4 py-8' : 'px-6 py-20'}" data-empty-state={compact ? 'compact' : 'default'}>
+	<div class="max-w-md mx-auto">
+		<div
+			class="flex items-center justify-center mx-auto rounded-lg bg-surface-2 border border-line {compact ? 'w-12 h-12 mb-4' : 'w-16 h-16 mb-6'}"
+		>
+			<Icon
+				name={icon}
+				className="{compact ? 'h-6 w-6' : 'h-8 w-8'} {tone === 'danger' ? 'text-danger' : 'text-fg-subtle'}"
+				strokeWidth={1.5}
+			/>
+		</div>
+		<p class="font-mono text-2xs uppercase tracking-[0.07em] {tone === 'danger' ? 'text-danger' : 'text-fg-subtle'}" data-empty-state-title>{title}</p>
+		{#if description}
+			<p class="text-fg-muted leading-relaxed text-sm break-words {compact ? 'mt-2' : 'mt-3'}" data-empty-state-description>{description}</p>
+		{/if}
+		{#if actions}
+			<div class="flex flex-wrap items-center justify-center gap-3 {compact ? 'mt-4' : 'mt-8'}">{@render actions()}</div>
+		{/if}
+	</div>
 </div>

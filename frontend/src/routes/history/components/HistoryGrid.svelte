@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { mediaGroupByDay } from '$lib/stores/mediaGroupByDay';
 	import {
 		historyStore,
 		totalPages,
@@ -98,7 +99,7 @@
 	// When sorting by rating or file size the day grouping is meaningless, so we
 	// render a single flat justified grid (no day headers).
 	$: grouped =
-		currentState.filters.sortBy !== 'rating' && currentState.filters.sortBy !== 'file_size';
+		$mediaGroupByDay && currentState.filters.sortBy !== 'rating' && currentState.filters.sortBy !== 'file_size';
 	$: groups = grouped
 		? buildGroups(generations)
 		: generations.length > 0

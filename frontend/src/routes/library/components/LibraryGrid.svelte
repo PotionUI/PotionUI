@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { mediaGroupByDay } from '$lib/stores/mediaGroupByDay';
 	import { libraryStore, libraryTotalPages, LIBRARY_ITEMS_PER_PAGE_OPTIONS } from '$lib/stores/library';
 	import { Button, EmptyState, Pagination } from '$lib/components/ui';
 	import {
@@ -49,7 +50,12 @@
 	// One flat keyed list per group: flex-wrap reproduces the packer's rows from
 	// the boxes' own widths, so a card keeps its DOM identity when a gridWidth
 	// reflow moves it across a row boundary (see flattenJustifiedRows).
-	$: groupLayouts = groupByDay(items, state.placedIds).map((group) => ({
+	$: dayGroups = $mediaGroupByDay
+		? groupByDay(items, state.placedIds)
+		: items.length > 0
+			? [{ key: '__flat__', label: '', items }]
+			: [];
+	$: groupLayouts = dayGroups.map((group) => ({
 		...group,
 		boxes: flattenJustifiedRows(
 			layoutJustifiedRows(
@@ -209,15 +215,17 @@
 			{/if}
 		{:else if items.length > 0 && gridWidth > 0}
 			{#each groupLayouts as group (group.key)}
-				<div class="flex items-baseline gap-3 mb-3 mt-8 first:mt-0">
-					<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted whitespace-nowrap">
-						{group.label}
-					</span>
-					<span class="font-mono tabular-nums text-2xs text-fg-subtle whitespace-nowrap">
-						{group.items.length}
-					</span>
-					<div class="flex-1 h-px bg-line self-center"></div>
-				</div>
+				{#if $mediaGroupByDay}
+					<div class="flex items-baseline gap-3 mb-3 mt-8 first:mt-0">
+						<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted whitespace-nowrap">
+							{group.label}
+						</span>
+						<span class="font-mono tabular-nums text-2xs text-fg-subtle whitespace-nowrap">
+							{group.items.length}
+						</span>
+						<div class="flex-1 h-px bg-line self-center"></div>
+					</div>
+				{/if}
 
 				<!-- Justified grid: flex-wrap lays out each box's already-computed
 				     width into the same rows the packer chose, from one flat keyed

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { mediaGroupByDay } from '$lib/stores/mediaGroupByDay';
 	import tooltip from '$lib/actions/tooltip';
 	import { onDestroy, onMount } from 'svelte';
 	import { debounce } from '$lib/utils/time';
@@ -640,6 +641,15 @@
 						</button>
 					{/each}
 				</div>
+
+				<IconButton
+					icon="calendar"
+					label="Group by date"
+					tooltip={$mediaGroupByDay ? 'Grouped by date. Click for one continuous wall' : 'One continuous wall. Click to group by date'}
+					active={$mediaGroupByDay}
+					ariaPressed={$mediaGroupByDay}
+					onclick={() => mediaGroupByDay.update((value) => !value)}
+				/>
 
 				<HistorySidebar part="actions" />
 				<IconButton icon="refresh" label="Refresh" onclick={() => historyStore.loadGenerations()} />

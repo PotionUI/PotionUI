@@ -405,6 +405,34 @@ model_loader/<family> -> prompt_encoder -> seed_generator -> dynamic_prompts_ren
   entirely — there is no `mode: "save"` key; the pipe always saves, and `scripts/preset_new.py`'s
   scaffold no longer emits that dead key either.
 
+#### Parameters shown in History
+
+Every pair a mode lists under `param_emitter`'s `parameters:` is recorded for History and returned by
+`GET /api/generations/{id}/params/{index}`, whatever the name — a preset can call a field `prompter`
+without any code registering it. Names that only reach the pipe as runtime inputs, and names a
+generator pipe emits itself, are recorded only when they are one of the built-in display names (seed,
+steps, cfg, model, ...) or a plugin registered them with `register_display_parameters`. A name an input
+overrides falls back to that same rule. Whatever is recorded is still passed through the same
+protections as before: a value with an unrendered `{{ }}` marker is dropped, a value that is a model
+file path is reduced to its file name, and the prompt channels keep showing a user the text they wrote
+rather than a fixed prompt applied after it.
+
+A pair is `[name, value]` or `[name, value, {label, unit, type}]`. The optional third element tells the
+Parameters section how to present the value: `label` (up to 80 characters), `unit` (up to 16) and
+`type` (up to 40) are plain strings, all optional; other keys are ignored.
+
+```yaml
+parameters:
+  - ["duration", "{{ form.duration }}", {"label": "Length", "unit": "s", "type": "number"}]
+  - ["steps", "{{ form.steps }}"]
+```
+
+A pair without a third element takes its `label` and `type` from the mode's form when a form field has
+the same name as the emitted name; a unit is never inferred. The response carries `parameter_meta`
+(`{name: {label?, type?, unit?}}`, only names that have any) and `parameter_order` (names in the order
+the preset emitted them, names recorded before this existed after them alphabetically); both are empty
+for older generations.
+
 `python scripts/preset_new.py <Model>/<variant> --family <family>` (see the
 [Preset Authoring Guide](../presets.md#quick-start)) scaffolds this exact chain, discovering the
 real `model_loader/<family>` and `generator/<family>` (or `checkpoint_loader/<family>`) pipe names

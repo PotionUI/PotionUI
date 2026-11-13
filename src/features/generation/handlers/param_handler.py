@@ -120,7 +120,7 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
             # on the same catalog lookup instead of resolving twice.
             resolved_models = self._resolve_models(output.values) if output.name == "model" else None
 
-            if not is_display_parameter(output.name):
+            if not (output.declared or is_display_parameter(output.name)):
                 logger.debug(f"[PARAM HANDLER] '{output.name}' is not a display parameter, not recording")
             elif any(_looks_unrendered(v) for v in output.values):
                 # All-or-nothing per parameter: dropping only the offending

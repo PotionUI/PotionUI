@@ -46,6 +46,8 @@
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
 	import type { DetailsExtraSection, DetailsFileChange } from './generationDetailsExtras';
 	import { withAxisParams } from '$lib/generation/compare/view/gridModel';
+	import ParametersView from '$lib/components/generation/ParametersView.svelte';
+	import type { GenerationParameterMeta } from '$lib/types/generation';
 
 	// Support both ways of passing generation data
 	export let generation: GenerationHistoryItem | null = null;
@@ -70,6 +72,7 @@
 		| undefined = undefined;
 	export let axisTags: Record<string, string> = {};
 	export let axisValues: Record<string, string> = {};
+	export let axisParamMeta: Record<string, GenerationParameterMeta> = {};
 
 	const dispatch = createEventDispatcher();
 
@@ -162,6 +165,9 @@
 	let currentParams: Record<string, any> = {};
 	$: shownParams = withAxisParams(currentParams, axisTags, axisValues);
 	let currentModels: any[] = [];
+	let currentParamMeta: Record<string, GenerationParameterMeta> | null = null;
+	let currentParamOrder: string[] | null = null;
+	$: shownParamMeta = mergeParamMeta(axisParamMeta, currentParamMeta);
 	let paramsLoading = false;
 	let loadedParamsKey = '';
 
@@ -334,6 +340,17 @@
 		}
 	}
 
+	function mergeParamMeta(
+		axis: Record<string, GenerationParameterMeta>,
+		recorded: Record<string, GenerationParameterMeta> | null
+	): Record<string, GenerationParameterMeta> | null {
+		const fields = Object.keys(axis);
+		if (fields.length === 0) return recorded;
+		const merged: Record<string, GenerationParameterMeta> = { ...recorded };
+		for (const field of fields) merged[field] = { ...axis[field], ...recorded?.[field] };
+		return merged;
+	}
+
 	async function loadParametersForCurrentFile() {
 		if (!activeGenerationId) return;
 
@@ -343,11 +360,15 @@
 			if (response.success && response.data) {
 				currentParams = response.data.parameters || {};
 				currentModels = response.data.models || [];
+				currentParamMeta = response.data.parameter_meta ?? null;
+				currentParamOrder = response.data.parameter_order ?? null;
 			}
 		} catch (error) {
 			logger.error('Failed to load parameters:', error);
 			currentParams = {};
 			currentModels = [];
+			currentParamMeta = null;
+			currentParamOrder = null;
 		} finally {
 			paramsLoading = false;
 		}
@@ -1228,45 +1249,14 @@
 							{/if}
 						</div>
 
-						{#if paramsLoading}
-							<div class="flex items-center justify-center py-4">
-								<Spinner size="sm" />
-							</div>
-						{:else if Object.keys(shownParams).length > 0}
-							<div class="grid grid-cols-2 gap-px bg-line">
-								{#each Object.entries(shownParams) as [key, value]}
-									<div class="bg-surface-2 hover:bg-surface-3 p-2.5 transition-colors group">
-										<div class="flex items-center justify-between mb-1">
-											<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">
-												{key.replace(/_/g, ' ')}
-											</span>
-											{#if axisTags[key]}
-												<span
-													data-testid="axis-tag"
-													class="mr-auto ml-1.5 rounded border border-signal/40 bg-signal/10 px-1 font-mono text-xs text-signal"
-												>
-													{axisTags[key]}
-												</span>
-											{/if}
-											<CopyButton
-												text={String(value)}
-												ariaLabel="Copy {key}"
-												size="xs"
-												class="opacity-0 group-hover:opacity-100"
-											/>
-										</div>
-										<div
-											class="font-mono tabular-nums text-xs font-semibold text-fg truncate"
-											use:tooltip={{ text: typeof value === 'object' ? JSON.stringify(value) : String(value), truncateOnly: true }}
-										>
-											{typeof value === 'object' ? JSON.stringify(value) : String(value)}
-										</div>
-									</div>
-								{/each}
-							</div>
-						{:else}
-							<p class="text-xs text-fg-subtle p-3">No parameters</p>
-						{/if}
+						<ParametersView
+							params={shownParams}
+							meta={shownParamMeta}
+							order={currentParamOrder}
+							models={currentModels}
+							{axisTags}
+							loading={paramsLoading}
+						/>
 					</div>
 
 					<!-- Models Section -->

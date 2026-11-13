@@ -2,7 +2,9 @@
 	import { createEventDispatcher } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Badge, CopyButton } from '$lib/components/ui';
+	import { Badge } from '$lib/components/ui';
+	import ParametersView from '$lib/components/generation/ParametersView.svelte';
+	import type { ParameterMeta, ParameterModelRef } from '$lib/components/generation/parametersModel';
 
 	export let isOpen: boolean = false;
 	export let params: Record<string, any> = {};
@@ -10,14 +12,12 @@
 		null;
 	/** Zero-based index of the item within the batch, shown as a #N badge. */
 	export let index: number = 0;
+	export let meta: Record<string, ParameterMeta> | null = null;
+	export let order: string[] | null = null;
+	export let models: ParameterModelRef[] = [];
 
 	const dispatch = createEventDispatcher<{ close: void }>();
 
-	$: entries = Object.entries(params ?? {});
-
-	function copyValueFor(value: unknown): string {
-		return typeof value === 'object' ? JSON.stringify(value) : String(value);
-	}
 </script>
 
 <BaseModal
@@ -61,35 +61,14 @@
 			</div>
 		{/if}
 
-		<!-- Parameter cards -->
-		{#if entries.length > 0}
-			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-				{#each entries as [key, value]}
-					<div
-						class="group relative bg-surface-2 rounded-lg p-3 border border-line hover:border-line-hover transition-colors"
-					>
-						<div class="flex items-center justify-between mb-1.5">
-							<span class="text-xs font-medium text-fg-muted capitalize truncate">
-								{key.replace(/_/g, ' ')}
-							</span>
-							<CopyButton
-								text={() => copyValueFor(value)}
-								ariaLabel={`Copy ${key}`}
-								class="opacity-0 group-hover:opacity-100"
-							/>
-						</div>
-						<div
-							class="font-mono text-sm font-semibold text-fg tabular-nums max-h-28 overflow-auto break-words"
-						>
-							{typeof value === 'object' ? JSON.stringify(value) : value}
-						</div>
-					</div>
-				{/each}
-			</div>
-		{:else}
-			<div class="text-sm text-fg-subtle py-6 text-center">
-				No generation parameters available for this item.
-			</div>
-		{/if}
+		<div class="overflow-hidden rounded-lg bg-surface-2">
+			<ParametersView
+				{params}
+				{meta}
+				{order}
+				{models}
+				emptyText="No generation parameters available for this item."
+			/>
+		</div>
 	</div>
 </BaseModal>

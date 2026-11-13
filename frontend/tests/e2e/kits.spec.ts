@@ -112,7 +112,12 @@ async function mockKits(page: Page, seed: WireKit[] = []): Promise<Backend> {
 		const url = new URL(request.url());
 		const path = url.pathname.replace(/^\/api\/kits\/?/, '');
 		const method = request.method();
-		const body = (request.postDataJSON?.() ?? {}) as Record<string, any>;
+		let body: Record<string, any> = {};
+		try {
+			body = (request.postDataJSON?.() ?? {}) as Record<string, any>;
+		} catch {
+			body = {};
+		}
 
 		if (path === '' && method === 'GET') {
 			const label = url.searchParams.get('label');
@@ -281,7 +286,7 @@ test.describe('Kits in the Library', () => {
 
 		await page.getByRole('button', { name: 'Add item' }).click();
 		await page.getByRole('menuitem', { name: 'Upload file' }).click();
-		await page.locator('input[type="file"]').first().setInputFiles({ name: 'a.png', mimeType: 'image/png', buffer: PNG });
+		await page.locator('input[type="file"][accept="image/*,video/*,audio/*"]').last().setInputFiles({ name: 'a.png', mimeType: 'image/png', buffer: PNG });
 		await expect(page.locator('[data-kit-item]')).toHaveCount(2);
 
 		const name = page.locator('[data-kit-item]').nth(1).getByLabel('Item name');
@@ -443,10 +448,11 @@ test.describe('Kits and History', () => {
 		await page.setViewportSize({ width: 1920, height: 1080 });
 		await mockHistory(page);
 		const backend = await mockKits(page, [seedMara()]);
-		await page.goto('/history?generation=gen-a');
+		await page.goto('/history');
+		await page.locator('[data-generation-card]').first().locator('.media-zoom').click();
 		await page.getByRole('button', { name: 'Add to kit' }).click();
 		await page.getByRole('button', { name: 'Existing kit' }).click();
-		await page.getByRole('button', { name: /Mara/ }).first().click();
+		await page.getByRole('radio', { name: /Mara/ }).check({ force: true });
 		await page.getByRole('button', { name: 'Add to kit' }).last().click();
 		await expect.poll(() => backend.submitted.length).toBe(1);
 		expect(backend.submitted[0]).toMatchObject({ kit_id: 'kt_7f3a1c2e', file_ids: ['501'] });
@@ -469,7 +475,13 @@ async function openReferencePreset(page: Page): Promise<boolean> {
 	await page.getByRole('option', { name: new RegExp(preset.name) }).first().click();
 	await page.getByTestId('preset-header-mode').getByRole('button').first().click();
 	await page.getByRole('option', { name: /^References/ }).first().click();
+	await page.getByRole('tab', { name: 'References', exact: true }).first().click();
 	return true;
+}
+
+async function openReferenceKits(page: Page) {
+	await page.locator('[data-media-add="image"]').first().click();
+	await page.getByRole('menuitem', { name: /^Kits/ }).click();
 }
 
 test.describe('Kits in a generation', () => {
@@ -487,7 +499,7 @@ test.describe('Kits in a generation', () => {
 			await json(route, { generation_id: 'gen-kit-1', status: { status: 'queued' }, queue_position: null, kits: { used: [], notices: backend.notices } });
 		});
 
-		await page.getByRole('button', { name: 'Kits' }).first().click();
+		await openReferenceKits(page);
 		const dialog = page.getByRole('dialog', { name: /^Choose / });
 		await expect(dialog.locator('[data-pick-kit]')).toHaveCount(1);
 		await dialog.locator('[data-pick-kit]').first().getByRole('checkbox').check();
@@ -514,7 +526,7 @@ test.describe('Kits in a generation', () => {
 	test('the @ picker is driven by the keyboard: Kits group, a kit, an item, back with the left arrow', async ({ page }) => {
 		await mockKits(page, [seedMara()]);
 		test.skip(!(await openReferencePreset(page)), 'a MiniMax H3 preset with a References mode is not available on this instance');
-		await page.getByRole('button', { name: 'Kits' }).first().click();
+		await openReferenceKits(page);
 		const dialog = page.getByRole('dialog', { name: /^Choose / });
 		await dialog.locator('[data-pick-kit]').first().getByRole('checkbox').check();
 		await dialog.getByRole('button', { name: 'Use selected' }).click();
@@ -524,9 +536,7 @@ test.describe('Kits in a generation', () => {
 		await editor.click();
 		await page.keyboard.type('@kits');
 		const picker = page.locator('.resource-picker');
-		await expect(picker.locator('.picker-row[aria-selected="true"]')).toContainText('Kits');
-		await page.keyboard.press('Enter');
-		await expect(picker).toContainText('Mara');
+		await expect(picker.locator('.picker-row[aria-selected="true"]')).toContainText('Mara');
 		await page.keyboard.press('Enter');
 		await expect(picker).toContainText('Everything this model can take');
 		await page.keyboard.press('ArrowLeft');
@@ -541,7 +551,7 @@ test.describe('Kits in a generation', () => {
 	test('kit rows written from outside the form survive a form re-hydrate', async ({ page }) => {
 		await mockKits(page, [seedMara()]);
 		test.skip(!(await openReferencePreset(page)), 'a MiniMax H3 preset with a References mode is not available on this instance');
-		await page.getByRole('button', { name: 'Kits' }).first().click();
+		await openReferenceKits(page);
 		const dialog = page.getByRole('dialog', { name: /^Choose / });
 		await dialog.locator('[data-pick-kit]').first().getByRole('checkbox').check();
 		await dialog.getByRole('button', { name: 'Use selected' }).click();
@@ -558,7 +568,7 @@ test.describe('Kits in a generation', () => {
 	test('renaming and deleting a kit that a prompt cites changes its chips and tells the user', async ({ page }) => {
 		const backend = await mockKits(page, [seedMara()]);
 		test.skip(!(await openReferencePreset(page)), 'a MiniMax H3 preset with a References mode is not available on this instance');
-		await page.getByRole('button', { name: 'Kits' }).first().click();
+		await openReferenceKits(page);
 		const dialog = page.getByRole('dialog', { name: /^Choose / });
 		await dialog.locator('[data-pick-kit]').first().getByRole('checkbox').check();
 		await dialog.getByRole('button', { name: 'Use selected' }).click();

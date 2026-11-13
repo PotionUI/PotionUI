@@ -35,7 +35,20 @@ if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
 
-WS_TICKETS_PER_WINDOW = int(os.environ.get("POTIONUI_WS_TICKETS_PER_WINDOW", "60"))
+WS_TICKETS_ENV = "POTIONUI_WS_TICKETS_PER_WINDOW"
+DEFAULT_WS_TICKETS_PER_WINDOW = 60
+
+
+def ws_tickets_per_window(environ=None) -> int:
+    raw = (os.environ if environ is None else environ).get(WS_TICKETS_ENV, "").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_WS_TICKETS_PER_WINDOW
+    return value if value > 0 else DEFAULT_WS_TICKETS_PER_WINDOW
+
+
+WS_TICKETS_PER_WINDOW = ws_tickets_per_window()
 
 
 class AuthController(BaseController):

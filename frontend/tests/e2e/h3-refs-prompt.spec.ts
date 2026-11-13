@@ -26,6 +26,7 @@ test.describe('MiniMax-H3 References prompt', () => {
 		test.setTimeout(120000);
 		await page.setViewportSize({ width: 1440, height: 960 });
 		await openH3(page);
+		await chooseMode(page, /Video Director/);
 
 		const director = page.locator('section.video-director[aria-label="Video Director"]');
 		await expect(director).toBeVisible({ timeout: 20000 });

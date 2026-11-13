@@ -126,6 +126,42 @@ class TestMode:
         error = refusal(prepare, build_service(world.sessions, world.storage))
         assert (error.status, error.code) == (422, "mode_not_available")
 
+    def test_a_retired_mode_names_its_replacement(self, world):
+        save(world.sessions, data={"long": entry()})
+        service = build_service(world.sessions, world.storage, template(modes=("video",), vars={"retired_modes": {"long": "video"}}))
+
+        error = refusal(prepare, service)
+
+        assert (error.status, error.code, error.detail) == (422, "mode_not_available", {"replaced_by": "video"})
+        assert "Mode 'long' was replaced by 'video'." in error.message
+
+    def test_a_mode_that_was_never_retired_names_no_replacement(self, world):
+        save(world.sessions, data={"gone": entry()})
+        service = build_service(world.sessions, world.storage, template(vars={"retired_modes": {"long": "video"}}))
+
+        error = refusal(prepare, service)
+
+        assert (error.code, error.detail) == ("mode_not_available", {})
+        assert "replaced by" not in error.message
+
+    def test_asking_for_a_retired_mode_the_session_never_saved_names_its_replacement(self, world):
+        save(world.sessions, data={"video": entry()})
+        service = build_service(world.sessions, world.storage, template(modes=("video",), vars={"retired_modes": {"long": "video"}}))
+
+        error = refusal(prepare, service, mode="long")
+
+        assert (error.status, error.code, error.detail) == (404, "session_mode_not_found", {"modes": ["video"], "replaced_by": "video"})
+        assert error.message.endswith("Mode 'long' was replaced by 'video'.")
+
+    def test_the_template_lists_a_retired_mode_as_a_problem_naming_its_replacement(self, world):
+        save(world.sessions, data={"long": entry()})
+        service = build_service(world.sessions, world.storage, template(modes=("video",), vars={"retired_modes": {"long": "video"}}))
+
+        problems = service.describe("u1", False, "s1", None)["problems"]
+
+        assert [p["code"] for p in problems] == ["mode_not_available"]
+        assert "Mode 'long' was replaced by 'video'." in problems[0]["message"]
+
 
 class TestOverrides:
     def test_prompt_replaces_the_sessions_segments_and_keeps_the_rest(self, world):

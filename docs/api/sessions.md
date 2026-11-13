@@ -274,7 +274,7 @@ Errors of the session routes, in the usual `{"detail": {"success": false, "error
 | --- | --- | --- |
 | 400 | `mode_required` | `modes` |
 | 404 | `session_not_found`, `preset_not_found` | |
-| 404 | `session_mode_not_found` | `modes` |
+| 404 | `session_mode_not_found` | `modes`; `replaced_by` when the asked-for mode was retired and the preset names its replacement |
 | 503 | `storage_unavailable` | Your storage location could not be resolved, so input files cannot be checked; try again later |
 | 403 | `session_preset_unavailable` | `preset_id`, `preset_name` |
 | 403 | `session_model_unavailable` | `models`: a list of `field`, `model_id`, `name` |
@@ -284,7 +284,7 @@ Errors of the session routes, in the usual `{"detail": {"success": false, "error
 | 422 | `input_missing` | `inputs`: a list of `field`, `path` |
 | 422 | `unknown_field`, `unknown_variable` | `names`, `known` |
 | 422 | `field_locked` | `names` |
-| 422 | `seed_not_supported`, `count_not_supported`, `conflicting_overrides`, `too_many_prompts`, `batch_not_supported`, `no_prompt`, `mode_not_available`, `session_empty` | |
+| 422 | `seed_not_supported`, `count_not_supported`, `conflicting_overrides`, `too_many_prompts`, `batch_not_supported`, `no_prompt`, `mode_not_available`, `session_empty` | `replaced_by` on `mode_not_available` when the saved mode was retired and the preset names its replacement |
 | 422 | `form_validation_failed` | `field_errors`, `coercions`, `stripped` |
 
 Errors that `/api/generations/start` can give, such as `model_not_found`, `idempotency_key_conflict` and plan limits, pass through unchanged. Someone else's session id always answers `404` with `session_not_found`, whatever the key's permissions.

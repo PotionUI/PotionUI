@@ -864,6 +864,7 @@
 								order={currentParamOrder}
 								models={currentModels}
 								{axisTags}
+								formData={activeGeneration.form_data ?? null}
 								loading={paramsLoading}
 							/>
 						</DetailsSection>
@@ -874,6 +875,7 @@
 									{#snippet item(seg)}
 										<div class={seg.is_disabled ? 'opacity-50' : ''}>
 											<ParameterTextBlock
+												formData={activeGeneration.form_data ?? null}
 												label={seg.name || (seg.channel === 'negative' ? 'Negative' : 'Positive')}
 												text={seg.text || '(empty)'}
 												raw={seg.text || ''}
@@ -929,7 +931,7 @@
 								{/if}
 								<FoldedList id="director" items={directorSegments} above={5} show={3}>
 									{#snippet item(seg, i)}
-										<ParameterTextBlock label="Shot {i + 1}" text={seg.prompt || '(empty)'} raw={seg.prompt || ''}>
+										<ParameterTextBlock formData={activeGeneration.form_data ?? null} label="Shot {i + 1}" text={seg.prompt || '(empty)'} raw={seg.prompt || ''}>
 											{#snippet suffix()}
 												{#if seg.sub_type}
 													<Badge variant="signal" size="sm">{seg.sub_type}</Badge>

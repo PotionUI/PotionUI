@@ -40,6 +40,7 @@
 		generationLink ?? (item.source_generation_id ? { generationId: item.source_generation_id, fileIndex: 0 } : null);
 	let generationState: 'unknown' | 'present' | 'missing' = 'unknown';
 	let generationPrompt = '';
+	let sourceFormData: Record<string, unknown> | null = null;
 	let checkedGeneration: string | null = null;
 
 	$: if (backLink && backLink.generationId !== checkedGeneration) void checkGeneration(backLink.generationId);
@@ -48,11 +49,13 @@
 		checkedGeneration = id;
 		generationState = 'unknown';
 		generationPrompt = '';
+		sourceFormData = null;
 		try {
 			const response = await api.getGenerationById(id);
 			if (checkedGeneration !== id) return;
 			if (response?.success && response.data) {
 				generationState = 'present';
+				sourceFormData = response.data.form_data ?? null;
 				const prompt = response.data.form_data?.prompt;
 				generationPrompt = typeof prompt === 'string' ? prompt.split('\n')[0].slice(0, 160) : '';
 			} else generationState = 'missing';
@@ -368,6 +371,7 @@
 						order={sourceOrder}
 						models={sourceModels}
 						loading={sourceParamsLoading}
+						formData={sourceFormData}
 					/>
 				</DetailsSection>
 			{/if}

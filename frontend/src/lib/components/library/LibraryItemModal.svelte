@@ -302,14 +302,14 @@
 	{/snippet}
 
 	{#snippet columnContent()}
-		<div class="py-4">
+		<div class="pb-4">
 			{#if facts.length > 0}
-				<DetailsSection id="library-file" title="File" icon="document" collapsible={false}>
+				<DetailsSection id="library-file" strip title="File" icon="document" collapsible={false}>
 					<FactGrid {facts} />
 				</DetailsSection>
 			{/if}
 
-			<DetailsSection id="library-tags" title="Tags" icon="tag" count={item.tags.length} collapsible={false}>
+			<DetailsSection id="library-tags" strip={facts.length === 0} title="Tags" icon="tag" count={item.tags.length} collapsible={false}>
 				<div class="flex flex-wrap gap-1 px-3" data-library-item-tags>
 					{#each item.tags as tag (tag.id)}
 						<span class="rounded border border-line bg-surface-2 px-2 py-0.5 text-sm text-fg-muted">{tag.name}</span>

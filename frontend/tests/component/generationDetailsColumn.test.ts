@@ -251,6 +251,37 @@ describe('section headers', () => {
 	});
 });
 
+describe('toolbar alignment', () => {
+	it('makes the first section header a strip as tall as the action toolbar, with its border', async () => {
+		response.data = { parameters: {}, models: models(2) };
+		await mountModal(generation());
+		const strip = section('parameters')?.querySelector('div.h-11') as HTMLElement;
+		expect(section('parameters')?.hasAttribute('data-details-strip')).toBe(true);
+		expect(strip.className).toContain('border-b');
+		expect(strip.className).toContain('border-line');
+		expect(strip.className).toContain('px-4');
+		expect(strip.className).toContain('max-sm:h-12');
+		const bar = document.body.querySelector('[data-details-action-bar]') as HTMLElement;
+		expect(bar.className).toContain('h-11');
+		expect(bar.className).toContain('max-sm:h-12');
+		expect(bar.className).toContain('border-b');
+	});
+
+	it('gives only the first section the strip and the same gutter to the rest', async () => {
+		response.data = { parameters: {}, models: models(2) };
+		await mountModal(generation());
+		expect(section('models')?.hasAttribute('data-details-strip')).toBe(false);
+		expect(section('models')?.className).toContain('mx-4');
+	});
+
+	it('keeps the failure notice above the strip with its own top padding', async () => {
+		signInAs('ADMIN');
+		await mountModal(generation({ status: 'failed', error_message: 'x' }));
+		const alert = document.body.querySelector('[data-failure-alert]') as HTMLElement;
+		expect(alert.parentElement?.className).toContain('pt-4');
+	});
+});
+
 describe('section icons', () => {
 	const iconOf = (id: string) => section(id)?.querySelector(':scope > button > span span[aria-hidden="true"], :scope > div > span span[aria-hidden="true"]');
 

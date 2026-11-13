@@ -8,7 +8,6 @@
 		raw,
 		mono = false,
 		axisTag = '',
-		compact = false,
 		prefix,
 		suffix,
 		footer
@@ -18,7 +17,6 @@
 		raw: string;
 		mono?: boolean;
 		axisTag?: string;
-		compact?: boolean;
 		prefix?: Snippet;
 		suffix?: Snippet;
 		footer?: Snippet;
@@ -42,7 +40,7 @@
 	}
 </script>
 
-<section class={compact ? 'px-3 pb-3 pt-1' : 'p-3'} data-testid="parameter-block">
+<section class="px-3 pb-3" data-testid="parameter-block">
 	<div class="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-fg-muted">
 		{@render prefix?.()}
 		<span>{label}</span>
@@ -55,7 +53,7 @@
 				{axisTag}
 			</span>
 		{/if}
-		<CopyButton text={raw} ariaLabel="Copy {label}" size="xs" class="ml-auto -mr-1" />
+		<CopyButton text={raw} ariaLabel="Copy {label}" size="xs" class="ml-auto -mr-[5px]" />
 	</div>
 	<div class="rounded border border-line bg-surface-2 px-3 py-2.5">
 		<div

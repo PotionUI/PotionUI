@@ -179,6 +179,16 @@ describe('sections by data', () => {
 		}
 	});
 
+	it('starts the Library column with a strip header and falls back to Tags without facts', async () => {
+		await mountModal({});
+		expect(section('library-file')?.hasAttribute('data-details-strip')).toBe(true);
+		expect(section('library-tags')?.hasAttribute('data-details-strip')).toBe(false);
+		component?.$destroy();
+		target?.remove();
+		await mountModal({ item: item('a', { mime_type: undefined, width: undefined, height: undefined, size: undefined }) });
+		expect(section('library-tags')?.hasAttribute('data-details-strip')).toBe(true);
+	});
+
 	it('has no Source or Parameters for a plain upload', async () => {
 		await mountModal({});
 		expect(sectionIds()).toEqual(['library-file', 'library-tags']);

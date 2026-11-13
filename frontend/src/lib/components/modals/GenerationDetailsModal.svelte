@@ -841,21 +841,21 @@
 
 	{#snippet columnContent()}
 		{#if activeGeneration}
-				<div class="py-4">
+				<div class="pb-4">
 					{#if failure}
-						<div class="px-4 pb-4">
+						<div class="px-4 pb-4 pt-4">
 							<GenerationFailureAlert notice={failure} />
 						</div>
 					{/if}
 
 					{#if $$slots.afterInformation}
-						<div class="px-4 pb-4">
+						<div class="px-4 pb-4 pt-4">
 							<slot name="afterInformation" />
 						</div>
 					{/if}
 
 					<div data-details-panel>
-						<DetailsSection id="parameters" title={mediaFiles.length > 1 ? `Parameters · image ${currentFileIndex + 1}` : 'Parameters'} icon="sliders" collapsible={false}>
+						<DetailsSection id="parameters" strip title={mediaFiles.length > 1 ? `Parameters · image ${currentFileIndex + 1}` : 'Parameters'} icon="sliders" collapsible={false}>
 							<ParametersView
 								params={shownParams}
 								meta={shownParamMeta}
@@ -872,7 +872,6 @@
 									{#snippet item(seg)}
 										<div class={seg.is_disabled ? 'opacity-50' : ''}>
 											<ParameterTextBlock
-												compact
 												label={seg.name || (seg.channel === 'negative' ? 'Negative' : 'Positive')}
 												text={seg.text || '(empty)'}
 												raw={seg.text || ''}
@@ -928,7 +927,7 @@
 								{/if}
 								<FoldedList id="director" items={directorSegments} above={5} show={3}>
 									{#snippet item(seg, i)}
-										<ParameterTextBlock compact label="Shot {i + 1}" text={seg.prompt || '(empty)'} raw={seg.prompt || ''}>
+										<ParameterTextBlock label="Shot {i + 1}" text={seg.prompt || '(empty)'} raw={seg.prompt || ''}>
 											{#snippet suffix()}
 												{#if seg.sub_type}
 													<Badge variant="signal" size="sm">{seg.sub_type}</Badge>

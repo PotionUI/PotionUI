@@ -364,6 +364,7 @@
 {#if state.selectedItem}
 	<LibraryItemModal
 		item={state.selectedItem}
+		navigation={{ items: state.items, onSelect: (target) => libraryStore.setSelectedItem(target) }}
 		onClose={() => libraryStore.setSelectedItem(null)}
 		onDeleteRequest={(item) => (itemToDelete = item)}
 	/>

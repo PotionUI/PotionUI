@@ -32,18 +32,18 @@
 	let open = $derived(collapsible ? ($detailsPrefs[`section:${id}`] ?? defaultOpen) : true);
 </script>
 
-<section data-details-section={id}>
+<section class="overflow-hidden rounded-lg bg-surface-2" data-details-section={id}>
 	{#if collapsible}
 		<button
 			type="button"
-			class="flex min-h-10 w-full items-center justify-between gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-3"
+			class="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-3 {open ? 'border-b border-line' : ''}"
 			aria-expanded={open}
 			aria-controls={bodyId}
 			onclick={() => setDetailsPref(`section:${id}`, !open)}
 		>
 			<span class="flex min-w-0 items-center gap-2">
 				{#if icon}<Icon name={icon} className="h-4 w-4 shrink-0 text-fg-muted" />{/if}
-				<h3 class="text-md font-semibold text-fg">{title}</h3>
+				<h3 class="text-sm font-semibold text-fg">{title}</h3>
 			</span>
 			<span class="flex shrink-0 items-center gap-2">
 				{#if count !== undefined}<Badge variant="neutral" size="sm" class="font-mono">{count}</Badge>{/if}
@@ -54,10 +54,10 @@
 			</span>
 		</button>
 	{:else}
-		<div class="flex min-h-10 items-center justify-between gap-2 px-3 py-2.5">
+		<div class="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">
 			<span class="flex min-w-0 items-center gap-2">
 				{#if icon}<Icon name={icon} className="h-4 w-4 shrink-0 text-fg-muted" />{/if}
-				<h3 class="text-md font-semibold text-fg">{title}</h3>
+				<h3 class="text-sm font-semibold text-fg">{title}</h3>
 			</span>
 			<span class="flex shrink-0 items-center gap-2">
 				{#if count !== undefined}<Badge variant="neutral" size="sm" class="font-mono">{count}</Badge>{/if}
@@ -66,7 +66,7 @@
 		</div>
 	{/if}
 	{#if open}
-		<div id={bodyId} class="pb-2">
+		<div id={bodyId} class="py-2">
 			{@render children?.()}
 		</div>
 	{/if}

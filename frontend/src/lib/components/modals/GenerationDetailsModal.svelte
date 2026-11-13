@@ -904,7 +904,7 @@
 
 					<slot name="afterInformation" />
 
-					<div class="divide-y divide-line overflow-hidden rounded-lg bg-surface-2" data-details-panel>
+					<div class="space-y-3" data-details-panel>
 						<DetailsSection id="info" title="Information" icon="information-circle" collapsible={false}>
 							{#snippet headerRight()}
 								<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />

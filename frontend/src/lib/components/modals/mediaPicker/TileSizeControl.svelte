@@ -21,6 +21,7 @@
 		<button
 			type="button"
 			role="radio"
+			aria-label={size.tip}
 			aria-checked={$historyTileSize === size.value}
 			use:tooltip={size.tip}
 			data-size={size.value}

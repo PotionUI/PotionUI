@@ -106,7 +106,7 @@ test('Vignette from the effect catalog previews live on the image canvas through
 	await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 	const empty = page.getByTestId('tool-tab-empty');
 	await empty.getByRole('button', { name: 'Library', exact: true }).click();
-	await page.getByRole('button', { name: /^Use / }).first().click();
+	await page.locator('[data-pick-tile] [data-pick-main]').first().click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop', { timeout: 15000 });
 
 	let original: Probe | null = null;

@@ -308,7 +308,7 @@ def test_every_socket_route_module_under_features_tracks_its_key_sockets():
 
     root = Path(__file__).resolve().parents[3] / "src" / "features"
     with_sockets = sorted(
-        str(path.relative_to(root.parent.parent))
+        path.relative_to(root.parent.parent).as_posix()
         for path in root.rglob("*.py")
         if ".websocket(" in path.read_text(encoding="utf-8") or "@router.websocket(" in path.read_text(encoding="utf-8")
     )

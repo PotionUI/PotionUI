@@ -76,8 +76,11 @@ def build_app(scratch):
 
 
 def main(argv) -> int:
-    with tempfile.TemporaryDirectory(prefix="api-key-scopes-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="api-key-scopes-", ignore_cleanup_errors=True) as scratch:
         lines = render(build_app(scratch))
+        from src.platform.database import Database
+
+        Database.close_pool()
     text = "\n".join(lines) + "\n"
     if "--default-deny" in argv:
         undeclared = [line for line in lines[1:] if line.endswith("\tdefault_deny")]

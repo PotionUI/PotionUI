@@ -291,7 +291,6 @@ test.describe('guide in the app shell', () => {
 
 		await page.goto('/setup');
 		await page.getByRole('button', { name: 'Continue' }).click();
-		await page.getByRole('button', { name: 'Continue' }).click();
 		await page.getByRole('button', { name: /^Review .+ download$/ }).click();
 
 		await expect(page.getByRole('heading', { name: 'Review the download' })).toBeVisible();
@@ -533,7 +532,7 @@ test.describe('a computer with no NVIDIA card', () => {
 		await expect(page.getByRole('heading', { name: 'Your account is ready' })).toBeVisible();
 		await expect(page.getByText('An online service', { exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Create your first image' })).toHaveCount(0);
-		await expect(page.getByRole('link', { name: 'Connect a backend' })).toHaveAttribute(
+		await expect(page.getByRole('button', { name: 'Connect a backend' })).toHaveAttribute(
 			'href',
 			'/admin?tab=backends'
 		);

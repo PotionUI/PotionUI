@@ -29,12 +29,22 @@ AUDIO_LATENTS = audio_latent_num_frames(FRAMES)
 _SCALARS = (torch.Tensor, int, float, str, bool, type(None))
 
 EXPECTED = {
-    "t2va": "cb107c3c5c5e27b1272ead30050f066374a0bf65a5ae0ad80a293c22ada743f0",
-    "t2va_lcm": "7bfd7105339382215e3e53e8fe152158a8b781ef88cc4aa384ab4568285a5213",
-    "fl2va_first": "8aacc0665fad7f179bd380cd33ada84c10130f6bc90a9a1a9f85c4e2e43d7e60",
-    "continue": "938d17f32a224f740b1530928d9fd54e094cad531cec9b21a1bcc486dc86348b",
-    "director_chain": "60460c76dcdc923ec64abf726225567e27f0eae075488eca4860e56989af4939",
+    "t2va": "70f5c141c7c43a32772ba2471908416b80b3beb8d0a7524b556ae5944c9515c6",
+    "t2va_lcm": "5639068ca9e577204f98c292a0c481dcb0811751dddb9a0bbee0d0f1666cc852",
+    "fl2va_first": "db620f3af58b341c56c87229f5b79c9b0e7e34d413083ac6ecdb4ff058de40ed",
+    "continue": "8ff5b55ea181100d02e11292eab10ce49f390608648b141101d4f713607e5e62",
+    "director_chain": "8a233c7365375cd88e002e9114bf347977648159c37290c78f70a1bca37cb6b7",
 }
+
+
+def _portable_randn(draws):
+    def randn(*size, generator=None, device=None, dtype=None, **_):
+        shape = tuple(size[0]) if len(size) == 1 and isinstance(size[0], (tuple, list)) else tuple(size)
+        key = id(generator)
+        draws[key] = draws.get(key, 0) + 1
+        rng = np.random.default_rng([generator.initial_seed(), draws[key]])
+        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32)).to(dtype=dtype or torch.float32)
+    return randn
 
 
 def _update(digest, value):
@@ -96,7 +106,7 @@ def _run(*, plan=None, sampler="euler", decode=False, **extra):
     pipe = _RecordingPipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False, "steps": 3})
     pipe._audio_results = []
     pipe._video_resolution = (32, 32)
-    with patch(f"{_MAIN}.encode_frames_to_mp4") as mock_mp4:
+    with patch(f"{_MAIN}.encode_frames_to_mp4") as mock_mp4, patch("torch.randn", _portable_randn({})):
         mock_mp4.side_effect = lambda frames, path, **kw: path
         result = pipe.generate_one(ctx, 0, 7, ProgressEmitter([].append, title="test"))
         written = [call.args[0] for call in mock_mp4.call_args_list]

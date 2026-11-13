@@ -189,6 +189,17 @@ describe('sections by data', () => {
 		expect(section('library-tags')?.hasAttribute('data-details-strip')).toBe(true);
 	});
 
+	it('shows count badges on Tags and loaded Parameters but not on File or Source', async () => {
+		await mountModal({ item: item('a', { source_generation_id: 'gen-1', tags: [{ id: 't1', name: 'x' }] }) });
+		expect(section('library-tags')?.querySelector('[data-section-count]')?.textContent?.trim()).toBe('1');
+		expect(section('library-file')?.querySelector('[data-section-count]')).toBeNull();
+		expect(section('library-source')?.querySelector('[data-section-count]')).toBeNull();
+		expect(section('library-parameters')?.querySelector('[data-section-count]')).toBeNull();
+		(section('library-parameters')!.querySelector('button[aria-expanded]') as HTMLButtonElement).click();
+		await flush();
+		expect(section('library-parameters')?.querySelector('[data-section-count]')?.textContent?.trim()).toBe('1');
+	});
+
 	it('has no Source or Parameters for a plain upload', async () => {
 		await mountModal({});
 		expect(sectionIds()).toEqual(['library-file', 'library-tags']);

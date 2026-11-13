@@ -51,6 +51,7 @@
 	import { authStore } from '$lib/stores/auth';
 	import { middleEllipsis } from '$lib/components/generation/idDisplay';
 	import FoldedList from '$lib/components/generation/FoldedList.svelte';
+	import { countParameters } from '$lib/components/generation/parametersModel';
 	import { loadDetailsPrefs } from '$lib/components/generation/detailsPrefs';
 	import type { GenerationParameterMeta } from '$lib/types/generation';
 
@@ -189,6 +190,7 @@
 	$: statusName = activeGeneration?.status ? activeGeneration.status.charAt(0).toUpperCase() + activeGeneration.status.slice(1) : '';
 	$: headerIcon = headerIconName !== 'image' || !currentFile ? headerIconName : libraryItemIcon(currentFile.file_type);
 	$: headerKindLabel = headerIconName === 'grid' ? 'Compare grid' : currentFile?.file_type ? currentFile.file_type.charAt(0).toUpperCase() + currentFile.file_type.slice(1) : 'Generation';
+	$: paramCount = countParameters({ params: shownParams, meta: shownParamMeta, order: currentParamOrder, models: currentModels });
 	$: runLine = activeGeneration ? formatRunLine(activeGeneration) : null;
 	$: phoneWhen = activeGeneration ? formatShortDay(activeGeneration.completed_at ?? activeGeneration.created_at) : '';
 	$: runDetail = (runLine?.detail ?? '').replace(/^took /, '');
@@ -855,7 +857,7 @@
 					{/if}
 
 					<div data-details-panel>
-						<DetailsSection id="parameters" strip title={mediaFiles.length > 1 ? `Parameters · image ${currentFileIndex + 1}` : 'Parameters'} icon="sliders" collapsible={false}>
+						<DetailsSection id="parameters" strip title="Parameters" note={mediaFiles.length > 1 ? `image ${currentFileIndex + 1}` : undefined} count={paramsLoading ? undefined : paramCount} icon="sliders" collapsible={false}>
 							<ParametersView
 								params={shownParams}
 								meta={shownParamMeta}

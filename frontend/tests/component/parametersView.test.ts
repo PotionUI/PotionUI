@@ -225,6 +225,72 @@ describe('ParametersView boxes', () => {
 	});
 });
 
+describe('ParametersView click to copy', () => {
+	const clearSelection = () => window.getSelection()?.removeAllRanges();
+
+	afterEach(clearSelection);
+
+	it('copies the raw value when the box itself is clicked', async () => {
+		mountComponent(ParametersView, { params: { size: '768x1344' } });
+		const cell = rows()[0] as HTMLElement;
+		cell.click();
+		await flush();
+		expect(copyText).toHaveBeenCalledTimes(1);
+		expect(copyText).toHaveBeenCalledWith('768x1344');
+	});
+
+	it('copies once when the icon is clicked and does not double fire through the box', async () => {
+		mountComponent(ParametersView, { params: { size: '768x1344' } });
+		(rows()[0].querySelector('button') as HTMLButtonElement).click();
+		await flush();
+		expect(copyText).toHaveBeenCalledTimes(1);
+	});
+
+	it('keeps a single button per box so the icon stays the only tab stop', () => {
+		mountComponent(ParametersView, { params: { a: 1, b: 'euler' } });
+		for (const cell of rows()) expect(cell.querySelectorAll('button')).toHaveLength(1);
+		expect(rows()[0].getAttribute('role')).toBe('presentation');
+	});
+
+	it('does not copy when a drag selection ends inside the box', async () => {
+		mountComponent(ParametersView, { params: { sampler: 'euler_ancestral' } });
+		const cell = rows()[0] as HTMLElement;
+		const text = cell.querySelector('dd') as HTMLElement;
+		const range = document.createRange();
+		range.selectNodeContents(text);
+		window.getSelection()?.removeAllRanges();
+		window.getSelection()?.addRange(range);
+		cell.click();
+		await flush();
+		expect(copyText).not.toHaveBeenCalled();
+	});
+
+	it('copies a text box when it is clicked and not when Show more is clicked', async () => {
+		vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(300);
+		vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(88);
+		const text = 'q'.repeat(300);
+		mountComponent(ParametersView, { params: { notes: text } });
+		const box = document.body.querySelector('[data-testid="parameter-block"] div.cursor-pointer') as HTMLElement;
+		const more = [...document.body.querySelectorAll('[data-testid="parameter-block"] button')].find((b) => b.textContent?.includes('Show more')) as HTMLButtonElement;
+		more.click();
+		await flush();
+		expect(copyText).not.toHaveBeenCalled();
+		box.click();
+		await flush();
+		expect(copyText).toHaveBeenCalledTimes(1);
+		expect(copyText).toHaveBeenCalledWith(text);
+	});
+
+	it('shows a pointer and a hover state on the whole box', () => {
+		mountComponent(ParametersView, { params: { a: 1, notes: 'q'.repeat(200) } });
+		for (const el of [rows()[0], document.body.querySelector('[data-testid="parameter-block"] div.cursor-pointer') as HTMLElement]) {
+			expect(el.className).toContain('cursor-pointer');
+			expect(el.className).toContain('hover:border-line-hover');
+		}
+		expect((rows()[0].querySelector('button') as HTMLElement).className).toContain('group-hover:!text-fg');
+	});
+});
+
 describe('ParametersView text boxes', () => {
 	it('draws long text in a bordered filled box with the label and copy above', () => {
 		mountComponent(ParametersView, { params: { notes: 'q'.repeat(200) } });

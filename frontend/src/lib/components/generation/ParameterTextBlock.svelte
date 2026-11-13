@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { CopyButton } from '$lib/components/ui';
+	import { copyFromBox } from './boxCopy';
 
 	let {
 		label,
@@ -23,6 +24,9 @@
 	} = $props();
 
 	let open = $state(false);
+	let head = $state<HTMLElement>();
+	let textBox = $state<HTMLElement>();
+	let hot = $state(false);
 	let overflowing = $state(false);
 
 	function watchOverflow(node: HTMLElement, _text: string) {
@@ -41,7 +45,7 @@
 </script>
 
 <section class="px-3 pb-3" data-testid="parameter-block">
-	<div class="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-fg-muted">
+	<div bind:this={head} class="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-fg-muted">
 		{@render prefix?.()}
 		<span>{label}</span>
 		{@render suffix?.()}
@@ -53,9 +57,16 @@
 				{axisTag}
 			</span>
 		{/if}
-		<CopyButton text={raw} ariaLabel="Copy {label}" size="xs" class="ml-auto -mr-[5px]" />
+		<CopyButton text={raw} ariaLabel="Copy {label}" size="xs" class="ml-auto -mr-[5px] {hot ? '!text-fg' : ''}" />
 	</div>
-	<div class="rounded border border-line bg-surface-2 px-3 py-2.5">
+	<div
+		bind:this={textBox}
+		role="presentation"
+		class="cursor-pointer rounded border border-line bg-surface-2 px-3 py-2.5 transition-colors hover:border-line-hover active:bg-surface-3"
+		onmouseenter={() => (hot = true)}
+		onmouseleave={() => (hot = false)}
+		onclick={(event) => textBox && head && copyFromBox(event, textBox, head.querySelector<HTMLButtonElement>('button:last-of-type'))}
+	>
 		<div
 			use:watchOverflow={text}
 			class="clamp whitespace-pre-wrap text-fg [overflow-wrap:anywhere] {mono

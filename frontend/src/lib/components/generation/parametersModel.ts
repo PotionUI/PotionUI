@@ -249,3 +249,8 @@ export function foldShortRows(shorts: ParameterRow[], expanded: boolean, columns
 	const visible = foldable && !expanded ? shorts.slice(0, foldShowCount(columns)) : shorts;
 	return { visible, foldable, total: shorts.length, hidden: shorts.length - visible.length };
 }
+
+export function countParameters(input: ParameterViewInput): number {
+	const view = buildParameterView(input);
+	return view.longs.length + view.shorts.length;
+}

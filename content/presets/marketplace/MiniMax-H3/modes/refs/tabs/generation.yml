@@ -73,8 +73,8 @@ fields:
         ai_hint: "Both axes must be multiples of 32, aspect ratio between 1:4 and 4:1 — the offered sizes are what MiniMax-H3's own canvas math produces. Area is the dominant cost. Pick the aspect ratio the finished video should have rather than the references' own."
         configuration:
           files:
-            - { path: "{{ paths._shared }}/resolutions/minimax_h3_canvas.yml", group: "Native canvas (768 short edge)" }
-            - { path: "{{ paths._shared }}/resolutions/minimax_h3_fast.yml", group: "Faster (below native canvas)" }
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_canvas.yml", group: "Native canvas" }
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_fast.yml", group: "Faster" }
             - { path: "{{ paths._shared }}/resolutions/minimax_h3_480p.yml", group: "480p (Flex-trained)" }
         default: "1344x768"
 

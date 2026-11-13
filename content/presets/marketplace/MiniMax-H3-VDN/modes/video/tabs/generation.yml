@@ -52,8 +52,8 @@ fields:
           length instead, so a smaller canvas does not buy room for a longer clip.
         configuration:
           files:
-            - { path: "{{ paths._shared }}/resolutions/minimax_h3_canvas.yml", group: "Native canvas (768 short edge)" }
-            - { path: "{{ paths._shared }}/resolutions/minimax_h3_fast.yml", group: "Faster (below native canvas)" }
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_canvas.yml", group: "Native canvas" }
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_fast.yml", group: "Faster" }
         default: "1344x768"
 
   - type: "section"

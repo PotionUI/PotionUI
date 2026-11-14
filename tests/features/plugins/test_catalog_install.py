@@ -1552,3 +1552,41 @@ async def test_an_update_of_an_enabled_plugin_serves_the_pipe_of_the_new_version
     await _install(repo, registry, catalog, "live-pipe", pipe_catalog=pipes)
 
     assert pipes.get_pipe("generator/live_pipe").description == "2.0.0"
+
+
+def _pipe_and_api_plugin(version: str, *, broken: bool) -> bytes:
+    manifest = _manifest(
+        "live-both",
+        version,
+        type="full-stack",
+        api={"module": "backend/api.py"},
+        pipes=[{"path": "pipes/gen", "register_as": "generator/live_both"}],
+    )
+    api = 'from fastapi import APIRouter\n\nrouter = APIRouter(prefix="/api/plugins/live-both")\n'
+    if broken:
+        api += f'\nraise RuntimeError("{version} cannot start")\n'
+    files = [
+        ("live-both/backend/__init__.py", ""),
+        ("live-both/backend/api.py", api),
+        ("live-both/pipes/gen/main.py", LIVE_PIPE_SOURCE.format(version=version)),
+    ]
+    return _archive("live-both", version, manifest=manifest, extra=files)
+
+
+async def test_an_update_that_does_not_start_serves_the_pipe_of_the_version_put_back_from_its_own_files(live, catalog, tmp_path):
+    registry, repo, _, _, _ = live
+    (tmp_path / "core").mkdir()
+    (tmp_path / "custom").mkdir()
+    pipes = PipeCatalog(str(tmp_path / "core"), str(tmp_path / "custom"), plugin_registry=registry)
+    catalog.publish("live-both", "1.0.0", _pipe_and_api_plugin("1.0.0", broken=False))
+    await _install(repo, registry, catalog, "live-both")
+    operations.enable_plugin(repo, registry, "live-both", pipe_catalog=pipes)
+    assert pipes.get_pipe("generator/live_both").description == "1.0.0"
+    catalog.publish("live-both", "2.0.0", _pipe_and_api_plugin("2.0.0", broken=True))
+
+    with pytest.raises(CatalogInstallError, match="is back in place and running"):
+        await _install(repo, registry, catalog, "live-both", pipe_catalog=pipes)
+
+    served = pipes.get_pipe("generator/live_both")
+    assert served.description == "1.0.0"
+    assert getattr(sys.modules.get(served.__module__), "LivePipe", None) is served

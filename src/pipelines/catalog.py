@@ -42,6 +42,11 @@ def _plugin_mark(manifest) -> Tuple[str, str]:
     return str(getattr(manifest, "plugin_dir", "")), str(getattr(manifest, "content_hash", ""))
 
 
+def _still_loaded(pipe_class) -> bool:
+    module = sys.modules.get(getattr(pipe_class, "__module__", None) or "")
+    return module is not None and getattr(module, getattr(pipe_class, "__name__", ""), None) is pipe_class
+
+
 @dataclass(frozen=True)
 class _PipeLocation:
     """Where a not-yet-imported pipe lives, learned without exec'ing it."""
@@ -426,11 +431,18 @@ class PipeCatalog:
         with self._light_lock:
             enabled_marks = {m.id: _plugin_mark(m) for m in self.plugin_registry.get_enabled_plugins()}
             enabled_ids = set(enabled_marks)
+            unloaded = {
+                self.pipe_sources.get(name) for name, pipe_class in self.pipes.items() if not _still_loaded(pipe_class)
+            }
 
             def _is_stale_plugin_source(source: Optional[str]) -> bool:
                 if source is None or source in ("core", "custom"):
                     return False
-                return source not in enabled_ids or self._plugin_marks.get(source) != enabled_marks[source]
+                return (
+                    source not in enabled_ids
+                    or self._plugin_marks.get(source) != enabled_marks[source]
+                    or source in unloaded
+                )
 
             stale_locations = [k for k, loc in self._locations.items() if _is_stale_plugin_source(loc.source)]
             for key in stale_locations:

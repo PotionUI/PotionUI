@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import shutil
+import time
 import importlib.util
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Any, Tuple
@@ -177,38 +178,108 @@ _DICT_LIST_FIELDS = tuple(
 )
 
 
-def _roots(folders: Iterable[str]) -> set:
-    roots = set()
-    for folder in folders:
-        roots.add(os.path.normcase(os.path.abspath(folder)))
-        roots.add(os.path.normcase(os.path.realpath(folder)))
-    return roots
+def _normal(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
 
 
-def _inside(location: Any, roots: set) -> bool:
-    if not isinstance(location, str):
-        return False
-    path = os.path.normcase(os.path.abspath(location))
+def _real(path: str) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _roots(folders: Iterable[Any]) -> set:
+    return {form for folder in folders for form in (_normal(str(folder)), _real(str(folder)))}
+
+
+def _within(path: str, roots: Iterable[str]) -> bool:
     return any(path == root or path.startswith(root + os.sep) for root in roots)
 
 
-def _imported_from(module: Any, roots: set) -> bool:
+_UNMOVED = tuple({_normal(prefix) for prefix in (sys.prefix, sys.base_prefix, sys.exec_prefix)}) + (
+    _normal(str(Path(__file__).resolve().parents[2])),
+)
+
+
+class _Places:
+    def __init__(self, roots: set):
+        self._unmoved = tuple(prefix for prefix in _UNMOVED if not any(_within(root, (prefix,)) for root in roots))
+        self._real: Dict[str, str] = {}
+
+    def _resolved(self, folder: str) -> str:
+        real = self._real.get(folder)
+        if real is None:
+            real = self._real[folder] = _real(folder)
+        return real
+
+    def forms(self, location: str, folder: bool) -> Tuple[str, ...]:
+        plain = _normal(location)
+        if _within(plain, self._unmoved):
+            return (plain,)
+        if folder:
+            return plain, self._resolved(plain)
+        parent, name = os.path.split(plain)
+        return plain, os.path.join(self._resolved(parent), name)
+
+    def holds(self, module: Any, roots: set) -> bool:
+        try:
+            location = getattr(module, "__file__", None)
+            if location is not None:
+                return isinstance(location, str) and any(_within(form, roots) for form in self.forms(location, False))
+            search = getattr(module, "__path__", None)
+            entries = list(search) if search is not None else []
+        except Exception:
+            return False
+        return bool(entries) and all(
+            isinstance(entry, str) and any(_within(form, roots) for form in self.forms(entry, True)) for entry in entries
+        )
+
+
+def _named_under(name: str, package: Optional[str]) -> bool:
+    return bool(package) and (name == package or name.startswith(package + "."))
+
+
+def _owned(folders: Iterable[Any], keep: Iterable[Any] = (), package: Optional[str] = None) -> List[Tuple[str, Any]]:
+    roots, kept = _roots(folders), _roots(keep)
+    places = _Places(roots | kept)
+    found = []
+    for name, module in list(sys.modules.items()):
+        if not places.holds(module, roots):
+            continue
+        if kept and places.holds(module, kept) and not _named_under(name, package):
+            continue
+        found.append((name, module))
+    return found
+
+
+def _initializing(module: Any) -> bool:
     try:
-        location = getattr(module, "__file__", None)
-        if location is not None:
-            return _inside(location, roots)
-        search = getattr(module, "__path__", None)
-        entries = list(search) if search is not None else []
+        return bool(getattr(getattr(module, "__spec__", None), "_initializing", False))
     except Exception:
         return False
-    return bool(entries) and all(_inside(entry, roots) for entry in entries)
 
 
-def forget_modules_under(folders: Iterable[str]) -> List[str]:
-    roots = _roots(folders)
-    stale = [name for name, module in list(sys.modules.items()) if _imported_from(module, roots)]
+def _stamp(location: Any) -> Optional[Tuple[int, int, int]]:
+    if not isinstance(location, str):
+        return None
+    try:
+        info = os.stat(location)
+    except OSError:
+        return None
+    return info.st_mtime_ns, info.st_ctime_ns, info.st_size
+
+
+def forget_modules_under(
+    folders: Iterable[Any], keep: Iterable[Any] = (), package: Optional[str] = None
+) -> List[str]:
+    stale = [name for name, module in _owned(folders, keep, package) if not _initializing(module)]
     for name in stale:
-        sys.modules.pop(name, None)
+        module = sys.modules.pop(name, None)
+        parent_name, _, child = name.rpartition(".")
+        parent = sys.modules.get(parent_name) if parent_name else None
+        if module is not None and parent is not None and getattr(parent, child, None) is module:
+            try:
+                delattr(parent, child)
+            except AttributeError:
+                pass
     importlib.invalidate_caches()
     return stale
 
@@ -233,6 +304,7 @@ class PluginLoader:
         ]
         self._loaded_modules: Dict[str, Any] = {}
         self._imported_as: Dict[str, Tuple[str, str]] = {}
+        self._imported_files: Dict[str, Tuple[int, Dict[str, Tuple[int, int, int]]]] = {}
 
     def discover_plugins(self) -> List[PluginManifest]:
         """
@@ -802,17 +874,48 @@ class PluginLoader:
             logger.debug(f"Evicted {len(stale_keys)} cached module(s) for plugin {plugin_id}")
         return len(stale_keys)
 
-    def forget_stale_modules(self, manifest: PluginManifest) -> List[str]:
+    def forget_stale_modules(self, manifest: PluginManifest, others: Iterable[Any] = ()) -> List[str]:
         mark = (str(manifest.plugin_dir), manifest.content_hash)
         previous = self._imported_as.get(manifest.id)
-        if previous == mark:
+        keep = [str(folder) for folder in others]
+        package = manifest.id.replace('-', '_')
+        if previous == mark and not self._edited_since_imported(manifest.id, mark[0], keep, package):
             return []
         self._imported_as[manifest.id] = mark
+        self._imported_files.pop(manifest.id, None)
         self.evict_plugin(manifest.id)
-        forgotten = forget_modules_under({mark[0], *((previous[0],) if previous else ())})
+        folders = {mark[0], *((previous[0],) if previous else ())}
+        forgotten = forget_modules_under(folders, keep=keep, package=package)
         if forgotten:
             logger.info(f"Unloaded {len(forgotten)} module(s) of plugin {manifest.id} so that it runs from its files as they are now")
         return forgotten
 
+    def note_imports(self, manifest: PluginManifest, others: Iterable[Any] = ()) -> None:
+        taken = time.time_ns()
+        keep = [str(folder) for folder in others]
+        files = {}
+        for _, module in _owned([manifest.plugin_dir], keep, manifest.id.replace('-', '_')):
+            location = getattr(module, "__file__", None)
+            stamp = _stamp(location)
+            if stamp is not None:
+                files[_normal(location)] = stamp
+        self._imported_files[manifest.id] = (taken, files)
+
+    def _edited_since_imported(self, plugin_id: str, folder: str, keep: List[str], package: str) -> bool:
+        noted = self._imported_files.get(plugin_id)
+        if noted is None:
+            return True
+        taken, files = noted
+        for _, module in _owned([folder], keep, package):
+            location = getattr(module, "__file__", None)
+            if not isinstance(location, str):
+                continue
+            stamp = _stamp(location)
+            known = files.get(_normal(location))
+            if stamp is None or (known is not None and stamp != known) or (known is None and max(stamp[0], stamp[1]) > taken):
+                return True
+        return False
+
     def forget_plugin(self, plugin_id: str) -> None:
         self._imported_as.pop(plugin_id, None)
+        self._imported_files.pop(plugin_id, None)

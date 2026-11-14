@@ -1,6 +1,10 @@
+import builtins
+import importlib
+import importlib.util
 import os
 import shutil
 import sys
+import threading
 
 import pytest
 import yaml
@@ -8,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.platform.media_tools import MediaToolRegistry
+from src.platform.plugins.loader import forget_modules_under
 from src.platform.plugins.registry import PluginRegistry, PluginState
 from src.platform.plugins.router_mounter import PluginRouterMounter
 
@@ -219,3 +224,168 @@ def test_a_plugin_that_moves_to_another_folder_runs_from_that_folder(setup, tmp_
     assert registry.get_plugin(ROUTER_ID).plugin_dir == local / ROUTER_ID
     assert registry.get_plugin_state(ROUTER_ID) == PluginState.ENABLED, registry.get_plugin_error(ROUTER_ID)
     assert client.get("/api/plugins/upd-router/who").json() == {"package": "2.0.0", "common": "2.0.0", "late": "2.0.0"}
+
+
+def load_file(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def link_folder(link, target):
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return
+    except (OSError, NotImplementedError):
+        pass
+    if os.name == "nt":
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+        return
+    pytest.skip("no directory link available")
+
+
+def test_a_code_only_edit_is_loaded_at_the_next_enable(setup):
+    registry, local, client, _ = setup
+    enabled(registry, local, ROUTER_ID, router_files("1.0.0", added=False))
+    assert client.get("/api/plugins/upd-router/who").status_code == 200
+    assert registry.disable_plugin(ROUTER_ID)
+    files = router_files("1.0.0", added=True)
+    files["backend/late.py"] = 'WHO = "edited"\n'
+    put_tree(local / ROUTER_ID, files)
+
+    assert registry.discover_plugins().changed == []
+    assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
+
+    assert client.get("/api/plugins/upd-router/who").json() == {"package": "1.0.0", "common": "1.0.0", "late": "edited"}
+    assert sys.modules["upd_router.backend.common"].ADDED is True
+
+
+def test_a_plugin_that_left_the_registry_starts_again_from_its_files_when_it_comes_back(setup, tmp_path):
+    registry, local, _, _ = setup
+    enabled(registry, local, TOOLS_ID, tools_files("1.0.0", added=True))
+    first = sys.modules["upd_tools.tools.common"]
+    first.GRANTS["running"] = 1
+    os.replace(local / TOOLS_ID, tmp_path / "away")
+    assert registry.discover_plugins().removed == [TOOLS_ID]
+
+    os.replace(tmp_path / "away", local / TOOLS_ID)
+    registry.discover_plugins()
+    assert registry.enable_plugin(TOOLS_ID), registry.get_plugin_error(TOOLS_ID)
+
+    assert sys.modules["upd_tools.tools.common"] is not first
+    assert sys.modules["upd_tools.tools.common"].GRANTS == {}
+
+
+def test_a_plugin_moved_out_of_a_folder_leaves_the_plugin_now_living_there_alone(setup):
+    registry, local, client, _ = setup
+    enabled(registry, local, ROUTER_ID, router_files("1.0.0", added=False))
+    assert registry.disable_plugin(ROUTER_ID)
+    os.replace(local / ROUTER_ID, local / "moved")
+    put_tree(local / ROUTER_ID, tools_files("1.0.0", added=True))
+    registry.discover_plugins()
+    assert registry.enable_plugin(TOOLS_ID), registry.get_plugin_error(TOOLS_ID)
+    common = sys.modules["upd_tools.tools.common"]
+
+    assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
+
+    assert registry.get_plugin(ROUTER_ID).plugin_dir == local / "moved"
+    assert sys.modules["upd_tools.tools.common"] is common
+    assert client.get("/api/plugins/upd-router/who").json() == {"package": "1.0.0", "common": "1.0.0", "late": "1.0.0"}
+    assert sys.modules["upd_router.backend.common"].__file__.startswith(str(local / "moved"))
+
+
+def test_forgetting_a_folder_keeps_the_modules_of_a_folder_whose_name_extends_it(tmp_path):
+    (tmp_path / "plug").mkdir()
+    (tmp_path / "plug-extra").mkdir()
+    (tmp_path / "plug" / "m.py").write_text("X = 1\n")
+    (tmp_path / "plug-extra" / "m.py").write_text("X = 2\n")
+    load_file("upd_inside", tmp_path / "plug" / "m.py")
+    load_file("upd_sibling", tmp_path / "plug-extra" / "m.py")
+
+    assert forget_modules_under([str(tmp_path / "plug")]) == ["upd_inside"]
+    assert "upd_sibling" in sys.modules
+
+
+def test_forgetting_a_folder_keeps_a_namespace_package_that_spans_another_folder_and_reloads_its_child(tmp_path):
+    for root in ("plug", "other"):
+        (tmp_path / root / "upd_shared").mkdir(parents=True)
+    (tmp_path / "plug" / "upd_shared" / "child.py").write_text('WHO = "old"\n')
+    (tmp_path / "other" / "upd_shared" / "sibling.py").write_text('WHO = "other"\n')
+    sys.path[:0] = [str(tmp_path / "plug"), str(tmp_path / "other")]
+    importlib.invalidate_caches()
+    package = importlib.import_module("upd_shared")
+    importlib.import_module("upd_shared.child")
+    importlib.import_module("upd_shared.sibling")
+    (tmp_path / "plug" / "upd_shared" / "child.py").write_text('WHO = "new, and longer"\n')
+
+    forgotten = forget_modules_under([str(tmp_path / "plug")])
+
+    assert forgotten == ["upd_shared.child"]
+    assert sys.modules["upd_shared"] is package
+    namespace = {}
+    exec("from upd_shared import child", namespace)
+    assert namespace["child"].WHO == "new, and longer"
+
+
+def test_forgetting_a_folder_leaves_a_module_another_thread_is_still_importing(tmp_path):
+    folder = tmp_path / "plug-race"
+    folder.mkdir()
+    (folder / "upd_slow.py").write_text(
+        "import builtins\nbuiltins._upd_started.set()\nbuiltins._upd_go.wait(10)\nVALUE = 1\n"
+    )
+    builtins._upd_started, builtins._upd_go = threading.Event(), threading.Event()
+    sys.path.insert(0, str(folder))
+    importlib.invalidate_caches()
+    outcome = {}
+
+    def worker():
+        try:
+            outcome["value"] = importlib.import_module("upd_slow").VALUE
+        except BaseException as error:
+            outcome["value"] = type(error).__name__
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    try:
+        assert builtins._upd_started.wait(10)
+        forgotten = forget_modules_under([str(folder)])
+    finally:
+        builtins._upd_go.set()
+        thread.join(10)
+        del builtins._upd_started, builtins._upd_go
+
+    assert forgotten == []
+    assert outcome["value"] == 1
+
+
+@pytest.mark.parametrize("module_side", ["link", "real"])
+def test_forgetting_a_folder_follows_a_linked_folder_either_way(tmp_path, module_side):
+    real = tmp_path / "real-plugin"
+    real.mkdir()
+    (real / "m.py").write_text("X = 1\n")
+    link = tmp_path / "linked-plugin"
+    link_folder(link, real)
+    module_folder, root = (link, real) if module_side == "link" else (real, link)
+    load_file("upd_linked", module_folder / "m.py")
+
+    assert forget_modules_under([str(root)]) == ["upd_linked"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="short names exist on Windows only")
+def test_forgetting_a_folder_follows_its_short_name_either_way(tmp_path):
+    import ctypes
+
+    folder = tmp_path / "a-rather-long-plugin-folder-name"
+    folder.mkdir()
+    (folder / "m.py").write_text("X = 1\n")
+    buffer = ctypes.create_unicode_buffer(1024)
+    ctypes.windll.kernel32.GetShortPathNameW(str(folder), buffer, 1024)
+    short = buffer.value
+    if not short or os.path.normcase(short) == os.path.normcase(str(folder)):
+        pytest.skip("this volume keeps no short names")
+    for module_folder, root in ((short, str(folder)), (str(folder), short)):
+        load_file("upd_short", os.path.join(module_folder, "m.py"))
+        assert forget_modules_under([root]) == ["upd_short"]

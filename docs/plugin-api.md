@@ -284,18 +284,46 @@ def on_ready(context):
 
 ### Plugin code across updates
 
-When PotionUI enables a plugin whose folder or manifest is not the one its Python code was
-imported from in this process (an update from a catalog, new files followed by a scan, the
-folder put back after a failed update, a copy that moved to another plugin folder), it first
-unloads every module it had imported from that folder, so the plugin runs from its files as
-they are now: entry points, the modules they import, pipes, packages and `__init__.py` files alike,
-as after a restart. An enabled plugin updated this way needs no restart. Module-level state
-starts again from scratch, as it does at a restart. Disabling and enabling a plugin whose
-folder and manifest are unchanged keeps the modules it imported and their state, as before;
-`PluginRegistry.reload_plugin` always loads the files again. Work the previous version started
-and did not stop in `disable` keeps running on that version's modules, and an import it makes
-inside a function from then on gets the new version's module, so stop background work in
-`disable`.
+Each time PotionUI enables a plugin, it first checks the modules it already imported from the
+plugin's folder in this process. They are kept when the folder and the bytes of `manifest.yml`
+are the same as when they were imported, and none of their files has been edited, replaced or
+removed since. Otherwise, PotionUI unloads every module it imported from that folder, and from
+the plugin's previous folder if the plugin moved. This covers an update from a catalog, new
+files followed by a scan, a Python file edited by hand followed by a disable and an enable, the
+folder put back after a failed update, and a plugin that left the plugin folders and came back.
+The plugin then runs from its files as they are now: packages, `__init__.py` files, the modules
+its entry points import and its pipes are imported again, as after a restart. Two kinds of
+module are left in place: a module whose file is in the folder of another registered plugin,
+unless it belongs to this plugin's own package, and a module that another thread is still
+importing at that moment.
+
+An enabled plugin updated from a catalog needs no restart. A scan only notices a changed
+`manifest.yml`, so after editing Python files by hand, disable and enable the plugin, or restart
+PotionUI. A scan that changes or removes a plugin also reloads presets, pipes, recipes and model
+layouts, as an enable does.
+
+The entry points named in the manifest run again at every enable, even when nothing changed,
+so their module-level state starts again then. The modules they import keep their state
+across a disable and an enable when nothing changed, and start again when the plugin's code is
+unloaded. Code a module runs while it is imported runs again each time the module is imported
+again. Whatever it registers outside itself at that point (a logging handler, an `atexit`
+function, an entry in a registry shared by the whole process) is registered once more, and
+the previous version's entry stays unless something removes it. Make such a registration
+idempotent, or do it in `boot` and undo it in `disable`.
+
+Work the previous version started keeps running on that version's modules after the update.
+An import it makes inside a function, of a module that is not loaded at that moment, reads the
+files on disk, which may already be the new version's. After the update that is true of every
+module of the plugin. While the previous version's `disable` handler runs, the new files are
+already in place, so it is true of any module that version had not imported yet. State
+that such work and the new version must share (a count of running jobs, a reservation) has to
+live outside the plugin's modules, in the database or in a file, or `disable` has to wait for
+that work or cancel it.
+
+Two cases are not reloaded. A compiled extension module (`.pyd`, `.so`) shipped in a plugin
+folder cannot be unloaded, so a new version of one takes effect at the next restart. A module of
+the plugin's folder that the core or another plugin imported is unloaded with the plugin, and
+the importer keeps the object it already has.
 
 ## Choosing a plugin category
 
@@ -3590,9 +3618,11 @@ the new version, or the old one put back, is running. Once the archive is downlo
 cancelled request no longer stops the install half way: the install finishes, or rolls
 back, before the cancellation goes through and before another install can start. If the
 install itself is stopped after the move (the server shutting down), the plugin is disabled
-in the running server as well. A rollback leaves nothing of the failed version loaded: the
-version put back is loaded again from its own files, every module included (see
-[Plugin code across updates](#plugin-code-across-updates)).
+in the running server as well. When the version put back is enabled again, it runs from its
+own files, every module and pipe included, and nothing of the failed version stays in use (see
+[Plugin code across updates](#plugin-code-across-updates)). When the rollback leaves the plugin
+disabled, the modules the failed version imported stay in memory, unused, until the plugin is
+next enabled.
 
 PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
 enable step checks it, and the install answer lists it so the admin knows what to

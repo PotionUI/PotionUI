@@ -297,9 +297,10 @@ a Python file edited by hand followed by a disable and an enable, the folder put
 failed update, and a plugin that left the plugin folders and came back. The plugin then runs
 from its files as they are now: packages, `__init__.py` files, the modules its entry points
 import and its pipes are imported again, as after a restart. Two kinds of module are left in
-place: a module that belongs to another registered plugin, unless this plugin imported a module
-of the same name from the same file before it moved, and a module that another thread is still
-importing at that moment, which is unloaded at the next enable instead.
+place: a module that belongs to another registered plugin, and a module that another thread is
+still importing at that moment, which is unloaded at the next enable instead. The modules a
+plugin had loaded at its last enable from a folder it moved out of are unloaded even when
+another plugin now holds that folder.
 
 An enabled plugin updated from a catalog needs no restart. A scan only notices a changed
 `manifest.yml`, so after editing Python files by hand, disable and enable the plugin, or restart

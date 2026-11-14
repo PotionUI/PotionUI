@@ -253,9 +253,9 @@ def _owned(
     folders: Iterable[Any],
     keep: Iterable[Any] = (),
     package: Optional[str] = None,
-    files: Iterable[str] = (),
+    noted: Iterable[Tuple[str, str]] = (),
 ) -> List[Tuple[str, Any]]:
-    roots, kept, own_files = _roots(folders), _roots(keep), set(files)
+    roots, kept, own = _roots(folders), _roots(keep), set(noted)
     places = _Places(roots | kept)
     found = []
     for name, module in list(sys.modules.items()):
@@ -266,7 +266,7 @@ def _owned(
             kept
             and places.depth(module, kept) >= depth
             and not _named_under(name, package)
-            and _file_of(module) not in own_files
+            and (name, _file_of(module)) not in own
         ):
             continue
         found.append((name, module))
@@ -291,9 +291,9 @@ def _stamp(location: Any) -> Optional[Tuple[int, int]]:
 
 
 def _purge(
-    folders: Iterable[Any], keep: Iterable[Any], package: Optional[str], files: Iterable[str]
+    folders: Iterable[Any], keep: Iterable[Any], package: Optional[str], noted: Iterable[Tuple[str, str]]
 ) -> Tuple[List[str], List[str]]:
-    owned = _owned(folders, keep, package, files)
+    owned = _owned(folders, keep, package, noted)
     spared = [name for name, module in owned if _initializing(module)]
     stale = [name for name, module in owned if name not in spared]
     for name in stale:
@@ -309,10 +309,17 @@ def _purge(
     return stale, spared
 
 
+def _noted_pairs(files: Dict[str, Tuple[str, Tuple[int, int]]]) -> set:
+    return {(name, location) for location, (name, _) in files.items()}
+
+
 def forget_modules_under(
-    folders: Iterable[Any], keep: Iterable[Any] = (), package: Optional[str] = None, files: Iterable[str] = ()
+    folders: Iterable[Any],
+    keep: Iterable[Any] = (),
+    package: Optional[str] = None,
+    noted: Iterable[Tuple[str, str]] = (),
 ) -> List[str]:
-    return _purge(folders, keep, package, files)[0]
+    return _purge(folders, keep, package, noted)[0]
 
 
 class PluginLoader:
@@ -335,7 +342,7 @@ class PluginLoader:
         ]
         self._loaded_modules: Dict[str, Any] = {}
         self._imported_as: Dict[str, Tuple[str, str]] = {}
-        self._imported_files: Dict[str, Tuple[int, Dict[str, Tuple[int, int]]]] = {}
+        self._imported_files: Dict[str, Tuple[int, Dict[str, Tuple[str, Tuple[int, int]]]]] = {}
         self._unsettled: set = set()
 
     def discover_plugins(self) -> List[PluginManifest]:
@@ -917,7 +924,7 @@ class PluginLoader:
         self._imported_as[manifest.id] = mark
         self.evict_plugin(manifest.id)
         folders = {mark[0], *((previous[0],) if previous else ())}
-        forgotten, spared = _purge(folders, keep, package, noted[1] if noted else ())
+        forgotten, spared = _purge(folders, keep, package, _noted_pairs(noted[1]) if noted else ())
         if spared:
             self._unsettled.add(manifest.id)
         if forgotten:
@@ -932,11 +939,11 @@ class PluginLoader:
         taken = time.time_ns()
         keep = [str(folder) for folder in others]
         files = {}
-        for _, module in _owned([manifest.plugin_dir], keep, manifest.id.replace('-', '_')):
+        for name, module in _owned([manifest.plugin_dir], keep, manifest.id.replace('-', '_')):
             location = getattr(module, "__file__", None)
             stamp = _stamp(location)
             if stamp is not None:
-                files[_normal(location)] = stamp
+                files[_normal(location)] = (name, stamp)
         self._imported_files[manifest.id] = (taken, files)
 
     def _edited_since_imported(self, plugin_id: str, folder: str, keep: List[str], package: str) -> bool:
@@ -944,12 +951,13 @@ class PluginLoader:
         if noted is None:
             return True
         taken, files = noted
-        for _, module in _owned([folder], keep, package, files):
+        for name, module in _owned([folder], keep, package, _noted_pairs(files)):
             location = getattr(module, "__file__", None)
             if not isinstance(location, str):
                 continue
             stamp = _stamp(location)
-            known = files.get(_normal(location))
+            entry = files.get(_normal(location))
+            known = entry[1] if entry is not None and entry[0] == name else None
             if stamp is None or (known is not None and stamp != known) or (known is None and stamp[0] > taken):
                 return True
         return False

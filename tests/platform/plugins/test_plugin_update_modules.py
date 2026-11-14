@@ -637,3 +637,21 @@ def test_forgetting_a_folder_under_a_spared_prefix_still_follows_a_linked_folder
     load_file("upd_spared", link / "m.py")
 
     assert forget_modules_under([str(real)]) == ["upd_spared"]
+
+
+def test_a_plugin_moved_out_of_a_folder_keeps_the_same_path_modules_of_the_plugin_now_there(setup):
+    registry, local, _, _ = setup
+    enabled(registry, local, ROUTER_ID, router_files("1.0.0", added=False))
+    assert registry.disable_plugin(ROUTER_ID)
+    os.replace(local / ROUTER_ID, local / "moved")
+    put_tree(local / ROUTER_ID, side_files("upd-other", "1.0.0", "upd_other_side", "X = 1\n", imported=False))
+    registry.discover_plugins()
+    assert registry.enable_plugin("upd-other"), registry.get_plugin_error("upd-other")
+    package, api = sys.modules["upd_other.backend"], sys.modules["upd_other.backend.api"]
+
+    assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
+
+    assert registry.get_plugin_state("upd-other") == PluginState.ENABLED
+    assert sys.modules.get("upd_other.backend") is package
+    assert sys.modules.get("upd_other.backend.api") is api
+    assert sys.modules["upd_router.backend.api"].__file__.startswith(str(local / "moved"))

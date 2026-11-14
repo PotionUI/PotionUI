@@ -44,7 +44,7 @@ def _plugin_mark(manifest) -> Tuple[str, str]:
 
 def _still_loaded(pipe_class) -> bool:
     module = sys.modules.get(getattr(pipe_class, "__module__", None) or "")
-    return module is not None and getattr(module, getattr(pipe_class, "__name__", ""), None) is pipe_class
+    return module is not None and any(value is pipe_class for value in list(vars(module).values()))
 
 
 @dataclass(frozen=True)

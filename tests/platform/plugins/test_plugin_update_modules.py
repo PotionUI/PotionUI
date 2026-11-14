@@ -3,6 +3,7 @@ import importlib
 import importlib.util
 import os
 import shutil
+import stat
 import sys
 import threading
 import time
@@ -12,6 +13,8 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import src.platform.plugins.loader as loader_module
+from src.pipelines.catalog import PipeCatalog
 from src.platform.media_tools import MediaToolRegistry
 from src.platform.plugins.loader import forget_modules_under
 from src.platform.plugins.registry import PluginRegistry, PluginState
@@ -423,20 +426,213 @@ def test_a_plugin_moved_out_of_a_folder_another_plugin_now_holds_runs_from_its_n
         assert location.startswith(str(local / "moved")), name
 
 
-@pytest.mark.skipif(os.name == "nt", reason="the Windows ctime is a creation time, which a replacing file may inherit")
-def test_a_file_replaced_by_one_of_the_same_size_and_date_is_loaded_at_the_next_enable(setup):
+def side_files(plugin_id: str, version: str, side: str, body: str, *, imported: bool = True) -> dict:
+    return {
+        "manifest.yml": yaml.safe_dump({
+            "id": plugin_id,
+            "name": plugin_id,
+            "version": version,
+            "description": "Update test",
+            "author": "Test",
+            "type": "full-stack",
+            "api": {"module": "backend/api.py"},
+        }),
+        "backend/__init__.py": "",
+        "backend/api.py": (f"import {side}\n" if imported else "")
+        + f'from fastapi import APIRouter\n\nrouter = APIRouter(prefix="/api/plugins/{plugin_id}")\n',
+        f"{side}.py": body,
+    }
+
+
+ALIAS_PIPE_SOURCE = """
+from src.pipelines.contracts import BasePipe, PipeOutput
+
+
+def _make():
+    class Generated(BasePipe):
+        name = "alias_pipe"
+        description = "1.0.0"
+
+        def process(self, pipe_input, generation_outputs):
+            return PipeOutput(output={})
+
+        @classmethod
+        def inputs(cls):
+            return []
+
+        @classmethod
+        def outputs(cls):
+            return []
+
+        @classmethod
+        def configuration(cls):
+            return []
+
+    return Generated
+
+
+AliasPipe = _make()
+"""
+
+
+def rewrite_in_place(path, text, *, keep_date=False):
+    before = os.stat(path)
+    time.sleep(0.05)
+    with open(path, "w") as handle:
+        handle.write(text)
+    if keep_date:
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    return before
+
+
+def test_a_mode_change_alone_keeps_the_modules_of_an_unchanged_plugin(setup):
+    registry, local, _, _ = setup
+    enabled(registry, local, TOOLS_ID, tools_files("1.0.0", added=True))
+    common = sys.modules["upd_tools.tools.common"]
+    common.GRANTS["running"] = 1
+    assert registry.disable_plugin(TOOLS_ID)
+    target = local / TOOLS_ID / "tools" / "common.py"
+    mode = stat.S_IMODE(os.stat(target).st_mode)
+    time.sleep(0.05)
+    os.chmod(target, stat.S_IREAD)
+    os.chmod(target, mode)
+
+    assert registry.enable_plugin(TOOLS_ID), registry.get_plugin_error(TOOLS_ID)
+
+    assert sys.modules["upd_tools.tools.common"] is common
+    assert common.GRANTS == {"running": 1}
+
+
+def test_a_rewrite_that_keeps_the_size_is_loaded_at_the_next_enable(setup):
     registry, local, client, _ = setup
     enabled(registry, local, ROUTER_ID, router_files("1.0.0", added=False))
     assert registry.disable_plugin(ROUTER_ID)
     target = local / ROUTER_ID / "backend" / "common.py"
-    before = os.stat(target)
-    time.sleep(0.05)
-    staged = target.with_name("common.staged")
-    staged.write_text('WHO = "9.9.9"\n')
-    os.utime(staged, ns=(before.st_atime_ns, before.st_mtime_ns))
-    os.replace(staged, target)
-    assert os.stat(target).st_size == before.st_size and os.stat(target).st_mtime_ns == before.st_mtime_ns
+    before = rewrite_in_place(target, 'WHO = "9.9.9"\n')
+    assert os.stat(target).st_size == before.st_size
 
     assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
 
     assert client.get("/api/plugins/upd-router/who").json()["common"] == "9.9.9"
+
+
+def test_a_rewrite_that_keeps_the_date_is_loaded_at_the_next_enable(setup):
+    registry, local, client, _ = setup
+    enabled(registry, local, ROUTER_ID, router_files("1.0.0", added=False))
+    assert registry.disable_plugin(ROUTER_ID)
+    target = local / ROUTER_ID / "backend" / "common.py"
+    before = rewrite_in_place(target, 'WHO = "kept its date"\n', keep_date=True)
+    assert os.stat(target).st_mtime_ns == before.st_mtime_ns
+
+    assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
+
+    assert client.get("/api/plugins/upd-router/who").json()["common"] == "kept its date"
+
+
+def test_a_module_spared_while_another_thread_imported_it_is_loaded_at_the_next_enable(setup):
+    registry, local, _, _ = setup
+    slow = "import builtins\nbuiltins._upd_started.set()\nbuiltins._upd_go.wait(10)\nVALUE = 1\n"
+    enabled(registry, local, "upd-slow", side_files("upd-slow", "1.0.0", "upd_slow_side", slow, imported=False))
+    builtins._upd_started, builtins._upd_go = threading.Event(), threading.Event()
+    importlib.invalidate_caches()
+    outcome = {}
+
+    def worker():
+        try:
+            outcome["value"] = importlib.import_module("upd_slow_side").VALUE
+        except BaseException as error:
+            outcome["value"] = type(error).__name__
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    try:
+        assert builtins._upd_started.wait(10)
+        put_tree(local / "upd-slow", side_files("upd-slow", "2.0.0", "upd_slow_side", "VALUE = 2\n", imported=False))
+        registry.discover_plugins()
+    finally:
+        builtins._upd_go.set()
+        thread.join(10)
+        del builtins._upd_started, builtins._upd_go
+    assert outcome["value"] == 1
+    assert sys.modules["upd_slow_side"].VALUE == 1
+
+    assert registry.disable_plugin("upd-slow")
+    assert registry.enable_plugin("upd-slow"), registry.get_plugin_error("upd-slow")
+
+    assert importlib.import_module("upd_slow_side").VALUE == 2
+
+
+def test_a_plugin_inside_the_folder_of_another_reloads_all_its_modules(tmp_path, monkeypatch):
+    marketplace, local = tmp_path / "marketplace", tmp_path / "local"
+    inner_root = local / "upd-outer" / "plugins"
+    inner_root.mkdir(parents=True)
+    marketplace.mkdir()
+    monkeypatch.setenv("POTIONUI_EXTRA_PLUGIN_DIRS", str(inner_root))
+    mounter = PluginRouterMounter()
+    mounter.attach(FastAPI())
+    registry = PluginRegistry(str(marketplace), str(local), router_mounter=mounter)
+    (local / "upd-outer" / "manifest.yml").write_text(yaml.safe_dump({
+        "id": "upd-outer", "name": "upd-outer", "version": "1.0.0", "description": "d", "author": "a", "type": "backend-only",
+    }))
+    put_tree(inner_root / "upd-inner", side_files("upd-inner", "1.0.0", "upd_inner_side", 'WHO = "first"\n'))
+    registry.discover_plugins()
+    assert registry.get_plugin("upd-inner") is not None
+    assert registry.enable_plugin("upd-inner"), registry.get_plugin_error("upd-inner")
+
+    put_tree(inner_root / "upd-inner", side_files("upd-inner", "2.0.0", "upd_inner_side", 'WHO = "second"\n'))
+    registry.discover_plugins()
+
+    assert registry.get_plugin_state("upd-inner") == PluginState.ENABLED
+    assert sys.modules["upd_inner_side"].WHO == "second"
+
+
+def test_a_plugin_moved_out_of_a_folder_another_plugin_takes_reloads_all_its_modules(setup):
+    registry, local, _, _ = setup
+    put_tree(local / "first-home", side_files("upd-mover", "1.0.0", "upd_mover_side", 'WHO = "old"\n'))
+    registry.discover_plugins()
+    assert registry.enable_plugin("upd-mover"), registry.get_plugin_error("upd-mover")
+    assert registry.disable_plugin("upd-mover")
+    shutil.rmtree(local / "first-home")
+    put_tree(local / "second-home", side_files("upd-mover", "2.0.0", "upd_mover_side", 'WHO = "new"\n'))
+    put_tree(local / "first-home", router_files("1.0.0", added=False))
+    registry.discover_plugins()
+
+    assert registry.enable_plugin("upd-mover"), registry.get_plugin_error("upd-mover")
+
+    assert sys.modules["upd_mover_side"].WHO == "new"
+
+
+def test_a_pipe_class_bound_under_another_name_is_kept_across_rescans(setup, tmp_path):
+    registry, local, _, _ = setup
+    (tmp_path / "core").mkdir()
+    (tmp_path / "custom").mkdir()
+    pipes = PipeCatalog(str(tmp_path / "core"), str(tmp_path / "custom"), plugin_registry=registry)
+    put_tree(local / "upd-alias", {
+        "manifest.yml": yaml.safe_dump({
+            "id": "upd-alias", "name": "upd-alias", "version": "1.0.0", "description": "d", "author": "a",
+            "type": "backend-only", "pipes": [{"path": "pipes/gen", "register_as": "generator/upd_alias"}],
+        }),
+        "pipes/gen/main.py": ALIAS_PIPE_SOURCE,
+    })
+    registry.discover_plugins()
+    assert registry.enable_plugin("upd-alias"), registry.get_plugin_error("upd-alias")
+    pipes.rescan_plugin_pipes()
+    first = pipes.get_pipe("generator/upd_alias")
+    assert first is not None and first.__name__ == "Generated"
+
+    pipes.rescan_plugin_pipes()
+    pipes.rescan_plugin_pipes()
+
+    assert pipes.get_pipe("generator/upd_alias") is first
+
+
+def test_forgetting_a_folder_under_a_spared_prefix_still_follows_a_linked_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(loader_module, "_UNMOVED", (os.path.normcase(os.path.abspath(str(tmp_path))),))
+    real = tmp_path / "real-plugin"
+    real.mkdir()
+    (real / "m.py").write_text("X = 1\n")
+    link = tmp_path / "linked-plugin"
+    link_folder(link, real)
+    load_file("upd_spared", link / "m.py")
+
+    assert forget_modules_under([str(real)]) == ["upd_spared"]

@@ -286,21 +286,24 @@ def on_ready(context):
 
 Each time PotionUI enables a plugin, it first checks the modules it already imported from the
 plugin's folder in this process. They are kept when the folder and the bytes of `manifest.yml`
-are the same as when they were imported, and none of their files has been edited, replaced or
-removed since. Otherwise, PotionUI unloads every module it imported from that folder, and from
-the plugin's previous folder if the plugin moved. This covers an update from a catalog, new
-files followed by a scan, a Python file edited by hand followed by a disable and an enable, the
-folder put back after a failed update, and a plugin that left the plugin folders and came back.
-The plugin then runs from its files as they are now: packages, `__init__.py` files, the modules
-its entry points import and its pipes are imported again, as after a restart. Two kinds of
-module are left in place: a module whose file is in the folder of another registered plugin,
-unless it belongs to this plugin's own package, and a module that another thread is still
-importing at that moment.
+are the same as when they were imported, and each of their files is still there with the size
+and modification time it had at the end of the last enable; a module first imported after that
+enable is kept when its file is not newer than that enable. Only the size and the modification
+time are compared: a change of mode or owner alone keeps the modules, and a file put in place
+with the same size and modification time as the one it replaces is not noticed. Otherwise,
+PotionUI unloads every module it imported from that folder, and from the plugin's previous
+folder if the plugin moved. This covers an update from a catalog, new files followed by a scan,
+a Python file edited by hand followed by a disable and an enable, the folder put back after a
+failed update, and a plugin that left the plugin folders and came back. The plugin then runs
+from its files as they are now: packages, `__init__.py` files, the modules its entry points
+import and its pipes are imported again, as after a restart. Two kinds of module are left in
+place: a module that belongs to another registered plugin, and a module that another thread is
+still importing at that moment, which is unloaded at the next enable instead.
 
 An enabled plugin updated from a catalog needs no restart. A scan only notices a changed
 `manifest.yml`, so after editing Python files by hand, disable and enable the plugin, or restart
 PotionUI. A scan that changes or removes a plugin also reloads presets, pipes, recipes and model
-layouts, as an enable does.
+layouts, as an enable does, so it takes about as long as an enable.
 
 The entry points named in the manifest run again at every enable, even when nothing changed,
 so their module-level state starts again then. The modules they import keep their state

@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import threading
+import time
 
 import pytest
 import yaml
@@ -389,3 +390,16 @@ def test_forgetting_a_folder_follows_its_short_name_either_way(tmp_path):
     for module_folder, root in ((short, str(folder)), (str(folder), short)):
         load_file("upd_short", os.path.join(module_folder, "m.py"))
         assert forget_modules_under([root]) == ["upd_short"]
+
+
+def test_an_edit_of_a_module_imported_after_the_enable_is_loaded_at_the_next_enable(setup):
+    registry, local, client, _ = setup
+    enabled(registry, local, ROUTER_ID, router_files("1.0.0", added=False))
+    assert client.get("/api/plugins/upd-router/who").json()["late"] == "1.0.0"
+    assert registry.disable_plugin(ROUTER_ID)
+    time.sleep(0.05)
+    (local / ROUTER_ID / "backend" / "late.py").write_text('WHO = "edited"\n')
+
+    assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
+
+    assert client.get("/api/plugins/upd-router/who").json()["late"] == "edited"

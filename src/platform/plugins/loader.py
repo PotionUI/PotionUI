@@ -12,7 +12,7 @@ import sys
 import shutil
 import importlib.util
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, Iterable, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 import yaml
 import logging
@@ -177,6 +177,42 @@ _DICT_LIST_FIELDS = tuple(
 )
 
 
+def _roots(folders: Iterable[str]) -> set:
+    roots = set()
+    for folder in folders:
+        roots.add(os.path.normcase(os.path.abspath(folder)))
+        roots.add(os.path.normcase(os.path.realpath(folder)))
+    return roots
+
+
+def _inside(location: Any, roots: set) -> bool:
+    if not isinstance(location, str):
+        return False
+    path = os.path.normcase(os.path.abspath(location))
+    return any(path == root or path.startswith(root + os.sep) for root in roots)
+
+
+def _imported_from(module: Any, roots: set) -> bool:
+    try:
+        location = getattr(module, "__file__", None)
+        if location is not None:
+            return _inside(location, roots)
+        search = getattr(module, "__path__", None)
+        entries = list(search) if search is not None else []
+    except Exception:
+        return False
+    return bool(entries) and all(_inside(entry, roots) for entry in entries)
+
+
+def forget_modules_under(folders: Iterable[str]) -> List[str]:
+    roots = _roots(folders)
+    stale = [name for name, module in list(sys.modules.items()) if _imported_from(module, roots)]
+    for name in stale:
+        sys.modules.pop(name, None)
+    importlib.invalidate_caches()
+    return stale
+
+
 class PluginLoader:
     """
     Loads plugins from filesystem directories.
@@ -196,6 +232,7 @@ class PluginLoader:
             Path(part) for part in os.environ.get(EXTRA_PLUGIN_DIRS_ENV, "").split(os.pathsep) if part.strip()
         ]
         self._loaded_modules: Dict[str, Any] = {}
+        self._imported_as: Dict[str, Tuple[str, str]] = {}
 
     def discover_plugins(self) -> List[PluginManifest]:
         """
@@ -764,3 +801,18 @@ class PluginLoader:
         if stale_keys:
             logger.debug(f"Evicted {len(stale_keys)} cached module(s) for plugin {plugin_id}")
         return len(stale_keys)
+
+    def forget_stale_modules(self, manifest: PluginManifest) -> List[str]:
+        mark = (str(manifest.plugin_dir), manifest.content_hash)
+        previous = self._imported_as.get(manifest.id)
+        if previous == mark:
+            return []
+        self._imported_as[manifest.id] = mark
+        self.evict_plugin(manifest.id)
+        forgotten = forget_modules_under({mark[0], *((previous[0],) if previous else ())})
+        if forgotten:
+            logger.info(f"Unloaded {len(forgotten)} module(s) of plugin {manifest.id} so that it runs from its files as they are now")
+        return forgotten
+
+    def forget_plugin(self, plugin_id: str) -> None:
+        self._imported_as.pop(plugin_id, None)

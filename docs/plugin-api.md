@@ -282,6 +282,21 @@ def on_ready(context):
     return context
 ```
 
+### Plugin code across updates
+
+When PotionUI enables a plugin whose folder or manifest is not the one its Python code was
+imported from in this process (an update from a catalog, new files followed by a scan, the
+folder put back after a failed update, a copy that moved to another plugin folder), it first
+unloads every module it had imported from that folder, so the plugin runs from its files as
+they are now: entry points, the modules they import, pipes, packages and `__init__.py` files alike,
+as after a restart. An enabled plugin updated this way needs no restart. Module-level state
+starts again from scratch, as it does at a restart. Disabling and enabling a plugin whose
+folder and manifest are unchanged keeps the modules it imported and their state, as before;
+`PluginRegistry.reload_plugin` always loads the files again. Work the previous version started
+and did not stop in `disable` keeps running on that version's modules, and an import it makes
+inside a function from then on gets the new version's module, so stop background work in
+`disable`.
+
 ## Choosing a plugin category
 
 `category:` in `manifest.yml` decides which group the plugin appears under in Admin → Plugins.
@@ -3575,8 +3590,9 @@ the new version, or the old one put back, is running. Once the archive is downlo
 cancelled request no longer stops the install half way: the install finishes, or rolls
 back, before the cancellation goes through and before another install can start. If the
 install itself is stopped after the move (the server shutting down), the plugin is disabled
-in the running server as well. After a rollback, the modules the failed version imported
-stay loaded until PotionUI restarts, and the answer says so.
+in the running server as well. A rollback leaves nothing of the failed version loaded: the
+version put back is loaded again from its own files, every module included (see
+[Plugin code across updates](#plugin-code-across-updates)).
 
 PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
 enable step checks it, and the install answer lists it so the admin knows what to

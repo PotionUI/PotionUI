@@ -503,6 +503,7 @@ class PluginRegistry:
             return self._fail_enable(plugin_id, manifest.validation_error)
 
         try:
+            self.loader.forget_stale_modules(manifest)
             error_msg = self._run_enable_stages(manifest)
         except BaseException as e:
             failed = self._fail_enable(plugin_id, f"Error enabling plugin: {e}", exc_info=True)
@@ -1565,6 +1566,7 @@ class PluginRegistry:
         # fresh code without disturbing other enabled plugins' modules)
         if not self.disable_plugin(plugin_id):
             return False
+        self.loader.forget_plugin(plugin_id)
 
         if not self.enable_plugin(plugin_id):
             return False

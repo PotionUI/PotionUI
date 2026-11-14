@@ -403,3 +403,40 @@ def test_an_edit_of_a_module_imported_after_the_enable_is_loaded_at_the_next_ena
     assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
 
     assert client.get("/api/plugins/upd-router/who").json()["late"] == "edited"
+
+
+def test_a_plugin_moved_out_of_a_folder_another_plugin_now_holds_runs_from_its_new_folder(setup):
+    registry, local, client, _ = setup
+    enabled(registry, local, ROUTER_ID, router_files("1.0.0", added=False))
+    assert client.get("/api/plugins/upd-router/who").json()["late"] == "1.0.0"
+    assert registry.disable_plugin(ROUTER_ID)
+    os.replace(local / ROUTER_ID, local / "moved")
+    put_tree(local / ROUTER_ID, tools_files("1.0.0", added=True))
+    registry.discover_plugins()
+
+    assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
+
+    assert client.get("/api/plugins/upd-router/who").json() == {"package": "1.0.0", "common": "1.0.0", "late": "1.0.0"}
+    for name in ("upd_router", "upd_router.backend", "upd_router.backend.common", "upd_router.backend.late"):
+        module = sys.modules[name]
+        location = getattr(module, "__file__", None) or list(module.__path__)[0]
+        assert location.startswith(str(local / "moved")), name
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the Windows ctime is a creation time, which a replacing file may inherit")
+def test_a_file_replaced_by_one_of_the_same_size_and_date_is_loaded_at_the_next_enable(setup):
+    registry, local, client, _ = setup
+    enabled(registry, local, ROUTER_ID, router_files("1.0.0", added=False))
+    assert registry.disable_plugin(ROUTER_ID)
+    target = local / ROUTER_ID / "backend" / "common.py"
+    before = os.stat(target)
+    time.sleep(0.05)
+    staged = target.with_name("common.staged")
+    staged.write_text('WHO = "9.9.9"\n')
+    os.utime(staged, ns=(before.st_atime_ns, before.st_mtime_ns))
+    os.replace(staged, target)
+    assert os.stat(target).st_size == before.st_size and os.stat(target).st_mtime_ns == before.st_mtime_ns
+
+    assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
+
+    assert client.get("/api/plugins/upd-router/who").json()["common"] == "9.9.9"

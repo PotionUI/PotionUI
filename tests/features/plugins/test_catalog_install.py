@@ -1262,6 +1262,58 @@ def test_a_conflict_between_two_paths_of_the_same_host_names_the_path_the_plugin
     )
 
 
+def test_a_conflict_names_the_path_without_its_parameters(plugins):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog="https://a.example.com/v1;token=s3cret-value/plugins.json;sig=other?x=1")
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
+
+    assert "(https://a.example.com/v1/plugins.json, with path parameters and a query not shown here)" in item.reason
+    assert "s3cret-value" not in item.reason
+    assert "sig=" not in item.reason
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    [
+        "https://user:pa/ss@a.example.com/plugins.json",
+        "https://user:pa?ss@a.example.com/plugins.json",
+        "https://user:pa#ss@a.example.com/plugins.json",
+        "https://a.example.com\\@evil.example/plugins.json",
+        "https://a.example.com:99999/plugins.json",
+        "https://s3cret-value@/plugins.json",
+    ],
+)
+def test_a_conflict_names_no_address_for_a_malformed_recorded_catalog_url(plugins, recorded):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=recorded)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
+
+    assert "installed from another catalog (unknown)" in item.reason
+
+
+@pytest.mark.parametrize(
+    "pinned",
+    [
+        "https://cdn.example.com/gh/owner/plugins@0123abc/plugins.json",
+        "https://a.example.com:8443/gh/owner/plugins@0123abc/plugins.json",
+        "https://[2001:db8::1]/gh/owner/plugins@0123abc/plugins.json",
+        "http://192.168.1.10:8000/npm/pkg@1.0.0/plugins.json",
+    ],
+)
+def test_a_conflict_names_a_catalog_whose_path_holds_an_at_sign_in_full(plugins, pinned):
+    registry, _, _, local = plugins
+    _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog=pinned)
+    registry.discover_plugins()
+
+    item = catalog_item(_entry(version="1.1.0"), registry, local, CATALOG_B)
+
+    assert f"({pinned})" in item.reason
+
+
 def test_a_conflict_never_shows_the_credentials_of_a_recorded_catalog_url(plugins):
     registry, _, _, local = plugins
     _write_plugin(local / "demo", "demo", "1.0.0", record=True, catalog="https://user:s3cret-value@a.example.com:8443/plugins.json")

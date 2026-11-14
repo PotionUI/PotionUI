@@ -574,16 +574,17 @@ def test_a_plugin_inside_the_folder_of_another_reloads_all_its_modules(tmp_path,
     (local / "upd-outer" / "manifest.yml").write_text(yaml.safe_dump({
         "id": "upd-outer", "name": "upd-outer", "version": "1.0.0", "description": "d", "author": "a", "type": "backend-only",
     }))
-    put_tree(inner_root / "upd-inner", side_files("upd-inner", "1.0.0", "upd_inner_side", 'WHO = "first"\n'))
+    put_tree(inner_root / "upd-inner", side_files("upd-inner", "1.0.0", "upd_inner_side", 'WHO = "first"\n', imported=False))
     registry.discover_plugins()
     assert registry.get_plugin("upd-inner") is not None
     assert registry.enable_plugin("upd-inner"), registry.get_plugin_error("upd-inner")
+    assert importlib.import_module("upd_inner_side").WHO == "first"
 
-    put_tree(inner_root / "upd-inner", side_files("upd-inner", "2.0.0", "upd_inner_side", 'WHO = "second"\n'))
+    put_tree(inner_root / "upd-inner", side_files("upd-inner", "2.0.0", "upd_inner_side", 'WHO = "second"\n', imported=False))
     registry.discover_plugins()
 
     assert registry.get_plugin_state("upd-inner") == PluginState.ENABLED
-    assert sys.modules["upd_inner_side"].WHO == "second"
+    assert importlib.import_module("upd_inner_side").WHO == "second"
 
 
 def test_a_plugin_moved_out_of_a_folder_another_plugin_takes_reloads_all_its_modules(setup):

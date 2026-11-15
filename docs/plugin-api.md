@@ -1944,6 +1944,8 @@ taken as the tool reports it. The value stays unknown on a History file, on an i
 recorded sound, on an item saved from Inspirations, on a file uploaded again with the same bytes as an item of
 unknown sound, and when the probe fails. The menu then offers the tool, and the run checks `requires` on each
 input and refuses it with `unsupported_media`.
+In the Library menu, Mute and Replace audio sit under the Audio entry, which opens the video editor on
+Volume; that entry stays enabled on a silent clip, since Replace audio needs no sound.
 
 `params` are form fields. `type` is `integer`, `float`, `select`, `checkbox`, `color`, `string` or
 `anchor`, with these keys: `name`, `label`, `default`, `min`, `max`, `step`, `unit`, `options` (a list of

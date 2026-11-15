@@ -300,7 +300,12 @@ import and its pipes are imported again, as after a restart. Two kinds of module
 place: a module that belongs to another registered plugin, and a module that another thread is
 still importing at that moment, which is unloaded at the next enable instead. The modules a
 plugin had loaded at its last enable from a folder it moved out of are unloaded even when
-another plugin now holds that folder.
+another plugin now holds that folder. The bytecode Python cached for each module that is
+unloaded is removed as well, where its folder allows it, so that module is compiled again from
+its file. By default, Python checks cached bytecode only against the size of its file and the
+second of its modification time, at a restart too, so a module first imported after the change
+can run its previous version when its file was rewritten at the same size within the same
+second.
 
 An enabled plugin updated from a catalog needs no restart. A scan only notices a changed
 `manifest.yml`, so after editing Python files by hand, disable and enable the plugin, or restart

@@ -2061,10 +2061,16 @@ Successful JSON responses use the usual `{success, data}` envelope. A refusal an
   values this user ran the tool with last (or `null`). `source` is `core` or the plugin id. A param's `max`
   is enforced before a run starts, so a value above it is a 400.
 - `POST /api/media-tools/runs` takes `{steps: [{tool, params}], inputs: [{item_id} | {generation_file_id}],
-  output: {mode: "new" | "replace"}}` and answers 202 `{run_id}`. A generation file is read straight from
-  storage and the result is always a new Library item; `replace` keeps the row, its tags and its
-  collections, and is only allowed for one Library item, tools that return one file per input, and a result
-  of the same kind. A run takes 1 to 8 steps and 1 to 50 inputs. A 400 before anything runs carries one of
+  output: {mode: "new" | "replace" | "update", target_item_id?}}` and answers 202 `{run_id}`. A generation file
+  is read straight from storage and the result is always a new Library item; `replace` keeps the row, its tags
+  and its collections, and is only allowed for one Library item, tools that return one file per input, and a
+  result of the same kind. When the result is in another format than the item's name says, the name takes the
+  new file's extension: Color key turns `photo.jpg` into a PNG named `photo.png`, a video tool turns `clip.avi`
+  into `clip.mp4`, and a name an earlier replace left wrong is mended the same way. `.jpg` and `.jpeg`, or a
+  change of case, are one format and leave the name as it is, and so do a name without a media extension and a
+  result without one. `update`, the save of an editor stack into the copy a first save made (see
+  [The editor API](#the-editor-api)), renames that copy by the same rule. A run takes 1 to 8 steps and 1 to 50
+  inputs. A 400 before anything runs carries one of
   `unknown_tool`, `unsupported_media`, `invalid_params` (with `field` and `step_index`), `invalid_selection`
   or `replace_not_allowed`; an item that is missing or not the caller's answers 404 `not_found`. A user may
   have 8 runs waiting at once (429 `too_many_queued`) and nothing starts while the server shuts down (503

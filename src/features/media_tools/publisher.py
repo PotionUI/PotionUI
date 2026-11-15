@@ -55,6 +55,7 @@ def to_item(upload: Upload) -> MediaToolItem:
         thumbnail_large=_thumbnail_url(upload, "large"),
         source_generation_id=upload.source_generation_id,
         provenance=upload.provenance,
+        has_audio=upload.has_audio,
     )
 
 
@@ -161,6 +162,7 @@ class MediaToolPublisher:
                 thumbnail_large=paths.get("large"),
                 thumbnail_profile=profile_hash(profile) if paths else None,
                 has_alpha=output.has_alpha,
+                has_audio=output.has_audio,
             )
             if not updated:
                 self._require_unchanged(user_id, upload)
@@ -255,6 +257,7 @@ class MediaToolPublisher:
             thumbnail_profile=profile_hash(profile) if thumbnail_paths else None,
             content_hash=file_digest(media.path),
             has_alpha=media.has_alpha,
+            has_audio=media.has_audio,
             source_generation_id=source_generation_id,
             provenance=provenance,
         )

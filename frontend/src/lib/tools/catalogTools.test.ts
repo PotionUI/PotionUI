@@ -235,6 +235,20 @@ describe('catalogAvailability', () => {
 		expect(catalogAvailability(cropSubject, alpha).enabled).toBe(true);
 	});
 
+	it('reads sound from a Library video and greys out a tool that needs it on a silent one', () => {
+		const mute = toolDto({ id: 'mute', accepts: ['video', 'audio'], requires: { has_audio: true } });
+		const video = (extra: Partial<LibraryItem>) =>
+			buildLibraryToolContext([libraryItem('a', 'video', extra)], null);
+		expect(video({ has_audio: false }).items[0].hasAudio).toBe(false);
+		expect(catalogAvailability(mute, video({ has_audio: false }))).toMatchObject({
+			enabled: false,
+			reason: 'Needs a clip with sound'
+		});
+		expect(catalogAvailability(mute, video({ has_audio: true }))).toEqual({ enabled: true });
+		expect(catalogAvailability(mute, video({ has_audio: null }))).toEqual({ enabled: true });
+		expect(catalogAvailability(mute, video({}))).toEqual({ enabled: true });
+	});
+
 	it('counts generations rather than files for a component-only tool on History', () => {
 		const fourImages = generation('g', [1, 2, 3, 4].map((id) => file(id, 'image')));
 		const ctx = buildHistoryToolContext([fourImages], ['g'], null);

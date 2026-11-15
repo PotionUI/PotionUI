@@ -2,6 +2,7 @@ import builtins
 import importlib
 import importlib.util
 import os
+import py_compile
 import shutil
 import stat
 import sys
@@ -475,13 +476,17 @@ AliasPipe = _make()
 """
 
 
-def rewrite_in_place(path, text, *, keep_date=False):
+def rewrite_in_place(path, text, *, keep_date=False, keep_second=False):
     before = os.stat(path)
     time.sleep(0.05)
     with open(path, "w") as handle:
         handle.write(text)
     if keep_date:
         os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    if keep_second:
+        second, fraction = divmod(before.st_mtime_ns, 10**9)
+        shifted = 250_000_000 if fraction >= 500_000_000 else 750_000_000
+        os.utime(path, ns=(before.st_atime_ns, second * 10**9 + shifted))
     return before
 
 
@@ -503,13 +508,17 @@ def test_a_mode_change_alone_keeps_the_modules_of_an_unchanged_plugin(setup):
     assert common.GRANTS == {"running": 1}
 
 
-def test_a_rewrite_that_keeps_the_size_is_loaded_at_the_next_enable(setup):
+def test_a_rewrite_that_keeps_the_size_and_the_second_is_loaded_at_the_next_enable(setup, monkeypatch):
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
     registry, local, client, _ = setup
     enabled(registry, local, ROUTER_ID, router_files("1.0.0", added=False))
     assert registry.disable_plugin(ROUTER_ID)
     target = local / ROUTER_ID / "backend" / "common.py"
-    before = rewrite_in_place(target, 'WHO = "9.9.9"\n')
-    assert os.stat(target).st_size == before.st_size
+    assert os.path.exists(importlib.util.cache_from_source(str(target)))
+    before = rewrite_in_place(target, 'WHO = "9.9.9"\n', keep_second=True)
+    after = os.stat(target)
+    assert after.st_size == before.st_size
+    assert int(after.st_mtime) == int(before.st_mtime) and after.st_mtime_ns != before.st_mtime_ns
 
     assert registry.enable_plugin(ROUTER_ID), registry.get_plugin_error(ROUTER_ID)
 
@@ -655,3 +664,89 @@ def test_a_plugin_moved_out_of_a_folder_keeps_the_same_path_modules_of_the_plugi
     assert sys.modules.get("upd_other.backend") is package
     assert sys.modules.get("upd_other.backend.api") is api
     assert sys.modules["upd_router.backend.api"].__file__.startswith(str(local / "moved"))
+
+
+def test_forgetting_a_folder_unloads_a_module_shipped_as_bytecode_only_and_keeps_its_file(tmp_path):
+    folder = tmp_path / "plug-bytecode"
+    folder.mkdir()
+    source = folder / "upd_compiled_source.py"
+    source.write_text("X = 1\n")
+    compiled = folder / "upd_compiled.pyc"
+    py_compile.compile(str(source), cfile=str(compiled), doraise=True)
+    source.unlink()
+    sys.path.insert(0, str(folder))
+    importlib.invalidate_caches()
+    assert importlib.import_module("upd_compiled").X == 1
+
+    assert forget_modules_under([str(folder)]) == ["upd_compiled"]
+
+    assert compiled.exists()
+
+
+def imported_from(folder, name, text):
+    folder.mkdir()
+    (folder / f"{name}.py").write_text(text)
+    sys.path.insert(0, str(folder))
+    importlib.invalidate_caches()
+    return importlib.import_module(name)
+
+
+def test_forgetting_a_folder_keeps_a_file_that_is_not_the_cached_bytecode_of_the_module_source(tmp_path):
+    folder = tmp_path / "plug-other-cache"
+    module = imported_from(folder, "upd_other_cache", "X = 1\n")
+    other = tmp_path / "elsewhere" / "__pycache__" / "other.pyc"
+    other.parent.mkdir(parents=True)
+    other.write_bytes(b"kept")
+    module.__cached__ = str(other)
+
+    assert forget_modules_under([str(folder)]) == ["upd_other_cache"]
+
+    assert other.read_bytes() == b"kept"
+
+
+def test_forgetting_a_folder_removes_the_cached_bytecode_kept_under_a_cache_prefix(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
+    monkeypatch.setattr(sys, "pycache_prefix", str(tmp_path / "prefix"))
+    folder = tmp_path / "plug-prefixed"
+    module = imported_from(folder, "upd_prefixed", "X = 1\n")
+    cached = module.__cached__
+    assert cached.startswith(str(tmp_path / "prefix")) and os.path.exists(cached)
+
+    assert forget_modules_under([str(folder)]) == ["upd_prefixed"]
+
+    assert not os.path.exists(cached)
+
+
+def test_forgetting_a_folder_unloads_its_modules_when_a_file_name_holds_a_null_character(tmp_path):
+    folder = tmp_path / "plug-null"
+    module = imported_from(folder, "upd_null", "X = 1\n")
+    (folder / "upd_plain.py").write_text("X = 2\n")
+    importlib.invalidate_caches()
+    importlib.import_module("upd_plain")
+    module.__file__ = str(folder / "upd_null\x00.py")
+    module.__cached__ = str(folder / "__pycache__" / f"upd_null\x00.{sys.implementation.cache_tag}.pyc")
+
+    assert sorted(forget_modules_under([str(folder)])) == ["upd_null", "upd_plain"]
+
+    assert "upd_null" not in sys.modules and "upd_plain" not in sys.modules
+
+
+def test_an_import_during_the_unloading_leaves_no_earlier_bytecode_for_the_next_import(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
+    folder = tmp_path / "plug-racing"
+    imported_from(folder, "upd_racing", 'WHO = "1.0.0"\n')
+    target = folder / "upd_racing.py"
+    assert os.path.exists(importlib.util.cache_from_source(str(target)))
+    before = rewrite_in_place(target, 'WHO = "9.9.9"\n', keep_second=True)
+    assert int(os.stat(target).st_mtime) == int(before.st_mtime)
+    remove = os.remove
+
+    def import_then_remove(path, *args, **kwargs):
+        importlib.import_module("upd_racing")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "remove", import_then_remove)
+
+    assert forget_modules_under([str(folder)]) == ["upd_racing"]
+
+    assert importlib.import_module("upd_racing").WHO == "9.9.9"

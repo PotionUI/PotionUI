@@ -290,6 +290,28 @@ def _stamp(location: Any) -> Optional[Tuple[int, int]]:
     return info.st_mtime_ns, info.st_size
 
 
+def _drop_cached_bytecode(module: Any) -> None:
+    try:
+        source = getattr(module, "__file__", None)
+        cached = getattr(module, "__cached__", None)
+    except Exception:
+        return
+    if not isinstance(source, str) or not isinstance(cached, str):
+        return
+    try:
+        expected = importlib.util.cache_from_source(source)
+    except (NotImplementedError, ValueError, OSError):
+        return
+    if os.path.normcase(cached) != os.path.normcase(expected):
+        return
+    try:
+        os.remove(cached)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as error:
+        logger.debug("Could not remove the cached bytecode %s: %s", cached, error)
+
+
 def _purge(
     folders: Iterable[Any], keep: Iterable[Any], package: Optional[str], noted: Iterable[Tuple[str, str]]
 ) -> Tuple[List[str], List[str]]:
@@ -297,6 +319,7 @@ def _purge(
     spared = [name for name, module in owned if _initializing(module)]
     stale = [name for name, module in owned if name not in spared]
     for name in stale:
+        _drop_cached_bytecode(sys.modules.get(name))
         module = sys.modules.pop(name, None)
         parent_name, _, child = name.rpartition(".")
         parent = sys.modules.get(parent_name) if parent_name else None

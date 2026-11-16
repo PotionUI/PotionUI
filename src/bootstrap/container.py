@@ -283,6 +283,9 @@ from src.features.kits import KitRepository
 from src.features.kits.expansion import KitExpander
 from src.features.kits.resource_provider import KitsResourceProvider
 from src.features.kits.routes import KitController
+from src.features.edits.manager import EditManager
+from src.features.edits.repository import EditRepository
+from src.features.edits.routes import EditController
 from src.features.inspirations import InspirationCollaborators, InspirationRepository
 from src.features.inspirations.routes import InspirationController
 from src.features.presets.routes import PresetController
@@ -611,6 +614,9 @@ class AppContainer:
 
     tab_draft_manager: "TabDraftManager"
     tab_draft_controller: "TabDraftController"
+
+    edit_manager: "EditManager"
+    edit_controller: "EditController"
 
     # User groups
     user_group_repository: "UserGroupRepository"
@@ -1595,6 +1601,9 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
 
     tab_draft_manager = TabDraftManager(TabDraftRepository(), notifier=tab_draft_hub)
     tab_draft_controller = TabDraftController(tab_draft_manager)
+
+    edit_manager = EditManager(EditRepository(), upload_repository)
+    edit_controller = EditController(edit_manager)
 
 
     housekeeping_worker = HousekeepingWorker(

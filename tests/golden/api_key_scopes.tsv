@@ -201,6 +201,13 @@ POST	/api/downloads/{download_id}/cancel	-	admin	admin_dependency
 POST	/api/downloads/{download_id}/pause	-	admin	admin_dependency
 POST	/api/downloads/{download_id}/resume	-	admin	admin_dependency
 POST	/api/downloads/{download_id}/retry	-	admin	admin_dependency
+GET	/api/edits	read	-	marker
+POST	/api/edits	-	content	marker
+DELETE	/api/edits/{edit_id}	-	content	marker
+GET	/api/edits/{edit_id}	read	-	marker
+PATCH	/api/edits/{edit_id}	-	content	marker
+PUT	/api/edits/{edit_id}	-	content	marker
+POST	/api/edits/{edit_id}/duplicate	-	content	marker
 GET	/api/elixirs	read	-	marker
 POST	/api/elixirs	-	content	marker
 GET	/api/elixirs/presets	read	-	marker

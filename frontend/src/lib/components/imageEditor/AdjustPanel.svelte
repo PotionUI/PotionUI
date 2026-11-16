@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui';
-	import CurvePlot from './CurvePlot.svelte';
+	import CurvePlot from '$lib/components/paint/CurvePlot.svelte';
 	import FineTunePanel from './FineTunePanel.svelte';
 	import type { PaintSession, SessionSnapshot } from './session';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, appliedSteps, beginEdit, createStack, reopen, toggleHidden, undo, updatePending } from '$lib/tool-tabs/frame/editStack';
 import { geometryKey, liveMask, maskIsStale, maskOverlay, parseRgb, readMask, sendPatch } from './mask';
 import { cropDraft, lookDraft, paintDraft } from './steps';

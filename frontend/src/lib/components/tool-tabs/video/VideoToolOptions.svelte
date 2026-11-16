@@ -2,7 +2,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge, Button, Kbd } from '$lib/components/ui';
 	import ToolForm from '$lib/media-tools/ToolForm.svelte';
-	import { CROP_ASPECTS, mirrorCropRect, rotateCropRect, turn } from '$lib/media/editors/cropGeometry';
+	import { CROP_ASPECTS, mirrorCropRect, rotateCropRect, turn } from '$lib/media/cropGeometry';
 	import { REPLACE_PARAMS, SPEED_PARAMS, resizeParams, volumeParams } from '$lib/tool-tabs/video/params';
 	import type { EffectGroup } from '$lib/effects/catalog';
 	import { formatEditorTime, parseEditorTime } from '$lib/tool-tabs/video/videoState';

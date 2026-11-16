@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { captureDoc, restoreDoc, structuralBytes } from './docState';
 import { identityGeometry, isIdentityGeometry, translateGeometry } from './docGeometry';
-import { decideMaskFate } from './maskPolicy';
+import { decideMaskFate } from '$lib/components/imageEditor/maskPolicy';
 import type { Layer, PaintDocument } from './types';
 
 function canvas(width: number, height: number): HTMLCanvasElement {

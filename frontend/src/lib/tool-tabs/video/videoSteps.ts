@@ -10,8 +10,8 @@ import {
 	type CropRect,
 	type PixelSize,
 	type Rotation
-} from '$lib/media/editors/cropGeometry';
-import { evenRound } from '$lib/media/editors/mediaSizeOptions';
+} from '$lib/media/cropGeometry';
+import { evenRound } from '$lib/media/mediaSizeOptions';
 import { humanize, normalizeOptions } from '$lib/media-tools/params';
 import { effectDefaults, effectParams, type EffectTool } from '$lib/effects/catalog';
 import { outputDuration, safeSpeed, sourceToOutput, type TimeOp } from './timeMap';

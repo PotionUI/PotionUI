@@ -22,7 +22,7 @@
  */
 
 import type { MediaToolItem } from '$lib/media-tools/types';
-import type { DrawConfig } from '$lib/components/imageEditor/drawConfig';
+import type { DrawConfig } from '$lib/paint/drawConfig';
 
 export const MEDIA_EDITOR_KINDS = [
 	/** Crop & frame — images. */
@@ -128,7 +128,7 @@ export type MediaEditorSaveMode = 'new' | 'replace';
  * than four times.
  */
 export type EditorCommitRequest =
-	| { via: 'operations'; operations: import('./editOperations').EditOperation[]; mode: MediaEditorSaveMode }
+	| { via: 'operations'; operations: import('$lib/media/editOperations').EditOperation[]; mode: MediaEditorSaveMode }
 	| { via: 'frame'; timeSeconds: number }
 	/** Cut into consecutive parts of `partSeconds` each - never a replace. */
 	| { via: 'split'; partSeconds: number }

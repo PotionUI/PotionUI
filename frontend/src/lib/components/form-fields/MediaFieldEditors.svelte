@@ -6,8 +6,8 @@
 		type MediaEditorRequest,
 		type MediaEditorResult
 	} from '$lib/media/editors';
-	import NewDrawingModal from '$lib/components/imageEditor/NewDrawingModal.svelte';
-	import { readDrawConfig, type DrawConfig } from '$lib/components/imageEditor/drawConfig';
+	import NewDrawingModal from '$lib/components/paint/NewDrawingModal.svelte';
+	import { readDrawConfig, type DrawConfig } from '$lib/paint/drawConfig';
 	import { kindOfMediaItem } from './mediaLoaderKind';
 	import type { MediaItemMetadata } from './mediaLoaderMeta';
 

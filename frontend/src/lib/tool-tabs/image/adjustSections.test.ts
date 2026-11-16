@@ -16,7 +16,7 @@ import {
 	toggleIsOn
 } from './adjustSections';
 import { ADJUST_OPS, cropDraft, lookDraft, type AdjustParams } from './steps';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 
 const tone = OPS_BY_ID.tone;
 const exposure = OPS_BY_ID.exposure;

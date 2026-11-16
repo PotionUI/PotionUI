@@ -1,4 +1,4 @@
-import { canvasFromUrl } from '$lib/components/imageEditor/loadPicked';
+import { canvasFromUrl } from '$lib/paint/loadPicked';
 import { effectTools, type EffectTool } from '$lib/effects/catalog';
 import { planChain, type EffectPass, type PassTexture } from '$lib/effects/plan';
 import { ShaderChain } from '$lib/effects/ShaderChain';

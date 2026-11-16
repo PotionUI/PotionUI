@@ -8,10 +8,10 @@
 	import type { PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import { Spinner } from '$lib/components/ui';
 	import { primaryModifier } from '$lib/utils/platform';
-	import { PAINT_ICONS } from './icons';
-	import { canvasFromBlob, canvasFromUrl, displayName, generationImageUrl } from './loadPicked';
-	import { imageSources } from './registries';
-	import type { ImageSource, PickedImage } from './types';
+	import { PAINT_ICONS } from '$lib/paint/icons';
+	import { canvasFromBlob, canvasFromUrl, displayName, generationImageUrl } from '$lib/paint/loadPicked';
+	import { imageSources } from '$lib/paint/registries';
+	import type { ImageSource, PickedImage } from '$lib/paint/types';
 
 	export let mode: 'open' | 'layer';
 	export let dirty: boolean = false;

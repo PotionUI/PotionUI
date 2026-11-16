@@ -1,11 +1,11 @@
 <script lang="ts">
-	import AdjustPanel from './AdjustPanel.svelte';
-	import CropPanel from './CropPanel.svelte';
-	import FiltersPanel from './FiltersPanel.svelte';
-	import OptionsPanel from './OptionsPanel.svelte';
-	import SelectionPanel from './SelectionPanel.svelte';
-	import TransformPanel from './TransformPanel.svelte';
-	import type { PaintSession, SessionSnapshot } from './session';
+	import AdjustPanel from '$lib/components/imageEditor/AdjustPanel.svelte';
+	import CropPanel from '$lib/components/imageEditor/CropPanel.svelte';
+	import FiltersPanel from '$lib/components/imageEditor/FiltersPanel.svelte';
+	import OptionsPanel from '$lib/components/imageEditor/OptionsPanel.svelte';
+	import SelectionPanel from '$lib/components/imageEditor/SelectionPanel.svelte';
+	import TransformPanel from '$lib/components/imageEditor/TransformPanel.svelte';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;

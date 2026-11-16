@@ -13,15 +13,15 @@
 	import { defaultExportStem, exportFileName } from './exportName';
 	import { PAINT_ICONS } from './icons';
 	import FilterStrip from './FilterStrip.svelte';
-	import ImageSourceMenu from './ImageSourceMenu.svelte';
-	import LayersPanel from './LayersPanel.svelte';
+	import ImageSourceMenu from '$lib/components/paint/ImageSourceMenu.svelte';
+	import LayersPanel from '$lib/components/paint/LayersPanel.svelte';
 	import { decideMaskFate } from './maskPolicy';
 	import OptionsPanel from './OptionsPanel.svelte';
 	import SaveFilterDialog from './SaveFilterDialog.svelte';
 	import SavePopover from './SavePopover.svelte';
 	import { PaintSession, type SessionSnapshot } from './session';
-	import ToolButton from './ToolButton.svelte';
-	import ToolPanel from './ToolPanel.svelte';
+	import ToolButton from '$lib/components/paint/ToolButton.svelte';
+	import ToolPanel from '$lib/components/paint/ToolPanel.svelte';
 	import type { PickedImage } from './types';
 
 	export let source: MediaEditorSource | null = null;

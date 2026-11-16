@@ -1,4 +1,4 @@
-import { fitView, panBy, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '$lib/components/imageEditor/geometry';
+import { fitView, panBy, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '$lib/paint/geometry';
 
 export interface Size {
 	width: number;

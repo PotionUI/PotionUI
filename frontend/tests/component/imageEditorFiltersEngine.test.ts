@@ -16,7 +16,7 @@ vi.mock('$lib/services/api/index', () => ({
 }));
 
 const { default: FiltersPanel } = await import('$lib/components/imageEditor/FiltersPanel.svelte');
-const { PaintSession } = await import('$lib/components/imageEditor/session');
+const { PaintSession } = await import('$lib/paint/session');
 const { resetFilterCatalog } = await import('$lib/filters/catalog');
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');

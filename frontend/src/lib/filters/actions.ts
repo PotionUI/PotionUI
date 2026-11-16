@@ -1,4 +1,4 @@
-import type { PaintSession } from '$lib/components/imageEditor/session';
+import type { PaintSession } from '$lib/paint/session';
 import { loadCube } from './catalog';
 import { toActiveFilter, type FilterItem } from './types';
 

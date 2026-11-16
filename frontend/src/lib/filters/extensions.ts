@@ -1,4 +1,4 @@
-import type { PaintFilter, PixelBuffer } from '$lib/components/imageEditor/types';
+import type { PaintFilter, PixelBuffer } from '$lib/paint/types';
 import { FilterOpUnavailable, type FilterExtensions, type OpSpec, type PluginSpatialApply } from './engine';
 
 function spatialAdapter(adjustment: PaintFilter): PluginSpatialApply {

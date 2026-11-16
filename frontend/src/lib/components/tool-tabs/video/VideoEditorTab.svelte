@@ -55,9 +55,9 @@
 	import type { SaveAction } from '$lib/tool-tabs/frame/types';
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
 	import { mediaFileStem } from '$lib/tool-tabs/sources';
-	import { CROP_ASPECTS, FULL_CROP, fitAspect, type CropRect } from '$lib/media/editors/cropGeometry';
-	import { ASSUMED_FPS, safeFps } from '$lib/media/editors/frameTiming';
-	import { resolveEditableResource } from '$lib/media/editors/editorSource';
+	import { CROP_ASPECTS, FULL_CROP, fitAspect, type CropRect } from '$lib/media/cropGeometry';
+	import { ASSUMED_FPS, safeFps } from '$lib/media/frameTiming';
+	import { resolveEditableResource } from '$lib/media/editorSource';
 	import { getCachedSchema } from '$lib/form/schemaCache';
 	import { api } from '$lib/services/api/index';
 	import {

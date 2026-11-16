@@ -1,8 +1,8 @@
 <script lang="ts">
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import { SegmentedControl } from '$lib/components/ui';
-	import { clampSide } from './geometry';
-	import { drawSizeChoices, penForBackground, type DrawBackground, type DrawConfig } from './drawConfig';
+	import { clampSide } from '$lib/paint/geometry';
+	import { drawSizeChoices, penForBackground, type DrawBackground, type DrawConfig } from '$lib/paint/drawConfig';
 
 	export let isOpen: boolean = false;
 	export let presetSize: [number, number] | null = null;

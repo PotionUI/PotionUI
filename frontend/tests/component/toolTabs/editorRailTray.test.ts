@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import TrayHost from './TrayHost.svelte';
 
 const { default: CropBar } = await import('$lib/components/tool-tabs/image/CropBar.svelte');

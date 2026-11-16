@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, beginEdit, createStack } from '$lib/tool-tabs/frame/editStack';
 import { emptyImageState, writeImageState } from '$lib/tool-tabs/image/state';
 import { cropDraft, lookDraft } from '$lib/tool-tabs/image/steps';

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import CurvePlot from '$lib/components/imageEditor/CurvePlot.svelte';
+	import CurvePlot from '$lib/components/paint/CurvePlot.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { IconButton, SegmentedControl, Switch } from '$lib/components/ui';
 	import PropertySlider from '$lib/components/tool-tabs/frame/PropertySlider.svelte';

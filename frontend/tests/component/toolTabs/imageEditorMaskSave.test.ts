@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { get } from 'svelte/store';
 import { mountComponent } from '../helpers/mount';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { toasts } from '$lib/stores/toast';
 import { apply, beginEdit, createStack } from '$lib/tool-tabs/frame/editStack';
 import { emptyImageState, writeImageState } from '$lib/tool-tabs/image/state';
@@ -12,11 +12,11 @@ import type { MediaRef } from '$lib/types/tabs';
 
 const log = vi.hoisted(() => ({ uploads: 0, starts: 0 }));
 
-vi.mock('$lib/media/editors/loadImage', () => ({
+vi.mock('$lib/media/loadImage', () => ({
 	loadImage: async () => ({ naturalWidth: 8, naturalHeight: 6 })
 }));
 
-vi.mock('$lib/components/imageEditor/flatten', () => ({
+vi.mock('$lib/paint/flatten', () => ({
 	canvasToPngFile: async (_canvas: unknown, name: string) => new File(['png'], name, { type: 'image/png' }),
 	flattenDocument: () => null
 }));

@@ -10,9 +10,9 @@
 
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
-	import { canvasFromUrl } from '$lib/components/imageEditor/loadPicked';
-	import { PaintSession, type SessionSnapshot } from '$lib/components/imageEditor/session';
+	import { canvasToPngFile } from '$lib/paint/flatten';
+	import { canvasFromUrl } from '$lib/paint/loadPicked';
+	import { PaintSession, type SessionSnapshot } from '$lib/paint/session';
 	import { Spinner } from '$lib/components/ui';
 
 	let {

@@ -29,7 +29,7 @@ import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
 import { isEditableTarget, isTypingInField } from '$lib/utils/editableTarget';
 import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 import { createHostFetchApi, type PluginHostFetchApi } from './hostApi';
-import type { PluginImageEditorApi } from '$lib/components/imageEditor/registries';
+import type { PluginImageEditorApi } from '$lib/paint/registries';
 import { createHostImageEditorApi } from '$lib/tool-tabs/canvasSource';
 import { findModelType, modelTypeDefinitions } from '$lib/stores/modelTypes.svelte';
 import { modelTypePresentation, type ModelTypePresentation } from '$lib/utils/modelPresentation';

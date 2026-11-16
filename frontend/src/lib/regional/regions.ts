@@ -5,7 +5,7 @@ import {
 	resizeCropRect,
 	type CropCorner,
 	type CropRect
-} from '$lib/media/editors/cropGeometry';
+} from '$lib/media/cropGeometry';
 
 export interface Region {
 	x: number;

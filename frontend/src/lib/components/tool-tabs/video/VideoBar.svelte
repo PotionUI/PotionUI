@@ -4,7 +4,7 @@
 	import { IconButton } from '$lib/components/ui';
 	import PropertySlider from '$lib/components/tool-tabs/frame/PropertySlider.svelte';
 	import type { EffectTool } from '$lib/effects/catalog';
-	import { CROP_ASPECTS, mirrorCropRect, rotateCropRect, turn } from '$lib/media/editors/cropGeometry';
+	import { CROP_ASPECTS, mirrorCropRect, rotateCropRect, turn } from '$lib/media/cropGeometry';
 	import { fixed2, readCrop, type RailToolId, type VideoOp, type VideoParams } from '$lib/tool-tabs/video/videoSteps';
 	import TimeField from './TimeField.svelte';
 

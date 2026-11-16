@@ -1,11 +1,11 @@
 import { get } from 'svelte/store';
-import { canvasFromBlob, canvasFromUrl } from '$lib/components/imageEditor/loadPicked';
-import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
-import { paintFilters } from '$lib/components/imageEditor/registries';
+import { canvasFromBlob, canvasFromUrl } from '$lib/paint/loadPicked';
+import { canvasToPngFile } from '$lib/paint/flatten';
+import { paintFilters } from '$lib/paint/registries';
 import { filterCatalog, loadCube, loadFilterCatalog } from '$lib/filters/catalog';
 import { sharedExtensions } from '$lib/filters/extensions';
 import { renderRecipe, type FilterRecipe } from '$lib/filters/render';
-import { planOutputSize } from '$lib/media/editors/imageEditPlan';
+import { planOutputSize } from '$lib/media/imageEditPlan';
 import { loadMediaToolCatalog } from '$lib/media-tools/catalog';
 import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 import { previewFrame, uploadMediaToolArtifact } from '$lib/services/api/mediaTools';

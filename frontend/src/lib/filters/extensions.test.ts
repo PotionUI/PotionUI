@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PaintFilter } from '$lib/components/imageEditor/types';
+import type { PaintFilter } from '$lib/paint/types';
 import type { OpSpec } from './engine';
 import { buildExtensions, sharedExtensions } from './extensions';
 import { renderRecipe } from './render';

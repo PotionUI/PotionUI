@@ -41,9 +41,9 @@ function apiError(status: number, error: string, message: string) {
 const { default: FiltersPanel } = await import('$lib/components/imageEditor/FiltersPanel.svelte');
 const { default: AdjustPanel } = await import('$lib/components/imageEditor/AdjustPanel.svelte');
 const { default: SaveFilterDialog } = await import('$lib/components/imageEditor/SaveFilterDialog.svelte');
-const { PaintSession } = await import('$lib/components/imageEditor/session');
+const { PaintSession } = await import('$lib/paint/session');
 const { resetFilterCatalog } = await import('$lib/filters/catalog');
-const { paintFilters } = await import('$lib/components/imageEditor/registries');
+const { paintFilters } = await import('$lib/paint/registries');
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
 

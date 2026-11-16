@@ -1,4 +1,4 @@
-import type { ImageEditPlan } from '$lib/media/editors/imageEditPlan';
+import type { ImageEditPlan } from '$lib/media/imageEditPlan';
 import type { ToolDTO } from '$lib/media-tools/types';
 import type { EditStep, LanePair, StepDraft } from '$lib/tool-tabs/frame/editStack';
 import type { RailGroup } from '$lib/tool-tabs/frame/types';

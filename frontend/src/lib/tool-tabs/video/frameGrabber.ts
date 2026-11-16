@@ -1,4 +1,4 @@
-import { seekVideo } from '$lib/media/editors/seekVideo';
+import { seekVideo } from '$lib/media/seekVideo';
 
 export interface FrameGrabber {
 	grab(time: number, signal: AbortSignal): Promise<string>;

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { canvasPoint, drawSegment } from '$lib/components/imageEditor/raster/brush';
-	import { loadImage } from '$lib/media/editors/loadImage';
-	import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
+	import { canvasPoint, drawSegment } from '$lib/paint/raster/brush';
+	import { loadImage } from '$lib/media/loadImage';
+	import { canvasToPngFile } from '$lib/paint/flatten';
 	import { maskOverlay, parseRgb, type Rgb } from '$lib/tool-tabs/image/mask';
 
 	let {

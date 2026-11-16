@@ -42,7 +42,7 @@ function fakeCanvas(width = 300, height = 150): FakeCanvas {
 	return { width, height, context, getContext: () => context };
 }
 
-vi.mock('$lib/components/imageEditor/loadPicked', () => ({
+vi.mock('$lib/paint/loadPicked', () => ({
 	canvasFromUrl: async (url: string) => {
 		calls.decodes.push(url);
 		return fakeCanvas(8, 6);
@@ -50,7 +50,7 @@ vi.mock('$lib/components/imageEditor/loadPicked', () => ({
 	canvasFromBlob: async (blob: { size: number; width?: number }) => fakeCanvas(30, 20)
 }));
 
-vi.mock('$lib/components/imageEditor/flatten', () => ({
+vi.mock('$lib/paint/flatten', () => ({
 	canvasToPngFile: async (_canvas: unknown, name: string) => new File(['png'], name, { type: 'image/png' })
 }));
 
@@ -73,7 +73,7 @@ vi.mock('$lib/services/api/mediaTools', () => ({
 	}
 }));
 
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, appliedSteps, beginEdit, createStack, toggleHidden, type EditStackState } from '$lib/tool-tabs/frame/editStack';
 import { FULL_SIDE, ImageRenderer, PREVIEW_SIDE, bakeIsCapped, fitSide, orient, sourceKey } from './render';
 import { adjustDraft, catalogDraft, cropDraft, resizeDraft, type CropParams } from './steps';

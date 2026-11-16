@@ -1,4 +1,4 @@
-import type { PixelBuffer } from '$lib/components/imageEditor/types';
+import type { PixelBuffer } from '$lib/paint/types';
 import type { Cube, FilterExtensions } from './engine';
 import { renderRecipe } from './render';
 import type { FilterItem } from './types';

@@ -8,7 +8,7 @@ vi.mock('$lib/stores/toast', () => ({ toasts: { error: (...args: unknown[]) => e
 
 const { tabsStore } = await import('$lib/stores/tabs');
 const { isToolTab } = await import('$lib/types/tabs');
-const { setActiveEditor } = await import('$lib/components/imageEditor/registries');
+const { setActiveEditor } = await import('$lib/paint/registries');
 const { createHostImageEditorApi, openCanvasInImageEditor } = await import('./canvasSource');
 
 function canvasOf(blob: Blob | null) {

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import ImageSourceMenu from '$lib/components/imageEditor/ImageSourceMenu.svelte';
-	import LayersPanel from '$lib/components/imageEditor/LayersPanel.svelte';
-	import ToolButton from '$lib/components/imageEditor/ToolButton.svelte';
-	import ToolPanel from '$lib/components/imageEditor/ToolPanel.svelte';
-	import type { PaintSession, SessionSnapshot } from '$lib/components/imageEditor/session';
+	import ImageSourceMenu from '$lib/components/paint/ImageSourceMenu.svelte';
+	import LayersPanel from '$lib/components/paint/LayersPanel.svelte';
+	import ToolButton from '$lib/components/paint/ToolButton.svelte';
+	import ToolPanel from '$lib/components/paint/ToolPanel.svelte';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 	import { PAINT_TOOL_IDS } from './PaintStage.svelte';
 
 	let {

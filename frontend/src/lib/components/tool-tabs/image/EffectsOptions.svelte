@@ -7,7 +7,7 @@
 	import { filterCatalog, loadFilterCatalog } from '$lib/filters/catalog';
 	import { getOp } from '$lib/filters/engine';
 	import { sharedExtensions } from '$lib/filters/extensions';
-	import { paintFilters } from '$lib/components/imageEditor/registries';
+	import { paintFilters } from '$lib/paint/registries';
 	import { stillShader } from '$lib/tool-tabs/image/shaderEffect';
 	import type { EffectParams, LookParams, ToolEffectParams } from '$lib/tool-tabs/image/steps';
 

@@ -6,7 +6,7 @@ import type { FilterItem } from '$lib/filters/types';
 import type { ToolTabHost } from '$lib/tool-tabs/types';
 import type { MediaRef } from '$lib/types/tabs';
 
-vi.mock('$lib/media/editors/loadImage', () => ({
+vi.mock('$lib/media/loadImage', () => ({
 	loadImage: async () => ({ naturalWidth: 640, naturalHeight: 480 })
 }));
 

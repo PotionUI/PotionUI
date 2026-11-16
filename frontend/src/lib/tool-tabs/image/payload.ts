@@ -1,5 +1,5 @@
-import { operationsToSteps } from '$lib/media/editors/editOperations';
-import { planOutputSize, planToOperations } from '$lib/media/editors/imageEditPlan';
+import { operationsToSteps } from '$lib/media/editOperations';
+import { planOutputSize, planToOperations } from '$lib/media/imageEditPlan';
 import type {
 	MediaToolInputRef,
 	MediaToolSaveMode,

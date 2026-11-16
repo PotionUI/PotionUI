@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, beginEdit, createStack, move, canMove, toggleHidden, appliedSteps, type EditStackState, type EditStep } from '$lib/tool-tabs/frame/editStack';
 import {
 	PayloadError,

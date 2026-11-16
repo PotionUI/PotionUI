@@ -5,8 +5,8 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import { pickFromUpload } from '$lib/components/form-fields/mediaLoaderPicks';
-	import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
-	import type { PaintSession, SessionSnapshot } from '$lib/components/imageEditor/session';
+	import { canvasToPngFile } from '$lib/paint/flatten';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 	import { Button, IconButton, Kbd, SegmentedControl, Spinner } from '$lib/components/ui';
 	import {
 		BarActions,
@@ -22,7 +22,7 @@
 		ToolRail
 	} from '$lib/components/tool-tabs/frame';
 	import SaveMenuRows from '$lib/components/tool-tabs/frame/SaveMenuRows.svelte';
-	import { paintFilters } from '$lib/components/imageEditor/registries';
+	import { paintFilters } from '$lib/paint/registries';
 	import { filterCatalog, loadFilterCatalog } from '$lib/filters/catalog';
 	import { getOp } from '$lib/filters/engine';
 	import { sharedExtensions } from '$lib/filters/extensions';
@@ -30,10 +30,10 @@
 	import { LookThumbPainter, drawSource } from '$lib/filters/thumbPainter';
 	import type { FilterItem } from '$lib/filters/types';
 	import { loadPresetFormSchema } from '$lib/form/formSources';
-	import { loadImage } from '$lib/media/editors/loadImage';
-	import { resolveEditableResource } from '$lib/media/editors/editorSource';
-	import { EMPTY_IMAGE_PLAN, planOutputSize } from '$lib/media/editors/imageEditPlan';
-	import { displaySize } from '$lib/media/editors/cropGeometry';
+	import { loadImage } from '$lib/media/loadImage';
+	import { resolveEditableResource } from '$lib/media/editorSource';
+	import { EMPTY_IMAGE_PLAN, planOutputSize } from '$lib/media/imageEditPlan';
+	import { displaySize } from '$lib/media/cropGeometry';
 	import { loadMediaToolCatalog, mediaToolCatalog } from '$lib/media-tools/catalog';
 	import { describeMediaToolFailure } from '$lib/media-tools/errors';
 	import { announceOutcome } from '$lib/media-tools/execute';

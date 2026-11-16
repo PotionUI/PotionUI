@@ -11,7 +11,7 @@
 	import ResizeEditor from './ResizeEditor.svelte';
 	import ToolDialogHost from './ToolDialogHost.svelte';
 	import { decideMaskFate } from '$lib/components/imageEditor/maskPolicy';
-	import { resolveEditableResource, type ResourceOrigin } from './editorSource';
+	import { resolveEditableResource, type ResourceOrigin } from '$lib/media/editorSource';
 	import { describeMediaToolFailure } from '$lib/media-tools/errors';
 	import { executeMediaTool } from '$lib/media-tools/execute';
 	import type { AnnounceSetting } from '$lib/media-tools/announce';
@@ -19,7 +19,7 @@
 	import type { MediaToolInputRef, MediaToolStep } from '$lib/media-tools/types';
 	import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 	import { dataUrlToFile } from './maskFile';
-	import { operationsToSteps } from './editOperations';
+	import { operationsToSteps } from '$lib/media/editOperations';
 	import { EDITOR_RUN_CONTEXT_KEY, type EditorRunContext } from './editorRunContext';
 	import {
 		editsTheResource,

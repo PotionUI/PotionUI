@@ -1,4 +1,4 @@
-import type { PixelBuffer } from '$lib/components/imageEditor/types';
+import type { PixelBuffer } from '$lib/paint/types';
 import {
 	applyFilter,
 	compileLut,

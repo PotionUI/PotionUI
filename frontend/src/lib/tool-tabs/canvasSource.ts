@@ -1,4 +1,4 @@
-import { createImageEditorApi, type PluginImageEditorApi } from '$lib/components/imageEditor/registries';
+import { createImageEditorApi, type PluginImageEditorApi } from '$lib/paint/registries';
 import { api } from '$lib/services/api/index';
 import { toasts } from '$lib/stores/toast';
 import { tabsStore } from '$lib/stores/tabs';

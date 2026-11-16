@@ -17,7 +17,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import tooltip from '$lib/actions/tooltip';
 	import { ORIENTATION, rectInPixels, withAspect, withOrientation, withRectField, type OrientationKey, type RectField } from '$lib/tool-tabs/image/cropActions';
-	import { planDisplaySize, planOutputSize } from '$lib/media/editors/imageEditPlan';
+	import { planDisplaySize, planOutputSize } from '$lib/media/imageEditPlan';
 	import type { PixelSize } from '$lib/tool-tabs/image/payload';
 	import type { CropParams } from '$lib/tool-tabs/image/steps';
 

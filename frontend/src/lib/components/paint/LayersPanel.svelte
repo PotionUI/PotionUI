@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { PAINT_ICONS } from './icons';
-	import type { PaintSession, SessionSnapshot } from './session';
-	import thumb from './thumb';
-	import type { DocSnapshot } from './types';
+	import { PAINT_ICONS } from '$lib/paint/icons';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
+	import thumb from '$lib/paint/thumb';
+	import type { DocSnapshot } from '$lib/paint/types';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;

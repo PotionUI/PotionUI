@@ -15,7 +15,7 @@
 		stepValue
 	} from '$lib/filters/steps';
 	import { toasts } from '$lib/stores/toast';
-	import CurvePlot from './CurvePlot.svelte';
+	import CurvePlot from '$lib/components/paint/CurvePlot.svelte';
 	import { PAINT_ICONS } from './icons';
 	import type { PaintSession, SessionSnapshot } from './session';
 

@@ -37,6 +37,109 @@ Key permission: `read`.
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
+## Edits
+
+### GET /api/edits
+
+**List Edits**
+
+Key permission: `read`.
+
+Query parameters:
+
+- `tool` (string, optional)
+- `search` (string, optional)
+- `limit` (integer, optional, 1 to 200, default 50)
+- `offset` (integer, optional, at least 0, default 0)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### POST /api/edits
+
+**Create Edit**
+
+Key permission: `content`.
+
+JSON body, `CreateEditRequest`:
+
+- `tool` (string, optional, default 'image')
+- `name` (string, optional)
+- `source` (EditSource, required)
+- `state` (object, optional)
+- `thumbnail_upload_id` (string, optional)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### GET /api/edits/{edit_id}
+
+**Get Edit**
+
+Key permission: `read`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### PUT /api/edits/{edit_id}
+
+**Save Edit State**
+
+Key permission: `content`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+JSON body, `UpdateEditStateRequest`:
+
+- `revision` (integer, required, at least 1.0)
+- `state` (object, required)
+- `thumbnail_upload_id` (string, optional)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### PATCH /api/edits/{edit_id}
+
+**Rename Edit**
+
+Key permission: `content`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+JSON body, `RenameEditRequest`:
+
+- `name` (string, optional)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### DELETE /api/edits/{edit_id}
+
+**Delete Edit**
+
+Key permission: `content`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### POST /api/edits/{edit_id}/duplicate
+
+**Duplicate Edit**
+
+Key permission: `content`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ## Plugins
 
 ### GET /api/plugins/frontend-extensions

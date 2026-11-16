@@ -8,6 +8,7 @@
 		canCompare = true,
 		withApply = true,
 		compare = $bindable(false),
+		panelSide,
 		log
 	}: {
 		phone?: boolean;
@@ -15,12 +16,14 @@
 		canCompare?: boolean;
 		withApply?: boolean;
 		compare?: boolean;
+		panelSide?: 'left' | 'right';
 		log: (entry: string) => void;
 	} = $props();
 </script>
 
 <EditorFrame
 	{phone}
+	{panelSide}
 	{active}
 	{canCompare}
 	bind:compare

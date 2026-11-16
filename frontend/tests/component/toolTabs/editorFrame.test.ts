@@ -23,7 +23,7 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe('EditorFrame layout', () => {
-	it('lays out toolbar, rail, canvas and a right panel sized like the settings pane with options above the stack on desktop', () => {
+	it('lays out toolbar, rail, canvas and a left panel sized like the settings pane with options above the stack on desktop', () => {
 		const { q } = render();
 		const frame = q('[data-editor-frame="desktop"]')!;
 		const panel = q<HTMLElement>('[data-frame-panel]')!;
@@ -32,6 +32,29 @@ describe('EditorFrame layout', () => {
 		expect(panel.children[0].hasAttribute('data-host-options')).toBe(true);
 		expect(q('[data-host-stack]')?.getAttribute('data-host-stack')).toBe('panel');
 		expect(q('[data-frame-edits]')).toBeNull();
+	});
+
+	function desktopOrder(q: <T extends Element = HTMLElement>(sel: string) => T | null) {
+		const row = q('[data-frame-panel]')!.parentElement!;
+		return Array.from(row.children).map((el) => (el.hasAttribute('data-host-rail') ? 'rail' : el.hasAttribute('data-frame-panel') ? 'panel' : 'canvas'));
+	}
+
+	it('puts the panel between the rail and the canvas by default, with its border on the canvas side', () => {
+		const { q } = render();
+		const panel = q<HTMLElement>('[data-frame-panel]')!;
+		expect(desktopOrder(q)).toEqual(['rail', 'panel', 'canvas']);
+		expect(panel.getAttribute('data-frame-panel')).toBe('left');
+		expect(panel.classList.contains('border-r')).toBe(true);
+		expect(panel.classList.contains('border-l')).toBe(false);
+	});
+
+	it('puts the panel after the canvas when panelSide is right', () => {
+		const { q } = render({ panelSide: 'right' });
+		const panel = q<HTMLElement>('[data-frame-panel]')!;
+		expect(desktopOrder(q)).toEqual(['rail', 'canvas', 'panel']);
+		expect(panel.getAttribute('data-frame-panel')).toBe('right');
+		expect(panel.classList.contains('border-l')).toBe(true);
+		expect(panel.classList.contains('border-r')).toBe(false);
 	});
 
 	it('docks the options above the tool strip on a phone and opens the stack as a sheet', () => {

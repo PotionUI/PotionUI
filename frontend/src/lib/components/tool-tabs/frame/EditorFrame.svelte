@@ -17,6 +17,7 @@
 		editCount = 0,
 		stackOpen = $bindable(false),
 		phoneChips = 'top',
+		panelSide = 'left',
 		barVisible = true,
 		onundo,
 		onredo,
@@ -39,6 +40,7 @@
 		editCount?: number;
 		stackOpen?: boolean;
 		phoneChips?: 'top' | 'bottom';
+		panelSide?: 'left' | 'right';
 		barVisible?: boolean;
 		onundo: () => void;
 		onredo: () => void;
@@ -110,6 +112,14 @@
 
 <svelte:window onkeydowncapture={onkeydown} onkeyup={onkeyup} onblur={() => (spaceHeld = false)} />
 
+{#snippet panel()}
+	<aside class="flex min-h-0 flex-none flex-col border-line bg-surface-1 {panelSide === 'left' ? 'border-r' : 'border-l'}" style="width: {settingsPaneWidth($viewportWidth)}px" aria-label="Tool options and edits" data-frame-panel={panelSide}>
+		{@render panelTop?.()}
+		{@render options?.()}
+		{@render stack?.('panel')}
+	</aside>
+{/snippet}
+
 {#if phone}
 	<div bind:this={root} class="relative flex h-full min-h-0 flex-col bg-canvas" data-editor-frame="phone">
 		{@render toolbar()}
@@ -176,17 +186,14 @@
 		{@render toolbar()}
 		<div class="flex min-h-0 flex-1">
 			{@render rail?.()}
+			{#if panelSide === 'left'}{@render panel()}{/if}
 			<div class="flex min-w-0 flex-1 flex-col">
 				<div class="relative flex min-h-0 flex-1">
 					{@render canvas()}
 				</div>
 				{@render below?.()}
 			</div>
-			<aside class="flex min-h-0 flex-none flex-col border-l border-line bg-surface-1" style="width: {settingsPaneWidth($viewportWidth)}px" aria-label="Tool options and edits" data-frame-panel>
-				{@render panelTop?.()}
-				{@render options?.()}
-				{@render stack?.('panel')}
-			</aside>
+			{#if panelSide === 'right'}{@render panel()}{/if}
 		</div>
 	</div>
 {/if}

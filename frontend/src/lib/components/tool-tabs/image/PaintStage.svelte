@@ -9,33 +9,41 @@
 </script>
 
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { canvasToPngFile } from '$lib/paint/flatten';
 	import { canvasFromUrl } from '$lib/paint/loadPicked';
 	import { PaintSession, type SessionSnapshot } from '$lib/paint/session';
 	import { Spinner } from '$lib/components/ui';
 
 	let {
-		base,
+		base = null,
 		layerUrl = null,
 		name,
+		session = new PaintSession(),
+		prepare = null,
 		onstate
 	}: {
-		base: HTMLCanvasElement;
+		base?: HTMLCanvasElement | null;
 		layerUrl?: string | null;
 		name: string;
+		session?: PaintSession;
+		prepare?: ((session: PaintSession) => void | Promise<void>) | null;
 		onstate: (session: PaintSession, state: SessionSnapshot) => void;
 	} = $props();
 
-	const session = new PaintSession();
 	let host = $state<HTMLDivElement>();
 	let stage = $state<HTMLCanvasElement>();
 	let overlay = $state<HTMLCanvasElement>();
-	let snapshot = $state.raw<SessionSnapshot>(session.snapshot());
+	let snapshot = $state.raw<SessionSnapshot>(untrack(() => session.snapshot()));
 	let original: HTMLCanvasElement | null = null;
 	let observer: ResizeObserver | null = null;
 	let stop: (() => void) | null = null;
 	let failed = $state(false);
+	let docBox = $derived(
+		[snapshot.view.panX, snapshot.view.panY, snapshot.width * snapshot.view.zoom, snapshot.height * snapshot.view.zoom]
+			.map((value) => Math.round(value * 100) / 100)
+			.join(',')
+	);
 	let detachWheel: (() => void) | null = null;
 
 	onMount(async () => {
@@ -54,20 +62,26 @@
 		stage.addEventListener('wheel', wheel, { passive: false });
 		detachWheel = () => stage?.removeEventListener('wheel', wheel);
 		try {
-			session.openImage(base, name);
-			original = session.flatten();
-			if (layerUrl) {
-				const stored = await canvasFromUrl(layerUrl);
-				const piece = document.createElement('canvas');
-				piece.width = session.docWidth;
-				piece.height = session.docHeight;
-				piece.getContext('2d')?.drawImage(stored, 0, 0, piece.width, piece.height);
-				session.addPieceLayer(piece, 0, 0, 'Paint');
+			if (prepare) {
+				await prepare(session);
+			} else if (base) {
+				session.openImage(base, name);
+				original = session.flatten();
+				if (layerUrl) {
+					const stored = await canvasFromUrl(layerUrl);
+					const piece = document.createElement('canvas');
+					piece.width = session.docWidth;
+					piece.height = session.docHeight;
+					piece.getContext('2d')?.drawImage(stored, 0, 0, piece.width, piece.height);
+					session.addPieceLayer(piece, 0, 0, 'Paint');
+				} else {
+					session.addLayer();
+				}
+				session.markSaved();
+				session.setTool('brush');
 			} else {
-				session.addLayer();
+				throw new Error('Nothing to paint on');
 			}
-			session.markSaved();
-			session.setTool('brush');
 		} catch {
 			failed = true;
 		}
@@ -134,6 +148,7 @@
 	<canvas
 		bind:this={stage}
 		aria-label="Drawing canvas"
+		data-doc-box={docBox}
 		class="absolute inset-0 block h-full w-full touch-none"
 		style="cursor: {snapshot.panning ? 'grabbing' : snapshot.spaceHeld ? 'grab' : session.cursorStyle}"
 		onpointerdown={pointerDown}

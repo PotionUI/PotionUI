@@ -360,7 +360,7 @@
 			{commit}
 		/>
 	{:else if kind === 'paint'}
-		{#await import('$lib/components/imageEditor/PaintEditor.svelte') then paint}
+		{#await import('./PaintQuickEditor.svelte') then paint}
 			<paint.default
 				source={request.source}
 				draw={request.draw ?? null}

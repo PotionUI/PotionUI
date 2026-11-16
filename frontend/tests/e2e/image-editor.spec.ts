@@ -84,15 +84,13 @@ for (const size of SIZES) {
 		await page.keyboard.press('b');
 		await expect(dialog.getByRole('button', { name: 'Brush', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
-		await dialog.getByRole('button', { name: /Save as new/ }).click();
-		const popover = page.getByRole('group', { name: 'Save as new upload' });
-		await expect(popover).toBeVisible();
-		await expect(popover.locator('#paint-save-name')).toHaveValue('sample-edit');
+		await expect(dialog.locator('#paint-save-name')).toHaveValue('sample-edit');
+		await screenshot(page, JOURNEY, `paint-modal-${size.tag}`);
 		await screenshot(page, JOURNEY, `saving-${size.tag}`);
 
 		const [saved] = await Promise.all([
 			page.waitForResponse((r) => r.url().includes('/api/media/upload') && r.request().method() === 'POST'),
-			popover.getByRole('button', { name: 'Save and use' }).click()
+			dialog.getByRole('button', { name: 'Save', exact: true }).click()
 		]);
 		expect(saved.ok()).toBeTruthy();
 		await expect(dialog).toBeHidden({ timeout: 15000 });

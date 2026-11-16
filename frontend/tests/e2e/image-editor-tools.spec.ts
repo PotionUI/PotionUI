@@ -11,6 +11,8 @@ import {
 	strokeAcross,
 	uploadedStats,
 	expectEditorReady,
+	footerSave,
+	panelApply,
 	visibleText
 } from './imageEditorHelpers';
 
@@ -43,17 +45,15 @@ async function paintMask(page: Page, field: Locator) {
 	await expect(maskChip(field)).toBeVisible();
 }
 
-async function saveEdit(page: Page, dialog: Locator) {
-	await dialog.getByRole('button', { name: /Save as new/ }).click();
-	const popover = page.getByRole('group', { name: 'Save as new upload' });
-	await expect(popover).toBeVisible();
-	return popover;
+async function saveEdit(_page: Page, dialog: Locator) {
+	await expect(footerSave(dialog)).toBeVisible();
+	return dialog;
 }
 
 async function confirmSave(page: Page, dialog: Locator, popover: Locator) {
 	const [saved] = await Promise.all([
 		page.waitForResponse((r) => r.url().includes('/api/media/upload') && r.request().method() === 'POST'),
-		popover.getByRole('button', { name: 'Save and use' }).click()
+		footerSave(popover).click()
 	]);
 	expect(saved.ok()).toBeTruthy();
 	await expect(dialog).toBeHidden({ timeout: 15000 });
@@ -158,7 +158,7 @@ for (const size of SIZES) {
 			.toBeGreaterThan(40);
 		const previewed = await stagePixel(canvas, 0.3, 0.3);
 		await screenshot(page, JOURNEY, `adjust-${size.tag}`);
-		await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
+		await panelApply(dialog).click();
 		await expect(dialog.getByRole('button', { name: /^Undo Adjust colours/ })).toBeEnabled();
 		near(await stagePixel(canvas, 0.3, 0.3), previewed, 30);
 

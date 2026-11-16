@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import SegmentedControl from '$lib/components/ui/SegmentedControl.svelte';
@@ -21,6 +22,7 @@
 		failure,
 		blocked,
 		reserveMessage = false,
+		lead,
 		onMode,
 		onCancel,
 		onApply,
@@ -41,6 +43,7 @@
 		failure: string | null;
 		blocked: string | null;
 		reserveMessage?: boolean;
+		lead?: Snippet;
 		onMode: (mode: MediaToolOutputMode) => void;
 		onCancel: () => void;
 		onApply: () => void;
@@ -96,6 +99,7 @@
 				{cancelling ? 'Cancelling' : 'Cancel edit'}
 			</Button>
 		{:else}
+			{#if lead}{@render lead()}{/if}
 			{#if showModes}
 				<SegmentedControl
 					variant="toggle"

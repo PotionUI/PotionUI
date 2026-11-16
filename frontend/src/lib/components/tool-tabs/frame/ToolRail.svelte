@@ -24,7 +24,7 @@
 	let strip = $derived(variant === 'strip');
 	let icons = $derived(variant === 'icons');
 	const frame = getFrameContext();
-	let joined = $derived(icons && frame?.panelSide === 'left' && !frame.panelCollapsed);
+	let joined = $derived(icons && frame?.panelSide === 'left');
 
 	function unavailable(tool: RailTool): boolean {
 		return !!tool.disabled || !!tool.later;
@@ -51,7 +51,6 @@
 
 	function pick(tool: RailTool) {
 		if (unavailable(tool)) return;
-		frame?.expandPanel();
 		onselect(tool.id);
 	}
 
@@ -66,20 +65,6 @@
 			event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : event.key === keys[0] ? Math.max(0, at - 1) : Math.min(buttons.length - 1, at + 1);
 		buttons[next].focus();
 	}
-
-	let seen: string | null | undefined;
-	let primed = false;
-	$effect(() => {
-		const next = active;
-		if (!primed) {
-			primed = true;
-			seen = next;
-			return;
-		}
-		if (next === seen) return;
-		seen = next;
-		if (next) frame?.expandPanel();
-	});
 
 	$effect(() => {
 		if (!strip || !root || !active) return;

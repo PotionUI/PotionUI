@@ -2162,6 +2162,37 @@ Runs are in-process: at most two execute at once, the rest wait their turn, and 
 ten minutes. A user only ever sees, polls and cancels their own runs. After a single-step run completes, its
 parameters are stored as that user's `last_params` for the tool.
 
+## Contributing an editor task
+
+A plugin adds a job the Image editor can offer, such as "Colorize a region", with `editor_tasks` in
+`manifest.yml`. Disabling the plugin removes its tasks.
+
+```yaml
+editor_tasks:
+  - id: my-plugin.colorize
+    label: Colorize a region
+    icon: palette
+    editors: [image]
+    region: required
+    prompt: optional
+    produces: patch
+    fallback:
+      task: edit_region
+      prompt: Colorize the marked area naturally.
+```
+
+The `id` must start with your plugin id and a dot; ids without a dot belong to core. `region` and
+`prompt` are `required`, `optional` or `none`. A `fallback` names a task to run, with a built-in prompt,
+when no mode offers this one.
+
+A task is offered by presets, not by the manifest: a mode lists it in its `modes/<mode>/editor.yml`
+([Editor contract](presets.md#editor-contract)). A mode that belongs to your plugin (a preset from your
+`presets:` root or a mode from your `preset_modes:` root) may list your task and the core tasks. A
+plugin cannot add a task to a mode it does not own, and a mode of another plugin that lists your task
+is rejected by lint.
+
+`src.plugin_api.editor` exports `TaskDefinition`, the shape the host keeps for every registered task.
+
 ## Reading model files and folders
 
 A model's bytes can sit on any admin-configured root, not just the `models_dir` setting, so a

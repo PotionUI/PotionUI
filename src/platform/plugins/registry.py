@@ -183,6 +183,7 @@ _SOURCE_REGISTRY_ATTRS = (
     "recipe_step_kind_registry",
     "llm_provider_registry",
     "media_tool_registry",
+    "editor_task_registry",
 )
 
 
@@ -219,6 +220,7 @@ class PluginRegistry:
         limit_kind_registry: Optional[LimitKindRegistry] = None,
         media_tool_registry=None,
         effect_runtime=None,
+        editor_task_registry=None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -268,6 +270,7 @@ class PluginRegistry:
         self.recipe_step_kind_registry = recipe_step_kind_registry
         self.llm_provider_registry = llm_provider_registry
         self.media_tool_registry = media_tool_registry
+        self.editor_task_registry = editor_task_registry
         self.effect_runtime = effect_runtime
         self.organize_registry = organize_registry if organize_registry is not None else _shared_organize_registry
         self.limit_kind_registry = (
@@ -557,6 +560,7 @@ class PluginRegistry:
             self._register_plugin_tools,
             self._register_plugin_media_tools,
             self._register_plugin_effects,
+            self._register_plugin_editor_tasks,
             self._register_plugin_chat_modes,
             self._register_plugin_resources,
             self._register_plugin_automation_nodes,
@@ -1284,6 +1288,19 @@ class PluginRegistry:
                 return "; ".join(f"Effect {name}: {message}" for name, message in loaded.errors)
             try:
                 register_effects(self.media_tool_registry, loaded.effects, self.effect_runtime)
+            except ValueError as exc:
+                return str(exc)
+        return None
+
+    def _register_plugin_editor_tasks(self, manifest: PluginManifest) -> Optional[str]:
+        skip, error = self._require_registry(
+            manifest.editor_tasks, self.editor_task_registry, "editor_tasks", "editor task"
+        )
+        if skip:
+            return error
+        for entry in manifest.editor_tasks:
+            try:
+                self.editor_task_registry.register_manifest_entry(manifest.id, entry)
             except ValueError as exc:
                 return str(exc)
         return None

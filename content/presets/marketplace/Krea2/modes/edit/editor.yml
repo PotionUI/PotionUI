@@ -1,0 +1,8 @@
+schema_version: 1
+tasks:
+  - task: edit_region
+    region: crop
+    inputs:
+      image: source_image
+    set:
+      match_source: true

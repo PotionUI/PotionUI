@@ -1,0 +1,10 @@
+schema_version: 1
+tasks:
+  - task: edit_region
+    region: crop
+    inputs:
+      image:
+        field: references
+        index: 0
+    set:
+      match_picture_1: true

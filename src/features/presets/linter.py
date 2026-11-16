@@ -344,6 +344,7 @@ class PresetLinter:
 
         issues.extend(self._lint_preset_mode_contributions(loaded_manifests))
         issues.extend(self._lint_preset_extensions())
+        issues.extend(self._lint_contributed_editor_contracts())
         issues.extend(self._req_checker_warnings)
         issues.extend(self._pipe_import_notes)
 
@@ -555,6 +556,8 @@ class PresetLinter:
 
         issues.extend(self._lint_elixir_contracts(preset_file))
 
+        issues.extend(self._lint_editor_contracts(preset_file))
+
         return issues, manifest
 
     def _loaded_template(self, preset_file: Path):
@@ -599,6 +602,104 @@ class PresetLinter:
                 issues.append(
                     LintIssue("info", preset_str, f"modes/{result.mode}: not offered in elixirs: {message}")
                 )
+        return issues
+
+    def _editor_task_needs(self) -> Dict[str, str]:
+        from src.features.editor_tasks.registry import CORE_TASKS
+
+        needs = {task.id: task.prompt for task in CORE_TASKS}
+        for manifest in self.plugin_manifests:
+            for entry in getattr(manifest, "editor_tasks", None) or []:
+                needs[entry["id"]] = entry.get("prompt") or "required"
+        return needs
+
+    def _preset_owner(self, preset_dir: Path) -> Optional[str]:
+        from .loader import plugin_preset_root_owners
+
+        resolved = preset_dir.resolve()
+        for root, plugin_id in plugin_preset_root_owners(self.plugin_manifests):
+            if resolved.is_relative_to(root.resolve()):
+                return plugin_id
+        return None
+
+    def _lint_editor_contracts(self, preset_file: Path) -> List[LintIssue]:
+        from src.features.editor_tasks.declarations import DECLARATION_FILE, parse_file, validate_mode
+
+        template = self._loaded_template(preset_file)
+        if template is None:
+            return []
+        preset_str = str(preset_file)
+        needs = self._editor_task_needs()
+        owner = self._preset_owner(preset_file.parent)
+        issues: List[LintIssue] = []
+        for mode_name, mode in (template.modes or {}).items():
+            if mode.source_plugin is not None:
+                continue
+            parsed = parse_file(Path(template.path) / "modes" / mode_name / DECLARATION_FILE)
+            if not parsed.present:
+                continue
+            result = validate_mode(
+                template.id,
+                mode_name,
+                mode,
+                parsed,
+                needs.get,
+                owner,
+                (template.vars or {}).get("promptless_modes") or [],
+            )
+            issues.extend(LintIssue("error", preset_str, message) for message in result.errors)
+            issues.extend(LintIssue("warning", preset_str, message) for message in result.warnings)
+        return issues
+
+    def _lint_contributed_editor_contracts(self) -> List[LintIssue]:
+        from src.features.editor_tasks.declarations import DECLARATION_FILE, declaration_path, parse_file, validate_mode
+
+        if not plugin_preset_mode_contributions(self.plugin_manifests):
+            return []
+        from .loader import PresetTemplateLoader
+
+        manifests = []
+        for manifest in self.plugin_manifests:
+            clone = copy.copy(manifest)
+            clone.presets = []
+            manifests.append(clone)
+        loader = PresetTemplateLoader(
+            [str(p) for p in self.paths],
+            plugin_registry=SimpleNamespace(get_enabled_plugins=lambda: manifests),
+            shared_path=self.shared_path,
+        )
+        try:
+            loader.load_presets()
+        except Exception:
+            return []
+        roots = {
+            (item.plugin_id, item.target_preset_id): item.modes_root
+            for item in plugin_preset_mode_contributions(manifests)
+        }
+        needs = self._editor_task_needs()
+        issues: List[LintIssue] = []
+        for template in loader.presets:
+            for mode_name, mode in (template.modes or {}).items():
+                if mode.source_plugin is None:
+                    continue
+                path = declaration_path(template, mode_name, mode, roots)
+                if path is None:
+                    continue
+                parsed = parse_file(path)
+                if not parsed.present:
+                    continue
+                location = f"plugin '{mode.source_plugin}' preset_modes -> '{template.id}'"
+                result = validate_mode(
+                    template.id,
+                    mode_name,
+                    mode,
+                    parsed,
+                    needs.get,
+                    mode.source_plugin,
+                    (template.vars or {}).get("promptless_modes") or [],
+                )
+                issues.extend(LintIssue("error", location, message) for message in result.errors)
+                issues.extend(LintIssue("warning", location, message) for message in result.warnings)
         return issues
 
     def _lint_recommendations(self, preset_file: Path) -> List[LintIssue]:

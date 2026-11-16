@@ -307,6 +307,56 @@ that names a field the mode does not have, is a lint error and the mode is not o
 Video Director targets (`kind: video_director_role`, `role: first|last`) need a mode listed in
 `vars.video_director.preset_modes`, and the media type must be `image`.
 
+## Editor contract
+
+A mode can say which jobs the Image editor may hand it by adding an optional `modes/<mode>/editor.yml`
+next to its `form.yml`. Core, local, plugin-shipped (`presets:` root) and plugin-contributed
+(`preset_modes:`) modes all work the same way. A mode without the file offers nothing and is
+otherwise unchanged.
+
+```yaml
+schema_version: 1
+tasks:
+  - task: edit_region
+    region: crop
+    inputs:
+      image: source_image
+    set:
+      output_size: match
+```
+
+| Key | Meaning |
+|---|---|
+| `task` | A core task (`edit_region`, `remove_object`) or a plugin task `<plugin>.<name>`. |
+| `region` | `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. |
+| `inputs.image` | The `image` field that takes the picture, or `{field: <media field>, index: 0}` for a `media` list. |
+| `inputs.mask` | Required for `region: mask`: `<image field>_inpaint_mask` of an image field with `allow_inpaint: true`. |
+| `size` | `area` (default 1048576, 262144 to 4194304), `multiple` (8, 16, 32 or 64), `field` (a `resolution` field), `buckets`. |
+| `context` | Default context around the area, default `0.5`. A `region_context` field in the form wins. |
+| `set` | Fixed values the editor writes. A key must be a field, and a value for a select field must be one of its options. |
+| `owned` | More fields the editor fills. |
+| `seed_field`, `quantity_field` | Default to the mode's `seed` field and its quantity field. |
+| `label` | The picker label, default the mode label. |
+
+The fields the editor fills (`inputs`, `size.field`, the quantity field, every `set` key and `owned`)
+are the mode's editor-owned fields; an editor setup never stores them.
+
+`remove_object` needs no declaration: when no mode declares it, the editor offers the modes that
+declare `edit_region` and sends the built-in prompt "Remove the marked object. Fill the area so it
+matches its surroundings."
+
+Lint errors (the task is not offered): a missing or unknown `schema_version`, an unknown key, an
+unknown core task, an `inputs.image` that is not an image field (or a media field with `index`),
+`region: mask` without a valid `inputs.mask`, a `size.field` that is not a `resolution` field, a
+`multiple` or `area` out of range, a `set` key that is not a field or a value that is not an option,
+a `seed_field`, `quantity_field` or `owned` naming a missing field, a task declared twice, and a plugin
+task `<plugin>.<name>` declared by a mode that belongs to another plugin. Warnings: a plugin task whose
+plugin is not installed or enabled (the offer is skipped), `region: crop` on a mode with a mask input,
+and a task that needs a prompt on a mode in `vars.promptless_modes`.
+
+`GET /api/editor/tasks?editor=image` lists the tasks with the modes that offer them, limited to the
+presets the caller may use.
+
 ## Regional prompting
 
 `vars.regional_prompt` offers the layout editor on the generate page for the listed modes:

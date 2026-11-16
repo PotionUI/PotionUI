@@ -676,6 +676,26 @@ class MediaToolSelection(BaseModel):
         return {key: value for key, value in data.items() if value is not None}
 
 
+class EditorTaskFallbackSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+
+
+class EditorTaskSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9-]+\.[a-z0-9][a-z0-9_-]*$")
+    label: str = Field(min_length=1)
+    icon: str = "extension"
+    editors: List[Literal["image", "video", "audio"]] = Field(default_factory=lambda: ["image"], min_length=1)
+    region: Literal["required", "optional", "none"] = "optional"
+    prompt: Literal["required", "optional", "none"] = "required"
+    produces: Literal["patch", "replace"] = "patch"
+    fallback: Optional[EditorTaskFallbackSpec] = None
+
+
 class MediaToolSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1044,6 +1064,8 @@ class PluginManifestSchema(BaseModel):
 
     media_tools: List[MediaToolSpec] = Field(default_factory=list)
 
+    editor_tasks: List[EditorTaskSpec] = Field(default_factory=list)
+
     # Preset requirement checkers (see docs/presets.md "Requirements")
     requirement_checkers: List[RequirementCheckerSpec] = Field(default_factory=list)
 
@@ -1067,6 +1089,17 @@ class PluginManifestSchema(BaseModel):
             if tab.id in seen:
                 raise ValueError(f"tool_tabs id '{tab.id}' is declared twice")
             seen.add(tab.id)
+        return self
+
+    @model_validator(mode="after")
+    def _editor_tasks_belong_to_this_plugin(self) -> "PluginManifestSchema":
+        seen = set()
+        for task in self.editor_tasks:
+            if not task.id.startswith(f"{self.id}."):
+                raise ValueError(f"editor_tasks id '{task.id}' must start with '{self.id}.'")
+            if task.id in seen:
+                raise ValueError(f"editor_tasks id '{task.id}' is declared twice")
+            seen.add(task.id)
         return self
 
     @model_validator(mode="after")

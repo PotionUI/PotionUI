@@ -37,6 +37,22 @@ Key permission: `read`.
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
+## Editor
+
+### GET /api/editor/tasks
+
+**List Editor Tasks**
+
+The jobs the editor can do and which preset modes offer each, limited to the presets you may use.
+
+Key permission: `read`.
+
+Query parameters:
+
+- `editor` (one of image, video, audio, optional, default 'image')
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ## Edits
 
 ### GET /api/edits

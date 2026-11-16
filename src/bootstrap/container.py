@@ -284,6 +284,9 @@ from src.features.kits.expansion import KitExpander
 from src.features.kits.resource_provider import KitsResourceProvider
 from src.features.kits.routes import KitController
 from src.features.edits.manager import EditManager
+from src.features.editor_tasks.declarations import DeclarationCache
+from src.features.editor_tasks.manager import EditorTaskManager
+from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
 from src.features.edits.repository import EditRepository
 from src.features.edits.routes import EditController
 from src.features.inspirations import InspirationCollaborators, InspirationRepository
@@ -618,6 +621,9 @@ class AppContainer:
     edit_manager: "EditManager"
     edit_controller: "EditController"
 
+    editor_task_registry: TaskRegistry
+    editor_tasks: EditorTaskManager
+
     # User groups
     user_group_repository: "UserGroupRepository"
     user_group_controller: "UserGroupController"
@@ -744,6 +750,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
     # their tools/chat_modes/resources into them. Builtins are registered
     # first so a plugin colliding with a builtin fails plugin enable.
 
+    editor_task_registry = register_core_tasks(TaskRegistry())
     media_tool_registry = MediaToolRegistry()
     effects_runtime = EffectRuntime()
     register_core_media_tools(media_tool_registry, effects_runtime)
@@ -840,6 +847,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         limit_kind_registry=limit_kind_registry,
         media_tool_registry=media_tool_registry,
         effect_runtime=effects_runtime,
+        editor_task_registry=editor_task_registry,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -1605,6 +1613,22 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
     edit_repository = EditRepository()
     edit_manager = EditManager(edit_repository, upload_repository)
     edit_controller = EditController(edit_manager)
+
+    def _mode_contribution_roots():
+        from src.features.presets.loader import plugin_preset_mode_contributions
+
+        return {
+            (item.plugin_id, item.target_preset_id): item.modes_root
+            for item in plugin_preset_mode_contributions(plugin_registry.get_enabled_plugins())
+        }
+
+    editor_tasks = EditorTaskManager(
+        editor_task_registry,
+        file_preset_repository.templates,
+        DeclarationCache(file_preset_repository.templates, _mode_contribution_roots),
+        lambda user: set(database_preset_repository.get_available_preset_ids_for_user(user.id)),
+        lambda engine: bool(engine) and bool(backend_registry.get_backends_for_engine(engine)),
+    )
 
 
     housekeeping_worker = HousekeepingWorker(

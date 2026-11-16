@@ -92,10 +92,23 @@ def _same_catalog(recorded: Any, url: str) -> bool:
     return same_origin and (first_parts.path, first_parts.query) == (second_parts.path, second_parts.query)
 
 
-def _catalog_host(recorded: Any) -> str:
+def _catalog_address(recorded: Any) -> str:
     if not isinstance(recorded, str):
         return "unknown"
-    return urlsplit(recorded.strip()).hostname or "unknown"
+    try:
+        parts = urlsplit(recorded.strip())
+        port = parts.port
+    except ValueError:
+        return "unknown"
+    host = parts.hostname
+    if not parts.scheme or not host or "\\" in parts.netloc:
+        return "unknown"
+    if ":" in host:
+        host = f"[{host}]"
+    path = "/".join(segment.split(";", 1)[0] for segment in parts.path.split("/"))
+    address = f"{parts.scheme}://{host}{'' if port is None else f':{port}'}{path}"
+    hidden = [name for name, left_out in (("path parameters", path != parts.path), ("a query", bool(parts.query))) if left_out]
+    return f"{address}, with {' and '.join(hidden)} not shown here" if hidden else address
 
 
 def _installed_item(entry: CatalogEntry, installed_version: str) -> Optional[CatalogItem]:
@@ -160,7 +173,7 @@ def catalog_item(
             return CatalogItem(
                 entry,
                 "conflict",
-                f"This plugin was installed from another catalog ({_catalog_host(record.get('catalog'))}); "
+                f"This plugin was installed from another catalog ({_catalog_address(record.get('catalog'))}); "
                 "only that catalog updates it.",
                 installed_version,
             )

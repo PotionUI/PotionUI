@@ -73,11 +73,69 @@ The route only cancels. It never removes patches: a finished run keeps its patch
 
 While a run works, the server stores the picture it sends the model, the mask, and the base crop and region it stitches against. These are stored under an internal purpose (`editor_run_working`) that no other upload can share, so removing them can never touch a file a saved edit uses. They are removed once the run settles in any state (a refused start removes them at once), unless another running run still reads the same file. A `done` run keeps only its patches. A `failed` or `cancelled` run keeps no working files. Patches are never removed by the server, even when a cancel wins after they were stored, because the store cannot tell a new patch from one it shared with an earlier result.
 
+## Your default setup for a task
+
+A **setup** is what a task runs with: a preset mode that offers the task, plus where its settings start from: one of your editor sessions (a session of kind `editor`), one of your formulas, or the mode's own defaults. Your **default** is the setup you chose for a task. Only you choose it; the server never picks one for you and never swaps one for another. Defaults are yours alone: nobody else can read, set or clear them.
+
+`PUT /api/editor/tasks/{task_id}/default` sets it (needs a key with **Can change content**) and replaces any earlier default of yours for that task:
+
+```json
+{
+  "preset_id": "...",
+  "mode": "edit",
+  "variant": null,
+  "setup": { "kind": "session", "id": "..." }
+}
+```
+
+`setup.kind` is `session` (an editor session of yours for that preset and mode), `formula` (a formula of yours for that preset and mode) or `defaults` (the mode's own defaults; no `id`). `DELETE /api/editor/tasks/{task_id}/default` clears it, and clearing a default that is not set is not an error. Both answer `{"task": {...}}`, the task entry as `GET /api/editor/tasks` lists it, so `default` reads back as set or as `null`. Nothing is written when a request is refused.
+
+`GET /api/editor/tasks` returns each task's `default`, or `null` when you have none:
+
+```json
+{
+  "preset_id": "...", "preset_name": "Qwen-Image 2.1", "mode": "edit", "mode_label": "Edit", "variant": null,
+  "setup": { "kind": "session", "id": "...", "name": "Soft portrait", "version": 4, "updated_at": "2026-11-16T10:00:00+00:00" },
+  "set_at": "2026-11-16T09:30:00+00:00",
+  "health": { "ok": true }
+}
+```
+
+The default points at the session or formula by id and copies nothing, so a later save to that session is what the next run starts from: `setup.version` and `setup.updated_at` are the session's current ones, and `setup.name` is its current name. A `defaults` setup is `{"kind": "defaults", "id": null, "name": null}`.
+
+`health` is worked out on every read. A default that stops working stays stored exactly as you set it and reads back broken; the server never repairs it and never substitutes another setup, so it works again if what went away comes back. Pick another or clear it to move on.
+
+```json
+{
+  "ok": false, "reason": "session_deleted", "missing": { "kind": "session", "id": "..." },
+  "name": "Soft portrait", "preset_name": "Qwen-Image 2.1", "mode_label": "Edit"
+}
+```
+
+`name`, `preset_name` and `mode_label` are the last known names, so you can say what went away even when it is gone.
+
+| `reason` | `missing.kind` | What went away |
+| --- | --- | --- |
+| `preset_missing` | `preset` | The preset is not installed any more (or its plugin is off). |
+| `preset_unassigned` | `preset` | The preset is no longer available to you. |
+| `mode_missing` | `mode` | The preset no longer has that mode. |
+| `offer_withdrawn` | `task` | The mode no longer offers the task, directly or through the task's fallback. |
+| `requirements_failed` | `backend` | No backend is set up for the engine of the preset. |
+| `session_deleted` | `session` | The editor session was deleted. |
+| `session_mismatch` | `session` | The session is no longer an editor session of that preset holding that mode. |
+| `formula_deleted` | `formula` | The formula was deleted. |
+| `formula_mismatch` | `formula` | The formula no longer applies to that preset and mode. |
+
+When several apply, the first one in this table is reported. Deleting a session or formula never clears a default pointing at it; deleting a user removes their defaults.
+
 ## Errors
 
 | Status | `error` | Meaning |
 | --- | --- | --- |
 | 404 | `edit_not_found`, `run_not_found`, `preset_not_found`, `task_not_found` | Not yours, deleted, or not available to you. |
+| 404 | `default_session_not_found`, `default_formula_not_found` | The session or formula does not exist, or is not yours (the answer is the same). |
+| 422 | `offer_unavailable` | No backend is set up for the preset's engine. |
+| 422 | `default_session_mismatch`, `default_formula_mismatch` | The session is not an editor session of that preset and mode, or the formula does not apply to it. |
 | 422 | `task_not_offered` | The mode does not offer the task. |
 | 422 | `prompt_required`, `region_required`, `region_empty` | The task needs a prompt or a marked area. |
 | 403 | `limit_exceeded` and the other generation refusals | The same refusals as starting a generation. |

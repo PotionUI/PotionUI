@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from typing import List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from src.features.formulas.records import Formula
 from src.platform.database import get_database_connection
@@ -50,6 +50,17 @@ class FormulaRepository:
                 "SELECT * FROM formulas WHERE id = ? AND owner_id = ?", (formula_id, owner_id)
             ).fetchone()
         return Formula.from_row(row) if row else None
+
+    def get_many_for_owner(self, owner_id: str, formula_ids: Iterable[str]) -> Dict[str, Formula]:
+        ids = list(dict.fromkeys(formula_ids))
+        if not ids:
+            return {}
+        marks = ", ".join("?" for _ in ids)
+        with get_database_connection() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM formulas WHERE owner_id = ? AND id IN ({marks})", [owner_id, *ids]
+            ).fetchall()
+        return {row["id"]: Formula.from_row(row) for row in rows}
 
     def list_for_owner(self, owner_id: str, preset_id: str, mode: str) -> List[Formula]:
         with get_database_connection() as conn:

@@ -204,6 +204,8 @@ POST	/api/downloads/{download_id}/retry	-	admin	admin_dependency
 DELETE	/api/editor/runs/{run_id}	-	generate	marker
 GET	/api/editor/runs/{run_id}	read	-	marker
 GET	/api/editor/tasks	read	-	marker
+DELETE	/api/editor/tasks/{task_id}/default	-	content	marker
+PUT	/api/editor/tasks/{task_id}/default	-	content	marker
 POST	/api/editor/tasks/{task_id}/runs	-	generate	marker
 GET	/api/edits	read	-	marker
 POST	/api/edits	-	content	marker

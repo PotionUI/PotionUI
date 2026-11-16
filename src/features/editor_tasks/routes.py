@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Literal
 
 from fastapi import APIRouter, Depends, Query
 
-from src.features.editor_tasks.dto import StartEditorRunRequest
+from src.features.editor_tasks.dto import SetTaskDefaultRequest, StartEditorRunRequest
 from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.runs import EditorRunManager
 from src.platform.http.base_controller import APIResponse, BaseController
@@ -25,6 +25,16 @@ class EditorTaskController(BaseController):
         tasks = await asyncio.to_thread(self.manager.offers, user, editor)
         return self.success_response(data={"tasks": tasks})
 
+    @guarded(fallback=Fail("set_editor_task_default_failed", "Failed to set the default", 400))
+    async def set_default(self, user, task_id: str, body: SetTaskDefaultRequest) -> APIResponse:
+        task = await asyncio.to_thread(self.manager.set_default, user, task_id, body)
+        return self.success_response(data={"task": task})
+
+    @guarded(fallback=Fail("clear_editor_task_default_failed", "Failed to clear the default", 400))
+    async def clear_default(self, user, task_id: str) -> APIResponse:
+        task = await asyncio.to_thread(self.manager.clear_default, user, task_id)
+        return self.success_response(data={"task": task})
+
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = EditorTaskController(container.editor_tasks)
@@ -43,6 +53,30 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user=Depends(get_current_active_user),
     ) -> APIResponse:
         return await controller.list_tasks(current_user, editor)
+
+    @router.put(
+        "/tasks/{task_id}/default",
+        response_model=APIResponse,
+        summary="Set My Default Setup For A Task",
+        description=(
+            "Makes a preset mode and a starting point for its settings (one of your editor sessions, one of your "
+            "formulas, or the mode's own defaults) your default for a task. Replaces any earlier default of yours "
+            "for that task. Answers with the task entry."
+        ),
+    )
+    async def set_default(
+        task_id: str, body: SetTaskDefaultRequest, current_user=Depends(get_current_active_user)
+    ) -> APIResponse:
+        return await controller.set_default(current_user, task_id, body)
+
+    @router.delete(
+        "/tasks/{task_id}/default",
+        response_model=APIResponse,
+        summary="Clear My Default Setup For A Task",
+        description="Removes your default for a task. Answers with the task entry, whose default is null.",
+    )
+    async def clear_default(task_id: str, current_user=Depends(get_current_active_user)) -> APIResponse:
+        return await controller.clear_default(current_user, task_id)
 
     return router
 

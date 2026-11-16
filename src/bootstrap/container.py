@@ -285,6 +285,7 @@ from src.features.kits.resource_provider import KitsResourceProvider
 from src.features.kits.routes import KitController
 from src.features.edits.manager import EditManager
 from src.features.editor_tasks.declarations import DeclarationCache
+from src.features.editor_tasks.default_repository import TaskDefaultRepository
 from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
 from src.features.editor_tasks.repository import EditorRunRepository
@@ -1626,12 +1627,17 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
             for item in plugin_preset_mode_contributions(plugin_registry.get_enabled_plugins())
         }
 
+    from src.features.sessions.repository import SessionRepository as _EditorSessionRepository
+
     editor_tasks = EditorTaskManager(
         editor_task_registry,
         file_preset_repository.templates,
         DeclarationCache(file_preset_repository.templates, _mode_contribution_roots),
         lambda user: set(database_preset_repository.get_available_preset_ids_for_user(user.id)),
         lambda engine: bool(engine) and bool(backend_registry.get_backends_for_engine(engine)),
+        TaskDefaultRepository(),
+        _EditorSessionRepository().get_many_for_user,
+        FormulaRepository().get_many_for_owner,
     )
 
 

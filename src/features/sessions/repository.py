@@ -3,7 +3,7 @@ Session Repository
 
 Handles database operations for sessions. Returns Pydantic DTOs, not DB models.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 import uuid
 import json
 from datetime import datetime, timezone
@@ -133,6 +133,16 @@ class SessionRepository:
                 params,
             )
             return _with_mode([self._row_to_session(row) for row in cursor.fetchall()], mode)
+
+    def get_many_for_user(self, user_id: str, session_ids: Iterable[str]) -> Dict[str, Session]:
+        ids = list(dict.fromkeys(session_ids))
+        if not ids:
+            return {}
+        marks = ", ".join("?" for _ in ids)
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT * FROM sessions WHERE user_id = ? AND id IN ({marks})", [user_id, *ids])
+            return {row["id"]: self._row_to_session(row) for row in cursor.fetchall()}
 
     def get_by_user_preset_and_name(self, user_id: str, preset_id: str, name: str) -> Optional[Session]:
         """Get a specific session by user, preset, and name."""

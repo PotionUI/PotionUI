@@ -81,6 +81,41 @@ Query parameters:
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
+### PUT /api/editor/tasks/{task_id}/default
+
+**Set My Default Setup For A Task**
+
+Makes a preset mode and a starting point for its settings (one of your editor sessions, one of your formulas, or the mode's own defaults) your default for a task. Replaces any earlier default of yours for that task. Answers with the task entry.
+
+Key permission: `content`.
+
+Path parameters:
+
+- `task_id` (string, required)
+
+JSON body, `SetTaskDefaultRequest`:
+
+- `preset_id` (string, required, at least 1 characters)
+- `mode` (string, required, at least 1 characters)
+- `variant` (string, optional, 0 to 128 characters)
+- `setup` (DefaultSetup, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### DELETE /api/editor/tasks/{task_id}/default
+
+**Clear My Default Setup For A Task**
+
+Removes your default for a task. Answers with the task entry, whose default is null.
+
+Key permission: `content`.
+
+Path parameters:
+
+- `task_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ### POST /api/editor/tasks/{task_id}/runs
 
 **Start An Editor Run**

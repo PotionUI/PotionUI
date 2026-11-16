@@ -1,0 +1,79 @@
+{
+  "editor_mode": "edit",
+  "from": "edit",
+  "preset_id": "01M506YWDFE0W3R42YPDXWRZYW",
+  "preset_name": "FLUX 3 Klein (experimental)",
+  "shown": [
+    {
+      "label": "Speed profile",
+      "name": "speed_profile",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3-VL-4B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE (FLUX 3 ae)",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "sampler"
+    },
+    {
+      "label": "Schedule",
+      "name": "schedule",
+      "type": "schedule"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Shift (override)",
+      "name": "shift",
+      "type": "number"
+    },
+    {
+      "label": "Cache threshold",
+      "name": "step_cache_threshold",
+      "type": "slider"
+    },
+    {
+      "label": "Warmup steps",
+      "name": "step_cache_warmup_steps",
+      "type": "slider"
+    },
+    {
+      "label": "Max consecutive skips",
+      "name": "step_cache_max_skips",
+      "type": "slider"
+    },
+    {
+      "label": "Surroundings",
+      "name": "region_context",
+      "type": "select"
+    }
+  ],
+  "task": "edit_region"
+}

@@ -25,6 +25,7 @@ ALLOWED_BASENAMES = {
     "profile_report.py",
     "filter_lint.py",
     "preset_lint.py",
+    "editor_modes_from_editor_yml.py",
     "preset_new.py",
     "preset_render.py",
     "preset_test_suite.py",

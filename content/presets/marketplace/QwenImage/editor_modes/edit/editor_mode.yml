@@ -1,0 +1,12 @@
+schema_version: 1
+task: edit_region
+from: edit
+region: crop
+inputs:
+  source: source_image
+fixed:
+  output_size: match
+fields:
+  hide:
+  - resolution
+  - output_fit

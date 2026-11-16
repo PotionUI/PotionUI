@@ -48,7 +48,7 @@ SDXL_INPAINT_EDITOR = {
 
 def copy_preset(name: str, root: Path) -> Path:
     destination = root / name
-    shutil.copytree(MARKETPLACE / name, destination, ignore=shutil.ignore_patterns("public", "tests.yml", "styles.yml"))
+    shutil.copytree(MARKETPLACE / name, destination, ignore=shutil.ignore_patterns("public", "tests.yml", "styles.yml", "editor_modes"))
     return destination
 
 

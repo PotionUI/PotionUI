@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -345,6 +345,7 @@ class PresetLinter:
         issues.extend(self._lint_preset_mode_contributions(loaded_manifests))
         issues.extend(self._lint_preset_extensions())
         issues.extend(self._lint_contributed_editor_contracts())
+        issues.extend(self._lint_contributed_editor_modes())
         issues.extend(self._req_checker_warnings)
         issues.extend(self._pipe_import_notes)
 
@@ -558,6 +559,8 @@ class PresetLinter:
 
         issues.extend(self._lint_editor_contracts(preset_file))
 
+        issues.extend(self._lint_editor_modes(preset_file))
+
         return issues, manifest
 
     def _loaded_template(self, preset_file: Path):
@@ -579,6 +582,7 @@ class PresetLinter:
             cache[key] = {
                 Path(template.path).resolve(): template for template in (loader.presets if loader else [])
             }
+            self.__dict__.setdefault("_template_errors", {})[key] = dict(loader.load_errors) if loader else {}
         return cache[key].get(resolved)
 
     def _lint_elixir_contracts(self, preset_file: Path) -> List[LintIssue]:
@@ -621,6 +625,83 @@ class PresetLinter:
             if resolved.is_relative_to(root.resolve()):
                 return plugin_id
         return None
+
+    def _editor_task_catalog(self) -> Tuple[Callable[[str], Optional[str]], Callable[[str], Tuple[str, ...]]]:
+        from src.features.editor_tasks.registry import CORE_TASKS
+
+        needs = self._editor_task_needs()
+        editors = {task.id: task.editors for task in CORE_TASKS}
+        for manifest in self.plugin_manifests:
+            for entry in getattr(manifest, "editor_tasks", None) or []:
+                editors[entry["id"]] = tuple(entry.get("editors") or ("image",))
+        return needs.get, lambda task: editors.get(task, ("image",))
+
+    def _lint_editor_modes(self, preset_file: Path) -> List[LintIssue]:
+        from .editor_mode_lint import (
+            generation_mode_name_problems,
+            leftover_declarations,
+            lint_editor_mode,
+            preset_editor_errors,
+        )
+
+        template = self._loaded_template(preset_file)
+        if template is None:
+            return []
+        preset_str = str(preset_file)
+        resolved = preset_file.parent.resolve()
+        root = next(
+            (base for base in self.paths if base.exists() and resolved.is_relative_to(base.resolve())),
+            preset_file.parent.parent,
+        )
+        errors = self.__dict__.get("_template_errors", {}).get(str(root.resolve()), {})
+        needs, editors_of = self._editor_task_catalog()
+        owner = self._preset_owner(preset_file.parent)
+        pairs = [
+            *preset_editor_errors(errors, preset_file.parent),
+            *generation_mode_name_problems(template),
+            *leftover_declarations(template),
+        ]
+        for name, mode in sorted(template.editor_modes.items()):
+            pairs.extend(lint_editor_mode(template, name, mode, needs, editors_of, owner))
+        return [LintIssue(level, preset_str, message) for level, message in pairs]
+
+    def _lint_contributed_editor_modes(self) -> List[LintIssue]:
+        from .editor_mode_lint import lint_editor_mode
+
+        contributions = plugin_preset_mode_contributions(self.plugin_manifests)
+        if not contributions:
+            return []
+        from .loader import PresetTemplateLoader
+
+        manifests = []
+        for manifest in self.plugin_manifests:
+            clone = copy.copy(manifest)
+            clone.presets = []
+            manifests.append(clone)
+        loader = PresetTemplateLoader(
+            [str(p) for p in self.paths],
+            plugin_registry=SimpleNamespace(get_enabled_plugins=lambda: manifests),
+            shared_path=self.shared_path,
+        )
+        try:
+            loader.load_presets()
+        except Exception:
+            return []
+        needs, editors_of = self._editor_task_catalog()
+        issues: List[LintIssue] = []
+        for key, messages in loader.load_errors.items():
+            if key.startswith("plugin '") and " editor_modes/" in key:
+                issues.extend(LintIssue("error", key, message) for message in messages)
+        for template in loader.presets:
+            for name, mode in sorted(template.editor_modes.items()):
+                if mode.source_plugin is None:
+                    continue
+                location = f"plugin '{mode.source_plugin}' preset_modes -> '{template.id}'"
+                for level, message in lint_editor_mode(
+                    template, name, mode, needs, editors_of, mode.source_plugin
+                ):
+                    issues.append(LintIssue(level, location, message))
+        return issues
 
     def _lint_editor_contracts(self, preset_file: Path) -> List[LintIssue]:
         from src.features.editor_tasks.declarations import DECLARATION_FILE, parse_file, validate_mode

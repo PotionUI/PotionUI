@@ -117,11 +117,12 @@ def test_a_plain_mode_renders_exactly_as_before_through_the_converted_lookups(wo
 
 def test_the_golden_run_writes_an_editor_golden_beside_the_generation_ones(world, tmp_path):
     out = tmp_path / "golden"
-    result = preset_render.run_golden_all(out, presets_root=tmp_path / "presets")
+    result = preset_render.run_golden_all(out, presets_root=tmp_path / "presets", forms_dir=tmp_path / "forms")
     written = {path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] for path in result["written"]}
     assert f"{KREA2_ID}__editor-edit.json" in written
     assert f"{KREA2_ID}__edit.json" in written
     assert not any(":" in name for name in written)
+    assert f"{KREA2_ID}__editor-edit.json" in {path.name for path in (tmp_path / "forms").glob("*.json")}
 
 
 def test_the_served_form_omits_exactly_inputs_fixed_and_hidden_and_keeps_change_and_add(world):
@@ -306,7 +307,7 @@ def test_an_sdxl_inpaint_editor_mode_serves_without_its_picture_and_mask_inputs(
     served = served_names(schema)
     assert "source_image" in own
     assert not {"source_image", "source_image_inpaint_mask"} & served
-    assert served == own - {"source_image", "source_image_inpaint_mask"}
+    assert served == own - {"source_image", "source_image_inpaint_mask", "quantity"}
 
 
 def test_the_model_access_check_sees_the_model_fields_of_an_editor_mode(world):

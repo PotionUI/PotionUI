@@ -1,0 +1,13 @@
+schema_version: 1
+task: edit_region
+from: edit
+region: crop
+inputs:
+  source:
+    field: references
+    index: 0
+fixed:
+  match_picture_1: true
+fields:
+  hide:
+  - resolution

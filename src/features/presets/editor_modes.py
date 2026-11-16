@@ -21,9 +21,13 @@ from src.features.presets.templates import (
     ModeTemplate,
     PipeTemplate,
     PresetTemplate,
+    default_form_name,
     find_mode,
     is_editor_key,
+    sorted_forms,
 )
+from src.features.presets.form_overrides import apply_overrides_to_fields
+from src.features.presets.quantity import mode_quantity_fields
 from src.platform.filesystem.yaml_io import load_yaml_file
 from src.platform.observability.logger import logger
 
@@ -31,6 +35,7 @@ EDITOR_MODES_DIR = "editor_modes"
 EDITOR_MODE_FILE = "editor_mode.yml"
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 TASK_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)?$")
+QUANTITY_FIELD_TYPES = frozenset({"stepper", "number", "integer", "slider"})
 MIN_AREA = 262144
 MAX_AREA = 4194304
 DEFAULT_AREA = 1048576
@@ -149,6 +154,12 @@ class EditorModeFile(BaseModel):
         return value
 
     @model_validator(mode="after")
+    def _mask_region_has_a_mask(self) -> "EditorModeFile":
+        if self.region == "mask" and not self.inputs.mask:
+            raise ValueError("region: mask needs inputs.mask")
+        return self
+
+    @model_validator(mode="after")
     def _derived_only_keys(self) -> "EditorModeFile":
         if self.from_mode is None and not self.fields.is_empty():
             raise ValueError("`fields` is only valid with `from`")
@@ -225,6 +236,21 @@ def form_overrides_for(
     merged = dict(stored.get(spec.from_mode) or {}) if spec.from_mode else {}
     merged.update(editor_overrides(spec, with_inputs))
     return merged
+
+
+def shown_fields(mode: ModeTemplate) -> List[Dict[str, Any]]:
+    spec = mode.editor
+    forms = sorted_forms(mode)
+    if spec is None or not forms:
+        return []
+    name = default_form_name(mode)
+    form = next((item for item in forms if item.name == name), forms[0])
+    visible = apply_overrides_to_fields(form.fields, editor_overrides(spec, with_inputs=True))
+    return [
+        {"name": field.name, "type": field.type, "label": field.label}
+        for field, _ in walk_fields(visible)
+        if field.name
+    ]
 
 
 def _inventory(mode: ModeTemplate) -> Dict[str, FieldTemplate]:
@@ -383,12 +409,28 @@ def _read_file(candidate: EditorModeCandidate) -> Tuple[Optional[EditorModeFile]
     return validate_editor_mode_file(data, f"{candidate.label}/{EDITOR_MODE_FILE}")
 
 
-def _spec(candidate: EditorModeCandidate, file: EditorModeFile) -> EditorModeSpec:
+def _derived_quantity(mode: ModeTemplate, claimed: set) -> Optional[str]:
+    fields = _inventory(mode)
+    names = [
+        name
+        for name in mode_quantity_fields(mode)
+        if name in fields and fields[name].type in QUANTITY_FIELD_TYPES and name not in claimed
+    ]
+    if "quantity" in names:
+        return "quantity"
+    return names[0] if len(names) == 1 else None
+
+
+def _spec(candidate: EditorModeCandidate, file: EditorModeFile, mode: ModeTemplate) -> EditorModeSpec:
+    inputs = file.inputs.model_dump()
+    if inputs.get("quantity") is None:
+        claimed = {*file.fixed, *file.fields.hide, *input_names(inputs)}
+        inputs["quantity"] = _derived_quantity(mode, claimed)
     return EditorModeSpec(
         name=candidate.name,
         task=file.task,
         region=file.region,
-        inputs=file.inputs.model_dump(),
+        inputs=inputs,
         size=file.size.model_dump(),
         context=file.context,
         from_mode=file.from_mode,
@@ -427,7 +469,7 @@ def build_editor_mode(
     if problems:
         return None, problems
 
-    mode.editor = _spec(candidate, file)
+    mode.editor = _spec(candidate, file, mode)
     mode.source_plugin = candidate.plugin_id
     mode.mode_label = file.label or mode.mode_label or _titled(candidate.name)
     return mode, []

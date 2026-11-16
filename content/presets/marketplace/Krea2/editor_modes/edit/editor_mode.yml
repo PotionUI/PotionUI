@@ -1,0 +1,21 @@
+schema_version: 1
+task: edit_region
+from: edit
+region: crop
+inputs:
+  source: source_image
+fixed:
+  match_source: true
+  edit_task: edit
+  fit_mode: fit
+  ref_position: aligned
+fields:
+  hide:
+  - source_image_b
+  - ref_position_a
+  - ref_boost_a
+  change:
+    resolution:
+      label: Detail
+      ai_hint: The pixel budget the marked area is rendered at. The result keeps the
+        area's shape.

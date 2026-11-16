@@ -52,7 +52,7 @@ def _load_all_records():
 
     records = []
     for preset in sorted(presets, key=lambda p: p.id):
-        for mode in sorted(preset.modes.keys()):
+        for mode in [*sorted(preset.modes.keys()), *(f"editor:{name}" for name in sorted(preset.editor_modes))]:
             record = render_preset_mode(processor, preset, mode)
             records.append((preset, mode, record))
     return records

@@ -44,6 +44,8 @@
 	import MediaStage from '$lib/components/media-details/MediaStage.svelte';
 	import { audioTracksFor, isAudioFile, isMeshFile, isVideoFile, resolveAudioFormat } from '$lib/components/media-details/mediaFile';
 	import ParametersView from '$lib/components/generation/ParametersView.svelte';
+	import EditorOriginChip from '$lib/components/EditorOriginChip.svelte';
+	import { editorOriginOf } from '$lib/tool-tabs/editOrigin';
 	import ParameterTextBlock from '$lib/components/generation/ParameterTextBlock.svelte';
 	import DetailsSection from '$lib/components/generation/DetailsSection.svelte';
 	import GenerationFailureAlert from '$lib/components/generation/GenerationFailureAlert.svelte';
@@ -134,6 +136,7 @@
 	// Prefer the loaded detail (it carries `segments`) over the list item.
 	$: activeGenerationId = generation?.id || generationId || '';
 	$: activeGeneration = pickActiveGeneration(generation, loadedGeneration, activeGenerationId);
+	$: editorOrigin = activeGeneration ? editorOriginOf(activeGeneration) : null;
 	$: shortGenerationId = activeGenerationId ? activeGenerationId.slice(0, 8) : '';
 	$: if (!activeGenerationId) {
 		logger.error('GenerationDetailsModal: No generation or generationId provided');
@@ -853,6 +856,13 @@
 					{#if $$slots.afterInformation}
 						<div class="px-4 pb-4 pt-4 empty:hidden">
 							<slot name="afterInformation" />
+						</div>
+					{/if}
+
+					{#if editorOrigin}
+						<div class="flex items-center justify-between gap-3 border-b border-line px-4 py-3" data-details-origin>
+							<span class="font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Origin</span>
+							<EditorOriginChip origin={editorOrigin} onopened={handleClose} />
 						</div>
 					{/if}
 

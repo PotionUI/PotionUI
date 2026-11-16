@@ -1,8 +1,11 @@
 import { CORE_OWNER } from '$lib/registries/registry';
 import GenerateOptions from '$lib/components/tool-tabs/generate/GenerateOptions.svelte';
+import GenerateSettings from '$lib/components/tool-tabs/generate/GenerateSettings.svelte';
 import { railGroups, railTools } from '$lib/editors/railTools';
 import { stepKinds } from '$lib/editors/stepKinds';
+import type { RailToolEntry } from '$lib/editors/railTools';
 import { tasks, type TaskEntry } from '$lib/editors/tasks';
+import type { ComponentRef } from '$lib/editors/types';
 import type { EditorTaskInfo } from '$lib/services/api/editorTasks';
 import { GENERATE_TOOL, generateStepKind } from './generateStep';
 
@@ -16,6 +19,11 @@ export const CORE_TASKS: readonly TaskSeed[] = [
 	{ id: 'remove_object', label: 'Remove an object', icon: 'mode-remove-object', region: 'required', prompt: 'none', fallback: { task: 'edit_region', prompt: REMOVE_PROMPT } }
 ];
 
+export function settingsOf(tool: RailToolEntry | undefined): ComponentRef | undefined {
+	if (!tool) return undefined;
+	return tool.settings ?? (tool.task ? { component: GenerateSettings } : undefined);
+}
+
 const dynamic = new Map<string, () => void>();
 let registered = false;
 
@@ -27,7 +35,7 @@ function registerTask(seed: TaskSeed, order: number, owner?: string): () => void
 	if (!taken) {
 		drops.push(
 			railTools.register(
-				{ id: seed.id, editor: 'image', group: GENERATE_GROUP, label: seed.label, icon: seed.icon, order, options: { component: GenerateOptions }, task: seed.id },
+				{ id: seed.id, editor: 'image', group: GENERATE_GROUP, label: seed.label, icon: seed.icon, order, options: { component: GenerateOptions }, settings: { component: GenerateSettings }, task: seed.id },
 				owner
 			)
 		);

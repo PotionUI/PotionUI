@@ -9,6 +9,7 @@ export interface SessionChoice {
 	name: string;
 	updatedAt: string | null;
 	values: Record<string, unknown>;
+	version?: number | null;
 }
 
 export interface FormulaChoice {

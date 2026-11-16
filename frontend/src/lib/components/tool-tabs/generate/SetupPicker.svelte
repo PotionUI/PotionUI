@@ -5,7 +5,9 @@
 	import dismiss from '$lib/actions/dismiss';
 	import { authStore } from '$lib/stores/auth';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
-	import { pickerGroups, sameChoice, type SetupChoice } from '$lib/tool-tabs/image/generate/setup';
+	import { confirmDialog } from '$lib/stores/confirm';
+	import { offerOf, pickerGroups, sameChoice, setupName, sourceOf, type SetupChoice } from '$lib/tool-tabs/image/generate/setup';
+	import { isChanged } from '$lib/tool-tabs/image/generate/tweaks';
 
 	let { phone = false, taskId, label }: { phone?: boolean; taskId: string; label: string } = $props();
 
@@ -27,8 +29,25 @@
 		if (selected === null && current) selected = current;
 	});
 
-	function use() {
+	let changed = $derived(isChanged($ui.tweaks[taskId]));
+
+	function currentName(): string {
+		const offer = task && current ? offerOf(task.offers, current) : null;
+		return offer && current ? setupName(sourceOf(current.setup, generate.choicesOf(offer))) : 'this setup';
+	}
+
+	async function use() {
 		if (!chosen) return;
+		if (changed && !sameChoice(chosen, current)) {
+			const discard = await confirmDialog({
+				title: 'Discard your changes?',
+				message: `Your changes to “${currentName()}” are used only for this edit unless you save them.`,
+				variant: 'danger',
+				confirmLabel: 'Discard',
+				cancelLabel: 'Keep editing'
+			});
+			if (!discard) return;
+		}
 		void generate.pick(taskId, chosen, asDefault);
 	}
 
@@ -96,7 +115,7 @@
 				<Switch size="sm" bind:checked={asDefault} label="Use as my default for {label}" disabled={!anyUsable} />
 				<span class="min-w-0 truncate">Use as my default for {label}</span>
 			</label>
-			<Button variant="primary" size="sm" disabled={!chosen || !anyUsable} onclick={use} attrs={{ 'data-picker-use': '' }}>Use</Button>
+			<Button variant="primary" size="sm" disabled={!chosen || !anyUsable} onclick={() => void use()} attrs={{ 'data-picker-use': '' }}>Use</Button>
 		</div>
 	{/if}
 {/snippet}

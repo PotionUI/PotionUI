@@ -20,6 +20,8 @@
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { isStackEntry, isLooseCell, stackBadge, stackInfo, cellChip, gridIdOf } from '$lib/generation/compare/view/historyGrid';
 	import { getIconPath } from '$lib/utils/IconLibrary';
+	import EditorOriginChip from '$lib/components/EditorOriginChip.svelte';
+	import { editorOriginOf } from '$lib/tool-tabs/editOrigin';
 	import EntryActions from '$lib/components/tools/EntryActions.svelte';
 	import ToolRunBand from '$lib/components/tools/ToolRunBand.svelte';
 	import { mediaToolRuns } from '$lib/media-tools/runs';
@@ -157,6 +159,12 @@
 	// fixed-aspect card).
 	$: chromeBucket = tile ? bucketForCardWidth(tile.width) : null;
 	$: toolRun = runForGeneration($mediaToolRuns, generation);
+	$: editorOrigin = editorOriginOf(generation);
+	$: mediaChipShown =
+		!!tile &&
+		!!chromeBucket?.showMediaChip &&
+		generation.status === 'completed' &&
+		(mediaFiles.length > 1 || isCurrentMediaVideo);
 	$: menuEnabled = !!(tile && chromeBucket && entryMenu);
 	$: barRunLabel = chromeBucket?.showBarDuration ? generationRunLabel(generation) : null;
 	$: durationReplacesResolution = !!(barRunLabel && chromeBucket?.durationReplacesResolution);
@@ -532,6 +540,12 @@
 				</div>
 			{/if}
 
+			{#if tile && editorOrigin && generation.status === 'completed'}
+				<div class="absolute left-1.5 z-30 flex max-w-[calc(100%-12px)] {mediaChipShown ? 'bottom-8' : 'bottom-1.5'}" data-editor-origin-host>
+					<EditorOriginChip origin={editorOrigin} iconOnly={tile.width < 200} />
+				</div>
+			{/if}
+
 			<!-- Justified tile: duration/fps/size, bottom-right, on hover only (resolution
 			     already has its own lane in the bar below, so it never repeats here). -->
 			{#if tile && chromeBucket?.showHoverMeta && generation.status === 'completed' && barHoverMetaParts.length > 0}
@@ -688,6 +702,12 @@
 					{/if}
 				</div>
 				{/if}
+			</div>
+		{/if}
+
+		{#if !tile && editorOrigin && generation.status === 'completed'}
+			<div class="flex items-center border-t border-line bg-surface-1 px-2 py-1.5" data-editor-origin-host>
+				<EditorOriginChip origin={editorOrigin} />
 			</div>
 		{/if}
 

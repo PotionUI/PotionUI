@@ -32,6 +32,7 @@
 	import { isLargeArea } from '$lib/tool-tabs/image/generate/area';
 	import { generateSteps, leftOutCount, leftOutNotice } from '$lib/tool-tabs/image/generate/generateStep';
 	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
+	import { settingsOf } from '$lib/tool-tabs/image/generate/register';
 	import { canvasFromUrl } from '$lib/paint/loadPicked';
 	import FloatingPrompt from '$lib/components/tool-tabs/generate/FloatingPrompt.svelte';
 	import CandidateStrip from '$lib/components/tool-tabs/generate/CandidateStrip.svelte';
@@ -373,6 +374,16 @@
 		activeTool === 'paint' ? 'paint' : activeTool === 'mask' || registeredTool?.task ? 'mask' : activeTool === 'crop' ? 'crop' : 'preview'
 	);
 	let taskTool = $derived(!!registeredTool?.task);
+	let settingsRef = $derived(settingsOf(registeredTool));
+	let settingsFor = $state<string | null>(null);
+	let settingsOpen = $derived(!!settingsRef && settingsFor !== null && settingsFor === activeTool);
+	$effect(() => {
+		const tool = activeTool;
+		untrack(() => {
+			if (settingsFor && settingsFor !== tool) settingsFor = null;
+		});
+	});
+	let promptSettings = $derived(settingsRef ? { open: settingsOpen, toggle: () => (settingsFor = settingsOpen ? null : activeTool) } : undefined);
 	$effect(() => {
 		if (!taskTool) return;
 		const before = get(maskToolState);
@@ -1983,7 +1994,7 @@
 		{/if}
 		{#if taskTool && !phone}
 			<div class="pointer-events-none absolute inset-x-0 bottom-16 z-20 flex flex-col items-center gap-2 px-4" data-generate-dock>
-				<FloatingPrompt running={runningId} large={largeArea} onclose={closeActiveTool} />
+				<FloatingPrompt running={runningId} large={largeArea} settings={promptSettings} onclose={closeActiveTool} />
 				{#if runStep && runStatus === 'done' && runStep.params.results.length}
 					<CandidateStrip results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
 				{/if}
@@ -2010,6 +2021,7 @@
 		{stack}
 		original={{ summary: originalSummary, thumb: sourceUrl }}
 		{variant}
+		folded={settingsOpen && !phone}
 		pinned={IMAGE_PINNED_LANES}
 		moreItems={stackMore}
 		rowInfo={rowInfoFor}
@@ -2197,10 +2209,14 @@
 							<CandidateStrip phone results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
 						</div>
 					{/if}
-					<div class="flex-none border-t border-line bg-surface-1 px-3 py-2" data-task-mark-bar>
-						<MaskOptions compact bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} />
-					</div>
-					<FloatingPrompt phone running={runningId} large={largeArea} onclose={closeActiveTool} />
+					{#if settingsOpen && settingsRef}
+						<EditorEntryComponent entry={entryKey('image', registeredTool!.id)} componentRef={settingsRef} props={{ host: toolHost, phone, onback: () => (settingsFor = null) }} onclose={() => (settingsFor = null)} />
+					{:else}
+						<div class="flex-none border-t border-line bg-surface-1 px-3 py-2" data-task-mark-bar>
+							<MaskOptions compact bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} />
+						</div>
+						<FloatingPrompt phone running={runningId} large={largeArea} settings={promptSettings} onclose={closeActiveTool} />
+					{/if}
 				{:else if activeTool === 'effects'}
 					<LookTray items={trayItems} original={{ selected: !lookParams }} {phone} thumb={trayThumb} onpick={pickLook} onpreview={(id) => (hoverLook = id)} />
 				{:else if activeTool === 'slice' && sliceParams.cells.length}
@@ -2216,7 +2232,9 @@
 				{/if}
 			{/snippet}
 			{#snippet options()}
-				{#if !(phoneBarred && activeTool === 'effects' && !stillEffects.length) && !(phone && taskTool)}
+				{#if settingsOpen && settingsRef && !phone}
+					<EditorEntryComponent entry={entryKey('image', registeredTool!.id)} componentRef={settingsRef} props={{ host: toolHost, phone, onback: () => (settingsFor = null) }} onclose={() => (settingsFor = null)} />
+				{:else if !(phoneBarred && activeTool === 'effects' && !stillEffects.length) && !(phone && taskTool)}
 					<OptionsPanel
 						title={optionsTitle}
 						icon={optionsIcon}

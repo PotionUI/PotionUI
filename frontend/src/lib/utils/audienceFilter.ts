@@ -39,7 +39,8 @@ export function applyAudienceVisibility<T extends AudienceNode>(
 	node: T,
 	audience: FormAudience,
 	forceVisibleNames?: ReadonlySet<string>,
-	videoDirectorActive = false
+	videoDirectorActive = false,
+	hiddenNames?: ReadonlySet<string>
 ): boolean {
 	if (!node) return false;
 	if (node.visible === false) return false;
@@ -47,7 +48,7 @@ export function applyAudienceVisibility<T extends AudienceNode>(
 	if (Array.isArray(node.children) && node.children.length > 0) {
 		let anyChildVisible = false;
 		for (const child of node.children) {
-			if (applyAudienceVisibility(child, audience, forceVisibleNames, videoDirectorActive)) {
+			if (applyAudienceVisibility(child, audience, forceVisibleNames, videoDirectorActive, hiddenNames)) {
 				anyChildVisible = true;
 			}
 		}
@@ -58,7 +59,8 @@ export function applyAudienceVisibility<T extends AudienceNode>(
 	const forced = !!(forceVisibleNames && node.name && forceVisibleNames.has(node.name));
 	const hiddenForAudience = !forced && audience === 'simple' && node.audience === 'advanced';
 	const hiddenForDirector = !forced && videoDirectorActive && node.hidden_when_video_director === true;
-	const finalVisible = !hiddenForAudience && !hiddenForDirector;
+	const hiddenByName = !!(hiddenNames && node.name && hiddenNames.has(node.name));
+	const finalVisible = !hiddenForAudience && !hiddenForDirector && !hiddenByName;
 	node.visible = finalVisible;
 	return finalVisible;
 }
@@ -71,14 +73,15 @@ export function applyAudienceVisibilityToSchema(
 	schema: { properties?: Record<string, { children?: AudienceNode[] }> } | null | undefined,
 	audience: FormAudience,
 	forceVisibleNames?: ReadonlySet<string>,
-	videoDirectorActive = false
+	videoDirectorActive = false,
+	hiddenNames?: ReadonlySet<string>
 ): typeof schema {
 	if (!schema || !schema.properties) return schema;
 	for (const rootKey of Object.keys(schema.properties)) {
 		const children = schema.properties[rootKey]?.children;
 		if (Array.isArray(children)) {
 			for (const child of children) {
-				applyAudienceVisibility(child, audience, forceVisibleNames, videoDirectorActive);
+				applyAudienceVisibility(child, audience, forceVisibleNames, videoDirectorActive, hiddenNames);
 			}
 		}
 	}

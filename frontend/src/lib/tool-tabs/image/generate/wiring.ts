@@ -55,7 +55,9 @@ export function createTabGenerate(deps: TabGenerateDeps): GenerateController {
 			},
 			schema: (presetId, mode, variant) => loadPresetFormSchema(presetId, mode, variant ?? undefined),
 			setDefault: async (task, body) => void (await api.setEditorTaskDefault(task, body)),
-			clearDefault: (task) => api.clearEditorTaskDefault(task)
+			clearDefault: (task) => api.clearEditorTaskDefault(task),
+			saveSession: (body) => api.saveEditorSession(body),
+			updateSession: (id, body) => api.updateEditorSession(id, body)
 		}
 	});
 	return controller;

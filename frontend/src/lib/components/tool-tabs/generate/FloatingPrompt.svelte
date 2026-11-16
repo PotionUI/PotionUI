@@ -63,6 +63,10 @@
 		return taskId ? generate.chipFor(taskId) : null;
 	});
 	let noModel = $derived(!!task && !task.offers.some((offer) => offer.qualifies) && !task.default);
+	let changed = $derived.by(() => {
+		void $ui;
+		return taskId ? generate.changedFor(taskId) : false;
+	});
 	let chipText = $derived(noModel ? 'No model yet' : (chip ?? CHOOSE_SETUP));
 	let area = $derived($maskArea);
 	let blocked = $derived(
@@ -98,7 +102,7 @@
 			start();
 			return;
 		}
-		if (event.key === 'Escape' && !$ui.picker.open) {
+		if (event.key === 'Escape' && !$ui.picker.open && !settings?.open && !event.defaultPrevented) {
 			event.preventDefault();
 			event.stopPropagation();
 			onclose?.();
@@ -144,6 +148,9 @@
 	>
 		<Icon name={noModel ? 'warning' : 'model'} className="h-3.5 w-3.5 flex-none text-fg-muted" />
 		<span class="min-w-0 truncate">{chipText}</span>
+		{#if changed}
+			<span class="inline-flex flex-none items-center gap-1.5 font-mono text-sm text-signal" data-setup-changed><span class="h-1.5 w-1.5 rounded-full bg-signal"></span>Changed</span>
+		{/if}
 		<Icon name="chevron-down" className="h-3.5 w-3.5 flex-none text-fg-muted" />
 	</button>
 {/snippet}

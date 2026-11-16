@@ -29,7 +29,9 @@ function setup(tasks: EditorTaskInfo[] = [task()], extra: Partial<ControllerDeps
 		formulas: vi.fn(async () => []),
 		schema: vi.fn(async () => schema),
 		setDefault: vi.fn(async () => undefined),
-		clearDefault: vi.fn(async () => undefined)
+		clearDefault: vi.fn(async () => undefined),
+		saveSession: vi.fn(async () => ({ id: 'new', name: 'New', version: 1, updated_at: null })),
+		updateSession: vi.fn(async () => ({ id: 's1', name: 'Soft portrait', version: 2, updated_at: null }))
 	};
 	const deps: ControllerDeps = {
 		getStack: () => stack,
@@ -283,5 +285,120 @@ describe('generate controller: a step through its life', () => {
 		t.controller.dispose();
 		await vi.advanceTimersByTimeAsync(60000);
 		expect(t.enginePorts.get).not.toHaveBeenCalled();
+	});
+});
+
+describe('generate controller: settings tweaks', () => {
+	const pickSession = { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session' as const, id: 's1' } };
+	const two = () => task({ offers: [offer({ owned: ['resolution'] }), offer({ mode: 'other', mode_label: 'Other' })] });
+
+	async function open(saved = true) {
+		const t = setup([two()], {}, saved);
+		t.ports.sessions.mockImplementation(async () => [{ id: 's1', name: 'Soft portrait', updated_at: null, version: 3, data: { edit: { formData: { steps: 20 } } } }]);
+		await t.controller.prepare('edit_region');
+		await t.controller.pick('edit_region', pickSession, false);
+		const context = await t.controller.settings('edit_region');
+		return { t, context };
+	}
+
+	it('describes the setup, the fields the editor owns and the starting values', async () => {
+		const { context } = await open();
+		expect(context?.owned).toEqual(expect.arrayContaining(['resolution']));
+		expect(context?.values).toMatchObject({ steps: 20 });
+		expect(context?.setupName).toBe('Soft portrait');
+	});
+
+	it('says Changed only after an edit that differs, and runs with the form values', async () => {
+		const { t } = await open();
+		t.controller.tweak('edit_region', { steps: 20, seed: 7 });
+		expect(t.controller.changedFor('edit_region')).toBe(false);
+		t.controller.tweak('edit_region', { steps: 12, seed: 7, resolution: '2048' });
+		expect(t.controller.changedFor('edit_region')).toBe(true);
+		t.controller.setPrompt('edit_region', 'a boat');
+		await t.controller.generate('edit_region', true);
+		const params = readGenerateParams(t.stack().steps[0].params) as GenerateParams;
+		expect(params.setup.form_data).toEqual({ steps: 12, seed: 7 });
+		expect(params.setup.source).toEqual({ kind: 'session', id: 's1', name: 'Soft portrait' });
+	});
+
+	it('keeps the tweaks when the same setup is picked again and drops them for another', async () => {
+		const { t } = await open();
+		t.controller.tweak('edit_region', { steps: 20, seed: 7 });
+		t.controller.tweak('edit_region', { steps: 12, seed: 7 });
+		await t.controller.pick('edit_region', pickSession, false);
+		expect(t.controller.changedFor('edit_region')).toBe(true);
+		await t.controller.pick('edit_region', t.controller.defaultsChoice(two().offers[1]), false);
+		expect(t.controller.changedFor('edit_region')).toBe(false);
+		expect(get(t.controller.ui).tweaks).toEqual({});
+	});
+
+	it('saves to the session with its version, then clears Changed and uses the new values', async () => {
+		const { t } = await open();
+		t.controller.tweak('edit_region', { steps: 20, seed: 7 });
+		t.controller.tweak('edit_region', { steps: 12, seed: 7 });
+		const outcome = await t.controller.saveTo('edit_region');
+		expect(outcome).toEqual({ ok: true });
+		expect(t.ports.updateSession).toHaveBeenCalledWith('s1', {
+			name: 'Soft portrait',
+			data: { edit: { formData: { steps: 12, seed: 7 } } },
+			mode: 'edit',
+			base_version: 3,
+			kind: 'editor'
+		});
+		expect(t.controller.changedFor('edit_region')).toBe(false);
+		expect(t.controller.choicesOf(two().offers[0]).sessions[0]).toMatchObject({ values: { steps: 12, seed: 7 }, version: 2 });
+	});
+
+	it('refuses to save to a formula or the model defaults', async () => {
+		const t = setup([two()]);
+		await t.controller.prepare('edit_region');
+		await t.controller.pick('edit_region', t.controller.defaultsChoice(two().offers[0]), false);
+		await t.controller.settings('edit_region');
+		t.controller.tweak('edit_region', { steps: 28 });
+		t.controller.tweak('edit_region', { steps: 5 });
+		const outcome = await t.controller.saveTo('edit_region');
+		expect(outcome.ok).toBe(false);
+		expect(t.ports.updateSession).not.toHaveBeenCalled();
+	});
+
+	it('reports a conflict in plain words and reloads the setup', async () => {
+		const { t } = await open();
+		t.ports.updateSession.mockRejectedValueOnce({ response: { status: 409, data: { detail: { error: 'session_version_conflict' } } } });
+		t.controller.tweak('edit_region', { steps: 20 });
+		t.controller.tweak('edit_region', { steps: 12 });
+		const loads = t.ports.sessions.mock.calls.length;
+		const outcome = await t.controller.saveTo('edit_region');
+		expect(outcome).toMatchObject({ ok: false });
+		expect((outcome as { message: string }).message).toContain('changed somewhere else');
+		expect(t.ports.sessions.mock.calls.length).toBe(loads + 1);
+		expect(t.controller.changedFor('edit_region')).toBe(true);
+	});
+
+	it('saves as a new setup, makes it the one this task uses and leaves the default alone', async () => {
+		const { t } = await open();
+		t.controller.tweak('edit_region', { steps: 20, seed: 7 });
+		t.controller.tweak('edit_region', { steps: 12, seed: 7 });
+		const outcome = await t.controller.saveAsNew('edit_region', '  Crisp  ');
+		expect(outcome).toEqual({ ok: true });
+		expect(t.ports.saveSession).toHaveBeenCalledWith({ preset_id: 'qwen', name: 'Crisp', data: { edit: { formData: { steps: 12, seed: 7 } } }, mode: 'edit', kind: 'editor' });
+		expect(get(t.controller.ui).choice.edit_region?.setup).toEqual({ kind: 'session', id: 'new' });
+		expect(t.controller.changedFor('edit_region')).toBe(false);
+		expect(t.ports.setDefault).not.toHaveBeenCalled();
+		expect(t.controller.chipFor('edit_region')).toBe('Qwen-Image 2.1 · Edit · New');
+	});
+
+	it('does not send a name that is empty or already used, and words a Generate page clash', async () => {
+		const { t } = await open();
+		t.controller.tweak('edit_region', { steps: 20 });
+		t.controller.tweak('edit_region', { steps: 12 });
+		expect((await t.controller.saveAsNew('edit_region', ' ')).ok).toBe(false);
+		expect(await t.controller.saveAsNew('edit_region', 'soft portrait')).toEqual({ ok: false, message: 'You already have a setup with that name. Choose another name.' });
+		expect(t.ports.saveSession).not.toHaveBeenCalled();
+		t.ports.saveSession.mockRejectedValueOnce({ response: { status: 409, data: { detail: { error: 'session_kind_mismatch' } } } });
+		expect(await t.controller.saveAsNew('edit_region', 'Held by Generate')).toEqual({
+			ok: false,
+			message: 'That name is already used by one of your sessions on the Generate page. Choose another name.'
+		});
+		expect(get(t.controller.ui).choice.edit_region?.setup).toEqual({ kind: 'session', id: 's1' });
 	});
 });

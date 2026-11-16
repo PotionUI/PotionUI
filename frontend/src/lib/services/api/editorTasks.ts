@@ -273,6 +273,47 @@ function payloadOf(body: unknown): Record<string, unknown> {
 	return isRecord(body.data) ? body.data : body;
 }
 
+export interface SaveEditorSessionBody {
+	preset_id: string;
+	name: string;
+	data: Record<string, Record<string, unknown>>;
+	mode: string;
+	kind: 'editor';
+}
+
+export interface UpdateEditorSessionBody {
+	name: string;
+	data: Record<string, Record<string, unknown>>;
+	mode: string;
+	base_version: number | null;
+	kind: 'editor';
+}
+
+export interface EditorSessionEntry {
+	id: string;
+	name: string;
+	updated_at: string | null;
+	version?: number | null;
+	data: Record<string, { formData?: Record<string, unknown> }>;
+}
+
+export interface SavedEditorSession {
+	id: string;
+	name: string;
+	version: number | null;
+	updated_at: string | null;
+}
+
+function savedSession(body: unknown): SavedEditorSession {
+	const found = isRecord(body) && isRecord(body.data) ? body.data : {};
+	return {
+		id: str(found.id) ?? '',
+		name: str(found.name) ?? '',
+		version: typeof found.version === 'number' ? found.version : null,
+		updated_at: str(found.updated_at)
+	};
+}
+
 export function createEditorTasksApi(client: AxiosInstance) {
 	const task = (id: string) => `/api/editor/tasks/${encodeURIComponent(id)}`;
 	const run = (id: string) => `/api/editor/runs/${encodeURIComponent(id)}`;
@@ -312,16 +353,27 @@ export function createEditorTasksApi(client: AxiosInstance) {
 			await client.delete(`${task(taskId)}/default`);
 		},
 
-		async listEditorSessions(presetId: string): Promise<Array<{ id: string; name: string; updated_at: string | null; data: Record<string, { formData?: Record<string, unknown> }> }>> {
+		async saveEditorSession(body: SaveEditorSessionBody): Promise<SavedEditorSession> {
+			const response = await client.post('/api/sessions/save', body);
+			return savedSession(response.data);
+		},
+
+		async updateEditorSession(sessionId: string, body: UpdateEditorSessionBody): Promise<SavedEditorSession> {
+			const response = await client.put(`/api/sessions/${encodeURIComponent(sessionId)}`, body);
+			return savedSession(response.data);
+		},
+
+		async listEditorSessions(presetId: string): Promise<EditorSessionEntry[]> {
 			const response = await client.get(`/api/sessions/preset/${encodeURIComponent(presetId)}`, { params: { kind: 'editor' } });
 			const list = isRecord(response.data) && Array.isArray(response.data.data) ? response.data.data : [];
-			return list.flatMap((entry) => {
+			return list.flatMap((entry): EditorSessionEntry[] => {
 				if (!isRecord(entry) || !str(entry.id)) return [];
 				return [
 					{
 						id: entry.id as string,
 						name: str(entry.name) ?? 'Setup',
 						updated_at: str(entry.updated_at),
+						version: typeof entry.version === 'number' ? entry.version : null,
 						data: isRecord(entry.data) ? (entry.data as Record<string, { formData?: Record<string, unknown> }>) : {}
 					}
 				];

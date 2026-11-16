@@ -27,6 +27,7 @@
 		stack,
 		original,
 		variant = 'panel',
+		folded = false,
 		pinned = DEFAULT_PINNED_LANES,
 		moreItems = [],
 		notes,
@@ -44,6 +45,7 @@
 		stack: EditStackState<unknown>;
 		original: { label?: string; summary: string; thumb?: string | null };
 		variant?: StackVariant;
+		folded?: boolean;
 		pinned?: readonly LanePair[];
 		moreItems?: MenuItem[];
 		notes?: Snippet;
@@ -65,6 +67,12 @@
 	let applied = $derived(appliedCount(stack));
 	let undone = $derived(undoneCount(stack));
 	let sheet = $derived(variant === 'sheet');
+	let opened = $state(false);
+	let shut = $derived(folded && !opened && !sheet);
+
+	$effect(() => {
+		if (!folded) opened = false;
+	});
 	let drag = $state<{ id: string; from: number; startY: number; dy: number; height: number } | null>(null);
 
 	let dropIndex = $derived.by(() => {
@@ -123,7 +131,7 @@
 	}
 </script>
 
-<section class="flex min-h-0 flex-col {sheet ? '' : 'stack-panel h-[236px] flex-none border-t border-line'}" aria-label="Edits" data-edit-stack={variant}>
+<section class="flex min-h-0 flex-col {sheet ? '' : `stack-panel ${shut ? 'h-11 overflow-hidden' : 'h-[236px]'} flex-none border-t border-line`}" aria-label="Edits" data-edit-stack={variant} data-folded={shut || undefined}>
 	{#if sheet}
 		<div class="flex flex-none items-center gap-2 px-2 pb-2.5 pt-1">
 			<h2 class="text-lg font-semibold text-fg">Edits</h2>
@@ -138,13 +146,23 @@
 			<h2 class="text-base font-semibold text-fg">Edits</h2>
 			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count>{applied}{undone ? ` + ${undone} undone` : ''}</span>
 			<span class="flex-1"></span>
-			{#if moreItems.length}
+			{#if moreItems.length && !shut}
 				<Menu label="Edit stack options" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
+			{/if}
+			{#if folded}
+				<IconButton
+					icon={shut ? 'chevron-right' : 'chevron-down'}
+					label={shut ? 'Show edits' : 'Hide edits'}
+					size="sm"
+					ariaExpanded={!shut}
+					onclick={() => (opened = !opened)}
+					data-stack-fold
+				/>
 			{/if}
 		</div>
 	{/if}
 
-	<div class="min-h-0 flex-initial {sheet ? '' : 'overflow-y-auto px-2 pb-2'}" role="list" data-stack-rows>
+	<div class="min-h-0 flex-initial {sheet ? '' : 'overflow-y-auto px-2 pb-2'} {shut ? 'hidden' : ''}" role="list" data-stack-rows>
 		{#each rows as row (row.key)}
 			{@const step = row.step ?? row.pending}
 			{@const dragging = drag?.id === row.key}

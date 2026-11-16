@@ -18,17 +18,20 @@ const FORM_SCHEMA = {
 			type: 'group',
 			title: 'Generation',
 			children: [
-				{ name: 'prompt', type: 'string', title: 'Prompt', default: '' },
 				{ name: 'source_image', type: 'image', title: 'Picture' },
+				{ name: 'strength', type: 'number', title: 'Strength', default: 0.85 },
 				{ name: 'steps', type: 'slider', title: 'Steps', default: 28 },
-				{ name: 'seed', type: 'seed', title: 'Seed', default: -1 }
+				{ name: 'seed', type: 'seed', title: 'Seed', default: -1 },
+				{ name: 'quantity', type: 'integer', title: 'Quantity', default: 1 }
 			]
 		}
 	}
 };
 
-const qwen = (over: Json = {}): Json => ({ preset_id: 'qwen21', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, ...over });
-const flux = (over: Json = {}): Json => ({ preset_id: 'flux-fill', preset_name: 'Flux Fill', mode: 'inpaint', mode_label: 'Inpaint', label: null, variant: null, region_strategy: 'crop', via: null, qualifies: true, reason: null, ...over });
+const OWNED = ['quantity', 'source_image', 'source_image_inpaint_mask'];
+
+const qwen = (over: Json = {}): Json => ({ preset_id: 'qwen21', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: OWNED, ...over });
+const flux = (over: Json = {}): Json => ({ preset_id: 'flux-fill', preset_name: 'Flux Fill', mode: 'inpaint', mode_label: 'Inpaint', label: null, variant: null, region_strategy: 'crop', via: null, qualifies: true, reason: null, owned: OWNED, ...over });
 
 function taskEntry(id: string, label: string, over: Json = {}): Json {
 	const remove = id === 'remove_object';
@@ -54,6 +57,9 @@ interface Server {
 	defaults: Json[];
 	startFails: { status: number; body: Json } | null;
 	saves: Json[];
+	sessionPuts: Json[];
+	sessionPosts: Json[];
+	sessionFails: { status: number; body: Json } | null;
 	mediaRuns: Json[];
 	sockets: WebSocketRoute[];
 	runCount: number;
@@ -85,7 +91,7 @@ async function ok(route: Route, data: unknown, status = 200) {
 }
 
 async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean } = {}): Promise<Server> {
-	const server: Server = { tasks, runs: [], runStatus: {}, runGets: [], cancels: [], defaults: [], startFails: null, saves: [], mediaRuns: [], sockets: [], runCount: 0 };
+	const server: Server = { tasks, runs: [], runStatus: {}, runGets: [], cancels: [], defaults: [], startFails: null, saves: [], sessionPuts: [], sessionPosts: [], sessionFails: null, mediaRuns: [], sockets: [], runCount: 0 };
 	let revision = 1;
 	const source = solidPng(640, 480);
 	const small = solidPng(64, 64);
@@ -146,8 +152,23 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean 
 		await ok(route, { run: runBody(server, (server.runStatus.status as string) ?? 'running', server.runStatus) });
 	});
 	await page.route(/\/api\/sessions\/preset\/[^/?]+(\?.*)?$/, (route) =>
-		ok(route, options.sessions ? [{ id: 'sess-1', preset_id: 'qwen21', name: 'Soft portrait', data: { edit: { formData: { steps: 20 } } }, updated_at: new Date(Date.now() - 2 * 86400000).toISOString() }] : [])
+		ok(route, options.sessions ? [{ id: 'sess-1', preset_id: 'qwen21', name: 'Soft portrait', data: { edit: { formData: { steps: 20 } } }, created_at: new Date(Date.now() - 9 * 86400000).toISOString(), updated_at: new Date(Date.now() - 2 * 86400000).toISOString(), pinned: false, version: 3, kind: 'editor' }] : [])
 	);
+	const sessionBody = (body: Json, id: string, version: number): Json => ({ id, preset_id: 'qwen21', name: body.name, data: body.data, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), pinned: false, version, kind: 'editor' });
+	await page.route(/\/api\/sessions\/save$/, async (route) => {
+		if (route.request().method() !== 'POST') return route.fallback();
+		const body = route.request().postDataJSON() as Json;
+		server.sessionPosts.push(body);
+		if (server.sessionFails) return route.fulfill({ status: server.sessionFails.status, contentType: 'application/json', body: JSON.stringify({ detail: server.sessionFails.body }) });
+		await ok(route, sessionBody(body, `sess-new-${server.sessionPosts.length}`, 1));
+	});
+	await page.route(/\/api\/sessions\/sess-1$/, async (route) => {
+		if (route.request().method() !== 'PUT') return route.fallback();
+		const body = route.request().postDataJSON() as Json;
+		server.sessionPuts.push(body);
+		if (server.sessionFails) return route.fulfill({ status: server.sessionFails.status, contentType: 'application/json', body: JSON.stringify({ detail: server.sessionFails.body }) });
+		await ok(route, sessionBody(body, 'sess-1', 4));
+	});
 	await page.route(/\/api\/formulas(\?.*)?$/, (route) => (route.request().method() === 'GET' ? ok(route, []) : route.fallback()));
 	await page.routeWebSocket(/\/ws\/generation/, (ws) => {
 		server.sockets.push(ws);
@@ -166,6 +187,8 @@ function push(server: Server, message: Json) {
 
 const update = (server: Server, status: string, extra: Json = {}, n = server.runCount) =>
 	push(server, { type: 'editor_run_update', generation_id: runGeneration(n), run: runBody(server, status, extra, n) });
+
+const sessionDefault: Json = { preset_id: 'qwen21', mode: 'edit', variant: null, setup: { kind: 'session', id: 'sess-1' }, health: { ok: true, reason: null, name: null, mode_label: null } };
 
 const rail = (page: Page, tool: string) => page.locator(`[data-tool-rail] button[data-tool="${tool}"]`);
 const options = (page: Page) => page.locator('[data-options-panel]');
@@ -455,14 +478,109 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		expect(server.runs).toHaveLength(1);
 	});
 
-	test('the Settings button is present and says where the settings will open', async ({ page }) => {
-		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
+	test('Settings: change a value, run with it, save to the setup, save as new, and the discard prompt', async ({ page }) => {
+		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true);
+		await openHarbor(page);
+		await rail(page, 'edit_region').click();
+		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Qwen-Image 2.1 · Edit · Soft portrait');
+		await expect(prompt(page).locator('[data-setup-changed]')).toHaveCount(0);
+		await markArea(page);
+		await type(page, 'a small red sailboat');
+
+		await prompt(page).locator('[data-prompt-settings]').click();
+		const view = page.locator('[data-frame-panel] [data-settings-view="desktop"]');
+		await expect(view).toBeVisible();
+		await expect(options(page)).toHaveCount(0);
+		await expect(view.locator('[data-settings-header]')).toContainText('Edit a region');
+		await expect(view.locator('[data-settings-setup]')).toHaveText('Qwen-Image 2.1 · Edit · Soft portrait');
+		await expect(view.locator('[data-settings-body]')).toContainText('Strength');
+		await expect(view.locator('[data-settings-body]')).not.toContainText('Quantity');
+		await expect(view.locator('[data-settings-body]')).not.toContainText('Picture');
+		await expect(page.locator('[data-edit-stack]')).toHaveAttribute('data-folded', 'true');
+		await expect(view.locator('[data-settings-save-to]')).toHaveCount(0);
+		await expect(view.locator('[data-settings-save-new]')).toBeVisible();
+
+		const strength = view.locator('[data-settings-body] input[type="number"]').first();
+		await strength.fill('0.6');
+		await strength.blur();
+		await expect(view.locator('[data-settings-changed]')).toHaveText('Changed');
+		await expect(prompt(page).locator('[data-setup-changed]')).toBeVisible();
+		await expect(view.locator('[data-settings-save-to]')).toHaveText('Save to “Soft portrait”');
+		await screenshot(page, JOURNEY, '04-settings-dark-1440');
+
+		await generate(page);
+		await expect.poll(() => server.runs.length).toBe(1);
+		const form = (server.runs[0].setup as Json).form_data as Json;
+		expect(form).toMatchObject({ strength: 0.6, steps: 20 });
+		expect(form).not.toHaveProperty('source_image');
+		expect(form).not.toHaveProperty('quantity');
+
+		await view.locator('[data-settings-save-to]').click();
+		await expect.poll(() => server.sessionPuts.length).toBe(1);
+		expect(server.sessionPuts[0]).toMatchObject({ name: 'Soft portrait', mode: 'edit', base_version: 3, kind: 'editor', data: { edit: { formData: { strength: 0.6, steps: 20 } } } });
+		await expect(view.locator('[data-settings-changed]')).toHaveCount(0);
+		await expect(view.locator('[data-settings-save-to]')).toHaveCount(0);
+		await expect(prompt(page).locator('[data-setup-changed]')).toHaveCount(0);
+
+		await strength.fill('0.4');
+		await strength.blur();
+		await expect(view.locator('[data-settings-changed]')).toBeVisible();
+		server.sessionFails = { status: 409, body: { error: 'session_kind_mismatch', message: 'x' } };
+		await view.locator('[data-settings-save-new]').click();
+		await page.locator('[data-save-setup-name]').fill('Held by Generate');
+		await page.getByRole('dialog', { name: 'Save as new setup' }).getByRole('button', { name: /^Save/ }).click();
+		await expect(page.locator('[data-save-setup-error]')).toHaveText('That name is already used by one of your sessions on the Generate page. Choose another name.');
+		server.sessionFails = null;
+		await page.locator('[data-save-setup-name]').fill('Crisp');
+		await page.getByRole('dialog', { name: 'Save as new setup' }).getByRole('button', { name: /^Save/ }).click();
+		await expect.poll(() => server.sessionPosts.length).toBe(2);
+		expect(server.sessionPosts[1]).toMatchObject({ preset_id: 'qwen21', name: 'Crisp', mode: 'edit', kind: 'editor', data: { edit: { formData: { strength: 0.4 } } } });
+		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Crisp');
+		await expect(view.locator('[data-settings-changed]')).toHaveCount(0);
+		expect(server.defaults).toHaveLength(0);
+
+		await strength.fill('0.3');
+		await strength.blur();
+		await expect(view.locator('[data-settings-changed]')).toBeVisible();
+		await prompt(page).locator('[data-setup-chip]').click();
+		await page.locator('[data-picker-option="defaults"]').first().click();
+		await page.locator('[data-picker-use]').click();
+		const discard = page.locator('[role="dialog"], [role="alertdialog"]').filter({ hasText: 'Discard your changes?' }).last();
+		await expect(discard.getByText('Discard your changes?')).toBeVisible();
+		await expect(discard).toContainText('Your changes to “Crisp” are used only for this edit unless you save them.');
+		await screenshot(page, JOURNEY, '04b-discard-dark-1440');
+		await discard.getByRole('button', { name: /Keep editing/ }).click();
+		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Crisp');
+		await page.locator('[data-picker-use]').click();
+		await discard.getByRole('button', { name: /^Discard/ }).click();
+		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Model defaults');
+		await expect(prompt(page).locator('[data-setup-changed]')).toHaveCount(0);
+
+		await page.keyboard.press('Escape');
+		await expect(view).toHaveCount(0);
+		await expect(prompt(page)).toBeVisible();
+		await expect(options(page)).toBeVisible();
+		await expect(page.locator('[data-edit-stack]')).not.toHaveAttribute('data-folded', 'true');
+	});
+
+	test('Settings go back with the header button and the prompt button, and the Edits list can be shown while open', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true);
 		await openHarbor(page);
 		await rail(page, 'edit_region').click();
 		const settings = prompt(page).locator('[data-prompt-settings]');
-		await expect(settings).toBeDisabled();
-		await settings.locator('xpath=..').hover();
-		await expect(page.getByText('Settings open here soon')).toBeVisible();
+		await settings.click();
+		await expect(settings).toHaveAttribute('aria-pressed', 'true');
+		const view = page.locator('[data-settings-view="desktop"]');
+		await expect(view).toBeVisible();
+		await page.locator('[data-stack-fold]').click();
+		await expect(page.locator('[data-edit-stack]')).not.toHaveAttribute('data-folded', 'true');
+		await view.locator('[data-detail-back]').click();
+		await expect(view).toHaveCount(0);
+		await expect(options(page)).toBeVisible();
+		await settings.click();
+		await expect(view).toBeVisible();
+		await settings.click();
+		await expect(view).toHaveCount(0);
 	});
 });
 
@@ -507,5 +625,33 @@ test.describe('Edit a region on the phone', () => {
 		await expect(page.locator('[data-editor-layer]')).toBeVisible();
 		await expect(prompt(page).locator('[data-prompt-status="warn"]')).toBeVisible();
 		await screenshot(page, JOURNEY, '07-remove-dark-390');
+	});
+
+	test('Settings replace the prompt in the same sheet, with a back arrow and the discard prompt', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true);
+		await openHarbor(page);
+		await page.locator('[data-tool-rail] button[data-tool="edit_region"]').click();
+		await expect(prompt(page)).toBeVisible();
+		await prompt(page).locator('[data-prompt-settings]').click();
+		const view = page.locator('[data-settings-view="phone"]');
+		await expect(view).toBeVisible();
+		await expect(prompt(page)).toHaveCount(0);
+		await expect(page.locator('[data-frame-sheet]')).toHaveCount(0);
+		const strength = view.locator('[data-settings-body] input[type="number"]').first();
+		await strength.fill('0.6');
+		await strength.blur();
+		await expect(view.locator('[data-settings-changed]')).toBeVisible();
+		await expect(view.locator('[data-settings-save-to]')).toBeVisible();
+		await screenshot(page, JOURNEY, '04-settings-dark-390');
+		await view.locator('[data-detail-back]').click();
+		await expect(view).toHaveCount(0);
+		await expect(prompt(page)).toBeVisible();
+		await expect(prompt(page).locator('[data-setup-changed]')).toBeVisible();
+		await prompt(page).locator('[data-setup-chip]').click();
+		await page.locator('[data-picker-option="defaults"]').first().click();
+		await page.locator('[data-picker-use]').click();
+		const discard = page.locator('[role="dialog"], [role="alertdialog"]').filter({ hasText: 'Discard your changes?' }).last();
+		await expect(discard.getByText('Discard your changes?')).toBeVisible();
+		await screenshot(page, JOURNEY, '04b-discard-dark-390');
 	});
 });

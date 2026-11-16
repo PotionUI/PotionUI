@@ -53,7 +53,9 @@ function build(tasks: EditorTaskInfo[], saved = false) {
 			formulas: async () => [],
 			schema: async () => ({ properties: {} }),
 			setDefault: vi.fn(async () => undefined),
-			clearDefault: async () => undefined
+			clearDefault: async () => undefined,
+			saveSession: vi.fn(async () => ({ id: 'new', name: 'New', version: 1, updated_at: null })),
+			updateSession: vi.fn(async () => ({ id: 's1', name: 'Soft portrait', version: 2, updated_at: null }))
 		}
 	};
 	return { controller: createGenerateController(deps), deps, start, stack: () => stack };

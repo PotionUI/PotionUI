@@ -148,3 +148,27 @@ describe('applyAudienceVisibilityToSchema', () => {
 		expect(applyAudienceVisibilityToSchema({}, 'simple')).toEqual({});
 	});
 });
+
+describe('hidden names', () => {
+	it('hides a named leaf in either audience and keeps its siblings', () => {
+		const schema: { properties: Record<string, { children: AudienceTestNode[] }> } = {
+			properties: {
+				custom: { children: [{ name: 'source_image' }, { name: 'strength' }] }
+			}
+		};
+		applyAudienceVisibilityToSchema(schema, 'advanced', undefined, false, new Set(['source_image']));
+		expect(schema.properties.custom.children[0].visible).toBe(false);
+		expect(schema.properties.custom.children[1].visible).toBe(true);
+	});
+
+	it('is not undone by force-visible names', () => {
+		const field: AudienceTestNode = { name: 'resolution' };
+		expect(applyAudienceVisibility(field, 'advanced', new Set(['resolution']), false, new Set(['resolution']))).toBe(false);
+	});
+
+	it('collapses a container whose every child is hidden by name', () => {
+		const group: AudienceTestNode = { name: 'g', children: [{ name: 'quantity' }] };
+		expect(applyAudienceVisibility(group, 'advanced', undefined, false, new Set(['quantity']))).toBe(false);
+		expect(group.visible).toBe(false);
+	});
+});

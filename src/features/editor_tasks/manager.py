@@ -97,6 +97,7 @@ class EditorTaskManager:
             "region_strategy": declaration.region,
             "via": via,
             "qualifies": qualifies,
+            "owned": sorted(owned_fields(declaration, mode)),
         }
         if not qualifies:
             offer["reason"] = NO_BACKEND

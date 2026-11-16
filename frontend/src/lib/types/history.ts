@@ -100,6 +100,15 @@ export interface RoutingDecision {
 	rule_trace: RoutingRuleTraceEntry[];
 }
 
+export interface GenerationOrigin {
+	kind?: string;
+	edit_id?: string;
+	step_id?: string | null;
+	task?: string | null;
+	run_id?: string | null;
+	[key: string]: unknown;
+}
+
 export interface GenerationHistoryItem {
 	id: string;
 	preset_id?: string | null;
@@ -146,6 +155,7 @@ export interface GenerationHistoryItem {
 	grid_y?: number | null;
 	grid_cols?: number | null;
 	axis_values?: Record<string, string> | null;
+	origin?: GenerationOrigin | null;
 }
 
 export interface HistoryGridAxis {

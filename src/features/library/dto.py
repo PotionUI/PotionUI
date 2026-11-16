@@ -18,6 +18,14 @@ class LibrarySortBy(str, Enum):
     size = "size"
 
 
+class MadeInEditor(BaseModel):
+    edit_id: str
+    tool: Optional[str] = None
+    revision: Optional[int] = None
+    available: bool = False
+    continuable: bool = False
+
+
 class LibraryItem(BaseModel):
     """One resource in a user's library."""
 
@@ -42,6 +50,7 @@ class LibraryItem(BaseModel):
     has_audio: Optional[bool] = None
     source_generation_id: Optional[str] = None
     provenance: Optional[Dict[str, Any]] = None
+    made_in_editor: Optional[MadeInEditor] = None
 
 
 class LibraryListResult(BaseModel):

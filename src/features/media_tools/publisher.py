@@ -135,7 +135,12 @@ class MediaToolPublisher:
         return created
 
     def publish_replace(
-        self, user_id: str, upload: Upload, source_key: str, output: ToolMedia
+        self,
+        user_id: str,
+        upload: Upload,
+        source_key: str,
+        output: ToolMedia,
+        edit_link: Optional[dict] = None,
     ) -> Upload:
         profile = load_thumbnail_profile(self.settings)
         dest_key = self._new_key(output.path.suffix)
@@ -166,6 +171,7 @@ class MediaToolPublisher:
                 thumbnail_profile=profile_hash(profile) if paths else None,
                 has_alpha=output.has_alpha,
                 has_audio=output.has_audio,
+                edit_link=edit_link,
             )
             if not updated:
                 self._require_unchanged(user_id, upload)

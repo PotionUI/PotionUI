@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from src.features.edits.records import Edit
 from src.platform.database import get_cursor
@@ -36,6 +36,21 @@ class EditRepository:
         if row is None:
             return None
         return Edit.from_row(row, json.loads(row["state"]))
+
+    def existing_ids(self, user_id: str, edit_ids: Sequence[str]) -> Set[str]:
+        unique = list(dict.fromkeys(edit_ids))
+        if not unique:
+            return set()
+        found: Set[str] = set()
+        with get_cursor() as cursor:
+            for start in range(0, len(unique), 500):
+                chunk = unique[start:start + 500]
+                marks = ", ".join("?" for _ in chunk)
+                cursor.execute(
+                    f"SELECT id FROM edits WHERE user_id = ? AND id IN ({marks})", (user_id, *chunk)
+                )
+                found.update(row["id"] for row in cursor.fetchall())
+        return found
 
     def list(
         self, user_id: str, tool: Optional[str], search: Optional[str], limit: int, offset: int

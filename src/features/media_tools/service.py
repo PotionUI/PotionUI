@@ -77,6 +77,7 @@ from src.platform.media_tools.types import MEDIA_KINDS, ToolMedia
 
 if TYPE_CHECKING:
     from src.features.collections.repository import CollectionRepository
+    from src.features.edits.repository import EditRepository
     from src.features.generation.file_repository import FileRepository
     from src.features.media.media_types import MediaTypeResolver
     from src.features.media.store import MediaStore
@@ -123,6 +124,7 @@ class _Plan:
     attachments: dict
     target: Optional[ResolvedInput] = None
     collection_id: Optional[str] = None
+    edit_link: Optional[dict] = None
 
 
 def _tool_ids(steps: Sequence[Step]) -> List[str]:
@@ -253,8 +255,10 @@ class MediaToolService:
         preview_wait_seconds: float = PREVIEW_WAIT_SECONDS,
         artifact_store: Optional["MediaStore"] = None,
         collection_repository: Optional["CollectionRepository"] = None,
+        edit_repository: Optional["EditRepository"] = None,
     ):
         self.registry = registry
+        self.edit_repo = edit_repository
         self.collection_repo = collection_repository
         self.upload_repo = upload_repository
         self.artifact_store = artifact_store
@@ -953,7 +957,26 @@ class MediaToolService:
             attachments=attachments,
             target=target,
             collection_id=collection_id,
+            edit_link=self._edit_link(user_id, spec_out),
         )
+
+    def _edit_link(self, user_id: str, spec_out: OutputSpec) -> Optional[dict]:
+        ref = spec_out.edit
+        if ref is None or self.edit_repo is None:
+            return None
+        try:
+            edit = self.edit_repo.get(user_id, ref.id)
+        except Exception:
+            logger.exception("Could not verify the edit behind a media tool save")
+            return None
+        if edit is None:
+            return None
+        return {
+            "id": edit.id,
+            "tool": edit.tool,
+            "revision": max(1, min(ref.revision, edit.revision)),
+            "continuable": spec_out.mode != "replace",
+        }
 
     def _check_collection(self, user_id: str, spec_out: OutputSpec) -> Optional[str]:
         if not spec_out.collection_id:
@@ -1081,7 +1104,9 @@ class MediaToolService:
             if len(outputs) != 1:
                 raise ToolFailed("The tool did not produce exactly one result")
             source = plan.target if plan.mode == "update" else plan.inputs[0]
-            updated = self.publisher.publish_replace(user_id, source.upload, source.key, outputs[0])
+            updated = self.publisher.publish_replace(
+                user_id, source.upload, source.key, outputs[0], edit_link=plan.edit_link
+            )
             return RunOutcome(items=[to_item(updated)], replaced=True)
         rows = self.publisher.publish_new(
             user_id,
@@ -1103,8 +1128,16 @@ class MediaToolService:
         except Exception:
             logger.exception("Could not file media tool outputs into collection %s", plan.collection_id)
 
+    @classmethod
+    def _provenance(cls, plan: _Plan, outputs: list) -> Optional[List[Optional[dict]]]:
+        marks = cls._slice_provenance(plan, outputs)
+        if plan.edit_link is None:
+            return marks
+        base = marks if marks is not None else [None] * len(outputs)
+        return [{**(mark or {}), "edit": dict(plan.edit_link)} for mark in base]
+
     @staticmethod
-    def _provenance(plan: _Plan, outputs: list) -> Optional[List[Optional[dict]]]:
+    def _slice_provenance(plan: _Plan, outputs: list) -> Optional[List[Optional[dict]]]:
         spec, params = plan.steps[-1]
         if spec.id != SLICE_TOOL or len(plan.inputs) != 1:
             return None

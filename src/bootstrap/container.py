@@ -1602,7 +1602,8 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
     tab_draft_manager = TabDraftManager(TabDraftRepository(), notifier=tab_draft_hub)
     tab_draft_controller = TabDraftController(tab_draft_manager)
 
-    edit_manager = EditManager(EditRepository(), upload_repository)
+    edit_repository = EditRepository()
+    edit_manager = EditManager(edit_repository, upload_repository)
     edit_controller = EditController(edit_manager)
 
 
@@ -1646,6 +1647,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         artifact_store=media_store,
         collection_repository=collection_repository,
         jobs=media_tool_jobs,
+        edit_repository=edit_repository,
     )
     media_tool_controller = MediaToolController(media_tool_service)
     automation_services.media_tool_service = media_tool_service
@@ -1664,6 +1666,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         file_store=file_service,
         storage_driver=storage_driver,
         limit_guard=limit_guard,
+        edit_repository=edit_repository,
     )
     library_controller = LibraryController(library_collaborators)
     from src.features.library import operations as library_operations

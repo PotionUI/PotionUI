@@ -7,11 +7,26 @@ that a user's upload library only ever shows (or deletes) their own files.
 """
 
 import json
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.features.media.records import Upload
 from src.platform.util.ids import generate_ulid
 from src.platform.database import get_cursor
+
+
+KEEP_EDIT_LINK: Any = object()
+
+
+def _merge_edit_link(stored: Optional[str], edit_link: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    try:
+        parsed = json.loads(stored) if stored else {}
+    except (TypeError, ValueError):
+        parsed = {}
+    merged = dict(parsed) if isinstance(parsed, dict) else {}
+    merged.pop("edit", None)
+    if edit_link is not None:
+        merged["edit"] = edit_link
+    return merged
 
 
 class UploadRepository:
@@ -286,9 +301,24 @@ class UploadRepository:
         has_audio: Optional[bool] = None,
         has_alpha: Optional[bool] = None,
         original_filename: Optional[str] = None,
+        *,
+        edit_link: Any = KEEP_EDIT_LINK,
     ) -> Optional[Upload]:
         with get_cursor() as cursor:
-            cursor.execute("""
+            provenance_sql = ""
+            provenance_args: tuple = ()
+            if edit_link is not KEEP_EDIT_LINK:
+                cursor.execute(
+                    "SELECT provenance FROM uploads WHERE id = ? AND user_id = ? AND filename = ?",
+                    (upload_id, user_id, expected_filename),
+                )
+                current = cursor.fetchone()
+                if current is None:
+                    return None
+                merged = _merge_edit_link(current["provenance"], edit_link)
+                provenance_sql = ", provenance = ?"
+                provenance_args = (json.dumps(merged) if merged else None,)
+            cursor.execute(f"""
                 UPDATE uploads
                    SET filename = ?,
                        original_filename = COALESCE(?, original_filename),
@@ -304,7 +334,7 @@ class UploadRepository:
                        thumbnail_large = ?,
                        thumbnail_profile = ?,
                        has_alpha = ?,
-                       has_audio = ?
+                       has_audio = ?{provenance_sql}
                  WHERE id = ? AND user_id = ? AND filename = ?
             """, (
                 filename,
@@ -322,6 +352,7 @@ class UploadRepository:
                 thumbnail_profile,
                 None if has_alpha is None else int(has_alpha),
                 None if has_audio is None else int(has_audio),
+                *provenance_args,
                 upload_id,
                 user_id,
                 expected_filename,

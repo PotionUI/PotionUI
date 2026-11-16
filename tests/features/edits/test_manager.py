@@ -390,3 +390,23 @@ class TestEditManager(EditsTestBase):
             cursor.execute("DELETE FROM users WHERE id = ?", (self.user_id,))
 
         self.assertIsNone(self.row(edit.id))
+
+
+class TestExistingIds(EditsTestBase):
+
+    def test_returns_only_ids_that_exist_for_the_user(self):
+        mine = self.manager.create(self.user_id, "image", None, "library", "up_source", STATE)
+        theirs = self.manager.create(self.other_user_id, "image", None, "library", "up_source", STATE)
+
+        found = self.manager.repository.existing_ids(self.user_id, [mine.id, theirs.id, "missing", mine.id])
+
+        self.assertEqual(found, {mine.id})
+
+    def test_empty_input_runs_no_query_and_returns_nothing(self):
+        self.assertEqual(self.manager.repository.existing_ids(self.user_id, []), set())
+
+    def test_a_deleted_edit_is_gone(self):
+        edit = self.manager.create(self.user_id, "image", None, "library", "up_source", STATE)
+        self.manager.delete(self.user_id, edit.id)
+
+        self.assertEqual(self.manager.repository.existing_ids(self.user_id, [edit.id]), set())

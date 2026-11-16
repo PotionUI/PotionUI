@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-tab';
@@ -204,6 +204,7 @@ const REEL = '02ReelIntensity100';
 async function start(page: Page, seed = false): Promise<Log> {
 	const log = await mockEditor(page);
 	await loginAsOwner(page);
+	await clearEdits(page);
 	if (seed) await seedGenerationTab(page);
 	await page.goto('/generate');
 	await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
@@ -344,6 +345,7 @@ test.describe('painting and masking in the Image editor tab', () => {
 	test('a paint session lands as one step and the mask rides along with Send', async ({ page }) => {
 		const log = await mockEditor(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await seedGenerationTab(page);
 		await page.goto('/generate');
 		await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
@@ -397,6 +399,7 @@ test.describe('the Image editor tab on a phone', () => {
 	test('docks the options above the tool strip with Save in the top bar', async ({ page }) => {
 		await mockEditor(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/generate');
 		await expect(page.locator('.studio-topbar')).toBeVisible({ timeout: 15000 });
 		await page.getByRole('button', { name: /^Open tabs/ }).click();

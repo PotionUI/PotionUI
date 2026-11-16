@@ -83,6 +83,20 @@ export async function clearTabDrafts(page: Page): Promise<void> {
 	}
 }
 
+export async function clearEdits(page: Page): Promise<void> {
+	const headers = { Authorization: `Bearer ${await ownerToken(page)}` };
+	for (let round = 0; round < 20; round += 1) {
+		const list = await page.request.get('/api/edits?limit=200', { headers });
+		expect(list.ok(), `GET /api/edits -> ${list.status()}`).toBeTruthy();
+		const edits = ((await list.json()).data?.edits ?? []) as Array<{ id: string }>;
+		if (!edits.length) return;
+		for (const { id } of edits) {
+			const removed = await page.request.delete(`/api/edits/${encodeURIComponent(id)}`, { headers });
+			expect(removed.ok(), `DELETE /api/edits/${id} -> ${removed.status()}`).toBeTruthy();
+		}
+	}
+}
+
 export async function scopedStorageKey(page: Page, base: string): Promise<string> {
 	return page.evaluate((key) => {
 		try {

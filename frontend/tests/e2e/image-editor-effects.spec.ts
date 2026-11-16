@@ -1,6 +1,6 @@
 import { deflateSync } from 'node:zlib';
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, ownerToken, screenshot } from './helpers';
 import { chunk } from './mediaFieldHelpers';
 
 const JOURNEY = 'image-editor-effects';
@@ -92,6 +92,7 @@ test('Vignette from the effect catalog previews live on the image canvas through
 	});
 
 	await loginAsOwner(page);
+	await clearEdits(page);
 	const token = await ownerToken(page);
 	const upload = await page.request.post('/api/media/upload', {
 		headers: { Authorization: `Bearer ${token}` },

@@ -68,6 +68,17 @@ describe('mergeEditedLibraryItem', () => {
 		const merged = mergeEditedLibraryItem(existing, { ...edited, original_filename: undefined });
 		expect(merged.original_filename).toBe('portrait.png');
 	});
+
+	it('takes the sound the result reports, so a replaced clip does not keep its old value', () => {
+		const talking: LibraryItem = { ...existing, media_type: 'video', has_audio: true };
+		const silent: LibraryItem = { ...existing, media_type: 'video', has_audio: false };
+		const video: EditedMediaItem = { ...edited, media_type: 'video' };
+		expect(mergeEditedLibraryItem(talking, { ...video, has_audio: false }).has_audio).toBe(false);
+		expect(mergeEditedLibraryItem(silent, { ...video, has_audio: true }).has_audio).toBe(true);
+		expect(mergeEditedLibraryItem(silent, { ...video, has_audio: null }).has_audio).toBeNull();
+		expect(mergeEditedLibraryItem(silent, video).has_audio).toBeNull();
+		expect(libraryItemFromEdit({ ...video, has_audio: false }).has_audio).toBe(false);
+	});
 });
 
 describe('mergeEditedLibraryItem thumbnails', () => {

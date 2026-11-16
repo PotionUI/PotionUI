@@ -16,7 +16,7 @@ from typing import Optional
 from src.platform.database.rows import dt_column, row_get
 
 
-def _alpha_from_row(value) -> Optional[bool]:
+def _flag_from_row(value) -> Optional[bool]:
     return None if value is None else bool(value)
 
 
@@ -64,6 +64,7 @@ class Upload:
     content_hash: Optional[str] = None
     is_favorite: bool = False
     has_alpha: Optional[bool] = None
+    has_audio: Optional[bool] = None
     source_generation_id: Optional[str] = None
     provenance: Optional[dict] = None
 
@@ -90,7 +91,8 @@ class Upload:
             thumbnail_profile=row_get(row, 'thumbnail_profile'),
             content_hash=row_get(row, 'content_hash'),
             is_favorite=bool(row_get(row, 'is_favorite')),
-            has_alpha=_alpha_from_row(row_get(row, 'has_alpha')),
+            has_alpha=_flag_from_row(row_get(row, 'has_alpha')),
+            has_audio=_flag_from_row(row_get(row, 'has_audio')),
             source_generation_id=row_get(row, 'source_generation_id'),
             provenance=_provenance_from_row(row_get(row, 'provenance')),
         )

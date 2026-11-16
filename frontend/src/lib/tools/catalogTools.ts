@@ -1,6 +1,6 @@
 import { hasIcon } from '$lib/utils/IconLibrary';
 import { isRunnable, selectionBounds, toolAvailability } from '$lib/media-tools/catalog';
-import { isFoldedShortcut, planShortcut, shortcutLabel } from '$lib/tool-tabs/shortcuts';
+import { hostsFoldedTools, isFoldedShortcut, planShortcut, shortcutLabel } from '$lib/tool-tabs/shortcuts';
 import type { MediaToolSource, ToolDTO } from '$lib/media-tools/types';
 import {
 	registerMediaTool,
@@ -51,8 +51,9 @@ function tabAvailability(tool: ToolDTO, ctx: MediaToolContext): MediaToolAvailab
 	if (ctx.scope === 'field' || tool.source !== 'core') return null;
 	if (isFoldedShortcut(tool.id, ctx.items)) return { enabled: false, hidden: true };
 	if (!planShortcut(tool.id, ctx.items) || ctx.items.some((item) => !(tool.accepts as string[]).includes(item.kind))) return null;
+	const gate = hostsFoldedTools(tool.id) ? { ...tool, requires: { ...tool.requires, has_audio: undefined } } : tool;
 	for (const item of ctx.items) {
-		const result = toolAvailability(tool, selectionSources([item]));
+		const result = toolAvailability(gate, selectionSources([item]));
 		if (!result.enabled) return { enabled: false, reason: result.reason };
 	}
 	return { enabled: true };

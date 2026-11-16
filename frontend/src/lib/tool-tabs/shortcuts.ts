@@ -105,9 +105,14 @@ export const SLICE_ACTION = 'slice_sheet';
 const LABELS: Record<string, string> = { frame: 'Open frame in Image editor', volume: 'Audio' };
 
 const FOLDED_INTO_AUDIO = new Set(['mute', 'replace_audio']);
+const AUDIO_HOST = 'volume';
 
 export function shortcutLabel(actionId: string, items: readonly { kind: string }[]): string | null {
 	return LABELS[actionId] && planShortcut(actionId, items) ? LABELS[actionId] : null;
+}
+
+export function hostsFoldedTools(actionId: string): boolean {
+	return actionId === AUDIO_HOST;
 }
 
 export function isFoldedShortcut(actionId: string, items: readonly { kind: string }[]): boolean {

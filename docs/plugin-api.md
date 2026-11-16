@@ -1989,6 +1989,17 @@ At least one of `python` and `component` is required. The id must start with you
 and a plugin cannot take an id another plugin or core already registered; an entry that breaks either
 rule keeps the plugin from enabling.
 
+A tool that needs sound (`requires: { has_audio: true }`) is greyed out in the Tools menu on a Library video
+recorded as silent. The Library records whether a video has sound when it is uploaded or copied from History,
+by probing the file, and a sound file always counts as having sound. For a media tool's result it records the
+`has_audio` of the `ToolMedia` the tool returns: the core tools probe their output, and a plugin tool's value is
+taken as the tool reports it. The value stays unknown on a History file, on an item stored before PotionUI
+recorded sound, on an item saved from Inspirations, on a file uploaded again with the same bytes as an item of
+unknown sound, and when the probe fails. The menu then offers the tool, and the run checks `requires` on each
+input and refuses it with `unsupported_media`.
+In the Library menu, Mute and Replace audio sit under the Audio entry, which opens the video editor on
+Volume; that entry stays enabled on a silent clip, since Replace audio needs no sound.
+
 `params` are form fields. `type` is `integer`, `float`, `select`, `checkbox`, `color`, `string` or
 `anchor`, with these keys: `name`, `label`, `default`, `min`, `max`, `step`, `unit`, `options` (a list of
 values or of `{label, value}`), `allow_transparent` (a `color` that may also be `transparent`), `when`

@@ -7,12 +7,12 @@
 	import { resumeKeyboard, suppressKeyboard } from '$lib/services/keyboard';
 	import { isTypingInField } from '$lib/utils/editableTarget';
 	import { primaryModifier } from '$lib/utils/platform';
-	import CanvasPanel from '$lib/components/imageEditor/CanvasPanel.svelte';
-	import FilterStrip from '$lib/components/imageEditor/FilterStrip.svelte';
-	import OptionsPanel from '$lib/components/imageEditor/OptionsPanel.svelte';
-	import SaveFilterDialog from '$lib/components/imageEditor/SaveFilterDialog.svelte';
-	import { decideMaskFate } from '$lib/components/imageEditor/maskPolicy';
-	import { defaultExportStem, exportFileName } from '$lib/components/imageEditor/exportName';
+	import CanvasPanel from '$lib/components/paint/CanvasPanel.svelte';
+	import FilterStrip from '$lib/components/paint/FilterStrip.svelte';
+	import OptionsPanel from '$lib/components/paint/OptionsPanel.svelte';
+	import SaveFilterDialog from '$lib/components/paint/SaveFilterDialog.svelte';
+	import { decideMaskFate } from '$lib/paint/maskPolicy';
+	import { defaultExportStem, exportFileName } from '$lib/paint/exportName';
 	import ImageSourceMenu from '$lib/components/paint/ImageSourceMenu.svelte';
 	import LayersPanel from '$lib/components/paint/LayersPanel.svelte';
 	import ToolButton from '$lib/components/paint/ToolButton.svelte';

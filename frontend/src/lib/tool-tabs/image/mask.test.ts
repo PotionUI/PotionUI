@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, appliedSteps, beginEdit, createStack, reopen, toggleHidden, undo, updatePending } from '$lib/tool-tabs/frame/editStack';
-import { thresholdMaskPixels } from '$lib/media/editors/maskThreshold';
 import { alphaToMask, geometryKey, liveMask, maskIsStale, maskOverlay, parseRgb, readMask, sendPatch, STORED_MASK_CUTOFF } from './mask';
 import { cropDraft, lookDraft, paintDraft } from './steps';
 
@@ -69,6 +68,16 @@ describe('mask channel', () => {
 		expect(readMask(null)).toBeNull();
 	});
 });
+
+function thresholdMaskPixels(pixels: Uint8ClampedArray, cutoff = 128): void {
+	for (let i = 0; i < pixels.length; i += 4) {
+		const value = pixels[i] >= cutoff ? 255 : 0;
+		pixels[i] = value;
+		pixels[i + 1] = value;
+		pixels[i + 2] = value;
+		pixels[i + 3] = 255;
+	}
+}
 
 describe('stored mask encoding', () => {
 	it('matches what the modal editor wrote for every stroke alpha', () => {

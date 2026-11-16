@@ -27,16 +27,16 @@
 		turn,
 		type CropCorner,
 		type CropRect
-	} from './cropGeometry';
+	} from '$lib/media/cropGeometry';
 	import {
 		EMPTY_IMAGE_PLAN,
 		planDisplaySize,
 		planOutputSize,
 		planToOperations,
 		type ImageEditPlan
-	} from './imageEditPlan';
-	import { describeRejection } from './editOperations';
-	import { loadImage } from './loadImage';
+	} from '$lib/media/imageEditPlan';
+	import { describeRejection } from '$lib/media/editOperations';
+	import { loadImage } from '$lib/media/loadImage';
 	import type { EditorCommitFn, MediaEditorSource } from './types';
 
 	export let source: MediaEditorSource;

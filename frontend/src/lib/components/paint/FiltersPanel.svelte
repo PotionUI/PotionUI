@@ -3,8 +3,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { canApply } from '$lib/filters/toolState';
 	import FilterStrip from './FilterStrip.svelte';
-	import { PAINT_ICONS } from './icons';
-	import type { PaintSession, SessionSnapshot } from './session';
+	import { PAINT_ICONS } from '$lib/paint/icons';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;

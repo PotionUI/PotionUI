@@ -18,9 +18,9 @@
 	import { ThumbCache, renderThumb } from '$lib/filters/thumbs';
 	import type { FilterItem } from '$lib/filters/types';
 	import { toasts } from '$lib/stores/toast';
-	import { PAINT_ICONS } from './icons';
-	import { paintFilters } from './registries';
-	import type { PaintSession, SessionSnapshot } from './session';
+	import { PAINT_ICONS } from '$lib/paint/icons';
+	import { paintFilters } from '$lib/paint/registries';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;

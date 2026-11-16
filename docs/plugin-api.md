@@ -1861,6 +1861,7 @@ still images (grain, VHS, grades) are photo filters, not tools: see
 | `volume` | video, audio with sound | same | `unit` percent / db, `percent` 0 to 400, `db` -60 to 20, `fade_in`, `fade_out` (seconds) |
 | `replace_audio` | video (editor only) | same | `audio` (media), `start` (seconds into the track), `loop` |
 | `paint_layer` | image (editor only) | same | `layer` (media, a transparent PNG) |
+| `place_patch` | image (editor only) | same | `patch` (media, an RGBA PNG made by an editor run), `x`, `y`, `width`, `height` (0 to 1, the patch's place as fractions of the picture) |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
 transparency (a JPEG that gains an alpha channel is saved as PNG).
@@ -1868,7 +1869,7 @@ transparency (a JPEG that gains an alpha channel is saved as PNG).
 `mute`, `volume` and `replace_audio` copy the video stream when they run alone; next to a picture or timing edit they
 share that edit's single encode. `replace_audio` keeps the video's length: the track starts `start` seconds in and, with
 `loop`, repeats until the picture ends. `split` with `mode: at` cuts at one time point into two items; video parts are
-re-encoded so the cut lands on the exact frame. Tools whose `scopes` are only `editor` (`replace_audio`, `paint_layer`)
+re-encoded so the cut lands on the exact frame. Tools whose `scopes` are only `editor` (`replace_audio`, `paint_layer`, `place_patch`)
 are left out of the Library and History menus because they need a file picked in the editor.
 
 A `media` parameter names another file: `{"item_id": "..."}` (a Library item or a helper upload) or
@@ -3026,11 +3027,22 @@ the tab never stores them inline.
 
 ## Extending the image editor
 
-The media loader's image editor (**Edit** on a loaded image, **Draw** on an empty
-field) is built on registries a plugin frontend can
-extend through `window.__potionui.imageEditor`. Every `register*` call returns an unregister
-function. Registrations are global and survive editor sessions, so register once when your
-plugin's frontend loads.
+The Image editor tab and the paint window on media fields (**Edit** on a loaded image,
+**Draw** on an empty field) share one paint engine and read the same registries, which a
+plugin frontend extends through `window.__potionui.imageEditor`. Every `register*` call returns
+an unregister function. Registrations are global and survive editor sessions, so register once
+when your plugin's frontend loads. Where each one takes effect:
+
+- **Tools** (`registerTool`): listed in the Image editor's Paint tool after the built-in
+  brush, eraser, fill, picker, rectangle, lasso and move tools, and in the field paint
+  window's tool rail.
+- **Adjustments** (`registerAdjustment`) and **image sources** (`registerImageSource`): offered in
+  both surfaces.
+- **Actions** (`registerAction`): shown under Actions in the Image editor's Paint options and in
+  the field paint window's Canvas panel.
+- `addImage` and `openImage` act on whichever paint surface is open.
+
+A tool or action that throws is logged and skipped; it never stops the editor.
 
 ```js
 const editor = window.__potionui.imageEditor;
@@ -3076,7 +3088,7 @@ const offTool = editor.registerTool({
   never needs to know about it.
 - **Image sources** (`registerImageSource`): `{id, label, pick()}`; `pick()` resolves
   `{url | blob | canvas, name}` or `null`. The source is listed in the Open and Add image menus.
-- **Actions** (`registerAction`): `{id, label, run(editor)}` shown in the Canvas panel; `editor`
+- **Actions** (`registerAction`): `{id, label, run(editor)}` shown as a button; `editor`
   offers `flatten()`, `addImage(canvas, name)` and `openImage(canvas, name)`.
 - `addImage(canvas, name)` / `openImage(canvas, name)` / `isOpen()` act on the editor that is
   currently open. `addImage` returns `false` when none is. `openImage` replaces the open

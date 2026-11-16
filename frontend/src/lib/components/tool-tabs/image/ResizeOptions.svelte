@@ -1,3 +1,7 @@
+<script lang="ts" module>
+	export const SCALES = [50, 75, 150, 200];
+</script>
+
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import tooltip from '$lib/actions/tooltip';
@@ -8,15 +12,16 @@
 		params,
 		input,
 		phone = false,
+		scales = SCALES,
 		onchange
 	}: {
 		params: ResizeParams;
 		input: PixelSize;
 		phone?: boolean;
+		scales?: readonly number[];
 		onchange: (next: ResizeParams) => void;
 	} = $props();
 
-	const SCALES = [50, 75, 150, 200];
 	let output = $derived(resizeOutput(params, input));
 
 	const field =
@@ -63,11 +68,13 @@
 		<input class={field} type="number" min="1" value={output.height} onchange={(event) => setHeight(event.currentTarget.value)} data-resize-height />
 	</label>
 </div>
-<div class="grid grid-cols-4 gap-1.5" role="group" aria-label="Scale">
-	{#each SCALES as percent (percent)}
+{#if scales.length}
+<div class="grid gap-1.5" style="grid-template-columns: repeat({scales.length}, minmax(0, 1fr))" role="group" aria-label="Scale">
+	{#each scales as percent (percent)}
 		<button type="button" class={chip} onclick={() => scale(percent)}>{percent}%</button>
 	{/each}
 </div>
+{/if}
 {#if !phone}
 	<div class="flex flex-col gap-1.5 text-sm">
 		<div class="flex items-center justify-between">
@@ -76,7 +83,7 @@
 		</div>
 		<div class="flex items-center justify-between">
 			<span class="text-fg-muted">Output</span>
-			<span class="font-mono tabular-nums text-success">{output.width}×{output.height}</span>
+			<span class="font-mono tabular-nums text-success" data-testid="resize-result">{output.width}×{output.height}</span>
 		</div>
 	</div>
 	<p class="text-sm text-fg-muted">Resampled with Lanczos. Unlock to set both sides.</p>

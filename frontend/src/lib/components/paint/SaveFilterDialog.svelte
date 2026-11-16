@@ -6,7 +6,7 @@
 	import { createMineFilter, errorCode, errorText, filterCatalog } from '$lib/filters/catalog';
 	import { editedSteps, opLookup, serializeSteps } from '$lib/filters/steps';
 	import { toasts } from '$lib/stores/toast';
-	import type { PaintSession, SessionSnapshot } from './session';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 
 	export let isOpen = false;
 	export let session: PaintSession;

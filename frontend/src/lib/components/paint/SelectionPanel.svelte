@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui';
-	import type { PaintSession, SessionSnapshot } from './session';
-	import type { PaintTool } from './types';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
+	import type { PaintTool } from '$lib/paint/types';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;

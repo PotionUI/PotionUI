@@ -196,6 +196,34 @@ test.describe('resize', () => {
 	});
 });
 
+for (const viewport of SIZES) {
+	test.describe(`crop and resize modals at ${viewport.tag}`, () => {
+		test('the crop modal fits the screen with its aspect, orientation and size controls', async ({ page }) => {
+			await page.setViewportSize({ width: viewport.width, height: viewport.height });
+			await prepareFieldPage(page, viewport);
+			const host = await mountField(page, viewport, { config: { title: 'Image', accept: 'image/*' }, value: imageItem(1) });
+			await pickTool(page, host, 'crop');
+			const editor = editorOf(page, 'Crop & frame');
+			await expect(editor.getByRole('button', { name: '3:4', exact: true })).toBeVisible();
+			await editor.getByRole('button', { name: '1:1', exact: true }).click();
+			await screenshot(page, JOURNEY, `crop-modal-${viewport.tag}`);
+			await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeVisible();
+		});
+
+		test('the resize modal fits the screen with its sizes and custom fields', async ({ page }) => {
+			await page.setViewportSize({ width: viewport.width, height: viewport.height });
+			await prepareFieldPage(page, viewport);
+			const host = await mountField(page, viewport, { config: { title: 'Image', accept: 'image/*' }, value: imageItem(1) });
+			await pickTool(page, host, 'resize');
+			const editor = editorOf(page, 'Resize');
+			await editor.getByRole('button', { name: /^50%/ }).click();
+			await expect(editor.locator('[data-testid="resize-result"]')).toHaveText('384×256');
+			await screenshot(page, JOURNEY, `resize-modal-${viewport.tag}`);
+			await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeVisible();
+		});
+	});
+}
+
 test.describe('frame', () => {
 	test('saves one frame as an image and never offers a replace', async ({ page }) => {
 		const log = await prepareFieldPage(page, size, { items: [resultImage({ id: 'still-1', url: '/api/e2e-media/image-8.png' })] });

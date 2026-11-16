@@ -38,9 +38,9 @@ function apiError(status: number, error: string, message: string) {
 	return { response: { status, data: { detail: { error, message } } } };
 }
 
-const { default: FiltersPanel } = await import('$lib/components/imageEditor/FiltersPanel.svelte');
-const { default: AdjustPanel } = await import('$lib/components/imageEditor/AdjustPanel.svelte');
-const { default: SaveFilterDialog } = await import('$lib/components/imageEditor/SaveFilterDialog.svelte');
+const { default: FiltersPanel } = await import('$lib/components/paint/FiltersPanel.svelte');
+const { default: AdjustPanel } = await import('$lib/components/paint/AdjustPanel.svelte');
+const { default: SaveFilterDialog } = await import('$lib/components/paint/SaveFilterDialog.svelte');
 const { PaintSession } = await import('$lib/paint/session');
 const { resetFilterCatalog } = await import('$lib/filters/catalog');
 const { paintFilters } = await import('$lib/paint/registries');

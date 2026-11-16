@@ -16,8 +16,8 @@
 	} from '$lib/filters/steps';
 	import { toasts } from '$lib/stores/toast';
 	import CurvePlot from '$lib/components/paint/CurvePlot.svelte';
-	import { PAINT_ICONS } from './icons';
-	import type { PaintSession, SessionSnapshot } from './session';
+	import { PAINT_ICONS } from '$lib/paint/icons';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;

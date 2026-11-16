@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { SWATCHES } from './palette';
-	import type { PaintTool, ToolSettings } from './types';
+	import { SWATCHES } from '$lib/paint/palette';
+	import type { PaintTool, ToolSettings } from '$lib/paint/types';
 
 	export let tool: PaintTool | undefined;
 	export let settings: ToolSettings;

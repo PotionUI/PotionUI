@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/ui';
 	import CurvePlot from '$lib/components/paint/CurvePlot.svelte';
 	import FineTunePanel from './FineTunePanel.svelte';
-	import type { PaintSession, SessionSnapshot } from './session';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;

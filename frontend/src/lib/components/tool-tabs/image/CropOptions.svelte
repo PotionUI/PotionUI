@@ -8,6 +8,9 @@
 		{ key: '9:16', label: '9:16', ratio: 9 / 16 }
 	] as const;
 
+	export const OUTPUT_SIDES = [768, 1024, 1536, 2048];
+	export const HINT = 'Drag inside the frame to move it, corners to resize. Arrow keys nudge, Enter applies.';
+
 	export function aspectLabel(key: string): string {
 		return IMAGE_ASPECTS.find((aspect) => aspect.key === key)?.label ?? 'Free';
 	}
@@ -25,15 +28,22 @@
 		params,
 		input,
 		phone = false,
+		aspects = IMAGE_ASPECTS,
+		outputSides = OUTPUT_SIDES,
+		sideLimit = 3,
+		hint = HINT,
 		onchange
 	}: {
 		params: CropParams;
 		input: PixelSize;
 		phone?: boolean;
+		aspects?: readonly { key: string; label: string; ratio: number | null }[];
+		outputSides?: readonly number[];
+		sideLimit?: number;
+		hint?: string | null;
 		onchange: (next: CropParams) => void;
 	} = $props();
 
-	const OUTPUT_SIDES = [768, 1024, 1536, 2048];
 	const FIELDS: { key: RectField; label: string }[] = [
 		{ key: 'x', label: 'X' },
 		{ key: 'y', label: 'Y' },
@@ -45,7 +55,7 @@
 	let pixels = $derived(rectInPixels(params, frame));
 	let output = $derived(planOutputSize(params.plan, input));
 	let cropped = $derived(planOutputSize({ ...params.plan, targetLongestSide: null }, input));
-	let sides = $derived(OUTPUT_SIDES.filter((side) => side < Math.max(cropped.width, cropped.height)));
+	let sides = $derived(outputSides.filter((side) => side < Math.max(cropped.width, cropped.height)));
 
 	const chip =
 		'h-8 rounded border font-mono text-sm tabular-nums transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-signal';
@@ -72,7 +82,7 @@
 
 {#if phone}
 	<div class="flex gap-1.5 overflow-x-auto" role="group" aria-label="Aspect" data-crop-aspects>
-		{#each IMAGE_ASPECTS as aspect (aspect.key)}
+		{#each aspects as aspect (aspect.key)}
 			<button
 				type="button"
 				class="{chip} flex-none px-3 {params.aspect === aspect.key ? on : off}"
@@ -94,7 +104,7 @@
 	<div>
 		<p class="mb-2 font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Aspect</p>
 		<div class="grid grid-cols-3 gap-1.5" role="group" aria-label="Aspect" data-crop-aspects>
-			{#each IMAGE_ASPECTS as aspect (aspect.key)}
+			{#each aspects as aspect (aspect.key)}
 				<button
 					type="button"
 					class="{chip} {params.aspect === aspect.key ? on : off}"
@@ -153,11 +163,11 @@
 			<p class="mb-2 font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Longest side</p>
 			<div class="grid grid-cols-4 gap-1.5" role="group" aria-label="Longest side">
 				<button type="button" class="{chip} {params.plan.targetLongestSide === null ? on : off}" aria-pressed={params.plan.targetLongestSide === null} onclick={() => longest(null)}>FULL</button>
-				{#each sides.slice(0, 3) as side (side)}
+				{#each sides.slice(0, sideLimit) as side (side)}
 					<button type="button" class="{chip} {params.plan.targetLongestSide === side ? on : off}" aria-pressed={params.plan.targetLongestSide === side} onclick={() => longest(side)}>{side}</button>
 				{/each}
 			</div>
 		</div>
 	{/if}
-	<p class="text-sm text-fg-muted">Drag inside the frame to move it, corners to resize. Arrow keys nudge, Enter applies.</p>
+	{#if hint}<p class="text-sm text-fg-muted">{hint}</p>{/if}
 {/if}

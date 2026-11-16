@@ -4,13 +4,15 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import CropEditor from './CropEditor.svelte';
+	import CropQuickEditor from './CropQuickEditor.svelte';
 	import TrimEditor from './TrimEditor.svelte';
 	import FrameEditor from './FrameEditor.svelte';
 	import MaskQuickEditor from './MaskQuickEditor.svelte';
 	import SplitEditor from './SplitEditor.svelte';
 	import ResizeEditor from './ResizeEditor.svelte';
+	import ResizeQuickEditor from './ResizeQuickEditor.svelte';
 	import ToolDialogHost from './ToolDialogHost.svelte';
-	import { decideMaskFate } from '$lib/components/imageEditor/maskPolicy';
+	import { decideMaskFate } from '$lib/paint/maskPolicy';
 	import { resolveEditableResource, type ResourceOrigin } from '$lib/media/editorSource';
 	import { describeMediaToolFailure } from '$lib/media-tools/errors';
 	import { executeMediaTool } from '$lib/media-tools/execute';
@@ -302,6 +304,17 @@
 {#if request && kind}
 	{#if isToolDialogKind(kind)}
 		<ToolDialogHost {request} {detach} {onClose} {onResult} />
+	{:else if kind === 'crop' && request.source.kind === 'image'}
+		<CropQuickEditor
+			source={request.source}
+			{busy}
+			{allowReplace}
+			{blockedReason}
+			{resourceNote}
+			failureMessage={failure}
+			{onClose}
+			{commit}
+		/>
 	{:else if kind === 'crop'}
 		<CropEditor
 			source={request.source}
@@ -326,6 +339,17 @@
 			onExtractFrame={request.source.kind === 'video'
 				? (time) => (frameHandoff = { time })
 				: null}
+		/>
+	{:else if kind === 'resize' && request.source.kind === 'image'}
+		<ResizeQuickEditor
+			source={request.source}
+			{busy}
+			{allowReplace}
+			{blockedReason}
+			{resourceNote}
+			failureMessage={failure}
+			{onClose}
+			{commit}
 		/>
 	{:else if kind === 'resize'}
 		<ResizeEditor

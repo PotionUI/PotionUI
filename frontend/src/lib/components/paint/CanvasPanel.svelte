@@ -1,11 +1,9 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button } from '$lib/components/ui';
-	import { PAINT_ICONS } from './icons';
-	import { paintActions } from './registries';
-	import type { PaintSession, SessionSnapshot } from './session';
-	import type { PaintAction } from './types';
-	import { onDestroy } from 'svelte';
+	import { PAINT_ICONS } from '$lib/paint/icons';
+	import PaintActions from '$lib/components/paint/PaintActions.svelte';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;
@@ -13,9 +11,6 @@
 
 	let width = state.width;
 	let height = state.height;
-	let actions: PaintAction[] = paintActions.list();
-	const stop = paintActions.subscribe(() => (actions = paintActions.list()));
-	onDestroy(stop);
 
 	$: if (state.width && state.height) {
 		width = state.width;
@@ -93,12 +88,5 @@
 		</Button>
 	</div>
 
-	{#if actions.length > 0}
-		<p class="font-mono text-xs uppercase tracking-[0.08em] text-fg-subtle">Actions</p>
-		<div class="flex flex-wrap gap-1.5">
-			{#each actions as action (action.id)}
-				<Button variant="secondary" size="sm" onclick={() => action.run(session)}>{action.label}</Button>
-			{/each}
-		</div>
-	{/if}
+	<PaintActions {session} />
 </div>

@@ -49,6 +49,7 @@ import { DEFAULT_PEN, DEFAULT_SIZE, rgbaToHex } from './palette';
 import { blendByMask, clearByMask, extractByMask, sampleMaskForLayer } from './raster/layerMask';
 import { buildSelection, rectPath } from './raster/selection';
 import { createPatch, patchBytes, writePatch } from './patch';
+import { guard } from '$lib/editors/guard';
 import { paintFilters, pluginTools, setActiveEditor } from './registries';
 import { readTheme, type EditorTheme } from './theme';
 import { createBrushTool, createEraserTool } from './tools/brush';
@@ -251,6 +252,13 @@ export class PaintSession implements ToolHost, EditorApi {
 		);
 		this.ensureAdjustValues();
 		setActiveEditor(this);
+	}
+
+	private callTool(what: string, run: (tool: PaintTool) => void): void {
+		const tool = this.tool;
+		if (!tool) return;
+		if (this.builtins.includes(tool)) run(tool);
+		else guard(`paint:${tool.id}`, what, () => run(tool), undefined);
 	}
 
 	get allTools(): PaintTool[] {
@@ -507,7 +515,7 @@ export class PaintSession implements ToolHost, EditorApi {
 
 	setTool(id: string): void {
 		if (!this.getTool(id) || id === this.toolId) return;
-		if (this.activePointerId !== null) this.tool?.pointerCancel?.(this);
+		if (this.activePointerId !== null) this.callTool('pointerCancel', (tool) => tool.pointerCancel?.(this));
 		if (this.toolId === 'adjust' && !this.fineTune) this.discardAdjust();
 		if (this.toolId === 'filters' || this.fineTune) this.discardFilter();
 		if (this.toolId === 'crop') this.cropRect = null;
@@ -1591,7 +1599,9 @@ export class PaintSession implements ToolHost, EditorApi {
 		const tool = this.tool;
 		if (!tool?.pointerDown) return;
 		this.activePointerId = event.pointerId;
-		tool.pointerDown(this, screenToDoc(this.view, screen), this.toolPointer(event));
+		const point = screenToDoc(this.view, screen);
+		const pointer = this.toolPointer(event);
+		this.callTool('pointerDown', (current) => current.pointerDown?.(this, point, pointer));
 	}
 
 	onPointerMove(event: PointerEvent): void {
@@ -1618,7 +1628,9 @@ export class PaintSession implements ToolHost, EditorApi {
 			return;
 		}
 		if (event.pointerId === this.activePointerId) {
-			this.tool?.pointerMove?.(this, this.cursor, this.toolPointer(event));
+			const pointer = this.toolPointer(event);
+			const at = this.cursor;
+			if (at) this.callTool('pointerMove', (tool) => tool.pointerMove?.(this, at, pointer));
 		}
 		this.invalidate();
 	}
@@ -1638,7 +1650,9 @@ export class PaintSession implements ToolHost, EditorApi {
 		}
 		if (event.pointerId === this.activePointerId) {
 			this.activePointerId = null;
-			this.tool?.pointerUp?.(this, screenToDoc(this.view, screen), this.toolPointer(event));
+			const point = screenToDoc(this.view, screen);
+			const pointer = this.toolPointer(event);
+			this.callTool('pointerUp', (tool) => tool.pointerUp?.(this, point, pointer));
 			this.emit();
 		}
 	}
@@ -1662,7 +1676,7 @@ export class PaintSession implements ToolHost, EditorApi {
 
 	private cancelActive(): void {
 		if (this.activePointerId === null && !this.panning) return;
-		this.tool?.pointerCancel?.(this);
+		this.callTool('pointerCancel', (tool) => tool.pointerCancel?.(this));
 		this.panning = null;
 		this.activePointerId = null;
 	}
@@ -1741,7 +1755,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		if (!this.ready) return;
 		context.setTransform(this.dpr * zoom, 0, 0, this.dpr * zoom, this.dpr * panX, this.dpr * panY);
 		this.drawSelection(context, theme);
-		if (!this.spaceHeld && !this.panning) this.tool?.overlay?.(this, context);
+		if (!this.spaceHeld && !this.panning) this.callTool('overlay', (tool) => tool.overlay?.(this, context));
 	}
 
 	private drawSelection(context: CanvasRenderingContext2D, theme: EditorTheme): void {

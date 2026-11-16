@@ -2263,10 +2263,50 @@ editor. `GET /api/media-tools?scope=editor` lists the tools that ask for it, eac
 
 ### Registering from your frontend
 
-The host's `window.__potionui.editors` is documented with the frontend registries. It exposes
-`stepKinds`, `railTools`, `overlays` and `tasks`, each with `get` and `list`, and
-`register(entry, { pluginId })`. An entry registered in code must still be declared in the manifest to
-survive the plugin being turned off.
+Code that builds entries at run time uses `window.__potionui.editors`. It is additive; the host `version` stays 1.
+
+```ts
+type Options = { pluginId: string };
+
+editors.registerStepKind(kind, options): () => void
+editors.registerRailGroup(group, options): () => void
+editors.registerRailTool(tool, options): () => void
+editors.registerOverlay(overlay, options): () => void
+editors.registerTask(task, options): () => void
+
+editors.stepKinds | railGroups | railTools | overlays | tasks
+  .get(editor, id): Entry | undefined
+  .list(editor): Entry[]
+```
+
+Every `register*` call returns a function that removes that entry. `editor` is `'image'`, `'video'` or `'audio'`; today only the
+Image editor reads the registries. An entry carries its own `editor` and `id`.
+
+- **Ids.** A plugin id must start with `<plugin id>.`; an entry that does not is refused and logged. A plugin cannot take over a core
+  id.
+- **Lifetime.** Each registration belongs to `options.pluginId`. When that plugin is disabled or removed, the next extension refresh
+  removes its entries, and a step it made shows "Not available" in the edit stack (kept, sent to the server as hidden, never
+  dropped). When the plugin is enabled again its entries come back and the step is normal. Calling the returned function ends a
+  registration for good.
+- **Failures.** Your `summary`, `outputSize`, `preview`, `payload`, `state` and `available` run inside a guard, and your components
+  inside an error boundary. A failure is logged once; the step is skipped or the tool shows "This tool could not load" with a Close
+  button. The rest of the editor and the edit keep working.
+- **Manifest.** A registration made in code is not declared, so it has no name while the plugin is off; declare it in the manifest
+  as above to keep a readable row.
+
+```ts
+const stop = window.__potionui.editors.registerStepKind(
+  {
+    id: 'acme.halftone',
+    editor: 'image',
+    label: 'Halftone',
+    icon: 'extension',
+    summary: (params) => `Dot size ${params.size}`,
+    payload: (params) => [{ tool: 'acme.halftone', params: { size: params.size } }]
+  },
+  { pluginId: 'acme' }
+);
+```
 
 ## Reading model files and folders
 

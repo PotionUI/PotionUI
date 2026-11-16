@@ -26,6 +26,7 @@ async function fetchCatalog(): Promise<ToolDTO[]> {
 		return tools;
 	} catch (error) {
 		logger.error('Failed to load the media tool catalog:', getErrorMessage(error));
+		mediaToolCatalogRevision.update((tick) => tick + 1);
 		return get(catalog);
 	} finally {
 		loading = null;

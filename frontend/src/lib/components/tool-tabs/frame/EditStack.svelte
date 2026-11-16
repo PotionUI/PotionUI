@@ -2,7 +2,9 @@
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { IconButton, Menu } from '$lib/components/ui';
+	import { Badge, Button, IconButton, Menu, Spinner } from '$lib/components/ui';
+	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
+	import type { StepRowInfo } from '$lib/editors/stepKinds';
 	import type { MenuItem } from '$lib/components/ui/Menu.svelte';
 	import {
 		DEFAULT_PINNED_LANES,
@@ -15,6 +17,7 @@
 		undoLabel,
 		undoneCount,
 		type EditStackState,
+		type EditStep,
 		type LanePair,
 		type StackRow
 	} from '$lib/tool-tabs/frame/editStack';
@@ -27,6 +30,8 @@
 		pinned = DEFAULT_PINNED_LANES,
 		moreItems = [],
 		notes,
+		rowInfo,
+		onrowaction,
 		onreopen,
 		onseek,
 		ontogglehidden,
@@ -42,6 +47,8 @@
 		pinned?: readonly LanePair[];
 		moreItems?: MenuItem[];
 		notes?: Snippet;
+		rowInfo?: (step: EditStep<unknown>) => StepRowInfo | null;
+		onrowaction?: (id: string, action: string) => void;
 		onreopen: (id: string) => void;
 		onseek: (cursor: number) => void;
 		ontogglehidden: (id: string) => void;
@@ -141,6 +148,7 @@
 		{#each rows as row (row.key)}
 			{@const step = row.step ?? row.pending}
 			{@const dragging = drag?.id === row.key}
+			{@const info = row.step && rowInfo ? rowInfo(row.step) : null}
 			<div
 				role="listitem"
 				class="group relative flex h-11 items-center gap-2 rounded pl-1 pr-1.5
@@ -196,8 +204,8 @@
 						</span>
 					</span>
 				{/snippet}
-				{#if row.key === 'original' || row.status === 'pending'}
-					<span class="flex min-w-0 flex-1 items-center gap-2">{@render body()}</span>
+				{#if row.key === 'original' || row.status === 'pending' || (info?.locked && row.status !== 'undone')}
+					<span class="flex min-w-0 flex-1 items-center gap-2" data-stack-locked={info?.locked ? '' : undefined}>{@render body()}</span>
 				{:else}
 					<button
 						type="button"
@@ -209,6 +217,26 @@
 					>
 						{@render body()}
 					</button>
+				{/if}
+				{#if info && row.step && row.status !== 'pending' && row.status !== 'undone'}
+					<span class="flex min-w-0 flex-none items-center gap-1.5" data-stack-state={info.state.kind}>
+						{#if info.row && info.entry}
+							<EditorEntryComponent entry={info.entry} componentRef={info.row} props={{ step: row.step, state: info.state }} variant="row" />
+						{/if}
+						{#if info.state.kind === 'busy'}
+							<Spinner size="sm" />
+							<span class="text-sm text-fg-muted">{info.state.label}</span>
+							{#if info.state.progress !== undefined}
+								<span class="font-mono text-sm tabular-nums text-fg-subtle">{Math.round(info.state.progress)}%</span>
+							{/if}
+						{:else if info.state.kind === 'skipped'}
+							<Badge variant={info.state.tone === 'muted' ? 'neutral' : info.state.tone} size="sm">{info.state.label}</Badge>
+							{#if info.state.action}
+								{@const action = info.state.action}
+								<Button size="xs" variant="ghost" onclick={() => row.step && onrowaction?.(row.step.id, action.id)}>{action.label}</Button>
+							{/if}
+						{/if}
+					</span>
 				{/if}
 				{#if row.status === 'pending'}
 					<span class="inline-flex h-5 flex-none items-center rounded bg-surface-3 px-1.5 font-mono text-sm text-fg-muted">PENDING</span>

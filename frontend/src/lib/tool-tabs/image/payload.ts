@@ -8,13 +8,13 @@ import type {
 } from '$lib/media-tools/types';
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
 import type { MediaRef } from '$lib/types/tabs';
+import { callKind } from '$lib/editors/stepKinds';
+import type { PixelSize } from '$lib/editors/types';
+import { imageStepContext, resolveImageStep, unavailablePayload } from './stepKinds';
 import { sliceStepParams, type SliceParams } from './slice/model';
 import { catalogToolId, isToolEffect, type CatalogParams, type CropParams, type PaintParams, type ResizeParams } from './steps';
 
-export interface PixelSize {
-	width: number;
-	height: number;
-}
+export type { PixelSize };
 
 export type PayloadGap = { kind: 'bake' | 'size'; step: string };
 
@@ -36,7 +36,7 @@ export function resizeOutput(params: ResizeParams, input: PixelSize | null): Pix
 	return { width: Math.max(1, Math.round(params.width)), height: Math.max(1, Math.round(params.height)) };
 }
 
-export function sizeAfter(step: EditStep, input: PixelSize | null): PixelSize | null {
+export function coreSizeAfter(step: EditStep, input: PixelSize | null): PixelSize | null {
 	switch (step.tool) {
 		case 'crop':
 			return input ? planOutputSize((step.params as CropParams).plan, input) : null;
@@ -55,20 +55,35 @@ export function sizeAfter(step: EditStep, input: PixelSize | null): PixelSize | 
 	}
 }
 
+export function sizeAfter(step: EditStep, input: PixelSize | null, beneath: readonly EditStep[] = []): PixelSize | null {
+	const resolved = resolveImageStep(step);
+	if (resolved.status === 'loading') return coreSizeAfter(step, input);
+	if (resolved.status !== 'kind') return input;
+	const { kind, params } = resolved;
+	const ctx = imageStepContext(step, input, beneath);
+	return callKind(kind, 'outputSize', () => (kind.outputSize ? kind.outputSize(params, ctx) : input), input);
+}
+
+function visibleBefore(steps: readonly EditStep[], index: number): EditStep[] {
+	return steps.slice(0, index).filter((step) => !step.hidden);
+}
+
 export function inputSizes(steps: readonly EditStep[], source: PixelSize | null, known: Record<string, PixelSize> = {}): (PixelSize | null)[] {
 	const sizes: (PixelSize | null)[] = [];
 	let size = source;
-	for (const step of steps) {
+	steps.forEach((step, i) => {
 		size = known[step.id] ?? size;
 		sizes.push(size);
-		if (!step.hidden) size = sizeAfter(step, size);
-	}
+		if (!step.hidden) size = sizeAfter(step, size, visibleBefore(steps, i));
+	});
 	return sizes;
 }
 
 export function outputSize(steps: readonly EditStep[], source: PixelSize | null): PixelSize | null {
 	let size = source;
-	for (const step of steps) if (!step.hidden) size = sizeAfter(step, size);
+	steps.forEach((step, i) => {
+		if (!step.hidden) size = sizeAfter(step, size, visibleBefore(steps, i));
+	});
 	return size;
 }
 
@@ -76,7 +91,7 @@ function layerRef(id: string): { item_id: string } {
 	return { item_id: id };
 }
 
-export function stepPayload(step: EditStep, input: PixelSize | null, baked?: string | null): MediaToolStep[] {
+export function coreStepPayload(step: EditStep, input: PixelSize | null, baked?: string | null): MediaToolStep[] {
 	switch (step.tool) {
 		case 'crop': {
 			if (!input) throw new PayloadError({ kind: 'size', step: step.id });
@@ -100,7 +115,18 @@ export function stepPayload(step: EditStep, input: PixelSize | null, baked?: str
 	}
 }
 
+export function stepPayload(step: EditStep, input: PixelSize | null, baked?: string | null, beneath: readonly EditStep[] = []): MediaToolStep[] {
+	const resolved = resolveImageStep(step);
+	if (resolved.status === 'loading') return coreStepPayload(step, input, baked);
+	if (resolved.status !== 'kind') return unavailablePayload(step);
+	const { kind, params } = resolved;
+	const ctx = imageStepContext(step, input, beneath, baked ?? null);
+	return callKind(kind, 'payload', () => kind.payload(params, ctx), unavailablePayload(step));
+}
+
 function hiddenPayload(step: EditStep, input: PixelSize | null): MediaToolStep[] {
+	const resolution = resolveImageStep(step).status;
+	if (resolution === 'unavailable') return unavailablePayload(step);
 	if (step.tool === 'effects' && isToolEffect(step.params)) return [{ tool: step.params.tool, params: { ...step.params.values }, hidden: true }];
 	if (step.tool === 'effects') return [{ tool: 'paint_layer', params: {}, hidden: true }];
 	if (step.tool === 'crop' && !input) return [{ tool: 'crop', params: {}, hidden: true }];
@@ -116,7 +142,7 @@ export interface PayloadContext {
 export function runSteps(steps: readonly EditStep[], context: PayloadContext): MediaToolStep[] {
 	const sizes = inputSizes(steps, context.source, context.sizes);
 	return steps.flatMap((step, i) =>
-		step.hidden ? hiddenPayload(step, sizes[i]) : stepPayload(step, sizes[i], context.baked?.[step.id] ?? null)
+		step.hidden ? hiddenPayload(step, sizes[i]) : stepPayload(step, sizes[i], context.baked?.[step.id] ?? null, visibleBefore(steps, i))
 	);
 }
 

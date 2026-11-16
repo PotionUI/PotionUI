@@ -11,19 +11,23 @@ import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 import { previewFrame, uploadMediaToolArtifact } from '$lib/services/api/mediaTools';
 import type { MediaToolInputRef } from '$lib/media-tools/types';
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
+import { callKindAsync } from '$lib/editors/stepKinds';
 import { outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
+import { imageStepContext, resolveImageStep, type ImageStepLike } from './stepKinds';
 import { imageEffects, stillShader } from './shaderEffect';
 import { adjustRecipeStep, type CropParams, type EffectParams, type PaintParams, type ResizeParams, type ToolEffectParams } from './steps';
 
 export const FULL_SIDE = 8192;
 export const PREVIEW_SIDE = 1600;
 
-const CLIENT_TOOLS = new Set(['crop', 'resize', 'paint', 'effects', 'slice']);
+const drawn = (step: ImageStepLike & Pick<EditStep, 'hidden'>) => {
+	if (step.hidden || step.tool === 'slice') return false;
+	return resolveImageStep(step).status === 'kind';
+};
 
-const drawn = (step: Pick<EditStep, 'tool' | 'hidden'>) => !step.hidden && step.tool !== 'slice';
-
-export function isClientStep(step: Pick<EditStep, 'tool'>): boolean {
-	return CLIENT_TOOLS.has(step.tool);
+export function isClientStep(step: ImageStepLike): boolean {
+	const resolved = resolveImageStep(step);
+	return resolved.status === 'kind' && !!resolved.kind.preview;
 }
 
 export interface RenderSource {
@@ -158,7 +162,7 @@ export async function effectCanvas(canvas: HTMLCanvasElement, params: EffectPara
 	return out;
 }
 
-export async function applyClientStep(rendered: Rendered, step: EditStep, maxSide: number): Promise<Rendered> {
+export async function coreApplyClientStep(rendered: Rendered, step: EditStep, maxSide: number): Promise<Rendered> {
 	switch (step.tool) {
 		case 'crop':
 			return cropCanvas(rendered.canvas, step.params as CropParams, rendered.size, maxSide);
@@ -173,6 +177,14 @@ export async function applyClientStep(rendered: Rendered, step: EditStep, maxSid
 		default:
 			return rendered;
 	}
+}
+
+export async function applyClientStep(rendered: Rendered, step: EditStep, maxSide: number, signal?: AbortSignal): Promise<Rendered> {
+	const resolved = resolveImageStep(step);
+	if (resolved.status !== 'kind' || !resolved.kind.preview) return rendered;
+	const { kind, params } = resolved;
+	const ctx = imageStepContext(step, rendered.size, [], null, maxSide);
+	return callKindAsync(kind, 'preview', () => kind.preview!(rendered, params, ctx, signal ?? new AbortController().signal), rendered);
 }
 
 export function abortError(): DOMException {
@@ -289,7 +301,7 @@ export class ImageRenderer {
 		}
 		for (const step of visible.slice(serverAt + 1)) {
 			if (options.signal?.aborted) throw abortError();
-			rendered = await applyClientStep(rendered, step, maxSide);
+			rendered = await applyClientStep(rendered, step, maxSide, options.signal);
 		}
 		return rendered;
 	}

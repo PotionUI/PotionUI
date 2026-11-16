@@ -30,6 +30,7 @@ import { isEditableTarget, isTypingInField } from '$lib/utils/editableTarget';
 import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 import { createHostFetchApi, type PluginHostFetchApi } from './hostApi';
 import type { PluginImageEditorApi } from '$lib/paint/registries';
+import { createHostEditorsApi, type PluginEditorsApi } from '$lib/editors/pluginEntries';
 import { createHostImageEditorApi } from '$lib/tool-tabs/canvasSource';
 import { findModelType, modelTypeDefinitions } from '$lib/stores/modelTypes.svelte';
 import { modelTypePresentation, type ModelTypePresentation } from '$lib/utils/modelPresentation';
@@ -168,6 +169,7 @@ export interface PotionUIHostApi {
 	input: PluginInputApi;
 	generation: PluginGenerationApi;
 	imageEditor: PluginImageEditorApi;
+	editors: PluginEditorsApi;
 	modelTypes: PluginModelTypesApi;
 	registerIcon: typeof registerIcon;
 }
@@ -335,6 +337,7 @@ export function initHostApi(): void {
 			subscribe: generationEvents.subscribe
 		},
 		imageEditor: createHostImageEditorApi(),
+		editors: createHostEditorsApi(),
 		modelTypes: {
 			list: () => modelTypeDefinitions().map((definition) => ({ ...definition })),
 			get: (id) => {

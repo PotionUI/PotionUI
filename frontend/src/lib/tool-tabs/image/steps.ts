@@ -2,6 +2,9 @@ import type { ImageEditPlan } from '$lib/media/imageEditPlan';
 import type { ToolDTO } from '$lib/media-tools/types';
 import type { EditStep, LanePair, StepDraft } from '$lib/tool-tabs/frame/editStack';
 import type { RailGroup } from '$lib/tool-tabs/frame/types';
+import { railFor, railTools } from '$lib/editors/railTools';
+import { stepKinds } from '$lib/editors/stepKinds';
+import { ensureCoreImageEditor } from './coreEditor';
 import { sliceSummary, type SliceParams } from './slice/model';
 
 export const GEOMETRY_LANE = 'geometry';
@@ -64,7 +67,7 @@ export const CATALOG_TOOL: Record<string, string> = {
 
 const HANDLED_CATALOG_IDS = new Set(['crop', 'resize', 'rotate', 'flip', 'fit_canvas', 'color_key', 'crop_subject', 'paint_layer', 'slice']);
 
-const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; lane?: string }> = {
+export const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; lane?: string }> = {
 	crop: { label: 'Crop', icon: 'editor-crop', lane: GEOMETRY_LANE },
 	resize: { label: 'Resize', icon: 'editor-resize', lane: GEOMETRY_LANE },
 	canvas: { label: 'Canvas', icon: 'editor-canvas', lane: GEOMETRY_LANE },
@@ -77,8 +80,15 @@ const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; lane?: st
 	subject: { label: 'Subject', icon: 'editor-subject', lane: GEOMETRY_LANE }
 };
 
+export const CORE_RAIL: readonly { id: string; label: string; tools: readonly CoreImageTool[] }[] = [
+	{ id: 'shape', label: 'Shape', tools: ['crop', 'resize', 'canvas', 'slice'] },
+	{ id: 'paint', label: 'Paint', tools: ['paint', 'mask'] },
+	{ id: 'look', label: 'Look', tools: ['effects', 'adjust'] },
+	{ id: 'tools', label: 'Tools', tools: ['colorKey', 'subject'] }
+];
+
 export function isRailTool(id: string | null | undefined, catalog: readonly ToolDTO[] = []): id is string {
-	return !!id && (isCoreTool(id) || editorCatalogTools(catalog).some((tool) => tool.id === id));
+	return !!id && (isCoreTool(id) || !!railTools.get('image', id) || editorCatalogTools(catalog).some((tool) => tool.id === id));
 }
 
 export function isCoreTool(id: string): id is CoreImageTool {
@@ -91,6 +101,11 @@ export function catalogToolId(tool: string): string {
 
 export function toolMeta(id: string, catalog: readonly ToolDTO[] = []): { label: string; icon: string; lane?: string } {
 	if (isCoreTool(id)) return CORE_TOOLS[id];
+	const registered = railTools.get('image', id);
+	if (registered) {
+		const lane = stepKinds.get('image', id)?.lane;
+		return lane ? { label: registered.label, icon: registered.icon, lane } : { label: registered.label, icon: registered.icon };
+	}
 	const entry = catalog.find((tool) => tool.id === id);
 	return { label: entry?.label ?? id, icon: entry?.icon ?? 'extension' };
 }
@@ -108,17 +123,11 @@ export function editorCatalogTools(catalog: readonly ToolDTO[]): ToolDTO[] {
 }
 
 export function imageRail(catalog: readonly ToolDTO[] = []): RailGroup[] {
-	const rail = (id: CoreImageTool) => ({ id, label: CORE_TOOLS[id].label, icon: CORE_TOOLS[id].icon });
-	return [
-		{ id: 'shape', label: 'Shape', tools: [rail('crop'), rail('resize'), rail('canvas'), rail('slice')] },
-		{ id: 'paint', label: 'Paint', tools: [rail('paint'), rail('mask')] },
-		{ id: 'look', label: 'Look', tools: [rail('effects'), rail('adjust')] },
-		{
-			id: 'tools',
-			label: 'Tools',
-			tools: [rail('colorKey'), rail('subject'), ...editorCatalogTools(catalog).map((tool) => ({ id: tool.id, label: tool.label, icon: tool.icon || 'extension' }))]
-		}
-	];
+	ensureCoreImageEditor();
+	const catalogTools = editorCatalogTools(catalog)
+		.filter((tool) => !railTools.get('image', tool.id))
+		.map((tool) => ({ id: tool.id, label: tool.label, icon: tool.icon || 'extension' }));
+	return railFor('image', { editor: 'image', hasSource: true }, { tools: catalogTools });
 }
 
 export function pluralLayers(count: number): string {

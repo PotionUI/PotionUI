@@ -69,6 +69,8 @@ import { setPluginRevisions } from '$lib/plugin-api/componentResolver';
 import { parseComponentRef } from '$lib/plugin-api/componentRef';
 import { describePluginToolTab } from '$lib/tool-tabs/pluginToolTabs';
 import type { PluginToolTabEntry } from '$lib/tool-tabs/types';
+import { describeEditorEntries, reconcileRuntimeEditorEntries, readEditorSnapshot, type EditorSnapshot } from '$lib/editors/pluginEntries';
+import { markEditorExtensionsReady } from '$lib/editors/ready';
 import {
 	frontendHooks,
 	pluginPages,
@@ -100,6 +102,7 @@ interface ExtensionSnapshot {
 	contributions: SlotContribution[];
 	revisions: Record<string, string>;
 	toolTabs: PluginToolTabEntry[];
+	editors: EditorSnapshot;
 	fieldTypes: FieldTypeManifestEntry[];
 	pages: PluginPage[];
 	quickActions: PluginQuickAction[];
@@ -116,6 +119,7 @@ type Disposer = () => void;
  */
 interface RegistrationDescriptor {
 	id: string;
+	retain?: boolean;
 	register: () => void;
 	dispose: Disposer;
 }
@@ -137,7 +141,8 @@ async function fetchSnapshot(): Promise<ExtensionSnapshot> {
 			renderers: (data?.renderers || []) as FrontendExtensionRenderer[],
 			contributions: (data?.contributions || []) as SlotContribution[],
 			revisions: (data?.revisions || {}) as Record<string, string>,
-			toolTabs: (Array.isArray(data?.tool_tabs) ? data.tool_tabs : []) as PluginToolTabEntry[]
+			toolTabs: (Array.isArray(data?.tool_tabs) ? data.tool_tabs : []) as PluginToolTabEntry[],
+			editors: readEditorSnapshot(data)
 		})),
 		fetchCatalog('/api/fields/types', (data) => (data || []) as FieldTypeManifestEntry[]),
 		fetchCatalog('/api/plugins/pages', (data) => (Array.isArray(data) ? data : []) as PluginPage[]),
@@ -253,6 +258,7 @@ function describeSnapshot(snapshot: ExtensionSnapshot): RegistrationDescriptor[]
 		const descriptor = describePluginToolTab(entry, revisionOf(entry.plugin_id));
 		if (descriptor) descriptors.push(descriptor);
 	}
+	descriptors.push(...describeEditorEntries(snapshot.editors, revisionOf));
 	return descriptors;
 }
 
@@ -265,7 +271,14 @@ function describeSnapshot(snapshot: ExtensionSnapshot): RegistrationDescriptor[]
 export const extensionRegistrations = writable(0);
 
 function applySnapshot(snapshot: ExtensionSnapshot): void {
-	const desired = describeSnapshot(snapshot);
+	const previous = new Map(applied.map((descriptor) => [descriptor.id, descriptor]));
+	const kept = new Set<RegistrationDescriptor>();
+	const desired = describeSnapshot(snapshot).map((descriptor) => {
+		const before = previous.get(descriptor.id);
+		if (!descriptor.retain || !before) return descriptor;
+		kept.add(before);
+		return before;
+	});
 	const wanted = new Set(desired.map((descriptor) => descriptor.id));
 
 	for (const descriptor of [...applied].reverse()) {
@@ -278,8 +291,9 @@ function applySnapshot(snapshot: ExtensionSnapshot): void {
 	}
 
 	setPluginRevisions(snapshot.revisions);
+	reconcileRuntimeEditorEntries(new Set(Object.keys(snapshot.revisions)));
 
-	for (const descriptor of desired) descriptor.register();
+	for (const descriptor of desired) if (!kept.has(descriptor)) descriptor.register();
 	applied = desired;
 
 	setContributions(snapshot.contributions);
@@ -299,6 +313,7 @@ async function runRefresh(): Promise<void> {
 		// extensions, and the previously applied snapshot stays live.
 		logger.error('Failed to refresh plugin frontend extensions:', err);
 	}
+	markEditorExtensionsReady();
 	await typesRefreshed;
 }
 

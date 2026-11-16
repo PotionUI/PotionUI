@@ -21,6 +21,13 @@
 		ToolRail
 	} from '$lib/components/tool-tabs/frame';
 	import SaveMenuRows from '$lib/components/tool-tabs/frame/SaveMenuRows.svelte';
+	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
+	import { editorsRevision, entryKey } from '$lib/editors/registry';
+	import { railTools } from '$lib/editors/railTools';
+	import { stepKinds } from '$lib/editors/stepKinds';
+	import { ensureCoreImageEditor } from '$lib/tool-tabs/image/coreEditor';
+	import { imageRowInfo, runStepAction } from '$lib/tool-tabs/image/stepKinds';
+	import { createImageToolHost } from '$lib/tool-tabs/image/toolHost';
 	import { paintFilters } from '$lib/paint/registries';
 	import { filterCatalog, loadFilterCatalog } from '$lib/filters/catalog';
 	import { getOp } from '$lib/filters/engine';
@@ -271,14 +278,34 @@
 	let catalog = $derived($mediaToolCatalog);
 	let extensions = $derived(sharedExtensions($filterCatalog.ops, paintFilters.list()));
 	let stillEffects = $derived(imageEffects(catalog));
-	let railGroups = $derived<RailGroup[]>(
-		source
-			? imageRail(catalog)
-			: imageRail(catalog).map((group) => ({
+	let railGroups = $derived.by<RailGroup[]>(() => {
+		void $editorsRevision;
+		const rail = imageRail(catalog);
+		return source
+			? rail
+			: rail.map((group) => ({
 					...group,
 					tools: group.tools.map((tool) => ({ ...tool, disabled: true, reason: 'Open a picture first' }))
-				}))
-	);
+				}));
+	});
+	let registeredTool = $derived.by(() => {
+		void $editorsRevision;
+		return activeTool ? railTools.get('image', activeTool) : undefined;
+	});
+	let rowInfoFor = $derived.by(() => {
+		void $editorsRevision;
+		return (step: EditStep) => imageRowInfo(step);
+	});
+	let applyOverride = $state<{ tool: string | null; label: string; enabled: boolean } | null>(null);
+	ensureCoreImageEditor();
+	const toolHost = createImageToolHost({
+		getStack: () => stack,
+		setStack: (next) => (stack = next),
+		getSource: () => ({ size: sourceSize, ref: resolvedRef }),
+		render: async (stepsBeneath) => (await renderer.render(stepsBeneath === undefined ? effective : effective.slice(0, stepsBeneath))).canvas,
+		setApply: (state) => (applyOverride = state ? { ...state, tool: activeTool } : null)
+	});
+	$effect(() => toolHost.syncPending(stack.pending));
 	let effective = $derived(effectiveSteps(stack));
 	let applied = $derived(appliedSteps(stack));
 	let editCount = $derived(appliedCount(stack));
@@ -760,6 +787,7 @@
 
 	function track(list: readonly EditStep[] | null, assign: (value: Rendered | null) => void, maxSide?: number, primary = false) {
 		void surfaceVersion;
+		void $editorsRevision;
 		const size = sourceSize;
 		const url = sourceUrl;
 		const ref = resolvedRef;
@@ -981,12 +1009,18 @@
 		if (existing) stack = reopen(stack, existing.id);
 	}
 
+	function closeActiveTool() {
+		if (pending) stack = discardPending(stack);
+		activeTool = null;
+		host.setActiveTool(null);
+	}
+
 	async function reopenStep(id: string) {
 		const step = stack.steps.find((candidate) => candidate.id === id);
 		if (!step || busy) return;
 		if (pending?.target === id) return;
 		if (!(await leaveTool())) return;
-		const tool = step.tool === 'effects' && isAdjustParams(step.params) ? 'adjust' : step.tool;
+		const tool = step.tool === 'effects' && isAdjustParams(step.params) ? 'adjust' : (stepKinds.get('image', step.tool)?.reopenTool ?? step.tool);
 		if (tool !== 'adjust') stack = reopen(stack, id);
 		activeTool = tool;
 		host.setActiveTool(tool);
@@ -1579,7 +1613,9 @@
 									? 'Update effect'
 									: 'Add effect'
 								: 'Apply look'
-							: 'Apply'
+							: registeredTool && applyOverride?.tool === activeTool
+								? applyOverride.label
+								: 'Apply'
 	);
 	let canApply = $derived(
 		!busy &&
@@ -1591,7 +1627,9 @@
 						? pendingHere?.tool === 'slice' && !sliceLocked
 						: activeTool === 'effects'
 							? !!pendingHere && canApplyEffect(effectParams, effectOriginal, effectUpdating)
-							: !!pendingHere || !!catalogTool)
+							: registeredTool && applyOverride?.tool === activeTool
+								? applyOverride.enabled
+								: !!pendingHere || !!catalogTool)
 	);
 	let canReset = $derived(
 		!busy &&
@@ -1620,7 +1658,9 @@
 	{#if notice}
 		<p class="text-sm text-danger" role="alert">{notice}</p>
 	{/if}
-	{#if activeTool === 'crop' && cropInput}
+	{#if registeredTool?.options}
+		<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.options} props={{ host: toolHost, phone }} onclose={closeActiveTool} />
+	{:else if activeTool === 'crop' && cropInput}
 		<CropOptions params={cropParams} input={cropInput} {phone} onchange={(next) => setDraft('crop', next)} />
 	{:else if activeTool === 'resize' && resizeParams && resizeInput}
 		<ResizeOptions params={resizeParams} input={resizeInput} {phone} onchange={(next) => setDraft('resize', next)} />
@@ -1882,6 +1922,11 @@
 		{variant}
 		pinned={IMAGE_PINNED_LANES}
 		moreItems={stackMore}
+		rowInfo={rowInfoFor}
+		onrowaction={(id, action) => {
+			const step = stack.steps.find((candidate) => candidate.id === id);
+			if (step) runStepAction(step, action);
+		}}
 		onreopen={(id) => void reopenStep(id)}
 		onseek={(cursor) => (stack = seek(stack, cursor))}
 		ontogglehidden={(id) => (stack = toggleHidden(stack, id))}

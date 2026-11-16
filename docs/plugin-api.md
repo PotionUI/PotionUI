@@ -2194,6 +2194,26 @@ is rejected by lint.
 
 `src.plugin_api.editor` exports `TaskDefinition`, the shape the host keeps for every registered task.
 
+What the host does with a task:
+
+- The server keeps one task registry. Core registers `edit_region` and `remove_object`; a plugin's entries are
+  added when it is enabled and dropped when it is disabled. An id that another source already holds is
+  refused, so a plugin cannot replace a core task. `editors` defaults to `[image]`.
+- `GET /api/editor/tasks?editor=image` lists the registered tasks for that editor, each with `offers` (the
+  modes the caller may use that declare it, or that reach it through the task's `fallback`; empty when none
+  does) and the caller's `default` setup.
+- `POST /api/editor/tasks/{task}/runs` starts a **run**: one Generate press in the editor. The server prepares the
+  picture and region from the mode's `editor.yml`, submits a normal generation, and blends each result back as a
+  patch. `GET /api/editor/runs/{id}` follows it, `DELETE /api/editor/runs/{id}` cancels it, and
+  `editor_run_update` on `/ws/generation` announces each change to the run's owner.
+- `PUT` and `DELETE /api/editor/tasks/{task}/default` set and clear the caller's **default** setup for a task.
+- Every route, field and error is in [Generative edits in the editor](api/editor-runs.md).
+- `produces` accepts `patch` and `replace`. A run creates patches whichever is declared, so write `patch`.
+
+The Image editor adds each task the server lists to its Generate group as a rail tool, with the editor's own
+options and a Settings panel. Name a rail tool of your own with `task: <task id>` in `editor_tools` to replace
+that tool; the editor then adds no rail tool for the task.
+
 ## Extending the editors
 
 The image, video and audio editors take parts from plugins. A plugin declares each part in
@@ -2254,6 +2274,163 @@ media_tools:
   list. Disabling or removing the plugin drops its entries from the next response.
 - When a plugin is disabled, an edit that used one of its steps keeps the step. It is shown as not
   available, left out of the preview and Save, and never removed on its own.
+
+All five keys are optional and default to an empty list, so a plugin that declares none of them is unaffected,
+and so is every plugin written before they existed.
+
+### How core uses the same registries
+
+Core registers its own tools through the registries a plugin uses, in `frontend/src/lib/tool-tabs/image/coreEditor.ts`: the
+core rail groups and tools, a step kind for each core tool (`crop`, `resize`, `canvas`, `slice`, `paint`, `effects`,
+`colorKey`, `subject`), the Generate group, and the core tasks (`generate/register.ts`). Core entries have no `pluginId` and
+are not guarded. Two consequences for a plugin:
+
+- A media tool with `scopes: [editor]` that takes one image and returns one file gets a step kind made by core, marked
+  overridable. Declare an `editor_steps` entry with the same id to replace it. Without a rail tool of your own, the tool
+  is listed in the rail's `tools` group.
+- A core entry that is not overridable keeps its id. A plugin entry for it is refused.
+
+### What a declared step module exports
+
+`editor_steps[].module` is a built file under `frontend/dist` whose default export is a plain object. The host registers
+the step kind at once, from the manifest, and fills in the rest when the file has loaded. The object may carry:
+
+| Export | Effect |
+|---|---|
+| `summary(params, ctx)` | The line under the step's label. Default: the summary stored on the step. |
+| `outputSize(params, ctx)` | The picture size after the step. Default: the size going in. |
+| `payload(params, ctx)` | The media tool steps this step sends to the server, `[{tool, params}]`. Default: one hidden step, so nothing runs. |
+| `preview(frame, params, ctx, signal)` | Draws the step on the preview canvas and resolves the new frame. Default: the frame as it is. |
+| `state(step, ctx)` | `{kind: 'done'}`, `{kind: 'busy', label}` or `{kind: 'skipped', tone, label}`. |
+| `onAction(step, action, ctx)` | Handles a row action. |
+| `version`, `migrate(params, from)` | Params saved with an older `v` are passed through `migrate`; params with a newer `v` than `version` are shown as "Made with a newer version" and are not run. |
+| `reopenTool` | The rail tool id (or a function of the params returning one) that reopens the step. |
+
+Until the file loads the row reads "Loading"; if it cannot be loaded the row reads "Could not load" and the failure is logged
+once. `lane` comes from the manifest entry. Fields a manifest cannot carry (`row`, `extras`, `contract`) are available only to a
+step kind registered from code.
+
+### What a failure does
+
+Everything a plugin supplies runs behind a guard, in `frontend/src/lib/editors/guard.ts`. A synchronous call that throws is
+logged once per entry and replaced with a safe default: the step shows its stored summary, the tool stays listed. An
+asynchronous call such as `preview` is cut off after 10 seconds and treated the same way; an aborted call is not a failure.
+Plugin components run inside an error boundary, so a broken options panel shows "This tool could not load" with a Close
+button and leaves the rest of the editor alone.
+
+A step whose kind is not registered is never dropped from the edit:
+
+- While the extension list is still loading it shows "Loading".
+- When its plugin is disabled, removed or has not declared the kind, it shows "Not available". The step stays in the stack,
+  is sent to the server as hidden, and is left out of the preview and of Save. Enabling the plugin again makes it normal.
+- When its params are newer than the kind knows, it shows "Made with a newer version" and is treated the same way.
+
+### What is not extendable yet
+
+- **Video and audio editors.** The manifest and the registries accept `editor: video` and `editor: audio`, and
+  `GET /api/plugins/frontend-extensions` returns those entries, but only the Image editor reads the registries today.
+- **A rail tool's Settings from the manifest.** `settings` (the component shown in the right panel when a tool is opened from a
+  task) exists on a rail tool registered from code only; `editor_tools` has no such key. A tool with a `task` and no
+  `settings` gets the standard Generate settings.
+- **Availability and row customisation.** A rail tool's `available(ctx)`, a step kind's `row` and `extras`, and an overlay's
+  `order`, `hint`, `modes`, `modesLabel` and `size` are code registration only; `editor_overlays` accepts `component`,
+  `cursor` and `produces`.
+- **Tasks without a preset.** A task is run by a preset mode that declares it. A plugin cannot add a task to a mode it
+  does not own, and a task has no run path other than a mode.
+- **Core groups and ids.** Core rail group and tool ids are fixed. A plugin adds groups of its own and tools to any group,
+  and can order itself among core entries with `order`.
+
+### Example: a rail tool with a step kind
+
+`acme-halftone/manifest.yml` declares the media tool that does the work (its Python class is described under
+[Media tools](#media-tools)), and the three editor parts that put it in the rail:
+
+```yaml
+media_tools:
+  - id: acme-halftone.halftone
+    label: Halftone
+    accepts: [image]
+    scopes: [editor]
+    python: tools.py:Halftone
+    params:
+      - { name: size, type: integer, min: 2, max: 64, default: 8 }
+editor_steps:
+  - id: acme-halftone.halftone
+    editor: image
+    module: editor/halftoneStep.js
+    label: Halftone
+editor_tools:
+  - id: acme-halftone.halftone
+    editor: image
+    group: look
+    label: Halftone
+    options: editor/HalftoneOptions.js
+    order: 40
+```
+
+`frontend/src/editor/halftoneStep.js` is built into `frontend/dist/editor/halftoneStep.js`:
+
+```js
+export default {
+  summary: (params) => `Dot size ${params.size}`,
+  payload: (params) => [{ tool: 'acme-halftone.halftone', params: { size: params.size } }]
+};
+```
+
+`HalftoneOptions.svelte` is the panel the rail tool opens. It receives `host` and `phone`; `host.begin` starts a pending step,
+`host.apply` puts it in the stack and `host.discard` drops it:
+
+```svelte
+<script>
+  let { host } = $props();
+  let size = $state(8);
+  const draft = () => ({
+    tool: 'acme-halftone.halftone',
+    icon: 'extension',
+    label: 'Halftone',
+    summary: `Dot size ${size}`,
+    params: { size }
+  });
+  host.begin(draft());
+  $effect(() => host.update(draft()));
+</script>
+
+<input type="range" min="2" max="64" bind:value={size} />
+<button onclick={() => host.apply()}>Apply</button>
+<button onclick={() => host.discard()}>Cancel</button>
+```
+
+The step then appears in the edit's stack, saves with the edit and is sent to the server as the `acme-halftone.halftone`
+media tool. Turning the plugin off leaves it in the stack as "Not available".
+
+### Example: a task
+
+A task is a manifest entry plus a mode that offers it. `acme-relight/manifest.yml`:
+
+```yaml
+editor_tasks:
+  - id: acme-relight.relight
+    label: Relight a region
+    icon: palette
+    region: required
+    prompt: optional
+```
+
+and, in a mode that belongs to the plugin (`presets:` root), `modes/relight/editor.yml`
+(see [Editor contract](presets.md#editor-contract)):
+
+```yaml
+schema_version: 1
+tasks:
+  - task: acme-relight.relight
+    region: crop
+    inputs:
+      image: source_image
+```
+
+With the plugin enabled, `GET /api/editor/tasks` lists `acme-relight.relight` with that mode under `offers`, the Image editor
+adds a "Relight a region" tool to its Generate group, and a run starts with
+`POST /api/editor/tasks/acme-relight.relight/runs`. Nothing in the plugin's code is needed for a task.
 
 ### The `editor` scope for media tools
 

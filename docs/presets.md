@@ -330,9 +330,9 @@ tasks:
 | `task` | A core task (`edit_region`, `remove_object`) or a plugin task `<plugin>.<name>`. |
 | `region` | `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. |
 | `inputs.image` | The `image` field that takes the picture, or `{field: <media field>, index: 0}` for a `media` list. |
-| `inputs.mask` | Required for `region: mask`: `<image field>_inpaint_mask` of an image field with `allow_inpaint: true`. |
+| `inputs.mask` | Required for `region: mask`. It must be named `<image field>_inpaint_mask`, and that image field must set `allow_inpaint: true`. |
 | `size` | `area` (default 1048576, 262144 to 4194304), `multiple` (8, 16, 32 or 64), `field` (a `resolution` field), `buckets`. |
-| `context` | Default context around the area, default `0.5`. A `region_context` field in the form wins. |
+| `context` | Context around the area, as a fraction of its size (0 to 4), default `0.5`. A `region_context` field in the form, when its value is in that range, wins. |
 | `set` | Fixed values the editor writes. A key must be a field, and a value for a select field must be one of its options. |
 | `owned` | More fields the editor fills. |
 | `seed_field`, `quantity_field` | Default to the mode's `seed` field and its quantity field. |
@@ -340,6 +340,54 @@ tasks:
 
 The fields the editor fills (`inputs`, `size.field`, the quantity field, every `set` key and `owned`)
 are the mode's editor-owned fields; an editor setup never stores them.
+
+Two shipped declarations show the two common shapes. `content/presets/marketplace/SDXL/modes/inpaint/editor.yml` hands the
+mode the whole picture and a mask, because the mode already has an inpaint input:
+
+```yaml
+schema_version: 1
+tasks:
+  - task: edit_region
+    region: mask
+    inputs:
+      image: source_image
+      mask: source_image_inpaint_mask
+```
+
+`content/presets/marketplace/Krea2/modes/edit/editor.yml` hands the mode a crop of the marked area, for a mode that edits
+a picture by instruction. `match_source` is a checkbox field of that mode, so its `set` value is `true` or `false`:
+
+```yaml
+schema_version: 1
+tasks:
+  - task: edit_region
+    region: crop
+    inputs:
+      image: source_image
+    set:
+      match_source: true
+```
+
+`content/presets/marketplace/MiniMax-H3-Image/modes/edit/editor.yml` takes the picture from the first entry of a `media`
+list with `inputs.image: {field: references, index: 0}`.
+
+### Fields the editor owns
+
+For every declared task the editor fills the fields listed under "owned" above, and the mode's settings no longer show them
+to the person using the editor: its `inputs.image` field, the `inputs.mask` field, `size.field`, the quantity field, every
+`set` key and every `owned` entry. The editor also treats every `image` and `media` field of the mode as its own, together
+with each one's `_inpaint_mask` and `__origin` companions. An editor setup (a saved session of kind `editor`) never stores any
+of these, and a run replaces whatever a request sends for them. `GET /api/editor/tasks` returns the list for each offer as
+`owned`.
+
+### What a member sees
+
+A mode that declares a task is offered in the Image editor: the task has a rail tool in the Generate group, and its
+Settings panel shows the **setup** (this mode, and where its settings start from: a saved editor session, a formula, or the
+mode's own defaults) with the mode's form below it, minus the owned fields. A mode whose engine has no backend set up is
+listed but cannot be picked, with "No backend is set up for the engine of this preset." The person's **default** setup for
+the task is the one chosen first; a default that stopped working is reported, never replaced
+([your default setup for a task](api/editor-runs.md#your-default-setup-for-a-task)).
 
 `remove_object` needs no declaration: when no mode declares it, the editor offers the modes that
 declare `edit_region` and sends the built-in prompt "Remove the marked object. Fill the area so it

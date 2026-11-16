@@ -3,7 +3,7 @@
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button } from '$lib/components/ui';
+	import { Button, EmptyState } from '$lib/components/ui';
 	import {
 		BarActions,
 		CanvasChip,
@@ -1241,18 +1241,20 @@
 </script>
 
 {#snippet emptyState()}
-	<div class="dot-grid flex h-full min-h-0 flex-1 items-center justify-center p-6">
-		<div class="flex w-full max-w-md flex-col items-center rounded-lg border border-dashed border-line-strong bg-surface-1 px-8 py-10 text-center" data-testid="tool-tab-empty">
-			<span class="mb-4 flex h-11 w-11 items-center justify-center rounded border border-line bg-surface-2 text-fg-muted">
-				<Icon name="video" className="h-5 w-5" />
-			</span>
-			<h2 class="text-base font-semibold text-fg">Open a clip to edit</h2>
-			<p class="mt-2 text-sm text-fg-muted">Pick a video from your Library or History. Edit from History or Library opens it here too.</p>
-			<div class="mt-5 flex gap-2">
-				{#each sourceEntries('video') as entry (entry.id)}
-					<Button variant="secondary" size="sm" icon={entry.icon} onclick={() => openReplacePicker(entry.id)}>{entry.label}</Button>
-				{/each}
-			</div>
+	<div class="flex min-h-0 flex-1 flex-col dot-grid bg-canvas">
+		<div class="flex flex-1 flex-col" data-testid="tool-tab-empty">
+			<EmptyState
+				page
+				icon="video"
+				title="Open a clip to edit"
+				description="Pick a video from your Library or History. Edit from History or Library opens it here too."
+			>
+				{#snippet actions()}
+					{#each sourceEntries('video') as entry (entry.id)}
+						<Button variant="secondary" icon={entry.icon} onclick={() => openReplacePicker(entry.id)}>{entry.label}</Button>
+					{/each}
+				{/snippet}
+			</EmptyState>
 		</div>
 	</div>
 {/snippet}

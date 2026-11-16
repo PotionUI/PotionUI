@@ -1,6 +1,5 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Kbd, Spinner } from '$lib/components/ui';
+	import { Button, EmptyState, Kbd, Spinner } from '$lib/components/ui';
 	import ImageSourcePicker from './ImageSourcePicker.svelte';
 	import RecentPictures from './RecentPictures.svelte';
 	import { sourceEntries } from '$lib/tool-tabs/sourceEntries';
@@ -32,7 +31,7 @@
 </script>
 
 <div
-	class="dot-grid relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 md:p-6"
+	class="relative flex min-h-0 flex-1 flex-col overflow-y-auto dot-grid bg-canvas {dragging ? 'bg-signal/5 ring-1 ring-inset ring-signal' : ''}"
 	role="region"
 	aria-label="Open a picture"
 	ondragover={(event) => {
@@ -43,32 +42,32 @@
 	ondrop={drop}
 	data-image-empty
 >
-	<div
-		class="flex w-full max-w-[560px] flex-col items-center rounded-lg border border-dashed bg-surface-1 px-5 py-8 text-center md:px-8 {dragging
-			? 'border-signal bg-signal/5'
-			: 'border-line-strong'}"
-		data-testid="tool-tab-empty"
-	>
-		<span class="mb-4 flex h-11 w-11 items-center justify-center rounded border border-line bg-surface-2 text-fg-muted">
-			{#if busy}<Spinner />{:else}<Icon name="upload" className="h-5 w-5" />{/if}
-		</span>
-		<h2 class="text-lg font-semibold text-fg">Open a picture to edit</h2>
-		<p class="mt-2 max-w-sm text-base text-fg-muted">
-			Drop an image here, paste one, or pick something you made. Every edit stays undoable until you save.
-		</p>
-		<div class="mt-5 flex flex-wrap justify-center gap-2">
-			{#each sourceEntries('image', phone) as entry (entry.id)}
-				<Button size="sm" icon={entry.icon} onclick={() => picker?.open(entry.id)}>{entry.label}</Button>
-			{/each}
-		</div>
-		{#if !phone}
-			<p class="mt-4 flex items-center gap-2 text-sm text-fg-subtle">or paste <Kbd keys="Ctrl V" /></p>
-		{/if}
-		{#if error}
-			<p class="mt-3 text-sm text-danger" role="alert">{error}</p>
-		{/if}
-		<RecentPictures {onpick} class="mt-6 w-full border-t border-line pt-5 text-left" />
+	<div class="flex flex-1 flex-col" data-testid="tool-tab-empty">
+		<EmptyState
+			page
+			icon="upload"
+			title="Open a picture to edit"
+			description="Drop an image here, paste one, or pick something you made. Every edit stays undoable until you save."
+		>
+			{#snippet extra()}
+				{#if busy}
+					<span class="mt-1 flex justify-center"><Spinner /></span>
+				{/if}
+				{#if !phone}
+					<span class="flex items-center justify-center gap-2">or paste <Kbd keys="Ctrl V" /></span>
+				{/if}
+				{#if error}
+					<span class="block text-danger" role="alert">{error}</span>
+				{/if}
+			{/snippet}
+			{#snippet actions()}
+				{#each sourceEntries('image', phone) as entry (entry.id)}
+					<Button variant="secondary" icon={entry.icon} onclick={() => picker?.open(entry.id)}>{entry.label}</Button>
+				{/each}
+			{/snippet}
+		</EmptyState>
 	</div>
+	<RecentPictures {onpick} class="mx-auto w-full max-w-md px-6 pb-10 text-left" />
 </div>
 
 <ImageSourcePicker bind:this={picker} {onpick} {onfile} />

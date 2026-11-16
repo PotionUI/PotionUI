@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushSync } from 'svelte';
+import { flushSync, tick } from 'svelte';
 import { get } from 'svelte/store';
 import { mountComponent } from '../helpers/mount';
+import { menuRow, openEditorMenu } from '../helpers/editorMenu';
 import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, beginEdit, createStack } from '$lib/tool-tabs/frame/editStack';
 import { emptyImageState, writeImageState } from '$lib/tool-tabs/image/state';
@@ -185,16 +186,24 @@ describe('replacing a tool tab source', () => {
 });
 
 describe('image editor Replace control', () => {
-	it('is offered while a picture is open and lists the same sources as the empty state', () => {
-		const { q } = renderEditor();
-		q<HTMLButtonElement>('[data-frame-replace]')!.click();
+	async function openReplaceSubmenu(q: (sel: string) => HTMLElement | null) {
+		await openEditorMenu(q('[data-editor-menubar]')!.parentElement!, 'file');
+		menuRow('file.replace')!.click();
 		flushSync();
-		const entries = Array.from(document.querySelectorAll<HTMLElement>('[data-replace-entry]')).map((row) => row.dataset.replaceEntry);
+		await tick();
+	}
+
+	it('is offered in the File menu while a picture is open and lists the same sources as the empty state', async () => {
+		const { q } = renderEditor();
+		await openReplaceSubmenu(q);
+		const entries = Array.from(document.querySelectorAll<HTMLElement>('[data-editor-submenu] [data-menu-row]')).map((row) => row.dataset.rowId);
 		expect(entries).toEqual(['history', 'library', 'kits', 'browse']);
 	});
 
-	it('is absent from the empty state', () => {
+	it('is absent from the File menu of the empty state', async () => {
 		const { q } = renderEditor({ source: null });
+		await openEditorMenu(q('[data-editor-menubar]')!.parentElement!, 'file');
+		expect(menuRow('file.replace')).toBeNull();
 		expect(q('[data-frame-replace]')).toBeNull();
 	});
 
@@ -204,7 +213,7 @@ describe('image editor Replace control', () => {
 			data: { generations: [{ files: [{ id: 777, file_path: OTHER.path, file_type: 'image', is_final: true }] }] }
 		});
 		const { q, replace } = renderEditor();
-		q<HTMLButtonElement>('[data-frame-replace]')!.click();
+		await openReplaceSubmenu(q);
 		await settle();
 		document.querySelector<HTMLButtonElement>('[data-recent-history] button')!.click();
 		await settle();
@@ -220,7 +229,7 @@ describe('image editor Replace control', () => {
 			data: { generations: [{ files: [{ id: 501, file_path: CURRENT.path, file_type: 'image', is_final: true }] }] }
 		});
 		const { q, replace } = renderEditor();
-		q<HTMLButtonElement>('[data-frame-replace]')!.click();
+		await openReplaceSubmenu(q);
 		await settle();
 		document.querySelector<HTMLButtonElement>('[data-recent-history] button')!.click();
 		await settle();

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushSync } from 'svelte';
+import { flushSync, tick } from 'svelte';
 import { mountComponent } from '../helpers/mount';
+import { menuRow, openEditorMenu } from '../helpers/editorMenu';
 import type { ToolTabHost } from '$lib/tool-tabs/types';
 import type { MediaRef } from '$lib/types/tabs';
 
@@ -45,11 +46,14 @@ afterEach(() => {
 });
 
 describe('video editor Replace control', () => {
-	it('is offered while a clip is open and lists History, Library and Kits', () => {
+	it('is offered in the File menu while a clip is open and lists History, Library and Kits', async () => {
 		const { q } = renderEditor(CLIP);
-		q<HTMLButtonElement>('[data-frame-replace]')!.click();
+		await openEditorMenu(q('[data-editor-menubar]')!.parentElement!, 'file');
+		expect(menuRow('file.replace')!.textContent).toContain('Replace clip');
+		menuRow('file.replace')!.click();
 		flushSync();
-		const entries = Array.from(document.querySelectorAll<HTMLElement>('[data-replace-entry]')).map((row) => row.dataset.replaceEntry);
+		await tick();
+		const entries = Array.from(document.querySelectorAll<HTMLElement>('[data-editor-submenu] [data-menu-row]')).map((row) => row.dataset.rowId);
 		expect(entries).toEqual(['history', 'library', 'kits']);
 	});
 

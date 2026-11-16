@@ -744,6 +744,25 @@ class EditorToolSpec(BaseModel):
     def _component_stays_in_dist(cls, value: Optional[str]) -> Optional[str]:
         return _dist_relative_path(value)
 
+class EditorMenuSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=EDITOR_ENTRY_ID)
+    editor: Literal[EDITOR_KINDS]
+    menu: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]*$")
+    group: str = Field(default="plugins", min_length=1)
+    order: Optional[int] = None
+    label: str = Field(min_length=1)
+    icon: str = "extension"
+    keys: Optional[str] = Field(default=None, min_length=1)
+    menu_label: Optional[str] = Field(default=None, min_length=1)
+    module: str
+
+    @field_validator("module")
+    @classmethod
+    def _module_stays_in_dist(cls, value: str) -> str:
+        return _dist_relative_path(value)
+
 class EditorGroupSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1139,6 +1158,7 @@ class PluginManifestSchema(BaseModel):
     editor_steps: List[EditorStepSpec] = Field(default_factory=list)
     editor_tools: List[EditorToolSpec] = Field(default_factory=list)
     editor_groups: List[EditorGroupSpec] = Field(default_factory=list)
+    editor_menu: List[EditorMenuSpec] = Field(default_factory=list)
     editor_overlays: List[EditorOverlaySpec] = Field(default_factory=list)
 
     # Preset requirement checkers (see docs/presets.md "Requirements")
@@ -1179,7 +1199,7 @@ class PluginManifestSchema(BaseModel):
 
     @model_validator(mode="after")
     def _editor_entries_belong_to_this_plugin(self) -> "PluginManifestSchema":
-        for section in ("editor_steps", "editor_tools", "editor_groups", "editor_overlays"):
+        for section in ("editor_steps", "editor_tools", "editor_groups", "editor_overlays", "editor_menu"):
             seen = set()
             for entry in getattr(self, section):
                 if not entry.id.startswith(f"{self.id}."):

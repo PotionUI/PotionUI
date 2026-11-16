@@ -1,4 +1,4 @@
-import { expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
+import { expect, type Locator, type Page, type Route, type WebSocketRoute } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -178,4 +178,30 @@ export async function mockAdminSocket(
 export async function addGenerationTab(page: Page): Promise<void> {
 	await page.getByRole('button', { name: 'Add new tab' }).click();
 	await page.getByRole('menuitem', { name: /New generation/ }).click();
+}
+
+export async function openEditorMenu(page: Page, menu: string): Promise<Locator> {
+	await page.locator('[data-editor-menubar] [data-menu-tab]').filter({ hasText: new RegExp(`^\\s*${menu}\\s*$`) }).click();
+	const open = page.locator('[data-editor-menu]');
+	await expect(open).toBeVisible();
+	return open;
+}
+
+export async function editorMenuItem(page: Page, menu: string, item: string, sub?: string): Promise<Locator> {
+	const open = await openEditorMenu(page, menu);
+	const row = open.locator('[data-menu-row]').filter({ has: page.getByText(item, { exact: true }) });
+	if (!sub) return row;
+	await row.hover();
+	const submenu = page.locator('[data-editor-submenu]');
+	await expect(submenu).toBeVisible();
+	return submenu.locator('[data-menu-row]').filter({ has: page.getByText(sub, { exact: true }) });
+}
+
+export async function editorMenu(page: Page, menu: string, item: string, sub?: string): Promise<void> {
+	await (await editorMenuItem(page, menu, item, sub)).click();
+}
+
+export async function closeEditorMenu(page: Page): Promise<void> {
+	await page.keyboard.press('Escape');
+	await expect(page.locator('[data-editor-menu]')).toHaveCount(0);
 }

@@ -15,15 +15,14 @@ function render(props: Record<string, unknown> = {}) {
 	const calls: string[] = [];
 	const view = mountComponent<Record<string, unknown>>(EditorToolbar, {
 		fileName: 'observatory-dusk.png',
-		chips: ['1024×1024'],
-		source: { icon: 'clock', label: 'History · Krea 2' },
+		title: 'Crop',
+		titleIcon: 'editor-crop',
 		replace: { allowed: false, reason: 'Files from History stay as generated' },
 		sendTargets: targets,
 		newGeneration: true,
 		downloadFormat: 'PNG',
 		onundo: () => calls.push('undo'),
 		onredo: () => calls.push('redo'),
-		oncompare: (next: boolean) => calls.push(`compare:${next}`),
 		onsave: (action: SaveAction) => actions.push(action),
 		oncancelsave: () => calls.push('cancel'),
 		...props
@@ -49,17 +48,19 @@ afterEach(() => {
 });
 
 describe('EditorToolbar file and history', () => {
-	it('shows the file name, chips and source', () => {
+	it('names the tool in the title block and keeps the file name for readers only, with no size chip or source', () => {
 		const { q } = render();
+		expect(text(q('[data-title-block] [data-title-name]'))).toBe('Crop');
 		expect(text(q('[data-frame-file]'))).toBe('observatory-dusk.png');
-		expect(text(q('[data-editor-toolbar]'))).toContain('1024×1024');
-		expect(text(q('[data-editor-toolbar]'))).toContain('History · Krea 2');
+		expect(q('[data-frame-file]')!.className).toContain('sr-only');
+		expect(text(q('[data-editor-toolbar]'))).not.toContain('History');
+		expect(q('[data-frame-compare]')).toBeNull();
+		expect(q('[aria-label="More"]')).toBeNull();
 	});
 
-	it('shows the empty label and no chips without a file', () => {
+	it('shows the empty label for readers without a file', () => {
 		const { q } = render({ fileName: null });
 		expect(text(q('[data-frame-file]'))).toBe('No picture');
-		expect(text(q('[data-editor-toolbar]'))).not.toContain('1024×1024');
 	});
 
 	it('enables undo and redo from props and names the step in the label', () => {
@@ -83,18 +84,6 @@ describe('EditorToolbar file and history', () => {
 		expect(text(document.body)).toContain('Undo Reel');
 		expect(text(document.body)).toContain('Ctrl Z');
 		expect(document.querySelectorAll('[title]')).toHaveLength(0);
-	});
-
-	it('toggles before/after and shows it pressed in signal', () => {
-		const { q, calls, view } = render();
-		const button = q<HTMLButtonElement>('[data-frame-compare]')!;
-		expect(button.getAttribute('aria-pressed')).toBe('false');
-		button.click();
-		expect(calls).toEqual(['compare:true']);
-		view.rerender({ compare: true });
-		expect(button.getAttribute('aria-pressed')).toBe('true');
-		expect(button.className).toContain('text-signal');
-		expect(text(button)).toContain('\\');
 	});
 });
 
@@ -158,10 +147,9 @@ describe('EditorToolbar save', () => {
 	});
 
 	it('disables save with nothing loaded', () => {
-		const { q } = render({ canSave: false, canCompare: false });
+		const { q } = render({ canSave: false });
 		expect(q<HTMLButtonElement>('[data-frame-save]')!.disabled).toBe(true);
 		expect(q<HTMLButtonElement>('[data-frame-save-menu]')!.disabled).toBe(true);
-		expect(q<HTMLButtonElement>('[data-frame-compare]')!.disabled).toBe(true);
 	});
 });
 
@@ -184,26 +172,6 @@ describe('EditorToolbar on a phone', () => {
 		const { q } = render({ phone: true, saving: { percent: 42 } });
 		expect(q('[data-frame-save]')).toBeNull();
 		expect(text(q('[data-frame-saving]'))).toBe('42%');
-	});
-});
-
-describe('EditorToolbar more menu', () => {
-	it('hides the more menu without items', () => {
-		const { q } = render();
-		expect(q('[aria-label="More"]')).toBeNull();
-	});
-
-	it('lists the extra items and reports the chosen one', async () => {
-		const picked: string[] = [];
-		const { q } = render({ moreItems: [{ id: 'reveal', label: 'Show source' }], onmore: (id: string) => picked.push(id) });
-		q<HTMLButtonElement>('[aria-label="More"]')!.click();
-		flushSync();
-		await tick();
-		const item = document.querySelector<HTMLButtonElement>('[role="menu"] [role="menuitem"]')!;
-		expect(text(item)).toBe('Show source');
-		item.click();
-		flushSync();
-		expect(picked).toEqual(['reveal']);
 	});
 });
 

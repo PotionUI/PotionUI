@@ -55,31 +55,31 @@ afterEach(() => {
 });
 
 describe('video options bar', () => {
-	it('puts In, Out and the length in the one header bar, with an icon-only rail', () => {
+	it('puts In, Out and the length in the panel, the tool name in the title block, with an icon-only rail', () => {
 		const { q, all } = render('trim');
 		expect(all('[data-editor-toolbar]')).toHaveLength(1);
 		expect(q('[data-tool-rail]')?.getAttribute('data-tool-rail')).toBe('icons');
-		expect(q('[data-options-bar] [data-bar-title]')?.textContent).toContain('Trim');
-		expect(q<HTMLInputElement>('[data-options-bar] [data-bar-time="in"]')?.value).toBe('00:00.00');
-		expect(q<HTMLInputElement>('[data-options-bar] [data-bar-time="out"]')?.value).toBe('00:08.00');
-		expect(q('[data-options-bar] [data-bar-length]')?.textContent).toBe('8.00 s');
-		expect(q('[data-options-panel] h2')?.firstChild?.textContent).toBe('Trim');
-		expect(q('[data-options-panel] [data-options-apply]')).toBeNull();
+		expect(q('[data-title-block] [data-title-name]')?.textContent).toBe('Trim');
+		expect(q<HTMLInputElement>('[data-options-panel] [data-trim-field="in"]')?.value).toBe('00:00.00');
+		expect(q<HTMLInputElement>('[data-options-panel] [data-trim-field="out"]')?.value).toBe('00:08.00');
+		expect(q('[data-options-panel] [data-trim-output]')?.textContent).toBe('8.00 s');
+		expect(q('[data-options-panel] h2')).toBeNull();
+		expect(q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')?.disabled).toBe(true);
 	});
 
 	it('typing an In point sets a pending trim that Apply trim commits', () => {
 		const { q, rows } = render('trim');
-		expect(q<HTMLButtonElement>('[data-options-actions] [data-options-apply]')?.disabled).toBe(true);
-		const field = q<HTMLInputElement>('[data-options-bar] [data-bar-time="in"]')!;
+		expect(q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')?.disabled).toBe(true);
+		const field = q<HTMLInputElement>('[data-options-panel] [data-trim-field="in"]')!;
 		field.dispatchEvent(new FocusEvent('focus'));
 		field.value = '00:01.20';
 		field.dispatchEvent(new Event('input', { bubbles: true }));
 		field.dispatchEvent(new FocusEvent('blur'));
 		flushSync();
-		expect(q<HTMLInputElement>('[data-options-bar] [data-bar-time="in"]')?.value).toBe('00:01.20');
-		expect(q('[data-options-bar] [data-bar-length]')?.textContent).toBe('6.80 s');
+		expect(q<HTMLInputElement>('[data-options-panel] [data-trim-field="in"]')?.value).toBe('00:01.20');
+		expect(q('[data-options-panel] [data-trim-output]')?.textContent).toBe('6.80 s');
 		expect(rows()).toEqual(['original', 'pending']);
-		const apply = q<HTMLButtonElement>('[data-options-actions] [data-options-apply]')!;
+		const apply = q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')!;
 		expect(apply.disabled).toBe(false);
 		expect(apply.textContent).toContain('Apply trim');
 		apply.click();
@@ -87,11 +87,11 @@ describe('video options bar', () => {
 		expect(rows()).toEqual(['original', 'current']);
 	});
 
-	it('shows the aspect chips, orientation and output size for Crop', () => {
+	it('shows the aspect buttons and orientation in the panel and the output size in the status line for Crop', () => {
 		const { q } = render('crop');
-		expect(q('[data-options-bar] [data-bar-aspects]')).not.toBeNull();
-		expect(q('[data-options-bar] [data-bar-orient="rotate-right"]')).not.toBeNull();
-		expect(q('[data-options-bar] [data-bar-size]')?.textContent).toBe('1280×720');
+		expect(q('[data-options-panel] [role="group"][aria-label="Aspect"]')).not.toBeNull();
+		expect(q('[data-options-panel] button[aria-label="Rotate right"]')).not.toBeNull();
+		expect(q('[data-canvas-status] [data-status-extra]')?.textContent).toContain('Output 1280×720');
 	});
 });
 
@@ -122,15 +122,15 @@ describe('video look and effect tray', () => {
 		flushSync();
 		expect(rows()).toEqual(['original', 'pending']);
 		expect(q('[data-tray-item="look:warm"]')?.getAttribute('aria-selected')).toBe('true');
-		expect(q('[data-bar-effect]')?.textContent).toBe('Look');
-		expect(q('[data-options-bar] [data-property-slider="Strength"]')).not.toBeNull();
-		const apply = q<HTMLButtonElement>('[data-options-actions] [data-options-apply]')!;
+		expect(q('[data-options-panel] [data-bar-effect]')?.textContent).toBe('Look');
+		expect(q('[data-options-panel] [data-property-slider="Strength"]')).not.toBeNull();
+		const apply = q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')!;
 		expect(apply.textContent).toContain('Add effect');
 		apply.click();
 		flushSync();
 		expect(rows()).toEqual(['original', 'current']);
 		expect(q('[data-tray-item="look:warm"]')?.getAttribute('aria-selected')).toBe('true');
-		expect(q('[data-options-actions] [data-options-apply]')).toBeNull();
+		expect(q('[data-options-footer] [data-options-apply]')).toBeNull();
 	});
 
 	it('picking another look replaces the pending one instead of stacking both', () => {
@@ -158,19 +158,19 @@ describe('video look and effect tray', () => {
 		const { q, rows } = render('effects');
 		q<HTMLButtonElement>('[data-tray-item="look:warm"]')!.click();
 		flushSync();
-		q<HTMLButtonElement>('[data-options-actions] [data-options-apply]')!.click();
+		q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')!.click();
 		flushSync();
-		const range = q<HTMLInputElement>('[data-options-bar] [data-property-slider="Strength"] input')!;
+		const range = q<HTMLInputElement>('[data-options-panel] [data-property-slider="Strength"] input')!;
 		for (const value of ['0.8', '0.6', '0.4']) {
 			range.value = value;
 			range.dispatchEvent(new Event('input', { bubbles: true }));
 			flushSync();
 		}
 		expect(rows()).toEqual(['original', 'current']);
-		expect(q('[data-options-bar] [data-property-slider="Strength"] [data-property-value]')?.textContent).toBe('0.4');
+		expect(q('[data-options-panel] [data-property-slider="Strength"] [data-property-value]')?.textContent).toBe('0.4');
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
 		flushSync();
-		expect(q('[data-options-bar] [data-property-slider="Strength"] [data-property-value]')?.textContent).toBe('1');
+		expect(q('[data-options-panel] [data-property-slider="Strength"] [data-property-value]')?.textContent).toBe('1');
 		expect(rows()).toEqual(['original', 'current']);
 	});
 });

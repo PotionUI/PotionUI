@@ -7,3 +7,5 @@ export * from './railTools';
 export * from './overlays';
 export * from './tasks';
 export * from './pluginEntries';
+export * from './menuItems';
+export * from './coreMenu';

@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { clearEdits, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, editorMenu, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-tab';
@@ -233,7 +233,7 @@ async function applyReel(page: Page, shoot = false) {
 	await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
 	await page.locator('[data-tray-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
-	await page.locator('[data-frame-compare]').click();
+	await editorMenu(page, 'View', 'Before / after');
 	await expect(page.locator('[data-canvas-divider]')).toBeVisible();
 	await expect(page.locator('[data-editor-before]')).toBeVisible();
 	if (shoot) await screenshot(page, JOURNEY, '03-effects-compare-1440');

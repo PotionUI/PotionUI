@@ -28,6 +28,7 @@ export interface ToolTabSaveAction extends ToolTabAction {
 }
 
 export interface ToolTabActions {
+	menu?: { run: () => void; disabled?: boolean } | null;
 	undo?: ToolTabAction | null;
 	redo?: ToolTabAction | null;
 	save?: ToolTabSaveAction | null;

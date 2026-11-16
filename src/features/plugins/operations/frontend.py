@@ -234,6 +234,10 @@ _EDITOR_SECTIONS: Dict[str, Dict[str, Any]] = {
         "fields": ("id", "editor", "cursor", "produces"),
         "paths": ("component",),
     },
+    "editor_menu": {
+        "fields": ("id", "editor", "menu", "group", "order", "label", "icon", "keys", "menu_label"),
+        "paths": ("module",),
+    },
     "editor_tasks": {
         "fields": ("id", "editors", "label", "icon", "region", "prompt", "produces", "tool", "step_kind", "fallback"),
         "paths": (),

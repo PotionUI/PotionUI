@@ -24,6 +24,19 @@
 
 <div class="flex h-full min-h-0 flex-col" data-testid="phone-tool-tab">
 	<div class="flex h-14 flex-shrink-0 items-center gap-2 border-b border-line px-3">
+		{#if showActions && actions?.menu}
+			<Button
+				variant="secondary"
+				size="sm"
+				class="h-8 flex-none"
+				ariaHaspopup="dialog"
+				disabled={actions.menu.disabled}
+				onclick={() => actions?.menu?.run()}
+				attrs={{ 'data-phone-menu': '' }}
+			>
+				Menu
+			</Button>
+		{/if}
 		<button
 			type="button"
 			class="flex min-w-0 flex-1 items-center gap-2 rounded border border-line-strong bg-surface-1 py-1.5 pl-1.5 pr-2.5 text-sm font-semibold text-fg"

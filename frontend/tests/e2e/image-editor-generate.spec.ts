@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
-import { clearEdits, loginAsOwner, screenshot } from './helpers';
+import { clearEdits, closeEditorMenu, editorMenuItem, loginAsOwner, screenshot } from './helpers';
 import { mockMediaTools, solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-generate';
@@ -375,7 +375,8 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(prompt(page).locator('[data-prompt-note]')).toHaveText('The marked object will be removed.');
 		await expect(prompt(page).locator('[data-prompt-status="warn"]')).toHaveText('Mark the object first');
 		await expect(prompt(page).locator('[data-prompt-generate]')).toBeDisabled();
-		await expect(page.locator('[data-clear-area]')).toBeDisabled();
+		await expect(await editorMenuItem(page, 'Edit', 'Clear area')).toHaveAttribute('aria-disabled', 'true');
+		await closeEditorMenu(page);
 		await screenshot(page, JOURNEY, '07-remove-dark-1440');
 		await markArea(page);
 		await generate(page);
@@ -461,7 +462,6 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		push(server, { type: 'workbench_update', generation_id: runGeneration(6), pipe_id: 1, output_type: 'image', temporary: true, image: PREVIEW });
 		await expect(row(page, 's7')).toContainText('Generating 40%');
 		await expect(row(page, 's2')).toContainText('The picture changed');
-		await page.locator('[data-options-collapse]').click();
 		await screenshot(page, JOURNEY, '09c-row-states-dark-1440');
 	});
 

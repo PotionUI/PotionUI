@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
+import { RAIL_ICON_WIDTH } from '$lib/tool-tabs/frame/layout';
 import { mountComponent } from '../helpers/mount';
 import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import TrayHost from './TrayHost.svelte';
@@ -29,7 +30,7 @@ describe('icon-only tool rail', () => {
 		const { view } = rail();
 		const text = view.target.textContent!.replace(/\s+/g, '');
 		expect(text).toBe('');
-		expect(view.target.querySelector('[data-tool-rail="icons"]')!.className).toContain('w-[52px]');
+		expect(view.target.querySelector<HTMLElement>('[data-tool-rail="icons"]')!.style.width).toBe(`${RAIL_ICON_WIDTH}px`);
 		expect(view.target.querySelectorAll('[role="separator"]')).toHaveLength(1);
 	});
 

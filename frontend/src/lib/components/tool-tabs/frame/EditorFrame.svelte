@@ -19,6 +19,7 @@
 		phoneChips = 'top',
 		panelSide = 'left',
 		barVisible = true,
+		phoneSize = null,
 		onundo,
 		onredo,
 		onsave,
@@ -42,6 +43,7 @@
 		phoneChips?: 'top' | 'bottom';
 		panelSide?: 'left' | 'right';
 		barVisible?: boolean;
+		phoneSize?: string | null;
 		onundo: () => void;
 		onredo: () => void;
 		onsave: () => void;
@@ -141,7 +143,7 @@
 							data-frame-edits
 						>
 							<Icon name="editor-layers" className="h-3.5 w-3.5" />
-							{editCount} {editCount === 1 ? 'edit' : 'edits'}
+							{editCount} {editCount === 1 ? 'edit' : 'edits'}{#if phoneSize}<span aria-hidden="true">·</span><span data-frame-size>{phoneSize}</span>{/if}
 							<Icon name="chevron-down" className="h-3.5 w-3.5" />
 						</button>
 					{:else}

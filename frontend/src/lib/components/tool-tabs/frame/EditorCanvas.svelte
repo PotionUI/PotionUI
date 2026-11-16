@@ -33,6 +33,8 @@
 		phone = false,
 		checker = false,
 		padding,
+		statusSize = null,
+		statusExtra = null,
 		spaceHeld,
 		hint,
 		layer,
@@ -51,6 +53,8 @@
 		phone?: boolean;
 		checker?: boolean;
 		padding?: number;
+		statusSize?: string | null;
+		statusExtra?: string | null;
 		spaceHeld?: boolean;
 		hint?: Snippet | null;
 		layer: Snippet;
@@ -184,11 +188,31 @@
 
 	let canZoomIn = $derived(view.zoom < MAX_ZOOM);
 	let canZoomOut = $derived(view.zoom > MIN_ZOOM);
+
+	export function zoomIn() {
+		viewport = zoomCentered(view, ZOOM_STEP, stage);
+	}
+
+	export function zoomOut() {
+		viewport = zoomCentered(view, 1 / ZOOM_STEP, stage);
+	}
+
+	export function showFit() {
+		viewport = fitViewport();
+	}
+
+	export function showActualSize() {
+		viewport = actualSize(stage, media);
+	}
+
+	export function zoomState() {
+		return { fit: viewport.fit, actual: isActualSize(viewport), canIn: canZoomIn, canOut: canZoomOut };
+	}
 </script>
 
 <div
 	bind:this={stageEl}
-	class="relative min-h-0 min-w-0 flex-1 touch-none select-none overflow-hidden bg-scrim {held ? (panning ? 'cursor-grabbing' : 'cursor-grab') : ''}"
+	class="canvas-stage relative min-h-0 min-w-0 flex-1 touch-none select-none overflow-hidden bg-scrim {held ? (panning ? 'cursor-grabbing' : 'cursor-grab') : ''}"
 	role="presentation"
 	onpointerdowncapture={down}
 	onpointermovecapture={moved}
@@ -246,6 +270,11 @@
 	{@render children?.()}
 
 	{#if !phone}
+		{#if statusSize}
+			<div class="pointer-events-none absolute bottom-6 left-3.5 flex whitespace-pre font-mono text-sm tabular-nums text-scrim-on/70" data-canvas-status>
+				<span data-status-size>{statusSize}</span>{#if statusExtra}<span class="status-extra" data-status-extra>{' · '}{statusExtra}</span>{/if}
+			</div>
+		{/if}
 		<div
 			class="absolute bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-scrim-on/10 bg-scrim/70 p-[3px] text-scrim-on backdrop-blur"
 			role="group"
@@ -270,3 +299,15 @@
 		{/if}
 	{/if}
 </div>
+
+<style>
+	.canvas-stage {
+		container-type: inline-size;
+	}
+
+	@container (max-width: 640px) {
+		.status-extra {
+			display: none;
+		}
+	}
+</style>

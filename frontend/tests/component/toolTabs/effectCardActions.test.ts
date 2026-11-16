@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
+import { menuRow, openEditorMenu } from '../helpers/editorMenu';
 import { effectGroups, effectTools } from '$lib/effects/catalog';
 import { apply, beginEdit, createStack } from '$lib/tool-tabs/frame/editStack';
 import { draftFor } from '$lib/tool-tabs/video/videoSteps';
@@ -233,26 +234,29 @@ describe('Image editor footer', () => {
 		vi.useRealTimers();
 	});
 
-	it('sits in the options bar for Looks, never in the properties panel', () => {
+	it('sits in the footer of the options panel for Looks, below its body', () => {
 		const { q, all } = renderImageEditor('effects', pendingLookState());
 		expect(all('[data-options-apply]')).toHaveLength(1);
 		expect(all('[data-options-reset]')).toHaveLength(1);
-		expect(q('[data-options-apply]')!.closest('[data-options-actions]')).not.toBeNull();
-		expect(q('[data-options-apply]')!.closest('[data-options-panel]')).toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-footer]')).not.toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-panel]')).not.toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-body]')).toBeNull();
 		expect(text(q('[data-options-apply]'))).toBe('Apply look ↵');
 	});
 
-	it('sits in the options bar for Crop', () => {
+	it('sits in the footer of the options panel for Crop', () => {
 		const { q, all } = renderImageEditor('crop', emptyImageState('crop'));
 		expect(all('[data-options-apply]')).toHaveLength(1);
-		expect(q('[data-options-apply]')!.closest('[data-options-actions]')).not.toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-footer]')).not.toBeNull();
 		expect(text(q('[data-options-apply]'))).toContain('Apply crop');
 	});
 
-	it('has no Apply for Adjust, only Reset all', () => {
+	it('has no Apply for Adjust, and Reset all is in the Edit menu', async () => {
 		const { q, all } = renderImageEditor('adjust', emptyImageState('adjust'));
 		expect(all('[data-options-apply]')).toHaveLength(0);
-		expect(text(q('[data-options-reset]'))).toBe('Reset all');
+		expect(all('[data-options-footer]')).toHaveLength(0);
+		await openEditorMenu(q('[data-editor-menubar]')!.parentElement!, 'edit');
+		expect(text(menuRow('edit.reset'))).toContain('Reset all');
 	});
 
 	it('applies the open effect on Enter', async () => {

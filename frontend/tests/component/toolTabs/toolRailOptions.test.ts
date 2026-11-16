@@ -126,9 +126,11 @@ function panel(props: Record<string, unknown> = {}) {
 }
 
 describe('OptionsPanel', () => {
-	it('shows the tool name, Reset and Apply with the Enter key', () => {
+	it('has no header row and shows Reset and Apply with the Enter key in a footer below the body', () => {
 		const { q, calls } = panel();
-		expect(q('h2')!.textContent).toBe('Crop');
+		expect(q('h2')).toBeNull();
+		expect(q('[data-options-panel="desktop"] > [data-options-body]')).not.toBeNull();
+		expect(q('[data-options-panel="desktop"] > [data-options-footer] [data-options-apply]')).not.toBeNull();
 		const apply = q<HTMLButtonElement>('[data-options-apply]')!;
 		expect(apply.textContent).toContain('Apply crop');
 		expect(apply.textContent).toContain('↵');
@@ -143,18 +145,19 @@ describe('OptionsPanel', () => {
 		expect(q<HTMLButtonElement>('[data-options-reset]')!.disabled).toBe(true);
 	});
 
-	it('collapses to its header and expands again', () => {
+	it('does not collapse and carries nothing but the body and the footer', () => {
 		const { q } = panel();
-		const toggle = q<HTMLButtonElement>('[data-options-collapse]')!;
-		expect(toggle.getAttribute('aria-expanded')).toBe('true');
-		toggle.click();
-		flushSync();
-		expect(q('[data-options-panel]')!.hasAttribute('data-collapsed')).toBe(true);
-		expect(q('[data-options-apply]')).toBeNull();
-		expect(toggle.getAttribute('aria-label')).toBe('Expand tool options');
-		toggle.click();
-		flushSync();
-		expect(q('[data-options-apply]')).not.toBeNull();
+		expect(q('[data-options-collapse]')).toBeNull();
+		expect(q('[data-options-panel]')!.hasAttribute('data-collapsed')).toBe(false);
+		expect(q('[data-options-panel]')!.children).toHaveLength(2);
+	});
+
+	it('leaves the footer out when there are no actions and Apply out when asked', () => {
+		const none = panel({ actions: false });
+		expect(none.q('[data-options-footer]')).toBeNull();
+		const noApply = panel({ showApply: false });
+		expect(noApply.q('[data-options-apply]')).toBeNull();
+		expect(noApply.q('[data-options-reset]')).not.toBeNull();
 	});
 
 	it('puts Reset and Apply in the header on a phone, with no collapse', () => {

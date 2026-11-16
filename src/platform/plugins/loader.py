@@ -153,6 +153,7 @@ class PluginManifest:
     editor_tools: List[Dict[str, Any]] = field(default_factory=list)
     editor_groups: List[Dict[str, Any]] = field(default_factory=list)
     editor_overlays: List[Dict[str, Any]] = field(default_factory=list)
+    editor_menu: List[Dict[str, Any]] = field(default_factory=list)
 
     # Preset requirement checkers: [{type, backend}]
     requirement_checkers: List[Dict[str, Any]] = field(default_factory=list)
@@ -178,7 +179,7 @@ _DICT_LIST_FIELDS = tuple(
     recipe_steps samplers schedules model_classifiers model_types pages admin_tabs tool_tabs quick_actions
     sidebar_widgets settings field_types model_metadata_fields renderers contributions docs
     chat_modes resources llm_providers automation_nodes automation_templates organize_facts organize_actions limit_kinds
-    prompt_importers prompt_resource_sources phrasebook_ops media_tools editor_tasks editor_steps editor_tools editor_groups editor_overlays
+    prompt_importers prompt_resource_sources phrasebook_ops media_tools editor_tasks editor_steps editor_tools editor_groups editor_overlays editor_menu
     requirement_checkers setup
     """.split()
 )

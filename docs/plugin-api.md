@@ -2186,10 +2186,10 @@ The `id` must start with your plugin id and a dot; ids without a dot belong to c
 `prompt` are `required`, `optional` or `none`. A `fallback` names a task to run, with a built-in prompt,
 when no mode offers this one.
 
-A task is offered by presets, not by the manifest: a mode lists it in its `modes/<mode>/editor.yml`
-([Editor contract](presets.md#editor-contract)). A mode that belongs to your plugin (a preset from your
-`presets:` root or a mode from your `preset_modes:` root) may list your task and the core tasks. A
-plugin cannot add a task to a mode it does not own, and a mode of another plugin that lists your task
+A task is offered by presets, not by the manifest: an editor mode names it in its `editor_mode.yml`
+([Editor modes](presets.md#editor-modes)). An editor mode that belongs to your plugin (a preset from your
+`presets:` root, or an `editor_modes/` directory under a `preset_modes:` root, which can target a preset your
+plugin does not own) may name your task and the core tasks. An editor mode of another plugin that names your task
 is rejected by lint.
 
 `src.plugin_api.editor` exports `TaskDefinition`, the shape the host keeps for every registered task.
@@ -2203,7 +2203,7 @@ What the host does with a task:
   modes the caller may use that declare it, or that reach it through the task's `fallback`; empty when none
   does) and the caller's `default` setup.
 - `POST /api/editor/tasks/{task}/runs` starts a **run**: one Generate press in the editor. The server prepares the
-  picture and region from the mode's `editor.yml`, submits a normal generation, and blends each result back as a
+  picture and region from the editor mode, submits a normal generation, and blends each result back as a
   patch. `GET /api/editor/runs/{id}` follows it, `DELETE /api/editor/runs/{id}` cancels it, and
   `editor_run_update` on `/ws/generation` announces each change to the run's owner.
 - `PUT` and `DELETE /api/editor/tasks/{task}/default` set and clear the caller's **default** setup for a task.
@@ -2241,6 +2241,15 @@ editor_groups:
   - { id: my-plugin.stylize, editor: image, label: Stylize, order: 450 }
 editor_overlays:
   - { id: my-plugin.select, editor: image, component: editor/Select.js, produces: selection }
+editor_menu:
+  - id: my-plugin.note
+    editor: image
+    menu: tools
+    group: my-plugin.stylize
+    order: 900
+    label: Halftone note
+    icon: extension
+    module: editor/note.js
 editor_tasks:
   - id: my-plugin.relight
     label: Relight
@@ -2260,6 +2269,7 @@ media_tools:
 | `editor_tools` | A tool in the editor's rail | `id`, `editor`, `group`, `label`, `icon`, `order`, `keys`, `options`, `bar`, `overlay`, `task` |
 | `editor_groups` | A group in the rail | `id`, `editor`, `label`, `order` |
 | `editor_overlays` | A layer drawn over the canvas | `id`, `editor`, `component`, `cursor` (`crosshair`, `brush`, `default`), `produces` (`selection`) |
+| `editor_menu` | An item in the editor's menu bar ([below](#menu-bar-items)) | `id`, `editor`, `menu`, `group`, `order`, `label`, `icon`, `keys`, `menu_label`, `module` |
 | `editor_tasks` | A job the editor can offer ([above](#contributing-an-editor-task)) | adds `tool` (the rail tool that asks for it) and `step_kind` for the editor |
 
 - `editor` is `image`, `video` or `audio`. An unknown value fails validation.
@@ -2269,14 +2279,72 @@ media_tools:
   no leading `/` and no `:` (so no URLs). `overlay` and `task` name another entry by id; `group` names a
   core group or one of your `editor_groups`.
 - `GET /api/plugins/frontend-extensions` returns these as the flat lists `editor_steps`, `editor_tools`,
-  `editor_groups`, `editor_overlays` and `editor_tasks`, for enabled plugins only. Each entry carries
+  `editor_groups`, `editor_overlays`, `editor_menu` and `editor_tasks`, for enabled plugins only. Each entry carries
   `plugin_id` and the fields above, with paths relative to `frontend/dist`. A key you leave out is an empty
   list. Disabling or removing the plugin drops its entries from the next response.
 - When a plugin is disabled, an edit that used one of its steps keeps the step. It is shown as not
   available, left out of the preview and Save, and never removed on its own.
 
-All five keys are optional and default to an empty list, so a plugin that declares none of them is unaffected,
+All six keys are optional and default to an empty list, so a plugin that declares none of them is unaffected,
 and so is every plugin written before they existed.
+
+### Menu bar items
+
+The editors' header is a menu bar: File, Edit, View and Tools. Core registers every item of those menus through the
+same registry a plugin uses (`frontend/src/lib/editors/coreMenu.ts`), and a plugin adds to them or opens a menu of its
+own.
+
+An `editor_menu` entry names its place and its file. `menu` is `file`, `edit`, `view`, `tools` or a menu id of your
+own (lowercase letters, digits, `-`, `_`, `.`), which adds a menu to the bar after Tools, labelled by `menu_label` of
+its first entry. Items are grouped by `group` and the groups are separated by a divider; `order` sorts items inside a
+group and groups among themselves (an item without `order` goes last). In the Tools menu the groups are the rail
+groups, so `group: look` puts the item under the Look tools and a group of your own goes after the rail's.
+`keys` is a label shown right-aligned, not a shortcut. `module` is a file under `frontend/dist` whose default export
+has two optional functions:
+
+```js
+export default {
+  available: (ctx) => (ctx.hasSource ? true : 'Open a picture first'),
+  run: (ctx) => ctx.commands.selectTool('crop')
+};
+```
+
+`available` returns `true`, or the plain reason the item is off; the reason is shown in a tooltip on hover and focus and
+read out to assistive technology. `run` is called when the item is chosen. Until the file loads the item reads
+"Loading"; if it cannot be loaded it reads "Could not load". Both functions run inside the guard described below, and
+the menu never calls them while it renders anything that could write state.
+
+`ctx` is the editor's current state and its commands: `editor`, `hasSource`, `phone`, `busy`, `tool` (the active rail
+tool id), `rail` (the rail groups), `canUndo`, `canRedo`, `editCount`, `step` (the current step, if any), `compare`,
+`canSave`, `saved` and `commands` (`save`, `undo`, `redo`, `selectTool`, `closeEditor`, `toggleCompare`, `zoomIn`,
+`zoomOut`, `fit`, `actualSize`, `toggleEdits`, and the rest the core items use). A command an editor has no action for
+is a no-op there.
+
+Code that registers at run time passes the same fields plus the function forms, with `window.__potionui.editors`:
+
+```ts
+editors.registerMenuItem({
+  id: 'acme.note',
+  editor: 'image',
+  menu: 'tools',
+  group: 'acme.group',
+  order: 10,
+  label: 'Note',                       // or (ctx) => string
+  icon: 'extension',                   // or (ctx) => string
+  keybind: 'N',                        // optional, or (ctx) => string | undefined
+  tone: 'danger',                      // optional
+  check: (ctx) => ctx.compare,         // optional: shows a tick, in the signal colour
+  visible: (ctx) => ctx.hasSource,     // optional
+  available: (ctx) => true,            // true, or a reason string
+  run: (ctx) => ctx.commands.undo(),
+  children: (ctx) => [{ id: 'one', label: 'One', run: () => undefined }] // optional: makes it a submenu
+}, { pluginId: 'acme' });
+editors.menuItems.get(editor, id) / .list(editor)
+```
+
+A submenu child is `{ id, label, sub?, icon?, badge?, dot?, disabled? (a reason), run }`, `{ id, separator: true }` or
+`{ id, heading }`. The Video editor lists its own tools in its Tools menu from the tools it shows in its rail and has no
+Recent edits item.
 
 ### How core uses the same registries
 
@@ -2335,8 +2403,8 @@ A step whose kind is not registered is never dropped from the edit:
 - **Availability and row customisation.** A rail tool's `available(ctx)`, a step kind's `row` and `extras`, and an overlay's
   `order`, `hint`, `modes`, `modesLabel` and `size` are code registration only; `editor_overlays` accepts `component`,
   `cursor` and `produces`.
-- **Tasks without a preset.** A task is run by a preset mode that declares it. A plugin cannot add a task to a mode it
-  does not own, and a task has no run path other than a mode.
+- **Tasks without a preset.** A task is run by an editor mode that names it. A plugin adds one to a preset it does
+  not own by contributing an editor mode, and a task has no run path other than an editor mode.
 - **Core groups and ids.** Core rail group and tool ids are fixed. A plugin adds groups of its own and tools to any group,
   and can order itself among core entries with `order`.
 
@@ -2416,19 +2484,28 @@ editor_tasks:
     prompt: optional
 ```
 
-and, in a mode that belongs to the plugin (`presets:` root), `modes/relight/editor.yml`
-(see [Editor contract](presets.md#editor-contract)):
+and, in the plugin, an editor mode that derives from a generation mode of any preset. With `preset_modes:` the
+plugin does not need to own the preset (see [Editor modes](presets.md#editor-modes) and
+[contributed editor modes](presets/plugins.md#contributed-editor-modes)). `manifest.yml`:
+
+```yaml
+preset_modes:
+  - target: "01KX46YCC5RB5EGYY38SBMVKR5"
+    modes_root: "contributed"
+```
+
+and `contributed/editor_modes/relight/editor_mode.yml`:
 
 ```yaml
 schema_version: 1
-tasks:
-  - task: acme-relight.relight
-    region: crop
-    inputs:
-      image: source_image
+task: acme-relight.relight
+from: edit
+region: crop
+inputs:
+  source: source_image
 ```
 
-With the plugin enabled, `GET /api/editor/tasks` lists `acme-relight.relight` with that mode under `offers`, the Image editor
+With the plugin enabled, `GET /api/editor/tasks` lists `acme-relight.relight` with that editor mode (`editor:relight`) under `offers`, the Image editor
 adds a "Relight a region" tool to its Generate group, and a run starts with
 `POST /api/editor/tasks/acme-relight.relight/runs`. Nothing in the plugin's code is needed for a task.
 
@@ -2451,8 +2528,9 @@ editors.registerRailGroup(group, options): () => void
 editors.registerRailTool(tool, options): () => void
 editors.registerOverlay(overlay, options): () => void
 editors.registerTask(task, options): () => void
+editors.registerMenuItem(item, options): () => void
 
-editors.stepKinds | railGroups | railTools | overlays | tasks
+editors.stepKinds | railGroups | railTools | overlays | tasks | menuItems
   .get(editor, id): Entry | undefined
   .list(editor): Entry[]
 ```

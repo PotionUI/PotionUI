@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
+import { isRowDisabled, openEditorMenu, pickEditorMenuItem } from '../helpers/editorMenu';
 import { filterCatalog } from '$lib/filters/catalog';
 import type { FilterItem } from '$lib/filters/types';
 import { emptyImageState } from '$lib/tool-tabs/image/state';
@@ -105,7 +106,8 @@ describe('Adjust tool', () => {
 		expect(view.q('[data-property-slider="Grain"]')).toBeNull();
 		expect(view.q('[data-adjust-caption="grain"]')).not.toBeNull();
 		expect(view.all('[data-options-apply]')).toHaveLength(0);
-		expect(view.q('[data-options-panel] h2')?.firstChild?.textContent).toBe('Adjust');
+		expect(view.q('[data-title-name]')?.textContent).toBe('Adjust');
+		expect(view.q('[data-options-panel] h2')).toBeNull();
 	});
 
 	it('writes a slider move live into one step, with no pending edit', () => {
@@ -168,24 +170,30 @@ describe('Adjust tool', () => {
 		expect(view.rows()).toEqual(['current']);
 	});
 
-	it('resets everything from the bar, as an undoable edit, and shows a dot for edited sections', () => {
+	it('resets everything from the Edit menu, as an undoable edit, and shows a dot for edited sections', async () => {
 		const view = render('adjust');
-		expect(view.q<HTMLButtonElement>('[data-options-reset]')!.disabled).toBe(true);
+		await openEditorMenu(view.view.target, 'edit');
+		expect(isRowDisabled('edit.reset')).toBe(true);
+		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		await settle();
 		drag(view, 'Contrast', 18);
 		release(view, 'Contrast');
 		expect(view.q('[data-adjust-section="light"] [data-adjust-dot]')).not.toBeNull();
 		expect(view.q('[data-adjust-section="effects"] [data-adjust-dot]')).toBeNull();
-		view.q<HTMLButtonElement>('[data-options-reset]')!.click();
-		flushSync();
+		await pickEditorMenuItem(view.view.target, 'edit', 'edit.reset');
 		expect(view.written().steps[0].params.values?.contrast).toBe(0);
 		expect(view.q('[data-adjust-section="light"] [data-adjust-dot]')).toBeNull();
 	});
 
-	it('enables Before / after once something is adjusted', () => {
+	it('enables Before / after in the View menu once something is adjusted', async () => {
 		const view = render('adjust');
-		expect(view.q<HTMLButtonElement>('[data-frame-compare]')!.disabled).toBe(true);
+		await openEditorMenu(view.view.target, 'view');
+		expect(isRowDisabled('view.compare')).toBe(true);
+		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		await settle();
 		drag(view, 'Contrast', 18);
-		expect(view.q<HTMLButtonElement>('[data-frame-compare]')!.disabled).toBe(false);
+		await openEditorMenu(view.view.target, 'view');
+		expect(isRowDisabled('view.compare')).toBe(false);
 	});
 
 	it('toggles a no-parameter adjustment on and off', () => {
@@ -252,7 +260,7 @@ describe('Looks tray', () => {
 		expect(view.rows()).toEqual(['original', 'pending']);
 		expect(view.q('[data-tray-item="reel"]')!.getAttribute('aria-selected')).toBe('true');
 		expect(view.q('[data-bar-look]')?.textContent).toBe('Reel');
-		expect(view.q('[data-options-bar] [data-property-slider="Intensity"] [data-property-value]')?.textContent).toBe('60');
+		expect(view.q('[data-options-panel] [data-property-slider="Intensity"] [data-property-value]')?.textContent).toBe('60');
 		expect(view.q('[data-options-apply]')?.textContent).toContain('Apply look');
 		view.q<HTMLButtonElement>('[data-options-apply]')!.click();
 		await settle();
@@ -263,7 +271,7 @@ describe('Looks tray', () => {
 		const view = render('effects');
 		view.q<HTMLButtonElement>('[data-tray-item="reel"]')!.click();
 		flushSync();
-		const range = view.q<HTMLInputElement>('[data-options-bar] [data-property-slider="Intensity"] input')!;
+		const range = view.q<HTMLInputElement>('[data-options-panel] [data-property-slider="Intensity"] input')!;
 		range.value = '35';
 		range.dispatchEvent(new Event('input', { bubbles: true }));
 		flushSync();
@@ -336,10 +344,10 @@ describe('phone layout', () => {
 });
 
 describe('options bar', () => {
-	it('replaces the file name with the tool name and the live output size for Crop', () => {
+	it('names the tool in the title block, not in a panel row, and keeps the file name for readers only', () => {
 		const view = render('crop');
-		expect(view.q('[data-options-bar] [data-bar-title]')?.textContent).toContain('Crop');
-		expect(view.q('[data-options-panel] h2')?.firstChild?.textContent).toBe('Crop');
+		expect(view.q('[data-title-block] [data-title-name]')?.textContent).toBe('Crop');
+		expect(view.q('[data-options-panel] h2')).toBeNull();
 		expect(view.q('[data-frame-file]')?.className).toContain('sr-only');
 	});
 

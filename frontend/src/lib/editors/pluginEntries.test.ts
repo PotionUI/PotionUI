@@ -14,6 +14,7 @@ const revisionOf = () => 'r1';
 
 function snapshot(): EditorSnapshot {
 	return {
+		menu: [],
 		groups: [{ plugin_id: 'acme', id: 'acme.stylize', editor: 'image', label: 'Stylize', order: 450 }],
 		steps: [{ plugin_id: 'acme', id: 'acme.halftone', editor: 'image', module: 'editor/halftone.js', label: 'Halftone', icon: 'extension', lane: 'paint' }],
 		tools: [
@@ -30,7 +31,7 @@ function apply(descriptors: ReturnType<typeof describeEditorEntries>) {
 }
 
 describe('readEditorSnapshot', () => {
-	it('reads the five keys and tolerates all of them being absent', () => {
+	it('reads the six keys and tolerates all of them being absent', () => {
 		expect(readEditorSnapshot(undefined)).toEqual(emptyEditorSnapshot());
 		expect(readEditorSnapshot({ renderers: [] })).toEqual(emptyEditorSnapshot());
 		expect(readEditorSnapshot({ editor_steps: 'nope', editor_tools: null })).toEqual(emptyEditorSnapshot());
@@ -39,9 +40,10 @@ describe('readEditorSnapshot', () => {
 			editor_tools: [2],
 			editor_groups: [3],
 			editor_overlays: [4],
-			editor_tasks: [5]
+			editor_tasks: [5],
+			editor_menu: [6]
 		});
-		expect(Object.values(read).map((list) => list.length)).toEqual([1, 1, 1, 1, 1]);
+		expect(Object.values(read).map((list) => list.length)).toEqual([1, 1, 1, 1, 1, 1]);
 	});
 });
 
@@ -163,5 +165,18 @@ describe('the host namespace', () => {
 		expect(editors.tasks.get('image', 'acme.t')).toBeDefined();
 		disposers.forEach((dispose) => dispose());
 		expect(editors.stepKinds.get('image', 'acme.a')).toBeUndefined();
+	});
+
+	it('registers a menu item for a plugin, exposes it on menuItems and refuses a foreign id', () => {
+		const editors = createHostEditorsApi();
+		const entry = { id: 'acme.menu', editor: 'image' as const, menu: 'tools', group: 'acme.g', label: 'Menu', icon: 'x', run: () => undefined };
+		const dispose = editors.registerMenuItem(entry, { pluginId: 'acme' });
+		expect(editors.menuItems.get('image', 'acme.menu')?.pluginId).toBe('acme');
+		expect(editors.menuItems.list('image').some((item) => item.id === 'acme.menu')).toBe(true);
+		dispose();
+		expect(editors.menuItems.get('image', 'acme.menu')).toBeUndefined();
+		const refused = editors.registerMenuItem({ ...entry, id: 'other.menu' }, { pluginId: 'acme' });
+		expect(editors.menuItems.get('image', 'other.menu')).toBeUndefined();
+		refused();
 	});
 });

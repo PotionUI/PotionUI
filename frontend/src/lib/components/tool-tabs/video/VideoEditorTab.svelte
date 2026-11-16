@@ -4,8 +4,11 @@
 	import { goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, EmptyState } from '$lib/components/ui';
+	import EditorMenuSheet from '$lib/components/tool-tabs/frame/EditorMenuSheet.svelte';
+	import { ensureCoreEditorMenu } from '$lib/editors/coreMenu';
+	import type { EditorMenuCommands, EditorMenuContext } from '$lib/editors/menuItems';
+	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import {
-		BarActions,
 		CanvasChip,
 		EditStack,
 		EditorCanvas,
@@ -209,7 +212,9 @@
 	let stackOpen = $state(false);
 	let saveMenuOpen = $state(false);
 	let saveSheetOpen = $state(false);
-	let optionsCollapsed = $state(false);
+	let editsHidden = $state(false);
+	let phoneMenuOpen = $state(false);
+	let canvasApi = $state<ReturnType<typeof EditorCanvas> | undefined>();
 	let playing = $state(false);
 	let video = $state<HTMLVideoElement | null>(null);
 	let meta = $state<{ width: number; height: number; duration: number } | null>(null);
@@ -337,7 +342,75 @@
 		return first > 0 ? [list[first], ...list.slice(0, first), ...list.slice(first + 1)] : list;
 	});
 	let renderLeft = $derived(render ? secondsLeft(render.percent / 100, Date.now() - render.startedAt) : null);
-	let sourceInfo = $derived(origin === 'library' ? { icon: 'library', label: 'Library' } : origin === 'history' ? { icon: 'clock', label: 'History' } : null);
+	let currentStep = $derived.by(() => {
+		const list = appliedSteps(edits);
+		return list.length && !edits.pending ? list[list.length - 1] : null;
+	});
+	let footerActions = $derived(phone ? !phoneBarred : ready && tool !== 'frame');
+	let applyText = $derived(effectsTool ? (effectUpdating ? 'Update effect' : 'Add effect') : tool === 'trim' ? 'Apply trim' : tool === 'mute' ? 'Mute' : 'Apply');
+	let resetEnabled = $derived(effectsTool ? canResetEffect : !!pending);
+
+	ensureCoreEditorMenu();
+	const menuCommands: EditorMenuCommands = {
+		save: (action) => onSave(action),
+		closeEditor: () => requestCloseTab(host.tabId),
+		replaceWith: (id) => openReplacePicker(id as SourceEntryId),
+		openRecent: () => undefined,
+		openAllEdits: () => undefined,
+		undo: () => doUndo(),
+		redo: () => doRedo(),
+		apply: () => applyCurrent(),
+		reset: () => (effectsTool ? resetEffect() : resetCurrent()),
+		toggleStepHidden: () => {
+			const step = currentStep;
+			if (step) edits = toggleHidden(edits, step.id);
+		},
+		removeStep: () => {
+			const step = currentStep;
+			if (step) edits = remove(edits, step.id);
+		},
+		removeAll: () => undefined,
+		toggleCompare: () => (compare = !compare),
+		zoomIn: () => canvasApi?.zoomIn(),
+		zoomOut: () => canvasApi?.zoomOut(),
+		fit: () => canvasApi?.showFit(),
+		actualSize: () => canvasApi?.showActualSize(),
+		toggleEdits: () => (editsHidden = !editsHidden),
+		selectTool: (id) => selectTool(id)
+	};
+	let menuCtx = $derived<EditorMenuContext>({
+		editor: 'video',
+		hasSource: !!source,
+		phone,
+		busy: !!render || starting,
+		tool,
+		rail: RAIL_GROUPS,
+		saved: !!saved && !splitting,
+		canSave,
+		replace: replaceOption,
+		sendTargets,
+		newGeneration: false,
+		downloadFormat: 'MP4',
+		copyLabel: 'Copy link',
+		sources: sourceEntries('video').map((entry) => ({ id: entry.id, label: entry.label, icon: entry.icon })),
+		currentSource: currentSourceOf(source),
+		replaceLabel: 'Replace clip',
+		replaceBlocked: !!render || starting,
+		recentEdits: null,
+		canUndo: canUndo(edits),
+		undoLabel: undoLabel(edits),
+		canRedo: canRedo(edits),
+		redoLabel: redoLabel(edits),
+		apply: panelOp ? { label: applyText, enabled: canApply, reason: 'Nothing to apply yet' } : null,
+		reset: { label: 'Reset', icon: 'rotate', enabled: resetEnabled, reason: 'Nothing to reset yet' },
+		step: currentStep ? { id: currentStep.id, label: currentStep.label, hidden: currentStep.hidden } : null,
+		editCount: appliedSteps(edits).length,
+		compare,
+		canCompare: ready,
+		zoom: canvasApi ? canvasApi.zoomState() : null,
+		editsShown: !editsHidden,
+		commands: menuCommands
+	});
 
 	function defaultsFor(op: VideoOp): VideoParams {
 		if (op === 'trim') return { start: base.start, end: base.end };
@@ -680,7 +753,6 @@
 		done(run) {
 			const snap = render;
 			render = null;
-			optionsCollapsed = false;
 			hostApi.setRun(null);
 			const settled = settleState({ ...stateSnapshot(), renderSignature: snap?.signature ?? null, renderMode: snap?.mode ?? null }, run);
 			savedSignature = settled.savedSignature;
@@ -722,7 +794,6 @@
 				cancelling: false
 			};
 			afterRender = then ?? null;
-			if (!phone) optionsCollapsed = true;
 			hostApi.setRun({ runId, progress: 0 });
 			follow(runId);
 		} catch (error) {
@@ -760,7 +831,6 @@
 				output: `MP4 · ${saveCompiled.chain.size.width}×${saveCompiled.chain.size.height}`,
 				cancelling: false
 			};
-			if (!phone) optionsCollapsed = true;
 		};
 		if (isFollowing(tabId, runId)) {
 			restore(Number(untrack(() => host.run?.progress) ?? 0));
@@ -1132,6 +1202,7 @@
 			return;
 		}
 		hostApi.setActions({
+			menu: { run: () => (phoneMenuOpen = true) },
 			undo: { label: undoLabel(edits) ? `Undo ${undoLabel(edits)}` : 'Undo', disabled: !canUndo(edits), run: doUndo },
 			redo: null,
 			save: { label: 'Save', disabled: !canSave, progress: render ? render.percent : null, run: () => (saveSheetOpen = true) }
@@ -1285,16 +1356,6 @@
 	/>
 {/snippet}
 
-{#snippet barActionsContent()}
-	{#if effectsTool && !pendingEffect}
-		<Button variant="secondary" size="sm" class="h-7" disabled={!canResetEffect} onclick={resetEffect} attrs={{ 'data-options-reset': '' }}>Reset</Button>
-	{:else if effectsTool}
-		<BarActions applyLabel={effectUpdating ? 'Update effect' : 'Add effect'} canApply={canApplyEffect} canReset={canResetEffect} onapply={applyCurrent} onreset={resetEffect} />
-	{:else}
-		<BarActions applyLabel={tool === 'trim' ? 'Apply trim' : tool === 'mute' ? 'Mute' : 'Apply'} {canApply} canReset={!!pending} onapply={applyCurrent} onreset={resetCurrent} />
-	{/if}
-{/snippet}
-
 {#snippet phoneBar()}
 	{@render barContent()}
 	<span class="flex-1"></span>
@@ -1361,18 +1422,21 @@
 			{/snippet}
 
 			{#snippet toolbar()}
-				{#if !phone}
+				{#if phone}
+					{#if phoneMenuOpen}
+						<EditorMenuSheet ctx={menuCtx} fileName={source?.name ?? stem} onclose={() => (phoneMenuOpen = false)} />
+					{/if}
+				{:else}
 					<EditorToolbar
 						fileName={source?.name ?? stem}
 						emptyLabel="No clip"
-						chips={ready ? [`${clip.width}×${clip.height}`, `${fixed2(outputLength)} s`] : []}
-						source={sourceInfo}
+						title={toolLabels[tool]}
+						titleIcon={toolIcons[tool]}
+						menu={menuCtx}
 						canUndo={canUndo(edits)}
 						canRedo={canRedo(edits)}
 						undoLabel={undoLabel(edits)}
 						redoLabel={redoLabel(edits)}
-						{compare}
-						canCompare={ready}
 						{canSave}
 						saved={!!saved && !splitting}
 						replace={replaceOption}
@@ -1383,16 +1447,9 @@
 						bind:saveMenuOpen
 						onundo={doUndo}
 						onredo={doRedo}
-						oncompare={(next) => (compare = next)}
 						onsave={onSave}
 						oncancelsave={cancelRender}
-						bar={ready ? barContent : undefined}
-						barActions={ready ? barActionsContent : undefined}
-					>
-						{#snippet replaceControl()}
-							{@render replaceMenu()}
-						{/snippet}
-					</EditorToolbar>
+					/>
 				{/if}
 			{/snippet}
 
@@ -1422,6 +1479,9 @@
 					</div>
 				{/if}
 				<EditorCanvas
+					bind:this={canvasApi}
+					statusSize={ready ? `${clip.width}×${clip.height}` : null}
+					statusExtra={ready ? (tool === 'crop' || tool === 'resize' ? `Output ${displaySize.width}×${displaySize.height}` : `${fixed2(outputLength)} s`) : null}
 					mediaWidth={displaySize.width}
 					mediaHeight={displaySize.height}
 					bind:viewport
@@ -1578,16 +1638,35 @@
 					<OptionsPanel
 						title={toolLabels[tool]}
 						icon={toolIcons[tool]}
-						subtitle={phone ? null : 'Properties'}
-						bind:collapsed={optionsCollapsed}
-						actions={phone && !phoneBarred}
-						applyLabel={tool === 'trim' ? 'Apply trim' : tool === 'mute' ? 'Mute' : 'Apply'}
+						actions={footerActions}
+						showApply={phone || !(effectsTool && !pendingEffect)}
+						applyLabel={applyText}
 						{canApply}
-						canReset={!!pending}
+						canReset={resetEnabled}
 						{phone}
 						onapply={applyCurrent}
-						onreset={resetCurrent}
+						onreset={menuCommands.reset}
 					>
+						{#if ready && !phone && tool === 'effects'}
+							<VideoBar
+								layout="panel"
+								{tool}
+								title={toolLabels[tool]}
+								icon={toolIcons[tool]}
+								op={panelOp}
+								params={panelParams}
+								{duration}
+								trimIn={scrubIn}
+								trimOut={scrubOut}
+								{outputLength}
+								{aspect}
+								size={displaySize}
+								effect={currentEffect ? (effectMap.get(currentEffect) ?? null) : null}
+								onparams={setParams}
+								onaspect={setAspect}
+								ontrim={setTrimField}
+							/>
+						{/if}
 						{#if ready}
 							<VideoToolOptions
 								{tool}
@@ -1627,6 +1706,7 @@
 					<EditStack
 						stack={edits}
 						{variant}
+						bind:collapsed={editsHidden}
 						original={{ summary: ready ? `${fixed2(duration)} s · ${clip.width}×${clip.height}` : 'Loading…', thumb: frames[0] ?? null }}
 						onreopen={reopenStep}
 						onseek={(cursor) => (edits = seek(edits, cursor))}

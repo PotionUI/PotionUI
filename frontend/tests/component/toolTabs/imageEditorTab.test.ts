@@ -104,8 +104,9 @@ describe('ImageEditorTab', () => {
 		const { q, all, calls } = render({ source: HISTORY_SOURCE, state: twoSteps(), activeTool: 'effects' });
 		expect(rows(all)).toEqual(['original', 'applied', 'current']);
 		expect(q('[data-image-editor]')?.dataset.tool).toBe('effects');
-		expect(q('[data-options-panel] h2')?.firstChild?.textContent).toBe('Looks');
-		expect(q('[data-options-subtitle]')?.textContent).toBe('Properties');
+		expect(q('[data-title-name]')?.textContent).toBe('Looks');
+		expect(q('[data-options-panel] h2')).toBeNull();
+		expect(q('[data-options-subtitle]')).toBeNull();
 		expect(q('[data-tray]')).not.toBeNull();
 		expect(calls.title).toContain('observatory-dusk');
 		expect(calls.dirty).toEqual([2]);

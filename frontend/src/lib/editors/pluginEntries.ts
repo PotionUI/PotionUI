@@ -2,6 +2,7 @@ import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 import { logger } from '$lib/utils/logger';
 import { pluginOwner } from './registry';
 import { reportFailure } from './guard';
+import { menuItems, type EditorMenuContext, type MenuItemEntry } from './menuItems';
 import { overlays, type CanvasOverlayEntry } from './overlays';
 import { railGroups, railTools, type RailGroupEntry, type RailToolEntry } from './railTools';
 import { stepKinds, type StepKind } from './stepKinds';
@@ -65,7 +66,22 @@ export interface EditorTaskSnapshotEntry {
 	fallback?: { task: string; prompt: string } | null;
 }
 
+export interface EditorMenuSnapshotEntry {
+	plugin_id: string;
+	id: string;
+	editor: EditorKind;
+	menu: string;
+	menu_label?: string | null;
+	group?: string | null;
+	order?: number | null;
+	label: string;
+	icon?: string | null;
+	keys?: string | null;
+	module: string;
+}
+
 export interface EditorSnapshot {
+	menu: EditorMenuSnapshotEntry[];
 	steps: EditorStepSnapshotEntry[];
 	tools: EditorToolSnapshotEntry[];
 	groups: EditorGroupSnapshotEntry[];
@@ -84,6 +100,7 @@ export function readEditorSnapshot(data: unknown): EditorSnapshot {
 	const source = (data ?? {}) as Record<string, unknown>;
 	const list = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
 	return {
+		menu: list(source.editor_menu),
 		steps: list(source.editor_steps),
 		tools: list(source.editor_tools),
 		groups: list(source.editor_groups),
@@ -93,7 +110,7 @@ export function readEditorSnapshot(data: unknown): EditorSnapshot {
 }
 
 export function emptyEditorSnapshot(): EditorSnapshot {
-	return { steps: [], tools: [], groups: [], overlays: [], tasks: [] };
+	return { menu: [], steps: [], tools: [], groups: [], overlays: [], tasks: [] };
 }
 
 function componentRef(pluginId: string, path: string | null | undefined): ComponentRef | undefined {
@@ -155,6 +172,65 @@ export function declaredStepKind(
 					done(null);
 				}
 			);
+		}
+	};
+}
+
+export interface DeclaredMenuModule {
+	available?(ctx: EditorMenuContext): true | string;
+	run?(ctx: EditorMenuContext): void;
+}
+
+async function importMenuModule(pluginId: string, path: string): Promise<DeclaredMenuModule> {
+	const component = await resolvePluginComponent(pluginId, path);
+	const declared = component?.dist;
+	if (!declared || typeof declared !== 'object') throw new Error(`${path} could not be loaded`);
+	return declared as DeclaredMenuModule;
+}
+
+export function declaredMenuItem(
+	entry: EditorMenuSnapshotEntry,
+	load = importMenuModule
+): { item: MenuItemEntry; start: () => () => void } {
+	let loaded: DeclaredMenuModule | null = null;
+	let failed = false;
+	const key = `${entry.editor}:${entry.id}`;
+	const item: MenuItemEntry = {
+		id: entry.id,
+		editor: entry.editor,
+		menu: entry.menu,
+		group: entry.group || 'plugins',
+		label: entry.label,
+		icon: entry.icon || 'extension',
+		available: (ctx) => {
+			if (failed) return 'Could not load';
+			if (!loaded) return 'Loading';
+			return loaded.available ? loaded.available(ctx) : true;
+		},
+		run: (ctx) => loaded?.run?.(ctx)
+	};
+	if (entry.menu_label) item.menuLabel = entry.menu_label;
+	if (typeof entry.order === 'number') item.order = entry.order;
+	if (entry.keys) item.keybind = entry.keys;
+	return {
+		item,
+		start() {
+			let live = true;
+			load(entry.plugin_id, entry.module).then(
+				(module) => {
+					if (!live) return;
+					loaded = module;
+					menuItems.touch();
+				},
+				(error) => {
+					if (!live) return;
+					failed = true;
+					reportFailure(key, 'load', error);
+				}
+			);
+			return () => {
+				live = false;
+			};
 		}
 	};
 }
@@ -239,6 +315,19 @@ export function describeEditorEntries(snapshot: EditorSnapshot, revisionOf: (plu
 		);
 	}
 	for (const entry of snapshot.steps.filter(accept)) out.push(describeStep(entry, revisionOf(entry.plugin_id)));
+	for (const entry of snapshot.menu.filter(accept)) {
+		out.push(
+			describe('menu', entry, revisionOf(entry.plugin_id), () => {
+				const declared = declaredMenuItem(entry);
+				const stop = declared.start();
+				const dispose = menuItems.register(declared.item, pluginOwner(entry.plugin_id));
+				return () => {
+					stop();
+					dispose();
+				};
+			})
+		);
+	}
 	for (const entry of snapshot.tools.filter(accept)) {
 		out.push(
 			describe('tool', entry, revisionOf(entry.plugin_id), () => {
@@ -315,6 +404,8 @@ export interface PluginEditorsApi {
 	registerRailTool(entry: RailToolEntry, options: PluginEditorRegistration): () => void;
 	registerOverlay(entry: CanvasOverlayEntry, options: PluginEditorRegistration): () => void;
 	registerTask(entry: TaskEntry, options: PluginEditorRegistration): () => void;
+	registerMenuItem(entry: MenuItemEntry, options: PluginEditorRegistration): () => void;
+	menuItems: PluginEditorLookup<MenuItemEntry>;
 	stepKinds: PluginEditorLookup<StepKind<any>>;
 	railGroups: PluginEditorLookup<RailGroupEntry>;
 	railTools: PluginEditorLookup<RailToolEntry>;
@@ -373,6 +464,8 @@ export function createHostEditorsApi(): PluginEditorsApi {
 		registerRailTool: (entry, options) => owned(railTools, entry, options),
 		registerOverlay: (entry, options) => owned(overlays, entry, options),
 		registerTask: (entry, options) => owned(tasks, entry, options),
+		registerMenuItem: (entry, options) => owned(menuItems, entry, options),
+		menuItems: lookup(menuItems),
 		stepKinds: lookup(stepKinds),
 		railGroups: lookup(railGroups),
 		railTools: lookup(railTools),

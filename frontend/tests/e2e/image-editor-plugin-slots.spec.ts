@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Request } from '@playwright/test';
-import { clearEdits, loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clearEdits, editorMenu, editorMenuItem, loginAsOwner, openEditorMenu, ownerToken, screenshot } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-plugin-slots';
@@ -241,5 +241,38 @@ test.describe('a plugin fills the image editor slots', () => {
 		await expect(page.locator('[data-render-error]')).toHaveCount(0);
 		await expect(rail(page, 'crop')).toBeVisible();
 		await expect(rail(page, TINT_LATER)).toBeVisible();
+	});
+
+	test('its menu items show up in the Tools menu and in a menu of its own, and run', async ({ page }) => {
+		await begin(page, true);
+		await openPicture(page);
+		await page.evaluate(() => {
+			(window as any).__e2eMenuNote = 0;
+		});
+		const registered = await page.evaluate(
+			({ note, shelf }) => {
+				const items = (window as any).__potionui.editors.menuItems;
+				return { note: items.get('image', note)?.menu ?? null, shelf: items.get('image', shelf)?.menuLabel ?? null };
+			},
+			{ note: `${PLUGIN}.note`, shelf: `${PLUGIN}.shelf` }
+		);
+		expect(registered).toEqual({ note: 'tools', shelf: 'Shelf' });
+		await expect(page.locator('[data-editor-menubar] [data-menu-tab]')).toHaveText(['File', 'Edit', 'View', 'Tools', 'Shelf']);
+		const note = await editorMenuItem(page, 'Tools', 'Tint note');
+		await expect(note).toBeVisible();
+		await screenshot(page, JOURNEY, 'menu-tools-1440');
+		await note.click();
+		await expect.poll(() => page.evaluate(() => (window as any).__e2eMenuNote)).toBe(1);
+		await editorMenu(page, 'Shelf', 'Shelf item');
+		await expect.poll(() => page.evaluate(() => (window as any).__e2eMenuNote)).toBe(2);
+		await expect(page.locator('[data-image-editor]')).toBeVisible();
+	});
+
+	test('with the plugin off its menu and menu items are gone', async ({ page }) => {
+		await begin(page, false);
+		await openPicture(page);
+		await expect(page.locator('[data-editor-menubar] [data-menu-tab]')).toHaveText(['File', 'Edit', 'View', 'Tools']);
+		await openEditorMenu(page, 'Tools');
+		await expect(page.locator('[data-editor-menu="tools"] [data-menu-row]').filter({ hasText: 'Tint note' })).toHaveCount(0);
 	});
 });

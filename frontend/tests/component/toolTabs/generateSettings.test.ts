@@ -184,7 +184,7 @@ describe('Settings in the right panel', () => {
 	it('folds the Edits list to its header row while open and restores it on close', async () => {
 		const { view, q, toggle } = await open();
 		expect(q('[data-edit-stack]')?.hasAttribute('data-folded')).toBe(false);
-		expect(q('[data-stack-fold]')).toBeNull();
+		expect(q('[data-stack-fold]')?.getAttribute('aria-expanded')).toBe('true');
 		await toggle();
 		expect(q('[data-edit-stack]')?.hasAttribute('data-folded')).toBe(true);
 		expect(q('[data-stack-rows]')?.className).toContain('hidden');
@@ -192,7 +192,7 @@ describe('Settings in the right panel', () => {
 		await settle();
 		expect(q('[data-edit-stack]')?.hasAttribute('data-folded')).toBe(false);
 		await toggle();
-		expect(q('[data-stack-fold]')).toBeNull();
+		expect(q('[data-stack-fold]')?.getAttribute('aria-expanded')).toBe('true');
 		expect(q('[data-edit-stack]')?.hasAttribute('data-folded')).toBe(false);
 		view.destroy();
 	});

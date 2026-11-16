@@ -59,6 +59,25 @@ editor_overlays:
     cursor: "crosshair"
     produces: "selection"
 
+editor_menu:
+  - id: "e2e-editor-slots.note"
+    editor: "image"
+    menu: "tools"
+    group: "e2e-editor-slots.stylize"
+    order: 900
+    label: "Tint note"
+    icon: "extension"
+    module: "editor/menuNote.js"
+  - id: "e2e-editor-slots.shelf"
+    editor: "image"
+    menu: "e2e-editor-slots.shelf"
+    menu_label: "Shelf"
+    group: "main"
+    order: 10
+    label: "Shelf item"
+    icon: "extension"
+    module: "editor/menuNote.js"
+
 editor_tasks:
   - id: "e2e-editor-slots.relight"
     label: "Relight"

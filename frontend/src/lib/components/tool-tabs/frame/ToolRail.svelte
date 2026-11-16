@@ -3,6 +3,7 @@
 	import tooltip from '$lib/actions/tooltip';
 	import type { RailGroup, RailTool } from '$lib/tool-tabs/frame/types';
 	import { getFrameContext } from '$lib/tool-tabs/frame/context';
+	import { RAIL_ICON_WIDTH } from '$lib/tool-tabs/frame/layout';
 
 	let {
 		groups,
@@ -81,9 +82,10 @@
 		? 'strip flex h-16 flex-none gap-0.5 overflow-x-auto border-t border-line bg-surface-1 px-1.5 py-1'
 		: icons
 			? joined
-				? 'rail flex w-[52px] flex-none flex-col items-center gap-0.5 overflow-y-auto bg-surface-1/50 py-2 pl-1.5 pr-0'
-				: 'rail flex w-[52px] flex-none flex-col items-center gap-0.5 overflow-y-auto border-r border-line bg-surface-1 px-1.5 py-2'
+				? 'rail flex flex-none flex-col items-center gap-0.5 overflow-y-auto bg-surface-1/50 py-2 pl-1.5 pr-0'
+				: 'rail flex flex-none flex-col items-center gap-0.5 overflow-y-auto border-r border-line bg-surface-1 px-1.5 py-2'
 			: 'rail flex w-[76px] flex-none flex-col gap-0.5 overflow-y-auto border-r border-line bg-surface-1 px-1.5 py-2'}
+	style={icons ? `width: ${RAIL_ICON_WIDTH}px` : undefined}
 	role="toolbar"
 	aria-orientation={strip ? 'horizontal' : 'vertical'}
 	aria-label={label}

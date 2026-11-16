@@ -22,6 +22,7 @@
 		size,
 		effect = null,
 		phone = false,
+		layout = 'bar',
 		onparams,
 		onaspect,
 		ontrim
@@ -39,6 +40,7 @@
 		size: { width: number; height: number };
 		effect?: EffectTool | null;
 		phone?: boolean;
+		layout?: 'bar' | 'panel';
 		onparams: (op: VideoOp, params: VideoParams) => void;
 		onaspect: (key: string) => void;
 		ontrim: (which: 'in' | 'out', seconds: number) => void;
@@ -62,6 +64,26 @@
 		'h-7 flex-none rounded px-2.5 font-mono text-sm tabular-nums transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-signal';
 </script>
 
+{#if layout === 'panel'}
+	{#if tool === 'effects' && effect}
+		<div class="flex flex-col gap-2" data-look-controls>
+			<span class="inline-flex h-6 w-fit flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-effect>{effect.label}</span>
+			{#if strength && op}
+				{@const min = strength.min ?? 0}
+				{@const max = strength.max ?? 1}
+				<PropertySlider
+					label={strength.label ?? strength.name}
+					value={Number(params[strength.name] ?? strength.default ?? min)}
+					{min}
+					{max}
+					step={strength.step ?? (strength.type === 'integer' ? 1 : (max - min) / 100)}
+					defaultValue={Number(strength.default ?? min)}
+					onchange={(value) => onparams(op, { ...params, [strength.name]: value })}
+				/>
+			{/if}
+		</div>
+	{/if}
+{:else}
 {#if !phone}
 	<span class="inline-flex flex-none items-center gap-2 text-base font-semibold text-fg" data-bar-title>
 		<Icon name={icon} className="h-3.5 w-3.5 flex-none text-fg-muted" />{title}
@@ -109,4 +131,5 @@
 	{/if}
 {:else if tool === 'speed'}
 	<span class="ml-auto flex-none font-mono text-sm tabular-nums text-fg-muted" data-bar-length>{fixed2(outputLength)} s</span>
+{/if}
 {/if}

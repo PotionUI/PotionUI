@@ -28,6 +28,7 @@
 		original,
 		variant = 'panel',
 		folded = false,
+		collapsed = $bindable(false),
 		pinned = DEFAULT_PINNED_LANES,
 		moreItems = [],
 		notes,
@@ -46,6 +47,7 @@
 		original: { label?: string; summary: string; thumb?: string | null };
 		variant?: StackVariant;
 		folded?: boolean;
+		collapsed?: boolean;
 		pinned?: readonly LanePair[];
 		moreItems?: MenuItem[];
 		notes?: Snippet;
@@ -68,7 +70,7 @@
 	let undone = $derived(undoneCount(stack));
 	let sheet = $derived(variant === 'sheet');
 	let opened = $state(false);
-	let shut = $derived(folded && !opened && !sheet);
+	let shut = $derived(!sheet && (collapsed || (folded && !opened)));
 
 	$effect(() => {
 		if (!folded) opened = false;
@@ -149,16 +151,14 @@
 			{#if moreItems.length && !shut}
 				<Menu label="Edit stack options" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
 			{/if}
-			{#if folded}
-				<IconButton
-					icon={shut ? 'chevron-right' : 'chevron-down'}
-					label={shut ? 'Show edits' : 'Hide edits'}
-					size="sm"
-					ariaExpanded={!shut}
-					onclick={() => (opened = !opened)}
-					data-stack-fold
-				/>
-			{/if}
+			<IconButton
+				icon={shut ? 'chevron-right' : 'chevron-down'}
+				label={shut ? 'Show edits' : 'Hide edits'}
+				size="sm"
+				ariaExpanded={!shut}
+				onclick={() => (folded && !collapsed ? (opened = !opened) : (collapsed = !collapsed))}
+				data-stack-fold
+			/>
 		</div>
 	{/if}
 

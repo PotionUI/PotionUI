@@ -8,7 +8,6 @@
 	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 	import { Button, IconButton, Kbd, Spinner } from '$lib/components/ui';
 	import {
-		BarActions,
 		CanvasChip,
 		EditStack,
 		EditorCanvas,
@@ -111,6 +110,12 @@
 	import { editLinkForSave } from '$lib/tool-tabs/image/saveLink';
 	import EditConflictNotice from '$lib/components/tool-tabs/frame/EditConflictNotice.svelte';
 	import EditSaveIndicator from '$lib/components/tool-tabs/frame/EditSaveIndicator.svelte';
+	import EditorMenuSheet from '$lib/components/tool-tabs/frame/EditorMenuSheet.svelte';
+	import { ensureCoreEditorMenu } from '$lib/editors/coreMenu';
+	import type { EditorMenuCommands, EditorMenuContext } from '$lib/editors/menuItems';
+	import { createMenuRecents, openAllEdits, openRecentEdit } from '$lib/tool-tabs/image/menuEdits';
+	import { statusParts } from '$lib/tool-tabs/frame/statusLine';
+	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import {
 		ADJUST_OPS,
 		CATALOG_TOOL,
@@ -182,7 +187,6 @@
 	import { canApplyEffect, canResetEffect, effectDefaultsOf } from '$lib/tool-tabs/image/effectState';
 	import AdjustOptions from './AdjustOptions.svelte';
 	import CatalogToolOptions from './CatalogToolOptions.svelte';
-	import CropBar from './CropBar.svelte';
 	import CropOptions, { aspectLabel, IMAGE_ASPECTS } from './CropOptions.svelte';
 	import CropOverlay from './CropOverlay.svelte';
 	import EffectsOptions from './EffectsOptions.svelte';
@@ -219,6 +223,10 @@
 	let saved = $state.raw<SavedCopy | null>(initial.saved);
 	let compare = $state(false);
 	let stackOpen = $state(false);
+	let editsHidden = $state(false);
+	let phoneMenuOpen = $state(false);
+	let canvasApi = $state<ReturnType<typeof EditorCanvas> | undefined>();
+	const menuRecents = createMenuRecents();
 	let saveMenuOpen = $state(false);
 	let saving = $state<SavingProgress | null>(null);
 	let busy = $state(false);
@@ -316,6 +324,7 @@
 	});
 	let applyOverride = $state<{ tool: string | null; label: string; enabled: boolean } | null>(null);
 	ensureCoreImageEditor();
+	ensureCoreEditorMenu();
 	const toolHost = createImageToolHost({
 		getStack: () => stack,
 		setStack: (next) => (stack = next),
@@ -572,10 +581,6 @@
 	let tabFormKey = $derived(generationTabs.map((tab) => `${tab.id}|${tab.selectedPreset}|${tab.selectedMode}|${tab.selectedVariant ?? ''}`).join(','));
 	let referenceTargets = $derived<ReferenceTarget[]>(referenceTargetsFor(generationTabs, refFieldsByTab, presetNames, sliceCount || sliceItems.length));
 	let sendTargets = $derived(sendTargetsFor(generationTabs, fieldsByTab, presetNames, !!liveMaskNow, sendFirst));
-
-	let sourceInfo = $derived(
-		origin === 'history' ? { label: 'History', icon: 'clock' } : origin === 'library' ? { label: 'Library', icon: 'image' } : origin === 'upload' ? { label: 'Dropped file', icon: 'upload' } : null
-	);
 
 	$effect(() => {
 		const ref = source;
@@ -839,6 +844,7 @@
 
 	$effect(() => {
 		const actions = {
+			menu: { run: () => (phoneMenuOpen = true) },
 			undo: { label: undoText ? `Undo ${undoText}` : 'Undo', disabled: !canUndoNow, run: doUndo },
 			redo: { label: redoText ? `Redo ${redoText}` : 'Redo', disabled: !canRedoNow, run: doRedo },
 			save: { label: saveSlice ? (sliceSaved ? 'Saved' : `Save ${sliceCount}`) : 'Save', disabled: !canSave, run: () => (saveMenuOpen = true) }
@@ -1740,6 +1746,102 @@
 	let pendingTools = $derived([...(pending ? [pending.tool] : []), ...(mode === 'paint' && paintState?.dirty ? ['paint'] : []), ...(maskDirty ? ['mask'] : [])]);
 	let originalSummary = $derived(sourceSize ? `${sourceSize.width}×${sourceSize.height} · ${extension}` : extension);
 	let stackMore = $derived(applied.length ? [{ id: 'clear', label: 'Remove all edits', icon: 'trash' }] : []);
+
+	let currentStep = $derived(applied.length && !stack.pending ? applied[applied.length - 1] : null);
+	let sliceSaveMode = $derived(!!saveSlice || referencesOnly);
+	let statusInfo = $derived(
+		statusParts({
+			tool: activeTool,
+			areaTool: taskTool || activeTool === 'mask',
+			size: outputDims,
+			marked: $maskArea,
+			output:
+				activeTool === 'crop' && (cropInput ?? cropFrame)
+					? planOutputSize(cropParams.plan, (cropInput ?? cropFrame)!)
+					: activeTool === 'resize' && resizeParams
+						? { width: resizeParams.width, height: resizeParams.height }
+						: null
+		})
+	);
+	let footerActions = $derived(phone ? !phoneBarred && !taskTool : !taskTool && activeTool !== 'adjust' && !!activeTool);
+
+	const menuCommands: EditorMenuCommands = {
+		save: (action) => onSave(action),
+		closeEditor: () => requestCloseTab(host.tabId),
+		replaceWith: (id) => replacePicker?.open(id as SourceEntryId),
+		openRecent: (id) => void openRecentEdit(id),
+		openAllEdits: () => openAllEdits(),
+		undo: () => doUndo(),
+		redo: () => doRedo(),
+		apply: () => void applyTool(),
+		reset: () => resetTool(),
+		toggleStepHidden: () => {
+			const step = currentStep;
+			if (step) stack = toggleHidden(stack, step.id);
+		},
+		removeStep: () => {
+			const step = currentStep;
+			if (!step) return;
+			generate.stepRemoved(step.id, stack);
+			stack = remove(stack, step.id);
+		},
+		removeAll: () => {
+			generate.allRemoved(stack);
+			stack = createStack();
+		},
+		toggleCompare: () => (compare = !compare),
+		zoomIn: () => canvasApi?.zoomIn(),
+		zoomOut: () => canvasApi?.zoomOut(),
+		fit: () => canvasApi?.showFit(),
+		actualSize: () => canvasApi?.showActualSize(),
+		toggleEdits: () => (editsHidden = !editsHidden),
+		selectTool: (id) => void selectTool(id)
+	};
+
+	let menuCtx = $derived<EditorMenuContext>({
+		editor: 'image',
+		hasSource: !!source,
+		phone,
+		busy,
+		tool: activeTool,
+		rail: railGroups,
+		saved: !!saved && !saveSlice,
+		canSave,
+		replace: sliceSaveMode ? { allowed: false, reason: 'Slicing never overwrites the sheet' } : replace,
+		sendTargets: sliceSaveMode ? referenceTargets : sendTargets,
+		newGeneration: sliceSaveMode,
+		newGenerationHint: sliceSaveMode ? 'Pick a preset with a references field' : undefined,
+		downloadFormat: sliceSaveMode ? 'ZIP' : 'PNG',
+		copyLabel: 'Copy image',
+		copyReason: sliceSaveMode ? 'Slices are saved or downloaded, not copied' : undefined,
+		saveNewLabel: saveSlice ? (sliceSaved ? 'Saved' : `Save ${sliceCount} ${sliceCount === 1 ? 'image' : 'images'}`) : undefined,
+		sources: sourceEntries('image', phone).map((entry) => ({ id: entry.id, label: entry.label, icon: entry.icon })),
+		currentSource: currentSourceOf(source),
+		replaceLabel: 'Replace picture',
+		replaceBlocked,
+		recentEdits: $menuRecents,
+		canUndo: canUndoNow,
+		undoLabel: undoText,
+		canRedo: canRedoNow,
+		redoLabel: redoText,
+		apply: activeTool && !taskTool && activeTool !== 'adjust' ? { label: applyLabel, enabled: canApply, reason: 'Nothing to apply yet' } : null,
+		reset: !activeTool
+			? null
+			: taskTool
+				? { label: 'Clear area', icon: 'trash', enabled: !!$maskArea, reason: 'Mark an area first' }
+				: { label: activeTool === 'adjust' ? 'Reset all' : 'Reset', icon: 'rotate', enabled: canReset, reason: 'Nothing to reset yet' },
+		step: currentStep ? { id: currentStep.id, label: currentStep.label, hidden: currentStep.hidden } : null,
+		editCount,
+		compare,
+		canCompare: canCompareNow,
+		zoom: canvasApi ? canvasApi.zoomState() : null,
+		editsShown: !editsHidden,
+		commands: menuCommands
+	});
+
+	function onMenuOpened(id: string) {
+		if (id === 'file') void menuRecents.load();
+	}
 </script>
 
 <svelte:window
@@ -1765,6 +1867,7 @@
 	{:else if activeTool === 'resize' && resizeParams && resizeInput}
 		<ResizeOptions params={resizeParams} input={resizeInput} {phone} onchange={(next) => setDraft('resize', next)} />
 	{:else if activeTool === 'effects'}
+		{#if !phone}{@render lookControls()}{/if}
 		<EffectsOptions params={effectParams} {phone} effects={stillEffects} bind:query onopen={openEffect} onchange={(next) => setDraft('effects', next)} />
 		{#if bakeIsCapped(outputDims) && !phone}
 			<p class="text-sm text-warning" data-bake-cap>Looks on pictures over {FULL_SIDE} px are drawn at {FULL_SIDE} px on the long side and scaled back up when saved.</p>
@@ -1829,46 +1932,21 @@
 	{/if}
 {/snippet}
 
-{#snippet barTitle()}
-	<span class="inline-flex flex-none items-center gap-2 text-base font-semibold text-fg" data-bar-title>
-		<Icon name={optionsIcon} className="h-3.5 w-3.5 flex-none text-fg-muted" />{optionsTitle}
-	</span>
-{/snippet}
-
-{#snippet barContent()}
-	{@render barTitle()}
-	{#if activeTool === 'crop' && cropInput}
-		<CropBar params={cropParams} input={cropInput} onchange={(next) => setDraft('crop', next)} />
-	{:else if activeTool === 'resize' && resizeParams}
-		<span class="ml-auto flex-none font-mono text-sm tabular-nums text-success" data-resize-output>{resizeParams.width}×{resizeParams.height}</span>
-	{:else if activeTool === 'effects'}
-		{#if lookParams}
-			<span class="inline-flex h-6 flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{lookParams.name}</span>
-			<div class="flex w-64 min-w-40 max-w-80 flex-1 items-center">
-				<PropertySlider inline label="Intensity" value={lookParams.intensity} min={0} max={100} defaultValue={trayById.get(lookParams.filter)?.intensity ?? 100} onchange={(value) => setDraft('effects', { ...lookParams, intensity: value })} />
-			</div>
-		{:else if effectParams?.kind === 'effect'}
-			<span class="inline-flex h-6 flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{effectParams.name}</span>
-		{:else}
-			<span class="min-w-0 truncate text-sm text-fg-subtle">Hover a look to preview it, click to choose</span>
-		{/if}
-	{:else if activeTool === 'adjust'}
-		<span class="min-w-0 truncate text-sm text-fg-subtle">Changes apply as you move a slider</span>
+{#snippet lookControls()}
+	{#if lookParams}
+		<div class="flex flex-col gap-2" data-look-controls>
+			<span class="inline-flex h-6 w-fit flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{lookParams.name}</span>
+			<PropertySlider label="Intensity" value={lookParams.intensity} min={0} max={100} defaultValue={trayById.get(lookParams.filter)?.intensity ?? 100} onchange={(value) => setDraft('effects', { ...lookParams, intensity: value })} />
+		</div>
+	{:else if effectParams?.kind === 'effect'}
+		<span class="inline-flex h-6 w-fit flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{effectParams.name}</span>
+	{:else}
+		<p class="text-sm text-fg-subtle">Hover a look to preview it, click to choose</p>
 	{/if}
 {/snippet}
 
 {#snippet saveStateContent()}
 	<EditSaveIndicator status={autosaveStatus} />
-{/snippet}
-
-{#snippet barActionsContent()}
-	{#if taskTool}
-		<Button variant="secondary" size="sm" class="h-7" disabled={!$maskArea} onclick={resetTool} attrs={{ 'data-clear-area': '' }}>Clear area</Button>
-	{:else if activeTool === 'adjust'}
-		<Button variant="secondary" size="sm" class="h-7" disabled={!canReset} onclick={resetTool} attrs={{ 'data-options-reset': '' }}>Reset all</Button>
-	{:else}
-		<BarActions {applyLabel} {canApply} {canReset} onapply={() => void applyTool()} onreset={resetTool} />
-	{/if}
 {/snippet}
 
 {#snippet phoneBar()}
@@ -1933,7 +2011,7 @@
 			<div class="flex flex-1 items-center justify-center bg-scrim"><Spinner /></div>
 		{/if}
 	{:else if shownSize && (mainRender || cropCanvas)}
-		<EditorCanvas mediaWidth={shownSize.width} mediaHeight={shownSize.height} bind:viewport {compare} {phone} checker>
+		<EditorCanvas bind:this={canvasApi} mediaWidth={shownSize.width} mediaHeight={shownSize.height} bind:viewport {compare} {phone} checker statusSize={statusInfo.size} statusExtra={statusInfo.extra}>
 			{#snippet layer()}
 				<canvas use:showCanvas={{ canvas: mode === 'crop' ? cropCanvas : (mainRender?.canvas ?? null), onrestore: recoverSurfaces }} class="block h-full w-full" data-editor-layer aria-label="Edited picture"></canvas>
 			{/snippet}
@@ -2043,6 +2121,7 @@
 		original={{ summary: originalSummary, thumb: sourceUrl }}
 		{variant}
 		folded={settingsOpen && !phone}
+		bind:collapsed={editsHidden}
 		pinned={IMAGE_PINNED_LANES}
 		moreItems={stackMore}
 		rowInfo={rowInfoFor}
@@ -2095,21 +2174,31 @@
 	<SaveMenuRows saved={!!saved} {replace} {sendTargets} downloadFormat="PNG" copyLabel="Copy image" notices={saveNotices} onchoose={pick} />
 {/snippet}
 
+{#snippet replaceFooter(close: () => void)}
+	<RecentPictures
+		columns="grid-cols-3"
+		onpick={(ref) => {
+			close();
+			void changeSource(ref);
+		}}
+	/>
+	{#if !phone}
+		<p class="mt-2 flex items-center gap-2 text-sm text-fg-subtle">or paste <Kbd keys="Ctrl V" /></p>
+	{/if}
+{/snippet}
+
 {#snippet replaceMenu()}
 	<ReplaceMenu label="Replace picture" entries={sourceEntries('image', phone)} current={currentSourceOf(source) as SourceEntryId | null} disabled={replaceBlocked} {phone} onselect={(id) => replacePicker?.open(id)}>
 		{#snippet footer(close)}
-			<RecentPictures
-				columns="grid-cols-3"
-				onpick={(ref) => {
-					close();
-					void changeSource(ref);
-				}}
-			/>
-			{#if !phone}
-				<p class="mt-2 flex items-center gap-2 text-sm text-fg-subtle">or paste <Kbd keys="Ctrl V" /></p>
-			{/if}
+			{@render replaceFooter(close)}
 		{/snippet}
 	</ReplaceMenu>
+{/snippet}
+
+{#snippet menuChildFooter(slot: { id: string; close: () => void })}
+	{#if slot.id === 'file.replace'}
+		<div class="mt-1 border-t border-line px-2.5 pb-1 pt-2">{@render replaceFooter(slot.close)}</div>
+	{/if}
 {/snippet}
 
 <ImageSourcePicker bind:this={replacePicker} onpick={(ref) => void changeSource(ref)} onfile={(file) => void changeFile(file)} />
@@ -2126,14 +2215,15 @@
 		{:else}
 			<EditorToolbar
 				fileName={null}
+				title="Image editor"
+				menu={menuCtx}
+				onopenmenu={onMenuOpened}
 				canUndo={false}
 				canRedo={false}
-				canCompare={false}
 				canSave={false}
 				replace={{ allowed: false }}
 				onundo={() => undefined}
 				onredo={() => undefined}
-				oncompare={() => undefined}
 				onsave={() => undefined}
 			/>
 			<div class="flex min-h-0 flex-1">
@@ -2149,6 +2239,7 @@
 			canCompare={canCompareNow}
 			barVisible={phone && activeTool === 'effects'}
 			{editCount}
+			phoneSize={outputDims ? `${outputDims.width}×${outputDims.height}` : null}
 			onundo={doUndo}
 			onredo={doRedo}
 			onsave={primarySave}
@@ -2161,6 +2252,9 @@
 			{/snippet}
 			{#snippet toolbar()}
 				{#if phone}
+					{#if phoneMenuOpen}
+						<EditorMenuSheet ctx={menuCtx} {fileName} onclose={() => (phoneMenuOpen = false)} onopenmenu={onMenuOpened} />
+					{/if}
 					{#if saveMenuOpen}
 						<FrameSheet label="Save" onclose={() => (saveMenuOpen = false)}>
 							{#snippet header()}
@@ -2180,14 +2274,15 @@
 				{:else}
 					<EditorToolbar
 						{fileName}
-						chips={outputDims ? [`${outputDims.width}×${outputDims.height}`] : []}
-						source={sourceInfo}
+						title={activeTool ? optionsTitle : 'Image editor'}
+						titleIcon={optionsIcon}
+						menu={menuCtx}
+						onopenmenu={onMenuOpened}
+						childFooter={menuChildFooter}
 						canUndo={canUndoNow}
 						canRedo={canRedoNow}
 						undoLabel={undoText}
 						redoLabel={redoText}
-						{compare}
-						canCompare={canCompareNow}
 						{canSave}
 						saved={!!saved}
 						{replace}
@@ -2200,17 +2295,10 @@
 						bind:saveMenuOpen
 						onundo={doUndo}
 						onredo={doRedo}
-						oncompare={(next) => (compare = next)}
 						onsave={onSave}
 						oncancelsave={cancelSave}
-						bar={activeTool ? barContent : undefined}
-						barActions={activeTool ? barActionsContent : undefined}
 						saveState={autosaveStatus === 'idle' ? undefined : saveStateContent}
-					>
-						{#snippet replaceControl()}
-							{@render replaceMenu()}
-						{/snippet}
-					</EditorToolbar>
+					/>
 				{/if}
 			{/snippet}
 			{#snippet rail()}
@@ -2260,11 +2348,10 @@
 					<OptionsPanel
 						title={optionsTitle}
 						icon={optionsIcon}
-						subtitle={phone ? null : 'Properties'}
 						{applyLabel}
 						{canApply}
 						{canReset}
-						actions={phone && !phoneBarred && !taskTool}
+						actions={footerActions}
 						{phone}
 						onapply={() => void applyTool()}
 						onreset={resetTool}

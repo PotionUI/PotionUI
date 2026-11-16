@@ -631,6 +631,7 @@ def test_get_frontend_extensions_excludes_disabled_plugins(mock_plugin_repo, moc
         "editor_tools": [],
         "editor_groups": [],
         "editor_overlays": [],
+        "editor_menu": [],
         "editor_tasks": [],
         "revisions": {},
     }

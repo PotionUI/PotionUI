@@ -44,7 +44,7 @@
 			data-edit-save-state={status}
 		>
 			<span class="h-2 w-2 flex-none rounded-full {entry.dot}" aria-hidden="true"></span>
-			{entry.label}
+			<span class={chip ? '' : 'max-[1100px]:sr-only'}>{entry.label}</span>
 		</span>
 	</Tooltip>
 {/if}

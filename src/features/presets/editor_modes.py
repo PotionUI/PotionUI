@@ -26,7 +26,6 @@ from src.features.presets.templates import (
     is_editor_key,
     sorted_forms,
 )
-from src.features.presets.form_overrides import apply_overrides_to_fields
 from src.features.presets.quantity import mode_quantity_fields
 from src.platform.filesystem.yaml_io import load_yaml_file
 from src.platform.observability.logger import logger
@@ -239,6 +238,8 @@ def form_overrides_for(
 
 
 def shown_fields(mode: ModeTemplate) -> List[Dict[str, Any]]:
+    from src.features.presets.form_overrides import apply_overrides_to_fields
+
     spec = mode.editor
     forms = sorted_forms(mode)
     if spec is None or not forms:

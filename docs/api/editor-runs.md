@@ -11,6 +11,25 @@ A **run** is one press of Generate in the Image editor. You mark an area of a pi
 
 You need a key with **Can generate** to start or cancel a run and **Can read** to follow one. A run is yours alone: someone else's run id answers 404.
 
+## What an offer looks like
+
+`GET /api/editor/tasks?editor=image` lists each task with the `offers` the caller may use, one per editor mode:
+
+```json
+{
+  "preset_id": "...", "preset_name": "Krea-2", "mode": "editor:edit", "from_mode": "edit",
+  "mode_label": "Edit", "label": "Edit", "short_description": null, "order": 0,
+  "region_strategy": "crop", "via": null, "qualifies": true,
+  "owned": ["quantity", "source_image", "match_source", "fit_mode"], "variant": null
+}
+```
+
+`mode` is the editor key to send back. `from_mode` is the generation mode it derives from (`null` for a standalone
+editor mode). `via` names the task an offer reaches through the fallback, per preset: a preset that ships its own
+mode for a task is offered with `via: null` and its modes of the fallback task are not offered for it. `owned` lists the fields the
+editor fills or hides, and `variant` is always `null`; both stay for clients that still read them, and the served
+form (`GET /api/presets/{id}/form?mode=editor:<name>`) already leaves those fields out.
+
 ## Start a run
 
 `POST /api/editor/tasks/{task_id}/runs` answers `202` with the run. Task ids come from `GET /api/editor/tasks`: `edit_region` and `remove_object` ship with the app. `remove_object` runs the mode with a built-in prompt.
@@ -22,7 +41,7 @@ You need a key with **Can generate** to start or cancel a run and **Can read** t
   "steps": [],
   "region": { "item_id": "..." },
   "prompt": "a red wool scarf",
-  "setup": { "preset_id": "...", "mode": "edit", "variant": null, "form_data": {} },
+  "setup": { "preset_id": "...", "mode": "editor:edit", "form_data": {} },
   "candidates": 2,
   "seed": null
 }
@@ -30,10 +49,10 @@ You need a key with **Can generate** to start or cancel a run and **Can read** t
 
 - `edit` is a saved edit you own. `input` is the picture and `steps` are the visible edit steps beneath, the same list Save sends; the server renders them to get the picture the model must see (at most 8192 px on the long side).
 - `region` is an image whose pixels at 128 or above mark the area. Leave it out to edit the whole picture, when the task allows it.
-- `setup` names the preset mode and its form values. The picture, the mask, the output size, the number of results, the seed and the fixed values the mode declares in `editor.yml` are filled by the server and replace whatever you send for them.
+- `setup` names the editor mode, written `editor:<name>` as the offers of `GET /api/editor/tasks` list it, and its form values. The picture, the mask, the output size, the number of results, the seed and the `fixed` values of the editor mode's `editor_mode.yml` are filled by the server and replace whatever you send for them; its `hide` fields keep their own defaults. For one more release a generation mode name without the prefix (`"edit"`) is accepted and maps to the one editor mode derived from it for that task; no match or several answers `422 task_not_offered`. `variant` is ignored.
 - `candidates` is 1 to 4. `seed` pins the seed; leave it out to use the form's.
 
-The run goes through the same submit path as `POST /api/generations/start`, so the plan limits, quotas, content policy and preset access that apply there apply here, with the same answers. A refused start leaves no run behind.
+The generation carries the editor key as its `mode`, and `POST /api/generations/start` itself refuses an editor key with `422 mode_is_editor`; only a run may use one. The run goes through the same submit path as that route, so the plan limits, quotas, content policy and preset access that apply there apply here, with the same answers. A refused start leaves no run behind.
 
 ## Follow a run
 
@@ -75,26 +94,25 @@ While a run works, the server stores the picture it sends the model, the mask, a
 
 ## Your default setup for a task
 
-A **setup** is what a task runs with: a preset mode that offers the task, plus where its settings start from: one of your editor sessions (a session of kind `editor`), one of your formulas, or the mode's own defaults. Your **default** is the setup you chose for a task. Only you choose it; the server never picks one for you and never swaps one for another. Defaults are yours alone: nobody else can read, set or clear them.
+A **setup** is what a task runs with: an editor mode that offers the task, plus where its settings start from: one of your editor sessions (a session of kind `editor`), one of your formulas, or the mode's own defaults. Your **default** is the setup you chose for a task. Only you choose it; the server never picks one for you and never swaps one for another. Defaults are yours alone: nobody else can read, set or clear them.
 
 `PUT /api/editor/tasks/{task_id}/default` sets it (needs a key with **Can change content**) and replaces any earlier default of yours for that task:
 
 ```json
 {
   "preset_id": "...",
-  "mode": "edit",
-  "variant": null,
+  "mode": "editor:edit",
   "setup": { "kind": "session", "id": "..." }
 }
 ```
 
-`setup.kind` is `session` (an editor session of yours for that preset and mode), `formula` (a formula of yours for that preset and mode) or `defaults` (the mode's own defaults; no `id`). `DELETE /api/editor/tasks/{task_id}/default` clears it, and clearing a default that is not set is not an error. Both answer `{"task": {...}}`, the task entry as `GET /api/editor/tasks` lists it, so `default` reads back as set or as `null`. Nothing is written when a request is refused.
+`setup.kind` is `session` (an editor session of yours for that preset that holds that editor mode), `formula` (a formula of yours for that preset and that editor mode or the generation mode it derives from) or `defaults` (the mode's own defaults; no `id`). `DELETE /api/editor/tasks/{task_id}/default` clears it, and clearing a default that is not set is not an error. Both answer `{"task": {...}}`, the task entry as `GET /api/editor/tasks` lists it, so `default` reads back as set or as `null`. Nothing is written when a request is refused.
 
 `GET /api/editor/tasks` returns each task's `default`, or `null` when you have none:
 
 ```json
 {
-  "preset_id": "...", "preset_name": "Qwen-Image 2.1", "mode": "edit", "mode_label": "Edit", "variant": null,
+  "preset_id": "...", "preset_name": "Qwen-Image 2.1", "mode": "editor:edit", "mode_label": "Edit", "variant": null,
   "setup": { "kind": "session", "id": "...", "name": "Soft portrait", "version": 4, "updated_at": "2026-11-16T10:00:00+00:00" },
   "set_at": "2026-11-16T09:30:00+00:00",
   "health": { "ok": true }
@@ -118,8 +136,8 @@ The default points at the session or formula by id and copies nothing, so a late
 | --- | --- | --- |
 | `preset_missing` | `preset` | The preset is not installed any more (or its plugin is off). |
 | `preset_unassigned` | `preset` | The preset is no longer available to you. |
-| `mode_missing` | `mode` | The preset no longer has that mode. |
-| `offer_withdrawn` | `task` | The mode no longer offers the task, directly or through the task's fallback. |
+| `mode_missing` | `mode` | The preset no longer has that editor mode (a default stored with a plain generation mode name reads this too). |
+| `offer_withdrawn` | `task` | The editor mode no longer offers the task, directly or through the task's fallback. A preset that ships its own mode for a task is not offered through the fallback. |
 | `requirements_failed` | `backend` | No backend is set up for the engine of the preset. |
 | `session_deleted` | `session` | The editor session was deleted. |
 | `session_mismatch` | `session` | The session is no longer an editor session of that preset holding that mode. |
@@ -136,7 +154,8 @@ When several apply, the first one in this table is reported. Deleting a session 
 | 404 | `default_session_not_found`, `default_formula_not_found` | The session or formula does not exist, or is not yours (the answer is the same). |
 | 422 | `offer_unavailable` | No backend is set up for the preset's engine. |
 | 422 | `default_session_mismatch`, `default_formula_mismatch` | The session is not an editor session of that preset and mode, or the formula does not apply to it. |
-| 422 | `task_not_offered` | The mode does not offer the task. |
+| 422 | `task_not_offered` | The editor mode does not offer the task, or a mode name without the prefix matches none or several. |
+| 422 | `mode_is_editor` | Returned by `POST /api/generations/start`: an editor key is for editor runs only. |
 | 422 | `prompt_required`, `region_required`, `region_empty` | The task needs a prompt or a marked area. |
 | 403 | `limit_exceeded` and the other generation refusals | The same refusals as starting a generation. |
 | 400 | `cancel_failed` | The generation could not be cancelled; try again. |

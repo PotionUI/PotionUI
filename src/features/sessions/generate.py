@@ -11,6 +11,7 @@ from src.features.kits.expansion import split_kit_rows
 from src.features.llm.tools.media_values import missing_media_paths
 from src.features.models.exceptions import ModelAccessDeniedException, ModelNotFoundException
 from src.features.models.form_refs import collect_model_ids
+from src.features.presets.editor_modes import form_overrides_for
 from src.features.presets.operations.access import preset_available_to_user
 from src.features.presets.retired_modes import replacement_for, replacement_note
 from src.features.sessions.dto import EDITOR_KIND, GENERATION_KIND, Session
@@ -221,7 +222,8 @@ class SessionRequests:
 
     def _locks(self, preset_id: str, mode: str) -> Dict[str, Any]:
         try:
-            return dict(self.preset_db.get_preset_form_overrides(preset_id).get(mode, {}))
+            stored = self.preset_db.get_preset_form_overrides(preset_id)
+            return dict(form_overrides_for(self._template(preset_id), mode, stored))
         except Exception:
             return {}
 

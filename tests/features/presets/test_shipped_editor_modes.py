@@ -63,11 +63,6 @@ def test_each_editor_mode_resolves_through_find_mode(loader, directory, name):
     assert from_mode in template.modes
 
 
-def test_the_old_declarations_are_still_in_place_for_the_reader_that_uses_them():
-    for directory, name in NINE:
-        assert (MARKETPLACE / directory / "modes" / NINE[(directory, name)][0] / "editor.yml").is_file()
-
-
 def test_krea2_no_longer_shows_the_fields_that_break_an_edit(loader):
     template = template_of(loader, "Krea2")
     mode = template.editor_modes["edit"]

@@ -5,7 +5,7 @@ from src.features.presets.editor_modes import EDITOR_MODES_DIR, input_names
 from src.features.presets.extensions import walk_fields
 from src.features.presets.templates import FieldTemplate, ModeTemplate, PresetTemplate
 
-LEFTOVER_EDITOR_YML_WARNS = False
+LEFTOVER_EDITOR_YML_WARNS = True
 DECLARATION_FILE = "editor.yml"
 MASK_SUFFIX = "_inpaint_mask"
 MEDIA_TYPES = frozenset({"image", "video", "audio", "media"})

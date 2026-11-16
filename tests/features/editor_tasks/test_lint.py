@@ -21,7 +21,7 @@ def editor_issues(root, level=None):
     return [
         issue
         for issue in PresetLinter([str(root)]).lint()
-        if "editor.yml" in issue.message and (level is None or issue.level == level)
+        if ("editor_mode" in issue.message or "editor.yml" in issue.message) and (level is None or issue.level == level)
     ]
 
 
@@ -35,7 +35,7 @@ def root(tmp_path):
 def test_a_good_file_is_quiet(root):
     write_preset(root, MASK)
 
-    assert editor_issues(root) == []
+    assert [issue for issue in editor_issues(root) if issue.level != "info"] == []
 
 
 def test_no_file_is_quiet(root):
@@ -47,24 +47,24 @@ def test_no_file_is_quiet(root):
 @pytest.mark.parametrize(
     "editor, message",
     [
-        ({"schema_version": 2, "tasks": []}, "schema_version"),
-        ({"tasks": []}, "schema_version"),
-        (declaration(task(colour="red")), "colour"),
-        (declaration(task(task="nonsense")), "unknown task"),
-        (declaration(task(inputs={"image": "nope"})), "not a field of the mode"),
-        (declaration(task(inputs={"image": "seed"})), "not an image field"),
-        (declaration(task(region="mask")), "needs inputs.mask"),
-        (declaration(task(region="mask", inputs={"image": "source_image", "mask": "x"})), "inputs.mask must be"),
-        (declaration(task(size={"field": "seed"})), "not a resolution field"),
-        (declaration(task(size={"multiple": 5})), "multiple"),
-        (declaration(task(size={"area": 10})), "area"),
-        (declaration(task(set={"nope": 1})), "not a field of the mode"),
-        (declaration(task(set={"output_size": "huge"})), "not an option"),
-        (declaration(task(seed_field="nope")), "seed_field"),
-        (declaration(task(quantity_field="nope")), "quantity_field"),
-        (declaration(task(owned=["nope"])), "owned"),
-        (declaration(task(), task()), "declared twice"),
-        ("schema_version: [", "editor.yml"),
+        ({**CROP, "schema_version": 2}, "schema_version"),
+        ({key: value for key, value in CROP.items() if key != "schema_version"}, "schema_version"),
+        (task(colour="red"), "colour"),
+        (task(task="nonsense"), "unknown task"),
+        (task(inputs={"source": "nope"}), "not a field of the mode"),
+        (task(inputs={"source": "seed"}), "image field"),
+        (task(region="mask"), "needs inputs.mask"),
+        (task(region="mask", inputs={"source": "source_image", "mask": "x"}), "inputs.mask must be"),
+        (task(size={"field": "seed"}), "not a resolution field"),
+        (task(size={"multiple": 5}), "multiple"),
+        (task(size={"area": 10}), "area"),
+        (task(fixed={"nope": 1}), "not a field"),
+        (task(fixed={"output_size": "huge"}), "not an option"),
+        (task(inputs={"source": "source_image", "seed": "nope"}), "inputs.seed"),
+        (task(inputs={"source": "source_image", "quantity": "nope"}), "inputs.quantity"),
+        (task(fields={"hide": ["nope"]}), "not a field"),
+        (task(**{"from": "missing"}), "missing"),
+        ("schema_version: [", "editor_mode.yml"),
     ],
 )
 def test_each_rule_reports_an_error(root, editor, message):
@@ -82,17 +82,17 @@ def test_a_mask_without_allow_inpaint_reports_an_error(root):
 
 
 def test_an_unregistered_plugin_task_is_a_warning(root):
-    write_preset(root, declaration(task(task="shiny.colorize")))
+    write_preset(root, task(task="shiny.colorize"))
 
     assert editor_issues(root, "error") == []
     assert any("not installed or enabled" in issue.message for issue in editor_issues(root, "warning"))
 
 
-def test_crop_on_a_mask_mode_is_a_warning(root):
+def test_crop_on_a_mask_mode_is_quiet(root):
     write_preset(root, CROP)
 
     assert editor_issues(root, "error") == []
-    assert any("region: mask usually gives a better seam" in issue.message for issue in editor_issues(root, "warning"))
+    assert editor_issues(root, "warning") == []
 
 
 def test_a_prompt_task_on_a_promptless_mode_is_a_warning(root):
@@ -101,17 +101,29 @@ def test_a_prompt_task_on_a_promptless_mode_is_a_warning(root):
     assert any("takes none" in issue.message for issue in editor_issues(root, "warning"))
 
 
-def test_the_shipped_files_have_no_errors():
-    files = sorted(MARKETPLACE.glob("*/modes/*/editor.yml"))
+def test_a_leftover_editor_yml_beside_its_editor_mode_is_a_warning(root):
+    preset_dir = write_preset(root, CROP)
+    (preset_dir / "modes" / "edit" / "editor.yml").write_text("schema_version: 1\ntasks: []\n", encoding="utf-8")
+
+    warnings = editor_issues(root, "warning")
+
+    assert any("modes/edit/editor.yml: no longer read" in issue.message for issue in warnings)
+
+
+def test_an_editor_yml_alone_is_not_reported(root):
+    preset_dir = write_preset(root, None)
+    (preset_dir / "modes" / "edit" / "editor.yml").write_text("schema_version: 1\ntasks: []\n", encoding="utf-8")
+
+    assert editor_issues(root) == []
+
+
+def test_the_shipped_editor_modes_have_no_errors_and_no_warnings():
+    files = sorted(MARKETPLACE.glob("*/editor_modes/*/editor_mode.yml"))
 
     assert len(files) == 9
-    errors = [issue.message for issue in editor_issues(MARKETPLACE, "error")]
-    assert errors == []
+    issues = [issue for issue in editor_issues(MARKETPLACE) if issue.level != "info"]
+    assert [issue.message for issue in issues] == []
 
 
-def test_the_krea2_seam_warning_is_present():
-    warnings = editor_issues(MARKETPLACE, "warning")
-
-    assert any(
-        Path(issue.preset_path).parent.name == "Krea2" and "region: crop" in issue.message for issue in warnings
-    )
+def test_no_shipped_preset_keeps_an_editor_yml():
+    assert sorted(MARKETPLACE.glob("*/modes/*/editor.yml")) == []

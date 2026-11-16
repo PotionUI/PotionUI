@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.features.editor_tasks.declarations import DECLARATION_FILE, DeclarationCache
 from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.registry import TaskDefinition, TaskRegistry, register_core_tasks
 from tests.features.editor_tasks.support import CROP, MASK, declaration, load, task, write_preset
@@ -21,7 +20,6 @@ class World:
         self.manager = EditorTaskManager(
             self.tasks,
             lambda: list(self.templates),
-            DeclarationCache(lambda: list(self.templates), dict),
             lambda user: {template.id for template in self.templates},
             lambda engine: True,
         )
@@ -48,33 +46,37 @@ def test_a_removed_preset_stops_being_offered(tmp_path):
     world.remove_preset("A-CROP")
 
     assert world.offered() == ["B-MASK"]
-    assert [result.preset_id for _, result in world.manager.mode_declarations()] == ["B-MASK"]
+    assert [entry.template.id for entry in world.manager.editor_entries()] == ["B-MASK"]
 
 
 def test_a_removed_mode_stops_being_offered(tmp_path):
     world = World(tmp_path, {"A-CROP": CROP, "B-MASK": MASK})
 
-    world.replace("A-CROP", modes={})
+    world.replace("A-CROP", editor_modes={})
 
     assert world.offered() == ["B-MASK"]
-    assert world.manager.owned_fields("A-CROP", "edit") == set()
+    assert world.manager.owned_fields("A-CROP", "editor:edit") == set()
 
 
-def test_a_reloaded_preset_replaces_the_old_declaration(tmp_path):
+def test_a_reloaded_preset_replaces_the_old_editor_mode(tmp_path):
+    root = tmp_path / "presets"
     world = World(tmp_path, {"A-CROP": CROP})
     assert world.offered() == ["A-CROP"]
 
-    (world.dirs["A-CROP"] / "modes" / "edit" / DECLARATION_FILE).write_text("schema_version: 9\n", encoding="utf-8")
+    (world.dirs["A-CROP"] / "editor_modes" / "edit" / "editor_mode.yml").write_text("schema_version: 9\n", encoding="utf-8")
+    world.templates = list(load(root).all())
 
     assert world.offered() == []
-    assert world.manager.mode_declarations()[0][1].errors
+    assert world.manager.editor_entries() == []
 
 
 def test_a_deleted_file_stops_the_offer(tmp_path):
+    root = tmp_path / "presets"
     world = World(tmp_path, {"A-CROP": CROP})
     assert world.offered() == ["A-CROP"]
 
-    (world.dirs["A-CROP"] / "modes" / "edit" / DECLARATION_FILE).unlink()
+    (world.dirs["A-CROP"] / "editor_modes" / "edit" / "editor_mode.yml").unlink()
+    world.templates = list(load(root).all())
 
     assert world.offered() == []
 
@@ -90,4 +92,4 @@ def test_a_disabled_plugin_takes_its_task_and_its_presets_away(tmp_path):
 
     assert "shiny.colorize" not in {item["id"] for item in world.manager.offers(USER)}
     assert world.offered() == ["A-CROP"]
-    assert world.manager.owned_fields("P-PLUG", "edit") == set()
+    assert world.manager.owned_fields("P-PLUG", "editor:edit") == set()

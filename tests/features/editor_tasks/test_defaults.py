@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.features.editor_tasks.declarations import DECLARATION_FILE, DeclarationCache
 from src.features.editor_tasks.default_repository import TaskDefaultRepository
 from src.features.editor_tasks.dto import SetTaskDefaultRequest
 from src.features.editor_tasks.manager import EditorTaskManager
@@ -24,6 +23,7 @@ class World:
     def __init__(self, tmp_path):
         root = tmp_path / "presets"
         root.mkdir()
+        self.root = root
         self.dirs = {pid: write_preset(root, editor, preset_id=pid) for pid, editor in {"A-CROP": CROP, "B-MASK": MASK}.items()}
         self.templates = list(load(root).all())
         self.visible = {"u1": {"A-CROP", "B-MASK"}, "u2": {"B-MASK"}}
@@ -35,7 +35,6 @@ class World:
         self.manager = EditorTaskManager(
             register_core_tasks(TaskRegistry()),
             lambda: list(self.templates),
-            DeclarationCache(lambda: list(self.templates), dict),
             lambda user: set(self.visible[user.id]),
             lambda engine: self.engine_ok,
             self,
@@ -67,7 +66,7 @@ class World:
         self.calls["formulas"] += 1
         return self.formulas.get_many_for_owner(user_id, ids)
 
-    def session(self, session_id="s1", user_id="u1", preset_id="A-CROP", mode="edit", kind="editor", name="Soft portrait"):
+    def session(self, session_id="s1", user_id="u1", preset_id="A-CROP", mode="editor:edit", kind="editor", name="Soft portrait"):
         return self.sessions.create(
             Session(id=session_id, user_id=user_id, preset_id=preset_id, name=name, data={mode: {"formData": {"steps": 20}}}, kind=kind)
         )
@@ -83,7 +82,14 @@ class World:
         return next(item for item in self.manager.offers(user) if item["id"] == task)["default"]
 
     def withdraw(self, preset="A-CROP"):
-        (self.dirs[preset] / "modes" / "edit" / DECLARATION_FILE).unlink()
+        path = self.dirs[preset] / "editor_modes" / "edit" / "editor_mode.yml"
+        path.write_text(path.read_text(encoding="utf-8").replace("task: edit_region", "task: ghost.relight"), encoding="utf-8")
+        self.templates = list(load(self.root).all())
+        return True
+
+    def delete_mode_file(self, preset="A-CROP"):
+        (self.dirs[preset] / "editor_modes" / "edit" / "editor_mode.yml").unlink()
+        self.templates = list(load(self.root).all())
         return True
 
     def no_backend(self):
@@ -104,11 +110,11 @@ def test_no_default_reads_null(world):
 
 
 def test_setting_a_default_with_model_defaults_answers_the_task_entry(world):
-    entry = world.put(variant="fast")
+    entry = world.put()
 
     assert entry["id"] == "edit_region" and entry["default"] == world.default()
     default = entry["default"]
-    assert default["preset_id"] == "A-CROP" and default["mode"] == "edit" and default["variant"] == "fast"
+    assert default["preset_id"] == "A-CROP" and default["mode"] == "editor:edit" and default["variant"] is None
     assert default["setup"] == {"kind": "defaults", "id": None, "name": None}
     assert default["health"] == {"ok": True}
     assert default["preset_name"] == "Preset A-CROP" and default["mode_label"] and default["set_at"]
@@ -211,8 +217,10 @@ def test_another_users_default_is_invisible_and_untouchable(world):
     assert world.default(user=OTHER) is None
     world.manager.clear_default(OTHER, "edit_region")
     assert world.default() is not None
-    world.put(preset="B-MASK", user=OTHER, variant="mine")
-    assert world.default()["variant"] is None and world.default(user=OTHER)["variant"] == "mine"
+    world.put(preset="A-CROP", user=USER)
+    world.put(preset="B-MASK", user=OTHER)
+    assert world.default()["preset_id"] == "A-CROP" and world.default(user=OTHER)["preset_id"] == "B-MASK"
+    assert world.default()["variant"] is None and world.default(user=OTHER)["variant"] is None
 
 
 def broken(world, task, expected, change):
@@ -248,9 +256,26 @@ def test_a_default_whose_mode_is_gone_reads_broken_and_stays(world):
     world.put()
 
     def drop_mode(w):
-        w.templates = [dataclasses.replace(t, modes={}) if t.id == "A-CROP" else t for t in w.templates]
+        w.templates = [dataclasses.replace(t, editor_modes={}) if t.id == "A-CROP" else t for t in w.templates]
 
     broken(world, "edit_region", "mode_missing", drop_mode)
+
+
+def test_a_default_whose_editor_mode_file_was_deleted_reads_mode_missing(world):
+    world.put()
+
+    broken(world, "edit_region", "mode_missing", World.delete_mode_file)
+
+
+def test_a_default_stored_with_a_generation_mode_name_reads_mode_missing_and_stays(world):
+    world.put()
+    world.defaults.upsert(dataclasses.replace(world.stored()["edit_region"], mode="edit"))
+
+    default = world.default()
+
+    assert default["health"]["reason"] == "mode_missing"
+    assert default["health"]["missing"] == {"kind": "mode", "id": "edit"}
+    assert world.stored()["edit_region"].mode == "edit"
 
 
 def test_a_default_whose_mode_no_longer_offers_the_task_reads_broken_and_stays(world):

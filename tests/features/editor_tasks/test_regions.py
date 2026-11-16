@@ -114,6 +114,44 @@ def test_the_mask_strategy_without_a_region_sends_a_white_mask():
     assert np.asarray(cut.mask).min() == 255
 
 
+def test_the_crop_strategy_sends_no_mask_unless_one_is_asked_for():
+    picture, mask = scene()
+    geometry = geometry_for(picture, mask, "crop")
+
+    assert regions.prepare(picture, mask, geometry).mask is None
+
+
+def test_the_crop_strategy_can_hand_over_the_region_cut_and_resampled_like_the_picture():
+    picture, mask = scene()
+    geometry = geometry_for(picture, mask, "crop")
+
+    cut = regions.prepare(picture, mask, geometry, with_mask=True)
+
+    assert cut.mask.size == cut.image.size == geometry.working
+    levels = np.asarray(cut.mask)
+    assert set(np.unique(levels)) == {0, 255}
+    top, bottom, left, right = geometry.box
+    expected_share = float((mask[top:bottom, left:right] > 0).mean())
+    assert abs(float((levels > 0).mean()) - expected_share) < 0.02
+
+
+def test_the_crop_strategy_without_a_region_hands_over_an_empty_mask():
+    picture, _ = scene()
+
+    cut = regions.prepare(picture, None, geometry_for(picture, None, "crop"), with_mask=True)
+
+    assert cut.mask.size == cut.image.size and not np.asarray(cut.mask).any()
+
+
+def test_the_mask_strategy_ignores_the_with_mask_flag():
+    picture, mask = scene()
+    geometry = geometry_for(picture, mask, "mask")
+
+    cut = regions.prepare(picture, mask, geometry, with_mask=True)
+
+    assert cut.mask.size == (2000, 1500)
+
+
 def test_a_patch_inside_the_region_matches_the_restore_composite():
     picture, mask = scene(h=400, w=500, box=(150, 250, 200, 330))
     geometry = geometry_for(picture, mask, area=262144)

@@ -32,6 +32,7 @@ from src.features.presets.templates import (
     GenerationMode,
     default_form_name,
     find_mode,
+    inherited_mode_key,
     is_editor_key,
     sorted_forms,
 )
@@ -346,11 +347,12 @@ def get_form_schema(
     form_schema = collaborators.form_serializer.process_form_fields(form_config, preset_id, overrides=stored_overrides)
     form_schema['quantity_fields'] = mode_quantity_fields(mode_data)
 
+    scope = inherited_mode_key(found_preset, mode)
     result = {
         'preset_id': preset_id,
         'form_schema': form_schema,
-        'prompt_resources': with_source_specs(found_preset.prompt_resources.get(mode, [])),
-        'prompt_syntax': list(found_preset.prompt_syntax.get(mode, [])),
+        'prompt_resources': with_source_specs(found_preset.prompt_resources.get(scope, [])),
+        'prompt_syntax': list(found_preset.prompt_syntax.get(scope, [])),
         'debug_info': {
             'preset_name': found_preset.name,
             'has_form': hasattr(found_preset, 'form'),

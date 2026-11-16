@@ -6,6 +6,7 @@ from src.features.editor_tasks.records import EditorRun
 from src.features.editor_tasks.registry import REMOVE_OBJECT_PROMPT
 from src.features.editor_tasks.runs import MESSAGE_TYPE, RESTART_MESSAGE
 from src.platform.http.errors import DomainError, NotFoundError
+from tests.features.editor_tasks.support import task
 from tests.features.editor_tasks.run_support import (
     OTHER,
     USER,
@@ -40,7 +41,7 @@ async def test_a_run_goes_from_request_to_stitched_patches(setup):
     done = await finish(manager, fakes, run, count=2)
 
     request = fakes.requests[0]
-    assert request.preset_id == "A-CROP" and request.mode == "edit" and request.prompts[0].positive == "a red wool scarf"
+    assert request.preset_id == "A-CROP" and request.mode == "editor:edit" and request.prompts[0].positive == "a red wool scarf"
     assert request.form_data["source_image"] == "uploads/up1.png"
     assert request.form_data["quantity"] == 2 and request.form_data["steps"] == 20
     assert fakes.origins["g1"] == {"kind": "editor", "edit_id": edit_id, "step_id": "s7", "task": "edit_region", "run_id": run["id"]}
@@ -78,6 +79,89 @@ async def test_the_mask_strategy_sends_the_whole_picture_and_a_mask(setup):
     form = fakes.requests[0].form_data
     assert form["source_image"] == "uploads/up1.png" and form["source_image_inpaint_mask"] == "uploads/up2.png"
     assert Image.open(fakes.files["up1"]).size == (500, 400)
+
+
+@pytest.mark.asyncio
+async def test_the_run_submits_the_editor_key_as_an_editor_run(setup):
+    manager, fakes, edit_id = setup
+
+    await manager.start(USER, "edit_region", body(edit_id, mode="editor:edit"))
+
+    request = fakes.requests[0]
+    assert request.mode == "editor:edit" and request._editor_run is True and request.form_name is None
+
+
+@pytest.mark.asyncio
+async def test_a_body_with_the_old_generation_mode_name_starts_the_run_of_its_editor_mode(setup):
+    manager, fakes, edit_id = setup
+
+    await manager.start(USER, "edit_region", body(edit_id, mode="edit"))
+
+    assert fakes.requests[0].mode == "editor:edit"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["nope", "editor:nope"])
+async def test_a_mode_that_matches_no_editor_mode_is_a_plain_422(setup, mode):
+    manager, fakes, edit_id = setup
+
+    with pytest.raises(DomainError) as refused:
+        await manager.start(USER, "edit_region", body(edit_id, mode=mode))
+
+    assert refused.value.code == "task_not_offered" and refused.value.status_code == 422 and fakes.requests == []
+
+
+@pytest.mark.asyncio
+async def test_fixed_values_overwrite_what_the_caller_sent(mock_db, tmp_path):
+    make_users()
+    manager, fakes = build_manager(tmp_path, presets={"A-CROP": task(fixed={"match_source": True})})
+    data = body(make_edit().id)
+    data.setup.form_data["match_source"] = False
+
+    await manager.start(USER, "edit_region", data)
+
+    assert fakes.requests[0].form_data["match_source"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_crop_with_a_mask_input_hands_over_a_crop_sized_mask(mock_db, tmp_path):
+    make_users()
+    spec = task(region="crop", inputs={"source": "source_image", "mask": "source_image_inpaint_mask"})
+    manager, fakes = build_manager(tmp_path, presets={"A-CROP": spec})
+
+    run = await manager.start(USER, "edit_region", body(make_edit().id))
+
+    form = fakes.requests[0].form_data
+    assert form["source_image"] == "uploads/up1.png" and form["source_image_inpaint_mask"] == "uploads/up2.png"
+    picture, mask = Image.open(fakes.files["up1"]), Image.open(fakes.files["up2"])
+    assert mask.size == picture.size and picture.size != (500, 400)
+    assert set(np.unique(np.asarray(mask.convert("L")))) <= {0, 255} and np.asarray(mask.convert("L")).any()
+    assert run["rect"]["width"] < 1.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("index, expected", [(0, ["uploads/up1.png", "old.png"]), (1, ["old.png", "uploads/up1.png"])])
+async def test_a_media_list_input_inserts_the_picture_at_its_index(mock_db, tmp_path, index, expected):
+    make_users()
+    spec = task(inputs={"source": {"field": "references", "index": index}})
+    manager, fakes = build_manager(tmp_path, presets={"A-CROP": spec})
+    data = body(make_edit().id)
+    data.setup.form_data["references"] = ["old.png"]
+
+    await manager.start(USER, "edit_region", data)
+
+    assert fakes.requests[0].form_data["references"] == expected
+
+
+@pytest.mark.asyncio
+async def test_a_hidden_field_is_pinned_by_binding_not_dropped_from_the_form(mock_db, tmp_path):
+    make_users()
+    manager, fakes = build_manager(tmp_path, presets={"A-CROP": task(fields={"hide": ["resolution"]})})
+
+    await manager.start(USER, "edit_region", body(make_edit().id))
+
+    assert fakes.requests[0].mode == "editor:edit"
+    assert "resolution" not in fakes.requests[0].form_data
 
 
 @pytest.mark.asyncio

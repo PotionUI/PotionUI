@@ -82,16 +82,20 @@ content/presets/marketplace/<Model>[/<variant>]/    # or content/presets/local/<
 ├── files/
 │   └── form/
 │       └── *.yml              # preset-local form option files (see presets/forms.md)
-└── modes/
-    └── <mode>/                # one dir per mode listed in preset.yml `modes:`
-        ├── pipeline.yml       # the pipe list for this mode (Jinja2-templated)
-        ├── form.yml           # the DEFAULT form variant (usually a tabs container)
-        ├── tabs/
-        │   └── *.yml          # tab bodies referenced from form.yml
-        └── variants/          # OPTIONAL — additional named form variants
-            └── <name>/
-                ├── form.yml
-                └── tabs/*.yml
+├── modes/
+│   └── <mode>/                # one dir per mode listed in preset.yml `modes:`
+│       ├── pipeline.yml       # the pipe list for this mode (Jinja2-templated)
+│       ├── form.yml           # the DEFAULT form variant (usually a tabs container)
+│       ├── tabs/
+│       │   └── *.yml          # tab bodies referenced from form.yml
+│       └── variants/          # OPTIONAL — additional named form variants
+│           └── <name>/
+│               ├── form.yml
+│               └── tabs/*.yml
+└── editor_modes/              # OPTIONAL — what the Image editor runs (see "Editor modes")
+    └── <name>/
+        ├── editor_mode.yml
+        └── form.yml, pipeline.yml, tabs/   # standalone modes only
 ```
 
 Shared vocabulary (resolutions, ComfyUI samplers/schedulers) and tab bodies identical across
@@ -307,102 +311,139 @@ that names a field the mode does not have, is a lint error and the mode is not o
 Video Director targets (`kind: video_director_role`, `role: first|last`) need a mode listed in
 `vars.video_director.preset_modes`, and the media type must be `image`.
 
-## Editor contract
+## Editor modes
 
-A mode can say which jobs the Image editor may hand it by adding an optional `modes/<mode>/editor.yml`
-next to its `form.yml`. Core, local, plugin-shipped (`presets:` root) and plugin-contributed
-(`preset_modes:`) modes all work the same way. A mode without the file offers nothing and is
-otherwise unchanged.
+An **editor mode** is what the Image editor runs. It is a directory `editor_modes/<name>/` of a preset, next to
+`modes/`, with a file `editor_mode.yml` that names one task. `<name>` matches `^[a-z0-9][a-z0-9_-]{0,63}$`.
+`preset.yml` does not list editor modes: the directory is the declaration. A **generation mode** is what
+`modes/<mode>/` has always been, the form and the pipeline of the Generate page. Core, local, plugin-shipped
+(`presets:` root) and plugin-contributed (`preset_modes:` root) presets all work the same way, and a preset
+without `editor_modes/` offers the editor nothing.
+
+An editor mode is **derived** from a generation mode, or **standalone** with its own `form.yml` and `pipeline.yml`.
+
+```
+<preset>/
+├── modes/<mode>/...                 # generation modes
+└── editor_modes/
+    └── <name>/
+        ├── editor_mode.yml          # REQUIRED
+        ├── form.yml                 # standalone only (no `from`)
+        ├── tabs/*.yml               # optional, for form.yml or `fields.add` files
+        └── pipeline.yml             # standalone: required. With `from`: replaces the inherited pipeline
+```
+
+A derived mode says "that mode, with changes". Everything it does not name is inherited: the fields and their
+defaults and reactions, `formula:` groups, the prompt resources and syntax, and the pipeline. The editor mode is
+derived from the generation mode as it stands before plugin `preset_extensions` are applied, so a plugin's extra
+fields never reach it; a plugin that wants fields in the editor contributes an editor mode instead. Admin form
+overrides stored for the `from` mode apply to it as well, with the mode's own `fixed` and `hide` values on top.
 
 ```yaml
 schema_version: 1
-tasks:
-  - task: edit_region
-    region: crop
-    inputs:
-      image: source_image
-    set:
-      output_size: match
+task: edit_region
+from: edit
+region: crop
+inputs:
+  source: source_image
+fixed:
+  match_source: true
+  fit_mode: fit
+fields:
+  hide: [source_image_b]
+  change:
+    resolution:
+      label: Detail
+  add:
+    - into: { tab: advanced }
+      fields:
+        - { name: region_context, type: select, label: Surroundings, default: "0.5",
+            configuration: { options: [{ label: Tight, value: "0.25" }, { label: Balanced, value: "0.5" }] } }
 ```
 
 | Key | Meaning |
 |---|---|
-| `task` | A core task (`edit_region`, `remove_object`) or a plugin task `<plugin>.<name>`. |
-| `region` | `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. |
-| `inputs.image` | The `image` field that takes the picture, or `{field: <media field>, index: 0}` for a `media` list. |
-| `inputs.mask` | Required for `region: mask`. It must be named `<image field>_inpaint_mask`, and that image field must set `allow_inpaint: true`. |
+| `schema_version` | Required, `1`. |
+| `task` | Required. A core task (`edit_region`, `remove_object`) or a plugin task `<plugin>.<name>`. |
+| `from` | A generation mode of this preset. Leave it out for a standalone mode. |
+| `label`, `short_description`, `order` | The picker name (default: the `from` mode's label, else the title-cased name), one sentence under it, and the sort order within the preset. |
+| `region` | Required. `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. |
+| `inputs.source` | Required. The `image` field that takes the picture, or `{field: <media field>, index: 0}`, which inserts the picture into a `media` list at that index. |
+| `inputs.mask` | Required for `region: mask`. It must be named `<image field>_inpaint_mask`, and that image field must set `allow_inpaint: true`. With `region: crop` it asks for the region mask cut and resampled like the crop. |
+| `inputs.quantity`, `inputs.seed` | Default to the mode's quantity field and its `seed` field. The quantity field is filled by the editor and not shown; the seed field is shown. |
 | `size` | `area` (default 1048576, 262144 to 4194304), `multiple` (8, 16, 32 or 64), `field` (a `resolution` field), `buckets`. |
-| `context` | Context around the area, as a fraction of its size (0 to 4), default `0.5`. A `region_context` field in the form, when its value is in that range, wins. |
-| `set` | Fixed values the editor writes. A key must be a field, and a value for a select field must be one of its options. |
-| `owned` | More fields the editor fills. |
-| `seed_field`, `quantity_field` | Default to the mode's `seed` field and its quantity field. |
-| `label` | The picker label, default the mode label. |
+| `context` | Context around the area as a fraction of its size (0 to 4), default `0.5`. A `region_context` field in the form wins. |
+| `fixed` | Fields hidden in Settings that always get this value in a run. The key must be a field and the value valid for it (an option of a select, a boolean for a checkbox, a number inside the range of a slider). |
+| `fields.hide` | Fields hidden in Settings that keep their own default in a run. A required field without a default cannot be hidden: give it a value under `fixed`. |
+| `fields.change` | Per field: `label`, `description`, `ai_hint`, `default`, `audience`. |
+| `fields.add` | Field groups added at a `tab` or `section` anchor, with the same shape as a [plugin extension](presets/plugins.md). |
+| `pipeline` | The extension pipe operations (`add`, `patch`). Not allowed beside a `pipeline.yml`. |
 
-The fields the editor fills (`inputs`, `size.field`, the quantity field, every `set` key and `owned`)
-are the mode's editor-owned fields; an editor setup never stores them.
+`inputs`, `fixed` and `fields.hide` are the fields Settings does not show, and a field may appear in only one
+of them. `fixed` and `fields.hide` fields stay in the template because the pipeline reads them; binding pins them
+over any admin override. An editor setup (a saved session of kind `editor`) never stores them, and a run replaces
+whatever a request sends for them. `GET /api/editor/tasks` lists them for each offer as `owned`.
 
-Two shipped declarations show the two common shapes. `content/presets/marketplace/SDXL/modes/inpaint/editor.yml` hands the
-mode the whole picture and a mask, because the mode already has an inpaint input:
+### How an editor mode is addressed
 
-```yaml
-schema_version: 1
-tasks:
-  - task: edit_region
-    region: mask
-    inputs:
-      image: source_image
-      mask: source_image_inpaint_mask
-```
+An editor mode is addressed as `editor:<name>` wherever a mode key is stored: the run body, a default, a session
+key, `generations.mode` and the form query `GET /api/presets/{id}/form?mode=editor:<name>`, which serves the form
+Settings shows (inputs, `fixed` and `hide` left out, `change` and `add` applied). A request to
+`POST /api/generations/start` with an editor key is refused with `422 mode_is_editor`; only the editor's run
+service may use one. The run and default routes still accept a generation mode name without the prefix for one
+release and map it to the one editor mode derived from it for that task; zero or several matches answer a plain
+`422 task_not_offered`.
 
-`content/presets/marketplace/Krea2/modes/edit/editor.yml` hands the mode a crop of the marked area, for a mode that edits
-a picture by instruction. `match_source` is a checkbox field of that mode, so its `set` value is `true` or `false`:
+### Which editor lists a mode
 
-```yaml
-schema_version: 1
-tasks:
-  - task: edit_region
-    region: crop
-    inputs:
-      image: source_image
-    set:
-      match_source: true
-```
-
-`content/presets/marketplace/MiniMax-H3-Image/modes/edit/editor.yml` takes the picture from the first entry of a `media`
-list with `inputs.image: {field: references, index: 0}`.
-
-### Fields the editor owns
-
-For every declared task the editor fills the fields listed under "owned" above, and the mode's settings no longer show them
-to the person using the editor: its `inputs.image` field, the `inputs.mask` field, `size.field`, the quantity field, every
-`set` key and every `owned` entry. The editor also treats every `image` and `media` field of the mode as its own, together
-with each one's `_inpaint_mask` and `__origin` companions. An editor setup (a saved session of kind `editor`) never stores any
-of these, and a run replaces whatever a request sends for them. `GET /api/editor/tasks` returns the list for each offer as
-`owned`.
+The task decides, through the `editors` of its definition (default `[image]`). `remove_object` needs no editor mode
+on a preset: a preset that ships none for it offers its `edit_region` editor modes with the built-in prompt "Remove
+the marked object. Fill the area so it matches its surroundings.". A preset that ships its own `remove_object` mode
+uses it, and does not also offer its `edit_region` modes for removal; other presets keep the fallback.
 
 ### What a member sees
 
-A mode that declares a task is offered in the Image editor: the task has a rail tool in the Generate group, and its
-Settings panel shows the **setup** (this mode, and where its settings start from: a saved editor session, a formula, or the
-mode's own defaults) with the mode's form below it, minus the owned fields. A mode whose engine has no backend set up is
-listed but cannot be picked, with "No backend is set up for the engine of this preset." The person's **default** setup for
-the task is the one chosen first; a default that stopped working is reported, never replaced
-([your default setup for a task](api/editor-runs.md#your-default-setup-for-a-task)).
+An editor mode that offers a task appears in the Image editor: the task has a rail tool in the Generate group and
+its Settings panel shows the **setup** (this editor mode, and where its settings start from: a saved editor
+session, a formula of the editor mode or of its `from` mode, or the mode's own defaults) with the mode's form
+below it. A mode whose engine has no backend is listed but cannot be picked, with "No backend is set up for the
+engine of this preset." The person's **default** setup for the task is the one chosen first; a default that
+stopped working is reported, never replaced
+([your default setup for a task](api/editor-runs.md#your-default-setup-for-a-task)). In History, a picture made by
+a derived editor mode is reused on the Generate page through its `from` mode (`reuse_mode` in the history item); a
+standalone editor mode has none.
 
-`remove_object` needs no declaration: when no mode declares it, the editor offers the modes that
-declare `edit_region` and sends the built-in prompt "Remove the marked object. Fill the area so it
-matches its surroundings."
+### Lint
 
-Lint errors (the task is not offered): a missing or unknown `schema_version`, an unknown key, an
-unknown core task, an `inputs.image` that is not an image field (or a media field with `index`),
-`region: mask` without a valid `inputs.mask`, a `size.field` that is not a `resolution` field, a
-`multiple` or `area` out of range, a `set` key that is not a field or a value that is not an option,
-a `seed_field`, `quantity_field` or `owned` naming a missing field, a task declared twice, and a plugin
-task `<plugin>.<name>` declared by a mode that belongs to another plugin. Warnings: a plugin task whose
-plugin is not installed or enabled (the offer is skipped), `region: crop` on a mode with a mask input,
-and a task that needs a prompt on a mode in `vars.promptless_modes`.
+`python scripts/preset_lint.py` checks every `editor_mode.yml`; an editor mode with an error is skipped and the
+preset still loads. Errors: a missing `editor_mode.yml`, a missing or unknown `schema_version`, an unknown key, a
+name outside the pattern, a `variants/` directory, a `from` that is not a mode of the preset, `form.yml`
+together with `from`, no `form.yml` or `pipeline.yml` without `from`, `pipeline` operations beside a
+`pipeline.yml`, an unknown task, a plugin task named by an editor mode of another plugin, an `inputs.source` that
+is not a field of the right type, `region: mask` without a valid `inputs.mask`, a `size` out of range or a
+`size.field` that is not a `resolution` field, a `fixed`, `hide` or `change` name that is not a field, a name in
+more than one of inputs, `fixed` and `hide`, a `fixed` value the field cannot take, a required `hide` field
+without a default, `fields.add` and `pipeline` errors, and a generation mode name containing `:`. With `--render`
+the pipeline of each editor mode is rendered with fixture data. Warnings: a plugin task whose plugin is not
+installed (the editor mode is skipped), a task that needs a prompt on an editor mode whose `from` mode is in
+`vars.promptless_modes`, and a leftover `modes/<mode>/editor.yml`, which is no longer read. Info: an image, video,
+audio or media field that Settings will show.
 
-`GET /api/editor/tasks?editor=image` lists the tasks with the modes that offer them, limited to the
+### Moving from `editor.yml`
+
+`python scripts/editor_modes_from_editor_yml.py <preset dir>` prints the `editor_mode.yml` it would write for each
+`modes/*/editor.yml` below the path; `--write` writes the files and never deletes or overwrites anything. Review the
+result: `image` became `inputs.source`, `set` became `fixed`, and `owned` fields went to `fields.hide`.
+
+### The shown-fields golden
+
+Every shipped editor mode has a golden of the fields its Settings shows, `tests/golden/editor_forms/<preset
+id>__editor-<name>.json`, so a field added to a `from` mode appears as a diff someone accepts. The test names each
+field that is now shown or no longer shown. Regenerate after an intended change with
+`python scripts/preset_render.py --golden-all --root content/presets/marketplace`, which also writes the render
+golden `<preset id>__editor-<name>.json` in `tests/golden/preset_renders/`.
+
+`GET /api/editor/tasks?editor=image` lists the tasks with the editor modes that offer them, limited to the
 presets the caller may use.
 
 ## Regional prompting

@@ -7,7 +7,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.features.editor_tasks.declarations import DeclarationCache
 from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
 from src.features.editor_tasks.routes import build_router
@@ -36,7 +35,7 @@ def world(tmp_path, monkeypatch):
     local.mkdir()
     tasks = register_core_tasks(TaskRegistry())
     registry = PluginRegistry(marketplace_dir=str(marketplace), local_dir=str(local), editor_task_registry=tasks)
-    manager = EditorTaskManager(tasks, lambda: [], DeclarationCache(lambda: [], dict), lambda user: set(), lambda engine: True)
+    manager = EditorTaskManager(tasks, lambda: [], lambda user: set(), lambda engine: True)
     repo = SimpleNamespace(get_enabled_plugins=lambda: [SimpleNamespace(id=m.id) for m in registry.get_enabled_plugins()])
     return SimpleNamespace(registry=registry, tasks=tasks, manager=manager, repo=repo)
 

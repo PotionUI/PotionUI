@@ -420,6 +420,7 @@ Starting a generation can be refused with:
 | 403 | `limit_exceeded` | A plan limit was reached. See below. |
 | 404 | `preset_not_found`, `form_not_found`, `model_not_found` | The preset, its form or a chosen model is not available to you. A model you may not use answers the same as one that does not exist. |
 | 409 | `idempotency_key_conflict` | The `idempotency_key` was used for a different request. |
+| 422 | `mode_is_editor` | The `mode` is an editor mode (`editor:<name>`). Those are for the Image editor's runs; send the mode of the preset's Generate page. |
 | 422 | `form_validation_failed` | `form_data` does not fit the form. `field_errors` names each field and what is wrong; `stripped` lists keys the form does not have. |
 | 422 | `validation_error` | The body does not fit the schema. |
 

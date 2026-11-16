@@ -169,7 +169,9 @@ def plan(
     )
 
 
-def prepare(picture: np.ndarray, region: Optional[np.ndarray], geometry: Geometry) -> Prepared:
+def prepare(
+    picture: np.ndarray, region: Optional[np.ndarray], geometry: Geometry, with_mask: bool = False
+) -> Prepared:
     top, bottom, left, right = geometry.box
     base = picture[top:bottom, left:right]
     region_crop = None if region is None or not geometry.has_region else region[top:bottom, left:right]
@@ -177,7 +179,12 @@ def prepare(picture: np.ndarray, region: Optional[np.ndarray], geometry: Geometr
         full = region if geometry.has_region else np.full(picture.shape[:2], 255, dtype=np.uint8)
         return Prepared(Image.fromarray(picture), Image.fromarray(full), base, region_crop)
     work_w, work_h = geometry.working
-    return Prepared(Image.fromarray(resample_image(base, work_w, work_h)), None, base, region_crop)
+    cut_mask = None
+    if with_mask:
+        source = region_crop if region_crop is not None else np.zeros(base.shape[:2], dtype=np.uint8)
+        resized = resample_image(source, work_w, work_h)
+        cut_mask = Image.fromarray(np.where(resized >= LANDED, 255, 0).astype(np.uint8))
+    return Prepared(Image.fromarray(resample_image(base, work_w, work_h)), cut_mask, base, region_crop)
 
 
 def stitch(base: np.ndarray, region_crop: Optional[np.ndarray], result: Image.Image, geometry: Geometry) -> np.ndarray:

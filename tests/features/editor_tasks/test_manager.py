@@ -2,7 +2,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.features.editor_tasks.declarations import DeclarationCache
 from src.features.editor_tasks.manager import NO_BACKEND, EditorTaskManager
 from src.features.editor_tasks.registry import REMOVE_OBJECT_PROMPT, TaskDefinition, TaskRegistry, register_core_tasks
 from tests.features.editor_tasks.support import CROP, MASK, declaration, load, task, write_preset
@@ -12,7 +11,7 @@ OTHER = SimpleNamespace(id="u2")
 SEEN = {"u1": {"A-CROP", "B-MASK"}, "u2": {"B-MASK"}}
 
 
-def build(tmp_path, presets, tasks=None, visible=None, engine_ok=lambda engine: True, contributions=dict):
+def build(tmp_path, presets, tasks=None, visible=None, engine_ok=lambda engine: True):
     root = tmp_path / "presets"
     root.mkdir()
     for preset_id, editor in presets.items():
@@ -22,7 +21,6 @@ def build(tmp_path, presets, tasks=None, visible=None, engine_ok=lambda engine: 
     manager = EditorTaskManager(
         registry,
         lambda: loader.all(),
-        DeclarationCache(lambda: loader.all(), contributions),
         visible or (lambda user: SEEN[user.id]),
         engine_ok,
     )
@@ -39,13 +37,37 @@ def test_offers_name_the_modes_and_their_strategy(tmp_path):
     offers = entry(manager.offers(USER), "edit_region")["offers"]
 
     assert [(o["preset_id"], o["mode"], o["region_strategy"], o["qualifies"], o["via"]) for o in offers] == [
-        ("A-CROP", "edit", "crop", True, None),
-        ("B-MASK", "edit", "mask", True, None),
+        ("A-CROP", "editor:edit", "crop", True, None),
+        ("B-MASK", "editor:edit", "mask", True, None),
     ]
     assert offers[0]["preset_name"] == "Preset A-CROP"
     assert offers[0]["mode_label"]
-    assert offers[0]["variant"]
+    assert offers[0]["from_mode"] == "edit"
+    assert offers[0]["order"] == 0
+    assert offers[0]["variant"] is None
     assert "reason" not in offers[0]
+
+
+def test_an_offer_carries_the_short_description_and_the_order_and_sorts_by_them(tmp_path):
+    manager = build(
+        tmp_path,
+        {"A-CROP": [task(order=5, short_description="Second"), task(order=1, short_description="First", label="Quick")]},
+    )
+
+    offers = entry(manager.offers(USER), "edit_region")["offers"]
+
+    assert [(o["mode"], o["order"], o["short_description"], o["label"]) for o in offers] == [
+        ("editor:edit2", 1, "First", "Quick"),
+        ("editor:edit", 5, "Second", offers[1]["mode_label"]),
+    ]
+
+
+def test_an_offer_lists_its_owned_fields_for_the_client_that_still_hides_them(tmp_path):
+    manager = build(tmp_path, {"A-CROP": task(fixed={"output_size": "match"}, fields={"hide": ["resolution"]})})
+
+    offer = entry(manager.offers(USER), "edit_region")["offers"][0]
+
+    assert offer["owned"] == ["output_size", "quantity", "resolution", "source_image"]
 
 
 def test_a_preset_the_user_may_not_use_is_absent(tmp_path):
@@ -83,16 +105,28 @@ def test_remove_object_falls_back_to_edit_region_offers(tmp_path):
     ]
 
 
-def test_the_fallback_does_not_apply_when_a_mode_declares_the_task(tmp_path):
-    manager = build(
-        tmp_path,
-        {"A-CROP": CROP, "B-MASK": declaration(task(task="remove_object", region="mask", inputs={"image": "source_image", "mask": "source_image_inpaint_mask"}))},
-    )
+REMOVE_MASK = task(task="remove_object", region="mask", inputs={"source": "source_image", "mask": "source_image_inpaint_mask"})
+
+
+def test_the_fallback_applies_per_preset_a_preset_with_its_own_mode_keeps_it_and_the_others_use_the_fallback(tmp_path):
+    manager = build(tmp_path, {"A-CROP": CROP, "B-MASK": REMOVE_MASK})
 
     remove = entry(manager.offers(USER), "remove_object")
 
-    assert [(o["preset_id"], o["via"]) for o in remove["offers"]] == [("B-MASK", None)]
+    assert [(o["preset_id"], o["mode"], o["via"]) for o in remove["offers"]] == [
+        ("A-CROP", "editor:edit", "edit_region"),
+        ("B-MASK", "editor:edit", None),
+    ]
     assert remove["fallback"]["task"] == "edit_region"
+
+
+def test_a_preset_that_ships_its_own_mode_does_not_also_offer_its_edit_mode_as_the_fallback(tmp_path):
+    manager = build(tmp_path, {"B-MASK": [REMOVE_MASK, task()]})
+
+    remove = entry(manager.offers(USER), "remove_object")
+
+    assert [(o["mode"], o["via"]) for o in remove["offers"]] == [("editor:edit", None)]
+    assert [o["mode"] for o in entry(manager.offers(USER), "edit_region")["offers"]] == ["editor:edit2"]
 
 
 def test_the_fallback_follows_visibility(tmp_path):
@@ -132,23 +166,62 @@ def test_a_plugin_task_is_offered_only_while_registered(tmp_path):
     assert "shiny.colorize" not in {item["id"] for item in manager.offers(USER)}
 
 
-def test_owned_fields_are_the_union_over_the_offers(tmp_path):
+def test_owned_fields_are_the_inputs_the_fixed_values_and_the_hidden_fields(tmp_path):
     manager = build(
         tmp_path,
-        {
-            "A-CROP": declaration(
-                task(set={"output_size": "match"}),
-                task(task="remove_object", set={"match_source": True}),
-            )
-        },
+        {"A-CROP": task(fixed={"output_size": "match"}, fields={"hide": ["resolution"]})},
     )
 
-    assert manager.owned_fields("A-CROP", "edit") == {"source_image", "output_size", "match_source", "quantity"}
-    assert manager.owned_fields("A-CROP", "missing") == set()
+    expected = {"source_image", "output_size", "resolution", "quantity"}
+    assert manager.owned_fields("A-CROP", "editor:edit") == expected
+    assert manager.owned_fields("A-CROP", "edit") == expected
+    assert manager.owned_fields("A-CROP", "editor:missing") == set()
+    assert manager.owned_fields("NOPE", "editor:edit") == set()
 
 
-def test_modes_without_a_file_are_ignored(tmp_path):
+def test_the_mode_status_tells_unknown_from_not_offered(tmp_path):
+    manager = build(tmp_path, {"A-CROP": CROP, "B-MASK": task(task="ghost.relight")})
+
+    assert manager.mode_status("A-CROP", "editor:edit") == "ok"
+    assert manager.mode_status("A-CROP", "edit") == "ok"
+    assert manager.mode_status("A-CROP", "editor:nope") == "unknown"
+    assert manager.mode_status("NOPE", "editor:edit") == "unknown"
+    assert manager.mode_status("B-MASK", "editor:edit") == "not_offered"
+
+
+def test_a_generation_mode_is_not_an_editor_mode(tmp_path):
     manager = build(tmp_path, {"A-CROP": None})
 
-    assert manager.mode_declarations() == []
+    assert manager.editor_entries() == []
+    assert manager.mode_status("A-CROP", "editor:edit") == "unknown"
     assert all(item["offers"] == [] for item in manager.offers(USER))
+
+
+def test_a_mode_name_without_the_prefix_resolves_to_the_one_editor_mode_derived_from_it(tmp_path):
+    manager = build(tmp_path, {"A-CROP": CROP})
+
+    offer = manager.resolve_offer(USER, "edit_region", "A-CROP", "edit")
+
+    assert offer.mode_name == "editor:edit" and offer.spec.from_mode == "edit"
+
+
+def test_an_unprefixed_name_that_matches_no_or_several_editor_modes_is_a_plain_422(tmp_path):
+    from src.platform.http.errors import DomainError
+
+    manager = build(tmp_path, {"A-CROP": [task(), task(label="Other")]})
+
+    for name in ("missing", "edit"):
+        with pytest.raises(DomainError) as caught:
+            manager.resolve_offer(USER, "edit_region", "A-CROP", name)
+        assert caught.value.status_code == 422 and caught.value.code == "task_not_offered"
+
+
+def test_the_fallback_resolves_for_a_preset_without_its_own_mode_only(tmp_path):
+    from src.platform.http.errors import DomainError
+
+    manager = build(tmp_path, {"A-CROP": CROP, "B-MASK": [REMOVE_MASK, task()]})
+
+    assert manager.resolve_offer(USER, "remove_object", "A-CROP", "editor:edit").via == "edit_region"
+    assert manager.resolve_offer(USER, "remove_object", "B-MASK", "editor:edit").via is None
+    with pytest.raises(DomainError):
+        manager.resolve_offer(USER, "remove_object", "B-MASK", "editor:edit2")

@@ -58,6 +58,13 @@ class PresetFormSource:
     def __init__(self, collaborators: Any):
         self._collaborators = collaborators
 
+    def from_mode_of(self, preset_id: str, mode: str) -> Optional[str]:
+        from src.features.presets.templates import find_mode
+
+        preset = self._collaborators.file_repo.find_preset_by_id(preset_id)
+        spec = getattr(find_mode(preset, mode), "editor", None)
+        return spec.from_mode if spec is not None else None
+
     def load(self, preset_id: str, mode: str, form_name: Optional[str]) -> LoadedForm:
         from src.features.presets import operations as preset_operations
         from src.features.presets.formula_groups import resolve_formula_groups

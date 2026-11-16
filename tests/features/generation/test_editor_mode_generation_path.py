@@ -316,3 +316,25 @@ def test_the_model_access_check_sees_the_model_fields_of_an_editor_mode(world):
     editor = GenerationOrchestrator._unresolved_slot_files(bound, set(), world.krea, EDITOR_KEY)
     assert plain and editor == plain
     assert GenerationOrchestrator._unresolved_slot_files(bound, set(), world.krea, "editor:nope") == []
+
+
+def test_the_served_editor_form_carries_the_prompt_resources_and_syntax_of_its_from_mode(world):
+    resources = [{"field": "source_image_b", "kind": "image", "token": "pic"}]
+    world.krea.prompt_resources = {"edit": resources}
+    world.krea.prompt_syntax = {"edit": [{"syntax": "weights"}]}
+
+    editor = operations.get_form_schema(collaborators(world), KREA2_ID, mode=EDITOR_KEY)
+    plain = operations.get_form_schema(collaborators(world), KREA2_ID, mode="edit")
+
+    assert [item["field"] for item in editor["prompt_resources"]] == ["source_image_b"]
+    assert editor["prompt_syntax"] == plain["prompt_syntax"] == [{"syntax": "weights"}]
+
+
+def test_the_formula_source_names_the_from_mode_of_an_editor_key(world):
+    from src.features.formulas.sources import PresetFormSource
+
+    source = PresetFormSource(collaborators(world))
+
+    assert source.from_mode_of(KREA2_ID, EDITOR_KEY) == "edit"
+    assert source.from_mode_of(KREA2_ID, "edit") is None
+    assert source.from_mode_of(KREA2_ID, "editor:nope") is None

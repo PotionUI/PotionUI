@@ -1,8 +1,11 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
-from src.features.editor_tasks.declarations import DECLARATION_FILE, mode_fields, parse_file
+from src.features.editor_tasks.manager import EditorTaskManager
+from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
+from src.features.presets.editor_mode_lint import lint_editor_mode
 from src.features.presets.loader import PresetTemplateLoader
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -13,12 +16,23 @@ EXPECTED = {
     ("QwenImage", "edit"): "crop",
     ("MiniMax-H3-Image", "edit"): "crop",
     ("Krea2", "edit"): "crop",
-    ("QwenImage-2.1", "edit"): "mask",
+    ("QwenImage-2.1", "edit"): "crop",
     ("QwenImage-2.1", "inpaint"): "mask",
     ("ZImage", "inpaint"): "mask",
     ("MOSS-Image", "inpaint"): "mask",
     ("SDXL", "inpaint"): "mask",
 }
+
+REGISTRY = register_core_tasks(TaskRegistry())
+
+
+def need(task_id):
+    found = REGISTRY.get(task_id)
+    return found.prompt if found else None
+
+
+def editors(task_id):
+    return ("image",)
 
 
 @pytest.fixture(scope="module")
@@ -28,26 +42,54 @@ def templates():
     return {Path(template.path).name: template for template in loader.all()}
 
 
-@pytest.mark.parametrize("folder, mode", sorted(EXPECTED))
-def test_every_named_field_exists_in_the_mode(templates, folder, mode):
-    parsed = parse_file(MARKETPLACE / folder / "modes" / mode / DECLARATION_FILE)
-    assert parsed.error is None
-    fields = mode_fields(templates[folder].modes[mode])
+@pytest.mark.parametrize("folder, name", sorted(EXPECTED))
+def test_every_named_field_exists_and_nothing_is_reported(templates, folder, name):
+    template = templates[folder]
+    mode = template.editor_modes[name]
 
-    assert [item.region for item in parsed.declaration.tasks] == [EXPECTED[(folder, mode)]]
-    for item in parsed.declaration.tasks:
-        image = item.inputs.image if isinstance(item.inputs.image, str) else item.inputs.image.field
-        assert image in fields
-        if item.inputs.mask:
-            assert item.inputs.mask == f"{image}_inpaint_mask"
-            assert fields[image].configuration["allow_inpaint"] is True
-        named = [*item.set_values, *item.owned]
-        if item.size.field:
-            named.append(item.size.field)
-        assert all(name in fields for name in named)
+    issues = lint_editor_mode(template, name, mode, need, editors, None)
+
+    assert [message for level, message in issues if level != "info"] == []
+    assert mode.editor.region == EXPECTED[(folder, name)]
+    assert mode.editor.from_mode in template.modes
 
 
-def test_the_set_of_shipped_files_is_exactly_the_nine():
-    found = {(path.parents[2].name, path.parent.name) for path in MARKETPLACE.glob("*/modes/*/editor.yml")}
+def test_the_set_of_shipped_editor_modes_is_exactly_the_nine():
+    found = {(path.parents[2].name, path.parent.name) for path in MARKETPLACE.glob("*/editor_modes/*/editor_mode.yml")}
 
     assert found == set(EXPECTED)
+
+
+def test_no_editor_yml_is_left_in_a_shipped_preset():
+    assert sorted(MARKETPLACE.glob("*/modes/*/editor.yml")) == []
+
+
+def test_every_shipped_editor_mode_is_offered_by_the_manager(templates):
+    manager = EditorTaskManager(
+        REGISTRY, lambda: list(templates.values()), lambda user: {t.id for t in templates.values()}, lambda engine: True
+    )
+
+    offered = {(Path(entry.template.path).name, entry.name) for entry in manager.editor_entries()}
+
+    assert offered == set(EXPECTED)
+
+
+@pytest.mark.parametrize("folder, name", sorted(EXPECTED))
+def test_the_editor_mode_carries_the_client_facing_fields(templates, folder, name):
+    manager = EditorTaskManager(
+        REGISTRY, lambda: list(templates.values()), lambda user: {t.id for t in templates.values()}, lambda engine: True
+    )
+    template = templates[folder]
+
+    offer = next(
+        offer
+        for entry in manager.offers(type("User", (), {"id": "u"})())
+        if entry["id"] == "edit_region"
+        for offer in entry["offers"]
+        if offer["preset_id"] == template.id and offer["mode"] == f"editor:{name}"
+    )
+
+    assert offer["variant"] is None
+    assert offer["from_mode"] == template.editor_modes[name].editor.from_mode
+    assert "source_image" in offer["owned"] or "references" in offer["owned"]
+    assert "quantity" in offer["owned"]

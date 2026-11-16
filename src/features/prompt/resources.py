@@ -4,6 +4,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from src.features.forms.binding import FormBindingError
 from src.features.forms.merge_from import mode_merge_from_aliases, rewrite_merged_markers
 from src.features.presets.schema import PROMPT_RESOURCE_INDEX_PLACEHOLDER
+from src.features.presets.templates import inherited_mode_key
 from src.features.prompt.markers import RESOURCE_MARKER_RE
 from src.features.prompt.resource_sources import entry_source, source_label
 from src.platform.filesystem.media_kinds import items_of_kind, media_item_kind
@@ -57,7 +58,7 @@ def spec_for_item(specs: Sequence[Mapping[str, Any]], item: Any) -> Optional[Map
 
 
 def mode_prompt_resources(preset_template: Any, mode: Optional[str]) -> List[Dict[str, Any]]:
-    return list(preset_template.prompt_resources.get(mode, []))
+    return list(preset_template.prompt_resources.get(inherited_mode_key(preset_template, mode), []))
 
 
 def _bundle_tokens(
@@ -214,7 +215,7 @@ def resolve_generation_prompts(
     if not any(_has_marker(text) for text in texts):
         return
     _rewrite_merged_fields(prompts, segments, mode_merge_from_aliases(preset_template, mode))
-    resources = preset_template.prompt_resources.get(mode, [])
+    resources = preset_template.prompt_resources.get(inherited_mode_key(preset_template, mode), [])
     resolve_prompt_pairs(prompts, resources, form_values, bundle_members)
     resolve_segment_texts(segments, resources, form_values, bundle_members)
 

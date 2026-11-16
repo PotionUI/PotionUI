@@ -9,12 +9,6 @@ import numpy as np
 from PIL import Image
 
 from src.features.editor_tasks import regions
-from src.features.editor_tasks.declarations import (
-    derived_quantity_field,
-    derived_seed_field,
-    image_field_name,
-    mode_fields,
-)
 from src.features.editor_tasks.dto import MAX_CANDIDATES, StartEditorRunRequest
 from src.features.editor_tasks.manager import EditorTaskManager, ResolvedOffer
 from src.features.editor_tasks.records import (
@@ -29,6 +23,7 @@ from src.features.editor_tasks.regions import Geometry
 from src.features.editor_tasks.repository import EditorRunRepository
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.hooks import GENERATION_HOOKS
+from src.features.presets.extensions import walk_fields
 from src.features.media.validators import UPLOAD_PURPOSE_DERIVED, UPLOAD_PURPOSE_EDITOR_RUN
 from src.platform.database.rows import now_iso
 from src.platform.http.errors import DomainError, NotFoundError
@@ -157,10 +152,10 @@ class EditorRunManager:
             request = GenerationRequest(
                 preset_id=body.setup.preset_id,
                 prompt=prompt,
-                mode=body.setup.mode,
+                mode=offer.mode_name,
                 form_data=self._form(offer, body, stored, prepared.geometry),
-                form_name=body.setup.variant,
             )
+            request._editor_run = True
             run = EditorRun(
                 id=run_id,
                 user_id=user.id,
@@ -283,18 +278,18 @@ class EditorRunManager:
                     region = regions.land_mask(opened, picture.size)
         if offer.task.region == "required" and region is None:
             raise DomainError("region_empty", "Mark the area first", 422)
-        declaration = offer.declaration
+        spec = offer.spec
         array = np.asarray(picture)
         geometry = regions.plan(
             array.shape,
             region,
-            declaration.region,
-            regions.context_from(body.setup.form_data, declaration.context),
-            declaration.size.area,
-            declaration.size.multiple,
-            declaration.size.buckets,
+            spec.region,
+            regions.context_from(body.setup.form_data, spec.context),
+            spec.size["area"],
+            spec.size["multiple"],
+            spec.size.get("buckets"),
         )
-        cut = regions.prepare(array, region, geometry)
+        cut = regions.prepare(array, region, geometry, spec.region == "crop" and bool(spec.inputs.get("mask")))
         return PreparedRun(
             geometry=geometry,
             input_png=png_bytes(cut.image),
@@ -358,37 +353,41 @@ class EditorRunManager:
                 logger.warning("Editor run: the file %s could not be removed", filename, exc_info=True)
 
     def _form(self, offer: ResolvedOffer, body: StartEditorRunRequest, stored: Dict[str, Any], geometry: Geometry) -> Dict[str, Any]:
-        declaration = offer.declaration
-        fields = mode_fields(offer.mode)
+        spec = offer.spec
         form = dict(body.setup.form_data)
-        image_name = image_field_name(declaration)
+        source = spec.inputs["source"]
         path = stored["input"].relative_path
-        if isinstance(declaration.inputs.image, str):
-            form[image_name] = path
+        if isinstance(source, str):
+            form[source] = path
         else:
-            items = list(form.get(image_name) or [])
-            index = declaration.inputs.image.index
-            if index < len(items):
-                items[index] = path
-            else:
-                items.append(path)
-            form[image_name] = items
-        mask_name = declaration.inputs.mask
+            items = list(form.get(source["field"]) or [])
+            items.insert(min(int(source.get("index") or 0), len(items)), path)
+            form[source["field"]] = items
+        mask_name = spec.inputs.get("mask")
         if mask_name:
             if stored.get("mask") is not None:
                 form[mask_name] = stored["mask"].relative_path
             else:
                 form.pop(mask_name, None)
-        if declaration.size.field:
-            form[declaration.size.field] = f"{geometry.working[0]}x{geometry.working[1]}"
-        form.update(declaration.set_values)
-        quantity = declaration.quantity_field or derived_quantity_field(offer.mode, fields)
+        size_field = spec.size.get("field")
+        if size_field:
+            form[size_field] = f"{geometry.working[0]}x{geometry.working[1]}"
+        form.update(spec.fixed)
+        quantity = spec.inputs.get("quantity")
         if quantity:
             form[quantity] = body.candidates
-        seed_name = declaration.seed_field or derived_seed_field(fields)
+        seed_name = spec.inputs.get("seed") or self._seed_field(offer)
         if body.seed is not None and seed_name:
             form[seed_name] = body.seed
         return form
+
+    @staticmethod
+    def _seed_field(offer: ResolvedOffer) -> Optional[str]:
+        for form in offer.mode.forms:
+            for field, _ in walk_fields(form.fields):
+                if field.type == "seed" and field.name:
+                    return field.name
+        return None
 
     async def _tag(self, generation_id: str, origin: Dict[str, Any]) -> bool:
         try:

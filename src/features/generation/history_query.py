@@ -10,6 +10,8 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
+from src.features.presets.templates import is_editor_key
+
 from src.features.generation.exceptions import (
     GenerationNotFoundException,
     InvalidTagException,
@@ -258,6 +260,13 @@ class GenerationHistoryQuery:
             else:
                 item['grid_cols'] = grid.cols
 
+    def _reuse_mode(self, generation: Generation) -> Optional[str]:
+        if not is_editor_key(generation.mode):
+            return generation.mode
+        resolver = self.preset_name_resolver
+        reuse = getattr(resolver, 'reuse_mode', None)
+        return reuse(generation.preset_id, generation.mode) if callable(reuse) else None
+
     def serialize_generations(
         self, generations: List[Generation], include_tags: bool, *, viewer_id: Optional[str]
     ) -> List[Dict[str, Any]]:
@@ -270,6 +279,7 @@ class GenerationHistoryQuery:
                 gen_dict['preset_name'] = names.get(gen.preset_id, gen.preset_id)
             else:
                 gen_dict['preset_name'] = "Uploaded"
+            gen_dict['reuse_mode'] = self._reuse_mode(gen)
             history_data.append(gen_dict)
         self._attach_system_tags(history_data)
         return self._apply_content_ledger(history_data, viewer_id=viewer_id)

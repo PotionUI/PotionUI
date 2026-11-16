@@ -230,5 +230,14 @@ def find_mode(template: Optional[PresetTemplate], key: Optional[str]) -> Optiona
     return (getattr(template, "modes", None) or {}).get(key)
 
 
+def inherited_mode_key(template: Optional[PresetTemplate], key: Optional[str]) -> Optional[str]:
+    if not is_editor_key(key):
+        return key
+    spec = getattr(find_mode(template, key), "editor", None)
+    if spec is not None and spec.from_mode:
+        return spec.from_mode
+    return key
+
+
 def files_preset_id(template: PresetTemplate) -> str:
     return template.source_preset_id or template.id

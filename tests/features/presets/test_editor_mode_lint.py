@@ -202,18 +202,27 @@ def test_a_generation_mode_name_with_a_colon_is_an_error():
     assert generation_mode_name_problems(template) == [("error", "modes/a:b: a mode name must not contain ':'")]
 
 
-def test_a_leftover_editor_yml_beside_an_editor_mode_warns_once_the_gate_is_open(tree, monkeypatch):
+def test_a_leftover_editor_yml_beside_an_editor_mode_warns(tree):
     write_editor_mode(tree.krea, "edit", KREA_EDITOR)
-    assert (tree.krea / "modes" / "edit" / "editor.yml").is_file()
-    assert not any("no longer read" in message for message in messages(lint(tree.root)))
-    monkeypatch.setattr(editor_mode_lint, "LEFTOVER_EDITOR_YML_WARNS", True)
+    (tree.krea / "modes" / "edit" / "editor.yml").write_text("schema_version: 1\ntasks: []\n", encoding="utf-8")
+
     warnings = messages(lint(tree.root), "warning")
+
     assert any("modes/edit/editor.yml: no longer read" in message for message in warnings)
     assert not any("modes/inpaint" in message for message in warnings)
 
 
-def test_a_declaration_without_an_editor_mode_never_warns(tree, monkeypatch):
-    monkeypatch.setattr(editor_mode_lint, "LEFTOVER_EDITOR_YML_WARNS", True)
+def test_the_leftover_warning_can_be_switched_off_by_its_gate(tree, monkeypatch):
+    write_editor_mode(tree.krea, "edit", KREA_EDITOR)
+    (tree.krea / "modes" / "edit" / "editor.yml").write_text("schema_version: 1\ntasks: []\n", encoding="utf-8")
+    monkeypatch.setattr(editor_mode_lint, "LEFTOVER_EDITOR_YML_WARNS", False)
+
+    assert not any("no longer read" in message for message in messages(lint(tree.root)))
+
+
+def test_a_declaration_without_an_editor_mode_never_warns(tree):
+    (tree.krea / "modes" / "edit" / "editor.yml").write_text("schema_version: 1\ntasks: []\n", encoding="utf-8")
+
     assert not any("no longer read" in message for message in messages(lint(tree.root)))
 
 

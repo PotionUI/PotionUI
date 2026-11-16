@@ -16,6 +16,7 @@ from src.features.generation.details_url import generation_details_url
 from src.features.generation.routes import generation_controller_for
 from src.features.mcp.routes import request_origin
 from src.features.sessions.dto import (
+    EDITOR_KIND,
     GENERATION_KIND,
     SessionKindFilter,
     GenerateFromSessionRequest,
@@ -23,7 +24,7 @@ from src.features.sessions.dto import (
     SaveSessionRequest,
     UpdateSessionRequest,
 )
-from src.features.sessions.editor_data import REFUSED_MODE_CODES
+from src.features.sessions.editor_data import REFUSED_MODE_CODES, editor_mode_key
 from src.features.sessions.generate import SessionRequestError, overrides_from
 from src.platform.security.user import owner_is_admin
 from src.features.sessions import operations
@@ -109,11 +110,16 @@ class SessionController(BaseController):
     async def get_sessions_for_preset(
         self, user_id: str, preset_id: str, kind: str = GENERATION_KIND, mode: Optional[str] = None
     ) -> APIResponse:
+        modes = [mode]
+        if kind == EDITOR_KIND and mode and editor_mode_key(mode) != mode:
+            modes.append(editor_mode_key(mode))
+
         def load():
-            return [
-                session_to_response_dict(s)
-                for s in self.repository.get_by_user_and_preset(user_id, preset_id, kind, mode)
-            ]
+            found = {}
+            for wanted in modes:
+                for session in self.repository.get_by_user_and_preset(user_id, preset_id, kind, wanted):
+                    found.setdefault(session.id, session)
+            return [session_to_response_dict(session) for session in found.values()]
         return await self.run("get_sessions_failed", load, soft=True, message="Failed to get sessions")
 
     async def get_session_by_id(self, user_id: str, session_id: str) -> APIResponse:

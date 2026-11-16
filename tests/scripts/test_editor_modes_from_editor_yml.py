@@ -54,8 +54,33 @@ HAND_CORRECTIONS = {
 }
 
 
-def converted(preset, mode):
-    source = MARKETPLACE / preset / "modes" / mode / "editor.yml"
+CROP_IMAGE = "schema_version: 1\ntasks:\n  - task: edit_region\n    region: crop\n    inputs:\n      image: source_image\n"
+MASK_IMAGE = (
+    "schema_version: 1\ntasks:\n  - task: edit_region\n    region: mask\n    inputs:\n"
+    "      image: source_image\n      mask: source_image_inpaint_mask\n"
+)
+
+LEGACY = {
+    ("Flux3", "edit"): CROP_IMAGE + "    set:\n      output_size: match\n",
+    ("Krea2", "edit"): CROP_IMAGE + "    set:\n      match_source: true\n",
+    ("MOSS-Image", "inpaint"): MASK_IMAGE,
+    ("MiniMax-H3-Image", "edit"): (
+        "schema_version: 1\ntasks:\n  - task: edit_region\n    region: crop\n    inputs:\n      image:\n"
+        "        field: references\n        index: 0\n    set:\n      match_picture_1: true\n"
+    ),
+    ("QwenImage-2.1", "edit"): MASK_IMAGE,
+    ("QwenImage-2.1", "inpaint"): MASK_IMAGE,
+    ("QwenImage", "edit"): CROP_IMAGE + "    set:\n      output_size: match\n",
+    ("SDXL", "inpaint"): MASK_IMAGE,
+    ("ZImage", "inpaint"): MASK_IMAGE,
+}
+
+
+
+def converted(preset, mode, directory):
+    source = directory / preset / "modes" / mode / "editor.yml"
+    source.parent.mkdir(parents=True)
+    source.write_text(LEGACY[(preset, mode)], encoding="utf-8")
     (conversion,) = converter.convert_file(source)
     return conversion
 
@@ -66,17 +91,17 @@ def committed(preset, mode):
 
 
 @pytest.mark.parametrize("preset, mode", sorted(HAND_CORRECTIONS))
-def test_the_committed_editor_mode_is_the_converted_file_plus_the_hand_corrections(preset, mode):
-    conversion = converted(preset, mode)
+def test_the_committed_editor_mode_is_the_converted_file_plus_the_hand_corrections(preset, mode, tmp_path):
+    conversion = converted(preset, mode, tmp_path)
     assert conversion.name == mode
-    assert conversion.target == MARKETPLACE / preset / "editor_modes" / mode / "editor_mode.yml"
+    assert conversion.target == tmp_path / preset / "editor_modes" / mode / "editor_mode.yml"
     expected = {**copy.deepcopy(conversion.data), **copy.deepcopy(HAND_CORRECTIONS[(preset, mode)])}
     assert committed(preset, mode) == expected
 
 
 @pytest.mark.parametrize("preset, mode", sorted(key for key, value in HAND_CORRECTIONS.items() if value))
-def test_every_hand_correction_really_differs_from_the_converted_file(preset, mode):
-    conversion = converted(preset, mode)
+def test_every_hand_correction_really_differs_from_the_converted_file(preset, mode, tmp_path):
+    conversion = converted(preset, mode, tmp_path)
     for key, value in HAND_CORRECTIONS[(preset, mode)].items():
         assert conversion.data.get(key) != value
 

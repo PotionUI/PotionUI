@@ -2,19 +2,20 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
-from src.features.editor_tasks.declarations import (
-    DeclarationCache,
-    ModeDeclaration,
-    TaskDeclaration,
-    mode_owner,
-    owned_fields,
-    validate_mode,
-)
 from src.features.editor_tasks.default_repository import TaskDefault, TaskDefaultRepository
 from src.features.editor_tasks.dto import SetTaskDefaultRequest
 from src.features.editor_tasks.registry import TaskDefinition, TaskRegistry
+from src.features.presets.editor_mode_lint import lint_editor_mode
+from src.features.presets.editor_modes import input_field_names
 from src.features.presets.mode_labels import mode_display_name
-from src.features.presets.templates import ModeTemplate, PresetTemplate, default_form_name
+from src.features.presets.templates import (
+    EDITOR_KEY_PREFIX,
+    EditorModeSpec,
+    ModeTemplate,
+    PresetTemplate,
+    find_mode,
+    is_editor_key,
+)
 from src.platform.database.rows import dt_iso, now_iso
 from src.platform.http.errors import DomainError, NotFoundError
 
@@ -25,6 +26,20 @@ EDITOR_SESSION_KIND = "editor"
 
 OwnedLookup = Callable[[str, Iterable[str]], Dict[str, Any]]
 
+_unprefixed_logged: Set[str] = set()
+
+
+@dataclass(frozen=True)
+class EditorEntry:
+    template: PresetTemplate
+    name: str
+    mode: ModeTemplate
+    spec: EditorModeSpec
+
+    @property
+    def key(self) -> str:
+        return f"{EDITOR_KEY_PREFIX}{self.name}"
+
 
 @dataclass(frozen=True)
 class ResolvedOffer:
@@ -32,8 +47,20 @@ class ResolvedOffer:
     template: PresetTemplate
     mode_name: str
     mode: ModeTemplate
-    declaration: TaskDeclaration
+    spec: EditorModeSpec
     via: Optional[str]
+
+
+def owned_names(spec: EditorModeSpec) -> Set[str]:
+    return {*input_field_names(spec), *spec.fixed, *spec.hide}
+
+
+def short_description_of(entry: EditorEntry) -> Optional[str]:
+    if entry.spec.short_description:
+        return entry.spec.short_description
+    forms = entry.mode.forms
+    form = next((item for item in forms if item.default), forms[0] if forms else None)
+    return form.short_description if form is not None else None
 
 
 class EditorTaskManager:
@@ -41,7 +68,6 @@ class EditorTaskManager:
         self,
         registry: TaskRegistry,
         templates: Callable[[], Iterable[PresetTemplate]],
-        declarations: DeclarationCache,
         visible_preset_ids: Callable[[Any], Set[str]],
         engine_available: Callable[[Optional[str]], bool],
         defaults: Optional[TaskDefaultRepository] = None,
@@ -50,7 +76,6 @@ class EditorTaskManager:
     ):
         self.registry = registry
         self._templates = templates
-        self._declarations = declarations
         self._visible_preset_ids = visible_preset_ids
         self._engine_available = engine_available
         self._defaults = defaults
@@ -61,43 +86,68 @@ class EditorTaskManager:
         task = self.registry.get(task_id)
         return task.prompt if task is not None else None
 
-    def mode_declarations(self) -> List[Tuple[PresetTemplate, ModeDeclaration]]:
-        parsed = self._declarations()
-        found: List[Tuple[PresetTemplate, ModeDeclaration]] = []
+    def _editors_of(self, task_id: str) -> Tuple[str, ...]:
+        task = self.registry.get(task_id)
+        return task.editors if task is not None else ("image",)
+
+    def editor_entries(self) -> List[EditorEntry]:
+        found: List[EditorEntry] = []
         for template in self._templates():
-            for mode_name, mode in (template.modes or {}).items():
-                file = parsed.get((template.id, mode_name))
-                if file is None or not file.present:
+            for name, mode in sorted((template.editor_modes or {}).items()):
+                spec = mode.editor
+                if spec is None:
                     continue
-                result = validate_mode(
-                    template.id,
-                    mode_name,
-                    mode,
-                    file,
-                    self._prompt_need,
-                    mode_owner(template, mode),
-                    (template.vars or {}).get("promptless_modes") or [],
-                )
-                for message in result.errors:
-                    logger.warning("Editor tasks skipped for %s: %s", template.id, message)
-                found.append((template, result))
+                owner = mode.source_plugin
+                if owner is None:
+                    origin = template.origin if isinstance(template.origin, dict) else {}
+                    owner = origin.get("plugin_id")
+                issues = lint_editor_mode(template, name, mode, self._prompt_need, self._editors_of, owner)
+                problems = [message for level, message in issues if level == "error"]
+                if problems or self._prompt_need(spec.task) is None:
+                    logger.warning("Editor mode %s of %s skipped: %s", name, template.id, "; ".join(problems) or spec.task)
+                    continue
+                found.append(EditorEntry(template, name, mode, spec))
         return found
 
-    def _offer(self, template: PresetTemplate, mode_name: str, declaration: TaskDeclaration, via: Optional[str]) -> Dict[str, Any]:
-        mode = template.modes[mode_name]
-        mode_label = mode_display_name(mode_name, mode.mode_label)
+    def canonical_key(self, preset_id: str, task_id: str, mode: str) -> Optional[str]:
+        if is_editor_key(mode):
+            return mode
+        wanted = {task_id}
+        task = self.registry.get(task_id)
+        if task is not None and task.fallback is not None:
+            wanted.add(task.fallback[0])
+        matches = [
+            entry.key
+            for entry in self.editor_entries()
+            if entry.template.id == preset_id
+            and entry.spec.task in wanted
+            and (entry.spec.from_mode == mode or entry.name == mode)
+        ]
+        if len(set(matches)) != 1:
+            return None
+        if mode not in _unprefixed_logged:
+            _unprefixed_logged.add(mode)
+            logger.info("Editor task %s: the mode '%s' was sent without a prefix; using %s", task_id, mode, matches[0])
+        return matches[0]
+
+    def _offer(self, entry: EditorEntry, via: Optional[str]) -> Dict[str, Any]:
+        template, spec = entry.template, entry.spec
+        mode_label = mode_display_name(entry.name, entry.mode.mode_label)
         qualifies = self._engine_available(template.engine)
         offer: Dict[str, Any] = {
             "preset_id": template.id,
             "preset_name": template.name,
-            "mode": mode_name,
+            "mode": entry.key,
+            "from_mode": spec.from_mode,
             "mode_label": mode_label,
-            "label": declaration.label or mode_label,
-            "variant": default_form_name(mode),
-            "region_strategy": declaration.region,
+            "label": spec.label or mode_label,
+            "short_description": short_description_of(entry),
+            "order": spec.order,
+            "variant": None,
+            "region_strategy": spec.region,
             "via": via,
             "qualifies": qualifies,
-            "owned": sorted(owned_fields(declaration, mode)),
+            "owned": sorted(owned_names(spec)),
         }
         if not qualifies:
             offer["reason"] = NO_BACKEND
@@ -105,30 +155,31 @@ class EditorTaskManager:
 
     def offers(self, user: Any, editor: str = "image") -> List[Dict[str, Any]]:
         visible = self._visible_preset_ids(user)
-        declared = self.mode_declarations()
-        return self._entries(user, self.registry.list(editor), visible, declared)
+        return self._entries(user, self.registry.list(editor), visible, self.editor_entries())
 
     def entry_for(self, user: Any, task_id: str) -> Dict[str, Any]:
         task = self.registry.get(task_id)
         if task is None:
             raise NotFoundError("task_not_found", "This task does not exist")
-        return self._entries(user, [task], self._visible_preset_ids(user), self.mode_declarations())[0]
+        return self._entries(user, [task], self._visible_preset_ids(user), self.editor_entries())[0]
+
+    @staticmethod
+    def _sort(offers: List[Dict[str, Any]]) -> None:
+        offers.sort(key=lambda offer: (offer["preset_name"].lower(), offer["order"], offer["mode"]))
 
     def _entries(
         self,
         user: Any,
         tasks: List[TaskDefinition],
         visible: Set[str],
-        declared: List[Tuple[PresetTemplate, ModeDeclaration]],
+        declared: List[EditorEntry],
     ) -> List[Dict[str, Any]]:
         direct: Dict[str, List[Dict[str, Any]]] = {}
-        for template, result in declared:
-            if template.id not in visible:
-                continue
-            for declaration in result.tasks:
-                direct.setdefault(declaration.task, []).append(self._offer(template, result.mode, declaration, None))
+        for entry in declared:
+            if entry.template.id in visible:
+                direct.setdefault(entry.spec.task, []).append(self._offer(entry, None))
         for offers in direct.values():
-            offers.sort(key=lambda offer: (offer["preset_name"].lower(), offer["mode"]))
+            self._sort(offers)
         entries = [self._entry(task, direct) for task in tasks]
         defaults = self._defaults_by_task(user, tasks, visible, declared)
         for entry in entries:
@@ -141,8 +192,9 @@ class EditorTaskManager:
         if task.fallback is not None:
             fallback_id, prompt = task.fallback
             fallback = {"task": fallback_id, "prompt": prompt}
-            if not offers:
-                offers = [{**offer, "via": fallback_id} for offer in direct.get(fallback_id, [])]
+            covered = {offer["preset_id"] for offer in offers}
+            offers += [{**offer, "via": fallback_id} for offer in direct.get(fallback_id, []) if offer["preset_id"] not in covered]
+            self._sort(offers)
         return {
             "id": task.id,
             "label": task.label,
@@ -159,7 +211,7 @@ class EditorTaskManager:
         user: Any,
         tasks: List[TaskDefinition],
         visible: Set[str],
-        declared: List[Tuple[PresetTemplate, ModeDeclaration]],
+        declared: List[EditorEntry],
     ) -> Dict[str, Dict[str, Any]]:
         if self._defaults is None:
             return {}
@@ -169,14 +221,16 @@ class EditorTaskManager:
             return {}
         templates = {template.id: template for template in self._templates()}
         offered: Dict[Tuple[str, str], Set[str]] = {}
-        for template, result in declared:
-            offered.setdefault((template.id, result.mode), set()).update(item.task for item in result.tasks)
+        direct: Dict[str, Set[str]] = {}
+        for entry in declared:
+            offered.setdefault((entry.template.id, entry.key), set()).add(entry.spec.task)
+            direct.setdefault(entry.template.id, set()).add(entry.spec.task)
         session_ids = [item.setup_id for _, item in wanted if item.setup_kind == "session"]
         formula_ids = [item.setup_id for _, item in wanted if item.setup_kind == "formula"]
         sessions = self._sessions(user.id, session_ids) if session_ids and self._sessions else {}
         formulas = self._formulas(user.id, formula_ids) if formula_ids and self._formulas else {}
         return {
-            task.id: self._default_entry(task, item, templates, offered, visible, sessions, formulas)
+            task.id: self._default_entry(task, item, templates, offered, direct, visible, sessions, formulas)
             for task, item in wanted
         }
 
@@ -186,12 +240,13 @@ class EditorTaskManager:
         item: TaskDefault,
         templates: Dict[str, PresetTemplate],
         offered: Dict[Tuple[str, str], Set[str]],
+        direct: Dict[str, Set[str]],
         visible: Set[str],
         sessions: Dict[str, Any],
         formulas: Dict[str, Any],
     ) -> Dict[str, Any]:
         template = templates.get(item.preset_id)
-        mode = (template.modes or {}).get(item.mode) if template is not None else None
+        mode = find_mode(template, item.mode) if template is not None and is_editor_key(item.mode) else None
         preset_name = template.name if template is not None else item.preset_name
         mode_label = mode_display_name(item.mode, mode.mode_label) if mode is not None else item.mode_label
         setup: Dict[str, Any] = {"kind": item.setup_kind, "id": item.setup_id, "name": item.setup_name}
@@ -203,7 +258,9 @@ class EditorTaskManager:
         elif mode is None:
             gone = ("mode_missing", "mode", item.mode)
         else:
-            wanted = {task.id} | ({task.fallback[0]} if task.fallback is not None else set())
+            wanted = {task.id}
+            if task.fallback is not None and task.id not in direct.get(item.preset_id, set()):
+                wanted.add(task.fallback[0])
             if not offered.get((item.preset_id, item.mode), set()) & wanted:
                 gone = ("offer_withdrawn", "task", task.id)
             elif not self._engine_available(template.engine):
@@ -222,7 +279,7 @@ class EditorTaskManager:
                 gone = gone or ("formula_deleted", "formula", item.setup_id)
             else:
                 setup.update(name=formula.name, updated_at=dt_iso(formula.updated_at))
-                if not self._formula_fits(formula, item.preset_id, item.mode):
+                if not self._formula_fits(formula, item.preset_id, item.mode, mode):
                     gone = gone or ("formula_mismatch", "formula", item.setup_id)
         health: Dict[str, Any] = {"ok": True}
         if gone is not None:
@@ -240,7 +297,7 @@ class EditorTaskManager:
             "preset_name": preset_name,
             "mode": item.mode,
             "mode_label": mode_label,
-            "variant": item.variant,
+            "variant": None,
             "setup": setup,
             "set_at": item.set_at,
             "health": health,
@@ -256,20 +313,24 @@ class EditorTaskManager:
         )
 
     @staticmethod
-    def _formula_fits(formula: Any, preset_id: str, mode_name: str) -> bool:
-        return formula.preset_id == preset_id and formula.mode == mode_name
+    def _formula_fits(formula: Any, preset_id: str, mode_name: str, mode: Optional[ModeTemplate] = None) -> bool:
+        if formula.preset_id != preset_id:
+            return False
+        spec = getattr(mode, "editor", None)
+        return formula.mode == mode_name or (spec is not None and spec.from_mode is not None and formula.mode == spec.from_mode)
 
     def set_default(self, user: Any, task_id: str, body: SetTaskDefaultRequest) -> Dict[str, Any]:
         if self._defaults is None:
             raise DomainError("defaults_unavailable", "Task defaults are not available", 503)
         offer = self.resolve_offer(user, task_id, body.preset_id, body.mode)
+        key = offer.mode_name
         setup = body.setup
         setup_name: Optional[str] = None
         if setup.kind == "session":
             session = (self._sessions(user.id, [setup.id]) if self._sessions else {}).get(setup.id)
             if session is None:
                 raise NotFoundError("default_session_not_found", "This session does not exist")
-            if not self._session_fits(session, body.preset_id, body.mode):
+            if not self._session_fits(session, body.preset_id, key):
                 raise DomainError(
                     "default_session_mismatch", "This session is not an editor session of that preset and mode", 422
                 )
@@ -278,7 +339,7 @@ class EditorTaskManager:
             formula = (self._formulas(user.id, [setup.id]) if self._formulas else {}).get(setup.id)
             if formula is None:
                 raise NotFoundError("default_formula_not_found", "This formula does not exist")
-            if not self._formula_fits(formula, body.preset_id, body.mode):
+            if not self._formula_fits(formula, body.preset_id, key, offer.mode):
                 raise DomainError("default_formula_mismatch", "This formula does not apply to that preset and mode", 422)
             setup_name = formula.name
         self._defaults.upsert(
@@ -286,13 +347,13 @@ class EditorTaskManager:
                 user_id=user.id,
                 task=offer.task.id,
                 preset_id=body.preset_id,
-                mode=body.mode,
-                variant=body.variant,
+                mode=key,
+                variant=None,
                 setup_kind=setup.kind,
                 setup_id=setup.id,
                 setup_name=setup_name,
                 preset_name=offer.template.name,
-                mode_label=mode_display_name(body.mode, offer.mode.mode_label),
+                mode_label=mode_display_name(key, offer.mode.mode_label),
                 set_at=now_iso(),
             )
         )
@@ -307,21 +368,19 @@ class EditorTaskManager:
         return self.entry_for(user, task_id)
 
     def mode_status(self, preset_id: str, mode_name: str) -> str:
+        key = mode_name if is_editor_key(mode_name) else f"{EDITOR_KEY_PREFIX}{mode_name}"
         template = next((item for item in self._templates() if item.id == preset_id), None)
-        if template is None or mode_name not in (template.modes or {}):
+        if template is None or find_mode(template, key) is None:
             return "unknown"
-        for found, result in self.mode_declarations():
-            if found.id == preset_id and result.mode == mode_name and result.tasks:
-                return "ok"
+        if any(entry.template.id == preset_id and entry.key == key for entry in self.editor_entries()):
+            return "ok"
         return "not_offered"
 
     def owned_fields(self, preset_id: str, mode_name: str) -> Set[str]:
-        owned: Set[str] = set()
-        for template, result in self.mode_declarations():
-            if template.id == preset_id and result.mode == mode_name:
-                for declaration in result.tasks:
-                    owned |= owned_fields(declaration, template.modes[mode_name])
-        return owned
+        key = mode_name if is_editor_key(mode_name) else f"{EDITOR_KEY_PREFIX}{mode_name}"
+        template = next((item for item in self._templates() if item.id == preset_id), None)
+        mode = find_mode(template, key)
+        return owned_names(mode.editor) if mode is not None and mode.editor is not None else set()
 
     def resolve_offer(self, user: Any, task_id: str, preset_id: str, mode_name: str) -> ResolvedOffer:
         task = self.registry.get(task_id)
@@ -329,17 +388,21 @@ class EditorTaskManager:
             raise NotFoundError("task_not_found", "This task does not exist")
         if preset_id not in self._visible_preset_ids(user):
             raise NotFoundError("preset_not_found", "The selected preset is not available")
+        key = self.canonical_key(preset_id, task_id, mode_name)
+        if key is None:
+            raise DomainError("task_not_offered", "This mode does not offer that task", 422)
+        entries = [entry for entry in self.editor_entries() if entry.template.id == preset_id]
+        has_own = any(entry.spec.task == task.id for entry in entries)
         wanted = [(task.id, None)]
-        if task.fallback is not None:
+        if task.fallback is not None and not has_own:
             wanted.append((task.fallback[0], task.fallback[0]))
-        for template, result in self.mode_declarations():
-            if template.id != preset_id or result.mode != mode_name:
+        for entry in entries:
+            if entry.key != key:
                 continue
             for candidate, via in wanted:
-                declaration = next((item for item in result.tasks if item.task == candidate), None)
-                if declaration is None:
+                if entry.spec.task != candidate:
                     continue
-                if not self._engine_available(template.engine):
+                if not self._engine_available(entry.template.engine):
                     raise DomainError("offer_unavailable", NO_BACKEND, 422)
-                return ResolvedOffer(task, template, mode_name, template.modes[mode_name], declaration, via)
+                return ResolvedOffer(task, entry.template, key, entry.mode, entry.spec, via)
         raise DomainError("task_not_offered", "This mode does not offer that task", 422)

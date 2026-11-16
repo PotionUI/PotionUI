@@ -24,27 +24,36 @@ MEDIA = {"name": "references", "type": "media", "label": "Pictures", "configurat
 
 BASE_FIELDS: List[Dict[str, Any]] = [IMAGE, RESOLUTION, OUTPUT_SIZE, MATCH, SEED, QUANTITY, MEDIA]
 
-CROP = {"schema_version": 1, "tasks": [{"task": "edit_region", "region": "crop", "inputs": {"image": "source_image"}}]}
+CROP = {
+    "schema_version": 1,
+    "task": "edit_region",
+    "from": "edit",
+    "region": "crop",
+    "inputs": {"source": "source_image"},
+}
 MASK = {
     "schema_version": 1,
-    "tasks": [
-        {
-            "task": "edit_region",
-            "region": "mask",
-            "inputs": {"image": "source_image", "mask": "source_image_inpaint_mask"},
-        }
-    ],
+    "task": "edit_region",
+    "from": "edit",
+    "region": "mask",
+    "inputs": {"source": "source_image", "mask": "source_image_inpaint_mask"},
 }
 
 
 def task(**changes: Any) -> Dict[str, Any]:
-    entry: Dict[str, Any] = {"task": "edit_region", "region": "crop", "inputs": {"image": "source_image"}}
+    entry: Dict[str, Any] = {
+        "schema_version": 1,
+        "task": "edit_region",
+        "from": "edit",
+        "region": "crop",
+        "inputs": {"source": "source_image"},
+    }
     entry.update(changes)
     return entry
 
 
-def declaration(*tasks: Dict[str, Any]) -> Dict[str, Any]:
-    return {"schema_version": 1, "tasks": list(tasks)}
+def declaration(*documents: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return list(documents)
 
 
 def write_preset(
@@ -81,9 +90,13 @@ def write_preset(
         "fields": [{"type": "tabs", "children": [{"type": "tab", "anchor": "main", "label": "Main", "children": fields or BASE_FIELDS}]}],
     }
     (mode_dir / "form.yml").write_text(yaml.safe_dump(form), encoding="utf-8")
-    if editor is not None:
-        text = editor if isinstance(editor, str) else yaml.safe_dump(editor)
-        (mode_dir / "editor.yml").write_text(text, encoding="utf-8")
+    documents = editor if isinstance(editor, list) else [] if editor is None else [editor]
+    for index, document in enumerate(documents):
+        name = mode if index == 0 else f"{mode}{index + 1}"
+        directory = preset_dir / "editor_modes" / name
+        directory.mkdir(parents=True)
+        text = document if isinstance(document, str) else yaml.safe_dump(document, sort_keys=False)
+        (directory / "editor_mode.yml").write_text(text, encoding="utf-8")
     return preset_dir
 
 

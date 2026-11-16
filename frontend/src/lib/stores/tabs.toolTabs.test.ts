@@ -393,3 +393,33 @@ describe('tool tab persistence', () => {
 		expect(tab.generation.isGenerating).toBe(false);
 	});
 });
+
+describe('restoreToolTab', () => {
+	beforeEach(() => tabsStore.reset());
+
+	it('loads a saved picture and its state into the tab and remounts it', () => {
+		const id = tabsStore.openToolTab('image', null);
+		const before = (tabById(id) as ToolTab).epoch ?? 0;
+		const saved = { v: 1, stack: [], edit: { id: 'e1', revision: 3 } };
+
+		tabsStore.restoreToolTab(id, { source: dusk, state: saved, activeTool: 'effects' });
+
+		expect(tabById(id)).toMatchObject({ source: dusk, state: saved, activeTool: 'effects', dirty: 0, name: 'observatory-dusk', epoch: before + 1 });
+	});
+
+	it('leaves other tabs alone', () => {
+		const id = tabsStore.openToolTab('image', null);
+		const other = tabsStore.openToolTab('video', clip);
+		expect(other).not.toBe(id);
+		tabsStore.restoreToolTab(id, { source: dusk, state: { v: 1 } });
+		expect(tabById(other)).toMatchObject({ source: clip });
+		expect(tabById(id)).toMatchObject({ source: dusk });
+	});
+
+	it('does nothing for a tab that is not a tool tab', () => {
+		const generationId = state().tabs[0].id;
+		const snapshot = state().tabs[0];
+		tabsStore.restoreToolTab(generationId, { source: dusk, state: {} });
+		expect(state().tabs[0]).toEqual(snapshot);
+	});
+});

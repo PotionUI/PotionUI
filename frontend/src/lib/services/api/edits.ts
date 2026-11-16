@@ -5,9 +5,12 @@ export type EditTool = 'image';
 export type EditSourceKind = 'history' | 'library' | 'upload';
 export type EditStateDoc = Record<string, unknown>;
 
+export const EDIT_SOURCE_NAME_MAX = 120;
+
 export interface EditSource {
 	kind: EditSourceKind;
 	id: string;
+	name?: string | null;
 }
 
 export interface EditSummary {

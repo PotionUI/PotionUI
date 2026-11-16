@@ -165,7 +165,7 @@
 	import CropOptions, { aspectLabel, IMAGE_ASPECTS } from './CropOptions.svelte';
 	import CropOverlay from './CropOverlay.svelte';
 	import EffectsOptions from './EffectsOptions.svelte';
-	import ImageEmptyState from './ImageEmptyState.svelte';
+	import ImageStartScreen from './ImageStartScreen.svelte';
 	import ImageSourcePicker from './ImageSourcePicker.svelte';
 	import RecentPictures from './RecentPictures.svelte';
 	import ReplaceMenu from '../frame/ReplaceMenu.svelte';
@@ -1945,7 +1945,7 @@
 	{/if}
 	{#if !source}
 		{#if phone}
-			<ImageEmptyState phone busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
+			<ImageStartScreen tabId={host.tabId} phone busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
 		{:else}
 			<EditorToolbar
 				fileName={null}
@@ -1961,7 +1961,7 @@
 			/>
 			<div class="flex min-h-0 flex-1">
 				<ToolRail groups={railGroups} variant="icons" onselect={() => undefined} />
-				<ImageEmptyState busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
+				<ImageStartScreen tabId={host.tabId} {phone} busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
 			</div>
 		{/if}
 	{:else}

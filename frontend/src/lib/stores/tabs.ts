@@ -542,6 +542,28 @@ function createTabsStore() {
 			});
 		},
 
+		restoreToolTab: (tabId: string, restored: { source: MediaRef; state: unknown; activeTool?: string | null }) => {
+			update((state) => {
+				const index = state.tabs.findIndex((tab) => tab.id === tabId);
+				const current = state.tabs[index];
+				if (!isToolTab(current)) return state;
+				const tabs = [...state.tabs];
+				tabs[index] = {
+					...current,
+					source: restored.source,
+					state: restored.state,
+					activeTool: restored.activeTool ?? current.activeTool ?? null,
+					dirty: 0,
+					run: null,
+					thumbnail: null,
+					hint: null,
+					epoch: (current.epoch ?? 0) + 1,
+					name: current.renamed ? current.name : (mediaFileStem(restored.source) ?? current.name)
+				};
+				return { ...state, tabs };
+			});
+		},
+
 		setToolTabTitle: (tabId: string, name: string) => {
 			update((state) => {
 				const index = state.tabs.findIndex((tab) => tab.id === tabId);

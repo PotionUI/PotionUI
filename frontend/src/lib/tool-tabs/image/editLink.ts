@@ -1,4 +1,4 @@
-import type { EditSource, EditStateDoc } from '$lib/services/api/edits';
+import { EDIT_SOURCE_NAME_MAX, type EditSource, type EditStateDoc } from '$lib/services/api/edits';
 import type { MediaRef } from '$lib/types/tabs';
 import { readImageState, writeImageState } from './state';
 
@@ -26,11 +26,18 @@ export function withEditLink(payload: EditStateDoc, link: EditLink | null): Edit
 	return next;
 }
 
+function sourceNameOf(source: MediaRef): string | null {
+	const name = (source.name ?? '').trim();
+	return name ? name.slice(0, EDIT_SOURCE_NAME_MAX) : null;
+}
+
 export function editSourceOf(source: MediaRef | null): EditSource | null {
 	if (!source) return null;
-	if (source.artifact_id) return { kind: 'upload', id: source.artifact_id };
-	if (source.item_id) return { kind: 'library', id: source.item_id };
-	if (source.generation_file_id) return { kind: 'history', id: source.generation_file_id };
+	const name = sourceNameOf(source);
+	const named = (kind: EditSource['kind'], id: string): EditSource => (name ? { kind, id, name } : { kind, id });
+	if (source.artifact_id) return named('upload', source.artifact_id);
+	if (source.item_id) return named('library', source.item_id);
+	if (source.generation_file_id) return named('history', source.generation_file_id);
 	return null;
 }
 

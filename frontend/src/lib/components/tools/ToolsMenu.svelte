@@ -408,7 +408,7 @@
 				<span class="shrink-0 font-mono text-xs text-fg-subtle">{availability.reason}</span>
 			{:else if tool.control === 'collection'}
 				<Icon name="chevron-right" className="w-3.5 h-3.5 flex-shrink-0 text-fg-subtle" />
-			{:else if availability.enabled && tool.shortcut && !sheet}
+			{:else if availability.enabled && tool.shortcut && !sheet && acceleratorTarget(tool.shortcut)?.id === tool.id}
 				<Kbd keys={shortcutKeys(tool.shortcut)} />
 			{:else if opensTabs(tool)}
 				<span class="shrink-0 text-fg-subtle" data-opens-elsewhere>

@@ -12,9 +12,8 @@ import {
 import type { LibraryItem } from '$lib/services/api/library';
 import type { GenerationHistoryItem } from '$lib/types/history';
 import type { MediaRef } from '$lib/types/tabs';
-import { readEditLink, withEditLink, type EditLink } from './editLink';
+import { readEditLink, withEditLink } from './editLink';
 import { isImageFile, historyFileRef, libraryItemRef } from './sourceRefs';
-import { readImageState } from './state';
 
 export const EDITS_PAGE_SIZE = 12;
 export const EDITS_SEARCH_DEBOUNCE_MS = 300;
@@ -157,6 +156,50 @@ export async function resolveEditSourceRef(source: EditSource, library: LibraryP
 	} catch {
 		return null;
 	}
+}
+
+export interface ContinueDeps {
+	getEdit: (id: string) => Promise<APIResponse<{ edit: EditRecord }>>;
+	library: LibraryPort;
+	findOpen: (id: string) => string | null;
+}
+
+export type PreparedContinue =
+	| { kind: 'focused'; tabId: string }
+	| { kind: 'ready'; record: EditRecord; source: MediaRef; state: Record<string, unknown>; activeTool: string | null }
+	| { kind: 'missing' }
+	| { kind: 'source-missing' }
+	| { kind: 'failed' };
+
+export function findEditTab(tabs: readonly TabLike[], id: string): string | null {
+	for (const tab of tabs) {
+		if (tab.kind !== 'tool') continue;
+		if (readEditLink(tab.state)?.id === id) return tab.id;
+	}
+	return null;
+}
+
+function activeToolOf(state: unknown): string | null {
+	const value = state && typeof state === 'object' ? (state as Record<string, unknown>).activeTool : null;
+	return typeof value === 'string' && value ? value : null;
+}
+
+export async function prepareContinue(id: string, deps: ContinueDeps): Promise<PreparedContinue> {
+	const open = deps.findOpen(id);
+	if (open) return { kind: 'focused', tabId: open };
+	let record: EditRecord | undefined;
+	try {
+		record = (await deps.getEdit(id)).data?.edit;
+	} catch (error) {
+		return describeEditFailure(error).kind === 'not_found' ? { kind: 'missing' } : { kind: 'failed' };
+	}
+	if (!record) return { kind: 'failed' };
+	const raced = deps.findOpen(record.id);
+	if (raced) return { kind: 'focused', tabId: raced };
+	const source = await resolveEditSourceRef(record.source, deps.library);
+	if (!source) return { kind: 'source-missing' };
+	const state = withEditLink(record.state, { id: record.id, revision: record.revision });
+	return { kind: 'ready', record, source, state, activeTool: activeToolOf(state) };
 }
 
 export function pictureKey(edit: Pick<EditSummary, 'source' | 'thumbnail_upload_id'>): string {
@@ -369,27 +412,21 @@ export function createRecentEdits(deps: RecentEditsDeps) {
 		if (continuing) return { kind: 'busy' };
 		continuing = true;
 		try {
-			let record: EditRecord | undefined;
-			try {
-				record = (await deps.edits.getEdit(id)).data?.edit;
-			} catch (error) {
-				if (describeEditFailure(error).kind === 'not_found') {
-					await load();
-					return { kind: 'missing' };
-				}
-				return { kind: 'failed' };
+			const prepared = await prepareContinue(id, {
+				getEdit: deps.edits.getEdit,
+				library: deps.library,
+				findOpen: openElsewhere
+			});
+			if (prepared.kind === 'focused') {
+				deps.focusTab(prepared.tabId);
+				return prepared;
 			}
-			if (!record) return { kind: 'failed' };
-			const raced = openElsewhere(record.id);
-			if (raced) {
-				deps.focusTab(raced);
-				return { kind: 'focused', tabId: raced };
+			if (prepared.kind === 'missing') {
+				await load();
+				return prepared;
 			}
-			const source = await resolveEditSourceRef(record.source, deps.library);
-			if (!source) return { kind: 'source-missing' };
-			const link: EditLink = { id: record.id, revision: record.revision };
-			const state = withEditLink(record.state, link);
-			deps.restoreTab({ source, state, activeTool: readImageState(state).activeTool });
+			if (prepared.kind !== 'ready') return prepared;
+			deps.restoreTab({ source: prepared.source, state: prepared.state, activeTool: prepared.activeTool });
 			return { kind: 'opened' };
 		} finally {
 			continuing = false;

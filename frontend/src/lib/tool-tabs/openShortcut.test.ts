@@ -39,6 +39,20 @@ afterEach(async () => {
 	await new Promise((resolve) => setTimeout(resolve, 5));
 });
 
+describe('openToolShortcut for continue-edit', () => {
+	it('opens the picture as it is when it carries no continuable edit', () => {
+		expect(openToolShortcut('continue-edit', [media('image', 'a', { itemId: 'a' })])).toBe(true);
+		expect(toolTabs()).toHaveLength(1);
+		expect(toolTabs()[0]).toMatchObject({ tool: 'image', source: { item_id: 'a' } });
+	});
+
+	it('opens the picture as it is when the edit is gone', () => {
+		const madeInEditor = { editId: 'ed_1', tool: 'image', revision: 1, available: false, continuable: true };
+		openToolShortcut('continue-edit', [media('image', 'a', { itemId: 'a', madeInEditor })]);
+		expect(toolTabs()[0]).toMatchObject({ source: { item_id: 'a' } });
+	});
+});
+
 describe('openToolShortcut', () => {
 	it('opens an Image editor tab on the item with the tool active, and goes to Generate once the caller has closed its dialog', async () => {
 		const opened = openToolShortcut('crop', [media('image', 'a', { itemId: 'a' })]);

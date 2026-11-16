@@ -1,6 +1,7 @@
 import type { ComponentType } from 'svelte';
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 import type { LibraryItem } from '$lib/services/api/library';
+import { madeInEditor, type MadeInEditor } from '$lib/library/libraryItemMeta';
 import {
 	isAudioFileType,
 	isImageFileType,
@@ -28,6 +29,7 @@ export interface MediaToolItem {
 	hasAlpha?: boolean | null;
 	hasAudio?: boolean | null;
 	itemId?: string | null;
+	madeInEditor?: MadeInEditor | null;
 	generationId?: string;
 	generationFileId?: string | null;
 	paramIndex?: number;
@@ -273,6 +275,11 @@ export function buildHistoryToolContext(
 	};
 }
 
+function linkOf(item: LibraryItem): { madeInEditor?: MadeInEditor } {
+	const link = madeInEditor(item.made_in_editor);
+	return link ? { madeInEditor: link } : {};
+}
+
 /** Resolves the Library page's selection into a tool context. A library item
  * carries no generation - `generations`/`generationIds`/`files` stay empty. */
 export function buildLibraryToolContext(
@@ -296,7 +303,8 @@ export function buildLibraryToolContext(
 				fps: item.fps,
 				hasAlpha: item.has_alpha,
 				hasAudio: item.has_audio,
-				itemId: item.id
+				itemId: item.id,
+				...linkOf(item)
 			};
 		})
 		.filter((item): item is MediaToolItem => item !== null);

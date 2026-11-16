@@ -28,7 +28,7 @@ const hinted = listTools().filter((entry) => entry.shortcut);
 
 describe('every shortcut hint in the Tools menu and the card menu', () => {
 	it('exists on at least the four documented tools', () => {
-		expect(hinted.map((entry) => entry.id).sort()).toEqual(['delete', 'download', 'edit-image', 'favorite']);
+		expect(hinted.map((entry) => entry.id).sort()).toEqual(['continue-edit', 'delete', 'download', 'edit-image', 'favorite']);
 	});
 
 	for (const entry of hinted) {

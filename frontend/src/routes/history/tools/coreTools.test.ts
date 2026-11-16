@@ -132,3 +132,42 @@ describe('core history tools', () => {
 		expect(availability([item('a', 'image')])?.hidden).toBeUndefined();
 	});
 });
+
+describe('Continue this edit in the item and Tools menus', () => {
+	const link = { edit_id: 'ed_1', tool: 'image', revision: 2, available: true, continuable: true };
+	const row = (id: string, extra: Record<string, unknown> = {}) =>
+		({ id, filename: `${id}.png`, media_type: 'image', url: `/${id}.png`, tags: [], ...extra }) as never;
+
+	function libraryEdit(rows: unknown[]) {
+		const groups = listToolGroups(buildLibraryToolContext(rows as never, null));
+		const entries = groups.flatMap((group) => group.tools);
+		const visible = entries.filter(({ availability }) => !availability.hidden).map(({ tool }) => tool.id);
+		return {
+			rows: visible.filter((id) => id === 'continue-edit' || id === 'edit-image'),
+			continue: entries.find(({ tool }) => tool.id === 'continue-edit')
+		};
+	}
+
+	it('lists Continue this edit before Edit for one linked, available, continuable picture', () => {
+		const result = libraryEdit([row('p1', { made_in_editor: link })]);
+		expect(result.rows).toEqual(['continue-edit', 'edit-image']);
+		expect(result.continue?.availability.enabled).toBe(true);
+		expect(result.continue?.tool.label).toBe('Continue this edit');
+	});
+
+	it('keeps the single Edit row when the edit is gone, was replaced, or there is no link', () => {
+		expect(libraryEdit([row('p1', { made_in_editor: { ...link, available: false } })]).rows).toEqual(['edit-image']);
+		expect(libraryEdit([row('p1', { made_in_editor: { ...link, continuable: false } })]).rows).toEqual(['edit-image']);
+		expect(libraryEdit([row('p1')]).rows).toEqual(['edit-image']);
+	});
+
+	it('keeps the single Edit row when several pictures are selected', () => {
+		expect(libraryEdit([row('p1', { made_in_editor: link }), row('p2', { made_in_editor: link })]).rows).toEqual(['edit-image']);
+	});
+
+	it('never offers it in History', () => {
+		const ids = groupsFor(['g1']).flatMap((group) => group.tools.map(({ tool }) => tool.id));
+		expect(ids).not.toContain('continue-edit');
+		expect(ids).toContain('edit-image');
+	});
+});

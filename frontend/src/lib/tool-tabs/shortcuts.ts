@@ -1,5 +1,7 @@
 import type { MediaRef, ToolTabHint } from '$lib/types/tabs';
 import { lastToolFor } from './lastTool';
+import type { MadeInEditor } from '$lib/library/libraryItemMeta';
+import { CONTINUE_ACTION } from './continueTarget';
 import type { EditorKind } from './toolIds';
 
 export const EDIT_ACTION = 'edit-image';
@@ -19,6 +21,7 @@ export interface ShortcutItem {
 	filename: string;
 	itemId?: string | null;
 	generationFileId?: string | null;
+	madeInEditor?: MadeInEditor | null;
 }
 
 export interface ShortcutGroup<T extends { kind: string }> extends ToolShortcut {
@@ -39,6 +42,7 @@ const IMAGE_ACTIONS: Record<string, Resolver> = {
 	crop_subject: fixed('subject'),
 	slice_sheet: fixed('slice', { detect: true }),
 	[EDIT_ACTION]: (last) => ({ activeTool: last('image'), hint: { suggestSlice: true } }),
+	[CONTINUE_ACTION]: (last) => ({ activeTool: last('image') }),
 	[LOOK_ACTION]: fixed('effects')
 };
 

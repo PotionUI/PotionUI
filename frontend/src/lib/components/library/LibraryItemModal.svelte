@@ -16,7 +16,16 @@
 	import { formatShortDay, formatShortWhen } from '$lib/utils/generationTime';
 	import { libraryStore, LIBRARY_TAG_TYPE } from '$lib/stores/library';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
-	import { libraryItemDisplayName, libraryItemIcon, sliceOrigin, sliceOriginLabel } from '$lib/library/libraryItemMeta';
+	import {
+		canContinueEdit,
+		libraryItemDisplayName,
+		libraryItemIcon,
+		madeInEditor,
+		sliceOrigin,
+		sliceOriginLabel
+	} from '$lib/library/libraryItemMeta';
+	import { CONTINUE_ACTION } from '$lib/tool-tabs/continueTarget';
+	import { openToolShortcut } from '$lib/tool-tabs/openShortcut';
 	import { isTypingInField } from '$lib/utils/editableTarget';
 	import { plainLetter, windowOwnsKeys } from '$lib/utils/shortcutGuard';
 	import DetailsActionBar, { type BarAction } from '$lib/media-tools/DetailsActionBar.svelte';
@@ -66,6 +75,8 @@
 
 	$: displayName = libraryItemDisplayName(item);
 	$: slicedFrom = sliceOrigin(item.provenance);
+	$: madeHere = madeInEditor(item.made_in_editor);
+	$: canContinue = canContinueEdit(madeHere);
 	$: kind = (item.media_type ?? '').toLowerCase();
 	$: selectedTagIds = item.tags.map((tag) => tag.id);
 	$: audioTracks = [{ type: 'mixed' as const, url: item.url, duration: item.duration_seconds }];
@@ -324,7 +335,7 @@
 				</div>
 			</DetailsSection>
 
-			{#if backLink || slicedFrom}
+			{#if backLink || slicedFrom || madeHere}
 				<DetailsSection id="library-source" title="Source" icon="folder" collapsible={false}>
 					<div class="space-y-2 px-3">
 						{#if backLink}
@@ -356,6 +367,26 @@
 							<p class="flex items-center gap-1.5 text-sm text-fg-muted" data-slice-origin>
 								<Icon name="editor-slice" className="h-3.5 w-3.5 flex-none" />
 								<span class="min-w-0 truncate">{sliceOriginLabel(slicedFrom)}</span>
+							</p>
+						{/if}
+						{#if madeHere}
+							<p class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted" data-made-in-editor>
+								<span class="inline-flex items-center gap-1.5">
+									<Icon name="pencil-square" className="h-3.5 w-3.5 flex-none" />
+									Made in the editor
+								</span>
+								{#if canContinue}
+									<button
+										type="button"
+										class="inline-flex items-center gap-1.5 rounded text-sm text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+										data-continue-edit
+										on:click={() => {
+											if (openToolShortcut(CONTINUE_ACTION, rowItems)) onClose();
+										}}
+									>
+										Continue this edit
+									</button>
+								{/if}
 							</p>
 						{/if}
 					</div>

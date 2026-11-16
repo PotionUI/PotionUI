@@ -61,8 +61,19 @@ export function createEditAutosave(deps: EditAutosaveDeps) {
 	let flushAgain = false;
 	let session = 0;
 	let retryAttempt = 0;
+	let idleWaiters: Array<() => void> = [];
 	let flushTimer: ReturnType<typeof setTimeout> | null = null;
 	let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function releaseIdle(): void {
+		const waiting = idleWaiters;
+		idleWaiters = [];
+		for (const resolve of waiting) resolve();
+	}
+
+	function whenIdle(): Promise<void> {
+		return flushing ? new Promise<void>((resolve) => idleWaiters.push(resolve)) : Promise.resolve();
+	}
 
 	function computeStatus(): AutosaveStatus {
 		if (conflict) return 'conflict';
@@ -208,7 +219,10 @@ export function createEditAutosave(deps: EditAutosaveDeps) {
 				if (!outbox.pending(tabId)) break;
 			}
 		} finally {
-			if (mine === session) flushing = false;
+			if (mine === session) {
+				flushing = false;
+				releaseIdle();
+			}
 		}
 		if (retry) {
 			scheduleRetry();
@@ -310,6 +324,7 @@ export function createEditAutosave(deps: EditAutosaveDeps) {
 		flushAgain = false;
 		booting = false;
 		booted = false;
+		releaseIdle();
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('online', onOnline);
 			window.removeEventListener('offline', onOffline);
@@ -400,9 +415,23 @@ export function createEditAutosave(deps: EditAutosaveDeps) {
 		await flush();
 	}
 
+	async function settle(): Promise<EditLink | null> {
+		if (flushTimer) clearTimeout(flushTimer);
+		flushTimer = null;
+		for (let pass = 0; pass < 3; pass += 1) {
+			if (!started || !booted) return null;
+			await whenIdle();
+			if (conflict || paused) return null;
+			if (!outbox.pending(tabId)) return link;
+			await flush();
+		}
+		return null;
+	}
+
 	return {
 		start,
 		stop,
+		settle,
 		close,
 		observe,
 		flushNow,

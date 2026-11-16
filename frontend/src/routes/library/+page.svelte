@@ -33,6 +33,8 @@
 	import { registerCoreHistoryTools } from '../history/tools/coreTools';
 	import { loadPluginMediaTools } from '$lib/tools/pluginTools';
 	import { pickTool } from '$lib/tools/toolPicker';
+	import { CONTINUE_ACTION, continuableLink } from '$lib/tool-tabs/continueTarget';
+	import { openToolShortcut } from '$lib/tool-tabs/openShortcut';
 	import { plainLetter, pageOwnsKeys } from '$lib/utils/shortcutGuard';
 	import { selectionDeleteIntent } from '$lib/utils/deleteShortcut';
 	import { gridShortcutTarget } from '$lib/tools/gridShortcut';
@@ -89,6 +91,7 @@
 		const tool = listTools('library').find((candidate) => candidate.id === 'edit-image');
 		if (!tool || !editMediaAvailability(context).enabled) return;
 		event.preventDefault();
+		if (continuableLink(context.items) && openToolShortcut(CONTINUE_ACTION, context.items)) return;
 		handleToolSelect(tool, context);
 	}
 

@@ -524,6 +524,73 @@ describe('restoring after a reload', () => {
 	});
 });
 
+describe('settling for a save', () => {
+	it('gives back the link of an edit with nothing waiting', async () => {
+		const t = setup({ link: { id: 'ed_1', revision: 2 } });
+		await t.boot();
+		await expect(t.engine.settle()).resolves.toEqual({ id: 'ed_1', revision: 2 });
+		expect(t.edits.save).not.toHaveBeenCalled();
+	});
+
+	it('sends the waiting change first and returns the new revision', async () => {
+		const t = setup({ link: { id: 'ed_1', revision: 2 } });
+		await t.boot();
+		t.engine.observe(payload(1));
+		const link = t.engine.settle();
+		await vi.advanceTimersByTimeAsync(0);
+		await expect(link).resolves.toEqual({ id: 'ed_1', revision: 3 });
+		expect(t.edits.save).toHaveBeenCalledTimes(1);
+	});
+
+	it('creates the edit of a tab that changed but was never sent', async () => {
+		const t = setup();
+		await t.boot();
+		t.engine.observe(payload(1));
+		const link = t.engine.settle();
+		await vi.advanceTimersByTimeAsync(0);
+		await expect(link).resolves.toEqual({ id: 'ed_new', revision: 1 });
+	});
+
+	it('gives back nothing for a tab that never changed', async () => {
+		const t = setup();
+		await t.boot();
+		await expect(t.engine.settle()).resolves.toBeNull();
+	});
+
+	it('gives back nothing while offline or after a conflict', async () => {
+		const offline = setup({ link: { id: 'ed_1', revision: 2 }, online: false });
+		await offline.boot();
+		offline.engine.observe(payload(1));
+		await expect(offline.engine.settle()).resolves.toBeNull();
+		const conflicted = setup({ link: { id: 'ed_1', revision: 2 } });
+		await conflicted.boot();
+		conflicted.edits.save.mockRejectedValueOnce(failure(409, { error: 'edit_revision_conflict', revision: 9 }));
+		conflicted.engine.observe(payload(1));
+		const link = conflicted.engine.settle();
+		await vi.advanceTimersByTimeAsync(0);
+		await expect(link).resolves.toBeNull();
+		await expect(conflicted.engine.settle()).resolves.toBeNull();
+	});
+
+	it('waits for a send that is already in flight', async () => {
+		const t = setup({ link: { id: 'ed_1', revision: 2 } });
+		await t.boot();
+		let release: () => void = () => undefined;
+		t.edits.save.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					release = () => resolve({ success: true, data: { edit: record('ed_1', 3) } });
+				})
+		);
+		t.engine.observe(payload(1));
+		await t.settle();
+		const link = t.engine.settle();
+		await vi.advanceTimersByTimeAsync(0);
+		release();
+		await expect(link).resolves.toEqual({ id: 'ed_1', revision: 3 });
+	});
+});
+
 describe('the persisted link', () => {
 	it('reads only a well formed link and tolerates tabs that never had one', () => {
 		expect(readEditLink({ v: 1, edit: { id: 'ed_1', revision: 4 } })).toEqual({ id: 'ed_1', revision: 4 });

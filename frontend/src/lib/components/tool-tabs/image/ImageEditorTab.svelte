@@ -89,6 +89,7 @@
 	import { createEditAutosave, type AutosaveStatus } from '$lib/tool-tabs/image/editAutosave';
 	import { editAutosaveOutbox } from '$lib/tool-tabs/image/editAutosaveOutbox';
 	import { editSourceOf, readEditLink, withEditLink } from '$lib/tool-tabs/image/editLink';
+	import { editLinkForSave } from '$lib/tool-tabs/image/saveLink';
 	import EditConflictNotice from '$lib/components/tool-tabs/frame/EditConflictNotice.svelte';
 	import EditSaveIndicator from '$lib/components/tool-tabs/frame/EditSaveIndicator.svelte';
 	import {
@@ -1184,12 +1185,12 @@
 		saving = { percent: 0, label: 'Saving' };
 		let stop: (() => void) | null = null;
 		try {
-			const payload = await renderer.payload(steps);
+			const [payload, editLink] = await Promise.all([renderer.payload(steps), editLinkForSave(() => autosave.settle())]);
 			const handle = await mediaToolRuns.start({
 				keys: [`tool-tab:${host.tabId}`],
 				toolId: payload.find((step) => !step.hidden)?.tool ?? 'edit',
 				label: 'Image edit',
-				body: runBody(payload, ref, saveMode, saved?.itemId ?? null)
+				body: runBody(payload, ref, saveMode, saved?.itemId ?? null, null, editLink)
 			});
 			host.setRun({ runId: handle.runId, progress: 0 });
 			stop = mediaToolRuns.subscribe((runs) => {

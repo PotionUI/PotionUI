@@ -109,6 +109,27 @@ describe('openToolTab', () => {
 	});
 });
 
+describe('openToolTab with a state to start from', () => {
+	beforeEach(() => tabsStore.reset());
+
+	it('opens a new tab holding the state even when another tab already shows the same picture', () => {
+		const first = tabsStore.openToolTab('image', dusk);
+		const second = tabsStore.openToolTab('image', dusk, { state: { v: 1, edit: { id: 'ed_1', revision: 2 } }, fresh: true });
+		expect(second).not.toBe(first);
+		expect(tabById(first)).toMatchObject({ state: null });
+		expect(tabById(second)).toMatchObject({ source: dusk, state: { v: 1, edit: { id: 'ed_1', revision: 2 } } });
+		expect(state().activeTabId).toBe(second);
+	});
+
+	it('fills an empty active tab of that tool instead of adding one', () => {
+		const empty = tabsStore.openToolTab('image', null);
+		const filled = tabsStore.openToolTab('image', fox, { state: { v: 1 }, fresh: true, activeTool: 'resize' });
+		expect(filled).toBe(empty);
+		expect(tabById(filled)).toMatchObject({ source: fox, state: { v: 1 }, activeTool: 'resize' });
+		expect(toolTabs()).toHaveLength(1);
+	});
+});
+
 describe('tool tabs and generation-only helpers', () => {
 	beforeEach(() => tabsStore.reset());
 

@@ -176,6 +176,9 @@ describe('stack to run steps', () => {
 		expect(runBody(steps, { generation_file_id: '7' }, 'update', 'copy-1').output).toEqual({ mode: 'update', target_item_id: 'copy-1' });
 		expect(runBody(steps, { item_id: 'lib-1' }, 'replace').output).toEqual({ mode: 'replace' });
 		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, 'col-9').output).toEqual({ mode: 'new', collection_id: 'col-9' });
+		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, null, { id: 'ed_1', revision: 3 }).output).toEqual({ mode: 'new', edit: { id: 'ed_1', revision: 3 } });
+		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, null, null).output).toEqual({ mode: 'new' });
+		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, 'col-9').output).not.toHaveProperty('edit');
 	});
 });
 

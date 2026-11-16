@@ -144,11 +144,13 @@ export function runBody(
 	input: MediaToolInputRef,
 	mode: MediaToolSaveMode,
 	targetItemId?: string | null,
-	collectionId?: string | null
+	collectionId?: string | null,
+	edit?: { id: string; revision: number } | null
 ): StartMediaToolRunBody {
 	const output: StartMediaToolRunBody['output'] = { mode };
 	if (mode === 'update' && targetItemId) output.target_item_id = targetItemId;
 	if (collectionId) output.collection_id = collectionId;
+	if (edit) output.edit = { id: edit.id, revision: edit.revision };
 	return { steps, inputs: [input], output };
 }
 

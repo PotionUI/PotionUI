@@ -13,7 +13,8 @@
 		downloadWarnings,
 		extensionOf,
 		formProblems,
-		initialForm
+		initialForm,
+		suggestedModelType
 	} from '../lib/downloadForm.js';
 	import { formatBytes, modelTypeLabel } from '../lib/format.js';
 	import { startToast } from '../lib/downloads.js';

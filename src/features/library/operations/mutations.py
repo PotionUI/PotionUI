@@ -3,7 +3,7 @@ import logging
 import mimetypes
 import uuid
 from pathlib import Path
-from typing import Dict, TYPE_CHECKING
+from typing import Dict, Optional, TYPE_CHECKING
 
 from src.features.library.collaborators import LibraryCollaborators
 from src.features.library.dto import LibraryItem
@@ -11,6 +11,7 @@ from src.features.library.mappers import upload_key, upload_to_item
 from src.features.library.operations.guards import get_owned_or_raise
 from src.features.media.records import Upload
 from src.platform.plugins.limit_kinds import AdmissionRequest
+from src.platform.util.video_stream import audio_presence
 
 if TYPE_CHECKING:
     from src.features.generation.records import File
@@ -107,6 +108,7 @@ def copy_generation_file(collaborators: LibraryCollaborators, file_id: str, user
         fps=file_record.fps,
         file_size=file_record.file_size or written,
         has_alpha=file_record.has_alpha if media_type == 'image' else None,
+        has_audio=_sound_of(source, media_type),
         source_generation_id=collaborators.file_repository.get_generation_id(file_record.id),
         thumbnail_small=thumbnail_paths.get('small'),
         thumbnail_medium=thumbnail_paths.get('medium'),
@@ -116,6 +118,18 @@ def copy_generation_file(collaborators: LibraryCollaborators, file_id: str, user
 
     logger.info(f"Copied generated file {file_id} into library as {filename}")
     return upload_to_item(upload, [])
+
+
+def _sound_of(source: Path, media_type: str) -> Optional[bool]:
+    if media_type == 'audio':
+        return True
+    if media_type != 'video':
+        return None
+    try:
+        return audio_presence(source)
+    except Exception as exc:
+        logger.warning(f"Failed to probe sound for a copied generation file: {exc}")
+        return None
 
 
 def _copy_generation_thumbnails(

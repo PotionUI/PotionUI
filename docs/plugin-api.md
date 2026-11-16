@@ -282,6 +282,59 @@ def on_ready(context):
     return context
 ```
 
+### Plugin code across updates
+
+Each time PotionUI enables a plugin, it first checks the modules it already imported from the
+plugin's folder in this process. They are kept when the folder and the bytes of `manifest.yml`
+are the same as when they were imported, and each of their files is still there with the size
+and modification time it had at the end of the last enable; a module first imported after that
+enable is kept when its file is not newer than that enable. Only the size and the modification
+time are compared: a change of mode or owner alone keeps the modules, and a file put in place
+with the same size and modification time as the one it replaces is not noticed. Otherwise,
+PotionUI unloads every module it imported from that folder, and from the plugin's previous
+folder if the plugin moved. This covers an update from a catalog, new files followed by a scan,
+a Python file edited by hand followed by a disable and an enable, the folder put back after a
+failed update, and a plugin that left the plugin folders and came back. The plugin then runs
+from its files as they are now: packages, `__init__.py` files, the modules its entry points
+import and its pipes are imported again, as after a restart. Two kinds of module are left in
+place: a module that belongs to another registered plugin, and a module that another thread is
+still importing at that moment, which is unloaded at the next enable instead. The modules a
+plugin had loaded at its last enable from a folder it moved out of are unloaded even when
+another plugin now holds that folder. The bytecode Python cached for each module that is
+unloaded is removed as well, where its folder allows it, so that module is compiled again from
+its file. By default, Python checks cached bytecode only against the size of its file and the
+second of its modification time, at a restart too, so a module first imported after the change
+can run its previous version when its file was rewritten at the same size within the same
+second.
+
+An enabled plugin updated from a catalog needs no restart. A scan only notices a changed
+`manifest.yml`, so after editing Python files by hand, disable and enable the plugin, or restart
+PotionUI. A scan that changes or removes a plugin also reloads presets, pipes, recipes and model
+layouts, as an enable does, so it takes about as long as an enable.
+
+The entry points named in the manifest run again at every enable, even when nothing changed,
+so their module-level state starts again then. The modules they import keep their state
+across a disable and an enable when nothing changed, and start again when the plugin's code is
+unloaded. Code a module runs while it is imported runs again each time the module is imported
+again. Whatever it registers outside itself at that point (a logging handler, an `atexit`
+function, an entry in a registry shared by the whole process) is registered once more, and
+the previous version's entry stays unless something removes it. Make such a registration
+idempotent, or do it in `boot` and undo it in `disable`.
+
+Work the previous version started keeps running on that version's modules after the update.
+An import it makes inside a function, of a module that is not loaded at that moment, reads the
+files on disk, which may already be the new version's. After the update that is true of every
+module of the plugin. While the previous version's `disable` handler runs, the new files are
+already in place, so it is true of any module that version had not imported yet. State
+that such work and the new version must share (a count of running jobs, a reservation) has to
+live outside the plugin's modules, in the database or in a file, or `disable` has to wait for
+that work or cancel it.
+
+Two cases are not reloaded. A compiled extension module (`.pyd`, `.so`) shipped in a plugin
+folder cannot be unloaded, so a new version of one takes effect at the next restart. A module of
+the plugin's folder that the core or another plugin imported is unloaded with the plugin, and
+the importer keeps the object it already has.
+
 ## Choosing a plugin category
 
 `category:` in `manifest.yml` decides which group the plugin appears under in Admin → Plugins.
@@ -1936,6 +1989,17 @@ At least one of `python` and `component` is required. The id must start with you
 and a plugin cannot take an id another plugin or core already registered; an entry that breaks either
 rule keeps the plugin from enabling.
 
+A tool that needs sound (`requires: { has_audio: true }`) is greyed out in the Tools menu on a Library video
+recorded as silent. The Library records whether a video has sound when it is uploaded or copied from History,
+by probing the file, and a sound file always counts as having sound. For a media tool's result it records the
+`has_audio` of the `ToolMedia` the tool returns: the core tools probe their output, and a plugin tool's value is
+taken as the tool reports it. The value stays unknown on a History file, on an item stored before PotionUI
+recorded sound, on an item saved from Inspirations, on a file uploaded again with the same bytes as an item of
+unknown sound, and when the probe fails. The menu then offers the tool, and the run checks `requires` on each
+input and refuses it with `unsupported_media`.
+In the Library menu, Mute and Replace audio sit under the Audio entry, which opens the video editor on
+Volume; that entry stays enabled on a silent clip, since Replace audio needs no sound.
+
 `params` are form fields. `type` is `integer`, `float`, `select`, `checkbox`, `color`, `string` or
 `anchor`, with these keys: `name`, `label`, `default`, `min`, `max`, `step`, `unit`, `options` (a list of
 values or of `{label, value}`), `allow_transparent` (a `color` that may also be `transparent`), `when`
@@ -2060,11 +2124,17 @@ Successful JSON responses use the usual `{success, data}` envelope. A refusal an
   a Python implementation, `false` for a component-only tool that has no run API) and `last_params`, the
   values this user ran the tool with last (or `null`). `source` is `core` or the plugin id. A param's `max`
   is enforced before a run starts, so a value above it is a 400.
-- `POST /api/media-tools/runs` takes `{steps: [{tool, params}], inputs: [{item_id} | {generation_file_id}],
-  output: {mode: "new" | "replace"}}` and answers 202 `{run_id}`. A generation file is read straight from
-  storage and the result is always a new Library item; `replace` keeps the row, its tags and its
-  collections, and is only allowed for one Library item, tools that return one file per input, and a result
-  of the same kind. A run takes 1 to 8 steps and 1 to 50 inputs. A 400 before anything runs carries one of
+- `POST /api/media-tools/runs` takes `{steps: [{tool, params, hidden?}], inputs: [{item_id} | {generation_file_id}],
+  output: {mode: "new" | "replace" | "update", target_item_id?}}` and answers 202 `{run_id}`. A generation file
+  is read straight from storage and the result is always a new Library item; `replace` keeps the row, its tags
+  and its collections, and is only allowed for one Library item, tools that return one file per input, and a
+  result of the same kind. When the result is in another format than the item's name says, the name takes the
+  new file's extension: Color key turns `photo.jpg` into a PNG named `photo.png`, a video tool turns `clip.avi`
+  into `clip.mp4`, and a name an earlier replace left wrong is mended the same way. `.jpg` and `.jpeg`, or a
+  change of case, are one format and leave the name as it is, and so do a name without a media extension and a
+  result without one. `update`, the save of an editor stack into the copy a first save made (see
+  [The editor API](#the-editor-api)), renames that copy by the same rule. A run takes 1 to 64 visible steps (the steps
+  marked `hidden` are skipped and not counted) and 1 to 50 inputs. A 400 before anything runs carries one of
   `unknown_tool`, `unsupported_media`, `invalid_params` (with `field` and `step_index`), `invalid_selection`
   or `replace_not_allowed`; an item that is missing or not the caller's answers 404 `not_found`. A user may
   have 8 runs waiting at once (429 `too_many_queued`) and nothing starts while the server shuts down (503
@@ -3547,9 +3617,9 @@ both would load as the same Python package. A plugin
 belongs to the catalog it was installed from, the URL kept in its `.potionui-catalog.json`
 (scheme and host compared without case, a default port the same as none, path and query
 exactly): any other catalog that lists its id shows it as a conflict, installed from
-another catalog, and cannot replace it. A plugin installed from this catalog is updated
-only to a strictly newer version, both versions read as Python package versions (PEP 440)
-like `requires.core`: the same version is installed, an older one is listed as older
+another catalog, whose address it names, and cannot replace it. A
+plugin installed from this catalog is updated only to a strictly newer version, both
+versions read as Python package versions (PEP 440) like `requires.core`: the same version is installed, an older one is listed as older
 than the installed one, and a version either side that is not a PEP 440 version is
 listed as not comparable; none of these offers an action. PEP 440 rules apply as they are:
 `1.0.0+build` counts as newer than `1.0.0`, and after a version with an epoch (`1!0.1`)
@@ -3575,8 +3645,11 @@ the new version, or the old one put back, is running. Once the archive is downlo
 cancelled request no longer stops the install half way: the install finishes, or rolls
 back, before the cancellation goes through and before another install can start. If the
 install itself is stopped after the move (the server shutting down), the plugin is disabled
-in the running server as well. After a rollback, the modules the failed version imported
-stay loaded until PotionUI restarts, and the answer says so.
+in the running server as well. When the version put back is enabled again, it runs from its
+own files, every module and pipe included, and nothing of the failed version stays in use (see
+[Plugin code across updates](#plugin-code-across-updates)). When the rollback leaves the plugin
+disabled, the modules the failed version imported stay in memory, unused, until the plugin is
+next enabled.
 
 PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
 enable step checks it, and the install answer lists it so the admin knows what to
@@ -3587,8 +3660,14 @@ only; every redirect is checked the same way, and the connection goes to the add
 that were checked. A host written as a number that is not a full IP address
 (`2130706433`, `127.1`, `0x7f.1`) is refused in every mode, and so is a URL with
 credentials in it. Refusals, statuses and logs name the host, never the whole URL, so a
-token in a query or a signed redirect does not end up in them. The catalog URL itself is
-written as given, query included, into the plugin folder's `.potionui-catalog.json`, so a
+token in a query or a signed redirect does not end up in them. One status names more: a
+plugin installed from another catalog names the scheme, host, port and path of that
+catalog's URL as recorded, without its path parameters (`;...`) or query, and says when it
+left them out; a token kept in the path itself shows there. Credentials written in the
+standard form (`user:password@host`) are left out without a mention. A recorded URL the
+install could not have written (a hand-edited `.potionui-catalog.json`) is shown as
+`urlsplit` reads it, or as `unknown` when it does not read as an address. The catalog URL
+itself is written as given, query included, into the plugin folder's `.potionui-catalog.json`, so a
 token in a catalog URL is stored there in clear. For a catalog on a local network or a test server, start PotionUI
 with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`: catalog and archive URLs may then point to
 local and private addresses, and use plain http, but only to such an address. A plain http

@@ -51,6 +51,7 @@ export function mergeEditedLibraryItem(
 		duration_seconds: edited.duration_seconds,
 		fps: edited.fps,
 		size: edited.size,
+		has_audio: edited.has_audio ?? null,
 		tags: existing.tags
 	};
 }
@@ -75,6 +76,7 @@ export function libraryItemFromEdit(edited: EditedLibraryResult): LibraryItem {
 		fps: edited.fps,
 		size: edited.size,
 		created_at: edited.created_at,
+		has_audio: edited.has_audio ?? null,
 		tags: [],
 		is_favorite: false
 	};

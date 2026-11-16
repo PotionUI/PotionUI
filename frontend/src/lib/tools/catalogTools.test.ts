@@ -168,6 +168,42 @@ describe('toolNote', () => {
 	});
 });
 
+describe('the Audio entry of the Library menu', () => {
+	const volume = toolDto({ id: 'volume', label: 'Volume', accepts: ['video', 'audio'], requires: { has_audio: true } });
+	const mute = toolDto({ id: 'mute', label: 'Mute', accepts: ['video'], requires: { has_audio: true } });
+	const replaceAudio = toolDto({ id: 'replace_audio', label: 'Replace audio', accepts: ['video'] });
+	const extract = toolDto({
+		id: 'acme.extract',
+		label: 'Extract sound',
+		accepts: ['video'],
+		requires: { has_audio: true },
+		source: 'acme'
+	});
+	const clip = (has_audio: boolean | null) =>
+		buildLibraryToolContext([libraryItem('a', 'video', { has_audio })], null);
+
+	it('stays enabled on a silent clip, since Replace audio folded under it needs no sound', () => {
+		const entry = mediaToolFromCatalog(volume);
+		expect(entry.labelFor?.(clip(false))).toBe('Audio');
+		expect(entry.applies(clip(false))).toEqual({ enabled: true });
+		expect(mediaToolFromCatalog(mute).applies(clip(false))).toEqual({ enabled: false, hidden: true });
+		expect(mediaToolFromCatalog(replaceAudio).applies(clip(false))).toEqual({ enabled: false, hidden: true });
+	});
+
+	it('is enabled on a clip with sound and on one of unknown sound', () => {
+		expect(mediaToolFromCatalog(volume).applies(clip(true))).toEqual({ enabled: true });
+		expect(mediaToolFromCatalog(volume).applies(clip(null))).toEqual({ enabled: true });
+	});
+
+	it('leaves a plugin tool that needs sound greyed out on a silent clip, with its reason', () => {
+		expect(mediaToolFromCatalog(extract).applies(clip(false))).toMatchObject({
+			enabled: false,
+			reason: 'Needs a clip with sound'
+		});
+		expect(mediaToolFromCatalog(extract).applies(clip(true))).toEqual({ enabled: true });
+	});
+});
+
 describe('catalogAvailability', () => {
 	const concat = CORE_TOOLS[11];
 	const crop = CORE_TOOLS[1];
@@ -233,6 +269,20 @@ describe('catalogAvailability', () => {
 		);
 		expect(catalogAvailability(cropSubject, opaque).enabled).toBe(false);
 		expect(catalogAvailability(cropSubject, alpha).enabled).toBe(true);
+	});
+
+	it('reads sound from a Library video and greys out a tool that needs it on a silent one', () => {
+		const mute = toolDto({ id: 'mute', accepts: ['video', 'audio'], requires: { has_audio: true } });
+		const video = (extra: Partial<LibraryItem>) =>
+			buildLibraryToolContext([libraryItem('a', 'video', extra)], null);
+		expect(video({ has_audio: false }).items[0].hasAudio).toBe(false);
+		expect(catalogAvailability(mute, video({ has_audio: false }))).toMatchObject({
+			enabled: false,
+			reason: 'Needs a clip with sound'
+		});
+		expect(catalogAvailability(mute, video({ has_audio: true }))).toEqual({ enabled: true });
+		expect(catalogAvailability(mute, video({ has_audio: null }))).toEqual({ enabled: true });
+		expect(catalogAvailability(mute, video({}))).toEqual({ enabled: true });
 	});
 
 	it('counts generations rather than files for a component-only tool on History', () => {

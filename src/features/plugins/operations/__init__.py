@@ -21,6 +21,7 @@ from src.features.plugins.operations.lifecycle import (
     enable_default_plugins,
     disable_plugin,
     delete_plugin,
+    rescan_presets_and_pipes,
 )
 from src.features.plugins.operations.scan import scan_plugins, refresh_known_plugin_hooks
 from src.features.plugins.operations.install import (
@@ -47,6 +48,7 @@ __all__ = [
     "enable_default_plugins",
     "disable_plugin",
     "delete_plugin",
+    "rescan_presets_and_pipes",
     "scan_plugins",
     "refresh_known_plugin_hooks",
     "CatalogInstallError",

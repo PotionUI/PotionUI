@@ -144,6 +144,7 @@ class MediaToolItem(BaseModel):
     thumbnail_large: Optional[str] = None
     source_generation_id: Optional[str] = None
     provenance: Optional[Dict[str, Any]] = None
+    has_audio: Optional[bool] = None
 
 
 class RunError(BaseModel):

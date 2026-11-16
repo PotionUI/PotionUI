@@ -59,6 +59,10 @@ vi.mock('$lib/plans/uploadLimit', () => ({
 }));
 
 vi.mock('$lib/services/api/mediaTools', () => ({
+	listMediaTools: async () => {
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		return [];
+	},
 	uploadMediaToolArtifact: async () => {
 		if (calls.failUpload > 0) {
 			calls.failUpload -= 1;
@@ -74,6 +78,8 @@ vi.mock('$lib/services/api/mediaTools', () => ({
 }));
 
 import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
+import { markEditorExtensionsReady, resetEditorExtensionsReady } from '$lib/editors/ready';
+import { resetMediaToolCatalog } from '$lib/media-tools/catalog';
 import { apply, appliedSteps, beginEdit, createStack, toggleHidden, type EditStackState } from '$lib/tool-tabs/frame/editStack';
 import { FULL_SIDE, ImageRenderer, PREVIEW_SIDE, bakeIsCapped, fitSide, orient, sourceKey } from './render';
 import { adjustDraft, catalogDraft, cropDraft, resizeDraft, type CropParams } from './steps';
@@ -87,6 +93,7 @@ function push(state: EditStackState<unknown>, draft: Parameters<typeof beginEdit
 const grain = () => adjustDraft({ kind: 'adjust', op: 'grain', name: 'Grain', values: { amount: 20, size: 1, seed: 3 } });
 
 beforeEach(() => {
+	markEditorExtensionsReady();
 	calls.uploads = [];
 	calls.decodes = [];
 	calls.frameSize = null;
@@ -215,6 +222,22 @@ describe('ImageRenderer bakes', () => {
 });
 
 describe('ImageRenderer payload', () => {
+	it('waits for the tool catalog and the editor extensions, then sends a step of a missing kind hidden', async () => {
+		resetEditorExtensionsReady();
+		resetMediaToolCatalog();
+		const renderer = new ImageRenderer(SOURCE);
+		const gone = push(createStack(), { tool: 'acme.gone', icon: 'extension', label: 'Gone', summary: '', params: { v: 1 }, lane: 'paint' } as Parameters<typeof beginEdit>[1]);
+		let settled = false;
+		const pending = renderer.payload(appliedSteps(gone)).then((payload) => {
+			settled = true;
+			return payload;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(settled).toBe(false);
+		markEditorExtensionsReady();
+		expect(await pending).toEqual([{ tool: 'acme.gone', params: {}, hidden: true }]);
+	});
+
 	it('resolves a crop after a server step through a full size render, then bakes the look after it', async () => {
 		const renderer = new ImageRenderer(SOURCE);
 		let stack = push(createStack(), catalogDraft('subject', { margin: 0 }));

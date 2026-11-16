@@ -7,7 +7,7 @@ import cloud_fake
 
 PLUGINS_ROOT = REPO_ROOT / "tests" / "e2e" / "effect_plugins"
 PLUGIN_ID = "e2e-effects"
-SPEC_PREFIXES = ("plugin-effect",)
+SPEC_PREFIXES = ("plugin-effect", "image-editor-plugin-slots")
 
 
 def wants_effect_plugin(chunk_names: Iterable[str]) -> bool:

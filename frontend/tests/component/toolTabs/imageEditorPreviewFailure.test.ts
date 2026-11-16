@@ -1,3 +1,4 @@
+import { markEditorExtensionsReady } from '$lib/editors/ready';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
@@ -87,6 +88,7 @@ async function settle() {
 
 describe('ImageEditorTab preview failure', () => {
 	beforeEach(() => {
+		markEditorExtensionsReady();
 		vi.useFakeTimers();
 		log.previews = 0;
 		log.refuseFirst = false;

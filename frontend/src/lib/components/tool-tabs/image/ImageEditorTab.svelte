@@ -53,7 +53,7 @@
 	import { resolveEditableResource } from '$lib/media/editorSource';
 	import { EMPTY_IMAGE_PLAN, planOutputSize } from '$lib/media/imageEditPlan';
 	import { displaySize } from '$lib/media/cropGeometry';
-	import { loadMediaToolCatalog, mediaToolCatalog } from '$lib/media-tools/catalog';
+	import { loadMediaToolCatalog, mediaToolCatalog, mediaToolCatalogRevision } from '$lib/media-tools/catalog';
 	import { describeMediaToolFailure } from '$lib/media-tools/errors';
 	import { announceOutcome } from '$lib/media-tools/execute';
 	import { initialValues } from '$lib/media-tools/params';
@@ -310,6 +310,7 @@
 	let rowInfoFor = $derived.by(() => {
 		void $editorsRevision;
 		void $runViews;
+		void $mediaToolCatalogRevision;
 		const steps = stack.steps;
 		return (step: EditStep) => imageRowInfo(step, stepsBeneath(steps, steps.findIndex((entry) => entry.id === step.id)));
 	});

@@ -54,9 +54,15 @@ interface Entry {
 	unsubscribe: (() => void) | null;
 	timer: ReturnType<typeof setTimeout> | null;
 	busy: boolean;
+	again: boolean;
 }
 
 const TERMINAL: ReadonlySet<RunStatus> = new Set(['done', 'failed', 'cancelled']);
+
+function rank(status: RunStatus): number {
+	if (TERMINAL.has(status)) return 2;
+	return status === 'queued' ? 0 : 1;
+}
 
 export function isTerminal(status: RunStatus): boolean {
 	return TERMINAL.has(status);
@@ -102,8 +108,11 @@ export function createRunEngine(ports: RunPorts, options: RunEngineOptions = {})
 	function ensureSocket(): RunSocket {
 		if (!socket) {
 			socket = ports.socket();
-			unwatch = socket.onConnection(() => {
-				for (const entry of entries.values()) schedule(entry);
+			unwatch = socket.onConnection((connected) => {
+				for (const entry of entries.values()) {
+					if (connected) void tick(entry);
+					else schedule(entry);
+				}
 			});
 		}
 		return socket;
@@ -120,12 +129,17 @@ export function createRunEngine(ports: RunPorts, options: RunEngineOptions = {})
 	}
 
 	async function tick(entry: Entry): Promise<void> {
+		if (entry.timer) clearTimeout(entry.timer);
 		entry.timer = null;
-		if (disposed || entries.get(entry.id) !== entry || entry.busy) return;
+		if (disposed || entries.get(entry.id) !== entry) return;
+		if (entry.busy) {
+			entry.again = true;
+			return;
+		}
 		entry.busy = true;
 		try {
 			const run = await ports.get(entry.id);
-			if (entries.get(entry.id) === entry) apply(run);
+			if (entries.get(entry.id) === entry) applyFetched(run);
 		} catch (error) {
 			if (entries.get(entry.id) !== entry) return;
 			if (describeEditorTaskFailure(error).kind === 'not_found') {
@@ -135,7 +149,19 @@ export function createRunEngine(ports: RunPorts, options: RunEngineOptions = {})
 		} finally {
 			entry.busy = false;
 		}
-		if (entries.get(entry.id) === entry) schedule(entry);
+		if (entries.get(entry.id) !== entry) return;
+		if (entry.again) {
+			entry.again = false;
+			void tick(entry);
+			return;
+		}
+		schedule(entry);
+	}
+
+	function applyFetched(run: EditorRun): void {
+		const view = viewOf(run.id);
+		if (view && (isTerminal(view.status) || rank(run.status) < rank(view.status))) return;
+		apply(run);
 	}
 
 	function stop(entry: Entry): void {
@@ -167,6 +193,10 @@ export function createRunEngine(ports: RunPorts, options: RunEngineOptions = {})
 		if (message.type === 'editor_run_update' && message.run && typeof message.run === 'object') {
 			const run = message.run as EditorRun;
 			if (run.id === entry.id) apply(run);
+			return;
+		}
+		if (message.type === 'subscribed') {
+			void tick(entry);
 			return;
 		}
 		if (message.type === 'workbench_update') {
@@ -207,7 +237,7 @@ export function createRunEngine(ports: RunPorts, options: RunEngineOptions = {})
 			return;
 		}
 		settled.delete(run.id);
-		const entry: Entry = { id: run.id, generationId: null, unsubscribe: null, timer: null, busy: false };
+		const entry: Entry = { id: run.id, generationId: null, unsubscribe: null, timer: null, busy: false, again: false };
 		entries.set(run.id, entry);
 		if (run.generation_id) listen(entry, run.generation_id);
 		schedule(entry);

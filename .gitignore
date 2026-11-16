@@ -113,6 +113,8 @@ content/plugins/node_modules/
 # (they're what plugin_controller serves as static assets at runtime).
 !content/plugins/*/*/frontend/dist/
 !content/plugins/*/*/frontend/dist/**
+!tests/e2e/effect_plugins/*/frontend/dist/
+!tests/e2e/effect_plugins/*/frontend/dist/**
 
 # Remotion render cache (headless-Chrome download, hundreds of MB)
 .remotion/

@@ -1,0 +1,68 @@
+id: "e2e-editor-slots"
+name: "E2E Editor Slots"
+version: "1.0.0"
+description: "Test-only plugin that fills every editor extension point. Used by the browser end-to-end tests; never shipped."
+author: "PotionUI Team"
+type: "frontend-only"
+category: "developer"
+
+editor_groups:
+  - id: "e2e-editor-slots.stylize"
+    editor: "image"
+    label: "Stylize"
+    order: 450
+
+editor_steps:
+  - id: "e2e-editor-slots.tint"
+    editor: "image"
+    module: "editor/tintStep.js"
+    label: "Tint"
+    icon: "extension"
+  - id: "e2e-editor-slots.tint-later"
+    editor: "image"
+    module: "editor/tintStep.js"
+    label: "Tint"
+    icon: "extension"
+  - id: "e2e-editor-slots.faulty"
+    editor: "image"
+    module: "editor/faultyStep.js"
+    label: "Faulty"
+    icon: "extension"
+
+editor_tools:
+  - id: "e2e-editor-slots.tint"
+    editor: "image"
+    group: "e2e-editor-slots.stylize"
+    label: "Tint"
+    icon: "extension"
+    options: "editor/TintOptions.js"
+    order: 10
+  - id: "e2e-editor-slots.tint-later"
+    editor: "image"
+    group: "e2e-editor-slots.stylize"
+    label: "Tint later"
+    icon: "extension"
+    options: "editor/TintLaterOptions.js"
+    order: 20
+  - id: "e2e-editor-slots.faulty"
+    editor: "image"
+    group: "e2e-editor-slots.stylize"
+    label: "Faulty"
+    icon: "extension"
+    options: "editor/FaultyOptions.js"
+    order: 30
+
+editor_overlays:
+  - id: "e2e-editor-slots.spotlight"
+    editor: "image"
+    component: "editor/Spotlight.js"
+    cursor: "crosshair"
+    produces: "selection"
+
+editor_tasks:
+  - id: "e2e-editor-slots.relight"
+    label: "Relight"
+    icon: "extension"
+    editors: ["image"]
+    region: "optional"
+    prompt: "optional"

@@ -229,4 +229,68 @@ describe('run engine', () => {
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(t.ports.get).toHaveBeenCalledTimes(1);
 	});
+
+	it('catches up with one fetch when the subscription is acknowledged after the run already changed', async () => {
+		const t = setup(true);
+		t.ports.get.mockResolvedValue(run({ status: 'failed', error: 'timed out' }));
+		await t.engine.start('edit_region', body, 's1');
+		expect(t.ports.get).not.toHaveBeenCalled();
+		t.send({ type: 'subscribed', generation_id: 'gen_1' });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.ports.get).toHaveBeenCalledTimes(1);
+		expect(get(t.views).er_1).toMatchObject({ status: 'failed', error: 'timed out' });
+		expect(t.settled).toHaveLength(1);
+	});
+
+	it('fetches again after the socket reconnects', async () => {
+		const t = setup(true);
+		t.ports.get.mockResolvedValue(run({ status: 'done' }));
+		await t.engine.start('edit_region', body, 's1');
+		t.connection(true);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.ports.get).toHaveBeenCalledTimes(1);
+		expect(get(t.views).er_1.status).toBe('done');
+	});
+
+	it('fetches once more when the acknowledgement arrives while a fetch is already in flight', async () => {
+		const t = setup(true);
+		let release: (value: ReturnType<typeof run>) => void = () => undefined;
+		t.ports.get.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+		t.ports.get.mockResolvedValueOnce(run({ status: 'failed', error: 'late' }));
+		await t.engine.start('edit_region', body, 's1');
+		t.send({ type: 'subscribed', generation_id: 'gen_1' });
+		await vi.advanceTimersByTimeAsync(0);
+		t.send({ type: 'subscribed', generation_id: 'gen_1' });
+		release(run({ status: 'queued' }));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.ports.get).toHaveBeenCalledTimes(2);
+		expect(get(t.views).er_1).toMatchObject({ status: 'failed', error: 'late' });
+	});
+
+	it('does not let a fetched state older than an applied update move the run back', async () => {
+		const t = setup(true);
+		let release: (value: ReturnType<typeof run>) => void = () => undefined;
+		t.ports.get.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+		await t.engine.start('edit_region', body, 's1');
+		t.send({ type: 'subscribed', generation_id: 'gen_1' });
+		await vi.advanceTimersByTimeAsync(0);
+		t.send({ type: 'editor_run_update', generation_id: 'gen_1', run: run({ status: 'running', progress: 0.5 }) });
+		release(run({ status: 'queued' }));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(get(t.views).er_1).toMatchObject({ status: 'running', progress: 0.5 });
+	});
+
+	it('keeps a finished run finished when a late fetch still says it is running', async () => {
+		const t = setup(true);
+		let release: (value: ReturnType<typeof run>) => void = () => undefined;
+		t.ports.get.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+		await t.engine.start('edit_region', body, 's1');
+		t.send({ type: 'subscribed', generation_id: 'gen_1' });
+		await vi.advanceTimersByTimeAsync(0);
+		t.send({ type: 'editor_run_update', generation_id: 'gen_1', run: run({ status: 'done' }) });
+		release(run({ status: 'running', progress: 0.9 }));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(get(t.views).er_1.status).toBe('done');
+		expect(t.settled).toHaveLength(1);
+	});
 });

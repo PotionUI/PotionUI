@@ -30,7 +30,8 @@ let registered = false;
 function registerTask(seed: TaskSeed, order: number, owner?: string): () => void {
 	const entry: TaskEntry = { id: seed.id, editor: 'image', label: seed.label, icon: seed.icon, tool: seed.id, region: seed.region, prompt: seed.prompt, stepKind: GENERATE_TOOL };
 	if (seed.fallback) entry.fallback = seed.fallback;
-	const drops = [tasks.register(entry, owner)];
+	const drops: Array<() => void> = [];
+	if (!tasks.get('image', seed.id)) drops.push(tasks.register(entry, owner));
 	const taken = railTools.list('image').some((tool) => tool.task === seed.id);
 	if (!taken) {
 		drops.push(
@@ -62,7 +63,7 @@ export function syncServerTasks(infos: readonly EditorTaskInfo[]): void {
 	let order = 100;
 	for (const info of infos) {
 		order += 10;
-		if (dynamic.has(info.id) || tasks.get('image', info.id)) continue;
+		if (dynamic.has(info.id)) continue;
 		dynamic.set(info.id, registerTask({ id: info.id, label: info.label, icon: info.icon, region: info.region, prompt: info.prompt, fallback: info.fallback ?? undefined }, order, CORE_OWNER));
 	}
 }

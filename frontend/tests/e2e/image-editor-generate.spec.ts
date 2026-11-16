@@ -52,6 +52,7 @@ interface Server {
 	tasks: Json[];
 	runs: Json[];
 	runStatus: Json;
+	live: Json;
 	runGets: string[];
 	cancels: string[];
 	defaults: Json[];
@@ -63,6 +64,8 @@ interface Server {
 	mediaRuns: Json[];
 	sockets: WebSocketRoute[];
 	runCount: number;
+	holdSubscribe: boolean;
+	held: Array<() => void>;
 }
 
 function runBody(server: Server, status: string, extra: Json = {}, n = server.runCount): Json {
@@ -91,7 +94,7 @@ async function ok(route: Route, data: unknown, status = 200) {
 }
 
 async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean } = {}): Promise<Server> {
-	const server: Server = { tasks, runs: [], runStatus: {}, runGets: [], cancels: [], defaults: [], startFails: null, saves: [], sessionPuts: [], sessionPosts: [], sessionFails: null, mediaRuns: [], sockets: [], runCount: 0 };
+	const server: Server = { tasks, runs: [], runStatus: {}, live: {}, runGets: [], cancels: [], defaults: [], startFails: null, saves: [], sessionPuts: [], sessionPosts: [], sessionFails: null, mediaRuns: [], sockets: [], runCount: 0, holdSubscribe: false, held: [] };
 	let revision = 1;
 	const source = solidPng(640, 480);
 	const small = solidPng(64, 64);
@@ -136,6 +139,7 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean 
 		if (server.startFails) return route.fulfill({ status: server.startFails.status, contentType: 'application/json', body: JSON.stringify({ detail: server.startFails.body }) });
 		server.runs.push(body);
 		server.runCount += 1;
+		server.live = {};
 		await ok(route, { run: runBody(server, 'queued') }, 202);
 	});
 	await page.route(/\/api\/editor\/tasks\/[^/]+\/default$/, async (route) => {
@@ -149,7 +153,7 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean 
 			return ok(route, { run: runBody(server, 'cancelled') });
 		}
 		server.runGets.push(id);
-		await ok(route, { run: runBody(server, (server.runStatus.status as string) ?? 'running', server.runStatus) });
+		await ok(route, { run: runBody(server, ((server.runStatus.status ?? server.live.status) as string) ?? 'queued', { ...server.live, ...server.runStatus }) });
 	});
 	await page.route(/\/api\/sessions\/preset\/[^/?]+(\?.*)?$/, (route) =>
 		ok(route, options.sessions ? [{ id: 'sess-1', preset_id: 'qwen21', name: 'Soft portrait', data: { edit: { formData: { steps: 20 } } }, created_at: new Date(Date.now() - 9 * 86400000).toISOString(), updated_at: new Date(Date.now() - 2 * 86400000).toISOString(), pinned: false, version: 3, kind: 'editor' }] : [])
@@ -175,7 +179,10 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean 
 		ws.send(JSON.stringify({ type: 'connection_established', client_id: 'e2e-mock' }));
 		ws.onMessage((raw) => {
 			const message = JSON.parse(raw as string);
-			if (message.type === 'subscribe_generation') ws.send(JSON.stringify({ type: 'subscribed', generation_id: message.generation_id }));
+			if (message.type !== 'subscribe_generation') return;
+			const acknowledge = () => ws.send(JSON.stringify({ type: 'subscribed', generation_id: message.generation_id }));
+			if (server.holdSubscribe) server.held.push(acknowledge);
+			else acknowledge();
 		});
 	});
 	return server;
@@ -185,8 +192,10 @@ function push(server: Server, message: Json) {
 	for (const socket of server.sockets) socket.send(JSON.stringify(message));
 }
 
-const update = (server: Server, status: string, extra: Json = {}, n = server.runCount) =>
+const update = (server: Server, status: string, extra: Json = {}, n = server.runCount) => {
+	if (n === server.runCount) server.live = { status, ...extra };
 	push(server, { type: 'editor_run_update', generation_id: runGeneration(n), run: runBody(server, status, extra, n) });
+};
 
 const sessionDefault: Json = { preset_id: 'qwen21', mode: 'edit', variant: null, setup: { kind: 'session', id: 'sess-1' }, health: { ok: true, reason: null, name: null, mode_label: null } };
 
@@ -392,6 +401,23 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await row(page).locator('[data-stack-action="retry"]').click();
 		await expect.poll(() => server.runs.length).toBe(2);
 		await expect(row(page)).toContainText('Waiting');
+	});
+
+	test('a run that failed before the subscription was acknowledged still shows its reason', async ({ page }) => {
+		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
+		server.holdSubscribe = true;
+		await openHarbor(page);
+		await rail(page, 'edit_region').click();
+		await markArea(page);
+		await type(page, 'a lantern');
+		await generate(page);
+		await expect.poll(() => server.runs.length).toBe(1);
+		await expect.poll(() => server.held.length).toBe(1);
+		await expect(row(page)).toContainText('Waiting');
+		server.runStatus = { status: 'failed', error: 'timed out' };
+		server.holdSubscribe = false;
+		server.held.splice(0).forEach((acknowledge) => acknowledge());
+		await expect(row(page)).toContainText('Did not finish: timed out');
 	});
 
 	test('every row state of a generated step: done, out of date, failed, cancelled, waiting and generating', async ({ page }) => {

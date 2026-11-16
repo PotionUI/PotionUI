@@ -1,3 +1,4 @@
+import { markEditorExtensionsReady } from '$lib/editors/ready';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { get } from 'svelte/store';
@@ -84,6 +85,7 @@ describe('MaskLayer', () => {
 	let recorder: Recorder;
 
 	beforeEach(() => {
+		markEditorExtensionsReady();
 		recorder = { puts: 0, fills: 0 };
 		stubCanvas(recorder);
 	});
@@ -161,6 +163,7 @@ function lookSteps() {
 
 describe('ImageEditorTab save failures', () => {
 	beforeEach(() => {
+		markEditorExtensionsReady();
 		log.uploads = 0;
 		log.starts = 0;
 		stubCanvas({ puts: 0, fills: 0 });

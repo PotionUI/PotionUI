@@ -175,4 +175,17 @@ describe('Image editor with a plugin registered through window.__potionui.editor
 		await settle();
 		expect(q('[data-stack-row="s2"]')?.textContent).toContain('Not available');
 	});
+
+	it('settles a row of a missing kind from Loading to Not available once the media tool catalog has loaded', async () => {
+		const { q } = render(stateWithPluginStep());
+		await settle();
+		mediaToolCatalogRevision.set(0);
+		await settle();
+		expect(q('[data-stack-row="s2"]')?.textContent).toContain('Loading');
+		expect(q('[data-stack-row="s2"]')?.textContent).not.toContain('Not available');
+		mediaToolCatalogRevision.set(1);
+		await settle();
+		expect(q('[data-stack-row="s2"]')?.textContent).toContain('Not available');
+		expect(q('[data-stack-row="s2"]')?.textContent).not.toContain('Loading');
+	});
 });

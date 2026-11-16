@@ -11,6 +11,7 @@ import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 import { previewFrame, uploadMediaToolArtifact } from '$lib/services/api/mediaTools';
 import type { MediaToolInputRef } from '$lib/media-tools/types';
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
+import { whenEditorExtensionsReady } from '$lib/editors/ready';
 import { callKindAsync } from '$lib/editors/stepKinds';
 import { outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
 import { imageStepContext, resolveImageStep, stepOutOfDate, type ImageStepLike } from './stepKinds';
@@ -334,6 +335,7 @@ export class ImageRenderer {
 	}
 
 	async payload(steps: readonly EditStep[]): Promise<ReturnType<typeof runSteps>> {
+		await Promise.all([loadMediaToolCatalog(), whenEditorExtensionsReady()]);
 		const sizes: Record<string, PixelSize> = {};
 		const baked: Record<string, string> = {};
 		for (const gap of payloadGaps(steps, { source: this.source.size })) {

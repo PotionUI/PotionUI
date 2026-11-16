@@ -1,0 +1,45 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { pluginOwner } from '$lib/editors/registry';
+import { railTools } from '$lib/editors/railTools';
+import { tasks } from '$lib/editors/tasks';
+import type { EditorTaskInfo } from '$lib/services/api/editorTasks';
+import { GENERATE_GROUP, syncServerTasks } from './register';
+
+const INFO: EditorTaskInfo = { id: 'acme.relight', label: 'Relight', icon: 'extension', region: 'optional', prompt: 'optional', fallback: null } as EditorTaskInfo;
+const drops: Array<() => void> = [];
+
+afterEach(() => {
+	syncServerTasks([]);
+	drops.splice(0).forEach((drop) => drop());
+});
+
+function declareFromManifest() {
+	drops.push(
+		tasks.register({ id: INFO.id, editor: 'image', label: INFO.label, icon: 'extension', tool: '', region: 'optional', prompt: 'optional', stepKind: 'generate' }, pluginOwner('acme'))
+	);
+}
+
+describe('syncServerTasks', () => {
+	it('gives a task a plugin manifest already declared the same rail tool as a core task', () => {
+		declareFromManifest();
+		syncServerTasks([INFO]);
+		const tool = railTools.get('image', 'acme.relight');
+		expect(tool?.group).toBe(GENERATE_GROUP);
+		expect(tool?.task).toBe('acme.relight');
+		expect(tool?.options).toBeTruthy();
+	});
+
+	it('removes that rail tool when the server stops listing the task, leaving the manifest task', () => {
+		declareFromManifest();
+		syncServerTasks([INFO]);
+		syncServerTasks([]);
+		expect(railTools.get('image', 'acme.relight')).toBeUndefined();
+		expect(tasks.get('image', 'acme.relight')).toBeDefined();
+	});
+
+	it('still registers both the task and its rail tool for a task no manifest declared', () => {
+		syncServerTasks([{ ...INFO, id: 'plain_task' }]);
+		expect(tasks.get('image', 'plain_task')).toBeDefined();
+		expect(railTools.get('image', 'plain_task')?.task).toBe('plain_task');
+	});
+});

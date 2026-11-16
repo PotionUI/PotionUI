@@ -76,6 +76,7 @@ export interface EditedMediaItem {
 	size?: number;
 	created_at?: string;
 	source_generation_id?: string | null;
+	has_audio?: boolean | null;
 }
 
 /** Mirrors `UploadListResult` (src/features/media/dto.py). */

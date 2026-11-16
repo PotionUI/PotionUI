@@ -206,6 +206,14 @@ class TestUploadRepository(PersistenceTestBase):
         self.assertEqual(updated.original_filename, "cat.png")
         self.assertEqual(updated.media_type, "image")
 
+    def test_replace_file_renames_the_item_when_a_display_name_is_given(self):
+        created = self.repo.create(self._upload())
+
+        updated = self.repo.replace_file(**self._replace_args(created, original_filename="cat.webp"))
+
+        self.assertEqual(updated.original_filename, "cat.webp")
+        self.assertEqual(self.repo.get_by_id(created.id, self.user_id).original_filename, "cat.webp")
+
     def test_replace_file_refuses_when_the_filename_is_no_longer_the_expected_one(self):
         created = self.repo.create(self._upload(content_hash="oldhash"))
 

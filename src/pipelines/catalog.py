@@ -27,7 +27,7 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Type
+from typing import Dict, List, Optional, Set, Tuple, Type
 
 from src.pipelines.contracts import BasePipe, PipeStatus
 from src.pipelines.installer import requirements_satisfied
@@ -36,6 +36,15 @@ logger = logging.getLogger(__name__)
 
 _CORE_PACKAGE = "src.pipelines.pipes"
 _CORE_PACKAGE_DIR = (Path(__file__).resolve().parent / "pipes")
+
+
+def _plugin_mark(manifest) -> Tuple[str, str]:
+    return str(getattr(manifest, "plugin_dir", "")), str(getattr(manifest, "content_hash", ""))
+
+
+def _still_loaded(pipe_class) -> bool:
+    module = sys.modules.get(getattr(pipe_class, "__module__", None) or "")
+    return module is not None and any(value is pipe_class for value in list(vars(module).values()))
 
 
 @dataclass(frozen=True)
@@ -61,6 +70,7 @@ class PipeCatalog:
         self._locations: Dict[str, _PipeLocation] = {}
         self._light_discovered = False
         self._light_lock = threading.Lock()
+        self._plugin_marks: Dict[str, Tuple[str, str]] = {}
 
     def _filesystem_module_name(self, base_path: str, source: str, *parts: str) -> str:
         if source == "core" and Path(base_path).resolve() == _CORE_PACKAGE_DIR:
@@ -207,6 +217,7 @@ class PipeCatalog:
             enabled_plugins = self.plugin_registry.get_enabled_plugins()
 
             for plugin_manifest in enabled_plugins:
+                self._plugin_marks[plugin_manifest.id] = _plugin_mark(plugin_manifest)
                 manifest_pipes = getattr(plugin_manifest, 'pipes', None)
 
                 if manifest_pipes:
@@ -418,10 +429,20 @@ class PipeCatalog:
             return
 
         with self._light_lock:
-            enabled_ids = {m.id for m in self.plugin_registry.get_enabled_plugins()}
+            enabled_marks = {m.id: _plugin_mark(m) for m in self.plugin_registry.get_enabled_plugins()}
+            enabled_ids = set(enabled_marks)
+            unloaded = {
+                self.pipe_sources.get(name) for name, pipe_class in self.pipes.items() if not _still_loaded(pipe_class)
+            }
 
             def _is_stale_plugin_source(source: Optional[str]) -> bool:
-                return source is not None and source not in ("core", "custom") and source not in enabled_ids
+                if source is None or source in ("core", "custom"):
+                    return False
+                return (
+                    source not in enabled_ids
+                    or self._plugin_marks.get(source) != enabled_marks[source]
+                    or source in unloaded
+                )
 
             stale_locations = [k for k, loc in self._locations.items() if _is_stale_plugin_source(loc.source)]
             for key in stale_locations:
@@ -433,6 +454,7 @@ class PipeCatalog:
                 self.pipe_status.pop(name, None)
                 self.pipe_sources.pop(name, None)
 
+            self._plugin_marks.clear()
             self._light_scan_plugin_pipes()
 
         logger.info(f"Rescanned plugin pipes: {len(enabled_ids)} plugin(s) enabled, "

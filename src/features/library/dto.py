@@ -32,6 +32,7 @@ class LibraryItem(BaseModel):
     tags: List[Dict[str, Any]] = []
     is_favorite: bool = False
     has_alpha: Optional[bool] = None
+    has_audio: Optional[bool] = None
     source_generation_id: Optional[str] = None
     provenance: Optional[Dict[str, Any]] = None
 

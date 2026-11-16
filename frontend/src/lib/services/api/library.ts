@@ -29,6 +29,7 @@ export interface LibraryItem {
 	tags: LibraryItemTag[];
 	is_favorite?: boolean;
 	has_alpha?: boolean | null;
+	has_audio?: boolean | null;
 	source_generation_id?: string | null;
 	provenance?: Record<string, unknown> | null;
 }

@@ -29,6 +29,7 @@ from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.plugins.limit_kinds import AdmissionRequest
+from src.platform.util.video_stream import audio_presence
 from src.features.media.hooks import MEDIA_HOOKS
 from src.platform.settings.settings import Settings
 from src.features.generation.file_repository import FileRepository
@@ -565,6 +566,7 @@ class MediaStore:
         with self._local_copy(key, file_ext) as local_path:
             width, height, duration_seconds, fps = self._probe_upload_metadata(local_path)
             has_alpha = self._probe_upload_alpha(local_path)
+            has_audio = await asyncio.to_thread(self._probe_upload_audio, local_path)
 
         # A real Library resource gets the same thumbnail treatment a
         # generation output does - images synchronously (cheap, in-process),
@@ -590,6 +592,7 @@ class MediaStore:
             thumbnail_paths=thumbnail_paths,
             content_hash=content_hash,
             has_alpha=has_alpha,
+            has_audio=has_audio,
         )
 
         if purpose == UPLOAD_PURPOSE_USER and created_upload and self.media_types.is_video(file_ext):
@@ -686,6 +689,7 @@ class MediaStore:
         thumbnail_paths: Optional[Dict[str, str]] = None,
         content_hash: Optional[str] = None,
         has_alpha: Optional[bool] = None,
+        has_audio: Optional[bool] = None,
     ) -> Optional[Upload]:
         """Record ownership + metadata for a freshly-saved upload.
 
@@ -726,6 +730,7 @@ class MediaStore:
                 purpose=purpose,
                 content_hash=content_hash,
                 has_alpha=has_alpha,
+                has_audio=has_audio,
             ))
         except Exception as e:
             logger.warning(f"Failed to record upload ownership for {filename}: {e}")
@@ -740,6 +745,17 @@ class MediaStore:
                 return has_alpha_mode(image)
         except Exception as e:
             logger.warning(f"Failed to probe alpha for upload {file_path.name}: {e}")
+            return None
+
+    def _probe_upload_audio(self, file_path: Path) -> Optional[bool]:
+        if self.media_types.is_audio(file_path.suffix):
+            return True
+        if not self.media_types.is_video(file_path.suffix):
+            return None
+        try:
+            return audio_presence(file_path)
+        except Exception as e:
+            logger.warning(f"Failed to probe sound for upload {file_path.name}: {e}")
             return None
 
     def _probe_upload_metadata(

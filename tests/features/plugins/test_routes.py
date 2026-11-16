@@ -1069,3 +1069,35 @@ async def test_update_settings_manifest_unavailable_is_409_not_404(
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail['error'] == 'plugin_manifest_unavailable'
     assert "sk-live-abc" not in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("moved, rescanned", [
+    ({"changed_plugin_ids": ["demo"]}, True),
+    ({"removed_plugin_ids": ["demo"]}, True),
+    ({"added_plugin_ids": ["demo"]}, False),
+    ({}, False),
+])
+async def test_a_scan_that_changes_or_removes_a_plugin_rescans_its_presets_and_pipes(
+    mock_operations, mock_plugin_repository, mock_plugin_registry, moved, rescanned
+):
+    collaborators = dict(preset_loader=Mock(), pipe_catalog=Mock(), recipe_catalog=Mock(), model_layout_catalog=Mock())
+    controller = PluginController(
+        plugin_repository=mock_plugin_repository, plugin_registry=mock_plugin_registry, **collaborators
+    )
+    mock_operations.scan_plugins.return_value = PluginScanResult(
+        new_plugins=[], updated_plugins=[], total_discovered=1, **moved
+    )
+
+    await controller.scan_plugins()
+
+    if rescanned:
+        mock_operations.rescan_presets_and_pipes.assert_called_once_with(
+            collaborators["preset_loader"],
+            collaborators["pipe_catalog"],
+            collaborators["recipe_catalog"],
+            "plugin scan",
+            collaborators["model_layout_catalog"],
+        )
+    else:
+        mock_operations.rescan_presets_and_pipes.assert_not_called()

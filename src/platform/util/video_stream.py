@@ -111,6 +111,15 @@ def has_audio_stream(path: Union[str, Path]) -> bool:
     return probe_audio_stream(path).status == AUDIO_PROBE_PRESENT
 
 
+def audio_presence(path: Union[str, Path]) -> Optional[bool]:
+    status = probe_audio_stream(path).status
+    if status == AUDIO_PROBE_PRESENT:
+        return True
+    if status == AUDIO_PROBE_SILENT:
+        return False
+    return None
+
+
 def mux_audio(
     video_only: Union[str, Path],
     source: Union[str, Path],

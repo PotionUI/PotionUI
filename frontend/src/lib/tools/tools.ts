@@ -26,6 +26,7 @@ export interface MediaToolItem {
 	durationSeconds?: number | null;
 	fps?: number | null;
 	hasAlpha?: boolean | null;
+	hasAudio?: boolean | null;
 	itemId?: string | null;
 	generationId?: string;
 	generationFileId?: string | null;
@@ -294,6 +295,7 @@ export function buildLibraryToolContext(
 				durationSeconds: item.duration_seconds,
 				fps: item.fps,
 				hasAlpha: item.has_alpha,
+				hasAudio: item.has_audio,
 				itemId: item.id
 			};
 		})

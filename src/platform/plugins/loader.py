@@ -10,9 +10,10 @@ import os
 import re
 import sys
 import shutil
+import time
 import importlib.util
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, Iterable, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 import yaml
 import logging
@@ -177,6 +178,173 @@ _DICT_LIST_FIELDS = tuple(
 )
 
 
+def _normal(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
+
+
+def _real(path: str) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _roots(folders: Iterable[Any]) -> set:
+    return {form for folder in folders for form in (_normal(str(folder)), _real(str(folder)))}
+
+
+def _within(path: str, roots: Iterable[str]) -> bool:
+    return any(path == root or path.startswith(root + os.sep) for root in roots)
+
+
+_UNMOVED = tuple({_normal(prefix) for prefix in (sys.prefix, sys.base_prefix, sys.exec_prefix)}) + (
+    _normal(str(Path(__file__).resolve().parents[2])),
+)
+
+
+class _Places:
+    def __init__(self, roots: set):
+        self._unmoved = tuple(prefix for prefix in _UNMOVED if not any(_within(root, (prefix,)) for root in roots))
+        self._real: Dict[str, str] = {}
+
+    def _resolved(self, folder: str) -> str:
+        real = self._real.get(folder)
+        if real is None:
+            real = self._real[folder] = _real(folder)
+        return real
+
+    def forms(self, location: str, folder: bool) -> Tuple[str, ...]:
+        plain = _normal(location)
+        if _within(plain, self._unmoved):
+            return (plain,)
+        if folder:
+            return plain, self._resolved(plain)
+        parent, name = os.path.split(plain)
+        return plain, os.path.join(self._resolved(parent), name)
+
+    def depth(self, module: Any, roots: set) -> int:
+        try:
+            location = getattr(module, "__file__", None)
+            if location is not None:
+                return _deepest(self.forms(location, False), roots) if isinstance(location, str) else 0
+            search = getattr(module, "__path__", None)
+            entries = list(search) if search is not None else []
+        except Exception:
+            return 0
+        if not entries or not all(isinstance(entry, str) for entry in entries):
+            return 0
+        return min(_deepest(self.forms(entry, True), roots) for entry in entries)
+
+
+def _deepest(forms: Tuple[str, ...], roots: set) -> int:
+    return max((len(root) for root in roots for form in forms if _within(form, (root,))), default=0)
+
+
+def _file_of(module: Any) -> Optional[str]:
+    try:
+        location = getattr(module, "__file__", None)
+    except Exception:
+        return None
+    return _normal(location) if isinstance(location, str) else None
+
+
+def _named_under(name: str, package: Optional[str]) -> bool:
+    return bool(package) and (name == package or name.startswith(package + "."))
+
+
+def _owned(
+    folders: Iterable[Any],
+    keep: Iterable[Any] = (),
+    package: Optional[str] = None,
+    noted: Iterable[Tuple[str, str]] = (),
+) -> List[Tuple[str, Any]]:
+    roots, kept, own = _roots(folders), _roots(keep), set(noted)
+    places = _Places(roots | kept)
+    found = []
+    for name, module in list(sys.modules.items()):
+        depth = places.depth(module, roots)
+        if not depth:
+            continue
+        if (
+            kept
+            and places.depth(module, kept) >= depth
+            and not _named_under(name, package)
+            and (name, _file_of(module)) not in own
+        ):
+            continue
+        found.append((name, module))
+    return found
+
+
+def _initializing(module: Any) -> bool:
+    try:
+        return bool(getattr(getattr(module, "__spec__", None), "_initializing", False))
+    except Exception:
+        return False
+
+
+def _stamp(location: Any) -> Optional[Tuple[int, int]]:
+    if not isinstance(location, str):
+        return None
+    try:
+        info = os.stat(location)
+    except OSError:
+        return None
+    return info.st_mtime_ns, info.st_size
+
+
+def _drop_cached_bytecode(module: Any) -> None:
+    try:
+        source = getattr(module, "__file__", None)
+        cached = getattr(module, "__cached__", None)
+    except Exception:
+        return
+    if not isinstance(source, str) or not isinstance(cached, str):
+        return
+    try:
+        expected = importlib.util.cache_from_source(source)
+    except (NotImplementedError, ValueError, OSError):
+        return
+    if os.path.normcase(cached) != os.path.normcase(expected):
+        return
+    try:
+        os.remove(cached)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as error:
+        logger.debug("Could not remove the cached bytecode %s: %s", cached, error)
+
+
+def _purge(
+    folders: Iterable[Any], keep: Iterable[Any], package: Optional[str], noted: Iterable[Tuple[str, str]]
+) -> Tuple[List[str], List[str]]:
+    owned = _owned(folders, keep, package, noted)
+    spared = [name for name, module in owned if _initializing(module)]
+    stale = [name for name, module in owned if name not in spared]
+    for name in stale:
+        _drop_cached_bytecode(sys.modules.get(name))
+        module = sys.modules.pop(name, None)
+        parent_name, _, child = name.rpartition(".")
+        parent = sys.modules.get(parent_name) if parent_name else None
+        if module is not None and parent is not None and getattr(parent, child, None) is module:
+            try:
+                delattr(parent, child)
+            except AttributeError:
+                pass
+    importlib.invalidate_caches()
+    return stale, spared
+
+
+def _noted_pairs(files: Dict[str, Tuple[str, Tuple[int, int]]]) -> set:
+    return {(name, location) for location, (name, _) in files.items()}
+
+
+def forget_modules_under(
+    folders: Iterable[Any],
+    keep: Iterable[Any] = (),
+    package: Optional[str] = None,
+    noted: Iterable[Tuple[str, str]] = (),
+) -> List[str]:
+    return _purge(folders, keep, package, noted)[0]
+
+
 class PluginLoader:
     """
     Loads plugins from filesystem directories.
@@ -196,6 +364,9 @@ class PluginLoader:
             Path(part) for part in os.environ.get(EXTRA_PLUGIN_DIRS_ENV, "").split(os.pathsep) if part.strip()
         ]
         self._loaded_modules: Dict[str, Any] = {}
+        self._imported_as: Dict[str, Tuple[str, str]] = {}
+        self._imported_files: Dict[str, Tuple[int, Dict[str, Tuple[str, Tuple[int, int]]]]] = {}
+        self._unsettled: set = set()
 
     def discover_plugins(self) -> List[PluginManifest]:
         """
@@ -764,3 +935,57 @@ class PluginLoader:
         if stale_keys:
             logger.debug(f"Evicted {len(stale_keys)} cached module(s) for plugin {plugin_id}")
         return len(stale_keys)
+
+    def forget_stale_modules(self, manifest: PluginManifest, others: Iterable[Any] = ()) -> List[str]:
+        mark = (str(manifest.plugin_dir), manifest.content_hash)
+        previous = self._imported_as.get(manifest.id)
+        keep = [str(folder) for folder in others]
+        package = manifest.id.replace('-', '_')
+        if previous == mark and not self._edited_since_imported(manifest.id, mark[0], keep, package):
+            return []
+        noted = self._imported_files.pop(manifest.id, None)
+        self._imported_as[manifest.id] = mark
+        self.evict_plugin(manifest.id)
+        folders = {mark[0], *((previous[0],) if previous else ())}
+        forgotten, spared = _purge(folders, keep, package, _noted_pairs(noted[1]) if noted else ())
+        if spared:
+            self._unsettled.add(manifest.id)
+        if forgotten:
+            logger.info(f"Unloaded {len(forgotten)} module(s) of plugin {manifest.id} so that it runs from its files as they are now")
+        return forgotten
+
+    def note_imports(self, manifest: PluginManifest, others: Iterable[Any] = ()) -> None:
+        if manifest.id in self._unsettled:
+            self._unsettled.discard(manifest.id)
+            self._imported_files.pop(manifest.id, None)
+            return
+        taken = time.time_ns()
+        keep = [str(folder) for folder in others]
+        files = {}
+        for name, module in _owned([manifest.plugin_dir], keep, manifest.id.replace('-', '_')):
+            location = getattr(module, "__file__", None)
+            stamp = _stamp(location)
+            if stamp is not None:
+                files[_normal(location)] = (name, stamp)
+        self._imported_files[manifest.id] = (taken, files)
+
+    def _edited_since_imported(self, plugin_id: str, folder: str, keep: List[str], package: str) -> bool:
+        noted = self._imported_files.get(plugin_id)
+        if noted is None:
+            return True
+        taken, files = noted
+        for name, module in _owned([folder], keep, package, _noted_pairs(files)):
+            location = getattr(module, "__file__", None)
+            if not isinstance(location, str):
+                continue
+            stamp = _stamp(location)
+            entry = files.get(_normal(location))
+            known = entry[1] if entry is not None and entry[0] == name else None
+            if stamp is None or (known is not None and stamp != known) or (known is None and stamp[0] > taken):
+                return True
+        return False
+
+    def forget_plugin(self, plugin_id: str) -> None:
+        self._imported_as.pop(plugin_id, None)
+        self._imported_files.pop(plugin_id, None)
+        self._unsettled.discard(plugin_id)

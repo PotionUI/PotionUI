@@ -12,6 +12,12 @@ describe('describeEditorTaskFailure', () => {
 		}
 	});
 
+	it('says a setup the server found incomplete is missing a model, never the field names it sent', () => {
+		const refused = failure(422, { error: 'form_validation_failed', message: 'vae: required field is missing', field_errors: { vae: ['required field is missing'] } });
+		expect(describeEditorTaskFailure(refused)).toEqual({ kind: 'setup_incomplete' });
+		expect(editorTaskFailureMessage({ kind: 'setup_incomplete' })).toBe('This setup is missing a model. Open Settings and choose it.');
+	});
+
 	it('maps plan limits, a refused cancel and missing things', () => {
 		expect(describeEditorTaskFailure(failure(403, { error: 'limit_exceeded', message: 'Daily limit reached' }))).toEqual({ kind: 'limit', message: 'Daily limit reached' });
 		expect(describeEditorTaskFailure(failure(400, { error: 'cancel_failed' }))).toEqual({ kind: 'cancel_failed' });
@@ -29,6 +35,7 @@ describe('describeEditorTaskFailure', () => {
 			{ kind: 'task_not_offered' },
 			{ kind: 'prompt_required' },
 			{ kind: 'region_empty' },
+			{ kind: 'setup_incomplete' },
 			{ kind: 'limit', message: null },
 			{ kind: 'cancel_failed' },
 			{ kind: 'not_found', code: null },

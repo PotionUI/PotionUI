@@ -184,10 +184,10 @@ describe('floating prompt', () => {
 		expect(q('[data-prompt-settings]')?.getAttribute('aria-pressed')).toBe('true');
 	});
 
-	it('shows a plain message when starting a run throws, and lets the member try again', async () => {
+	async function failToStart(cause: unknown) {
 		const t = build([edit()]);
 		t.deps.landRegion = async () => {
-			throw new Error('socket hang up');
+			throw cause;
 		};
 		const controller = createGenerateController(t.deps);
 		controller.use('edit_region');
@@ -198,10 +198,31 @@ describe('floating prompt', () => {
 		await settle();
 		q<HTMLButtonElement>('[data-prompt-generate]')!.click();
 		await settle();
-		expect(text('[data-prompt-error]')).toBe('The marked area or the picture could not be sent. Try again.');
-		expect(text('[data-prompt-error]')).not.toContain('socket');
 		expect(t.start).not.toHaveBeenCalled();
 		expect(q<HTMLButtonElement>('[data-prompt-generate]')!.disabled).toBe(false);
+		return text('[data-prompt-error]');
+	}
+
+	it('names an area that could not be read, logs the cause and lets the member try again', async () => {
+		const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		const cause = new Error('Could not load the image');
+		const shown = await failToStart(cause);
+		expect(shown).toBe('The marked area could not be read. Mark it again and try again.');
+		expect(logged).toHaveBeenCalledWith(expect.any(String), cause);
+		logged.mockRestore();
+	});
+
+	it('keeps the sent-wording for a true network failure', async () => {
+		const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		const shown = await failToStart({ isAxiosError: true, request: {}, message: 'Network Error' });
+		expect(shown).toBe('The marked area or the picture could not be sent. Try again.');
+		expect(logged).not.toHaveBeenCalled();
+		logged.mockRestore();
+	});
+
+	it('shows what the server said when it refused the area', async () => {
+		const shown = await failToStart({ response: { status: 403, data: { detail: { message: 'The file is larger than your plan allows' } } } });
+		expect(shown).toBe('The file is larger than your plan allows');
 	});
 
 	it('shows a plain failure under the prompt and starts nothing without a saved edit', async () => {

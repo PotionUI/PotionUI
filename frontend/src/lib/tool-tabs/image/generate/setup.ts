@@ -100,16 +100,17 @@ export function chipLabel(offer: TaskOffer, source: SetupSource): string {
 	return `${offer.preset_name} · ${offer.label ?? offer.mode_label} · ${setupName(source)}`;
 }
 
+export function layerOf(setup: SetupRef, choices: ModeChoices): Record<string, unknown> {
+	if (setup.kind === 'session') return choices.sessions.find((entry) => entry.id === setup.id)?.values ?? {};
+	if (setup.kind === 'formula') return choices.formulas.find((entry) => entry.id === setup.id)?.values ?? {};
+	return {};
+}
+
 export function resolveSetup(input: ResolveInput): ResolvedSetup {
 	const { offer, setup, schema, choices } = input;
 	const owned = ownedFieldsOf(offer, schema);
 	const source = sourceOf(setup, choices);
-	const layer =
-		setup.kind === 'session'
-			? (choices.sessions.find((entry) => entry.id === setup.id)?.values ?? {})
-			: setup.kind === 'formula'
-				? (choices.formulas.find((entry) => entry.id === setup.id)?.values ?? {})
-				: {};
+	const layer = layerOf(setup, choices);
 	const defaults = getSchemaDefaults(schema as never) as Record<string, unknown>;
 	const form_data = withoutOwned({ ...defaults, ...withoutOwned(layer, owned) }, owned);
 	return { preset_id: offer.preset_id, mode: offer.mode, variant: offer.variant, form_data, source, label: chipLabel(offer, source) };

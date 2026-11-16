@@ -1,9 +1,16 @@
-import { loadPresetFormSchema } from '$lib/form/formSources';
+import { get } from 'svelte/store';
+import { checkSlotValue, loadCloudCapabilities, loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
+import { sharedCapabilityCache } from '$lib/form/capabilityTracker';
+import { missingModelIn, seedFormValues } from '$lib/form/formStateSeed';
+import { formAudienceStore } from '$lib/stores/formAudience';
 import { api } from '$lib/services/api/index';
 import { createGenerationSocket } from '$lib/services/websocket';
 import { createGenerateController, type ControllerDeps, type GenerateController } from './controller';
 import { syncServerTasks } from './register';
 import { createRunEngine, type RunMessage, type RunSocket } from './runEngine';
+
+const EDITOR_SEED_TAB = 'image-editor-setup';
+const capabilityOf = (modelId: string) => sharedCapabilityCache.get(modelId);
 
 function runSocket(): RunSocket {
 	const socket = createGenerationSocket();
@@ -54,6 +61,12 @@ export function createTabGenerate(deps: TabGenerateDeps): GenerateController {
 				return (response.success && response.data ? response.data : []).map((entry) => ({ id: entry.id, name: entry.name, values: entry.values ?? {} }));
 			},
 			schema: (presetId, mode, variant) => loadPresetFormSchema(presetId, mode, variant ?? undefined),
+			seed: ({ presetId, schema, incoming }) =>
+				seedFormValues(
+					{ schema, presetId, tabId: EDITOR_SEED_TAB, incoming: incoming as Record<string, any>, audience: get(formAudienceStore), videoDirectorActive: false },
+					{ search: searchAutopickSlot, check: checkSlotValue, loadCapabilities: loadCloudCapabilities, capabilityOf }
+				),
+			missingModel: (schema, values) => missingModelIn(schema, values as Record<string, any>, capabilityOf),
 			setDefault: async (task, body) => void (await api.setEditorTaskDefault(task, body)),
 			clearDefault: (task) => api.clearEditorTaskDefault(task),
 			saveSession: (body) => api.saveEditorSession(body),

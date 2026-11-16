@@ -98,7 +98,7 @@
 	} from '$lib/tool-tabs/frame/editStack';
 	import type { RailGroup, SaveAction, SavingProgress } from '$lib/tool-tabs/frame/types';
 	import { fitViewport } from '$lib/tool-tabs/frame/viewport';
-	import { geometryKey, liveMask, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
+	import { geometryKey, liveMask, maskChannelOf, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
 	import { inputRef, outputSize, replaceOption, runBody, sourceOrigin, type PixelSize, type SourceOrigin } from '$lib/tool-tabs/image/payload';
 	import { FULL_SIDE, ImageRenderer, bakeIsCapped, isAbort, orient, stepsKey, type Rendered } from '$lib/tool-tabs/image/render';
 	import { showCanvas } from '$lib/tool-tabs/image/displayCanvas';
@@ -1063,7 +1063,7 @@
 			if (!file) return false;
 			const stored = await api.uploadMedia(file, 'derived_artifact');
 			if (!stored.success || !stored.data) throw new Error(stored.message || 'The mask could not be saved');
-			mask = { path: stored.data.path, url: `/api/media/serve?path=${encodeURIComponent(stored.data.path)}`, geometry: geometryKey(effective) };
+			mask = maskChannelOf(stored.data, geometryKey(effective));
 			maskDirty = false;
 			return true;
 		} catch (error) {

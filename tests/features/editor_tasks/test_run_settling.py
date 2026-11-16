@@ -408,3 +408,25 @@ async def test_a_cancel_after_patches_never_deletes_a_patch_a_finished_run_kept(
 
     assert f"{kept}.png" in fakes.live() and f"{kept}.png" not in fakes.deleted
     assert (await manager.get(USER, second["id"]))["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_a_file_two_working_pictures_share_is_removed_once_without_a_warning(setup, caplog):
+    manager, fakes, edit_id = setup
+    gone = set()
+
+    def delete_upload(filename, user_id):
+        if filename in gone:
+            raise ValueError("Upload not found")
+        gone.add(filename)
+        fakes.deleted.append(filename)
+
+    fakes.delete_upload = delete_upload
+    run = await manager.start(USER, "edit_region", body(edit_id, preset="B-MASK", region=False))
+    assert len(fakes.uploads) < len(manager.repository.get(USER.id, run["id"]).crop["names"])
+
+    with caplog.at_level("WARNING"):
+        await manager.cancel(USER, run["id"])
+
+    assert fakes.live() == {}
+    assert [record for record in caplog.records if "could not be removed" in record.getMessage()] == []

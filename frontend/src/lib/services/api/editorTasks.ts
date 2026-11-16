@@ -103,6 +103,7 @@ export type EditorTaskFailure =
 	| { kind: 'prompt_required' }
 	| { kind: 'region_required' }
 	| { kind: 'region_empty' }
+	| { kind: 'setup_incomplete' }
 	| { kind: 'limit'; message: string | null }
 	| { kind: 'cancel_failed' }
 	| { kind: 'not_found'; code: string | null }
@@ -133,6 +134,7 @@ export function describeEditorTaskFailure(error: unknown): EditorTaskFailure {
 		if (code === 'prompt_required') return { kind: 'prompt_required' };
 		if (code === 'region_required') return { kind: 'region_required' };
 		if (code === 'region_empty') return { kind: 'region_empty' };
+		if (code === 'form_validation_failed') return { kind: 'setup_incomplete' };
 	}
 	if (status === 403) return { kind: 'limit', message };
 	if (status === 400 && code === 'cancel_failed') return { kind: 'cancel_failed' };
@@ -149,6 +151,8 @@ export function editorTaskFailureMessage(failure: EditorTaskFailure): string {
 		case 'region_required':
 		case 'region_empty':
 			return 'Mark the area first.';
+		case 'setup_incomplete':
+			return 'This setup is missing a model. Open Settings and choose it.';
 		case 'limit':
 			return failure.message ?? 'Your plan does not allow another generation right now.';
 		case 'cancel_failed':

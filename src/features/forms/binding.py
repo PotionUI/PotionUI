@@ -286,7 +286,7 @@ def bind_form(
             value = override_default
             admin_pinned.append(name)
         elif name in raw:
-            value = raw[name]
+            value = _unwrap_model_value(raw[name], spec)
         else:
             value = override_default
             reaction_candidates.add(name)
@@ -1108,6 +1108,13 @@ def _validate_field(
             allowed = {opt.get("value") for opt in static_options if isinstance(opt, dict)}
             if allowed and value not in allowed:
                 _fail(f"{value!r} is not one of the declared options")
+
+
+def _unwrap_model_value(value: Any, spec: FieldTemplate) -> Any:
+    if spec.type == "model" and isinstance(value, dict) and "modelPath" in value:
+        path = value["modelPath"]
+        return path if isinstance(path, str) else ""
+    return value
 
 
 def _reaction_validation(

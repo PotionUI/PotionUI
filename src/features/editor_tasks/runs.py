@@ -343,9 +343,11 @@ class EditorRunManager:
         return [(item.id, item.filename) for item in stored.values() if item is not None]
 
     async def _discard(self, user_id: str, entries: List[Tuple[Optional[str], Optional[str]]], exclude: Optional[str]) -> None:
+        seen: Set[str] = set()
         for upload_id, filename in entries:
-            if not filename:
+            if not filename or filename in seen:
                 continue
+            seen.add(filename)
             try:
                 if upload_id and (
                     self._holds.get(upload_id) or await asyncio.to_thread(self.repository.referenced, upload_id, exclude)

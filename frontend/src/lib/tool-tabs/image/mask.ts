@@ -22,11 +22,22 @@ export function maskIsStale(mask: MaskChannel | null, steps: readonly EditStep[]
 	return mask !== null && liveMask(mask, steps) === null;
 }
 
+const LEGACY_SERVE = '/api/media/serve?path=';
+
+function uploadUrlOf(path: string): string {
+	const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+	return `/api/media/uploads/${encodeURIComponent(name)}`;
+}
+
+export function maskChannelOf(stored: { path: string; url?: string | null }, geometry: string): MaskChannel {
+	return { path: stored.path, url: stored.url || uploadUrlOf(stored.path), geometry };
+}
+
 export function readMask(raw: unknown): MaskChannel | null {
 	if (!raw || typeof raw !== 'object') return null;
 	const { path, url, geometry } = raw as Record<string, unknown>;
 	if (typeof path !== 'string' || !path || typeof url !== 'string' || typeof geometry !== 'string') return null;
-	return { path, url, geometry };
+	return { path, url: url.startsWith(LEGACY_SERVE) ? uploadUrlOf(path) : url, geometry };
 }
 
 export function sendPatch(

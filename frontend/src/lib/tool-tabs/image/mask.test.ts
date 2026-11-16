@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, appliedSteps, beginEdit, createStack, reopen, toggleHidden, undo, updatePending } from '$lib/tool-tabs/frame/editStack';
-import { alphaToMask, geometryKey, liveMask, maskIsStale, maskOverlay, parseRgb, readMask, sendPatch, STORED_MASK_CUTOFF } from './mask';
+import { alphaToMask, geometryKey, liveMask, maskChannelOf, maskIsStale, maskOverlay, parseRgb, readMask, sendPatch, STORED_MASK_CUTOFF } from './mask';
 import { cropDraft, lookDraft, paintDraft } from './steps';
 
 function cropped() {
@@ -66,6 +66,19 @@ describe('mask channel', () => {
 		expect(readMask({ path: 'p', url: 'u', geometry: '[]' })).toEqual({ path: 'p', url: 'u', geometry: '[]' });
 		expect(readMask({ path: '', url: 'u', geometry: '[]' })).toBeNull();
 		expect(readMask(null)).toBeNull();
+	});
+
+	it('points a stored mask at the route that serves uploads', () => {
+		const path = '/home/me/storage/uploads/fac0580d-8d86.png';
+		expect(maskChannelOf({ path, url: '/api/media/uploads/fac0580d-8d86.png' }, '[]').url).toBe('/api/media/uploads/fac0580d-8d86.png');
+		expect(maskChannelOf({ path }, '[]').url).toBe('/api/media/uploads/fac0580d-8d86.png');
+		expect(maskChannelOf({ path: 'C:\\uploads\\a b.png' }, '[]').url).toBe('/api/media/uploads/a%20b.png');
+	});
+
+	it('repairs a mask saved with the address that never existed', () => {
+		const path = '/home/me/storage/uploads/fac0580d-8d86.png';
+		const saved = { path, url: `/api/media/serve?path=${encodeURIComponent(path)}`, geometry: '[]' };
+		expect(readMask(saved)).toEqual({ path, url: '/api/media/uploads/fac0580d-8d86.png', geometry: '[]' });
 	});
 });
 

@@ -15,6 +15,7 @@ import {
 	type TaskOffer
 } from '$lib/services/api/editorTasks';
 import { appliedSteps, apply, beginEdit, commitLive, liveEdit, type EditStackState, type EditStep } from '$lib/tool-tabs/frame/editStack';
+import { missingModelMessage, type MissingModelField } from '$lib/generation/requiredModelField';
 import type { EditLink } from '../editLink';
 import type { RunEngine } from './runEngine';
 import {
@@ -46,6 +47,7 @@ import {
 	sameChoice,
 	sourceOf,
 	chipLabel,
+	layerOf,
 	ownedFieldsOf,
 	withoutOwned,
 	type FormulaChoice,
@@ -80,6 +82,8 @@ export interface ControllerPorts {
 	sessions(presetId: string): Promise<EditorSessionEntry[]>;
 	formulas(presetId: string, mode: string): Promise<Array<{ id: string; name: string; values: Record<string, unknown> }>>;
 	schema(presetId: string, mode: string, variant: string | null): Promise<{ properties?: Record<string, any> } | null>;
+	seed?(input: { presetId: string; schema: { properties?: Record<string, any> }; incoming: Record<string, unknown> }): Promise<Record<string, unknown> | null>;
+	missingModel?(schema: { properties?: Record<string, any> }, values: Record<string, unknown>): MissingModelField | null;
 	setDefault(taskId: string, body: { preset_id: string; mode: string; variant: string | null; setup: SetupRef }): Promise<void>;
 	clearDefault(taskId: string): Promise<void>;
 	saveSession(body: SaveEditorSessionBody): Promise<SavedEditorSession>;
@@ -160,6 +164,32 @@ export function clampResults(value: number): number {
 
 function failureText(error: unknown): string {
 	return editorTaskFailureMessage(describeEditorTaskFailure(error));
+}
+
+export const NOT_SENT_MESSAGE = 'The marked area or the picture could not be sent. Try again.';
+export const AREA_UNREADABLE_MESSAGE = 'The marked area could not be read. Mark it again and try again.';
+export const NOT_STARTED_MESSAGE = 'This edit could not be started. Try again.';
+
+function isTransportFailure(error: unknown): boolean {
+	if (!error || typeof error !== 'object') return false;
+	const candidate = error as { isAxiosError?: unknown; request?: unknown; code?: unknown; message?: unknown; response?: unknown };
+	if (candidate.response) return false;
+	return candidate.isAxiosError === true || candidate.request !== undefined || candidate.code === 'ERR_NETWORK' || candidate.message === 'Network Error';
+}
+
+function hasResponse(error: unknown): boolean {
+	return typeof (error as { response?: { status?: unknown } } | null)?.response?.status === 'number';
+}
+
+function startFailureText(error: unknown, otherwise: string): string {
+	if (hasResponse(error)) return failureText(error);
+	if (isTransportFailure(error)) return NOT_SENT_MESSAGE;
+	console.error('[image editor] a run could not be started', error);
+	return otherwise;
+}
+
+function missingModelText(missing: MissingModelField): string {
+	return `${missingModelMessage(missing)}. Open Settings to choose it.`;
 }
 
 function seedFieldOf(schema: { properties?: Record<string, any> } | null): string | null {
@@ -348,14 +378,24 @@ export function createGenerateController(deps: ControllerDeps) {
 		if (!offer) return null;
 		await loadChoices(offer);
 		const schema = await deps.ports.schema(offer.preset_id, offer.mode, offer.variant).catch(() => null);
-		return { offer, schema, resolved: resolveSetup({ offer, setup: choice.setup, schema, choices: choicesOf(offer) }) };
+		const choices = choicesOf(offer);
+		let resolved = resolveSetup({ offer, setup: choice.setup, schema, choices });
+		if (schema && deps.ports.seed) {
+			const owned = ownedFieldsOf(offer, schema);
+			const seeded = await deps.ports.seed({ presetId: offer.preset_id, schema, incoming: withoutOwned(layerOf(choice.setup, choices), owned) }).catch(() => null);
+			if (seeded) resolved = { ...resolved, form_data: withoutOwned(seeded, owned) };
+		}
+		return { offer, schema, resolved };
 	}
 
 	async function resolveFor(taskId: string, choice: SetupChoice): Promise<ResolvedSetup | { error: string }> {
 		const found = await baseFor(taskId, choice);
 		if (!found) return { error: 'This setup cannot do that any more. Pick another.' };
-		const { resolved } = found;
-		return { ...resolved, form_data: runValues(resolved.form_data, get(state).tweaks[taskId], choiceKey(choice)) };
+		const { resolved, schema } = found;
+		const form_data = runValues(resolved.form_data, get(state).tweaks[taskId], choiceKey(choice));
+		const missing = schema ? (deps.ports.missingModel?.(schema, form_data) ?? null) : null;
+		if (missing) return { error: missingModelText(missing) };
+		return { ...resolved, form_data };
 	}
 
 	function changedFor(taskId: string): boolean {
@@ -519,7 +559,14 @@ export function createGenerateController(deps: ControllerDeps) {
 		if (task.region === 'required' && !areaMarked) return fail('Mark the area first.');
 		patch({ starting: true, error: null });
 		try {
-			const region = task.region === 'none' || !areaMarked ? null : await deps.landRegion();
+			let region: { item_id: string } | null = null;
+			if (task.region !== 'none' && areaMarked) {
+				try {
+					region = await deps.landRegion();
+				} catch (error) {
+					return fail(startFailureText(error, AREA_UNREADABLE_MESSAGE));
+				}
+			}
 			if (task.region === 'required' && !region) return fail('Mark the area first.');
 			const redo = redoTarget(taskId);
 			const reused = redo && redo.choice === choiceKey(choice) && !changedFor(taskId) ? redo.state.setup : null;
@@ -566,7 +613,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			if (run.status === 'done' || run.status === 'failed' || run.status === 'cancelled') settle(get(deps.engine.views)[run.id]);
 			return true;
 		} catch (error) {
-			return fail(failureText(error) === editorTaskFailureMessage({ kind: 'network' }) ? 'The marked area or the picture could not be sent. Try again.' : failureText(error));
+			return fail(startFailureText(error, NOT_STARTED_MESSAGE));
 		} finally {
 			patch({ starting: false });
 		}

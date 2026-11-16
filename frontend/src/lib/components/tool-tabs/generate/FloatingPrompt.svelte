@@ -69,8 +69,9 @@
 	});
 	let chipText = $derived(noModel ? 'No model yet' : (chip ?? CHOOSE_SETUP));
 	let area = $derived($maskArea);
+	let redoArea = $derived(!!$ui.redo && $ui.redo.taskId === taskId && !regionNone && !area);
 	let blocked = $derived(
-		!taskId || !chip || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area)
+		!taskId || !chip || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea
 	);
 	let positionStyle = $derived(position.x || position.y ? `transform: translate(${position.x}px, ${position.y}px)` : undefined);
 
@@ -166,7 +167,9 @@
 {/snippet}
 
 {#snippet statusLine()}
-	{#if regionRequired && !area}
+	{#if redoArea}
+		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="redo"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />Mark the area again</span>
+	{:else if regionRequired && !area}
 		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="warn"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />Mark the object first</span>
 	{:else if !area && !regionNone}
 		<span class="min-w-0 truncate whitespace-nowrap text-sm text-fg-muted" data-prompt-status="whole">Whole picture</span>
@@ -240,6 +243,7 @@
 		</div>
 		<div class="mt-1">{@render promptField()}</div>
 		<div class="mt-2 min-h-5">{@render statusLine()}</div>
+		{#if redoArea}<p class="mt-1 flex items-center gap-1.5 text-sm text-fg-subtle" data-prompt-redo><Icon name="info" className="h-3.5 w-3.5" />The picture beneath changed shape</p>{/if}
 		{#if large && !regionNone}<p class="mt-1 flex items-center gap-1.5 text-sm text-fg-subtle"><Icon name="info" className="h-3.5 w-3.5" />Large areas come back softer</p>{/if}
 		{#if $ui.error}<p class="mt-1 text-sm text-danger" role="alert" data-prompt-error>{$ui.error}</p>{/if}
 		<div class="mt-2 flex items-center justify-between gap-2">
@@ -280,6 +284,7 @@
 			{@render resultsControl()}
 			{@render actionButton()}
 		</div>
+		{#if redoArea}<p class="mt-2 flex items-center gap-1.5 text-sm text-fg-subtle" data-prompt-redo><Icon name="info" className="h-3.5 w-3.5" />The picture beneath changed shape</p>{/if}
 		{#if large && !regionNone}<p class="mt-2 flex items-center gap-1.5 text-sm text-fg-subtle" data-prompt-large><Icon name="info" className="h-3.5 w-3.5" />Large areas come back softer</p>{/if}
 		{#if $ui.error}<p class="mt-2 text-sm text-danger" role="alert" data-prompt-error>{$ui.error}</p>{/if}
 		{@render picker()}

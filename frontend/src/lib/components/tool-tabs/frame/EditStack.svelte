@@ -230,7 +230,13 @@
 										<Spinner size="sm" /><span class="truncate text-fg-muted">{info.state.label}</span>
 									{/if}
 								{:else if info.state.kind === 'skipped'}
-									<span class="truncate {info.state.tone === 'danger' ? 'text-danger' : info.state.tone === 'warning' ? 'text-warning' : 'text-fg-subtle'}">{info.state.label}</span>
+									{#if info.state.detail}
+										<Tooltip text={info.state.detail} position="top" wrapperClass="flex min-w-0">
+											<span class="truncate {info.state.tone === 'danger' ? 'text-danger' : info.state.tone === 'warning' ? 'text-warning' : 'text-fg-subtle'}">{info.state.label}</span>
+										</Tooltip>
+									{:else}
+										<span class="truncate {info.state.tone === 'danger' ? 'text-danger' : info.state.tone === 'warning' ? 'text-warning' : 'text-fg-subtle'}">{info.state.label}</span>
+									{/if}
 								{/if}
 							</span>
 						{:else}

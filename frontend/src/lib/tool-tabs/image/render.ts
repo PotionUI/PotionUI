@@ -13,7 +13,7 @@ import type { MediaToolInputRef } from '$lib/media-tools/types';
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
 import { callKindAsync } from '$lib/editors/stepKinds';
 import { outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
-import { imageStepContext, resolveImageStep, type ImageStepLike } from './stepKinds';
+import { imageStepContext, resolveImageStep, stepOutOfDate, type ImageStepLike } from './stepKinds';
 import { imageEffects, stillShader } from './shaderEffect';
 import { adjustRecipeStep, type CropParams, type EffectParams, type PaintParams, type ResizeParams, type ToolEffectParams } from './steps';
 
@@ -287,7 +287,7 @@ export class ImageRenderer {
 
 	async render(steps: readonly EditStep[], options: RenderOptions = {}): Promise<Rendered> {
 		const maxSide = options.maxSide ?? PREVIEW_SIDE;
-		const visible = steps.filter(drawn);
+		const visible = steps.filter((step, i) => drawn(step) && !stepOutOfDate(step, steps.slice(0, i).filter((before) => !before.hidden)));
 		let serverAt = -1;
 		visible.forEach((step, i) => {
 			if (!isClientStep(step)) serverAt = i;

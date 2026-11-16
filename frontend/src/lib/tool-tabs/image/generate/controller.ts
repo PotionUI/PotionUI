@@ -14,19 +14,24 @@ import {
 	type TaskDefault,
 	type TaskOffer
 } from '$lib/services/api/editorTasks';
-import { apply, beginEdit, commitLive, liveEdit, type EditStackState } from '$lib/tool-tabs/frame/editStack';
+import { appliedSteps, apply, beginEdit, commitLive, liveEdit, type EditStackState, type EditStep } from '$lib/tool-tabs/frame/editStack';
 import type { EditLink } from '../editLink';
 import type { RunEngine } from './runEngine';
 import {
 	GENERATE_TOOL,
+	basisFor,
 	generateDraft,
 	generateSteps,
 	readGenerateParams,
+	remapArea,
 	replaceStepParams,
+	shapeChange,
+	stepsBeneathOf,
 	stepsToResume,
 	withChosen,
 	withFreshRun,
 	withRun,
+	type GenerateBasis,
 	type GenerateParams,
 	type ResolvedSetup
 } from './generateStep';
@@ -88,6 +93,7 @@ export interface ControllerDeps {
 	editLink(): Promise<EditLink | null>;
 	landRegion(): Promise<{ item_id: string } | null>;
 	areaSize(): { width: number; height: number } | null;
+	pictureSize?(stepId: string | null): { width: number; height: number } | null;
 	stepsBeneath(stepId: string | null): Promise<MediaToolStep[]>;
 	ports: ControllerPorts;
 	engine: RunEngine;
@@ -100,6 +106,19 @@ export interface PickerState {
 	why: 'first_use' | 'broken_default' | 'nothing_qualifies' | 'change' | null;
 	notice: string | null;
 }
+
+export interface RedoState {
+	stepId: string;
+	taskId: string;
+	setup: ResolvedSetup;
+	choice: string | null;
+	seed: number | null;
+	candidates: number;
+}
+
+export type RedoOutcome = { kind: 'started' } | { kind: 'area'; task: string } | { kind: 'failed' };
+
+export const REDO_AREA_MESSAGE = 'Mark the area again: the picture beneath changed shape';
 
 export interface GenerateUi {
 	loaded: boolean;
@@ -114,6 +133,7 @@ export interface GenerateUi {
 	activeStepId: string | null;
 	taskId: string | null;
 	tweaks: Record<string, Tweak>;
+	redo: RedoState | null;
 }
 
 export interface SettingsContext {
@@ -169,7 +189,8 @@ export function createGenerateController(deps: ControllerDeps) {
 		error: null,
 		activeStepId: null,
 		taskId: null,
-		tweaks: {}
+		tweaks: {},
+		redo: null
 	});
 	let disposed = false;
 	let tasksLoad: Promise<void> | null = null;
@@ -257,7 +278,8 @@ export function createGenerateController(deps: ControllerDeps) {
 
 	function use(taskId: string | null): void {
 		if (get(state).taskId === taskId) return;
-		patch({ taskId, error: null, picker: closedPicker(), activeStepId: null });
+		const redo = get(state).redo;
+		patch({ taskId, error: null, picker: closedPicker(), activeStepId: null, ...(redo && redo.taskId !== taskId ? { redo: null } : {}) });
 		if (taskId) void prepare(taskId);
 	}
 
@@ -458,12 +480,13 @@ export function createGenerateController(deps: ControllerDeps) {
 		region: { item_id: string } | null;
 		candidates: number;
 		seed: number | null;
-	}): Promise<{ run: EditorRun } | { error: string }> {
+	}): Promise<{ run: EditorRun; basis: GenerateBasis } | { error: string }> {
 		const ref = deps.source().ref;
 		if (!ref) return { error: NO_PICTURE_MESSAGE };
 		const link = await deps.editLink();
 		if (!link) return { error: NOT_SAVED_MESSAGE };
 		const task = taskOf(taskId);
+		const basis = basisFor(stepsBeneathOf(appliedSteps(deps.getStack()), stepId), deps.pictureSize?.(stepId) ?? null);
 		const steps = await deps.stepsBeneath(stepId);
 		const body: StartRunBody = {
 			edit: { id: link.id, step_id: stepId },
@@ -476,7 +499,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			seed: input.seed
 		};
 		try {
-			return { run: await deps.engine.start(taskId, body, stepId) };
+			return { run: await deps.engine.start(taskId, body, stepId), basis };
 		} catch (error) {
 			return { error: failureText(error) };
 		}
@@ -498,13 +521,28 @@ export function createGenerateController(deps: ControllerDeps) {
 		try {
 			const region = task.region === 'none' || !areaMarked ? null : await deps.landRegion();
 			if (task.region === 'required' && !region) return fail('Mark the area first.');
-			const resolved = await resolveFor(taskId, choice);
+			const redo = redoTarget(taskId);
+			const reused = redo && redo.choice === choiceKey(choice) && !changedFor(taskId) ? redo.state.setup : null;
+			const resolved = reused ?? (await resolveFor(taskId, choice));
 			if ('error' in resolved) return fail(resolved.error);
-			const stepId = nextStepId();
+			const stepId = redo ? redo.step.step.id : nextStepId();
 			const candidates = current.results[taskId] ?? 1;
-			const submitted = await submit(taskId, stepId, { prompt, setup: resolved, region, candidates, seed: null });
+			const submitted = await submit(taskId, stepId, { prompt, setup: resolved, region, candidates, seed: redo ? redo.state.seed : null });
 			if (!('run' in submitted)) return fail(submitted.error);
 			const run = submitted.run;
+			if (redo) {
+				const next = withFreshRun(
+					{ ...redo.step.params, prompt: task.prompt === 'none' ? '' : prompt.trim(), setup: resolved, area: { region, size: region ? deps.areaSize() : null }, candidates, rect: run.rect ?? redo.step.params.rect },
+					{ id: run.id, status: run.status },
+					submitted.basis
+				);
+				if (run.id !== redo.step.params.run.id) deps.engine.release(redo.step.params.run.id);
+				const draft = generateDraft(next, redo.step.step.label || task.label, redo.step.step.icon || task.icon);
+				deps.setStack(commitLive(liveEdit(deps.getStack(), draft, (entry) => entry.id === stepId)));
+				patch({ activeStepId: stepId, redo: null });
+				if (run.status === 'done' || run.status === 'failed' || run.status === 'cancelled') settle(get(deps.engine.views)[run.id]);
+				return true;
+			}
 			const params: GenerateParams = {
 				v: 1,
 				task: taskId,
@@ -517,7 +555,8 @@ export function createGenerateController(deps: ControllerDeps) {
 				seed: null,
 				rect: run.rect,
 				soft: false,
-				run: { id: run.id, status: run.status, error: null }
+				run: { id: run.id, status: run.status, error: null },
+				basis: submitted.basis
 			};
 			const stack = apply(beginEdit(deps.getStack(), generateDraft(params, task.label, task.icon)));
 			deps.setStack(stack);
@@ -533,15 +572,50 @@ export function createGenerateController(deps: ControllerDeps) {
 		}
 	}
 
+	function redoTarget(taskId: string): { state: RedoState; step: { step: EditStep; params: GenerateParams }; choice: string | null } | null {
+		const redo = get(state).redo;
+		if (!redo || redo.taskId !== taskId) return null;
+		const step = generateSteps(deps.getStack()).find((entry) => entry.step.id === redo.stepId);
+		if (!step) {
+			patch({ redo: null });
+			return null;
+		}
+		return { state: redo, step, choice: redo.choice };
+	}
+
 	function fail(message: string): false {
 		patch({ error: message, starting: false });
 		return false;
 	}
 
-	async function rerun(stepId: string, keepSeed: boolean): Promise<boolean> {
+	function setupChoiceOf(params: GenerateParams): SetupChoice {
+		const source = params.setup.source;
+		const setup = source.kind !== 'defaults' && source.id ? { kind: source.kind, id: source.id } : { kind: 'defaults' as const };
+		return { preset_id: params.setup.preset_id, mode: params.setup.mode, variant: params.setup.variant, setup };
+	}
+
+	function askForArea(entry: { step: EditStep; params: GenerateParams }): RedoOutcome {
+		const { params } = entry;
+		const choice = setupChoiceOf(params);
+		const task = taskOf(params.task);
+		const known = task ? offerOf(task.offers, choice) : null;
+		state.update((current) => ({
+			...current,
+			prompts: { ...current.prompts, [params.task]: params.prompt },
+			results: { ...current.results, [params.task]: params.candidates },
+			choice: known ? { ...current.choice, [params.task]: choice } : current.choice,
+			redo: { stepId: entry.step.id, taskId: params.task, setup: params.setup, choice: known ? choiceKey(choice) : (current.choice[params.task] ? choiceKey(current.choice[params.task]!) : null), seed: params.seed, candidates: params.candidates },
+			error: null
+		}));
+		return { kind: 'area', task: params.task };
+	}
+
+	async function rerun(stepId: string, keepSeed: boolean): Promise<RedoOutcome> {
 		const found = generateSteps(deps.getStack()).find((entry) => entry.step.id === stepId);
-		if (!found || get(state).starting) return false;
+		if (!found || get(state).starting) return { kind: 'failed' };
 		const { params, step } = found;
+		const change = shapeChange(params, stepsBeneathOf(appliedSteps(deps.getStack()), stepId));
+		if (change === 'other' && params.area.region) return askForArea(found);
 		const task = taskOf(params.task);
 		patch({ starting: true, error: null });
 		try {
@@ -552,16 +626,20 @@ export function createGenerateController(deps: ControllerDeps) {
 				if (field) form[field] = -1;
 			}
 			const setup: ResolvedSetup = { ...params.setup, form_data: form };
-			const submitted = await submit(params.task, stepId, { prompt: params.prompt, setup, region: params.area.region, candidates: params.candidates, seed: keepSeed ? params.seed : null });
-			if (!('run' in submitted)) return fail(submitted.error);
+			const area = change === 'resize' ? remapArea(params.area, params.basis?.size ?? null, deps.pictureSize?.(stepId) ?? null) : params.area;
+			const submitted = await submit(params.task, stepId, { prompt: params.prompt, setup, region: area.region, candidates: params.candidates, seed: keepSeed ? params.seed : null });
+			if (!('run' in submitted)) {
+				fail(submitted.error);
+				return { kind: 'failed' };
+			}
 			const run = submitted.run;
 			const old = params.run.id;
 			if (old !== run.id) deps.engine.release(old);
-			const next = withFreshRun({ ...params, rect: run.rect ?? params.rect }, { id: run.id, status: run.status });
+			const next = withFreshRun({ ...params, area, rect: run.rect ?? params.rect }, { id: run.id, status: run.status }, submitted.basis);
 			const draft = generateDraft(next, step.label || task?.label || 'Generate', step.icon || task?.icon || 'sparkles');
 			deps.setStack(commitLive(liveEdit(deps.getStack(), draft, (entry) => entry.id === stepId)));
 			patch({ activeStepId: stepId });
-			return true;
+			return { kind: 'started' };
 		} finally {
 			patch({ starting: false });
 		}
@@ -607,11 +685,12 @@ export function createGenerateController(deps: ControllerDeps) {
 		const params = readGenerateParams(step.params);
 		if (params) void deps.engine.remove(params.run.id);
 		if (get(state).activeStepId === stepId) patch({ activeStepId: null });
+		if (get(state).redo?.stepId === stepId) patch({ redo: null });
 	}
 
 	function allRemoved(stack: EditStackState<unknown>): void {
 		for (const entry of generateSteps(stack)) void deps.engine.remove(entry.params.run.id);
-		patch({ activeStepId: null });
+		patch({ activeStepId: null, redo: null });
 	}
 
 	function dispose(): void {
@@ -638,8 +717,9 @@ export function createGenerateController(deps: ControllerDeps) {
 		pick,
 		clearDefault,
 		generate,
-		retry: (stepId: string) => rerun(stepId, true),
-		tryAgain: (stepId: string) => rerun(stepId, false),
+		retry: async (stepId: string) => (await rerun(stepId, true)).kind !== 'failed',
+		tryAgain: async (stepId: string) => (await rerun(stepId, false)).kind !== 'failed',
+		redo: (stepId: string) => rerun(stepId, true),
 		cancel,
 		choose,
 		settle,

@@ -6,6 +6,7 @@ import type { EditStep } from '$lib/tool-tabs/frame/editStack';
 import type { PixelSize } from '$lib/editors/types';
 import type { MediaToolStep } from '$lib/media-tools/types';
 import { ensureCoreImageEditor } from './coreEditor';
+import { geometryKey } from './mask';
 
 export type ImageStepLike = Pick<EditStep, 'tool'> & { params?: unknown };
 
@@ -34,18 +35,45 @@ export function imageStepContext(
 	return ctx;
 }
 
-export function imageRowInfo(step: EditStep): StepRowInfo | null {
+export const OUT_OF_DATE_LABEL = 'The picture changed';
+export const OUT_OF_DATE_DETAIL = 'The picture beneath changed';
+
+export function stepOutOfDate(step: EditStep, beneath: readonly EditStep[]): boolean {
+	if (step.hidden) return false;
+	const resolved = resolveImageStep(step);
+	if (resolved.status !== 'kind' || !resolved.kind.shapeBasis) return false;
+	const { kind, params } = resolved;
+	const recorded = callKind(kind, 'shapeBasis', () => kind.shapeBasis!(params), null);
+	return recorded !== null && recorded !== geometryKey(beneath);
+}
+
+export function stepsBeneath(steps: readonly EditStep[], index: number): EditStep[] {
+	return steps.slice(0, index).filter((step) => !step.hidden);
+}
+
+export function outOfDateCount(steps: readonly EditStep[]): number {
+	return steps.filter((step, index) => stepOutOfDate(step, stepsBeneath(steps, index))).length;
+}
+
+export function outOfDateNotice(count: number): string | null {
+	if (count <= 0) return null;
+	return `${count} ${count === 1 ? 'edit is' : 'edits are'} not included: the picture beneath ${count === 1 ? 'it' : 'them'} changed.`;
+}
+
+export function imageRowInfo(step: EditStep, beneath: readonly EditStep[] = []): StepRowInfo | null {
 	const resolved = resolveImageStep(step);
 	if (resolved.status !== 'kind') return { state: unavailableState(resolved), locked: true };
 	const { kind } = resolved;
 	const entry = stepKindKey(kind);
 	const failed = !!kind.pluginId && hasFailed(entry);
 	const done: StepState = { kind: 'done' };
-	const state: StepState = failed
+	const own: StepState = failed
 		? { kind: 'skipped', tone: 'danger', label: 'Could not run' }
 		: kind.state
-			? callKind(kind, 'state', () => kind.state!(step, imageStepContext(step, null)), done)
+			? callKind(kind, 'state', () => kind.state!(step, imageStepContext(step, null, beneath)), done)
 			: done;
+	const outOfDate = own.kind === 'done' && stepOutOfDate({ ...step, hidden: false }, beneath);
+	const state: StepState = outOfDate ? { kind: 'skipped', tone: 'warning', label: OUT_OF_DATE_LABEL, detail: OUT_OF_DATE_DETAIL } : own;
 	const extras = kind.extras ? callKind(kind, 'extras', () => kind.extras!(step, state), {}) : {};
 	const hasExtras = !!(extras.actions?.length || extras.thumb || extras.hideToggle === false || extras.removable === false);
 	if (state.kind === 'done' && !kind.row && !hasExtras) return null;

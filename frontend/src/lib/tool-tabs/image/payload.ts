@@ -10,7 +10,7 @@ import type { EditStep } from '$lib/tool-tabs/frame/editStack';
 import type { MediaRef } from '$lib/types/tabs';
 import { callKind } from '$lib/editors/stepKinds';
 import type { PixelSize } from '$lib/editors/types';
-import { imageStepContext, resolveImageStep, unavailablePayload } from './stepKinds';
+import { imageStepContext, resolveImageStep, stepOutOfDate, unavailablePayload } from './stepKinds';
 import { sliceStepParams, type SliceParams } from './slice/model';
 import { catalogToolId, isToolEffect, type CatalogParams, type CropParams, type PaintParams, type ResizeParams } from './steps';
 
@@ -141,9 +141,10 @@ export interface PayloadContext {
 
 export function runSteps(steps: readonly EditStep[], context: PayloadContext): MediaToolStep[] {
 	const sizes = inputSizes(steps, context.source, context.sizes);
-	return steps.flatMap((step, i) =>
-		step.hidden ? hiddenPayload(step, sizes[i]) : stepPayload(step, sizes[i], context.baked?.[step.id] ?? null, visibleBefore(steps, i))
-	);
+	return steps.flatMap((step, i) => {
+		const beneath = visibleBefore(steps, i);
+		return step.hidden || stepOutOfDate(step, beneath) ? hiddenPayload(step, sizes[i]) : stepPayload(step, sizes[i], context.baked?.[step.id] ?? null, beneath);
+	});
 }
 
 export function payloadGaps(steps: readonly EditStep[], context: PayloadContext): PayloadGap[] {

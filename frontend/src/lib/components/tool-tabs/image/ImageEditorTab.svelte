@@ -26,11 +26,11 @@
 	import { railTools } from '$lib/editors/railTools';
 	import { reopenToolOf, stepKinds } from '$lib/editors/stepKinds';
 	import { ensureCoreImageEditor } from '$lib/tool-tabs/image/coreEditor';
-	import { imageRowInfo, runStepAction } from '$lib/tool-tabs/image/stepKinds';
+	import { imageRowInfo, outOfDateCount, outOfDateNotice, runStepAction, stepOutOfDate, stepsBeneath } from '$lib/tool-tabs/image/stepKinds';
 	import { createTabGenerate } from '$lib/tool-tabs/image/generate/wiring';
 	import { provideGenerateController } from '$lib/tool-tabs/image/generate/context';
 	import { isLargeArea } from '$lib/tool-tabs/image/generate/area';
-	import { generateSteps, leftOutCount, leftOutNotice } from '$lib/tool-tabs/image/generate/generateStep';
+	import { generateSteps, leftOutCount, leftOutNotice, shapeChange, stepsBeneathOf } from '$lib/tool-tabs/image/generate/generateStep';
 	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
 	import { settingsOf } from '$lib/tool-tabs/image/generate/register';
 	import { canvasFromUrl } from '$lib/paint/loadPicked';
@@ -38,6 +38,7 @@
 	import CandidateStrip from '$lib/components/tool-tabs/generate/CandidateStrip.svelte';
 	import RunChip from '$lib/components/tool-tabs/generate/RunChip.svelte';
 	import RunOverlay from '$lib/components/tool-tabs/generate/RunOverlay.svelte';
+	import StaleOutline from '$lib/components/tool-tabs/generate/StaleOutline.svelte';
 	import { LASSO_OVERLAY, chooseOverlay, maskArea, maskToolState } from '$lib/tool-tabs/image/maskOverlays';
 	import { createImageToolHost } from '$lib/tool-tabs/image/toolHost';
 	import { paintFilters } from '$lib/paint/registries';
@@ -309,7 +310,8 @@
 	let rowInfoFor = $derived.by(() => {
 		void $editorsRevision;
 		void $runViews;
-		return (step: EditStep) => imageRowInfo(step);
+		const steps = stack.steps;
+		return (step: EditStep) => imageRowInfo(step, stepsBeneath(steps, steps.findIndex((entry) => entry.id === step.id)));
 	});
 	let applyOverride = $state<{ tool: string | null; label: string; enabled: boolean } | null>(null);
 	ensureCoreImageEditor();
@@ -328,6 +330,11 @@
 		source: () => ({ ref: resolvedRef }),
 		editLink: () => editLinkForSave(() => autosave.settle()),
 		areaSize: () => get(maskArea),
+		pictureSize: (id) => {
+			const list = appliedSteps(stack);
+			const at = id ? list.findIndex((step) => step.id === id) : -1;
+			return outputSize(at >= 0 ? list.slice(0, at) : list, sourceSize);
+		},
 		stepsBeneath: async (id) => {
 			let list = effective;
 			const at = id ? list.findIndex((step) => step.id === id) : -1;
@@ -399,9 +406,19 @@
 	let runningId = $derived(runStep && (runStatus === 'queued' || runStatus === 'running') ? runStep.step.id : null);
 	let largeArea = $derived(isLargeArea($maskArea, mainRender ? { width: mainRender.canvas.width, height: mainRender.canvas.height } : null, sourceSize));
 	let saveNotices = $derived.by(() => {
-		const notice = leftOutNotice(leftOutCount(applied));
-		return notice ? [notice] : [];
+		return [leftOutNotice(leftOutCount(applied)), outOfDateNotice(outOfDateCount(applied))].filter((line): line is string => !!line);
 	});
+	let runBeneath = $derived(runStep ? stepsBeneathOf(applied, runStep.step.id) : []);
+	let runOutOfDate = $derived.by(() => {
+		void $runViews;
+		return runStep ? stepOutOfDate(runStep.step, runBeneath) : false;
+	});
+	let runOutline = $derived(runStep && runOutOfDate && shapeChange(runStep.params, runBeneath) === 'resize' ? runStep.params.rect : null);
+
+	async function redoStep(id: string) {
+		const outcome = await generate.redo(id);
+		if (outcome.kind === 'area') await selectTool(outcome.task);
+	}
 
 	let cropParams = $derived<CropParams>((pendingHere?.tool === 'crop' ? (pendingHere.params as CropParams) : null) ?? { plan: EMPTY_IMAGE_PLAN, aspect: 'free' });
 	let catalogTool = $derived(activeTool && !['crop', 'resize', 'paint', 'mask', 'effects', 'adjust', 'slice'].includes(activeTool) ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
@@ -1966,6 +1983,9 @@
 						/>
 					{/key}
 				{/if}
+				{#if taskTool && runOutline}
+					<StaleOutline rect={runOutline} />
+				{/if}
 				{#if taskTool && runStep && runStatus && runStatus !== 'done' && runStatus !== 'failed' && runStatus !== 'cancelled'}
 					<RunOverlay rect={runView?.run?.rect ?? runStep.params.rect} preview={runView?.preview ?? null} waiting={runStatus === 'queued'} />
 				{/if}
@@ -1995,7 +2015,7 @@
 		{#if taskTool && !phone}
 			<div class="pointer-events-none absolute inset-x-0 bottom-16 z-20 flex flex-col items-center gap-2 px-4" data-generate-dock>
 				<FloatingPrompt running={runningId} large={largeArea} settings={promptSettings} onclose={closeActiveTool} />
-				{#if runStep && runStatus === 'done' && runStep.params.results.length}
+				{#if runStep && runStatus === 'done' && runStep.params.results.length && !runOutOfDate}
 					<CandidateStrip results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
 				{/if}
 			</div>
@@ -2032,6 +2052,7 @@
 				if (action === 'cancel') void generate.cancel(id);
 				else if (action === 'again') void generate.tryAgain(id);
 				else if (action === 'retry') void generate.retry(id);
+				else if (action === 'redo') void redoStep(id);
 				return;
 			}
 			runStepAction(step, action);
@@ -2204,7 +2225,7 @@
 			{/snippet}
 			{#snippet below()}
 				{#if taskTool && phone}
-					{#if runStep && runStatus === 'done' && runStep.params.results.length}
+					{#if runStep && runStatus === 'done' && runStep.params.results.length && !runOutOfDate}
 						<div class="flex flex-none justify-center bg-canvas pb-2" data-generate-strip-phone>
 							<CandidateStrip phone results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
 						</div>

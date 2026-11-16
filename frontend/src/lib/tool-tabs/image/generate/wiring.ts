@@ -28,7 +28,7 @@ function storage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
 	}
 }
 
-export type TabGenerateDeps = Pick<ControllerDeps, 'getStack' | 'setStack' | 'source' | 'editLink' | 'landRegion' | 'areaSize' | 'stepsBeneath'>;
+export type TabGenerateDeps = Pick<ControllerDeps, 'getStack' | 'setStack' | 'source' | 'editLink' | 'landRegion' | 'areaSize' | 'pictureSize' | 'stepsBeneath'>;
 
 export function createTabGenerate(deps: TabGenerateDeps): GenerateController {
 	let controller!: GenerateController;

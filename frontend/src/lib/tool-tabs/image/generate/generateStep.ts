@@ -3,6 +3,7 @@ import { canvasFromUrl } from '$lib/paint/loadPicked';
 import type { EditorRun, NormRect, RunStatus } from '$lib/services/api/editorTasks';
 import type { StepKind, StepState } from '$lib/editors/stepKinds';
 import type { EditStackState, EditStep, StepDraft } from '$lib/tool-tabs/frame/editStack';
+import { geometryKey } from '../mask';
 import { isTerminal, runViews } from './runEngine';
 
 export const GENERATE_TOOL = 'generate';
@@ -42,6 +43,11 @@ export interface GenerateRun {
 	error: string | null;
 }
 
+export interface GenerateBasis {
+	geometry: string;
+	size: { width: number; height: number } | null;
+}
+
 export interface GenerateParams {
 	v: number;
 	task: string;
@@ -55,6 +61,7 @@ export interface GenerateParams {
 	rect: NormRect | null;
 	soft: boolean;
 	run: GenerateRun;
+	basis?: GenerateBasis;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,6 +83,12 @@ function rectOf(raw: unknown): NormRect | null {
 	return [x, y, width, height].every((value) => typeof value === 'number' && Number.isFinite(value)) ? { x: x as number, y: y as number, width: width as number, height: height as number } : null;
 }
 
+function basisOf(raw: unknown): GenerateBasis | null {
+	if (!isRecord(raw) || typeof raw.geometry !== 'string') return null;
+	const size = isRecord(raw.size) && typeof raw.size.width === 'number' && typeof raw.size.height === 'number' ? { width: raw.size.width, height: raw.size.height } : null;
+	return { geometry: raw.geometry, size };
+}
+
 export function readGenerateParams(raw: unknown): GenerateParams | null {
 	if (!isRecord(raw) || !isRecord(raw.run) || typeof raw.run.id !== 'string' || !STATUSES.includes(raw.run.status as RunStatus)) return null;
 	const setup = isRecord(raw.setup) ? raw.setup : {};
@@ -84,6 +97,7 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 	const results = resultsOf(raw.results);
 	const chosen = typeof raw.chosen === 'number' && raw.chosen >= 0 && raw.chosen < results.length ? Math.trunc(raw.chosen) : 0;
 	const size = isRecord(area.size) && typeof area.size.width === 'number' && typeof area.size.height === 'number' ? { width: area.size.width, height: area.size.height } : null;
+	const basis = basisOf(raw.basis);
 	return {
 		v: GENERATE_VERSION,
 		task: typeof raw.task === 'string' ? raw.task : '',
@@ -107,8 +121,51 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 		seed: typeof raw.seed === 'number' ? raw.seed : null,
 		rect: rectOf(raw.rect),
 		soft: raw.soft === true,
-		run: { id: raw.run.id, status: raw.run.status as RunStatus, error: typeof raw.run.error === 'string' ? raw.run.error : null }
+		run: { id: raw.run.id, status: raw.run.status as RunStatus, error: typeof raw.run.error === 'string' ? raw.run.error : null },
+		...(basis ? { basis } : {})
 	};
+}
+
+export function basisFor(beneath: readonly EditStep[], size: { width: number; height: number } | null): GenerateBasis {
+	return { geometry: geometryKey(beneath), size };
+}
+
+export type ShapeChange = 'none' | 'resize' | 'other';
+
+function geometryList(key: string): Array<[string, unknown]> | null {
+	try {
+		const parsed = JSON.parse(key);
+		return Array.isArray(parsed) ? (parsed as Array<[string, unknown]>) : null;
+	} catch {
+		return null;
+	}
+}
+
+export function shapeChange(params: GenerateParams, beneath: readonly EditStep[]): ShapeChange {
+	if (!params.basis) return 'none';
+	const now = geometryKey(beneath);
+	if (now === params.basis.geometry) return 'none';
+	const before = geometryList(params.basis.geometry);
+	const after = geometryList(now);
+	if (!before || !after) return 'other';
+	const rest = (list: Array<[string, unknown]>) => list.filter((entry) => entry[0] !== 'resize');
+	const kept = rest(before);
+	const same = JSON.stringify(kept) === JSON.stringify(rest(after)) && kept.every((entry) => entry[0] === 'crop');
+	return same ? 'resize' : 'other';
+}
+
+function scaled(value: number, from: number, to: number): number {
+	return Math.min(to, Math.max(1, Math.round((value * to) / from)));
+}
+
+export function remapArea(area: GenerateArea, from: { width: number; height: number } | null, to: { width: number; height: number } | null): GenerateArea {
+	if (!area.size || !from || !to || from.width <= 0 || from.height <= 0 || to.width <= 0 || to.height <= 0) return area;
+	return { ...area, size: { width: scaled(area.size.width, from.width, to.width), height: scaled(area.size.height, from.height, to.height) } };
+}
+
+export function stepsBeneathOf(steps: readonly EditStep[], id: string | null): EditStep[] {
+	const at = id ? steps.findIndex((step) => step.id === id) : -1;
+	return (at >= 0 ? steps.slice(0, at) : steps.slice()).filter((step) => !step.hidden);
 }
 
 export function promptStart(prompt: string): string {
@@ -158,8 +215,10 @@ export function withChosen(params: GenerateParams, index: number): GenerateParam
 	return { ...params, chosen: index, seed: params.results[index].seed ?? params.seed };
 }
 
-export function withFreshRun(params: GenerateParams, run: { id: string; status: RunStatus }): GenerateParams {
-	return { ...params, run: { id: run.id, status: run.status, error: null }, results: [], chosen: 0, seed: null, soft: false };
+export function withFreshRun(params: GenerateParams, run: { id: string; status: RunStatus }, basis?: GenerateBasis): GenerateParams {
+	const next: GenerateParams = { ...params, run: { id: run.id, status: run.status, error: null }, results: [], chosen: 0, seed: null, soft: false };
+	if (basis) next.basis = basis;
+	return next;
 }
 
 export function generateStateOf(params: GenerateParams): StepState {
@@ -256,11 +315,18 @@ export const generateStepKind: StepKind<GenerateParams> = {
 		const params = readGenerateParams(step.params);
 		return params ? generateStateOf(params) : { kind: 'done' };
 	},
+	shapeBasis(raw) {
+		const params = readGenerateParams(raw);
+		if (!params?.basis) return null;
+		const status = get(runViews)[params.run.id]?.status ?? params.run.status;
+		return status === 'done' ? params.basis.geometry : null;
+	},
 	extras(step, state) {
 		const params = readGenerateParams(step.params);
 		const status = params ? (get(runViews)[params.run.id]?.status ?? params.run.status) : 'done';
 		const thumb = status === 'done' && params ? (chosenResult(params)?.url ?? null) : null;
 		if (state.kind === 'busy') return { actions: [{ id: 'cancel', label: 'Cancel', icon: 'close' }], hideToggle: false, removable: false };
+		if (state.kind === 'skipped' && state.tone === 'warning') return { actions: [{ id: 'redo', label: 'Redo on the new picture', icon: 'refresh' }], hideToggle: step.hidden };
 		if (state.kind === 'skipped') return { actions: [{ id: 'retry', label: 'Retry', icon: 'refresh' }], hideToggle: false };
 		return { actions: [{ id: 'again', label: 'Try again', icon: 'refresh' }], thumb };
 	},

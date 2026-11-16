@@ -24,7 +24,7 @@ export interface PreviewFrame {
 export type StepState =
 	| { kind: 'done' }
 	| { kind: 'busy'; label: string; progress?: number }
-	| { kind: 'skipped'; tone: 'muted' | 'warning' | 'danger'; label: string; action?: { id: string; label: string } };
+	| { kind: 'skipped'; tone: 'muted' | 'warning' | 'danger'; label: string; detail?: string; action?: { id: string; label: string } };
 
 export interface RowAction {
 	id: string;
@@ -50,6 +50,7 @@ export interface StepKind<P = unknown> extends EditorEntryBase {
 	preview?(frame: PreviewFrame, params: P, ctx: StepContext<P>, signal: AbortSignal): Promise<PreviewFrame>;
 	payload(params: P, ctx: StepContext<P>): MediaToolStep[];
 	state?(step: EditStep<P>, ctx: StepContext<P>): StepState;
+	shapeBasis?(params: P): string | null;
 	onAction?(step: EditStep<P>, action: string, ctx: StepContext<P>): void;
 	row?: ComponentRef;
 	extras?(step: EditStep<P>, state: StepState): RowExtras;

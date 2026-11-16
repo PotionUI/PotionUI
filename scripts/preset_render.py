@@ -46,7 +46,7 @@ from src.features.presets.loader import PresetTemplateLoader, plugin_preset_root
 from src.features.presets.processor import PresetProcessor  # noqa: E402
 from src.platform.plugins.loader import PluginLoader  # noqa: E402
 from src.platform.templating.processor import TemplateProcessor  # noqa: E402
-from src.features.presets.templates import PresetTemplate, ModeTemplate
+from src.features.presets.templates import PresetTemplate, ModeTemplate, find_mode
 from src.features.presets.fixture_form import bind_fixture_form, build_default_form_data
 from src.platform.filesystem.yaml_io import load_yaml
 
@@ -234,7 +234,7 @@ def build_fixture_form_data(preset: PresetTemplate, mode: str) -> Dict[str, Any]
     image/video/audio/media/file containment check (logged) in that case,
     per its own docstring; that's fine for a read-only rendering harness.
     """
-    mode_data = preset.modes[mode]
+    mode_data = find_mode(preset, mode)
     form_data, _ = build_default_form_data(preset, mode, GOLDEN_TAG)
 
     form_data.setdefault("quantity", 1)
@@ -415,7 +415,7 @@ def render_preset_mode(
         if form_data is None:
             form_data = build_fixture_form_data(preset, mode)
 
-        generation_data = build_generation_data(mode, form_data, preset.modes.get(mode))
+        generation_data = build_generation_data(mode, form_data, find_mode(preset, mode))
         pipes = processor.process(preset, generation_data)
 
         rendered_pipes = []
@@ -469,7 +469,7 @@ def print_render(record: Dict[str, Any]) -> None:
 
 def golden_filename(preset: PresetTemplate, mode: str) -> str:
     safe_id = preset.id.replace("/", "_")
-    return f"{safe_id}__{mode}.json"
+    return f"{safe_id}__{mode.replace(':', '-')}.json"
 
 
 def run_golden_all(out_dir: Path, presets_root: Optional[Path] = None) -> Dict[str, Any]:
@@ -482,7 +482,7 @@ def run_golden_all(out_dir: Path, presets_root: Optional[Path] = None) -> Dict[s
     total_values = 0
 
     for preset in sorted(presets, key=lambda p: p.id):
-        for mode in sorted(preset.modes.keys()):
+        for mode in [*sorted(preset.modes.keys()), *(f"editor:{name}" for name in sorted(preset.editor_modes))]:
             record = render_preset_mode(processor, preset, mode)
             if "error" in record:
                 errored.append((preset.name, preset.id, mode, record["error"]))
@@ -555,7 +555,7 @@ def main() -> int:
     if preset is None:
         print(f"No preset found matching {args.preset!r}", file=sys.stderr)
         return 1
-    if args.mode not in preset.modes:
+    if find_mode(preset, args.mode) is None:
         print(f"Preset {preset.name!r} has no mode {args.mode!r} (available: {sorted(preset.modes.keys())})", file=sys.stderr)
         return 1
 

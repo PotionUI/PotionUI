@@ -12,6 +12,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.generation.details_url import REQUEST_ORIGIN_KEY, generation_details_url
+from src.features.generation.exceptions import ModeIsEditorError
 from src.features.generation.failure import start_failure_reason
 from src.features.generation.prompt_batch import MAX_BATCH_IMAGES, PromptBatchError
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
@@ -369,6 +370,8 @@ class StartGenerationTool(BaseTool):
                 **(extra or {}),
             }))
         except PromptBatchError as e:
+            return ToolResult(success=False, data="", error=str(e))
+        except ModeIsEditorError as e:
             return ToolResult(success=False, data="", error=str(e))
         except FormBindingError as e:
             return ToolResult(

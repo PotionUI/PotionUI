@@ -49,7 +49,7 @@ from src.features.presets.exceptions import PresetNotFoundException
 from src.features.backends.backend_registry import NoBackendForEngineError
 from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.content_safety.errors import ContentPolicyRefusal
-from src.features.generation.exceptions import AdminAuthorityRequired, IdempotencyKeyConflict
+from src.features.generation.exceptions import AdminAuthorityRequired, IdempotencyKeyConflict, ModeIsEditorError
 from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.generation.applied_prompt_repository import GenerationAppliedPromptRepository
@@ -235,6 +235,8 @@ class GenerationController(BaseController):
                 message=str(e),
                 status_code=404
             )
+        except ModeIsEditorError as e:
+            return self.error_response(error=e.code, message=str(e), status_code=e.status_code)
         except ContentPolicyRefusal as e:
             return self.error_response(error=e.code, message=str(e), status_code=e.status_code)
         except IdempotencyKeyConflict:
@@ -286,6 +288,8 @@ class GenerationController(BaseController):
                 message="The selected preset is not available",
                 status_code=404
             )
+        except ModeIsEditorError as e:
+            return self.error_response(error=e.code, message=str(e), status_code=e.status_code)
         except ValueError as e:
             return self.error_response(
                 error="validation_error",

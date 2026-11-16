@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Iterable, List, Mapping, Optional
 
+from src.features.presets.templates import find_mode
 from src.features.cloud.contracts import CloudModelSpec, MediaInputSpec, ParamSpec
 
 CLOUD_PIPE_NAME = "cloud_generate"
@@ -16,7 +17,7 @@ class CapabilityBinding:
 
 
 def mode_task(preset_template: Any, mode: str) -> Optional[str]:
-    mode_data = (getattr(preset_template, "modes", None) or {}).get(mode)
+    mode_data = find_mode(preset_template, mode)
     for pipe in getattr(mode_data, "pipes", None) or []:
         if getattr(pipe, "name", None) != CLOUD_PIPE_NAME:
             continue

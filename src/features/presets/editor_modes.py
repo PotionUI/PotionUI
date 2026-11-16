@@ -21,13 +21,14 @@ from src.features.presets.templates import (
     ModeTemplate,
     PipeTemplate,
     PresetTemplate,
+    find_mode,
+    is_editor_key,
 )
 from src.platform.filesystem.yaml_io import load_yaml_file
 from src.platform.observability.logger import logger
 
 EDITOR_MODES_DIR = "editor_modes"
 EDITOR_MODE_FILE = "editor_mode.yml"
-SCHEMA_VERSION = 1
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 TASK_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)?$")
 MIN_AREA = 262144
@@ -156,10 +157,7 @@ class EditorModeFile(BaseModel):
         return self
 
     def input_fields(self) -> List[str]:
-        source = self.inputs.source
-        names = [source if isinstance(source, str) else source.field]
-        names.extend(name for name in (self.inputs.mask, self.inputs.quantity, self.inputs.seed) if name)
-        return names
+        return input_names(self.inputs.model_dump())
 
 
 def validate_editor_mode_file(data: Any, prefix: str) -> Tuple[Optional[EditorModeFile], List[str]]:
@@ -200,11 +198,33 @@ def editor_overrides(spec: EditorModeSpec, with_inputs: bool = False) -> Dict[st
     return overrides
 
 
-def input_field_names(spec: EditorModeSpec) -> List[str]:
-    source = spec.inputs.get("source")
+def input_names(inputs: Dict[str, Any]) -> List[str]:
+    source = inputs.get("source")
     names = [source["field"] if isinstance(source, dict) else source]
-    names.extend(spec.inputs.get(key) for key in ("mask", "quantity", "seed"))
+    names.extend(inputs.get(key) for key in ("mask", "quantity", "seed"))
     return [name for name in names if name]
+
+
+def input_field_names(spec: EditorModeSpec) -> List[str]:
+    return input_names(spec.inputs)
+
+
+def form_overrides_for(
+    template: Any,
+    mode_key: Optional[str],
+    stored: Optional[Dict[str, Any]],
+    with_inputs: bool = False,
+) -> Dict[str, Any]:
+    stored = stored or {}
+    if not is_editor_key(mode_key):
+        return stored.get(mode_key, {})
+    mode = find_mode(template, mode_key)
+    spec = getattr(mode, "editor", None)
+    if spec is None:
+        return {}
+    merged = dict(stored.get(spec.from_mode) or {}) if spec.from_mode else {}
+    merged.update(editor_overrides(spec, with_inputs))
+    return merged
 
 
 def _inventory(mode: ModeTemplate) -> Dict[str, FieldTemplate]:

@@ -68,3 +68,15 @@ class GenerationBundleImportError(GenerationException):
     """An uploaded generation export bundle is malformed, oversized, or not
     a PotionUI generation envelope. The controller maps this to a 400."""
     pass
+
+
+class ModeIsEditorError(GenerationException):
+    code = "mode_is_editor"
+    status_code = 422
+
+    def __init__(self, mode: str):
+        super().__init__(
+            f"'{mode}' is a mode of the image editor and cannot be started from here. "
+            f"Pick a mode of the preset's own Generate page, or run it from the editor."
+        )
+        self.mode = mode

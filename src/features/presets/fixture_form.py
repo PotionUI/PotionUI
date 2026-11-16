@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.forms.binding import FormBindingError, bind_form
-from src.features.presets.templates import FieldTemplate, PresetTemplate, default_form_name
+from src.features.presets.editor_modes import form_overrides_for
+from src.features.presets.templates import FieldTemplate, PresetTemplate, default_form_name, find_mode
 from src.features.video_director import apply_preset_mode_overlay
 from src.features.video_director.normalize import allowed_durations
 from src.features.video_director.simple_modes import placeholder_name
@@ -66,7 +67,9 @@ def inject_unresolvable_defaults(fields: List[FieldTemplate], form_data: Dict[st
 
 
 def default_form_fields(preset: PresetTemplate, mode: str) -> List[FieldTemplate]:
-    mode_data = preset.modes[mode]
+    mode_data = find_mode(preset, mode)
+    if mode_data is None:
+        raise KeyError(mode)
     form_name = default_form_name(mode_data)
     if form_name is None:
         return []
@@ -153,9 +156,11 @@ def bind_fixture_form(
     storage_dir: Optional[str] = None,
     mask_prefix: str = "",
 ) -> Dict[str, Any]:
+    overrides = form_overrides_for(preset, mode, {})
     try:
         bound = bind_form(
-            preset, mode, form_name=None, raw_form_data=form_data, user_id=None, storage_dir=storage_dir
+            preset, mode, form_name=None, raw_form_data=form_data, user_id=None, storage_dir=storage_dir,
+            field_overrides=overrides,
         )
     except FormBindingError as error:
         masks = {
@@ -166,6 +171,7 @@ def bind_fixture_form(
         if not masks:
             raise
         bound = bind_form(
-            preset, mode, form_name=None, raw_form_data={**form_data, **masks}, user_id=None, storage_dir=storage_dir
+            preset, mode, form_name=None, raw_form_data={**form_data, **masks}, user_id=None, storage_dir=storage_dir,
+            field_overrides=overrides,
         )
     return dict(bound.values)

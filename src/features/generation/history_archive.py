@@ -922,7 +922,7 @@ class GenerationHistoryArchive:
         if not preset_id or preset_loader is None or not mode:
             return None
 
-        from src.features.presets.templates import default_form_name, sorted_forms
+        from src.features.presets.templates import default_form_name, find_mode, sorted_forms
 
         try:
             preset = preset_loader.get(preset_id)
@@ -932,7 +932,7 @@ class GenerationHistoryArchive:
         if preset is None:
             return None
 
-        mode_template = preset.modes.get(mode)
+        mode_template = find_mode(preset, mode)
         if mode_template is None:
             return None
         forms = sorted_forms(mode_template)

@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from src.features.forms.binding import bind_form
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.presets.collaborators import PresetCollaborators
+from src.features.presets.editor_modes import form_overrides_for
 from src.features.presets.formula_groups import resolve_formula_groups
 from src.features.presets.mappers import admin_list_fields, missing_mirror_entry
 from src.features.presets.overlays import MIRROR_OK
@@ -26,7 +27,14 @@ from src.features.presets.exceptions import (
 )
 from src.features.presets.requirements.context_builder import backend_infos_for_engine, resolve_backend_id
 from src.features.presets.requirements.user_scope import user_missing_by_mode
-from src.features.presets.templates import ModeTemplate, GenerationMode, sorted_forms, default_form_name
+from src.features.presets.templates import (
+    ModeTemplate,
+    GenerationMode,
+    default_form_name,
+    find_mode,
+    is_editor_key,
+    sorted_forms,
+)
 from src.pipelines.graph import build_graph, PipelineGraph
 from src.platform.plugins.requirement_checkers import requirement_checker_registry
 from src.platform.security.user import User, AccountType, owner_is_admin
@@ -314,7 +322,7 @@ def get_form_schema(
             raise NoModesAvailableException(preset_id)
         mode = mode_keys[0]
 
-    mode_data = found_preset.modes.get(mode)
+    mode_data = find_mode(found_preset, mode)
     if mode_data is None:
         raise ModeNotFoundException(preset_id, mode, replaced_by=replacement_for(getattr(found_preset, 'vars', None), mode))
 
@@ -330,7 +338,9 @@ def get_form_schema(
     # see PresetFormSerializer.process_form_fields). There is no
     # client-controllable flag to skip this: the admin tab reads the
     # unmerged inventory from get_form_overrides_inventory() instead.
-    stored_overrides = collaborators.db_repo.get_preset_form_overrides(preset_id).get(mode, {})
+    stored_overrides = form_overrides_for(
+        found_preset, mode, collaborators.db_repo.get_preset_form_overrides(preset_id), with_inputs=True
+    )
 
     # Process form fields
     form_schema = collaborators.form_serializer.process_form_fields(form_config, preset_id, overrides=stored_overrides)
@@ -440,7 +450,9 @@ def get_pipeline(
     bound_values = form_data or {}
     if user_id is not None:
         storage_dir = collaborators.settings.get_file_storage_directory(user_id)
-        field_overrides = collaborators.db_repo.get_preset_form_overrides(preset_id).get(mode, {})
+        field_overrides = form_overrides_for(
+            found_preset, mode, collaborators.db_repo.get_preset_form_overrides(preset_id)
+        )
         bound = bind_form(
             found_preset, mode, form_name, form_data, user_id,
             storage_dir=storage_dir, field_overrides=field_overrides,
@@ -478,7 +490,9 @@ def _validate_mode(preset_template, mode: str) -> None:
     """
     mode_data = None
 
-    if isinstance(preset_template.modes, dict):
+    if is_editor_key(mode):
+        mode_data = find_mode(preset_template, mode)
+    elif isinstance(preset_template.modes, dict):
         if mode in preset_template.modes:
             mode_data = preset_template.modes[mode]
         else:

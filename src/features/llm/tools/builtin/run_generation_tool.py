@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict
 
+from src.features.generation.exceptions import ModeIsEditorError
 from src.features.generation.failure import start_failure_reason
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, MCP_USE_START_GENERATION
 from src.features.llm.tools.builtin.utils import build_generation_preview
@@ -260,6 +261,8 @@ class RunGenerationTool(BaseTool):
                     "tab_id": tab_id,
                 }),
             )
+        except ModeIsEditorError as e:
+            return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"Failed to start generation: {e}")
             return ToolResult(success=False, data="", error=unexpected("run_generation", "start the generation", start_failure_reason(e, context.is_admin), True))

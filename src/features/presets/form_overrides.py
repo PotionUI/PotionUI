@@ -37,7 +37,7 @@ from src.features.forms.binding import (
     usable_override_default,
     validate_field_value,
 )
-from src.features.presets.templates import FieldTemplate, PresetTemplate
+from src.features.presets.templates import FieldTemplate, PresetTemplate, find_mode
 
 _OVERRIDE_KEYS = frozenset({"default", "editable", "visible"})
 
@@ -62,7 +62,7 @@ def mode_field_inventory(preset_template: PresetTemplate, mode: str) -> Dict[str
     variant with a different declaration - variants sharing a field name are
     expected to agree on its shape.
     """
-    mode_data = (preset_template.modes or {}).get(mode)
+    mode_data = find_mode(preset_template, mode)
     if mode_data is None or not mode_data.forms:
         return {}
 
@@ -143,7 +143,7 @@ def mode_field_inventory_with_tabs(
     `validate_form_overrides`, whose validation semantics this must not
     change) rather than folded into it.
     """
-    mode_data = (preset_template.modes or {}).get(mode)
+    mode_data = find_mode(preset_template, mode)
     if mode_data is None or not mode_data.forms:
         return {}, {}, []
 

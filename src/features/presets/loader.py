@@ -897,8 +897,9 @@ class PresetTemplateLoader:
 
         logger.info(f"Preset loading complete. Loaded {len(presets)} presets")
 
-        self._apply_preset_mode_contributions(presets, errors)
-        self._apply_editor_modes(presets, errors)
+        contributions = self._mode_contributions()
+        self._apply_preset_mode_contributions(presets, errors, contributions)
+        self._apply_editor_modes(presets, errors, contributions)
         self._apply_preset_extensions(presets, errors)
         return presets, errors
 
@@ -967,8 +968,16 @@ class PresetTemplateLoader:
             except Exception:
                 logger.exception("on_presets_changed callback failed")
 
+    def _mode_contributions(self) -> List[PresetModeContribution]:
+        if self.plugin_registry is None:
+            return []
+        return plugin_preset_mode_contributions(self.plugin_registry.get_enabled_plugins())
+
     def _apply_preset_mode_contributions(
-        self, presets: List[PresetTemplate], errors: Dict[str, List[str]]
+        self,
+        presets: List[PresetTemplate],
+        errors: Dict[str, List[str]],
+        contributions: Optional[List[PresetModeContribution]] = None,
     ) -> None:
         """Merge plugin-contributed modes into already-loaded presets.
 
@@ -995,7 +1004,8 @@ class PresetTemplateLoader:
         if self.plugin_registry is None:
             return
 
-        contributions = plugin_preset_mode_contributions(self.plugin_registry.get_enabled_plugins())
+        if contributions is None:
+            contributions = self._mode_contributions()
         claimed: Dict[Tuple[str, str], str] = {}
 
         for contribution in contributions:
@@ -1071,12 +1081,14 @@ class PresetTemplateLoader:
                 target.requirements.extend(_mode_scoped_requirements(mode_name, mode_template))
                 claimed[claim_key] = contribution.plugin_id
 
-    def _apply_editor_modes(self, presets: List[PresetTemplate], errors: Dict[str, List[str]]) -> None:
-        contributions = (
-            plugin_preset_mode_contributions(self.plugin_registry.get_enabled_plugins())
-            if self.plugin_registry is not None
-            else []
-        )
+    def _apply_editor_modes(
+        self,
+        presets: List[PresetTemplate],
+        errors: Dict[str, List[str]],
+        contributions: Optional[List[PresetModeContribution]] = None,
+    ) -> None:
+        if contributions is None:
+            contributions = self._mode_contributions()
         shared = self.shared_path.resolve()
 
         def build_fields(field_dicts, candidate, prefix):

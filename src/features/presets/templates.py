@@ -218,10 +218,6 @@ class PresetTemplate:
 EDITOR_KEY_PREFIX = "editor:"
 
 
-def editor_key(name: str) -> str:
-    return f"{EDITOR_KEY_PREFIX}{name}"
-
-
 def is_editor_key(key: Optional[str]) -> bool:
     return isinstance(key, str) and key.startswith(EDITOR_KEY_PREFIX)
 
@@ -230,8 +226,8 @@ def find_mode(template: Optional[PresetTemplate], key: Optional[str]) -> Optiona
     if template is None or not key:
         return None
     if is_editor_key(key):
-        return (template.editor_modes or {}).get(key[len(EDITOR_KEY_PREFIX):])
-    return (template.modes or {}).get(key)
+        return (getattr(template, "editor_modes", None) or {}).get(key[len(EDITOR_KEY_PREFIX):])
+    return (getattr(template, "modes", None) or {}).get(key)
 
 
 def files_preset_id(template: PresetTemplate) -> str:

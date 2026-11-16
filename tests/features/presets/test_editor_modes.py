@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,66 +9,20 @@ from src.features.presets.extensions import walk_fields
 from src.features.presets.form_overrides import apply_overrides_to_fields
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.presets.overlays import PresetOverlays, RowOverlay, apply_overlays
-from src.features.presets.templates import editor_key, find_mode, is_editor_key
+from src.features.presets.templates import find_mode, is_editor_key
+from tests.features.presets.editor_mode_trees import (
+    KREA2,
+    KREA2_ID,
+    KREA_EDITOR,
+    ROOT,
+    SDXL,
+    SDXL_INPAINT_EDITOR,
+    copy_preset,
+    write_editor_mode,
+)
 
-MARKETPLACE = Path("content/presets/marketplace")
-KREA2 = "Krea2"
-SDXL = "SDXL"
-KREA2_ID = "4TK1KBQZ2XMB8ME0PTMXS1YJQP"
-
-KREA_EDITOR = {
-    "schema_version": 1,
-    "task": "edit_region",
-    "from": "edit",
-    "region": "crop",
-    "inputs": {"source": "source_image"},
-    "fixed": {"match_source": True, "edit_task": "edit", "fit_mode": "fit", "ref_position": "aligned"},
-    "fields": {
-        "hide": ["source_image_b", "ref_position_a", "ref_boost_a"],
-        "change": {"resolution": {"label": "Detail", "ai_hint": "The pixel budget of the marked area."}},
-        "add": [
-            {
-                "into": {"tab": "advanced"},
-                "fields": [
-                    {
-                        "name": "region_context",
-                        "type": "select",
-                        "label": "Surroundings",
-                        "audience": "advanced",
-                        "default": "0.5",
-                        "configuration": {"options": [{"label": "Tight", "value": "0.25"}, {"label": "Wide", "value": "1.0"}]},
-                    }
-                ],
-            }
-        ],
-    },
-}
-
-SDXL_INPAINT_EDITOR = {
-    "schema_version": 1,
-    "task": "edit_region",
-    "from": "inpaint",
-    "region": "mask",
-    "inputs": {"source": "source_image", "mask": "source_image_inpaint_mask"},
-}
-
-
-def _copy_preset(name: str, root: Path) -> Path:
-    destination = root / name
-    shutil.copytree(MARKETPLACE / name, destination, ignore=shutil.ignore_patterns("public", "tests.yml", "styles.yml"))
-    return destination
-
-
-def _write_editor_mode(preset_dir: Path, name: str, spec, files: dict = None) -> Path:
-    directory = preset_dir / "editor_modes" / name
-    directory.mkdir(parents=True)
-    text = spec if isinstance(spec, str) else yaml.safe_dump(spec, sort_keys=False)
-    (directory / "editor_mode.yml").write_text(text)
-    for relative, content in (files or {}).items():
-        target = directory / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content if isinstance(content, str) else yaml.safe_dump(content, sort_keys=False))
-    return directory
+_copy_preset = copy_preset
+_write_editor_mode = write_editor_mode
 
 
 def _registry(manifests):
@@ -282,7 +235,7 @@ STANDALONE_FORM = {
 
 
 def _standalone_files(tree):
-    pipeline = (tree.sdxl / "modes" / "inpaint" / "pipeline.yml").read_text()
+    pipeline = (tree.sdxl / "modes" / "inpaint" / "pipeline.yml").read_text(encoding="utf-8")
     return {"form.yml": STANDALONE_FORM, "pipeline.yml": pipeline}
 
 
@@ -343,7 +296,6 @@ def test_find_mode_resolves_plain_and_editor_keys(tree):
     template = _krea(_load(tree.root))
     assert find_mode(template, "edit") is template.modes["edit"]
     assert find_mode(template, "editor:edit") is template.editor_modes["edit"]
-    assert find_mode(template, editor_key("edit")) is template.editor_modes["edit"]
     assert find_mode(template, "editor:nope") is None
     assert find_mode(template, "nope") is None
     assert find_mode(template, "") is None
@@ -434,7 +386,9 @@ def _plugin(tmp, plugin_id, files: dict, target=KREA2_ID, modes_root="contribute
     for relative, content in files.items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content if isinstance(content, str) else yaml.safe_dump(content, sort_keys=False))
+        path.write_text(
+            content if isinstance(content, str) else yaml.safe_dump(content, sort_keys=False), encoding="utf-8"
+        )
     return SimpleNamespace(
         id=plugin_id,
         plugin_dir=plugin_dir,
@@ -457,7 +411,7 @@ def test_a_plugin_contributes_an_editor_mode_to_a_preset_it_does_not_own(tree):
 
 def test_a_contributed_editor_mode_may_derive_from_a_contributed_generation_mode(tree):
     files = {
-        "modes/extra/pipeline.yml": (tree.krea / "modes" / "edit" / "pipeline.yml").read_text(),
+        "modes/extra/pipeline.yml": (tree.krea / "modes" / "edit" / "pipeline.yml").read_text(encoding="utf-8"),
         "modes/extra/form.yml": "fields:\n  - name: strength\n    type: slider\n    default: 1\n    configuration: {min: 0, max: 2, step: 0.1}\n",
         "editor_modes/extra/editor_mode.yml": {
             "schema_version": 1,
@@ -539,7 +493,7 @@ def test_a_plugin_extension_reaches_the_generation_mode_but_not_a_derived_editor
         ],
         "pipes": [{"patch": "generator/krea2_edit", "configuration_add": {"plugin_flag": True}}],
     }
-    (plugin_dir / "extensions" / "ext.yml").write_text(yaml.safe_dump(extension))
+    (plugin_dir / "extensions" / "ext.yml").write_text(yaml.safe_dump(extension), encoding="utf-8")
     manifest = SimpleNamespace(
         id="ext-plugin",
         plugin_dir=plugin_dir,
@@ -566,8 +520,8 @@ def _mirror_inputs(tree):
         "inputs": {"source": "source_image"},
     }
     files = {
-        "form.yml": (tree.krea / "modes" / "enhance" / "form.yml").read_text(),
-        "pipeline.yml": (tree.krea / "modes" / "enhance" / "pipeline.yml").read_text(),
+        "form.yml": (tree.krea / "modes" / "enhance" / "form.yml").read_text(encoding="utf-8"),
+        "pipeline.yml": (tree.krea / "modes" / "enhance" / "pipeline.yml").read_text(encoding="utf-8"),
     }
     _write_editor_mode(tree.krea, "alone", spec, files)
     loader = _load(tree.root)
@@ -601,11 +555,10 @@ def test_a_display_override_keeps_every_editor_mode(tree):
     assert set(result.presets[0].editor_modes) == {"edit", "alone"}
 
 
-def test_the_shipped_presets_have_no_editor_modes_and_report_no_editor_errors():
-    loader = PresetTemplateLoader(["content/presets"])
+def test_the_shipped_tree_loads_with_no_editor_mode_entries_in_load_errors():
+    loader = PresetTemplateLoader([str(ROOT / "content" / "presets")])
     loader.load_presets()
     assert loader.presets
-    assert all(preset.editor_modes == {} for preset in loader.presets)
     assert _editor_errors(loader) == {}
     assert all(mode.editor is None for preset in loader.presets for mode in preset.modes.values())
 

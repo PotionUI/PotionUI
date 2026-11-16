@@ -1,7 +1,7 @@
 import re
 from typing import Any, List, Optional
 
-from src.features.presets.templates import ModeTemplate
+from src.features.presets.templates import ModeTemplate, find_mode
 
 QUANTITY_CONFIG_KEY = "quantity"
 
@@ -28,5 +28,4 @@ def mode_quantity_fields(mode_data: Optional[ModeTemplate]) -> List[str]:
 
 
 def preset_quantity_fields(preset_template: Any, mode: str) -> List[str]:
-    modes = getattr(preset_template, "modes", None) or {}
-    return mode_quantity_fields(modes.get(mode))
+    return mode_quantity_fields(find_mode(preset_template, mode))

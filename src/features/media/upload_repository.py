@@ -280,11 +280,13 @@ class UploadRepository:
         thumbnail_large: Optional[str],
         thumbnail_profile: Optional[str],
         has_alpha: Optional[bool] = None,
+        original_filename: Optional[str] = None,
     ) -> Optional[Upload]:
         with get_cursor() as cursor:
             cursor.execute("""
                 UPDATE uploads
                    SET filename = ?,
+                       original_filename = COALESCE(?, original_filename),
                        mime_type = ?,
                        width = ?,
                        height = ?,
@@ -300,6 +302,7 @@ class UploadRepository:
                  WHERE id = ? AND user_id = ? AND filename = ?
             """, (
                 filename,
+                original_filename,
                 mime_type,
                 width,
                 height,

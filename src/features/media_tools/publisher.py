@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Callable, Dict, Optional, Sequence, Set, Tuple, TYPE_CHECKING
@@ -137,6 +138,7 @@ class MediaToolPublisher:
     ) -> Upload:
         profile = load_thumbnail_profile(self.settings)
         dest_key = self._new_key(output.path.suffix)
+        renamed = self._name_for_content(upload.original_filename, Path(dest_key).suffix)
         paths: Dict[str, str] = {}
         try:
             self.storage_driver.put_file(dest_key, output.path)
@@ -149,6 +151,7 @@ class MediaToolPublisher:
                 user_id=user_id,
                 expected_filename=upload.filename,
                 filename=Path(dest_key).name,
+                original_filename=renamed,
                 mime_type=self.media_types.get_media_type(Path(dest_key).suffix),
                 width=output.width,
                 height=output.height,
@@ -178,6 +181,17 @@ class MediaToolPublisher:
         self._schedule_video_thumbnails(profile, output, dest_key, updated)
         logger.info("Replaced library resource %s with an edited file", upload.id)
         return updated
+
+    def _name_for_content(self, name: Optional[str], suffix: str) -> Optional[str]:
+        if not name:
+            return None
+        stem, current = os.path.splitext(name)
+        unknown = "application/octet-stream"
+        before = self.media_types.get_media_type(current) if current else unknown
+        after = self.media_types.get_media_type(suffix) if suffix else unknown
+        if unknown in (before, after) or before == after:
+            return None
+        return stem + suffix.lower()
 
     def _require_unchanged(self, user_id: str, upload: Upload) -> None:
         current = self.upload_repo.get_by_id(upload.id, user_id)

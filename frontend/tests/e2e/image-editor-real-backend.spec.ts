@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, ownerToken, screenshot } from './helpers';
 import { chunk } from './mediaFieldHelpers';
 import { solidPng } from './mediaToolMocks';
 
@@ -178,6 +178,10 @@ function expectClean(trace: Trace) {
 	expect(trace.failed.filter((line) => !line.endsWith('net::ERR_ABORTED'))).toEqual([]);
 }
 
+test.afterEach(async ({ page }) => {
+	await clearEdits(page).catch(() => undefined);
+});
+
 test.describe('the Image editor against the real backend', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -186,6 +190,7 @@ test.describe('the Image editor against the real backend', () => {
 			test.setTimeout(180000);
 			const trace = watch(page);
 			await loginAsOwner(page);
+			await clearEdits(page);
 			await openPicture(page, from);
 			await editThrough(page, from);
 			expectClean(trace);
@@ -196,6 +201,7 @@ test.describe('the Image editor against the real backend', () => {
 		test.setTimeout(120000);
 		const trace = watch(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await openPicture(page, 'library', greenScreenPng(1200, 800));
 		await rail(page, 'colorKey').click();
 		await expect(page.locator('[data-catalog-tool="color_key"]')).toBeVisible();
@@ -228,6 +234,7 @@ test.describe('the Image editor against the real backend', () => {
 		test.setTimeout(180000);
 		const trace = watch(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await openPicture(page, 'library');
 		await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 		await page.locator('[data-options-apply]').click();

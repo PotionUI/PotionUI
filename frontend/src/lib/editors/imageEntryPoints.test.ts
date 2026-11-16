@@ -181,9 +181,9 @@ describe('a registered step kind drives the Image editor entry points', () => {
 			railTools.register({ id: 'acme.extra', editor: 'image', group: 'tools', label: 'Extra', icon: 'extension' }, OWNER)
 		);
 		const rail = imageRail();
-		expect(rail.map((group) => group.id)).toEqual(['shape', 'paint', 'look', 'tools', 'acme.stylize']);
-		expect(rail[3].tools.map((tool) => tool.id)).toEqual(['colorKey', 'subject', 'acme.extra']);
-		expect(rail[4].tools).toEqual([{ id: 'acme.halftone', label: 'Halftone', icon: 'extension' }]);
+		expect(rail.map((group) => group.id)).toEqual(['shape', 'paint', 'generate', 'look', 'tools', 'acme.stylize']);
+		expect(rail[4].tools.map((tool) => tool.id)).toEqual(['colorKey', 'subject', 'acme.extra']);
+		expect(rail[5].tools).toEqual([{ id: 'acme.halftone', label: 'Halftone', icon: 'extension' }]);
 		expect(isRailTool('acme.halftone')).toBe(true);
 		expect(toolMeta('acme.halftone')).toMatchObject({ label: 'Halftone', icon: 'extension' });
 	});
@@ -192,6 +192,7 @@ describe('a registered step kind drives the Image editor entry points', () => {
 		expect(imageRail()).toEqual([
 			{ id: 'shape', label: 'Shape', tools: [{ id: 'crop', label: 'Crop', icon: 'editor-crop' }, { id: 'resize', label: 'Resize', icon: 'editor-resize' }, { id: 'canvas', label: 'Canvas', icon: 'editor-canvas' }, { id: 'slice', label: 'Slice', icon: 'editor-slice' }] },
 			{ id: 'paint', label: 'Paint', tools: [{ id: 'paint', label: 'Paint', icon: 'editor-paint' }, { id: 'mask', label: 'Mask', icon: 'editor-mask' }] },
+			{ id: 'generate', label: 'Generate', tools: [{ id: 'edit_region', label: 'Edit a region', icon: 'sparkles' }, { id: 'remove_object', label: 'Remove an object', icon: 'mode-remove-object' }] },
 			{ id: 'look', label: 'Look', tools: [{ id: 'effects', label: 'Looks', icon: 'editor-effects' }, { id: 'adjust', label: 'Adjust', icon: 'adjustments-horizontal' }] },
 			{ id: 'tools', label: 'Tools', tools: [{ id: 'colorKey', label: 'Color key', icon: 'editor-color-key' }, { id: 'subject', label: 'Subject', icon: 'editor-subject' }] }
 		]);

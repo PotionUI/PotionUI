@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, screenshot } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-autosave';
@@ -165,6 +165,7 @@ async function applyReel(page: Page) {
 async function begin(page: Page): Promise<Server> {
 	const server = await mockServer(page);
 	await loginAsOwner(page);
+	await clearEdits(page);
 	await page.goto('/generate');
 	await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
 	return server;
@@ -287,6 +288,7 @@ test.describe('Image editor autosave on a phone', () => {
 	test('shows the state chip and the conflict notice', async ({ page }) => {
 		const server = await mockServer(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/generate');
 		await expect(page.locator('.studio-topbar')).toBeVisible({ timeout: 15000 });
 		await page.getByRole('button', { name: /^Open tabs/ }).click();

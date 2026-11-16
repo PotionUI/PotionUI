@@ -26,6 +26,19 @@ export type StepState =
 	| { kind: 'busy'; label: string; progress?: number }
 	| { kind: 'skipped'; tone: 'muted' | 'warning' | 'danger'; label: string; action?: { id: string; label: string } };
 
+export interface RowAction {
+	id: string;
+	label: string;
+	icon: string;
+}
+
+export interface RowExtras {
+	actions?: RowAction[];
+	hideToggle?: boolean;
+	removable?: boolean;
+	thumb?: string | null;
+}
+
 export interface StepKind<P = unknown> extends EditorEntryBase {
 	label: string;
 	icon: string;
@@ -39,7 +52,14 @@ export interface StepKind<P = unknown> extends EditorEntryBase {
 	state?(step: EditStep<P>, ctx: StepContext<P>): StepState;
 	onAction?(step: EditStep<P>, action: string, ctx: StepContext<P>): void;
 	row?: ComponentRef;
-	reopenTool?: string;
+	extras?(step: EditStep<P>, state: StepState): RowExtras;
+	reopenTool?: string | ((params: P) => string | null);
+}
+
+export function reopenToolOf(kind: StepKind<any>, params: unknown): string | null {
+	const wanted = kind.reopenTool;
+	if (typeof wanted === 'function') return callKind(kind, 'reopenTool', () => wanted(params), null);
+	return wanted ?? null;
 }
 
 export const stepKinds = createEditorRegistry<StepKind<any>>('stepKinds');
@@ -87,7 +107,7 @@ export function unavailableState(resolution: Exclude<StepResolution, { status: '
 	return { kind: 'skipped', tone: 'muted', label: resolution.reason === 'newer' ? 'Made with a newer version' : UNAVAILABLE_LABEL };
 }
 
-export interface StepRowInfo {
+export interface StepRowInfo extends RowExtras {
 	state: StepState;
 	locked: boolean;
 	entry?: string;

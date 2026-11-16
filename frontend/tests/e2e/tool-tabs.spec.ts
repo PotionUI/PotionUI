@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, scopedStorageKey, screenshot } from './helpers';
 
 const JOURNEY = 'tool-tabs';
 const PLUGIN_ID = 'tool-tab-fixture';
@@ -70,6 +70,7 @@ function bookTab(page: Page, name: string) {
 
 async function openGenerate(page: Page) {
 	await loginAsOwner(page);
+	await clearEdits(page);
 	await page.goto('/generate');
 	await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
 	await expect(bookTab(page, 'Generation 1')).toBeVisible();
@@ -213,6 +214,7 @@ test.describe('tool tabs on a phone', () => {
 
 	test('the Tabs sheet lists every tab and opens an editor with its own top bar', async ({ page }) => {
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/generate');
 		await expect(page.locator('.studio-topbar')).toBeVisible({ timeout: 15000 });
 

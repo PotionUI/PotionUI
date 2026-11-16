@@ -106,7 +106,7 @@
 				type="button"
 				class="tool relative flex items-center rounded text-center text-sm leading-[14px] {icons
 					? 'h-10 w-10 flex-none justify-center'
-					: `flex-col gap-[3px] px-0.5 pb-1.5 pt-[7px] ${strip ? 'w-16 flex-none justify-center' : ''}`} {on
+					: `flex-col gap-[3px] px-0.5 pb-1.5 pt-[7px] ${strip ? 'min-w-16 flex-none justify-center px-1.5' : ''}`} {on
 					? 'is-on bg-signal/10 text-signal'
 					: off
 						? 'cursor-not-allowed text-fg-disabled'
@@ -120,7 +120,7 @@
 			>
 				<Icon name={tool.icon} className="h-[18px] w-[18px] flex-none" strokeWidth={1.7} />
 				{#if !icons}
-					<span class="max-w-full truncate">{tool.label}</span>
+					<span class="max-w-full {strip ? 'whitespace-nowrap' : 'truncate'}">{tool.label}</span>
 				{/if}
 				{#if pending.includes(tool.id)}
 					<span class="absolute right-1.5 top-1 h-1.5 w-1.5 rounded-full bg-warning-solid" aria-hidden="true" data-tool-pending></span>

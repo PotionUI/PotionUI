@@ -12,6 +12,7 @@
 		newGenerationHint = 'Pick a preset with a matching field',
 		downloadFormat,
 		copyLabel = 'Copy image',
+		notices = [],
 		onchoose
 	}: {
 		saved?: boolean;
@@ -21,6 +22,7 @@
 		newGenerationHint?: string;
 		downloadFormat?: string;
 		copyLabel?: string;
+		notices?: string[];
 		onchoose: (action: SaveAction) => void;
 	} = $props();
 
@@ -31,6 +33,11 @@
 	const saveKeys = shortcutFor('save');
 </script>
 
+{#if notices.length}
+	<div class="mx-1 mb-1.5 mt-1 flex flex-col gap-0.5 rounded bg-surface-2 px-2 py-1.5 text-sm text-fg-muted" data-save-notices>
+		{#each notices as notice (notice)}<span>{notice}</span>{/each}
+	</div>
+{/if}
 {#if saved}
 	<button type="button" role="menuitem" class={row} onclick={() => onchoose({ kind: 'save' })} data-save-row="save">
 		<Icon name="check" className={icon} />

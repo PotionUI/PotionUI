@@ -24,9 +24,20 @@
 	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
 	import { editorsRevision, entryKey } from '$lib/editors/registry';
 	import { railTools } from '$lib/editors/railTools';
-	import { stepKinds } from '$lib/editors/stepKinds';
+	import { reopenToolOf, stepKinds } from '$lib/editors/stepKinds';
 	import { ensureCoreImageEditor } from '$lib/tool-tabs/image/coreEditor';
 	import { imageRowInfo, runStepAction } from '$lib/tool-tabs/image/stepKinds';
+	import { createTabGenerate } from '$lib/tool-tabs/image/generate/wiring';
+	import { provideGenerateController } from '$lib/tool-tabs/image/generate/context';
+	import { isLargeArea } from '$lib/tool-tabs/image/generate/area';
+	import { generateSteps, leftOutCount, leftOutNotice } from '$lib/tool-tabs/image/generate/generateStep';
+	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
+	import { canvasFromUrl } from '$lib/paint/loadPicked';
+	import FloatingPrompt from '$lib/components/tool-tabs/generate/FloatingPrompt.svelte';
+	import CandidateStrip from '$lib/components/tool-tabs/generate/CandidateStrip.svelte';
+	import RunChip from '$lib/components/tool-tabs/generate/RunChip.svelte';
+	import RunOverlay from '$lib/components/tool-tabs/generate/RunOverlay.svelte';
+	import { LASSO_OVERLAY, chooseOverlay, maskArea, maskToolState } from '$lib/tool-tabs/image/maskOverlays';
 	import { createImageToolHost } from '$lib/tool-tabs/image/toolHost';
 	import { paintFilters } from '$lib/paint/registries';
 	import { filterCatalog, loadFilterCatalog } from '$lib/filters/catalog';
@@ -106,6 +117,7 @@
 		catalogDraft,
 		cropDraft,
 		imageRail,
+		isRailTool,
 		isCoreTool,
 		lookDraft,
 		paintDraft,
@@ -192,7 +204,8 @@
 
 	function knownTool(id: string | null | undefined): string | null {
 		if (!id) return null;
-		return isCoreTool(id) || id.includes('.') ? id : 'crop';
+		ensureCoreImageEditor();
+		return isCoreTool(id) || id.includes('.') || railTools.get('image', id) ? id : 'crop';
 	}
 
 	const initial = untrack(() => readImageState(host.state, knownTool(host.activeTool)));
@@ -294,6 +307,7 @@
 	});
 	let rowInfoFor = $derived.by(() => {
 		void $editorsRevision;
+		void $runViews;
 		return (step: EditStep) => imageRowInfo(step);
 	});
 	let applyOverride = $state<{ tool: string | null; label: string; enabled: boolean } | null>(null);
@@ -306,6 +320,39 @@
 		setApply: (state) => (applyOverride = state ? { ...state, tool: activeTool } : null)
 	});
 	$effect(() => toolHost.syncPending(stack.pending));
+	let regionCache: { path: string; id: string } | null = null;
+	const generate = createTabGenerate({
+		getStack: () => stack,
+		setStack: (next) => (stack = next),
+		source: () => ({ ref: resolvedRef }),
+		editLink: () => editLinkForSave(() => autosave.settle()),
+		areaSize: () => get(maskArea),
+		stepsBeneath: async (id) => {
+			let list = effective;
+			const at = id ? list.findIndex((step) => step.id === id) : -1;
+			if (at >= 0) list = list.slice(0, at);
+			return renderer.payload(list);
+		},
+		landRegion: async () => {
+			if (!(await landMask())) return null;
+			const live = liveMaskNow;
+			if (!live) return null;
+			if (regionCache?.path === live.path) return { item_id: regionCache.id };
+			const file = await canvasToPngFile(await canvasFromUrl(live.url), `${stem}-area.png`);
+			const artifact = await uploadMediaToolArtifact(file);
+			regionCache = { path: live.path, id: artifact.id };
+			return { item_id: artifact.id };
+		}
+	});
+	provideGenerateController(generate);
+	const generateUi = generate.ui;
+	$effect(() => generate.use(registeredTool?.task ?? null));
+	$effect(() => {
+		const current = stack;
+		untrack(() => generate.resume(current));
+	});
+	onDestroy(() => generate.dispose());
+	onMount(() => void generate.loadTasks());
 	let effective = $derived(effectiveSteps(stack));
 	let applied = $derived(appliedSteps(stack));
 	let editCount = $derived(appliedCount(stack));
@@ -323,8 +370,27 @@
 	let stepsBeforeTarget = $derived(targetIndex >= 0 ? effective.slice(0, targetIndex) : effective);
 
 	let mode = $derived<'paint' | 'mask' | 'crop' | 'preview'>(
-		activeTool === 'paint' ? 'paint' : activeTool === 'mask' ? 'mask' : activeTool === 'crop' ? 'crop' : 'preview'
+		activeTool === 'paint' ? 'paint' : activeTool === 'mask' || registeredTool?.task ? 'mask' : activeTool === 'crop' ? 'crop' : 'preview'
 	);
+	let taskTool = $derived(!!registeredTool?.task);
+	$effect(() => {
+		if (!taskTool) return;
+		const before = get(maskToolState);
+		chooseOverlay(LASSO_OVERLAY);
+		return () => maskToolState.set(before);
+	});
+	let runStep = $derived.by(() => {
+		const id = pending?.tool === 'generate' && pending.target ? pending.target : $generateUi.activeStepId;
+		return id ? (generateSteps(stack).find((entry) => entry.step.id === id) ?? null) : null;
+	});
+	let runView = $derived(runStep ? ($runViews[runStep.params.run.id] ?? null) : null);
+	let runStatus = $derived(runStep ? (runView?.status ?? runStep.params.run.status) : null);
+	let runningId = $derived(runStep && (runStatus === 'queued' || runStatus === 'running') ? runStep.step.id : null);
+	let largeArea = $derived(isLargeArea($maskArea, mainRender ? { width: mainRender.canvas.width, height: mainRender.canvas.height } : null, sourceSize));
+	let saveNotices = $derived.by(() => {
+		const notice = leftOutNotice(leftOutCount(applied));
+		return notice ? [notice] : [];
+	});
 
 	let cropParams = $derived<CropParams>((pendingHere?.tool === 'crop' ? (pendingHere.params as CropParams) : null) ?? { plan: EMPTY_IMAGE_PLAN, aspect: 'free' });
 	let catalogTool = $derived(activeTool && !['crop', 'resize', 'paint', 'mask', 'effects', 'adjust', 'slice'].includes(activeTool) ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
@@ -1020,7 +1086,9 @@
 		if (!step || busy) return;
 		if (pending?.target === id) return;
 		if (!(await leaveTool())) return;
-		const tool = step.tool === 'effects' && isAdjustParams(step.params) ? 'adjust' : (stepKinds.get('image', step.tool)?.reopenTool ?? step.tool);
+		const kind = stepKinds.get('image', step.tool);
+		const tool = step.tool === 'effects' && isAdjustParams(step.params) ? 'adjust' : ((kind && reopenToolOf(kind, step.params)) ?? step.tool);
+		if (!isRailTool(tool, catalog)) return;
 		if (tool !== 'adjust') stack = reopen(stack, id);
 		activeTool = tool;
 		host.setActiveTool(tool);
@@ -1659,6 +1727,9 @@
 		<p class="text-sm text-danger" role="alert">{notice}</p>
 	{/if}
 	{#if registeredTool?.options}
+		{#if registeredTool.task}
+			<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} what={registeredTool.task === 'remove_object' ? 'object you want removed' : null} />
+		{/if}
 		<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.options} props={{ host: toolHost, phone }} onclose={closeActiveTool} />
 	{:else if activeTool === 'crop' && cropInput}
 		<CropOptions params={cropParams} input={cropInput} {phone} onchange={(next) => setDraft('crop', next)} />
@@ -1762,7 +1833,9 @@
 {/snippet}
 
 {#snippet barActionsContent()}
-	{#if activeTool === 'adjust'}
+	{#if taskTool}
+		<Button variant="secondary" size="sm" class="h-7" disabled={!$maskArea} onclick={resetTool} attrs={{ 'data-clear-area': '' }}>Clear area</Button>
+	{:else if activeTool === 'adjust'}
 		<Button variant="secondary" size="sm" class="h-7" disabled={!canReset} onclick={resetTool} attrs={{ 'data-options-reset': '' }}>Reset all</Button>
 	{:else}
 		<BarActions {applyLabel} {canApply} {canReset} onapply={() => void applyTool()} onreset={resetTool} />
@@ -1882,6 +1955,9 @@
 						/>
 					{/key}
 				{/if}
+				{#if taskTool && runStep && runStatus && runStatus !== 'done' && runStatus !== 'failed' && runStatus !== 'cancelled'}
+					<RunOverlay rect={runView?.run?.rect ?? runStep.params.rect} preview={runView?.preview ?? null} waiting={runStatus === 'queued'} />
+				{/if}
 			{/snippet}
 			{#snippet hint()}
 				{#if activeTool !== 'slice'}
@@ -1900,6 +1976,19 @@
 				{/if}
 			{/snippet}
 		</EditorCanvas>
+		{#if taskTool && runningId && runStatus}
+			<div class="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2" data-run-chip-host>
+				<RunChip status={runStatus === 'queued' ? 'queued' : 'running'} progress={runView?.progress ?? 0} onclick={() => void generate.cancel(runningId!)} />
+			</div>
+		{/if}
+		{#if taskTool && !phone}
+			<div class="pointer-events-none absolute inset-x-0 bottom-16 z-20 flex flex-col items-center gap-2 px-4" data-generate-dock>
+				<FloatingPrompt running={runningId} large={largeArea} onclose={closeActiveTool} />
+				{#if runStep && runStatus === 'done' && runStep.params.results.length}
+					<CandidateStrip results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
+				{/if}
+			</div>
+		{/if}
 		{#if renderError}
 			<div class="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
 				<span class="rounded bg-danger-solid/90 px-3 py-1 text-sm text-white" role="alert" data-render-error>{renderError}</span>
@@ -1926,19 +2015,31 @@
 		rowInfo={rowInfoFor}
 		onrowaction={(id, action) => {
 			const step = stack.steps.find((candidate) => candidate.id === id);
-			if (step) runStepAction(step, action);
+			if (!step) return;
+			if (step.tool === 'generate') {
+				if (action === 'cancel') void generate.cancel(id);
+				else if (action === 'again') void generate.tryAgain(id);
+				else if (action === 'retry') void generate.retry(id);
+				return;
+			}
+			runStepAction(step, action);
 		}}
 		onreopen={(id) => void reopenStep(id)}
 		onseek={(cursor) => (stack = seek(stack, cursor))}
 		ontogglehidden={(id) => (stack = toggleHidden(stack, id))}
-		onremove={(id) => (stack = remove(stack, id))}
+		onremove={(id) => {
+			generate.stepRemoved(id, stack);
+			stack = remove(stack, id);
+		}}
 		onmove={(id, to) => {
 			if (canMoveWithSlice(stack, id, to)) stack = move(stack, id, to, IMAGE_PINNED_LANES);
 		}}
 		onundo={doUndo}
 		onredo={doRedo}
 		onmore={(id) => {
-			if (id === 'clear') stack = createStack();
+			if (id !== 'clear') return;
+			generate.allRemoved(stack);
+			stack = createStack();
 		}}
 	>
 		{#snippet notes()}
@@ -1957,7 +2058,7 @@
 {/snippet}
 
 {#snippet saveRows(pick: (action: SaveAction) => void)}
-	<SaveMenuRows saved={!!saved} {replace} {sendTargets} downloadFormat="PNG" copyLabel="Copy image" onchoose={pick} />
+	<SaveMenuRows saved={!!saved} {replace} {sendTargets} downloadFormat="PNG" copyLabel="Copy image" notices={saveNotices} onchoose={pick} />
 {/snippet}
 
 {#snippet replaceMenu()}
@@ -2057,6 +2158,7 @@
 						saved={!!saved}
 						{replace}
 						{sendTargets}
+						saveNotices={saveNotices}
 						downloadFormat="PNG"
 						{saving}
 						saveLabel={saveSlice ? (sliceSaved ? 'Saved' : `Save ${sliceCount} ${sliceCount === 1 ? 'image' : 'images'}`) : null}
@@ -2089,7 +2191,17 @@
 				{/if}
 			{/snippet}
 			{#snippet below()}
-				{#if activeTool === 'effects'}
+				{#if taskTool && phone}
+					{#if runStep && runStatus === 'done' && runStep.params.results.length}
+						<div class="flex flex-none justify-center bg-canvas pb-2" data-generate-strip-phone>
+							<CandidateStrip phone results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
+						</div>
+					{/if}
+					<div class="flex-none border-t border-line bg-surface-1 px-3 py-2" data-task-mark-bar>
+						<MaskOptions compact bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} />
+					</div>
+					<FloatingPrompt phone running={runningId} large={largeArea} onclose={closeActiveTool} />
+				{:else if activeTool === 'effects'}
 					<LookTray items={trayItems} original={{ selected: !lookParams }} {phone} thumb={trayThumb} onpick={pickLook} onpreview={(id) => (hoverLook = id)} />
 				{:else if activeTool === 'slice' && sliceParams.cells.length}
 					<SliceStrip
@@ -2104,7 +2216,7 @@
 				{/if}
 			{/snippet}
 			{#snippet options()}
-				{#if !(phoneBarred && activeTool === 'effects' && !stillEffects.length)}
+				{#if !(phoneBarred && activeTool === 'effects' && !stillEffects.length) && !(phone && taskTool)}
 					<OptionsPanel
 						title={optionsTitle}
 						icon={optionsIcon}
@@ -2112,7 +2224,7 @@
 						{applyLabel}
 						{canApply}
 						{canReset}
-						actions={phone && !phoneBarred}
+						actions={phone && !phoneBarred && !taskTool}
 						{phone}
 						onapply={() => void applyTool()}
 						onreset={resetTool}

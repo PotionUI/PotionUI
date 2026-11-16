@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
-import { expectNoBoxOverlap, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, expectNoBoxOverlap, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 import { HEIGHT, WIDTH, sheetPng } from './sliceSheet';
 
 const JOURNEY = 'image-editor-slice';
@@ -212,6 +212,7 @@ test.describe('Slice on desktop', () => {
 		test.setTimeout(180000);
 		const log = await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await seedGenerationTab(page);
 		await page.goto('/generate');
 		await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
@@ -315,6 +316,7 @@ test.describe('Slice from History', () => {
 	test('Slice into references opens the editor on Slice with the panels detected', async ({ page }) => {
 		await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/history');
 		const card = page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`);
 		await expect(card).toBeVisible();
@@ -342,6 +344,7 @@ test.describe('Slice from E', () => {
 	test('E on a sheet offers a quiet Slice chip that opens Slice with the panels', async ({ page }) => {
 		await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/history');
 		const card = page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`);
 		await card.locator('.media-zoom').click();
@@ -360,6 +363,7 @@ test.describe('Slice from E', () => {
 	test('the Slice chip can be dismissed and stays dismissed for that picture', async ({ page }) => {
 		await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/history');
 		await page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`).locator('.media-zoom').click();
 		await expect(page.getByRole('toolbar', { name: 'Actions' })).toBeVisible();
@@ -387,6 +391,7 @@ test.describe('Slice on a phone', () => {
 	test('the dock shows Detect and the grids, lines get touch handles, and a tapped cell swaps the dock', async ({ page }) => {
 		await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/history');
 		const card = page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`);
 		await expect(card).toBeVisible();

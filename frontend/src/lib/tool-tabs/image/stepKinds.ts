@@ -46,8 +46,12 @@ export function imageRowInfo(step: EditStep): StepRowInfo | null {
 		: kind.state
 			? callKind(kind, 'state', () => kind.state!(step, imageStepContext(step, null)), done)
 			: done;
-	if (state.kind === 'done' && !kind.row) return null;
-	return kind.row ? { state, locked: false, entry, row: kind.row } : { state, locked: false, entry };
+	const extras = kind.extras ? callKind(kind, 'extras', () => kind.extras!(step, state), {}) : {};
+	const hasExtras = !!(extras.actions?.length || extras.thumb || extras.hideToggle === false || extras.removable === false);
+	if (state.kind === 'done' && !kind.row && !hasExtras) return null;
+	const info: StepRowInfo = { state, locked: false, entry, ...extras };
+	if (kind.row) info.row = kind.row;
+	return info;
 }
 
 export function runStepAction(step: EditStep, action: string): void {

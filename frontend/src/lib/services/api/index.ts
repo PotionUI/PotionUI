@@ -81,6 +81,7 @@ import { createFiltersApi } from './filters';
 import { createOrganizeApi } from './organize';
 import { createTabDraftsApi } from './tabDrafts';
 import { createEditsApi } from './edits';
+import { createEditorTasksApi } from './editorTasks';
 
 const apiClient = new APIClient();
 
@@ -140,7 +141,8 @@ export const api = {
 	...createFiltersApi(apiClient.getClient()),
 	...createOrganizeApi(apiClient.getClient()),
 	...createTabDraftsApi(apiClient.getClient()),
-	...createEditsApi(apiClient.getClient())
+	...createEditsApi(apiClient.getClient()),
+	...createEditorTasksApi(apiClient.getClient())
 };
 
 export type { APIClient };

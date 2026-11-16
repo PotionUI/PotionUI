@@ -185,6 +185,10 @@
 								<Icon name="image" className="h-3.5 w-3.5" />
 							</span>
 						{/if}
+					{:else if info?.thumb}
+						<span class="alpha-checker relative h-7 w-7 flex-none overflow-hidden rounded {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-thumb>
+							<span class="absolute inset-0 bg-cover bg-center" style={`background-image: url(${JSON.stringify(info.thumb)})`}></span>
+						</span>
 					{:else}
 						<span class="grid h-7 w-7 flex-none place-items-center rounded bg-surface-2 text-fg-muted {row.hidden ? 'opacity-[0.45]' : ''}">
 							<Icon name={step?.icon ?? 'sliders'} className="h-3.5 w-3.5" />
@@ -199,9 +203,23 @@
 						>
 							{row.key === 'original' ? (original.label ?? 'Original') : step?.label}
 						</span>
-						<span class="truncate font-mono text-sm text-fg-subtle">
-							{row.key === 'original' ? original.summary : row.status === 'undone' ? 'Undone' : step?.summary}
-						</span>
+						{#if info && row.step && row.status !== 'undone' && row.status !== 'pending' && info.state.kind !== 'done'}
+							<span class="flex min-w-0 items-center gap-1.5 text-sm" data-stack-state={info.state.kind}>
+								{#if info.state.kind === 'busy'}
+									{#if info.state.progress !== undefined}
+										<span class="truncate text-signal">{info.state.label} <span class="font-mono tabular-nums">{Math.round(info.state.progress)}%</span></span>
+									{:else}
+										<Spinner size="sm" /><span class="truncate text-fg-muted">{info.state.label}</span>
+									{/if}
+								{:else if info.state.kind === 'skipped'}
+									<span class="truncate {info.state.tone === 'danger' ? 'text-danger' : info.state.tone === 'warning' ? 'text-warning' : 'text-fg-subtle'}">{info.state.label}</span>
+								{/if}
+							</span>
+						{:else}
+							<span class="truncate font-mono text-sm text-fg-subtle">
+								{row.key === 'original' ? original.summary : row.status === 'undone' ? 'Undone' : step?.summary}
+							</span>
+						{/if}
 					</span>
 				{/snippet}
 				{#if row.key === 'original' || row.status === 'pending' || (info?.locked && row.status !== 'undone')}
@@ -219,29 +237,29 @@
 					</button>
 				{/if}
 				{#if info && row.step && row.status !== 'pending' && row.status !== 'undone'}
-					<span class="flex min-w-0 flex-none items-center gap-1.5" data-stack-state={info.state.kind}>
+					<span class="flex min-w-0 flex-none items-center gap-1.5">
 						{#if info.row && info.entry}
 							<EditorEntryComponent entry={info.entry} componentRef={info.row} props={{ step: row.step, state: info.state }} variant="row" />
 						{/if}
-						{#if info.state.kind === 'busy'}
-							<Spinner size="sm" />
-							<span class="text-sm text-fg-muted">{info.state.label}</span>
-							{#if info.state.progress !== undefined}
-								<span class="font-mono text-sm tabular-nums text-fg-subtle">{Math.round(info.state.progress)}%</span>
-							{/if}
-						{:else if info.state.kind === 'skipped'}
-							<Badge variant={info.state.tone === 'muted' ? 'neutral' : info.state.tone} size="sm">{info.state.label}</Badge>
-							{#if info.state.action}
-								{@const action = info.state.action}
-								<Button size="xs" variant="ghost" onclick={() => row.step && onrowaction?.(row.step.id, action.id)}>{action.label}</Button>
-							{/if}
+						{#if info.state.kind === 'skipped' && info.state.action}
+							{@const action = info.state.action}
+							<Button size="xs" variant="ghost" onclick={() => row.step && onrowaction?.(row.step.id, action.id)}>{action.label}</Button>
 						{/if}
 					</span>
+				{/if}
+				{#if info?.state.kind === 'busy' && info.state.progress !== undefined}
+					<span class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-surface-3" data-stack-progress><i class="block h-full bg-signal" style="width: {info.state.progress}%"></i></span>
 				{/if}
 				{#if row.status === 'pending'}
 					<span class="inline-flex h-5 flex-none items-center rounded bg-surface-3 px-1.5 font-mono text-sm text-fg-muted">PENDING</span>
 				{:else if row.step && !sheet && row.status !== 'undone'}
 					<span class="flex flex-none {row.hidden ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}" data-stack-actions>
+						{#each info?.actions ?? [] as action (action.id)}
+							<Tooltip text={action.label} position="top">
+								<IconButton icon={action.icon} label="{action.label} {row.step.label}" size="xs" onclick={() => row.step && onrowaction?.(row.step.id, action.id)} data-stack-action={action.id} />
+							</Tooltip>
+						{/each}
+						{#if info?.hideToggle !== false}
 						<Tooltip text={row.hidden ? 'Show step' : 'Hide step'} position="top">
 							<IconButton
 								icon={row.hidden ? 'editor-eye-off' : 'editor-eye'}
@@ -252,7 +270,9 @@
 								data-stack-hide={row.key}
 							/>
 						</Tooltip>
-						<Tooltip text="Remove step" position="top">
+						{/if}
+						{#if info?.removable !== false}
+					<Tooltip text="Remove step" position="top">
 							<IconButton
 								icon="trash"
 								label="Remove {row.step.label}"
@@ -261,6 +281,7 @@
 								data-stack-remove={row.key}
 							/>
 						</Tooltip>
+					{/if}
 					</span>
 				{/if}
 			</div>

@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, screenshot } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-recent-edits';
@@ -195,6 +195,7 @@ async function mockServer(page: Page, total: number): Promise<Server> {
 async function begin(page: Page, total: number): Promise<Server> {
 	const server = await mockServer(page, total);
 	await loginAsOwner(page);
+	await clearEdits(page);
 	await page.goto('/generate');
 	return server;
 }
@@ -337,6 +338,10 @@ async function states(page: Page, server: Server, phone: boolean, width: number)
 	server.history = true;
 	server.rows = saved;
 }
+
+test.afterEach(async ({ page }) => {
+	await clearEdits(page).catch(() => undefined);
+});
 
 test.describe('Image editor recent edits on desktop', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });

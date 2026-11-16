@@ -5,6 +5,7 @@ import { railGroups, railTools } from '$lib/editors/railTools';
 import { stepKinds, type StepKind } from '$lib/editors/stepKinds';
 import { coreSizeAfter, coreStepPayload } from './payload';
 import { PREVIEW_SIDE, coreApplyClientStep } from './render';
+import { ensureGenerateEditor } from './generate/register';
 import { CORE_RAIL, CORE_TOOLS, editorCatalogTools, type CoreImageTool } from './steps';
 
 const STEP_TOOLS: readonly CoreImageTool[] = ['crop', 'resize', 'canvas', 'slice', 'paint', 'effects', 'colorKey', 'subject'];
@@ -68,4 +69,5 @@ export function ensureCoreImageEditor(): void {
 	});
 	for (const id of STEP_TOOLS) stepKinds.register(coreStepKind(id));
 	mediaToolCatalog.subscribe(syncCatalogKinds);
+	ensureGenerateEditor();
 }

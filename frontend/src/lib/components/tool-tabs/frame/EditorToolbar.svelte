@@ -25,6 +25,7 @@
 		saved = false,
 		replace,
 		sendTargets = [],
+		saveNotices = [],
 		newGeneration = false,
 		newGenerationHint,
 		downloadFormat,
@@ -61,6 +62,7 @@
 		saved?: boolean;
 		replace: ReplaceOption;
 		sendTargets?: SendTarget[];
+		saveNotices?: string[];
 		newGeneration?: boolean;
 		newGenerationHint?: string;
 		downloadFormat?: string;
@@ -111,6 +113,7 @@
 			{newGenerationHint}
 			{downloadFormat}
 			{copyLabel}
+			notices={saveNotices}
 			onchoose={pick}
 		/>
 	{/if}

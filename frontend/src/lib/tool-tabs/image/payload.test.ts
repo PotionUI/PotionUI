@@ -276,6 +276,7 @@ describe('rail', () => {
 		expect(rail.map((group) => [group.label, group.tools.map((entry) => entry.label)])).toEqual([
 			['Shape', ['Crop', 'Resize', 'Canvas', 'Slice']],
 			['Paint', ['Paint', 'Mask']],
+			['Generate', ['Edit a region', 'Remove an object']],
 			['Look', ['Looks', 'Adjust']],
 			['Tools', ['Color key', 'Subject', 'Pixel sort']]
 		]);

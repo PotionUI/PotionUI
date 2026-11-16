@@ -1,0 +1,287 @@
+import { get, writable } from 'svelte/store';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EditorRun, EditorTaskInfo, TaskOffer } from '$lib/services/api/editorTasks';
+import { createStack, type EditStackState } from '$lib/tool-tabs/frame/editStack';
+import { RESULTS_KEY_PREFIX, createGenerateController, type ControllerDeps } from './controller';
+import { readGenerateParams, type GenerateParams } from './generateStep';
+import { createRunEngine, type RunPorts, type RunViews } from './runEngine';
+
+const offer = (over: Partial<TaskOffer> = {}): TaskOffer => ({ preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: [], ...over });
+const task = (over: Partial<EditorTaskInfo> = {}): EditorTaskInfo => ({ id: 'edit_region', label: 'Edit a region', icon: 'sparkles', region: 'optional', prompt: 'required', fallback: null, offers: [offer()], default: null, ...over });
+const run = (over: Partial<EditorRun> = {}): EditorRun => ({ id: 'er_1', task: 'edit_region', status: 'queued', edit_id: 'ed', step_id: 's1', generation_id: null, progress: 0, error: null, soft: false, rect: null, candidates: [], ...over });
+const schema = { properties: { main: { children: [{ name: 'steps', type: 'number', default: 28 }, { name: 'seed', type: 'seed', default: 7 }] } } };
+
+function setup(tasks: EditorTaskInfo[] = [task()], extra: Partial<ControllerDeps> = {}, saved = false) {
+	let stack: EditStackState<unknown> = createStack();
+	const views = writable<RunViews>({});
+	const enginePorts: RunPorts = {
+		start: vi.fn(async () => run()),
+		get: vi.fn(async () => run({ status: 'running' })),
+		cancel: vi.fn(async () => run({ status: 'cancelled' })),
+		socket: () => ({ subscribe: () => () => undefined, connected: () => false, onConnection: () => () => undefined, close: () => undefined })
+	};
+	const store = new Map<string, string>();
+	let controller!: ReturnType<typeof createGenerateController>;
+	const engine = createRunEngine(enginePorts, { views, pollMs: 1000, onSettled: (view) => controller.settle(view) });
+	const ports = {
+		tasks: vi.fn(async () => tasks),
+		sessions: vi.fn(async () => (saved ? [{ id: 's1', name: 'Soft portrait', updated_at: null, data: { edit: { formData: { steps: 20 } } } }] : [])),
+		formulas: vi.fn(async () => []),
+		schema: vi.fn(async () => schema),
+		setDefault: vi.fn(async () => undefined),
+		clearDefault: vi.fn(async () => undefined)
+	};
+	const deps: ControllerDeps = {
+		getStack: () => stack,
+		setStack: (next) => (stack = next),
+		source: () => ({ ref: { item_id: 'pic' } }),
+		editLink: vi.fn(async () => ({ id: 'ed_1', revision: 3 })),
+		landRegion: vi.fn(async () => ({ item_id: 'mask1' })),
+		areaSize: () => ({ width: 412, height: 380 }),
+		stepsBeneath: vi.fn(async () => []),
+		ports,
+		engine,
+		storage: { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => void store.set(key, value) },
+		...extra
+	};
+	controller = createGenerateController(deps);
+	return { controller, deps, ports, enginePorts, engine, views, store, stack: () => stack };
+}
+
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
+
+async function ready(t: ReturnType<typeof setup>, prompt = 'a red sailboat') {
+	await t.controller.prepare('edit_region');
+	t.controller.setPrompt('edit_region', prompt);
+}
+
+describe('generate controller: starting', () => {
+	it('runs a task with a single qualifying mode on its defaults and creates the step', async () => {
+		const t = setup();
+		await ready(t);
+		expect(get(t.controller.ui).choice.edit_region).toMatchObject({ setup: { kind: 'defaults' } });
+		expect(get(t.controller.ui).picker.open).toBe(false);
+		t.controller.setResults('edit_region', 3);
+		expect(await t.controller.generate('edit_region', true)).toBe(true);
+		const body = (t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0];
+		expect(body[0]).toBe('edit_region');
+		expect(body[1]).toMatchObject({ edit: { id: 'ed_1', step_id: 's1' }, input: { item_id: 'pic' }, region: { item_id: 'mask1' }, prompt: 'a red sailboat', candidates: 3, seed: null, setup: { preset_id: 'qwen', mode: 'edit', form_data: { steps: 28, seed: 7 } } });
+		const step = t.stack().steps[0];
+		expect(step).toMatchObject({ tool: 'generate', label: 'Edit a region', lane: 'paint' });
+		const params = readGenerateParams(step.params) as GenerateParams;
+		expect(params.run).toEqual({ id: 'er_1', status: 'queued', error: null });
+		expect(params.setup.source.kind).toBe('defaults');
+		expect(params.candidates).toBe(3);
+		expect(get(t.controller.ui).activeStepId).toBe('s1');
+		expect(t.engine.tracking('er_1')).toBe(true);
+	});
+
+	it('sends the whole picture when nothing is marked and no prompt for a promptless task', async () => {
+		const remove = task({ id: 'remove_object', label: 'Remove an object', region: 'required', prompt: 'none' });
+		const t = setup([remove]);
+		await t.controller.prepare('remove_object');
+		expect(await t.controller.generate('remove_object', false)).toBe(false);
+		expect(get(t.controller.ui).error).toBe('Mark the area first.');
+		expect(t.enginePorts.start).not.toHaveBeenCalled();
+		expect(await t.controller.generate('remove_object', true)).toBe(true);
+		expect((t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0][1]).toMatchObject({ prompt: null, region: { item_id: 'mask1' } });
+
+		const free = setup();
+		await ready(free);
+		await free.controller.generate('edit_region', false);
+		expect((free.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0][1].region).toBeNull();
+	});
+
+	it('does not start without a prompt for a task that needs one', async () => {
+		const t = setup();
+		await ready(t, '  ');
+		expect(await t.controller.generate('edit_region', true)).toBe(false);
+		expect(get(t.controller.ui).error).toBe('Describe the change first.');
+	});
+
+	it('says so when the edit could not be saved first and starts nothing', async () => {
+		const t = setup([task()], { editLink: vi.fn(async () => null) });
+		await ready(t);
+		expect(await t.controller.generate('edit_region', true)).toBe(false);
+		expect(get(t.controller.ui).error).toContain('not saved yet');
+		expect(t.enginePorts.start).not.toHaveBeenCalled();
+		expect(t.stack().steps).toHaveLength(0);
+	});
+
+	it('shows a refusal in plain words and creates no step', async () => {
+		const t = setup();
+		(t.enginePorts.start as ReturnType<typeof vi.fn>).mockRejectedValueOnce({ response: { status: 422, data: { detail: { error: 'task_not_offered' } } } });
+		await ready(t);
+		expect(await t.controller.generate('edit_region', true)).toBe(false);
+		expect(get(t.controller.ui).error).toBe('This setup cannot do that any more. Pick another.');
+		expect(t.stack().steps).toHaveLength(0);
+		expect(get(t.controller.ui).starting).toBe(false);
+	});
+
+	it('remembers the result count per task', async () => {
+		const t = setup();
+		t.controller.setResults('edit_region', 9);
+		expect(t.store.get(`${RESULTS_KEY_PREFIX}edit_region`)).toBe('4');
+		const again = setup();
+		again.store.set(`${RESULTS_KEY_PREFIX}edit_region`, '2');
+		const second = createGenerateController({ ...again.deps, storage: { getItem: (key) => again.store.get(key) ?? null, setItem: () => undefined } });
+		await second.prepare('edit_region');
+		expect(get(second.ui).results.edit_region).toBe(2);
+	});
+});
+
+describe('generate controller: setups', () => {
+	it('opens the picker the first time when the mode has a saved setup, or several modes qualify', async () => {
+		const saved = setup([task()], {}, true);
+		await saved.controller.prepare('edit_region');
+		expect(get(saved.controller.ui).picker).toMatchObject({ open: true, why: 'first_use' });
+		const two = setup([task({ offers: [offer(), offer({ preset_id: 'flux', preset_name: 'Flux Fill', mode: 'inpaint' })] })]);
+		await two.controller.prepare('edit_region');
+		expect(get(two.controller.ui).picker).toMatchObject({ open: true, why: 'first_use' });
+		expect(get(two.controller.ui).choice.edit_region).toBeNull();
+		expect(two.controller.chipFor('edit_region')).toBeNull();
+	});
+
+	it('never substitutes a broken default and names what went away', async () => {
+		const broken = task({ default: { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session', id: 'gone' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } } });
+		const t = setup([broken]);
+		await t.controller.prepare('edit_region');
+		const ui = get(t.controller.ui);
+		expect(ui.choice.edit_region).toBeNull();
+		expect(ui.picker).toEqual({ open: true, why: 'broken_default', notice: 'Your default setup "Soft portrait" was deleted. Pick another.' });
+	});
+
+	it('uses a healthy default and a setup picked from the list', async () => {
+		const healthy = task({ offers: [offer(), offer({ mode: 'other', mode_label: 'Other' })], default: { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session', id: 's1' }, health: { ok: true, reason: null, name: null, mode_label: null } } });
+		const t = setup([healthy], {}, true);
+		await t.controller.prepare('edit_region');
+		expect(t.controller.chipFor('edit_region')).toBe('Qwen-Image 2.1 · Edit · Soft portrait');
+		await t.controller.pick('edit_region', t.controller.defaultsChoice(healthy.offers[1]), false);
+		expect(t.controller.chipFor('edit_region')).toBe('Qwen-Image 2.1 · Other · Model defaults');
+		expect(t.ports.setDefault).not.toHaveBeenCalled();
+	});
+
+	it('stores a default only when asked to and then treats it as healthy', async () => {
+		const t = setup([task({ offers: [offer(), offer({ mode: 'other' })] })]);
+		await t.controller.prepare('edit_region');
+		const choice = { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session' as const, id: 's1' } };
+		await t.controller.pick('edit_region', choice, true);
+		expect(t.ports.setDefault).toHaveBeenCalledWith('edit_region', choice);
+		expect(get(t.controller.ui).tasks[0].default?.health.ok).toBe(true);
+		await t.controller.clearDefault('edit_region');
+		expect(get(t.controller.ui).tasks[0].default).toBeNull();
+	});
+
+	it('stores the values it resolved, not a reference to the session', async () => {
+		const t = setup([task({ offers: [offer(), offer({ mode: 'other' })] })], {}, true);
+		await t.controller.prepare('edit_region');
+		await t.controller.pick('edit_region', { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session', id: 's1' } }, false);
+		t.controller.setPrompt('edit_region', 'a boat');
+		await t.controller.generate('edit_region', true);
+		const params = readGenerateParams(t.stack().steps[0].params) as GenerateParams;
+		expect(params.setup.form_data).toMatchObject({ steps: 20, seed: 7 });
+		expect(params.setup.source).toEqual({ kind: 'session', id: 's1', name: 'Soft portrait' });
+	});
+});
+
+describe('generate controller: a step through its life', () => {
+	async function withStep() {
+		const t = setup();
+		await ready(t);
+		await t.controller.generate('edit_region', true);
+		return t;
+	}
+	const done = run({ status: 'done', rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }, candidates: [1, 2].map((n) => ({ patch: { item_id: `p${n}` }, url: `/p${n}.png`, seed: n })) });
+
+	it('settles a finished run into its step and lets a result be chosen as one undo step', async () => {
+		const t = await withStep();
+		t.controller.settle({ stepId: 's1', status: 'done', error: null, run: done });
+		let params = readGenerateParams(t.stack().steps[0].params) as GenerateParams;
+		expect(params.results).toHaveLength(2);
+		expect(t.stack().steps[0].summary).toBe('1 of 2 · a red');
+		t.controller.choose('s1', 1);
+		params = readGenerateParams(t.stack().steps[0].params) as GenerateParams;
+		expect(params.chosen).toBe(1);
+		expect(t.stack().revisions).toHaveLength(1);
+	});
+
+	it('settles a failure with the reason', async () => {
+		const t = await withStep();
+		t.controller.settle({ stepId: 's1', status: 'failed', error: 'timed out', run: run({ status: 'failed', error: 'timed out' }) });
+		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run).toEqual({ id: 'er_1', status: 'failed', error: 'timed out' });
+	});
+
+	it('tries again with a new seed and the same settings, replacing the results in one revision', async () => {
+		const t = await withStep();
+		t.controller.settle({ stepId: 's1', status: 'done', error: null, run: done });
+		(t.enginePorts.start as ReturnType<typeof vi.fn>).mockResolvedValueOnce(run({ id: 'er_2' }));
+		expect(await t.controller.tryAgain('s1')).toBe(true);
+		const body = (t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[1][1];
+		expect(body.setup.form_data.seed).toBe(-1);
+		expect(body.setup.form_data.steps).toBe(28);
+		expect(body.region).toEqual({ item_id: 'mask1' });
+		expect(body.edit.step_id).toBe('s1');
+		const params = readGenerateParams(t.stack().steps[0].params) as GenerateParams;
+		expect(params).toMatchObject({ run: { id: 'er_2', status: 'queued' }, results: [] });
+		expect(t.stack().revisions).toHaveLength(1);
+		expect(t.engine.tracking('er_1')).toBe(false);
+	});
+
+	it('retries a failed run with the same seed handling', async () => {
+		const t = await withStep();
+		t.controller.settle({ stepId: 's1', status: 'failed', error: 'x', run: run({ status: 'failed', error: 'x' }) });
+		(t.enginePorts.start as ReturnType<typeof vi.fn>).mockResolvedValueOnce(run({ id: 'er_3' }));
+		await t.controller.retry('s1');
+		expect((t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[1][1].setup.form_data.seed).toBe(7);
+		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.id).toBe('er_3');
+	});
+
+	it('cancels, and says so when the cancel is refused', async () => {
+		const t = await withStep();
+		(t.enginePorts.cancel as ReturnType<typeof vi.fn>).mockRejectedValueOnce({ response: { status: 400, data: { detail: { error: 'cancel_failed' } } } });
+		await t.controller.cancel('s1');
+		expect(get(t.controller.ui).error).toBe('It could not be cancelled. Try again.');
+		await t.controller.cancel('s1');
+		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.status).toBe('cancelled');
+	});
+
+	it('cancels the run when its step is removed and when everything is cleared', async () => {
+		const t = await withStep();
+		t.controller.stepRemoved('s1', t.stack());
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.enginePorts.cancel).toHaveBeenCalledWith('er_1');
+		const clear = await withStep();
+		clear.controller.allRemoved(clear.stack());
+		await vi.advanceTimersByTimeAsync(0);
+		expect(clear.enginePorts.cancel).toHaveBeenCalledWith('er_1');
+	});
+
+	it('re-attaches a run left in flight in the stack, once', async () => {
+		const t = await withStep();
+		const stack = t.stack();
+		t.engine.release('er_1');
+		t.controller.resume(stack);
+		t.controller.resume(stack);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.enginePorts.get).toHaveBeenCalledTimes(1);
+		expect(t.engine.tracking('er_1')).toBe(true);
+	});
+
+	it('writes a run the server lost into its step as failed', async () => {
+		const t = await withStep();
+		const stack = t.stack();
+		t.engine.release('er_1');
+		(t.enginePorts.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce({ response: { status: 404, data: { detail: { error: 'run_not_found' } } } });
+		t.controller.resume(stack);
+		await vi.advanceTimersByTimeAsync(0);
+		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.status).toBe('failed');
+	});
+
+	it('stops the engine on dispose', async () => {
+		const t = await withStep();
+		t.controller.dispose();
+		await vi.advanceTimersByTimeAsync(60000);
+		expect(t.enginePorts.get).not.toHaveBeenCalled();
+	});
+});

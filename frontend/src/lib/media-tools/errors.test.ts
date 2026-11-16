@@ -59,3 +59,33 @@ describe('parseMediaToolFailure', () => {
 		expect(parseMediaToolFailure({})).toMatchObject({ code: null, field: null, stepIndex: null });
 	});
 });
+
+describe('describeMediaToolFailure precedence', () => {
+	const refusal = {
+		message: 'Request failed with status code 400',
+		response: {
+			status: 400,
+			data: {
+				detail: {
+					success: false,
+					error: 'unsupported_media',
+					message: 'Crop to subject needs an image with transparency',
+					step_index: 0
+				}
+			}
+		}
+	};
+
+	it('shows the server sentence rather than the generic one for its code', () => {
+		expect(describeMediaToolFailure(refusal)).toBe('Crop to subject needs an image with transparency');
+	});
+
+	it('keeps the message of an error thrown by local code', () => {
+		expect(describeMediaToolFailure(new Error('The mask could not be saved'), 'The preview could not be drawn.')).toBe('The mask could not be saved');
+	});
+
+	it('uses the caller fallback when the failure carries nothing readable', () => {
+		expect(describeMediaToolFailure({}, 'The preview could not be drawn.')).toBe('The preview could not be drawn.');
+		expect(describeMediaToolFailure(undefined)).toBe('The edit could not be applied');
+	});
+});

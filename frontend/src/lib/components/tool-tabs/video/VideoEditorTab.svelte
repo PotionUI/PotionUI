@@ -72,6 +72,7 @@
 		startMediaToolRun,
 		uploadMediaToolArtifact
 	} from '$lib/services/api/mediaTools';
+	import { describeMediaToolFailure } from '$lib/media-tools/errors';
 	import { isTerminalStatus, type MediaToolInputRef, type MediaToolRun, type MediaToolSaveMode } from '$lib/media-tools/types';
 	import type { UploadFileInfo } from '$lib/services/api/media';
 	import { toasts } from '$lib/stores/toast';
@@ -625,7 +626,7 @@
 		} catch (error) {
 			if (controller.signal.aborted) return;
 			clipPreview = null;
-			toasts.show('error', error instanceof Error ? error.message : 'The preview could not be rendered', { title: 'Preview failed' });
+			toasts.show('error', describeMediaToolFailure(error, 'The preview could not be rendered'), { title: 'Preview failed' });
 		}
 	}
 
@@ -726,7 +727,7 @@
 			follow(runId);
 		} catch (error) {
 			logger.error('The video render could not start:', error);
-			toasts.show('error', error instanceof Error ? error.message : 'The render could not start', { title: 'Save failed' });
+			toasts.show('error', describeMediaToolFailure(error, 'The render could not start'), { title: 'Save failed' });
 		} finally {
 			starting = false;
 		}
@@ -874,7 +875,7 @@
 			}
 		} catch (error) {
 			logger.error('Frame action failed:', error);
-			toasts.show('error', error instanceof Error ? error.message : 'The frame could not be read', { title: 'Frame failed' });
+			toasts.show('error', describeMediaToolFailure(error, 'The frame could not be read'), { title: 'Frame failed' });
 		} finally {
 			busy = null;
 		}
@@ -899,7 +900,7 @@
 			const artifact = await uploadMediaToolArtifact(file);
 			useAudio({ item_id: artifact.id }, file.name);
 		} catch (error) {
-			toasts.show('error', error instanceof Error ? error.message : 'The file could not be uploaded', { title: 'Upload failed' });
+			toasts.show('error', describeMediaToolFailure(error, 'The file could not be uploaded'), { title: 'Upload failed' });
 		} finally {
 			busy = null;
 		}

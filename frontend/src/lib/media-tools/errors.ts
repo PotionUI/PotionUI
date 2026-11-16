@@ -25,7 +25,7 @@ function text(value: unknown): string | null {
 	return typeof value === 'string' && value.trim() ? value : null;
 }
 
-export function parseMediaToolFailure(error: unknown): MediaToolFailure {
+export function parseMediaToolFailure(error: unknown, fallback = FALLBACK): MediaToolFailure {
 	const response = record(record(error)?.response);
 	const data = record(response?.data);
 	const body = record(data?.detail) ?? data;
@@ -36,7 +36,7 @@ export function parseMediaToolFailure(error: unknown): MediaToolFailure {
 		refusalMessage(error) ??
 		text(body?.message) ??
 		(code ? CODE_MESSAGES[code] : undefined) ??
-		describeEditFailure(error, FALLBACK);
+		describeEditFailure(error, fallback);
 
 	return {
 		code,
@@ -46,6 +46,6 @@ export function parseMediaToolFailure(error: unknown): MediaToolFailure {
 	};
 }
 
-export function describeMediaToolFailure(error: unknown): string {
-	return parseMediaToolFailure(error).message;
+export function describeMediaToolFailure(error: unknown, fallback = FALLBACK): string {
+	return parseMediaToolFailure(error, fallback).message;
 }

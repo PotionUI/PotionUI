@@ -20,6 +20,7 @@ from src.platform.media_tools.ops import (
     volume,
     replace_audio,
     paint_layer,
+    place_patch,
     slice as slice_op,
 )
 from src.platform.media_tools.effects.loader import core_effects, register_effects
@@ -45,6 +46,7 @@ CORE_MODULES = (
     volume,
     replace_audio,
     paint_layer,
+    place_patch,
     slice_op,
 )
 

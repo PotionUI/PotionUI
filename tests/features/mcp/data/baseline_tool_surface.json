@@ -1785,6 +1785,7 @@
           "volume",
           "replace_audio",
           "paint_layer",
+          "place_patch",
           "slice",
           "fade",
           "film_grain",

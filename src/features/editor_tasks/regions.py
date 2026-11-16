@@ -1,0 +1,201 @@
+import math
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+from PIL import Image
+
+from src.platform.imaging.regions import (
+    fit_axis,
+    mask_bbox,
+    mask_patch,
+    region_patch,
+    resample_image,
+    scaled_crop_box,
+    working_size,
+)
+
+MIN_SIDE = 256
+LANDED = 128
+WHOLE_SHARE = 0.7
+FEATHER_FLOOR = 8
+FEATHER_SHARE = 0.06
+SOFT_FACTOR = 2.0
+MAX_SIDE = 8192
+STRATEGIES = ("crop", "mask", "whole")
+
+
+@dataclass(frozen=True)
+class Geometry:
+    strategy: str
+    box: Tuple[int, int, int, int]
+    working: Tuple[int, int]
+    feather_px: int
+    whole: bool
+    has_region: bool
+    soft: bool
+    picture: Tuple[int, int]
+
+    @property
+    def crop_size(self) -> Tuple[int, int]:
+        top, bottom, left, right = self.box
+        return right - left, bottom - top
+
+    def rect(self) -> Dict[str, float]:
+        top, bottom, left, right = self.box
+        width, height = self.picture
+        return {
+            "x": left / width,
+            "y": top / height,
+            "width": (right - left) / width,
+            "height": (bottom - top) / height,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "strategy": self.strategy,
+            "box": list(self.box),
+            "working": list(self.working),
+            "feather_px": self.feather_px,
+            "whole": self.whole,
+            "has_region": self.has_region,
+            "soft": self.soft,
+            "picture": list(self.picture),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Geometry":
+        return cls(
+            strategy=data["strategy"],
+            box=tuple(int(value) for value in data["box"]),
+            working=tuple(int(value) for value in data["working"]),
+            feather_px=int(data["feather_px"]),
+            whole=bool(data["whole"]),
+            has_region=bool(data["has_region"]),
+            soft=bool(data.get("soft", False)),
+            picture=tuple(int(value) for value in data["picture"]),
+        )
+
+
+@dataclass
+class Prepared:
+    image: Image.Image
+    mask: Optional[Image.Image]
+    base: np.ndarray
+    region: Optional[np.ndarray]
+
+
+def cap_picture(image: Image.Image, limit: int = MAX_SIDE) -> Image.Image:
+    longest = max(image.size)
+    if longest <= limit:
+        return image
+    scale = limit / longest
+    size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    return image.resize(size, Image.Resampling.LANCZOS)
+
+
+def land_mask(mask: Optional[Image.Image], size: Tuple[int, int]) -> Optional[np.ndarray]:
+    if mask is None:
+        return None
+    gray = mask.convert("L")
+    if gray.size != size:
+        gray = gray.resize(size, Image.Resampling.BILINEAR)
+    landed = np.where(np.asarray(gray) >= LANDED, 255, 0).astype(np.uint8)
+    return landed if landed.any() else None
+
+
+def feather_for(box: Tuple[int, int, int, int]) -> int:
+    top, bottom, left, right = box
+    return max(FEATHER_FLOOR, int(round(FEATHER_SHARE * max(bottom - top, right - left))))
+
+
+def _bucket_for(aspect: float, buckets: Sequence[Sequence[int]]) -> Tuple[int, int]:
+    best = min(buckets, key=lambda pair: abs(math.log(pair[0] / pair[1]) - math.log(aspect)))
+    return int(best[0]), int(best[1])
+
+
+def grow_to_bucket(
+    box: Tuple[int, int, int, int], shape: Tuple[int, int], buckets: Sequence[Sequence[int]]
+) -> Tuple[int, int, int, int]:
+    height, width = shape[:2]
+    top, bottom, left, right = box
+    crop_h, crop_w = bottom - top, right - left
+    target_w, target_h = _bucket_for(crop_w / crop_h, buckets)
+    wanted = target_w / target_h
+    if crop_w / crop_h < wanted:
+        left, right = fit_axis(left, right, int(math.ceil(crop_h * wanted)), width)
+    elif crop_w / crop_h > wanted:
+        top, bottom = fit_axis(top, bottom, int(math.ceil(crop_w / wanted)), height)
+    return top, bottom, left, right
+
+
+def plan(
+    shape: Tuple[int, ...],
+    region: Optional[np.ndarray],
+    strategy: str,
+    context: float,
+    area: int,
+    multiple: int,
+    buckets: Optional[Sequence[Sequence[int]]] = None,
+    min_side: int = MIN_SIDE,
+) -> Geometry:
+    height, width = shape[0], shape[1]
+    has_region = region is not None and bool((region >= LANDED).any())
+    full = (0, height, 0, width)
+    whole = strategy == "whole" or not has_region
+    box = full
+    if not whole:
+        box = scaled_crop_box((height, width), mask_bbox(np.where(region >= LANDED, 255, 0)), context, min_side)
+        if (box[1] - box[0]) * (box[3] - box[2]) > WHOLE_SHARE * height * width:
+            box, whole = full, True
+    if buckets and strategy != "mask":
+        box = full if whole else grow_to_bucket(box, (height, width), buckets)
+    crop_h, crop_w = box[1] - box[0], box[3] - box[2]
+    if strategy == "mask":
+        work_h, work_w = working_size(height, width, area, multiple)
+    elif buckets:
+        work_w, work_h = _bucket_for(crop_w / crop_h, buckets)
+    else:
+        work_h, work_w = working_size(crop_h, crop_w, area, multiple)
+    return Geometry(
+        strategy=strategy,
+        box=box,
+        working=(work_w, work_h),
+        feather_px=feather_for(box),
+        whole=whole,
+        has_region=has_region,
+        soft=crop_h * crop_w > SOFT_FACTOR * work_w * work_h,
+        picture=(width, height),
+    )
+
+
+def prepare(picture: np.ndarray, region: Optional[np.ndarray], geometry: Geometry) -> Prepared:
+    top, bottom, left, right = geometry.box
+    base = picture[top:bottom, left:right]
+    region_crop = None if region is None or not geometry.has_region else region[top:bottom, left:right]
+    if geometry.strategy == "mask":
+        full = region if geometry.has_region else np.full(picture.shape[:2], 255, dtype=np.uint8)
+        return Prepared(Image.fromarray(picture), Image.fromarray(full), base, region_crop)
+    work_w, work_h = geometry.working
+    return Prepared(Image.fromarray(resample_image(base, work_w, work_h)), None, base, region_crop)
+
+
+def stitch(base: np.ndarray, region_crop: Optional[np.ndarray], result: Image.Image, geometry: Geometry) -> np.ndarray:
+    top, bottom, left, right = geometry.box
+    content_rgb = np.asarray(result.convert("RGB"))
+    mask = region_crop if region_crop is not None else np.zeros(base.shape[:2], dtype=np.uint8)
+    if geometry.strategy == "mask":
+        width, height = geometry.picture
+        content = resample_image(content_rgb, width, height)[top:bottom, left:right]
+        return mask_patch(content, mask, geometry.feather_px)
+    content = resample_image(content_rgb, right - left, bottom - top)
+    return region_patch(base, content, mask, geometry.feather_px, True)
+
+
+def context_from(form_data: Dict[str, Any], default: float) -> float:
+    raw = form_data.get("region_context")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if 0.0 <= value <= 4.0 else default

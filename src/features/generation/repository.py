@@ -747,6 +747,14 @@ class GenerationRepository:
             )
             return cursor.rowcount > 0
 
+    def update_origin(self, generation_id: str, origin: Dict[str, Any]) -> bool:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE generations SET origin = ? WHERE id = ?",
+                (json.dumps(origin, separators=(",", ":")), generation_id)
+            )
+            return cursor.rowcount > 0
+
     def update_preset_version(self, generation_id: str, preset_version: str) -> bool:
         """Record which preset version actually rendered this generation's pipeline."""
         with get_cursor() as cursor:

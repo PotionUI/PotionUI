@@ -183,6 +183,7 @@ class Generation:
     failed_at_step: Optional[str] = None
     files: List[File] = field(default_factory=list)
     tags: List['Tag'] = field(default_factory=list)  # Forward reference for Tag
+    origin: Optional[Dict[str, Any]] = None
     
     @classmethod
     def from_row(cls, row) -> 'Generation':
@@ -222,6 +223,7 @@ class Generation:
             failed_pipe_id=row_get(row, 'failed_pipe_id'),
             failed_pipe_name=row_get(row, 'failed_pipe_name'),
             failed_at_step=row_get(row, 'failed_at_step'),
+            origin=json_column(row_get(row, 'origin')),
             created_at=dt_column(row['created_at']),
             started_at=dt_column(row_get(row, 'started_at')),
             completed_at=dt_column(row['completed_at']),
@@ -267,6 +269,7 @@ class Generation:
             'error_code': self.error_code,
             'error_user_message': self.error_user_message,
             'error_id': self.id if self.status == 'failed' else None,
+            'origin': self.origin,
             'created_at': dt_iso(self.created_at),
             'started_at': dt_iso(self.started_at),
             'completed_at': dt_iso(self.completed_at),

@@ -11,7 +11,7 @@ import uuid
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union, TYPE_CHECKING
+from typing import Any, Callable, Iterator, List, Mapping, Optional, Sequence, Tuple, Union, TYPE_CHECKING
 
 from PIL import Image, ImageOps
 from pydantic import ValidationError
@@ -640,6 +640,36 @@ class MediaToolService:
             data = _encode_frame(result, int(max_side), fmt)
         self.previews.store_frame(user_id, key, data, media_type, width, height)
         return FramePreview(data=data, media_type=media_type, cached=False, width=width, height=height)
+
+    @contextmanager
+    def render_picture(self, user: Any, input_ref: InputLike, steps: Sequence[StepLike]) -> Iterator[Path]:
+        user_id = _user_id(user)
+        resolved = self.resolver.resolve(user_id, _model(InputRef, input_ref, "input"))
+        if resolved.kind != "image":
+            raise InvalidInputError("unsupported_media", f"A {resolved.kind} file is not a picture")
+        chain = self._editor_steps(steps)
+        attachments = self._resolve_attachments(user_id, chain)
+        with self._scratch() as scratch, ExitStack() as stack:
+            ctx = ToolContext(scratch, user_id=user_id)
+            path = stack.enter_context(self.resolver.stage(resolved))
+            if not chain:
+                yield path
+                return
+            try:
+                media = ctx.probe(path, resolved.kind)
+                bound = self._bind(chain, attachments, stack, ctx)
+                outputs = run_chain(bound, [media], ctx, validate=False)
+            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                raise _refusal(exc) from exc
+            if len(outputs) != 1:
+                raise ToolFailed("The edits did not produce exactly one picture")
+            yield outputs[0].path
+
+    @contextmanager
+    def open_input(self, user: Any, input_ref: InputLike) -> Iterator[Path]:
+        resolved = self.resolver.resolve(_user_id(user), _model(InputRef, input_ref, "input"))
+        with self.resolver.stage(resolved) as path:
+            yield path
 
     def start_clip_preview(
         self,

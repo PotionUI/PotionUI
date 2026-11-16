@@ -57,7 +57,7 @@ from src.features.media.upload_thumbnails import (
     run_in_background,
 )
 from src.features.media.validators import (
-    UPLOAD_PURPOSE_DERIVED,
+    HELPER_PURPOSES,
     UPLOAD_PURPOSE_USER,
     validate_derived_artifact,
     validate_upload_purpose_policy,
@@ -471,8 +471,9 @@ class MediaStore:
         size: Optional[int],
         purpose: str = UPLOAD_PURPOSE_USER,
         content_type: Optional[str] = None,
+        internal: bool = False,
     ) -> None:
-        if validate_upload_purpose_policy(purpose) == UPLOAD_PURPOSE_DERIVED:
+        if validate_upload_purpose_policy(purpose, internal) in HELPER_PURPOSES:
             validate_derived_artifact(size, content_type)
         if self.limit_guard is None or not user_id or not isinstance(size, int):
             return
@@ -484,7 +485,8 @@ class MediaStore:
         filename: str,
         content_type: Optional[str],
         user_id: Optional[str] = None,
-        purpose: str = UPLOAD_PURPOSE_USER
+        purpose: str = UPLOAD_PURPOSE_USER,
+        internal: bool = False,
     ) -> UploadResult:
         """Upload a media file.
 
@@ -504,8 +506,8 @@ class MediaStore:
         Raises:
             ValueError: If upload fails, is blocked, or `purpose` is unknown
         """
-        purpose = validate_upload_purpose_policy(purpose)
-        await asyncio.to_thread(self.check_upload_size, user_id, len(file_data), purpose, content_type or "")
+        purpose = validate_upload_purpose_policy(purpose, internal)
+        await asyncio.to_thread(self.check_upload_size, user_id, len(file_data), purpose, content_type or "", internal)
 
         # Validate content type
         if not self.media_types.is_valid_media_type(content_type):

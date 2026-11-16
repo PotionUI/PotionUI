@@ -12,10 +12,13 @@ from typing import Optional
 UPLOAD_PURPOSE_USER = "user_upload"
 UPLOAD_PURPOSE_DERIVED = "derived_artifact"
 UPLOAD_PURPOSES = (UPLOAD_PURPOSE_USER, UPLOAD_PURPOSE_DERIVED)
+UPLOAD_PURPOSE_EDITOR_RUN = "editor_run_working"
+INTERNAL_UPLOAD_PURPOSES = (UPLOAD_PURPOSE_EDITOR_RUN,)
+HELPER_PURPOSES = (UPLOAD_PURPOSE_DERIVED, UPLOAD_PURPOSE_EDITOR_RUN)
 
 
-def validate_upload_purpose_policy(value: str) -> str:
-    if value not in UPLOAD_PURPOSES:
+def validate_upload_purpose_policy(value: str, internal: bool = False) -> str:
+    if value not in UPLOAD_PURPOSES and not (internal and value in INTERNAL_UPLOAD_PURPOSES):
         raise ValueError(f"purpose must be one of {UPLOAD_PURPOSES}")
     return value
 

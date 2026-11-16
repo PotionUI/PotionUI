@@ -201,7 +201,10 @@ POST	/api/downloads/{download_id}/cancel	-	admin	admin_dependency
 POST	/api/downloads/{download_id}/pause	-	admin	admin_dependency
 POST	/api/downloads/{download_id}/resume	-	admin	admin_dependency
 POST	/api/downloads/{download_id}/retry	-	admin	admin_dependency
+DELETE	/api/editor/runs/{run_id}	-	generate	marker
+GET	/api/editor/runs/{run_id}	read	-	marker
 GET	/api/editor/tasks	read	-	marker
+POST	/api/editor/tasks/{task_id}/runs	-	generate	marker
 GET	/api/edits	read	-	marker
 POST	/api/edits	-	content	marker
 DELETE	/api/edits/{edit_id}	-	content	marker

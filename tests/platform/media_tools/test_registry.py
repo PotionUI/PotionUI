@@ -9,11 +9,11 @@ from tests.platform.media_tools.fake_tools import make_spec
 CORE_IDS = [
     "trim", "crop", "resize", "rotate", "flip", "speed",
     "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "cut_finder",
-    "mute", "volume", "replace_audio", "paint_layer", "slice",
+    "mute", "volume", "replace_audio", "paint_layer", "place_patch", "slice",
     "fade", "film_grain", "fix_colors", "ken_burns", "look", "lut", "vignette",
 ]
 EFFECT_IDS = ("fade", "film_grain", "fix_colors", "ken_burns", "look", "lut", "vignette")
-EDITOR_ONLY = ("replace_audio", "paint_layer", "slice")
+EDITOR_ONLY = ("replace_audio", "paint_layer", "place_patch", "slice")
 AUDIO_GROUP = ("mute", "volume", "replace_audio")
 
 
@@ -29,7 +29,7 @@ def test_core_registers_exactly_the_contract_tools_in_menu_order():
     register_core_tools(registry)
 
     assert [spec.id for spec in registry.list()] == CORE_IDS
-    assert len(CORE_MODULES) == 18
+    assert len(CORE_MODULES) == 19
     assert all(spec.source == "core" and "." not in spec.id for spec in registry.list())
 
 
@@ -85,6 +85,7 @@ def test_core_param_names_are_the_contract_names():
         "volume": ["unit", "percent", "db", "fade_in", "fade_out"],
         "replace_audio": ["audio", "start", "loop"],
         "paint_layer": ["layer"],
+        "place_patch": ["patch", "x", "y", "width", "height"],
         "slice": ["rects", "trim", "tolerance", "padding", "aspect", "fill"],
     }
 

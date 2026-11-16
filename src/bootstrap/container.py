@@ -287,6 +287,9 @@ from src.features.edits.manager import EditManager
 from src.features.editor_tasks.declarations import DeclarationCache
 from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
+from src.features.editor_tasks.repository import EditorRunRepository
+from src.features.editor_tasks.runs import EditorRunManager
+from src.features.generation.routes import GenerationController
 from src.features.edits.repository import EditRepository
 from src.features.edits.routes import EditController
 from src.features.inspirations import InspirationCollaborators, InspirationRepository
@@ -623,6 +626,7 @@ class AppContainer:
 
     editor_task_registry: TaskRegistry
     editor_tasks: EditorTaskManager
+    editor_runs: EditorRunManager
 
     # User groups
     user_group_repository: "UserGroupRepository"
@@ -1678,6 +1682,33 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
     automation_services.media_tool_registry = media_tool_registry
     bind_media_tool_registry(media_tool_registry)
 
+    generation_controller = GenerationController(
+        generation_orchestrator,
+        generation_history_facade,
+        file_service,
+        run_report_recorder,
+        generation_cost_repository,
+        output_broadcaster,
+        generation_applied_prompt_repository,
+    )
+
+    async def start_editor_generation(request, user):
+        return (await generation_controller.start_generation(request, user)).data
+
+    editor_runs = EditorRunManager(
+        EditorRunRepository(),
+        editor_tasks,
+        edit_manager,
+        media_tool_service,
+        media_store,
+        start_editor_generation,
+        generation_controller.cancel_generation,
+        generation_repository,
+        generation_parameter_repository,
+        output_broadcaster.connection_hub,
+    )
+    editor_runs.subscribe(plugin_registry.hook_chain)
+
     # Library components (uploads as first-class, curatable resources)
 
     library_repository = LibraryRepository()
@@ -2141,7 +2172,9 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         "chat_controller": chat.chat_controller,
     }
     _locals = locals()
-    return AppContainer(
+    container = AppContainer(
         **typed,
         **{f.name: _locals[f.name] for f in dataclasses.fields(AppContainer) if f.name not in typed},
     )
+    container._generation_controller = generation_controller
+    return container

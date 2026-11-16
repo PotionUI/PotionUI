@@ -39,6 +39,34 @@ Response `200`: the standard envelope (`success`, `data`, `message`, `error`). T
 
 ## Editor
 
+### GET /api/editor/runs/{run_id}
+
+**Get An Editor Run**
+
+One of your runs with its state, progress and finished patches. Someone else's run answers 404.
+
+Key permission: `read`.
+
+Path parameters:
+
+- `run_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### DELETE /api/editor/runs/{run_id}
+
+**Cancel An Editor Run**
+
+Cancels a queued or running run and its generation. A run that has finished is returned as it is.
+
+Key permission: `generate`.
+
+Path parameters:
+
+- `run_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ### GET /api/editor/tasks
 
 **List Editor Tasks**
@@ -52,6 +80,31 @@ Query parameters:
 - `editor` (one of image, video, audio, optional, default 'image')
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### POST /api/editor/tasks/{task_id}/runs
+
+**Start An Editor Run**
+
+Crops the marked area with its surroundings, runs a preset mode on it as a normal generation, and blends each result back as a patch. Answers at once with the run; follow it with the run route or the editor_run_update message on /ws/generation.
+
+Key permission: `generate`.
+
+Path parameters:
+
+- `task_id` (string, required)
+
+JSON body, `StartEditorRunRequest`:
+
+- `edit` (RunEditRef, required)
+- `input` (InputRef, required)
+- `steps` (array of StepRequest, optional)
+- `region` (InputRef, optional)
+- `prompt` (string, optional)
+- `setup` (RunSetup, required)
+- `candidates` (integer, optional, 1.0 to 4.0, default 1)
+- `seed` (integer, optional, at least 0.0)
+
+Response `202`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
 ## Edits
 

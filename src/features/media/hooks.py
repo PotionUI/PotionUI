@@ -36,7 +36,7 @@ MEDIA_HOOKS = hooks_registry.declare(
                 "upload_id": {"type": "str", "description": "Id of the new uploads row"},
                 "user_id": {"type": "Optional[str]", "description": "Owning user"},
                 "media_type": {"type": "str", "description": "'image', 'video' or 'audio'"},
-                "purpose": {"type": "str", "description": "'user_upload' for a Library file, 'derived_artifact' for a helper file such as a mask"},
+                "purpose": {"type": "str", "description": "'user_upload' for a Library file, 'derived_artifact' for a helper file such as a mask, 'editor_run_working' for an editor run's own working file"},
             },
             "use_when": ["React to a file that now appears in the user's Library, e.g. filing it into a collection"],
         },

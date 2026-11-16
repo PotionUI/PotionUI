@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from src.features.editor_tasks.declarations import (
@@ -11,11 +12,22 @@ from src.features.editor_tasks.declarations import (
 )
 from src.features.editor_tasks.registry import TaskDefinition, TaskRegistry
 from src.features.presets.mode_labels import mode_display_name
-from src.features.presets.templates import PresetTemplate, default_form_name
+from src.features.presets.templates import ModeTemplate, PresetTemplate, default_form_name
+from src.platform.http.errors import DomainError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
 NO_BACKEND = "No backend is set up for the engine of this preset."
+
+
+@dataclass(frozen=True)
+class ResolvedOffer:
+    task: TaskDefinition
+    template: PresetTemplate
+    mode_name: str
+    mode: ModeTemplate
+    declaration: TaskDeclaration
+    via: Optional[str]
 
 
 class EditorTaskManager:
@@ -125,3 +137,24 @@ class EditorTaskManager:
                 for declaration in result.tasks:
                     owned |= owned_fields(declaration, template.modes[mode_name])
         return owned
+
+    def resolve_offer(self, user: Any, task_id: str, preset_id: str, mode_name: str) -> ResolvedOffer:
+        task = self.registry.get(task_id)
+        if task is None:
+            raise NotFoundError("task_not_found", "This task does not exist")
+        if preset_id not in self._visible_preset_ids(user):
+            raise NotFoundError("preset_not_found", "The selected preset is not available")
+        wanted = [(task.id, None)]
+        if task.fallback is not None:
+            wanted.append((task.fallback[0], task.fallback[0]))
+        for template, result in self.mode_declarations():
+            if template.id != preset_id or result.mode != mode_name:
+                continue
+            for candidate, via in wanted:
+                declaration = next((item for item in result.tasks if item.task == candidate), None)
+                if declaration is None:
+                    continue
+                if not self._engine_available(template.engine):
+                    raise DomainError("offer_unavailable", NO_BACKEND, 422)
+                return ResolvedOffer(task, template, mode_name, template.modes[mode_name], declaration, via)
+        raise DomainError("task_not_offered", "This mode does not offer that task", 422)

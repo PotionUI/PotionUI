@@ -5,7 +5,7 @@ from src.features.edits.records import Edit
 from src.platform.database import get_cursor
 
 SUMMARY_COLUMNS = (
-    "id, user_id, tool, name, source_kind, source_id, thumbnail_upload_id, revision, created_at, updated_at"
+    "id, user_id, tool, name, source_kind, source_id, source_name, thumbnail_upload_id, revision, created_at, updated_at"
 )
 
 
@@ -18,11 +18,12 @@ class EditRepository:
     def create(self, edit: Edit, now: str) -> Edit:
         with get_cursor() as cursor:
             cursor.execute(
-                "INSERT INTO edits (id, user_id, tool, name, source_kind, source_id, state, "
+                "INSERT INTO edits (id, user_id, tool, name, source_kind, source_id, source_name, state, "
                 "thumbnail_upload_id, revision, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
                 (
                     edit.id, edit.user_id, edit.tool, edit.name, edit.source_kind, edit.source_id,
+                    edit.source_name,
                     json.dumps(edit.state, separators=(",", ":")), edit.thumbnail_upload_id, now, now,
                 ),
             )
@@ -45,8 +46,12 @@ class EditRepository:
             clauses.append("tool = ?")
             params.append(tool)
         if search:
-            clauses.append("LOWER(COALESCE(name, '')) LIKE LOWER(?) ESCAPE '\\'")
-            params.append(f"%{_escape_like(search)}%")
+            clauses.append(
+                "(LOWER(COALESCE(name, '')) LIKE LOWER(?) ESCAPE '\\' "
+                "OR LOWER(COALESCE(source_name, '')) LIKE LOWER(?) ESCAPE '\\')"
+            )
+            pattern = f"%{_escape_like(search)}%"
+            params.extend([pattern, pattern])
         where = " AND ".join(clauses)
         with get_cursor() as cursor:
             cursor.execute(f"SELECT COUNT(*) AS count FROM edits WHERE {where}", params)

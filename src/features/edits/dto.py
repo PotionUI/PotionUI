@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class EditSource(BaseModel):
     kind: str
     id: str
+    name: Optional[str] = None
 
 
 class CreateEditRequest(BaseModel):

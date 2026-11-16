@@ -75,8 +75,45 @@ class TestEditRoutes(RoutesBase):
         edit = self.create(name="Poster")
 
         self.assertEqual((edit["revision"], edit["name"], edit["tool"], edit["state"]), (1, "Poster", "image", STATE))
-        self.assertEqual(edit["source"], SOURCE)
+        self.assertEqual(edit["source"], {**SOURCE, "name": None})
         self.assertIsNone(edit["thumbnail_upload_id"])
+
+    def test_create_keeps_a_cleaned_source_name_and_get_and_list_return_it(self):
+        edit = self.create(source={**SOURCE, "name": "  observatory-dusk.png  "})
+
+        fetched = self.call("GET", f"/{edit['id']}").json()["data"]["edit"]
+        listed = self.call("GET").json()["data"]["edits"][0]
+
+        self.assertEqual(edit["source"], {**SOURCE, "name": "observatory-dusk.png"})
+        self.assertEqual(fetched["source"]["name"], "observatory-dusk.png")
+        self.assertEqual(listed["source"]["name"], "observatory-dusk.png")
+
+    def test_a_blank_source_name_is_null_and_an_over_long_one_is_truncated(self):
+        blank = self.create(source={**SOURCE, "name": "   "})
+        long = self.create(source={**SOURCE, "name": "x" * 121})
+
+        self.assertIsNone(blank["source"]["name"])
+        self.assertEqual(long["source"]["name"], "x" * 120)
+
+    def test_list_search_matches_the_source_name_and_total_follows(self):
+        self.create(name="Poster", source={**SOURCE, "name": "observatory-dusk.png"})
+        self.create(name="Observatory notes")
+        self.create(name="Other", source={**SOURCE, "name": "a_b.png"})
+
+        found = self.call("GET", "?search=dusk").json()["data"]
+        both = self.call("GET", "?search=observatory").json()["data"]
+        literal = self.call("GET", "?search=a_b").json()["data"]
+
+        self.assertEqual(([edit["name"] for edit in found["edits"]], found["total"]), (["Poster"], 1))
+        self.assertEqual(both["total"], 2)
+        self.assertEqual([edit["name"] for edit in literal["edits"]], ["Other"])
+
+    def test_duplicating_an_unnamed_edit_names_the_copy_after_its_source_without_the_extension(self):
+        edit = self.create(source={**SOURCE, "name": "my.photo.final.png"})
+
+        copy = self.call("POST", f"/{edit['id']}/duplicate").json()["data"]["edit"]
+
+        self.assertEqual((copy["name"], copy["source"]["name"]), ("my.photo.final copy", "my.photo.final.png"))
 
     def test_create_without_a_tool_means_image_and_without_a_state_an_empty_object(self):
         response = self.call("POST", json={"source": SOURCE})

@@ -1,3 +1,5 @@
+import posixpath
+
 from src.platform.http.errors import InvalidInputError
 
 EDIT_TOOLS = ("image",)
@@ -31,7 +33,18 @@ def clean_name(raw):
     return name
 
 
-def copy_name(name):
-    if name is None:
+def clean_source_name(raw):
+    if raw is None:
         return None
-    return f"{name} copy"[:MAX_NAME_CHARS]
+    name = " ".join(str(raw).split())
+    if not name:
+        return None
+    return name[:MAX_NAME_CHARS]
+
+def copy_name(name, source_name=None):
+    base = name
+    if base is None and source_name:
+        base = posixpath.splitext(source_name)[0] or source_name
+    if base is None:
+        return None
+    return f"{base} copy"[:MAX_NAME_CHARS]

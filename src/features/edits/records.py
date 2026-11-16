@@ -12,6 +12,7 @@ class Edit:
     tool: str
     source_kind: str
     source_id: str
+    source_name: Optional[str] = None
     name: Optional[str] = None
     state: Optional[Dict[str, Any]] = None
     thumbnail_upload_id: Optional[str] = None
@@ -27,6 +28,7 @@ class Edit:
             tool=row["tool"],
             source_kind=row["source_kind"],
             source_id=row["source_id"],
+            source_name=row_get(row, "source_name"),
             name=row_get(row, "name"),
             state=state,
             thumbnail_upload_id=row_get(row, "thumbnail_upload_id"),
@@ -40,7 +42,7 @@ class Edit:
             "id": self.id,
             "tool": self.tool,
             "name": self.name,
-            "source": {"kind": self.source_kind, "id": self.source_id},
+            "source": {"kind": self.source_kind, "id": self.source_id, "name": self.source_name},
             "thumbnail_upload_id": self.thumbnail_upload_id,
             "revision": self.revision,
             "created_at": dt_iso(self.created_at),

@@ -19,6 +19,29 @@ class TestEditManager(EditsTestBase):
     def test_a_blank_name_is_stored_as_unnamed(self):
         self.assertIsNone(self.make(name="   ").name)
 
+    def test_create_keeps_a_cleaned_source_name_and_without_one_reads_back_none(self):
+        named = self.make(source_name="  observatory   dusk.png ")
+        blank = self.make(source_name="   ")
+        plain = self.make()
+
+        self.assertEqual(self.manager.get(self.user_id, named.id).source_name, "observatory dusk.png")
+        self.assertIsNone(blank.source_name)
+        self.assertIsNone(self.manager.get(self.user_id, plain.id).source_name)
+
+    def test_a_source_name_at_the_limit_is_kept_and_one_over_is_truncated(self):
+        kept = self.make(source_name="n" * 120)
+        cut = self.make(source_name="n" * 119 + "ab")
+
+        self.assertEqual(kept.source_name, "n" * 120)
+        self.assertEqual(cut.source_name, "n" * 119 + "a")
+
+    def test_list_rows_carry_the_source_name(self):
+        self.make(source_name="a.png")
+
+        rows, _ = self.manager.list(self.user_id, None, None, 50, 0)
+
+        self.assertEqual([edit.source_name for edit in rows], ["a.png"])
+
     def test_an_unknown_tool_is_refused(self):
         with self.assertRaises(InvalidInputError) as raised:
             self.manager.create(self.user_id, "audio", None, "library", "x", STATE)
@@ -218,6 +241,21 @@ class TestEditManager(EditsTestBase):
     def test_duplicating_an_unnamed_edit_stays_unnamed(self):
         self.assertIsNone(self.manager.duplicate(self.user_id, self.make().id).name)
 
+    def test_a_copy_is_named_after_the_edit_then_the_source_name_without_its_extension(self):
+        named = self.manager.duplicate(self.user_id, self.make(name="Poster", source_name="a.png").id)
+        sourced = self.manager.duplicate(self.user_id, self.make(source_name="my.photo.final.png").id)
+        bare = self.manager.duplicate(self.user_id, self.make(source_name="scan").id)
+
+        self.assertEqual(named.name, "Poster copy")
+        self.assertEqual(sourced.name, "my.photo.final copy")
+        self.assertEqual(bare.name, "scan copy")
+        self.assertEqual((named.source_name, sourced.source_name), ("a.png", "my.photo.final.png"))
+
+    def test_a_copy_named_from_a_maximum_length_source_name_stays_within_the_limit(self):
+        copy = self.manager.duplicate(self.user_id, self.make(source_name="n" * 120).id)
+
+        self.assertEqual(len(copy.name), 120)
+
     def test_delete_removes_the_edit(self):
         edit = self.make()
 
@@ -281,6 +319,33 @@ class TestEditManager(EditsTestBase):
         self.assertEqual([edit.name for edit in beach], ["Beach Sunset"])
         self.assertEqual([edit.name for edit in percent], ["100% sure"])
         self.assertEqual([edit.name for edit in underscore], ["Under_score"])
+
+    def test_list_search_matches_the_name_or_the_source_name(self):
+        self.make(name="Poster", source_name="observatory-dusk.png")
+        self.make(name="Observatory", source_name="x.png")
+        self.make(name="Plain")
+        self.make(source_name="100%_done.png")
+
+        by_source, source_total = self.manager.list(self.user_id, None, "DUSK", 50, 0)
+        by_name, _ = self.manager.list(self.user_id, None, "plain", 50, 0)
+        either, either_total = self.manager.list(self.user_id, None, "observatory", 50, 0)
+        percent, _ = self.manager.list(self.user_id, None, "%", 50, 0)
+        underscore, _ = self.manager.list(self.user_id, None, "%_d", 50, 0)
+        miss, miss_total = self.manager.list(self.user_id, None, "nothing", 50, 0)
+
+        self.assertEqual(([edit.name for edit in by_source], source_total), (["Poster"], 1))
+        self.assertEqual([edit.name for edit in by_name], ["Plain"])
+        self.assertEqual((len(either), either_total), (2, 2))
+        self.assertEqual([edit.source_name for edit in percent], ["100%_done.png"])
+        self.assertEqual([edit.source_name for edit in underscore], ["100%_done.png"])
+        self.assertEqual((miss, miss_total), ([], 0))
+
+    def test_list_search_never_matches_another_users_source_name(self):
+        self.make(user_id=self.other_user_id, source_name="secret.png")
+
+        rows, total = self.manager.list(self.user_id, None, "secret", 50, 0)
+
+        self.assertEqual((rows, total), ([], 0))
 
     def test_list_search_escapes_a_backslash_and_ignores_surrounding_blanks(self):
         self.make(name="a\\b")

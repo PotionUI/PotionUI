@@ -58,15 +58,17 @@ class EditManager:
         source_id: str,
         state: Dict[str, Any],
         thumbnail_upload_id: Optional[str] = None,
+        source_name: Optional[str] = None,
     ) -> Edit:
         rules.check_tool(tool)
         rules.check_source(source_kind, source_id)
         clean = rules.clean_name(name)
+        clean_source = rules.clean_source_name(source_name)
         _check_state_size(state)
         self._check_thumbnail(user_id, thumbnail_upload_id)
         edit = Edit(
             id=rules.ID_PREFIX + generate_ulid(), user_id=user_id, tool=tool, name=clean,
-            source_kind=source_kind, source_id=source_id, state=state,
+            source_kind=source_kind, source_id=source_id, source_name=clean_source, state=state,
             thumbnail_upload_id=thumbnail_upload_id,
         )
         return self.repository.create(edit, self.clock())
@@ -104,7 +106,8 @@ class EditManager:
         source = self.get(user_id, edit_id)
         copy = Edit(
             id=rules.ID_PREFIX + generate_ulid(), user_id=user_id, tool=source.tool,
-            name=rules.copy_name(source.name), source_kind=source.source_kind, source_id=source.source_id,
+            name=rules.copy_name(source.name, source.source_name), source_kind=source.source_kind,
+            source_id=source.source_id, source_name=source.source_name,
             state=source.state, thumbnail_upload_id=source.thumbnail_upload_id,
         )
         return self.repository.create(copy, self.clock())

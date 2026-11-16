@@ -41,7 +41,7 @@ class EditController(BaseController):
     async def create_edit(self, request: CreateEditRequest, user) -> APIResponse:
         edit = await asyncio.to_thread(
             self.manager.create, user.id, request.tool, request.name, request.source.kind,
-            request.source.id, request.state, request.thumbnail_upload_id,
+            request.source.id, request.state, request.thumbnail_upload_id, request.source.name,
         )
         return self.success_response(data={"edit": edit.to_dict(with_state=True)})
 

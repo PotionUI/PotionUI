@@ -2063,6 +2063,8 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         session_version_repository=session_version_repository,
         file_preset_repository=file_preset_repository,
         notifier=session_hub,
+        editor_owned_fields=editor_tasks.owned_fields,
+        editor_mode_check=editor_tasks.mode_status,
     )
 
 

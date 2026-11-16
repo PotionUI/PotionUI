@@ -59,7 +59,7 @@ class TestSessionControllerRead:
         assert response.data[0]["id"] == "session-123"
         assert response.data[0]["name"] == "Test Session"
         assert "user_id" not in response.data[0]  # Should not include user_id
-        mock_session_repo.get_by_user_and_preset.assert_called_once_with("user-123", "preset-456")
+        mock_session_repo.get_by_user_and_preset.assert_called_once_with("user-123", "preset-456", "generation", None)
 
     @pytest.mark.asyncio
     async def test_get_sessions_for_preset_empty(self, controller, mock_session_repo):

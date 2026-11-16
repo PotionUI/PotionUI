@@ -109,6 +109,15 @@ class EditorTaskManager:
             "default": None,
         }
 
+    def mode_status(self, preset_id: str, mode_name: str) -> str:
+        template = next((item for item in self._templates() if item.id == preset_id), None)
+        if template is None or mode_name not in (template.modes or {}):
+            return "unknown"
+        for found, result in self.mode_declarations():
+            if found.id == preset_id and result.mode == mode_name and result.tasks:
+                return "ok"
+        return "not_offered"
+
     def owned_fields(self, preset_id: str, mode_name: str) -> Set[str]:
         owned: Set[str] = set()
         for template, result in self.mode_declarations():

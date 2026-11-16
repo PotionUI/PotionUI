@@ -25,6 +25,7 @@ CREATE TABLE sessions (
     pinned_at TIMESTAMP,
     version INTEGER NOT NULL DEFAULT 1,
     last_origin TEXT,
+    kind TEXT NOT NULL DEFAULT 'generation',
     UNIQUE(user_id, preset_id, name)
 );
 """

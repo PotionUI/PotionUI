@@ -5,22 +5,25 @@ Handles CRUD operations for user sessions (saved preset configurations).
 Delegates mutations to `src.features.sessions.operations`.
 """
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from src.platform.http.base_controller import APIError, APIResponse, BaseController
-from src.platform.http.errors import AccessDeniedError, NotFoundError
+from src.platform.http.errors import AccessDeniedError, ConflictError, DomainError, NotFoundError
 from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user
 from src.features.generation.details_url import generation_details_url
 from src.features.generation.routes import generation_controller_for
 from src.features.mcp.routes import request_origin
 from src.features.sessions.dto import (
+    GENERATION_KIND,
+    SessionKindFilter,
     GenerateFromSessionRequest,
     PinSessionRequest,
     SaveSessionRequest,
     UpdateSessionRequest,
 )
+from src.features.sessions.editor_data import REFUSED_MODE_CODES
 from src.features.sessions.generate import SessionRequestError, overrides_from
 from src.platform.security.user import owner_is_admin
 from src.features.sessions import operations
@@ -39,6 +42,7 @@ if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
 MISSING_CODES = frozenset({"session_not_found", "session_version_not_found"})
+KIND_MISMATCH_CODE = "session_kind_mismatch"
 
 
 
@@ -51,6 +55,8 @@ class SessionController(BaseController):
         session_version_repository: Optional[SessionVersionRepository] = None,
         file_preset_repository: Optional[Any] = None,
         notifier: Optional[Any] = None,
+        editor_owned_fields: Optional[Callable[[str, str], Set[str]]] = None,
+        editor_mode_check: Optional[Callable[[str, str], str]] = None,
     ):
         super().__init__()
         self.repository = session_repository
@@ -58,6 +64,8 @@ class SessionController(BaseController):
         self.version_repository = session_version_repository
         self.file_preset_repository = file_preset_repository
         self.notifier = notifier
+        self.editor_owned_fields = editor_owned_fields
+        self.editor_mode_check = editor_mode_check
 
     @staticmethod
     def _conflict_as_409(write: Callable[..., Any]) -> Callable[..., Any]:
@@ -66,6 +74,14 @@ class SessionController(BaseController):
                 return write(*args)
             except SessionVersionConflict as exc:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.payload())
+            except ConflictError as exc:
+                if exc.code != KIND_MISMATCH_CODE:
+                    raise
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.payload())
+            except DomainError as exc:
+                if exc.code not in REFUSED_MODE_CODES:
+                    raise
+                raise HTTPException(status_code=exc.status_code, detail=exc.payload())
         return guarded
 
     def _get_owned_session_record(self, user_id: str, session_id: str):
@@ -90,9 +106,14 @@ class SessionController(BaseController):
             )
         return response
 
-    async def get_sessions_for_preset(self, user_id: str, preset_id: str) -> APIResponse:
+    async def get_sessions_for_preset(
+        self, user_id: str, preset_id: str, kind: str = GENERATION_KIND, mode: Optional[str] = None
+    ) -> APIResponse:
         def load():
-            return [session_to_response_dict(s) for s in self.repository.get_by_user_and_preset(user_id, preset_id)]
+            return [
+                session_to_response_dict(s)
+                for s in self.repository.get_by_user_and_preset(user_id, preset_id, kind, mode)
+            ]
         return await self.run("get_sessions_failed", load, soft=True, message="Failed to get sessions")
 
     async def get_session_by_id(self, user_id: str, session_id: str) -> APIResponse:
@@ -107,7 +128,7 @@ class SessionController(BaseController):
         response = await self.run(
             "save_session_failed", self._conflict_as_409(operations.save_session),
             self.repository, self.plugins, self.version_repository, self.file_preset_repository, user_id, request,
-            origin,
+            origin, self.editor_owned_fields, self.editor_mode_check,
             soft=True, message="Failed to save session",
         )
         if response.success:
@@ -126,7 +147,7 @@ class SessionController(BaseController):
         response = await self.run(
             "update_session_failed", self._conflict_as_409(operations.update_session),
             self.repository, self.plugins, self.version_repository, self.file_preset_repository,
-            user_id, session_id, request, origin,
+            user_id, session_id, request, origin, self.editor_owned_fields, self.editor_mode_check,
             soft=True, message="Failed to update session",
         )
         if response.success:
@@ -203,9 +224,13 @@ def build_router(container: "AppContainer") -> APIRouter:
         preset_id: Optional[str] = Query(None),
         name: Optional[str] = Query(None),
         q: Optional[str] = Query(None),
+        kind: SessionKindFilter = Query(GENERATION_KIND),
+        mode: Optional[str] = Query(None),
         current_user=Depends(get_current_active_user),
     ):
-        data = await asyncio.to_thread(container.session_requests.listing, current_user.id, preset_id, name, q)
+        data = await asyncio.to_thread(
+            container.session_requests.listing, current_user.id, preset_id, name, q, kind, mode
+        )
         return APIResponse(success=True, data=data)
 
     @router.get(
@@ -263,9 +288,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         return response
 
     @router.get("/preset/{preset_id}", response_model=APIResponse, summary="Get Sessions for Preset")
-    async def get_sessions_for_preset(preset_id: str, current_user=Depends(get_current_active_user)):
+    async def get_sessions_for_preset(
+        preset_id: str,
+        kind: SessionKindFilter = Query(GENERATION_KIND),
+        mode: Optional[str] = Query(None),
+        current_user=Depends(get_current_active_user),
+    ):
         """Get all sessions for the current user and specified preset."""
-        return await controller.get_sessions_for_preset(current_user.id, preset_id)
+        return await controller.get_sessions_for_preset(current_user.id, preset_id, kind, mode)
 
     # Session history — registered ahead of GET /{session_id} so the
     # extra path segments always win the match (FastAPI routes on path shape,

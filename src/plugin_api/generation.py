@@ -238,7 +238,7 @@ def resolve_media_ref(user, ref: Union[HistoryMediaRef, LibraryMediaRef]) -> Res
 
 def _owned_session(container, user, session_id: str):
     session = container.session_repository.get_by_id(session_id)
-    if session is None or session.user_id != getattr(user, "id", None):
+    if session is None or session.user_id != getattr(user, "id", None) or getattr(session, "kind", None) == "editor":
         raise SessionNotFoundError(f"Session '{session_id}' not found")
     return session
 

@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 
 from src.platform.database import get_database_connection
 from src.platform.database.rows import dt_column, now_utc
-from src.features.sessions.dto import Session
+from src.features.sessions.dto import GENERATION_KIND, Session
+
+def _with_mode(sessions: List[Session], mode: Optional[str]) -> List[Session]:
+    if not mode:
+        return sessions
+    return [s for s in sessions if isinstance(s.data, dict) and mode in s.data]
 
 
 class SessionRepository:
@@ -35,6 +40,7 @@ class SessionRepository:
             pinned_at=dt_column(row['pinned_at']),
             version=row['version'],
             last_origin=json.loads(row['last_origin']) if row['last_origin'] else None,
+            kind=row['kind'],
         )
 
     def create(self, session: Session, origin: Optional[Dict[str, Any]] = None) -> Session:
@@ -48,8 +54,8 @@ class SessionRepository:
             updated_at = datetime.now(timezone.utc)
 
             cursor.execute("""
-                INSERT INTO sessions (id, user_id, preset_id, name, data, created_at, updated_at, version, last_origin)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+                INSERT INTO sessions (id, user_id, preset_id, name, data, created_at, updated_at, version, last_origin, kind)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             """, (
                 session_id,
                 session.user_id,
@@ -59,6 +65,7 @@ class SessionRepository:
                 created_at.isoformat() if isinstance(created_at, datetime) else created_at,
                 updated_at.isoformat() if isinstance(updated_at, datetime) else updated_at,
                 json.dumps(origin) if origin else None,
+                session.kind,
             ))
 
             conn.commit()
@@ -74,6 +81,7 @@ class SessionRepository:
                 updated_at=updated_at,
                 version=1,
                 last_origin=origin,
+                kind=session.kind,
             )
 
     def get_by_id(self, session_id: str) -> Optional[Session]:
@@ -87,24 +95,26 @@ class SessionRepository:
                 return self._row_to_session(row)
             return None
 
-    def get_by_user_and_preset(self, user_id: str, preset_id: str) -> List[Session]:
+    def get_by_user_and_preset(
+        self, user_id: str, preset_id: str, kind: str = GENERATION_KIND, mode: Optional[str] = None
+    ) -> List[Session]:
         """Get all sessions for a user and preset."""
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM sessions
-                WHERE user_id = ? AND preset_id = ?
-                ORDER BY pinned DESC, pinned_at DESC, updated_at DESC, id DESC
-            """, (user_id, preset_id))
-
-            rows = cursor.fetchall()
-            return [self._row_to_session(row) for row in rows]
+        return self.list_for_user(user_id, preset_id, kind=kind, mode=mode)
 
     def list_for_user(
-        self, user_id: str, preset_id: Optional[str] = None, name: Optional[str] = None, query: Optional[str] = None
+        self,
+        user_id: str,
+        preset_id: Optional[str] = None,
+        name: Optional[str] = None,
+        query: Optional[str] = None,
+        kind: str = GENERATION_KIND,
+        mode: Optional[str] = None,
     ) -> List[Session]:
         clauses = ["user_id = ?"]
         params: List[Any] = [user_id]
+        if kind != "any":
+            clauses.append("kind = ?")
+            params.append(kind)
         if preset_id:
             clauses.append("preset_id = ?")
             params.append(preset_id)
@@ -122,7 +132,7 @@ class SessionRepository:
                 "ORDER BY pinned DESC, pinned_at DESC, updated_at DESC, id DESC",
                 params,
             )
-            return [self._row_to_session(row) for row in cursor.fetchall()]
+            return _with_mode([self._row_to_session(row) for row in cursor.fetchall()], mode)
 
     def get_by_user_preset_and_name(self, user_id: str, preset_id: str, name: str) -> Optional[Session]:
         """Get a specific session by user, preset, and name."""

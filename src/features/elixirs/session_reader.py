@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional
 
 from src.features.elixirs.errors import SessionNotFoundError
+from src.features.sessions.dto import EDITOR_KIND
 
 
 class SessionReader:
@@ -10,7 +11,7 @@ class SessionReader:
 
     def _owned(self, user, session_id: str):
         session = self.sessions.get_by_id(session_id)
-        if session is None or session.user_id != getattr(user, "id", None):
+        if session is None or session.user_id != getattr(user, "id", None) or getattr(session, "kind", None) == EDITOR_KIND:
             raise SessionNotFoundError(f"Session '{session_id}' not found")
         return session
 

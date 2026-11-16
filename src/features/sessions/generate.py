@@ -13,7 +13,7 @@ from src.features.models.exceptions import ModelAccessDeniedException, ModelNotF
 from src.features.models.form_refs import collect_model_ids
 from src.features.presets.operations.access import preset_available_to_user
 from src.features.presets.retired_modes import replacement_for, replacement_note
-from src.features.sessions.dto import Session
+from src.features.sessions.dto import EDITOR_KIND, GENERATION_KIND, Session
 from src.features.sessions.request import (
     DIRECTOR_REFUSAL,
     DIRECTOR_SUPPORTED,
@@ -162,13 +162,25 @@ class SessionRequests:
         session = self.sessions.get_by_id(session_id)
         if session is None or session.user_id != user_id:
             raise SessionRequestError(404, "session_not_found", "Session not found")
+        if session.kind == EDITOR_KIND:
+            raise SessionRequestError(
+                422,
+                "session_is_editor",
+                "This setup belongs to the Image editor; it has no prompt or picture",
+            )
         return session
 
     def listing(
-        self, user_id: str, preset_id: Optional[str] = None, name: Optional[str] = None, query: Optional[str] = None
+        self,
+        user_id: str,
+        preset_id: Optional[str] = None,
+        name: Optional[str] = None,
+        query: Optional[str] = None,
+        kind: str = GENERATION_KIND,
+        mode: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         out = []
-        for session in self.sessions.list_for_user(user_id, preset_id, name, query):
+        for session in self.sessions.list_for_user(user_id, preset_id, name, query, kind=kind, mode=mode):
             template = self._template(session.preset_id)
             data = session.data if isinstance(session.data, dict) else {}
             modes = session_modes(session)
@@ -183,6 +195,7 @@ class SessionRequests:
                     "pinned": session.pinned,
                     "updated_at": dt_iso(session.updated_at or session.created_at),
                     "version": session.version,
+                    "kind": session.kind,
                 }
             )
         return out

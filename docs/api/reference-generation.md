@@ -1281,6 +1281,8 @@ Query parameters:
 - `preset_id` (string, optional)
 - `name` (string, optional)
 - `q` (string, optional)
+- `kind` (one of generation, editor, any, optional, default 'generation')
+- `mode` (string, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
@@ -1295,6 +1297,11 @@ Key permission: `read`.
 Path parameters:
 
 - `preset_id` (string, required)
+
+Query parameters:
+
+- `kind` (one of generation, editor, any, optional, default 'generation')
+- `mode` (string, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
@@ -1313,6 +1320,7 @@ JSON body, `SaveSessionRequest`:
 - `data` (object, required)
 - `mode` (string, optional)
 - `base_version` (integer, optional)
+- `kind` (one of generation, editor, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
@@ -1348,6 +1356,7 @@ JSON body, `src__features__sessions__dto__UpdateSessionRequest`:
 - `data` (object, required)
 - `mode` (string, optional)
 - `base_version` (integer, optional)
+- `kind` (one of generation, editor, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 

@@ -36,6 +36,7 @@
 		saveMenuOpen = $bindable(false),
 		moreItems = [],
 		leading,
+		saveState,
 		replaceControl,
 		bar,
 		barActions,
@@ -71,6 +72,7 @@
 		saveMenuOpen?: boolean;
 		moreItems?: MenuItem[];
 		leading?: Snippet;
+		saveState?: Snippet;
 		replaceControl?: Snippet;
 		bar?: Snippet;
 		barActions?: Snippet;
@@ -206,6 +208,9 @@
 			<div class="flex flex-none items-center gap-2" data-options-actions>
 				{@render barActions()}
 			</div>
+		{/if}
+		{#if saveState}
+			{@render saveState()}
 		{/if}
 		{@render history()}
 		<span class="h-5 w-px flex-none bg-line-strong" aria-hidden="true"></span>

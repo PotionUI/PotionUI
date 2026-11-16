@@ -86,6 +86,11 @@
 	import { imageFieldsOf, sendTargetsFor, type ImageField } from '$lib/tool-tabs/image/sendTargets';
 	import { artifactRef, pastedImage } from '$lib/tool-tabs/image/sourceRefs';
 	import { readImageState, stackSignature, unsavedEdits, writeImageState, type SavedCopy } from '$lib/tool-tabs/image/state';
+	import { createEditAutosave, type AutosaveStatus } from '$lib/tool-tabs/image/editAutosave';
+	import { editAutosaveOutbox } from '$lib/tool-tabs/image/editAutosaveOutbox';
+	import { editSourceOf, readEditLink, withEditLink } from '$lib/tool-tabs/image/editLink';
+	import EditConflictNotice from '$lib/components/tool-tabs/frame/EditConflictNotice.svelte';
+	import EditSaveIndicator from '$lib/components/tool-tabs/frame/EditSaveIndicator.svelte';
 	import {
 		ADJUST_OPS,
 		CATALOG_TOOL,
@@ -610,6 +615,63 @@
 	let writeTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastWritten = JSON.stringify(writeImageState(initial));
 	let pendingWrite: Record<string, unknown> | null = null;
+	let currentPayload: Record<string, unknown> = writeImageState(initial);
+	let autosaveStatus = $state<AutosaveStatus>('idle');
+	let autosaveBusy = $state(false);
+
+	const autosave = createEditAutosave({
+		tabId: untrack(() => host.tabId),
+		edits: {
+			create: (body) => api.createEdit(body),
+			get: (id) => api.getEdit(id),
+			save: (id, body) => api.saveEdit(id, body)
+		},
+		outbox: editAutosaveOutbox,
+		initialState: currentPayload,
+		readLink: () => readEditLink(host.state),
+		source: () => editSourceOf(host.source),
+		onLink: (link) => host.setState(withEditLink(currentPayload, link)),
+		onStatus: (next) => (autosaveStatus = next),
+		onRestore: applyServerState
+	});
+
+	function applyServerState(raw: Record<string, unknown>): Record<string, unknown> {
+		const next = readImageState(raw);
+		stack = sliceLast(next.stack);
+		mask = next.mask;
+		saved = next.saved;
+		const payload = writeImageState({ stack, activeTool, viewport, mask, saved });
+		currentPayload = payload;
+		lastWritten = JSON.stringify(payload);
+		lastContent = JSON.stringify(writeImageState({ stack, activeTool, viewport: fitViewport(), mask, saved }));
+		if (writeTimer) clearTimeout(writeTimer);
+		writeTimer = null;
+		pendingWrite = null;
+		return payload;
+	}
+
+	async function loadNewerEdit() {
+		autosaveBusy = true;
+		const ok = await autosave.loadNewer();
+		autosaveBusy = false;
+		if (!ok) toasts.error('Could not load the newer version. Try again.');
+	}
+
+	async function keepMineAsCopy() {
+		autosaveBusy = true;
+		const ok = await autosave.keepMine();
+		autosaveBusy = false;
+		if (ok) toasts.success('Your version is saved as a copy.');
+		else toasts.error('Could not save your version as a copy. Try again.');
+	}
+
+	onMount(() => {
+		const ids = get(tabsStore).tabs.map((tab) => tab.id);
+		if (ids.includes(host.tabId)) editAutosaveOutbox.prune(ids);
+		autosave.start();
+	});
+
+	onDestroy(() => void autosave.close());
 
 	function flushWrite() {
 		if (writeTimer) clearTimeout(writeTimer);
@@ -617,7 +679,7 @@
 		if (!pendingWrite) return;
 		const next = pendingWrite;
 		pendingWrite = null;
-		host.setState(next);
+		host.setState(withEditLink(next, autosave.link()));
 	}
 
 	let lastContent = JSON.stringify(writeImageState({ ...initial, viewport: fitViewport() }));
@@ -632,6 +694,8 @@
 		lastContent = content;
 		untrack(() => {
 			pendingWrite = payload;
+			currentPayload = payload;
+			autosave.observe(payload);
 			if (writeTimer) clearTimeout(writeTimer);
 			if (viewOnly) writeTimer = setTimeout(flushWrite, 150);
 			else flushWrite();
@@ -1663,6 +1727,10 @@
 	{/if}
 {/snippet}
 
+{#snippet saveStateContent()}
+	<EditSaveIndicator status={autosaveStatus} />
+{/snippet}
+
 {#snippet barActionsContent()}
 	{#if activeTool === 'adjust'}
 		<Button variant="secondary" size="sm" class="h-7" disabled={!canReset} onclick={resetTool} attrs={{ 'data-options-reset': '' }}>Reset all</Button>
@@ -1870,6 +1938,11 @@
 <ImageSourcePicker bind:this={replacePicker} onpick={(ref) => void changeSource(ref)} onfile={(file) => void changeFile(file)} />
 
 <div class="image-editor-tab flex h-full min-h-0 w-full flex-col" data-image-editor data-tool={activeTool ?? ''} data-mode={mode}>
+	{#if autosaveStatus === 'conflict' || autosaveStatus === 'too-large'}
+		<div class="flex-none" data-edit-notice-host>
+			<EditConflictNotice kind={autosaveStatus} busy={autosaveBusy} onload={() => void loadNewerEdit()} onkeep={() => void keepMineAsCopy()} />
+		</div>
+	{/if}
 	{#if !source}
 		{#if phone}
 			<ImageEmptyState phone busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
@@ -1907,6 +1980,7 @@
 		>
 			{#snippet phoneLead()}
 				{@render replaceMenu()}
+				<EditSaveIndicator status={autosaveStatus} chip />
 			{/snippet}
 			{#snippet toolbar()}
 				{#if phone}
@@ -1953,6 +2027,7 @@
 						oncancelsave={cancelSave}
 						bar={activeTool ? barContent : undefined}
 						barActions={activeTool ? barActionsContent : undefined}
+						saveState={autosaveStatus === 'idle' ? undefined : saveStateContent}
 					>
 						{#snippet replaceControl()}
 							{@render replaceMenu()}

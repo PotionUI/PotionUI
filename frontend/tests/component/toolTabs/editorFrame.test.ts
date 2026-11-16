@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { get } from 'svelte/store';
 import { targetActivatesOn } from '$lib/tool-tabs/frame/keymap';
+import { settingsPaneWidth } from '$lib/stores/generationLayout';
+import { viewportWidth } from '$lib/stores/viewport';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
 
@@ -20,12 +23,12 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe('EditorFrame layout', () => {
-	it('lays out toolbar, rail, canvas and a 312px panel with options above the stack on desktop', () => {
+	it('lays out toolbar, rail, canvas and a right panel sized like the settings pane with options above the stack on desktop', () => {
 		const { q } = render();
 		const frame = q('[data-editor-frame="desktop"]')!;
-		const panel = q('[data-frame-panel]')!;
+		const panel = q<HTMLElement>('[data-frame-panel]')!;
 		expect(frame.firstElementChild?.hasAttribute('data-host-toolbar')).toBe(true);
-		expect(panel.className).toContain('w-[312px]');
+		expect(panel.style.width).toBe(`${settingsPaneWidth(get(viewportWidth))}px`);
 		expect(panel.children[0].hasAttribute('data-host-options')).toBe(true);
 		expect(q('[data-host-stack]')?.getAttribute('data-host-stack')).toBe('panel');
 		expect(q('[data-frame-edits]')).toBeNull();

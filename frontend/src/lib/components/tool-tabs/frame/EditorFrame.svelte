@@ -2,6 +2,8 @@
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { pageOwnsKeys } from '$lib/utils/shortcutGuard';
+	import { settingsPaneWidth } from '$lib/stores/generationLayout';
+	import { viewportWidth } from '$lib/stores/viewport';
 	import { setFrameContext } from '$lib/tool-tabs/frame/context';
 	import { resolveFrameKey, targetActivatesOn } from '$lib/tool-tabs/frame/keymap';
 	import type { StackVariant } from '$lib/tool-tabs/frame/types';
@@ -180,7 +182,7 @@
 				</div>
 				{@render below?.()}
 			</div>
-			<aside class="flex min-h-0 w-[312px] flex-none flex-col border-l border-line bg-surface-1" aria-label="Tool options and edits" data-frame-panel>
+			<aside class="flex min-h-0 flex-none flex-col border-l border-line bg-surface-1" style="width: {settingsPaneWidth($viewportWidth)}px" aria-label="Tool options and edits" data-frame-panel>
 				{@render panelTop?.()}
 				{@render options?.()}
 				{@render stack?.('panel')}

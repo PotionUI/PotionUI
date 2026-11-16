@@ -137,7 +137,7 @@ afterEach(() => {
 });
 
 describe('Settings in the right panel', () => {
-	it('replaces the tool options in the 312px panel and keeps the prompt and the canvas', async () => {
+	it('replaces the tool options in the right panel and keeps the prompt and the canvas', async () => {
 		const { view, q, text, toggle } = await open();
 		expect(q('[data-options-panel]')).not.toBeNull();
 		await toggle();

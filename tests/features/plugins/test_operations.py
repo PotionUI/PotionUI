@@ -623,7 +623,17 @@ def test_get_frontend_extensions_excludes_disabled_plugins(mock_plugin_repo, moc
     result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
 
     # Assert
-    assert result == {"renderers": [], "contributions": [], "tool_tabs": [], "revisions": {}}
+    assert result == {
+        "renderers": [],
+        "contributions": [],
+        "tool_tabs": [],
+        "editor_steps": [],
+        "editor_tools": [],
+        "editor_groups": [],
+        "editor_overlays": [],
+        "editor_tasks": [],
+        "revisions": {},
+    }
 
 
 def test_get_frontend_extensions_serves_tool_tabs_with_namespaced_tool(mock_plugin_repo, mock_plugin_registry, sample_plugin):
@@ -1193,3 +1203,109 @@ def test_toggle_resets_the_provider_registry(action, mock_plugin_repo, mock_plug
     getattr(operations, action)(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     assert resets == [action]
+
+
+def _editor_manifest(plugin_id, **sections):
+    return PluginManifest(
+        id=plugin_id,
+        name=plugin_id,
+        version="1.0.0",
+        description="d",
+        author="a",
+        plugin_type="frontend-only",
+        **sections,
+    )
+
+
+def test_get_frontend_extensions_serves_editor_sections_for_enabled_plugins(mock_plugin_repo, mock_plugin_registry, sample_plugin):
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
+    mock_plugin_registry.get_plugin.return_value = _editor_manifest(
+        "acme",
+        editor_steps=[{
+            "id": "acme.halftone", "editor": "image", "module": "frontend/dist/editor/halftone.js",
+            "label": "Halftone", "icon": "extension", "lane": "paint",
+        }],
+        editor_tools=[{
+            "id": "acme.halftone", "editor": "image", "group": "look", "label": "Halftone", "icon": "extension",
+            "order": None, "keys": None, "options": "editor/Options.js", "bar": None, "overlay": None, "task": None,
+        }],
+        editor_groups=[{"id": "acme.stylize", "editor": "image", "label": "Stylize", "order": 450}],
+        editor_overlays=[{
+            "id": "acme.magic", "editor": "video", "component": "editor/Magic.js", "cursor": None, "produces": "selection",
+        }],
+        editor_tasks=[{
+            "id": "acme.relight", "label": "Relight", "icon": "extension", "editors": ["image"], "region": "optional",
+            "prompt": "optional", "produces": "patch", "tool": "acme.halftone", "step_kind": "generate", "fallback": None,
+        }],
+    )
+
+    result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
+
+    assert result["editor_steps"] == [{
+        "plugin_id": "acme", "id": "acme.halftone", "editor": "image", "label": "Halftone", "icon": "extension",
+        "lane": "paint", "module": "editor/halftone.js",
+    }]
+    assert result["editor_tools"] == [{
+        "plugin_id": "acme", "id": "acme.halftone", "editor": "image", "group": "look", "label": "Halftone",
+        "icon": "extension", "order": None, "keys": None, "overlay": None, "task": None,
+        "options": "editor/Options.js", "bar": None,
+    }]
+    assert result["editor_groups"] == [{
+        "plugin_id": "acme", "id": "acme.stylize", "editor": "image", "label": "Stylize", "order": 450,
+    }]
+    assert result["editor_overlays"] == [{
+        "plugin_id": "acme", "id": "acme.magic", "editor": "video", "cursor": None, "produces": "selection",
+        "component": "editor/Magic.js",
+    }]
+    assert result["editor_tasks"] == [{
+        "plugin_id": "acme", "id": "acme.relight", "editors": ["image"], "label": "Relight", "icon": "extension",
+        "region": "optional", "prompt": "optional", "produces": "patch", "tool": "acme.halftone",
+        "step_kind": "generate", "fallback": None,
+    }]
+
+
+def test_get_frontend_extensions_editor_sections_vanish_with_the_plugin(mock_plugin_repo, mock_plugin_registry, sample_plugin):
+    manifest = _editor_manifest(
+        "acme", editor_groups=[{"id": "acme.stylize", "editor": "image", "label": "Stylize", "order": 450}]
+    )
+    mock_plugin_registry.get_plugin.return_value = manifest
+
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
+    assert len(operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)["editor_groups"]) == 1
+
+    mock_plugin_repo.get_enabled_plugins.return_value = []
+    result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
+    assert result["editor_groups"] == []
+    assert result["revisions"] == {}
+
+
+def test_get_frontend_extensions_editor_sections_absent_from_manifest_are_empty_lists(mock_plugin_repo, mock_plugin_registry, sample_plugin):
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
+    mock_plugin_registry.get_plugin.return_value = _editor_manifest("acme")
+
+    result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
+
+    for key in ("editor_steps", "editor_tools", "editor_groups", "editor_overlays", "editor_tasks"):
+        assert result[key] == []
+
+
+def test_get_frontend_extensions_editor_sections_of_two_plugins_do_not_collide(mock_plugin_repo, mock_plugin_registry, sample_plugin):
+    other = Mock(id="beta")
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin, other]
+    manifests = {
+        sample_plugin.id: _editor_manifest(
+            sample_plugin.id,
+            editor_groups=[{"id": f"{sample_plugin.id}.group", "editor": "image", "label": "A", "order": 1}],
+        ),
+        "beta": _editor_manifest(
+            "beta", editor_groups=[{"id": "beta.group", "editor": "image", "label": "B", "order": 2}]
+        ),
+    }
+    mock_plugin_registry.get_plugin.side_effect = lambda plugin_id: manifests.get(plugin_id)
+
+    groups = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)["editor_groups"]
+
+    assert [(g["plugin_id"], g["id"]) for g in groups] == [
+        (sample_plugin.id, f"{sample_plugin.id}.group"),
+        ("beta", "beta.group"),
+    ]

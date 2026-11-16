@@ -1979,7 +1979,7 @@ media_tools:
       - { name: repeats, type: integer, min: 1, max: 8, default: 2 }
     requires: { has_audio: false }  # optional: has_audio, has_alpha, min_duration (seconds)
     selection: { min: 1, max: 4 }   # optional: how many items the tool takes
-    scopes: [library, history]      # optional: library | history | field; default all three
+    scopes: [library, history]      # optional: library | history | field | editor; default library, history, field
     preview: false                  # true needs python; the dialog then shows a before/after pane
     python: tools/loop.py:LoopTool  # optional: a path inside the plugin dir, then :ClassName
     component: loop-preview         # optional: a plugin frontend asset
@@ -2192,6 +2192,81 @@ plugin cannot add a task to a mode it does not own, and a mode of another plugin
 is rejected by lint.
 
 `src.plugin_api.editor` exports `TaskDefinition`, the shape the host keeps for every registered task.
+
+## Extending the editors
+
+The image, video and audio editors take parts from plugins. A plugin declares each part in
+`manifest.yml`; the code that implements it is a built file under the plugin's `frontend/dist`. The
+manifest is what the host reads to list the part, check it and keep a name for it when the plugin is
+turned off; the file is loaded lazily.
+
+```yaml
+editor_steps:
+  - id: my-plugin.halftone
+    editor: image
+    module: editor/halftone.js
+    label: Halftone
+    icon: extension
+    lane: paint
+editor_tools:
+  - id: my-plugin.halftone
+    editor: image
+    group: look
+    label: Halftone
+    icon: extension
+    options: editor/HalftoneOptions.js
+    order: 40
+editor_groups:
+  - { id: my-plugin.stylize, editor: image, label: Stylize, order: 450 }
+editor_overlays:
+  - { id: my-plugin.select, editor: image, component: editor/Select.js, produces: selection }
+editor_tasks:
+  - id: my-plugin.relight
+    label: Relight
+    editors: [image]
+    tool: my-plugin.relight
+    step_kind: generate
+media_tools:
+  - id: my-plugin.halftone
+    accepts: [image]
+    scopes: [editor]
+    python: tools.py:Halftone
+```
+
+| Key | Declares | Fields |
+|---|---|---|
+| `editor_steps` | A kind of step in an edit | `id`, `editor`, `module`, `label`, `icon`, `lane` |
+| `editor_tools` | A tool in the editor's rail | `id`, `editor`, `group`, `label`, `icon`, `order`, `keys`, `options`, `bar`, `overlay`, `task` |
+| `editor_groups` | A group in the rail | `id`, `editor`, `label`, `order` |
+| `editor_overlays` | A layer drawn over the canvas | `id`, `editor`, `component`, `cursor` (`crosshair`, `brush`, `default`), `produces` (`selection`) |
+| `editor_tasks` | A job the editor can offer ([above](#contributing-an-editor-task)) | adds `tool` (the rail tool that asks for it) and `step_kind` for the editor |
+
+- `editor` is `image`, `video` or `audio`. An unknown value fails validation.
+- Every `id` starts with your plugin id and a dot. A bare or foreign-prefixed id fails validation, and
+  so does the same `id` twice for the same `editor` within one key.
+- `module`, `options`, `bar` and `component` are paths inside `frontend/dist`, relative, with no `..`,
+  no leading `/` and no `:` (so no URLs). `overlay` and `task` name another entry by id; `group` names a
+  core group or one of your `editor_groups`.
+- `GET /api/plugins/frontend-extensions` returns these as the flat lists `editor_steps`, `editor_tools`,
+  `editor_groups`, `editor_overlays` and `editor_tasks`, for enabled plugins only. Each entry carries
+  `plugin_id` and the fields above, with paths relative to `frontend/dist`. A key you leave out is an empty
+  list. Disabling or removing the plugin drops its entries from the next response.
+- When a plugin is disabled, an edit that used one of its steps keeps the step. It is shown as not
+  available, left out of the preview and Save, and never removed on its own.
+
+### The `editor` scope for media tools
+
+A media tool lists the scope `editor` to appear in the image editor's rail and run as a step there:
+`scopes: [editor]`, or `scopes: [library, editor]` to be in the Library too. `editor` is not in the
+default: a tool that omits `scopes` stays in `library`, `history` and `field` and never joins the
+editor. `GET /api/media-tools?scope=editor` lists the tools that ask for it, each with its `scopes`.
+
+### Registering from your frontend
+
+The host's `window.__potionui.editors` is documented with the frontend registries. It exposes
+`stepKinds`, `railTools`, `overlays` and `tasks`, each with `get` and `list`, and
+`register(entry, { pluginId })`. An entry registered in code must still be declared in the manifest to
+survive the plugin being turned off.
 
 ## Reading model files and folders
 
@@ -3545,7 +3620,7 @@ need from `@xyflow/svelte/dist/style.css` into the component's `<style>` block, 
 ## Building your plugin's frontend
 
 Every plugin frontend (a `pages[].component`, a `field_types[].component`, an
-`admin_tabs[].component`, a `tool_tabs[].component`, ...) compiles through the single shared toolchain in
+`admin_tabs[].component`, a `tool_tabs[].component`, an `editor_steps[].module`, an `editor_tools[].options`, ...) compiles through the single shared toolchain in
 `content/plugins/package.json` (esbuild + esbuild-svelte, pinned to the frontend's Svelte
 major), driven by `scripts/build-plugins.mjs`:
 

@@ -167,6 +167,7 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
     renderers: List[Dict[str, Any]] = []
     contributions: List[Dict[str, Any]] = []
     tool_tabs: List[Dict[str, Any]] = []
+    editor_sections: Dict[str, List[Dict[str, Any]]] = {name: [] for name in _EDITOR_SECTIONS}
     enabled_db_plugins = repo.get_enabled_plugins()
 
     for plugin in enabled_db_plugins:
@@ -200,13 +201,59 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
         for tool_tab_def in manifest.tool_tabs:
             tool_tabs.append(_tool_tab_entry(manifest.id, tool_tab_def))
 
+        for section, shape in _EDITOR_SECTIONS.items():
+            for entry_def in getattr(manifest, section, None) or []:
+                editor_sections[section].append(_editor_entry(manifest.id, entry_def, shape))
+
     contributions.sort(key=lambda c: c["order"])
     return {
         "renderers": renderers,
         "contributions": contributions,
         "tool_tabs": tool_tabs,
+        **editor_sections,
         "revisions": revisions,
     }
+
+
+_DIST_PREFIX = "frontend/dist/"
+
+_EDITOR_SECTIONS: Dict[str, Dict[str, Any]] = {
+    "editor_steps": {
+        "fields": ("id", "editor", "label", "icon", "lane"),
+        "paths": ("module",),
+    },
+    "editor_tools": {
+        "fields": ("id", "editor", "group", "label", "icon", "order", "keys", "overlay", "task"),
+        "paths": ("options", "bar"),
+    },
+    "editor_groups": {
+        "fields": ("id", "editor", "label", "order"),
+        "paths": (),
+    },
+    "editor_overlays": {
+        "fields": ("id", "editor", "cursor", "produces"),
+        "paths": ("component",),
+    },
+    "editor_tasks": {
+        "fields": ("id", "editors", "label", "icon", "region", "prompt", "produces", "tool", "step_kind", "fallback"),
+        "paths": (),
+    },
+}
+
+
+def _dist_relative(value: Any) -> Any:
+    if isinstance(value, str) and value.startswith(_DIST_PREFIX):
+        return value[len(_DIST_PREFIX):]
+    return value
+
+
+def _editor_entry(plugin_id: str, entry_def: Dict[str, Any], shape: Dict[str, Any]) -> Dict[str, Any]:
+    entry: Dict[str, Any] = {"plugin_id": plugin_id}
+    for name in shape["fields"]:
+        entry[name] = entry_def.get(name)
+    for name in shape["paths"]:
+        entry[name] = _dist_relative(entry_def.get(name))
+    return entry
 
 
 def _tool_tab_entry(plugin_id: str, tool_tab_def: Dict[str, Any]) -> Dict[str, Any]:

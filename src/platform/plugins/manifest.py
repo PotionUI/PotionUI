@@ -608,6 +608,8 @@ class PhrasebookOpSpec(BaseModel):
 
 MEDIA_TOOL_KINDS = ("image", "video", "audio")
 MEDIA_TOOL_SCOPES = ("library", "history", "field")
+MEDIA_TOOL_SCOPE_VALUES = (*MEDIA_TOOL_SCOPES, "editor")
+EDITOR_KINDS = ("image", "video", "audio")
 MEDIA_TOOL_PARAM_TYPES = ("integer", "float", "select", "checkbox", "color", "string", "anchor")
 
 
@@ -693,7 +695,76 @@ class EditorTaskSpec(BaseModel):
     region: Literal["required", "optional", "none"] = "optional"
     prompt: Literal["required", "optional", "none"] = "required"
     produces: Literal["patch", "replace"] = "patch"
+    tool: Optional[str] = Field(default=None, min_length=1)
+    step_kind: Optional[str] = Field(default=None, min_length=1)
     fallback: Optional[EditorTaskFallbackSpec] = None
+
+def _dist_relative_path(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return value
+    parts = value.split("/")
+    if not value or "\\" in value or value.startswith("/") or ":" in value or ".." in parts:
+        raise ValueError("must be a relative path inside frontend/dist")
+    return value
+
+EDITOR_ENTRY_ID = r"^[a-z0-9-]+\.[a-z0-9][a-z0-9_-]*$"
+
+class EditorStepSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=EDITOR_ENTRY_ID)
+    editor: Literal[EDITOR_KINDS]
+    module: str
+    label: str = Field(min_length=1)
+    icon: str = "extension"
+    lane: Optional[str] = Field(default=None, min_length=1)
+
+    @field_validator("module")
+    @classmethod
+    def _module_stays_in_dist(cls, value: str) -> str:
+        return _dist_relative_path(value)
+
+class EditorToolSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=EDITOR_ENTRY_ID)
+    editor: Literal[EDITOR_KINDS]
+    group: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    icon: str = "extension"
+    order: Optional[int] = None
+    keys: Optional[str] = Field(default=None, min_length=1)
+    options: Optional[str] = None
+    bar: Optional[str] = None
+    overlay: Optional[str] = Field(default=None, min_length=1)
+    task: Optional[str] = Field(default=None, min_length=1)
+
+    @field_validator("options", "bar")
+    @classmethod
+    def _component_stays_in_dist(cls, value: Optional[str]) -> Optional[str]:
+        return _dist_relative_path(value)
+
+class EditorGroupSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=EDITOR_ENTRY_ID)
+    editor: Literal[EDITOR_KINDS]
+    label: str = Field(min_length=1)
+    order: int = 500
+
+class EditorOverlaySpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=EDITOR_ENTRY_ID)
+    editor: Literal[EDITOR_KINDS]
+    component: str
+    cursor: Optional[Literal["crosshair", "brush", "default"]] = None
+    produces: Optional[Literal["selection"]] = None
+
+    @field_validator("component")
+    @classmethod
+    def _component_stays_in_dist(cls, value: str) -> str:
+        return _dist_relative_path(value)
 
 
 class MediaToolSpec(BaseModel):
@@ -709,7 +780,7 @@ class MediaToolSpec(BaseModel):
     params: List[MediaToolParamSpec] = Field(default_factory=list)
     requires: MediaToolRequires = Field(default_factory=MediaToolRequires)
     selection: Optional[MediaToolSelection] = None
-    scopes: List[Literal[MEDIA_TOOL_SCOPES]] = Field(default_factory=lambda: list(MEDIA_TOOL_SCOPES), min_length=1)
+    scopes: List[Literal[MEDIA_TOOL_SCOPE_VALUES]] = Field(default_factory=lambda: list(MEDIA_TOOL_SCOPES), min_length=1)
     preview: bool = False
     python: Optional[str] = Field(
         default=None, pattern=r"^[A-Za-z0-9_][A-Za-z0-9_/-]*\.py:[A-Za-z_][A-Za-z0-9_]*$"
@@ -1065,6 +1136,10 @@ class PluginManifestSchema(BaseModel):
     media_tools: List[MediaToolSpec] = Field(default_factory=list)
 
     editor_tasks: List[EditorTaskSpec] = Field(default_factory=list)
+    editor_steps: List[EditorStepSpec] = Field(default_factory=list)
+    editor_tools: List[EditorToolSpec] = Field(default_factory=list)
+    editor_groups: List[EditorGroupSpec] = Field(default_factory=list)
+    editor_overlays: List[EditorOverlaySpec] = Field(default_factory=list)
 
     # Preset requirement checkers (see docs/presets.md "Requirements")
     requirement_checkers: List[RequirementCheckerSpec] = Field(default_factory=list)
@@ -1100,6 +1175,19 @@ class PluginManifestSchema(BaseModel):
             if task.id in seen:
                 raise ValueError(f"editor_tasks id '{task.id}' is declared twice")
             seen.add(task.id)
+        return self
+
+    @model_validator(mode="after")
+    def _editor_entries_belong_to_this_plugin(self) -> "PluginManifestSchema":
+        for section in ("editor_steps", "editor_tools", "editor_groups", "editor_overlays"):
+            seen = set()
+            for entry in getattr(self, section):
+                if not entry.id.startswith(f"{self.id}."):
+                    raise ValueError(f"{section} id '{entry.id}' must start with '{self.id}.'")
+                key = (entry.editor, entry.id)
+                if key in seen:
+                    raise ValueError(f"{section} id '{entry.id}' is declared twice for the {entry.editor} editor")
+                seen.add(key)
         return self
 
     @model_validator(mode="after")

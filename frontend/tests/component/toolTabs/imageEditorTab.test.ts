@@ -87,15 +87,15 @@ describe('ImageEditorTab', () => {
 		vi.useRealTimers();
 	});
 
-	it('shows the empty state with the rail greyed and nothing to save', () => {
-		const { q, all, lastActions, calls } = render();
+	it('shows only the start screen with nothing to save', () => {
+		const { q, lastActions, calls } = render();
 		expect(q('[data-testid="tool-tab-empty"]')?.textContent).toContain('Open a picture to edit');
-		expect(q('[data-frame-file]')?.textContent).toBe('No picture');
-		expect(all('[data-tool-rail] button[data-tool]').every((button) => button.getAttribute('aria-disabled') === 'true')).toBe(true);
-		expect(q<HTMLButtonElement>('[data-frame-save]')?.disabled).toBe(true);
-		expect(lastActions()?.save?.disabled).toBe(true);
-		expect(lastActions()?.undo?.disabled).toBe(true);
-		expect(lastActions()?.undo?.label).toBe('Undo');
+		expect(q('[data-tool-rail]')).toBeNull();
+		expect(q('[data-editor-toolbar]')).toBeNull();
+		expect(q('[data-editor-menubar]')).toBeNull();
+		expect(q('[data-frame-file]')).toBeNull();
+		expect(q('[data-frame-save]')).toBeNull();
+		expect(lastActions()).toEqual({ hidden: true });
 		expect(calls.dirty).toEqual([]);
 		expect(calls.state).toEqual([]);
 	});

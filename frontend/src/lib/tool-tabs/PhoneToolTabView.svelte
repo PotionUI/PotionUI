@@ -17,7 +17,7 @@
 	let tabCount = $derived($tabsStore.tabs.length);
 	let kind = $derived($toolKinds.find((item) => item.tool === tab.tool));
 	let toolIcon = $derived(kind?.icon ?? 'extension');
-	let showActions = $derived(kind?.phoneActions !== false);
+	let showActions = $derived(kind?.phoneActions !== false && !actions?.hidden);
 	let edits = $derived(tab.dirty ?? 0);
 	let saveProgress = $derived(tab.run ? Math.round(tab.run.progress ?? 0) : null);
 </script>

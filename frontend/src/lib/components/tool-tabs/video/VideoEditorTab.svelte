@@ -1201,6 +1201,10 @@
 			hostApi.setActions(null);
 			return;
 		}
+		if (!source) {
+			hostApi.setActions({ hidden: true });
+			return;
+		}
 		hostApi.setActions({
 			menu: { run: () => (phoneMenuOpen = true) },
 			undo: { label: undoLabel(edits) ? `Undo ${undoLabel(edits)}` : 'Undo', disabled: !canUndo(edits), run: doUndo },

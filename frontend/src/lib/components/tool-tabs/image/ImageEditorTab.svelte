@@ -843,6 +843,10 @@
 	});
 
 	$effect(() => {
+		if (!source) {
+			untrack(() => host.setActions({ hidden: true }));
+			return;
+		}
 		const actions = {
 			menu: { run: () => (phoneMenuOpen = true) },
 			undo: { label: undoText ? `Undo ${undoText}` : 'Undo', disabled: !canUndoNow, run: doUndo },
@@ -2210,27 +2214,7 @@
 		</div>
 	{/if}
 	{#if !source}
-		{#if phone}
-			<ImageStartScreen tabId={host.tabId} phone busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
-		{:else}
-			<EditorToolbar
-				fileName={null}
-				title="Image editor"
-				menu={menuCtx}
-				onopenmenu={onMenuOpened}
-				canUndo={false}
-				canRedo={false}
-				canSave={false}
-				replace={{ allowed: false }}
-				onundo={() => undefined}
-				onredo={() => undefined}
-				onsave={() => undefined}
-			/>
-			<div class="flex min-h-0 flex-1">
-				<ToolRail groups={railGroups} variant="icons" onselect={() => undefined} />
-				<ImageStartScreen tabId={host.tabId} {phone} busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
-			</div>
-		{/if}
+		<ImageStartScreen tabId={host.tabId} {phone} busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
 	{:else}
 		<EditorFrame
 			{phone}

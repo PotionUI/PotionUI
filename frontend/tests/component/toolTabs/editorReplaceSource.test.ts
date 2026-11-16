@@ -200,10 +200,9 @@ describe('image editor Replace control', () => {
 		expect(entries).toEqual(['history', 'library', 'kits', 'browse']);
 	});
 
-	it('is absent from the File menu of the empty state', async () => {
+	it('is absent from the empty state, which has no menu bar', () => {
 		const { q } = renderEditor({ source: null });
-		await openEditorMenu(q('[data-editor-menubar]')!.parentElement!, 'file');
-		expect(menuRow('file.replace')).toBeNull();
+		expect(q('[data-editor-menubar]')).toBeNull();
 		expect(q('[data-frame-replace]')).toBeNull();
 	});
 

@@ -94,6 +94,7 @@ test.describe('tool tabs on desktop', () => {
 		const host = page.getByTestId('tool-tab-host');
 		await expect(host).toHaveAttribute('data-tool', 'image');
 		await expect(host.getByTestId('tool-tab-empty')).toContainText('Open a picture to edit');
+		await expect(host.locator('[data-tool-rail], [data-editor-toolbar], [data-editor-menubar], [data-frame-divider], [data-frame-file]')).toHaveCount(0);
 		await expect(page.locator('.generation-panel')).toHaveCount(0);
 		await expect(page.getByTestId('context-bar')).toHaveCount(0);
 		await expect(page.locator('.workbench-pane, [data-testid="workbench"]')).toHaveCount(0);
@@ -231,9 +232,10 @@ test.describe('tool tabs on a phone', () => {
 		await expect(phone).toBeVisible();
 		await expect(phone.getByRole('button', { name: /^Open tabs/ })).toContainText('Image editor');
 		await expect(phone.getByTestId('tool-tab-empty')).toContainText('Open a picture to edit');
+		await expect(phone.locator('[data-phone-menu], [data-tool-rail], [data-editor-toolbar]')).toHaveCount(0);
+		await expect(phone.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'phone-image-editor-390');
-		await expect(phone.getByRole('button', { name: 'Undo' })).toBeDisabled();
-		await expect(phone.getByRole('button', { name: 'Save' })).toBeDisabled();
+		await expect(phone.getByRole('button', { name: 'Undo' })).toHaveCount(0);
 		await expect(page.locator('.studio-dock')).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'Open preset and session' })).toHaveCount(0);
 		await expect(page.locator('nav.fixed.bottom-0').filter({ hasText: 'Generate' })).toBeVisible();

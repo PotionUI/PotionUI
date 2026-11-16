@@ -4,6 +4,7 @@ import io
 import json
 import shutil
 import sqlite3
+import sys
 import threading
 import zipfile
 from pathlib import Path
@@ -13,6 +14,8 @@ import pytest
 import yaml
 from aiohttp import web
 from aiohttp.test_utils import TestServer
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from src.features.plugins import operations
 from src.features.plugins.catalog import CatalogEntry
@@ -21,8 +24,11 @@ from src.features.plugins.operations.install import INSTALL_RECORD, STAGING_FOLD
 from src.features.plugins.remote import ALLOW_LOCAL_SOURCES_ENV, FetchError
 from src.features.plugins.records import Plugin
 from src.features.plugins.repository import PluginRepository
+from src.pipelines.catalog import PipeCatalog
 from src.platform.database.rows import now_utc
+from src.platform.media_tools import MediaToolRegistry
 from src.platform.plugins.registry import PluginRegistry, PluginState
+from src.platform.plugins.router_mounter import PluginRouterMounter
 
 
 def _manifest(plugin_id: str, version: str, **extra) -> bytes:
@@ -745,7 +751,7 @@ async def test_an_update_that_does_not_start_puts_the_previous_version_back_and_
 
     assert "demo 1.1.0 did not start (Missing dependencies: potionui-catalog-missing-package>=1)" in str(refused.value)
     assert str(refused.value).endswith(
-        "the installed 1.0.0 is back in place and running. Restart PotionUI to unload any module 1.1.0 imported."
+        "the installed 1.0.0 is back in place and running."
     )
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert not (local / "demo" / "payload.py").exists()
@@ -777,7 +783,7 @@ async def test_an_update_whose_scan_fails_puts_the_previous_version_back_and_run
 
     assert "demo 1.1.0 did not start (the scan failed: IntegrityError" in str(refused.value)
     assert str(refused.value).endswith(
-        "the installed 1.0.0 is back in place and running. Restart PotionUI to unload any module 1.1.0 imported."
+        "the installed 1.0.0 is back in place and running."
     )
     assert (local / "demo" / "README.md").read_text() == "demo 1.0.0\n"
     assert not (local / "demo" / "payload.py").exists()
@@ -1416,3 +1422,250 @@ def test_an_update_whose_move_and_move_back_both_fail_keeps_the_installed_versio
     kept = list((local / STAGING_FOLDER).glob("*/previous"))
     assert len(kept) == 1
     assert (kept[0] / "manifest.yml").read_bytes() == _manifest("demo", "1.0.0")
+
+
+LIVE_API_SOURCE = """
+from fastapi import APIRouter
+
+from . import VERSION
+{early}from .common import {names}
+
+router = APIRouter(prefix="/api/plugins/live-api")
+
+
+@router.get("/who")
+def who():
+    from .late import WHO as LATE
+    return {{"package": VERSION, "common": WHO, "late": LATE}}
+{tail}"""
+
+LIVE_TOOL_SOURCE = """
+from src.plugin_api.media_tools import FilterFragment, MediaTool
+
+from .common import {names}
+
+
+class ConvertImage(MediaTool):
+    VERSION = WHO
+
+    def video_filter(self, media, params):
+        return FilterFragment(vf=["null"])
+"""
+
+LIVE_PIPE_SOURCE = """
+from src.pipelines.contracts import BasePipe, PipeOutput
+
+
+class LivePipe(BasePipe):
+    name = "live_pipe"
+    description = "{version}"
+
+    def process(self, pipe_input, generation_outputs):
+        return PipeOutput(output={{}})
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+"""
+
+
+def _api_plugin(version: str, *, added: bool, broken: bool = False) -> bytes:
+    api = LIVE_API_SOURCE.format(
+        early="from .late import WHO as EARLY\n" if broken else "",
+        names="ADDED, WHO" if added else "WHO",
+        tail=f'\nraise RuntimeError("{version} cannot start")\n' if broken else "",
+    )
+    files = {
+        "backend/__init__.py": f'VERSION = "{version}"\n',
+        "backend/common.py": f'WHO = "{version}"\n' + ("ADDED = True\n" if added else ""),
+        "backend/late.py": f'WHO = "{version}"\n',
+        "backend/api.py": api,
+    }
+    manifest = _manifest("live-api", version, type="full-stack", api={"module": "backend/api.py"})
+    return _archive("live-api", version, manifest=manifest, extra=[(f"live-api/{name}", body) for name, body in files.items()])
+
+
+def _tool_files(version: str, *, added: bool) -> dict:
+    common = f'WHO = "{version}"\nGRANTS = {{}}\n' + ("\n\ndef release(key):\n    GRANTS.pop(key, None)\n" if added else "")
+    return {
+        "manifest.yml": _manifest(
+            "live-tools",
+            version,
+            media_tools=[{"id": "live-tools.image", "label": "Convert image", "accepts": ["image"], "python": "tools/image.py:ConvertImage"}],
+        ).decode(),
+        "tools/__init__.py": "",
+        "tools/common.py": common,
+        "tools/image.py": LIVE_TOOL_SOURCE.format(names="WHO, release" if added else "WHO"),
+    }
+
+
+def _tool_plugin(version: str, *, added: bool) -> bytes:
+    files = _tool_files(version, added=added)
+    manifest = files.pop("manifest.yml").encode()
+    return _archive("live-tools", version, manifest=manifest, extra=[(f"live-tools/{name}", body) for name, body in files.items()])
+
+
+def _pipe_plugin(version: str) -> bytes:
+    manifest = _manifest("live-pipe", version, pipes=[{"path": "pipes/gen", "register_as": "generator/live_pipe"}])
+    return _archive("live-pipe", version, manifest=manifest, extra=[("live-pipe/pipes/gen/main.py", LIVE_PIPE_SOURCE.format(version=version))])
+
+
+@pytest.fixture
+def live(tmp_path, mock_db):
+    modules, path = set(sys.modules), list(sys.path)
+    marketplace, local = tmp_path / "marketplace", tmp_path / "local"
+    marketplace.mkdir()
+    local.mkdir()
+    app = FastAPI()
+    mounter = PluginRouterMounter()
+    mounter.attach(app)
+    media_tools = MediaToolRegistry()
+    registry = PluginRegistry(
+        marketplace_dir=str(marketplace), local_dir=str(local), router_mounter=mounter, media_tool_registry=media_tools
+    )
+    registry.discover_plugins()
+    yield registry, PluginRepository(), local, TestClient(app), media_tools
+    for name in set(sys.modules) - modules:
+        del sys.modules[name]
+    sys.path[:] = path
+
+
+async def _enabled_from(served: Catalog, repo, registry, plugin_id: str, archive: bytes, version: str = "1.0.0") -> None:
+    served.publish(plugin_id, version, archive)
+    await _install(repo, registry, served, plugin_id)
+    assert repo.enable_plugin(plugin_id) and registry.enable_plugin(plugin_id), registry.get_plugin_error(plugin_id)
+
+
+async def test_an_update_of_an_enabled_plugin_serves_every_module_of_the_new_version(live, catalog):
+    registry, repo, _, client, _ = live
+    await _enabled_from(catalog, repo, registry, "live-api", _api_plugin("1.0.0", added=False))
+    assert client.get("/api/plugins/live-api/who").json() == {"package": "1.0.0", "common": "1.0.0", "late": "1.0.0"}
+    catalog.publish("live-api", "2.0.0", _api_plugin("2.0.0", added=True))
+
+    result = await _install(repo, registry, catalog, "live-api")
+
+    assert (result.previous_version, result.enabled) == ("1.0.0", True)
+    assert registry.get_plugin_state("live-api") == PluginState.ENABLED
+    assert client.get("/api/plugins/live-api/who").json() == {"package": "2.0.0", "common": "2.0.0", "late": "2.0.0"}
+
+
+async def test_an_update_that_does_not_start_puts_back_every_module_of_the_previous_version(live, catalog):
+    registry, repo, _, client, _ = live
+    await _enabled_from(catalog, repo, registry, "live-api", _api_plugin("1.0.0", added=False))
+    catalog.publish("live-api", "2.0.0", _api_plugin("2.0.0", added=True, broken=True))
+
+    with pytest.raises(CatalogInstallError) as refused:
+        await _install(repo, registry, catalog, "live-api")
+
+    assert registry.get_plugin_state("live-api") == PluginState.ENABLED
+    assert client.get("/api/plugins/live-api/who").json() == {"package": "1.0.0", "common": "1.0.0", "late": "1.0.0"}
+    assert not hasattr(sys.modules["live_api.backend.common"], "ADDED")
+    assert str(refused.value) == (
+        "live-api 2.0.0 did not start (Failed to mount plugin API router); "
+        "the installed 1.0.0 is back in place and running."
+    )
+
+    catalog.publish("live-api", "2.0.1", _api_plugin("2.0.1", added=True))
+    await _install(repo, registry, catalog, "live-api")
+    assert client.get("/api/plugins/live-api/who").json() == {"package": "2.0.1", "common": "2.0.1", "late": "2.0.1"}
+
+
+async def test_an_update_of_an_enabled_media_tool_plugin_registers_the_new_tool(live, catalog):
+    registry, repo, _, _, media_tools = live
+    await _enabled_from(catalog, repo, registry, "live-tools", _tool_plugin("1.0.0", added=False))
+    assert media_tools.get("live-tools.image").impl.VERSION == "1.0.0"
+    catalog.publish("live-tools", "1.1.0", _tool_plugin("1.1.0", added=True))
+
+    result = await _install(repo, registry, catalog, "live-tools")
+
+    assert result.enabled is True
+    assert media_tools.get("live-tools.image").impl.VERSION == "1.1.0"
+
+
+async def test_a_scan_after_new_files_are_put_in_place_registers_the_new_tool(live, catalog):
+    registry, repo, local, _, media_tools = live
+    await _enabled_from(catalog, repo, registry, "live-tools", _tool_plugin("1.0.0", added=False))
+    for name, body in _tool_files("1.1.0", added=True).items():
+        (local / "live-tools" / name).write_text(body)
+
+    result = operations.scan_plugins(repo, registry)
+
+    assert (result.changed_plugin_ids, result.errored_plugin_ids) == (["live-tools"], [])
+    assert registry.get_plugin_state("live-tools") == PluginState.ENABLED
+    assert media_tools.get("live-tools.image").impl.VERSION == "1.1.0"
+
+
+async def test_a_plugin_updated_while_disabled_registers_the_new_tool_once_enabled(live, catalog):
+    registry, repo, _, _, media_tools = live
+    await _enabled_from(catalog, repo, registry, "live-tools", _tool_plugin("1.0.0", added=False))
+    operations.disable_plugin(repo, registry, "live-tools")
+    catalog.publish("live-tools", "1.1.0", _tool_plugin("1.1.0", added=True))
+
+    result = await _install(repo, registry, catalog, "live-tools")
+    operations.enable_plugin(repo, registry, "live-tools")
+
+    assert result.enabled is False
+    assert registry.get_plugin_state("live-tools") == PluginState.ENABLED
+    assert media_tools.get("live-tools.image").impl.VERSION == "1.1.0"
+
+
+async def test_an_update_of_an_enabled_plugin_serves_the_pipe_of_the_new_version(live, catalog, tmp_path):
+    registry, repo, _, _, _ = live
+    (tmp_path / "core").mkdir()
+    (tmp_path / "custom").mkdir()
+    pipes = PipeCatalog(str(tmp_path / "core"), str(tmp_path / "custom"), plugin_registry=registry)
+    catalog.publish("live-pipe", "1.0.0", _pipe_plugin("1.0.0"))
+    await _install(repo, registry, catalog, "live-pipe")
+    operations.enable_plugin(repo, registry, "live-pipe", pipe_catalog=pipes)
+    assert pipes.get_pipe("generator/live_pipe").description == "1.0.0"
+    catalog.publish("live-pipe", "2.0.0", _pipe_plugin("2.0.0"))
+
+    await _install(repo, registry, catalog, "live-pipe", pipe_catalog=pipes)
+
+    assert pipes.get_pipe("generator/live_pipe").description == "2.0.0"
+
+
+def _pipe_and_api_plugin(version: str, *, broken: bool) -> bytes:
+    manifest = _manifest(
+        "live-both",
+        version,
+        type="full-stack",
+        api={"module": "backend/api.py"},
+        pipes=[{"path": "pipes/gen", "register_as": "generator/live_both"}],
+    )
+    api = 'from fastapi import APIRouter\n\nrouter = APIRouter(prefix="/api/plugins/live-both")\n'
+    if broken:
+        api += f'\nraise RuntimeError("{version} cannot start")\n'
+    files = [
+        ("live-both/backend/__init__.py", ""),
+        ("live-both/backend/api.py", api),
+        ("live-both/pipes/gen/main.py", LIVE_PIPE_SOURCE.format(version=version)),
+    ]
+    return _archive("live-both", version, manifest=manifest, extra=files)
+
+
+async def test_an_update_that_does_not_start_serves_the_pipe_of_the_version_put_back_from_its_own_files(live, catalog, tmp_path):
+    registry, repo, _, _, _ = live
+    (tmp_path / "core").mkdir()
+    (tmp_path / "custom").mkdir()
+    pipes = PipeCatalog(str(tmp_path / "core"), str(tmp_path / "custom"), plugin_registry=registry)
+    catalog.publish("live-both", "1.0.0", _pipe_and_api_plugin("1.0.0", broken=False))
+    await _install(repo, registry, catalog, "live-both")
+    operations.enable_plugin(repo, registry, "live-both", pipe_catalog=pipes)
+    assert pipes.get_pipe("generator/live_both").description == "1.0.0"
+    catalog.publish("live-both", "2.0.0", _pipe_and_api_plugin("2.0.0", broken=True))
+
+    with pytest.raises(CatalogInstallError, match="is back in place and running"):
+        await _install(repo, registry, catalog, "live-both", pipe_catalog=pipes)
+
+    served = pipes.get_pipe("generator/live_both")
+    assert served.description == "1.0.0"
+    assert getattr(sys.modules.get(served.__module__), "LivePipe", None) is served

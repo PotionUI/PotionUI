@@ -217,6 +217,14 @@ class PluginController(BaseController):
     async def scan_plugins(self) -> APIResponse:
         """Rescan plugin directories to discover new plugins"""
         result = operations.scan_plugins(self.repository, self.registry)
+        if result.changed_plugin_ids or result.removed_plugin_ids:
+            operations.rescan_presets_and_pipes(
+                self.preset_loader,
+                self.pipe_catalog,
+                self.recipe_catalog,
+                "plugin scan",
+                self.model_layout_catalog,
+            )
         return self.success_response(
             data={
                 "new_plugins": [p.model_dump() for p in result.new_plugins],

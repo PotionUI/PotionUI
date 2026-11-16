@@ -399,6 +399,7 @@ class PluginRegistry:
         """Forget a plugin whose directory is gone, tearing down anything it
         still owns."""
         self._teardown_plugin(plugin_id)
+        self.loader.forget_plugin(plugin_id)
         self._plugins.pop(plugin_id, None)
         self._plugin_states.pop(plugin_id, None)
         self._plugin_errors.pop(plugin_id, None)
@@ -502,8 +503,13 @@ class PluginRegistry:
         if manifest.validation_error:
             return self._fail_enable(plugin_id, manifest.validation_error)
 
+        others = [other.plugin_dir for other_id, other in self._plugins.items() if other_id != plugin_id]
         try:
-            error_msg = self._run_enable_stages(manifest)
+            self.loader.forget_stale_modules(manifest, others)
+            try:
+                error_msg = self._run_enable_stages(manifest)
+            finally:
+                self.loader.note_imports(manifest, others)
         except BaseException as e:
             failed = self._fail_enable(plugin_id, f"Error enabling plugin: {e}", exc_info=True)
             # An interrupt gets the same teardown as a failure, but is
@@ -1565,6 +1571,7 @@ class PluginRegistry:
         # fresh code without disturbing other enabled plugins' modules)
         if not self.disable_plugin(plugin_id):
             return False
+        self.loader.forget_plugin(plugin_id)
 
         if not self.enable_plugin(plugin_id):
             return False

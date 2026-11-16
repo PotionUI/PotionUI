@@ -510,6 +510,7 @@ def test_the_start_picture_is_fitted_once_keeping_its_shape():
     seen: list = []
 
     def record(images, anchors, **kwargs):
+        assert all(image.size == (kwargs["width"], kwargs["height"]) for image in images)
         seen.append([
             np.asarray(fit_keyframe_to_canvas(image, kwargs["height"], kwargs["width"], is_geometry_anchor=index == 0))
             for index, image in enumerate(images)

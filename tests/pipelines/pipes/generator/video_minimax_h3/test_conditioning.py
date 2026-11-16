@@ -208,10 +208,43 @@ def test_continuation_encode_returns_the_encoders_own_head_slice():
 
 # -- canvas fit: stretch (geometry anchor) vs cover-crop (follower) ---------
 
-def test_geometry_anchor_is_stretched_not_cropped():
-    image = Image.new("RGB", (100, 50))
+def _noise_picture(width, height):
+    pixels = np.random.default_rng(0).integers(0, 256, (height, width, 3), dtype=np.uint8)
+    return Image.fromarray(pixels)
+
+
+def test_geometry_anchor_of_another_aspect_is_cover_cropped_like_a_follower():
+    image = _noise_picture(100, 50)
     fitted = fit_keyframe_to_canvas(image, height=64, width=64, is_geometry_anchor=True)
-    assert fitted.size == (64, 64)
+    follower = fit_keyframe_to_canvas(image, height=64, width=64, is_geometry_anchor=False)
+    stretched = image.resize((64, 64), Image.Resampling.LANCZOS)
+    assert np.array_equal(np.asarray(fitted), np.asarray(follower))
+    assert not np.array_equal(np.asarray(fitted), np.asarray(stretched))
+
+
+@pytest.mark.parametrize("size", [(1009, 1000), (1000, 1009), (1010, 1000), (1000, 1010)])
+def test_geometry_anchor_within_the_tolerance_is_stretched(size):
+    image = _noise_picture(*size)
+    fitted = fit_keyframe_to_canvas(image, height=100, width=100, is_geometry_anchor=True)
+    stretched = image.resize((100, 100), Image.Resampling.LANCZOS)
+    assert np.array_equal(np.asarray(fitted), np.asarray(stretched))
+
+
+@pytest.mark.parametrize("size", [(1011, 1000), (1000, 1011)])
+def test_geometry_anchor_past_the_tolerance_is_cover_cropped(size):
+    image = _noise_picture(*size)
+    fitted = fit_keyframe_to_canvas(image, height=100, width=100, is_geometry_anchor=True)
+    follower = fit_keyframe_to_canvas(image, height=100, width=100, is_geometry_anchor=False)
+    stretched = image.resize((100, 100), Image.Resampling.LANCZOS)
+    assert np.array_equal(np.asarray(fitted), np.asarray(follower))
+    assert not np.array_equal(np.asarray(fitted), np.asarray(stretched))
+
+
+def test_geometry_anchor_at_the_canvas_aspect_is_resized_as_before():
+    image = _noise_picture(1664, 960)
+    fitted = fit_keyframe_to_canvas(image, height=480, width=832, is_geometry_anchor=True)
+    resized = image.resize((832, 480), Image.Resampling.LANCZOS)
+    assert np.array_equal(np.asarray(fitted), np.asarray(resized))
 
 
 def test_follower_is_cover_cropped_to_exact_canvas_size():

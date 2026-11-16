@@ -2,6 +2,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import tooltip from '$lib/actions/tooltip';
 	import type { RailGroup, RailTool } from '$lib/tool-tabs/frame/types';
+	import { getFrameContext } from '$lib/tool-tabs/frame/context';
 
 	let {
 		groups,
@@ -22,6 +23,8 @@
 	let root = $state<HTMLElement>();
 	let strip = $derived(variant === 'strip');
 	let icons = $derived(variant === 'icons');
+	const frame = getFrameContext();
+	let joined = $derived(icons && frame?.panelSide === 'left' && !frame.panelCollapsed);
 
 	function unavailable(tool: RailTool): boolean {
 		return !!tool.disabled || !!tool.later;
@@ -48,6 +51,7 @@
 
 	function pick(tool: RailTool) {
 		if (unavailable(tool)) return;
+		frame?.expandPanel();
 		onselect(tool.id);
 	}
 
@@ -63,6 +67,20 @@
 		buttons[next].focus();
 	}
 
+	let seen: string | null | undefined;
+	let primed = false;
+	$effect(() => {
+		const next = active;
+		if (!primed) {
+			primed = true;
+			seen = next;
+			return;
+		}
+		if (next === seen) return;
+		seen = next;
+		if (next) frame?.expandPanel();
+	});
+
 	$effect(() => {
 		if (!strip || !root || !active) return;
 		const target = active;
@@ -77,7 +95,9 @@
 	class={strip
 		? 'strip flex h-16 flex-none gap-0.5 overflow-x-auto border-t border-line bg-surface-1 px-1.5 py-1'
 		: icons
-			? 'rail flex w-[52px] flex-none flex-col items-center gap-0.5 overflow-y-auto border-r border-line bg-surface-1 px-1.5 py-2'
+			? joined
+				? 'rail flex w-[52px] flex-none flex-col items-center gap-0.5 overflow-y-auto bg-surface-1/50 py-2 pl-1.5 pr-0'
+				: 'rail flex w-[52px] flex-none flex-col items-center gap-0.5 overflow-y-auto border-r border-line bg-surface-1 px-1.5 py-2'
 			: 'rail flex w-[76px] flex-none flex-col gap-0.5 overflow-y-auto border-r border-line bg-surface-1 px-1.5 py-2'}
 	role="toolbar"
 	aria-orientation={strip ? 'horizontal' : 'vertical'}
@@ -85,6 +105,7 @@
 	tabindex="-1"
 	{onkeydown}
 	data-tool-rail={variant}
+	data-rail-joined={joined || undefined}
 >
 	{#each groups as group, g (group.id)}
 		{#if icons}
@@ -105,9 +126,9 @@
 			<button
 				type="button"
 				class="tool relative flex items-center rounded text-center text-sm leading-[14px] {icons
-					? 'h-10 w-10 flex-none justify-center'
+					? `h-10 flex-none justify-center ${joined ? 'w-[46px]' : 'w-10'}`
 					: `flex-col gap-[3px] px-0.5 pb-1.5 pt-[7px] ${strip ? 'min-w-16 flex-none justify-center px-1.5' : ''}`} {on
-					? 'is-on bg-signal/10 text-signal'
+					? `is-on text-signal ${joined ? 'rounded-r-none bg-surface-1' : 'bg-signal/10'}`
 					: off
 						? 'cursor-not-allowed text-fg-disabled'
 						: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"

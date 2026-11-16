@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { PANE_HANDLE_STRIP } from '$lib/generation/paneHandle';
 	import { pageOwnsKeys } from '$lib/utils/shortcutGuard';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
 	import { viewportWidth } from '$lib/stores/viewport';
@@ -59,6 +61,7 @@
 
 	let root = $state<HTMLElement | null>(null);
 	let spaceHeld = $state(false);
+	let panelCollapsed = $state(false);
 
 	setFrameContext({
 		get spaceHeld() {
@@ -66,6 +69,15 @@
 		},
 		get sheetHost() {
 			return root;
+		},
+		get panelSide() {
+			return panelSide;
+		},
+		get panelCollapsed() {
+			return panelCollapsed;
+		},
+		expandPanel() {
+			panelCollapsed = false;
 		}
 	});
 
@@ -112,8 +124,33 @@
 
 <svelte:window onkeydowncapture={onkeydown} onkeyup={onkeyup} onblur={() => (spaceHeld = false)} />
 
+{#snippet strip(open: boolean, flipped: boolean, hideLabel: string, showLabel: string, attr: string, toggle: () => void)}
+	{@const label = open ? hideLabel : showLabel}
+	<Tooltip text={label} position={flipped ? 'left' : 'right'} delay={150} wrapperClass="flex h-full flex-shrink-0">
+		<button
+			type="button"
+			class={open
+				? `${PANE_HANDLE_STRIP} ${flipped ? '!border-r-0 border-l' : ''}`
+				: `group flex h-full w-3 flex-shrink-0 items-center justify-center border-line bg-surface-3 transition-colors hover:bg-line-hover ${flipped ? 'border-l' : 'border-r'}`}
+			aria-label={label}
+			aria-expanded={open}
+			onclick={toggle}
+			{...{ [attr]: open ? 'open' : 'collapsed' }}
+		>
+			<Icon
+				name={open === flipped ? 'chevron-right' : 'chevron-left'}
+				className="{open ? 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2' : ''} h-3 w-3 text-fg-subtle transition-colors group-hover:text-fg"
+			/>
+		</button>
+	</Tooltip>
+{/snippet}
+
+{#snippet handle()}
+	{@render strip(!panelCollapsed, panelSide === 'right', 'Collapse tool options', 'Show tool options', 'data-frame-panel-handle', () => (panelCollapsed = !panelCollapsed))}
+{/snippet}
+
 {#snippet panel()}
-	<aside class="flex min-h-0 flex-none flex-col border-line bg-surface-1 {panelSide === 'left' ? 'border-r' : 'border-l'}" style="width: {settingsPaneWidth($viewportWidth)}px" aria-label="Tool options and edits" data-frame-panel={panelSide}>
+	<aside class="min-h-0 flex-none flex-col bg-surface-1 {panelCollapsed ? 'hidden' : 'flex'}" style="width: {settingsPaneWidth($viewportWidth)}px" aria-label="Tool options and edits" data-frame-panel={panelSide}>
 		{@render panelTop?.()}
 		{@render options?.()}
 		{@render stack?.('panel')}
@@ -182,18 +219,21 @@
 		{/if}
 	</div>
 {:else}
-	<div bind:this={root} class="relative flex h-full min-h-0 flex-col bg-canvas" data-editor-frame="desktop">
+	<div bind:this={root} class="relative flex h-full min-h-0 bg-canvas" data-editor-frame="desktop">
+		<div class="h-full w-3 flex-shrink-0 border-r border-line bg-surface-3" aria-hidden="true" data-frame-divider></div>
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col" data-frame-column>
 		{@render toolbar()}
 		<div class="flex min-h-0 flex-1">
 			{@render rail?.()}
-			{#if panelSide === 'left'}{@render panel()}{/if}
+			{#if panelSide === 'left'}{@render panel()}{@render handle()}{/if}
 			<div class="flex min-w-0 flex-1 flex-col">
 				<div class="relative flex min-h-0 flex-1">
 					{@render canvas()}
 				</div>
 				{@render below?.()}
 			</div>
-			{#if panelSide === 'right'}{@render panel()}{/if}
+			{#if panelSide === 'right'}{@render handle()}{@render panel()}{/if}
 		</div>
+	</div>
 	</div>
 {/if}

@@ -4,6 +4,7 @@ import { targetActivatesOn } from '$lib/tool-tabs/frame/keymap';
 import { settingsPaneWidth } from '$lib/stores/generationLayout';
 import { viewportWidth } from '$lib/stores/viewport';
 import { flushSync } from 'svelte';
+import { PANE_HANDLE_STRIP } from '$lib/generation/paneHandle';
 import { mountComponent } from '../helpers/mount';
 
 const { default: FrameHost } = await import('./FrameHost.svelte');
@@ -27,7 +28,7 @@ describe('EditorFrame layout', () => {
 		const { q } = render();
 		const frame = q('[data-editor-frame="desktop"]')!;
 		const panel = q<HTMLElement>('[data-frame-panel]')!;
-		expect(frame.firstElementChild?.hasAttribute('data-host-toolbar')).toBe(true);
+		expect(frame.querySelector('[data-frame-column]')!.firstElementChild?.hasAttribute('data-host-toolbar')).toBe(true);
 		expect(panel.style.width).toBe(`${settingsPaneWidth(get(viewportWidth))}px`);
 		expect(panel.children[0].hasAttribute('data-host-options')).toBe(true);
 		expect(q('[data-host-stack]')?.getAttribute('data-host-stack')).toBe('panel');
@@ -36,25 +37,137 @@ describe('EditorFrame layout', () => {
 
 	function desktopOrder(q: <T extends Element = HTMLElement>(sel: string) => T | null) {
 		const row = q('[data-frame-panel]')!.parentElement!;
-		return Array.from(row.children).map((el) => (el.hasAttribute('data-host-rail') ? 'rail' : el.hasAttribute('data-frame-panel') ? 'panel' : 'canvas'));
+		return Array.from(row.children).map((el) =>
+			el.hasAttribute('data-host-rail')
+				? 'rail'
+				: el.hasAttribute('data-frame-panel')
+					? 'panel'
+					: el.querySelector('[data-frame-panel-handle]')
+						? 'inner'
+						: 'canvas'
+		);
 	}
 
-	it('puts the panel between the rail and the canvas by default, with its border on the canvas side', () => {
+	it('puts the panel between the rail and the canvas by default, closed by the shared handle strip', () => {
 		const { q } = render();
 		const panel = q<HTMLElement>('[data-frame-panel]')!;
-		expect(desktopOrder(q)).toEqual(['rail', 'panel', 'canvas']);
+		expect(desktopOrder(q)).toEqual(['rail', 'panel', 'inner', 'canvas']);
 		expect(panel.getAttribute('data-frame-panel')).toBe('left');
-		expect(panel.classList.contains('border-r')).toBe(true);
+		expect(panel.classList.contains('border-r')).toBe(false);
 		expect(panel.classList.contains('border-l')).toBe(false);
+		const handle = q<HTMLElement>('[data-frame-panel-handle]')!;
+		for (const cls of PANE_HANDLE_STRIP.split(' ')) expect(handle.classList.contains(cls)).toBe(true);
+		expect(handle.getAttribute('aria-label')).toBe('Collapse tool options');
+		expect(handle.getAttribute('aria-expanded')).toBe('true');
 	});
 
 	it('puts the panel after the canvas when panelSide is right', () => {
 		const { q } = render({ panelSide: 'right' });
 		const panel = q<HTMLElement>('[data-frame-panel]')!;
-		expect(desktopOrder(q)).toEqual(['rail', 'canvas', 'panel']);
+		expect(desktopOrder(q)).toEqual(['rail', 'canvas', 'inner', 'panel']);
 		expect(panel.getAttribute('data-frame-panel')).toBe('right');
-		expect(panel.classList.contains('border-l')).toBe(true);
-		expect(panel.classList.contains('border-r')).toBe(false);
+		expect(panel.classList.contains('border-l')).toBe(false);
+		const handle = q<HTMLElement>('[data-frame-panel-handle]')!;
+		expect(handle.classList.contains('border-l')).toBe(true);
+		expect(handle.classList.contains('!border-r-0')).toBe(true);
+	});
+
+	it('makes the rail and a left panel one unit: no line between them, a strong outer divider, the selected tool as a tab of the panel', () => {
+		const { q } = render();
+		const rail = q<HTMLElement>('[data-tool-rail]')!;
+		const selected = q<HTMLElement>('button[data-tool="crop"]')!;
+		const other = q<HTMLElement>('button[data-tool="rotate"]')!;
+		expect(rail.hasAttribute('data-rail-joined')).toBe(true);
+		expect(rail.classList.contains('border-r')).toBe(false);
+		expect(rail.classList.contains('border-l')).toBe(false);
+		expect(rail.classList.contains('bg-surface-1/50')).toBe(true);
+		expect(selected.classList.contains('bg-surface-1')).toBe(true);
+		expect(selected.classList.contains('rounded-r-none')).toBe(true);
+		expect(other.classList.contains('bg-surface-1')).toBe(false);
+	});
+
+	it('keeps the plain bordered rail when the panel is on the right', () => {
+		const { q } = render({ panelSide: 'right' });
+		const rail = q<HTMLElement>('[data-tool-rail]')!;
+		expect(rail.hasAttribute('data-rail-joined')).toBe(false);
+		expect(rail.classList.contains('border-r')).toBe(true);
+		expect(rail.classList.contains('border-l')).toBe(false);
+	});
+
+	it('collapses the panel from the handle and keeps the rail, then shows the thin expand strip', () => {
+		const { q } = render();
+		q<HTMLButtonElement>('[data-frame-panel-handle]')!.click();
+		flushSync();
+		expect(q('[data-frame-panel]')!.classList.contains('hidden')).toBe(true);
+		expect(q('[data-tool-rail]')).not.toBeNull();
+		expect(q('[data-tool-rail]')!.hasAttribute('data-rail-joined')).toBe(false);
+		const strip = q<HTMLElement>('[data-frame-panel-handle]')!;
+		expect(strip.getAttribute('aria-label')).toBe('Show tool options');
+		expect(strip.getAttribute('aria-expanded')).toBe('false');
+		expect(strip.classList.contains('w-3')).toBe(true);
+		expect(strip.classList.contains('bg-surface-3')).toBe(true);
+		strip.click();
+		flushSync();
+		expect(q('[data-frame-panel]')!.classList.contains('hidden')).toBe(false);
+		expect(q('[data-frame-panel-handle]')!.getAttribute('aria-expanded')).toBe('true');
+	});
+
+	it('expands a collapsed panel when a tool is selected', () => {
+		const { q, calls } = render();
+		q<HTMLButtonElement>('[data-frame-panel-handle]')!.click();
+		flushSync();
+		q<HTMLButtonElement>('button[data-tool="rotate"]')!.click();
+		flushSync();
+		expect(calls).toContain('tool:rotate');
+		expect(q('[data-frame-panel]')!.classList.contains('hidden')).toBe(false);
+	});
+
+	it('mirrors the collapse for a right panel', () => {
+		const { q } = render({ panelSide: 'right' });
+		q<HTMLButtonElement>('[data-frame-panel-handle]')!.click();
+		flushSync();
+		const strip = q<HTMLElement>('[data-frame-panel-handle]')!;
+		expect(strip.classList.contains('border-l')).toBe(true);
+		expect(strip.classList.contains('border-r')).toBe(false);
+		expect(q('[data-tool-rail]')).not.toBeNull();
+	});
+
+	it.each([{}, { panelSide: 'right' }])('puts a purely visual divider the full height before the toolbar and the rail: %j', (props) => {
+		const { q } = render(props);
+		const frame = q('[data-editor-frame="desktop"]')!;
+		const divider = frame.firstElementChild as HTMLElement;
+		expect(divider.hasAttribute('data-frame-divider')).toBe(true);
+		for (const cls of ['w-3', 'h-full', 'flex-shrink-0', 'border-r', 'border-line', 'bg-surface-3']) expect(divider.classList.contains(cls)).toBe(true);
+		expect(divider.getAttribute('aria-hidden')).toBe('true');
+		expect(divider.tagName).toBe('DIV');
+		expect(divider.children).toHaveLength(0);
+		expect(divider.getAttribute('tabindex')).toBeNull();
+		const column = frame.children[1] as HTMLElement;
+		expect(column.firstElementChild!.hasAttribute('data-host-toolbar')).toBe(true);
+		expect(column.contains(q('[data-host-rail]'))).toBe(true);
+		expect(frame.querySelectorAll('[data-frame-rail-handle]')).toHaveLength(0);
+	});
+
+	it('never puts two strips next to each other', () => {
+		const { q } = render();
+		const adjacent = () => {
+			const kinds = desktopOrder(q);
+			return kinds.some((kind, i) => kind === 'inner' && kinds[i + 1] === 'inner');
+		};
+		expect(adjacent()).toBe(false);
+		q<HTMLButtonElement>('[data-frame-panel-handle]')!.click();
+		flushSync();
+		expect(adjacent()).toBe(false);
+		expect(q('[data-frame-divider]')!.nextElementSibling!.hasAttribute('data-frame-column')).toBe(true);
+	});
+
+	it('shows the panel again when the active tool changes while it is folded', () => {
+		const view = render();
+		view.q<HTMLButtonElement>('[data-frame-panel-handle]')!.click();
+		flushSync();
+		view.view.rerender({ selected: 'rotate' });
+		flushSync();
+		expect(view.q('[data-frame-panel]')!.classList.contains('hidden')).toBe(false);
 	});
 
 	it('docks the options above the tool strip on a phone and opens the stack as a sheet', () => {

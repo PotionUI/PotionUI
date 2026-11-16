@@ -98,6 +98,22 @@ class FormTemplate:
     requirements: List[Dict[str, Any]] = field(default_factory=list)
 
 @dataclass
+class EditorModeSpec:
+    name: str
+    task: str
+    region: str
+    inputs: Dict[str, Any]
+    size: Dict[str, Any]
+    context: float = 0.5
+    from_mode: Optional[str] = None
+    label: Optional[str] = None
+    short_description: Optional[str] = None
+    order: int = 0
+    fixed: Dict[str, Any] = field(default_factory=dict)
+    hide: List[str] = field(default_factory=list)
+
+
+@dataclass
 class ModeTemplate:
     """Template for a specific generation mode (txt2img, img2img, etc.)"""
     forms: List[FormTemplate]  # Multiple forms can be defined per mode
@@ -113,6 +129,7 @@ class ModeTemplate:
     prompt_placeholder: Optional[str] = None
     llm_guide: Optional[str] = None
     segment_templates: Optional[List[Dict[str, Any]]] = None
+    editor: Optional[EditorModeSpec] = None
 
 
 def sorted_forms(mode_data: 'ModeTemplate') -> List[FormTemplate]:
@@ -190,11 +207,31 @@ class PresetTemplate:
     negative_prompt: Optional[Dict[str, Any]] = None
     source_preset_id: Optional[str] = None
     file_name: Optional[str] = None
+    editor_modes: Dict[str, ModeTemplate] = field(default_factory=dict)
 
     def __post_init__(self):
         # Default to the built-in native engine if not specified
         if self.engine is None:
             self.engine = "native"
+
+
+EDITOR_KEY_PREFIX = "editor:"
+
+
+def editor_key(name: str) -> str:
+    return f"{EDITOR_KEY_PREFIX}{name}"
+
+
+def is_editor_key(key: Optional[str]) -> bool:
+    return isinstance(key, str) and key.startswith(EDITOR_KEY_PREFIX)
+
+
+def find_mode(template: Optional[PresetTemplate], key: Optional[str]) -> Optional[ModeTemplate]:
+    if template is None or not key:
+        return None
+    if is_editor_key(key):
+        return (template.editor_modes or {}).get(key[len(EDITOR_KEY_PREFIX):])
+    return (template.modes or {}).get(key)
 
 
 def files_preset_id(template: PresetTemplate) -> str:

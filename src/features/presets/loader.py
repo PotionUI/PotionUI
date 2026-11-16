@@ -43,6 +43,7 @@ from src.features.presets.templates import (
 from src.features.presets.overlays import PresetOverlays, apply_overlays
 from src.features.presets.mode_fields import resolve_requirement_fields
 from src.features.presets.extensions import apply_preset_extensions, contained, duplicate_anchor_errors, plugin_preset_extensions
+from src.features.presets.editor_modes import EDITOR_MODES_DIR, EditorModeBuilders, apply_editor_modes
 from src.features.presets.pipeline_source import load_mode_pipeline
 from src.platform.filesystem.yaml_io import load_yaml_file
 from src.features.prompt.resource_sources import declared_prompt_resource_sources
@@ -491,7 +492,9 @@ class PresetTemplateLoader:
         styles = [style.model_dump(exclude_none=True) for style in parsed.styles]
         return styles, parsed.preview.model_dump()
 
-    def _load_mode(self, preset_path: Path, mode_name: str) -> Tuple[Optional[ModeTemplate], List[str]]:
+    def _load_mode(
+        self, preset_path: Path, mode_name: str, kind: str = 'modes'
+    ) -> Tuple[Optional[ModeTemplate], List[str]]:
         """Load a single mode (pipeline.yml + form variants) from its directory.
 
         Args:
@@ -501,29 +504,13 @@ class PresetTemplateLoader:
         Returns:
             (ModeTemplate or None, list of error strings)
         """
-        mode_dir = preset_path.parent / 'modes' / mode_name
-        pipeline_file = mode_dir / 'pipeline.yml'
+        mode_dir = preset_path.parent / kind / mode_name
 
-        if not pipeline_file.exists():
-            return None, [f"modes/{mode_name}/pipeline.yml: file not found"]
+        pipes, errors = self._load_pipes(mode_dir, f"{kind}/{mode_name}")
+        if pipes is None:
+            return None, errors
 
-        try:
-            pipeline_data, pointer_errors = load_mode_pipeline(mode_dir)
-        except Exception as e:
-            return None, [f"modes/{mode_name}/pipeline.yml: failed to parse: {e}"]
-        if pointer_errors:
-            return None, [f"modes/{mode_name}/pipeline.yml: {problem}" for problem in pointer_errors]
-
-        _, pipeline_errors = validate_pipeline_file(pipeline_data, prefix=f"modes/{mode_name}/pipeline.yml")
-
-        errors = list(pipeline_errors)
-
-        pipes: List[PipeTemplate] = []
-        if not pipeline_errors:
-            for pipe in pipeline_data.get('pipeline', []):
-                pipes.append(PipeTemplate(**pipe))
-
-        forms, form_errors = self._load_forms_from_mode_dir(mode_dir, mode_name)
+        forms, form_errors = self._load_forms_from_mode_dir(mode_dir, mode_name, kind)
         errors.extend(form_errors)
 
         if errors:
@@ -533,7 +520,32 @@ class PresetTemplateLoader:
             forms=forms, pipes=pipes, **read_mode_naming(mode_dir), **read_mode_prompting(mode_dir)
         ), []
 
-    def _load_forms_from_mode_dir(self, mode_dir: Path, mode_name: str) -> Tuple[List[FormTemplate], List[str]]:
+    def _load_pipes(
+        self, mode_dir: Path, label: str
+    ) -> Tuple[Optional[List[PipeTemplate]], List[str]]:
+        pipeline_file = mode_dir / 'pipeline.yml'
+
+        if not pipeline_file.exists():
+            return None, [f"{label}/pipeline.yml: file not found"]
+
+        try:
+            pipeline_data, pointer_errors = load_mode_pipeline(mode_dir)
+        except Exception as e:
+            return None, [f"{label}/pipeline.yml: failed to parse: {e}"]
+        if pointer_errors:
+            return None, [f"{label}/pipeline.yml: {problem}" for problem in pointer_errors]
+
+        _, pipeline_errors = validate_pipeline_file(pipeline_data, prefix=f"{label}/pipeline.yml")
+
+        pipes: List[PipeTemplate] = []
+        if not pipeline_errors:
+            for pipe in pipeline_data.get('pipeline', []):
+                pipes.append(PipeTemplate(**pipe))
+        return pipes, list(pipeline_errors)
+
+    def _load_forms_from_mode_dir(
+        self, mode_dir: Path, mode_name: str, kind: str = 'modes'
+    ) -> Tuple[List[FormTemplate], List[str]]:
         """Load and validate a mode's form variants (flattened layout).
 
         The default variant is ``modes/<mode>/form.yml``; additional variants
@@ -564,10 +576,10 @@ class PresetTemplateLoader:
             try:
                 form_data = load_yaml_file(form_file) or {}
             except Exception as e:
-                errors.append(f"modes/{mode_name}/{loc}form.yml: failed to parse: {e}")
+                errors.append(f"{kind}/{mode_name}/{loc}form.yml: failed to parse: {e}")
                 continue
 
-            prefix = f"modes/{mode_name}/{loc}form.yml"
+            prefix = f"{kind}/{mode_name}/{loc}form.yml"
             validated, form_errors = validate_form_file(form_data, prefix=prefix)
             if form_errors or validated is None:
                 errors.extend(form_errors)
@@ -886,6 +898,7 @@ class PresetTemplateLoader:
         logger.info(f"Preset loading complete. Loaded {len(presets)} presets")
 
         self._apply_preset_mode_contributions(presets, errors)
+        self._apply_editor_modes(presets, errors)
         self._apply_preset_extensions(presets, errors)
         return presets, errors
 
@@ -995,7 +1008,7 @@ class PresetTemplateLoader:
                 f"plugin '{contribution.plugin_id}' preset_modes "
                 f"(target '{contribution.target_preset_id}')"
             )
-            if not modes_dir.exists():
+            if not modes_dir.exists() and not (contribution.modes_root / EDITOR_MODES_DIR).is_dir():
                 errors.setdefault(error_prefix, []).append(
                     f"modes_root '{contribution.modes_root}' has no modes/ directory"
                 )
@@ -1007,7 +1020,8 @@ class PresetTemplateLoader:
             # the plugin's modes_root instead of a preset directory.
             synthetic_preset_path = contribution.modes_root / "preset.yml"
 
-            for mode_dir in sorted(p for p in modes_dir.iterdir() if p.is_dir()):
+            mode_dirs = sorted(p for p in modes_dir.iterdir() if p.is_dir()) if modes_dir.exists() else []
+            for mode_dir in mode_dirs:
                 mode_name = mode_dir.name
                 error_key = f"{error_prefix} modes/{mode_name}"
 
@@ -1056,6 +1070,34 @@ class PresetTemplateLoader:
                 _apply_mode_prompting(target, mode_name, mode_template)
                 target.requirements.extend(_mode_scoped_requirements(mode_name, mode_template))
                 claimed[claim_key] = contribution.plugin_id
+
+    def _apply_editor_modes(self, presets: List[PresetTemplate], errors: Dict[str, List[str]]) -> None:
+        contributions = (
+            plugin_preset_mode_contributions(self.plugin_registry.get_enabled_plugins())
+            if self.plugin_registry is not None
+            else []
+        )
+        shared = self.shared_path.resolve()
+
+        def build_fields(field_dicts, candidate, prefix):
+            roots = None if candidate.plugin_id is None else [candidate.preset_root.resolve(), shared]
+            return [
+                built
+                for data in field_dicts
+                for built in self._build_field_templates(data, candidate.preset_root, prefix, roots)
+            ]
+
+        builders = EditorModeBuilders(
+            load_mode=lambda candidate: self._load_mode(
+                candidate.preset_root / 'preset.yml', candidate.name, EDITOR_MODES_DIR
+            ),
+            load_pipes=lambda candidate: self._load_pipes(
+                candidate.directory, f"{EDITOR_MODES_DIR}/{candidate.name}"
+            ),
+            build_fields=build_fields,
+            mode_checks=self._extension_mode_errors,
+        )
+        apply_editor_modes(presets, errors, contributions, builders)
 
     def _apply_preset_extensions(self, presets: List[PresetTemplate], errors: Dict[str, List[str]]) -> None:
         if self.plugin_registry is None:

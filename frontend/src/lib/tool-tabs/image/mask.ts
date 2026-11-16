@@ -63,3 +63,33 @@ export function maskOverlay(pixels: Uint8ClampedArray, tint: Rgb, cutoff = 128):
 	}
 	return { data, lit };
 }
+
+export interface MaskTool {
+	id: string;
+	label: string;
+	icon: string;
+	erase: boolean;
+}
+
+export const MASK_TOOLS: readonly MaskTool[] = [
+	{ id: 'paint', label: 'Paint', icon: 'brush', erase: false },
+	{ id: 'erase', label: 'Erase', icon: 'editor-eye-off', erase: true }
+];
+
+export const MASK_BRUSH = { min: 4, max: 300, step: 1, default: 48 } as const;
+
+export const STORED_MASK_CUTOFF = 127;
+
+export function alphaToMask(source: Uint8ClampedArray, target: Uint8ClampedArray, cutoff = 64): number {
+	let lit = 0;
+	for (let i = 0; i < source.length; i += 4) {
+		const on = source[i + 3] > cutoff;
+		const value = on ? 255 : 0;
+		target[i] = value;
+		target[i + 1] = value;
+		target[i + 2] = value;
+		target[i + 3] = 255;
+		if (on) lit += 1;
+	}
+	return lit;
+}

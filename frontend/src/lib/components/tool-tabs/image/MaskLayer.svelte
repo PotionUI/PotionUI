@@ -3,7 +3,7 @@
 	import { canvasPoint, drawSegment } from '$lib/paint/raster/brush';
 	import { loadImage } from '$lib/media/loadImage';
 	import { canvasToPngFile } from '$lib/paint/flatten';
-	import { maskOverlay, parseRgb, type Rgb } from '$lib/tool-tabs/image/mask';
+	import { alphaToMask, maskOverlay, parseRgb, type Rgb } from '$lib/tool-tabs/image/mask';
 
 	let {
 		width,
@@ -113,7 +113,7 @@
 		if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
 	}
 
-	export async function exportMask(name: string): Promise<File | null> {
+	export function renderMask(cutoff = 64): HTMLCanvasElement | null {
 		const context = surface();
 		if (!canvas || !context) return null;
 		const data = context.getImageData(0, 0, canvas.width, canvas.height);
@@ -123,15 +123,14 @@
 		const outContext = out.getContext('2d');
 		if (!outContext) return null;
 		const mask = outContext.createImageData(out.width, out.height);
-		for (let i = 0; i < data.data.length; i += 4) {
-			const lit = data.data[i + 3] > 64 ? 255 : 0;
-			mask.data[i] = lit;
-			mask.data[i + 1] = lit;
-			mask.data[i + 2] = lit;
-			mask.data[i + 3] = 255;
-		}
+		alphaToMask(data.data, mask.data, cutoff);
 		outContext.putImageData(mask, 0, 0);
-		return canvasToPngFile(out, name);
+		return out;
+	}
+
+	export async function exportMask(name: string, cutoff = 64): Promise<File | null> {
+		const out = renderMask(cutoff);
+		return out ? canvasToPngFile(out, name) : null;
 	}
 </script>
 

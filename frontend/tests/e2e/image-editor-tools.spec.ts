@@ -38,7 +38,7 @@ async function paintMask(page: Page, field: Locator) {
 	await page.mouse.down();
 	await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.5, { steps: 6 });
 	await page.mouse.up();
-	await maskDialog.getByRole('button', { name: /Save mask/ }).click();
+	await maskDialog.getByRole('button', { name: /Apply/ }).click();
 	await expect(maskDialog).toBeHidden({ timeout: 15000 });
 	await expect(maskChip(field)).toBeVisible();
 }

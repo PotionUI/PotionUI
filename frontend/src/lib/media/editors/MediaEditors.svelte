@@ -6,7 +6,7 @@
 	import CropEditor from './CropEditor.svelte';
 	import TrimEditor from './TrimEditor.svelte';
 	import FrameEditor from './FrameEditor.svelte';
-	import MaskEditor from './MaskEditor.svelte';
+	import MaskQuickEditor from './MaskQuickEditor.svelte';
 	import SplitEditor from './SplitEditor.svelte';
 	import ResizeEditor from './ResizeEditor.svelte';
 	import ToolDialogHost from './ToolDialogHost.svelte';
@@ -372,7 +372,7 @@
 			/>
 		{/await}
 	{:else if kind === 'mask'}
-		<MaskEditor
+		<MaskQuickEditor
 			source={request.source}
 			{existingMaskUrl}
 			{busy}

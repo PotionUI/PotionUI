@@ -372,6 +372,10 @@ for (const size of SIZES) {
 			});
 			await host.locator('[data-tools-trigger]').first().click();
 			await page.locator('[data-tools-menu] [data-tool="mask"]').click();
+			const editRequests: string[] = [];
+			page.on('request', (request) => {
+				if (request.url().includes('/api/edits')) editRequests.push(request.url());
+			});
 			const dialog = page.getByRole('dialog', { name: 'Create inpainting mask' });
 			await expect(dialog).toBeVisible();
 			const canvas = dialog.locator('canvas').first();
@@ -381,8 +385,10 @@ for (const size of SIZES) {
 			await page.mouse.down();
 			await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, { steps: 6 });
 			await page.mouse.up();
-			await dialog.getByRole('button', { name: /Save mask/ }).click();
+			await screenshot(page, JOURNEY, `mask-modal-${size.tag}`);
+			await dialog.getByRole('button', { name: /Apply/ }).click();
 			await expect(dialog).toBeHidden({ timeout: 15000 });
+			expect(editRequests).toEqual([]);
 
 			const chip = host.locator('[data-mask-chip]');
 			await expect(chip).toBeVisible();

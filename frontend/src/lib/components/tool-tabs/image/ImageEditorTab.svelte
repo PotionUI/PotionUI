@@ -3,11 +3,10 @@
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import Icon from '$lib/components/Icon.svelte';
-	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import { pickFromUpload } from '$lib/components/form-fields/mediaLoaderPicks';
 	import { canvasToPngFile } from '$lib/paint/flatten';
 	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
-	import { Button, IconButton, Kbd, SegmentedControl, Spinner } from '$lib/components/ui';
+	import { Button, IconButton, Kbd, Spinner } from '$lib/components/ui';
 	import {
 		BarActions,
 		CanvasChip,
@@ -174,6 +173,7 @@
 	import { currentSourceOf } from '$lib/components/form-fields/mediaFieldSources';
 	import { isEditableTarget } from '$lib/utils/editableTarget';
 	import MaskLayer from './MaskLayer.svelte';
+	import MaskOptions from './MaskOptions.svelte';
 	import PaintOptions from './PaintOptions.svelte';
 	import PaintStage from './PaintStage.svelte';
 	import ResizeOptions from './ResizeOptions.svelte';
@@ -785,7 +785,7 @@
 						return;
 					}
 					if (primary) {
-						renderError = error instanceof Error ? error.message : 'The preview could not be drawn.';
+						renderError = describeMediaToolFailure(error, 'The preview could not be drawn.');
 						rendering = false;
 					}
 				});
@@ -1638,18 +1638,7 @@
 			<div class="flex justify-center py-4"><Spinner /></div>
 		{/if}
 	{:else if activeTool === 'mask'}
-		<SegmentedControl
-			variant="toggle"
-			fullWidth
-			ariaLabel="Mask brush"
-			items={[
-				{ id: 'paint', label: 'Paint', icon: 'brush' },
-				{ id: 'erase', label: 'Erase', icon: 'editor-eye-off' }
-			]}
-			selected={maskErase ? 'erase' : 'paint'}
-			onSelect={(id) => (maskErase = id === 'erase')}
-		/>
-		<SliderField name="brush" config={{ title: 'Brush size', min: 4, max: 300, step: 1, default: 48, unit: 'px' }} value={maskBrush} onChange={(_name, value) => (maskBrush = Number(value))} />
+		<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} />
 		{#if staleMask}
 			<p class="text-sm text-warning">The mask was painted before a shape change, so it no longer lines up. Paint it again.</p>
 		{/if}
@@ -1876,7 +1865,13 @@
 			</div>
 		{/if}
 	{:else}
-		<div class="flex flex-1 items-center justify-center bg-scrim"><Spinner /></div>
+		<div class="flex flex-1 items-center justify-center bg-scrim">
+			{#if renderError}
+				<span class="rounded bg-danger-solid/90 px-3 py-1 text-sm text-white" role="alert" data-render-error>{renderError}</span>
+			{:else}
+				<Spinner />
+			{/if}
+		</div>
 	{/if}
 {/snippet}
 

@@ -6,6 +6,7 @@ from src.features.forms.binding import FormBindingError, bind_form
 from src.features.presets.templates import FieldTemplate, PresetTemplate, default_form_name
 from src.features.video_director import apply_preset_mode_overlay
 from src.features.video_director.normalize import allowed_durations
+from src.features.video_director.simple_modes import placeholder_name
 
 MODEL_FIELD_TYPES = frozenset({"model", "models"})
 LORA_PICKER_FIELD_TYPE = "lora_picker"
@@ -13,6 +14,7 @@ MEDIA_FIELD_TYPES = frozenset({"image", "video", "audio", "media", "file"})
 MEDIA_EXTENSIONS = {"image": "png", "video": "mp4", "audio": "wav", "media": "png", "file": "bin"}
 TEXT_FIELD_TYPES = frozenset({"string", "textbox"})
 VIDEO_DIRECTOR_FIXTURE_PROMPT = "a calm lake at sunrise, gentle ripples, soft morning light"
+FIXTURE_PICTURES = {"t2v": (), "i2v": ("first",), "flf": ("first", "last")}
 
 
 def requires_by_reaction(field: FieldTemplate) -> bool:
@@ -84,38 +86,63 @@ def build_default_form_data(
     return form_data, fields
 
 
-def fixture_video_director_capabilities(preset: PresetTemplate, mode: str) -> Optional[Dict[str, Any]]:
+def fixture_video_director_composition(capabilities: Dict[str, Any], placeholders: bool = False) -> Optional[str]:
+    modes = capabilities.get("modes") or {}
+    return next((name for name in (FIXTURE_PICTURES if placeholders else ("t2v",)) if name in modes), None)
+
+
+def fixture_video_director_capabilities(
+    preset: PresetTemplate, mode: str, placeholders: bool = False
+) -> Optional[Dict[str, Any]]:
     capabilities = (getattr(preset, "vars", None) or {}).get("video_director") or {}
     if mode not in (capabilities.get("preset_modes") or []):
         return None
     capabilities = apply_preset_mode_overlay(capabilities, mode)
-    if "t2v" not in (capabilities.get("modes") or {}):
+    if fixture_video_director_composition(capabilities, placeholders) is None:
         return None
     return capabilities
 
 
 def fixture_video_director_document(
-    preset: PresetTemplate, mode: str, form_data: Dict[str, Any], prompt: Optional[str] = None
+    preset: PresetTemplate,
+    mode: str,
+    form_data: Dict[str, Any],
+    prompt: Optional[str] = None,
+    *,
+    placeholders: bool = False,
 ) -> Optional[Dict[str, Any]]:
-    capabilities = fixture_video_director_capabilities(preset, mode)
+    capabilities = fixture_video_director_capabilities(preset, mode, placeholders)
     if capabilities is None:
         return None
+    composition = fixture_video_director_composition(capabilities, placeholders)
     limits = capabilities.get("limits") or {}
     durations = allowed_durations(limits)
+    duration = min(durations) if durations else 1
     seed = form_data.get("seed")
+    media = [
+        {
+            "id": f"m-{index}",
+            "role": role,
+            "segment_id": "setup-check",
+            "at": 0 if role == "first" else duration,
+            "strength": 1,
+            "media": {"path": placeholder_name(role), "type": "image"},
+        }
+        for index, role in enumerate(FIXTURE_PICTURES[composition], start=1)
+    ]
     return {
         "schema_version": 1,
-        "mode": "t2v",
+        "mode": composition,
         "settings": {
             "fps": form_data.get("fps") or limits.get("default_fps", 24),
-            "duration": min(durations) if durations else 1,
+            "duration": duration,
             "resolution": form_data.get("resolution") or "",
             "seed": seed if isinstance(seed, int) and not isinstance(seed, bool) else -1,
         },
         "segments": [
             {"id": "setup-check", "prompt": prompt or VIDEO_DIRECTOR_FIXTURE_PROMPT, "negative_prompt": ""}
         ],
-        "media": [],
+        "media": media,
     }
 
 

@@ -254,6 +254,14 @@ describe('paint pinning', () => {
 });
 
 describe('rail', () => {
+	it('offers no rail tool and no step kind for place_patch while a normal editor tool still appears', () => {
+		const catalog = [tool('place_patch'), tool('pixel.sort', { label: 'Pixel sort' })];
+		expect(editorCatalogTools(catalog).map((entry) => entry.id)).toEqual(['pixel.sort']);
+		const ids = imageRail(catalog).flatMap((group) => group.tools.map((entry) => entry.id));
+		expect(ids).not.toContain('place_patch');
+		expect(ids).toContain('pixel.sort');
+	});
+
 	it('groups the core tools and appends image tools the catalog marks for the editor', () => {
 		const catalog = [
 			tool('paint_layer'),

@@ -65,7 +65,7 @@ export const CATALOG_TOOL: Record<string, string> = {
 	subject: 'crop_subject'
 };
 
-const HANDLED_CATALOG_IDS = new Set(['crop', 'resize', 'rotate', 'flip', 'fit_canvas', 'color_key', 'crop_subject', 'paint_layer', 'slice']);
+const HANDLED_CATALOG_IDS = new Set(['crop', 'resize', 'rotate', 'flip', 'fit_canvas', 'color_key', 'crop_subject', 'paint_layer', 'place_patch', 'slice']);
 
 export const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; lane?: string }> = {
 	crop: { label: 'Crop', icon: 'editor-crop', lane: GEOMETRY_LANE },

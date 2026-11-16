@@ -120,7 +120,7 @@ PIXEL_STD = (0.229, 0.224, 0.225)
 # reproduces the same noise regardless of which device the VAE runs on.
 KEYFRAME_ENCODE_SEED = 42
 
-ANCHOR_STRETCH_TOLERANCE = Fraction(1, 100)
+ANCHOR_STRETCH_TOLERANCE = Fraction(3, 100)
 
 
 def fit_keyframe_to_canvas(image: Image.Image, height: int, width: int, *, is_geometry_anchor: bool) -> Image.Image:

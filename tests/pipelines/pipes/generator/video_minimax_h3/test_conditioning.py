@@ -222,7 +222,7 @@ def test_geometry_anchor_of_another_aspect_is_cover_cropped_like_a_follower():
     assert not np.array_equal(np.asarray(fitted), np.asarray(stretched))
 
 
-@pytest.mark.parametrize("size", [(1009, 1000), (1000, 1009), (1010, 1000), (1000, 1010)])
+@pytest.mark.parametrize("size", [(1029, 1000), (1000, 1029), (1030, 1000), (1000, 1030)])
 def test_geometry_anchor_within_the_tolerance_is_stretched(size):
     image = _noise_picture(*size)
     fitted = fit_keyframe_to_canvas(image, height=100, width=100, is_geometry_anchor=True)
@@ -230,7 +230,7 @@ def test_geometry_anchor_within_the_tolerance_is_stretched(size):
     assert np.array_equal(np.asarray(fitted), np.asarray(stretched))
 
 
-@pytest.mark.parametrize("size", [(1011, 1000), (1000, 1011)])
+@pytest.mark.parametrize("size", [(1031, 1000), (1000, 1031)])
 def test_geometry_anchor_past_the_tolerance_is_cover_cropped(size):
     image = _noise_picture(*size)
     fitted = fit_keyframe_to_canvas(image, height=100, width=100, is_geometry_anchor=True)

@@ -2,7 +2,7 @@ from src.platform.database.database import db
 from src.platform.database.rows import now_iso
 from src.platform.util.ids import generate_ulid
 
-_NAME = "099_media_tool_pool_settings"
+_NAME = "100_media_tool_pool_settings"
 
 _SETTINGS = (
     ("media_tools_max_concurrent", 0, "Media tool runs that may encode at the same time; 0 picks one per 4 CPU cores, between 2 and 8"),

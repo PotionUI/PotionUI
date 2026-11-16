@@ -9,8 +9,8 @@ KEYS = {
 }
 
 
-class TestMigration099MediaToolPoolSettings(MigrationCase):
-    MIGRATION = "099_media_tool_pool_settings"
+class TestMigration100MediaToolPoolSettings(MigrationCase):
+    MIGRATION = "100_media_tool_pool_settings"
 
     def rows(self):
         with self.db.get_cursor() as cursor:

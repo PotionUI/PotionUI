@@ -16,10 +16,31 @@ export interface Selection {
 	bounds: NormRect | null;
 }
 
+export interface OverlayMode {
+	id: string;
+	label: string;
+	subtract: boolean;
+}
+
+export interface OverlaySizeSetting {
+	label: string;
+	min: number;
+	max: number;
+	step: number;
+	default: number;
+	unit: string;
+}
+
 export interface CanvasOverlayEntry extends EditorEntryBase {
 	component: ComponentRef;
 	cursor?: 'crosshair' | 'brush' | 'default';
 	produces?: 'selection';
+	label?: string;
+	order?: number;
+	hint?: string;
+	modes?: OverlayMode[];
+	modesLabel?: string;
+	size?: OverlaySizeSetting;
 }
 
 export interface OverlayProps {

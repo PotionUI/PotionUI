@@ -48,6 +48,7 @@ export interface EditorOverlaySnapshotEntry {
 	component: string;
 	cursor?: 'crosshair' | 'brush' | 'default' | null;
 	produces?: 'selection' | null;
+	label?: string | null;
 }
 
 export interface EditorTaskSnapshotEntry {
@@ -270,6 +271,7 @@ export function describeEditorEntries(snapshot: EditorSnapshot, revisionOf: (plu
 				};
 				if (entry.cursor) overlay.cursor = entry.cursor;
 				if (entry.produces) overlay.produces = entry.produces;
+				if (entry.label) overlay.label = entry.label;
 				return overlays.register(overlay, pluginOwner(entry.plugin_id));
 			})
 		);

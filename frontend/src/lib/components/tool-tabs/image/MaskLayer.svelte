@@ -1,9 +1,26 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { canvasPoint, drawSegment } from '$lib/paint/raster/brush';
+	import { onDestroy, onMount } from 'svelte';
+	import { canvasPoint } from '$lib/paint/raster/brush';
 	import { loadImage } from '$lib/media/loadImage';
 	import { canvasToPngFile } from '$lib/paint/flatten';
+	import { overlays } from '$lib/editors/overlays';
+	import { entryKey } from '$lib/editors/registry';
+	import type { Rect } from '$lib/paint/types';
 	import { alphaToMask, maskOverlay, parseRgb, type Rgb } from '$lib/tool-tabs/image/mask';
+	import { ensureCoreMaskOverlays } from '$lib/tool-tabs/image/coreMaskOverlays';
+	import {
+		BRUSH_OVERLAY,
+		activeOverlay,
+		chooseOverlay,
+		maskArea,
+		maskToolEntries,
+		maskToolState,
+		type MaskOverlayProps,
+		type MaskSurface
+	} from '$lib/tool-tabs/image/maskOverlays';
+	import { regionBounds } from '$lib/tool-tabs/image/maskRegion';
+	import CanvasChip from '$lib/components/tool-tabs/frame/CanvasChip.svelte';
+	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
 
 	let {
 		width,
@@ -12,6 +29,7 @@
 		brush = 48,
 		erase = false,
 		disabled = false,
+		phone = false,
 		onstroke
 	}: {
 		width: number;
@@ -20,33 +38,124 @@
 		brush?: number;
 		erase?: boolean;
 		disabled?: boolean;
+		phone?: boolean;
 		onstroke?: (painted: boolean) => void;
 	} = $props();
 
+	ensureCoreMaskOverlays();
+
+	const revision = overlays.revision;
+
 	let canvas = $state<HTMLCanvasElement>();
-	let painting = false;
-	let last: { x: number; y: number } | null = null;
+	let area = $state<Rect | null>(null);
 	let tint: Rgb = [255, 255, 255];
 	let tintCss = 'white';
 
-	function surface(): CanvasRenderingContext2D | null {
+	let entries = $derived.by(() => {
+		void $revision;
+		return maskToolEntries();
+	});
+	let active = $derived(activeOverlay(entries, $maskToolState));
+	let cursor = $derived(active?.cursor === 'default' ? 'cursor-default' : 'cursor-crosshair');
+
+	function context(): CanvasRenderingContext2D | null {
 		return canvas?.getContext('2d', { willReadFrequently: true }) ?? null;
 	}
 
+	function toPicture(clientX: number, clientY: number) {
+		if (!canvas) return null;
+		return canvasPoint(canvas.getBoundingClientRect(), canvas, clientX, clientY);
+	}
+
+	function scale(): number {
+		return canvas ? canvas.width / Math.max(1, canvas.getBoundingClientRect().width) : 1;
+	}
+
+	function refreshArea() {
+		const surfaceContext = context();
+		if (!canvas || !surfaceContext) return;
+		try {
+			area = regionBounds(surfaceContext.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+		} catch {
+			area = null;
+		}
+		maskArea.set(area ? { width: area.width, height: area.height } : null);
+	}
+
+	function changed() {
+		refreshArea();
+		onstroke?.(true);
+	}
+
+	async function commitSelection(mask: Blob | null) {
+		if (!mask) {
+			clear();
+			onstroke?.(true);
+			return;
+		}
+		const url = URL.createObjectURL(mask);
+		try {
+			await restore(url);
+		} finally {
+			URL.revokeObjectURL(url);
+		}
+		changed();
+	}
+
+	let surface = $derived<MaskSurface | null>(
+		canvas
+			? {
+					element: canvas,
+					context,
+					get tint() {
+						return tint;
+					},
+					get tintCss() {
+						return tintCss;
+					},
+					toPicture,
+					scale,
+					changed
+				}
+			: null
+	);
+
+	let pictureWidth = $derived(Math.max(1, Math.round(width)));
+	let pictureHeight = $derived(Math.max(1, Math.round(height)));
+
+	let overlayProps = $derived<MaskOverlayProps | null>(
+		surface
+			? { surface, width: pictureWidth, height: pictureHeight, phone, size: brush, subtract: active?.modes?.length ? erase : false, disabled, commitSelection }
+			: null
+	);
+
+	let chipStyle = $derived(
+		area
+			? `left: min(${(area.x / pictureWidth) * 100}%, calc(100% - 6rem)); top: ${((area.y + area.height) / pictureHeight) * 100}%; transform: translateY(${
+					(area.y + area.height) / pictureHeight > 0.9 ? 'calc(-100% - 6px)' : '6px'
+				});`
+			: ''
+	);
+
 	onMount(async () => {
 		if (!canvas) return;
-		canvas.width = Math.max(1, Math.round(width));
-		canvas.height = Math.max(1, Math.round(height));
-		surface();
+		canvas.width = pictureWidth;
+		canvas.height = pictureHeight;
+		context();
 		const signal = getComputedStyle(document.documentElement).getPropertyValue('--signal');
 		tint = parseRgb(signal, tint);
 		tintCss = `rgb(${tint.join(' ')})`;
-		if (existing) await restore(existing);
+		if (existing) {
+			await restore(existing);
+			refreshArea();
+		}
 	});
 
+	onDestroy(() => maskArea.set(null));
+
 	async function restore(url: string) {
-		const context = surface();
-		if (!canvas || !context) return;
+		const surfaceContext = context();
+		if (!canvas || !surfaceContext) return;
 		try {
 			const image = await loadImage(url);
 			const scratch = document.createElement('canvas');
@@ -57,66 +166,31 @@
 			scratchContext.drawImage(image, 0, 0, scratch.width, scratch.height);
 			const source = scratchContext.getImageData(0, 0, scratch.width, scratch.height);
 			const { data } = maskOverlay(source.data, tint);
-			context.putImageData(new ImageData(data as Uint8ClampedArray<ArrayBuffer>, scratch.width, scratch.height), 0, 0);
+			surfaceContext.putImageData(new ImageData(data as Uint8ClampedArray<ArrayBuffer>, scratch.width, scratch.height), 0, 0);
 		} catch {
 			return;
 		}
 	}
 
-	function point(event: PointerEvent) {
-		if (!canvas) return null;
-		return canvasPoint(canvas.getBoundingClientRect(), canvas, event.clientX, event.clientY);
-	}
-
-	function stroke(to: { x: number; y: number }) {
-		const context = surface();
-		if (!context || !canvas) return;
-		const scale = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
-		drawSegment(context, last ?? to, to, { size: brush * scale, color: tintCss, erase });
-		last = to;
-	}
-
-	function down(event: PointerEvent) {
-		if (disabled || event.button !== 0) return;
-		const at = point(event);
-		if (!at) return;
-		event.preventDefault();
-		canvas?.setPointerCapture?.(event.pointerId);
-		painting = true;
-		last = null;
-		stroke(at);
-	}
-
-	function move(event: PointerEvent) {
-		if (!painting) return;
-		const at = point(event);
-		if (at) stroke(at);
-	}
-
-	function up() {
-		if (!painting) return;
-		painting = false;
-		last = null;
-		onstroke?.(true);
-	}
-
 	export function hasStrokes(): boolean {
-		const context = surface();
-		if (!canvas || !context) return false;
-		const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+		const surfaceContext = context();
+		if (!canvas || !surfaceContext) return false;
+		const data = surfaceContext.getImageData(0, 0, canvas.width, canvas.height).data;
 		for (let i = 3; i < data.length; i += 4) if (data[i] > 0) return true;
 		return false;
 	}
 
 	export function clear() {
-		const context = surface();
-		if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
+		const surfaceContext = context();
+		if (canvas && surfaceContext) surfaceContext.clearRect(0, 0, canvas.width, canvas.height);
+		area = null;
+		maskArea.set(null);
 	}
 
 	export function renderMask(cutoff = 64): HTMLCanvasElement | null {
-		const context = surface();
-		if (!canvas || !context) return null;
-		const data = context.getImageData(0, 0, canvas.width, canvas.height);
+		const surfaceContext = context();
+		if (!canvas || !surfaceContext) return null;
+		const data = surfaceContext.getImageData(0, 0, canvas.width, canvas.height);
 		const out = document.createElement('canvas');
 		out.width = canvas.width;
 		out.height = canvas.height;
@@ -134,13 +208,21 @@
 	}
 </script>
 
-<canvas
-	bind:this={canvas}
-	class="absolute inset-0 h-full w-full touch-none opacity-60 {disabled ? 'pointer-events-none' : 'cursor-crosshair'}"
-	aria-label="Mask, paint the area to change"
-	onpointerdown={down}
-	onpointermove={move}
-	onpointerup={up}
-	onpointercancel={up}
-	data-mask-layer
-></canvas>
+<div class="pointer-events-none absolute inset-0" data-mask-host>
+	<canvas
+		bind:this={canvas}
+		class="absolute inset-0 h-full w-full touch-none opacity-60 {disabled ? 'pointer-events-none' : `pointer-events-auto ${cursor}`}"
+		aria-label="Mask, mark the area to change"
+		data-mask-layer
+	></canvas>
+	{#if active && overlayProps}
+		{#key active.id}
+			<EditorEntryComponent entry={entryKey('image', active.id)} componentRef={active.component} props={{ ...overlayProps }} onclose={() => chooseOverlay(BRUSH_OVERLAY)} />
+		{/key}
+	{/if}
+	{#if area}
+		<span class="pointer-events-none absolute" style={chipStyle} data-mask-area>
+			<CanvasChip caps={false}>{area.width}×{area.height}</CanvasChip>
+		</span>
+	{/if}
+</div>

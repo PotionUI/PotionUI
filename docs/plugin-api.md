@@ -2308,6 +2308,20 @@ const stop = window.__potionui.editors.registerStepKind(
 );
 ```
 
+### A marking tool for the Mask tool
+
+The Mask tool lists every overlay that sets `produces: 'selection'` as one choice next to Brush and Lasso (the core ones are
+registered as `mask.brush` and `mask.lasso`, the same way a plugin registers). They all write one marked area, the picture's mask,
+so what a plugin tool marks can be added to or subtracted from by the brush and the lasso. An overlay can also set `label` (the
+choice's name; it defaults to the end of its id), `order`, `hint` (a line under the choices), and `modes` (`{ id, label, subtract }`
+choices such as Add and Subtract). The Image editor's Mask tool and the quick mask dialog on media fields both read the list, so a new
+choice appears in both.
+
+The component receives `surface` (the mask canvas in picture pixels, with `context()`, `toPicture(clientX, clientY)`, `scale()`, the
+`tint` and `changed()` to call after it painted), `width`, `height`, `phone`, `size`, `subtract`, `disabled` and
+`commitSelection(blob | null)`, which replaces the marked area with a black and white image (white is marked) or clears it. The mask
+canvas sits inside the zoomed and panned picture, so `toPicture` already returns picture coordinates.
+
 ## Reading model files and folders
 
 A model's bytes can sit on any admin-configured root, not just the `models_dir` setting, so a

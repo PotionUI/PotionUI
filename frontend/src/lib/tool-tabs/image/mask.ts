@@ -64,18 +64,6 @@ export function maskOverlay(pixels: Uint8ClampedArray, tint: Rgb, cutoff = 128):
 	return { data, lit };
 }
 
-export interface MaskTool {
-	id: string;
-	label: string;
-	icon: string;
-	erase: boolean;
-}
-
-export const MASK_TOOLS: readonly MaskTool[] = [
-	{ id: 'paint', label: 'Paint', icon: 'brush', erase: false },
-	{ id: 'erase', label: 'Erase', icon: 'editor-eye-off', erase: true }
-];
-
 export const MASK_BRUSH = { min: 4, max: 300, step: 1, default: 48 } as const;
 
 export const STORED_MASK_CUTOFF = 127;

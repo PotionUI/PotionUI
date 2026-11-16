@@ -1683,7 +1683,7 @@
 			<p class="text-sm text-warning">The mask was painted before a shape change, so it no longer lines up. Paint it again.</p>
 		{/if}
 		{#if !phone}
-			<p class="text-sm text-fg-muted">The mask is not an edit step. It travels with Send to a generation as the field's inpaint mask.</p>
+			<p class="text-sm text-fg-muted">The marked area is used by Generate tools and travels with Send to.</p>
 		{/if}
 	{:else if activeTool === 'slice'}
 		<SliceOptions
@@ -1875,6 +1875,7 @@
 							existing={liveMaskNow?.url ?? null}
 							brush={maskBrush}
 							erase={maskErase}
+							{phone}
 							onstroke={(painted) => {
 								if (painted) maskDirty = true;
 							}}

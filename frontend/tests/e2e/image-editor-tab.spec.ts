@@ -433,3 +433,136 @@ test.describe('the Image editor tab on a phone', () => {
 		await screenshot(page, JOURNEY, '04-edits-sheet-390');
 	});
 });
+
+async function maskAlpha(page: Page, fx: number, fy: number): Promise<number> {
+	return page.locator('[data-mask-layer]').evaluate(
+		(canvas, [x, y]) =>
+			(canvas as HTMLCanvasElement)
+				.getContext('2d', { willReadFrequently: true })!
+				.getImageData(Math.floor(x * (canvas as HTMLCanvasElement).width), Math.floor(y * (canvas as HTMLCanvasElement).height), 1, 1).data[3],
+		[fx, fy] as [number, number]
+	);
+}
+
+async function drag(page: Page, path: Array<[number, number]>, finish = true) {
+	const box = (await page.locator('[data-mask-layer]').boundingBox())!;
+	const at = ([fx, fy]: [number, number]) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+	const [first, ...rest] = path;
+	await page.mouse.move(at(first).x, at(first).y);
+	await page.mouse.down();
+	for (const point of rest) await page.mouse.move(at(point).x, at(point).y, { steps: 4 });
+	if (finish) await page.mouse.up();
+}
+
+const options = (page: Page) => page.locator('[data-options-panel]');
+
+test.describe('the lasso in the Image editor tab', () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	test('a lasso and a brush mark one area that rides along with Send', async ({ page }) => {
+		const log = await start(page, true);
+		await openDusk(page);
+		await cropSquare(page);
+
+		await rail(page, 'mask').click();
+		await expect(page.locator('[data-mask-layer]')).toBeVisible();
+		await expect(options(page).getByRole('group', { name: 'Marking tool' })).toBeVisible();
+		await expect(options(page).getByRole('group', { name: 'Mask brush' })).toBeVisible();
+		await expect(options(page)).toContainText('Brush size');
+
+		await drag(page, [[0.2, 0.3], [0.32, 0.3]]);
+		await expect.poll(() => maskAlpha(page, 0.26, 0.3)).toBe(255);
+		await screenshot(page, JOURNEY, '10b-mask-brush-1440');
+
+		await options(page).getByRole('button', { name: 'Lasso', exact: true }).click();
+		await expect(options(page).getByRole('group', { name: 'Lasso mode' })).toBeVisible();
+		await expect(options(page)).toContainText('Release to close the shape.');
+		await expect(options(page)).not.toContainText('Brush size');
+
+		const shape: Array<[number, number]> = [[0.55, 0.3], [0.8, 0.3], [0.86, 0.55], [0.6, 0.68], [0.5, 0.5]];
+		await drag(page, shape, false);
+		await expect(page.locator('[data-lasso-outline]')).toBeVisible();
+		await page.mouse.up();
+		await expect(page.locator('[data-lasso-outline]')).toHaveCount(0);
+		await expect(page.locator('[data-mask-area]')).toBeVisible();
+		await expect(options(page).locator('[data-mask-area-readout]')).not.toContainText('None');
+		await expect.poll(() => maskAlpha(page, 0.7, 0.45)).toBe(255);
+		await expect.poll(() => maskAlpha(page, 0.26, 0.3)).toBe(255);
+		await screenshot(page, JOURNEY, '10-mask-lasso-1440');
+
+		await options(page).getByRole('button', { name: 'Subtract', exact: true }).click();
+		await drag(page, [[0.64, 0.4], [0.74, 0.4], [0.74, 0.5], [0.64, 0.5]]);
+		await expect.poll(() => maskAlpha(page, 0.69, 0.45)).toBe(0);
+		expect(await maskAlpha(page, 0.78, 0.4)).toBe(255);
+		expect(await maskAlpha(page, 0.26, 0.3)).toBe(255);
+
+		await options(page).getByRole('button', { name: 'Add', exact: true }).click();
+		const before = await options(page).locator('[data-mask-area-readout]').textContent();
+		await drag(page, [[0.05, 0.85]]);
+		expect(await maskAlpha(page, 0.05, 0.85)).toBe(0);
+		await drag(page, [[0.1, 0.8], [0.3, 0.8], [0.3, 0.95]], false);
+		await expect(page.locator('[data-lasso-outline]')).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(page.locator('[data-lasso-outline]')).toHaveCount(0);
+		await page.mouse.up();
+		expect(await maskAlpha(page, 0.2, 0.82)).toBe(0);
+		await expect(options(page).locator('[data-mask-area-readout]')).toHaveText(before ?? '');
+
+		await page.locator('[data-options-apply]').click();
+		await expect.poll(() => log.uploads).toBe(1);
+
+		await page.locator('[data-frame-save-menu]').click();
+		const send = page.locator('[data-save-row="send"]');
+		await expect(send).toContainText('MASK');
+		await send.click();
+		await expect(bookTab(page, 'Portrait study')).toHaveClass(/active/);
+		await expect.poll(() => log.uploads).toBe(2);
+		await expect(page.locator('[data-field-name="image"]').first().locator('img[src*="sent-2.png"]').first()).toBeVisible();
+	});
+
+	test('the outline and the marked pixels follow a zoomed picture', async ({ page }) => {
+		await start(page, true);
+		await openDusk(page);
+		await cropSquare(page);
+		await rail(page, 'mask').click();
+		await options(page).getByRole('button', { name: 'Lasso', exact: true }).click();
+
+		await page.getByRole('button', { name: 'Zoom in' }).click();
+		await page.getByRole('button', { name: 'Zoom in' }).click();
+		await drag(page, [[0.42, 0.42], [0.58, 0.42], [0.58, 0.58], [0.42, 0.58]]);
+		await expect.poll(() => maskAlpha(page, 0.5, 0.5)).toBe(255);
+		expect(await maskAlpha(page, 0.35, 0.5)).toBe(0);
+		expect(await maskAlpha(page, 0.65, 0.5)).toBe(0);
+	});
+});
+
+test.describe('the lasso on a phone', () => {
+	test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+	test('docks Brush and Lasso above the tool strip', async ({ page }) => {
+		await mockEditor(page);
+		await loginAsOwner(page);
+		await clearEdits(page);
+		await page.goto('/generate');
+		await expect(page.locator('.studio-topbar')).toBeVisible({ timeout: 15000 });
+		await page.getByRole('button', { name: /^Open tabs/ }).click();
+		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
+		const phone = page.getByTestId('phone-tool-tab');
+		await phone.locator('[data-recent-history] button').first().click();
+		await expect(phone.locator('[data-editor-frame="phone"]')).toBeVisible();
+		await phone.locator('[data-tool-rail="strip"] button[data-tool="mask"]').click();
+		await expect(phone.locator('[data-mask-layer]')).toBeVisible();
+		await expect(phone.locator('[data-options-panel="phone"]')).toBeVisible();
+		await screenshot(page, JOURNEY, '10b-mask-brush-390');
+
+		await phone.locator('[data-options-panel="phone"]').getByRole('button', { name: 'Lasso', exact: true }).click();
+		await expect(phone.locator('[data-options-panel="phone"]').getByRole('group', { name: 'Lasso mode' })).toBeVisible();
+		await drag(page, [[0.55, 0.3], [0.8, 0.35], [0.82, 0.6], [0.6, 0.7]]);
+		await expect(phone.locator('[data-mask-area]')).toBeVisible();
+		await expect.poll(() => maskAlpha(page, 0.7, 0.5)).toBe(255);
+		await screenshot(page, JOURNEY, '10-mask-lasso-390');
+
+		const overflowX = await page.evaluate(() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth);
+		expect(overflowX).toBeLessThanOrEqual(0);
+	});
+});

@@ -400,6 +400,53 @@ for (const size of SIZES) {
 			expect(masks.at(-1)).toBeNull();
 		});
 
+		test('a lasso area applied from the quick dialog shows the same blue MASK chip', async ({ page }) => {
+			await page.route('**/api/media/upload', async (route) => {
+				await route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({
+						success: true,
+						data: { path: 'uploads/mask-e2e.png', relative_path: 'uploads/mask-e2e.png', url: '/api/e2e-media/image-9.png' }
+					})
+				});
+			});
+			const host = await mountField(page, size, {
+				config: { title: 'Image', accept: 'image/*', allow_inpaint: true },
+				value: imageItem(1)
+			});
+			await host.locator('[data-tools-trigger]').first().click();
+			await page.locator('[data-tools-menu] [data-tool="mask"]').click();
+			const dialog = page.getByRole('dialog', { name: 'Create inpainting mask' });
+			await expect(dialog).toBeVisible();
+			await expect(dialog.getByRole('button', { name: 'Apply' })).toBeDisabled();
+			await dialog.getByRole('button', { name: 'Lasso', exact: true }).click();
+			await expect(dialog.getByRole('button', { name: 'Add', exact: true })).toBeVisible();
+			await expect(dialog.getByRole('button', { name: 'Subtract', exact: true })).toBeVisible();
+
+			const canvas = dialog.locator('[data-mask-layer]');
+			const box = await canvas.boundingBox();
+			if (!box) throw new Error('mask canvas has no box');
+			const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+			const outline = [at(0.3, 0.3), at(0.7, 0.28), at(0.72, 0.65), at(0.35, 0.7)];
+			await page.mouse.move(outline[0].x, outline[0].y);
+			await page.mouse.down();
+			for (const point of outline.slice(1)) await page.mouse.move(point.x, point.y, { steps: 5 });
+			await expect(dialog.locator('[data-lasso-outline]')).toBeVisible();
+			await page.mouse.up();
+			await expect(dialog.locator('[data-mask-area]')).toBeVisible();
+			await screenshot(page, JOURNEY, `mask-lasso-modal-${size.tag}`);
+
+			await dialog.getByRole('button', { name: /Apply/ }).click();
+			await expect(dialog).toBeHidden({ timeout: 15000 });
+			const chip = host.locator('[data-mask-chip]');
+			await expect(chip).toBeVisible();
+			await expectNoOverflow(page, host);
+			await screenshot(page, JOURNEY, `mask-lasso-${size.tag}`);
+			const masks = await page.evaluate(() => (window as any).__mf.masks);
+			expect(masks.at(-1)).toBe('uploads/mask-e2e.png');
+		});
+
 		test('a video and an audio file each get their own inspector and tools', async ({ page }) => {
 			test.skip(!hasVideo, 'this browser cannot record a video fixture');
 			const video = await mountField(page, size, {

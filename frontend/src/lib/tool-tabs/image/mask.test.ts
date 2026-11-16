@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, appliedSteps, beginEdit, createStack, reopen, toggleHidden, undo, updatePending } from '$lib/tool-tabs/frame/editStack';
 import { thresholdMaskPixels } from '$lib/media/editors/maskThreshold';
-import { alphaToMask, geometryKey, liveMask, maskIsStale, maskOverlay, MASK_TOOLS, parseRgb, readMask, sendPatch, STORED_MASK_CUTOFF } from './mask';
+import { alphaToMask, geometryKey, liveMask, maskIsStale, maskOverlay, parseRgb, readMask, sendPatch, STORED_MASK_CUTOFF } from './mask';
 import { cropDraft, lookDraft, paintDraft } from './steps';
 
 function cropped() {
@@ -89,10 +89,9 @@ describe('stored mask encoding', () => {
 		expect(Array.from(out)).toEqual([255, 255, 255, 255, 0, 0, 0, 255]);
 	});
 
-	it('keeps the tab default cutoff and offers paint then erase', () => {
+	it('keeps the tab default cutoff', () => {
 		const out = new Uint8ClampedArray(4);
 		alphaToMask(new Uint8ClampedArray([0, 0, 0, 65]), out);
 		expect(out[0]).toBe(255);
-		expect(MASK_TOOLS.map((tool) => [tool.id, tool.erase])).toEqual([['paint', false], ['erase', true]]);
 	});
 });

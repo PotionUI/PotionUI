@@ -1,6 +1,6 @@
 <script lang="ts">
 	import SliderField from '$lib/components/form-fields/SliderField.svelte';
-	import { IconButton, SegmentedControl } from '$lib/components/ui';
+	import { Button, IconButton, SegmentedControl } from '$lib/components/ui';
 	import { overlays } from '$lib/editors/overlays';
 	import { MASK_BRUSH } from '$lib/tool-tabs/image/mask';
 	import { ensureCoreMaskOverlays } from '$lib/tool-tabs/image/coreMaskOverlays';
@@ -87,8 +87,11 @@
 {#if active?.hint}
 	<p class="text-sm text-fg-muted">{what ? active.hint.replace('part you want to change', what) : active.hint}</p>
 {/if}
-<div class="flex items-baseline justify-between gap-2 text-sm" data-mask-area-readout>
+<div class="flex items-center justify-between gap-2 text-sm" data-mask-area-readout>
 	<span class="text-fg-muted">Marked area</span>
-	<span class="font-mono tabular-nums text-fg">{$maskArea ? `${$maskArea.width}×${$maskArea.height}` : 'None'}</span>
+	<span class="flex items-center gap-2">
+		<span class="font-mono tabular-nums text-fg">{$maskArea ? `${$maskArea.width}×${$maskArea.height}` : 'None'}</span>
+		{#if onclear}<Button variant="ghost" size="sm" disabled={!$maskArea} onclick={onclear} attrs={{ 'data-clear-area': '' }}>Clear area</Button>{/if}
+	</span>
 </div>
 {/if}

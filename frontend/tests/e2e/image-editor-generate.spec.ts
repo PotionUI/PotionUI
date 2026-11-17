@@ -378,6 +378,15 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(await editorMenuItem(page, 'Edit', 'Clear area')).toHaveAttribute('aria-disabled', 'true');
 		await closeEditorMenu(page);
 		await screenshot(page, JOURNEY, '07-remove-dark-1440');
+		const clearArea = page.locator('[data-options-panel] [data-clear-area]');
+		await expect(clearArea).toBeDisabled();
+		await markArea(page);
+		await expect(clearArea).toBeEnabled();
+		await clearArea.click();
+		await expect(page.locator('[data-mask-area]')).toHaveCount(0);
+		await expect(clearArea).toBeDisabled();
+		await expect(prompt(page).locator('[data-prompt-generate]')).toBeDisabled();
+		await expect(prompt(page).locator('[data-prompt-status="warn"]')).toHaveText('Mark the object first');
 		await markArea(page);
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(1);

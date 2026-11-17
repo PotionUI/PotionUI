@@ -1863,7 +1863,7 @@
 	{/if}
 	{#if registeredTool?.options}
 		{#if registeredTool.task}
-			<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} what={registeredTool.task === 'remove_object' ? 'object you want removed' : null} />
+			<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} what={registeredTool.task === 'remove_object' ? 'object you want removed' : null} />
 		{/if}
 		<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.options} props={{ host: toolHost, phone }} onclose={closeActiveTool} />
 	{:else if activeTool === 'crop' && cropInput}
@@ -1885,7 +1885,7 @@
 			<div class="flex justify-center py-4"><Spinner /></div>
 		{/if}
 	{:else if activeTool === 'mask'}
-		<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} />
+		<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} />
 		{#if staleMask}
 			<p class="text-sm text-warning">The mask was painted before a shape change, so it no longer lines up. Paint it again.</p>
 		{/if}

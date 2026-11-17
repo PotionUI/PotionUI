@@ -37,7 +37,7 @@ MODEL_FIELD_TYPES = {"model"}
 def _walk_model_field_names(node: Any, result: Set[str]) -> None:
     if isinstance(node, dict):
         name = node.get("name")
-        if isinstance(name, str):
+        if isinstance(name, str) and node.get("type") != "lora_picker":
             config = node.get("configuration") or {}
             if node.get("type") in MODEL_FIELD_TYPES or config.get("model_type"):
                 result.add(name)

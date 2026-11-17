@@ -63,6 +63,29 @@ The tools are grouped by what they work on:
 
 Ten tools of the in-app assistant cannot run over MCP, because they need the live Generate form that only the web app has (for example reading the open form or the Video Director document). They are listed in the settings, marked as unavailable, and a client does not see them. The complete, current list with each tool's description and arguments is in the app under Administration, Documentation, MCP Tools.
 
+## Attaching a LoRA
+
+A preset's LoRA field (`lora_picker`, called `loras` in the Krea-2 preset) takes a list of rows in `form_overrides`. Each row names the LoRA in `model` and may carry a `strength`, plus any extra row fields the preset declares (such as `step_start` and `step_end`). `model` accepts any of these references, and the server resolves it to the same `model:<id>` the web form stores:
+
+- the model id, as listed by `search_models` with `type` set to `lora`;
+- `model:<id>`;
+- the file name, for example `style.safetensors`;
+- the library-relative path, for example `krea2/style.safetensors`.
+
+```json
+{
+  "preset_id": "<id from list_presets>",
+  "prompt": "a red fox in snow",
+  "form_overrides": {
+    "loras": [{ "model": "01KXJ945EAV93WKNVFMXNPFSMN", "strength": 1.0 }]
+  }
+}
+```
+
+A reference that matches no installed LoRA is refused with the accepted forms. A file name that matches several LoRAs is refused with the id of each candidate, so the client can send the one it means. A model that is not a LoRA, or whose file is missing from the library, is refused with the reason.
+
+A LoRA is checked against the preset the way the web picker lists it. When the administrator has restricted the preset's LoRA picker to LoRAs carrying certain base-model tags, a LoRA without any of them is refused: the message says whether it has no base-model tag or belongs to another base model. Tag it in Models, or pick it once in the app. When the picker is not restricted, a LoRA that has no base-model tag at all is attached, and the tool result carries a `warnings` entry saying its compatibility is unknown, because a LoRA made for another model can fail or do nothing. The model's own base-model field is not consulted: only its tags decide.
+
 ## Which tools a client sees: three levels
 
 What a key may do is decided by three levels, and each can only narrow the one above.

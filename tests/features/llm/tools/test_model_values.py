@@ -126,3 +126,13 @@ class TestPresetFormModelErrors:
 
     def test_no_proposed_values_skips(self):
         assert preset_form_model_errors(self._preset_collaborators(), _model_index_manager(found=False), "krea2", "txt2img", {}) == []
+
+
+class TestLoraPickerIsNotAModelField:
+    def test_a_lora_picker_is_left_to_the_lora_resolver(self):
+        schema = {"tabs": {"type": "tabs", "children": [
+            {"type": "lora_picker", "name": "loras", "configuration": {"model_type": "lora"}},
+            {"type": "model", "name": "vae", "configuration": {"model_type": "vae"}},
+        ]}}
+
+        assert model_field_names(schema) == {"vae"}

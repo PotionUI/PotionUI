@@ -19,6 +19,7 @@ from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import build_generation_preview
 from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.media_values import MEDIA_VALUE_FORM, preset_form_media_errors
+from src.features.llm.tools.lora_values import LORA_VALUE_FORM, resolve_lora_overrides
 from src.features.llm.tools.model_values import preset_form_model_errors
 from src.features.forms.binding import FormBindingError
 from src.features.presets.operations.access import preset_available_to_user
@@ -50,14 +51,14 @@ class StartGenerationTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Start a generation for an explicit preset, independent of any live form state. "
-            "Unset fields fall back to the preset's own defaults. Get preset ids from list_presets "
-            "and a preset's modes and field names from get_preset_info. Requires user approval; "
+            "Start a generation for an explicit preset. "
+            "Unset fields fall back to the preset's defaults. Ids: list_presets; modes and fields: "
+            "get_preset_info. Requires user approval; "
             "returns the generation_id once started. For several distinct prompts in one run, pass "
             "'prompts' (a list of {positive, negative?}) instead of 'prompt': they render in one "
-            "generation and are much faster than calling this tool once per prompt. 'prompts' and "
+            "generation, faster than one call per prompt. 'prompts' and "
             "'prompt' are mutually exclusive; form_overrides.quantity then applies per prompt. Example: "
-            '{"preset_id": "<id from list_presets>", "mode": "txt2img", "prompt": "a red fox in snow", '
+            '{"preset_id": "<id from list_presets>", "prompt": "a red fox in snow", '
             '"form_overrides": {"width": 1024, "height": 1024, "steps": 30}}'
         )
 
@@ -91,8 +92,9 @@ class StartGenerationTool(BaseTool):
                     "type": "object",
                     "description": (
                         "Field overrides on top of the preset's defaults (e.g. {'width': 1024, "
-                        "'seed': 12345, 'batch_size': 4}). Field names must match the preset's form "
+                        "'seed': 12345}). Field names must match the preset's form "
                         f"fields (see get_preset_info). An image/video/audio/media field takes {MEDIA_VALUE_FORM}. "
+                        f"A lora_picker field takes {LORA_VALUE_FORM}. "
                         "If get_preset_info shows a 'regional_prompt' section, set 'regional_prompt' to "
                         "{enabled: true, items: [{x, y, w, h, caption}]} (fractions, top-left origin)."
                     ),
@@ -270,13 +272,20 @@ class StartGenerationTool(BaseTool):
         )
         if model_errors:
             return ToolResult(success=False, data="", error="; ".join(model_errors))
+        loras = resolve_lora_overrides(
+            context.preset_collaborators, context.model_index_manager, preset_id, mode, overrides
+        )
+        if loras.errors:
+            return ToolResult(success=False, data="", error="; ".join(loras.errors))
+        kwargs = {**kwargs, "form_overrides": loras.overrides}
+        overrides = loras.overrides
         regional_error = self._regional_prompt_error(context, preset_id, mode, overrides)
         if regional_error:
             return ToolResult(success=False, data="", error=regional_error)
 
         return ToolResult(
             success=True,
-            data=json.dumps(self._build_preview(kwargs)),
+            data=json.dumps({**self._build_preview(kwargs), **({"warnings": loras.warnings} if loras.warnings else {})}),
             preview=self._build_approval_preview(kwargs),
         )
 
@@ -332,6 +341,12 @@ class StartGenerationTool(BaseTool):
         )
         if model_errors:
             return ToolResult(success=False, data="", error="; ".join(model_errors))
+        loras = resolve_lora_overrides(
+            context.preset_collaborators, context.model_index_manager, preset_id, mode, form_data
+        )
+        if loras.errors:
+            return ToolResult(success=False, data="", error="; ".join(loras.errors))
+        form_data = loras.overrides
         regional_error = self._regional_prompt_error(context, preset_id, mode, form_data)
         if regional_error:
             return ToolResult(success=False, data="", error=regional_error)
@@ -349,7 +364,7 @@ class StartGenerationTool(BaseTool):
             prompts=prompt_pairs,
             batch_prompts=bool(pairs) and len(pairs) > 1,
         )
-        return await self._submit(context, request)
+        return await self._submit(context, request, {"warnings": loras.warnings} if loras.warnings else None)
 
     async def _submit(self, context: ToolContext, request: Any, extra: Optional[Dict[str, Any]] = None) -> ToolResult:
         request._origin = context.origin

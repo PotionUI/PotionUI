@@ -36,7 +36,18 @@ def test_bind_fixture_form_retries_with_a_mask_only_when_binding_demands_one(mon
 
     seen = []
 
-    def fake_bind(preset, mode, form_name, raw_form_data, user_id, storage_dir):
+    def fake_bind(
+        preset,
+        mode,
+        form_name,
+        raw_form_data,
+        user_id=None,
+        *,
+        storage_dir=None,
+        field_overrides=None,
+        cloud_capabilities=None,
+        model_resolver=None,
+    ):
         seen.append(dict(raw_form_data))
         if "source_image_inpaint_mask" not in raw_form_data:
             raise FormBindingError(["source_image: paint"], {"source_image": ["paint"]}, [], [])

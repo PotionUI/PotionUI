@@ -108,9 +108,7 @@ def test_history_reuse_for_an_editor_key_of_a_missing_preset_is_hidden():
 
 
 def history_for(resolver):
-    history = object.__new__(GenerationHistoryQuery)
-    history.preset_name_resolver = resolver
-    return history
+    return GenerationHistoryQuery(generation_repo=None, preset_name_resolver=resolver)
 
 
 def test_the_history_payload_carries_the_reuse_mode_for_every_kind_of_mode():

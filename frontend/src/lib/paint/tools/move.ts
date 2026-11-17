@@ -19,6 +19,7 @@ interface Drag {
 	baseY: number;
 	basePath: Point[] | null;
 	lifted: boolean;
+	carry: boolean;
 	moved: boolean;
 	before: DocSnapshot;
 }
@@ -66,7 +67,9 @@ function liftSelection(host: ToolHost, selection: Selection, copy: boolean): Lay
 		if (rect) host.commitPixels('Lift selection', layer, rect, before);
 	}
 
-	return host.addPieceLayer(piece, selection.bounds.x, selection.bounds.y, 'Piece');
+	const lifted = host.addPieceLayer(piece, selection.bounds.x, selection.bounds.y, 'Piece');
+	host.markFloating(lifted);
+	return lifted;
 }
 
 export function createMoveTool(): PaintTool {
@@ -82,7 +85,9 @@ export function createMoveTool(): PaintTool {
 		cursor: 'default',
 		pointerDown(host: ToolHost, point: Point, pointer: ToolPointer) {
 			const selection = host.selection;
-			const lifting = selection !== null && pointInBounds(selection, point);
+			const inside = selection !== null && pointInBounds(selection, point);
+			const floating = inside && host.floatingLayer !== null && host.floatingLayer === host.activeLayer;
+			const lifting = inside && (!floating || pointer.altKey);
 			host.beginGroup();
 			let layer = host.activeLayer;
 			if (lifting && selection) layer = liftSelection(host, selection, pointer.altKey);
@@ -97,6 +102,7 @@ export function createMoveTool(): PaintTool {
 				baseY: layer.y,
 				basePath: selection ? selection.path.map((p) => ({ ...p })) : null,
 				lifted: lifting,
+				carry: inside,
 				moved: false,
 				before: host.captureDoc()
 			};
@@ -109,8 +115,8 @@ export function createMoveTool(): PaintTool {
 			if (dx !== 0 || dy !== 0) drag.moved = true;
 			drag.layer.x = drag.baseX + dx;
 			drag.layer.y = drag.baseY + dy;
-			if (drag.lifted && drag.basePath) {
-				host.setSelection(translatePath(drag.basePath, dx, dy), false);
+			if (drag.carry && drag.basePath) {
+				host.setSelection(translatePath(drag.basePath, dx, dy), false, true);
 			}
 			host.invalidate();
 		},
@@ -118,10 +124,10 @@ export function createMoveTool(): PaintTool {
 			if (!drag) return;
 			const finished = drag;
 			drag = null;
-			if (finished.lifted && finished.basePath) {
+			if (finished.carry && finished.basePath) {
 				const dx = Math.round(point.x - finished.start.x);
 				const dy = Math.round(point.y - finished.start.y);
-				host.setSelection(translatePath(finished.basePath, dx, dy), true);
+				host.setSelection(translatePath(finished.basePath, dx, dy), true, true);
 			}
 			if (!finished.moved && finished.lifted) {
 				host.endGroup('Lift selection', true);

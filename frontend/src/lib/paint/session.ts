@@ -207,6 +207,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	private adjustPreview: { layer: Layer; canvas: HTMLCanvasElement } | null = null;
 	private adjustToken = 0;
 	private transformBefore: DocSnapshot | null = null;
+	private floating: Layer | null = null;
 	private adjustBase: { layer: Layer; canvas: HTMLCanvasElement; image: ImageData } | null = null;
 	private filterState: FilterToolState<ActiveFilter> = initialToolState<ActiveFilter>();
 	private filterSteps: RecipeStep[] = [];
@@ -1045,7 +1046,18 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.fit();
 	}
 
-	setSelection(path: Point[] | null, final: boolean): void {
+	get floatingLayer(): Layer | null {
+		const layer = this.floating;
+		if (!layer || !this.selection) return null;
+		return layer === this.activeLayer && this.doc.layers.includes(layer) ? layer : null;
+	}
+
+	markFloating(layer: Layer | null): void {
+		this.floating = layer;
+	}
+
+	setSelection(path: Point[] | null, final: boolean, keepFloating = false): void {
+		if (!keepFloating) this.floating = null;
 		if (!path) {
 			this.selection = null;
 			this.draft = null;
@@ -1185,6 +1197,7 @@ export class PaintSession implements ToolHost, EditorApi {
 			rectPath({ x, y }, { x: x + clip.canvas.width, y: y + clip.canvas.height }),
 			true
 		);
+		this.floating = this.activeLayer;
 		this.setTool('move');
 	}
 

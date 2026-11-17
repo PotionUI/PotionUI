@@ -116,7 +116,9 @@ export interface ToolHost {
 	pickColor(point: Point): void;
 	clipToSelection(context: CanvasRenderingContext2D, layer: Layer): void;
 	layerSelectionMask(layer: Layer): Uint8ClampedArray | null;
-	setSelection(path: Point[] | null, final: boolean): void;
+	setSelection(path: Point[] | null, final: boolean, keepFloating?: boolean): void;
+	readonly floatingLayer: Layer | null;
+	markFloating(layer: Layer | null): void;
 	captureDoc(): DocSnapshot;
 	commitStructure(label: string, before: DocSnapshot): void;
 	beginGroup(): void;

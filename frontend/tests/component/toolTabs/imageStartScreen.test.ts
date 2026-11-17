@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { get } from 'svelte/store';
@@ -131,7 +133,7 @@ describe('ImageStartScreen', () => {
 		const { q, all, onpick } = render();
 		await settleFlush();
 		expect(q('[data-recent-edits]')?.dataset.state).toBe('first-use');
-		expect(q('[data-empty-state="page"]')?.textContent).toContain('No edits yet');
+		expect(q('[data-empty-state="compact"]')?.textContent).toContain('No edits yet');
 		expect(q('input[aria-label="Search edits by name"]')).toBeNull();
 		expect(q('[data-recent-history]')).not.toBeNull();
 		expect(all('[data-recent-history] [data-edit-tile]')).toHaveLength(2);
@@ -143,7 +145,7 @@ describe('ImageStartScreen', () => {
 		expect(onpick.mock.calls[0][0]).toMatchObject({ generation_file_id: '11' });
 	});
 
-	it('first use with no History shows the empty state alone', async () => {
+	it('first use with no History shows the full-page empty state alone', async () => {
 		mocks.listEdits.mockResolvedValue(NONE);
 		mocks.getGenerationHistory.mockResolvedValue({ success: true, data: { generations: [] } });
 		const { q } = render();
@@ -243,3 +245,181 @@ describe('ImageStartScreen', () => {
 		expect(mocks.listEdits).toHaveBeenCalledTimes(2);
 	});
 });
+
+describe('ImageStartScreen layout', () => {
+	const source = readFileSync(resolve(process.cwd(), 'src/lib/components/tool-tabs/image/ImageStartScreen.svelte'), 'utf8');
+
+	beforeEach(() => {
+		tabsStore.reset();
+		mocks.listEdits.mockReset().mockResolvedValue(list(27));
+		mocks.getEdit.mockReset();
+		mocks.getLibraryItem
+			.mockReset()
+			.mockResolvedValue({ success: true, data: { id: 's1', filename: 's1.png', original_filename: 'picture-1.png', media_type: 'image', url: '/api/media/uploads/s1.png' } });
+		mocks.getGenerationHistory.mockReset().mockResolvedValue(history());
+	});
+
+	afterEach(() => tabsStore.reset());
+
+	it('is full width with no centred max-width container', async () => {
+		const { q } = render();
+		await settleFlush();
+		expect(q('[data-start-screen]')).not.toBeNull();
+		expect(q('[class*="max-w-["]')).toBeNull();
+		expect(q('aside')).toBeNull();
+		expect(q('[data-start-screen]')?.className).not.toMatch(/grid-cols/);
+	});
+
+	it('puts the sources band first, with the four sources, above the recent edits', async () => {
+		const { q, all } = render();
+		await settleFlush();
+		const band = q('[data-start-panel]')!;
+		const recent = q('[data-recent-edits]')!;
+		expect(band.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(band.querySelector('h2')?.textContent).toBe('Start from a picture');
+		expect(band.textContent).toContain('Open one to begin a new edit.');
+		expect(Array.from(band.querySelectorAll('[data-start-source]'))).toHaveLength(4);
+		expect(all('[data-start-source]').every((node) => band.contains(node))).toBe(true);
+		expect(q('[data-start-sources]')?.className).toContain('srcs');
+	});
+
+	it('shows the drop and paste hint on the band header line with the keys together', async () => {
+		const { q, all } = render();
+		await settleFlush();
+		const hint = q('[data-start-hint]')!;
+		expect(hint.parentElement?.querySelector('h2')).not.toBeNull();
+		expect(hint.textContent).toContain('Drop a picture anywhere, or paste');
+		expect(hint.className).toContain('whitespace-nowrap');
+		expect(all('[data-start-hint] kbd').map((node) => node.textContent)).toEqual(['Ctrl', 'V']);
+		const keys = q('[data-start-keys]')!;
+		expect(keys.className).toContain('whitespace-nowrap');
+		expect(keys.querySelectorAll('kbd')).toHaveLength(2);
+	});
+
+	it('leaves the paste hint and keys out on a phone', async () => {
+		const { q } = render({ phone: true });
+		await settleFlush();
+		expect(q('[data-start-hint]')?.textContent).toContain('Drop a picture anywhere');
+		expect(q('[data-start-hint]')?.textContent).not.toContain('paste');
+		expect(q('[data-start-hint] kbd')).toBeNull();
+	});
+
+	it('puts the saved-as-you-go note on the Recent edits header line next to the search', async () => {
+		const { q } = render();
+		await settleFlush();
+		const header = q('[data-recent-edits] h1')!.closest('.rhead')!;
+		const note = q('[data-edits-note]')!;
+		expect(header.contains(note)).toBe(true);
+		expect(header.contains(q('[data-edits-search]'))).toBe(true);
+		expect(note.textContent).toContain('Your changes are saved as you go. Edits stay here until you delete them.');
+		expect(q('[data-start-panel]')?.textContent).not.toContain('saved as you go');
+	});
+
+	it('hides the note on first use, where the empty state says the same', async () => {
+		mocks.listEdits.mockResolvedValue(NONE);
+		const { q } = render();
+		await settleFlush();
+		expect(q('[data-edits-note]')).toBeNull();
+		expect(q('[data-edits-search]')).toBeNull();
+	});
+
+	it('27 edits: twelve tiles, the count and numbered pages', async () => {
+		const { q, all } = render();
+		await settleFlush();
+		expect(all('[data-edits-list] [data-edit-tile]')).toHaveLength(12);
+		expect(q('[data-recent-edits]')?.textContent).toContain('27');
+		const pages = all('nav[aria-label="Pagination"] button').map((node) => node.textContent?.trim()).filter((text) => /^\d+$/.test(text ?? ''));
+		expect(pages).toEqual(['1', '2', '3']);
+	});
+
+	it('2 edits: both tiles and no pagination', async () => {
+		mocks.listEdits.mockResolvedValue(list(2));
+		const { q, all } = render();
+		await settleFlush();
+		expect(all('[data-edits-list] [data-edit-tile]')).toHaveLength(2);
+		expect(q('[data-recent-edits]')?.textContent).toContain('2');
+		expect(q('nav[aria-label="Pagination"]')).toBeNull();
+	});
+
+	it('0 edits: the band, the compact empty state and one row of six History pictures at most', async () => {
+		mocks.listEdits.mockResolvedValue(NONE);
+		const now = new Date().toISOString();
+		const picks = [
+			{
+				id: 'g1',
+				created_at: now,
+				files: Array.from({ length: 8 }, (_, index) => ({ id: 20 + index, file_path: `outputs/d/g1/p${index}.png`, file_type: 'image', is_final: true, created_at: now }))
+			}
+		];
+		mocks.getGenerationHistory.mockResolvedValue({ success: true, data: { generations: picks } });
+		const { q, all } = render();
+		await settleFlush();
+		expect(q('[data-start-panel]')).not.toBeNull();
+		expect(q('[data-empty-state="compact"]')).not.toBeNull();
+		expect(all('[data-recent-history] [data-edit-tile]').length).toBeLessThanOrEqual(6);
+		expect(all('[data-recent-history] [data-edit-tile]').length).toBeGreaterThan(0);
+	});
+
+	it('grid steps are 2, 3, 4 and 6 columns by width, so twelve fill whole rows', () => {
+		const steps = [...source.matchAll(/@container start \(min-width: (\d+)px\) \{\s*\.edit-grid \{\s*grid-template-columns: repeat\((\d+)/g)].map((match) => [Number(match[1]), Number(match[2])]);
+		expect(steps).toEqual([
+			[560, 3],
+			[820, 4],
+			[1240, 6]
+		]);
+		expect(source).toMatch(/\.edit-grid \{\s*display: grid;\s*grid-template-columns: repeat\(2, /);
+		for (const columns of [2, 3, 4, 6]) expect(12 % columns).toBe(0);
+		expect(source).not.toContain('auto-fill');
+	});
+
+	it('the sources go 2x2 and compact on a narrow band', () => {
+		expect(source).toMatch(/@container band \(max-width: 880px\) \{\s*\.srcs \{\s*grid-template-columns: repeat\(2, /);
+		expect(source).toMatch(/@container band \(max-width: 520px\) \{[\s\S]*\.band-sub,\s*\.band-hint \{\s*display: none;[\s\S]*flex-direction: column;/);
+		expect(source).toMatch(/\.srcs \{\s*display: grid;\s*grid-template-columns: repeat\(4, /);
+	});
+
+	it('page padding follows the sibling pages and the note wraps below the search when narrow', () => {
+		expect(source).toContain('p-6 dot-grid max-md:p-3');
+		expect(source).toMatch(/\.rnote \{\s*order: 3;\s*flex: 1 1 100%;/);
+		expect(source).toMatch(/@container start \(min-width: 960px\) \{\s*\.rnote \{\s*order: 1;/);
+	});
+
+	it('dragging shows the drop overlay over the whole screen and dropping starts an edit', async () => {
+		const { q, onfile } = render();
+		await settleFlush();
+		const root = q('[data-testid="tool-tab-empty"]')!;
+		expect(q('[data-drop-overlay]')).toBeNull();
+		root.dispatchEvent(new Event('dragover', { bubbles: true, cancelable: true }));
+		flushSync();
+		const overlay = q('[data-drop-overlay]')!;
+		expect(overlay.textContent).toContain('Drop a picture to start an edit');
+		expect(overlay.textContent).toContain('Release it anywhere on this screen.');
+		expect(overlay.className).toContain('absolute inset-0');
+		expect(overlay.className).toContain('pointer-events-none');
+		expect(q('[data-start-hint]')?.textContent).toContain('Release to start an edit');
+		const file = new File(['x'], 'a.png', { type: 'image/png' });
+		const drop = new Event('drop', { bubbles: true, cancelable: true });
+		Object.defineProperty(drop, 'dataTransfer', { value: { files: [file] } });
+		root.dispatchEvent(drop);
+		flushSync();
+		expect(onfile).toHaveBeenCalledWith(file);
+		expect(q('[data-drop-overlay]')).toBeNull();
+	});
+
+	it('leaving the screen clears the overlay but moving between its children does not', async () => {
+		const { q } = render();
+		await settleFlush();
+		const root = q('[data-testid="tool-tab-empty"]')!;
+		root.dispatchEvent(new Event('dragover', { bubbles: true, cancelable: true }));
+		flushSync();
+		const inner = new Event('dragleave', { bubbles: true });
+		Object.defineProperty(inner, 'relatedTarget', { value: q('[data-start-panel]') });
+		q('[data-start-sources]')!.dispatchEvent(inner);
+		flushSync();
+		expect(q('[data-drop-overlay]')).not.toBeNull();
+		root.dispatchEvent(new Event('dragleave', { bubbles: true }));
+		flushSync();
+		expect(q('[data-drop-overlay]')).toBeNull();
+	});
+});
+

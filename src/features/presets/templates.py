@@ -108,6 +108,7 @@ class EditorModeSpec:
     from_mode: Optional[str] = None
     label: Optional[str] = None
     short_description: Optional[str] = None
+    icon: Optional[str] = None
     order: int = 0
     fixed: Dict[str, Any] = field(default_factory=dict)
     hide: List[str] = field(default_factory=list)

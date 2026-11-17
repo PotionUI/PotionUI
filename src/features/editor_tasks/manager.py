@@ -7,7 +7,7 @@ from src.features.editor_tasks.dto import SetTaskDefaultRequest
 from src.features.editor_tasks.registry import TaskDefinition, TaskRegistry
 from src.features.presets.editor_mode_lint import lint_editor_mode
 from src.features.presets.editor_modes import input_field_names
-from src.features.presets.mode_labels import mode_display_name
+from src.features.presets.mode_labels import mode_display_name, mode_display_icon
 from src.features.presets.templates import (
     EDITOR_KEY_PREFIX,
     EditorModeSpec,
@@ -140,6 +140,7 @@ class EditorTaskManager:
             "mode": entry.key,
             "from_mode": spec.from_mode,
             "mode_label": mode_label,
+            "mode_icon": mode_display_icon(entry.name, entry.mode.mode_icon),
             "label": spec.label or mode_label,
             "short_description": short_description_of(entry),
             "order": spec.order,

@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -93,3 +94,15 @@ def test_the_editor_mode_carries_the_client_facing_fields(templates, folder, nam
     assert offer["from_mode"] == template.editor_modes[name].editor.from_mode
     assert "source_image" in offer["owned"] or "references" in offer["owned"]
     assert "quantity" in offer["owned"]
+
+
+def test_every_shipped_offer_carries_its_from_modes_icon_and_a_label(templates):
+    manager = EditorTaskManager(
+        REGISTRY, lambda: list(templates.values()), lambda user: {t.id for t in templates.values()}, lambda engine: True
+    )
+    offers = [offer for item in manager.offers(SimpleNamespace(id="u")) for offer in item["offers"]]
+
+    assert len(offers) >= len(EXPECTED)
+    for offer in offers:
+        assert offer["mode_label"]
+        assert offer["mode_icon"] == {"edit": "pencil", "inpaint": "brush"}[offer["from_mode"]]

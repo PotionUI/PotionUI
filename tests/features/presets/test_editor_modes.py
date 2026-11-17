@@ -146,6 +146,34 @@ def test_a_label_in_the_file_names_the_mode(tree):
     assert mode.editor.order == 5
 
 
+def test_a_derived_mode_inherits_the_icon_of_its_from_mode(tree):
+    _write_editor_mode(tree.krea, "edit", KREA_EDITOR)
+    krea = _krea(_load(tree.root))
+    assert krea.editor_modes["edit"].mode_icon == "pencil"
+    assert krea.editor_modes["edit"].editor.icon is None
+
+
+def test_an_icon_in_the_file_overrides_the_inherited_one(tree):
+    _write_editor_mode(tree.krea, "edit", {**KREA_EDITOR, "icon": "brush"})
+    mode = _krea(_load(tree.root)).editor_modes["edit"]
+    assert mode.mode_icon == "brush"
+    assert mode.editor.icon == "brush"
+
+
+def test_a_standalone_mode_declares_its_own_icon_or_takes_the_default(tree):
+    spec = {
+        "schema_version": 1,
+        "task": "remove_object",
+        "region": "crop",
+        "inputs": {"source": "source_image", "mask": "source_image_inpaint_mask"},
+    }
+    _write_editor_mode(tree.sdxl, "remove", {**spec, "icon": "sparkles"}, _standalone_files(tree))
+    _write_editor_mode(tree.sdxl, "cleanup", spec, _standalone_files(tree))
+    sdxl = next(p for p in _load(tree.root).presets if "inpaint" in p.modes)
+    assert sdxl.editor_modes["remove"].mode_icon == "sparkles"
+    assert sdxl.editor_modes["cleanup"].mode_icon is None
+
+
 def test_pipeline_operations_patch_the_derived_pipeline_only(tree):
     spec = {
         **KREA_EDITOR,

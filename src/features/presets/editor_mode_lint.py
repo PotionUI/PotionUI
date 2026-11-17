@@ -3,6 +3,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from src.features.presets.editor_modes import EDITOR_MODES_DIR, input_names
 from src.features.presets.extensions import walk_fields
+from src.features.presets.mode_labels import known_icon_names
 from src.features.presets.templates import FieldTemplate, ModeTemplate, PresetTemplate
 
 LEFTOVER_EDITOR_YML_WARNS = True
@@ -124,6 +125,10 @@ def lint_editor_mode(
     prefix = f"{EDITOR_MODES_DIR}/{name}/editor_mode.yml"
     fields = _fields(mode)
     issues: List[Issue] = []
+
+    icons = known_icon_names()
+    if spec.icon and icons is not None and spec.icon not in icons:
+        issues.append(("warning", f"{prefix}: icon \"{spec.icon}\" is not an icon in the app's Icon set"))
 
     errors, warnings = task_problems(spec.task, needs, owner)
     issues.extend(("error", f"{prefix}: {message}") for message in errors)

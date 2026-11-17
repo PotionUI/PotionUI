@@ -81,6 +81,16 @@ def test_the_shipped_editor_modes_lint_clean():
     assert [issue for issue in editor if issue.level != "info"] == []
 
 
+def test_an_icon_outside_the_icon_set_is_a_warning(tree):
+    with_spec(tree, icon="no_such_icon_name")
+    assert any("no_such_icon_name" in message for message in messages(lint(tree.root), "warning"))
+
+
+def test_an_icon_in_the_icon_set_is_not_a_warning(tree):
+    with_spec(tree, icon="brush")
+    assert messages(lint(tree.root), "warning") == []
+
+
 def test_a_load_error_of_an_editor_mode_is_a_lint_error(tree):
     with_spec(tree, **{"from": "no_such_mode", "fields": {}})
     errors = messages(lint(tree.root), "error")

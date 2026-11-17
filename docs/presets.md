@@ -367,6 +367,7 @@ fields:
 | `task` | Required. A core task (`edit_region`, `remove_object`) or a plugin task `<plugin>.<name>`. |
 | `from` | A generation mode of this preset. Leave it out for a standalone mode. |
 | `label`, `short_description`, `order` | The picker name (default: the `from` mode's label, else the title-cased name), one sentence under it, and the sort order within the preset. |
+| `icon` | Optional. An icon name from the app's icon set, shown beside the mode in the picker (`mode_icon` on the offer). Default: the `from` mode's icon, else the standard icon for the mode name, else none. An unknown name → **warning**. |
 | `region` | Required. `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. |
 | `inputs.source` | Required. The `image` field that takes the picture, or `{field: <media field>, index: 0}`, which inserts the picture into a `media` list at that index. |
 | `inputs.mask` | Required for `region: mask`. It must be named `<image field>_inpaint_mask`, and that image field must set `allow_inpaint: true`. With `region: crop` it asks for the region mask cut and resampled like the crop. |

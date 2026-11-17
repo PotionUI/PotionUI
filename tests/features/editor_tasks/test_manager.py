@@ -48,6 +48,14 @@ def test_offers_name_the_modes_and_their_strategy(tmp_path):
     assert "reason" not in offers[0]
 
 
+def test_an_offer_carries_the_mode_icon_beside_the_label(tmp_path):
+    manager = build(tmp_path, {"A-CROP": CROP, "B-MASK": {**MASK, "icon": "brush"}})
+
+    offers = entry(manager.offers(USER), "edit_region")["offers"]
+
+    assert [(o["mode_icon"], o["mode_label"]) for o in offers] == [("pencil", "Edit"), ("brush", "Edit")]
+
+
 def test_an_offer_carries_the_short_description_and_the_order_and_sorts_by_them(tmp_path):
     manager = build(
         tmp_path,

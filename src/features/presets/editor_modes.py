@@ -26,6 +26,7 @@ from src.features.presets.templates import (
     is_editor_key,
     sorted_forms,
 )
+from src.features.presets.mode_labels import mode_display_icon
 from src.features.presets.quantity import mode_quantity_fields
 from src.platform.filesystem.yaml_io import load_yaml_file
 from src.platform.observability.logger import logger
@@ -129,6 +130,7 @@ class EditorModeFile(BaseModel):
     from_mode: Optional[str] = Field(default=None, alias="from")
     label: Optional[str] = Field(default=None, min_length=1)
     short_description: Optional[str] = Field(default=None, min_length=1)
+    icon: Optional[str] = Field(default=None, min_length=1)
     order: int = 0
     region: Literal["crop", "mask", "whole"]
     inputs: EditorInputs
@@ -437,6 +439,7 @@ def _spec(candidate: EditorModeCandidate, file: EditorModeFile, mode: ModeTempla
         from_mode=file.from_mode,
         label=file.label,
         short_description=file.short_description,
+        icon=file.icon,
         order=file.order,
         fixed=copy.deepcopy(file.fixed),
         hide=list(file.fields.hide),
@@ -473,6 +476,7 @@ def build_editor_mode(
     mode.editor = _spec(candidate, file, mode)
     mode.source_plugin = candidate.plugin_id
     mode.mode_label = file.label or mode.mode_label or _titled(candidate.name)
+    mode.mode_icon = file.icon or mode.mode_icon or mode_display_icon(file.from_mode or candidate.name)
     return mode, []
 
 

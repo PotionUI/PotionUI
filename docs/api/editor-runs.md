@@ -18,14 +18,14 @@ You need a key with **Can generate** to start or cancel a run and **Can read** t
 ```json
 {
   "preset_id": "...", "preset_name": "Krea-2", "mode": "editor:edit", "from_mode": "edit",
-  "mode_label": "Edit", "label": "Edit", "short_description": null, "order": 0,
+  "mode_label": "Edit", "mode_icon": "pencil", "label": "Edit", "short_description": null, "order": 0,
   "region_strategy": "crop", "via": null, "qualifies": true,
   "owned": ["quantity", "source_image", "match_source", "fit_mode"], "variant": null
 }
 ```
 
 `mode` is the editor key to send back. `from_mode` is the generation mode it derives from (`null` for a standalone
-editor mode). `via` names the task an offer reaches through the fallback, per preset: a preset that ships its own
+editor mode). `mode_label` and `mode_icon` are what the mode picker shows: the label, and an icon name from the app's icon set (`null` when the mode has none); a derived mode inherits both from its `from` mode unless `editor_mode.yml` sets `label` or `icon`. `via` names the task an offer reaches through the fallback, per preset: a preset that ships its own
 mode for a task is offered with `via: null` and its modes of the fallback task are not offered for it. `owned` lists the fields the
 editor fills or hides, and `variant` is always `null`; both stay for clients that still read them, and the served
 form (`GET /api/presets/{id}/form?mode=editor:<name>`) already leaves those fields out.

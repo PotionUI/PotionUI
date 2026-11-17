@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from threading import RLock
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.pipelines.outputs import GenerationOutput
 from src.features.generation.failure import GenerationFailure
@@ -64,6 +64,7 @@ class GenerationRecord:
     # time, so only `started_at` measures execution rather than queue wait.
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
+    previews: Dict[str, Tuple[Dict[str, Any], Optional[Dict[str, Any]]]] = field(default_factory=dict)
 
     def model_dump(self) -> Dict[str, Any]:
         """
@@ -183,6 +184,7 @@ class GenerationStatusTracker:
                 record.started_at = time.time()
             if state in (GenerationState.COMPLETED, GenerationState.FAILED, GenerationState.CANCELLED):
                 record.completed_at = time.time()
+                record.previews.clear()
 
         try:
             generation_repo.update_status(id, state.value, failure=failure.columns() if failure else None)
@@ -216,6 +218,24 @@ class GenerationStatusTracker:
         included, has returned.
         """
         return await asyncio.to_thread(self.transition, id, state, failure)
+
+    def retain_preview(
+        self, id: str, message: Dict[str, Any], privileged_message: Optional[Dict[str, Any]] = None
+    ) -> None:
+        with self._lock:
+            record = self._records.get(id)
+            if record is not None and record.state.value not in TERMINAL_STATES:
+                record.previews[message["type"]] = (message, privileged_message)
+
+    def replay_previews(self, id: str, privileged: bool) -> List[Dict[str, Any]]:
+        with self._lock:
+            record = self._records.get(id)
+            if record is None or record.state.value in TERMINAL_STATES:
+                return []
+            return [
+                {**(privileged_message if privileged and privileged_message is not None else message), "replayed": True}
+                for message, privileged_message in record.previews.values()
+            ]
 
     def set_cancel_notice(self, id: str, notice: Optional[str]) -> None:
         with self._lock:

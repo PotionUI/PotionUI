@@ -5,6 +5,7 @@ from dataclasses import replace
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta, timezone
 from src.features.generation.history_filter import HistoryFilter
+from src.features.generation.origin import KIND_TAB
 from src.features.generation.records import Generation, File, GenerationFile
 from src.features.generation.history_revision_repository import (
     bump_history_revision,
@@ -17,6 +18,7 @@ from .prompt_text import prompt_search_sql
 from src.platform.util.ids import generate_ulid
 from src.platform.database.collection_tree import membership_clause, unsorted_clause
 from src.platform.database import get_cursor
+from src.platform.database.rows import dt_column, dt_iso, json_column
 
 # The format SQLite's CURRENT_TIMESTAMP uses for created_at/updated_at. Timestamps written
 # from Python must match it so that the lexicographic date filters in `_date_cond` (which
@@ -90,8 +92,8 @@ class GenerationRepository:
                 INSERT INTO generations (
                     id, preset_id, preset_version, form_data, user_id, status, progress,
                     mode, prompt_state, backend_id, tab_id, form_name, source_prompt_id, idempotency_key, idempotency_fingerprint,
-                    grid_id, grid_x, grid_y, axis_values
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    grid_id, grid_x, grid_y, axis_values, origin
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 generation.id,
                 generation.preset_id,
@@ -111,7 +113,8 @@ class GenerationRepository:
                 generation.grid_id,
                 generation.grid_x,
                 generation.grid_y,
-                json.dumps(generation.axis_values) if generation.axis_values is not None else None
+                json.dumps(generation.axis_values) if generation.axis_values is not None else None,
+                json.dumps(generation.origin, separators=(",", ":")) if generation.origin is not None else None,
             ))
             bump_history_revision(cursor, generation.user_id)
 
@@ -131,6 +134,28 @@ class GenerationRepository:
             )
             row = cursor.fetchone()
             return Generation.from_row(row) if row else None
+
+    def queue_rows(self, user_id: str, generation_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        if not generation_ids:
+            return {}
+        marks = ", ".join("?" for _ in generation_ids)
+        with get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT id, preset_id, mode, form_name, origin, created_at, started_at FROM generations "
+                f"WHERE user_id = ? AND id IN ({marks})",
+                (user_id, *generation_ids),
+            )
+            return {
+                row["id"]: {
+                    "preset_id": row["preset_id"],
+                    "mode": row["mode"],
+                    "form_name": row["form_name"],
+                    "origin": json_column(row["origin"]),
+                    "created_at": dt_iso(dt_column(row["created_at"])),
+                    "started_at": dt_iso(dt_column(row["started_at"])),
+                }
+                for row in cursor.fetchall()
+            }
 
     def get_by_id(self, generation_id: str, user_id: Optional[str] = None, include_files: bool = False) -> Optional[Generation]:
         """Get generation by ID, optionally filtered by user"""
@@ -190,6 +215,14 @@ class GenerationRepository:
                 AND f.file_type = ?
             )""")
             params.append(flt.media_type.upper())
+
+        if flt.origin:
+            kind = f"CASE WHEN json_valid({a}origin) THEN json_extract({a}origin, '$.kind') END"
+            if flt.origin == KIND_TAB:
+                conditions.append(f"{kind} IS NULL")
+            else:
+                conditions.append(f"{kind} = ?")
+                params.append(flt.origin)
 
         if flt.user_id:
             conditions.append(f"{a}user_id = ?")

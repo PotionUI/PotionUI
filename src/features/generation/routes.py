@@ -75,6 +75,7 @@ from src.features.generation import (
 )
 from src.features.generation.history_executor import HistoryExecutorSaturated
 from src.features.generation.history_filter import HistoryFilter, history_filter_query
+from src.features.generation.queue_labels import label_active, label_queue
 from src.features.generation.repository import generation_repo
 from src.features.generation.state_lookup import resolve_generation_state
 from src.features.generation.status_tracker import TERMINAL_STATES
@@ -409,9 +410,13 @@ class GenerationController(BaseController):
         admin="current_user",
     )
     async def get_queue(self, current_user, tab_id: Optional[str] = None) -> APIResponse:
-        return self.success_response(
-            data=self.generation_orchestrator.get_queue_snapshot(current_user.id, tab_id)
+        snapshot = self.generation_orchestrator.get_queue_snapshot(current_user.id, tab_id)
+        query = self.history_query
+        labelled = await asyncio.to_thread(
+            label_queue, snapshot, current_user.id, query.generation_repo.queue_rows,
+            query.preset_names(), query.origin_key_names,
         )
+        return self.success_response(data=labelled)
 
     @guarded(fallback=Fail("queue_read_failed", "Failed to read generation queue", detail=failure_detail, status=400))
     async def get_all_queue(self) -> APIResponse:
@@ -453,11 +458,13 @@ class GenerationController(BaseController):
         not expose the owner.
         """
         visible = [
-            record.model_dump()
+            (record.user_id, record.model_dump())
             for record in self.generation_orchestrator.status_tracker.list_active()
             if GenerationPolicy.can_access(current_user, record.user_id)
         ]
-        return self.success_response(data=visible)
+        query = self.history_query
+        labelled = await asyncio.to_thread(label_active, visible, query.generation_repo.queue_rows, query.origin_key_names)
+        return self.success_response(data=labelled)
 
     @staticmethod
     def _stream_zip_response(zip_file, filename: str) -> StreamingResponse:
@@ -1130,7 +1137,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """List all currently active generations with their current statuses."""
         return await controller.list_generations(current_user)
 
-    @router.get("/history", response_model=APIResponse, summary="Get Generation History", description="Your generations with their files, a page at a time (limit and offset). Narrow the list with status, mode, preset_id, tag_ids, collection_id, favorites_only, min_rating, created_from, created_to, media_type or search.")
+    @router.get("/history", response_model=APIResponse, summary="Get Generation History", description="Your generations with their files, a page at a time (limit and offset). Narrow the list with status, mode, preset_id, tag_ids, collection_id, favorites_only, min_rating, created_from, created_to, media_type, origin or search.")
     async def get_generation_history(limit: int = 50, offset: int = 0,
                                    include_tags: bool = True,
                                    sort_by: str = None, sort_dir: str = None,

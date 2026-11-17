@@ -73,6 +73,8 @@ What a key may do is decided by three levels, and each can only narrow the one a
 
 Starting a generation from MCP spends compute, which is why that tool stays off until you allow it.
 
+A generation started this way is marked in the app: its `origin` is `{"kind": "mcp", "key_id", "key_name"}`, so you can follow it in the queue and filter History with `origin=mcp`. The key's secret is never stored.
+
 The two delete tools, `delete_generation` and `delete_library_item`, are destructive. No policy turns them on by itself, not even "all tools on": the administrator switches each one on in the administrator list, then you switch it on in your default. A key can still turn it off. Tools for automation and model downloads need an administrator's key that holds the `admin` permission.
 
 These settings live in the browser session only: the routes that change them refuse API keys, so a connected assistant cannot give itself more tools.

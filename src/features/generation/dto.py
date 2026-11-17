@@ -35,6 +35,7 @@ class GenerationRequest(BaseModel):
     _acts_as_admin: bool = PrivateAttr(default=False)
     _one_shot_director: bool = PrivateAttr(default=False)
     _editor_run: bool = PrivateAttr(default=False)
+    _origin: Optional[Dict[str, Any]] = PrivateAttr(default=None)
     preset_id: str
     prompt: Optional[str] = ""  # Legacy single prompt (deprecated, use prompts array)
     negative_prompt: Optional[str] = ""  # Legacy single negative (deprecated)

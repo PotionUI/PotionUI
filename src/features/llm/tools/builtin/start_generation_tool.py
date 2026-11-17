@@ -352,6 +352,7 @@ class StartGenerationTool(BaseTool):
         return await self._submit(context, request)
 
     async def _submit(self, context: ToolContext, request: Any, extra: Optional[Dict[str, Any]] = None) -> ToolResult:
+        request._origin = context.origin
         try:
             result = await context.generation_orchestrator.start_generation(
                 request=request,

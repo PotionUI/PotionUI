@@ -1551,6 +1551,7 @@ class GenerationOrchestrator:
                 grid_x=grid_cell.x if grid_cell else None,
                 grid_y=grid_cell.y if grid_cell else None,
                 axis_values=grid_cell.axis_values if grid_cell else None,
+                origin=getattr(request, '_origin', None),
             )
             generation_repo.create(db_generation)
             logger.debug(f"Created database record for generation {generation_id}")

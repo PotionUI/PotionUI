@@ -246,6 +246,7 @@ class RunGenerationTool(BaseTool):
                 tab_id=tab_id,
             )
 
+            request._origin = context.origin
             result = await context.generation_orchestrator.start_generation(
                 request=request,
                 user_id=context.user_id,

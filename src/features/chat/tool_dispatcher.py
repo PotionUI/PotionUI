@@ -12,6 +12,7 @@ from src.features.chat.exceptions import (
     MessageCreationFailedException,
     ToolExecutionPendingException,
 )
+from src.features.generation.origin import chat_origin
 from src.features.llm.harness.messages import TextPart, ToolCallPart, ToolResultPart
 from src.features.llm.harness.tool_runner import rejection_text
 from src.features.llm.harness.tool_runner import APPROVED, FAILED, PENDING, REJECTED
@@ -52,6 +53,7 @@ class ToolCallDispatcher:
             llm_repository=self._m.llm_service.repository,
             plugin_registry=self._m.plugins,
             llm_id=session.llm_config_id,
+            origin=chat_origin(),
         )
 
     def _load_execution(self, session_id: str, message_id: str, tool_index: int):

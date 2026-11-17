@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.features.generation.details_url import REQUEST_ORIGIN_KEY
+from src.features.generation.origin import mcp_origin
 from src.features.llm.tools.base import ToolContext, ToolResult, ToolServices
 from src.features.llm.tools.errors import scrub_paths, unexpected
 from src.features.llm.tools.registry import ToolRegistry
@@ -62,7 +63,7 @@ def _execution_llm_id(collaborators: McpToolCollaborators) -> Optional[str]:
 
 def _build_tool_context(
     collaborators: McpToolCollaborators, user_id: str, is_admin: bool, llm_id: Optional[str],
-    request_origin: str = "", acts_as_admin: bool = False,
+    request_origin: str = "", acts_as_admin: bool = False, key_id: str = "", key_name: str = "",
 ) -> ToolContext:
     return ToolContext.for_session(
         collaborators.services,
@@ -73,6 +74,7 @@ def _build_tool_context(
         session_metadata={REQUEST_ORIGIN_KEY: request_origin},
         chat_session=False,
         llm_id=llm_id,
+        origin=mcp_origin(key_id, key_name) if key_id else None,
     )
 
 
@@ -111,7 +113,7 @@ def list_tools(collaborators: McpToolCollaborators, user_id: str, key_id: str) -
 
 async def call_tool(
     collaborators: McpToolCollaborators, user_id: str, key_id: str, name: str, arguments: Dict[str, Any],
-    is_admin: bool = False, request_origin: str = "", acts_as_admin: bool = False,
+    is_admin: bool = False, request_origin: str = "", acts_as_admin: bool = False, key_name: str = "",
 ) -> Dict[str, Any]:
     row = next((row for row in states_for_key(collaborators, user_id, key_id) if row[0].name == name), None)
     if row is None:
@@ -122,7 +124,8 @@ async def call_tool(
 
     tool = entry.tool
     context = _build_tool_context(
-        collaborators, user_id, is_admin, _execution_llm_id(collaborators), request_origin, acts_as_admin
+        collaborators, user_id, is_admin, _execution_llm_id(collaborators), request_origin, acts_as_admin,
+        key_id, key_name,
     )
     try:
         if tool.approval_required(arguments):
@@ -147,6 +150,7 @@ async def call_tool(
 async def handle_method(
     collaborators: McpToolCollaborators, method: str, params: Dict[str, Any], user_id: str,
     *, key_id: str, is_admin: bool = False, request_origin: str = "", acts_as_admin: bool = False,
+    key_name: str = "",
 ) -> Optional[Dict[str, Any]]:
     """Returns the JSON-RPC `result` payload, or None for a notification
     that has no response body."""
@@ -173,7 +177,7 @@ async def handle_method(
             raise JsonRpcError(INVALID_PARAMS, "'arguments' must be an object")
         return await call_tool(
             collaborators, user_id, key_id, name, arguments, is_admin=is_admin, request_origin=request_origin,
-            acts_as_admin=acts_as_admin,
+            acts_as_admin=acts_as_admin, key_name=key_name,
         )
     raise JsonRpcError(METHOD_NOT_FOUND, f"Method not found: {method}")
 

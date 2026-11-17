@@ -1380,6 +1380,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
     )
 
     # Initialize generation history manager
+    api_key_repository = ApiKeyRepository()
     generation_repository = GenerationRepository()
     generation_parameter_repository = GenerationParameterRepository()
     generation_model_repository = GenerationModelRepository()
@@ -1394,6 +1395,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         preset_name_resolver=preset_name_resolver,
         content_safety=content_safety,
         limit_guard=limit_guard,
+        origin_key_names=api_key_repository.names_for_user,
     )
 
     # Phrasebook controller (needs generation_orchestrator)
@@ -1973,7 +1975,6 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         storage_root=settings.get_file_storage_directory,
     )
 
-    api_key_repository = ApiKeyRepository()
     user_api_access_repository = UserApiAccessRepository()
     api_key_collaborators = ApiKeyCollaborators(
         keys=api_key_repository,

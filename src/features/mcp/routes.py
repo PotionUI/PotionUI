@@ -161,6 +161,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             result = await handle_method(
                 collaborators, method, params, current_user.id,
                 key_id=current_user.key.key_id,
+                key_name=current_user.key.name,
                 is_admin=current_user.owner_account_type == AccountType.ADMIN,
                 acts_as_admin=current_user.account_type == AccountType.ADMIN,
                 request_origin=request_origin(request),

@@ -466,12 +466,13 @@ class TestGenerationController:
             types.SimpleNamespace(user_id="other-user", model_dump=lambda: {"id": "gen-2", "status": "running"}),
         ]
         controller.generation_orchestrator.status_tracker.list_active.return_value = records
+        controller.history_query.generation_repo.queue_rows.return_value = {}
 
         result = await controller.list_generations(mock_current_user)
 
         assert isinstance(result, APIResponse)
         assert result.success is True
-        assert result.data == [{"id": "gen-1", "status": "running"}]
+        assert result.data == [{"id": "gen-1", "status": "running", "origin": None}]
 
     @pytest.mark.asyncio
     async def test_list_generations_admin_sees_all(self, controller):
@@ -484,12 +485,13 @@ class TestGenerationController:
             types.SimpleNamespace(user_id="user-b", model_dump=lambda: {"id": "gen-2", "status": "running"}),
         ]
         controller.generation_orchestrator.status_tracker.list_active.return_value = records
+        controller.history_query.generation_repo.queue_rows.return_value = {}
 
         result = await controller.list_generations(admin)
 
         assert result.data == [
-            {"id": "gen-1", "status": "running"},
-            {"id": "gen-2", "status": "running"},
+            {"id": "gen-1", "status": "running", "origin": None},
+            {"id": "gen-2", "status": "running", "origin": None},
         ]
 
     @pytest.mark.asyncio

@@ -9,17 +9,19 @@
 		state: snapshot,
 		phone = false,
 		layerActions = [],
+		withLayers: showLayers = true,
 		onSaveFilter = () => {}
 	}: {
 		session: PaintSession;
 		state: SessionSnapshot;
 		phone?: boolean;
 		layerActions?: LayerAction[];
+		withLayers?: boolean;
 		onSaveFilter?: () => void;
 	} = $props();
 
 	let kind = $derived(snapshot.tools.find((candidate) => candidate.id === snapshot.toolId)?.panel ?? 'options');
-	let withLayers = $derived(kind === 'options' || kind === 'selection' || kind === 'transform');
+	let withLayers = $derived(showLayers && (kind === 'options' || kind === 'selection' || kind === 'transform'));
 </script>
 
 <div class="flex flex-col gap-4" data-paint-panel>

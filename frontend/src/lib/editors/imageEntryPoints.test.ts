@@ -188,17 +188,29 @@ describe('a registered step kind drives the Image editor entry points', () => {
 		expect(toolMeta('acme.halftone')).toMatchObject({ label: 'Halftone', icon: 'extension' });
 	});
 
+	it('every paint entry contributes an in-progress group to the Edits list and no other core entry does', () => {
+		imageRail();
+		const withGroup = railTools.list('image').filter((tool) => tool.children).map((tool) => tool.id).sort();
+		expect(withGroup).toEqual(['paint.brush', 'paint.eraser', 'paint.fill', 'paint.lasso', 'paint.move', 'paint.pick', 'paint.rect']);
+	});
+
+	it('lets a plugin entry contribute its own in-progress group', () => {
+		const component = (() => null) as never;
+		disposers.push(railTools.register({ id: 'acme.sketch', editor: 'image', group: 'tools', label: 'Sketch', icon: 'extension', children: { component } }, OWNER));
+		expect(railTools.get('image', 'acme.sketch')?.children).toEqual({ component });
+	});
+
 	it('keeps the core rail exactly as it was with nothing registered', () => {
 		const ids = (group: string) => imageRail().find((entry) => entry.id === group)?.tools.map((tool) => tool.id);
 		expect(imageRail().map((group) => [group.id, group.label, group.fold])).toEqual([
-			['generate', 'Generate', 8],
-			['shape', 'Transform', 4],
-			['paint', 'Paint', 7],
-			['select', 'Select and move', 6],
-			['look', 'Light and colour', 2],
+			['generate', 'Generate', 7],
+			['shape', 'Transform', 6],
+			['paint', 'Paint', 5],
+			['select', 'Select and move', 3],
+			['look', 'Light and colour', 4],
 			['fx', 'Effects', 1],
 			['looks', 'Looks', undefined],
-			['tools', 'Cut out', 3]
+			['tools', 'Cut out', 2]
 		]);
 		expect(ids('shape')).toEqual(['crop', 'resize', 'canvas', 'slice']);
 		expect(ids('paint')).toEqual(['paint.brush', 'paint.eraser', 'paint.fill', 'paint.pick']);

@@ -48,7 +48,7 @@ function registerTask(seed: TaskSeed, order: number, owner?: string): () => void
 export function ensureGenerateEditor(): void {
 	if (registered) return;
 	registered = true;
-	railGroups.register({ id: GENERATE_GROUP, editor: 'image', label: 'Generate', order: 50, fold: 8 });
+	railGroups.register({ id: GENERATE_GROUP, editor: 'image', label: 'Generate', order: 50, fold: 7 });
 	stepKinds.register(generateStepKind);
 	CORE_TASKS.forEach((seed, index) => registerTask(seed, (index + 1) * 10, CORE_OWNER));
 }

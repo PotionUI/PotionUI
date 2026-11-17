@@ -268,7 +268,7 @@ async function layerMenu(page: Page, index: number, item: string) {
 }
 
 test.describe('Paint entries in the Image editor', () => {
-	test.use({ viewport: { width: 1440, height: 900 } });
+	test.use({ viewport: { width: 1440, height: 1200 } });
 
 	test('a brush stroke lands as one step and moving among paint entries keeps the session', async ({ page }) => {
 		const log = await start(page);
@@ -276,6 +276,9 @@ test.describe('Paint entries in the Image editor', () => {
 		await openPaint(page, 'brush');
 		await expect(page.locator('[data-paint-tools]')).toHaveCount(0);
 		await expect(page.locator('[data-paint-tool-panel="brush"] [data-property-slider]')).toHaveCount(2);
+		await expect(page.locator('[data-edit-stack] [data-stack-group] [data-paint-layers] [data-layer-row]')).toHaveCount(2);
+		await expect(page.locator('[data-options-panel] [data-paint-layers]')).toHaveCount(0);
+		await expect(page.locator('[data-stack-group] [data-stack-state="in-progress"]')).toContainText('In progress');
 		await stroke(page);
 		await expect(page.locator('[data-frame-undo]')).toBeEnabled();
 		await screenshot(page, JOURNEY, '01-brush-1440');
@@ -351,9 +354,11 @@ test.describe('Paint entries in the Image editor', () => {
 		await start(page);
 		await openDusk(page);
 		await openPaint(page, 'brush');
-		await page.locator('[data-paint-layers] button[aria-label="Add a layer"]').click();
+		const steps = await page.locator('[data-stack-count]').textContent();
+		await page.locator('[data-stack-group] button[aria-label="Add a layer"]').click();
 		await page.locator('[role="menuitem"]', { hasText: 'New layer' }).click();
 		await expect(layerRows(page)).toHaveCount(3);
+		await expect(page.locator('[data-stack-count]')).toHaveText(steps ?? '');
 		await layerMenu(page, 2, 'Rename');
 		await page.locator('input[aria-label="Layer name"]').fill('Sky');
 		await page.keyboard.press('Enter');
@@ -440,7 +445,7 @@ test.describe('the AI ring on the rail', () => {
 test.describe('the rail with Paint groups', () => {
 	test.use({ viewport: { width: 1440, height: 700 } });
 
-	test('at a short height the Paint groups fold last and never scroll', async ({ page }) => {
+	test('at a short height the Paint groups fold after Effects, Cut out and Select and move and never scroll', async ({ page }) => {
 		await start(page);
 		await openDusk(page);
 		const railEl = page.locator('[data-tool-rail="icons"]');
@@ -451,13 +456,13 @@ test.describe('the rail with Paint groups', () => {
 			await page.setViewportSize({ width: 1440, height });
 			await expect.poll(overflow).toBeLessThanOrEqual(1);
 			const now = await folded();
-			if (now.includes('paint')) expect(now).toContain('select');
-			if (now.includes('select')) expect(now).toEqual(expect.arrayContaining(['fx', 'look', 'tools', 'shape']));
+			if (now.includes('paint')) expect(now).toEqual(expect.arrayContaining(['fx', 'tools', 'select', 'look']));
+			if (now.includes('select')) expect(now).toEqual(expect.arrayContaining(['fx', 'tools']));
 			expect(now).not.toContain('generate');
 		}
 		await page.setViewportSize({ width: 1440, height: 768 });
-		await expect.poll(folded).toEqual(['fx', 'look', 'tools', 'shape', 'select']);
-		await expect(page.locator('[data-tool-rail="icons"] button[data-tool="paint.brush"]')).toBeVisible();
+		await expect.poll(folded).toEqual(['fx', 'tools', 'select', 'look', 'paint']);
+		await expect(page.locator('[data-tool-rail="icons"] button[data-group-button="paint"]')).toBeVisible();
 		await page.locator('[data-tool-rail="icons"] button[data-group-button="select"]').hover();
 		await expect(page.locator('[data-rail-flyout="select"]')).toBeVisible();
 		await screenshot(page, JOURNEY, '02-paint-flyout-1440');
@@ -467,7 +472,7 @@ test.describe('the rail with Paint groups', () => {
 test.describe('Paint on a phone', () => {
 	test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-	test('paint entries go through the group sheet and layers have their own sheet', async ({ page }) => {
+	test('paint entries go through the group sheet and the layers sit in the Edits sheet', async ({ page }) => {
 		await mockEditor(page);
 		await loginAsOwner(page);
 		await clearEdits(page);
@@ -484,8 +489,10 @@ test.describe('Paint on a phone', () => {
 		await page.locator('[data-rail-sheet="paint"] [data-sheet-item="paint.brush"]').click();
 		await expect(phone.locator('[data-paint-tool-panel="brush"]')).toBeVisible();
 		await screenshot(page, JOURNEY, '10-phone-brush-390');
-		await phone.locator('[data-paint-layers-button]').click();
-		await expect(page.locator('[data-paint-layers-sheet] [data-layer-row]')).toHaveCount(2);
+		await expect(phone.locator('[data-paint-layers-button]')).toHaveCount(0);
+		await expect(phone.locator('[data-paint-options="phone"] [data-paint-layers]')).toHaveCount(0);
+		await phone.locator('[data-frame-edits]').click();
+		await expect(page.getByRole('dialog', { name: 'Edits' }).locator('[data-stack-group] [data-layer-row]')).toHaveCount(2);
 		await screenshot(page, JOURNEY, '11-phone-layers-390');
 	});
 });

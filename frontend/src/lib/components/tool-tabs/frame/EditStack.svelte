@@ -21,7 +21,7 @@
 		type LanePair,
 		type StackRow
 	} from '$lib/tool-tabs/frame/editStack';
-	import type { StackVariant } from '$lib/tool-tabs/frame/types';
+	import type { StackProgress, StackVariant } from '$lib/tool-tabs/frame/types';
 
 	let {
 		stack,
@@ -32,6 +32,8 @@
 		pinned = DEFAULT_PINNED_LANES,
 		moreItems = [],
 		notes,
+		progress = null,
+		progressRow,
 		rowInfo,
 		onrowaction,
 		onreopen,
@@ -51,6 +53,8 @@
 		pinned?: readonly LanePair[];
 		moreItems?: MenuItem[];
 		notes?: Snippet;
+		progress?: StackProgress | null;
+		progressRow?: Snippet<[number]>;
 		rowInfo?: (step: EditStep<unknown>) => StepRowInfo | null;
 		onrowaction?: (id: string, action: string) => void;
 		onreopen: (id: string) => void;
@@ -69,6 +73,15 @@
 	let applied = $derived(appliedCount(stack));
 	let undone = $derived(undoneCount(stack));
 	let sheet = $derived(variant === 'sheet');
+	let grouped = $derived(!!progress && !!progressRow);
+	let slot = $derived.by(() => {
+		if (!progress) return null;
+		if (progress.target && rows.some((row) => row.key === progress.target)) return progress.target;
+		if (rows.some((row) => row.key === 'pending')) return 'pending';
+		let last = 'original';
+		for (const row of rows) if (row.status !== 'undone') last = row.key;
+		return last;
+	});
 	let opened = $state(false);
 	let shut = $derived(!sheet && (collapsed || (folded && !opened)));
 
@@ -133,7 +146,7 @@
 	}
 </script>
 
-<section class="flex min-h-0 flex-col {sheet ? '' : `stack-panel ${shut ? 'h-11 overflow-hidden' : 'h-[236px]'} flex-none border-t border-line`}" aria-label="Edits" data-edit-stack={variant} data-folded={shut || undefined}>
+<section class="flex min-h-0 flex-col {sheet ? '' : `stack-panel ${shut ? 'h-11 overflow-hidden' : grouped ? 'h-[320px] max-h-[60%]' : 'h-[236px]'} flex-none border-t border-line`}" aria-label="Edits" data-edit-stack={variant} data-folded={shut || undefined}>
 	{#if sheet}
 		<div class="flex flex-none items-center gap-2 px-2 pb-2.5 pt-1">
 			<h2 class="text-lg font-semibold text-fg">Edits</h2>
@@ -172,6 +185,7 @@
 				class="group relative flex h-11 items-center gap-2 rounded pl-1 pr-1.5
 					{row.status === 'current' ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
 					{row.status === 'pending' ? 'border border-dashed border-line-hover' : ''}
+						{grouped && slot === row.key && row.status === 'pending' ? '!hidden' : ''}
 					{row.status === 'undone' ? 'opacity-[0.45]' : ''}
 					{dragging ? `z-10 bg-surface-2 shadow-floating ${dropAllowed ? '' : 'cursor-not-allowed'}` : ''}"
 				style={dragging && drag ? `transform: translateY(${drag.dy}px)` : undefined}
@@ -309,6 +323,11 @@
 					</span>
 				{/if}
 			</div>
+			{#if grouped && progressRow && slot === row.key}
+				<div role="listitem" class="mt-0.5" data-stack-group>
+					{@render progressRow(row.status === 'pending' ? row.index : row.index + 1)}
+				</div>
+			{/if}
 		{/each}
 	</div>
 

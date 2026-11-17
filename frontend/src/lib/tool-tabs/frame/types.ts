@@ -51,3 +51,7 @@ export type SaveAction =
 	| { kind: 'copy' };
 
 export type StackVariant = 'panel' | 'sheet';
+
+export interface StackProgress {
+	target: string | null;
+}

@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { foldGroups, railContentHeight, type FoldInput } from './railFold';
+import { foldGroups, foldOrder, railContentHeight, type FoldInput } from './railFold';
 
 const CORE: FoldInput[] = [
-	{ id: 'shape', count: 4, fold: 4 },
-	{ id: 'paint', count: 1 },
-	{ id: 'generate', count: 2, fold: 5 },
-	{ id: 'look', count: 5, fold: 2 },
+	{ id: 'generate', count: 2, fold: 7 },
+	{ id: 'shape', count: 4, fold: 6 },
+	{ id: 'paint', count: 4, fold: 5 },
+	{ id: 'select', count: 3, fold: 3 },
+	{ id: 'look', count: 5, fold: 4 },
 	{ id: 'fx', count: 4, fold: 1 },
 	{ id: 'looks', count: 1 },
-	{ id: 'tools', count: 2, fold: 3 }
+	{ id: 'tools', count: 2, fold: 2 }
 ];
 
 const FULL = railContentHeight(CORE, new Set());
+
+const ORDER = ['fx', 'tools', 'select', 'look', 'paint', 'shape', 'generate'];
 
 describe('railFold', () => {
 	it('keeps every entry an icon when the rail fits', () => {
@@ -20,26 +23,47 @@ describe('railFold', () => {
 	});
 
 	it('folds one group at a time in the fixed order until the rail fits', () => {
-		expect(foldGroups(CORE, FULL - 1)).toEqual(['fx']);
-		const afterFx = railContentHeight(CORE, new Set(['fx']));
-		expect(foldGroups(CORE, afterFx)).toEqual(['fx']);
-		expect(foldGroups(CORE, afterFx - 1)).toEqual(['fx', 'look']);
-		const afterLook = railContentHeight(CORE, new Set(['fx', 'look']));
-		expect(foldGroups(CORE, afterLook - 1)).toEqual(['fx', 'look', 'tools']);
-		const afterTools = railContentHeight(CORE, new Set(['fx', 'look', 'tools']));
-		expect(foldGroups(CORE, afterTools - 1)).toEqual(['fx', 'look', 'tools', 'shape']);
-		expect(foldGroups(CORE, 1)).toEqual(['fx', 'look', 'tools', 'shape', 'generate']);
+		const folded = new Set<string>();
+		ORDER.forEach((id, step) => {
+			const before = railContentHeight(CORE, folded);
+			expect(foldGroups(CORE, before)).toEqual(ORDER.slice(0, step));
+			expect(foldGroups(CORE, before - 1)).toEqual(ORDER.slice(0, step + 1));
+			folded.add(id);
+		});
+		expect(foldGroups(CORE, 1)).toEqual(ORDER);
+	});
+
+	it('folds Effects, Cut out, Select and move, Light and colour, Paint, Transform and Generate, in that order', () => {
+		expect(foldOrder(CORE).map((group) => group.id)).toEqual(['fx', 'tools', 'select', 'look', 'paint', 'shape', 'generate']);
 	});
 
 	it('never folds single-entry groups', () => {
-		expect(foldGroups(CORE, 10)).not.toContain('paint');
+		expect(foldGroups([...CORE, { id: 'solo', count: 1, fold: 0 }], 10)).not.toContain('solo');
 		expect(foldGroups(CORE, 10)).not.toContain('looks');
 	});
 
-	it('matches the mock heights at 1100, 900 and 720 high editors', () => {
-		expect(foldGroups(CORE, 1100 - 118)).toEqual([]);
-		expect(foldGroups(CORE, 900 - 118)).toEqual(['fx']);
-		expect(foldGroups(CORE, 720 - 118)).toEqual(['fx', 'look', 'tools']);
+	it('folds only Effects, Cut out and Select and move at a 1100 high editor, keeping Transform whole', () => {
+		expect(foldGroups(CORE, 1100 - 118)).toEqual(['fx', 'tools', 'select']);
+	});
+
+	it('matches the counts at 720, 800, 900, 1000 and 1100 high editors', () => {
+		const at = (height: number) => {
+			const folded = new Set(foldGroups(CORE, height - 118));
+			return { folded: [...folded], icons: CORE.reduce((sum, group) => sum + (folded.has(group.id) ? 1 : group.count), 0) };
+		};
+		expect(at(720)).toEqual({ folded: ['fx', 'tools', 'select', 'look', 'paint', 'shape'], icons: 9 });
+		expect(at(800)).toEqual({ folded: ['fx', 'tools', 'select', 'look', 'paint'], icons: 12 });
+		expect(at(900)).toEqual({ folded: ['fx', 'tools', 'select', 'look'], icons: 15 });
+		expect(at(1000)).toEqual({ folded: ['fx', 'tools', 'select', 'look'], icons: 15 });
+		expect(at(1100)).toEqual({ folded: ['fx', 'tools', 'select'], icons: 19 });
+	});
+
+	it('never folds Transform before Paint', () => {
+		for (let h = 1; h < FULL + 40; h++) {
+			const folded = foldGroups(CORE, h);
+			if (folded.includes('shape')) expect(folded).toContain('paint');
+			if (folded.includes('generate')) expect(folded).toContain('shape');
+		}
 	});
 
 	it('folds Effects when plugin entries are added', () => {

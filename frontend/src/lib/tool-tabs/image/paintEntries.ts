@@ -1,3 +1,4 @@
+import PaintEditsGroup from '$lib/components/paint/PaintEditsGroup.svelte';
 import { CORE_OWNER } from '$lib/registries/registry';
 import { railGroups, railTools } from '$lib/editors/railTools';
 import {
@@ -13,8 +14,8 @@ import {
 import { pluginTools } from '$lib/paint/registries';
 import type { PaintTool } from '$lib/paint/types';
 
-export const PAINT_FOLD = 7;
-export const SELECT_FOLD = 6;
+export const PAINT_FOLD = 5;
+export const SELECT_FOLD = 3;
 
 const PLUGIN_ORDER_BASE = 1000;
 const pluginEntries = new Map<string, { tool: PaintTool; dispose: () => void }>();
@@ -28,6 +29,7 @@ function entryFor(tool: PaintTool, order: number) {
 		label: tool.label,
 		icon: paintIconFor(tool),
 		order,
+		children: { component: PaintEditsGroup },
 		...(tool.key ? { keys: tool.key } : {})
 	};
 }

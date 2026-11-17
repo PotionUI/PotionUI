@@ -90,11 +90,11 @@ export interface CoreRailGroup {
 }
 
 export const CORE_RAIL: readonly CoreRailGroup[] = [
-	{ id: 'shape', label: 'Transform', fold: 4, tools: ['crop', 'resize', 'canvas', 'slice'] },
-	{ id: 'look', label: 'Light and colour', fold: 2, tools: [] },
+	{ id: 'shape', label: 'Transform', fold: 6, tools: ['crop', 'resize', 'canvas', 'slice'] },
+	{ id: 'look', label: 'Light and colour', fold: 4, tools: [] },
 	{ id: 'fx', label: 'Effects', fold: 1, tools: [] },
 	{ id: 'looks', label: 'Looks', tools: ['effects'] },
-	{ id: 'tools', label: 'Cut out', fold: 3, tools: ['colorKey', 'subject'] }
+	{ id: 'tools', label: 'Cut out', fold: 2, tools: ['colorKey', 'subject'] }
 ];
 
 export const LEGACY_TOOL_ALIAS: Readonly<Record<string, string>> = { adjust: 'light', mask: 'edit_region', paint: 'paint.brush' };

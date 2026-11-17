@@ -152,7 +152,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		await screenshot(page, JOURNEY, '01-rail-tall-dark-1440');
 	});
 
-	test('shorter windows fold Effects first, then Light and colour, Cut out, Transform, Select and move and Paint, with no scrollbar', async ({ page }) => {
+	test('shorter windows fold Effects first, then Cut out, Select and move, Light and colour, Paint and Transform, with no scrollbar', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
 		await setRailHeight(page, 1043);
@@ -162,18 +162,38 @@ test.describe('the Image editor tools map on desktop', () => {
 		await expect(rail(page, 'light')).toBeVisible();
 		await screenshot(page, JOURNEY, '01c-rail-900-dark-1440');
 		await setRailHeight(page, 900 - 118);
-		expect(await folded(page)).toBe('fx look tools shape');
+		expect(await folded(page)).toBe('fx tools select look');
 		await expect(group(page, 'look')).toBeVisible();
 		await expect(group(page, 'tools')).toBeVisible();
-		await expect(group(page, 'shape')).toBeVisible();
+		await expect(group(page, 'select')).toBeVisible();
+		await expect(rail(page, 'crop')).toBeVisible();
 		await expect(rail(page, 'paint.brush')).toBeVisible();
 		await expect(rail(page, 'edit_region')).toBeVisible();
 		await setRailHeight(page, 720 - 118);
-		expect(await folded(page)).toBe('fx look tools shape select paint');
+		expect(await folded(page)).toBe('fx tools select look paint shape');
 		await expect(group(page, 'paint')).toBeVisible();
+		await expect(group(page, 'shape')).toBeVisible();
 		await expect(rail(page, 'edit_region')).toBeVisible();
 		expect(await page.locator('[data-tool-rail]').first().evaluate((node) => (node as HTMLElement).scrollHeight <= (node as HTMLElement).clientHeight)).toBe(true);
 		await screenshot(page, JOURNEY, '01d-rail-720-dark-1440');
+	});
+
+	test('the fold at 720, 800, 900, 1000 and 1100 high editors', async ({ page }) => {
+		await begin(page);
+		await openHarbor(page);
+		const expected: Record<number, { folded: string; icons: number }> = {
+			720: { folded: 'fx tools select look paint shape', icons: 9 },
+			800: { folded: 'fx tools select look paint', icons: 12 },
+			900: { folded: 'fx tools select look', icons: 15 },
+			1000: { folded: 'fx tools select look', icons: 15 },
+			1100: { folded: 'fx tools select', icons: 19 }
+		};
+		for (const height of [720, 800, 900, 1000, 1100]) {
+			await setRailHeight(page, height - 118);
+			const state = { folded: (await folded(page)) ?? '', icons: await page.locator('[data-tool-rail] > button').count() };
+			test.info().annotations.push({ type: `fold-${height}`, description: `${state.folded} | ${state.icons} icons` });
+			expect(state, `${height} high`).toEqual(expected[height]);
+		}
 	});
 
 	test('picking from a flyout selects the entry, closes it, and selecting never moves an icon', async ({ page }) => {

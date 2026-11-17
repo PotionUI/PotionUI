@@ -316,6 +316,11 @@
 		void $editorsRevision;
 		return activeTool ? railTools.get('image', activeTool) : undefined;
 	});
+	let stackGroup = $derived.by(() => {
+		if (!registeredTool?.children || !source) return null;
+		if (paintActive && !paintState) return null;
+		return { target: pendingHere?.target ?? null };
+	});
 	let rowInfoFor = $derived.by(() => {
 		void $editorsRevision;
 		void $runViews;
@@ -1968,7 +1973,7 @@
 		{/if}
 	{:else if paintActive}
 		{#if paintSession && paintState}
-			<PaintOptions session={paintSession} state={paintState} {phone} />
+			<PaintOptions session={paintSession} state={paintState} {phone} layers={false} />
 		{:else}
 			<div class="flex justify-center py-4"><Spinner /></div>
 		{/if}
@@ -2211,6 +2216,7 @@
 		pinned={IMAGE_PINNED_LANES}
 		moreItems={stackMore}
 		rowInfo={rowInfoFor}
+		progress={stackGroup}
 		onrowaction={(id, action) => {
 			const step = stack.steps.find((candidate) => candidate.id === id);
 			if (!step) return;
@@ -2239,6 +2245,11 @@
 			if (id === 'clear') void removeAllEdits();
 		}}
 	>
+		{#snippet progressRow(index)}
+			{#if registeredTool?.children}
+				<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.children} props={{ host: toolHost, phone, index, session: paintSession, state: paintState }} />
+			{/if}
+		{/snippet}
 		{#snippet notes()}
 			{#if (sliceInStack || appliedSlice) && !phone}
 				<div class="mx-2 mb-2.5 mt-1 flex flex-none items-start gap-2 rounded bg-surface-2 px-2.5 py-2 text-sm text-fg-muted" data-stack-note="slice">

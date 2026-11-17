@@ -12,12 +12,14 @@
 		state: snapshot,
 		phone = false,
 		layerActions = [],
+		layers = true,
 		onSaveFilter = () => {}
 	}: {
 		session: PaintSession;
 		state: SessionSnapshot;
 		phone?: boolean;
 		layerActions?: LayerAction[];
+		layers?: boolean;
 		onSaveFilter?: () => void;
 	} = $props();
 
@@ -27,10 +29,12 @@
 {#if phone}
 	<div class="flex flex-col gap-3" data-paint-options="phone">
 		<PaintToolPanel {session} state={snapshot} {phone} {onSaveFilter} />
+		{#if layers}
 		<Button variant="secondary" size="sm" icon="layers" class="w-full" ariaHaspopup="dialog" onclick={() => (layersOpen = true)} attrs={{ 'data-paint-layers-button': '' }}>
 			Layers
 			<span class="font-mono tabular-nums text-fg-subtle">{snapshot.layers.length}</span>
 		</Button>
+		{/if}
 	</div>
 	{#if layersOpen}
 		<FrameSheet label="Layers" onclose={() => (layersOpen = false)}>
@@ -41,6 +45,6 @@
 	{/if}
 {:else}
 	<div data-paint-options="desktop">
-		<PaintPanel {session} state={snapshot} {layerActions} {onSaveFilter} />
+		<PaintPanel {session} state={snapshot} {layerActions} withLayers={layers} {onSaveFilter} />
 	</div>
 {/if}

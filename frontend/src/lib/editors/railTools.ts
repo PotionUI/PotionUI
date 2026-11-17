@@ -28,6 +28,7 @@ export interface RailToolEntry extends EditorEntryBase {
 	overlay?: string;
 	bar?: ComponentRef;
 	settings?: ComponentRef;
+	children?: ComponentRef;
 	task?: string;
 	ai?: boolean;
 	available?(ctx: ToolAvailability): { ok: true } | { ok: false; reason: string };

@@ -18,13 +18,17 @@
 		state: snapshot,
 		phone = false,
 		actions = [],
-		note = true
+		note = true,
+		nested = false,
+		adding = $bindable(false)
 	}: {
 		session: PaintSession;
 		state: SessionSnapshot;
 		phone?: boolean;
 		actions?: LayerAction[];
 		note?: boolean;
+		nested?: boolean;
+		adding?: boolean;
 	} = $props();
 
 	registerIcon('paint-merge', PAINT_ICONS.merge);
@@ -32,7 +36,6 @@
 
 	let renaming = $state<number | null>(null);
 	let renameDraft = $state('');
-	let adding = $state(false);
 	let dragFrom = $state<number | null>(null);
 	let dropAt = $state<{ index: number; after: boolean } | null>(null);
 	let opacityBefore: DocSnapshot | null = null;
@@ -47,7 +50,14 @@
 	let active = $derived(snapshot.layers[snapshot.activeIndex]);
 	let opacityPercent = $derived(Math.round((active?.opacity ?? 1) * 100));
 
-	const iconButton = 'inline-flex h-8 w-8 flex-none items-center justify-center rounded text-fg-muted hover:bg-surface-3/50 hover:text-fg focus-visible:outline focus-visible:outline-1 focus-visible:outline-signal';
+	let rowMin = $derived(phone ? 'min-h-[52px]' : nested ? 'min-h-10' : 'min-h-11');
+	let thumbSize = $derived(nested ? 'h-7 w-7' : 'h-9 w-9');
+
+	function revealOnce(node: HTMLElement) {
+		if (nested) node.scrollIntoView?.({ block: 'nearest' });
+	}
+
+	const iconButton ='inline-flex h-8 w-8 flex-none items-center justify-center rounded text-fg-muted hover:bg-surface-3/50 hover:text-fg focus-visible:outline focus-visible:outline-1 focus-visible:outline-signal';
 
 	function addItems(): MenuItem[] {
 		return [
@@ -161,15 +171,17 @@
 	}
 </script>
 
-<section class="relative flex flex-col gap-2.5" aria-label="Layers" data-paint-layers>
-	<div class="flex items-center gap-2">
-		<h3 class="text-base font-semibold text-fg">Layers</h3>
-		<span class="font-mono text-sm tabular-nums text-fg-subtle" data-layer-count>{snapshot.layers.length}</span>
-		<span class="flex-1"></span>
-		<Menu label="Add a layer" icon="plus" size="sm" items={addItems()} onselect={chooseAdd} align="right" width={240} menuAttrs={{ 'data-layers-add-menu': '' }} />
-	</div>
+<section class="relative flex flex-col {nested ? 'gap-1.5' : 'gap-2.5'}" aria-label="Layers" data-paint-layers data-paint-layers-nested={nested || undefined}>
+	{#if !nested}
+		<div class="flex items-center gap-2">
+			<h3 class="text-base font-semibold text-fg">Layers</h3>
+			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-layer-count>{snapshot.layers.length}</span>
+			<span class="flex-1"></span>
+			<Menu label="Add a layer" icon="plus" size="sm" items={addItems()} onselect={chooseAdd} align="right" width={240} menuAttrs={{ 'data-layers-add-menu': '' }} />
+		</div>
+	{/if}
 	{#if note}
-		<p class="text-sm text-fg-subtle" data-layers-note>Layers land as one edit when you press Apply paint.</p>
+		<p class="text-sm text-fg-subtle {nested ? 'pl-4 pr-1' : ''}" data-layers-note>Layers land as one edit when you press Apply paint.</p>
 	{/if}
 
 	{#if adding}
@@ -178,15 +190,15 @@
 		</div>
 	{/if}
 
-	<ul class="flex flex-col gap-1.5" aria-label="Layers">
+	<ul class="flex flex-col gap-1.5 {nested ? 'ml-[22px] border-l border-line pl-2' : ''}" aria-label="Layers">
 		{#if floating}
-			<li data-floating-row>
-				<div class="flex items-center gap-2 rounded border border-dashed border-signal bg-signal/10 px-1.5 {phone ? 'min-h-[52px]' : 'min-h-11'}">
+			<li data-floating-row use:revealOnce class={nested ? 'relative before:absolute before:-left-2 before:top-5 before:h-px before:w-2 before:bg-line' : ''}>
+				<div class="flex items-center gap-2 rounded border border-dashed border-signal bg-signal/10 px-1.5 {rowMin}">
 					<span class="w-4 flex-none" aria-hidden="true"></span>
 					<button type="button" class={iconButton} aria-label={floating.visible ? 'Hide floating piece' : 'Show floating piece'} aria-pressed={floating.visible} onclick={() => session.toggleLayerVisible(snapshot.layers.indexOf(floating!))}>
 						<Icon name={floating.visible ? 'editor-eye' : 'editor-eye-off'} className="h-4 w-4" />
 					</button>
-					<canvas width="36" height="36" class="alpha-checker h-9 w-9 flex-none rounded-sm" use:thumb={{ layer: floating, revision: snapshot.revision }}></canvas>
+					<canvas width="36" height="36" class="alpha-checker {thumbSize} flex-none rounded-sm" use:thumb={{ layer: floating, revision: snapshot.revision }}></canvas>
 					<div class="flex min-w-0 flex-1 flex-col">
 						<span class="truncate text-base text-fg">Floating piece</span>
 						<span class="flex items-center gap-1 text-sm text-signal">Press <Kbd keys="Enter" /> to place</span>
@@ -213,6 +225,7 @@
 			<li
 				data-layer-row={index}
 				data-layer-active={isActive || undefined}
+				class={nested ? 'relative before:absolute before:-left-2 before:top-5 before:h-px before:w-2 before:bg-line' : ''}
 				use:dropRow={{ over: (event) => dragOver(event, index), drop }}
 			>
 				{#if dropAt && dropAt.index === index && !dropAt.after && dragFrom !== null && dragFrom !== index}
@@ -222,7 +235,7 @@
 					class="rounded border {isActive ? 'border-signal/60 bg-signal/10' : 'border-line bg-surface-2 hover:border-line-hover'} {dragFrom === index ? 'opacity-50' : ''}"
 					data-layer-box
 				>
-					<div class="flex items-center gap-1 px-1 {phone ? 'min-h-[52px]' : 'min-h-11'}">
+					<div class="flex items-center gap-1 px-1 {rowMin}">
 						<span
 							class="inline-flex h-8 w-5 flex-none cursor-grab items-center justify-center text-fg-subtle active:cursor-grabbing"
 							role="button"
@@ -247,7 +260,7 @@
 						</button>
 						{#if renaming === layer.id}
 							<div class="flex min-w-0 flex-1 items-center gap-2 px-1 py-1">
-								<canvas width="36" height="36" class="alpha-checker h-9 w-9 flex-none rounded-sm" use:thumb={{ layer, revision: snapshot.revision }}></canvas>
+								<canvas width="36" height="36" class="alpha-checker {thumbSize} flex-none rounded-sm" use:thumb={{ layer, revision: snapshot.revision }}></canvas>
 								<input
 									type="text"
 									class="h-8 min-w-0 flex-1 rounded border border-signal/60 bg-surface-1 px-2 text-base text-fg focus:outline-none"
@@ -272,7 +285,7 @@
 								ondblclick={() => startRename(layer)}
 								data-layer-select
 							>
-								<canvas width="36" height="36" class="alpha-checker h-9 w-9 flex-none rounded-sm" use:thumb={{ layer, revision: snapshot.revision }}></canvas>
+								<canvas width="36" height="36" class="alpha-checker {thumbSize} flex-none rounded-sm" use:thumb={{ layer, revision: snapshot.revision }}></canvas>
 								<span class="flex min-w-0 flex-1 flex-col">
 									<span class="truncate text-base {layer.visible ? 'text-fg' : 'text-fg-disabled'}">{layer.name}</span>
 									{#if hint}<span class="truncate text-sm text-fg-subtle">{hint}</span>{/if}

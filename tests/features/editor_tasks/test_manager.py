@@ -44,7 +44,7 @@ def test_offers_name_the_modes_and_their_strategy(tmp_path):
     assert offers[0]["mode_label"]
     assert offers[0]["from_mode"] == "edit"
     assert offers[0]["order"] == 0
-    assert offers[0]["variant"] is None
+    assert "variant" not in offers[0] and "owned" not in offers[0]
     assert "reason" not in offers[0]
 
 
@@ -68,14 +68,6 @@ def test_an_offer_carries_the_short_description_and_the_order_and_sorts_by_them(
         ("editor:edit2", 1, "First", "Quick"),
         ("editor:edit", 5, "Second", offers[1]["mode_label"]),
     ]
-
-
-def test_an_offer_lists_its_owned_fields_for_the_client_that_still_hides_them(tmp_path):
-    manager = build(tmp_path, {"A-CROP": task(fixed={"output_size": "match"}, fields={"hide": ["resolution"]})})
-
-    offer = entry(manager.offers(USER), "edit_region")["offers"][0]
-
-    assert offer["owned"] == ["output_size", "quantity", "resolution", "source_image"]
 
 
 def test_a_preset_the_user_may_not_use_is_absent(tmp_path):
@@ -182,7 +174,7 @@ def test_owned_fields_are_the_inputs_the_fixed_values_and_the_hidden_fields(tmp_
 
     expected = {"source_image", "output_size", "resolution", "quantity"}
     assert manager.owned_fields("A-CROP", "editor:edit") == expected
-    assert manager.owned_fields("A-CROP", "edit") == expected
+    assert manager.owned_fields("A-CROP", "edit") == set()
     assert manager.owned_fields("A-CROP", "editor:missing") == set()
     assert manager.owned_fields("NOPE", "editor:edit") == set()
 
@@ -191,7 +183,7 @@ def test_the_mode_status_tells_unknown_from_not_offered(tmp_path):
     manager = build(tmp_path, {"A-CROP": CROP, "B-MASK": task(task="ghost.relight")})
 
     assert manager.mode_status("A-CROP", "editor:edit") == "ok"
-    assert manager.mode_status("A-CROP", "edit") == "ok"
+    assert manager.mode_status("A-CROP", "edit") == "unknown"
     assert manager.mode_status("A-CROP", "editor:nope") == "unknown"
     assert manager.mode_status("NOPE", "editor:edit") == "unknown"
     assert manager.mode_status("B-MASK", "editor:edit") == "not_offered"
@@ -205,23 +197,17 @@ def test_a_generation_mode_is_not_an_editor_mode(tmp_path):
     assert all(item["offers"] == [] for item in manager.offers(USER))
 
 
-def test_a_mode_name_without_the_prefix_resolves_to_the_one_editor_mode_derived_from_it(tmp_path):
-    manager = build(tmp_path, {"A-CROP": CROP})
-
-    offer = manager.resolve_offer(USER, "edit_region", "A-CROP", "edit")
-
-    assert offer.mode_name == "editor:edit" and offer.spec.from_mode == "edit"
-
-
-def test_an_unprefixed_name_that_matches_no_or_several_editor_modes_is_a_plain_422(tmp_path):
+def test_a_mode_name_without_the_prefix_is_a_plain_422(tmp_path):
     from src.platform.http.errors import DomainError
 
-    manager = build(tmp_path, {"A-CROP": [task(), task(label="Other")]})
+    manager = build(tmp_path, {"A-CROP": CROP})
 
-    for name in ("missing", "edit"):
+    for name in ("missing", "edit", "edit_region"):
         with pytest.raises(DomainError) as caught:
             manager.resolve_offer(USER, "edit_region", "A-CROP", name)
         assert caught.value.status_code == 422 and caught.value.code == "task_not_offered"
+    assert manager.mode_status("A-CROP", "edit") == "unknown"
+    assert manager.owned_fields("A-CROP", "edit") == set()
 
 
 def test_the_fallback_resolves_for_a_preset_without_its_own_mode_only(tmp_path):

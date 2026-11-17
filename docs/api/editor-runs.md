@@ -19,16 +19,14 @@ You need a key with **Can generate** to start or cancel a run and **Can read** t
 {
   "preset_id": "...", "preset_name": "Krea-2", "mode": "editor:edit", "from_mode": "edit",
   "mode_label": "Edit", "mode_icon": "pencil", "label": "Edit", "short_description": null, "order": 0,
-  "region_strategy": "crop", "via": null, "qualifies": true,
-  "owned": ["quantity", "source_image", "match_source", "fit_mode"], "variant": null
+  "region_strategy": "crop", "via": null, "qualifies": true
 }
 ```
 
 `mode` is the editor key to send back. `from_mode` is the generation mode it derives from (`null` for a standalone
 editor mode). `mode_label` and `mode_icon` are what the mode picker shows: the label, and an icon name from the app's icon set (`null` when the mode has none); a derived mode inherits both from its `from` mode unless `editor_mode.yml` sets `label` or `icon`. `via` names the task an offer reaches through the fallback, per preset: a preset that ships its own
-mode for a task is offered with `via: null` and its modes of the fallback task are not offered for it. `owned` lists the fields the
-editor fills or hides, and `variant` is always `null`; both stay for clients that still read them, and the served
-form (`GET /api/presets/{id}/form?mode=editor:<name>`) already leaves those fields out.
+mode for a task is offered with `via: null` and its modes of the fallback task are not offered for it. The served
+form (`GET /api/presets/{id}/form?mode=editor:<name>`) leaves out the fields the editor fills or hides.
 
 ## Start a run
 
@@ -49,7 +47,7 @@ form (`GET /api/presets/{id}/form?mode=editor:<name>`) already leaves those fiel
 
 - `edit` is a saved edit you own. `input` is the picture and `steps` are the visible edit steps beneath, the same list Save sends; the server renders them to get the picture the model must see (at most 8192 px on the long side).
 - `region` is an image whose pixels at 128 or above mark the area. Leave it out to edit the whole picture, when the task allows it.
-- `setup` names the editor mode, written `editor:<name>` as the offers of `GET /api/editor/tasks` list it, and its form values. The picture, the mask, the output size, the number of results, the seed and the `fixed` values of the editor mode's `editor_mode.yml` are filled by the server and replace whatever you send for them; its `hide` fields keep their own defaults. For one more release a generation mode name without the prefix (`"edit"`) is accepted and maps to the one editor mode derived from it for that task; no match or several answers `422 task_not_offered`. `variant` is ignored.
+- `setup` names the editor mode, written `editor:<name>` as the offers of `GET /api/editor/tasks` list it, and its form values. The picture, the mask, the output size, the number of results, the seed and the `fixed` values of the editor mode's `editor_mode.yml` are filled by the server and replace whatever you send for them; its `hide` fields keep their own defaults. A mode name without the prefix answers `422 task_not_offered`.
 - `candidates` is 1 to 4. `seed` pins the seed; leave it out to use the form's.
 
 The generation carries the editor key as its `mode`, and `POST /api/generations/start` itself refuses an editor key with `422 mode_is_editor`; only a run may use one. The run goes through the same submit path as that route, so the plan limits, quotas, content policy and preset access that apply there apply here, with the same answers. A refused start leaves no run behind.
@@ -112,7 +110,7 @@ A **setup** is what a task runs with: an editor mode that offers the task, plus 
 
 ```json
 {
-  "preset_id": "...", "preset_name": "Qwen-Image 2.1", "mode": "editor:edit", "mode_label": "Edit", "variant": null,
+  "preset_id": "...", "preset_name": "Qwen-Image 2.1", "mode": "editor:edit", "mode_label": "Edit",
   "setup": { "kind": "session", "id": "...", "name": "Soft portrait", "version": 4, "updated_at": "2026-11-16T10:00:00+00:00" },
   "set_at": "2026-11-16T09:30:00+00:00",
   "health": { "ok": true }
@@ -154,7 +152,7 @@ When several apply, the first one in this table is reported. Deleting a session 
 | 404 | `default_session_not_found`, `default_formula_not_found` | The session or formula does not exist, or is not yours (the answer is the same). |
 | 422 | `offer_unavailable` | No backend is set up for the preset's engine. |
 | 422 | `default_session_mismatch`, `default_formula_mismatch` | The session is not an editor session of that preset and mode, or the formula does not apply to it. |
-| 422 | `task_not_offered` | The editor mode does not offer the task, or a mode name without the prefix matches none or several. |
+| 422 | `task_not_offered` | The editor mode does not offer the task, or the mode name has no `editor:` prefix. |
 | 422 | `mode_is_editor` | Returned by `POST /api/generations/start`: an editor key is for editor runs only. |
 | 422 | `prompt_required`, `region_required`, `region_empty` | The task needs a prompt or a marked area. |
 | 403 | `limit_exceeded` and the other generation refusals | The same refusals as starting a generation. |

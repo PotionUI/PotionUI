@@ -26,8 +26,6 @@ EDITOR_SESSION_KIND = "editor"
 
 OwnedLookup = Callable[[str, Iterable[str]], Dict[str, Any]]
 
-_unprefixed_logged: Set[str] = set()
-
 
 @dataclass(frozen=True)
 class EditorEntry:
@@ -109,27 +107,6 @@ class EditorTaskManager:
                 found.append(EditorEntry(template, name, mode, spec))
         return found
 
-    def canonical_key(self, preset_id: str, task_id: str, mode: str) -> Optional[str]:
-        if is_editor_key(mode):
-            return mode
-        wanted = {task_id}
-        task = self.registry.get(task_id)
-        if task is not None and task.fallback is not None:
-            wanted.add(task.fallback[0])
-        matches = [
-            entry.key
-            for entry in self.editor_entries()
-            if entry.template.id == preset_id
-            and entry.spec.task in wanted
-            and (entry.spec.from_mode == mode or entry.name == mode)
-        ]
-        if len(set(matches)) != 1:
-            return None
-        if mode not in _unprefixed_logged:
-            _unprefixed_logged.add(mode)
-            logger.info("Editor task %s: the mode '%s' was sent without a prefix; using %s", task_id, mode, matches[0])
-        return matches[0]
-
     def _offer(self, entry: EditorEntry, via: Optional[str]) -> Dict[str, Any]:
         template, spec = entry.template, entry.spec
         mode_label = mode_display_name(entry.name, entry.mode.mode_label)
@@ -144,11 +121,9 @@ class EditorTaskManager:
             "label": spec.label or mode_label,
             "short_description": short_description_of(entry),
             "order": spec.order,
-            "variant": None,
             "region_strategy": spec.region,
             "via": via,
             "qualifies": qualifies,
-            "owned": sorted(owned_names(spec)),
         }
         if not qualifies:
             offer["reason"] = NO_BACKEND
@@ -298,7 +273,6 @@ class EditorTaskManager:
             "preset_name": preset_name,
             "mode": item.mode,
             "mode_label": mode_label,
-            "variant": None,
             "setup": setup,
             "set_at": item.set_at,
             "health": health,
@@ -349,7 +323,6 @@ class EditorTaskManager:
                 task=offer.task.id,
                 preset_id=body.preset_id,
                 mode=key,
-                variant=None,
                 setup_kind=setup.kind,
                 setup_id=setup.id,
                 setup_name=setup_name,
@@ -369,18 +342,17 @@ class EditorTaskManager:
         return self.entry_for(user, task_id)
 
     def mode_status(self, preset_id: str, mode_name: str) -> str:
-        key = mode_name if is_editor_key(mode_name) else f"{EDITOR_KEY_PREFIX}{mode_name}"
+        key = mode_name
         template = next((item for item in self._templates() if item.id == preset_id), None)
-        if template is None or find_mode(template, key) is None:
+        if not is_editor_key(key) or template is None or find_mode(template, key) is None:
             return "unknown"
         if any(entry.template.id == preset_id and entry.key == key for entry in self.editor_entries()):
             return "ok"
         return "not_offered"
 
     def owned_fields(self, preset_id: str, mode_name: str) -> Set[str]:
-        key = mode_name if is_editor_key(mode_name) else f"{EDITOR_KEY_PREFIX}{mode_name}"
         template = next((item for item in self._templates() if item.id == preset_id), None)
-        mode = find_mode(template, key)
+        mode = find_mode(template, mode_name) if is_editor_key(mode_name) else None
         return owned_names(mode.editor) if mode is not None and mode.editor is not None else set()
 
     def resolve_offer(self, user: Any, task_id: str, preset_id: str, mode_name: str) -> ResolvedOffer:
@@ -389,9 +361,9 @@ class EditorTaskManager:
             raise NotFoundError("task_not_found", "This task does not exist")
         if preset_id not in self._visible_preset_ids(user):
             raise NotFoundError("preset_not_found", "The selected preset is not available")
-        key = self.canonical_key(preset_id, task_id, mode_name)
-        if key is None:
+        if not is_editor_key(mode_name):
             raise DomainError("task_not_offered", "This mode does not offer that task", 422)
+        key = mode_name
         entries = [entry for entry in self.editor_entries() if entry.template.id == preset_id]
         has_own = any(entry.spec.task == task.id for entry in entries)
         wanted = [(task.id, None)]

@@ -90,10 +90,8 @@ def test_the_editor_mode_carries_the_client_facing_fields(templates, folder, nam
         if offer["preset_id"] == template.id and offer["mode"] == f"editor:{name}"
     )
 
-    assert offer["variant"] is None
+    assert "variant" not in offer and "owned" not in offer
     assert offer["from_mode"] == template.editor_modes[name].editor.from_mode
-    assert "source_image" in offer["owned"] or "references" in offer["owned"]
-    assert "quantity" in offer["owned"]
 
 
 def test_every_shipped_offer_carries_its_from_modes_icon_and_a_label(templates):

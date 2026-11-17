@@ -92,16 +92,18 @@ async def test_the_run_submits_the_editor_key_as_an_editor_run(setup):
 
 
 @pytest.mark.asyncio
-async def test_a_body_with_the_old_generation_mode_name_starts_the_run_of_its_editor_mode(setup):
+async def test_a_body_with_a_generation_mode_name_is_a_plain_422_and_starts_nothing(setup):
     manager, fakes, edit_id = setup
 
-    await manager.start(USER, "edit_region", body(edit_id, mode="edit"))
+    with pytest.raises(DomainError) as refused:
+        await manager.start(USER, "edit_region", body(edit_id, mode="edit"))
 
-    assert fakes.requests[0].mode == "editor:edit"
+    assert refused.value.status_code == 422 and refused.value.code == "task_not_offered"
+    assert fakes.requests == []
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["nope", "editor:nope"])
+@pytest.mark.parametrize("mode", ["nope", "edit", "editor:nope"])
 async def test_a_mode_that_matches_no_editor_mode_is_a_plain_422(setup, mode):
     manager, fakes, edit_id = setup
 

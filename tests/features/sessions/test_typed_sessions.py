@@ -133,9 +133,9 @@ class TestKindOnWrite:
         assert post(world, "Odd", {"txt2img": form()}, kind="video").status_code == 422
 
     def test_saving_again_keeps_the_kind(self, world):
-        post(world, "Soft", {"txt2img": form(seed=3)}, kind="editor")
+        post(world, "Soft", {"editor:txt2img": form(seed=3)}, kind="editor")
 
-        again = post(world, "Soft", {"txt2img": form(seed=4)}, kind="editor")
+        again = post(world, "Soft", {"editor:txt2img": form(seed=4)}, kind="editor")
 
         assert again.status_code == 200
         assert again.json()["data"]["kind"] == "editor"
@@ -375,7 +375,7 @@ class TestEditorStripping:
     def test_the_mode_argument_form_is_stripped_too(self, world):
         preset = world.shipped.ids["Flux3"]
 
-        response = post(world, "Soft", self.mode_payload(source_image="a", seed=1), kind="editor", mode="edit", preset=preset)
+        response = post(world, "Soft", self.mode_payload(source_image="a", seed=1), kind="editor", mode="editor:edit", preset=preset)
 
         assert response.json()["data"]["data"]["editor:edit"]["formData"] == {"seed": 1}
         assert "prompt" not in response.json()["data"]["data"]["editor:edit"]
@@ -434,7 +434,7 @@ class TestEditorStripping:
         assert version == {"edit": payload}
 
     def test_a_mode_without_a_declaration_still_loses_the_non_form_keys(self, world):
-        response = post(world, "Soft", {"txt2img": self.mode_payload(seed=1, quantity=2)}, kind="editor")
+        response = post(world, "Soft", {"editor:txt2img": self.mode_payload(seed=1, quantity=2)}, kind="editor")
 
         assert response.json()["data"]["data"] == {
             "editor:txt2img": {"formData": {"seed": 1, "quantity": 2}, "selectedVariant": "default", "presetVersion": "1.4.0"}
@@ -503,35 +503,35 @@ class TestEditorModeRefusals:
         full = {"edit": {**PAYLOAD_EXTRAS, "formData": {"source_image": "a", "output_size": "match", "seed": 9}}}
         generation = post(world, "Gen", full, preset=preset)
 
-        copy = post(world, "Gen as setup", generation.json()["data"]["data"], kind="editor", preset=preset)
+        rekeyed = {f"editor:{mode}": payload for mode, payload in generation.json()["data"]["data"].items()}
+        copy = post(world, "Gen as setup", rekeyed, kind="editor", preset=preset)
 
         assert copy.json()["data"]["data"] == {
             "editor:edit": {"formData": {"seed": 9}, "selectedVariant": "default", "presetVersion": "1.4.0"}
         }
 
 
-class TestUnprefixedKeysFromAnOlderClient:
+class TestEditorKeysAreRequired:
     def mode_payload(self, **form_values):
         return {**PAYLOAD_EXTRAS, "formData": form_values}
 
-    def test_a_key_without_the_prefix_is_stored_with_it_and_stripped(self, world):
+    def test_a_key_without_the_prefix_is_refused(self, world):
         preset = world.shipped.ids["Flux3"]
 
-        response = post(world, "Soft", {"edit": self.mode_payload(source_image="a", output_size="match", seed=3)}, kind="editor", preset=preset)
+        response = post(world, "Soft", {"edit": self.mode_payload(seed=3)}, kind="editor", preset=preset)
 
-        assert list(response.json()["data"]["data"]) == ["editor:edit"]
-        assert response.json()["data"]["data"]["editor:edit"]["formData"] == {"seed": 3}
+        assert response.status_code == 422
+        assert response.json()["detail"]["error"] == "session_mode_unknown"
 
-    def test_the_mode_argument_without_the_prefix_lands_on_the_prefixed_key_without_a_twin(self, world):
+    def test_the_mode_argument_without_the_prefix_is_refused(self, world):
         preset = world.shipped.ids["Flux3"]
-        post(world, "Soft", {"editor:edit": self.mode_payload(seed=1)}, kind="editor", preset=preset)
 
-        again = post(world, "Soft", self.mode_payload(seed=2, source_image="a"), kind="editor", mode="edit", preset=preset)
+        response = post(world, "Soft", self.mode_payload(seed=2), kind="editor", mode="edit", preset=preset)
 
-        assert list(again.json()["data"]["data"]) == ["editor:edit"]
-        assert again.json()["data"]["data"]["editor:edit"]["formData"] == {"seed": 2}
+        assert response.status_code == 422
+        assert response.json()["detail"]["error"] == "session_mode_unknown"
 
-    def test_an_update_by_id_with_the_old_key_does_not_leave_a_second_entry(self, world):
+    def test_an_update_by_id_with_a_key_without_the_prefix_is_refused_and_changes_nothing(self, world):
         preset = world.shipped.ids["Flux3"]
         created = post(world, "Soft", {"editor:edit": self.mode_payload(seed=1)}, kind="editor", preset=preset).json()["data"]
 
@@ -539,26 +539,19 @@ class TestUnprefixedKeysFromAnOlderClient:
             f"/api/sessions/{created['id']}", json={"name": "Soft", "data": {"edit": self.mode_payload(seed=5)}}
         )
 
-        assert list(updated.json()["data"]["data"]) == ["editor:edit"]
-        assert updated.json()["data"]["data"]["editor:edit"]["formData"] == {"seed": 5}
+        assert updated.status_code == 422
+        assert updated.json()["detail"]["error"] == "session_mode_unknown"
+        stored = world.client.get(f"/api/sessions/{created['id']}").json()["data"]["data"]
+        assert list(stored) == ["editor:edit"] and stored["editor:edit"]["formData"] == {"seed": 1}
 
-    def test_listing_by_the_old_name_finds_a_prefixed_session_and_an_old_unmigrated_one(self, world):
+    def test_listing_by_a_name_without_the_prefix_finds_nothing(self, world):
         save(world.sessions, USER, name="New", session_id="new", kind="editor", data={"editor:edit": form(seed=1)})
-        save(world.sessions, USER, name="Old", session_id="old", kind="editor", data={"edit": form(seed=1)})
 
-        by_old = ids(world.client.get(f"/api/sessions/preset/{PRESET}?kind=editor&mode=edit"))
-        by_new = ids(world.client.get(f"/api/sessions/preset/{PRESET}?kind=editor&mode=editor:edit"))
+        by_plain = ids(world.client.get(f"/api/sessions/preset/{PRESET}?kind=editor&mode=edit"))
+        by_key = ids(world.client.get(f"/api/sessions/preset/{PRESET}?kind=editor&mode=editor:edit"))
 
-        assert sorted(by_old) == ["new", "old"]
-        assert by_new == ["new"]
-
-    def test_saving_another_mode_prefixes_the_old_keys_already_stored(self, world):
-        save(world.sessions, USER, name="Old", session_id="old", kind="editor", data={"edit": form(seed=1)})
-
-        updated = world.client.put("/api/sessions/old", json={"name": "Old", "data": {"editor:other": form(seed=2)}})
-
-        assert sorted(updated.json()["data"]["data"]) == ["editor:edit", "editor:other"]
-        assert updated.json()["data"]["data"]["editor:edit"] == form(seed=1)
+        assert by_plain == []
+        assert by_key == ["new"]
 
     def test_a_generation_session_keys_are_never_prefixed(self, world):
         response = post(world, "Gen", {"txt2img": form(seed=1)})

@@ -58,7 +58,7 @@ def payload(edit_id, **extra):
         "input": {"item_id": "picture"},
         "region": {"item_id": "region"},
         "prompt": "a scarf",
-        "setup": {"preset_id": "A-CROP", "mode": "edit", "form_data": {}},
+        "setup": {"preset_id": "A-CROP", "mode": "editor:edit", "form_data": {}},
     }
     data.update(extra)
     return data
@@ -76,7 +76,7 @@ def test_starting_a_run_answers_202_with_the_run(api):
 
 
 def test_a_client_cannot_set_the_origin_through_the_run_body(api):
-    start(api, origin={"kind": "editor", "edit_id": "forged"}, setup={"preset_id": "A-CROP", "mode": "edit", "form_data": {"origin": {"x": 1}}})
+    start(api, origin={"kind": "editor", "edit_id": "forged"}, setup={"preset_id": "A-CROP", "mode": "editor:edit", "form_data": {"origin": {"x": 1}}})
 
     assert api.fakes.origins["g1"]["edit_id"] == api.edit_id
     assert api.fakes.origins["g1"]["run_id"].startswith("er_")

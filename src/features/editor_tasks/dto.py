@@ -15,7 +15,6 @@ class RunEditRef(BaseModel):
 class RunSetup(BaseModel):
     preset_id: str = Field(min_length=1)
     mode: str = Field(min_length=1)
-    variant: Optional[str] = None
     form_data: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -44,5 +43,4 @@ class DefaultSetup(BaseModel):
 class SetTaskDefaultRequest(BaseModel):
     preset_id: str = Field(min_length=1)
     mode: str = Field(min_length=1)
-    variant: Optional[str] = Field(default=None, max_length=128)
     setup: DefaultSetup

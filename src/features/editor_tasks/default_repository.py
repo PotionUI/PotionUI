@@ -9,7 +9,6 @@ class TaskDefault:
     task: str
     preset_id: str
     mode: str
-    variant: Optional[str]
     setup_kind: str
     setup_id: Optional[str]
     setup_name: Optional[str]
@@ -18,7 +17,7 @@ class TaskDefault:
     set_at: str
 
 _COLUMNS = (
-    "user_id, task, preset_id, mode, variant, setup_kind, setup_id, setup_name, preset_name, mode_label, set_at"
+    "user_id, task, preset_id, mode, setup_kind, setup_id, setup_name, preset_name, mode_label, set_at"
 )
 
 def _to_default(row) -> TaskDefault:
@@ -27,7 +26,6 @@ def _to_default(row) -> TaskDefault:
         task=row["task"],
         preset_id=row["preset_id"],
         mode=row["mode"],
-        variant=row["variant"],
         setup_kind=row["setup_kind"],
         setup_id=row["setup_id"],
         setup_name=row["setup_name"],
@@ -46,13 +44,13 @@ class TaskDefaultRepository:
     def upsert(self, record: TaskDefault) -> None:
         with get_cursor() as cursor:
             cursor.execute(
-                f"INSERT INTO editor_task_defaults ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                f"INSERT INTO editor_task_defaults ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (user_id, task) DO UPDATE SET preset_id = excluded.preset_id, mode = excluded.mode, "
-                "variant = excluded.variant, setup_kind = excluded.setup_kind, setup_id = excluded.setup_id, "
+                "setup_kind = excluded.setup_kind, setup_id = excluded.setup_id, "
                 "setup_name = excluded.setup_name, preset_name = excluded.preset_name, "
                 "mode_label = excluded.mode_label, set_at = excluded.set_at",
                 (
-                    record.user_id, record.task, record.preset_id, record.mode, record.variant, record.setup_kind,
+                    record.user_id, record.task, record.preset_id, record.mode, record.setup_kind,
                     record.setup_id, record.setup_name, record.preset_name, record.mode_label, record.set_at,
                 ),
             )

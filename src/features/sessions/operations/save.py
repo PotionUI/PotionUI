@@ -14,7 +14,6 @@ from src.features.sessions.editor_data import (
     ModeCheck,
     OwnedFields,
     check_editor_modes,
-    editor_mode_key,
     strip_editor_data,
 )
 from src.features.sessions.mappers import session_to_response_dict
@@ -78,29 +77,23 @@ def _contended(session_id: str) -> ConflictError:
     return ConflictError("session_write_contended", f"Session {session_id} kept changing during the save; try again")
 
 
-def _same(mode: Optional[str]) -> Optional[str]:
-    return mode
-
-
 def _merge_mode_data(
     existing_data: Dict[str, Any],
     new_data: Dict[str, Any],
     mode: Optional[str] = None,
-    key_of: Callable[[Optional[str]], Optional[str]] = _same,
 ) -> Dict[str, Any]:
     """Merge mode-specific data into existing session data."""
     existing_data = existing_data or {}
-    mode = key_of(mode)
 
     if not mode and isinstance(new_data, dict):
         # Mode-keyed data (dict of dicts) — shallow-merge so saving in one
         # mode doesn't wipe data stored for other modes on the same session.
         if new_data and all(isinstance(v, dict) for v in new_data.values()):
-            return {**existing_data, **{key_of(key): value for key, value in new_data.items()}}
+            return {**existing_data, **new_data}
 
         # Flat data carrying selectedMode — promote it to the mode slot.
         if 'selectedMode' in new_data:
-            mode = key_of(new_data.get('selectedMode'))
+            mode = new_data.get('selectedMode')
 
     if mode:
         merged_data = dict(existing_data)
@@ -190,7 +183,7 @@ def _create_new_session(
     kind = request.kind or GENERATION_KIND
     if kind == EDITOR_KIND:
         session_data = strip_editor_data(
-            _merge_mode_data({}, session_data, request.mode, editor_mode_key), request.preset_id, owned_fields
+            _merge_mode_data({}, session_data, request.mode), request.preset_id, owned_fields
         )
 
     session = Session(
@@ -266,10 +259,7 @@ def _update_existing_session(
             existing_session = _named_session(session_repository, user_id, request)
             _check_base(existing_session, request.base_version)
 
-        is_editor = existing_session.kind == EDITOR_KIND
-        merged_data = _merge_mode_data(
-            existing_session.data, new_data, request.mode, editor_mode_key if is_editor else _same
-        )
+        merged_data = _merge_mode_data(existing_session.data, new_data, request.mode)
         if existing_session.kind == EDITOR_KIND:
             merged_data = strip_editor_data(merged_data, existing_session.preset_id, owned_fields)
 
@@ -415,9 +405,7 @@ def update_session(
             session = _owned_session(session_repository, user_id, session_id)
             _check_base(session, request.base_version)
 
-        merged_data = _merge_mode_data(
-            session.data, new_data, request.mode, editor_mode_key if session.kind == EDITOR_KIND else _same
-        )
+        merged_data = _merge_mode_data(session.data, new_data, request.mode)
         if session.kind == EDITOR_KIND:
             merged_data = strip_editor_data(merged_data, session.preset_id, owned_fields)
 

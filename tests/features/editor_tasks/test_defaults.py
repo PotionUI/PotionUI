@@ -74,8 +74,8 @@ class World:
     def formula(self, user_id="u1", preset_id="A-CROP", mode="edit", name="Warm"):
         return self.formulas.create(Formula(id="", owner_id=user_id, preset_id=preset_id, mode=mode, name=name), 50)
 
-    def put(self, task="edit_region", preset="A-CROP", mode="edit", setup=None, user=USER, variant=None):
-        body = SetTaskDefaultRequest(preset_id=preset, mode=mode, variant=variant, setup=setup or {"kind": "defaults"})
+    def put(self, task="edit_region", preset="A-CROP", mode="editor:edit", setup=None, user=USER):
+        body = SetTaskDefaultRequest(preset_id=preset, mode=mode, setup=setup or {"kind": "defaults"})
         return self.manager.set_default(user, task, body)
 
     def default(self, task="edit_region", user=USER):
@@ -114,7 +114,7 @@ def test_setting_a_default_with_model_defaults_answers_the_task_entry(world):
 
     assert entry["id"] == "edit_region" and entry["default"] == world.default()
     default = entry["default"]
-    assert default["preset_id"] == "A-CROP" and default["mode"] == "editor:edit" and default["variant"] is None
+    assert default["preset_id"] == "A-CROP" and default["mode"] == "editor:edit" and "variant" not in default
     assert default["setup"] == {"kind": "defaults", "id": None, "name": None}
     assert default["health"] == {"ok": True}
     assert default["preset_name"] == "Preset A-CROP" and default["mode_label"] and default["set_at"]
@@ -220,7 +220,7 @@ def test_another_users_default_is_invisible_and_untouchable(world):
     world.put(preset="A-CROP", user=USER)
     world.put(preset="B-MASK", user=OTHER)
     assert world.default()["preset_id"] == "A-CROP" and world.default(user=OTHER)["preset_id"] == "B-MASK"
-    assert world.default()["variant"] is None and world.default(user=OTHER)["variant"] is None
+    assert "variant" not in world.default() and "variant" not in world.default(user=OTHER)
 
 
 def broken(world, task, expected, change):

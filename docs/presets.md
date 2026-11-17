@@ -383,7 +383,7 @@ fields:
 `inputs`, `fixed` and `fields.hide` are the fields Settings does not show, and a field may appear in only one
 of them. `fixed` and `fields.hide` fields stay in the template because the pipeline reads them; binding pins them
 over any admin override. An editor setup (a saved session of kind `editor`) never stores them, and a run replaces
-whatever a request sends for them. `GET /api/editor/tasks` lists them for each offer as `owned`.
+whatever a request sends for them.
 
 ### How an editor mode is addressed
 
@@ -391,8 +391,7 @@ An editor mode is addressed as `editor:<name>` wherever a mode key is stored: th
 key, `generations.mode` and the form query `GET /api/presets/{id}/form?mode=editor:<name>`, which serves the form
 Settings shows (inputs, `fixed` and `hide` left out, `change` and `add` applied). A request to
 `POST /api/generations/start` with an editor key is refused with `422 mode_is_editor`; only the editor's run
-service may use one. The run and default routes still accept a generation mode name without the prefix for one
-release and map it to the one editor mode derived from it for that task; zero or several matches answer a plain
+service may use one. The run and default routes answer a mode name without the prefix with a plain
 `422 task_not_offered`.
 
 ### Which editor lists a mode

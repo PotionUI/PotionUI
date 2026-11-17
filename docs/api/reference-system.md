@@ -97,7 +97,6 @@ JSON body, `SetTaskDefaultRequest`:
 
 - `preset_id` (string, required, at least 1 characters)
 - `mode` (string, required, at least 1 characters)
-- `variant` (string, optional, 0 to 128 characters)
 - `setup` (DefaultSetup, required)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.

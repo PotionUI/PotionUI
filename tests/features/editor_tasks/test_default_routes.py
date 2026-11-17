@@ -19,7 +19,7 @@ READ_KEY = "pui_" + "r" * 40 + "ZZZZZZ"
 CONTENT_KEY = "pui_" + "c" * 40 + "ZZZZZZ"
 GENERATE_KEY = "pui_" + "g" * 40 + "ZZZZZZ"
 URL = "/api/editor/tasks/edit_region/default"
-BODY = {"preset_id": "A-CROP", "mode": "edit", "variant": None, "setup": {"kind": "defaults"}}
+BODY = {"preset_id": "A-CROP", "mode": "editor:edit", "setup": {"kind": "defaults"}}
 
 
 def account(user_id):

@@ -179,7 +179,7 @@ def make_edit(user_id="u1"):
     )
 
 
-def body(edit_id, preset="A-CROP", mode="edit", region=True, **extra):
+def body(edit_id, preset="A-CROP", mode="editor:edit", region=True, **extra):
     data = {
         "edit": {"id": edit_id, "step_id": "s7"},
         "input": {"item_id": "picture"},

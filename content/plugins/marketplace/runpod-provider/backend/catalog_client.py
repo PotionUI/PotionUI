@@ -1,16 +1,3 @@
-"""Read-only GraphQL client for RunPod's live GPU-by-data-center catalog.
-
-RunPod's REST API (v1) has no endpoint to discover data centers or GPU
-availability; that exists only on the GraphQL API
-(`https://api.runpod.io/graphql`). This module is catalog-read-only - every
-mutation (create/stop/terminate a pod, create/delete a volume) goes through
-`RunPodClient`'s REST v1 calls. Same Bearer API key as REST.
-
-`dataCenters` is a top-level Query field (`myself.dataCenters` fails schema
-validation). `gpuAvailability` is scoped to `secureCloud: true` because pods
-here are always `cloudType: SECURE`.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -22,43 +9,23 @@ import httpx
 
 from src.plugin_api.providers import client_ssl_context
 
+from .client import DEFAULT_BASE_URL, _error_message
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_GRAPHQL_URL = "https://api.runpod.io/graphql"
+DEFAULT_CATALOG_URL = f"{DEFAULT_BASE_URL}/catalog/gpus"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
 #: Cloudflare 403s the default python-httpx User-Agent before auth runs.
 USER_AGENT = "PotionUI (+https://github.com/PotionUI/PotionUI)"
 
-#: Provisioning UIs re-describe fields on every dependency change (a data
-#: center pick re-renders the GPU field) - this bounds how often that turns
-#: into a real GraphQL round trip without going stale for an entire session.
 CACHE_TTL_SECONDS = 60.0
 
-_QUERY = """
-query PotionUiComputeCatalog {
-  dataCenters {
-    id
-    name
-    location
-    gpuAvailability(input: { secureCloud: true }) {
-      stockStatus
-      gpuTypeId
-      gpuTypeDisplayName
-    }
-  }
-  gpuTypes {
-    id
-    displayName
-    memoryInGb
-  }
-}
-"""
+_PARAMS = {"include": "AVAILABILITY", "product": "POD", "cloud": "SECURE"}
 
 
 class RunPodCatalogError(Exception):
-    """The GraphQL catalog call failed (network, HTTP, or a GraphQL-level
-    `errors` payload)."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -80,68 +47,56 @@ class DataCenter:
 async def fetch_catalog(
     api_key: str,
     *,
-    url: str = DEFAULT_GRAPHQL_URL,
+    url: str = DEFAULT_CATALOG_URL,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     transport: Optional[httpx.BaseTransport] = None,
 ) -> List[DataCenter]:
-    """One read-only POST to RunPod's GraphQL API. Raises `RunPodCatalogError`
-    on any network/HTTP/GraphQL-level failure - never returns a partial
-    result silently."""
     try:
         async with httpx.AsyncClient(timeout=timeout, transport=transport, verify=client_ssl_context()) as http:
-            response = await http.post(
+            response = await http.get(
                 url,
-                params={"api_key": api_key},
-                json={"query": _QUERY},
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": USER_AGENT,
-                },
+                params=_PARAMS,
+                headers={"Authorization": f"Bearer {api_key}", "User-Agent": USER_AGENT},
             )
     except httpx.HTTPError as exc:
         raise RunPodCatalogError(f"connection error: {exc}") from exc
 
     if response.status_code >= 400:
-        raise RunPodCatalogError(f"GraphQL HTTP error {response.status_code}: {response.text}")
+        raise RunPodCatalogError(f"catalog HTTP error {response.status_code}: {_error_message(response)}")
 
-    payload = response.json()
-    if payload.get("errors"):
-        raise RunPodCatalogError(f"GraphQL errors: {payload['errors']}")
+    try:
+        raw_gpus = (response.json() or {}).get("gpus") or []
+    except ValueError as exc:
+        raise RunPodCatalogError("catalog returned a non-JSON body") from exc
 
-    data = payload.get("data") or {}
-    # No/empty dataCenters on a 200 = unauthenticated, not an empty catalog.
-    raw_data_centers = data.get("dataCenters")
-    if not raw_data_centers:
-        raise RunPodCatalogError(
-            "GraphQL returned no data centers - the API key was not accepted "
-            "by the catalog endpoint or the account has no visibility"
-        )
-    raw_gpu_types = data.get("gpuTypes") or []
-
-    memory_by_id: Dict[str, Optional[int]] = {
-        gpu["id"]: gpu.get("memoryInGb") for gpu in raw_gpu_types if gpu.get("id")
-    }
-
-    data_centers: List[DataCenter] = []
-    for dc in raw_data_centers:
-        if not dc.get("id"):
+    by_data_center: Dict[str, Dict[str, Any]] = {}
+    for gpu in raw_gpus:
+        gpu_id = gpu.get("id")
+        if not gpu_id:
             continue
-        gpus = [
-            GpuAvailability(
-                gpu_type_id=gpu["gpuTypeId"],
-                gpu_type_display_name=gpu.get("gpuTypeDisplayName") or gpu["gpuTypeId"],
-                stock_status=gpu.get("stockStatus"),
-                memory_gb=memory_by_id.get(gpu["gpuTypeId"]),
+        for dc in gpu.get("dataCenters") or []:
+            if not dc.get("id"):
+                continue
+            entry = by_data_center.setdefault(dc["id"], {"name": dc.get("name") or dc["id"], "gpus": []})
+            entry["gpus"].append(
+                GpuAvailability(
+                    gpu_type_id=gpu_id,
+                    gpu_type_display_name=gpu.get("name") or gpu_id,
+                    stock_status=(dc.get("availability") or "").title() or None,
+                    memory_gb=gpu.get("memory"),
+                )
             )
-            for gpu in (dc.get("gpuAvailability") or [])
-            if gpu.get("gpuTypeId")
-        ]
-        data_centers.append(
-            DataCenter(id=dc["id"], name=dc.get("name") or dc["id"], location=dc.get("location"), gpus=gpus)
+
+    if not by_data_center:
+        raise RunPodCatalogError(
+            "the catalog listed no data centers with GPU availability - the API key was "
+            "not accepted by the catalog endpoint or the account has no visibility"
         )
 
-    return data_centers
+    return [
+        DataCenter(id=dc_id, name=entry["name"], location=None, gpus=entry["gpus"])
+        for dc_id, entry in by_data_center.items()
+    ]
 
 
 @dataclass
@@ -165,7 +120,7 @@ def reset_cache() -> None:
 async def get_catalog(
     api_key: str,
     *,
-    url: str = DEFAULT_GRAPHQL_URL,
+    url: str = DEFAULT_CATALOG_URL,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     transport: Optional[httpx.BaseTransport] = None,
 ) -> List[DataCenter]:

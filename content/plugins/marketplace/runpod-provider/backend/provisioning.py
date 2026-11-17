@@ -305,7 +305,7 @@ class RunPodProvisioningManager:
         if pod.desired_status == "TERMINATED":
             raise RunPodAPIError(0, f"Pod {pod.id} is TERMINATED - terminate this compute and provision again")
 
-        if pod.desired_status != "RUNNING":
+        if pod.desired_status not in ("RUNNING", "STARTING", "PROVISIONING"):
             await report(ProvisionProgress(STAGE_STARTING, f"Resuming pod {pod.id}", 30))
             pod = await self._client.start_pod(pod.id)
 

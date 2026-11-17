@@ -607,6 +607,26 @@ async def test_start_of_an_already_running_pod_skips_the_resume_call(resources, 
     assert report.seen[0].message == "Pod pod-1 is RUNNING"
 
 
+@pytest.mark.parametrize("status", ["STARTING", "PROVISIONING"])
+async def test_start_of_a_pod_already_coming_up_skips_the_resume_call(resources, repo, status):
+    class ComingUpClient(FakeRunPodClient):
+        def __init__(self):
+            super().__init__()
+            self.get_pod_calls = 0
+
+        async def get_pod(self, pod_id):
+            self.get_pod_calls += 1
+            return _pod(pod_id, "RUNNING" if self.get_pod_calls >= 2 else status)
+
+    client = ComingUpClient()
+    _record_pod(resources, repo, client, status=status)
+
+    result = await _start_manager(client, resources, repo).start("prof-1", _recording_report())
+
+    assert client.started == []
+    assert result.ready is True
+
+
 async def test_start_polls_until_the_resumed_pod_is_running(resources, repo):
     class SlowResumeClient(FakeRunPodClient):
         def __init__(self):

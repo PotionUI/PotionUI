@@ -6,7 +6,7 @@ on rented compute instead of the box PotionUI itself is installed on.
 
 ## Flow
 
-1. **Admin -> Plugins -> RunPod Provider**: paste a RunPod REST API key
+1. **Admin -> Plugins -> RunPod Provider**: paste a RunPod API key
    (console.runpod.io -> Settings -> API Keys). `POST .../validate-key` checks
    it before you save.
 2. **Admin -> Backends**, a Remote Native backend's **Infrastructure** tab (core's `/api/admin/provisioning` API,
@@ -43,22 +43,29 @@ on rented compute instead of the box PotionUI itself is installed on.
   but nothing in this pass populates it - an admin (or a follow-up plugin
   feature) has to get model files onto it themselves before a generation on
   that pod can find them.
-- **GPU catalog is static, not live.** RunPod's REST API (v1) has no endpoint
-  to list GPU types or pricing - confirmed by enumerating every path in
-  `https://rest.runpod.io/v1/openapi.json`. `list_gpu_types()` returns the
-  exact `gpuTypeIds` enum from that same spec (so every id it returns is one
-  `create_pod` accepts) with public specs for `memory_gb` where confidently
-  known, and no live pricing.
-- **No pod logs.** RunPod's REST API (v1) has no logs endpoint either - only
-  the deprecated GraphQL API's `podLogs` query exposes it, which this plugin
-  does not speak, and log retrieval isn't part of the `ComputeProvisioner`
+- **Provisioning-form GPU catalog is live, `list_gpu_types()` is static.** The
+  Infrastructure tab reads GPU types, VRAM and per-data-center stock for pods on
+  Secure Cloud from `GET https://api.runpod.io/v2/catalog/gpus` (cached for 60
+  seconds) and falls back to the static catalog when that call fails.
+  `list_gpu_types()` itself never touches the network and returns the static
+  list, with no live pricing.
+- **No pod logs.** RunPod's REST API v2 has a pod-logs endpoint, but this plugin
+  does not call it, and log retrieval isn't part of the `ComputeProvisioner`
   contract this plugin implements.
+- **No Spot pods or savings plans.** RunPod's REST API v2 has no equivalent, and
+  this plugin always creates on-demand Secure Cloud pods.
+- **Creating a pod tries the chosen GPU only.** v2 places one specific GPU type
+  and never falls back to another; a placement refusal (HTTP 400) is reported as
+  an out-of-stock error.
+- **Rate limits.** A 429 on a read or delete is retried after the `Retry-After`
+  wait (at most twice, at most 30 s each); on other calls it is reported.
 
 ## What this plugin does NOT do
 
 - Import the `runpod` Python SDK or call RunPod's GraphQL API - both are
   explicitly out of scope; every call in `backend/client.py` goes through
-  `https://rest.runpod.io/v1` via `httpx`.
+  RunPod's REST API v2 (`https://api.runpod.io/v2`) via `httpx`. A stored base
+  URL of the retired v1 API (`https://rest.runpod.io/v1`) is read as the v2 default.
 - Write to PotionUI's backend tables directly. It implements
   `src.plugin_api.compute.ComputeProvisioner`; core's
   `src.features.provisioning.operations` is what creates, enables, disables

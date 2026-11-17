@@ -13,7 +13,7 @@ import pytest
 import backend.provisioner as provisioner_module
 from backend.catalog_client import DataCenter as LiveDataCenter
 from backend.catalog_client import GpuAvailability, RunPodCatalogError
-from backend.client import NetworkVolume, Pod, RunPodAPIError, RunPodNotFoundError
+from backend.client import NetworkVolume, Pod, RunPodAPIError, RunPodNotFoundError, RunPodPlacementError
 from backend.provisioner import ComputeProvisionerError, RunpodComputeProvisioner
 from backend.provisioning import NETWORK_VOLUME_CREATE, NETWORK_VOLUME_NONE
 from backend.resources import RunPodResourceManager
@@ -712,6 +712,20 @@ async def test_provision_no_capacity_error_gets_an_actionable_suffix(provisioner
     message = str(excinfo.value)
     assert "could not find any pods with required specifications" in message
     assert "out of stock" in message.lower()
+
+
+async def test_provision_v2_placement_error_gets_the_out_of_stock_suffix(provisioner, monkeypatch):
+    async def _raise(self, **kwargs):
+        raise RunPodPlacementError(400, "There are no longer any instances available with the requested specifications.")
+
+    monkeypatch.setattr(FakeRunPodClient, "create_pod", _raise)
+
+    with pytest.raises(ComputeProvisionerError) as excinfo:
+        await provisioner.provision(
+            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
+        )
+
+    assert "out of stock" in str(excinfo.value).lower()
 
 
 async def test_provision_unrelated_error_is_not_rewritten(provisioner, monkeypatch):

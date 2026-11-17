@@ -13,6 +13,7 @@ import type {
 	ImportBundleResult,
 	Tag as HistoryTag,
 	HistoryFacets,
+	HistoryOriginFilter,
 	SortBy,
 	SortDir
 } from '$lib/types/history';
@@ -102,6 +103,7 @@ export function createGenerationsApi(client: AxiosInstance) {
 			systemTag?: string;
 			minRating?: number;
 			favoritesOnly?: boolean;
+			origin?: HistoryOriginFilter;
 			sortBy?: SortBy;
 			sortDir?: SortDir;
 		}): Promise<APIResponse<{ generations: GenerationHistoryItem[]; total: number }>> {
@@ -130,6 +132,7 @@ export function createGenerationsApi(client: AxiosInstance) {
 			if (params?.systemTag) searchParams.append('system_tag', params.systemTag);
 			if (params?.minRating) searchParams.append('min_rating', params.minRating.toString());
 			if (params?.favoritesOnly) searchParams.append('favorites_only', 'true');
+			if (params?.origin) searchParams.append('origin', params.origin);
 			if (params?.sortBy) searchParams.append('sort_by', params.sortBy);
 			if (params?.sortDir) searchParams.append('sort_dir', params.sortDir);
 

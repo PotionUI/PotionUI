@@ -99,7 +99,7 @@ for (const viewport of [
 
 		await openDetails(page, 0);
 		const origin = page.locator('[data-details-origin]');
-		await expect(origin).toContainText('Origin');
+		await expect(origin).toContainText('Source');
 		await expect(origin.locator('[data-editor-origin="open"]')).toContainText('Made in the editor');
 		if (viewport.width === 1440) await screenshot(page, JOURNEY, `12b-history-details-dark-${viewport.width}`);
 		await origin.locator('[data-editor-origin="open"]').click();

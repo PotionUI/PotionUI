@@ -106,8 +106,13 @@ export interface GenerationOrigin {
 	step_id?: string | null;
 	task?: string | null;
 	run_id?: string | null;
+	key_id?: string;
+	key_name?: string | null;
+	key_current_name?: string | null;
 	[key: string]: unknown;
 }
+
+export type HistoryOriginFilter = 'mcp' | 'editor' | 'chat' | 'tab';
 
 export interface GenerationHistoryItem {
 	id: string;
@@ -237,6 +242,7 @@ export interface GenerationHistoryFilters {
 	usedPhrasebookLabel?: string;
 	/** Auto-tagger system-tag facet (exact tag name). */
 	systemTag?: string;
+	origin?: HistoryOriginFilter;
 	sortBy?: SortBy;
 	sortDir?: SortDir;
 }

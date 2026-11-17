@@ -44,8 +44,9 @@
 	import MediaStage from '$lib/components/media-details/MediaStage.svelte';
 	import { audioTracksFor, isAudioFile, isMeshFile, isVideoFile, resolveAudioFormat } from '$lib/components/media-details/mediaFile';
 	import ParametersView from '$lib/components/generation/ParametersView.svelte';
-	import EditorOriginChip from '$lib/components/EditorOriginChip.svelte';
-	import { editorOriginOf } from '$lib/tool-tabs/editOrigin';
+	import GenerationOriginChip from '$lib/components/GenerationOriginChip.svelte';
+	import { describeOrigin, offersOpenInTab } from '$lib/generation/origin';
+	import { openGenerationInNewTab } from '$lib/generation/attach/openInTabDefault';
 	import ParameterTextBlock from '$lib/components/generation/ParameterTextBlock.svelte';
 	import DetailsSection from '$lib/components/generation/DetailsSection.svelte';
 	import GenerationFailureAlert from '$lib/components/generation/GenerationFailureAlert.svelte';
@@ -136,7 +137,7 @@
 	// Prefer the loaded detail (it carries `segments`) over the list item.
 	$: activeGenerationId = generation?.id || generationId || '';
 	$: activeGeneration = pickActiveGeneration(generation, loadedGeneration, activeGenerationId);
-	$: editorOrigin = activeGeneration ? editorOriginOf(activeGeneration) : null;
+	$: originInfo = activeGeneration ? describeOrigin(activeGeneration.origin) : null;
 	$: shortGenerationId = activeGenerationId ? activeGenerationId.slice(0, 8) : '';
 	$: if (!activeGenerationId) {
 		logger.error('GenerationDetailsModal: No generation or generationId provided');
@@ -577,8 +578,23 @@
 		link.click();
 	}
 
-	function buildGenerationActions(withReuse: boolean, withCopy: boolean, copying: boolean): BarAction[] {
+	async function handleOpenInTab() {
+		if (!activeGeneration) return;
+		const result = await openGenerationInNewTab(activeGeneration.id, { navigate: true });
+		if (result.kind === 'opened' || result.kind === 'focused') handleClose();
+	}
+
+	function buildGenerationActions(withReuse: boolean, withCopy: boolean, copying: boolean, withOpenInTab: boolean): BarAction[] {
 		const actions: BarAction[] = [];
+		if (withOpenInTab) {
+			actions.push({
+				id: 'open-in-tab',
+				label: 'Open in a tab',
+				icon: 'external-link',
+				tooltip: 'Open this generation in a new tab, following it while it runs',
+				onclick: handleOpenInTab
+			});
+		}
 		if (withReuse) {
 			actions.push({
 				id: 'reuse',
@@ -618,7 +634,8 @@
 	$: generationActions = buildGenerationActions(
 		!!activeGeneration?.preset_id,
 		canCopyToLibrary,
-		copyingToLibrary
+		copyingToLibrary,
+		!!activeGeneration && offersOpenInTab(activeGeneration)
 	);
 
 	$: downloadActions = [
@@ -859,10 +876,10 @@
 						</div>
 					{/if}
 
-					{#if editorOrigin}
+					{#if originInfo && activeGeneration}
 						<div class="flex items-center justify-between gap-3 border-b border-line px-4 py-3" data-details-origin>
-							<span class="font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Origin</span>
-							<EditorOriginChip origin={editorOrigin} onopened={handleClose} />
+							<span class="font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Source</span>
+							<GenerationOriginChip generation={activeGeneration} onopened={handleClose} />
 						</div>
 					{/if}
 

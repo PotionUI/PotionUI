@@ -1,4 +1,5 @@
 import { registerMediaTool, selectionCount, type MediaToolContext } from '$lib/tools/tools';
+import { offersOpenInTab } from '$lib/generation/origin';
 import { copyText } from '$lib/utils/clipboard';
 import { toasts } from '$lib/stores/toast';
 import { logger, getErrorMessage } from '$lib/utils/logger';
@@ -91,6 +92,20 @@ export function registerEntryTools(): void {
 		requires: 'reuse',
 		applies: (ctx) => ({ enabled: true, hidden: !ctx.generations[0]?.preset_id }),
 		run: (ctx, host) => host.reuse?.(ctx)
+	});
+
+	registerMediaTool({
+		id: 'open-in-tab',
+		label: 'Open in a tab',
+		icon: 'external-link',
+		category: 'open',
+		source: 'core',
+		scopes: ['history'],
+		surfaces: ['entry'],
+		entryStates: [...allStates],
+		requires: 'openInTab',
+		applies: (ctx) => ({ enabled: true, hidden: !ctx.generations[0] || !offersOpenInTab(ctx.generations[0]) }),
+		run: (ctx, host) => host.openInTab?.(ctx)
 	});
 
 	registerMediaTool({

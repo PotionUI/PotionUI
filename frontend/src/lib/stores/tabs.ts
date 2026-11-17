@@ -251,6 +251,7 @@ function createTabsStore() {
 					selectedVariant: p.selectedVariant ?? null,
 					selectedSessionId: p.selectedSessionId,
 					activeGenerationId: p.activeGenerationId || null,
+					openedFrom: p.openedFrom ?? null,
 					autoTagIds: p.autoTagIds || [],
 					autoCollectionIds: p.autoCollectionIds || [],
 					soundOnComplete: p.soundOnComplete ?? getGlobalSoundDefault('complete'),

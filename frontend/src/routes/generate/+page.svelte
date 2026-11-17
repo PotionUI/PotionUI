@@ -64,6 +64,7 @@
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
 	import { setGenerationAttachHost } from '$lib/generation/restore/attachHost';
+	import { ingestQueueSnapshot, startElsewhereWatch } from '$lib/generation/elsewhere/store';
 	import { onToolApplied } from '$lib/chat/pageContext';
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
@@ -907,6 +908,7 @@
 	}
 
 	onMount(() => startToolTabWatchers());
+	onMount(() => startElsewhereWatch({ api }));
 
 	onMount(async () => {
 		mounted = true;
@@ -1057,6 +1059,7 @@
 		} catch (error) {
 			console.warn('[RestoreGenerations] Could not fetch the live queue snapshot:', error);
 		}
+		ingestQueueSnapshot(snapshot);
 
 		await Promise.all(
 			currentTabs.map((tab) => {

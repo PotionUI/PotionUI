@@ -2,6 +2,7 @@
 	import { activeTab } from '$lib/stores/tabs';
 	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
 	import { tabShowsUnsavedChanges } from '$lib/tabs/tabDirty';
+	import RunningElsewhere from '../RunningElsewhere.svelte';
 
 	export let tabName: string;
 	export let presetName: string | undefined = undefined;
@@ -46,6 +47,8 @@
 			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
 		</svg>
 	</button>
+
+	<RunningElsewhere mobile />
 
 	<button
 		type="button"

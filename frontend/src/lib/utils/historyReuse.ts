@@ -1,5 +1,6 @@
 import type { GenerationHistoryItem, ImportBundleReuse } from '$lib/types/history';
 import type { GenerationTab } from '$lib/types/tabs';
+import { seedSegmentsFromText } from '$lib/utils/promptTextSeed';
 import { clearedModeStateByMode } from '$lib/utils/modeState';
 import { DIRECTOR_MODE, LONG_MODE, convertLongVideo, isLongVideoForm } from '$lib/utils/longVideoConversion';
 
@@ -74,7 +75,7 @@ function buildReuseTabData(source: ReusableSettings): HistoryReuseResult {
 		tabData.seed = source.seed;
 	}
 
-	return { tabData };
+	return { tabData: seedSegmentsFromText(tabData) };
 }
 
 /** Builds the `Partial<Tab>` used to reuse a past generation as a new

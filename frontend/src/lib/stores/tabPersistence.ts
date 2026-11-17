@@ -65,6 +65,7 @@ export function toPersistedTab(t: Tab): PersistedTab {
 		selectedVariant: t.selectedVariant ?? null,
 		selectedSessionId: t.selectedSessionId ?? null,
 		activeGenerationId: t.activeGenerationId ?? null,
+		openedFrom: t.openedFrom ?? null,
 		queuedGenerationIds: t.generation.queue?.map((q) => q.generation_id) ?? [],
 		autoTagIds: t.autoTagIds,
 		autoCollectionIds: t.autoCollectionIds,

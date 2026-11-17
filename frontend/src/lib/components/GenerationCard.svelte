@@ -20,8 +20,8 @@
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { isStackEntry, isLooseCell, stackBadge, stackInfo, cellChip, gridIdOf } from '$lib/generation/compare/view/historyGrid';
 	import { getIconPath } from '$lib/utils/IconLibrary';
-	import EditorOriginChip from '$lib/components/EditorOriginChip.svelte';
-	import { editorOriginOf } from '$lib/tool-tabs/editOrigin';
+	import GenerationOriginChip from '$lib/components/GenerationOriginChip.svelte';
+	import { describeOrigin } from '$lib/generation/origin';
 	import EntryActions from '$lib/components/tools/EntryActions.svelte';
 	import ToolRunBand from '$lib/components/tools/ToolRunBand.svelte';
 	import { mediaToolRuns } from '$lib/media-tools/runs';
@@ -159,7 +159,8 @@
 	// fixed-aspect card).
 	$: chromeBucket = tile ? bucketForCardWidth(tile.width) : null;
 	$: toolRun = runForGeneration($mediaToolRuns, generation);
-	$: editorOrigin = editorOriginOf(generation);
+	$: originInfo = describeOrigin(generation.origin);
+	$: showOriginChip = !!originInfo && (generation.status === 'completed' || originInfo.kind !== 'editor');
 	$: mediaChipShown =
 		!!tile &&
 		!!chromeBucket?.showMediaChip &&
@@ -540,9 +541,9 @@
 				</div>
 			{/if}
 
-			{#if tile && editorOrigin && generation.status === 'completed'}
+			{#if tile && showOriginChip}
 				<div class="absolute left-1.5 z-30 flex max-w-[calc(100%-12px)] {mediaChipShown ? 'bottom-8' : 'bottom-1.5'}" data-editor-origin-host>
-					<EditorOriginChip origin={editorOrigin} iconOnly={tile.width < 200} />
+					<GenerationOriginChip {generation} iconOnly={tile.width < 200} />
 				</div>
 			{/if}
 
@@ -705,9 +706,9 @@
 			</div>
 		{/if}
 
-		{#if !tile && editorOrigin && generation.status === 'completed'}
+		{#if !tile && showOriginChip}
 			<div class="flex items-center border-t border-line bg-surface-1 px-2 py-1.5" data-editor-origin-host>
-				<EditorOriginChip origin={editorOrigin} />
+				<GenerationOriginChip {generation} />
 			</div>
 		{/if}
 

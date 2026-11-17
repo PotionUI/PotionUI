@@ -225,6 +225,12 @@
 			if (gridId) openGridId.set(gridId);
 		},
 		reuse: (ctx) => ctx.generations[0] && onReuseRequest?.(ctx.generations[0]),
+		openInTab: async (ctx) => {
+			const id = ctx.generations[0]?.id;
+			if (!id) return;
+			const { openGenerationInNewTab } = await import('$lib/generation/attach/openInTabDefault');
+			void openGenerationInNewTab(id, { navigate: true });
+		},
 		remove: (ctx) =>
 			ctx.generations.length > 1 ? onBulkDeleteRequest() : onDeleteRequest(ctx.generations[0]),
 		cancel: async (ctx) => {

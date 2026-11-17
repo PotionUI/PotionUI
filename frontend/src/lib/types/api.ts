@@ -7,6 +7,7 @@ import type { VariablesMap } from '$lib/utils/variableDefs';
 import type { NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 import type { CompareConfig } from '$lib/generation/compare/types';
 import type { ChatNotice, MessageUsage } from './chat';
+import type { GenerationOrigin } from './history';
 
 export interface APIResponse<T = unknown> {
 	success: boolean;
@@ -126,20 +127,32 @@ export interface StartGenerationResponseData {
 	queue_position: number | null;
 }
 
-export interface QueuedGenerationSummary {
+export interface QueueItemLabels {
+	status?: 'pending' | 'running';
+	preset_name?: string | null;
+	mode?: string | null;
+	form_name?: string | null;
+	has_tab?: boolean;
+	created_at?: string | null;
+	started_at?: string | null;
+	origin?: GenerationOrigin | null;
+}
+
+export interface QueuedGenerationSummary extends QueueItemLabels {
 	generation_id: string;
 	backend_id?: string;
-	tab_id?: string;
+	preset_id?: string;
+	tab_id?: string | null;
 	enqueued_at?: string;
 	queue_position: number | null;
 }
 
-export interface RunningGenerationSummary {
+export interface RunningGenerationSummary extends QueueItemLabels {
 	generation_id: string;
 	backend_id?: string;
 	preset_id?: string;
-	tab_id?: string;
-	progress?: number;
+	tab_id?: string | null;
+	progress?: number | null;
 }
 
 export interface GenerationQueueSnapshot {

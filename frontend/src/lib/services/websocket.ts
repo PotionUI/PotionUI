@@ -48,9 +48,13 @@ export class WebSocketService extends BaseWebSocket {
 		if (
 			wsMessage.type === 'connection_established' ||
 			wsMessage.type === 'heartbeat' ||
-			wsMessage.type === 'pong' ||
-			wsMessage.type === 'status_update'
+			wsMessage.type === 'pong'
 		) {
+			return;
+		}
+
+		if (wsMessage.type === 'status_update') {
+			this.deliverStatusSnapshot(wsMessage.data);
 			return;
 		}
 
@@ -124,6 +128,34 @@ export class WebSocketService extends BaseWebSocket {
 
 	private sendSubscription(generationId: string): void {
 		this.send({ type: 'subscribe_generation', generation_id: generationId });
+	}
+
+	private deliverStatusSnapshot(data: unknown): void {
+		const snapshot = data as {
+			id?: string;
+			generation_id?: string;
+			status?: string;
+			progress?: number | null;
+			current_step?: string;
+			message?: string;
+			current_step_num?: number;
+			total_steps?: number;
+		} | null;
+		const generationId = snapshot?.generation_id ?? snapshot?.id;
+		if (!snapshot || !generationId || snapshot.status !== 'running' || typeof snapshot.progress !== 'number') return;
+		const handlers = this.subscriptions.get(generationId);
+		if (!handlers) return;
+		const message: WebSocketMessage = {
+			type: 'generation_status',
+			generation_id: generationId,
+			status: snapshot.status,
+			progress: snapshot.progress,
+			current_step: snapshot.current_step,
+			message: snapshot.message,
+			current_step_num: snapshot.current_step_num,
+			total_steps: snapshot.total_steps
+		};
+		handlers.forEach((handler) => handler(message));
 	}
 
 	private notifyConnectionChange(connected: boolean): void {

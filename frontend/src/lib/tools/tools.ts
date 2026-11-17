@@ -74,6 +74,7 @@ export interface ToolRunHost {
 	open?: (ctx: MediaToolContext) => void;
 	openGrid?: (ctx: MediaToolContext) => void;
 	reuse?: (ctx: MediaToolContext) => void;
+	openInTab?: (ctx: MediaToolContext) => void;
 	remove?: (ctx: MediaToolContext) => void;
 	cancel?: (ctx: MediaToolContext) => void;
 	deselect?: (ctx: MediaToolContext, entryId?: string) => void;

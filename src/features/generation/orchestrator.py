@@ -1526,6 +1526,10 @@ class GenerationOrchestrator:
 
             # Create database record (`mode` was already resolved above, for bind_form)
             prompt_state = getattr(request, 'prompt_state', None)
+            if prompt_state is None and len(getattr(request, 'prompts', None) or []) == 1:
+                submitted_positive, submitted_negative = _request_prompt_pair(request)
+                if submitted_positive or submitted_negative:
+                    prompt_state = {'prompt': submitted_positive, 'negativePrompt': submitted_negative}
 
             db_generation = Generation(
                 id=generation_id,

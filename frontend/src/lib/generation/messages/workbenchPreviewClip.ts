@@ -1,12 +1,14 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { parsePreviewClip } from '../previewClip';
 import { resolveOwnership } from './ownership';
+import { shouldApplyPreview } from './replayGuard';
 
 generationMessageRegistry.register('workbench_preview_clip', {
 	type: 'workbench_preview_clip',
 	handle(message: any, ctx) {
 		const { isOwner, adopted } = resolveOwnership(ctx.tab, ctx.generationId);
 		if (!isOwner) return;
+		if (!shouldApplyPreview(ctx.generationId, 'clip', message)) return;
 
 		const targetTab = adopted
 			? {

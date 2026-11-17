@@ -19,6 +19,7 @@
 	export let progress: number | null = null;
 	export let unsavedLabel: string = 'Unsaved changes';
 	export let remoteChange: string | null = null;
+	export let sourceLabel: string | null = null;
 	export let status: ToolTabStatus | null = null;
 	export let renamable: boolean = true;
 
@@ -232,6 +233,12 @@
 						</span>
 					</Tooltip>
 					<span class="sr-only">, {status.label}</span>
+				{/if}
+				{#if sourceLabel}
+					<Tooltip text={sourceLabel} position="bottom" delay={150} wrapperClass="flex items-center">
+						<span class="source-mark" data-testid="tab-source"><Icon name="external-link" className="h-3 w-3" /></span>
+					</Tooltip>
+					<span class="sr-only">, {sourceLabel.toLowerCase()}</span>
 				{/if}
 				{#if remoteChange}
 					<Tooltip text={remoteChange} position="bottom" delay={150} wrapperClass="flex items-center">
@@ -493,6 +500,15 @@
 		height: 6px;
 		border-radius: 50%;
 		background: rgb(var(--warning-solid));
+	}
+
+	.source-mark {
+		display: flex;
+		width: 14px;
+		height: 14px;
+		align-items: center;
+		justify-content: center;
+		color: rgb(var(--fg-subtle));
 	}
 
 	.remote-dot {

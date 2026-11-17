@@ -8,6 +8,10 @@ export const mediaToolCatalog: Readable<ToolDTO[]> = { subscribe: catalog.subscr
 
 export const mediaToolCatalogRevision = writable(0);
 
+export function isMediaToolCatalogLoaded(): boolean {
+	return loaded;
+}
+
 let loaded = false;
 let loading: Promise<ToolDTO[]> | null = null;
 let unwatch: (() => void) | null = null;

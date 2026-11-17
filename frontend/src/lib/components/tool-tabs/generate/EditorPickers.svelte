@@ -20,6 +20,7 @@
 	import { NO_FORMULA, formulaOptionsOf, modeOptionsOf, presetDisabledReasons, presetListOf } from '$lib/tool-tabs/image/generate/pickers';
 	import { offerOf, sameChoice, setupName, sourceOf, type SetupChoice } from '$lib/tool-tabs/image/generate/setup';
 	import { isChanged } from '$lib/tool-tabs/image/generate/tweaks';
+	import { DOCK_CELL, DOCK_END, DOCK_PICKERS, DOCK_STEP } from '$lib/tool-tabs/image/generate/dockStrip';
 
 	let { phone = false, taskId, label, extras, resultsStep, changedMark, settingsButton }: { phone?: boolean; taskId: string; label: string; extras?: Snippet; resultsStep?: Snippet; changedMark?: Snippet; settingsButton?: Snippet } = $props();
 
@@ -151,105 +152,107 @@
 		</div>
 	{:else}
 		<div class="dock-zone flex h-12 min-w-0 items-stretch" role="group" aria-label="Setup for {label}" data-testid="context-zone" style="--cut-stroke: var(--canvas)">
-			<div class="ctx-step flex min-w-0 shrink pl-0 pr-4" data-context-step>
-				{@render stepLabel(`${uid}-preset`, 'Preset')}
-				<div class="flex min-w-0" data-testid="preset-header-picker">
-					<PresetPicker bind:this={presetPicker} {presets} selectedPreset={choice?.preset_id ?? ''} disabled={nothingOffered} disabledReasons={reasons} recordRecent={false} on:select={(event) => pickPreset(event.detail)}>
-						{#snippet trigger(picker)}
-							<Tooltip text={picker.currentPreset?.name ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
-								<button
-									bind:this={presetButton}
-									type="button"
-									class="{controlClass(picker.expanded)} min-w-[88px] max-w-[200px] text-base {picker.currentPreset ? 'font-semibold' : 'font-medium'}"
-									aria-haspopup="dialog"
-									aria-expanded={picker.expanded}
-									aria-labelledby="{uid}-preset {uid}-preset-value"
-									disabled={picker.disabled}
-									data-testid="preset-picker-trigger"
-									onclick={picker.openPicker}
-								>
-									<span class="ctx-valuerow">
-										{#if picker.loading}
-											<Spinner size="sm" />
-										{:else if picker.currentPreset}
-											<PresetThumbnail presetId={picker.currentPreset.id} presetName={picker.currentPreset.name} cover={picker.currentPreset.media?.cover} category={picker.currentPreset.category} size="w-[18px] h-[18px]" zoom={false} />
-										{/if}
-										<span id="{uid}-preset-value" class="min-w-0 truncate {picker.currentPreset ? '' : 'text-fg-muted'}" data-preset-value>{picker.currentPreset?.name || PRESET_PLACEHOLDER}</span>
-									</span>
-									<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {picker.expanded ? 'rotate-180' : ''}" />
-								</button>
-							</Tooltip>
-						{/snippet}
-					</PresetPicker>
-				</div>
-			</div>
-
-			{#if showMode}
-				<ContextCut />
-				<div class="ctx-step flex min-w-0 shrink px-4" data-testid="preset-header-mode" data-context-step>
-					{@render stepLabel(`${uid}-mode`, 'Mode')}
-					<PickerSelect value={choice?.mode ?? ''} options={modeOptions} label="Choose mode" width={400} onchange={pickMode}>
-						{#snippet trigger(select)}
-							<Tooltip text={select.selected?.label ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
-								<button
-									type="button"
-									class="{controlClass(select.open)} min-w-[72px] max-w-[160px] text-base font-medium"
-									aria-haspopup="listbox"
-									aria-expanded={select.open}
-									aria-labelledby="{uid}-mode {uid}-mode-value"
-									onclick={select.toggle}
-									onkeydown={select.keydown}
-								>
-									<span class="ctx-valuerow">
-											{#if select.selected?.icon}
-												<Icon name={select.selected.icon} className="h-3.5 w-3.5 flex-shrink-0 text-fg-muted" />
+			<div class={DOCK_PICKERS} data-dock-pickers>
+				<div class={DOCK_STEP.preset} data-context-step>
+					{@render stepLabel(`${uid}-preset`, 'Preset')}
+					<div class="flex min-w-0" data-testid="preset-header-picker">
+						<PresetPicker bind:this={presetPicker} {presets} selectedPreset={choice?.preset_id ?? ''} disabled={nothingOffered} disabledReasons={reasons} recordRecent={false} on:select={(event) => pickPreset(event.detail)}>
+							{#snippet trigger(picker)}
+								<Tooltip text={picker.currentPreset?.name ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
+									<button
+										bind:this={presetButton}
+										type="button"
+										class="{controlClass(picker.expanded)} {DOCK_CELL.preset} text-base {picker.currentPreset ? 'font-semibold' : 'font-medium'}"
+										aria-haspopup="dialog"
+										aria-expanded={picker.expanded}
+										aria-labelledby="{uid}-preset {uid}-preset-value"
+										disabled={picker.disabled}
+										data-testid="preset-picker-trigger"
+										onclick={picker.openPicker}
+									>
+										<span class="ctx-valuerow">
+											{#if picker.loading}
+												<Spinner size="sm" />
+											{:else if picker.currentPreset}
+												<PresetThumbnail presetId={picker.currentPreset.id} presetName={picker.currentPreset.name} cover={picker.currentPreset.media?.cover} category={picker.currentPreset.category} size="w-[18px] h-[18px]" zoom={false} />
 											{/if}
-											<span id="{uid}-mode-value" class="min-w-0 truncate">{select.selected?.label ?? 'Choose a mode'}</span>
+											<span id="{uid}-preset-value" class="min-w-0 truncate {picker.currentPreset ? '' : 'text-fg-muted'}" data-preset-value>{picker.currentPreset?.name || PRESET_PLACEHOLDER}</span>
 										</span>
-									<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {select.open ? 'rotate-180' : ''}" />
-								</button>
-							</Tooltip>
-						{/snippet}
-					</PickerSelect>
+										<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {picker.expanded ? 'rotate-180' : ''}" />
+									</button>
+								</Tooltip>
+							{/snippet}
+						</PresetPicker>
+					</div>
 				</div>
-			{/if}
 
-			{#if choice}
-				<ContextCut />
-				<div class="ctx-step flex min-w-0 shrink px-4" data-context-step>
-					{@render stepLabel(`${uid}-session`, 'Session')}
-					<SessionControl session={$session} actions={dialogs.actions} {fieldLabels} compact autosave={false} iconSave labelId="{uid}-session" />
-				</div>
-			{/if}
+				{#if showMode}
+					<ContextCut />
+					<div class={DOCK_STEP.mode} data-testid="preset-header-mode" data-context-step>
+						{@render stepLabel(`${uid}-mode`, 'Mode')}
+						<PickerSelect value={choice?.mode ?? ''} options={modeOptions} label="Choose mode" width={400} onchange={pickMode}>
+							{#snippet trigger(select)}
+								<Tooltip text={select.selected?.label ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
+									<button
+										type="button"
+										class="{controlClass(select.open)} {DOCK_CELL.mode} text-base font-medium"
+										aria-haspopup="listbox"
+										aria-expanded={select.open}
+										aria-labelledby="{uid}-mode {uid}-mode-value"
+										onclick={select.toggle}
+										onkeydown={select.keydown}
+									>
+										<span class="ctx-valuerow">
+												{#if select.selected?.icon}
+													<Icon name={select.selected.icon} className="h-3.5 w-3.5 flex-shrink-0 text-fg-muted" />
+												{/if}
+												<span id="{uid}-mode-value" class="min-w-0 truncate">{select.selected?.label ?? 'Choose a mode'}</span>
+											</span>
+										<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {select.open ? 'rotate-180' : ''}" />
+									</button>
+								</Tooltip>
+							{/snippet}
+						</PickerSelect>
+					</div>
+				{/if}
 
-			{#if showFormulas}
-				<ContextCut />
-				<div class="ctx-step flex min-w-0 shrink px-4" data-testid="editor-formula" data-context-step>
-					{@render stepLabel(`${uid}-formula`, 'Formula')}
-					<PickerSelect value={formulaValue} options={formulaOptions} label="Choose formula" width={320} onchange={pickFormula}>
-						{#snippet trigger(select)}
-							<Tooltip text={select.selected?.label ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
-								<button
-									type="button"
-									class="{controlClass(select.open)} min-w-[72px] max-w-[160px] text-base font-medium"
-									aria-haspopup="listbox"
-									aria-expanded={select.open}
-									aria-labelledby="{uid}-formula {uid}-formula-value"
-									onclick={select.toggle}
-									onkeydown={select.keydown}
-								>
-									<span class="ctx-valuerow">
-										<Icon name="sliders" className="h-3.5 w-3.5 flex-shrink-0 text-fg-muted" />
-										<span id="{uid}-formula-value" class="min-w-0 truncate {formulaValue === NO_FORMULA ? 'text-fg-muted' : ''}">{formulaValue === NO_FORMULA ? 'Formula' : (select.selected?.label ?? 'Formula')}</span>
-									</span>
-									<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {select.open ? 'rotate-180' : ''}" />
-								</button>
-							</Tooltip>
-						{/snippet}
-					</PickerSelect>
-				</div>
-			{/if}
-			<div class="dock-end ml-auto flex flex-none items-end gap-4 self-stretch whitespace-nowrap pl-5" data-editor-pickers-end>
+				{#if choice}
+					<ContextCut />
+					<div class={DOCK_STEP.session} data-testid="editor-session-step" data-context-step>
+						{@render stepLabel(`${uid}-session`, 'Session')}
+						<SessionControl session={$session} actions={dialogs.actions} {fieldLabels} compact autosave={false} iconSave widthClass={DOCK_CELL.session} labelId="{uid}-session" />
+					</div>
+				{/if}
+
+				{#if showFormulas}
+					<ContextCut />
+					<div class={DOCK_STEP.formula} data-testid="editor-formula" data-context-step>
+						{@render stepLabel(`${uid}-formula`, 'Formula')}
+						<PickerSelect value={formulaValue} options={formulaOptions} label="Choose formula" width={320} onchange={pickFormula}>
+							{#snippet trigger(select)}
+								<Tooltip text={select.selected?.label ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
+									<button
+										type="button"
+										class="{controlClass(select.open)} {DOCK_CELL.formula} text-base font-medium"
+										aria-haspopup="listbox"
+										aria-expanded={select.open}
+										aria-labelledby="{uid}-formula {uid}-formula-value"
+										onclick={select.toggle}
+										onkeydown={select.keydown}
+									>
+										<span class="ctx-valuerow">
+											<Icon name="sliders" className="h-3.5 w-3.5 flex-shrink-0 text-fg-muted" />
+											<span id="{uid}-formula-value" class="min-w-0 truncate {formulaValue === NO_FORMULA ? 'text-fg-muted' : ''}">{formulaValue === NO_FORMULA ? 'Formula' : (select.selected?.label ?? 'Formula')}</span>
+										</span>
+										<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {select.open ? 'rotate-180' : ''}" />
+									</button>
+								</Tooltip>
+							{/snippet}
+						</PickerSelect>
+					</div>
+				{/if}
+			</div>
+			<div class={DOCK_END} data-editor-pickers-end>
 				{@render extras?.()}
 				{@render resultsStep?.()}
 				{@render changedMark?.()}
@@ -339,8 +342,12 @@
 			flex-wrap: wrap;
 		}
 
-		.dock-zone > :global(.ctx-step) {
-			flex: 1 1 0;
+		.dock-pickers {
+			flex: 1 1 100%;
+			min-height: 48px;
+		}
+
+		.dock-zone :global(.ctx-step) {
 			min-height: 44px;
 		}
 

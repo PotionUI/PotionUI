@@ -429,3 +429,30 @@ describe('on the phone', () => {
 		expect(pushRecent).not.toHaveBeenCalled();
 	});
 });
+
+describe('the setup strip sizing', () => {
+	const shrinkOf = (node: Element | null) => Number(/shrink-\[(\d+)\]/.exec(node?.className ?? '')?.[1] ?? 'NaN');
+
+	it('lets the three cells size to their content and share a short strip by priority: preset, then session, then mode', async () => {
+		const t = await open([quiet({ offers: [offer(), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })] })], { sessions: { qwen: [stored('s1', 'Soft portrait', 'editor:edit', 20)] } });
+		const preset = t.q('[data-testid="preset-picker-trigger"]')!.closest('[data-context-step]')!;
+		const mode = t.q('[data-testid="preset-header-mode"]')!;
+		const session = t.q('[data-testid="editor-session-step"]')!;
+		for (const step of [preset, mode, session]) {
+			expect(step.className).toContain('flex-[0_1_auto]');
+			expect(step.className).toContain('min-w-0');
+		}
+		expect(shrinkOf(preset)).toBeLessThan(shrinkOf(session));
+		expect(shrinkOf(session)).toBeLessThan(shrinkOf(mode));
+		expect(preset.closest('[data-dock-pickers]')!.className).toContain('min-w-0');
+		expect(t.q('[data-testid="session-trigger"]')!.closest('[data-testid="context-session"]')!.className).toContain('max-w-[360px]');
+	});
+
+	it('keeps the right group at its own width', async () => {
+		const t = await open([quiet()]);
+		const end = t.q('[data-editor-pickers-end]')!;
+		expect(end.className).toContain('flex-none');
+		expect(end.className).toContain('shrink-0');
+		expect(end.className).toContain('ml-auto');
+	});
+});

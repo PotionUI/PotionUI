@@ -1034,7 +1034,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		const rest = await geometry(page);
 		checkStrip(rest);
 		expect(rest.cuts).toHaveLength(1);
-		expect(rest.preset!.width).toBeLessThanOrEqual(201);
+		expect(rest.preset!.width).toBeLessThanOrEqual(241);
 		expect(rest.dock!.height).toBeGreaterThanOrEqual(111);
 		expect(rest.dock!.height).toBeLessThanOrEqual(120);
 		const audit = await ringAudit(page);
@@ -1144,6 +1144,50 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(view).toBeVisible();
 		await settings.click();
 		await expect(view).toHaveCount(0);
+	});
+});
+
+test.describe('Edit a region at 1280', () => {
+	test.use({ viewport: { width: 1280, height: 800 } });
+
+	const flux3 = (over: Json = {}) => flux({ preset_name: 'Flux 3', ...over });
+	const widths = (g: Awaited<ReturnType<typeof geometry>>) => `preset ${Math.round(g.preset!.width)} mode ${Math.round(g.mode?.width ?? 0)} session ${Math.round(g.session!.width)} gap ${Math.round(g.end!.x - g.session!.right)}`;
+
+	test('two modes, no session: Flux 3 is whole and the strip leaves no gap before the right group', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [flux3(), fluxWide()], default: { preset_id: 'flux-fill', mode: 'editor:fill', setup: { kind: 'defaults' }, health: { ok: true, reason: null, name: null, mode_label: null } } })], true);
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await expect(presetTrigger(page)).toHaveText('Flux 3');
+		await expect(modeTrigger(page)).toHaveText(/Inpaint/);
+		await page.mouse.move(700, 300);
+		const g = await geometry(page);
+		checkStrip(g, 'wrapped');
+		console.log(`1280 flux3 ${widths(g)}`);
+		expect(g.preset!.width).toBeGreaterThan(80);
+		await screenshot(page, JOURNEY, '27-built-two-modes-dark-1280');
+	});
+
+	test('one mode and a session: the long names share the room, preset keeping the most', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen({ preset_name: LONG_PRESET })], default: sessionDefault })], true, LONG_SESSION);
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await expect(presetTrigger(page)).toContainText('MiniMax');
+		await page.mouse.move(700, 300);
+		const g = await geometry(page);
+		checkStrip(g, 'wrapped');
+		console.log(`1280 minimax ${widths(g)}`);
+		expect(g.preset!.width).toBeGreaterThanOrEqual(g.session!.width * 0.5);
+	});
+
+	test('two modes and a long session name', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen(), qwen({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })], default: sessionDefault })], true, LONG_SESSION);
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await expect(presetTrigger(page)).toHaveText('Qwen-Image 2.1');
+		await page.mouse.move(700, 300);
+		const g = await geometry(page);
+		checkStrip(g, 'wrapped');
+		console.log(`1280 qwen ${widths(g)}`);
 	});
 });
 

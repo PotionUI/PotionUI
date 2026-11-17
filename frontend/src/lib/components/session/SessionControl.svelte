@@ -16,7 +16,8 @@
 		compact = false,
 		autosave = true,
 		iconSave = false,
-		labelId = undefined
+		labelId = undefined,
+		widthClass = undefined
 	}: {
 		session: SessionPanelState;
 		actions: SessionPanelActions;
@@ -26,6 +27,7 @@
 		autosave?: boolean;
 		iconSave?: boolean;
 		labelId?: string;
+		widthClass?: string;
 	} = $props();
 
 	const uid = $props.id();
@@ -56,9 +58,10 @@
 	);
 	let saveDisabled = $derived(saveState === 'unavailable' || saveState === 'saved');
 	let segmentWidth = $derived(
-		current
+		widthClass ??
+			(current
 			? `${compact ? 'min-w-[214px]' : 'min-w-[262px]'} max-w-[442px]`
-			: `${compact ? 'min-w-[176px]' : 'min-w-[224px]'} max-w-[404px]`
+			: `${compact ? 'min-w-[176px]' : 'min-w-[224px]'} max-w-[404px]`)
 	);
 	let reloadDisabled = $derived(!dirty || saving);
 	let reloadTip = $derived(dirty ? 'Reload from last snapshot' : 'No unsaved changes to discard');

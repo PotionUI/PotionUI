@@ -14,7 +14,11 @@ export default {
 		'./node_modules/layerchart/**/*.{svelte,js}',
 		'../content/plugins/sdk/**/*.svelte',
 		'../content/plugins/*/*/frontend/src/**/*.{svelte,js,ts}',
-		'!../content/plugins/**/node_modules/**'
+		'!../content/plugins/**/node_modules/**',
+		'!./src/**/*.{test,spec}.{js,ts}',
+		'!./src/**/fixtures/**',
+		'!./src/**/fixtures.ts',
+		'!../content/plugins/**/*.{test,spec}.{js,ts}'
 	],
 	theme: {
 		extend: {

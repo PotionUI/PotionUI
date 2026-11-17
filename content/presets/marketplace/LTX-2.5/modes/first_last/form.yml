@@ -1,0 +1,52 @@
+name: "custom"
+mode_icon: "frame"
+short_description: "Start on one picture and end on another."
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
+      - { field: "nag_scale", greater_than: 1 }
+      - logic: "AND"
+        conditions:
+          - { field: "upscale", not_equals: "off" }
+          - { field: "refine_cfg", greater_than: 1 }
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2video/tabs/generation.yml"
+      - type: "tab"
+        anchor: "references"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/first_last/tabs/references.yml"
+      - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        anchor: "enhance"
+        label: "Enhance"
+        configuration:
+          icon: "sparkles"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2video/tabs/enhance.yml"
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/video/tabs/advanced.yml"

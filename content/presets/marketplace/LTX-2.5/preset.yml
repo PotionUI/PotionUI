@@ -342,6 +342,9 @@ formulas:
     models:   { label: "Models", preselect: false }
 
 modes:
+  - txt2video
+  - img2video
+  - first_last
   - video
   - upscale
   - extend

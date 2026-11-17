@@ -130,6 +130,10 @@ Pointing the 2.0/2.3 preset at a transformer-only 2.5 DiT is rejected up front b
 
 Both presets carry the same two modes — a `video`/Director mode (first-frame/last-frame/arbitrary-keyframe conditioning, IC-LoRA reference videos, an optional jointly-generated or muxed-in audio track, and an in-flow two-stage latent upscale) and a standalone `upscale` mode that refines an existing clip. With Upscale on, a Director IC-LoRA and its reference apply to the first pass only unless "Use IC-LoRA in the refine pass" is on. See [Video Director](../video-director.md) for the keyframe/IC-LoRA/audio composition contract. What genuinely differs between them, beyond the pickers, is the stage-1 sampler and schedule — see [Sampling](#sampling).
 
+### Text to video, Image to video, First to last frame
+
+The `LTX-2.5` preset lists three plain generation modes before `video`: `txt2video` (prompt only), `img2video` (a required Start picture on frame 0) and `first_last` (a required Start picture on frame 0 and End picture on the final frame). Each is a focused form with Speed profile, Seed, Resolution, Length (seconds), FPS, Generate Audio, Models, LoRA, Enhance (Upscale, NAG, motion smoothing, face and hand detail) and Advanced tabs; there is no Video Director. `img2video` and `first_last` point at `modes/txt2video/pipeline.yml` (`pipeline_from`), which places `{source: image, frame: first|last, strength: 1.0, role: keyframe}` conditioning on each picture that is filled in, on every generator stage. The pictures are cover-cropped to the chosen Resolution, so pick one with their aspect ratio. The `video` mode is unchanged.
+
 ### Motion transfer
 
 Both presets ship a `motion_transfer` mode: a picture of a person plus a video of someone moving, and the person from the picture performs the moves. The look, clothing and background come from the picture; only the movement comes from the video.

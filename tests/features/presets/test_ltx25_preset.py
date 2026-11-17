@@ -277,7 +277,7 @@ def test_no_mode_caps_clip_frames_with_a_preset_number():
 def test_every_windowed_edit_mode_takes_its_frames_from_the_clip():
     windowed = 0
     for path in sorted(Path("content/presets/marketplace/LTX-2.5/modes").glob("*/pipeline.yml")):
-        for pipe in yaml.safe_load(path.read_text(encoding="utf-8"))["pipeline"]:
+        for pipe in yaml.safe_load(path.read_text(encoding="utf-8")).get("pipeline", []):
             config = pipe.get("configuration") or {}
             if pipe.get("name") == "generator/video_ltx" and config.get("match_video"):
                 assert "frames" not in config, path

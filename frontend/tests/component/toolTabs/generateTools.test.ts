@@ -104,7 +104,7 @@ describe('floating prompt', () => {
 		view.destroy();
 	});
 
-	it('lays the dock out as variant A: the picker strip with labels, shared cuts, default and Settings at its end, then the prompt row', async () => {
+	it('lays the dock out as variant A: the picker strip with labels, shared cuts and Settings at its end, then the prompt row', async () => {
 		const t = build([edit({ offers: [offer(), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })] })]);
 		t.controller.use('edit_region');
 		const { q } = mountPrompt(t.controller, { settings: { open: false, toggle: () => undefined } });
@@ -118,7 +118,7 @@ describe('floating prompt', () => {
 		expect(zone.className).toContain('h-12');
 		expect(Array.from(zone.querySelectorAll('.ctx-label')).map((label) => label.textContent?.trim())).toEqual(['Preset', 'Mode', 'Session', 'Results']);
 		expect(zone.querySelectorAll('[data-testid="context-separator"]')).toHaveLength(2);
-		expect(strip.querySelector('[data-editor-pickers-end] [data-picker-default]')).not.toBeNull();
+		expect(strip.querySelector('[data-picker-default]')).toBeNull();
 		expect(strip.querySelector('[data-editor-pickers-end] [data-prompt-settings]')).not.toBeNull();
 		expect(strip.querySelector('[data-testid="session-save"]')?.textContent?.trim()).toBe('');
 		const second = q('[data-dock-row="prompt"]')!;
@@ -128,7 +128,7 @@ describe('floating prompt', () => {
 		expect(second.querySelector('.ai-ring [data-prompt-field]')).not.toBeNull();
 		const end = strip.querySelector('[data-editor-pickers-end]')!;
 		const order = Array.from(end.children).map((child) => (child.querySelector('[aria-label="Results"]') ? 'results' : child.querySelector('[data-picker-default]') || child.hasAttribute('data-picker-default') ? 'default' : child.querySelector('[data-prompt-settings]') || child.hasAttribute('data-prompt-settings') ? 'settings' : 'other'));
-		expect(order.filter((entry) => entry !== 'other')).toEqual(['results', 'default', 'settings']);
+		expect(order.filter((entry) => entry !== 'other')).toEqual(['results', 'settings']);
 		expect(end.querySelector('[data-testid="dock-results"] .ctx-label')?.textContent?.trim()).toBe('Results');
 		const mark = q('[data-dock-mark]')!;
 		expect(mark.className).toContain('px-3');
@@ -158,7 +158,7 @@ describe('floating prompt', () => {
 		}
 		const end = q('[data-editor-pickers-end]')!;
 		const controls = Array.from(end.querySelectorAll('.dock-ctl'));
-		expect(controls.map((control) => (control.hasAttribute('data-picker-default') ? 'default' : control.querySelector('[data-prompt-settings]') ? 'settings' : 'other'))).toEqual(['default', 'settings']);
+		expect(controls.map((control) => (control.hasAttribute('data-picker-default') ? 'default' : control.querySelector('[data-prompt-settings]') ? 'settings' : 'other'))).toEqual(['settings']);
 		for (const control of controls) expect(control.querySelector('.ctx-label')).toBeNull();
 		const seg = end.querySelectorAll('[data-testid="dock-results"] [aria-label="Results"] button');
 		expect(seg).toHaveLength(4);
@@ -244,7 +244,7 @@ describe('floating prompt', () => {
 		const end = q('[data-editor-pickers-end]')!;
 		const kids = Array.from(end.children);
 		expect(kids[0].hasAttribute('data-test-extra')).toBe(true);
-		expect(kids.findIndex((child) => child.querySelector('[data-picker-default]') || child.hasAttribute('data-picker-default'))).toBeGreaterThan(0);
+		expect(kids.findIndex((child) => child.querySelector('[data-prompt-settings]') || child.hasAttribute('data-prompt-settings'))).toBeGreaterThan(0);
 	});
 
 	it('puts the notices row between the strip and the prompt, and none at rest', async () => {

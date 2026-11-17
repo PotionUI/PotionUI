@@ -4,7 +4,7 @@ import { get, writable } from 'svelte/store';
 import { mountComponent } from '../helpers/mount';
 import { mediaToolCatalogRevision } from '$lib/media-tools/catalog';
 import { markEditorExtensionsReady } from '$lib/editors';
-import type { EditorRun, EditorTaskInfo, TaskOffer } from '$lib/services/api/editorTasks';
+import type { EditorRun, EditorTaskInfo, SetupRef, TaskOffer } from '$lib/services/api/editorTasks';
 import type { PresetInfo } from '$lib/types/api';
 import { createStack, type EditStackState } from '$lib/tool-tabs/frame/editStack';
 import { createGenerateController, type ControllerDeps } from '$lib/tool-tabs/image/generate/controller';
@@ -330,26 +330,60 @@ describe('switching with unsaved changes', () => {
 });
 
 describe('use as my default', () => {
-	it('stores the current preset, editor mode and source when switched on, and clears it when switched off', async () => {
+	const mine = (preset_id: string, mode: string, setup: SetupRef = { kind: 'defaults' }) => ({ preset_id, mode, setup, health: { ok: true, reason: null, name: null, mode_label: null } });
+	const footerSwitch = () => document.body.querySelector<HTMLInputElement>('[data-picker-default] [role="switch"]');
+	const openDropdown = async (t: { q: (selector: string) => Element | null }) => {
+		if (!t.q('[data-testid="preset-list-scroll"]')) await click(t.q('[data-testid="preset-picker-trigger"]'));
+	};
+	const mark = () => document.body.querySelector('[data-default-mark]');
+
+	it('is not in the dock strip, only in the footer of the preset dropdown', async () => {
+		const t = await open([edit()]);
+		expect(t.q('[data-editor-pickers-end] [data-picker-default]')).toBeNull();
+		await openDropdown(t);
+		expect(t.q('[data-testid="preset-list-scroll"]')).not.toBeNull();
+		expect(footerSwitch()).not.toBeNull();
+		expect(t.text('[data-picker-default]')).toContain('Use this setup as my default for Edit a region');
+	});
+
+	it('stores the current preset, editor mode and source when switched on, clears it when switched off and keeps the dropdown open', async () => {
 		const t = await open([edit({ offers: [offer()] })], { sessions: { qwen: [stored('s1', 'Soft portrait', 'editor:edit', 20)] } });
 		await t.controller.pick('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
 		await settle();
-		const toggle = () => t.q<HTMLInputElement>('[data-picker-default] [role="switch"]')!;
-		expect(toggle().checked).toBe(false);
-		await click(toggle());
+		await openDropdown(t);
+		expect(footerSwitch()!.checked).toBe(false);
+		expect(mark()).toBeNull();
+		await click(footerSwitch());
 		expect(t.ports.setDefault).toHaveBeenCalledWith('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
-		expect(toggle().checked).toBe(true);
-		await click(toggle());
+		expect(t.q('[data-testid="preset-list-scroll"]')).not.toBeNull();
+		expect(footerSwitch()!.checked).toBe(true);
+		expect(mark()?.textContent).toBe('default');
+		await click(footerSwitch());
 		expect(t.ports.clearDefault).toHaveBeenCalledWith('edit_region');
-		expect(toggle().checked).toBe(false);
+		expect(t.q('[data-testid="preset-list-scroll"]')).not.toBeNull();
+		expect(footerSwitch()!.checked).toBe(false);
+		expect(mark()).toBeNull();
 	});
 
-	it('is on when the setup in use is the default and off for any other', async () => {
-		const t = await open([edit({ default: { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'defaults' }, health: { ok: true, reason: null, name: null, mode_label: null } } })]);
-		expect(t.q<HTMLInputElement>('[data-picker-default] [role="switch"]')?.checked).toBe(true);
+	it('is on, with the mark in the Preset cell, when the setup in use is the default and off for any other', async () => {
+		const t = await open([edit({ default: mine('qwen', 'editor:edit') })]);
+		expect(mark()).not.toBeNull();
+		expect(t.text('[data-testid="context-zone"] .ctx-label')).toContain('Preset · default');
+		await openDropdown(t);
+		expect(footerSwitch()?.checked).toBe(true);
+		expect(t.q('[data-default-hint]')).toBeNull();
 		await t.controller.pick('edit_region', { preset_id: 'flux', mode: 'editor:fill', setup: { kind: 'defaults' } });
 		await settle();
-		expect(t.q<HTMLInputElement>('[data-picker-default] [role="switch"]')?.checked).toBe(false);
+		expect(footerSwitch()?.checked).toBe(false);
+		expect(mark()).toBeNull();
+	});
+
+	it('says what the default is when the current choice differs from it', async () => {
+		const t = await open([edit({ default: mine('qwen', 'editor:edit') })]);
+		await t.controller.pick('edit_region', { preset_id: 'flux', mode: 'editor:fill', setup: { kind: 'defaults' } });
+		await settle();
+		await openDropdown(t);
+		expect(t.text('[data-default-hint]')).toMatch(/^Your default is Qwen-Image 2\.1 · .+ · Model defaults$/);
 	});
 });
 

@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, type Snippet } from 'svelte';
 	import type { PresetGalleryItem, PresetInfo } from '$lib/types/api';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import { api } from '$lib/services/api/index';
@@ -36,6 +36,7 @@
 		fullscreen = false,
 		disabledReasons = {},
 		recordRecent = true,
+		footer,
 		onSelect,
 		onReload,
 		onClose
@@ -48,6 +49,7 @@
 		fullscreen?: boolean;
 		disabledReasons?: Record<string, string>;
 		recordRecent?: boolean;
+		footer?: Snippet;
 		onSelect: (presetId: string) => void;
 		onReload: () => void;
 		onClose: () => void;
@@ -389,6 +391,7 @@
 				<span class="ml-auto font-mono text-sm tabular-nums text-fg-subtle">{presets.length} presets</span>
 			</div>
 		{/if}
+		{@render footer?.()}
 	{/if}
 </DropdownShell>
 

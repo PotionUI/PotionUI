@@ -242,7 +242,6 @@ async function geometry(page: Page) {
 			save: box(strip.querySelector('[data-testid="session-save"]')),
 			results: box(strip.querySelector('[aria-label="Results"]')),
 			resultsWrap: box(strip.querySelector('[data-testid="dock-results"]')),
-			def: box(strip.querySelector('[data-picker-default]')),
 			settings: box(strip.querySelector('[data-prompt-settings]')),
 			cuts: Array.from(strip.querySelectorAll('[data-testid="context-separator"]')).map((cut) => box(cut)!),
 			field: box(dock.querySelector('.ai-ring')),
@@ -296,12 +295,12 @@ function checkStrip(g: Awaited<ReturnType<typeof geometry>>, mode: 'rest' | 'tem
 	expect(g.stripScroll.scroll).toBeLessThanOrEqual(g.stripScroll.client + 1);
 	const labelBottoms = new Set(g.labels.map((label) => Math.round(label.bottom)));
 	expect(labelBottoms.size, `label baselines ${JSON.stringify(g.labels.map((l) => [l.text, l.bottom]))}`).toBe(wrapped ? 2 : 1);
-	const lines = wrapped ? [[g.preset, g.session], [g.results, g.def, g.settings]] : [[g.preset, g.session, g.results, g.def, g.settings]];
+	const lines = wrapped ? [[g.preset, g.session], [g.results, g.settings]] : [[g.preset, g.session, g.results, g.settings]];
 	for (const line of lines) {
 		const bottoms = line.filter(Boolean).map((box) => Math.round(box!.bottom));
 		expect(Math.max(...bottoms) - Math.min(...bottoms), `control bottoms ${JSON.stringify(bottoms)}`).toBeLessThanOrEqual(2);
 	}
-	const centres = [g.results, g.def, g.settings].map((box) => box!.y + box!.height / 2);
+	const centres = [g.results, g.settings].map((box) => box!.y + box!.height / 2);
 	expect(Math.max(...centres) - Math.min(...centres), `control centres ${JSON.stringify(centres)}`).toBeLessThanOrEqual(2.5);
 	for (const cut of g.cuts) {
 		expect(Math.abs(cut.y - stripBox.y)).toBeLessThanOrEqual(1);
@@ -324,7 +323,18 @@ const prompt = (page: Page) => page.locator('[data-floating-prompt]');
 const presetTrigger = (page: Page) => prompt(page).locator('[data-testid="preset-picker-trigger"]');
 const sessionTrigger = (page: Page) => prompt(page).locator('[data-testid="session-trigger"], button[aria-label="Session"]').first();
 const modeTrigger = (page: Page) => prompt(page).locator('[data-testid="preset-header-mode"] button').first();
-const defaultSwitch = (page: Page) => prompt(page).locator('[data-picker-default] input[role="switch"]');
+const presetDropdown = (page: Page) => page.locator('[role="dialog"][aria-label="Choose preset"]');
+const defaultSwitch = (page: Page) => presetDropdown(page).locator('[data-picker-default] input[role="switch"]');
+
+async function openDefaultFooter(page: Page) {
+	if ((await presetDropdown(page).count()) === 0) await presetTrigger(page).click();
+	await expect(defaultSwitch(page)).toBeVisible();
+}
+
+async function closePresetDropdown(page: Page) {
+	await page.keyboard.press('Escape');
+	await expect(presetDropdown(page)).toHaveCount(0);
+}
 const row = (page: Page, id = 's1') => page.locator(`[data-edit-stack] [data-stack-row="${id}"]`);
 
 async function begin(page: Page, tasks: Json[], sessions = false, sessionName?: string): Promise<Server> {
@@ -429,10 +439,18 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await sessionTrigger(page).click();
 		await page.locator('[data-session-row="sess-1"]').click();
 		await expect(sessionTrigger(page)).toHaveText(/Soft portrait/);
+		await expect(prompt(page).locator('[data-picker-default]')).toHaveCount(0);
+		await expect(prompt(page).locator('[data-default-mark]')).toHaveCount(0);
+		await openDefaultFooter(page);
+		await expect(defaultSwitch(page)).not.toBeChecked();
 		await defaultSwitch(page).click();
 		await expect.poll(() => server.defaults.length).toBe(1);
 		expect(server.defaults[0]).toEqual({ preset_id: 'qwen21', mode: 'editor:edit', setup: { kind: 'session', id: 'sess-1' } });
 		await expect(defaultSwitch(page)).toBeChecked();
+		await expect(presetDropdown(page)).toBeVisible();
+		await screenshot(page, JOURNEY, '28-built-preset-dropdown-default-dark-1440');
+		await closePresetDropdown(page);
+		await expect(prompt(page).locator('[data-default-mark]')).toHaveText('default');
 		await screenshot(page, JOURNEY, '12-pickers-dark-1440');
 
 		await screenshot(page, JOURNEY, '08-whole-picture-dark-1440');
@@ -847,7 +865,10 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(page.locator('[data-session-row]')).toHaveCount(1);
 		await page.locator('[data-session-row="sess-flux"]').click();
 		await expect(sessionTrigger(page)).toHaveText(/Wide and soft/);
+		await openDefaultFooter(page);
 		await expect(defaultSwitch(page)).not.toBeChecked();
+		await expect(presetDropdown(page).locator('[data-default-hint]')).toHaveText(/^Your default is Qwen-Image 2\.1 · .+ · .+$/);
+		await closePresetDropdown(page);
 		await screenshot(page, JOURNEY, '12b-pickers-mode-dark-1440');
 		await markArea(page);
 		await type(page, 'a lantern');
@@ -856,11 +877,14 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		expect((server.runs[0].setup as Json)).toMatchObject({ preset_id: 'flux-fill', mode: 'editor:fill2', form_data: { steps: 11 } });
 		expect((server.runs[0].setup as Json)).not.toHaveProperty('variant');
 		expect(server.defaults).toHaveLength(0);
+		await openDefaultFooter(page);
 		await defaultSwitch(page).click();
 		await expect.poll(() => server.defaults.length).toBe(1);
 		expect(server.defaults[0]).toEqual({ preset_id: 'flux-fill', mode: 'editor:fill2', setup: { kind: 'session', id: 'sess-flux' } });
+		await expect(presetDropdown(page)).toBeVisible();
 		await defaultSwitch(page).click();
 		await expect.poll(() => server.defaultClears).toBe(1);
+		await expect(presetDropdown(page)).toBeVisible();
 	});
 
 	test('Settings: change a value, run with it, save through the session control, save as new, and the discard prompts', async ({ page }) => {
@@ -1188,6 +1212,46 @@ test.describe('Edit a region at 1280', () => {
 		const g = await geometry(page);
 		checkStrip(g, 'wrapped');
 		console.log(`1280 qwen ${widths(g)}`);
+	});
+});
+
+test.describe('Edit a region at 1440 with the default out of the strip', () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	const cells = (page: Page) =>
+		page.evaluate(() => {
+			const read = (selector: string) => {
+				const node = document.querySelector<HTMLElement>(selector);
+				return node ? { text: node.textContent?.trim() ?? '', cut: node.scrollWidth > node.clientWidth + 1, width: Math.round(node.getBoundingClientRect().width) } : null;
+			};
+			return { preset: read('[data-preset-value]'), mode: read('[data-testid="preset-header-mode"] button span.truncate'), session: read('[data-testid="session-trigger"]') };
+		});
+
+	test('Flux 3 with Edit and Inpaint and no session shows all three whole', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [flux({ preset_name: 'Flux 3' }), fluxWide()], default: { preset_id: 'flux-fill', mode: 'editor:fill', setup: { kind: 'defaults' }, health: { ok: true, reason: null, name: null, mode_label: null } } })], true);
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await expect(presetTrigger(page)).toHaveText('Flux 3');
+		await page.mouse.move(700, 300);
+		const found = await cells(page);
+		console.log(`1440 flux3 ${JSON.stringify(found)}`);
+		expect(found.preset!.cut).toBe(false);
+		expect(found.mode!.cut).toBe(false);
+		expect(found.session!.cut).toBe(false);
+		checkStrip(await geometry(page), 'temp');
+	});
+
+	test('Qwen-Image 2.1 with two modes and a long session shows the names whole or says which gave way', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen(), qwen({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })], default: sessionDefault })], true, 'Product shots, soft light v3');
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await expect(presetTrigger(page)).toHaveText('Qwen-Image 2.1');
+		await page.mouse.move(700, 300);
+		const found = await cells(page);
+		console.log(`1440 qwen ${JSON.stringify(found)}`);
+		expect(found.preset!.cut).toBe(false);
+		expect(found.session!.text).toContain('Product shots, soft light v3');
+		checkStrip(await geometry(page), 'temp');
 	});
 });
 

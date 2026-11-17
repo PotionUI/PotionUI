@@ -20,6 +20,7 @@
 	export let readiness: ReadinessReport | null = null;
 	export let disabledReasons: Record<string, string> = {};
 	export let recordRecent = true;
+	export let footer: Snippet | undefined = undefined;
 	export let trigger:
 		| Snippet<
 				[
@@ -105,6 +106,7 @@
 		fullscreen={$isMobile}
 		{disabledReasons}
 		{recordRecent}
+		{footer}
 		onSelect={(presetId) => dispatch('select', presetId)}
 		onReload={() => dispatch('reload')}
 		onClose={closePicker}

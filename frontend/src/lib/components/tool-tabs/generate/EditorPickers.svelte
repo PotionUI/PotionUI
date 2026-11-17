@@ -18,7 +18,7 @@
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
 	import { createEditorSessionController } from '$lib/tool-tabs/image/generate/editorSessions';
 	import { NO_FORMULA, formulaOptionsOf, modeOptionsOf, presetDisabledReasons, presetListOf } from '$lib/tool-tabs/image/generate/pickers';
-	import { offerOf, sameChoice, setupName, sourceOf, type SetupChoice } from '$lib/tool-tabs/image/generate/setup';
+	import { modeName, offerOf, sameChoice, setupName, sourceOf, type SetupChoice } from '$lib/tool-tabs/image/generate/setup';
 	import { isChanged } from '$lib/tool-tabs/image/generate/tweaks';
 	import { DOCK_CELL, DOCK_END, DOCK_PICKERS, DOCK_STEP } from '$lib/tool-tabs/image/generate/dockStrip';
 
@@ -57,6 +57,18 @@
 	let isDefault = $derived.by(() => {
 		void $ui;
 		return generate.isDefault(taskId);
+	});
+
+	let defaultName = $derived.by(() => {
+		void $ui;
+		const remembered = task?.default;
+		if (!remembered?.health.ok) return null;
+		const target = offerOf(offers, remembered);
+		if (!target) return null;
+		const source = sourceOf(remembered.setup, generate.choicesOf(target));
+		const parts = [target.preset_name, modeName(target)];
+		if (source.kind === 'defaults' || source.name) parts.push(setupName(source));
+		return parts.join(' · ');
 	});
 
 	$effect(() => {
@@ -117,15 +129,20 @@
 	}
 </script>
 
-{#snippet stepLabel(id: string, text: string)}
-	<span {id} class={phone ? 'sr-only' : 'ctx-label whitespace-nowrap text-fg-subtle'}>{text}</span>
+{#snippet stepLabel(id: string, text: string, mark?: string)}
+	<span {id} class={phone ? 'sr-only' : 'ctx-label whitespace-nowrap text-fg-subtle'}>{text}{#if mark}{' · '}<span data-default-mark>{mark}</span>{/if}</span>
 {/snippet}
 
-{#snippet defaultSwitch()}
-	<label class="flex min-w-0 items-center gap-2 text-sm text-fg-muted {phone ? '' : 'dock-ctl'}" data-picker-default>
-		<Switch size="sm" checked={isDefault} disabled={!choice} label="Use as my default for {label}" onchange={(on) => void generate.setAsDefault(taskId, on)} />
-		<span class="whitespace-nowrap">Use as my default</span>
-	</label>
+{#snippet defaultFooter()}
+	<div class="flex flex-shrink-0 flex-col gap-1 border-t border-line px-3.5 py-2.5" data-picker-default>
+		<label class="flex min-w-0 items-center gap-2 text-sm text-fg">
+			<Switch size="sm" checked={isDefault} disabled={!choice} label="Use this setup as my default for {label}" onchange={(on) => void generate.setAsDefault(taskId, on)} />
+			<span class="min-w-0">Use this setup as my default for {label}</span>
+		</label>
+		{#if defaultName && !isDefault}
+			<span class="pl-9 text-sm text-fg-muted" data-default-hint>Your default is {defaultName}</span>
+		{/if}
+	</div>
 {/snippet}
 
 <div class="min-w-0" data-editor-pickers={phone ? 'phone' : 'desktop'}>
@@ -134,7 +151,7 @@
 		<div class="flex flex-col gap-2" data-testid="preset-header-row">
 			<div class="flex flex-wrap items-stretch gap-1.5">
 				<div class="min-w-0 flex-1" data-testid="preset-header-picker">
-					<PresetPicker bind:this={presetPicker} {presets} selectedPreset={choice?.preset_id ?? ''} disabled={nothingOffered} disabledReasons={reasons} recordRecent={false} on:select={(event) => pickPreset(event.detail)} />
+					<PresetPicker bind:this={presetPicker} {presets} selectedPreset={choice?.preset_id ?? ''} disabled={nothingOffered} disabledReasons={reasons} recordRecent={false} footer={defaultFooter} on:select={(event) => pickPreset(event.detail)} />
 				</div>
 				{#if showMode}
 					<div class="flex w-[168px] flex-shrink-0" data-testid="preset-header-mode">
@@ -148,15 +165,14 @@
 			{#if showFormulas}
 				<PickerSelect value={formulaValue} options={formulaOptions} label="Choose formula" placeholder="Formula" onchange={pickFormula} />
 			{/if}
-			{@render defaultSwitch()}
 		</div>
 	{:else}
 		<div class="dock-zone flex h-12 min-w-0 items-stretch" role="group" aria-label="Setup for {label}" data-testid="context-zone" style="--cut-stroke: var(--canvas)">
 			<div class={DOCK_PICKERS} data-dock-pickers>
 				<div class={DOCK_STEP.preset} data-context-step>
-					{@render stepLabel(`${uid}-preset`, 'Preset')}
+					{@render stepLabel(`${uid}-preset`, 'Preset', isDefault ? 'default' : undefined)}
 					<div class="flex min-w-0" data-testid="preset-header-picker">
-						<PresetPicker bind:this={presetPicker} {presets} selectedPreset={choice?.preset_id ?? ''} disabled={nothingOffered} disabledReasons={reasons} recordRecent={false} on:select={(event) => pickPreset(event.detail)}>
+						<PresetPicker bind:this={presetPicker} {presets} selectedPreset={choice?.preset_id ?? ''} disabled={nothingOffered} disabledReasons={reasons} recordRecent={false} footer={defaultFooter} on:select={(event) => pickPreset(event.detail)}>
 							{#snippet trigger(picker)}
 								<Tooltip text={picker.currentPreset?.name ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
 									<button
@@ -256,7 +272,6 @@
 				{@render extras?.()}
 				{@render resultsStep?.()}
 				{@render changedMark?.()}
-				{@render defaultSwitch()}
 				{@render settingsButton?.()}
 			</div>
 		</div>

@@ -58,6 +58,7 @@ import hashlib
 import math
 from collections import OrderedDict
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any, Optional
 
 import numpy as np
@@ -119,21 +120,26 @@ PIXEL_STD = (0.229, 0.224, 0.225)
 # reproduces the same noise regardless of which device the VAE runs on.
 KEYFRAME_ENCODE_SEED = 42
 
+ANCHOR_STRETCH_TOLERANCE = Fraction(3, 100)
+
 
 def fit_keyframe_to_canvas(image: Image.Image, height: int, width: int, *, is_geometry_anchor: bool) -> Image.Image:
     """Put one keyframe onto the `(height, width)` canvas.
 
     The geometry anchor (`is_geometry_anchor=True` -- the request's `image`,
-    or `last_image` alone with no `image`) is STRETCHED onto the canvas
-    (`PIL` `resize((width, height), LANCZOS)`); a follower keyframe is
-    COVER-CROPPED with the released model's own (not `VaeImageProcessor`'s
-    `resize_mode="crop"`) rounding/centring arithmetic -- the two disagree by
-    a pixel on some aspect ratios, so this keeps the released arithmetic
-    verbatim rather than reusing the shared image processor.
+    or `last_image` alone with no `image`) is STRETCHED onto the canvas when
+    its aspect is within `ANCHOR_STRETCH_TOLERANCE` of the canvas's; past
+    that, it is COVER-CROPPED like a follower, with the released model's own
+    (not `VaeImageProcessor`'s `resize_mode="crop"`) rounding/centring
+    arithmetic -- the two disagree by a pixel on some aspect ratios, so this
+    keeps the released arithmetic verbatim.
     """
     if image.size == (width, height):
         return image
-    if is_geometry_anchor:
+    image_extent = image.size[0] * height
+    canvas_extent = width * image.size[1]
+    stretch_limit = min(image_extent, canvas_extent) * (1 + ANCHOR_STRETCH_TOLERANCE)
+    if is_geometry_anchor and max(image_extent, canvas_extent) <= stretch_limit:
         return image.resize((width, height), Image.Resampling.LANCZOS)
     scale = max(width / image.size[0], height / image.size[1])
     resized_size = (max(width, round(image.size[0] * scale)), max(height, round(image.size[1] * scale)))

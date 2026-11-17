@@ -245,8 +245,8 @@ async function applyCrop(page: Page) {
 
 async function applyReel(page: Page) {
 	await rail(page, 'effects').click();
-	await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
-	await page.locator('[data-tray-item="reel"]').click();
+	await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
+	await page.locator('[data-look-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
 	await page.locator('[data-options-apply]').click();
 }
@@ -325,7 +325,7 @@ async function states(page: Page, server: Server, phone: boolean, width: number)
 	const saved = server.rows;
 	server.rows = [];
 	screen = await reopen();
-	await expect(screen.locator('[data-empty-state="compact"]')).toContainText('No edits yet');
+	await expect(screen.locator('[data-empty-state="page"]')).toContainText('No edits yet');
 	await expect(screen.locator('[data-recent-history] [data-edit-tile]')).toHaveCount(1);
 	await expect(screen.getByLabel('Search edits by name')).toHaveCount(0);
 	await screenshot(page, JOURNEY, `02-first-use-${width}`);
@@ -349,7 +349,7 @@ test.describe('Image editor recent edits on desktop', () => {
 	test('change a picture, close the tab, open a new editor tab and continue the edit', async ({ page }) => {
 		const server = await begin(page, 0);
 		let screen = await openEditor(page, false);
-		await expect(screen.locator('[data-empty-state="compact"]')).toContainText('No edits yet');
+		await expect(screen.locator('[data-empty-state="page"]')).toContainText('No edits yet');
 		await screen.locator('[data-recent-history] button').first().click();
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 		await applyCrop(page);

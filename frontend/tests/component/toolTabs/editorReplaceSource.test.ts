@@ -3,6 +3,7 @@ import { flushSync, tick } from 'svelte';
 import { get } from 'svelte/store';
 import { mountComponent } from '../helpers/mount';
 import { menuRow, openEditorMenu } from '../helpers/editorMenu';
+import { stubClientWidth } from '../helpers/stubClientWidth';
 import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, beginEdit, createStack } from '$lib/tool-tabs/frame/editStack';
 import { emptyImageState, writeImageState } from '$lib/tool-tabs/image/state';
@@ -99,7 +100,10 @@ function pasteImage(target: EventTarget = document.body) {
 	return event;
 }
 
+let restoreWidth = () => {};
+
 beforeEach(() => {
+	restoreWidth = stubClientWidth(300);
 	confirmDialog.mockReset();
 	upload.mockReset();
 	upload.mockResolvedValue({ id: 'art-1', url: '/api/media-tools/artifacts/art-1.png', width: 10, height: 10 });
@@ -108,6 +112,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	restoreWidth();
 	tabsStore.reset();
 	document.body.innerHTML = '';
 	delete (globalThis as { __mounts?: string[] }).__mounts;

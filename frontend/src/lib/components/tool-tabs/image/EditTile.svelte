@@ -12,6 +12,8 @@
 		look,
 		time,
 		picture,
+		tile,
+		onsize,
 		openElsewhere = false,
 		actionLabel,
 		ariaLabel,
@@ -30,6 +32,8 @@
 		look: SourceLook;
 		time: string;
 		picture: string | null | undefined;
+		tile?: { width: number; height: number };
+		onsize?: (width: number, height: number) => void;
 		openElsewhere?: boolean;
 		actionLabel: string;
 		ariaLabel: string;
@@ -114,13 +118,24 @@
 	>
 		<button
 			type="button"
-			class="group/media relative block aspect-[4/3] w-full cursor-pointer overflow-hidden bg-surface-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal"
+			class="group/media relative block w-full cursor-pointer {tile ? '' : 'aspect-[4/3]'} overflow-hidden bg-surface-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal"
+			style={tile ? `height: ${tile.height}px` : undefined}
 			aria-label={ariaLabel}
 			data-edit-open
 			onclick={onopen}
 		>
 			{#if shown}
-				<img src={shown} alt="" loading="lazy" class="absolute inset-0 h-full w-full object-cover" onerror={() => (failed = true)} />
+				<img
+					src={shown}
+					alt=""
+					loading="lazy"
+					class="absolute inset-0 h-full w-full object-contain"
+					onload={(event) => {
+						const img = event.currentTarget as HTMLImageElement;
+						onsize?.(img.naturalWidth, img.naturalHeight);
+					}}
+					onerror={() => (failed = true)}
+				/>
 			{:else if missing}
 				<span class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-surface-2 px-3 text-center text-fg-muted" data-media-missing>
 					<Icon name="warning" className="h-6 w-6 text-warning" strokeWidth={1.75} />
@@ -141,10 +156,11 @@
 				</span>
 			{/if}
 			<span
+				style="max-width: calc(100% - 16px)"
 				class="pointer-events-none absolute bottom-2.5 left-1/2 z-[2] inline-flex h-7 -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded bg-accent px-2.5 text-sm font-medium text-accent-contrast opacity-0 transition-opacity duration-100 group-hover/tile:opacity-100 group-focus-visible/media:opacity-100 max-md:hidden [@media(hover:none)]:hidden"
 			>
 				{#if openElsewhere}<Icon name="external-link" className="h-3.5 w-3.5" />{/if}
-				{actionLabel}
+				<span class="truncate">{actionLabel}</span>
 			</span>
 		</button>
 
@@ -183,7 +199,7 @@
 				{:else}
 					<span class="block w-full truncate text-left text-base {unnamed ? 'font-medium text-fg-muted' : 'font-semibold text-fg'}" data-edit-name>{name}</span>
 				{/if}
-				<div class="flex min-w-0 items-center justify-between gap-2 text-sm text-fg-subtle max-md:flex-col max-md:items-start max-md:gap-0.5">
+				<div class="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-sm text-fg-subtle">
 					<span class="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap">
 						<Icon name={look.icon} className="h-3.5 w-3.5 flex-shrink-0" />{look.label}
 					</span>

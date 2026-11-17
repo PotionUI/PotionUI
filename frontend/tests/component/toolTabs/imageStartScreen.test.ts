@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { get } from 'svelte/store';
 import { mountComponent } from '../helpers/mount';
+import { stubClientWidth } from '../helpers/stubClientWidth';
 import { settleFlush } from '../helpers/settle';
 import { tabsStore } from '$lib/stores/tabs';
 import { activeConfirm, settleConfirm } from '$lib/stores/confirm';
@@ -88,7 +89,13 @@ describe('ImageStartScreen', () => {
 		mocks.getGenerationHistory.mockReset().mockResolvedValue(history());
 	});
 
+	let restoreWidth = () => {};
+	beforeEach(() => {
+		restoreWidth = stubClientWidth(1000);
+	});
+
 	afterEach(() => {
+		restoreWidth();
 		vi.useRealTimers();
 		tabsStore.reset();
 	});
@@ -128,12 +135,15 @@ describe('ImageStartScreen', () => {
 		expect(all('[data-edit-name]')[0].textContent?.trim()).toBe('Cover crop, warm');
 	});
 
-	it('first use: empty state, no search, no count, recent History below and the start panel', async () => {
+	it('first use: page empty state with the four sources under it, no search, no count, recent History below', async () => {
 		mocks.listEdits.mockResolvedValue(NONE);
 		const { q, all, onpick } = render();
 		await settleFlush();
 		expect(q('[data-recent-edits]')?.dataset.state).toBe('first-use');
-		expect(q('[data-empty-state="compact"]')?.textContent).toContain('No edits yet');
+		expect(q('[data-empty-state="page"]')?.textContent).toContain('No edits yet');
+		expect(q('[data-empty-state="compact"]')).toBeNull();
+		expect(q('[data-start-panel]')).toBeNull();
+		expect(all('[data-empty-state="page"] [data-start-source]')).toHaveLength(4);
 		expect(q('input[aria-label="Search edits by name"]')).toBeNull();
 		expect(q('[data-recent-history]')).not.toBeNull();
 		expect(all('[data-recent-history] [data-edit-tile]')).toHaveLength(2);
@@ -259,7 +269,15 @@ describe('ImageStartScreen layout', () => {
 		mocks.getGenerationHistory.mockReset().mockResolvedValue(history());
 	});
 
-	afterEach(() => tabsStore.reset());
+	let restoreWidth = () => {};
+	beforeEach(() => {
+		restoreWidth = stubClientWidth(1000);
+	});
+
+	afterEach(() => {
+		restoreWidth();
+		tabsStore.reset();
+	});
 
 	it('is full width with no centred max-width container', async () => {
 		const { q } = render();
@@ -341,7 +359,7 @@ describe('ImageStartScreen layout', () => {
 		expect(q('nav[aria-label="Pagination"]')).toBeNull();
 	});
 
-	it('0 edits: the band, the compact empty state and one row of six History pictures at most', async () => {
+	it('0 edits: no band, the page empty state and one row of six History pictures at most', async () => {
 		mocks.listEdits.mockResolvedValue(NONE);
 		const now = new Date().toISOString();
 		const picks = [
@@ -354,22 +372,40 @@ describe('ImageStartScreen layout', () => {
 		mocks.getGenerationHistory.mockResolvedValue({ success: true, data: { generations: picks } });
 		const { q, all } = render();
 		await settleFlush();
-		expect(q('[data-start-panel]')).not.toBeNull();
-		expect(q('[data-empty-state="compact"]')).not.toBeNull();
+		expect(q('[data-start-panel]')).toBeNull();
+		expect(q('[data-empty-state="page"]')).not.toBeNull();
 		expect(all('[data-recent-history] [data-edit-tile]').length).toBeLessThanOrEqual(6);
 		expect(all('[data-recent-history] [data-edit-tile]').length).toBeGreaterThan(0);
+		expect(all('[data-recent-history] [data-row-end="true"]')).toHaveLength(1);
 	});
 
-	it('grid steps are 2, 3, 4 and 6 columns by width, so twelve fill whole rows', () => {
-		const steps = [...source.matchAll(/@container start \(min-width: (\d+)px\) \{\s*\.edit-grid \{\s*grid-template-columns: repeat\((\d+)/g)].map((match) => [Number(match[1]), Number(match[2])]);
-		expect(steps).toEqual([
-			[560, 3],
-			[820, 4],
-			[1240, 6]
-		]);
-		expect(source).toMatch(/\.edit-grid \{\s*display: grid;\s*grid-template-columns: repeat\(2, /);
-		for (const columns of [2, 3, 4, 6]) expect(12 % columns).toBe(0);
-		expect(source).not.toContain('auto-fill');
+	it('has no fixed column steps any more', () => {
+		expect(source).not.toContain('edit-grid');
+		expect(source).not.toContain('grid-template-columns: repeat(3');
+		expect(source).not.toContain('grid-template-columns: repeat(6');
+	});
+
+	it('first use: hint with the keys together sits under the four buttons, History row under that', async () => {
+		mocks.listEdits.mockResolvedValue(NONE);
+		const { q, all } = render();
+		await settleFlush();
+		const empty = q('[data-empty-state="page"]')!;
+		const sources = q('[data-start-sources]')!;
+		const hint = q('[data-start-hint]')!;
+		const row = q('[data-recent-history]')!;
+		expect(empty.contains(sources) && empty.contains(hint)).toBe(true);
+		expect(sources.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(empty.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(all('[data-start-hint] kbd').map((node) => node.textContent)).toEqual(['Ctrl', 'V']);
+		expect(all('[data-start-source]').map((node) => node.dataset.startSource)).toEqual(['browse', 'history', 'library', 'kits']);
+	});
+
+	it('first use with a phone leaves the paste keys out', async () => {
+		mocks.listEdits.mockResolvedValue(NONE);
+		const { q } = render({ phone: true });
+		await settleFlush();
+		expect(q('[data-start-hint]')?.textContent).not.toContain('paste');
+		expect(q('[data-start-hint] kbd')).toBeNull();
 	});
 
 	it('the sources go 2x2 and compact on a narrow band', () => {
@@ -423,3 +459,150 @@ describe('ImageStartScreen layout', () => {
 	});
 });
 
+
+function box(node: HTMLElement) {
+	const wrapper = node.closest<HTMLElement>('[data-tile-box]')!;
+	const basis = Number(/(\d+(?:\.\d+)?)px/.exec(wrapper.style.flex)![1]);
+	const media = wrapper.querySelector<HTMLElement>('[data-edit-open]')!;
+	const height = Number(/(\d+(?:\.\d+)?)px/.exec(media.style.height)![1]);
+	return { width: basis, height, grow: wrapper.style.flex.startsWith('1 1'), rowEnd: wrapper.dataset.rowEnd === 'true' };
+}
+
+function loaded(img: HTMLImageElement, width: number, height: number) {
+	Object.defineProperty(img, 'naturalWidth', { configurable: true, value: width });
+	Object.defineProperty(img, 'naturalHeight', { configurable: true, value: height });
+	img.dispatchEvent(new Event('load'));
+	flushSync();
+}
+
+function sizedHistory(sizes: Array<[number, number]>) {
+	const now = new Date().toISOString();
+	return {
+		success: true,
+		data: {
+			generations: [
+				{
+					id: 'g1',
+					created_at: now,
+					files: sizes.map(([width, height], index) => ({
+						id: 40 + index,
+						file_path: `outputs/d/g1/s${index}.png`,
+						file_type: 'image',
+						is_final: true,
+						created_at: now,
+						width,
+						height
+					}))
+				}
+			]
+		}
+	};
+}
+
+describe('ImageStartScreen justified tiles', () => {
+	let restoreWidth = () => {};
+
+	beforeEach(() => {
+		restoreWidth = stubClientWidth(1000);
+		tabsStore.reset();
+		mocks.listEdits.mockReset().mockResolvedValue(list(10));
+		mocks.getEdit.mockReset();
+		mocks.getLibraryItem
+			.mockReset()
+			.mockResolvedValue({ success: true, data: { id: 's1', filename: 's1.png', original_filename: 'picture-1.png', media_type: 'image', url: '/api/media/uploads/s1.png' } });
+		mocks.getGenerationHistory.mockReset().mockResolvedValue(history());
+	});
+
+	afterEach(() => {
+		restoreWidth();
+		tabsStore.reset();
+	});
+
+	it('gives a portrait, a landscape and a square picture a tile of their own ratio and never crops', async () => {
+		mocks.listEdits.mockResolvedValue(NONE);
+		mocks.getGenerationHistory.mockResolvedValue(sizedHistory([[800, 1200], [1600, 900], [1000, 1000]]));
+		const { all, view } = render();
+		await settleFlush();
+		const tiles = all('[data-recent-history] [data-edit-tile]');
+		expect(tiles).toHaveLength(3);
+		const ratios = tiles.map((tile) => {
+			const { width, height } = box(tile);
+			return width / height;
+		});
+		expect(ratios[0]).toBeCloseTo(800 / 1200, 1);
+		expect(ratios[1]).toBeCloseTo(1600 / 900, 1);
+		expect(ratios[2]).toBeCloseTo(1, 1);
+		expect(view.target.innerHTML).not.toContain('object-cover');
+		expect(all('[data-recent-history] img').every((img) => img.className.includes('object-contain'))).toBe(true);
+	});
+
+	it('fills the container width on every row but the last, which keeps its own height and is not stretched', async () => {
+		const { all } = render();
+		await settleFlush();
+		const boxes = all('[data-edit-tile]').map(box);
+		expect(boxes).toHaveLength(10);
+		const rows: (typeof boxes)[] = [];
+		let current: typeof boxes = [];
+		for (const b of boxes) {
+			current.push(b);
+			if (b.rowEnd) {
+				rows.push(current);
+				current = [];
+			}
+		}
+		expect(rows.length).toBeGreaterThan(1);
+		rows.slice(0, -1).forEach((row) => {
+			const total = row.reduce((sum, b) => sum + b.width, 0) + 12 * (row.length - 1);
+			expect(total).toBeGreaterThan(1000 - row.length - 1);
+			expect(total).toBeLessThanOrEqual(1000);
+			expect(row[row.length - 1].grow).toBe(true);
+		});
+		const last = rows[rows.length - 1];
+		expect(last.some((b) => b.grow)).toBe(false);
+		const lastWidth = last.reduce((sum, b) => sum + b.width, 0) + 12 * (last.length - 1);
+		expect(lastWidth).toBeLessThan(1000 * 0.9);
+		expect(last[0].height).toBeLessThanOrEqual(Math.max(...rows[0].map((b) => b.height)) + 60);
+	});
+
+	it('starts a picture without dimensions at 4:3 and settles on its real shape once it loads', async () => {
+		const { all, q } = render();
+		await settleFlush();
+		const first = q('[data-edit-tile="e1"]')!;
+		const before = box(first);
+		expect(before.width / before.height).toBeCloseTo(4 / 3, 1);
+		loaded(first.querySelector('img')!, 600, 1200);
+		await settleFlush();
+		const after = box(q('[data-edit-tile="e1"]')!);
+		expect(after.width / after.height).toBeCloseTo(0.5, 1);
+		expect(all('[data-edit-tile]')).toHaveLength(10);
+	});
+
+	it('caps a very wide panorama and a very tall strip so neither hogs nor slivers a row', async () => {
+		mocks.listEdits.mockResolvedValue(NONE);
+		mocks.getGenerationHistory.mockResolvedValue(sizedHistory([[5000, 500], [300, 3000]]));
+		const { all } = render();
+		await settleFlush();
+		const [wide, tall] = all('[data-recent-history] [data-edit-tile]').map((tile) => {
+			const b = box(tile);
+			return b.width / b.height;
+		});
+		expect(wide).toBeCloseTo(2.6, 1);
+		expect(tall).toBeCloseTo(0.45, 1);
+	});
+
+	it('keeps the footer, the other-tab chip, the hover action and the menu on every tile', async () => {
+		const otherId = tabsStore.openToolTab('image', { path: '/m/x.png', url: '/m/x.png', name: 'x.png', item_id: 'z' });
+		tabsStore.updateToolTab(otherId, { state: { v: 1, edit: { id: 'e2', revision: 2 } } });
+		tabsStore.openToolTab('image', null);
+		const { q, all } = render();
+		await settleFlush();
+		const tile = q('[data-edit-tile="e2"]')!;
+		expect(tile.querySelector('[data-edit-name]')?.textContent).toBe('picture-2');
+		expect(tile.textContent).toContain('History');
+		expect(tile.querySelector('[data-open-badge]')?.textContent).toContain('Open in another tab');
+		expect(tile.textContent).toContain('Go to open tab');
+		expect(q('[data-edit-tile="e1"]')?.textContent).toContain('Continue this edit');
+		expect(all('[data-edit-tile] button[aria-label^="Options for"]')).toHaveLength(10);
+		expect(q('[data-edit-tile="e1"] [data-edit-open]')?.getAttribute('aria-label')).toBe('Continue this edit: picture-1');
+	});
+});

@@ -26,6 +26,7 @@
 	import type { MediaRef } from '$lib/types/tabs';
 	import EditTile from './EditTile.svelte';
 	import ImageSourcePicker from './ImageSourcePicker.svelte';
+	import JustifiedTiles from './JustifiedTiles.svelte';
 
 	let {
 		tabId,
@@ -52,6 +53,9 @@
 		restoreTab: (patch) => tabsStore.restoreToolTab(untrack(() => tabId), patch)
 	});
 	const pictures = createEditPictures(api);
+
+	const SKELETON_ASPECTS = [1.5, 0.75, 1, 1.78, 1, 0.7, 1.33, 1, 0.75, 1.78, 1, 1.5];
+	const SKELETON_ITEMS = SKELETON_ASPECTS.map((aspect, index) => ({ key: `skeleton-${index}`, aspect }));
 
 	const ENTRY_ORDER: SourceEntryId[] = ['browse', 'history', 'library'];
 	const ENTRY_COPY: Record<string, { label: string; hint: string } | undefined> = {
@@ -81,9 +85,16 @@
 	});
 	let openMap = $derived(openEditTabs($tabsStore.tabs, tabId));
 	let firstUse = $derived($recent.status === 'ready' && $recent.overall === 0 && !$recent.query);
-	let emptyCompact = $derived(!historyLoaded || history.length > 0);
 	let listOff = $derived($recent.status !== 'ready');
 	let totalPages = $derived(pageCount($recent.total));
+	let editItems = $derived($recent.edits.map((edit) => ({ key: edit.id, edit, aspect: null as number | null })));
+	let historyItems = $derived(
+		history.map((pick) => ({
+			key: pick.ref.path,
+			pick,
+			aspect: pick.ref.width && pick.ref.height ? pick.ref.width / pick.ref.height : null
+		}))
+	);
 	let countLabel = $derived(
 		$recent.status !== 'ready' || firstUse ? undefined : $recent.query ? `${$recent.total} of ${$recent.overall}` : $recent.overall
 	);
@@ -183,6 +194,7 @@
 	<div class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-canvas p-6 dot-grid max-md:p-3">
 		<p class="sr-only">Open a picture to edit, or continue one of your recent edits.</p>
 		<div class="start flex min-h-full min-w-0 flex-col gap-6 max-md:gap-4" data-start-screen>
+			{#if !firstUse}
 			<section class="band" aria-label="Start from a picture" data-start-panel>
 				<Card>
 					<div class="mb-3 flex min-h-5 items-baseline gap-3">
@@ -225,12 +237,14 @@
 					{/if}
 				</Card>
 			</section>
+			{/if}
 
 			<section
 				class="flex min-w-0 flex-1 flex-col transition-opacity duration-100 {dragging ? 'opacity-[0.45]' : ''}"
 				data-recent-edits
 				data-state={firstUse ? 'first-use' : $recent.status}
 			>
+				{#if !firstUse}
 				<div class="rhead mb-3 flex min-h-9 flex-wrap items-center gap-x-4 gap-y-2 max-md:gap-2.5">
 					{#if countLabel === undefined}
 						<PageTitle title="Recent edits" />
@@ -268,50 +282,81 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
 
 				{#if $recent.status === 'error'}
 					<LoadErrorState title="Couldn't load your edits" message="Check your connection and try again. Your edits are safe." onRetry={() => void recent.retry()} />
 				{:else if $recent.status === 'loading'}
 					<div class="sr-only" role="status">Loading your edits</div>
-					<div class="edit-grid" aria-busy="true" data-edits-loading>
-						{#each Array.from({ length: 12 }, (_, index) => index) as index (index)}
+					<JustifiedTiles items={SKELETON_ITEMS} aria-busy="true" data-edits-loading>
+						{#snippet tile(_item, box)}
 							<div class="animate-pulse motion-reduce:animate-none" aria-hidden="true">
 								<div class="overflow-hidden rounded-lg border border-line bg-surface-1 shadow-raised">
-									<div class="aspect-[4/3] bg-surface-2"></div>
+									<div class="bg-surface-2" style="height: {box.height}px"></div>
 									<div class="flex flex-col gap-2 border-t border-line px-3 py-3.5">
 										<div class="h-3 w-[62%] rounded-sm bg-surface-2"></div>
 										<div class="h-3 w-[40%] rounded-sm bg-surface-2"></div>
 									</div>
 								</div>
 							</div>
-						{/each}
-					</div>
+						{/snippet}
+					</JustifiedTiles>
 				{:else if firstUse}
 					<EmptyState
-						page={!emptyCompact}
-						compact={emptyCompact}
+						page
 						icon="sliders"
 						title="No edits yet"
 						description="Pick a picture to start. Your changes are saved as you go, and every edit shows up here."
-					/>
+					>
+						{#snippet actions()}
+							<div class="flex w-full flex-col items-center gap-4">
+								<div class="flex flex-wrap items-center justify-center gap-3 max-md:gap-2" data-start-sources>
+									{#each entries as entry (entry.id)}
+										<Button
+											variant="secondary"
+											icon={entry.icon}
+											ariaLabel={entry.label}
+											attrs={{ 'data-start-source': entry.id }}
+											class="max-md:flex-[1_1_calc(50%-4px)]"
+											onclick={() => picker?.open(entry.id)}
+										>
+											{entry.label}
+										</Button>
+									{/each}
+								</div>
+								<div class="inline-flex items-center gap-2 whitespace-nowrap text-sm {dragging ? 'text-signal' : 'text-fg-subtle'}" data-start-hint>
+									{#if dragging}
+										<span>Release to start an edit</span>
+									{:else}
+										<span>Drop a picture anywhere{phone ? '' : ', or paste'}</span>
+										{#if !phone}<span class="inline-flex items-center gap-1 whitespace-nowrap" data-start-keys><Kbd keys="Ctrl" /><Kbd keys="V" /></span>{/if}
+									{/if}
+								</div>
+								{#if busy}<Spinner />{/if}
+								{#if error}<p class="text-sm text-danger" role="alert">{error}</p>{/if}
+							</div>
+						{/snippet}
+					</EmptyState>
 					{#if history.length}
 						<section class="mt-2" aria-label="Recent in History">
 							<p class="mb-3 font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Recent in History</p>
-							<div class="edit-grid history" role="list" data-recent-history>
-								{#each history as pick (pick.ref.path)}
+							<JustifiedTiles items={historyItems} maxRows={1} role="list" data-recent-history>
+								{#snippet tile(item, box, report)}
 									<EditTile
-										id={pick.ref.path}
-										name={fileStem(pick.ref.name ?? '') || 'Picture'}
+										id={item.pick.ref.path}
+										name={fileStem(item.pick.ref.name ?? '') || 'Picture'}
 										look={sourceLook('history')}
-										time={relativeTime(pick.at)}
-										picture={pick.ref.url}
+										time={relativeTime(item.pick.at)}
+										picture={item.pick.ref.url}
+										tile={box}
+										onsize={report}
 										actionLabel="Start an edit"
 										nameLink={false}
-										ariaLabel="Start an edit from {fileStem(pick.ref.name ?? '')}"
-										onopen={() => onpick(pick.ref)}
+										ariaLabel="Start an edit from {fileStem(item.pick.ref.name ?? '')}"
+										onopen={() => onpick(item.pick.ref)}
 									/>
-								{/each}
-							</div>
+								{/snippet}
+							</JustifiedTiles>
 						</section>
 					{/if}
 				{:else if $recent.edits.length === 0}
@@ -326,14 +371,15 @@
 						{/snippet}
 					</EmptyState>
 				{:else}
-					<div
-						class="edit-grid transition-opacity duration-100 {$recent.refreshing ? 'opacity-60' : ''}"
+					<JustifiedTiles
+						items={editItems}
+						class="transition-opacity duration-100 {$recent.refreshing ? 'opacity-60' : ''}"
 						role="list"
 						aria-label="Recent edits"
 						aria-busy={$recent.refreshing}
 						data-edits-list
 					>
-						{#each $recent.edits as edit (edit.id)}
+						{#snippet tile({ edit }, box, report)}
 							{@const label = editLabel(edit)}
 							{@const elsewhere = openMap.has(edit.id)}
 							<EditTile
@@ -343,6 +389,8 @@
 								look={sourceLook(edit.source.kind)}
 								time={relativeTime(edit.updated_at ?? edit.created_at)}
 								picture={urls[pictureKey(edit)]}
+								tile={box}
+								onsize={report}
 								openElsewhere={elsewhere}
 								actionLabel={elsewhere ? 'Go to open tab' : 'Continue this edit'}
 								ariaLabel="{elsewhere ? 'Go to the open tab' : 'Continue this edit'}: {label.text}"
@@ -354,8 +402,8 @@
 								onduplicate={() => void duplicate(edit)}
 								ondelete={() => void remove(edit)}
 							/>
-						{/each}
-					</div>
+						{/snippet}
+					</JustifiedTiles>
 					<Pagination class="mt-5 justify-center" size="sm" currentPage={$recent.page} {totalPages} onPageChange={(page) => recent.setPage(page)} />
 				{/if}
 			</section>
@@ -399,50 +447,10 @@
 		flex: 1 1 100%;
 	}
 
-	.edit-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 12px;
-	}
-
-	.edit-grid.history > :global(*:nth-child(n + 5)) {
-		display: none;
-	}
-
 	@container start (min-width: 960px) {
 		.rnote {
 			order: 1;
 			flex: 0 1 auto;
-		}
-	}
-
-	@container start (min-width: 560px) {
-		.edit-grid {
-			grid-template-columns: repeat(3, minmax(0, 1fr));
-		}
-		.edit-grid.history > :global(*:nth-child(n + 4)) {
-			display: none;
-		}
-	}
-
-	@container start (min-width: 820px) {
-		.edit-grid {
-			grid-template-columns: repeat(4, minmax(0, 1fr));
-		}
-		.edit-grid.history > :global(*:nth-child(n + 5)) {
-			display: none;
-		}
-	}
-
-	@container start (min-width: 1240px) {
-		.edit-grid {
-			grid-template-columns: repeat(6, minmax(0, 1fr));
-		}
-		.edit-grid.history > :global(*:nth-child(n + 5)) {
-			display: block;
-		}
-		.edit-grid.history > :global(*:nth-child(n + 7)) {
-			display: none;
 		}
 	}
 
@@ -481,12 +489,6 @@
 		.src-hint,
 		.src :global(.src-chev) {
 			display: none;
-		}
-	}
-
-	@media (max-width: 767px) {
-		.edit-grid {
-			gap: 10px;
 		}
 	}
 </style>

@@ -23,6 +23,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     REFERENCE_IMAGE_SHORT_EDGE,
     ReferenceConditioning,
     ReferenceMedia,
+    fit_keyframe_to_canvas,
     visual_latent_cache_key,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.layout import (
@@ -2919,6 +2920,82 @@ def test_a_keyframe_in_the_first_window_needs_no_continuation_tail():
     pipe, forwards, _, plan = _run_director_with_keyframe(_document_with_keyframe(40), steps=steps)
     assert len(plan.windows[0].keyframes) == 1 and plan.windows[1].keyframes == ()
     assert forwards[0][0].shape[0] == 1 + DIRECTOR_LATENTS
+
+
+def _wide_picture():
+    from PIL import Image
+
+    return Image.fromarray(np.random.default_rng(1).integers(0, 256, (32, 48, 3), dtype=np.uint8))
+
+
+def _cover_cropped(picture):
+    return np.asarray(fit_keyframe_to_canvas(picture, 32, 32, is_geometry_anchor=False))
+
+
+def _keyframe_vae_inputs(run):
+    from src.pipelines.pipes.generator.video_minimax_h3 import conditioning
+
+    original = conditioning.encode_keyframe_condition
+    seen: list = []
+
+    def record(vae_module, pixels_uint8, **kwargs):
+        seen.append(pixels_uint8[0, :, 0].permute(1, 2, 0).to(torch.uint8).numpy().copy())
+        return original(vae_module, pixels_uint8, **kwargs)
+
+    with patch.object(conditioning, "encode_keyframe_condition", side_effect=record):
+        run()
+    return seen
+
+
+def _run_keyframes(images, anchors):
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=_FakeKeyframeVae(), compute_dtype=torch.float32,
+                                   move_to=lambda d: None, offload=lambda: None),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=_MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=list(images), keyframe_anchors=anchors, audio_source="generate", decode=False,
+    ))
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    pipe.generate_one(ctx, 0, 7, ProgressEmitter([].append, title="test"))
+
+
+def test_an_image_to_video_start_picture_of_another_aspect_reaches_the_vae_cover_cropped():
+    picture = _wide_picture()
+
+    (start,) = _keyframe_vae_inputs(lambda: _run_keyframes([picture], ("first",)))
+
+    assert np.array_equal(start, _cover_cropped(picture))
+
+
+def test_first_to_last_frame_fits_start_and_end_pictures_of_another_aspect_the_same_way():
+    picture = _wide_picture()
+
+    start, end = _keyframe_vae_inputs(lambda: _run_keyframes([picture, picture], ("first", "last")))
+
+    assert np.array_equal(start, end)
+    assert np.array_equal(start, _cover_cropped(picture))
+
+
+def test_the_first_keyframe_of_a_director_window_reaches_the_vae_cover_cropped():
+    picture = _wide_picture()
+    document = _document_with_keyframe(40)
+
+    seen = _keyframe_vae_inputs(lambda: _run_director(document, director_images=[picture]))
+
+    assert len(build_director_plan(document, default_seed=-1).windows[0].keyframes) == 1
+    assert np.array_equal(seen[0], _cover_cropped(picture))
 
 
 # -- sparse-attention wiring (Sol-Attn method) --------------------------------

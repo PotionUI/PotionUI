@@ -557,8 +557,9 @@ test.describe('the lasso on a phone', () => {
 		await phone.locator('[data-tool-rail="strip"] [data-group-button="generate"]').click();
 		await page.locator('[data-rail-sheet="generate"] [data-sheet-item="edit_region"]').click();
 		await expect(page.locator('[data-rail-sheet]')).toHaveCount(0);
-		await page.locator('[data-setup-picker="sheet"]').waitFor({ state: 'visible', timeout: 4000 }).catch(() => undefined);
-		if (await page.locator('[data-setup-picker="sheet"]').isVisible()) await page.keyboard.press('Escape');
+		const presets = page.locator('[role="dialog"][aria-label="Choose preset"]');
+		await presets.waitFor({ state: 'visible', timeout: 4000 }).catch(() => undefined);
+		if (await presets.isVisible()) await page.keyboard.press('Escape');
 		await expect(page.locator('[data-frame-sheet]')).toHaveCount(0);
 		await expect(phone.locator('[data-mask-layer]')).toBeVisible();
 		await expect(phone.locator('[data-task-mark-bar]')).toBeVisible();

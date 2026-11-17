@@ -3,15 +3,19 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { EditorRun } from '$lib/services/api/editorTasks';
 import { apply, beginEdit, canUndo, commitLive, createStack, deserialize, liveEdit, serialize, undo, type EditStackState } from '$lib/tool-tabs/frame/editStack';
 import { runViews } from './runEngine';
+import legacy from './fixtures/generateStepV1.json';
 import {
 	GENERATE_TOOL,
 	generateDraft,
 	generateStateOf,
 	generateStepKind,
+	isEditorKey,
 	leftOutCount,
+	migrateParams,
 	leftOutNotice,
 	readGenerateParams,
 	replaceStepParams,
+	setupModeOf,
 	stepsToResume,
 	summaryOf,
 	withChosen,
@@ -22,10 +26,10 @@ import {
 
 function params(over: Partial<GenerateParams> = {}): GenerateParams {
 	return {
-		v: 1,
+		v: 2,
 		task: 'edit_region',
 		prompt: 'a small red sailboat, one white sail, calm water',
-		setup: { preset_id: 'qwen', mode: 'edit', variant: null, form_data: { steps: 28 }, source: { kind: 'session', id: 's1', name: 'Soft portrait' }, label: 'Qwen-Image 2.1 · Edit · Soft portrait' },
+		setup: { preset_id: 'qwen', mode: 'editor:edit', form_data: { steps: 28 }, source: { kind: 'session', id: 's1', name: 'Soft portrait' }, label: 'Qwen-Image 2.1 · Edit · Soft portrait' },
 		area: { region: { item_id: 'mask1' }, size: { width: 412, height: 380 } },
 		candidates: 3,
 		results: [],
@@ -194,5 +198,52 @@ describe('save notice', () => {
 		expect(readGenerateParams(null)).toBeNull();
 		expect(readGenerateParams({ run: { id: 'x', status: 'weird' } })).toBeNull();
 		expect(get(runViews)).toEqual({});
+	});
+});
+
+describe('a step saved before editor modes', () => {
+	const offers = [
+		{ preset_id: 'qwen', preset_name: 'Qwen', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, region_strategy: 'mask', via: null, qualifies: true, reason: null },
+		{ preset_id: 'flux', preset_name: 'Flux', mode: 'editor:fill', from_mode: 'inpaint', mode_label: 'Fill', label: null, short_description: null, order: 0, region_strategy: 'crop', via: null, qualifies: true, reason: null }
+	];
+
+	it('reads as version 1, keeps its results and drops the variant', () => {
+		const read = readGenerateParams(legacy)!;
+		expect(read.v).toBe(1);
+		expect(read.setup.mode).toBe('edit');
+		expect(read.setup).not.toHaveProperty('variant');
+		expect(read.results).toHaveLength(1);
+		expect(read.run).toEqual({ id: 'er_old', status: 'done', error: null });
+	});
+
+	it('moves to version 2 with the editor mode derived from its generation mode', () => {
+		const next = migrateParams(readGenerateParams(legacy)!, offers)!;
+		expect(next.v).toBe(2);
+		expect(next.setup).toMatchObject({ preset_id: 'qwen', mode: 'editor:edit', form_data: { steps: 20, seed: 7 }, source: { kind: 'session', id: 's1' } });
+		expect(next.results).toEqual(readGenerateParams(legacy)!.results);
+	});
+
+	it('does not touch the stored step when it is only read', () => {
+		const raw = structuredClone(legacy);
+		readGenerateParams(raw);
+		migrateParams(readGenerateParams(raw)!, offers);
+		expect(raw).toEqual(legacy);
+	});
+
+	it('resolves a mode named after the editor mode when no mode derives from it', () => {
+		const standalone = [{ ...offers[0], from_mode: null }];
+		expect(setupModeOf(readGenerateParams(legacy)!, standalone)).toBe('editor:edit');
+	});
+
+	it('is unresolvable when no offer derives from the mode, or two do', () => {
+		expect(migrateParams(readGenerateParams({ ...legacy, setup: { ...legacy.setup, mode: 'txt2img' } })!, offers)).toBeNull();
+		expect(migrateParams(readGenerateParams(legacy)!, [])).toBeNull();
+		expect(migrateParams(readGenerateParams(legacy)!, [offers[0], { ...offers[0], mode: 'editor:edit2' }])).toBeNull();
+	});
+
+	it('leaves a step that already carries an editor key alone', () => {
+		const current = params();
+		expect(migrateParams(current, [])).toEqual(current);
+		expect(isEditorKey(current.setup.mode)).toBe(true);
 	});
 });

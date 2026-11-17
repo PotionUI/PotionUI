@@ -4,6 +4,7 @@ import { sharedCapabilityCache } from '$lib/form/capabilityTracker';
 import { missingModelIn, seedFormValues } from '$lib/form/formStateSeed';
 import { formAudienceStore } from '$lib/stores/formAudience';
 import { api } from '$lib/services/api/index';
+import { loadPresets } from '$lib/stores/presetsCatalog';
 import { createGenerationSocket } from '$lib/services/websocket';
 import { createGenerateController, type ControllerDeps, type GenerateController } from './controller';
 import { syncServerTasks } from './register';
@@ -60,7 +61,21 @@ export function createTabGenerate(deps: TabGenerateDeps): GenerateController {
 				const response = await api.listFormulas(presetId, mode);
 				return (response.success && response.data ? response.data : []).map((entry) => ({ id: entry.id, name: entry.name, values: entry.values ?? {} }));
 			},
-			schema: (presetId, mode, variant) => loadPresetFormSchema(presetId, mode, variant ?? undefined),
+			schema: (presetId, mode) => loadPresetFormSchema(presetId, mode, undefined),
+				presets: async () => {
+					const response = await loadPresets();
+					return response.success && response.data ? response.data : [];
+				},
+				pinSession: async (id, pinned) => void (await api.setSessionPinned(id, pinned)),
+				deleteSession: async (id) => void (await api.deleteSession(id)),
+				versions: async (id) => {
+					const response = await api.getSessionVersions(id);
+					return response.success && response.data ? response.data : [];
+				},
+				version: async (id, number) => {
+					const response = await api.getSessionVersion(id, number);
+					return response.success && response.data ? response.data : null;
+				},
 			seed: ({ presetId, schema, incoming }) =>
 				seedFormValues(
 					{ schema, presetId, tabId: EDITOR_SEED_TAB, incoming: incoming as Record<string, any>, audience: get(formAudienceStore), videoDirectorActive: false },

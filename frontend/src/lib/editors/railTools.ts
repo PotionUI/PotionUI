@@ -28,6 +28,8 @@ export interface RailToolEntry extends EditorEntryBase {
 	overlay?: string;
 	bar?: ComponentRef;
 	settings?: ComponentRef;
+	dock?: ComponentRef;
+	dockExtras?: ComponentRef;
 	children?: ComponentRef;
 	task?: string;
 	ai?: boolean;

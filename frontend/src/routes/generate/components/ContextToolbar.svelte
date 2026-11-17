@@ -13,6 +13,7 @@
 	import FormulasButton from '$lib/components/formulas/FormulasButton.svelte';
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
 	import { Kbd, Menu, Spinner } from '$lib/components/ui';
+	import ContextCut from '$lib/components/ui/ContextCut.svelte';
 	import { formAudienceStore } from '$lib/stores/formAudience';
 	import { authStore } from '$lib/stores/auth';
 	import { tabsStore } from '$lib/stores/tabs';
@@ -258,9 +259,7 @@
 </script>
 
 {#snippet cut()}
-	<span class="context-cut" aria-hidden="true" data-testid="context-separator">
-		<svg viewBox="0 0 20 48" preserveAspectRatio="none" focusable="false"><path d="M-4.25 -6 L17 24 L-4.25 54"></path></svg>
-	</span>
+	<ContextCut />
 {/snippet}
 
 {#snippet sessionStep()}
@@ -519,30 +518,6 @@
 </div>
 
 <style>
-	.context-cut {
-		position: relative;
-		display: block;
-		width: 20px;
-		flex-shrink: 0;
-		align-self: stretch;
-	}
-
-	.context-cut svg {
-		position: absolute;
-		inset: 0;
-		display: block;
-		width: 100%;
-		height: 100%;
-		overflow: visible;
-	}
-
-	.context-cut path {
-		fill: none;
-		stroke: rgb(var(--surface-1));
-		stroke-width: 3;
-		vector-effect: non-scaling-stroke;
-	}
-
 	.pinned:not(:has(:global([data-testid='formulas-button']))) {
 		display: none;
 	}

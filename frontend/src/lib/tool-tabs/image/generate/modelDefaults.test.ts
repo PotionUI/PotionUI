@@ -11,7 +11,7 @@ import { createRunEngine, type RunPorts, type RunViews } from './runEngine';
 const PRESET = 'qwen21';
 const MODELS = ['diffusion_model', 'text_encoder', 'vae'];
 
-const offer: TaskOffer = { preset_id: PRESET, preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: [] };
+const offer: TaskOffer = { preset_id: PRESET, preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, region_strategy: 'mask', via: null, qualifies: true, reason: null };
 const editTask: EditorTaskInfo = { id: 'edit_region', label: 'Edit a region', icon: 'sparkles', region: 'optional', prompt: 'required', fallback: null, offers: [offer], default: null };
 const run: EditorRun = { id: 'er_1', task: 'edit_region', status: 'queued', edit_id: 'ed', step_id: 's1', generation_id: null, progress: 0, error: null, soft: false, rect: null, candidates: [] };
 
@@ -64,7 +64,7 @@ function build(search: (slot: AutopickSlot) => Promise<AutopickSearchResult | nu
 async function submit(t: ReturnType<typeof build>, pick?: { kind: 'session' | 'formula'; id: string }) {
 	await t.controller.prepare('edit_region');
 	if (pick) {
-		await t.controller.pick('edit_region', { preset_id: PRESET, mode: 'edit', variant: null, setup: pick }, false);
+		await t.controller.pick('edit_region', { preset_id: PRESET, mode: 'editor:edit', setup: pick });
 	}
 	t.controller.setPrompt('edit_region', 'a red sailboat');
 	const started = await t.controller.generate('edit_region', true);
@@ -85,7 +85,7 @@ describe('the model fields a run sends', () => {
 	});
 
 	it('fill the models a saved setup left out', async () => {
-		const sessions = [{ id: 's1', name: 'Soft', updated_at: null, version: 1, data: { edit: { formData: { steps: 12 } } } }];
+		const sessions = [{ id: 's1', name: 'Soft', updated_at: null, version: 1, data: { 'editor:edit': { formData: { steps: 12 } } } }];
 		const t = build(oneModelEach, sessions);
 		const { sent } = await submit(t, { kind: 'session', id: 's1' });
 		expect(sent?.steps).toBe(12);

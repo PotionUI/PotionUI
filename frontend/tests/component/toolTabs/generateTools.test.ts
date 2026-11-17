@@ -21,7 +21,7 @@ const { default: ImageEditorTab } = await import('$lib/components/tool-tabs/imag
 
 const { default: EditStack } = await import('$lib/components/tool-tabs/frame/EditStack.svelte');
 
-const offer = (over: Partial<TaskOffer> = {}): TaskOffer => ({ preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: [], ...over });
+const offer = (over: Partial<TaskOffer> = {}): TaskOffer => ({ preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, region_strategy: 'mask', via: null, qualifies: true, reason: null, ...over });
 const edit = (over: Partial<EditorTaskInfo> = {}): EditorTaskInfo => ({ id: 'edit_region', label: 'Edit a region', icon: 'sparkles', region: 'optional', prompt: 'required', fallback: null, offers: [offer()], default: null, ...over });
 const remove = (): EditorTaskInfo => edit({ id: 'remove_object', label: 'Remove an object', icon: 'mode-remove-object', region: 'required', prompt: 'none' });
 const run = (over: Partial<EditorRun> = {}): EditorRun => ({ id: 'er_1', task: 'edit_region', status: 'queued', edit_id: 'ed', step_id: 's1', generation_id: null, progress: 0, error: null, soft: false, rect: null, candidates: [], ...over });
@@ -49,7 +49,7 @@ function build(tasks: EditorTaskInfo[], saved = false) {
 		engine,
 		ports: {
 			tasks: async () => tasks,
-			sessions: async () => (saved ? [{ id: 's1', name: 'Soft portrait', updated_at: null, data: { edit: { formData: {} } } }] : []),
+			sessions: async () => (saved ? [{ id: 's1', name: 'Soft portrait', updated_at: null, data: { 'editor:edit': { formData: {} } } }] : []),
 			formulas: async () => [],
 			schema: async () => ({ properties: {} }),
 			setDefault: vi.fn(async () => undefined),
@@ -85,10 +85,11 @@ describe('floating prompt', () => {
 		t.controller.use('edit_region');
 		const { q, text, view } = mountPrompt(t.controller);
 		await settle();
-		expect(text('[data-setup-chip]')).toBe('Qwen-Image 2.1 · Edit · Model defaults');
-		expect(text('[data-prompt-status]')).toBe('Whole picture');
+		expect(text('[data-testid="preset-picker-trigger"]')).toBe('Qwen-Image 2.1');
+		expect(text('[data-testid="session-trigger"]')).toBe('No saved session');
+		expect(q('[data-picker-hint]')).toBeNull();
 		expect(q<HTMLTextAreaElement>('[data-prompt-field]')?.placeholder).toBe('Describe the change');
-		const generate = () => q<HTMLButtonElement>('[data-prompt-generate]')!;
+		const generate = () => q<HTMLButtonElement>('[data-prompt-generate], [data-prompt-mark] button')!;
 		expect(generate().disabled).toBe(true);
 		const field = q<HTMLTextAreaElement>('[data-prompt-field]')!;
 		field.value = 'a small red sailboat';
@@ -97,10 +98,265 @@ describe('floating prompt', () => {
 		expect(generate().disabled).toBe(false);
 		maskArea.set({ width: 412, height: 380 });
 		await settle();
-		expect(text('[data-prompt-status]')).toBe('Marked area412×380');
-		expect(text('[data-floating-prompt]')).toContain('Esc');
-		expect(text('[data-floating-prompt]')).toContain('Ctrl');
+		expect(text('[data-floating-prompt]')).not.toContain('Esc');
+		expect(q('[data-prompt-grip]')).toBeNull();
+		expect(q('[data-prompt-mark]')).not.toBeNull();
 		view.destroy();
+	});
+
+	it('lays the dock out as variant A: the picker strip with labels, shared cuts, default and Settings at its end, then the prompt row', async () => {
+		const t = build([edit({ offers: [offer(), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })] })]);
+		t.controller.use('edit_region');
+		const { q } = mountPrompt(t.controller, { settings: { open: false, toggle: () => undefined } });
+		await settle();
+		const dock = q('[data-floating-prompt="desktop"]')!;
+		const rows = Array.from(dock.querySelectorAll('[data-dock-row]')).map((row) => row.getAttribute('data-dock-row'));
+		expect(rows).toEqual(['strip', 'prompt']);
+		const strip = dock.querySelector('[data-dock-row="strip"]')!;
+		expect(strip.className).toContain('border-b');
+		const zone = strip.querySelector('[data-testid="context-zone"]')!;
+		expect(zone.className).toContain('h-12');
+		expect(Array.from(zone.querySelectorAll('.ctx-label')).map((label) => label.textContent?.trim())).toEqual(['Preset', 'Mode', 'Session', 'Results']);
+		expect(zone.querySelectorAll('[data-testid="context-separator"]')).toHaveLength(2);
+		expect(strip.querySelector('[data-editor-pickers-end] [data-picker-default]')).not.toBeNull();
+		expect(strip.querySelector('[data-editor-pickers-end] [data-prompt-settings]')).not.toBeNull();
+		expect(strip.querySelector('[data-testid="session-save"]')?.textContent?.trim()).toBe('');
+		const second = q('[data-dock-row="prompt"]')!;
+		expect(second.className).toContain('pb-3');
+		expect(second.querySelector('[aria-label="Results"]')).toBeNull();
+		expect(second.querySelector('[data-prompt-mark]')).toBeNull();
+		expect(second.querySelector('.ai-ring [data-prompt-field]')).not.toBeNull();
+		const end = strip.querySelector('[data-editor-pickers-end]')!;
+		const order = Array.from(end.children).map((child) => (child.querySelector('[aria-label="Results"]') ? 'results' : child.querySelector('[data-picker-default]') || child.hasAttribute('data-picker-default') ? 'default' : child.querySelector('[data-prompt-settings]') || child.hasAttribute('data-prompt-settings') ? 'settings' : 'other'));
+		expect(order.filter((entry) => entry !== 'other')).toEqual(['results', 'default', 'settings']);
+		expect(end.querySelector('[data-testid="dock-results"] .ctx-label')?.textContent?.trim()).toBe('Results');
+		const mark = q('[data-dock-mark]')!;
+		expect(mark.className).toContain('px-3');
+		expect(mark.className).toContain('border-l');
+		expect(mark.className).toContain('items-center');
+		expect(dock.className).toContain('grid-cols-[minmax(0,1fr)_auto]');
+		expect(mark.querySelector('[data-prompt-mark] button.generate-button')).not.toBeNull();
+		expect(mark.querySelector<HTMLElement>('[data-prompt-mark]')!.getAttribute('style')).toBeNull();
+		expect(dock.contains(mark)).toBe(true);
+		expect(strip.contains(mark)).toBe(false);
+		expect(dock.className).toContain('bg-surface-1');
+	});
+
+	it('gives every strip item the same two-line cell: a label line over a 24px control line, switch and Settings on the control line', async () => {
+		const t = build([edit({ offers: [offer(), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })] })]);
+		t.controller.use('edit_region');
+		const { q } = mountPrompt(t.controller, { settings: { open: false, toggle: () => undefined } });
+		await settle();
+		const zone = q('[data-testid="context-zone"]')!;
+		expect(zone.className).toContain('dock-zone');
+		const cells = Array.from(zone.querySelectorAll('.ctx-step'));
+		expect(cells).toHaveLength(4);
+		for (const cell of cells) {
+			expect(cell.querySelectorAll(':scope > .ctx-label')).toHaveLength(1);
+			expect(cell.children).toHaveLength(2);
+			expect(cell.children[0].classList.contains('ctx-label')).toBe(true);
+		}
+		const end = q('[data-editor-pickers-end]')!;
+		const controls = Array.from(end.querySelectorAll('.dock-ctl'));
+		expect(controls.map((control) => (control.hasAttribute('data-picker-default') ? 'default' : control.querySelector('[data-prompt-settings]') ? 'settings' : 'other'))).toEqual(['default', 'settings']);
+		for (const control of controls) expect(control.querySelector('.ctx-label')).toBeNull();
+		const seg = end.querySelectorAll('[data-testid="dock-results"] [aria-label="Results"] button');
+		expect(seg).toHaveLength(4);
+		expect(seg[0].className).toContain('h-[18px]');
+		expect(end.querySelector('[data-testid="dock-results"] > span:last-child')!.className).toContain('h-6');
+		expect(q('[data-prompt-settings]')!.className).toContain('min-w-6');
+		expect(q('[data-testid="session-save"]')!.className).toContain('h-6');
+	});
+
+	it('shows the mode icon beside the mode name as the Generate page does, and none when the server sent none', async () => {
+		const withIcon = build([edit({ offers: [offer({ mode_icon: 'mode-restyle' }), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', mode_icon: 'mode-extend', order: 1 })] })]);
+		withIcon.controller.use('edit_region');
+		const first = mountPrompt(withIcon.controller);
+		await settle();
+		const trigger = first.q('[data-testid="preset-header-mode"] button')!;
+		expect(trigger.querySelectorAll('.ctx-valuerow svg')).toHaveLength(1);
+		expect(trigger.querySelector('.ctx-valuerow svg')!.getAttribute('class')).toContain('text-fg-muted');
+		first.view.destroy();
+		const without = build([edit({ offers: [offer(), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })] })]);
+		without.controller.use('edit_region');
+		const second = mountPrompt(without.controller);
+		await settle();
+		expect(second.q('[data-testid="preset-header-mode"] button .ctx-valuerow svg')).toBeNull();
+	});
+
+	it('draws the run along the dock top border, keeps two rows and puts the status in the mark tooltip', async () => {
+		const t = build([edit()]);
+		t.controller.use('edit_region');
+		const { q, view } = mountPrompt(t.controller, { running: 's1', run: { status: 'running', progress: 0.4 } });
+		await settle();
+		const bar = q('[data-floating-prompt="desktop"] > [role="progressbar"]')!;
+		expect(bar.getAttribute('aria-valuenow')).toBe('40');
+		expect(bar.hidden).toBe(false);
+		expect(q('[data-run-chip]')).toBeNull();
+		expect(q('[data-floating-prompt="desktop"]')!.className).toContain('relative');
+		expect(q('[data-dock-row="temp"]')).toBeNull();
+		expect(q('[data-prompt-mark] button')!.getAttribute('aria-label')).toBe('Cancel generation');
+		view.destroy();
+		const idle = mountPrompt(t.controller, { run: { status: 'done', progress: 1 } });
+		await settle();
+		expect(idle.q<HTMLElement>('[role="progressbar"]')!.hidden).toBe(true);
+	});
+
+	it('clips the cuts to the strip, pads the dock evenly and keeps the right group out of the way of long names', async () => {
+		const t = build([edit({ offers: [offer({ preset_name: 'MiniMax-H3-Image' }), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })] })]);
+		t.controller.use('edit_region');
+		const { q } = mountPrompt(t.controller);
+		await settle();
+		const strip = q('[data-dock-row="strip"]')!;
+		expect(strip.className).toContain('overflow-hidden');
+		expect(strip.className).toContain('container-type:inline-size');
+		expect(q('[data-testid="context-zone"]')!.className).toContain('h-12');
+		const prompt = q('[data-dock-row="prompt"]')!;
+		for (const side of ['px-3', 'pt-3', 'pb-3']) expect(prompt.className).toContain(side);
+		expect(strip.className).toContain('px-3');
+		const steps = Array.from(strip.querySelectorAll<HTMLElement>('.ctx-step')).filter((cell) => !cell.closest('[data-editor-pickers-end]'));
+		for (const cell of steps) {
+			expect(cell.className).toContain('shrink');
+			expect(cell.className).not.toContain('shrink-0');
+			expect(cell.className).toContain('min-w-0');
+		}
+		expect(q('[data-preset-value]')!.className).toContain('truncate');
+		expect(q('[data-testid="session-trigger"] .truncate')).not.toBeNull();
+		expect(q('[data-editor-pickers-end]')!.className).toContain('flex-none');
+		expect(q('[data-editor-pickers-end]')!.className).toContain('ml-auto');
+	});
+
+	it('uses the same cut as the Generate toolbar, drawn in the canvas colour on the dock surface', async () => {
+		const t = build([edit()]);
+		t.controller.use('edit_region');
+		const { q } = mountPrompt(t.controller);
+		await settle();
+		const cut = q('[data-dock-row="strip"] [data-testid="context-separator"]')!;
+		expect(cut.classList.contains('context-cut')).toBe(true);
+		expect(q<HTMLElement>('[data-testid="context-zone"]')!.getAttribute('style')).toContain('--cut-stroke: var(--canvas)');
+	});
+
+	it('takes extra items at the right of the strip, before the default switch', async () => {
+		const t = build([edit()]);
+		t.controller.use('edit_region');
+		const { q } = mountPrompt(t.controller, { withExtras: true });
+		await settle();
+		const end = q('[data-editor-pickers-end]')!;
+		const kids = Array.from(end.children);
+		expect(kids[0].hasAttribute('data-test-extra')).toBe(true);
+		expect(kids.findIndex((child) => child.querySelector('[data-picker-default]') || child.hasAttribute('data-picker-default'))).toBeGreaterThan(0);
+	});
+
+	it('puts the notices row between the strip and the prompt, and none at rest', async () => {
+		const quiet = build([edit({ default: { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'defaults' }, health: { ok: true, reason: null, name: null, mode_label: null } } })]);
+		quiet.controller.use('edit_region');
+		const first = mountPrompt(quiet.controller);
+		await settle();
+		expect(first.q('[data-dock-row="temp"]')).toBeNull();
+		first.view.destroy();
+		const t = build([edit({ offers: [offer(), offer({ preset_id: 'flux', preset_name: 'Flux', mode: 'editor:fill' })] })]);
+		t.controller.use('edit_region');
+		const { q, text } = mountPrompt(t.controller);
+		await settle();
+		const order = Array.from(q('[data-floating-prompt="desktop"]')!.querySelectorAll('[data-dock-row]')).map((row) => row.getAttribute('data-dock-row'));
+		expect(order).toEqual(['strip', 'prompt']);
+		expect(q('[data-picker-hint]')).toBeNull();
+		expect(text('[data-testid="preset-picker-trigger"]')).toBe('Choose a preset');
+		expect(q('[data-preset-row]')).not.toBeNull();
+		const mark = q<HTMLButtonElement>('[data-dock-mark] button')!;
+		expect(mark.disabled).toBe(true);
+		expect(mark.getAttribute('aria-label')).toBe('Choose a preset first');
+		const preset = q('[data-testid="preset-picker-trigger"] [data-preset-value]')!;
+		expect(preset.className).toContain('text-fg-muted');
+	});
+
+	it('opens the notices row only for things that happened: a broken default', async () => {
+		const broken = edit({ default: { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 'gone' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } } });
+		const t = build([broken]);
+		t.controller.use('edit_region');
+		const { q } = mountPrompt(t.controller);
+		await settle();
+		const order = Array.from(q('[data-floating-prompt="desktop"]')!.querySelectorAll('[data-dock-row]')).map((row) => row.getAttribute('data-dock-row'));
+		expect(order).toEqual(['strip', 'temp', 'prompt']);
+		expect(q('[data-dock-row="temp"] [data-picker-notice]')).not.toBeNull();
+	});
+
+	it('shows the results strip in that row with 36px thumbnails and a labelled Try again', async () => {
+		const t = build([edit()]);
+		t.controller.use('edit_region');
+		const { q } = mountPrompt(t.controller, { withResults: true });
+		await settle();
+		const row = q('[data-dock-row="temp"]')!;
+		const thumbs = Array.from(row.querySelectorAll<HTMLElement>('[data-candidate]'));
+		expect(thumbs).toHaveLength(2);
+		expect(thumbs[0].className).toContain('h-9');
+		expect(thumbs[0].className).toContain('w-9');
+		expect(row.querySelector('[data-candidate-again]')?.textContent?.trim()).toBe('Try again');
+	});
+
+	it('keeps the mark in its own cell, centred, when the results row appears, and at the Generate page size', async () => {
+		const t = build([edit()]);
+		t.controller.use('edit_region');
+		const { q, view } = mountPrompt(t.controller, { withResults: false });
+		await settle();
+		const before = q('[data-dock-mark]')!.className;
+		view.rerender({ withResults: true });
+		await settle();
+		expect(q('[data-dock-row="temp"]')).not.toBeNull();
+		expect(q('[data-dock-mark]')!.className).toBe(before);
+	});
+
+	it('is the same two rows for a task with no prompt, with the note in the prompt row', async () => {
+		const t = build([remove()]);
+		t.controller.use('remove_object');
+		const { q } = mountPrompt(t.controller);
+		await settle();
+		const second = q('[data-dock-row="prompt"]')!;
+		expect(second.querySelector('[data-prompt-note]')?.textContent?.trim()).toBe('The marked object will be removed.');
+		expect(q('[data-dock-row="strip"] [aria-label="Results"]')).not.toBeNull();
+		expect(q('[data-dock-mark] [data-prompt-mark] button')).not.toBeNull();
+		expect(q('[data-prompt-field]')).toBeNull();
+	});
+
+	it('mounts the Generate page mark and maps the editor states onto it', async () => {
+		const t = build([edit()]);
+		t.controller.use('edit_region');
+		const view = mountPrompt(t.controller);
+		await settle();
+		const host = () => view.q('[data-prompt-mark]')!;
+		const button = () => host().querySelector<HTMLButtonElement>('button.generate-button')!;
+		expect(host().getAttribute('data-prompt-mark')).toBe('disabled');
+		expect(button().disabled).toBe(true);
+		expect(button().getAttribute('aria-label')).toBe('Describe the change first');
+		t.controller.setPrompt('edit_region', 'a boat');
+		await settle();
+		expect(host().getAttribute('data-prompt-mark')).toBe('ready');
+		expect(button().disabled).toBe(false);
+		expect(button().getAttribute('aria-label')).toBe('Generate');
+		expect(host().classList.contains('generate-mark-host')).toBe(true);
+		button().click();
+		await settle();
+		await settle();
+		expect(t.start).toHaveBeenCalledTimes(1);
+		view.view.rerender({ running: 's1' });
+		await settle();
+		expect(host().getAttribute('data-prompt-mark')).toBe('running');
+		expect(button().classList.contains('is-cancel')).toBe(true);
+		expect(button().getAttribute('aria-label')).toBe('Cancel generation');
+		const cancel = vi.spyOn(t.controller, 'cancel');
+		button().click();
+		expect(cancel).toHaveBeenCalledWith('s1');
+	});
+
+	it('does not close on Escape, which only closes an open picker', async () => {
+		const t = build([edit()]);
+		t.controller.use('edit_region');
+		const { q } = mountPrompt(t.controller);
+		await settle();
+		q('[data-prompt-field]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+		await settle();
+		expect(q('[data-floating-prompt="desktop"]')).not.toBeNull();
+		expect(localStorage.getItem('potionui_editor_prompt_position')).toBeNull();
 	});
 
 	it('shows the results control with 1 to 4 and remembers the choice', async () => {
@@ -138,11 +394,13 @@ describe('floating prompt', () => {
 		await settle();
 		expect(q('[data-prompt-field]')).toBeNull();
 		expect(text('[data-prompt-note]')).toBe('The marked object will be removed.');
-		expect(text('[data-prompt-status]')).toBe('Mark the object first');
-		expect(q<HTMLButtonElement>('[data-prompt-generate]')!.disabled).toBe(true);
+		expect(q('[data-prompt-status]')).toBeNull();
+		expect(q('[data-dock-row="temp"]')).toBeNull();
+		expect(q<HTMLButtonElement>('[data-prompt-mark] button')!.getAttribute('aria-label')).toBe('Mark the object first');
+		expect(q<HTMLButtonElement>('[data-prompt-generate], [data-prompt-mark] button')!.disabled).toBe(true);
 		maskArea.set({ width: 100, height: 80 });
 		await settle();
-		expect(q<HTMLButtonElement>('[data-prompt-generate]')!.disabled).toBe(false);
+		expect(q<HTMLButtonElement>('[data-prompt-generate], [data-prompt-mark] button')!.disabled).toBe(false);
 	});
 
 	it('swaps Generate for Cancel while a run is going and cancels the step', async () => {
@@ -151,8 +409,8 @@ describe('floating prompt', () => {
 		const cancel = vi.spyOn(t.controller, 'cancel');
 		const { q } = mountPrompt(t.controller, { running: 's1' });
 		await settle();
-		expect(q('[data-prompt-generate]')).toBeNull();
-		q<HTMLButtonElement>('[data-prompt-cancel]')!.click();
+		expect(q('[data-prompt-mark="ready"]')).toBeNull();
+		q<HTMLButtonElement>('[data-prompt-cancel], [data-prompt-mark="running"] button')!.click();
 		expect(cancel).toHaveBeenCalledWith('s1');
 	});
 
@@ -196,10 +454,10 @@ describe('floating prompt', () => {
 		maskArea.set({ width: 100, height: 80 });
 		controller.setPrompt('edit_region', 'a boat');
 		await settle();
-		q<HTMLButtonElement>('[data-prompt-generate]')!.click();
+		q<HTMLButtonElement>('[data-prompt-generate], [data-prompt-mark] button')!.click();
 		await settle();
 		expect(t.start).not.toHaveBeenCalled();
-		expect(q<HTMLButtonElement>('[data-prompt-generate]')!.disabled).toBe(false);
+		expect(q<HTMLButtonElement>('[data-prompt-generate], [data-prompt-mark] button')!.disabled).toBe(false);
 		return text('[data-prompt-error]');
 	}
 
@@ -240,87 +498,13 @@ describe('floating prompt', () => {
 	});
 });
 
-describe('setup picker', () => {
-	const two = () => edit({ offers: [offer(), offer({ preset_id: 'flux', preset_name: 'Flux Fill', mode: 'inpaint', mode_label: 'Inpaint', region_strategy: 'crop' })] });
-
-	it('opens on first use with every mode, a choice and the default switch', async () => {
-		const t = build([two()], true);
-		t.controller.use('edit_region');
-		const { q, text } = mountPrompt(t.controller);
-		await settle();
-		expect(text('[data-setup-chip]')).toBe('Choose a setup');
-		expect(text('[data-setup-picker]')).toContain('Setup for Edit a region');
-		expect(text('[data-setup-picker]')).toContain('Repaints inside the mask');
-		expect(text('[data-setup-picker]')).toContain('Works on the marked area');
-		expect(document.body.querySelectorAll('[data-picker-option="defaults"]')).toHaveLength(2);
-		expect(text('[data-picker-option="session"]')).toContain('Soft portrait');
-		expect(q<HTMLButtonElement>('[data-picker-use]')!.disabled).toBe(true);
-		q<HTMLButtonElement>('[data-picker-option="session"]')!.click();
-		await settle();
-		expect(q('[data-picker-option="session"]')?.getAttribute('aria-checked')).toBe('true');
-		q<HTMLButtonElement>('[data-picker-use]')!.click();
-		await settle();
-		expect(q('[data-setup-picker]')).toBeNull();
-		expect(text('[data-setup-chip]')).toBe('Qwen-Image 2.1 · Edit · Soft portrait');
-	});
-
-	it('saves the default only when the switch is on', async () => {
-		const t = build([two()]);
-		t.controller.use('edit_region');
-		const { q } = mountPrompt(t.controller);
-		await settle();
-		q<HTMLButtonElement>('[data-picker-option="defaults"]')!.click();
-		q<HTMLButtonElement>('[role="switch"]')!.click();
-		await settle();
-		q<HTMLButtonElement>('[data-picker-use]')!.click();
-		await settle();
-		expect(t.deps.ports.setDefault).toHaveBeenCalledWith('edit_region', expect.objectContaining({ preset_id: 'qwen', mode: 'edit', setup: { kind: 'defaults' } }));
-	});
-
-	it('names what went away when the default broke and never picks another for the member', async () => {
-		const broken = two();
-		broken.default = { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session', id: 'gone' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } };
-		const t = build([broken]);
-		t.controller.use('edit_region');
-		const { q, text } = mountPrompt(t.controller);
-		await settle();
-		expect(text('[data-picker-notice]')).toBe('Your default setup "Soft portrait" was deleted. Pick another.');
-		expect(q('[data-picker-notice]')?.getAttribute('role')).toBe('alert');
-		expect(text('[data-setup-chip]')).toBe('Choose a setup');
-		expect(q<HTMLButtonElement>('[data-prompt-generate]')!.disabled).toBe(true);
-	});
-
-	it('greys the modes with their reasons when none can run, and keeps Use off', async () => {
-		const t = build([edit({ offers: [offer({ qualifies: false, reason: 'models_missing' }), offer({ preset_id: 'flux', preset_name: 'Flux Fill', mode_label: 'Inpaint', qualifies: false, reason: 'not_assigned' })] })]);
-		t.controller.use('edit_region');
-		const { q, text } = mountPrompt(t.controller);
-		await settle();
-		expect(text('[data-setup-picker]')).toContain('Models not installed');
-		expect(text('[data-setup-picker]')).toContain('Not available to your account');
-		expect(document.body.querySelectorAll('[data-picker-option]:disabled')).toHaveLength(2);
-		expect(q<HTMLButtonElement>('[data-picker-use]')!.disabled).toBe(true);
-		expect(text('[data-setup-chip]')).toBe('No model yet');
-	});
-
-	it('shows the empty state when no model offers the task', async () => {
-		const t = build([edit({ offers: [] })]);
-		t.controller.use('edit_region');
-		const { q, text } = mountPrompt(t.controller);
-		await settle();
-		expect(q('[data-picker-empty]')).not.toBeNull();
-		expect(text('[data-picker-empty]')).toContain('No model can do this yet');
-		expect(text('[data-picker-empty]')).toContain('Ask your admin to add a model that edits pictures.');
-		expect(q('[data-picker-use]')).toBeNull();
-	});
-});
-
 describe('stack rows of a generate step', () => {
 	function stackOf(params: GenerateParams): EditStackState<unknown> {
 		return apply(beginEdit(createStack(), generateDraft(params, 'Edit a region', 'sparkles')));
 	}
 	const base = (over: Partial<GenerateParams> = {}): GenerateParams => ({
 		v: 1, task: 'edit_region', prompt: 'red sailboat', candidates: 3, results: [], chosen: 0, seed: null, rect: null, soft: false,
-		setup: { preset_id: 'qwen', mode: 'edit', variant: null, form_data: {}, source: { kind: 'defaults', id: null, name: null }, label: '' },
+		setup: { preset_id: 'qwen', mode: 'editor:edit', form_data: {}, source: { kind: 'defaults', id: null, name: null }, label: '' },
 		area: { region: null, size: null }, run: { id: 'er_1', status: 'queued', error: null }, ...over
 	});
 
@@ -388,7 +572,7 @@ describe('a task a plugin registered on the server', () => {
 		const { q, text } = mountPrompt(t.controller);
 		await settle();
 		expect(q('[data-floating-prompt]')?.getAttribute('aria-label')).toBe('Relight');
-		expect(text('[data-setup-chip]')).toBe('Qwen-Image 2.1 · Edit · Model defaults');
+		expect(text('[data-testid="preset-picker-trigger"]')).toBe('Qwen-Image 2.1');
 	});
 
 	afterEach(() => {
@@ -417,6 +601,10 @@ describe('a task a plugin registered on the server', () => {
 		await settle();
 		expect(view.target.querySelector('[data-options-panel]')?.getAttribute('aria-label')).toBe('Relight options');
 		expect(view.target.querySelector('[data-image-editor]')?.getAttribute('data-tool')).toBe('acme.relight');
+		expect(view.target.querySelector('[data-frame-dock] [data-floating-prompt="desktop"]')).not.toBeNull();
+		view.target.querySelector<HTMLButtonElement>('[data-tool-rail] button[data-tool="crop"]')?.click();
+		await settle();
+		expect(view.target.querySelector('[data-frame-dock]')).toBeNull();
 		view.destroy();
 	});
 });

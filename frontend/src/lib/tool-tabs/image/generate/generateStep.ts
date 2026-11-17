@@ -1,7 +1,7 @@
 import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { get } from 'svelte/store';
 import { canvasFromUrl } from '$lib/paint/loadPicked';
-import type { EditorRun, NormRect, RunStatus } from '$lib/services/api/editorTasks';
+import type { EditorRun, NormRect, RunStatus, TaskOffer } from '$lib/services/api/editorTasks';
 import type { StepKind, StepState } from '$lib/editors/stepKinds';
 import type { EditStackState, EditStep, StepDraft } from '$lib/tool-tabs/frame/editStack';
 import { geometryKey } from '../mask';
@@ -9,7 +9,8 @@ import { isTerminal, runViews } from './runEngine';
 
 export const GENERATE_TOOL = 'generate';
 const PAINT_LANE = 'paint';
-export const GENERATE_VERSION = 1;
+export const GENERATE_VERSION = 2;
+export const EDITOR_KEY_PREFIX = 'editor:';
 export const PROMPT_ROW_LIMIT = 12;
 
 export interface SetupSource {
@@ -21,7 +22,6 @@ export interface SetupSource {
 export interface ResolvedSetup {
 	preset_id: string;
 	mode: string;
-	variant: string | null;
 	form_data: Record<string, unknown>;
 	source: SetupSource;
 	label: string;
@@ -100,13 +100,12 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 	const size = isRecord(area.size) && typeof area.size.width === 'number' && typeof area.size.height === 'number' ? { width: area.size.width, height: area.size.height } : null;
 	const basis = basisOf(raw.basis);
 	return {
-		v: GENERATE_VERSION,
+		v: raw.v === GENERATE_VERSION ? GENERATE_VERSION : 1,
 		task: typeof raw.task === 'string' ? raw.task : '',
 		prompt: typeof raw.prompt === 'string' ? raw.prompt : '',
 		setup: {
 			preset_id: typeof setup.preset_id === 'string' ? setup.preset_id : '',
 			mode: typeof setup.mode === 'string' ? setup.mode : '',
-			variant: typeof setup.variant === 'string' ? setup.variant : null,
 			form_data: isRecord(setup.form_data) ? setup.form_data : {},
 			source: {
 				kind: source.kind === 'session' || source.kind === 'formula' ? source.kind : 'defaults',
@@ -125,6 +124,26 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 		run: { id: raw.run.id, status: raw.run.status as RunStatus, error: typeof raw.run.error === 'string' ? raw.run.error : null },
 		...(basis ? { basis } : {})
 	};
+}
+
+export function isEditorKey(mode: string): boolean {
+	return mode.startsWith(EDITOR_KEY_PREFIX);
+}
+
+export function setupModeOf(params: GenerateParams, offers: readonly TaskOffer[]): string | null {
+	const { preset_id, mode } = params.setup;
+	if (isEditorKey(mode)) return mode;
+	const of = offers.filter((offer) => offer.preset_id === preset_id);
+	const derived = of.filter((offer) => offer.from_mode === mode);
+	const found = derived.length ? derived : of.filter((offer) => offer.mode === `${EDITOR_KEY_PREFIX}${mode}`);
+	return found.length === 1 ? found[0].mode : null;
+}
+
+export function migrateParams(params: GenerateParams, offers: readonly TaskOffer[]): GenerateParams | null {
+	const mode = setupModeOf(params, offers);
+	if (!mode) return null;
+	if (mode === params.setup.mode && params.v === GENERATE_VERSION) return params;
+	return { ...params, v: GENERATE_VERSION, setup: { ...params.setup, mode } };
 }
 
 export function basisFor(beneath: readonly EditStep[], size: { width: number; height: number } | null): GenerateBasis {

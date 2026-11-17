@@ -1,30 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskOffer } from '$lib/services/api/editorTasks';
-import { brokenDefaultNotice, chipLabel, defaultsChoice, offerReasonText, pickerGroups, planStart, relativeWhen, resolveSetup, sourceOf, type ModeChoices } from './setup';
+import { brokenDefaultNotice, chipLabel, defaultsChoice, firstChoiceOf, offerKey, offerOf, offerReasonText, planStart, resolveSetup, sameChoice, sourceOf, type ModeChoices } from './setup';
 
 function offer(over: Partial<TaskOffer> = {}): TaskOffer {
-	return { preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: [], ...over };
+	return { preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, region_strategy: 'mask', via: null, qualifies: true, reason: null, ...over };
 }
 
 const none: ModeChoices = { sessions: [], formulas: [] };
 const rich: ModeChoices = {
-	sessions: [{ id: 's1', name: 'Soft portrait', updatedAt: '2026-11-14T10:00:00Z', values: { strength: 0.5, source_image: 'x', steps: 20 } }],
+	sessions: [{ id: 's1', name: 'Soft portrait', createdAt: '2026-11-13T10:00:00Z', updatedAt: '2026-11-14T10:00:00Z', values: { strength: 0.5, steps: 20 } }],
 	formulas: [{ id: 'f1', name: 'Film look', values: { steps: 40, grain: 3 } }]
 };
-const schema = { properties: { main: { children: [{ name: 'strength', type: 'slider', default: 0.85 }, { name: 'steps', type: 'slider', default: 28 }, { name: 'source_image', type: 'image' }, { name: 'grain', type: 'slider', default: 0 }] } } };
+const schema = { properties: { main: { children: [{ name: 'strength', type: 'slider', default: 0.85 }, { name: 'steps', type: 'slider', default: 28 }, { name: 'grain', type: 'slider', default: 0 }] } } };
 
 describe('resolveSetup', () => {
-	it('starts from the mode defaults and takes no picture field from them', () => {
+	it('starts from the defaults of the form the server serves for the editor key', () => {
 		const resolved = resolveSetup({ offer: offer(), setup: { kind: 'defaults' }, schema, choices: rich });
+		expect(resolved).toMatchObject({ preset_id: 'qwen', mode: 'editor:edit' });
+		expect(resolved).not.toHaveProperty('variant');
 		expect(resolved.form_data).toEqual({ strength: 0.85, steps: 28, grain: 0 });
 		expect(resolved.source).toEqual({ kind: 'defaults', id: null, name: null });
 		expect(resolved.label).toBe('Qwen-Image 2.1 · Edit · Model defaults');
 	});
 
-	it('lets a session win over the defaults but never brings the fields the editor owns', () => {
-		const resolved = resolveSetup({ offer: offer({ owned: ['steps'] }), setup: { kind: 'session', id: 's1' }, schema, choices: rich });
-		expect(resolved.form_data).toEqual({ strength: 0.5, grain: 0 });
-		expect(resolved.form_data).not.toHaveProperty('source_image');
+	it('lets a session win over the defaults and keeps every value as saved', () => {
+		const resolved = resolveSetup({ offer: offer(), setup: { kind: 'session', id: 's1' }, schema, choices: rich });
+		expect(resolved.form_data).toEqual({ strength: 0.5, steps: 20, grain: 0 });
 		expect(resolved.source).toEqual({ kind: 'session', id: 's1', name: 'Soft portrait' });
 		expect(resolved.label).toBe('Qwen-Image 2.1 · Edit · Soft portrait');
 	});
@@ -50,44 +51,70 @@ describe('resolveSetup', () => {
 
 describe('planStart', () => {
 	const task = { label: 'Edit a region' };
-	const healthy = { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session' as const, id: 's1' }, health: { ok: true, reason: null, name: null, mode_label: null } };
+	const healthy = { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session' as const, id: 's1' }, health: { ok: true, reason: null, name: null, mode_label: null } };
+	const flux = (over: Partial<TaskOffer> = {}) => offer({ preset_id: 'flux', preset_name: 'Flux Fill', mode: 'editor:fill', from_mode: 'inpaint', ...over });
 
-	it('opens the picker the first time when several modes qualify', () => {
-		const plan = planStart({ task, offers: [offer(), offer({ preset_id: 'flux', mode: 'inpaint' })], taskDefault: null, picked: null, choicesOf: () => none });
+	it('opens the preset picker the first time when several presets qualify', () => {
+		const plan = planStart({ task, offers: [offer(), flux()], taskDefault: null, picked: null });
 		expect(plan).toEqual({ action: 'picker', why: 'first_use', notice: null });
 	});
 
-	it('skips the picker only for one qualifying mode without setups or formulas', () => {
-		const plan = planStart({ task, offers: [offer(), offer({ preset_id: 'flux', qualifies: false, reason: 'models_missing' })], taskDefault: null, picked: null, choicesOf: () => none });
+	it('preselects silently when one preset qualifies, even if it has saved setups', () => {
+		const plan = planStart({ task, offers: [offer(), flux({ qualifies: false, reason: 'models_missing' })], taskDefault: null, picked: null });
 		expect(plan).toEqual({ action: 'run', choice: defaultsChoice(offer()), remembered: false });
 	});
 
-	it('still asks when that single mode has a saved setup or a formula', () => {
-		expect(planStart({ task, offers: [offer()], taskDefault: null, picked: null, choicesOf: () => rich }).action).toBe('picker');
-		expect(planStart({ task, offers: [offer()], taskDefault: null, picked: null, choicesOf: () => ({ sessions: [], formulas: rich.formulas }) }).action).toBe('picker');
+	it('preselects the first mode of the one preset that qualifies', () => {
+		const second = offer({ mode: 'editor:edit2', order: 1 });
+		const plan = planStart({ task, offers: [offer(), second], taskDefault: null, picked: null });
+		expect(plan).toEqual({ action: 'run', choice: defaultsChoice(offer()), remembered: false });
 	});
 
 	it('runs with a healthy default without asking', () => {
-		const plan = planStart({ task, offers: [offer(), offer({ preset_id: 'flux' })], taskDefault: healthy, picked: null, choicesOf: () => none });
-		expect(plan).toEqual({ action: 'run', choice: { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session', id: 's1' } }, remembered: true });
+		const plan = planStart({ task, offers: [offer(), flux()], taskDefault: healthy, picked: null });
+		expect(plan).toEqual({ action: 'run', choice: { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } }, remembered: true });
 	});
 
-	it('never substitutes for a broken default: it reopens the picker and says what went away', () => {
+	it('never substitutes for a broken default: it leaves nothing picked and says what went away', () => {
 		const broken = { ...healthy, health: { ok: false, reason: 'session_deleted' as const, name: 'Soft portrait', mode_label: 'Edit' } };
-		const plan = planStart({ task, offers: [offer()], taskDefault: broken, picked: null, choicesOf: () => none });
+		const plan = planStart({ task, offers: [offer()], taskDefault: broken, picked: null });
 		expect(plan).toEqual({ action: 'picker', why: 'broken_default', notice: 'Your default setup "Soft portrait" was deleted. Pick another.' });
 	});
 
 	it('uses a setup picked for this run over the default', () => {
-		const picked = defaultsChoice(offer({ preset_id: 'flux', mode: 'inpaint' }));
-		const plan = planStart({ task, offers: [offer()], taskDefault: healthy, picked, choicesOf: () => none });
+		const picked = defaultsChoice(flux());
+		const plan = planStart({ task, offers: [offer()], taskDefault: healthy, picked });
 		expect(plan).toEqual({ action: 'run', choice: picked, remembered: false });
 	});
 
-	it('shows the greyed picker when nothing qualifies', () => {
-		const plan = planStart({ task, offers: [offer({ qualifies: false })], taskDefault: null, picked: null, choicesOf: () => none });
+	it('asks for a pick when nothing qualifies', () => {
+		const plan = planStart({ task, offers: [offer({ qualifies: false })], taskDefault: null, picked: null });
 		expect(plan).toEqual({ action: 'picker', why: 'nothing_qualifies', notice: null });
-		expect(planStart({ task, offers: [], taskDefault: null, picked: null, choicesOf: () => none }).action).toBe('picker');
+		expect(planStart({ task, offers: [], taskDefault: null, picked: null }).action).toBe('picker');
+	});
+});
+
+describe('choices', () => {
+	it('keys an offer by preset and editor mode only', () => {
+		expect(offerKey(offer())).toBe(offerKey({ preset_id: 'qwen', mode: 'editor:edit' }));
+		expect(offerKey(offer())).not.toBe(offerKey(offer({ mode: 'editor:other' })));
+	});
+
+	it('finds the offer of a choice and never matches a bare generation mode name', () => {
+		expect(offerOf([offer()], { preset_id: 'qwen', mode: 'editor:edit' })?.from_mode).toBe('edit');
+		expect(offerOf([offer()], { preset_id: 'qwen', mode: 'edit' })).toBeNull();
+	});
+
+	it('compares choices by preset, mode and source', () => {
+		const base = defaultsChoice(offer());
+		expect(sameChoice(base, defaultsChoice(offer()))).toBe(true);
+		expect(sameChoice(base, { ...base, setup: { kind: 'session', id: 's1' } })).toBe(false);
+	});
+
+	it('takes the first usable mode of a preset', () => {
+		const offers = [offer({ qualifies: false, reason: 'models_missing' }), offer({ mode: 'editor:edit2' })];
+		expect(firstChoiceOf(offers, 'qwen')).toEqual(defaultsChoice(offer({ mode: 'editor:edit2' })));
+		expect(firstChoiceOf([offer({ qualifies: false })], 'qwen')).toBeNull();
 	});
 });
 
@@ -119,35 +146,6 @@ describe('notices', () => {
 	it('words offer reasons', () => {
 		expect(offerReasonText('models_missing')).toBe('Models not installed');
 		expect(offerReasonText('not_assigned')).toBe('Not available to your account');
-	});
-});
-
-describe('pickerGroups', () => {
-	it('lists the defaults first, then saved setups, then formulas, grouped by model', () => {
-		const groups = pickerGroups([offer(), offer({ mode: 'edit2', mode_label: 'Edit 2' })], () => rich, Date.parse('2026-11-16T10:00:00Z'));
-		expect(groups).toHaveLength(1);
-		expect(groups[0].label).toBe('Qwen-Image 2.1');
-		expect(groups[0].modes[0].options.map((entry) => [entry.name, entry.kind, entry.meta])).toEqual([
-			['Model defaults', 'defaults', null],
-			['Soft portrait', 'session', '2 days ago'],
-			['Film look', 'formula', null]
-		]);
-		expect(groups[0].modes[0].how).toBe('Repaints inside the mask');
-	});
-
-	it('hides modes that do not qualify while one does, and greys them when none does', () => {
-		const bad = offer({ preset_id: 'flux', preset_name: 'Flux Fill', qualifies: false, reason: 'not_assigned', region_strategy: 'crop' });
-		expect(pickerGroups([offer(), bad], () => none).map((group) => group.label)).toEqual(['Qwen-Image 2.1']);
-		const all = pickerGroups([bad], () => none);
-		expect(all[0].modes[0]).toMatchObject({ disabledReason: 'Not available to your account', how: 'Works on the marked area' });
-	});
-
-	it('words relative dates', () => {
-		const now = Date.parse('2026-11-16T12:00:00Z');
-		expect(relativeWhen('2026-11-16T01:00:00Z', now)).toBe('Today');
-		expect(relativeWhen('2026-11-15T01:00:00Z', now)).toBe('Yesterday');
-		expect(relativeWhen('2026-11-08T01:00:00Z', now)).toBe('Last week');
-		expect(relativeWhen(null, now)).toBeNull();
 	});
 });
 

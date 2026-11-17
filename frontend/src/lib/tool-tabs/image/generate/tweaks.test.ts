@@ -3,6 +3,7 @@ import {
 	SAME_NAME_MESSAGE,
 	editTweak,
 	isChanged,
+	loadedTweak,
 	runValues,
 	saveAsNewBody,
 	saveToBody,
@@ -16,27 +17,27 @@ import {
 const httpError = (status: number, data: unknown) => ({ response: { status, data } });
 
 describe('sameSettings', () => {
-	it('ignores key order and fields the editor owns', () => {
-		expect(sameSettings({ a: 1, b: { x: 1, y: 2 }, source_image: 'p' }, { b: { y: 2, x: 1 }, a: 1 }, {}, ['source_image'])).toBe(true);
+	it('ignores key order', () => {
+		expect(sameSettings({ a: 1, b: { x: 1, y: 2 } }, { b: { y: 2, x: 1 }, a: 1 }, {})).toBe(true);
 	});
 
 	it('treats a missing value as the default', () => {
-		expect(sameSettings({ steps: 28 }, {}, { steps: 28 }, [])).toBe(true);
-		expect(sameSettings({ steps: 20 }, {}, { steps: 28 }, [])).toBe(false);
+		expect(sameSettings({ steps: 28 }, {}, { steps: 28 })).toBe(true);
+		expect(sameSettings({ steps: 20 }, {}, { steps: 28 })).toBe(false);
 	});
 
 	it('compares lists in order', () => {
-		expect(sameSettings({ loras: [{ id: 'a' }, { id: 'b' }] }, { loras: [{ id: 'b' }, { id: 'a' }] }, {}, [])).toBe(false);
-		expect(sameSettings({ loras: [{ id: 'a' }] }, { loras: [{ id: 'a' }] }, {}, [])).toBe(true);
+		expect(sameSettings({ loras: [{ id: 'a' }, { id: 'b' }] }, { loras: [{ id: 'b' }, { id: 'a' }] }, {})).toBe(false);
+		expect(sameSettings({ loras: [{ id: 'a' }] }, { loras: [{ id: 'a' }] }, {})).toBe(true);
 	});
 });
 
 describe('a tweak', () => {
-	const fresh = () => startTweak('k', ['resolution'], { steps: 28 }, { steps: 28 });
+	const fresh = () => startTweak('k', { steps: 28 }, { steps: 28 });
 
 	it('is not changed until the form has reported, and takes its first report as the baseline', () => {
 		expect(isChanged(fresh())).toBe(false);
-		const first = editTweak(fresh(), { steps: 28, extra: 'filled by the form', resolution: '1024' });
+		const first = editTweak(fresh(), { steps: 28, extra: 'filled by the form' });
 		expect(first.settled).toBe(true);
 		expect(isChanged(first)).toBe(false);
 	});
@@ -57,7 +58,7 @@ describe('a tweak', () => {
 	it('hands the run the form values only while they differ', () => {
 		const base = { steps: 28 };
 		const edited = editTweak(editTweak(fresh(), { steps: 28 }), { steps: 12, resolution: '2048' });
-		expect(runValues(base, edited, 'k')).toEqual({ steps: 12 });
+		expect(runValues(base, edited, 'k')).toEqual({ steps: 12, resolution: '2048' });
 		expect(runValues(base, edited, 'other')).toBe(base);
 		expect(runValues(base, undefined, 'k')).toBe(base);
 		expect(runValues(base, editTweak(fresh(), { steps: 28 }), 'k')).toBe(base);
@@ -65,26 +66,36 @@ describe('a tweak', () => {
 });
 
 describe('save bodies', () => {
-	const target = { mode: 'edit', variant: 'fast' };
+	const target = { mode: 'editor:edit' };
 
-	it('updates the session with the values minus owned fields, keyed by mode, with its version', () => {
-		expect(saveToBody({ name: 'Soft portrait', version: 4, target, values: { steps: 12, source_image: 'p' }, owned: ['source_image'] })).toEqual({
+	it('updates the session with the values keyed by the editor key, with its version', () => {
+		expect(saveToBody({ name: 'Soft portrait', version: 4, target, values: { steps: 12 } })).toEqual({
 			name: 'Soft portrait',
-			data: { edit: { formData: { steps: 12 }, selectedVariant: 'fast' } },
-			mode: 'edit',
+			data: { 'editor:edit': { formData: { steps: 12 } } },
+			mode: 'editor:edit',
 			base_version: 4,
 			kind: 'editor'
 		});
 	});
 
 	it('creates an editor session for the preset and mode', () => {
-		expect(saveAsNewBody({ presetId: 'qwen', name: 'Mine', target: { mode: 'edit', variant: null }, values: { steps: 12 }, owned: [] })).toEqual({
+		expect(saveAsNewBody({ presetId: 'qwen', name: 'Mine', target: { mode: 'editor:edit' }, values: { steps: 12 } })).toEqual({
 			preset_id: 'qwen',
 			name: 'Mine',
-			data: { edit: { formData: { steps: 12 } } },
-			mode: 'edit',
+			data: { 'editor:edit': { formData: { steps: 12 } } },
+			mode: 'editor:edit',
 			kind: 'editor'
 		});
+	});
+});
+
+describe('a loaded version', () => {
+	it('marks the tweak changed against the saved values', () => {
+		const settled = editTweak(startTweak('k', {}, { steps: 28 }), { steps: 28 });
+		const loaded = loadedTweak(settled, { steps: 12 });
+		expect(isChanged(loaded)).toBe(true);
+		expect(loaded.base).toEqual({ steps: 28 });
+		expect(isChanged(savedTweak(loaded))).toBe(false);
 	});
 });
 

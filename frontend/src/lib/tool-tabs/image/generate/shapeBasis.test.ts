@@ -89,7 +89,7 @@ function genParams(beneath: readonly EditStep[], over: Partial<GenerateParams> =
 		v: 1,
 		task: 'edit_region',
 		prompt: 'a red sailboat',
-		setup: { preset_id: 'qwen', mode: 'edit', variant: null, form_data: { steps: 28, seed: 5 }, source: { kind: 'defaults', id: null, name: null }, label: 'Qwen' },
+		setup: { preset_id: 'qwen', mode: 'editor:edit', form_data: { steps: 28, seed: 5 }, source: { kind: 'defaults', id: null, name: null }, label: 'Qwen' },
 		area: { region: { item_id: 'mask1' }, size: { width: 400, height: 300 } },
 		candidates: 2,
 		results: [
@@ -373,7 +373,7 @@ describe('remapping the marked area with the picture', () => {
 	});
 });
 
-const offer = (): TaskOffer => ({ preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: [] });
+const offer = (): TaskOffer => ({ preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, region_strategy: 'mask', via: null, qualifies: true, reason: null });
 const task = (): EditorTaskInfo => ({ id: 'edit_region', label: 'Edit a region', icon: 'sparkles', region: 'optional', prompt: 'required', fallback: null, offers: [offer()], default: null });
 const run = (over: Partial<EditorRun> = {}): EditorRun => ({ id: 'er_1', task: 'edit_region', status: 'queued', edit_id: 'ed', step_id: 's1', generation_id: null, progress: 0, error: null, soft: false, rect: null, candidates: [], ...over });
 const schema = { properties: { main: { children: [{ name: 'steps', type: 'number', default: 28 }, { name: 'seed', type: 'seed', default: 7 }] } } };

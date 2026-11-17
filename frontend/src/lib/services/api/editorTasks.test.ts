@@ -57,17 +57,20 @@ describe('normalizers', () => {
 	});
 
 	it('reads a task with offers and no default', () => {
-		const task = normalizeTask({ id: 'edit_region', label: 'Edit a region', offers: [{ preset_id: 'p', mode: 'edit', qualifies: false, reason: 'models_missing' }, { junk: 1 }], default: null });
+		const task = normalizeTask({ id: 'edit_region', label: 'Edit a region', offers: [{ preset_id: 'p', mode: 'editor:edit', from_mode: 'edit', short_description: 'Changes a part', order: 2, qualifies: false, reason: 'models_missing', owned: ['x'], variant: 'v' }, { junk: 1 }], default: null });
 		expect(task?.offers).toHaveLength(1);
-		expect(task?.offers[0]).toMatchObject({ qualifies: false, reason: 'models_missing', region_strategy: 'crop' });
+		expect(task?.offers[0]).toMatchObject({ mode: 'editor:edit', from_mode: 'edit', short_description: 'Changes a part', order: 2, qualifies: false, reason: 'models_missing', region_strategy: 'crop' });
+		expect(task?.offers[0]).not.toHaveProperty('owned');
+		expect(task?.offers[0]).not.toHaveProperty('variant');
 		expect(task?.default).toBeNull();
 		expect(normalizeTask({ label: 'no id' })).toBeNull();
 	});
 
 	it('reads a default with its health', () => {
-		const value = normalizeDefault({ preset_id: 'p', mode: 'edit', setup: { kind: 'session', id: 's1' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } });
-		expect(value).toMatchObject({ setup: { kind: 'session', id: 's1' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait' } });
-		expect(normalizeDefault({ preset_id: 'p', mode: 'edit' })?.health.ok).toBe(true);
+		const value = normalizeDefault({ preset_id: 'p', mode: 'editor:edit', variant: 'old', setup: { kind: 'session', id: 's1' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } });
+		expect(value).toMatchObject({ mode: 'editor:edit', setup: { kind: 'session', id: 's1' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait' } });
+		expect(value).not.toHaveProperty('variant');
+		expect(normalizeDefault({ preset_id: 'p', mode: 'editor:edit' })?.health.ok).toBe(true);
 		expect(normalizeDefault(null)).toBeNull();
 	});
 });
@@ -87,7 +90,7 @@ describe('createEditorTasksApi', () => {
 		const api = createEditorTasksApi(client as never);
 		expect((await api.listEditorTasks('image'))[0].id).toBe('edit_region');
 		expect(client.get).toHaveBeenCalledWith('/api/editor/tasks', { params: { editor: 'image' } });
-		const body = { edit: { id: 'ed', step_id: 's1' }, input: { item_id: 'i' }, steps: [], region: null, prompt: null, setup: { preset_id: 'p', mode: 'm', variant: null, form_data: {} }, candidates: 1, seed: null };
+		const body = { edit: { id: 'ed', step_id: 's1' }, input: { item_id: 'i' }, steps: [], region: null, prompt: null, setup: { preset_id: 'p', mode: 'editor:m', form_data: {} }, candidates: 1, seed: null };
 		expect((await api.startEditorRun('edit_region', body)).id).toBe('er_2');
 		expect(client.post).toHaveBeenCalledWith('/api/editor/tasks/edit_region/runs', body);
 		expect((await api.getEditorRun('er_1')).status).toBe('queued');
@@ -98,8 +101,8 @@ describe('createEditorTasksApi', () => {
 	it('sets and clears a default', async () => {
 		const client = fake();
 		const api = createEditorTasksApi(client as never);
-		await api.setEditorTaskDefault('edit_region', { preset_id: 'p', mode: 'm', variant: null, setup: { kind: 'defaults' } });
-		expect(client.put).toHaveBeenCalledWith('/api/editor/tasks/edit_region/default', { preset_id: 'p', mode: 'm', variant: null, setup: { kind: 'defaults' } });
+		await api.setEditorTaskDefault('edit_region', { preset_id: 'p', mode: 'editor:m', setup: { kind: 'defaults' } });
+		expect(client.put).toHaveBeenCalledWith('/api/editor/tasks/edit_region/default', { preset_id: 'p', mode: 'editor:m', setup: { kind: 'defaults' } });
 		await api.clearEditorTaskDefault('edit_region');
 		expect(client.delete).toHaveBeenCalledWith('/api/editor/tasks/edit_region/default');
 	});
@@ -115,7 +118,7 @@ describe('createEditorTasksApi', () => {
 
 describe('default from the server', () => {
 	it('reads the name from the setup and the stored names of a broken default', () => {
-		const ok = normalizeDefault({ preset_id: 'p', preset_name: 'Qwen', mode: 'edit', mode_label: 'Edit', variant: null, setup: { kind: 'session', id: 's', name: 'Soft', version: 3, updated_at: 'x' }, set_at: 'y', health: { ok: true } });
+		const ok = normalizeDefault({ preset_id: 'p', preset_name: 'Qwen', mode: 'editor:edit', mode_label: 'Edit', variant: null, setup: { kind: 'session', id: 's', name: 'Soft', version: 3, updated_at: 'x' }, set_at: 'y', health: { ok: true } });
 		expect(ok).toMatchObject({ setup: { kind: 'session', id: 's' }, health: { ok: true, name: 'Soft', mode_label: 'Edit' } });
 		const broken = normalizeDefault({ preset_id: 'p', mode: 'edit', setup: { kind: 'defaults', id: null, name: null }, health: { ok: false, reason: 'preset_missing', missing: { kind: 'preset', id: 'p' }, name: 'Qwen edit', mode_label: 'Edit' } });
 		expect(broken).toMatchObject({ setup: { kind: 'defaults' }, health: { ok: false, reason: 'preset_missing', name: 'Qwen edit' } });

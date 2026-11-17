@@ -37,14 +37,16 @@ export interface TaskOffer {
 	preset_id: string;
 	preset_name: string;
 	mode: string;
+	from_mode: string | null;
 	mode_label: string;
+	mode_icon?: string | null;
 	label: string | null;
-	variant: string | null;
+	short_description: string | null;
+	order: number;
 	region_strategy: 'crop' | 'mask' | 'whole' | string;
 	via: string | null;
 	qualifies: boolean;
 	reason: OfferReason | null;
-	owned: string[];
 }
 
 export type SetupRef = { kind: 'session'; id: string } | { kind: 'formula'; id: string } | { kind: 'defaults' };
@@ -71,7 +73,6 @@ export interface DefaultHealth {
 export interface TaskDefault {
 	preset_id: string;
 	mode: string;
-	variant: string | null;
 	setup: SetupRef;
 	health: DefaultHealth;
 }
@@ -93,7 +94,7 @@ export interface StartRunBody {
 	steps: MediaToolStep[];
 	region: { item_id: string } | null;
 	prompt: string | null;
-	setup: { preset_id: string; mode: string; variant: string | null; form_data: Record<string, unknown> };
+	setup: { preset_id: string; mode: string; form_data: Record<string, unknown> };
 	candidates: number;
 	seed: number | null;
 }
@@ -217,14 +218,16 @@ function offerOf(raw: unknown): TaskOffer[] {
 			preset_id: presetId,
 			preset_name: str(raw.preset_name) ?? presetId,
 			mode,
+			from_mode: str(raw.from_mode),
 			mode_label: str(raw.mode_label) ?? mode,
+			mode_icon: str(raw.mode_icon),
 			label: str(raw.label),
-			variant: str(raw.variant),
+			short_description: str(raw.short_description),
+			order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : 0,
 			region_strategy: str(raw.region_strategy) ?? 'crop',
 			via: str(raw.via),
 			qualifies: raw.qualifies !== false,
-			reason: str(raw.reason),
-			owned: (Array.isArray(raw.owned) ? raw.owned : []).filter((field): field is string => typeof field === 'string')
+			reason: str(raw.reason)
 		}
 	];
 }
@@ -249,7 +252,6 @@ export function normalizeDefault(raw: unknown): TaskDefault | null {
 	return {
 		preset_id: presetId,
 		mode,
-		variant: str(raw.variant),
 		setup: setupRefOf(raw.setup),
 		health: { ok: health.ok !== false && !reason, reason, name: str(health.name) ?? str(setup.name), mode_label: str(health.mode_label) ?? str(raw.mode_label) }
 	};
@@ -296,7 +298,9 @@ export interface UpdateEditorSessionBody {
 export interface EditorSessionEntry {
 	id: string;
 	name: string;
+	created_at?: string | null;
 	updated_at: string | null;
+	pinned?: boolean;
 	version?: number | null;
 	data: Record<string, { formData?: Record<string, unknown> }>;
 }
@@ -347,7 +351,7 @@ export function createEditorTasksApi(client: AxiosInstance) {
 			return normalizeRun(payloadOf(response.data).run);
 		},
 
-		async setEditorTaskDefault(taskId: string, body: { preset_id: string; mode: string; variant: string | null; setup: SetupRef }): Promise<EditorTaskInfo | null> {
+		async setEditorTaskDefault(taskId: string, body: { preset_id: string; mode: string; setup: SetupRef }): Promise<EditorTaskInfo | null> {
 			const response = await client.put(`${task(taskId)}/default`, body);
 			const payload = payloadOf(response.data);
 			return normalizeTask(isRecord(payload.task) ? payload.task : payload);

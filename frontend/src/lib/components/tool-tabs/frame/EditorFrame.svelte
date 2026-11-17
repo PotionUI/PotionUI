@@ -29,6 +29,7 @@
 		rail,
 		canvas,
 		below,
+		dock,
 		panelTop,
 		bar,
 		options,
@@ -53,6 +54,7 @@
 		rail?: Snippet;
 		canvas: Snippet;
 		below?: Snippet;
+		dock?: Snippet;
 		panelTop?: Snippet;
 		bar?: Snippet;
 		options?: Snippet;
@@ -199,6 +201,9 @@
 					{@render canvas()}
 				</div>
 				{@render below?.()}
+				{#if dock}
+					<div class="flex-none" data-frame-dock>{@render dock()}</div>
+				{/if}
 			</div>
 			{#if panelSide === 'right'}{@render panel()}{/if}
 		</div>

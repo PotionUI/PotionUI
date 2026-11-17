@@ -15,15 +15,18 @@ import {
 	type TaskDefault,
 	type TaskOffer
 } from '$lib/services/api/editorTasks';
+import type { PresetInfo, SessionVersionDetail, SessionVersionSummary } from '$lib/types/api';
 import { appliedSteps, apply, beginEdit, commitLive, liveEdit, type EditStackState, type EditStep } from '$lib/tool-tabs/frame/editStack';
 import { missingModelMessage, type MissingModelField } from '$lib/generation/requiredModelField';
 import type { EditLink } from '../editLink';
 import type { RunEngine } from './runEngine';
 import {
 	GENERATE_TOOL,
+	GENERATE_VERSION,
 	basisFor,
 	generateDraft,
 	generateSteps,
+	migrateParams,
 	readGenerateParams,
 	remapArea,
 	replaceStepParams,
@@ -49,8 +52,8 @@ import {
 	sourceOf,
 	chipLabel,
 	layerOf,
-	ownedFieldsOf,
-	withoutOwned,
+	firstChoiceOf,
+	offersOfPreset,
 	type FormulaChoice,
 	type ModeChoices,
 	type SessionChoice,
@@ -61,6 +64,7 @@ import { getSchemaDefaults } from '$lib/form/defaults';
 import {
 	editTweak,
 	isChanged,
+	loadedTweak,
 	runValues,
 	saveAsNewBody,
 	saveErrorCode,
@@ -82,10 +86,15 @@ export interface ControllerPorts {
 	tasks(): Promise<EditorTaskInfo[]>;
 	sessions(presetId: string): Promise<EditorSessionEntry[]>;
 	formulas(presetId: string, mode: string): Promise<Array<{ id: string; name: string; values: Record<string, unknown> }>>;
-	schema(presetId: string, mode: string, variant: string | null): Promise<{ properties?: Record<string, any> } | null>;
+	schema(presetId: string, mode: string): Promise<{ properties?: Record<string, any> } | null>;
+	presets?(): Promise<PresetInfo[]>;
+	pinSession?(sessionId: string, pinned: boolean): Promise<void>;
+	deleteSession?(sessionId: string): Promise<void>;
+	versions?(sessionId: string): Promise<SessionVersionSummary[]>;
+	version?(sessionId: string, versionNumber: number): Promise<SessionVersionDetail | null>;
 	seed?(input: { presetId: string; schema: { properties?: Record<string, any> }; incoming: Record<string, unknown> }): Promise<Record<string, unknown> | null>;
 	missingModel?(schema: { properties?: Record<string, any> }, values: Record<string, unknown>): MissingModelField | null;
-	setDefault(taskId: string, body: { preset_id: string; mode: string; variant: string | null; setup: SetupRef }): Promise<void>;
+	setDefault(taskId: string, body: { preset_id: string; mode: string; setup: SetupRef }): Promise<void>;
 	clearDefault(taskId: string): Promise<void>;
 	saveSession(body: SaveEditorSessionBody): Promise<SavedEditorSession>;
 	updateSession(sessionId: string, body: UpdateEditorSessionBody): Promise<SavedEditorSession>;
@@ -128,6 +137,8 @@ export const REDO_AREA_MESSAGE = 'Mark the area again: the picture beneath chang
 export interface GenerateUi {
 	loaded: boolean;
 	tasks: EditorTaskInfo[];
+	catalog: PresetInfo[];
+	reloads: number;
 	prompts: Record<string, string>;
 	results: Record<string, number>;
 	choice: Record<string, SetupChoice | null>;
@@ -145,7 +156,6 @@ export interface SettingsContext {
 	offer: TaskOffer;
 	choice: SetupChoice;
 	key: string;
-	owned: string[];
 	base: ResolvedSetup;
 	schema: { properties?: Record<string, any> } | null;
 	values: Record<string, unknown>;
@@ -211,6 +221,8 @@ export function createGenerateController(deps: ControllerDeps) {
 	const state = writable<GenerateUi>({
 		loaded: false,
 		tasks: [],
+		catalog: [],
+		reloads: 0,
 		prompts: {},
 		results: {},
 		choice: {},
@@ -260,7 +272,7 @@ export function createGenerateController(deps: ControllerDeps) {
 				]);
 				const sessionChoices: SessionChoice[] = sessions.flatMap((entry) => {
 					const data = entry.data?.[offer.mode];
-					return data ? [{ id: entry.id, name: entry.name, updatedAt: entry.updated_at, values: data.formData ?? {}, version: entry.version ?? null }] : [];
+					return data ? [{ id: entry.id, name: entry.name, createdAt: entry.created_at ?? null, updatedAt: entry.updated_at, values: data.formData ?? {}, version: entry.version ?? null, pinned: entry.pinned === true }] : [];
 				});
 				const formulaChoices: FormulaChoice[] = formulas.map((entry) => ({ id: entry.id, name: entry.name, values: entry.values ?? {} }));
 				if (!disposed) state.update((current) => ({ ...current, choices: { ...current.choices, [key]: { sessions: sessionChoices, formulas: formulaChoices } } }));
@@ -285,27 +297,33 @@ export function createGenerateController(deps: ControllerDeps) {
 		return tasksLoad;
 	}
 
+	async function loadCatalog(): Promise<void> {
+		if (!deps.ports.presets || get(state).catalog.length) return;
+		const list = await deps.ports.presets().catch(() => []);
+		if (!disposed && list.length) patch({ catalog: list });
+	}
+	
 	async function prepare(taskId: string): Promise<void> {
 		await loadTasks();
+		void loadCatalog();
 		const task = taskOf(taskId);
 		if (!task) return;
 		const usable = task.offers.filter((offer) => offer.qualifies);
-		await Promise.all((usable.length ? usable : []).map(loadChoices));
+		await Promise.all(usable.map(loadChoices));
 		if (disposed) return;
 		state.update((current) => ({ ...current, results: { ...current.results, [taskId]: current.results[taskId] ?? storedResults(taskId) } }));
 		const plan = planStart({
 			task,
 			offers: task.offers,
 			taskDefault: task.default,
-			picked: get(state).choice[taskId] ?? null,
-			choicesOf
-		});
+			picked: get(state).choice[taskId] ?? null
+			});
 		if (plan.action === 'run') {
 			state.update((current) => ({ ...current, choice: { ...current.choice, [taskId]: plan.choice } }));
 			return;
 		}
-		state.update((current) => ({ ...current, choice: { ...current.choice, [taskId]: null }, picker: { open: true, why: plan.why, notice: plan.notice } }));
-	}
+		state.update((current) => ({ ...current, choice: { ...current.choice, [taskId]: null }, picker: { open: plan.why === 'first_use', why: plan.why, notice: plan.notice } }));
+ }
 
 	function use(taskId: string | null): void {
 		if (get(state).taskId === taskId) return;
@@ -338,25 +356,57 @@ export function createGenerateController(deps: ControllerDeps) {
 		}
 	}
 
-	function openPicker(why: PickerState['why'] = 'change'): void {
-		patch({ picker: { open: true, why, notice: null } });
-		const current = get(state);
-		for (const entry of current.tasks) for (const offer of entry.offers) void loadChoices(offer);
+	function askForPicker(why: PickerState['why'] = 'change'): void {
+		patch({ picker: { open: true, why, notice: get(state).picker.notice } });
 	}
-
-	function closePicker(): void {
-		patch({ picker: closedPicker() });
+	
+	function pickerHandled(): void {
+		state.update((current) => (current.picker.open ? { ...current, picker: { ...current.picker, open: false } } : current));
 	}
-
-	async function pick(taskId: string, choice: SetupChoice, makeDefault: boolean): Promise<void> {
+	
+	async function pick(taskId: string, choice: SetupChoice): Promise<void> {
+		const task = taskOf(taskId);
+		const offer = task ? offerOf(task.offers, choice) : null;
+		if (offer) await loadChoices(offer);
 		state.update((current) => {
 			const tweaks = { ...current.tweaks };
 			if (tweaks[taskId]?.key !== choiceKey(choice)) delete tweaks[taskId];
 			return { ...current, choice: { ...current.choice, [taskId]: choice }, tweaks, picker: closedPicker(), error: null };
 		});
-		if (!makeDefault) return;
+	}
+	
+	function choiceForPreset(taskId: string, presetId: string): SetupChoice | null {
+		const task = taskOf(taskId);
+		if (!task) return null;
+		const remembered = task.default;
+		if (remembered?.health.ok && remembered.preset_id === presetId) return { preset_id: presetId, mode: remembered.mode, setup: remembered.setup };
+		return firstChoiceOf(task.offers, presetId);
+	}
+	
+	function choiceForMode(taskId: string, mode: string): SetupChoice | null {
+		const task = taskOf(taskId);
+		const current = get(state).choice[taskId];
+		const offer = task && current ? offersOfPreset(task.offers, current.preset_id).find((entry) => entry.mode === mode && entry.qualifies) : null;
+		return offer ? defaultsChoice(offer) : null;
+	}
+	
+	function isDefault(taskId: string): boolean {
+		const task = taskOf(taskId);
+		const choice = get(state).choice[taskId];
+		const remembered = task?.default;
+		if (!choice || !remembered) return false;
+		return sameChoice(choice, { preset_id: remembered.preset_id, mode: remembered.mode, setup: remembered.setup });
+	}
+	
+	async function setAsDefault(taskId: string, on: boolean): Promise<void> {
+		if (!on) {
+			if (isDefault(taskId)) await clearDefault(taskId);
+			return;
+		}
+		const choice = get(state).choice[taskId];
+		if (!choice) return;
 		try {
-			await deps.ports.setDefault(taskId, { preset_id: choice.preset_id, mode: choice.mode, variant: choice.variant, setup: choice.setup });
+			await deps.ports.setDefault(taskId, { preset_id: choice.preset_id, mode: choice.mode, setup: choice.setup });
 			const fresh: TaskDefault = { ...choice, health: { ok: true, reason: null, name: null, mode_label: null } };
 			state.update((current) => ({ ...current, tasks: current.tasks.map((entry) => (entry.id === taskId ? { ...entry, default: fresh } : entry)) }));
 		} catch (error) {
@@ -378,13 +428,12 @@ export function createGenerateController(deps: ControllerDeps) {
 		const offer = task ? offerOf(task.offers, choice) : null;
 		if (!offer) return null;
 		await loadChoices(offer);
-		const schema = await deps.ports.schema(offer.preset_id, offer.mode, offer.variant).catch(() => null);
+		const schema = await deps.ports.schema(offer.preset_id, offer.mode).catch(() => null);
 		const choices = choicesOf(offer);
 		let resolved = resolveSetup({ offer, setup: choice.setup, schema, choices });
 		if (schema && deps.ports.seed) {
-			const owned = ownedFieldsOf(offer, schema);
-			const seeded = await deps.ports.seed({ presetId: offer.preset_id, schema, incoming: withoutOwned(layerOf(choice.setup, choices), owned) }).catch(() => null);
-			if (seeded) resolved = { ...resolved, form_data: withoutOwned(seeded, owned) };
+			const seeded = await deps.ports.seed({ presetId: offer.preset_id, schema, incoming: layerOf(choice.setup, choices) }).catch(() => null);
+			if (seeded) resolved = { ...resolved, form_data: seeded };
 		}
 		return { offer, schema, resolved };
 	}
@@ -419,15 +468,14 @@ export function createGenerateController(deps: ControllerDeps) {
 		if (!found || disposed) return null;
 		const { offer, schema, resolved } = found;
 		const key = choiceKey(choice);
-		const owned = [...ownedFieldsOf(offer, schema)];
 		const existing = get(state).tweaks[taskId];
 		let tweak = existing && existing.key === key ? existing : null;
 		if (!tweak) {
-			const defaults = withoutOwned(getSchemaDefaults(schema as never) as Record<string, unknown>, new Set(owned));
-			tweak = startTweak(key, owned, defaults, resolved.form_data);
+			const defaults = getSchemaDefaults(schema as never) as Record<string, unknown>;
+			tweak = startTweak(key, defaults, resolved.form_data);
 			setTweak(taskId, tweak);
 		}
-		return { offer, choice, key, owned, base: resolved, schema, values: tweak.values, source: resolved.source, setupName: resolved.source.name ?? DEFAULTS_NAME };
+		return { offer, choice, key, base: resolved, schema, values: tweak.values, source: resolved.source, setupName: resolved.source.name ?? DEFAULTS_NAME };
 	}
 
 	function tweak(taskId: string, data: Record<string, unknown>): void {
@@ -462,19 +510,25 @@ export function createGenerateController(deps: ControllerDeps) {
 		await loadChoices(offer);
 	}
 
-	async function saveTo(taskId: string): Promise<SaveOutcome> {
+	async function saveTo(taskId: string, rename?: string): Promise<SaveOutcome> {
 		const current = get(state);
 		const choice = current.choice[taskId];
 		const open = current.tweaks[taskId];
 		const task = taskOf(taskId);
 		const offer = task && choice ? offerOf(task.offers, choice) : null;
-		if (!choice || !open || !offer || choice.setup.kind !== 'session') return { ok: false, message: 'This setup cannot be saved to. Save it as a new setup instead.' };
+		if (!choice || !offer || choice.setup.kind !== 'session') return { ok: false, message: 'This setup cannot be saved to. Save it as a new setup instead.' };
 		const session = sessionChoiceOf(offer, choice.setup.id);
 		if (!session) return { ok: false, message: 'This setup no longer exists. Save it as a new setup instead.' };
+		const name = rename === undefined ? session.name : rename.trim();
+		if (rename !== undefined) {
+			const invalid = validateSetupName(name, choicesOf(offer).sessions.filter((entry) => entry.id !== session.id).map((entry) => entry.name));
+			if (invalid) return { ok: false, message: invalid };
+		}
+		if (!open && rename === undefined) return { ok: true };
+		const values = open ? open.values : session.values;
 		try {
-			const saved = await deps.ports.updateSession(session.id, saveToBody({ name: session.name, version: session.version ?? null, target: offer, values: open.values, owned: open.owned }));
-			const values = withoutOwned(open.values, new Set(open.owned));
-			patchSessions(offer, (sessions) => sessions.map((entry) => (entry.id === session.id ? { ...entry, values, version: saved.version ?? entry.version ?? null, updatedAt: saved.updated_at ?? entry.updatedAt } : entry)));
+			const saved = await deps.ports.updateSession(session.id, saveToBody({ name, version: session.version ?? null, target: offer, values }));
+			patchSessions(offer, (sessions) => sessions.map((entry) => (entry.id === session.id ? { ...entry, name, values, version: saved.version ?? entry.version ?? null, updatedAt: saved.updated_at ?? entry.updatedAt } : entry)));
 			const latest = get(state).tweaks[taskId];
 			if (latest) setTweak(taskId, savedTweak(latest));
 			return { ok: true };
@@ -485,30 +539,90 @@ export function createGenerateController(deps: ControllerDeps) {
 	}
 
 	async function saveAsNew(taskId: string, rawName: string): Promise<SaveOutcome> {
+		if (!get(state).tweaks[taskId]) await settings(taskId);
 		const current = get(state);
 		const choice = current.choice[taskId];
 		const open = current.tweaks[taskId];
 		const task = taskOf(taskId);
 		const offer = task && choice ? offerOf(task.offers, choice) : null;
-		if (!choice || !open || !offer) return { ok: false, message: 'This setup cannot be saved right now. Pick a setup first.' };
+		if (!choice || !offer) return { ok: false, message: 'This setup cannot be saved right now. Pick a setup first.' };
 		const invalid = validateSetupName(rawName, choicesOf(offer).sessions.map((entry) => entry.name));
 		if (invalid) return { ok: false, message: invalid };
 		const name = rawName.trim();
+		const values = open ? open.values : layerOf(choice.setup, choicesOf(offer));
 		try {
-			const saved = await deps.ports.saveSession(saveAsNewBody({ presetId: offer.preset_id, name, target: offer, values: open.values, owned: open.owned }));
-			const values = withoutOwned(open.values, new Set(open.owned));
-			patchSessions(offer, (sessions) => [{ id: saved.id, name: saved.name || name, updatedAt: saved.updated_at, values, version: saved.version }, ...sessions.filter((entry) => entry.id !== saved.id)]);
-			const next: SetupChoice = { preset_id: choice.preset_id, mode: choice.mode, variant: choice.variant, setup: { kind: 'session', id: saved.id } };
+			const saved = await deps.ports.saveSession(saveAsNewBody({ presetId: offer.preset_id, name, target: offer, values }));
+			patchSessions(offer, (sessions) => [{ id: saved.id, name: saved.name || name, createdAt: saved.updated_at, updatedAt: saved.updated_at, values, version: saved.version, pinned: false }, ...sessions.filter((entry) => entry.id !== saved.id)]);
+			const next: SetupChoice = { preset_id: choice.preset_id, mode: choice.mode, setup: { kind: 'session', id: saved.id } };
 			const key = choiceKey(next);
+			const start = startTweak(key, open?.defaults ?? {}, values);
 			state.update((latest) => ({
 				...latest,
 				choice: { ...latest.choice, [taskId]: next },
-				tweaks: { ...latest.tweaks, [taskId]: savedTweak({ ...open, key }) }
+				tweaks: { ...latest.tweaks, [taskId]: savedTweak({ ...start, values, settled: true }) }
 			}));
 			return { ok: true };
 		} catch (error) {
 			return { ok: false, message: sessionSaveMessage(error) };
 		}
+	}
+
+	async function removeSession(taskId: string): Promise<SaveOutcome> {
+		const current = get(state);
+		const choice = current.choice[taskId];
+		const task = taskOf(taskId);
+		const offer = task && choice ? offerOf(task.offers, choice) : null;
+		if (!choice || !offer || choice.setup.kind !== 'session' || !deps.ports.deleteSession) return { ok: false, message: 'This setup cannot be deleted.' };
+		const id = choice.setup.id;
+		try {
+			await deps.ports.deleteSession(id);
+		} catch (error) {
+			return { ok: false, message: sessionSaveMessage(error) };
+		}
+		patchSessions(offer, (sessions) => sessions.filter((entry) => entry.id !== id));
+		await pick(taskId, defaultsChoice(offer));
+		return { ok: true };
+	}
+
+	async function pinSession(taskId: string, sessionId: string): Promise<void> {
+		const choice = get(state).choice[taskId];
+		const task = taskOf(taskId);
+		const offer = task && choice ? offerOf(task.offers, choice) : null;
+		const found = offer ? sessionChoiceOf(offer, sessionId) : null;
+		if (!offer || !found || !deps.ports.pinSession) return;
+		const pinned = !found.pinned;
+		patchSessions(offer, (sessions) => sessions.map((entry) => (entry.id === sessionId ? { ...entry, pinned } : entry)));
+		try {
+			await deps.ports.pinSession(sessionId, pinned);
+		} catch {
+			patchSessions(offer, (sessions) => sessions.map((entry) => (entry.id === sessionId ? { ...entry, pinned: !pinned } : entry)));
+		}
+	}
+
+	async function loadVersion(taskId: string, sessionId: string, versionNumber: number): Promise<boolean> {
+		const choice = get(state).choice[taskId];
+		const task = taskOf(taskId);
+		const offer = task && choice ? offerOf(task.offers, choice) : null;
+		if (!offer || !deps.ports.version) return false;
+		const detail = await deps.ports.version(sessionId, versionNumber).catch(() => null);
+		const values = detail?.data?.[offer.mode]?.formData;
+		if (!values || typeof values !== 'object') return false;
+		if (choice!.setup.kind !== 'session' || choice!.setup.id !== sessionId) await pick(taskId, { preset_id: offer.preset_id, mode: offer.mode, setup: { kind: 'session', id: sessionId } });
+		const context = await settings(taskId);
+		const open = get(state).tweaks[taskId];
+		if (!context || !open) return false;
+		setTweak(taskId, loadedTweak(open, values as Record<string, unknown>));
+		patch({ reloads: get(state).reloads + 1 });
+		return true;
+	}
+
+	async function listVersions(sessionId: string): Promise<SessionVersionSummary[]> {
+		return deps.ports.versions ? await deps.ports.versions(sessionId) : [];
+	}
+
+	function reloadSnapshot(taskId: string): void {
+		discardTweaks(taskId);
+		patch({ reloads: get(state).reloads + 1 });
 	}
 
 	function nextStepId(): string {
@@ -535,7 +649,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			steps,
 			region: task?.region === 'none' ? null : input.region,
 			prompt: task?.prompt === 'none' ? null : input.prompt.trim() || null,
-			setup: { preset_id: input.setup.preset_id, mode: input.setup.mode, variant: input.setup.variant, form_data: input.setup.form_data },
+			setup: { preset_id: input.setup.preset_id, mode: input.setup.mode, form_data: input.setup.form_data },
 			candidates: input.candidates,
 			seed: input.seed
 		};
@@ -552,7 +666,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		const task = taskOf(taskId);
 		const choice = current.choice[taskId];
 		if (!task || !choice) {
-			patch({ picker: { open: true, why: 'change', notice: null } });
+			askForPicker('change');
 			return false;
 		}
 		const prompt = current.prompts[taskId] ?? '';
@@ -580,7 +694,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			const run = submitted.run;
 			if (redo) {
 				const next = withFreshRun(
-					{ ...redo.step.params, prompt: task.prompt === 'none' ? '' : prompt.trim(), setup: resolved, area: { region, size: region ? deps.areaSize() : null }, candidates, rect: run.rect ?? redo.step.params.rect },
+					{ ...redo.step.params, v: GENERATE_VERSION, prompt: task.prompt === 'none' ? '' : prompt.trim(), setup: resolved, area: { region, size: region ? deps.areaSize() : null }, candidates, rect: run.rect ?? redo.step.params.rect },
 					{ id: run.id, status: run.status },
 					submitted.basis
 				);
@@ -592,7 +706,7 @@ export function createGenerateController(deps: ControllerDeps) {
 				return true;
 			}
 			const params: GenerateParams = {
-				v: 1,
+				v: GENERATE_VERSION,
 				task: taskId,
 				prompt: task.prompt === 'none' ? '' : prompt.trim(),
 				setup: resolved,
@@ -639,13 +753,13 @@ export function createGenerateController(deps: ControllerDeps) {
 	function setupChoiceOf(params: GenerateParams): SetupChoice {
 		const source = params.setup.source;
 		const setup = source.kind !== 'defaults' && source.id ? { kind: source.kind, id: source.id } : { kind: 'defaults' as const };
-		return { preset_id: params.setup.preset_id, mode: params.setup.mode, variant: params.setup.variant, setup };
+		return { preset_id: params.setup.preset_id, mode: params.setup.mode, setup };
 	}
 
 	function askForArea(entry: { step: EditStep; params: GenerateParams }): RedoOutcome {
-		const { params } = entry;
+		const task = taskOf(entry.params.task);
+		const params = (task ? migrateParams(entry.params, task.offers) : null) ?? entry.params;
 		const choice = setupChoiceOf(params);
-		const task = taskOf(params.task);
 		const known = task ? offerOf(task.offers, choice) : null;
 		state.update((current) => ({
 			...current,
@@ -661,15 +775,21 @@ export function createGenerateController(deps: ControllerDeps) {
 	async function rerun(stepId: string, keepSeed: boolean): Promise<RedoOutcome> {
 		const found = generateSteps(deps.getStack()).find((entry) => entry.step.id === stepId);
 		if (!found || get(state).starting) return { kind: 'failed' };
-		const { params, step } = found;
-		const change = shapeChange(params, stepsBeneathOf(appliedSteps(deps.getStack()), stepId));
-		if (change === 'other' && params.area.region) return askForArea(found);
-		const task = taskOf(params.task);
-		patch({ starting: true, error: null });
-		try {
-			const form = { ...params.setup.form_data };
-			if (!keepSeed) {
-				const schema = await deps.ports.schema(params.setup.preset_id, params.setup.mode, params.setup.variant).catch(() => null);
+		const { step } = found;
+			await loadTasks();
+			const task = taskOf(found.params.task);
+			const params = migrateParams(found.params, task?.offers ?? []);
+			if (!params) {
+				fail(editorTaskFailureMessage({ kind: 'task_not_offered' }));
+				return { kind: 'failed' };
+			}
+			const change = shapeChange(params, stepsBeneathOf(appliedSteps(deps.getStack()), stepId));
+			if (change === 'other' && params.area.region) return askForArea({ step, params });
+			patch({ starting: true, error: null });
+			try {
+				const form = { ...params.setup.form_data };
+				if (!keepSeed) {
+					const schema = await deps.ports.schema(params.setup.preset_id, params.setup.mode).catch(() => null);
 				const field = seedFieldOf(schema);
 				if (field) form[field] = -1;
 			}
@@ -760,9 +880,18 @@ export function createGenerateController(deps: ControllerDeps) {
 		saveAsNew,
 		setPrompt,
 		setResults,
-		openPicker,
-		closePicker,
+		askForPicker,
+		pickerHandled,
 		pick,
+		choiceForPreset,
+		choiceForMode,
+		isDefault,
+		setAsDefault,
+		removeSession,
+		pinSession,
+		loadVersion,
+		reloadSnapshot,
+		listVersions,
 		clearDefault,
 		generate,
 		retry: async (stepId: string) => (await rerun(stepId, true)).kind !== 'failed',

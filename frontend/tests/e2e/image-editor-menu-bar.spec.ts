@@ -30,8 +30,8 @@ const FORM_SCHEMA = {
 
 const OWNED = ['quantity', 'source_image', 'source_image_inpaint_mask'];
 
-const qwen = (over: Json = {}): Json => ({ preset_id: 'qwen21', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: OWNED, ...over });
-const flux = (over: Json = {}): Json => ({ preset_id: 'flux-fill', preset_name: 'Flux Fill', mode: 'inpaint', mode_label: 'Inpaint', label: null, variant: null, region_strategy: 'crop', via: null, qualifies: true, reason: null, owned: OWNED, ...over });
+const qwen = (over: Json = {}): Json => ({ preset_id: 'qwen21', preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: OWNED, ...over });
+const flux = (over: Json = {}): Json => ({ preset_id: 'flux-fill', preset_name: 'Flux Fill', mode: 'editor:fill', from_mode: 'inpaint', mode_label: 'Inpaint', label: null, short_description: null, order: 0, variant: null, region_strategy: 'crop', via: null, qualifies: true, reason: null, owned: OWNED, ...over });
 
 function taskEntry(id: string, label: string, over: Json = {}): Json {
 	const remove = id === 'remove_object';
@@ -156,7 +156,7 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean 
 		await ok(route, { run: runBody(server, ((server.runStatus.status ?? server.live.status) as string) ?? 'queued', { ...server.live, ...server.runStatus }) });
 	});
 	await page.route(/\/api\/sessions\/preset\/[^/?]+(\?.*)?$/, (route) =>
-		ok(route, options.sessions ? [{ id: 'sess-1', preset_id: 'qwen21', name: 'Soft portrait', data: { edit: { formData: { steps: 20 } } }, created_at: new Date(Date.now() - 9 * 86400000).toISOString(), updated_at: new Date(Date.now() - 2 * 86400000).toISOString(), pinned: false, version: 3, kind: 'editor' }] : [])
+		ok(route, options.sessions ? [{ id: 'sess-1', preset_id: 'qwen21', name: 'Soft portrait', data: { 'editor:edit': { formData: { steps: 20 } } }, created_at: new Date(Date.now() - 9 * 86400000).toISOString(), updated_at: new Date(Date.now() - 2 * 86400000).toISOString(), pinned: false, version: 3, kind: 'editor' }] : [])
 	);
 	const sessionBody = (body: Json, id: string, version: number): Json => ({ id, preset_id: 'qwen21', name: body.name, data: body.data, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), pinned: false, version, kind: 'editor' });
 	await page.route(/\/api\/sessions\/save$/, async (route) => {
@@ -197,7 +197,7 @@ const update = (server: Server, status: string, extra: Json = {}, n = server.run
 	push(server, { type: 'editor_run_update', generation_id: runGeneration(n), run: runBody(server, status, extra, n) });
 };
 
-const sessionDefault: Json = { preset_id: 'qwen21', mode: 'edit', variant: null, setup: { kind: 'session', id: 'sess-1' }, health: { ok: true, reason: null, name: null, mode_label: null } };
+const sessionDefault: Json = { preset_id: 'qwen21', mode: 'editor:edit', setup: { kind: 'session', id: 'sess-1' }, health: { ok: true, reason: null, name: null, mode_label: null } };
 
 const rail = (page: Page, tool: string) => page.locator(`[data-tool-rail] button[data-tool="${tool}"]`);
 const options = (page: Page) => page.locator('[data-options-panel]');
@@ -252,7 +252,6 @@ async function markArea(page: Page) {
 		}
 	}
 	await expect(page.locator('[data-mask-area]')).toBeVisible();
-	await expect(prompt(page).locator('[data-prompt-status="area"]')).toBeVisible();
 }
 
 async function shape(page: Page, aspect: string) {
@@ -267,7 +266,7 @@ async function type(page: Page, text: string) {
 }
 
 async function generate(page: Page) {
-	await prompt(page).locator('[data-prompt-generate]').click();
+	await prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button').click();
 }
 
 async function prepare(page: Page, taskTool = true): Promise<Server> {
@@ -277,7 +276,7 @@ async function prepare(page: Page, taskTool = true): Promise<Server> {
 	await expect(page.locator('[data-edit-stack] [data-stack-row]')).toHaveCount(2);
 	if (taskTool) {
 		await selectRailTool(page, 'edit_region');
-		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Model defaults');
+		await expect(prompt(page).locator('[data-testid="session-trigger"]')).toHaveText(/No saved session/);
 	}
 	return server;
 }
@@ -520,12 +519,10 @@ test.describe('the editor menu bar on desktop', () => {
 		await expect.poll(() => server.runs.length).toBe(1);
 		update(server, 'running', { progress: 0.4 });
 		push(server, { type: 'workbench_update', generation_id: runGeneration(server.runCount), pipe_id: 1, output_type: 'image', temporary: true, image: PREVIEW });
-		await expect(page.locator('[data-run-chip="running"]')).toContainText('Generating · 40%');
+		await expect(page.locator('[data-floating-prompt] [role="progressbar"]')).toHaveAttribute('aria-valuenow', '40');
 		await expect(statusLine(page)).toContainText('Marked');
 		await expectNoBoxOverlap([
 			{ name: 'status', locator: statusLine(page) },
-			{ name: 'run chip', locator: page.locator('[data-run-chip]') },
-			{ name: 'prompt', locator: prompt(page) },
 			{ name: 'zoom', locator: page.locator('[data-canvas-zoom]') },
 			{ name: 'hint', locator: page.locator('[data-canvas-hint]') }
 		]);
@@ -539,7 +536,6 @@ test.describe('the editor menu bar on desktop', () => {
 		await expectNoBoxOverlap([
 			{ name: 'status', locator: statusLine(page) },
 			{ name: 'strip', locator: page.locator('[data-candidate-strip]') },
-			{ name: 'prompt', locator: prompt(page) },
 			{ name: 'zoom', locator: page.locator('[data-canvas-zoom]') },
 			{ name: 'hint', locator: page.locator('[data-canvas-hint]') }
 		]);

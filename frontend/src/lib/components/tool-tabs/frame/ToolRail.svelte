@@ -319,7 +319,7 @@
 		? 'strip flex h-16 flex-none gap-0.5 overflow-x-auto border-t border-line bg-surface-1 px-1.5 py-1'
 		: icons
 			? joined
-				? 'rail flex min-h-0 flex-none flex-col items-center gap-0.5 overflow-hidden bg-surface-1/50 py-2 pl-1.5 pr-0'
+				? 'rail flex min-h-0 flex-none flex-col items-center gap-0.5 overflow-hidden border-r-2 border-line bg-surface-1/50 px-[3px] py-2'
 				: 'rail flex min-h-0 flex-none flex-col items-center gap-0.5 overflow-hidden border-r border-line bg-surface-1 px-1.5 py-2'
 			: 'rail flex w-[76px] flex-none flex-col gap-0.5 overflow-y-auto border-r border-line bg-surface-1 px-1.5 py-2'}
 	style={icons ? `width: ${RAIL_ICON_WIDTH}px` : undefined}
@@ -351,11 +351,11 @@
 			<button
 				type="button"
 				class="tool relative flex items-center rounded text-center text-sm leading-[14px] {icons
-					? `h-10 flex-none justify-center ${joined ? 'w-[46px]' : 'w-10'}`
+					? `h-10 flex-none justify-center ${joined ? 'w-11' : 'w-10'}`
 					: 'min-w-16 flex-none flex-col justify-center gap-[3px] px-1.5 pb-1.5 pt-[7px]'} {shown.ai
 					? `ai-ring ${inside ? 'ai-ring--on text-fg' : 'text-fg-muted hover:text-fg'}`
 					: inside
-						? `is-on text-signal ${joined ? 'rounded-r-none bg-surface-1' : 'bg-signal/10'}`
+						? `is-on text-signal ${joined ? 'bg-surface-1' : 'bg-signal/10'}`
 						: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
 				aria-haspopup={strip ? 'dialog' : 'menu'}
 				aria-expanded={strip ? sheetGroup === group.id : flyGroup === group.id}
@@ -388,11 +388,11 @@
 				<button
 					type="button"
 					class="tool relative flex items-center rounded text-center text-sm leading-[14px] {icons
-						? `h-10 flex-none justify-center ${joined ? 'w-[46px]' : 'w-10'}`
+						? `h-10 flex-none justify-center ${joined ? 'w-11' : 'w-10'}`
 						: `flex-col gap-[3px] px-0.5 pb-1.5 pt-[7px] ${strip ? 'min-w-16 flex-none justify-center px-1.5' : ''}`} {tool.ai && !off
 						? `ai-ring ${on ? 'ai-ring--on text-fg' : 'text-fg-muted hover:text-fg'}`
 						: on
-						? `is-on text-signal ${joined ? 'rounded-r-none bg-surface-1' : 'bg-signal/10'}`
+						? `is-on text-signal ${joined ? 'bg-surface-1' : 'bg-signal/10'}`
 						: off
 							? 'cursor-not-allowed text-fg-disabled'
 							: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
@@ -506,6 +506,10 @@
 		bottom: 8px;
 		width: 2px;
 		background: rgb(var(--signal));
+	}
+
+	.rail[data-rail-joined] .is-on::before {
+		left: -3px;
 	}
 
 	.corner {

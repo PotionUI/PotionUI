@@ -1,3 +1,7 @@
+<script module lang="ts">
+	export const PRESET_PLACEHOLDER = 'Choose a preset';
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher, type Snippet } from 'svelte';
 	import type { PresetInfo } from '$lib/types/api';
@@ -14,6 +18,8 @@
 	export let isReloading = false;
 	export let disabled = false;
 	export let readiness: ReadinessReport | null = null;
+	export let disabledReasons: Record<string, string> = {};
+	export let recordRecent = true;
 	export let trigger:
 		| Snippet<
 				[
@@ -50,6 +56,12 @@
 	function closePicker() {
 		open = false;
 	}
+
+	export function openAt(element: HTMLElement | undefined) {
+		if (disabled || loading || open) return;
+		anchor = element ?? fallbackAnchor;
+		open = true;
+	}
 </script>
 
 {#if trigger}
@@ -78,7 +90,7 @@
 				zoom={false}
 			/>
 		{/if}
-		<span class="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{currentPreset?.name || 'Choose a preset'}</span>
+		<span class="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{currentPreset?.name || PRESET_PLACEHOLDER}</span>
 		<Icon name="chevron-down" className="w-4 h-4 text-fg-subtle flex-shrink-0 transition-transform {open ? 'rotate-180' : ''}" />
 	</button>
 {/if}
@@ -91,6 +103,8 @@
 		{isReloading}
 		{anchor}
 		fullscreen={$isMobile}
+		{disabledReasons}
+		{recordRecent}
 		onSelect={(presetId) => dispatch('select', presetId)}
 		onReload={() => dispatch('reload')}
 		onClose={closePicker}

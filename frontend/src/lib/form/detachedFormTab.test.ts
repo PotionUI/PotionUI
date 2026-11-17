@@ -9,8 +9,8 @@ import { detachedFormTab, localSectionCollapsed } from './detachedFormTab';
 describe('detachedFormTab', () => {
 	it('is a generation tab for one preset mode that never enters the tabs store', () => {
 		const before = get(tabsStore).tabs.length;
-		const tab = detachedFormTab({ id: 'editor-settings:x', presetId: 'qwen', mode: 'edit', variant: null, formData: { steps: 20 } });
-		expect(tab).toMatchObject({ kind: 'generation', id: 'editor-settings:x', selectedPreset: 'qwen', selectedMode: 'edit', formData: { steps: 20 } });
+		const tab = detachedFormTab({ id: 'editor-settings:x', presetId: 'qwen', mode: 'editor:edit', formData: { steps: 20 } });
+		expect(tab).toMatchObject({ kind: 'generation', id: 'editor-settings:x', selectedPreset: 'qwen', selectedMode: 'editor:edit', formData: { steps: 20 } });
 		expect(get(tabsStore).tabs).toHaveLength(before);
 	});
 });

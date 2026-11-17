@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { get } from 'svelte/store';
 import { mountComponent } from '../helpers/mount';
 import { settle } from '../helpers/settle';
 import type { EditorTaskInfo, TaskOffer } from '$lib/services/api/editorTasks';
@@ -14,7 +13,6 @@ const { clearSchemaCache } = await import('$lib/form/schemaCache');
 const { registerBuiltinFieldComponents } = await import('$lib/fields/builtin');
 const { markEditorExtensionsReady } = await import('$lib/editors');
 const { syncServerTasks } = await import('$lib/tool-tabs/image/generate/register');
-const { activeConfirm, settleConfirm } = await import('$lib/stores/confirm');
 const { ensureCoreImageEditor } = await import('$lib/tool-tabs/image/coreEditor');
 
 registerBuiltinFieldComponents();
@@ -23,15 +21,16 @@ Element.prototype.scrollIntoView = () => {};
 const offer = (over: Partial<TaskOffer> = {}): TaskOffer => ({
 	preset_id: 'qwen',
 	preset_name: 'Qwen-Image 2.1',
-	mode: 'edit',
+	mode: 'editor:edit',
+	from_mode: 'edit',
 	mode_label: 'Edit',
 	label: null,
-	variant: null,
+	short_description: null,
+	order: 0,
 	region_strategy: 'mask',
 	via: null,
 	qualifies: true,
 	reason: null,
-	owned: ['source_image', 'source_image_inpaint_mask', 'quantity'],
 	...over
 });
 
@@ -45,8 +44,8 @@ function edit(over: Partial<EditorTaskInfo> = {}): EditorTaskInfo {
 		region: 'optional',
 		prompt: 'required',
 		fallback: null,
-		offers: [offer(), offer({ mode: 'other', mode_label: 'Other' })],
-		default: { preset_id: 'qwen', mode: 'edit', variant: null, setup: sessionSetup, health: { ok: true, reason: null, name: null, mode_label: null } },
+		offers: [offer(), offer({ mode: 'editor:other', mode_label: 'Other', order: 1 })],
+		default: { preset_id: 'qwen', mode: 'editor:edit', setup: sessionSetup, health: { ok: true, reason: null, name: null, mode_label: null } },
 		...over
 	};
 }
@@ -62,11 +61,29 @@ const SCHEMA = {
 					label: 'Generation',
 					children: [
 						{ name: 'strength', type: 'number', title: 'Strength', default: 0.85 },
+						{ name: 'style_notes', type: 'string', title: 'Style notes', default: '' }
+					]
+				}
+			]
+		}
+	}
+};
+
+const SCHEMA_WITH_QUANTITY = {
+	properties: {
+		custom: {
+			type: 'tabs',
+			children: [
+				{
+					type: 'tab',
+					name: 'generation',
+					label: 'Generation',
+					children: [
+						{ name: 'strength', type: 'number', title: 'Strength', default: 0.85 },
 						{ type: 'section', title: 'Image', children: [{ type: 'row', children: [{ name: 'quantity', type: 'integer', title: 'Quantity', default: 1 }] }] },
 						{ name: 'style_notes', type: 'string', title: 'Style notes', default: '' }
 					]
-				},
-				{ type: 'tab', name: 'references', label: 'References', children: [{ name: 'source_image', type: 'image', title: 'Reference picture' }] }
+				}
 			]
 		}
 	}
@@ -102,10 +119,10 @@ function build(task: EditorTaskInfo, sessions: unknown[]) {
 	return { controller: createGenerateController(deps), ports };
 }
 
-const SESSIONS = [{ id: 's1', name: 'Soft portrait', updated_at: null, version: 3, data: { edit: { formData: { strength: 0.5 } } } }];
+const SESSIONS = [{ id: 's1', name: 'Soft portrait', updated_at: null, version: 3, data: { 'editor:edit': { formData: { strength: 0.5 } } } }];
 
-async function open(phone = false, task: EditorTaskInfo = edit(), sessions: unknown[] = SESSIONS) {
-	vi.spyOn(api, 'getPresetFormSchema').mockResolvedValue({ success: true, data: { preset_id: 'qwen', form_schema: SCHEMA } } as never);
+async function open(phone = false, task: EditorTaskInfo = edit(), sessions: unknown[] = SESSIONS, served: unknown = SCHEMA) {
+	vi.spyOn(api, 'getPresetFormSchema').mockResolvedValue({ success: true, data: { preset_id: 'qwen', form_schema: served } } as never);
 	const built = build(task, sessions);
 	const view = mountComponent(SettingsHost, { controller: built.controller, phone });
 	await settle();
@@ -152,14 +169,20 @@ describe('Settings in the right panel', () => {
 		view.destroy();
 	});
 
-	it('shows the mode form without the fields the editor fills itself', async () => {
+	it('shows the form the server serves for the editor key, as it is', async () => {
 		const { view, q, toggle } = await open();
 		await toggle();
 		const body = q('[data-settings-body]')!;
 		expect(body.textContent).toContain('Strength');
 		expect(body.textContent).toContain('Style notes');
-		expect(body.textContent).not.toContain('Quantity');
-		expect(body.textContent).not.toContain('Reference picture');
+		expect(api.getPresetFormSchema).toHaveBeenCalledWith('qwen', 'editor:edit');
+		view.destroy();
+	});
+
+	it('hides nothing in the browser: a field the served form lists is shown', async () => {
+		const { view, q, toggle } = await open(false, edit(), SESSIONS, SCHEMA_WITH_QUANTITY);
+		await toggle();
+		expect(q('[data-settings-body]')!.textContent).toContain('Quantity');
 		view.destroy();
 	});
 
@@ -198,130 +221,116 @@ describe('Settings in the right panel', () => {
 	});
 });
 
-describe('Changed and the pinned save buttons', () => {
+describe('Changed and saving through the session control', () => {
 	async function edited(task?: EditorTaskInfo, sessions?: unknown[]) {
 		const opened = await open(false, task, sessions);
 		await opened.toggle();
-		const field = opened.view.target.querySelector<HTMLInputElement>('[data-settings-body] input[type="text"], [data-settings-body] input:not([type])');
-		return { ...opened, field };
+		const notes = () => Array.from(opened.view.target.querySelectorAll<HTMLInputElement>('[data-settings-body] input')).find((input) => input.closest('label, div')?.textContent?.includes('Style notes'))!;
+		return { ...opened, notes };
 	}
 
-	it('marks Changed in the header and on the chip once a value differs, and unmarks it when it goes back', async () => {
-		const { view, q, text } = await edited();
+	it('marks Changed in the header and next to the Settings button once a value differs, and unmarks it when it goes back', async () => {
+		const { view, q, text, notes } = await edited();
 		expect(q('[data-settings-changed]')).toBeNull();
-		const notes = Array.from(view.target.querySelectorAll<HTMLInputElement>('[data-settings-body] input')).find((input) => input.closest('label, div')?.textContent?.includes('Style notes'))!;
-		typeInto(notes, 'oil paint');
+		typeInto(notes(), 'oil paint');
 		await settle(14);
 		expect(text('[data-settings-changed]')).toBe('Changed');
-		expect(text('[data-setup-chip]')).toContain('Changed');
-		typeInto(notes, '');
+		expect(text('[data-floating-prompt] [data-setup-changed]')).toBe('Changed');
+		typeInto(notes(), '');
 		await settle(14);
 		expect(q('[data-settings-changed]')).toBeNull();
-		expect(text('[data-setup-chip]')).not.toContain('Changed');
+		expect(q('[data-setup-changed]')).toBeNull();
 		view.destroy();
 	});
 
-	it('offers Save to the setup only for a changed setup of the member, next to Save as new setup', async () => {
-		const { view, q, text } = await edited();
-		expect(q('[data-settings-save-to]')).toBeNull();
-		expect(q('[data-settings-save-new]')).not.toBeNull();
-		const notes = Array.from(view.target.querySelectorAll<HTMLInputElement>('[data-settings-body] input')).find((input) => input.closest('label, div')?.textContent?.includes('Style notes'))!;
-		typeInto(notes, 'oil paint');
+	it('keeps no save buttons of its own: saving lives in the session control only', async () => {
+		const { view, q, notes } = await edited();
+		typeInto(notes(), 'oil paint');
 		await settle(14);
-		expect(text('[data-settings-save-to]')).toBe('Save to “Soft portrait”');
-		view.destroy();
-	});
-
-	it('offers only Save as new setup for the model defaults', async () => {
-		const defaults = edit({ default: { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'defaults' }, health: { ok: true, reason: null, name: null, mode_label: null } } });
-		const { view, q, text } = await edited(defaults, []);
-		expect(text('[data-settings-setup]')).toBe('Qwen-Image 2.1 · Edit · Model defaults');
-		const notes = Array.from(view.target.querySelectorAll<HTMLInputElement>('[data-settings-body] input')).find((input) => input.closest('label, div')?.textContent?.includes('Style notes'))!;
-		typeInto(notes, 'oil paint');
-		await settle(14);
-		expect(q('[data-settings-changed]')).not.toBeNull();
 		expect(q('[data-settings-save-to]')).toBeNull();
-		expect(q('[data-settings-save-new]')).not.toBeNull();
+		expect(q('[data-settings-save-new]')).toBeNull();
+		expect(q('[data-settings-footer]')).toBeNull();
+		expect(view.target.querySelectorAll('[data-testid="session-save"]')).toHaveLength(1);
 		view.destroy();
 	});
 
-	it('saves to the setup, then clears Changed', async () => {
-		const { view, q, ports } = await edited();
+	it('saves to the session from the control with the edited values, then clears Changed', async () => {
+		const { view, q, ports, notes } = await edited();
 		const update = ports.updateSession;
-		const notes = Array.from(view.target.querySelectorAll<HTMLInputElement>('[data-settings-body] input')).find((input) => input.closest('label, div')?.textContent?.includes('Style notes'))!;
-		typeInto(notes, 'oil paint');
+		typeInto(notes(), 'oil paint');
 		await settle(14);
-		q<HTMLButtonElement>('[data-settings-save-to]')!.click();
+		q<HTMLButtonElement>('[data-testid="session-save"]')!.click();
 		await settle(14);
 		expect(update).toHaveBeenCalledTimes(1);
-		const [id, body] = update.mock.calls[0] as unknown as [string, { base_version: number; kind: string; data: Record<string, { formData: Record<string, unknown> }> }];
+		const [id, body] = update.mock.calls[0] as unknown as [string, { base_version: number; kind: string; mode: string; data: Record<string, { formData: Record<string, unknown> }> }];
 		expect(id).toBe('s1');
 		expect(body.base_version).toBe(3);
 		expect(body.kind).toBe('editor');
-		expect(body.data.edit.formData).toMatchObject({ style_notes: 'oil paint', strength: 0.5 });
-		expect(body.data.edit.formData).not.toHaveProperty('source_image');
-		expect(body.data.edit.formData).not.toHaveProperty('quantity');
+		expect(body.mode).toBe('editor:edit');
+		expect(body.data['editor:edit'].formData).toMatchObject({ style_notes: 'oil paint', strength: 0.5 });
 		expect(q('[data-settings-changed]')).toBeNull();
-		expect(q('[data-settings-save-to]')).toBeNull();
 		view.destroy();
 	});
 
-	it('asks for a name, saves a new setup and uses it, and words a clash with a Generate page session', async () => {
-		const { view, q, text, ports } = await edited();
+	it('asks for a name when the model defaults are saved, words a clash with a Generate page session, then uses the new setup', async () => {
+		const defaults = edit({ default: { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'defaults' }, health: { ok: true, reason: null, name: null, mode_label: null } } });
+		const { view, q, text, ports, notes } = await edited(defaults, []);
+		expect(text('[data-settings-setup]')).toBe('Qwen-Image 2.1 · Edit · Model defaults');
+		typeInto(notes(), 'oil paint');
+		await settle(14);
 		const save = ports.saveSession;
 		save.mockRejectedValueOnce({ response: { status: 409, data: { detail: { error: 'session_kind_mismatch' } } } });
-		q<HTMLButtonElement>('[data-settings-save-new]')!.click();
+		q<HTMLButtonElement>('[data-testid="session-save"]')!.click();
 		await settle(14);
-		const dialog = document.body.querySelector('[data-save-setup-dialog]')!;
-		expect(dialog).not.toBeNull();
-		const name = dialog.querySelector<HTMLInputElement>('[data-save-setup-name]')!;
+		const name = document.body.querySelector<HTMLInputElement>('#session-save-name')!;
+		expect(name).not.toBeNull();
+		const confirm = () => Array.from(name.closest('[role="dialog"]')!.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.trim().startsWith('Save'))!;
 		typeInto(name, 'Held by Generate');
 		await settle();
-		const confirm = () => Array.from(dialog.closest('[role="dialog"]')!.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.trim().startsWith('Save'))!;
 		confirm().click();
 		await settle(14);
-		expect(document.body.querySelector('[data-save-setup-error]')?.textContent).toBe('That name is already used by one of your sessions on the Generate page. Choose another name.');
+		expect(name.closest('[role="dialog"]')!.textContent).toContain('That name is already used by one of your sessions on the Generate page. Choose another name.');
 		typeInto(name, 'Crisp');
 		await settle();
 		confirm().click();
 		await settle(14);
 		expect(save).toHaveBeenCalledTimes(2);
-		expect((save.mock.calls[1] as unknown[])[0]).toMatchObject({ preset_id: 'qwen', name: 'Crisp', mode: 'edit', kind: 'editor' });
-		expect(document.body.querySelector('[data-save-setup-dialog]')).toBeNull();
+		expect((save.mock.calls[1] as unknown[])[0]).toMatchObject({ preset_id: 'qwen', name: 'Crisp', mode: 'editor:edit', kind: 'editor', data: { 'editor:edit': { formData: expect.objectContaining({ style_notes: 'oil paint' }) } } });
+		expect(document.body.querySelector('#session-save-name')).toBeNull();
 		expect(text('[data-settings-setup]')).toBe('Qwen-Image 2.1 · Edit · Crisp');
+		view.destroy();
+	});
+
+	it('reloads the form from the last snapshot when the member discards the changes in the control', async () => {
+		const { view, q, text, notes } = await edited();
+		typeInto(notes(), 'oil paint');
+		await settle(14);
+		expect(text('[data-settings-changed]')).toBe('Changed');
+		q<HTMLButtonElement>('[data-testid="session-reload"]')!.click();
+		await settle(14);
+		const confirm = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find((button) => /^Reload\b/.test(button.textContent?.trim() ?? ''))!;
+		confirm.click();
+		await settle(30);
+		expect(q('[data-settings-changed]')).toBeNull();
+		expect(notes().value).toBe('');
 		view.destroy();
 	});
 });
 
 describe('switching setup with unsaved changes', () => {
-	it('asks first, keeps the setup on Keep editing and switches on Discard', async () => {
-		const { view, q, text, toggle } = await open();
+	it('asks before another session replaces them, and keeps them on Keep editing', async () => {
+		const { view, q, text, toggle, controller } = await open(false, edit(), [...SESSIONS, { id: 's2', name: 'Crisp', updated_at: null, version: 1, data: { 'editor:edit': { formData: { strength: 0.9 } } } }]);
 		await toggle();
 		const notes = Array.from(view.target.querySelectorAll<HTMLInputElement>('[data-settings-body] input')).find((input) => input.closest('label, div')?.textContent?.includes('Style notes'))!;
 		typeInto(notes, 'oil paint');
 		await settle(14);
-		q<HTMLButtonElement>('[data-setup-chip]')!.click();
+		q<HTMLButtonElement>('[data-testid="session-trigger"]')!.click();
 		await settle(14);
-		const options = Array.from(view.target.querySelectorAll<HTMLButtonElement>('[data-picker-option]'));
-		const defaults = options.find((option) => option.textContent?.includes('Model defaults'))!;
-		defaults.click();
-		await settle();
-		q<HTMLButtonElement>('[data-picker-use]')!.click();
-		await settle();
-		const request = get(activeConfirm)!;
-		expect(request.title).toBe('Discard your changes?');
-		expect(request.message).toBe('Your changes to “Soft portrait” are used only for this edit unless you save them.');
-		expect(request.cancelLabel).toBe('Keep editing');
-		expect(request.confirmLabel).toBe('Discard');
-		settleConfirm(request.id, false);
-		await settle();
-		expect(text('[data-setup-chip]')).toContain('Soft portrait');
-		q<HTMLButtonElement>('[data-picker-use]')!.click();
-		await settle();
-		settleConfirm(get(activeConfirm)!.id, true);
+		document.body.querySelector<HTMLButtonElement>('[data-session-row="s2"]')!.click();
 		await settle(14);
-		expect(text('[data-setup-chip]')).toContain('Model defaults');
-		expect(text('[data-setup-chip]')).not.toContain('Changed');
+		expect(document.body.textContent).toContain('has changes that are not saved');
+		expect(text('[data-testid="session-trigger"]')).toBe('Soft portrait');
+		expect(controller.changedFor('edit_region')).toBe(true);
 		view.destroy();
 	});
 });

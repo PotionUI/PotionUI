@@ -29,14 +29,12 @@
 		onFormDataChange,
 		formRef = $bindable(undefined),
 		videoDirectorActive = false,
-		hiddenFields = undefined,
 		sectionCollapsedContext = undefined
 	}: {
 		tab: GenerationTab;
 		onFormDataChange: (data: Record<string, unknown>) => void;
 		formRef?: DynamicForm | undefined;
 		videoDirectorActive?: boolean;
-		hiddenFields?: ReadonlySet<string>;
 		sectionCollapsedContext?: SectionCollapsedContext;
 	} = $props();
 
@@ -119,5 +117,4 @@
 	onFieldEdit={(name) => formValidationStore.clearField(tabId, name)}
 	onSchemaKeyChange={() => formValidationStore.clearAll(tabId)}
 	sectionCollapsedContext={tabSectionCollapsed}
-	{hiddenFields}
 />

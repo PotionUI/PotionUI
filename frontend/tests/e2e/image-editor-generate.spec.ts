@@ -18,20 +18,17 @@ const FORM_SCHEMA = {
 			type: 'group',
 			title: 'Generation',
 			children: [
-				{ name: 'source_image', type: 'image', title: 'Picture' },
 				{ name: 'strength', type: 'number', title: 'Strength', default: 0.85 },
 				{ name: 'steps', type: 'slider', title: 'Steps', default: 28 },
-				{ name: 'seed', type: 'seed', title: 'Seed', default: -1 },
-				{ name: 'quantity', type: 'integer', title: 'Quantity', default: 1 }
+				{ name: 'seed', type: 'seed', title: 'Seed', default: -1 }
 			]
 		}
 	}
 };
 
-const OWNED = ['quantity', 'source_image', 'source_image_inpaint_mask'];
-
-const qwen = (over: Json = {}): Json => ({ preset_id: 'qwen21', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: OWNED, ...over });
-const flux = (over: Json = {}): Json => ({ preset_id: 'flux-fill', preset_name: 'Flux Fill', mode: 'inpaint', mode_label: 'Inpaint', label: null, variant: null, region_strategy: 'crop', via: null, qualifies: true, reason: null, owned: OWNED, ...over });
+const qwen = (over: Json = {}): Json => ({ preset_id: 'qwen21', preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: ['quantity', 'source_image'], ...over });
+const flux = (over: Json = {}): Json => ({ preset_id: 'flux-fill', preset_name: 'Flux Fill', mode: 'editor:fill', from_mode: 'inpaint', mode_label: 'Inpaint', mode_icon: 'mode-restyle', label: null, short_description: null, order: 0, variant: null, region_strategy: 'crop', via: null, qualifies: true, reason: null, owned: ['quantity', 'source_image'], ...over });
+const fluxWide = (): Json => flux({ mode: 'editor:fill2', from_mode: 'inpaint', mode_label: 'Wide fill', mode_icon: 'mode-extend', short_description: 'Fills a wider area', order: 1 });
 
 function taskEntry(id: string, label: string, over: Json = {}): Json {
 	const remove = id === 'remove_object';
@@ -56,6 +53,8 @@ interface Server {
 	runGets: string[];
 	cancels: string[];
 	defaults: Json[];
+	defaultClears: number;
+	formModes: Array<string | null>;
 	startFails: { status: number; body: Json } | null;
 	saves: Json[];
 	sessionPuts: Json[];
@@ -93,8 +92,8 @@ async function ok(route: Route, data: unknown, status = 200) {
 	await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: true, data }) });
 }
 
-async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean } = {}): Promise<Server> {
-	const server: Server = { tasks, runs: [], runStatus: {}, live: {}, runGets: [], cancels: [], defaults: [], startFails: null, saves: [], sessionPuts: [], sessionPosts: [], sessionFails: null, mediaRuns: [], sockets: [], runCount: 0, holdSubscribe: false, held: [] };
+async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean; sessionName?: string } = {}): Promise<Server> {
+	const server: Server = { tasks, runs: [], runStatus: {}, live: {}, runGets: [], cancels: [], defaults: [], defaultClears: 0, formModes: [], startFails: null, saves: [], sessionPuts: [], sessionPosts: [], sessionFails: null, mediaRuns: [], sockets: [], runCount: 0, holdSubscribe: false, held: [] };
 	let revision = 1;
 	const source = solidPng(640, 480);
 	const small = solidPng(64, 64);
@@ -115,7 +114,10 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean 
 	await page.route(/\/api\/media\/serve(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: small }));
 	await page.route(/\/api\/media\/upload$/, (route) => ok(route, { path: 'uploads/mask.png', relative_path: 'uploads/mask.png', filename: 'mask.png', url: '/api/e2e-art/mask.png', width: 480, height: 480, size: 4096 }));
 	await page.route(/\/api\/media\/serve(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: small }));
-	await page.route('**/api/presets/*/form*', (route) => ok(route, { preset_id: 'mock', form_schema: FORM_SCHEMA }));
+	await page.route('**/api/presets/*/form*', (route) => {
+		server.formModes.push(new URL(route.request().url()).searchParams.get('mode'));
+		return ok(route, { preset_id: 'mock', form_schema: FORM_SCHEMA });
+	});
 	await page.route(/\/api\/edits(\/[^/?]+)?(\?.*)?$/, async (route) => {
 		const request = route.request();
 		const id = new URL(request.url()).pathname.split('/')[3] ?? null;
@@ -144,6 +146,7 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean 
 	});
 	await page.route(/\/api\/editor\/tasks\/[^/]+\/default$/, async (route) => {
 		if (route.request().method() === 'PUT') server.defaults.push(route.request().postDataJSON() as Json);
+		if (route.request().method() === 'DELETE') server.defaultClears += 1;
 		await ok(route, { task: server.tasks[0] });
 	});
 	await page.route(/\/api\/editor\/runs\/[^/]+$/, async (route) => {
@@ -155,9 +158,14 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean 
 		server.runGets.push(id);
 		await ok(route, { run: runBody(server, ((server.runStatus.status ?? server.live.status) as string) ?? 'queued', { ...server.live, ...server.runStatus }) });
 	});
-	await page.route(/\/api\/sessions\/preset\/[^/?]+(\?.*)?$/, (route) =>
-		ok(route, options.sessions ? [{ id: 'sess-1', preset_id: 'qwen21', name: 'Soft portrait', data: { edit: { formData: { steps: 20 } } }, created_at: new Date(Date.now() - 9 * 86400000).toISOString(), updated_at: new Date(Date.now() - 2 * 86400000).toISOString(), pinned: false, version: 3, kind: 'editor' }] : [])
-	);
+	await page.route(/\/api\/sessions\/preset\/[^/?]+(\?.*)?$/, (route) => {
+		const preset = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() ?? '');
+		const stamp = (days: number) => new Date(Date.now() - days * 86400000).toISOString();
+		const list: Json[] = [];
+		if (options.sessions && preset === 'qwen21') list.push({ id: 'sess-1', preset_id: 'qwen21', name: options.sessionName ?? 'Soft portrait', data: { 'editor:edit': { formData: { steps: 20 } } }, created_at: stamp(9), updated_at: stamp(2), pinned: false, version: 3, kind: 'editor' });
+		if (options.sessions && preset === 'flux-fill') list.push({ id: 'sess-flux', preset_id: 'flux-fill', name: 'Wide and soft', data: { 'editor:fill2': { formData: { steps: 11 } } }, created_at: stamp(5), updated_at: stamp(1), pinned: false, version: 1, kind: 'editor' });
+		return ok(route, list);
+	});
 	const sessionBody = (body: Json, id: string, version: number): Json => ({ id, preset_id: 'qwen21', name: body.name, data: body.data, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), pinned: false, version, kind: 'editor' });
 	await page.route(/\/api\/sessions\/save$/, async (route) => {
 		if (route.request().method() !== 'POST') return route.fallback();
@@ -197,19 +205,130 @@ const update = (server: Server, status: string, extra: Json = {}, n = server.run
 	push(server, { type: 'editor_run_update', generation_id: runGeneration(n), run: runBody(server, status, extra, n) });
 };
 
-const sessionDefault: Json = { preset_id: 'qwen21', mode: 'edit', variant: null, setup: { kind: 'session', id: 'sess-1' }, health: { ok: true, reason: null, name: null, mode_label: null } };
+const sessionDefault: Json = { preset_id: 'qwen21', mode: 'editor:edit', setup: { kind: 'session', id: 'sess-1' }, health: { ok: true, reason: null, name: null, mode_label: null } };
 
 const rail = (page: Page, tool: string) => page.locator(`[data-tool-rail] button[data-tool="${tool}"]`);
 async function openPhoneTask(page: Page, id: string) {
 	await page.locator('[data-tool-rail] [data-group-button="generate"]').click();
 	await page.locator(`[data-rail-sheet="generate"] [data-sheet-item="${id}"]`).click();
 }
+
+const LONG_SESSION = 'Product shots, soft light v3';
+const LONG_PRESET = 'MiniMax-H3-Image';
+
+async function geometry(page: Page) {
+	return page.evaluate(() => {
+		const box = (element: Element | null) => {
+			if (!element) return null;
+			const rect = element.getBoundingClientRect();
+			return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
+		};
+		const dock = document.querySelector('[data-frame-dock]')!;
+		const strip = dock.querySelector<HTMLElement>('[data-dock-row="strip"]')!;
+		const end = dock.querySelector('[data-editor-pickers-end]');
+		return {
+			viewport: { width: window.innerWidth, height: window.innerHeight },
+			scroll: { page: document.documentElement.scrollHeight, body: document.body.scrollHeight },
+			dock: box(dock),
+			strip: box(strip),
+			stripOverflow: getComputedStyle(strip).overflow,
+			stripScroll: { client: strip.clientWidth, scroll: strip.scrollWidth },
+			column: box(dock.querySelector('[data-dock-row="strip"]')!.parentElement),
+			end: box(end),
+			labels: Array.from(strip.querySelectorAll('.ctx-label')).map((label) => ({ text: label.textContent?.trim() ?? '', ...box(label)! })),
+			preset: box(strip.querySelector('[data-testid="preset-picker-trigger"]')),
+			mode: box(strip.querySelector('[data-testid="preset-header-mode"] button')),
+			session: box(strip.querySelector('[data-testid="session-trigger"]')),
+			save: box(strip.querySelector('[data-testid="session-save"]')),
+			results: box(strip.querySelector('[aria-label="Results"]')),
+			resultsWrap: box(strip.querySelector('[data-testid="dock-results"]')),
+			def: box(strip.querySelector('[data-picker-default]')),
+			settings: box(strip.querySelector('[data-prompt-settings]')),
+			cuts: Array.from(strip.querySelectorAll('[data-testid="context-separator"]')).map((cut) => box(cut)!),
+			field: box(dock.querySelector('.ai-ring')),
+			fieldInner: box(dock.querySelector('[data-prompt-field]')),
+			mark: box(dock.querySelector('[data-dock-mark] button')),
+			markCell: box(dock.querySelector('[data-dock-mark]')),
+			presetText: strip.querySelector('[data-preset-value]')?.textContent ?? ''
+		};
+	});
+}
+
+async function ringAudit(page: Page) {
+	return page.evaluate(() => {
+		const css = (name: string) => `rgb(${getComputedStyle(document.documentElement).getPropertyValue(name).trim().split(/\s+/).join(', ')})`;
+		const warm = css('--warning');
+		const aiColours = [css('--ai-1'), css('--ai-2'), css('--ai-3')];
+		const found: string[] = [];
+		const dock = document.querySelector('[data-frame-dock]')!;
+		const roots = [dock, ...Array.from(document.querySelectorAll('[data-editor-frame], [data-frame-column]'))];
+		const seen = new Set<Element>();
+		for (const root of roots) {
+			for (const element of [root, ...Array.from(root.querySelectorAll('*'))]) {
+				if (seen.has(element)) continue;
+				seen.add(element);
+				const style = getComputedStyle(element);
+				const inDock = dock.contains(element);
+				const label = `${element.tagName.toLowerCase()}.${String(element.getAttribute('class') ?? '').split(/\s+/).slice(0, 4).join('.')}`;
+				const ring = element.classList.contains('ai-ring') || element.classList.contains('ai-ring--on');
+				if (ring && inDock && !element.querySelector('[data-prompt-field]')) found.push(`ring on ${label}`);
+				const outline = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0 && style.outlineColor !== 'rgba(0, 0, 0, 0)';
+				const shadow = style.boxShadow !== 'none';
+				if (!ring && inDock && (outline || shadow) && aiColours.some((colour) => style.boxShadow.includes(colour) || style.outlineColor === colour)) found.push(`ring colour on ${label}`);
+				if (style.boxShadow.includes(warm) || (outline && style.outlineColor === warm)) found.push(`warning colour on ${label}`);
+				if (inDock && !ring) {
+					for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
+						if (parseFloat(style[`border${side}Width`]) > 0 && style[`border${side}Color`] === warm) found.push(`warning border-${side.toLowerCase()} on ${label}`);
+					}
+				}
+			}
+		}
+		const rings = Array.from(dock.querySelectorAll('.ai-ring, .ai-ring--on')).map((el) => (el.querySelector('[data-prompt-field]') ? 'field' : 'other'));
+		return { found, rings };
+	});
+}
+
+function checkStrip(g: Awaited<ReturnType<typeof geometry>>, mode: 'rest' | 'temp' | 'wrapped' = 'rest') {
+	const stripBox = g.strip!;
+	const dockBox = g.dock!;
+	const wrapped = mode === 'wrapped';
+	expect(g.stripOverflow).toBe('hidden');
+	expect(g.stripScroll.scroll).toBeLessThanOrEqual(g.stripScroll.client + 1);
+	const labelBottoms = new Set(g.labels.map((label) => Math.round(label.bottom)));
+	expect(labelBottoms.size, `label baselines ${JSON.stringify(g.labels.map((l) => [l.text, l.bottom]))}`).toBe(wrapped ? 2 : 1);
+	const lines = wrapped ? [[g.preset, g.session], [g.results, g.def, g.settings]] : [[g.preset, g.session, g.results, g.def, g.settings]];
+	for (const line of lines) {
+		const bottoms = line.filter(Boolean).map((box) => Math.round(box!.bottom));
+		expect(Math.max(...bottoms) - Math.min(...bottoms), `control bottoms ${JSON.stringify(bottoms)}`).toBeLessThanOrEqual(2);
+	}
+	const centres = [g.results, g.def, g.settings].map((box) => box!.y + box!.height / 2);
+	expect(Math.max(...centres) - Math.min(...centres), `control centres ${JSON.stringify(centres)}`).toBeLessThanOrEqual(2.5);
+	for (const cut of g.cuts) {
+		expect(Math.abs(cut.y - stripBox.y)).toBeLessThanOrEqual(1);
+		expect(Math.abs(cut.height - 48)).toBeLessThanOrEqual(1);
+	}
+	expect(g.end!.right).toBeLessThanOrEqual(g.column!.right + 0.5);
+	expect(g.settings!.right).toBeLessThanOrEqual(g.column!.right - 11);
+	expect(g.settings!.right).toBeGreaterThanOrEqual(g.column!.right - 13);
+	if (!wrapped) expect(g.end!.x).toBeGreaterThan(g.session!.right);
+	if (mode === 'rest') expect(Math.abs(g.field!.y - (stripBox.bottom + 12))).toBeLessThanOrEqual(2);
+	expect(Math.abs(dockBox.bottom - g.field!.bottom - 12)).toBeLessThanOrEqual(1.5);
+	expect(dockBox.bottom).toBeLessThanOrEqual(g.viewport.height);
+	expect(g.scroll.page).toBeLessThanOrEqual(g.viewport.height);
+	expect(g.mark!.y).toBeGreaterThanOrEqual(dockBox.y);
+	expect(g.mark!.bottom).toBeLessThanOrEqual(dockBox.bottom);
+}
+
 const options = (page: Page) => page.locator('[data-options-panel]');
 const prompt = (page: Page) => page.locator('[data-floating-prompt]');
+const presetTrigger = (page: Page) => prompt(page).locator('[data-testid="preset-picker-trigger"]');
+const sessionTrigger = (page: Page) => prompt(page).locator('[data-testid="session-trigger"], button[aria-label="Session"]').first();
+const modeTrigger = (page: Page) => prompt(page).locator('[data-testid="preset-header-mode"] button').first();
+const defaultSwitch = (page: Page) => prompt(page).locator('[data-picker-default] input[role="switch"]');
 const row = (page: Page, id = 's1') => page.locator(`[data-edit-stack] [data-stack-row="${id}"]`);
 
-async function begin(page: Page, tasks: Json[], sessions = false): Promise<Server> {
-	const server = await mockAll(page, tasks, { sessions });
+async function begin(page: Page, tasks: Json[], sessions = false, sessionName?: string): Promise<Server> {
+	const server = await mockAll(page, tasks, { sessions, sessionName });
 	await loginAsOwner(page);
 	await clearEdits(page);
 	await page.goto('/generate');
@@ -256,7 +375,6 @@ async function markArea(page: Page) {
 		}
 	}
 	await expect(page.locator('[data-mask-area]')).toBeVisible();
-	await expect(prompt(page).locator('[data-prompt-status="area"]')).toBeVisible();
 }
 
 async function shape(page: Page, aspect: string) {
@@ -271,11 +389,10 @@ async function scaleTo(page: Page, percent: string) {
 	await page.locator('[data-options-apply]').click();
 }
 
-async function pickDefaults(page: Page) {
-	await expect(page.locator('[data-setup-picker]')).toBeVisible();
-	await page.locator('[data-picker-option="defaults"]').first().click();
-	await page.locator('[data-picker-use]').click();
-	await expect(page.locator('[data-setup-picker]')).toHaveCount(0);
+async function pickPreset(page: Page, id: string) {
+	await expect(page.locator('[role="dialog"][aria-label="Choose preset"]')).toBeVisible();
+	await page.locator(`[data-preset-row="${id}"] button.row-main`).click();
+	await expect(page.locator('[role="dialog"][aria-label="Choose preset"]')).toHaveCount(0);
 }
 
 async function type(page: Page, text: string) {
@@ -283,7 +400,7 @@ async function type(page: Page, text: string) {
 }
 
 async function generate(page: Page) {
-	await prompt(page).locator('[data-prompt-generate]').click();
+	await prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button').click();
 }
 
 test.describe('Edit a region and Remove an object on desktop', () => {
@@ -297,15 +414,26 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await selectRailTool(page, 'edit_region');
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'edit_region');
 
-		await expect(page.locator('[data-setup-picker]')).toBeVisible();
-		await expect(prompt(page).locator('[data-setup-chip]')).toHaveText(/Choose a setup/);
-		await expect(prompt(page).locator('[data-prompt-generate]')).toBeDisabled();
+		await expect(page.locator('[role="dialog"][aria-label="Choose preset"]')).toBeVisible();
+		await expect(page.locator('[data-preset-row]')).toHaveCount(2);
+		await expect(prompt(page).locator('[data-picker-hint]')).toHaveCount(0);
+		await expect(prompt(page).locator('[data-dock-row]')).toHaveCount(2);
+		await expect(presetTrigger(page)).toHaveText('Choose a preset');
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toBeDisabled();
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toHaveAccessibleName('Choose a preset first');
 		await screenshot(page, JOURNEY, '02-first-use-dark-1440');
-		await page.locator('[data-picker-option="session"]').first().click();
-		await page.locator('[role="switch"]').click();
-		await page.locator('[data-picker-use]').click();
+		await pickPreset(page, 'qwen21');
+		await expect(presetTrigger(page)).toHaveText('Qwen-Image 2.1');
+		await expect(prompt(page).locator('[data-picker-hint]')).toHaveCount(0);
+		await expect(sessionTrigger(page)).toHaveText(/No saved session/);
+		await sessionTrigger(page).click();
+		await page.locator('[data-session-row="sess-1"]').click();
+		await expect(sessionTrigger(page)).toHaveText(/Soft portrait/);
+		await defaultSwitch(page).click();
 		await expect.poll(() => server.defaults.length).toBe(1);
-		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Qwen-Image 2.1 · Edit · Soft portrait');
+		expect(server.defaults[0]).toEqual({ preset_id: 'qwen21', mode: 'editor:edit', setup: { kind: 'session', id: 'sess-1' } });
+		await expect(defaultSwitch(page)).toBeChecked();
+		await screenshot(page, JOURNEY, '12-pickers-dark-1440');
 
 		await screenshot(page, JOURNEY, '08-whole-picture-dark-1440');
 		await markArea(page);
@@ -316,16 +444,21 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 
 		await expect.poll(() => server.runs.length).toBe(1);
 		const body = server.runs[0];
-		expect(body).toMatchObject({ prompt: 'a small red sailboat, one white sail, calm water', candidates: 2, edit: { id: EDIT_ID }, setup: { preset_id: 'qwen21', mode: 'edit', form_data: { steps: 20 } } });
+		expect(body).toMatchObject({ prompt: 'a small red sailboat, one white sail, calm water', candidates: 2, edit: { id: EDIT_ID }, setup: { preset_id: 'qwen21', mode: 'editor:edit', form_data: { steps: 20 } } });
+		expect(body.setup).not.toHaveProperty('variant');
 		expect((body.region as Json).item_id).toBeTruthy();
 		await expect(row(page)).toContainText('Waiting');
-		await expect(page.locator('[data-run-chip="queued"]')).toContainText('Waiting for a free slot');
-		await expect(prompt(page).locator('[data-prompt-cancel]')).toBeVisible();
+		await expect(prompt(page).locator('[role="progressbar"]')).toBeVisible();
+		await expect(prompt(page).locator('[data-border-progress="loading"]')).toHaveCount(1);
+		await expect(page.locator('[data-run-chip]')).toHaveCount(0);
+		await expect(prompt(page).locator('[data-prompt-cancel], [data-prompt-mark="running"] button')).toBeVisible();
 		await screenshot(page, JOURNEY, '05b-waiting-dark-1440');
 
 		update(server, 'running', { progress: 0.4 });
 		push(server, { type: 'workbench_update', generation_id: runGeneration(server.runCount), pipe_id: 1, output_type: 'image', temporary: true, image: PREVIEW });
-		await expect(page.locator('[data-run-chip="running"]')).toContainText('Generating · 40%');
+		await expect(prompt(page).locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '40');
+		await expect(prompt(page).locator('[data-border-progress="running"]')).toHaveCount(1);
+		await expect(page.locator('[data-run-chip]')).toHaveCount(0);
 		await expect(page.locator('[data-run-preview]')).toBeVisible();
 		await expect(row(page)).toContainText('Generating 40%');
 		await screenshot(page, JOURNEY, '05-running-dark-1440');
@@ -358,7 +491,10 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
 		await selectRailTool(page, 'edit_region');
-		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Model defaults');
+		await expect(presetTrigger(page)).toHaveText('Qwen-Image 2.1');
+		await expect(sessionTrigger(page)).toHaveText(/No saved session/);
+		await expect(page.locator('[data-preset-row]')).toHaveCount(0);
+		await expect(prompt(page).locator('[data-picker-hint]')).toHaveCount(0);
 		await markArea(page);
 		await type(page, 'a lantern');
 		await generate(page);
@@ -377,8 +513,10 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await selectRailTool(page, 'remove_object');
 		await expect(prompt(page).locator('[data-prompt-field]')).toHaveCount(0);
 		await expect(prompt(page).locator('[data-prompt-note]')).toHaveText('The marked object will be removed.');
-		await expect(prompt(page).locator('[data-prompt-status="warn"]')).toHaveText('Mark the object first');
-		await expect(prompt(page).locator('[data-prompt-generate]')).toBeDisabled();
+		await expect(prompt(page).locator('[data-prompt-status]')).toHaveCount(0);
+		await expect(prompt(page).locator('[data-dock-row]')).toHaveCount(2);
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toBeDisabled();
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toHaveAccessibleName('Mark the object first');
 		await expect(await editorMenuItem(page, 'Edit', 'Clear area')).toHaveAttribute('aria-disabled', 'true');
 		await closeEditorMenu(page);
 		await screenshot(page, JOURNEY, '07-remove-dark-1440');
@@ -389,8 +527,8 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await clearArea.click();
 		await expect(page.locator('[data-mask-area]')).toHaveCount(0);
 		await expect(clearArea).toBeDisabled();
-		await expect(prompt(page).locator('[data-prompt-generate]')).toBeDisabled();
-		await expect(prompt(page).locator('[data-prompt-status="warn"]')).toHaveText('Mark the object first');
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toBeDisabled();
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toHaveAccessibleName('Mark the object first');
 		await markArea(page);
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(1);
@@ -547,9 +685,9 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'edit_region');
 		await expect(page.locator('[data-stale-outline]')).toBeVisible();
 		await expect(page.locator('[data-candidate-strip]')).toHaveCount(0);
-		await prompt(page).locator('[data-prompt-field]').press('Escape');
-		await expect(page.locator('[data-stale-outline]')).toHaveCount(0);
-		await row(page, 's2').hover();
+		await expect(prompt(page).locator('[data-dock-row="temp"] [data-dock-stale]')).toContainText('The picture changed');
+		await expect(prompt(page).locator('[data-dock-redo]')).toBeVisible();
+		await expect(row(page, 's2').locator('[data-stack-action="redo"]')).toBeVisible();
 		await row(page, 's2').locator('[data-stack-action="redo"]').click();
 		await expect.poll(() => server.runs.length).toBe(2);
 		const body = server.runs[1];
@@ -568,6 +706,14 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 
 		await page.locator('[data-frame-undo]').click();
 		await expect(row(page, 's2')).toContainText('The picture changed');
+		await page.locator('[data-stack-open="s1"]').click();
+		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'resize');
+		await row(page, 's2').hover();
+		await expect(row(page, 's2').locator('[data-stack-action="redo"]')).toBeVisible();
+		await page.locator('[data-stack-open="s2"]').click();
+		await expect(prompt(page).locator('[data-dock-stale]')).toContainText('The picture changed');
+		await prompt(page).locator('[data-dock-redo]').click();
+		await expect.poll(() => server.runs.length).toBe(3);
 	});
 
 	test('after a crop beneath, Redo asks for the area again and Generate replaces the same step', async ({ page }) => {
@@ -590,10 +736,10 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(prompt(page).locator('[data-prompt-status="redo"]')).toHaveText('Mark the area again');
 		await expect(prompt(page).locator('[data-prompt-redo]')).toHaveText('The picture beneath changed shape');
 		await expect(prompt(page).locator('[data-prompt-field]')).toHaveValue('a lantern');
-		await expect(prompt(page).locator('[data-prompt-generate]')).toBeDisabled();
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toBeDisabled();
 		expect(server.runs).toHaveLength(1);
 		await markArea(page);
-		await expect(prompt(page).locator('[data-prompt-generate]')).toBeEnabled();
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toBeEnabled();
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(2);
 		expect((server.runs[1].edit as Json).step_id).toBe('s2');
@@ -610,7 +756,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await type(page, 'a lantern');
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(1);
-		await page.locator('[data-run-cancel]').click();
+		await page.locator('[data-prompt-mark="running"] button').click();
 		await expect.poll(() => server.cancels).toEqual(['er_1']);
 		await expect(row(page)).toContainText('Cancelled');
 
@@ -627,17 +773,19 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	});
 
 	test('a default that broke is never replaced silently: the picker names what went away', async ({ page }) => {
-		const broken = { preset_id: 'qwen21', mode: 'edit', variant: null, setup: { kind: 'session', id: 'gone', name: 'Soft portrait' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } };
+		const broken = { preset_id: 'qwen21', mode: 'editor:edit', setup: { kind: 'session', id: 'gone', name: 'Soft portrait' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } };
 		await begin(page, [taskEntry('edit_region', 'Edit a region', { default: broken })]);
 		await openHarbor(page);
 		await selectRailTool(page, 'edit_region');
-		await expect(page.locator('[data-picker-notice]')).toHaveText('Your default setup "Soft portrait" was deleted. Pick another.');
-		await expect(prompt(page).locator('[data-setup-chip]')).toHaveText(/Choose a setup/);
-		await expect(prompt(page).locator('[data-prompt-generate]')).toBeDisabled();
+		await expect(prompt(page).locator('[data-dock-row="temp"] [data-picker-notice]')).toHaveText('Your default setup "Soft portrait" was deleted. Pick another.');
+		await expect(page.locator('[data-picker-notice]')).toHaveCount(1);
+		await expect(presetTrigger(page)).toHaveText('Choose a preset');
+		await expect(page.locator('[data-preset-row]')).toHaveCount(0);
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toBeDisabled();
 		await screenshot(page, JOURNEY, '03-broken-default-dark-1440');
 	});
 
-	test('no model: the empty picker, and the greyed picker with its reasons', async ({ page }) => {
+	test('no model: the empty pickers', async ({ page }) => {
 		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [] })]);
 		await openHarbor(page);
 		await selectRailTool(page, 'edit_region');
@@ -645,12 +793,18 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await screenshot(page, JOURNEY, '11-picker-empty-dark-1440');
 	});
 
-	test('no model can run: the modes are greyed with the reason', async ({ page }) => {
+	test('no model can run: the presets are listed greyed with the reason', async ({ page }) => {
 		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen({ qualifies: false, reason: 'models_missing' }), flux({ qualifies: false, reason: 'not_assigned' })] })]);
 		await openHarbor(page);
 		await selectRailTool(page, 'edit_region');
-		await expect(page.locator('[data-setup-picker]')).toContainText('Models not installed');
-		await expect(page.locator('[data-setup-picker]')).toContainText('Not available to your account');
+		await presetTrigger(page).click();
+		const qwenRow = page.locator('[data-preset-row="qwen21"]');
+		const fluxRow = page.locator('[data-preset-row="flux-fill"]');
+		await expect(qwenRow).toHaveAttribute('aria-disabled', 'true');
+		await expect(qwenRow.locator('[data-preset-unavailable]')).toHaveText('Models not installed');
+		await expect(fluxRow).toHaveAttribute('aria-disabled', 'true');
+		await expect(fluxRow.locator('[data-preset-unavailable]')).toHaveText('Not available to your account');
+		await expect(qwenRow.locator('button.row-main')).toBeDisabled();
 		await screenshot(page, JOURNEY, '11b-picker-greyed-dark-1440');
 	});
 
@@ -672,11 +826,49 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		expect(server.runs).toHaveLength(1);
 	});
 
-	test('Settings: change a value, run with it, save to the setup, save as new, and the discard prompt', async ({ page }) => {
+	test('the preset, mode and session pickers: pick each, and Generate sends that editor mode and that session', async ({ page }) => {
+		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen(), flux(), fluxWide()], default: sessionDefault })], true);
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await expect(page.locator('[data-preset-row]')).toHaveCount(0);
+		await expect(presetTrigger(page)).toHaveText('Qwen-Image 2.1');
+		await expect(modeTrigger(page)).toHaveCount(0);
+		await presetTrigger(page).click();
+		await expect(page.locator('[data-preset-row]')).toHaveCount(2);
+		await page.locator('[data-preset-row="flux-fill"] button.row-main').click();
+		await expect(presetTrigger(page)).toHaveText('Flux Fill');
+		await expect(modeTrigger(page)).toHaveText(/Inpaint/);
+		await modeTrigger(page).click();
+		await expect(page.locator('[role="option"]')).toHaveCount(2);
+		await expect(page.locator('[role="option"]').nth(1)).toContainText('Fills a wider area');
+		await page.locator('[role="option"]').nth(1).click();
+		await expect(modeTrigger(page)).toHaveText(/Wide fill/);
+		await sessionTrigger(page).click();
+		await expect(page.locator('[data-session-row]')).toHaveCount(1);
+		await page.locator('[data-session-row="sess-flux"]').click();
+		await expect(sessionTrigger(page)).toHaveText(/Wide and soft/);
+		await expect(defaultSwitch(page)).not.toBeChecked();
+		await screenshot(page, JOURNEY, '12b-pickers-mode-dark-1440');
+		await markArea(page);
+		await type(page, 'a lantern');
+		await generate(page);
+		await expect.poll(() => server.runs.length).toBe(1);
+		expect((server.runs[0].setup as Json)).toMatchObject({ preset_id: 'flux-fill', mode: 'editor:fill2', form_data: { steps: 11 } });
+		expect((server.runs[0].setup as Json)).not.toHaveProperty('variant');
+		expect(server.defaults).toHaveLength(0);
+		await defaultSwitch(page).click();
+		await expect.poll(() => server.defaults.length).toBe(1);
+		expect(server.defaults[0]).toEqual({ preset_id: 'flux-fill', mode: 'editor:fill2', setup: { kind: 'session', id: 'sess-flux' } });
+		await defaultSwitch(page).click();
+		await expect.poll(() => server.defaultClears).toBe(1);
+	});
+
+	test('Settings: change a value, run with it, save through the session control, save as new, and the discard prompts', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true);
 		await openHarbor(page);
 		await selectRailTool(page, 'edit_region');
-		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Qwen-Image 2.1 · Edit · Soft portrait');
+		await expect(presetTrigger(page)).toHaveText('Qwen-Image 2.1');
+		await expect(sessionTrigger(page)).toHaveText(/Soft portrait/);
 		await expect(prompt(page).locator('[data-setup-changed]')).toHaveCount(0);
 		await markArea(page);
 		await type(page, 'a small red sailboat');
@@ -690,16 +882,17 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(view.locator('[data-settings-body]')).toContainText('Strength');
 		await expect(view.locator('[data-settings-body]')).not.toContainText('Quantity');
 		await expect(view.locator('[data-settings-body]')).not.toContainText('Picture');
+		expect(server.formModes).toContain('editor:edit');
+		expect(server.formModes).not.toContain('edit');
 		await expect(page.locator('[data-edit-stack]')).toHaveAttribute('data-folded', 'true');
-		await expect(view.locator('[data-settings-save-to]')).toHaveCount(0);
-		await expect(view.locator('[data-settings-save-new]')).toBeVisible();
+		await expect(view.locator('[data-settings-footer]')).toHaveCount(0);
+		await expect(page.locator('[data-testid="session-save"]')).toHaveCount(1);
 
 		const strength = view.locator('[data-settings-body] input[type="number"]').first();
 		await strength.fill('0.6');
 		await strength.blur();
 		await expect(view.locator('[data-settings-changed]')).toHaveText('Changed');
 		await expect(prompt(page).locator('[data-setup-changed]')).toBeVisible();
-		await expect(view.locator('[data-settings-save-to]')).toHaveText('Save to “Soft portrait”');
 		await screenshot(page, JOURNEY, '04-settings-dark-1440');
 
 		await generate(page);
@@ -709,45 +902,44 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		expect(form).not.toHaveProperty('source_image');
 		expect(form).not.toHaveProperty('quantity');
 
-		await view.locator('[data-settings-save-to]').click();
+		await prompt(page).locator('[data-testid="session-save"]').click();
 		await expect.poll(() => server.sessionPuts.length).toBe(1);
-		expect(server.sessionPuts[0]).toMatchObject({ name: 'Soft portrait', mode: 'edit', base_version: 3, kind: 'editor', data: { edit: { formData: { strength: 0.6, steps: 20 } } } });
+		expect(server.sessionPuts[0]).toMatchObject({ name: 'Soft portrait', mode: 'editor:edit', base_version: 3, kind: 'editor', data: { 'editor:edit': { formData: { strength: 0.6, steps: 20 } } } });
 		await expect(view.locator('[data-settings-changed]')).toHaveCount(0);
-		await expect(view.locator('[data-settings-save-to]')).toHaveCount(0);
 		await expect(prompt(page).locator('[data-setup-changed]')).toHaveCount(0);
 
 		await strength.fill('0.4');
 		await strength.blur();
 		await expect(view.locator('[data-settings-changed]')).toBeVisible();
 		server.sessionFails = { status: 409, body: { error: 'session_kind_mismatch', message: 'x' } };
-		await view.locator('[data-settings-save-new]').click();
-		await page.locator('[data-save-setup-name]').fill('Held by Generate');
-		await page.getByRole('dialog', { name: 'Save as new setup' }).getByRole('button', { name: /^Save/ }).click();
-		await expect(page.locator('[data-save-setup-error]')).toHaveText('That name is already used by one of your sessions on the Generate page. Choose another name.');
+		await sessionTrigger(page).click();
+		await page.locator('.session-dropdown').getByRole('button', { name: 'Save as new', exact: true }).click();
+		await page.locator('#session-save-name').fill('Held by Generate');
+		await page.getByRole('button', { name: /^Save/ }).last().click();
+		await expect(page.getByText('That name is already used by one of your sessions on the Generate page. Choose another name.')).toBeVisible();
 		server.sessionFails = null;
-		await page.locator('[data-save-setup-name]').fill('Crisp');
-		await page.getByRole('dialog', { name: 'Save as new setup' }).getByRole('button', { name: /^Save/ }).click();
+		await page.locator('#session-save-name').fill('Crisp');
+		await page.getByRole('button', { name: /^Save/ }).last().click();
 		await expect.poll(() => server.sessionPosts.length).toBe(2);
-		expect(server.sessionPosts[1]).toMatchObject({ preset_id: 'qwen21', name: 'Crisp', mode: 'edit', kind: 'editor', data: { edit: { formData: { strength: 0.4 } } } });
-		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Crisp');
+		expect(server.sessionPosts[1]).toMatchObject({ preset_id: 'qwen21', name: 'Crisp', mode: 'editor:edit', kind: 'editor', data: { 'editor:edit': { formData: { strength: 0.4 } } } });
+		await expect(sessionTrigger(page)).toHaveText(/Crisp/);
 		await expect(view.locator('[data-settings-changed]')).toHaveCount(0);
 		expect(server.defaults).toHaveLength(0);
 
 		await strength.fill('0.3');
 		await strength.blur();
 		await expect(view.locator('[data-settings-changed]')).toBeVisible();
-		await prompt(page).locator('[data-setup-chip]').click();
-		await page.locator('[data-picker-option="defaults"]').first().click();
-		await page.locator('[data-picker-use]').click();
-		const discard = page.locator('[role="dialog"], [role="alertdialog"]').filter({ hasText: 'Discard your changes?' }).last();
-		await expect(discard.getByText('Discard your changes?')).toBeVisible();
-		await expect(discard).toContainText('Your changes to “Crisp” are used only for this edit unless you save them.');
+		const newSession = page.getByRole('button', { name: 'New session', exact: true });
+		if (!(await newSession.isVisible())) await sessionTrigger(page).click();
+		await newSession.click();
+		await expect(page.getByText('"Crisp" has changes that are not saved. Starting a new session clears them.')).toBeVisible();
 		await screenshot(page, JOURNEY, '04b-discard-dark-1440');
-		await discard.getByRole('button', { name: /Keep editing/ }).click();
-		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Crisp');
-		await page.locator('[data-picker-use]').click();
-		await discard.getByRole('button', { name: /^Discard/ }).click();
-		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Model defaults');
+		await page.getByRole('button', { name: /^Cancel/ }).last().click();
+		await expect(sessionTrigger(page)).toHaveText(/Crisp/);
+		if (!(await newSession.isVisible())) await sessionTrigger(page).click();
+		await newSession.click();
+		await page.getByRole('button', { name: /^Confirm/ }).last().click();
+		await expect(sessionTrigger(page)).toHaveText(/No saved session/);
 		await expect(prompt(page).locator('[data-setup-changed]')).toHaveCount(0);
 
 		await page.keyboard.press('Escape');
@@ -755,6 +947,183 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(prompt(page)).toBeVisible();
 		await expect(options(page)).toBeVisible();
 		await expect(page.locator('[data-edit-stack]')).not.toHaveAttribute('data-folded', 'true');
+	});
+
+	test('switching the mode with unsaved changes asks first', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen(), flux(), fluxWide()], default: { preset_id: 'flux-fill', mode: 'editor:fill', setup: { kind: 'defaults' }, health: { ok: true, reason: null, name: null, mode_label: null } } })], true);
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await prompt(page).locator('[data-prompt-settings]').click();
+		const view = page.locator('[data-frame-panel] [data-settings-view="desktop"]');
+		const strength = view.locator('[data-settings-body] input[type="number"]').first();
+		await expect(strength).toBeVisible();
+		await strength.fill('0.6');
+		await strength.blur();
+		await expect(view.locator('[data-settings-changed]')).toBeVisible();
+		await modeTrigger(page).click();
+		await page.locator('[role="option"]').nth(1).click();
+		await expect(page.getByText('Your changes to “Model defaults” are used only for this edit unless you save them.')).toBeVisible();
+		await page.getByRole('button', { name: /Keep editing/ }).click();
+		await expect(modeTrigger(page)).toHaveText(/Inpaint/);
+		await modeTrigger(page).click();
+		await page.locator('[role="option"]').nth(1).click();
+		await page.getByRole('button', { name: /^Discard/ }).click();
+		await expect(modeTrigger(page)).toHaveText(/Wide fill/);
+		await expect(prompt(page).locator('[data-setup-changed]')).toHaveCount(0);
+	});
+
+	test('the dock sits under the canvas: its height at rest, with results and with an error, and the canvas height left', async ({ page }) => {
+		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
+		await openHarbor(page);
+		const stage = page.locator('[data-image-editor] [data-zoom]').first();
+		await expect(stage).toBeVisible();
+		const without = (await stage.boundingBox())!.height;
+		await expect(page.locator('[data-frame-dock]')).toHaveCount(0);
+		await selectRailTool(page, 'edit_region');
+		const dock = page.locator('[data-frame-dock]');
+		await expect(dock).toBeVisible();
+		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toBeVisible();
+		const rest = (await dock.boundingBox())!;
+		const withDock = (await stage.boundingBox())!;
+		const stageBox = withDock;
+		expect(rest.y).toBeGreaterThanOrEqual(stageBox.y + stageBox.height - 1);
+		expect(rest.height).toBeGreaterThanOrEqual(111);
+		expect(rest.height).toBeLessThanOrEqual(120);
+		expect(withDock.height).toBeGreaterThan(450);
+		await screenshot(page, JOURNEY, '14-dock-rest-dark-1440');
+		await dock.locator('[data-dock-mark] button').hover();
+		await screenshot(page, JOURNEY, '14b-dock-hover-dark-1440');
+		await page.mouse.move(10, 10);
+		await expect(page.locator('[data-canvas-zoom]')).toBeVisible();
+		const zoom = (await page.locator('[data-canvas-zoom]').boundingBox())!;
+		expect(zoom.y + zoom.height).toBeLessThanOrEqual(rest.y + 1);
+		await expect(prompt(page).locator('[data-prompt-grip]')).toHaveCount(0);
+		await markArea(page);
+		await type(page, 'a lantern');
+		await generate(page);
+		await expect.poll(() => server.runs.length).toBe(1);
+		await expect(dock.locator('[data-border-progress="loading"]')).toHaveCount(1);
+		await expect(page.locator('[data-run-chip]')).toHaveCount(0);
+		await screenshot(page, JOURNEY, '14c-dock-running-dark-1440');
+		update(server, 'done', { candidates: candidates(2) });
+		await expect(dock.locator('[data-candidate-strip]')).toBeVisible();
+		const results = (await dock.boundingBox())!;
+		expect(results.height).toBeGreaterThanOrEqual(155);
+		expect(results.height).toBeLessThanOrEqual(170);
+		server.startFails = { status: 422, body: { error: 'prompt_required', message: 'x' } };
+		await prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button').click();
+		await expect(prompt(page).locator('[data-prompt-error]')).toBeVisible();
+		const failed = (await dock.boundingBox())!;
+		const mark = (await dock.locator('[data-dock-mark] button.generate-button').boundingBox())!;
+		expect(Math.round(mark.height)).toBe(70);
+		expect(mark.x).toBeGreaterThan(results.x + results.width - 120);
+		const measured = `DOCK canvas without dock ${Math.round(without)}px, with dock ${Math.round(withDock.height)}px; dock at rest ${Math.round(rest.height)}px, with results ${Math.round(results.height)}px, with an error ${Math.round(failed.height)}px, mark ${Math.round(mark.height)}px`;
+		console.log(measured);
+		test.info().annotations.push({ type: 'dock', description: `canvas without dock ${Math.round(without)}px, with dock ${Math.round(withDock.height)}px; dock at rest ${Math.round(rest.height)}px, with results ${Math.round(results.height)}px, with an error ${Math.round(failed.height)}px` });
+		await screenshot(page, JOURNEY, '13-dock-dark-1440');
+	});
+
+	test('the dock strip: one baseline, cuts inside the strip, even padding, the ring on the prompt field only, and every state', async ({ page }) => {
+		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen({ preset_name: LONG_PRESET }), flux({ preset_name: 'Flux Fill' }), fluxWide(), qwen({ preset_id: 'sd-edit', preset_name: 'SDXL Edit' })], default: sessionDefault }), taskEntry('remove_object', 'Remove an object', { offers: [qwen()] })], true, LONG_SESSION);
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await expect(presetTrigger(page)).toHaveText(LONG_PRESET);
+		await expect(sessionTrigger(page)).toContainText('Product shots');
+		await expect(modeTrigger(page)).toHaveCount(0);
+		await page.mouse.move(700, 300);
+		const rest = await geometry(page);
+		checkStrip(rest);
+		expect(rest.cuts).toHaveLength(1);
+		expect(rest.preset!.width).toBeLessThanOrEqual(201);
+		expect(rest.dock!.height).toBeGreaterThanOrEqual(111);
+		expect(rest.dock!.height).toBeLessThanOrEqual(120);
+		const audit = await ringAudit(page);
+		expect(audit.found, JSON.stringify(audit)).toEqual([]);
+		expect(audit.rings).toEqual(['field']);
+		await screenshot(page, JOURNEY, '20-built-rest-dark-1440');
+		await prompt(page).locator('[data-prompt-field]').focus();
+		await page.mouse.move(700, 300);
+		const focused = await ringAudit(page);
+		expect(focused.found, JSON.stringify(focused)).toEqual([]);
+		expect(focused.rings).toEqual(['field']);
+		checkStrip(await geometry(page));
+		await screenshot(page, JOURNEY, '20b-built-focused-dark-1440');
+		await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
+		const mark = prompt(page).locator('[data-prompt-mark] button');
+		await expect(mark).toBeDisabled();
+		await expect(mark).toHaveAccessibleName('Describe the change first');
+		await markArea(page);
+		await type(page, 'a lantern');
+		await expect(mark).toBeEnabled();
+		await expect(mark).toHaveAccessibleName('Generate');
+		await generate(page);
+		await expect.poll(() => server.runs.length).toBe(1);
+		await expect(prompt(page).locator('[data-prompt-mark="running"] button')).toHaveAccessibleName('Cancel generation');
+		update(server, 'running', { progress: 0.4 });
+		await expect(prompt(page).locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '40');
+		await expect(prompt(page).locator('[data-dock-row]')).toHaveCount(2);
+		await expect(page.locator('[data-run-chip]')).toHaveCount(0);
+		await page.mouse.move(700, 300);
+		await screenshot(page, JOURNEY, '25-built-running-dark-1440');
+		update(server, 'done', { candidates: candidates(2) });
+		await expect(prompt(page).locator('[data-candidate-strip]')).toBeVisible();
+		await page.mouse.move(700, 300);
+		const results = await geometry(page);
+		checkStrip(results, 'temp');
+		expect(results.dock!.height).toBeGreaterThanOrEqual(155);
+		expect(results.dock!.height).toBeLessThanOrEqual(170);
+		expect(results.mark!.y + results.mark!.height / 2 - (rest.mark!.y + rest.mark!.height / 2)).toBeLessThanOrEqual(results.dock!.height - rest.dock!.height);
+		await screenshot(page, JOURNEY, '21-built-results-dark-1440');
+
+		server.startFails = { status: 422, body: { error: 'prompt_required', message: 'x' } };
+		await prompt(page).locator('[data-prompt-mark] button').click();
+		await expect(prompt(page).locator('[data-prompt-error]')).toBeVisible();
+		await page.mouse.move(700, 300);
+		await screenshot(page, JOURNEY, '20c-built-failed-dark-1440');
+
+		await presetTrigger(page).click();
+		const dropdown = page.locator('[role="dialog"][aria-label="Choose preset"]');
+		await expect(dropdown).toBeVisible();
+		await expect(page.locator('[data-preset-row]')).toHaveCount(3);
+		const dropdownBox = (await dropdown.boundingBox())!;
+		const rowBox = (await page.locator('[data-preset-row]').last().boundingBox())!;
+		expect(dropdownBox.height, 'a short list is not taller than its rows').toBeLessThan(rowBox.y + rowBox.height - dropdownBox.y + 120);
+		expect(dropdownBox.y).toBeGreaterThan(60);
+		await screenshot(page, JOURNEY, '24-built-presets-open-3-dark-1440');
+		await page.keyboard.press('Escape');
+		await expect(dropdown).toHaveCount(0);
+
+		await sessionTrigger(page).click();
+		await expect(page.locator('.session-dropdown')).toBeVisible();
+		const sessionBox = (await page.locator('.session-dropdown').boundingBox())!;
+		expect(sessionBox.y).toBeGreaterThan(60);
+		await screenshot(page, JOURNEY, '26-built-session-open-dark-1440');
+		await page.keyboard.press('Escape');
+		await expect(page.locator('.session-dropdown')).toHaveCount(0);
+
+		await presetTrigger(page).click();
+		await page.locator('[data-preset-row="flux-fill"] button.row-main').click();
+		await expect(presetTrigger(page)).toHaveText('Flux Fill');
+		await expect(modeTrigger(page)).toHaveText(/Inpaint/);
+		await expect(modeTrigger(page).locator('svg')).toHaveCount(2);
+		await page.mouse.move(700, 300);
+		const two = await geometry(page);
+		checkStrip(two, 'temp');
+		expect(two.cuts).toHaveLength(2);
+		const order = [two.preset!.x, two.mode!.x, two.session!.x];
+		expect([...order].sort((a, b) => a - b)).toEqual(order);
+		await screenshot(page, JOURNEY, '22-built-two-modes-dark-1440');
+		await modeTrigger(page).click();
+		await expect(page.locator('[role="option"]')).toHaveCount(2);
+		const optionsBox = (await page.locator('[role="option"]').first().boundingBox())!;
+		expect(optionsBox.y).toBeGreaterThan(60);
+		await page.keyboard.press('Escape');
+
+		await selectRailTool(page, 'remove_object');
+		await expect(prompt(page).locator('[data-dock-row]')).toHaveCount(2);
+		await page.mouse.move(700, 300);
+		await screenshot(page, JOURNEY, '20d-built-remove-dark-1440');
 	});
 
 	test('Settings go back with the header button and the prompt button, and the Edits list can be shown while open', async ({ page }) => {
@@ -778,20 +1147,46 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	});
 });
 
+test.describe('Edit a region in a narrow window', () => {
+	test.use({ viewport: { width: 1024, height: 768 } });
+
+	test('the dock at 1024: long names truncate and the right group stays whole', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen({ preset_name: LONG_PRESET }), flux()], default: sessionDefault })], true, LONG_SESSION);
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await expect(presetTrigger(page)).toContainText('MiniMax');
+		await page.mouse.move(600, 300);
+		const g = await geometry(page);
+		checkStrip(g, 'wrapped');
+		expect(g.end!.right).toBeLessThanOrEqual(g.dock!.right);
+		expect(g.save!.x).toBeGreaterThan(g.session!.right - 1);
+		expect(g.save!.right).toBeLessThanOrEqual(g.strip!.right);
+		expect(g.session!.width).toBeGreaterThan(60);
+		const audit = await ringAudit(page);
+		expect(audit.found, JSON.stringify(audit)).toEqual([]);
+		await screenshot(page, JOURNEY, '23-built-rest-dark-1024');
+	});
+});
+
 test.describe('Edit a region on the phone', () => {
 	test.use({ viewport: { width: 390, height: 844 } });
 
-	test('the prompt sheet, the picker sheet and the run', async ({ page }) => {
-		const server = await begin(page, [taskEntry('edit_region', 'Edit a region'), taskEntry('remove_object', 'Remove an object')], true);
+	test('the prompt sheet with the three pickers, and the run', async ({ page }) => {
+		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen(), flux()] }), taskEntry('remove_object', 'Remove an object')], true);
 		await openHarbor(page);
 		await openPhoneTask(page, 'edit_region');
-		await expect(page.locator('[data-setup-picker="sheet"]')).toBeVisible();
+		await expect(page.locator('[role="dialog"][aria-label="Choose preset"]')).toBeVisible();
 		await screenshot(page, JOURNEY, '02-first-use-dark-390');
-		await page.locator('[data-picker-option="session"]').first().click();
-		await page.locator('[data-picker-use]').click();
+		await pickPreset(page, 'qwen21');
 		await expect(prompt(page)).toBeVisible();
+		await expect(prompt(page).locator('[data-editor-pickers="phone"]')).toBeVisible();
+		await expect(presetTrigger(page)).toHaveText('Qwen-Image 2.1');
+		await prompt(page).locator('button[aria-label="Session"]').click();
+		await page.locator('[data-session-row="sess-1"]').click();
+		await expect(prompt(page).locator('button[aria-label="Session"]')).toContainText('Soft portrait');
 		await markArea(page);
 		await type(page, 'a small red sailboat, one white sail, calm water');
+		await screenshot(page, JOURNEY, '12-pickers-dark-390');
 		await screenshot(page, JOURNEY, '01-prompt-dark-390');
 		await prompt(page).getByRole('button', { name: 'Collapse' }).click();
 		await expect(page.locator('[data-floating-prompt="collapsed"]')).toBeVisible();
@@ -799,6 +1194,7 @@ test.describe('Edit a region on the phone', () => {
 		await page.locator('[data-floating-prompt="collapsed"]').getByRole('button', { name: 'Expand' }).click();
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(1);
+		expect(server.runs[0].setup).toMatchObject({ preset_id: 'qwen21', mode: 'editor:edit', form_data: { steps: 20 } });
 		await screenshot(page, JOURNEY, '05b-waiting-dark-390');
 		update(server, 'running', { progress: 0.4 });
 		push(server, { type: 'workbench_update', generation_id: runGeneration(server.runCount), pipe_id: 1, output_type: 'image', temporary: true, image: PREVIEW });
@@ -858,17 +1254,15 @@ test.describe('Edit a region on the phone', () => {
 		await strength.fill('0.6');
 		await strength.blur();
 		await expect(view.locator('[data-settings-changed]')).toBeVisible();
-		await expect(view.locator('[data-settings-save-to]')).toBeVisible();
+		await expect(view.locator('[data-settings-footer]')).toHaveCount(0);
 		await screenshot(page, JOURNEY, '04-settings-dark-390');
 		await view.locator('[data-detail-back]').click();
 		await expect(view).toHaveCount(0);
 		await expect(prompt(page)).toBeVisible();
 		await expect(prompt(page).locator('[data-setup-changed]')).toBeVisible();
-		await prompt(page).locator('[data-setup-chip]').click();
-		await page.locator('[data-picker-option="defaults"]').first().click();
-		await page.locator('[data-picker-use]').click();
-		const discard = page.locator('[role="dialog"], [role="alertdialog"]').filter({ hasText: 'Discard your changes?' }).last();
-		await expect(discard.getByText('Discard your changes?')).toBeVisible();
+		await prompt(page).locator('button[aria-label="Session"]').click();
+		await page.getByRole('button', { name: 'New session', exact: true }).click();
+		await expect(page.getByText(/has changes that are not saved/)).toBeVisible();
 		await screenshot(page, JOURNEY, '04b-discard-dark-390');
 	});
 });

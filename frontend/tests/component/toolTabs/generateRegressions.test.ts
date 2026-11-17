@@ -26,8 +26,8 @@ async function settle() {
 
 function params(status: 'queued' | 'running'): GenerateParams {
 	return {
-		v: 1, task: 'edit_region', prompt: 'a lantern', candidates: 1, results: [], chosen: 0, seed: null, rect: null, soft: false,
-		setup: { preset_id: 'qwen', mode: 'edit', variant: null, form_data: {}, source: { kind: 'defaults', id: null, name: null }, label: '' },
+		v: 2, task: 'edit_region', prompt: 'a lantern', candidates: 1, results: [], chosen: 0, seed: null, rect: null, soft: false,
+		setup: { preset_id: 'qwen', mode: 'editor:edit', form_data: {}, source: { kind: 'defaults', id: null, name: null }, label: '' },
 		area: { region: null, size: null }, run: { id: 'er_1', status, error: null }
 	};
 }

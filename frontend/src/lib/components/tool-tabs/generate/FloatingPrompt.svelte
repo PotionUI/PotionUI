@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import type { Snippet } from 'svelte';
+	import GenerateMark from '$lib/components/generation-panel/GenerateMark.svelte';
+	import BorderProgress from '$lib/components/generation-panel/BorderProgress.svelte';
+	import { borderProgressOf, type BorderRun } from '$lib/components/generation-panel/borderProgress';
+	import { blockedReason, markOf } from '$lib/tool-tabs/image/generate/mark';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, IconButton, Kbd, SegmentedControl } from '$lib/components/ui';
@@ -7,41 +11,35 @@
 	import { editorsRevision } from '$lib/editors/registry';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
 	import { areaLabel } from '$lib/tool-tabs/image/generate/area';
-	import { CHOOSE_SETUP } from '$lib/tool-tabs/image/generate/controller';
 	import { maskArea } from '$lib/tool-tabs/image/maskOverlays';
-	import SetupPicker from './SetupPicker.svelte';
+	import EditorPickers from './EditorPickers.svelte';
+	import GenerateDockLayout from './GenerateDockLayout.svelte';
+	import EditorNotices from './EditorNotices.svelte';
 
 	let {
 		phone = false,
 		running = null,
 		large = false,
 		settings,
-		onclose
+		tempRow,
+		hasTemp = false,
+		run = null,
+		extras
 	}: {
 		phone?: boolean;
 		running?: string | null;
 		large?: boolean;
 		settings?: { open: boolean; toggle: () => void };
-		onclose?: () => void;
+		tempRow?: Snippet;
+		hasTemp?: boolean;
+		run?: BorderRun | null;
+		extras?: Snippet;
 	} = $props();
 
 	const generate = getGenerateController()!;
 	const ui = generate.ui;
-	const POSITION_KEY = 'potionui_editor_prompt_position';
 	const RESULT_ITEMS = [1, 2, 3, 4].map((count) => ({ id: String(count), label: String(count) }));
 
-	function readPosition(): { x: number; y: number } {
-		try {
-			const raw = JSON.parse(localStorage.getItem(POSITION_KEY) ?? 'null') as { x?: unknown; y?: unknown } | null;
-			if (raw && typeof raw.x === 'number' && typeof raw.y === 'number') return { x: raw.x, y: raw.y };
-		} catch {
-			return { x: 0, y: 0 };
-		}
-		return { x: 0, y: 0 };
-	}
-
-	let position = $state(readPosition());
-	let drag = $state<{ x: number; y: number; base: { x: number; y: number } } | null>(null);
 	let collapsed = $state(false);
 	let root = $state<HTMLElement | null>(null);
 
@@ -67,13 +65,20 @@
 		void $ui;
 		return taskId ? generate.changedFor(taskId) : false;
 	});
-	let chipText = $derived(noModel ? 'No model yet' : (chip ?? CHOOSE_SETUP));
+	let chipText = $derived(noModel ? 'No model yet' : (chip ?? 'Choose a preset'));
 	let area = $derived($maskArea);
 	let redoArea = $derived(!!$ui.redo && $ui.redo.taskId === taskId && !regionNone && !area);
+	let focused = $state(false);
+	let reason = $derived(
+		blockedReason({ hasSetup: !!chip, promptRequired, prompt, regionRequired, hasArea: !!area, redoArea })
+	);
+	let borderProgress = $derived(borderProgressOf(run));
+	let runText = $derived(borderProgress.state === 'running' ? `Generating ${borderProgress.percent}%` : borderProgress.state === 'loading' ? 'Waiting' : null);
+	let markInfo = $derived(markOf({ running: !!running, starting: $ui.starting, reason }));
+	let noteShown = $derived(!!$ui.picker.notice || (task?.offers.length ?? 0) === 0);
 	let blocked = $derived(
 		!taskId || !chip || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea
 	);
-	let positionStyle = $derived(position.x || position.y ? `transform: translate(${position.x}px, ${position.y}px)` : undefined);
 
 	function setPrompt(event: Event) {
 		const field = event.currentTarget as HTMLTextAreaElement;
@@ -91,6 +96,11 @@
 		if (taskId && !blocked) void generate.generate(taskId, !!area);
 	}
 
+	function markClick() {
+		if (markInfo.state === 'running') stop();
+		else if (!markInfo.disabled) start();
+	}
+
 	function stop() {
 		if (running) void generate.cancel(running);
 	}
@@ -99,61 +109,33 @@
 		if (!root || !(event.target instanceof Node) || !root.contains(event.target)) return;
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
 			event.preventDefault();
-			if (running) return;
-			start();
-			return;
-		}
-		if (event.key === 'Escape' && !$ui.picker.open && !settings?.open && !event.defaultPrevented) {
-			event.preventDefault();
-			event.stopPropagation();
-			onclose?.();
+			if (!running) start();
 		}
 	}
-
-	function pointerdown(event: PointerEvent) {
-		if (phone || event.button !== 0) return;
-		(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
-		drag = { x: event.clientX, y: event.clientY, base: position };
-		event.preventDefault();
-	}
-
-	function pointermove(event: PointerEvent) {
-		if (drag) position = { x: drag.base.x + event.clientX - drag.x, y: drag.base.y + event.clientY - drag.y };
-	}
-
-	function pointerup() {
-		if (!drag) return;
-		drag = null;
-		try {
-			localStorage.setItem(POSITION_KEY, JSON.stringify(position));
-		} catch {
-			return;
-		}
-	}
-
-	onDestroy(() => {
-		drag = null;
-	});
 </script>
 
 <svelte:window onkeydown={keydown} />
 
-{#snippet chipButton()}
+{#snippet summaryButton()}
 	<button
 		type="button"
-		class="inline-flex h-7 min-w-0 max-w-full items-center gap-2 rounded border border-line-strong bg-surface-2 px-2 text-sm text-fg transition-colors hover:border-line-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal {chip ? '' : 'text-fg-muted'} {$ui.picker.open ? 'border-line-hover' : ''}"
-		aria-haspopup="dialog"
-		aria-expanded={$ui.picker.open}
-		onclick={() => ($ui.picker.open ? generate.closePicker() : generate.openPicker())}
-		data-setup-chip
+		class="inline-flex h-7 min-w-0 max-w-full items-center gap-2 rounded border border-line-strong bg-surface-2 px-2 text-sm text-fg transition-colors hover:border-line-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal {chip ? '' : 'text-fg-muted'}"
+		aria-label="Show the setup"
+		onclick={() => (collapsed = false)}
+		data-prompt-summary
 	>
 		<Icon name={noModel ? 'warning' : 'model'} className="h-3.5 w-3.5 flex-none text-fg-muted" />
 		<span class="min-w-0 truncate">{chipText}</span>
 		{#if changed}
 			<span class="inline-flex flex-none items-center gap-1.5 font-mono text-sm text-signal" data-setup-changed><span class="h-1.5 w-1.5 rounded-full bg-signal"></span>Changed</span>
 		{/if}
-		<Icon name="chevron-down" className="h-3.5 w-3.5 flex-none text-fg-muted" />
 	</button>
+{/snippet}
+
+{#snippet changedMark()}
+	{#if changed}
+		<span class="dock-ctl inline-flex flex-none items-center gap-1.5 font-mono text-sm text-signal" data-setup-changed><span class="h-1.5 w-1.5 rounded-full bg-signal"></span>Changed</span>
+	{/if}
 {/snippet}
 
 {#snippet settingsButton()}
@@ -164,6 +146,18 @@
 			<IconButton icon="sliders" label="Settings" size="sm" disabled data-prompt-settings />
 		</Tooltip>
 	{/if}
+{/snippet}
+
+{#snippet dockSettings()}
+	<span class="dock-ctl">
+		{#if settings}
+			<IconButton icon="sliders" label="Settings" size="xs" active={settings.open} ariaPressed={settings.open} onclick={settings.toggle} data-prompt-settings />
+		{:else}
+			<Tooltip text="Settings open here soon" position="top">
+				<IconButton icon="sliders" label="Settings" size="xs" disabled data-prompt-settings />
+			</Tooltip>
+		{/if}
+	</span>
 {/snippet}
 
 {#snippet statusLine()}
@@ -190,13 +184,7 @@
 {/snippet}
 
 {#snippet actionButton()}
-	{#if running}
-		<Button variant="secondary" size="sm" class="h-8 flex-none" onclick={stop} attrs={{ 'data-prompt-cancel': '' }}>Cancel</Button>
-	{:else}
-		<Button variant="primary" size="sm" class="h-8 flex-none" disabled={blocked} loading={$ui.starting} onclick={start} attrs={{ 'data-prompt-generate': '' }}>
-			Generate<Kbd keys="Ctrl ↵" />
-		</Button>
-	{/if}
+	{@render dockMark(true)}
 {/snippet}
 
 {#snippet promptField()}
@@ -219,9 +207,59 @@
 	{/if}
 {/snippet}
 
-{#snippet picker()}
-	{#if $ui.picker.open && taskId}
-		<SetupPicker {phone} {taskId} {label} />
+{#snippet dockTemp()}
+	{@render tempRow?.()}
+	{#if redoArea}
+		<p class="m-0 flex min-h-8 items-center gap-2 text-sm text-warning" role="alert"><Icon name="warning" className="h-3.5 w-3.5 flex-none" /><span><b class="font-semibold" data-prompt-status="redo">Mark the area again</b> <span class="text-fg-subtle" data-prompt-redo>The picture beneath changed shape</span></span></p>
+	{/if}
+	{#if large && !regionNone}<p class="m-0 flex min-h-8 items-center gap-2 text-sm text-fg-subtle" data-prompt-large><Icon name="info" className="h-3.5 w-3.5 flex-none" />Large areas come back softer</p>{/if}
+	{#if $ui.error}<p class="m-0 flex min-h-8 items-center gap-2 text-sm text-danger" role="alert" data-prompt-error>{$ui.error}</p>{/if}
+{/snippet}
+
+{#snippet dockField()}
+	{#if needsPrompt}
+		<div class="ai-ring min-w-0 flex-1 rounded {focused ? 'ai-ring--on' : ''}">
+			<textarea
+				class="block min-h-10 w-full resize-none border-0 bg-transparent px-3 py-2 text-base text-fg outline-none placeholder:text-fg-subtle focus:ring-0"
+				style="max-height: 96px"
+				rows="1"
+				placeholder="Describe the change"
+				aria-label="Describe the change"
+				value={prompt}
+				oninput={setPrompt}
+				onfocus={() => (focused = true)}
+				onblur={() => (focused = false)}
+				use:fit
+				data-prompt-field
+			></textarea>
+		</div>
+	{:else}
+		<div class="flex min-h-10 min-w-0 flex-1 items-center gap-2.5 rounded bg-surface-2 px-3 text-base text-fg-muted" data-prompt-note>
+			<Icon name={entry?.icon ?? 'sparkles'} className="h-3.5 w-3.5 flex-none" />The marked object will be removed.
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet dockResults()}
+	<div class="ctx-step flex min-w-0 shrink-0" data-testid="dock-results">
+		<span class="ctx-label whitespace-nowrap text-fg-subtle">Results</span>
+		<span class="flex h-6 items-center font-mono tabular-nums">
+			<SegmentedControl variant="toggle" size="sm" ariaLabel="Results" items={RESULT_ITEMS} selected={String(results)} onSelect={(id) => taskId && generate.setResults(taskId, Number(id))} />
+		</span>
+	</div>
+{/snippet}
+
+{#snippet dockMark(compact: boolean)}
+	<span class="generate-mark-host flex-none" style={compact ? '--mark-size: 60px; --mark-glyph: 54px' : undefined} data-prompt-mark={markInfo.state}>
+		<Tooltip text={markInfo.state === 'running' && runText ? `${markInfo.label}. ${runText}` : markInfo.label} kbd={markInfo.state !== 'running' ? 'Ctrl ↵' : undefined} position="top" delay={150}>
+			<GenerateMark state={markInfo.state} disabled={markInfo.disabled} label={markInfo.label} onclick={markClick} />
+		</Tooltip>
+	</span>
+{/snippet}
+
+{#snippet pickersView()}
+	{#if taskId}
+		<EditorPickers {phone} {taskId} {label} {extras} resultsStep={phone ? undefined : dockResults} changedMark={phone ? undefined : changedMark} settingsButton={phone ? undefined : dockSettings} />
 	{/if}
 {/snippet}
 
@@ -229,19 +267,19 @@
 	<div bind:this={root} class="relative flex-none rounded-t-xl border-t border-line-strong bg-surface-1 px-3 pb-2 pt-1 shadow-[var(--shadow-dock)]" role="group" aria-label={label} data-floating-prompt="collapsed">
 		<button type="button" class="mx-auto mb-1 block h-1 w-9 rounded-sm bg-line-strong" aria-label="Expand" onclick={() => (collapsed = false)}></button>
 		<div class="flex h-9 items-center gap-2">
-			<div class="min-w-0 flex-1">{@render chipButton()}</div>
+			<div class="min-w-0 flex-1">{@render summaryButton()}</div>
 			{@render actionButton()}
 		</div>
-		{@render picker()}
 	</div>
 {:else if phone}
 	<div bind:this={root} class="relative flex-none rounded-t-xl border-t border-line-strong bg-surface-1 px-3 pb-3 shadow-[var(--shadow-dock)]" role="group" aria-label={label} data-floating-prompt="phone">
 		<button type="button" class="mx-auto block h-4 w-full" aria-label="Collapse" onclick={() => (collapsed = true)}><span class="mx-auto block h-1 w-9 rounded-sm bg-line-strong"></span></button>
-		<div class="flex h-9 items-center gap-2">
-			<div class="min-w-0 flex-1">{@render chipButton()}</div>
+		<div class="flex h-9 items-center justify-end gap-2">
+			{@render changedMark()}
 			{@render settingsButton()}
 		</div>
-		<div class="mt-1">{@render promptField()}</div>
+		<div class="mt-0.5">{@render pickersView()}</div>
+		<div class="mt-2">{@render promptField()}</div>
 		<div class="mt-2 min-h-5">{@render statusLine()}</div>
 		{#if redoArea}<p class="mt-1 flex items-center gap-1.5 text-sm text-fg-subtle" data-prompt-redo><Icon name="info" className="h-3.5 w-3.5" />The picture beneath changed shape</p>{/if}
 		{#if large && !regionNone}<p class="mt-1 flex items-center gap-1.5 text-sm text-fg-subtle"><Icon name="info" className="h-3.5 w-3.5" />Large areas come back softer</p>{/if}
@@ -250,43 +288,26 @@
 			{@render resultsControl()}
 			{@render actionButton()}
 		</div>
-		{@render picker()}
 	</div>
 {:else}
-	<div
-		bind:this={root}
-		class="pointer-events-auto relative w-[480px] max-w-full rounded-xl border border-line-strong bg-surface-1 px-2.5 pb-3 shadow-floating"
-		style={positionStyle}
-		role="group"
-		aria-label={label}
-		data-floating-prompt="desktop"
-	>
-		<div
-			class="grid h-4 cursor-grab touch-none place-items-center {drag ? 'cursor-grabbing' : ''}"
-			role="presentation"
-			onpointerdown={pointerdown}
-			onpointermove={pointermove}
-			onpointerup={pointerup}
-			onpointercancel={pointerup}
-			data-prompt-grip
-		>
-			<span class="h-[3px] w-8 rounded-sm bg-line-hover"></span>
-		</div>
-		<div class="flex h-9 items-center gap-2">
-			<div class="min-w-0">{@render chipButton()}</div>
-			<span class="flex-1"></span>
-			{@render settingsButton()}
-			<Kbd keys="Esc" />
-		</div>
-		<div class="mt-1">{@render promptField()}</div>
-		<div class="mt-2.5 flex h-8 items-center gap-2">
-			<div class="min-w-0 flex-1">{@render statusLine()}</div>
-			{@render resultsControl()}
-			{@render actionButton()}
-		</div>
-		{#if redoArea}<p class="mt-2 flex items-center gap-1.5 text-sm text-fg-subtle" data-prompt-redo><Icon name="info" className="h-3.5 w-3.5" />The picture beneath changed shape</p>{/if}
-		{#if large && !regionNone}<p class="mt-2 flex items-center gap-1.5 text-sm text-fg-subtle" data-prompt-large><Icon name="info" className="h-3.5 w-3.5" />Large areas come back softer</p>{/if}
-		{#if $ui.error}<p class="mt-2 text-sm text-danger" role="alert" data-prompt-error>{$ui.error}</p>{/if}
-		{@render picker()}
+	<div bind:this={root} class="contents">
+		<GenerateDockLayout {label} showTemp={hasTemp || noteShown || !!$ui.error || redoArea || (large && !regionNone)}>
+			{#snippet progress()}
+				<BorderProgress progress={borderProgress} />
+			{/snippet}
+			{#snippet strip()}
+				{@render pickersView()}
+			{/snippet}
+			{#snippet temp()}
+				{#if taskId}<EditorNotices {taskId} hint={false} />{/if}
+				{@render dockTemp?.()}
+			{/snippet}
+			{#snippet prompt()}
+				{@render dockField()}
+			{/snippet}
+			{#snippet mark()}
+				{@render dockMark(false)}
+			{/snippet}
+		</GenerateDockLayout>
 	</div>
 {/if}

@@ -2,7 +2,6 @@ import { describeEditorTaskFailure } from '$lib/services/api/editorTasks';
 
 export interface Tweak {
 	key: string;
-	owned: string[];
 	defaults: Record<string, unknown>;
 	base: Record<string, unknown>;
 	values: Record<string, unknown>;
@@ -29,21 +28,9 @@ export function sameValue(a: unknown, b: unknown): boolean {
 	return false;
 }
 
-export function withoutKeys(values: Record<string, unknown>, owned: ReadonlySet<string> | readonly string[]): Record<string, unknown> {
-	const skip = owned instanceof Set ? owned : new Set(owned);
-	return Object.fromEntries(Object.entries(values).filter(([key]) => !skip.has(key)));
-}
-
-export function sameSettings(
-	a: Record<string, unknown>,
-	b: Record<string, unknown>,
-	defaults: Record<string, unknown>,
-	owned: readonly string[]
-): boolean {
-	const skip = new Set(owned);
+export function sameSettings(a: Record<string, unknown>, b: Record<string, unknown>, defaults: Record<string, unknown>): boolean {
 	const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
 	for (const key of keys) {
-		if (skip.has(key)) continue;
 		const left = a[key] === undefined ? defaults[key] : a[key];
 		const right = b[key] === undefined ? defaults[key] : b[key];
 		if (!sameValue(left, right)) return false;
@@ -51,37 +38,38 @@ export function sameSettings(
 	return true;
 }
 
-export function startTweak(key: string, owned: readonly string[], defaults: Record<string, unknown>, base: Record<string, unknown>): Tweak {
-	return { key, owned: [...owned], defaults, base: { ...base }, values: { ...base }, settled: false };
+export function startTweak(key: string, defaults: Record<string, unknown>, base: Record<string, unknown>): Tweak {
+	return { key, defaults, base: { ...base }, values: { ...base }, settled: false };
 }
 
 export function editTweak(tweak: Tweak, data: Record<string, unknown>): Tweak {
-	if (!tweak.settled) return { ...tweak, base: withoutKeys(data, tweak.owned), values: data, settled: true };
+	if (!tweak.settled) return { ...tweak, base: { ...data }, values: data, settled: true };
 	return { ...tweak, values: data };
 }
 
+export function loadedTweak(tweak: Tweak, values: Record<string, unknown>): Tweak {
+	return { ...tweak, values, settled: true };
+}
+
 export function savedTweak(tweak: Tweak): Tweak {
-	return { ...tweak, base: withoutKeys(tweak.values, tweak.owned), settled: true };
+	return { ...tweak, base: { ...tweak.values }, settled: true };
 }
 
 export function isChanged(tweak: Tweak | null | undefined): boolean {
-	return !!tweak && tweak.settled && !sameSettings(tweak.values, tweak.base, tweak.defaults, tweak.owned);
+	return !!tweak && tweak.settled && !sameSettings(tweak.values, tweak.base, tweak.defaults);
 }
 
 export function runValues(base: Record<string, unknown>, tweak: Tweak | null | undefined, key: string): Record<string, unknown> {
 	if (!tweak || tweak.key !== key || !isChanged(tweak)) return base;
-	return withoutKeys(tweak.values, tweak.owned);
+	return tweak.values;
 }
 
 export interface SaveTarget {
 	mode: string;
-	variant: string | null;
 }
 
-export function sessionData(target: SaveTarget, values: Record<string, unknown>, owned: readonly string[]): Record<string, Record<string, unknown>> {
-	const entry: Record<string, unknown> = { formData: withoutKeys(values, owned) };
-	if (target.variant) entry.selectedVariant = target.variant;
-	return { [target.mode]: entry };
+export function sessionData(target: SaveTarget, values: Record<string, unknown>): Record<string, Record<string, unknown>> {
+	return { [target.mode]: { formData: values } };
 }
 
 export interface SaveToBody {
@@ -100,21 +88,21 @@ export interface SaveNewBody {
 	kind: 'editor';
 }
 
-export function saveToBody(input: { name: string; version: number | null; target: SaveTarget; values: Record<string, unknown>; owned: readonly string[] }): SaveToBody {
+export function saveToBody(input: { name: string; version: number | null; target: SaveTarget; values: Record<string, unknown> }): SaveToBody {
 	return {
 		name: input.name,
-		data: sessionData(input.target, input.values, input.owned),
+		data: sessionData(input.target, input.values),
 		mode: input.target.mode,
 		base_version: input.version,
 		kind: 'editor'
 	};
 }
 
-export function saveAsNewBody(input: { presetId: string; name: string; target: SaveTarget; values: Record<string, unknown>; owned: readonly string[] }): SaveNewBody {
+export function saveAsNewBody(input: { presetId: string; name: string; target: SaveTarget; values: Record<string, unknown> }): SaveNewBody {
 	return {
 		preset_id: input.presetId,
 		name: input.name,
-		data: sessionData(input.target, input.values, input.owned),
+		data: sessionData(input.target, input.values),
 		mode: input.target.mode,
 		kind: 'editor'
 	};

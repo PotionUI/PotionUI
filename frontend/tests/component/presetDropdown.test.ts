@@ -367,3 +367,27 @@ describe('PresetDropdown', () => {
 		expect(sdxl.querySelector('.w-11.h-11')).not.toBeNull();
 	});
 });
+
+describe('a short list', () => {
+	it('sizes the dropdown to its rows and shows no empty Recent or Pinned header', async () => {
+		calls.getPresetPickerState.mockResolvedValue(state([], []));
+		await open({ presets: CATALOG.slice(0, 3) });
+		expect(groups()).toEqual(['Image']);
+		expect(dialog()!.querySelector('[data-preset-group="recent"]')).toBeNull();
+		expect(dialog()!.querySelector('[data-preset-group="pinned"]')).toBeNull();
+		const style = dialog()!.getAttribute('style') ?? '';
+		expect(style).toContain('max-height');
+		expect(style.replace(/max-height:[^;]*;?/g, '')).not.toMatch(/(^|;|\s)height:/);
+	});
+
+	it('still fills the space for the details view', async () => {
+		calls.getPresetPickerState.mockResolvedValue(state([], []));
+		await open({ presets: CATALOG.slice(0, 3) });
+		await rowMenu('sdxl');
+		(Array.from(document.body.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent?.includes('Details')) as HTMLElement).click();
+		flushSync();
+		await settle(6);
+		expect(dialog()!.querySelector('[data-testid="preset-details"]')).not.toBeNull();
+		expect(dialog()!.getAttribute('style') ?? '').toMatch(/(^|;|\s)height:/);
+	});
+});

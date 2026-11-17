@@ -11,6 +11,7 @@
 		compare = $bindable(false),
 		panelSide,
 		selected = 'crop',
+		withDock = false,
 		log
 	}: {
 		phone?: boolean;
@@ -20,6 +21,7 @@
 		compare?: boolean;
 		panelSide?: 'left' | 'right';
 		selected?: string;
+		withDock?: boolean;
 		log: (entry: string) => void;
 	} = $props();
 
@@ -35,9 +37,12 @@
 	];
 </script>
 
+{#snippet dockContent()}<div data-host-dock>dock</div>{/snippet}
+
 <EditorFrame
 	{phone}
 	{panelSide}
+	dock={withDock ? dockContent : undefined}
 	{active}
 	{canCompare}
 	bind:compare

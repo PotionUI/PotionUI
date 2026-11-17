@@ -14,6 +14,8 @@
 		fieldLabels = {},
 		layout = 'segment',
 		compact = false,
+		autosave = true,
+		iconSave = false,
 		labelId = undefined
 	}: {
 		session: SessionPanelState;
@@ -21,6 +23,8 @@
 		fieldLabels?: FieldLabels;
 		layout?: 'segment' | 'sheet';
 		compact?: boolean;
+		autosave?: boolean;
+		iconSave?: boolean;
 		labelId?: string;
 	} = $props();
 
@@ -91,7 +95,7 @@
 	<Tooltip text={saveTip} kbd={saveDisabled ? undefined : $shortcutLabels['save_session']} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
 		<button
 			type="button"
-			class="flex w-[78px] flex-shrink-0 items-center justify-center gap-1.5 transition-colors {shape} {saveDisabled
+			class="flex {iconSave && layout !== 'sheet' ? 'h-6 w-6 rounded bg-surface-2 hover:bg-surface-3' : 'w-[78px]'} flex-shrink-0 items-center justify-center gap-1.5 transition-colors {iconSave && layout !== 'sheet' ? '' : shape} {saveDisabled
 				? 'cursor-not-allowed font-medium text-fg-disabled'
 				: saveState === 'saving'
 					? 'font-medium text-fg-muted'
@@ -103,10 +107,10 @@
 		>
 			{#if saveState === 'saving'}
 				<Spinner size="sm" />
-				<span>Saving</span>
+				{#if !iconSave || layout === 'sheet'}<span>Saving</span>{/if}
 			{:else}
 				<Icon name={current ? 'save' : 'plus'} className="h-3.5 w-3.5" />
-				<span>Save</span>
+				{#if !iconSave || layout === 'sheet'}<span>Save</span>{/if}
 			{/if}
 		</button>
 	</Tooltip>
@@ -171,7 +175,7 @@
 					icon="undo"
 					label="Reload from last snapshot"
 					variant="secondary"
-					size="sm"
+					size={iconSave ? 'xs' : 'sm'}
 					class="!p-0 {reloadDisabled ? '!cursor-not-allowed !bg-surface-3/50 !text-fg-disabled' : ''}"
 					aria-disabled={reloadDisabled ? 'true' : undefined}
 					data-testid="session-reload"
@@ -183,7 +187,7 @@
 {/if}
 
 {#if open}
-	<SessionPanel {fieldLabels} {session} {actions} anchor={anchorEl} fullscreen={layout === 'sheet'} onClose={close} />
+	<SessionPanel {fieldLabels} {session} {actions} {autosave} anchor={anchorEl} fullscreen={layout === 'sheet'} onClose={close} />
 {/if}
 
 <style>

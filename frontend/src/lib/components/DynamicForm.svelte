@@ -75,7 +75,6 @@
 	// simply don't pass it.
 	export let videoDirectorActive = false;
 	export let audience: FormAudience | undefined = undefined;
-	export let hiddenFields: ReadonlySet<string> | undefined = undefined;
 	export let onFormDataChange: ((data: Record<string, any>) => void) | null = null;
 	// Per-field server-side validation errors (from a 422 `form_validation_failed`
 	// response to `POST /api/generations/start`), keyed by field name. Rendered under
@@ -218,8 +217,7 @@
 			pass.processedSchema,
 			audience ?? $formAudienceStore,
 			forceVisibleFieldNames,
-			videoDirectorActive,
-			hiddenFields
+			videoDirectorActive
 		);
 		processedSchema = pass.processedSchema;
 		if (data !== formData) {

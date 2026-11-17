@@ -65,17 +65,24 @@ describe('EditorFrame layout', () => {
 		expect(q('[data-frame-panel]')!.classList.contains('hidden')).toBe(false);
 	});
 
-	it('makes the rail and a left panel one unit: no line between them, a strong outer divider, the selected tool as a tab of the panel', () => {
+	it('makes the rail and a left panel one unit: a 2px line on the right edge of the rail, a strong outer divider, the selected tool keeping its selected look inside the line', () => {
 		const { q } = render();
 		const rail = q<HTMLElement>('[data-tool-rail]')!;
 		const selected = q<HTMLElement>('button[data-tool="crop"]')!;
 		const other = q<HTMLElement>('button[data-tool="rotate"]')!;
 		expect(rail.hasAttribute('data-rail-joined')).toBe(true);
-		expect(rail.classList.contains('border-r')).toBe(false);
+		expect(rail.classList.contains('border-r-2')).toBe(true);
+		expect(rail.classList.contains('border-line')).toBe(true);
 		expect(rail.classList.contains('border-l')).toBe(false);
 		expect(rail.classList.contains('bg-surface-1/50')).toBe(true);
 		expect(selected.classList.contains('bg-surface-1')).toBe(true);
-		expect(selected.classList.contains('rounded-r-none')).toBe(true);
+		expect(selected.classList.contains('rounded-r-none')).toBe(false);
+		expect(selected.classList.contains('w-11')).toBe(true);
+		for (const cls of ['pl-1.5', 'pr-0', 'pr-1.5', 'ml-auto', 'mr-0', '-mr-px', 'rounded-r-none']) expect(rail.classList.contains(cls) || selected.classList.contains(cls)).toBe(false);
+		expect(rail.classList.contains('px-[3px]')).toBe(true);
+		expect(other.classList.contains('w-11')).toBe(true);
+		expect(rail.style.width).toBe('52px');
+		expect(3 + 44 + 3 + 2).toBe(52);
 		expect(other.classList.contains('bg-surface-1')).toBe(false);
 	});
 
@@ -135,6 +142,64 @@ describe('EditorFrame layout', () => {
 	it('hides Hold when there is nothing to compare', () => {
 		const { q } = render({ phone: true, canCompare: false });
 		expect(q('[data-frame-hold]')).toBeNull();
+	});
+});
+
+describe('EditorFrame dock', () => {
+	it('has no dock region unless the tool supplies one', () => {
+		const { q } = render();
+		expect(q('[data-frame-dock]')).toBeNull();
+	});
+
+	it('docks the region under the canvas in the canvas column, below the zoom and status chrome, not under the panel', () => {
+		const { q } = render({ withDock: true });
+		const dock = q('[data-frame-dock]')!;
+		const column = dock.parentElement!;
+		expect(dock.querySelector('[data-host-dock]')).not.toBeNull();
+		expect(column.contains(q('[data-canvas-zoom]'))).toBe(true);
+		expect(q('[data-frame-panel]')!.contains(dock)).toBe(false);
+		const kids = Array.from(column.children);
+		expect(kids.indexOf(dock)).toBe(kids.length - 1);
+		expect(kids.find((child) => child.contains(q('[data-canvas-zoom]')))).not.toBe(dock);
+		expect(dock.previousElementSibling?.contains(q('[data-canvas-zoom]'))).toBe(true);
+	});
+
+	it('is not drawn on a phone, where the prompt stays a sheet', () => {
+		const { q } = render({ withDock: true, phone: true });
+		expect(q('[data-frame-dock]')).toBeNull();
+	});
+
+	it('leaves the canvas one resize to refit when the dock appears, and refits once', () => {
+		const callbacks: Array<() => void> = [];
+		const original = globalThis.ResizeObserver;
+		globalThis.ResizeObserver = class {
+			constructor(callback: () => void) {
+				callbacks.push(callback);
+			}
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		} as never;
+		let height = 300;
+		const widthSpy = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+		const heightSpy = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+		Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 1000 });
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => height });
+		try {
+			const { q } = render();
+			const before = q('[data-canvas-zoom]')?.closest('[data-zoom]')?.getAttribute('data-zoom');
+			height = 180;
+			const calls = callbacks.length;
+			callbacks.forEach((callback) => callback());
+			flushSync();
+			const after = q('[data-canvas-zoom]')?.closest('[data-zoom]')?.getAttribute('data-zoom');
+			expect(callbacks.length).toBe(calls);
+			expect(Number(after)).toBeLessThan(Number(before));
+		} finally {
+			globalThis.ResizeObserver = original;
+			if (widthSpy) Object.defineProperty(HTMLElement.prototype, 'clientWidth', widthSpy);
+			if (heightSpy) Object.defineProperty(HTMLElement.prototype, 'clientHeight', heightSpy);
+		}
 	});
 });
 

@@ -1,12 +1,13 @@
 import { get, writable } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorRun, EditorTaskInfo, TaskOffer } from '$lib/services/api/editorTasks';
-import { createStack, type EditStackState } from '$lib/tool-tabs/frame/editStack';
+import { apply, beginEdit, createStack, type EditStackState } from '$lib/tool-tabs/frame/editStack';
 import { RESULTS_KEY_PREFIX, createGenerateController, type ControllerDeps } from './controller';
-import { readGenerateParams, type GenerateParams } from './generateStep';
+import { generateDraft, readGenerateParams, type GenerateParams } from './generateStep';
+import legacy from './fixtures/generateStepV1.json';
 import { createRunEngine, type RunPorts, type RunViews } from './runEngine';
 
-const offer = (over: Partial<TaskOffer> = {}): TaskOffer => ({ preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: [], ...over });
+const offer = (over: Partial<TaskOffer> = {}): TaskOffer => ({ preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, region_strategy: 'mask', via: null, qualifies: true, reason: null, ...over });
 const task = (over: Partial<EditorTaskInfo> = {}): EditorTaskInfo => ({ id: 'edit_region', label: 'Edit a region', icon: 'sparkles', region: 'optional', prompt: 'required', fallback: null, offers: [offer()], default: null, ...over });
 const run = (over: Partial<EditorRun> = {}): EditorRun => ({ id: 'er_1', task: 'edit_region', status: 'queued', edit_id: 'ed', step_id: 's1', generation_id: null, progress: 0, error: null, soft: false, rect: null, candidates: [], ...over });
 const schema = { properties: { main: { children: [{ name: 'steps', type: 'number', default: 28 }, { name: 'seed', type: 'seed', default: 7 }] } } };
@@ -25,7 +26,7 @@ function setup(tasks: EditorTaskInfo[] = [task()], extra: Partial<ControllerDeps
 	const engine = createRunEngine(enginePorts, { views, pollMs: 1000, onSettled: (view) => controller.settle(view) });
 	const ports = {
 		tasks: vi.fn(async () => tasks),
-		sessions: vi.fn(async () => (saved ? [{ id: 's1', name: 'Soft portrait', updated_at: null, data: { edit: { formData: { steps: 20 } } } }] : [])),
+		sessions: vi.fn(async () => (saved ? [{ id: 's1', name: 'Soft portrait', updated_at: null, data: { 'editor:edit': { formData: { steps: 20 } } } }] : [])),
 		formulas: vi.fn(async () => []),
 		schema: vi.fn(async () => schema),
 		setDefault: vi.fn(async () => undefined),
@@ -68,7 +69,7 @@ describe('generate controller: starting', () => {
 		expect(await t.controller.generate('edit_region', true)).toBe(true);
 		const body = (t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0];
 		expect(body[0]).toBe('edit_region');
-		expect(body[1]).toMatchObject({ edit: { id: 'ed_1', step_id: 's1' }, input: { item_id: 'pic' }, region: { item_id: 'mask1' }, prompt: 'a red sailboat', candidates: 3, seed: null, setup: { preset_id: 'qwen', mode: 'edit', form_data: { steps: 28, seed: 7 } } });
+		expect(body[1]).toMatchObject({ edit: { id: 'ed_1', step_id: 's1' }, input: { item_id: 'pic' }, region: { item_id: 'mask1' }, prompt: 'a red sailboat', candidates: 3, seed: null, setup: { preset_id: 'qwen', mode: 'editor:edit', form_data: { steps: 28, seed: 7 } } });
 		const step = t.stack().steps[0];
 		expect(step).toMatchObject({ tool: 'generate', label: 'Edit a region', lane: 'paint' });
 		const params = readGenerateParams(step.params) as GenerateParams;
@@ -134,11 +135,12 @@ describe('generate controller: starting', () => {
 });
 
 describe('generate controller: setups', () => {
-	it('opens the picker the first time when the mode has a saved setup, or several modes qualify', async () => {
+	it('preselects the one preset that qualifies even when it has saved setups, and asks when several presets qualify', async () => {
 		const saved = setup([task()], {}, true);
 		await saved.controller.prepare('edit_region');
-		expect(get(saved.controller.ui).picker).toMatchObject({ open: true, why: 'first_use' });
-		const two = setup([task({ offers: [offer(), offer({ preset_id: 'flux', preset_name: 'Flux Fill', mode: 'inpaint' })] })]);
+		expect(get(saved.controller.ui).picker.open).toBe(false);
+		expect(get(saved.controller.ui).choice.edit_region).toEqual({ preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'defaults' } });
+		const two = setup([task({ offers: [offer(), offer({ preset_id: 'flux', preset_name: 'Flux Fill', mode: 'editor:fill' })] })]);
 		await two.controller.prepare('edit_region');
 		expect(get(two.controller.ui).picker).toMatchObject({ open: true, why: 'first_use' });
 		expect(get(two.controller.ui).choice.edit_region).toBeNull();
@@ -146,39 +148,44 @@ describe('generate controller: setups', () => {
 	});
 
 	it('never substitutes a broken default and names what went away', async () => {
-		const broken = task({ default: { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session', id: 'gone' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } } });
+		const broken = task({ default: { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 'gone' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } } });
 		const t = setup([broken]);
 		await t.controller.prepare('edit_region');
 		const ui = get(t.controller.ui);
 		expect(ui.choice.edit_region).toBeNull();
-		expect(ui.picker).toEqual({ open: true, why: 'broken_default', notice: 'Your default setup "Soft portrait" was deleted. Pick another.' });
+		expect(ui.picker).toEqual({ open: false, why: 'broken_default', notice: 'Your default setup "Soft portrait" was deleted. Pick another.' });
 	});
 
 	it('uses a healthy default and a setup picked from the list', async () => {
-		const healthy = task({ offers: [offer(), offer({ mode: 'other', mode_label: 'Other' })], default: { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session', id: 's1' }, health: { ok: true, reason: null, name: null, mode_label: null } } });
+		const healthy = task({ offers: [offer(), offer({ mode: 'editor:other', mode_label: 'Other' })], default: { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' }, health: { ok: true, reason: null, name: null, mode_label: null } } });
 		const t = setup([healthy], {}, true);
 		await t.controller.prepare('edit_region');
 		expect(t.controller.chipFor('edit_region')).toBe('Qwen-Image 2.1 · Edit · Soft portrait');
-		await t.controller.pick('edit_region', t.controller.defaultsChoice(healthy.offers[1]), false);
+		await t.controller.pick('edit_region', t.controller.defaultsChoice(healthy.offers[1]));
 		expect(t.controller.chipFor('edit_region')).toBe('Qwen-Image 2.1 · Other · Model defaults');
 		expect(t.ports.setDefault).not.toHaveBeenCalled();
 	});
 
 	it('stores a default only when asked to and then treats it as healthy', async () => {
-		const t = setup([task({ offers: [offer(), offer({ mode: 'other' })] })]);
+		const t = setup([task({ offers: [offer(), offer({ mode: 'editor:other' })] })]);
 		await t.controller.prepare('edit_region');
-		const choice = { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session' as const, id: 's1' } };
-		await t.controller.pick('edit_region', choice, true);
+		const choice = { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session' as const, id: 's1' } };
+		await t.controller.pick('edit_region', choice);
+		expect(t.ports.setDefault).not.toHaveBeenCalled();
+		expect(t.controller.isDefault('edit_region')).toBe(false);
+		await t.controller.setAsDefault('edit_region', true);
 		expect(t.ports.setDefault).toHaveBeenCalledWith('edit_region', choice);
+		expect(t.controller.isDefault('edit_region')).toBe(true);
 		expect(get(t.controller.ui).tasks[0].default?.health.ok).toBe(true);
-		await t.controller.clearDefault('edit_region');
+		await t.controller.setAsDefault('edit_region', false);
+		expect(t.ports.clearDefault).toHaveBeenCalled();
 		expect(get(t.controller.ui).tasks[0].default).toBeNull();
 	});
 
 	it('stores the values it resolved, not a reference to the session', async () => {
-		const t = setup([task({ offers: [offer(), offer({ mode: 'other' })] })], {}, true);
+		const t = setup([task({ offers: [offer(), offer({ mode: 'editor:other' })] })], {}, true);
 		await t.controller.prepare('edit_region');
-		await t.controller.pick('edit_region', { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session', id: 's1' } }, false);
+		await t.controller.pick('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
 		t.controller.setPrompt('edit_region', 'a boat');
 		await t.controller.generate('edit_region', true);
 		const params = readGenerateParams(t.stack().steps[0].params) as GenerateParams;
@@ -289,21 +296,22 @@ describe('generate controller: a step through its life', () => {
 });
 
 describe('generate controller: settings tweaks', () => {
-	const pickSession = { preset_id: 'qwen', mode: 'edit', variant: null, setup: { kind: 'session' as const, id: 's1' } };
-	const two = () => task({ offers: [offer({ owned: ['resolution'] }), offer({ mode: 'other', mode_label: 'Other' })] });
+	const pickSession = { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session' as const, id: 's1' } };
+	const two = () => task({ offers: [offer(), offer({ mode: 'editor:other', mode_label: 'Other' })] });
 
 	async function open(saved = true) {
 		const t = setup([two()], {}, saved);
-		t.ports.sessions.mockImplementation(async () => [{ id: 's1', name: 'Soft portrait', updated_at: null, version: 3, data: { edit: { formData: { steps: 20 } } } }]);
+		t.ports.sessions.mockImplementation(async () => [{ id: 's1', name: 'Soft portrait', updated_at: null, version: 3, data: { 'editor:edit': { formData: { steps: 20 } } } }]);
 		await t.controller.prepare('edit_region');
-		await t.controller.pick('edit_region', pickSession, false);
+		await t.controller.pick('edit_region', pickSession);
 		const context = await t.controller.settings('edit_region');
 		return { t, context };
 	}
 
-	it('describes the setup, the fields the editor owns and the starting values', async () => {
-		const { context } = await open();
-		expect(context?.owned).toEqual(expect.arrayContaining(['resolution']));
+	it('describes the setup and the starting values from the form the server serves', async () => {
+		const { context, t } = await open();
+		expect(context).not.toHaveProperty('owned');
+		expect(t.ports.schema).toHaveBeenCalledWith('qwen', 'editor:edit');
 		expect(context?.values).toMatchObject({ steps: 20 });
 		expect(context?.setupName).toBe('Soft portrait');
 	});
@@ -317,7 +325,7 @@ describe('generate controller: settings tweaks', () => {
 		t.controller.setPrompt('edit_region', 'a boat');
 		await t.controller.generate('edit_region', true);
 		const params = readGenerateParams(t.stack().steps[0].params) as GenerateParams;
-		expect(params.setup.form_data).toEqual({ steps: 12, seed: 7 });
+		expect(params.setup.form_data).toEqual({ steps: 12, seed: 7, resolution: '2048' });
 		expect(params.setup.source).toEqual({ kind: 'session', id: 's1', name: 'Soft portrait' });
 	});
 
@@ -325,9 +333,9 @@ describe('generate controller: settings tweaks', () => {
 		const { t } = await open();
 		t.controller.tweak('edit_region', { steps: 20, seed: 7 });
 		t.controller.tweak('edit_region', { steps: 12, seed: 7 });
-		await t.controller.pick('edit_region', pickSession, false);
+		await t.controller.pick('edit_region', pickSession);
 		expect(t.controller.changedFor('edit_region')).toBe(true);
-		await t.controller.pick('edit_region', t.controller.defaultsChoice(two().offers[1]), false);
+		await t.controller.pick('edit_region', t.controller.defaultsChoice(two().offers[1]));
 		expect(t.controller.changedFor('edit_region')).toBe(false);
 		expect(get(t.controller.ui).tweaks).toEqual({});
 	});
@@ -340,8 +348,8 @@ describe('generate controller: settings tweaks', () => {
 		expect(outcome).toEqual({ ok: true });
 		expect(t.ports.updateSession).toHaveBeenCalledWith('s1', {
 			name: 'Soft portrait',
-			data: { edit: { formData: { steps: 12, seed: 7 } } },
-			mode: 'edit',
+			data: { 'editor:edit': { formData: { steps: 12, seed: 7 } } },
+			mode: 'editor:edit',
 			base_version: 3,
 			kind: 'editor'
 		});
@@ -352,7 +360,7 @@ describe('generate controller: settings tweaks', () => {
 	it('refuses to save to a formula or the model defaults', async () => {
 		const t = setup([two()]);
 		await t.controller.prepare('edit_region');
-		await t.controller.pick('edit_region', t.controller.defaultsChoice(two().offers[0]), false);
+		await t.controller.pick('edit_region', t.controller.defaultsChoice(two().offers[0]));
 		await t.controller.settings('edit_region');
 		t.controller.tweak('edit_region', { steps: 28 });
 		t.controller.tweak('edit_region', { steps: 5 });
@@ -380,7 +388,7 @@ describe('generate controller: settings tweaks', () => {
 		t.controller.tweak('edit_region', { steps: 12, seed: 7 });
 		const outcome = await t.controller.saveAsNew('edit_region', '  Crisp  ');
 		expect(outcome).toEqual({ ok: true });
-		expect(t.ports.saveSession).toHaveBeenCalledWith({ preset_id: 'qwen', name: 'Crisp', data: { edit: { formData: { steps: 12, seed: 7 } } }, mode: 'edit', kind: 'editor' });
+		expect(t.ports.saveSession).toHaveBeenCalledWith({ preset_id: 'qwen', name: 'Crisp', data: { 'editor:edit': { formData: { steps: 12, seed: 7 } } }, mode: 'editor:edit', kind: 'editor' });
 		expect(get(t.controller.ui).choice.edit_region?.setup).toEqual({ kind: 'session', id: 'new' });
 		expect(t.controller.changedFor('edit_region')).toBe(false);
 		expect(t.ports.setDefault).not.toHaveBeenCalled();
@@ -400,5 +408,199 @@ describe('generate controller: settings tweaks', () => {
 			message: 'That name is already used by one of your sessions on the Generate page. Choose another name.'
 		});
 		expect(get(t.controller.ui).choice.edit_region?.setup).toEqual({ kind: 'session', id: 's1' });
+	});
+});
+
+describe('generate controller: steps saved before editor modes', () => {
+	function withLegacy(offers: TaskOffer[] = [offer()]) {
+		const t = setup([task({ offers })]);
+		const params = readGenerateParams({ ...legacy, run: { id: 'er_old', status: 'done', error: null } }) as GenerateParams;
+		t.deps.setStack(apply(beginEdit(createStack(), generateDraft(params, 'Edit a region', 'sparkles'))));
+		return { t, before: structuredClone(t.stack().steps[0].params) };
+	}
+
+	it('tries again with the editor key and rewrites the step to version 2 as one revision', async () => {
+		const { t } = withLegacy();
+		(t.enginePorts.start as ReturnType<typeof vi.fn>).mockResolvedValueOnce(run({ id: 'er_2' }));
+		const revisions = (t.stack().revisions ?? []).length;
+		expect(await t.controller.tryAgain('s1')).toBe(true);
+		const body = (t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0][1];
+		expect(body.setup).toMatchObject({ preset_id: 'qwen', mode: 'editor:edit' });
+		expect(body.setup).not.toHaveProperty('variant');
+		const params = readGenerateParams(t.stack().steps[0].params) as GenerateParams;
+		expect(params).toMatchObject({ v: 2, setup: { mode: 'editor:edit' }, run: { id: 'er_2', status: 'queued' }, results: [] });
+		expect(t.stack().revisions).toHaveLength(revisions + 1);
+	});
+
+	it('keeps the step valid and says the setup is gone when no editor mode derives from its mode', async () => {
+		const { t, before } = withLegacy([offer({ from_mode: 'other', mode: 'editor:other' })]);
+		expect(await t.controller.tryAgain('s1')).toBe(false);
+		expect(get(t.controller.ui).error).toBe('This setup cannot do that any more. Pick another.');
+		expect(t.enginePorts.start).not.toHaveBeenCalled();
+		expect(t.stack().steps[0].params).toEqual(before);
+		expect(readGenerateParams(t.stack().steps[0].params)).not.toBeNull();
+	});
+
+	it('does not rewrite the step while the member only opens the edit', async () => {
+		const { t, before } = withLegacy();
+		await t.controller.prepare('edit_region');
+		t.controller.resume(t.stack());
+		expect(t.stack().steps[0].params).toEqual(before);
+	});
+
+	it('retries a failed legacy step the same way', async () => {
+		const { t } = withLegacy();
+		t.controller.settle({ stepId: 's1', status: 'failed', error: 'x', run: run({ id: 'er_old', status: 'failed', error: 'x' }) });
+		(t.enginePorts.start as ReturnType<typeof vi.fn>).mockResolvedValueOnce(run({ id: 'er_3' }));
+		expect(await t.controller.retry('s1')).toBe(true);
+		expect((t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0][1].setup.mode).toBe('editor:edit');
+	});
+});
+
+describe('generate controller: the three pickers', () => {
+	const flux = () => offer({ preset_id: 'flux', preset_name: 'Flux Fill', mode: 'editor:fill', from_mode: 'inpaint' });
+	const modes = () => task({ offers: [offer(), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 }), flux()] });
+
+	it('picks the first usable mode of a preset on its defaults, or the default of the member when it is that preset', async () => {
+		const t = setup([modes()]);
+		await t.controller.prepare('edit_region');
+		expect(t.controller.choiceForPreset('edit_region', 'flux')).toEqual({ preset_id: 'flux', mode: 'editor:fill', setup: { kind: 'defaults' } });
+		expect(t.controller.choiceForPreset('edit_region', 'qwen')).toEqual({ preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'defaults' } });
+		const remembered = setup([task({ offers: modes().offers, default: { preset_id: 'qwen', mode: 'editor:edit2', setup: { kind: 'session', id: 's1' }, health: { ok: true, reason: null, name: null, mode_label: null } } })], {}, true);
+		await remembered.controller.prepare('edit_region');
+		expect(remembered.controller.choiceForPreset('edit_region', 'qwen')).toEqual({ preset_id: 'qwen', mode: 'editor:edit2', setup: { kind: 'session', id: 's1' } });
+	});
+
+	it('switches mode inside the chosen preset and refuses a mode of another preset or one that cannot run', async () => {
+		const bad = task({ offers: [offer(), offer({ mode: 'editor:edit2', qualifies: false, reason: 'models_missing' }), flux()] });
+		const t = setup([bad]);
+		await t.controller.prepare('edit_region');
+		await t.controller.pick('edit_region', t.controller.defaultsChoice(offer()));
+		expect(t.controller.choiceForMode('edit_region', 'editor:edit2')).toBeNull();
+		expect(t.controller.choiceForMode('edit_region', 'editor:fill')).toBeNull();
+		const ok = setup([modes()]);
+		await ok.controller.prepare('edit_region');
+		await ok.controller.pick('edit_region', ok.controller.defaultsChoice(offer()));
+		expect(ok.controller.choiceForMode('edit_region', 'editor:edit2')).toEqual({ preset_id: 'qwen', mode: 'editor:edit2', setup: { kind: 'defaults' } });
+	});
+
+	it('lists the formulas of the editor key and the sessions of that key only', async () => {
+		const t = setup([modes()], {}, true);
+		t.ports.formulas.mockImplementation(async () => [{ id: 'f1', name: 'Film look', values: { steps: 40 } }] as never);
+		await t.controller.prepare('edit_region');
+		expect(t.ports.formulas).toHaveBeenCalledWith('qwen', 'editor:edit');
+		expect(t.controller.choicesOf(offer()).formulas).toEqual([{ id: 'f1', name: 'Film look', values: { steps: 40 } }]);
+		expect(t.controller.choicesOf(offer()).sessions.map((entry) => entry.id)).toEqual(['s1']);
+		expect(t.controller.choicesOf(offer({ mode: 'editor:edit2' })).sessions).toEqual([]);
+	});
+
+	it('loads the preset catalogue once for the picker', async () => {
+		const presets = vi.fn(async () => [{ id: 'qwen', name: 'Qwen-Image 2.1', version: '1', tags: [] }]);
+		const t = setup([modes()], { ports: { ...setup().ports, presets } });
+		await t.controller.prepare('edit_region');
+		await t.controller.prepare('edit_region');
+		expect(presets).toHaveBeenCalledTimes(1);
+		expect(get(t.controller.ui).catalog.map((entry) => entry.id)).toEqual(['qwen']);
+	});
+
+	it('opens the picker once on first use and keeps the reason after it was handled', async () => {
+		const t = setup([modes()]);
+		await t.controller.prepare('edit_region');
+		expect(get(t.controller.ui).picker).toMatchObject({ open: true, why: 'first_use' });
+		t.controller.pickerHandled();
+		expect(get(t.controller.ui).picker).toMatchObject({ open: false, why: 'first_use' });
+		await t.controller.generate('edit_region', false);
+		expect(get(t.controller.ui).picker.open).toBe(true);
+	});
+
+	it('refuses Generate with nothing picked', async () => {
+		const t = setup([modes()]);
+		await ready(t);
+		expect(await t.controller.generate('edit_region', false)).toBe(false);
+		expect(t.enginePorts.start).not.toHaveBeenCalled();
+	});
+
+	it('keeps a failed default write off the member setup and says why', async () => {
+		const t = setup();
+		t.ports.setDefault.mockRejectedValueOnce({ message: 'Network Error' });
+		await t.controller.prepare('edit_region');
+		await t.controller.setAsDefault('edit_region', true);
+		expect(t.controller.isDefault('edit_region')).toBe(false);
+		expect(get(t.controller.ui).error).toBe('The connection was lost. Try again.');
+	});
+});
+
+describe('generate controller: sessions of the editor', () => {
+	const open = async (saved = true) => {
+		const t = setup([task({ offers: [offer(), offer({ mode: 'editor:other' })] })], {}, saved);
+		t.ports.sessions.mockImplementation(async () => [{ id: 's1', name: 'Soft portrait', updated_at: '2026-11-14T10:00:00Z', version: 3, pinned: false, data: { 'editor:edit': { formData: { steps: 20 } } } }] as never);
+		await t.controller.prepare('edit_region');
+		return t;
+	};
+
+	it('saves the defaults as a new setup without opening Settings first', async () => {
+		const t = await open();
+		const outcome = await t.controller.saveAsNew('edit_region', 'Mine');
+		expect(outcome).toEqual({ ok: true });
+		expect(t.ports.saveSession).toHaveBeenCalledWith({ preset_id: 'qwen', name: 'Mine', data: { 'editor:edit': { formData: { steps: 28, seed: 7 } } }, mode: 'editor:edit', kind: 'editor' });
+		expect(get(t.controller.ui).choice.edit_region?.setup).toEqual({ kind: 'session', id: 'new' });
+	});
+
+	it('renames the selected session and keeps its values', async () => {
+		const t = await open();
+		await t.controller.pick('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
+		expect(await t.controller.saveTo('edit_region', 'Softer')).toEqual({ ok: true });
+		expect(t.ports.updateSession).toHaveBeenCalledWith('s1', { name: 'Softer', data: { 'editor:edit': { formData: { steps: 20 } } }, mode: 'editor:edit', base_version: 3, kind: 'editor' });
+		expect(t.controller.choicesOf(offer()).sessions[0].name).toBe('Softer');
+		expect((await t.controller.saveTo('edit_region', ' ')).ok).toBe(false);
+	});
+
+	it('deletes the selected session and falls back to the model defaults', async () => {
+		const t = await open();
+		const deleteSession = vi.fn(async () => undefined);
+		const ports = { ...t.ports, deleteSession };
+		const c = createGenerateController({ ...t.deps, ports });
+		await c.prepare('edit_region');
+		await c.pick('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
+		expect(await c.removeSession('edit_region')).toEqual({ ok: true });
+		expect(deleteSession).toHaveBeenCalledWith('s1');
+		expect(c.choicesOf(offer()).sessions).toEqual([]);
+		expect(get(c.ui).choice.edit_region?.setup).toEqual({ kind: 'defaults' });
+	});
+
+	it('pins and unpins, and undoes the change when the server refuses', async () => {
+		const t = await open();
+		const pinSession = vi.fn(async () => undefined);
+		const c = createGenerateController({ ...t.deps, ports: { ...t.ports, pinSession } });
+		await c.prepare('edit_region');
+		await c.pick('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
+		await c.pinSession('edit_region', 's1');
+		expect(pinSession).toHaveBeenCalledWith('s1', true);
+		expect(c.choicesOf(offer()).sessions[0].pinned).toBe(true);
+		pinSession.mockRejectedValueOnce(new Error('offline'));
+		await c.pinSession('edit_region', 's1');
+		expect(c.choicesOf(offer()).sessions[0].pinned).toBe(true);
+	});
+
+	it('loads an older version as unsaved changes on that session', async () => {
+		const t = await open();
+		const version = vi.fn(async () => ({ version_number: 1, created_at: 'x', summary: 's', data: { 'editor:edit': { formData: { steps: 9 } } } }));
+		const c = createGenerateController({ ...t.deps, ports: { ...t.ports, version } });
+		await c.prepare('edit_region');
+		expect(await c.loadVersion('edit_region', 's1', 1)).toBe(true);
+		expect(get(c.ui).choice.edit_region?.setup).toEqual({ kind: 'session', id: 's1' });
+		expect(c.changedFor('edit_region')).toBe(true);
+		expect(get(c.ui).tweaks.edit_region.values).toEqual({ steps: 9 });
+		const reloads = get(c.ui).reloads;
+		c.reloadSnapshot('edit_region');
+		expect(c.changedFor('edit_region')).toBe(false);
+		expect(get(c.ui).reloads).toBe(reloads + 1);
+	});
+
+	it('says so when a version cannot be loaded', async () => {
+		const t = await open();
+		const c = createGenerateController({ ...t.deps, ports: { ...t.ports, version: vi.fn(async () => null) } });
+		await c.prepare('edit_region');
+		expect(await c.loadVersion('edit_region', 's1', 1)).toBe(false);
 	});
 });

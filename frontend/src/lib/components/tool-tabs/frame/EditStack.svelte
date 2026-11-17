@@ -235,7 +235,7 @@
 						>
 							{row.key === 'original' ? (original.label ?? 'Original') : step?.label}
 						</span>
-						{#if info && row.step && row.status !== 'undone' && row.status !== 'pending' && info.state.kind !== 'done'}
+						{#if info && row.step && row.status !== 'undone' && (row.status !== 'pending' || row.reopened) && info.state.kind !== 'done'}
 							<span class="flex min-w-0 items-center gap-1.5 text-sm" data-stack-state={info.state.kind}>
 								{#if info.state.kind === 'busy'}
 									{#if info.state.progress !== undefined}
@@ -289,6 +289,15 @@
 					<span class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-surface-3" data-stack-progress><i class="block h-full bg-signal" style="width: {info.state.progress}%"></i></span>
 				{/if}
 				{#if row.status === 'pending'}
+					{#if row.reopened && row.step && !sheet && info?.state.kind === 'skipped'}
+						<span class="flex flex-none" data-stack-actions>
+							{#each info.actions ?? [] as action (action.id)}
+								<Tooltip text={action.label} position="top">
+									<IconButton icon={action.icon} label="{action.label} {row.step.label}" size="xs" onclick={() => row.step && onrowaction?.(row.step.id, action.id)} data-stack-action={action.id} />
+								</Tooltip>
+							{/each}
+						</span>
+					{/if}
 					<span class="inline-flex h-5 flex-none items-center rounded bg-surface-3 px-1.5 font-mono text-sm text-fg-muted">PENDING</span>
 				{:else if row.step && !sheet && row.status !== 'undone'}
 					<span class="flex flex-none {row.hidden ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}" data-stack-actions>

@@ -19,10 +19,11 @@ import GenerateFixture from './GenerateFixture.svelte';
 
 const { default: EditStack } = await import('$lib/components/tool-tabs/frame/EditStack.svelte');
 const { default: SaveMenuRows } = await import('$lib/components/tool-tabs/frame/SaveMenuRows.svelte');
+const { default: DockStaleNotice } = await import('$lib/components/tool-tabs/generate/DockStaleNotice.svelte');
 const { default: StaleOutline } = await import('$lib/components/tool-tabs/generate/StaleOutline.svelte');
 
 const SOURCE = { width: 1000, height: 800 };
-const offer = (): TaskOffer => ({ preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'edit', mode_label: 'Edit', label: null, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: [] });
+const offer = (): TaskOffer => ({ preset_id: 'qwen', preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, region_strategy: 'mask', via: null, qualifies: true, reason: null });
 const edit = (): EditorTaskInfo => ({ id: 'edit_region', label: 'Edit a region', icon: 'sparkles', region: 'optional', prompt: 'required', fallback: null, offers: [offer()], default: null });
 const run = (over: Partial<EditorRun> = {}): EditorRun => ({ id: 'er_2', task: 'edit_region', status: 'queued', edit_id: 'ed', step_id: 's2', generation_id: null, progress: 0, error: null, soft: false, rect: null, candidates: [], ...over });
 
@@ -31,7 +32,7 @@ const resize = (width: number) => resizeDraft({ width, height: Math.round(width 
 
 function params(beneath: Parameters<typeof basisFor>[0], over: Partial<GenerateParams> = {}): GenerateParams {
 	return {
-		v: 1,
+		v: 2,
 		task: 'edit_region',
 		prompt: 'red sailboat',
 		candidates: 3,
@@ -40,7 +41,7 @@ function params(beneath: Parameters<typeof basisFor>[0], over: Partial<GenerateP
 		seed: 2,
 		rect: { x: 0.2, y: 0.2, width: 0.3, height: 0.3 },
 		soft: false,
-		setup: { preset_id: 'qwen', mode: 'edit', variant: null, form_data: {}, source: { kind: 'defaults', id: null, name: null }, label: '' },
+		setup: { preset_id: 'qwen', mode: 'editor:edit', form_data: {}, source: { kind: 'defaults', id: null, name: null }, label: '' },
 		area: { region: { item_id: 'mask1' }, size: { width: 400, height: 300 } },
 		run: { id: 'er_1', status: 'done', error: null },
 		basis: basisFor(beneath, outputSize(beneath, SOURCE)),
@@ -100,6 +101,34 @@ describe('an out of date row', () => {
 		row().querySelector<HTMLButtonElement>('[data-stack-action="redo"]')!.click();
 		row().querySelector<HTMLButtonElement>('[data-stack-remove]')!.click();
 		expect(calls).toEqual(['s2:redo', 'remove:s2']);
+	});
+
+	it('keeps Redo on the row of the stale step while it is the open one', () => {
+		const { row, calls } = mountStack(reopen(stackWith(crop(0), crop(0.25)), 's2'));
+		expect(row().getAttribute('data-status')).toBe('pending');
+		expect(clean(row())).toContain('The picture changed');
+		const redo = row().querySelector<HTMLButtonElement>('[data-stack-action="redo"]');
+		expect(redo).not.toBeNull();
+		expect(redo!.closest('[data-stack-actions]')!.className).not.toContain('opacity-0');
+		redo!.click();
+		expect(calls).toEqual(['s2:redo']);
+	});
+
+	it('offers no row actions on an open step that is up to date', () => {
+		const { row } = mountStack(reopen(stackWith(crop(0), crop(0)), 's2'));
+		expect(row().getAttribute('data-status')).toBe('pending');
+		expect(row().querySelector('[data-stack-action]')).toBeNull();
+	});
+
+	it('says it in the dock notice row with a Redo button', () => {
+		const calls: string[] = [];
+		const view = mountComponent(DockStaleNotice, { onredo: () => calls.push('redo') });
+		const notice = view.target.querySelector<HTMLElement>('[data-dock-stale]')!;
+		expect(notice.getAttribute('role')).toBe('alert');
+		expect(clean(notice)).toContain('The picture changed. Redo on the new picture');
+		view.target.querySelector<HTMLButtonElement>('[data-dock-redo]')!.click();
+		expect(calls).toEqual(['redo']);
+		view.destroy();
 	});
 
 	it('is an ordinary done row while the picture beneath has the shape it was made on', () => {
@@ -209,12 +238,12 @@ describe('Redo on the new picture', () => {
 		expect(text('[data-prompt-status="redo"]')).toBe('Mark the area again');
 		expect(text('[data-prompt-redo]')).toBe('The picture beneath changed shape');
 		expect(q<HTMLTextAreaElement>('[data-prompt-field]')!.value).toBe('red sailboat');
-		expect(q<HTMLButtonElement>('[data-prompt-generate]')!.disabled).toBe(true);
+		expect(q<HTMLButtonElement>('[data-prompt-generate], [data-prompt-mark] button')!.disabled).toBe(true);
 		maskArea.set({ width: 200, height: 150 });
 		await settle();
 		expect(q('[data-prompt-status="redo"]')).toBeNull();
-		expect(q<HTMLButtonElement>('[data-prompt-generate]')!.disabled).toBe(false);
-		q<HTMLButtonElement>('[data-prompt-generate]')!.click();
+		expect(q<HTMLButtonElement>('[data-prompt-generate], [data-prompt-mark] button')!.disabled).toBe(false);
+		q<HTMLButtonElement>('[data-prompt-generate], [data-prompt-mark] button')!.click();
 		await settle();
 		expect(t.start).toHaveBeenCalledTimes(1);
 		expect(t.stack().steps).toHaveLength(2);

@@ -37,6 +37,7 @@
 		actions,
 		anchor,
 		fullscreen = false,
+		autosave = true,
 		onClose
 	}: {
 		fieldLabels?: FieldLabels;
@@ -44,6 +45,7 @@
 		actions: SessionPanelActions;
 		anchor: HTMLElement | undefined;
 		fullscreen?: boolean;
+		autosave?: boolean;
 		onClose: () => void;
 	} = $props();
 
@@ -389,7 +391,9 @@
 			<Button variant="secondary" size="sm" onclick={actions.saveAs}>Save as new</Button>
 		{/if}
 		<span class="flex-1"></span>
-		{#if currentSession}
+		{#if !autosave}
+			<span></span>
+		{:else if currentSession}
 			<Menu label="Auto-save" menuLabel="Auto-save interval" width={180} preferred="up">
 				{#snippet trigger({ open, toggle })}
 					<button

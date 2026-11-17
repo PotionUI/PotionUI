@@ -8,7 +8,7 @@ export interface DetachedFormInput {
 	id: string;
 	presetId: string;
 	mode: string;
-	variant: string | null;
+	variant?: string | null;
 	formData: Record<string, unknown>;
 }
 
@@ -19,7 +19,7 @@ export function detachedFormTab(input: DetachedFormInput): GenerationTab {
 		name: input.id,
 		selectedPreset: input.presetId,
 		selectedMode: input.mode,
-		selectedVariant: input.variant,
+		selectedVariant: input.variant ?? null,
 		selectedSessionId: null,
 		activeGenerationId: null,
 		prompt: '',

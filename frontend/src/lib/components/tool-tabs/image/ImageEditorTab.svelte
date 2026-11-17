@@ -36,6 +36,7 @@
 	import FloatingPrompt from '$lib/components/tool-tabs/generate/FloatingPrompt.svelte';
 	import CandidateStrip from '$lib/components/tool-tabs/generate/CandidateStrip.svelte';
 	import RunChip from '$lib/components/tool-tabs/generate/RunChip.svelte';
+	import DockStaleNotice from '$lib/components/tool-tabs/generate/DockStaleNotice.svelte';
 	import RunOverlay from '$lib/components/tool-tabs/generate/RunOverlay.svelte';
 	import StaleOutline from '$lib/components/tool-tabs/generate/StaleOutline.svelte';
 	import { LASSO_OVERLAY, chooseOverlay, maskArea, maskToolState } from '$lib/tool-tabs/image/maskOverlays';
@@ -410,6 +411,7 @@
 	);
 	let taskTool = $derived(!!registeredTool?.task);
 	let settingsRef = $derived(settingsOf(registeredTool));
+	let dockRef = $derived(registeredTool?.dock ?? (registeredTool?.task ? { component: FloatingPrompt } : undefined));
 	let settingsFor = $state<string | null>(null);
 	let settingsOpen = $derived(!!settingsRef && settingsFor !== null && settingsFor === activeTool);
 	$effect(() => {
@@ -441,6 +443,7 @@
 		void $runViews;
 		return runStep ? stepOutOfDate(runStep.step, runBeneath) : false;
 	});
+	let dockHasTemp = $derived(!!runStep && ((runStatus === 'done' && (runStep.params.results.length > 0 || runOutOfDate))));
 	let runOutline = $derived(runStep && runOutOfDate && shapeChange(runStep.params, runBeneath) === 'resize' ? runStep.params.rect : null);
 
 	async function redoStep(id: string) {
@@ -2177,17 +2180,9 @@
 				{/if}
 			{/snippet}
 		</EditorCanvas>
-		{#if taskTool && runningId && runStatus}
+		{#if taskTool && phone && runningId && runStatus}
 			<div class="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2" data-run-chip-host>
 				<RunChip status={runStatus === 'queued' ? 'queued' : 'running'} progress={runView?.progress ?? 0} onclick={() => void generate.cancel(runningId!)} />
-			</div>
-		{/if}
-		{#if taskTool && !phone}
-			<div class="pointer-events-none absolute inset-x-0 bottom-16 z-20 flex flex-col items-center gap-2 px-4" data-generate-dock>
-				<FloatingPrompt running={runningId} large={largeArea} settings={promptSettings} onclose={closeActiveTool} />
-				{#if runStep && runStatus === 'done' && runStep.params.results.length && !runOutOfDate}
-					<CandidateStrip results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
-				{/if}
 			</div>
 		{/if}
 		{#if renderError}
@@ -2203,6 +2198,30 @@
 				<Spinner />
 			{/if}
 		</div>
+	{/if}
+{/snippet}
+
+{#snippet dockTempRow()}
+	{#if runStep && runStatus === 'done' && runStep.params.results.length && !runOutOfDate}
+		<CandidateStrip dock results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
+	{:else if runStep && runStatus === 'done' && runOutOfDate}
+		<DockStaleNotice onredo={() => void redoStep(runStep!.step.id)} />
+	{/if}
+{/snippet}
+
+{#snippet dockExtrasView()}
+	{#if registeredTool?.dockExtras}
+		<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.dockExtras} props={{ host: toolHost, tool: registeredTool.id }} />
+	{/if}
+{/snippet}
+
+{#snippet dockContent()}
+	{#if dockRef}
+		<EditorEntryComponent
+			entry={entryKey('image', registeredTool!.id)}
+			componentRef={dockRef}
+			props={{ running: runningId, run: runStep && runStatus ? { status: runStatus, progress: runView?.progress ?? null } : null, large: largeArea, settings: promptSettings, tempRow: dockTempRow, hasTemp: dockHasTemp, extras: registeredTool?.dockExtras ? dockExtrasView : undefined }}
+		/>
 	{/if}
 {/snippet}
 
@@ -2308,6 +2327,7 @@
 		<ImageStartScreen tabId={host.tabId} {phone} busy={emptyBusy} error={emptyError} onpick={openSource} onfile={(file) => void openFile(file)} />
 	{:else}
 		<EditorFrame
+			dock={taskTool && dockRef && !phone ? dockContent : undefined}
 			{phone}
 			bind:compare
 			bind:stackOpen
@@ -2400,7 +2420,7 @@
 						<div class="flex-none border-t border-line bg-surface-1 px-3 py-2" data-task-mark-bar>
 							<MaskOptions compact bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} />
 						</div>
-						<FloatingPrompt phone running={runningId} large={largeArea} settings={promptSettings} onclose={closeActiveTool} />
+						<FloatingPrompt phone running={runningId} large={largeArea} settings={promptSettings} />
 					{/if}
 				{:else if phone && activeTool === 'effects'}
 					<div class="max-h-[34vh] flex-none overflow-y-auto border-t border-line bg-surface-1 px-3 py-2" data-look-list-phone>

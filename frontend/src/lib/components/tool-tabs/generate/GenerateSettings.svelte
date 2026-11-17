@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Spinner } from '$lib/components/ui';
+	import { Spinner } from '$lib/components/ui';
 	import GenerationFormPane from '$lib/components/generation/GenerationFormPane.svelte';
 	import dismiss from '$lib/actions/dismiss';
 	import { editorsRevision } from '$lib/editors/registry';
@@ -11,7 +11,6 @@
 	import type { SettingsContext } from '$lib/tool-tabs/image/generate/controller';
 	import { choiceKey, chipLabel } from '$lib/tool-tabs/image/generate/setup';
 	import { isChanged } from '$lib/tool-tabs/image/generate/tweaks';
-	import SaveSetupDialog from './SaveSetupDialog.svelte';
 
 	let { phone = false, onback }: { host?: unknown; phone?: boolean; onback?: () => void } = $props();
 
@@ -27,13 +26,12 @@
 	let label = $derived(entry?.label ?? $ui.tasks.find((item) => item.id === taskId)?.label ?? 'Edit');
 	let context = $state.raw<SettingsContext | null>(null);
 	let status = $state<'loading' | 'ready' | 'failed'>('loading');
-	let saving = $state(false);
-	let message = $state<string | null>(null);
-	let naming = $state(false);
+	let reloads = $derived($ui.reloads);
 
 	$effect(() => {
 		const id = taskId;
 		void key;
+		void reloads;
 		if (!id || !key) {
 			context = null;
 			status = 'failed';
@@ -41,7 +39,6 @@
 		}
 		let live = true;
 		status = 'loading';
-		message = null;
 		void generate.settings(id).then((found) => {
 			if (!live) return;
 			context = found;
@@ -56,36 +53,14 @@
 	let changed = $derived(isChanged(tweak));
 	let formTab = $derived(
 		context
-			? detachedFormTab({ id: `editor-settings:${context.key}`, presetId: context.offer.preset_id, mode: context.offer.mode, variant: context.offer.variant, formData: context.values })
+			? detachedFormTab({ id: `editor-settings:${context.key}`, presetId: context.offer.preset_id, mode: context.offer.mode, formData: context.values })
 			: null
 	);
-	let hidden = $derived(new Set(context?.owned ?? []));
 	let folds = $derived(context ? localSectionCollapsed(context.offer.preset_id, context.offer.mode) : undefined);
 	let setupText = $derived(context ? chipLabel(context.offer, context.source) : '');
-	let isSession = $derived(context?.source.kind === 'session');
-	let saveTarget = $derived(context?.source.name ?? '');
-	let showSaveTo = $derived(isSession && changed);
 
 	function edited(data: Record<string, unknown>) {
 		if (taskId) generate.tweak(taskId, data);
-		message = null;
-	}
-
-	async function saveTo() {
-		if (!taskId || saving) return;
-		saving = true;
-		message = null;
-		try {
-			const outcome = await generate.saveTo(taskId);
-			if (!outcome.ok) message = outcome.message;
-		} finally {
-			saving = false;
-		}
-	}
-
-	async function saveNew(name: string) {
-		if (!taskId) return { ok: false as const, message: 'Pick a setup first.' };
-		return generate.saveAsNew(taskId, name);
 	}
 </script>
 
@@ -115,24 +90,6 @@
 	</div>
 {/snippet}
 
-{#snippet footer()}
-	<div class="flex flex-none flex-col gap-2 border-t border-line px-4 py-3 {phone ? 'px-3' : ''}" data-settings-footer>
-		{#if message}
-			<p class="text-sm text-danger" role="alert" data-settings-error>{message}</p>
-		{/if}
-		<div class="flex gap-2 {phone ? 'flex-row-reverse' : 'flex-col'}">
-			{#if showSaveTo}
-				<Button variant="primary" size="md" class="min-w-0 {phone ? 'flex-1' : 'w-full'}" loading={saving} disabled={saving} onclick={() => void saveTo()} attrs={{ 'data-settings-save-to': '' }}>
-					<span class="min-w-0 truncate">Save to “{saveTarget}”</span>
-				</Button>
-			{/if}
-			<Button variant="secondary" size="md" class="min-w-0 {phone ? 'flex-1' : 'w-full'}" disabled={saving || status !== 'ready'} onclick={() => (naming = true)} attrs={{ 'data-settings-save-new': '' }}>
-				Save as new setup
-			</Button>
-		</div>
-	</div>
-{/snippet}
-
 <section
 	class="flex min-h-0 flex-col {phone ? 'flex-none border-t border-line-strong bg-surface-1 shadow-[var(--shadow-dock)] [flex:0_0_55%]' : 'flex-1'}"
 	aria-label="Settings"
@@ -146,14 +103,9 @@
 		{:else if status === 'failed' || !formTab}
 			<p class="rounded bg-surface-2 px-2.5 py-2 text-sm text-fg-muted" role="alert" data-settings-unavailable>Pick a setup to see its settings.</p>
 		{:else}
-			{#key formTab.id}
-				<GenerationFormPane tab={formTab} hiddenFields={hidden} sectionCollapsedContext={folds} onFormDataChange={edited} />
+			{#key `${formTab.id}:${reloads}`}
+				<GenerationFormPane tab={formTab} sectionCollapsedContext={folds} onFormDataChange={edited} />
 			{/key}
 		{/if}
 	</div>
-	{@render footer()}
 </section>
-
-{#if naming}
-	<SaveSetupDialog {label} onsave={saveNew} onclose={() => (naming = false)} />
-{/if}

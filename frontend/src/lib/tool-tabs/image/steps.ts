@@ -5,6 +5,7 @@ import type { RailGroup } from '$lib/tool-tabs/frame/types';
 import { railFor, railTools } from '$lib/editors/railTools';
 import { stepKinds } from '$lib/editors/stepKinds';
 import { ensureCoreImageEditor } from './coreEditor';
+import { imageEffects } from './shaderEffect';
 import { sliceSummary, type SliceParams } from './slice/model';
 
 export const GEOMETRY_LANE = 'geometry';
@@ -80,12 +81,23 @@ export const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; la
 	subject: { label: 'Subject', icon: 'editor-subject', lane: GEOMETRY_LANE }
 };
 
-export const CORE_RAIL: readonly { id: string; label: string; tools: readonly CoreImageTool[] }[] = [
-	{ id: 'shape', label: 'Shape', tools: ['crop', 'resize', 'canvas', 'slice'] },
-	{ id: 'paint', label: 'Paint', tools: ['paint', 'mask'] },
-	{ id: 'look', label: 'Look', tools: ['effects', 'adjust'] },
-	{ id: 'tools', label: 'Tools', tools: ['colorKey', 'subject'] }
+export interface CoreRailGroup {
+	id: string;
+	label: string;
+	fold?: number;
+	tools: readonly CoreImageTool[];
+}
+
+export const CORE_RAIL: readonly CoreRailGroup[] = [
+	{ id: 'shape', label: 'Transform', fold: 4, tools: ['crop', 'resize', 'canvas', 'slice'] },
+	{ id: 'paint', label: 'Paint', tools: ['paint'] },
+	{ id: 'look', label: 'Light and colour', fold: 2, tools: [] },
+	{ id: 'fx', label: 'Effects', fold: 1, tools: [] },
+	{ id: 'looks', label: 'Looks', tools: ['effects'] },
+	{ id: 'tools', label: 'Cut out', fold: 3, tools: ['colorKey', 'subject'] }
 ];
+
+export const LEGACY_TOOL_ALIAS: Readonly<Record<string, string>> = { adjust: 'light', mask: 'edit_region' };
 
 export function isRailTool(id: string | null | undefined, catalog: readonly ToolDTO[] = []): id is string {
 	return !!id && (isCoreTool(id) || !!railTools.get('image', id) || editorCatalogTools(catalog).some((tool) => tool.id === id));
@@ -127,8 +139,16 @@ export function imageRail(catalog: readonly ToolDTO[] = []): RailGroup[] {
 	const catalogTools = editorCatalogTools(catalog)
 		.filter((tool) => !railTools.get('image', tool.id))
 		.map((tool) => ({ id: tool.id, label: tool.label, icon: tool.icon || 'extension' }));
-	return railFor('image', { editor: 'image', hasSource: true }, { tools: catalogTools });
+	const rail = railFor('image', { editor: 'image', hasSource: true }, { tools: catalogTools });
+	if (!catalog.length) return rail;
+	const present = new Set(imageEffects(catalog).map((effect) => effect.id));
+	return rail.map((group) => ({
+		...group,
+		tools: group.tools.map((tool) => (EFFECT_BACKED.has(tool.id) && !present.has(tool.id) ? { ...tool, disabled: true, reason: 'Not available on this server' } : tool))
+	}));
 }
+
+const EFFECT_BACKED: ReadonlySet<string> = new Set(['lut', 'film_grain', 'vignette']);
 
 export function pluralLayers(count: number): string {
 	return `${count} ${count === 1 ? 'layer' : 'layers'}`;
@@ -216,4 +236,26 @@ export function curveMaster(values: Record<string, number>): [number, number][] 
 export function adjustRecipeStep(params: AdjustParams): Record<string, unknown> & { op: string } {
 	if (params.op === 'curves') return { op: 'curves', master: curveMaster(params.values) };
 	return { op: params.op, ...params.values };
+}
+
+export const BUNDLE_OPS: Readonly<Record<string, readonly string[]>> = {
+	light: ['exposure', 'tone', 'fade'],
+	colour: ['white_balance', 'tone', 'vibrance']
+};
+
+export function isBundleOp(op: string): boolean {
+	return op in BUNDLE_OPS;
+}
+
+export function adjustRecipeSteps(params: AdjustParams): (Record<string, unknown> & { op: string })[] {
+	const ops = BUNDLE_OPS[params.op];
+	if (!ops) return [adjustRecipeStep(params)];
+	return ops.map((op) => {
+		const step: Record<string, unknown> & { op: string } = { op };
+		for (const [key, value] of Object.entries(params.values)) {
+			const at = key.indexOf('.');
+			if (at > 0 && key.slice(0, at) === op) step[key.slice(at + 1)] = value;
+		}
+		return step;
+	});
 }

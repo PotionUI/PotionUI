@@ -15,6 +15,7 @@ export interface ToolAvailability {
 export interface RailGroupEntry extends EditorEntryBase {
 	label: string;
 	order: number;
+	fold?: number;
 }
 
 export interface RailToolEntry extends EditorEntryBase {
@@ -78,7 +79,10 @@ export function railFor(editor: EditorKind, ctx: ToolAvailability, extra: Record
 			return verdict.ok ? tool : { ...tool, disabled: true, reason: verdict.reason };
 		});
 		tools.push(...(extra[group.id] ?? []));
-		if (tools.length) rail.push({ id: group.id, label: group.label, tools });
+		if (!tools.length) continue;
+		const row: RailGroup = { id: group.id, label: group.label, tools };
+		if (group.fold !== undefined) row.fold = group.fold;
+		rail.push(row);
 	}
 	return rail;
 }

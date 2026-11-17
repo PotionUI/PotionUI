@@ -119,7 +119,7 @@ test.describe('a plugin fills the image editor slots', () => {
 		expect(registered).toEqual({ group: 'Stylize', toolGroup: GROUP, overlay: 'selection' });
 		await screenshot(page, JOURNEY, 'rail-1440');
 
-		await rail(page, 'mask').click();
+		await rail(page, 'edit_region').click();
 		const marking = page.getByLabel('Marking tool');
 		await expect(marking.getByText('Spotlight', { exact: true })).toBeVisible();
 		await marking.getByText('Spotlight', { exact: true }).click();

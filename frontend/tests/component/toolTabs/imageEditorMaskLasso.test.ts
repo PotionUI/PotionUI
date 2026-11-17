@@ -67,7 +67,8 @@ describe('ImageEditorTab mask tool', () => {
 		expect(options.querySelector('[aria-label="Marking tool"]')).not.toBeNull();
 		expect(options.textContent).toContain('Brush');
 		expect(options.textContent).toContain('Lasso');
-		expect(options.textContent).toContain('The marked area is used by Generate tools and travels with Send to.');
+		expect(options.textContent).toContain('Clear area');
+		expect(options.textContent).toContain('Marked area');
 		expect(options.textContent).not.toContain('The mask is not an edit step');
 	});
 

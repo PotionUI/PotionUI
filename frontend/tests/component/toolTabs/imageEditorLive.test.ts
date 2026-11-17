@@ -5,6 +5,9 @@ import { isRowDisabled, openEditorMenu, pickEditorMenuItem } from '../helpers/ed
 import { filterCatalog } from '$lib/filters/catalog';
 import type { FilterItem } from '$lib/filters/types';
 import { emptyImageState } from '$lib/tool-tabs/image/state';
+import { resetMediaToolCatalog } from '$lib/media-tools/catalog';
+import { effectTools } from '$lib/effects/catalog';
+import { EFFECT_CATALOG } from '../fixtures/effectCatalog';
 import type { ToolTabActions, ToolTabHost } from '$lib/tool-tabs/types';
 import type { MediaRef } from '$lib/types/tabs';
 
@@ -96,45 +99,56 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-describe('Adjust tool', () => {
-	it('shows every Light, Colour and Effects slider at once with no Apply', () => {
-		const view = render('adjust', { state: emptyImageState('adjust') as never });
-		expect(view.all('[data-adjust-section]').map((section) => section.dataset.adjustSection)).toEqual(['light', 'colour', 'effects']);
-		expect(view.all('[data-adjust-options] input[type="range"]').length).toBeGreaterThanOrEqual(20);
-		expect(view.q('[data-property-slider="Exposure"]')).not.toBeNull();
-		expect(view.q('[data-property-slider="Temperature"]')).not.toBeNull();
-		expect(view.q('[data-property-slider="Grain"]')).toBeNull();
-		expect(view.q('[data-adjust-caption="grain"]')).not.toBeNull();
+describe('Light and Colour entries', () => {
+	it('shows only the Light controls in the Light panel, with Reset and no Apply', () => {
+		const view = render('light', { state: emptyImageState('light') as never });
+		expect(view.all('[data-entry-options="light"] [data-property-slider]').map((slider) => slider.dataset.propertySlider)).toEqual(['Exposure', 'Brightness', 'Contrast', 'Black lift', 'White cap']);
+		expect(view.q('[data-property-slider="Temperature"]')).toBeNull();
+		expect(view.q('[data-property-slider="Saturation"]')).toBeNull();
 		expect(view.all('[data-options-apply]')).toHaveLength(0);
-		expect(view.q('[data-title-name]')?.textContent).toBe('Adjust');
-		expect(view.q('[data-options-panel] h2')).toBeNull();
+		expect(view.q('[data-options-reset]')).not.toBeNull();
+		expect(view.q('[data-title-name]')?.textContent).toBe('Light');
 	});
 
-	it('writes a slider move live into one step, with no pending edit', () => {
-		const view = render('adjust');
+	it('shows only the Colour controls in the Colour panel', () => {
+		const view = render('colour');
+		expect(view.all('[data-entry-options="colour"] [data-property-slider]').map((slider) => slider.dataset.propertySlider)).toEqual(['Temperature', 'Tint', 'Saturation', 'Hue', 'Vibrance']);
+	});
+
+	it('writes a slider move live into one step named Light, with no pending edit', () => {
+		const view = render('light');
 		expect(view.rows()).toEqual(['current']);
 		drag(view, 'Contrast', 18);
 		expect(view.rows()).toEqual(['original', 'current']);
-		expect(view.all('[data-stack-row]').at(-1)?.textContent).toContain('Tone');
+		expect(view.all('[data-stack-row]').at(-1)?.textContent).toContain('Light');
 		drag(view, 'Contrast', 30);
 		drag(view, 'Brightness', -5);
 		expect(view.rows()).toEqual(['original', 'current']);
 		expect(view.written().steps).toHaveLength(1);
-		expect(view.written().steps[0].params.values).toMatchObject({ contrast: 30, brightness: -5 });
+		expect(view.written().steps[0].params.values).toMatchObject({ 'tone.contrast': 30, 'tone.brightness': -5 });
 	});
 
-	it('keeps one step per op across sliders', () => {
-		const view = render('adjust');
+	it('keeps one step per entry across sliders and never mixes Light with Colour', async () => {
+		const view = render('light');
 		drag(view, 'Contrast', 18);
 		drag(view, 'Exposure', 0.5);
+		release(view, 'Exposure');
+		view.q<HTMLButtonElement>('[data-tool-rail] button[data-tool="colour"]')!.click();
+		await settle();
 		drag(view, 'Saturation', -6);
-		drag(view, 'Exposure', 0.9);
+		drag(view, 'Hue', 10);
+		release(view, 'Hue');
 		expect(view.rows()).toEqual(['original', 'applied', 'current']);
-		expect(view.written().steps).toHaveLength(2);
+		const [light, colour] = view.written().steps as Array<{ label: string; params: { values: Record<string, number> } }>;
+		expect(light.label).toBe('Light');
+		expect(colour.label).toBe('Colour');
+		expect(light.params.values['tone.saturation']).toBeUndefined();
+		expect(colour.params.values['tone.contrast']).toBeUndefined();
+		expect(colour.params.values).toMatchObject({ 'tone.saturation': -6, 'tone.hue': 10 });
 	});
 
 	it('undoes a whole drag in one step and a later drag separately', async () => {
-		const view = render('adjust');
+		const view = render('light');
 		drag(view, 'Contrast', 10);
 		release(view, 'Contrast');
 		drag(view, 'Contrast', 20);
@@ -143,7 +157,7 @@ describe('Adjust tool', () => {
 		release(view, 'Contrast');
 		view.q<HTMLButtonElement>('[data-frame-undo]')!.click();
 		await settle();
-		expect(view.written().steps[0].params.values?.contrast).toBe(10);
+		expect(view.written().steps[0].params.values?.['tone.contrast']).toBe(10);
 		expect(view.rows()).toEqual(['original', 'current']);
 		view.q<HTMLButtonElement>('[data-frame-undo]')!.click();
 		await settle();
@@ -152,7 +166,7 @@ describe('Adjust tool', () => {
 	});
 
 	it('commits a drag by itself once the sliders go quiet', () => {
-		const view = render('adjust');
+		const view = render('light');
 		drag(view, 'Contrast', 10);
 		release(view, 'Contrast');
 		drag(view, 'Contrast', 40);
@@ -160,33 +174,33 @@ describe('Adjust tool', () => {
 		flushSync();
 		view.q<HTMLButtonElement>('[data-frame-undo]')!.click();
 		flushSync();
-		expect(view.written().steps[0].params.values?.contrast).toBe(10);
+		expect(view.written().steps[0].params.values?.['tone.contrast']).toBe(10);
 	});
 
 	it('drops the step again when a slider returns to its default in the same drag', () => {
-		const view = render('adjust');
+		const view = render('light');
 		drag(view, 'Contrast', 18);
 		drag(view, 'Contrast', 0);
 		expect(view.rows()).toEqual(['current']);
 	});
 
-	it('resets everything from the Edit menu, as an undoable edit, and shows a dot for edited sections', async () => {
-		const view = render('adjust');
+	it('resets the entry from the panel footer and the Edit menu as an undoable edit, with a dot on the rail icon', async () => {
+		const view = render('light');
 		await openEditorMenu(view.view.target, 'edit');
 		expect(isRowDisabled('edit.reset')).toBe(true);
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 		await settle();
 		drag(view, 'Contrast', 18);
 		release(view, 'Contrast');
-		expect(view.q('[data-adjust-section="light"] [data-adjust-dot]')).not.toBeNull();
-		expect(view.q('[data-adjust-section="effects"] [data-adjust-dot]')).toBeNull();
+		expect(view.q('[data-tool-rail] button[data-tool="light"] [data-tool-applied]')).not.toBeNull();
+		expect(view.q('[data-tool-rail] button[data-tool="colour"] [data-tool-applied]')).toBeNull();
 		await pickEditorMenuItem(view.view.target, 'edit', 'edit.reset');
-		expect(view.written().steps[0].params.values?.contrast).toBe(0);
-		expect(view.q('[data-adjust-section="light"] [data-adjust-dot]')).toBeNull();
+		expect(view.written().steps[0].params.values?.['tone.contrast']).toBe(0);
+		expect(view.q('[data-tool-rail] button[data-tool="light"] [data-tool-applied]')).toBeNull();
 	});
 
 	it('enables Before / after in the View menu once something is adjusted', async () => {
-		const view = render('adjust');
+		const view = render('light');
 		await openEditorMenu(view.view.target, 'view');
 		expect(isRowDisabled('view.compare')).toBe(true);
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -196,9 +210,10 @@ describe('Adjust tool', () => {
 		expect(isRowDisabled('view.compare')).toBe(false);
 	});
 
-	it('toggles a no-parameter adjustment on and off', () => {
-		const view = render('adjust');
-		const toggle = () => view.q<HTMLElement>('[data-adjust-section="effects"] [role="switch"][aria-label="Grayscale"]')!;
+	it('toggles Grayscale on and off with its one switch', () => {
+		const view = render('grayscale');
+		const toggle = () => view.q<HTMLElement>('[data-entry-options="grayscale"] [role="switch"][aria-label="Grayscale"]')!;
+		expect(view.all('[data-entry-options="grayscale"] [role="switch"]')).toHaveLength(1);
 		toggle().click();
 		flushSync();
 		expect(view.rows()).toEqual(['original', 'current']);
@@ -207,9 +222,9 @@ describe('Adjust tool', () => {
 		expect(view.written().steps).toHaveLength(1);
 	});
 
-	it('opens Adjust from an adjustment row in the edits instead of reopening it as pending', async () => {
+	it('opens the entry from its row in the edits instead of reopening it as pending', async () => {
 		const view = render('crop');
-		view.q<HTMLButtonElement>('[data-tool-rail] button[data-tool="adjust"]')!.click();
+		view.q<HTMLButtonElement>('[data-tool-rail] button[data-tool="light"]')!.click();
 		await settle();
 		drag(view, 'Contrast', 18);
 		release(view, 'Contrast');
@@ -218,22 +233,71 @@ describe('Adjust tool', () => {
 		const row = view.all('[data-stack-row]').at(-1)!;
 		row.querySelector<HTMLButtonElement>('button')!.click();
 		await settle();
-		expect(view.q('[data-image-editor]')?.dataset.tool).toBe('adjust');
+		expect(view.q('[data-image-editor]')?.dataset.tool).toBe('light');
 		expect(view.rows()).toEqual(['original', 'current']);
 	});
 });
 
-describe('Looks tray', () => {
+describe('the other entries show only their own controls', () => {
+	const labels = (view: ReturnType<typeof render>, entry: string) => view.all(`[data-entry-options="${entry}"] [data-property-slider]`).map((slider) => slider.dataset.propertySlider);
+
+	it('Split tone has its five sliders and nothing from Colour', () => {
+		const view = render('split_tone');
+		expect(labels(view, 'split_tone')).toEqual(['Shadow hue', 'Shadow saturation', 'Highlight hue', 'Highlight saturation', 'Balance']);
+	});
+
+	it('Curves has the plot and its three sliders', () => {
+		const view = render('curves');
+		expect(labels(view, 'curves')).toEqual(['Shadows', 'Midtones', 'Highlights']);
+		expect(view.q('[data-entry-options="curves"] svg, [data-entry-options="curves"] canvas')).not.toBeNull();
+	});
+
+	it('Invert is one switch', () => {
+		const view = render('invert');
+		expect(view.all('[data-entry-options="invert"] [role="switch"]')).toHaveLength(1);
+		expect(view.all('[data-entry-options="invert"] [data-property-slider]')).toHaveLength(0);
+	});
+
+	it('Film grain has the controls of its effect and none of the Adjust sliders', () => {
+		resetMediaToolCatalog(EFFECT_CATALOG);
+		try {
+			const view = render('film_grain');
+			const wanted = effectTools(EFFECT_CATALOG).find((entry) => entry.id === 'film_grain')!.params.map((param) => param.label ?? param.name);
+			const text = view.q('[data-entry-options="film_grain"]')!.textContent ?? '';
+			for (const label of wanted) expect(text).toContain(label);
+			expect(view.q('[data-property-slider="Exposure"]')).toBeNull();
+			expect(view.q('[data-options-apply]')).toBeNull();
+		} finally {
+			resetMediaToolCatalog([]);
+		}
+	});
+
+	it('the Tools menu mirrors the groups as submenus with the entries, the current one marked', async () => {
+		const view = render('vignette');
+		await openEditorMenu(view.view.target, 'tools');
+		const groupIds = Array.from(document.body.querySelectorAll<HTMLElement>('[data-editor-menu] [data-menu-row][data-menu-level="0"]')).map((row) => row.dataset.rowId);
+		expect(groupIds).toEqual(['toolgroup:shape', 'tool:paint', 'toolgroup:generate', 'toolgroup:look', 'toolgroup:fx', 'tool:effects', 'toolgroup:tools']);
+		document.body.querySelector<HTMLButtonElement>('[data-row-id="toolgroup:fx"]')!.click();
+		await settle();
+		const sub = Array.from(document.body.querySelectorAll<HTMLElement>('[data-editor-submenu="toolgroup:fx"] [data-menu-row]'));
+		expect(sub.map((row) => row.dataset.rowId)).toEqual(['tool:film_grain', 'tool:vignette', 'tool:grayscale', 'tool:invert']);
+		expect(sub.map((row) => row.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false', 'false']);
+	});
+});
+
+describe('Looks panel', () => {
 	function hover(view: ReturnType<typeof render>, id: string) {
-		view.q(`[data-tray-item="${id}"]`)!.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+		view.q(`[data-look-item="${id}"]`)!.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
 		vi.advanceTimersByTime(200);
 		flushSync();
 	}
 
-	it('lists the looks as a tray under the canvas, grouped, with Original first', () => {
+	it('lists the looks in the panel, grouped, with Original first and no tray under the canvas', () => {
 		const view = render('effects');
-		expect(view.all('[data-tray-item]').map((tile) => tile.dataset.trayItem)).toEqual(['__original', 'matte', 'reel', 'noir']);
-		expect(view.all('[data-tray-group]').map((group) => group.dataset.trayGroup)).toEqual(['Original', 'film', 'mono']);
+		expect(view.all('[data-look-item]').map((tile) => tile.dataset.lookItem)).toEqual(['__original', 'matte', 'reel', 'noir']);
+		expect(view.all('[data-look-group]').map((group) => group.dataset.lookGroup)).toEqual(['film', 'mono']);
+		expect(view.q('[data-options-panel] [data-look-list]')).not.toBeNull();
+		expect(view.q('[data-tray]')).toBeNull();
 	});
 
 	it('previews a hovered look on the canvas without touching the stack, and says so', () => {
@@ -244,7 +308,7 @@ describe('Looks tray', () => {
 		expect(chip?.textContent).toContain('Matte');
 		expect(chip?.textContent).toContain('click to apply');
 		expect(view.rows()).toEqual(['current']);
-		view.q('[data-tray]')!.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
+		view.q('[data-look-list]')!.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
 		vi.advanceTimersByTime(100);
 		flushSync();
 		expect(view.q('[data-preview-chip]')).toBeNull();
@@ -254,11 +318,11 @@ describe('Looks tray', () => {
 	it('a click selects the look as the pending step with its intensity in the bar, Apply commits it', async () => {
 		const view = render('effects');
 		hover(view, 'reel');
-		view.q<HTMLButtonElement>('[data-tray-item="reel"]')!.click();
+		view.q<HTMLButtonElement>('[data-look-item="reel"]')!.click();
 		flushSync();
 		expect(view.q('[data-preview-chip]')).toBeNull();
 		expect(view.rows()).toEqual(['original', 'pending']);
-		expect(view.q('[data-tray-item="reel"]')!.getAttribute('aria-selected')).toBe('true');
+		expect(view.q('[data-look-item="reel"]')!.getAttribute('aria-selected')).toBe('true');
 		expect(view.q('[data-bar-look]')?.textContent).toBe('Reel');
 		expect(view.q('[data-options-panel] [data-property-slider="Intensity"] [data-property-value]')?.textContent).toBe('60');
 		expect(view.q('[data-options-apply]')?.textContent).toContain('Apply look');
@@ -267,9 +331,18 @@ describe('Looks tray', () => {
 		expect(view.rows()).toEqual(['original', 'current']);
 	});
 
+	it('lists what the chosen look contains, read only', () => {
+		const view = render('effects');
+		expect(view.q('[data-look-contains]')).toBeNull();
+		view.q<HTMLButtonElement>('[data-look-item="reel"]')!.click();
+		flushSync();
+		expect(view.all('[data-look-contains] span').map((chip) => chip.textContent)).toEqual(['Tone']);
+		expect(view.q('[data-look-contains-block]')?.textContent).toContain('Reel contains');
+	});
+
 	it('moves the in-bar intensity into the pending step', () => {
 		const view = render('effects');
-		view.q<HTMLButtonElement>('[data-tray-item="reel"]')!.click();
+		view.q<HTMLButtonElement>('[data-look-item="reel"]')!.click();
 		flushSync();
 		const range = view.q<HTMLInputElement>('[data-options-panel] [data-property-slider="Intensity"] input')!;
 		range.value = '35';
@@ -281,7 +354,7 @@ describe('Looks tray', () => {
 
 	it('does not preview the look that is already selected', () => {
 		const view = render('effects');
-		view.q<HTMLButtonElement>('[data-tray-item="reel"]')!.click();
+		view.q<HTMLButtonElement>('[data-look-item="reel"]')!.click();
 		flushSync();
 		hover(view, 'reel');
 		expect(view.q('[data-preview-chip]')).toBeNull();
@@ -289,51 +362,48 @@ describe('Looks tray', () => {
 
 	it('Original drops the pending look', () => {
 		const view = render('effects');
-		view.q<HTMLButtonElement>('[data-tray-item="reel"]')!.click();
+		view.q<HTMLButtonElement>('[data-look-item="reel"]')!.click();
 		flushSync();
-		view.q<HTMLButtonElement>('[data-tray-item="__original"]')!.click();
+		view.q<HTMLButtonElement>('[data-look-item="__original"]')!.click();
 		flushSync();
 		expect(view.rows()).toEqual(['current']);
 	});
 
-	it('filters the tray with the search in the properties', () => {
+	it('filters the list with the search in the properties', () => {
 		const view = render('effects');
 		const search = view.q<HTMLInputElement>('input[type="search"]')!;
 		search.value = 'noi';
 		search.dispatchEvent(new Event('input', { bubbles: true }));
 		flushSync();
-		expect(view.all('[data-tray-item]').map((tile) => tile.dataset.trayItem)).toEqual(['__original', 'noir']);
+		expect(view.all('[data-look-item]').map((tile) => tile.dataset.lookItem)).toEqual(['__original', 'noir']);
 	});
 
-	it('has the tray only for Looks', () => {
+	it('has the list only for Looks', () => {
 		const view = render('crop');
-		expect(view.q('[data-tray]')).toBeNull();
+		expect(view.q('[data-look-list]')).toBeNull();
 	});
 });
 
 describe('phone layout', () => {
 	it('puts the tray above a one-line bar for Looks, with the tool strip at the bottom', () => {
 		const view = render('effects', { phone: true });
-		const tray = view.q('[data-tray]')!;
+		const tray = view.q('[data-look-list-phone]')!;
 		const bar = view.q('[data-options-bar="phone"]')!;
 		expect(view.q('[data-tool-rail="strip"]')).not.toBeNull();
 		expect(tray.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(bar.querySelector('[data-options-apply]')?.textContent?.trim()).toBe('Apply');
-		view.q<HTMLButtonElement>('[data-tray-item="reel"]')!.click();
+		view.q<HTMLButtonElement>('[data-look-item="reel"]')!.click();
 		flushSync();
 		expect(view.q('[data-options-bar="phone"] [data-bar-look]')?.textContent).toBe('Reel');
 		expect(view.q('[data-options-bar="phone"] [data-property-slider="Intensity"]')).not.toBeNull();
 		expect(view.q<HTMLButtonElement>('[data-options-bar="phone"] [data-options-apply]')?.disabled).toBe(false);
 	});
 
-	it('has no bar and no Apply for Adjust, only section tabs over the sliders', () => {
-		const view = render('adjust', { phone: true });
+	it('has no bar and no Apply for Light, only its sliders', () => {
+		const view = render('light', { phone: true });
 		expect(view.q('[data-options-bar="phone"]')).toBeNull();
 		expect(view.all('[data-options-apply]')).toHaveLength(0);
-		expect(view.all('[data-adjust-section]').map((section) => section.dataset.adjustSection)).toEqual(['light']);
-		view.q<HTMLButtonElement>('[aria-label="Adjustment section"] button:nth-child(2)')!.click();
-		flushSync();
-		expect(view.all('[data-adjust-section]').map((section) => section.dataset.adjustSection)).toEqual(['colour']);
+		expect(view.all('[data-entry-options="light"] [data-property-slider]')).toHaveLength(5);
 	});
 
 	it('keeps the other tools on the options panel with Apply', () => {

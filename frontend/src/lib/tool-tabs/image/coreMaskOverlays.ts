@@ -19,8 +19,8 @@ export function ensureCoreMaskOverlays(): void {
 		order: 10,
 		hint: 'Paint over the part you want to change.',
 		modes: [
-			{ id: 'paint', label: 'Paint', subtract: false },
-			{ id: 'erase', label: 'Erase', subtract: true }
+			{ id: 'paint', label: 'Add', subtract: false },
+			{ id: 'erase', label: 'Subtract', subtract: true }
 		],
 		modesLabel: 'Mask brush',
 		size: { label: 'Brush size', min: MASK_BRUSH.min, max: MASK_BRUSH.max, step: MASK_BRUSH.step, default: MASK_BRUSH.default, unit: 'px' }

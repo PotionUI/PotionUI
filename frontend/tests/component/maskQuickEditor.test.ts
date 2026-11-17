@@ -160,8 +160,8 @@ describe('quick mask modal', () => {
 
 		expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
 		expect(document.body.querySelector('[aria-label="Mask brush"]')).not.toBeNull();
-		expect(buttonByText('Paint')).toBeDefined();
-		expect(buttonByText('Erase')).toBeDefined();
+		expect(buttonByText('Add')).toBeDefined();
+		expect(buttonByText('Subtract')).toBeDefined();
 		expect(buttonByText('Clear mask')).toBeDefined();
 		expect(document.body.textContent).toContain('Paint over the area to repaint.');
 		expect(buttonByText('Apply')!.disabled).toBe(true);
@@ -207,7 +207,7 @@ describe('quick mask modal', () => {
 	it('paints with the eraser as a destination-out stroke', async () => {
 		mount();
 		await settle();
-		buttonByText('Erase')!.click();
+		buttonByText('Subtract')!.click();
 		await settle();
 		await drag();
 

@@ -2406,7 +2406,13 @@ A step whose kind is not registered is never dropped from the edit:
 - **Tasks without a preset.** A task is run by an editor mode that names it. A plugin adds one to a preset it does
   not own by contributing an editor mode, and a task has no run path other than an editor mode.
 - **Core groups and ids.** Core rail group and tool ids are fixed. A plugin adds groups of its own and tools to any group,
-  and can order itself among core entries with `order`.
+  and can order itself among core entries with `order`. The Image editor's core groups are `shape` (Transform), `paint`,
+  `generate`, `look` (Light and colour), `fx` (Effects), `looks` and `tools` (Cut out); a tool that names one lands in it.
+- **Folding.** The rail lists every entry as its own icon while they all fit the rail's height. When they do not, groups
+  fold one at a time into a single icon with a flyout, never a scrollbar. A group folds by its `fold` rank (lower folds first;
+  core: Effects, Light and colour, Cut out, Transform, Generate); a group without a `fold` folds after the ranked ones, and a
+  group with one entry never folds. The fold depends only on the rail height and the number of entries, so a plugin tool
+  added to a group can fold it. The Tools menu always lists every group with its entries.
 
 ### Example: a rail tool with a step kind
 
@@ -2564,13 +2570,15 @@ const stop = window.__potionui.editors.registerStepKind(
 );
 ```
 
-### A marking tool for the Mask tool
+### A marking tool for the marking block
 
-The Mask tool lists every overlay that sets `produces: 'selection'` as one choice next to Brush and Lasso (the core ones are
+The Image editor has no Mask tool: the marking block (Brush or Lasso, Add or Subtract, size, the marked area and Clear area) sits
+in Edit a region, Remove an object and every task that declares a region, and is the same in each. Clear area is one undo step.
+The block lists every overlay that sets `produces: 'selection'` as one choice next to Brush and Lasso (the core ones are
 registered as `mask.brush` and `mask.lasso`, the same way a plugin registers). They all write one marked area, the picture's mask,
 so what a plugin tool marks can be added to or subtracted from by the brush and the lasso. An overlay can also set `label` (the
 choice's name; it defaults to the end of its id), `order`, `hint` (a line under the choices), and `modes` (`{ id, label, subtract }`
-choices such as Add and Subtract). The Image editor's Mask tool and the quick mask dialog on media fields both read the list, so a new
+choices such as Add and Subtract). The marking block and the quick mask dialog on media fields both read the list, so a new
 choice appears in both.
 
 The component receives `surface` (the mask canvas in picture pixels, with `context()`, `toPicture(clientX, clientY)`, `scale()`, the

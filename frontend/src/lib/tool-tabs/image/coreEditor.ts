@@ -5,6 +5,9 @@ import { railGroups, railTools } from '$lib/editors/railTools';
 import { stepKinds, type StepKind } from '$lib/editors/stepKinds';
 import { coreSizeAfter, coreStepPayload } from './payload';
 import { PREVIEW_SIDE, coreApplyClientStep } from './render';
+import EntryOptions from '$lib/components/tool-tabs/image/EntryOptions.svelte';
+import EffectCardOptions from '$lib/components/tool-tabs/image/EffectCardOptions.svelte';
+import { imageEffects } from './shaderEffect';
 import { ensureGenerateEditor } from './generate/register';
 import { CORE_RAIL, CORE_TOOLS, editorCatalogTools, type CoreImageTool } from './steps';
 
@@ -42,6 +45,52 @@ function catalogStepKind(tool: ToolDTO): StepKind {
 
 const catalogKinds = new Map<string, () => void>();
 
+interface EntrySeed {
+	id: string;
+	group: string;
+	label: string;
+	icon: string;
+	order: number;
+	component: 'entry' | 'card';
+}
+
+export const GRADE_SEEDS: readonly EntrySeed[] = [
+	{ id: 'light', group: 'look', label: 'Light', icon: 'lightbulb', order: 10, component: 'entry' },
+	{ id: 'colour', group: 'look', label: 'Colour', icon: 'palette', order: 20, component: 'entry' },
+	{ id: 'split_tone', group: 'look', label: 'Split tone', icon: 'sliders-horizontal', order: 30, component: 'entry' },
+	{ id: 'curves', group: 'look', label: 'Curves', icon: 'sliders', order: 40, component: 'entry' },
+	{ id: 'lut', group: 'look', label: 'LUT', icon: 'cube', order: 50, component: 'card' },
+	{ id: 'film_grain', group: 'fx', label: 'Film grain', icon: 'sparkles', order: 10, component: 'entry' },
+	{ id: 'vignette', group: 'fx', label: 'Vignette', icon: 'frame', order: 20, component: 'entry' },
+	{ id: 'grayscale', group: 'fx', label: 'Grayscale', icon: 'eyes', order: 30, component: 'entry' },
+	{ id: 'invert', group: 'fx', label: 'Invert', icon: 'swap', order: 40, component: 'entry' }
+];
+
+export const EFFECT_ENTRY_IDS: ReadonlySet<string> = new Set(['lut', 'film_grain', 'vignette']);
+
+const effectEntries = new Map<string, () => void>();
+
+function syncEffectEntries(catalog: readonly ToolDTO[]): void {
+	const wanted = new Map(imageEffects(catalog).filter((effect) => !GRADE_SEEDS.some((seed) => seed.id === effect.id)).map((effect) => [effect.id, effect]));
+	for (const [id, dispose] of effectEntries) {
+		if (wanted.has(id)) continue;
+		dispose();
+		effectEntries.delete(id);
+	}
+	let order = 100;
+	for (const [id, effect] of wanted) {
+		order += 10;
+		if (effectEntries.has(id) || railTools.get('image', id)) continue;
+		effectEntries.set(
+			id,
+			railTools.register(
+				{ id, editor: 'image', group: effect.block.group === 'colour' ? 'look' : 'fx', label: effect.label, icon: effect.icon || 'editor-effects', order, options: { component: EffectCardOptions } },
+				CORE_OWNER
+			)
+		);
+	}
+}
+
 function syncCatalogKinds(catalog: readonly ToolDTO[]): void {
 	const wanted = new Map(editorCatalogTools(catalog).map((tool) => [tool.id, tool]));
 	for (const [id, dispose] of catalogKinds) {
@@ -60,14 +109,27 @@ let registered = false;
 export function ensureCoreImageEditor(): void {
 	if (registered) return;
 	registered = true;
-	CORE_RAIL.forEach((group, groupIndex) => {
-		railGroups.register({ id: group.id, editor: 'image', label: group.label, order: (groupIndex + 1) * 100 });
+	const orders: Record<string, number> = { shape: 100, paint: 200, look: 300, fx: 330, looks: 360, tools: 400 };
+	CORE_RAIL.forEach((group) => {
+		railGroups.register({ id: group.id, editor: 'image', label: group.label, order: orders[group.id], ...(group.fold === undefined ? {} : { fold: group.fold }) });
 		group.tools.forEach((id, toolIndex) => {
 			const meta = CORE_TOOLS[id];
 			railTools.register({ id, editor: 'image', group: group.id, label: meta.label, icon: meta.icon, order: (toolIndex + 1) * 10 });
 		});
 	});
+	for (const seed of GRADE_SEEDS) {
+		railTools.register({
+			id: seed.id,
+			editor: 'image',
+			group: seed.group,
+			label: seed.label,
+			icon: seed.icon,
+			order: seed.order,
+			options: { component: seed.component === 'card' ? EffectCardOptions : EntryOptions }
+		});
+	}
 	for (const id of STEP_TOOLS) stepKinds.register(coreStepKind(id));
 	mediaToolCatalog.subscribe(syncCatalogKinds);
+	mediaToolCatalog.subscribe(syncEffectEntries);
 	ensureGenerateEditor();
 }

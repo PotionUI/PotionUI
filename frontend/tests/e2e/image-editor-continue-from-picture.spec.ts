@@ -279,8 +279,8 @@ async function applyCrop(page: Page) {
 
 async function applyReel(page: Page) {
 	await rail(page, 'effects').click();
-	await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
-	await page.locator('[data-tray-item="reel"]').click();
+	await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
+	await page.locator('[data-look-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
 	await page.locator('[data-options-apply]').click();
 	await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, `applied:${CROP}`, `current:${REEL}`]);

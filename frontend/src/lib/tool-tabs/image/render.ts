@@ -16,7 +16,7 @@ import { callKindAsync } from '$lib/editors/stepKinds';
 import { outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
 import { imageStepContext, resolveImageStep, stepOutOfDate, type ImageStepLike } from './stepKinds';
 import { imageEffects, stillShader } from './shaderEffect';
-import { adjustRecipeStep, type CropParams, type EffectParams, type PaintParams, type ResizeParams, type ToolEffectParams } from './steps';
+import { adjustRecipeSteps, type CropParams, type EffectParams, type PaintParams, type ResizeParams, type ToolEffectParams } from './steps';
 
 export const FULL_SIDE = 8192;
 export const PREVIEW_SIDE = 1600;
@@ -123,7 +123,7 @@ export interface ResolvedEffect {
 }
 
 export async function resolveEffect(params: LookOrAdjust): Promise<ResolvedEffect> {
-	if (params.kind === 'adjust') return { recipe: { steps: [adjustRecipeStep(params)], cube: null }, intensity: 100 };
+	if (params.kind === 'adjust') return { recipe: { steps: adjustRecipeSteps(params), cube: null }, intensity: 100 };
 	await loadFilterCatalog();
 	const item = get(filterCatalog).items.find((candidate) => candidate.id === params.filter);
 	if (!item) throw new Error(`The look ${params.name} is not available any more`);

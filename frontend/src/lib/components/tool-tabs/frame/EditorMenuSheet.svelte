@@ -118,7 +118,9 @@
 											{:else}
 												<button
 													type="button"
-													class="{rowClass} text-fg {child.disabled ? 'opacity-50' : ''}"
+													role={child.checked === undefined ? undefined : 'menuitemradio'}
+													aria-checked={child.checked === undefined ? undefined : child.checked}
+													class="{rowClass} {child.checked ? 'text-signal' : 'text-fg'} {child.disabled ? 'opacity-50' : ''}"
 													aria-disabled={child.disabled ? 'true' : undefined}
 													data-sheet-child={child.id}
 													onclick={() => pickChild(child)}
@@ -139,6 +141,7 @@
 													{:else if child.dot}
 														<span class="h-[7px] w-[7px] flex-none rounded-full" style="background: {child.dot}" aria-hidden="true"></span>
 													{/if}
+													{#if child.checked}<Icon name="check" className="h-3.5 w-3.5 flex-none text-signal" />{/if}
 												</button>
 											{/if}
 										{/each}

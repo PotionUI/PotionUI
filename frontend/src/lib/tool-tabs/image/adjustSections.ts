@@ -3,75 +3,14 @@ import { scalarParams } from '$lib/filters/steps';
 import { appliedSteps, commitLive, liveEdit, toggleHidden, type EditStackState, type EditStep, type StepDraft } from '$lib/tool-tabs/frame/editStack';
 import { CURVE_POINTS, adjustDraft, type AdjustParams } from './steps';
 
-export type AdjustControl =
-	| { kind: 'slider'; op: string; param: string; label?: string }
-	| { kind: 'curves'; op: 'curves' }
-	| { kind: 'toggle'; op: string };
-
-export interface AdjustSection {
-	id: 'light' | 'colour' | 'effects';
-	label: string;
-	icon: string;
-	controls: AdjustControl[];
-}
-
-const slider = (op: string, param: string, label?: string): AdjustControl => (label ? { kind: 'slider', op, param, label } : { kind: 'slider', op, param });
-
-export const CAPTIONED_OPS: readonly string[] = ['curves', 'split_tone', 'vignette', 'grain'];
-
-export const ADJUST_SECTIONS: readonly AdjustSection[] = [
-	{
-		id: 'light',
-		label: 'Light',
-		icon: 'lightbulb',
-		controls: [slider('exposure', 'stops', 'Exposure'), slider('tone', 'brightness'), slider('tone', 'contrast'), slider('fade', 'black_lift'), slider('fade', 'white_cap'), { kind: 'curves', op: 'curves' }]
-	},
-	{
-		id: 'colour',
-		label: 'Colour',
-		icon: 'palette',
-		controls: [
-			slider('white_balance', 'temperature', 'Temperature'),
-			slider('white_balance', 'tint', 'Tint'),
-			slider('tone', 'saturation'),
-			slider('tone', 'hue'),
-			slider('vibrance', 'amount', 'Vibrance'),
-			slider('split_tone', 'shadow_hue'),
-			slider('split_tone', 'shadow_sat'),
-			slider('split_tone', 'highlight_hue'),
-			slider('split_tone', 'highlight_sat'),
-			slider('split_tone', 'balance')
-		]
-	},
-	{
-		id: 'effects',
-		label: 'Effects',
-		icon: 'sparkles',
-		controls: [
-			slider('vignette', 'amount', 'Amount'),
-			slider('vignette', 'midpoint'),
-			slider('vignette', 'feather'),
-			slider('grain', 'amount', 'Amount'),
-			slider('grain', 'size'),
-			slider('grain', 'seed'),
-			{ kind: 'toggle', op: 'grayscale' },
-			{ kind: 'toggle', op: 'invert' }
-		]
-	}
-];
-
 export const ADJUST_STEP_TOOL = 'effects';
 
 export function isAdjustParams(params: unknown): params is AdjustParams {
 	return (params as AdjustParams | null)?.kind === 'adjust';
 }
 
-export function isAdjustStep(step: Pick<EditStep, 'tool' | 'params'>): boolean {
-	return step.tool === ADJUST_STEP_TOOL && isAdjustParams(step.params);
-}
-
 export function matchAdjust(op: string): (step: EditStep) => boolean {
-	return (step) => isAdjustStep(step) && (step.params as AdjustParams).op === op;
+	return (step) => step.tool === ADJUST_STEP_TOOL && isAdjustParams(step.params) && (step.params as AdjustParams).op === op;
 }
 
 export function opDefaults(op: string, spec: OpSpec | undefined): Record<string, number> {
@@ -139,19 +78,3 @@ export function toggleIsOn(stack: EditStackState<unknown>, op: string): boolean 
 	return !!step && !step.hidden;
 }
 
-export function controlOps(section: AdjustSection): string[] {
-	return [...new Set(section.controls.map((control) => control.op))];
-}
-
-export function sectionEdited(section: AdjustSection, stack: EditStackState<unknown>, lookup: (op: string) => OpSpec | undefined): boolean {
-	return controlOps(section).some((op) => {
-		const step = adjustStepFor(stack, op);
-		if (!step || step.hidden) return false;
-		const defaults = opDefaults(op, lookup(op));
-		return !sameValues({ ...defaults, ...(step.params as AdjustParams).values }, defaults) || lookup(op)?.params.length === 0;
-	});
-}
-
-export function adjustEditedCount(stack: EditStackState<unknown>): number {
-	return appliedSteps(stack).filter((step) => isAdjustStep(step) && !step.hidden).length;
-}

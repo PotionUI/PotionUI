@@ -418,6 +418,22 @@ test.describe('the editor menu bar on desktop', () => {
 		await expect(page.locator('[data-frame-redo]')).toBeEnabled();
 	});
 
+	test('Remove all edits asks first, Keep them changes nothing, confirming removes them and one Undo brings them back', async ({ page }) => {
+		await prepare(page, false);
+		const rows = page.locator('[data-edit-stack] [data-stack-row]');
+		await editorMenu(page, 'Edit', 'Remove all edits');
+		await expect(page.getByText('Remove all edits?')).toBeVisible();
+		await expect(page.getByText('Undo brings it back while this editor stays open.')).toBeVisible();
+		await page.getByRole('button', { name: 'Keep them' }).click();
+		await expect(rows).toHaveCount(2);
+		await editorMenu(page, 'Edit', 'Remove all edits');
+		await page.getByRole('button', { name: 'Remove all edits', exact: true }).click();
+		await expect(rows).toHaveCount(1);
+		await expect(page.locator('[data-frame-undo]')).toBeEnabled();
+		await page.locator('[data-frame-undo]').click();
+		await expect(rows).toHaveCount(2);
+	});
+
 	test('View toggles zoom, fit and the Edits list', async ({ page }) => {
 		await prepare(page);
 		await openEditorMenu(page, 'View');
@@ -443,19 +459,21 @@ test.describe('the editor menu bar on desktop', () => {
 		await expect(page.locator('[data-edit-stack]')).not.toHaveAttribute('data-folded', 'true');
 	});
 
-	test('Tools lists the rail by name with dividers, marks the current tool and selects like the rail', async ({ page }) => {
+	test('Tools mirrors the rail groups as submenus with their entries, marks the current one and selects like the rail', async ({ page }) => {
 		await prepare(page);
 		await openEditorMenu(page, 'Tools');
 		const menu = page.locator('[data-editor-menu="tools"]');
-		const railTools = await page.locator('[data-tool-rail] button[data-tool]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')));
 		const rows = await menu.locator('[data-menu-row]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-row-id')));
-		expect(rows).toHaveLength(railTools.length);
+		expect(rows).toEqual(['toolgroup:shape', 'tool:paint', 'toolgroup:generate', 'toolgroup:look', 'toolgroup:fx', 'tool:effects', 'toolgroup:tools']);
 		await expect(menu.locator('[role="separator"]').first()).toBeVisible();
+		await menuRowById(page, 'toolgroup:generate').hover();
+		await expect(page.locator('[data-editor-submenu="toolgroup:generate"]')).toBeVisible();
 		await expect(menuRowById(page, 'tool:edit_region')).toHaveAttribute('aria-checked', 'true');
 		await expect(menuRowById(page, 'tool:edit_region')).toHaveClass(/text-signal/);
 		await screenshot(page, JOURNEY, '05-tools-open-dark-1440');
 		await page.keyboard.press('Escape');
-		await editorMenu(page, 'Tools', 'Resize');
+		await page.keyboard.press('Escape');
+		await editorMenu(page, 'Tools', 'Transform', 'Resize');
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'resize');
 		await expect(page.locator('[data-title-name]')).toHaveText('Resize');
 		await expect(statusLine(page)).toContainText('Output');
@@ -602,9 +620,10 @@ test.describe('the editor menu on a phone', () => {
 		await expect(sheet.locator('[data-sheet-row="edit.redo"]')).toContainText('Nothing to redo');
 		await screenshot(page, JOURNEY, '03-edit-open-dark-390');
 		await sheet.locator('[data-sheet-section="tools"] > button').click();
-		await expect(sheet.locator('[data-sheet-row="tool:crop"]')).toHaveAttribute('aria-checked', 'true');
+		await sheet.locator('[data-sheet-row="toolgroup:shape"]').click();
+		await expect(sheet.locator('[data-sheet-child="tool:crop"]')).toHaveAttribute('aria-checked', 'true');
 		await screenshot(page, JOURNEY, '05-tools-open-dark-390');
-		await sheet.locator('[data-sheet-row="tool:resize"]').click();
+		await sheet.locator('[data-sheet-child="tool:resize"]').click();
 		await expect(page.getByRole('dialog', { name: 'Menu' })).toHaveCount(0);
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'resize');
 	});

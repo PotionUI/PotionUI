@@ -181,21 +181,31 @@ describe('a registered step kind drives the Image editor entry points', () => {
 			railTools.register({ id: 'acme.extra', editor: 'image', group: 'tools', label: 'Extra', icon: 'extension' }, OWNER)
 		);
 		const rail = imageRail();
-		expect(rail.map((group) => group.id)).toEqual(['shape', 'paint', 'generate', 'look', 'tools', 'acme.stylize']);
-		expect(rail[4].tools.map((tool) => tool.id)).toEqual(['colorKey', 'subject', 'acme.extra']);
-		expect(rail[5].tools).toEqual([{ id: 'acme.halftone', label: 'Halftone', icon: 'extension' }]);
+		expect(rail.map((group) => group.id)).toEqual(['shape', 'paint', 'generate', 'look', 'fx', 'looks', 'tools', 'acme.stylize']);
+		expect(rail[6].tools.map((tool) => tool.id)).toEqual(['colorKey', 'subject', 'acme.extra']);
+		expect(rail[7].tools).toEqual([{ id: 'acme.halftone', label: 'Halftone', icon: 'extension' }]);
 		expect(isRailTool('acme.halftone')).toBe(true);
 		expect(toolMeta('acme.halftone')).toMatchObject({ label: 'Halftone', icon: 'extension' });
 	});
 
 	it('keeps the core rail exactly as it was with nothing registered', () => {
-		expect(imageRail()).toEqual([
-			{ id: 'shape', label: 'Shape', tools: [{ id: 'crop', label: 'Crop', icon: 'editor-crop' }, { id: 'resize', label: 'Resize', icon: 'editor-resize' }, { id: 'canvas', label: 'Canvas', icon: 'editor-canvas' }, { id: 'slice', label: 'Slice', icon: 'editor-slice' }] },
-			{ id: 'paint', label: 'Paint', tools: [{ id: 'paint', label: 'Paint', icon: 'editor-paint' }, { id: 'mask', label: 'Mask', icon: 'editor-mask' }] },
-			{ id: 'generate', label: 'Generate', tools: [{ id: 'edit_region', label: 'Edit a region', icon: 'sparkles' }, { id: 'remove_object', label: 'Remove an object', icon: 'mode-remove-object' }] },
-			{ id: 'look', label: 'Look', tools: [{ id: 'effects', label: 'Looks', icon: 'editor-effects' }, { id: 'adjust', label: 'Adjust', icon: 'adjustments-horizontal' }] },
-			{ id: 'tools', label: 'Tools', tools: [{ id: 'colorKey', label: 'Color key', icon: 'editor-color-key' }, { id: 'subject', label: 'Subject', icon: 'editor-subject' }] }
+		const ids = (group: string) => imageRail().find((entry) => entry.id === group)?.tools.map((tool) => tool.id);
+		expect(imageRail().map((group) => [group.id, group.label, group.fold])).toEqual([
+			['shape', 'Transform', 4],
+			['paint', 'Paint', undefined],
+			['generate', 'Generate', 5],
+			['look', 'Light and colour', 2],
+			['fx', 'Effects', 1],
+			['looks', 'Looks', undefined],
+			['tools', 'Cut out', 3]
 		]);
+		expect(ids('shape')).toEqual(['crop', 'resize', 'canvas', 'slice']);
+		expect(ids('paint')).toEqual(['paint']);
+		expect(ids('generate')).toEqual(['edit_region', 'remove_object']);
+		expect(ids('look')).toEqual(['light', 'colour', 'split_tone', 'curves', 'lut']);
+		expect(ids('fx')).toEqual(['film_grain', 'vignette', 'grayscale', 'invert']);
+		expect(ids('looks')).toEqual(['effects']);
+		expect(ids('tools')).toEqual(['colorKey', 'subject']);
 	});
 });
 

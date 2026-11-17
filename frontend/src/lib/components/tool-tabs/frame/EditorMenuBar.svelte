@@ -293,10 +293,11 @@
 {#snippet childButton(child: MenuChoice)}
 	<button
 		type="button"
-		role="menuitem"
+		role={child.checked === undefined ? 'menuitem' : 'menuitemradio'}
+		aria-checked={child.checked === undefined ? undefined : child.checked}
 		aria-disabled={child.disabled ? 'true' : undefined}
 		tabindex="-1"
-		class="{rowClass} {child.sub ? 'py-1.5' : ''}"
+		class="{rowClass} {child.sub ? 'py-1.5' : ''} {child.checked ? 'text-signal' : ''}"
 		data-menu-row
 		data-row-id={child.id}
 		data-menu-level="1"
@@ -314,8 +315,9 @@
 		{#if child.badge}
 			<span class="flex-none rounded bg-surface-3 px-1.5 font-mono text-sm text-fg-muted">{child.badge}</span>
 		{:else if child.dot}
-			<span class="h-[7px] w-[7px] flex-none rounded-full" style="background: {child.dot}" aria-hidden="true"></span>
+			<span class="h-[7px] w-[7px] flex-none rounded-full" style="background: {child.dot}" aria-hidden="true" data-menu-applied></span>
 		{/if}
+		{#if child.checked}<Icon name="check" className="h-3.5 w-3.5 flex-none text-signal" />{/if}
 	</button>
 {/snippet}
 

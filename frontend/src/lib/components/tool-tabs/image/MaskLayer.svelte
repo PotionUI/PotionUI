@@ -30,7 +30,8 @@
 		erase = false,
 		disabled = false,
 		phone = false,
-		onstroke
+		onstroke,
+		onhistory
 	}: {
 		width: number;
 		height: number;
@@ -40,6 +41,7 @@
 		disabled?: boolean;
 		phone?: boolean;
 		onstroke?: (painted: boolean) => void;
+		onhistory?: (state: { canUndo: boolean; canRedo: boolean }) => void;
 	} = $props();
 
 	ensureCoreMaskOverlays();
@@ -82,8 +84,73 @@
 		maskArea.set(area ? { width: area.width, height: area.height } : null);
 	}
 
+	const HISTORY_LIMIT = 12;
+	let baseline: Uint8Array | null = null;
+	let past: Uint8Array[] = [];
+	let future: Uint8Array[] = [];
+
+	function alphaOf(): Uint8Array | null {
+		const surfaceContext = context();
+		if (!canvas || !surfaceContext) return null;
+		const data = surfaceContext.getImageData(0, 0, canvas.width, canvas.height).data;
+		const alpha = new Uint8Array(canvas.width * canvas.height);
+		for (let i = 0; i < alpha.length; i++) alpha[i] = data[i * 4 + 3];
+		return alpha;
+	}
+
+	function paintAlpha(alpha: Uint8Array) {
+		const surfaceContext = context();
+		if (!canvas || !surfaceContext) return;
+		const image = surfaceContext.createImageData(canvas.width, canvas.height);
+		for (let i = 0; i < alpha.length; i++) {
+			image.data[i * 4] = tint[0];
+			image.data[i * 4 + 1] = tint[1];
+			image.data[i * 4 + 2] = tint[2];
+			image.data[i * 4 + 3] = alpha[i];
+		}
+		surfaceContext.putImageData(image, 0, 0);
+	}
+
+	function announce() {
+		onhistory?.({ canUndo: past.length > 0, canRedo: future.length > 0 });
+	}
+
+	function record() {
+		if (baseline) past = [...past, baseline].slice(-HISTORY_LIMIT);
+		future = [];
+		baseline = alphaOf();
+		announce();
+	}
+
+	export function undo(): boolean {
+		const previous = past[past.length - 1];
+		if (!previous || !baseline) return false;
+		future = [...future, baseline];
+		past = past.slice(0, -1);
+		baseline = previous;
+		paintAlpha(previous);
+		refreshArea();
+		onstroke?.(true);
+		announce();
+		return true;
+	}
+
+	export function redo(): boolean {
+		const next = future[future.length - 1];
+		if (!next || !baseline) return false;
+		past = [...past, baseline];
+		future = future.slice(0, -1);
+		baseline = next;
+		paintAlpha(next);
+		refreshArea();
+		onstroke?.(true);
+		announce();
+		return true;
+	}
+
 	function changed() {
 		refreshArea();
+		record();
 		onstroke?.(true);
 	}
 
@@ -149,6 +216,7 @@
 			await restore(existing);
 			refreshArea();
 		}
+		baseline = alphaOf();
 	});
 
 	onDestroy(() => maskArea.set(null));
@@ -185,6 +253,7 @@
 		if (canvas && surfaceContext) surfaceContext.clearRect(0, 0, canvas.width, canvas.height);
 		area = null;
 		maskArea.set(null);
+		record();
 	}
 
 	export function renderMask(cutoff = 64): HTMLCanvasElement | null {

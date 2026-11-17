@@ -11,3 +11,4 @@ export { default as TickProgress } from './TickProgress.svelte';
 export { default as BarActions } from './BarActions.svelte';
 export { default as PropertySlider } from './PropertySlider.svelte';
 export { default as LookTray } from './LookTray.svelte';
+export { default as LookList } from './LookList.svelte';

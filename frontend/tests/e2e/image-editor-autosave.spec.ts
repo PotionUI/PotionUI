@@ -156,8 +156,8 @@ async function applyCrop(page: Page) {
 
 async function applyReel(page: Page) {
 	await rail(page, 'effects').click();
-	await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
-	await page.locator('[data-tray-item="reel"]').click();
+	await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
+	await page.locator('[data-look-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
 	await page.locator('[data-options-apply]').click();
 }
@@ -264,7 +264,7 @@ test.describe('Image editor autosave on desktop', () => {
 		await expect.poll(() => server.creates.length).toBe(1);
 
 		await rail(page, 'effects').click();
-		await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
+		await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
 		server.down = true;
 		await page.context().setOffline(true);
 		await applyReel(page);
@@ -305,10 +305,10 @@ test.describe('Image editor autosave on a phone', () => {
 		await screenshot(page, JOURNEY, '01-saved-390');
 
 		await phone.locator('[data-tool-rail="strip"] button[data-tool="effects"]').click();
-		await expect(phone.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
+		await expect(phone.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
 		server.down = true;
 		await page.context().setOffline(true);
-		await phone.locator('[data-tray-item="reel"]').click();
+		await phone.locator('[data-look-item="reel"]').click();
 		await phone.locator('[data-options-apply]').click();
 		await expect(indicator(page, 'offline')).toBeVisible();
 		await screenshot(page, JOURNEY, '04-offline-390');

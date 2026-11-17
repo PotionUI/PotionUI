@@ -11,6 +11,7 @@ export interface RailTool {
 export interface RailGroup {
 	id: string;
 	label: string;
+	fold?: number;
 	tools: RailTool[];
 }
 

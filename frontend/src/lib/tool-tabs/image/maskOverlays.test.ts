@@ -24,8 +24,8 @@ const brush: CanvasOverlayEntry = {
 	label: 'Brush',
 	order: 10,
 	modes: [
-		{ id: 'paint', label: 'Paint', subtract: false },
-		{ id: 'erase', label: 'Erase', subtract: true }
+		{ id: 'paint', label: 'Add', subtract: false },
+		{ id: 'erase', label: 'Subtract', subtract: true }
 	]
 };
 const lasso: CanvasOverlayEntry = { id: LASSO_OVERLAY, editor: 'image', component, produces: 'selection', label: 'Lasso', order: 20 };

@@ -37,7 +37,9 @@
 			<h2 class="min-w-0 flex-1 truncate text-base font-semibold text-fg">{title}</h2>
 			{#if actions}
 				<Button variant="secondary" size="sm" class="h-7" disabled={!canReset} onclick={onreset} attrs={{ 'data-options-reset': '' }}>Reset</Button>
-				<Button variant="primary" size="sm" class="h-7" disabled={!canApply} onclick={onapply} attrs={{ 'data-options-apply': '' }}>Apply</Button>
+				{#if showApply}
+					<Button variant="primary" size="sm" class="h-7" disabled={!canApply} onclick={onapply} attrs={{ 'data-options-apply': '' }}>Apply</Button>
+				{/if}
 			{/if}
 		</div>
 		{#if children}

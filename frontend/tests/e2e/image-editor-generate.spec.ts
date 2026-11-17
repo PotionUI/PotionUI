@@ -200,6 +200,10 @@ const update = (server: Server, status: string, extra: Json = {}, n = server.run
 const sessionDefault: Json = { preset_id: 'qwen21', mode: 'edit', variant: null, setup: { kind: 'session', id: 'sess-1' }, health: { ok: true, reason: null, name: null, mode_label: null } };
 
 const rail = (page: Page, tool: string) => page.locator(`[data-tool-rail] button[data-tool="${tool}"]`);
+async function openPhoneTask(page: Page, id: string) {
+	await page.locator('[data-tool-rail] [data-group-button="generate"]').click();
+	await page.locator(`[data-rail-sheet="generate"] [data-sheet-item="${id}"]`).click();
+}
 const options = (page: Page) => page.locator('[data-options-panel]');
 const prompt = (page: Page) => page.locator('[data-floating-prompt]');
 const row = (page: Page, id = 's1') => page.locator(`[data-edit-stack] [data-stack-row="${id}"]`);
@@ -780,7 +784,7 @@ test.describe('Edit a region on the phone', () => {
 	test('the prompt sheet, the picker sheet and the run', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region'), taskEntry('remove_object', 'Remove an object')], true);
 		await openHarbor(page);
-		await page.locator('[data-tool-rail] button[data-tool="edit_region"]').click();
+		await openPhoneTask(page, 'edit_region');
 		await expect(page.locator('[data-setup-picker="sheet"]')).toBeVisible();
 		await screenshot(page, JOURNEY, '02-first-use-dark-390');
 		await page.locator('[data-picker-option="session"]').first().click();
@@ -812,7 +816,7 @@ test.describe('Edit a region on the phone', () => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
 		await shape(page, '1:1');
-		await page.locator('[data-tool-rail] button[data-tool="edit_region"]').click();
+		await openPhoneTask(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'red sailboat');
 		await generate(page);
@@ -834,7 +838,7 @@ test.describe('Edit a region on the phone', () => {
 	test('Remove an object on the phone', async ({ page }) => {
 		await begin(page, [taskEntry('remove_object', 'Remove an object', { offers: [qwen()] })]);
 		await openHarbor(page);
-		await page.locator('[data-tool-rail] button[data-tool="remove_object"]').click();
+		await openPhoneTask(page, 'remove_object');
 		await expect(page.locator('[data-editor-layer]')).toBeVisible();
 		await expect(prompt(page).locator('[data-prompt-status="warn"]')).toBeVisible();
 		await screenshot(page, JOURNEY, '07-remove-dark-390');
@@ -843,7 +847,7 @@ test.describe('Edit a region on the phone', () => {
 	test('Settings replace the prompt in the same sheet, with a back arrow and the discard prompt', async ({ page }) => {
 		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true);
 		await openHarbor(page);
-		await page.locator('[data-tool-rail] button[data-tool="edit_region"]').click();
+		await openPhoneTask(page, 'edit_region');
 		await expect(prompt(page)).toBeVisible();
 		await prompt(page).locator('[data-prompt-settings]').click();
 		const view = page.locator('[data-settings-view="phone"]');

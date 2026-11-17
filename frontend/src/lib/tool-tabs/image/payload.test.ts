@@ -274,11 +274,13 @@ describe('rail', () => {
 		expect(editorCatalogTools(catalog).map((entry) => entry.id)).toEqual(['pixel.sort']);
 		const rail = imageRail(catalog);
 		expect(rail.map((group) => [group.label, group.tools.map((entry) => entry.label)])).toEqual([
-			['Shape', ['Crop', 'Resize', 'Canvas', 'Slice']],
-			['Paint', ['Paint', 'Mask']],
+			['Transform', ['Crop', 'Resize', 'Canvas', 'Slice']],
+			['Paint', ['Paint']],
 			['Generate', ['Edit a region', 'Remove an object']],
-			['Look', ['Looks', 'Adjust']],
-			['Tools', ['Color key', 'Subject', 'Pixel sort']]
+			['Light and colour', ['Light', 'Colour', 'Split tone', 'Curves', 'LUT']],
+			['Effects', ['Film grain', 'Vignette', 'Grayscale', 'Invert']],
+			['Looks', ['Looks']],
+			['Cut out', ['Color key', 'Subject', 'Pixel sort']]
 		]);
 	});
 });

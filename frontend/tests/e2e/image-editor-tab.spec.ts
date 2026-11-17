@@ -230,8 +230,8 @@ async function cropSquare(page: Page, shoot = false) {
 
 async function applyReel(page: Page, shoot = false) {
 	await rail(page, 'effects').click();
-	await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
-	await page.locator('[data-tray-item="reel"]').click();
+	await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
+	await page.locator('[data-look-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
 	await editorMenu(page, 'View', 'Before / after');
 	await expect(page.locator('[data-canvas-divider]')).toBeVisible();
@@ -370,17 +370,18 @@ test.describe('painting and masking in the Image editor tab', () => {
 		await expect.poll(() => stackRows(page)).toEqual(['original:00Original640×480·PNG', 'current:01Paint·1layer640×480']);
 		expect(log.artifacts).toBe(1);
 
-		await rail(page, 'mask').click();
+		await rail(page, 'edit_region').click();
 		const mask = page.locator('[data-mask-layer]');
 		await expect(mask).toBeVisible();
+		await options(page).getByRole('button', { name: 'Brush', exact: true }).click();
 		const area = (await mask.boundingBox())!;
 		await page.mouse.move(area.x + area.width * 0.3, area.y + area.height * 0.4);
 		await page.mouse.down();
 		await page.mouse.move(area.x + area.width * 0.6, area.y + area.height * 0.5, { steps: 6 });
 		await page.mouse.up();
 		await screenshot(page, JOURNEY, 'mask-1440');
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => log.uploads).toBe(1);
+		await expect(page.locator('[data-options-apply]')).toHaveCount(0);
+		expect(log.uploads).toBe(0);
 		await expect.poll(() => stackRows(page)).toHaveLength(2);
 
 		await page.locator('[data-frame-save-menu]').click();
@@ -415,8 +416,8 @@ test.describe('the Image editor tab on a phone', () => {
 		await phone.locator('[data-options-apply]').click();
 		await expect(phone.locator('[data-frame-edits]')).toContainText('1 edit');
 		await phone.locator('[data-tool-rail="strip"] button[data-tool="effects"]').click();
-		await expect(phone.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
-		await phone.locator('[data-tray-item="reel"]').click();
+		await expect(phone.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
+		await phone.locator('[data-look-item="reel"]').click();
 		await screenshot(page, JOURNEY, '08-phone-effects-390');
 
 		const overflowX = await page.evaluate(() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth);
@@ -464,9 +465,11 @@ test.describe('the lasso in the Image editor tab', () => {
 		await openDusk(page);
 		await cropSquare(page);
 
-		await rail(page, 'mask').click();
+		await rail(page, 'edit_region').click();
 		await expect(page.locator('[data-mask-layer]')).toBeVisible();
 		await expect(options(page).getByRole('group', { name: 'Marking tool' })).toBeVisible();
+		await expect(options(page).getByRole('group', { name: 'Lasso mode' })).toBeVisible();
+		await options(page).getByRole('button', { name: 'Brush', exact: true }).click();
 		await expect(options(page).getByRole('group', { name: 'Mask brush' })).toBeVisible();
 		await expect(options(page)).toContainText('Brush size');
 
@@ -508,8 +511,8 @@ test.describe('the lasso in the Image editor tab', () => {
 		expect(await maskAlpha(page, 0.2, 0.82)).toBe(0);
 		await expect(options(page).locator('[data-mask-area-readout]')).toHaveText(before ?? '');
 
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => log.uploads).toBe(1);
+		await expect(page.locator('[data-options-apply]')).toHaveCount(0);
+		expect(log.uploads).toBe(0);
 
 		await page.locator('[data-frame-save-menu]').click();
 		const send = page.locator('[data-save-row="send"]');
@@ -524,7 +527,7 @@ test.describe('the lasso in the Image editor tab', () => {
 		await start(page, true);
 		await openDusk(page);
 		await cropSquare(page);
-		await rail(page, 'mask').click();
+		await rail(page, 'edit_region').click();
 		await options(page).getByRole('button', { name: 'Lasso', exact: true }).click();
 
 		await page.getByRole('button', { name: 'Zoom in' }).click();
@@ -550,13 +553,18 @@ test.describe('the lasso on a phone', () => {
 		const phone = page.getByTestId('phone-tool-tab');
 		await phone.locator('[data-recent-history] button').first().click();
 		await expect(phone.locator('[data-editor-frame="phone"]')).toBeVisible();
-		await phone.locator('[data-tool-rail="strip"] button[data-tool="mask"]').click();
+		await phone.locator('[data-tool-rail="strip"] [data-group-button="generate"]').click();
+		await page.locator('[data-rail-sheet="generate"] [data-sheet-item="edit_region"]').click();
+		await expect(page.locator('[data-rail-sheet]')).toHaveCount(0);
+		await page.locator('[data-setup-picker="sheet"]').waitFor({ state: 'visible', timeout: 4000 }).catch(() => undefined);
+		if (await page.locator('[data-setup-picker="sheet"]').isVisible()) await page.keyboard.press('Escape');
+		await expect(page.locator('[data-frame-sheet]')).toHaveCount(0);
 		await expect(phone.locator('[data-mask-layer]')).toBeVisible();
-		await expect(phone.locator('[data-options-panel="phone"]')).toBeVisible();
+		await expect(phone.locator('[data-task-mark-bar]')).toBeVisible();
 		await screenshot(page, JOURNEY, '10b-mask-brush-390');
 
-		await phone.locator('[data-options-panel="phone"]').getByRole('button', { name: 'Lasso', exact: true }).click();
-		await expect(phone.locator('[data-options-panel="phone"]').getByRole('group', { name: 'Lasso mode' })).toBeVisible();
+		await phone.locator('[data-task-mark-bar]').getByRole('button', { name: 'Lasso', exact: true }).click();
+		await expect(phone.locator('[data-task-mark-bar]').getByRole('group', { name: 'Lasso mode' })).toBeVisible();
 		await drag(page, [[0.55, 0.3], [0.8, 0.35], [0.82, 0.6], [0.6, 0.7]]);
 		await expect(phone.locator('[data-mask-area]')).toBeVisible();
 		await expect.poll(() => maskAlpha(page, 0.7, 0.5)).toBe(255);

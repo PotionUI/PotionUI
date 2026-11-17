@@ -8,6 +8,7 @@ import {
 	canMove,
 	canRedo,
 	canUndo,
+	clearAll,
 	createStack,
 	deserialize,
 	discardPending,
@@ -17,6 +18,7 @@ import {
 	redo,
 	redoLabel,
 	remove,
+	removeUndoable,
 	reopen,
 	reopenLatest,
 	seek,
@@ -462,5 +464,37 @@ describe('reopenLatest', () => {
 		const state = applyAll(grain(10), crop);
 		const same = apply(reopenLatest(state, isGrain));
 		expect(undo(same).cursor).toBe(1);
+	});
+});
+
+describe('undoable removals', () => {
+	const push = (state: EditStackState<unknown>, label: string) => apply(beginEdit(state, { tool: 'effects', icon: '', label, summary: '', params: {} }));
+
+	it('removes one step in the middle and one undo puts it back where it was', () => {
+		const stack = push(push(push(createStack<unknown>(), 'a'), 'b'), 'c');
+		const id = stack.steps[1].id;
+		const removed = removeUndoable(stack, id);
+		expect(removed.steps.map((step) => step.label)).toEqual(['a', 'c']);
+		expect(canUndo(removed)).toBe(true);
+		expect(undoLabel(removed)).toBe('Remove b');
+		const back = undo(removed);
+		expect(back.steps.map((step) => step.label)).toEqual(['a', 'b', 'c']);
+		expect(back.cursor).toBe(3);
+	});
+
+	it('stops offering the restore once another edit lands, so undo then undoes that edit', () => {
+		const stack = push(push(createStack<unknown>(), 'a'), 'b');
+		const removed = removeUndoable(stack, stack.steps[0].id);
+		const later = push(removed, 'd');
+		expect(appliedSteps(undo(later)).map((step) => step.label)).toEqual(['b']);
+		expect(undoLabel(later)).toBe('d');
+	});
+
+	it('clear all is the same kind of change', () => {
+		const stack = push(push(createStack<unknown>(), 'a'), 'b');
+		const cleared = clearAll(stack);
+		expect(cleared.steps).toHaveLength(0);
+		expect(undoLabel(cleared)).toBe('Remove all edits');
+		expect(undo(cleared).steps).toHaveLength(2);
 	});
 });

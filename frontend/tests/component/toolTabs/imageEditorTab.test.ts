@@ -107,7 +107,8 @@ describe('ImageEditorTab', () => {
 		expect(q('[data-title-name]')?.textContent).toBe('Looks');
 		expect(q('[data-options-panel] h2')).toBeNull();
 		expect(q('[data-options-subtitle]')).toBeNull();
-		expect(q('[data-tray]')).not.toBeNull();
+		expect(q('[data-options-panel] [data-look-list]')).not.toBeNull();
+		expect(q('[data-tray]')).toBeNull();
 		expect(calls.title).toContain('observatory-dusk');
 		expect(calls.dirty).toEqual([2]);
 	});
@@ -155,7 +156,8 @@ describe('ImageEditorTab', () => {
 		expect(q('[data-editor-frame="phone"]')).not.toBeNull();
 		expect(q('[data-tool-rail="strip"]')).not.toBeNull();
 		expect(q('[data-options-bar="phone"]')).not.toBeNull();
-		expect(q('[data-tray]')).not.toBeNull();
+		expect(q('[data-look-list-phone]')).not.toBeNull();
+		expect(q('[data-tray]')).toBeNull();
 		expect(q('[data-editor-toolbar]')).toBeNull();
 		expect(q('[data-frame-edits]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('2 edits');
 		expect(lastActions()?.undo?.label).toBe('Undo Reel');

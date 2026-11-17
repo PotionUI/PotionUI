@@ -247,6 +247,31 @@ describe('the Tools menu', () => {
 		expect(menu.groups[0][0].id).toBe('tool:crop');
 	});
 
+	it('with grouped tools lists single entries as items and multi-entry groups as submenus, whatever the rail folded', () => {
+		const log: string[] = [];
+		const ctx = context(log, {
+			groupedTools: true,
+			tool: 'vignette',
+			appliedTools: ['light', 'vignette'],
+			rail: [
+				{ id: 'shape', label: 'Transform', tools: [{ id: 'crop', label: 'Crop', icon: 'a' }, { id: 'resize', label: 'Resize', icon: 'b' }] },
+				{ id: 'paint', label: 'Paint', tools: [{ id: 'paint', label: 'Paint', icon: 'c' }] },
+				{ id: 'fx', label: 'Effects', tools: [{ id: 'film_grain', label: 'Film grain', icon: 'd' }, { id: 'vignette', label: 'Vignette', icon: 'e' }] }
+			]
+		});
+		const menu = buildMenu('tools', ctx);
+		const rows = flatRows(menu);
+		expect(rows.map((entry) => entry.label)).toEqual(['Transform', 'Paint', 'Effects']);
+		expect(rows.map((entry) => entry.children?.length ?? 0)).toEqual([2, 0, 2]);
+		const effects = rows[2].children!.filter((child) => 'run' in child);
+		expect(effects.map((child) => [child.id, (child as { checked?: boolean }).checked, !!(child as { dot?: string }).dot])).toEqual([
+			['tool:film_grain', false, false],
+			['tool:vignette', true, true]
+		]);
+		(effects[0] as { run(): void }).run();
+		expect(log).toEqual(['tool:film_grain']);
+	});
+
 	it('carries a disabled rail tool with its reason', () => {
 		const ctx = context([], {
 			rail: [{ id: 'shape', label: 'Shape', tools: [{ id: 'crop', label: 'Crop', icon: 'x', disabled: true, reason: 'Open a picture first' }] }]

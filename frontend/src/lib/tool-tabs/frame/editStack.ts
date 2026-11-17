@@ -35,6 +35,7 @@ export interface EditStackState<P = unknown> {
 	revisions?: StepRevision<P>[];
 	redoRevisions?: StepRevision<P>[];
 	live?: LiveSession<P> | null;
+	cleared?: { steps: EditStep<P>[]; cursor: number; label: string; after: EditStep<P>[] } | null;
 }
 
 export type LanePair = readonly [string, string];
@@ -140,7 +141,7 @@ export function apply<P>(input: EditStackState<P>): EditStackState<P> {
 }
 
 function withoutHistory<P>(state: EditStackState<P>): EditStackState<P> {
-	const { revisions: _revisions, redoRevisions: _redoRevisions, live: _live, ...rest } = state;
+	const { revisions: _revisions, redoRevisions: _redoRevisions, live: _live, cleared: _cleared, ...rest } = state;
 	return rest;
 }
 
@@ -213,7 +214,30 @@ function lastRevision<P>(list: StepRevision<P>[] | undefined): StepRevision<P> |
 }
 
 export function canUndo(state: EditStackState<unknown>): boolean {
-	return state.pending !== null || state.cursor > 0;
+	return state.pending !== null || state.cursor > 0 || removalToUndo(state) !== null;
+}
+
+function removalToUndo<P>(state: EditStackState<P>): NonNullable<EditStackState<P>['cleared']> | null {
+	const held = state.cleared;
+	return held && state.steps === held.after ? held : null;
+}
+
+export function clearAll<P>(input: EditStackState<P>): EditStackState<P> {
+	const state = settled(input);
+	if (state.steps.length === 0) return input;
+	const after: EditStep<P>[] = [];
+	return { steps: after, cursor: 0, pending: null, seq: state.seq, cleared: { steps: state.steps, cursor: state.cursor, label: 'Remove all edits', after } };
+}
+
+export function removeUndoable<P>(input: EditStackState<P>, id: string): EditStackState<P> {
+	const state = settled(input);
+	const index = state.steps.findIndex((step) => step.id === id);
+	if (index < 0) return input;
+	const after = state.steps.filter((step) => step.id !== id);
+	const cursor = index < state.cursor ? state.cursor - 1 : state.cursor;
+	const pending = state.pending?.target === id ? null : state.pending;
+	const label = `Remove ${state.steps[index].label}`;
+	return { ...withoutHistory(state), steps: after, cursor, pending, cleared: { steps: state.steps, cursor: state.cursor, label, after } };
 }
 
 function undoRevision<P>(state: EditStackState<P>): StepRevision<P> | undefined {
@@ -242,7 +266,7 @@ export function undo<P>(input: EditStackState<P>): EditStackState<P> {
 	const state = settled(input);
 	if (state.pending && !untouched(state)) return { ...state, pending: null };
 	if (state.pending) return undo({ ...state, pending: null });
-	const revision = undoRevision(state);
+	const revision = removalToUndo(state) ? undefined : undoRevision(state);
 	if (revision) {
 		return {
 			...state,
@@ -251,6 +275,8 @@ export function undo<P>(input: EditStackState<P>): EditStackState<P> {
 			redoRevisions: [...(state.redoRevisions ?? []), revision]
 		};
 	}
+	const held = removalToUndo(state);
+	if (held) return { steps: held.steps, cursor: held.cursor, pending: null, seq: state.seq };
 	if (state.cursor === 0) return state;
 	return { ...state, cursor: state.cursor - 1 };
 }
@@ -273,6 +299,8 @@ export function redo<P>(input: EditStackState<P>): EditStackState<P> {
 export function undoLabel(input: EditStackState<unknown>): string | null {
 	const state = settled(input);
 	if (state.pending) return state.pending.label;
+	const held = removalToUndo(state);
+	if (held) return held.label;
 	const revision = undoRevision(state);
 	if (revision) return revision.after.label;
 	return state.cursor > 0 ? state.steps[state.cursor - 1].label : null;

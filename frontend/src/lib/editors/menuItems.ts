@@ -14,6 +14,7 @@ export interface MenuChoice {
 	icon?: string;
 	badge?: string;
 	dot?: string;
+	checked?: boolean;
 	disabled?: string;
 	run(): void;
 }
@@ -74,6 +75,8 @@ export interface EditorMenuContext {
 	busy: boolean;
 	tool: string | null;
 	rail: RailGroup[];
+	groupedTools?: boolean;
+	appliedTools?: string[];
 	saved: boolean;
 	canSave: boolean;
 	replace: ReplaceOption;
@@ -196,23 +199,54 @@ function sortGroups(rows: { group: string; order: number; row: MenuRow }[], rank
 
 function toolRows(ctx: EditorMenuContext): { group: string; order: number; row: MenuRow }[] {
 	const out: { group: string; order: number; row: MenuRow }[] = [];
+	const applied = new Set(ctx.appliedTools ?? []);
 	ctx.rail.forEach((group, g) => {
-		group.tools.forEach((tool, t) => {
-			out.push({
-				group: group.id,
-				order: (g + 1) * 100 + t,
-				row: {
-					id: `tool:${tool.id}`,
-					label: tool.label,
-					icon: tool.icon,
-					danger: false,
-					checked: ctx.tool === tool.id,
-					reason: tool.disabled || tool.later ? (tool.reason ?? (tool.later ? 'Later' : 'Not available right now')) : null,
-					children: null,
-					childrenWidth: 240,
-					run: () => ctx.commands.selectTool(tool.id)
-				}
-			});
+		const rowOf = (tool: RailGroup['tools'][number], t: number) => ({
+			group: group.id,
+			order: (g + 1) * 100 + t,
+			row: {
+				id: `tool:${tool.id}`,
+				label: tool.label,
+				icon: tool.icon,
+				danger: false,
+				checked: ctx.tool === tool.id,
+				reason: tool.disabled || tool.later ? (tool.reason ?? (tool.later ? 'Later' : 'Not available right now')) : null,
+				children: null,
+				childrenWidth: 240,
+				run: () => ctx.commands.selectTool(tool.id)
+			} satisfies MenuRow
+		});
+		if (!ctx.groupedTools || group.tools.length < 2) {
+			group.tools.forEach((tool, t) => out.push(rowOf(tool, t)));
+			return;
+		}
+		const current = group.tools.find((tool) => tool.id === ctx.tool) ?? group.tools[0];
+		const children: MenuChild[] = group.tools.map((tool) => {
+			const child: MenuChoice = {
+				id: `tool:${tool.id}`,
+				label: tool.label,
+				icon: tool.icon,
+				checked: ctx.tool === tool.id,
+				run: () => ctx.commands.selectTool(tool.id)
+			};
+			if (applied.has(tool.id)) child.dot = 'rgb(var(--signal))';
+			if (tool.disabled || tool.later) child.disabled = tool.reason ?? (tool.later ? 'Later' : 'Not available right now');
+			return child;
+		});
+		out.push({
+			group: group.id,
+			order: (g + 1) * 100,
+			row: {
+				id: `toolgroup:${group.id}`,
+				label: group.label,
+				icon: current.icon,
+				danger: false,
+				checked: null,
+				reason: null,
+				children,
+				childrenWidth: 252,
+				run: () => undefined
+			}
 		});
 	});
 	return out;

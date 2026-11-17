@@ -21,6 +21,8 @@ const { resetMaskTool } = await import('$lib/tool-tabs/image/maskOverlays');
 type Layer = {
 	hasStrokes(): boolean;
 	clear(): void;
+	undo(): boolean;
+	redo(): boolean;
 	renderMask(cutoff?: number): HTMLCanvasElement | null;
 	exportMask(name: string, cutoff?: number): Promise<File | null>;
 };
@@ -91,11 +93,13 @@ afterEach(() => {
 });
 
 describe('the mask tool with the lasso', () => {
-	it('offers Brush and Lasso, shows Paint and Erase for the brush, then Add and Subtract for the lasso', async () => {
+	it('offers Brush and Lasso, with Add and Subtract for both', async () => {
 		await mountTool();
 		expect(button('Brush')).toBeDefined();
 		expect(button('Lasso')).toBeDefined();
 		expect(document.body.querySelector('[aria-label="Mask brush"]')).not.toBeNull();
+		expect(button('Add')).toBeDefined();
+		expect(button('Subtract')).toBeDefined();
 		expect(document.body.textContent).toContain('Brush size');
 		expect(document.body.textContent).toContain('Paint over the part you want to change.');
 
@@ -119,6 +123,32 @@ describe('the mask tool with the lasso', () => {
 		expect(alpha(canvas, 60, 20)).toBe(0);
 		expect(document.body.querySelector('[data-mask-area-readout]')!.textContent).toContain('40×30');
 		expect(document.body.querySelector('[data-mask-area]')!.textContent).toContain('40×30');
+	});
+
+	it('makes Clear area one undoable change in the same history as the strokes', async () => {
+		const { canvas, layer } = await mountTool();
+		await choose('Lasso');
+		await lasso(canvas, box(10, 10, 50, 40));
+		await lasso(canvas, box(60, 50, 90, 70));
+		expect(alpha(canvas, 70, 60)).toBe(255);
+		layer().clear();
+		await settle();
+		expect(layer().hasStrokes()).toBe(false);
+		expect(document.body.querySelector('[data-mask-area]')).toBeNull();
+		expect(layer().undo()).toBe(true);
+		await settle();
+		expect(alpha(canvas, 20, 20)).toBe(255);
+		expect(alpha(canvas, 70, 60)).toBe(255);
+		expect(document.body.querySelector('[data-mask-area-readout]')!.textContent).toContain('80×60');
+		expect(layer().undo()).toBe(true);
+		await settle();
+		expect(alpha(canvas, 70, 60)).toBe(0);
+		expect(alpha(canvas, 20, 20)).toBe(255);
+		expect(layer().redo()).toBe(true);
+		expect(layer().redo()).toBe(true);
+		await settle();
+		expect(layer().hasStrokes()).toBe(false);
+		expect(layer().redo()).toBe(false);
 	});
 
 	it('does nothing for a click without a drag', async () => {
@@ -204,7 +234,7 @@ describe('the mask tool with the lasso', () => {
 		expect(alpha(canvas, 70, 60)).toBe(255);
 
 		await choose('Brush');
-		await choose('Erase');
+		await choose('Subtract');
 		canvas.dispatchEvent(pointer('pointerdown', 75, 60));
 		canvas.dispatchEvent(pointer('pointermove', 80, 60));
 		canvas.dispatchEvent(pointer('pointerup', 80, 60));
@@ -213,9 +243,9 @@ describe('the mask tool with the lasso', () => {
 		expect(alpha(canvas, 62, 52)).toBe(255);
 	});
 
-	it('keeps Erase and Subtract as one remove mode when the tool changes', async () => {
+	it('keeps Subtract as one remove mode when the tool changes', async () => {
 		const { canvas } = await mountTool();
-		await choose('Erase');
+		await choose('Subtract');
 		await choose('Lasso');
 		expect(button('Subtract')!.getAttribute('aria-pressed')).toBe('true');
 		await lasso(canvas, box(10, 10, 40, 40));

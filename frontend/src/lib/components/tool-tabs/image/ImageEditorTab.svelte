@@ -14,7 +14,7 @@
 		EditorFrame,
 		EditorToolbar,
 		FrameSheet,
-		LookTray,
+		LookList,
 		OptionsPanel,
 		PropertySlider,
 		ToolRail
@@ -64,6 +64,7 @@
 	import { uploadMediaToolArtifact } from '$lib/services/api/mediaTools';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { tabsStore } from '$lib/stores/tabs';
+	import { confirmRemoveAll } from '$lib/tool-tabs/frame/removeAll';
 	import { toasts } from '$lib/stores/toast';
 	import { landOnHistoryResult } from '$lib/tools/historyResult';
 	import {
@@ -101,6 +102,7 @@
 	import { inputRef, outputSize, replaceOption, runBody, sourceOrigin, type PixelSize, type SourceOrigin } from '$lib/tool-tabs/image/payload';
 	import { FULL_SIDE, ImageRenderer, bakeIsCapped, isAbort, orient, stepsKey, type Rendered } from '$lib/tool-tabs/image/render';
 	import { showCanvas } from '$lib/tool-tabs/image/displayCanvas';
+	import { areaIsMarked, landThenSend } from '$lib/tool-tabs/image/sendLanding';
 	import { imageFieldsOf, sendTargetsFor, type ImageField } from '$lib/tool-tabs/image/sendTargets';
 	import { artifactRef, pastedImage } from '$lib/tool-tabs/image/sourceRefs';
 	import { readImageState, stackSignature, unsavedEdits, writeImageState, type SavedCopy } from '$lib/tool-tabs/image/state';
@@ -117,8 +119,8 @@
 	import { statusParts } from '$lib/tool-tabs/frame/statusLine';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import {
-		ADJUST_OPS,
 		CATALOG_TOOL,
+		LEGACY_TOOL_ALIAS,
 		IMAGE_PINNED_LANES,
 		adjustDraft,
 		catalogDraft,
@@ -176,20 +178,13 @@
 	import SliceOverlay from './slice/SliceOverlay.svelte';
 	import SliceSaveRows from './slice/SliceSaveRows.svelte';
 	import SliceStrip, { type StripItem } from './slice/SliceStrip.svelte';
-	import {
-		adjustEditedCount,
-		isAdjustParams,
-		isAdjustStep,
-		resetAdjustOp,
-		setAdjustToggle,
-		setAdjustValue
-	} from '$lib/tool-tabs/image/adjustSections';
+	import { appliedEntries, entryOfStep, isLiveEffectEntry, isLiveEntry, OP_TO_ENTRY, resetEntry } from '$lib/tool-tabs/image/entries';
+	import { effectDefaults } from '$lib/effects/catalog';
+	import { imageEffects as imageEffectList } from '$lib/tool-tabs/image/shaderEffect';
 	import { canApplyEffect, canResetEffect, effectDefaultsOf } from '$lib/tool-tabs/image/effectState';
-	import AdjustOptions from './AdjustOptions.svelte';
 	import CatalogToolOptions from './CatalogToolOptions.svelte';
 	import CropOptions, { aspectLabel, IMAGE_ASPECTS } from './CropOptions.svelte';
 	import CropOverlay from './CropOverlay.svelte';
-	import EffectsOptions from './EffectsOptions.svelte';
 	import ImageStartScreen from './ImageStartScreen.svelte';
 	import ImageSourcePicker from './ImageSourcePicker.svelte';
 	import RecentPictures from './RecentPictures.svelte';
@@ -211,7 +206,8 @@
 	function knownTool(id: string | null | undefined): string | null {
 		if (!id) return null;
 		ensureCoreImageEditor();
-		return isCoreTool(id) || id.includes('.') || railTools.get('image', id) ? id : 'crop';
+		const wanted = LEGACY_TOOL_ALIAS[id] ?? id;
+		return isCoreTool(wanted) || wanted.includes('.') || railTools.get('image', wanted) ? wanted : 'crop';
 	}
 
 	const initial = untrack(() => readImageState(host.state, knownTool(host.activeTool)));
@@ -267,6 +263,7 @@
 	let maskBrush = $state(48);
 	let maskErase = $state(false);
 	let maskDirty = $state(false);
+	let maskHistory = $state({ canUndo: false, canRedo: false });
 
 	let presetNames = $state<Record<string, string>>({});
 	let fieldsByTab = $state<Record<string, ImageField[]>>({});
@@ -291,6 +288,7 @@
 	let sliceHintGone = $state(false);
 
 	onMount(() => {
+		void loadFilterCatalog().catch(() => undefined);
 		void loadMediaToolCatalog().catch(() => undefined);
 		void loadPresetNameMap()
 			.then((names) => (presetNames = names))
@@ -330,9 +328,12 @@
 		setStack: (next) => (stack = next),
 		getSource: () => ({ size: sourceSize, ref: resolvedRef }),
 		render: async (stepsBeneath) => (await renderer.render(stepsBeneath === undefined ? effective : effective.slice(0, stepsBeneath))).canvas,
-		setApply: (state) => (applyOverride = state ? { ...state, tool: activeTool } : null)
+		setApply: (state) => (applyOverride = state ? { ...state, tool: activeTool } : null),
+		writeLive: (next) => writeLive(next),
+		settleLive: () => settleLive()
 	});
 	$effect(() => toolHost.syncPending(stack.pending));
+	$effect(() => toolHost.syncStack(stack));
 	let regionCache: { path: string; id: string } | null = null;
 	const generate = createTabGenerate({
 		getStack: () => stack,
@@ -383,7 +384,14 @@
 	let staleMask = $derived(maskIsStale(mask, effective));
 
 	let pending = $derived(stack.pending);
-	let pendingHere = $derived(pending && pending.tool === activeTool ? pending : null);
+	let stillEffectIds = $derived(new Set(imageEffectList(catalog).map((effect) => effect.id)));
+	let effectCard = $derived(!!activeTool && stillEffectIds.has(activeTool) && !isLiveEntry(activeTool));
+	let liveEntry = $derived(isLiveEntry(activeTool));
+	let looksOrCard = $derived(activeTool === 'effects' || effectCard);
+	let pendingHere = $derived(pending && pending.tool === (effectCard ? 'effects' : activeTool) ? pending : null);
+	let entryLookup = $derived((op: string) => getOp(op, extensions));
+	let appliedSet = $derived(appliedEntries(stack, entryLookup));
+	let appliedList = $derived([...appliedSet]);
 	let targetIndex = $derived(pending?.target ? effective.findIndex((step) => step.id === pending!.target) : -1);
 	let stepsBeforeTarget = $derived(targetIndex >= 0 ? effective.slice(0, targetIndex) : effective);
 
@@ -431,7 +439,7 @@
 	}
 
 	let cropParams = $derived<CropParams>((pendingHere?.tool === 'crop' ? (pendingHere.params as CropParams) : null) ?? { plan: EMPTY_IMAGE_PLAN, aspect: 'free' });
-	let catalogTool = $derived(activeTool && !['crop', 'resize', 'paint', 'mask', 'effects', 'adjust', 'slice'].includes(activeTool) ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
+	let catalogTool = $derived(activeTool && !registeredTool?.options && !['crop', 'resize', 'paint', 'mask', 'effects', 'adjust', 'slice'].includes(activeTool) ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
 	let catalogValues = $derived<Record<string, unknown>>(
 		pendingHere && catalogTool ? ((pendingHere.params as CatalogParams).values ?? {}) : catalogTool ? initialValues(catalogTool) : {}
 	);
@@ -454,13 +462,15 @@
 		);
 	});
 	let trayById = $derived(new Map($filterCatalog.items.map((item) => [item.id, item] as const)));
-	let hoverItem = $derived<FilterItem | null>(activeTool === 'effects' && hoverLook && lookParams?.filter !== hoverLook ? (trayById.get(hoverLook) ?? null) : null);
+	let lookContains = $derived(
+			lookParams ? [...new Set((trayById.get(lookParams.filter)?.steps ?? []).map((step) => getOp(step.op, extensions)?.label).filter((label): label is string => !!label))] : []
+		);
+		let hoverItem = $derived<FilterItem | null>(activeTool === 'effects' && hoverLook && lookParams?.filter !== hoverLook ? (trayById.get(hoverLook) ?? null) : null);
 	let hoverDraft = $derived(hoverItem ? (lookDraft({ kind: 'look', filter: hoverItem.id, name: hoverItem.name, intensity: hoverItem.intensity }) as StepDraft<unknown>) : null);
-	let adjustCount = $derived(adjustEditedCount(stack));
-	let canCompareNow = $derived(mode === 'preview' && (activeTool === 'adjust' ? adjustCount > 0 : !!pending));
+	let canCompareNow = $derived(mode === 'preview' && (liveEntry ? appliedSet.has(activeTool!) : !!pending));
 	let mainSteps = $derived(mode === 'preview' ? previewWith(stack, hoverDraft) : mode === 'crop' ? (pendingHere?.tool === 'crop' ? stepsBeforeTarget : effective) : effective);
 	let beforeList = $derived(
-		mode === 'preview' && compare ? (activeTool === 'adjust' ? effective.filter((step) => !isAdjustStep(step)) : pending ? beforeSteps(stack) : []) : null
+		mode === 'preview' && compare ? (liveEntry ? effective.filter((step) => entryOfStep(step) !== activeTool) : pending ? beforeSteps(stack) : []) : null
 	);
 	let thumbList = $derived(activeTool === 'effects' ? (pending ? beforeSteps(stack) : effective) : null);
 	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' ? stepsBeforeTarget : effective) : null);
@@ -569,9 +579,10 @@
 	let paintUndo = $derived(mode === 'paint' && paintState?.canUndo ? paintState : null);
 	let sliceUndo = $derived(activeTool === 'slice' && sliceHistory.past.length ? sliceHistory.labels[sliceHistory.labels.length - 1] || 'slice edit' : null);
 	let sliceRedo = $derived(activeTool === 'slice' && sliceHistory.future.length ? sliceHistory.futureLabels[0] || 'slice edit' : null);
-	let undoText = $derived(paintUndo ? (paintUndo.undoLabel ?? 'stroke') : (sliceUndo ?? undoLabel(stack)));
-	let canUndoNow = $derived(!!paintUndo || !!sliceUndo || canUndo(stack));
-	let canRedoNow = $derived(mode === 'paint' && paintState?.canRedo ? true : !!sliceRedo || canRedo(stack));
+	let maskUndo = $derived(mode === 'mask' && maskHistory.canUndo);
+	let undoText = $derived(paintUndo ? (paintUndo.undoLabel ?? 'stroke') : maskUndo ? 'marked area' : (sliceUndo ?? undoLabel(stack)));
+		let canUndoNow = $derived(!!paintUndo || !!sliceUndo || maskUndo || canUndo(stack));
+	let canRedoNow = $derived(mode === 'paint' && paintState?.canRedo ? true : (mode === 'mask' && maskHistory.canRedo) || !!sliceRedo || canRedo(stack));
 	let redoText = $derived(mode === 'paint' && paintState?.canRedo ? (paintState.redoLabel ?? 'stroke') : (sliceRedo ?? redoLabel(stack)));
 	let canSave = $derived(
 		!!source && !!resolvedRef && !saving && !busy && (referencesOnly || !(saveSlice && sliceSaved)) && (effective.length > 0 || !!pending || mode === 'paint')
@@ -580,7 +591,7 @@
 	let generationTabs = $derived(userGenerationTabs($tabsStore.tabs));
 	let tabFormKey = $derived(generationTabs.map((tab) => `${tab.id}|${tab.selectedPreset}|${tab.selectedMode}|${tab.selectedVariant ?? ''}`).join(','));
 	let referenceTargets = $derived<ReferenceTarget[]>(referenceTargetsFor(generationTabs, refFieldsByTab, presetNames, sliceCount || sliceItems.length));
-	let sendTargets = $derived(sendTargetsFor(generationTabs, fieldsByTab, presetNames, !!liveMaskNow, sendFirst));
+	let sendTargets = $derived(sendTargetsFor(generationTabs, fieldsByTab, presetNames, areaIsMarked({ marking: mode === 'mask', drawn: !!$maskArea, savedUsable: !!liveMaskNow }), sendFirst));
 
 	$effect(() => {
 		const ref = source;
@@ -735,9 +746,8 @@
 			if (item) setDraft('effects', { kind: 'look', filter: item.id, name: item.name, intensity: item.intensity } satisfies EffectParams);
 			return;
 		}
-		if (hint.effect && ADJUST_OPS.includes(hint.effect)) {
-			if (activeTool !== 'adjust') await selectTool('adjust');
-		}
+		const hinted = hint.effect ? OP_TO_ENTRY[hint.effect] : null;
+		if (hinted && activeTool !== hinted) await selectTool(hinted);
 	}
 
 	let writeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1001,30 +1011,6 @@
 		liveTimer = setTimeout(settleLive, LIVE_COMMIT_MS);
 	}
 
-	function setAdjust(op: string, param: string, value: number) {
-		const spec = getOp(op, extensions);
-		if (spec) writeLive(setAdjustValue(stack, spec, param, value));
-	}
-
-	function toggleAdjust(op: string, on: boolean) {
-		const spec = getOp(op, extensions);
-		if (spec) writeLive(setAdjustToggle(stack, spec, on));
-	}
-
-	function resetAdjust(ops: string[]) {
-		settleLive();
-		let next = stack;
-		for (const op of ops) {
-			const spec = getOp(op, extensions);
-			if (spec) next = resetAdjustOp(next, spec);
-		}
-		stack = next;
-	}
-
-	function resetAllAdjust() {
-		resetAdjust([...new Set(applied.filter(isAdjustStep).map((step) => (step.params as { op: string }).op))]);
-	}
-
 	function pickLook(id: string | null) {
 		hoverLook = null;
 		if (id === null) {
@@ -1112,6 +1098,10 @@
 		host.setActiveTool(id);
 		const existing = id === 'slice' ? appliedSteps(stack).find(isSlice) : null;
 		if (existing) stack = reopen(stack, existing.id);
+		if (stillEffectIds.has(id) && !isLiveEntry(id) && !openEffect(id)) {
+			const effect = imageEffectList(catalog).find((candidate) => candidate.id === id);
+			if (effect) setDraft('effects', { kind: 'effect', tool: id, name: effect.label, values: effectDefaults(effect) } satisfies ToolEffectParams);
+		}
 	}
 
 	function closeActiveTool() {
@@ -1126,11 +1116,18 @@
 		if (pending?.target === id) return;
 		if (!(await leaveTool())) return;
 		const kind = stepKinds.get('image', step.tool);
-		const tool = step.tool === 'effects' && isAdjustParams(step.params) ? 'adjust' : ((kind && reopenToolOf(kind, step.params)) ?? step.tool);
+		const tool = step.tool === 'effects' ? (entryOfStep(step) ?? 'effects') : ((kind && reopenToolOf(kind, step.params)) ?? step.tool);
 		if (!isRailTool(tool, catalog)) return;
-		if (tool !== 'adjust') stack = reopen(stack, id);
+		if (!isLiveEntry(tool)) stack = reopen(stack, id);
 		activeTool = tool;
 		host.setActiveTool(tool);
+	}
+
+	async function removeAllEdits() {
+		const next = await confirmRemoveAll(stack);
+		if (!next) return;
+		generate.allRemoved(stack);
+		stack = next;
 	}
 
 	function doUndo() {
@@ -1138,6 +1135,7 @@
 			paintSession.undo();
 			return;
 		}
+		if (maskUndo && maskLayer?.undo()) return;
 		if (sliceUndo && !sliceLocked) {
 			const back = undoSlice(sliceHistory, sliceParams);
 			if (back) {
@@ -1154,6 +1152,7 @@
 			paintSession.redo();
 			return;
 		}
+		if (mode === 'mask' && maskHistory.canRedo && maskLayer?.redo()) return;
 		if (sliceRedo && !sliceLocked) {
 			const forward = redoSlice(sliceHistory, sliceParams);
 			if (forward) {
@@ -1275,18 +1274,18 @@
 
 	function resetTool() {
 		notice = null;
-		if (activeTool === 'adjust') {
-			resetAllAdjust();
+		if (liveEntry && activeTool) {
+			settleLive();
+			stack = resetEntry(stack, activeTool, entryLookup);
 			return;
 		}
-		if (activeTool === 'effects' && effectParams) {
+		if (looksOrCard && effectParams) {
 			setDraft('effects', effectDefaultsOf(effectParams, $filterCatalog.items, stillEffects));
 			return;
 		}
 		if (mode === 'mask') {
 			maskLayer?.clear();
-			mask = null;
-			maskDirty = false;
+			maskDirty = true;
 			return;
 		}
 		if (mode === 'paint') {
@@ -1533,7 +1532,14 @@
 	async function sendTo(targetId: string) {
 		const target = sendTargets.find((entry) => entry.id === targetId);
 		if (!target) return;
-		if (!(await prepareSave())) return;
+		await landThenSend(
+			prepareSave,
+			() => deliverTo(target),
+			() => toasts.show('error', notice ?? 'The marked area could not be saved.', { title: 'Send failed' })
+		);
+	}
+
+	async function deliverTo(target: (typeof sendTargets)[number]) {
 		busy = true;
 		try {
 			const rendered = await renderFull();
@@ -1714,7 +1720,7 @@
 					? 'Save mask'
 					: activeTool === 'paint'
 						? 'Apply paint'
-						: activeTool === 'effects'
+						: looksOrCard
 							? effectParams?.kind === 'effect'
 								? effectUpdating
 									? 'Update effect'
@@ -1732,7 +1738,7 @@
 					? maskDirty
 					: activeTool === 'slice'
 						? pendingHere?.tool === 'slice' && !sliceLocked
-						: activeTool === 'effects'
+						: looksOrCard
 							? !!pendingHere && canApplyEffect(effectParams, effectOriginal, effectUpdating)
 							: registeredTool && applyOverride?.tool === activeTool
 								? applyOverride.enabled
@@ -1740,14 +1746,14 @@
 	);
 	let canReset = $derived(
 		!busy &&
-			(activeTool === 'adjust'
-				? adjustCount > 0
-				: activeTool === 'effects'
+			(liveEntry
+				? appliedSet.has(activeTool!)
+				: looksOrCard
 					? canResetEffect(effectParams, $filterCatalog.items, stillEffects)
 					: !!pendingHere || mode === 'mask' || mode === 'paint')
 	);
-	let phoneBarred = $derived(phone && (activeTool === 'effects' || activeTool === 'adjust'));
-	let pendingTools = $derived([...(pending ? [pending.tool] : []), ...(mode === 'paint' && paintState?.dirty ? ['paint'] : []), ...(maskDirty ? ['mask'] : [])]);
+	let phoneBarred = $derived(phone && activeTool === 'effects');
+	let pendingTools = $derived([...(pending ? [pending.tool === 'effects' && effectCard && activeTool ? activeTool : pending.tool] : []), ...(mode === 'paint' && paintState?.dirty ? ['paint'] : []), ...(maskDirty ? ['mask'] : [])]);
 	let originalSummary = $derived(sourceSize ? `${sourceSize.width}×${sourceSize.height} · ${extension}` : extension);
 	let stackMore = $derived(applied.length ? [{ id: 'clear', label: 'Remove all edits', icon: 'trash' }] : []);
 
@@ -1767,7 +1773,7 @@
 						: null
 		})
 	);
-	let footerActions = $derived(phone ? !phoneBarred && !taskTool : !taskTool && activeTool !== 'adjust' && !!activeTool);
+	let footerActions = $derived(phone ? !phoneBarred && !taskTool : !taskTool && !!activeTool);
 
 	const menuCommands: EditorMenuCommands = {
 		save: (action) => onSave(action),
@@ -1789,10 +1795,7 @@
 			generate.stepRemoved(step.id, stack);
 			stack = remove(stack, step.id);
 		},
-		removeAll: () => {
-			generate.allRemoved(stack);
-			stack = createStack();
-		},
+		removeAll: () => void removeAllEdits(),
 		toggleCompare: () => (compare = !compare),
 		zoomIn: () => canvasApi?.zoomIn(),
 		zoomOut: () => canvasApi?.zoomOut(),
@@ -1809,6 +1812,8 @@
 		busy,
 		tool: activeTool,
 		rail: railGroups,
+		groupedTools: true,
+		appliedTools: appliedList,
 		saved: !!saved && !saveSlice,
 		canSave,
 		replace: sliceSaveMode ? { allowed: false, reason: 'Slicing never overwrites the sheet' } : replace,
@@ -1828,12 +1833,12 @@
 		undoLabel: undoText,
 		canRedo: canRedoNow,
 		redoLabel: redoText,
-		apply: activeTool && !taskTool && activeTool !== 'adjust' ? { label: applyLabel, enabled: canApply, reason: 'Nothing to apply yet' } : null,
+		apply: activeTool && !taskTool && !liveEntry ? { label: applyLabel, enabled: canApply, reason: 'Nothing to apply yet' } : null,
 		reset: !activeTool
 			? null
 			: taskTool
 				? { label: 'Clear area', icon: 'trash', enabled: !!$maskArea, reason: 'Mark an area first' }
-				: { label: activeTool === 'adjust' ? 'Reset all' : 'Reset', icon: 'rotate', enabled: canReset, reason: 'Nothing to reset yet' },
+				: { label: 'Reset', icon: 'rotate', enabled: canReset, reason: 'Nothing to reset yet' },
 		step: currentStep ? { id: currentStep.id, label: currentStep.label, hidden: currentStep.hidden } : null,
 		editCount,
 		compare,
@@ -1864,33 +1869,48 @@
 	{#if registeredTool?.options}
 		{#if registeredTool.task}
 			<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} what={registeredTool.task === 'remove_object' ? 'object you want removed' : null} />
+			{#if staleMask}
+				<p class="text-sm text-warning" data-mask-stale>The marked area was drawn before a shape change, so it no longer lines up. Mark it again.</p>
+			{/if}
 		{/if}
-		<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.options} props={{ host: toolHost, phone }} onclose={closeActiveTool} />
+		<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.options} props={{ host: toolHost, phone, tool: registeredTool.id }} onclose={closeActiveTool} />
 	{:else if activeTool === 'crop' && cropInput}
 		<CropOptions params={cropParams} input={cropInput} {phone} onchange={(next) => setDraft('crop', next)} />
 	{:else if activeTool === 'resize' && resizeParams && resizeInput}
 		<ResizeOptions params={resizeParams} input={resizeInput} {phone} onchange={(next) => setDraft('resize', next)} />
 	{:else if activeTool === 'effects'}
-		{#if !phone}{@render lookControls()}{/if}
-		<EffectsOptions params={effectParams} {phone} effects={stillEffects} bind:query onopen={openEffect} onchange={(next) => setDraft('effects', next)} />
+		{#if !phone}
+			<input
+				type="search"
+				class="h-8 w-full rounded border border-line-strong bg-surface-2 px-2.5 text-base text-fg placeholder:text-fg-subtle focus:border-signal/60 focus:outline-none"
+				placeholder="Search looks"
+				aria-label="Search looks"
+				bind:value={query}
+				data-looks-search
+			/>
+		{/if}
+		{@render lookControls()}
+		{#if lookContains.length && !phone}
+			<div class="flex flex-col gap-1.5" data-look-contains-block>
+				<p class="font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">{lookParams?.name} contains</p>
+				<div class="flex flex-wrap gap-1.5" data-look-contains>
+					{#each lookContains as label (label)}
+						<span class="inline-flex h-6 items-center rounded bg-surface-3 px-2 font-mono text-sm text-fg-muted">{label}</span>
+					{/each}
+				</div>
+			</div>
+		{/if}
+		{#if !phone}
+			<LookList items={trayItems} original={{ selected: !lookParams }} thumb={trayThumb} onpick={pickLook} onpreview={(id) => (hoverLook = id)} />
+		{/if}
 		{#if bakeIsCapped(outputDims) && !phone}
 			<p class="text-sm text-warning" data-bake-cap>Looks on pictures over {FULL_SIDE} px are drawn at {FULL_SIDE} px on the long side and scaled back up when saved.</p>
 		{/if}
-	{:else if activeTool === 'adjust'}
-		<AdjustOptions {stack} lookup={(op) => getOp(op, extensions)} {phone} onset={setAdjust} oncommit={settleLive} ontoggle={toggleAdjust} onreset={resetAdjust} />
 	{:else if activeTool === 'paint'}
 		{#if paintSession && paintState}
 			<PaintOptions session={paintSession} state={paintState} {phone} />
 		{:else}
 			<div class="flex justify-center py-4"><Spinner /></div>
-		{/if}
-	{:else if activeTool === 'mask'}
-		<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} />
-		{#if staleMask}
-			<p class="text-sm text-warning">The mask was painted before a shape change, so it no longer lines up. Paint it again.</p>
-		{/if}
-		{#if !phone}
-			<p class="text-sm text-fg-muted">The marked area is used by Generate tools and travels with Send to.</p>
 		{/if}
 	{:else if activeTool === 'slice'}
 		<SliceOptions
@@ -2063,6 +2083,7 @@
 							onstroke={(painted) => {
 								if (painted) maskDirty = true;
 							}}
+							onhistory={(next) => (maskHistory = next)}
 						/>
 					{/key}
 				{/if}
@@ -2154,9 +2175,7 @@
 		onundo={doUndo}
 		onredo={doRedo}
 		onmore={(id) => {
-			if (id !== 'clear') return;
-			generate.allRemoved(stack);
-			stack = createStack();
+			if (id === 'clear') void removeAllEdits();
 		}}
 	>
 		{#snippet notes()}
@@ -2286,7 +2305,7 @@
 				{/if}
 			{/snippet}
 			{#snippet rail()}
-				<ToolRail groups={railGroups} active={activeTool} pending={pendingTools} variant={phone ? 'strip' : 'icons'} onselect={(id) => void selectTool(id)} />
+				<ToolRail groups={railGroups} active={activeTool} pending={pendingTools} applied={appliedList} memoryKey="image" groupedStrip variant={phone ? 'strip' : 'icons'} onselect={(id) => void selectTool(id)} />
 			{/snippet}
 			{#snippet canvas()}
 				{@render canvasArea()}
@@ -2311,8 +2330,10 @@
 						</div>
 						<FloatingPrompt phone running={runningId} large={largeArea} settings={promptSettings} onclose={closeActiveTool} />
 					{/if}
-				{:else if activeTool === 'effects'}
-					<LookTray items={trayItems} original={{ selected: !lookParams }} {phone} thumb={trayThumb} onpick={pickLook} onpreview={(id) => (hoverLook = id)} />
+				{:else if phone && activeTool === 'effects'}
+					<div class="max-h-[34vh] flex-none overflow-y-auto border-t border-line bg-surface-1 px-3 py-2" data-look-list-phone>
+						<LookList items={trayItems} original={{ selected: !lookParams }} thumb={trayThumb} onpick={pickLook} onpreview={(id) => (hoverLook = id)} />
+					</div>
 				{:else if activeTool === 'slice' && sliceParams.cells.length}
 					<SliceStrip
 						items={sliceStrip}
@@ -2335,7 +2356,8 @@
 						{applyLabel}
 						{canApply}
 						{canReset}
-						actions={footerActions}
+							showApply={!liveEntry}
+							actions={footerActions}
 						{phone}
 						onapply={() => void applyTool()}
 						onreset={resetTool}

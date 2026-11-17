@@ -6,6 +6,7 @@
 	export let config: any = {};
 	export let value: any;
 	export let onChange: (fieldName: string, value: any) => void;
+	export let onCommit: ((fieldName: string) => void) | undefined = undefined;
 
 	$: label = config.title || name || '';
 	$: description = config.description || '';
@@ -22,16 +23,30 @@
 	$: if (!focused) text = typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
 	$: issue = numberBoxIssue(typeof value === 'number' ? value : null, text, min, max);
 
+	let dirty = false;
+
+	function commit() {
+		if (!dirty || !name) return;
+		dirty = false;
+		onCommit?.(name);
+	}
+
 	function handleInput(event: Event) {
 		text = (event.currentTarget as HTMLInputElement).value;
 		if (!name) return;
 		const parsed = parseNumberBox(text, integer);
 		if (parsed === undefined) return;
+		dirty = true;
 		onChange(name, parsed);
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') commit();
 	}
 
 	function handleBlur() {
 		focused = false;
+		commit();
 		const parsed = parseNumberBox(text, integer);
 		text = typeof parsed === 'number' ? String(parsed) : '';
 	}
@@ -50,6 +65,7 @@
 			class="input h-8 w-full px-2.5 py-0 font-mono text-sm tabular-nums {unit ? 'pr-9' : ''}"
 			on:focus={() => (focused = true)}
 			on:input={handleInput}
+			on:keydown={handleKeydown}
 			on:blur={handleBlur}
 		/>
 		{#if unit}

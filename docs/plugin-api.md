@@ -3946,6 +3946,41 @@ stylesheet described above, so the library's stylesheet is not shipped as a file
 need from `@xyflow/svelte/dist/style.css` into the component's `<style>` block, using
 `:global(...)` selectors.
 
+## Field components and the commit signal
+
+A `field_types[].component` is a Svelte component the dynamic form mounts for every field of that type. It
+receives these props:
+
+| Prop | Meaning |
+|------|---------|
+| `name`, `config`, `value` | The field name, its schema entry (`title`, `default`, `disabled`, per-type keys) and its current value. |
+| `onChange(name, value)` | Report a new value. Call it on every change, including each step of a drag. |
+| `onCommit(name)` | Optional. Report that an interaction ended: call it once after the last `onChange` of a gesture (a slider on release, a choice from a list, a toggle, a text or number box on blur or Enter). Never call it mid-drag. |
+| `onOriginChange`, `onMaskChange`, `host`, `fieldPath` | As before; most fields ignore them. |
+
+A host that mounts the form can pass `onFormDataChange(data)`, called on every change, and
+`onFormDataCommit(data, { name })`, called once when an interaction ends, with the form's settled data (reactions
+applied). A field that never calls `onCommit` needs no change: once its `onChange` calls stop for a short idle
+(400 ms by default) the form commits on its behalf, so a host always gets a commit. Calling `onCommit` yourself
+is how you make the commit land exactly when the user lets go.
+
+```svelte
+<script>
+  export let name;
+  export let value;
+  export let onChange;
+  export let onCommit = undefined;
+</script>
+
+<input type="range" {value}
+  on:input={(e) => onChange(name, Number(e.target.value))}
+  on:change={() => onCommit?.(name)} />
+```
+
+A host can also write into a mounted form without the field seeing a user edit: the form's `setValues(partial)`
+changes the named fields, runs their reactions, and does not publish the write back through `onFormDataChange` or
+`onFormDataCommit`. Fields do not need to do anything for this beyond rendering their `value` prop.
+
 ## Building your plugin's frontend
 
 Every plugin frontend (a `pages[].component`, a `field_types[].component`, an

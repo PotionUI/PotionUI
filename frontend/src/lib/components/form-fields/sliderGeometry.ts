@@ -31,3 +31,44 @@ export function resolveSliderValue(value: unknown, declaredDefault: unknown, min
 	if (typeof declaredDefault === 'number' && Number.isFinite(declaredDefault)) return declaredDefault;
 	return min || 0;
 }
+
+export interface FillSpan {
+	from: number;
+	to: number;
+}
+
+export function fillSpan(value: number, defaultValue: number, min: number, max: number): FillSpan {
+	return {
+		from: trackFraction(Math.min(value, defaultValue), min, max),
+		to: trackFraction(Math.max(value, defaultValue), min, max)
+	};
+}
+
+export function twoSidedFill(value: number, defaultValue: number, min: number, max: number): string {
+	const { from, to } = fillSpan(value, defaultValue, min, max);
+	const start = trackOffset(from);
+	const end = trackOffset(to);
+	return `linear-gradient(to right, rgb(var(--surface-3)) ${start}, rgb(var(--signal)) ${start}, rgb(var(--signal)) ${end}, rgb(var(--surface-3)) ${end})`;
+}
+
+export function fillsFromDefault(mode: unknown, defaultValue: unknown, min: number, max: number): boolean {
+	return (
+		mode === 'from-default' &&
+		typeof defaultValue === 'number' &&
+		Number.isFinite(defaultValue) &&
+		defaultValue >= min &&
+		defaultValue <= max &&
+		max > min
+	);
+}
+
+export const SLIDER_NAVIGATION_KEYS: ReadonlySet<string> = new Set([
+	'ArrowLeft',
+	'ArrowRight',
+	'ArrowUp',
+	'ArrowDown',
+	'Home',
+	'End',
+	'PageUp',
+	'PageDown'
+]);

@@ -55,6 +55,7 @@ from src.features.fields.camera_shot import CameraShot
 from src.features.fields.segmented import Segmented
 from src.features.fields.anchor import Anchor
 from src.features.fields.color import Color
+from src.features.fields.number_box import NumberBox
 from src.features.fields.sampling_fields import SamplerField, ScheduleField
 
 
@@ -131,6 +132,7 @@ def register_builtin_fields(registry: FieldTypeRegistry, template_processor: Opt
         FieldTypeDefinition("segmented", Segmented, frontend_component="core:SegmentedField", shareable=True),
         FieldTypeDefinition("anchor", Anchor, frontend_component="core:AnchorField", shareable=True),
         FieldTypeDefinition("color", Color, frontend_component="core:ColorField", shareable=True),
+        FieldTypeDefinition("number_box", NumberBox, frontend_component="core:NumberBoxField", shareable=True),
 
         # Layout containers
         FieldTypeDefinition("tabs", Container, frontend_component="core:TabsField", container=True),

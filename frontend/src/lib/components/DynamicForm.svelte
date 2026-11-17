@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
-	import { onDestroy, setContext } from 'svelte';
+	import { onDestroy, setContext, tick } from 'svelte';
 	import { writable } from 'svelte/store';
 	import FormField from './form-fields/FormField.svelte';
 	import { type FieldConfig, extractAllFields } from '$lib/form/reactions';
+	import type { FormSchema } from '$lib/form/formSchema';
+	import { isEchoOnly } from '$lib/form/externalWrite';
+	import { FORM_FIELD_COMMIT_CONTEXT_KEY, type FormFieldCommit } from '$lib/form/commitContext';
+	import { fieldCommits as typeCommits } from '$lib/fields/registry';
 	import { valuesEqual } from './dynamicFormReactionApply';
 	import { flattenFormData, hydrateFormData, settleFormReactions } from '$lib/form/formState';
 	import { checkSlotValue, loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
@@ -44,7 +48,8 @@
 	const PUBLISHED_SNAPSHOT_LIMIT = 8;
 
 	// Props
-	export let presetId: string;
+	export let presetId: string | undefined = undefined;
+	export let schema: FormSchema | null | undefined = undefined;
 	// The generation tab this form belongs to, if any — lets fields (e.g.
 	// lora_picker) scope cross-field state to their own tab. See
 	// activeTabContext.ts for why this is context rather than a prop threaded
@@ -76,6 +81,8 @@
 	export let videoDirectorActive = false;
 	export let audience: FormAudience | undefined = undefined;
 	export let onFormDataChange: ((data: Record<string, any>) => void) | null = null;
+	export let onFormDataCommit: ((data: Record<string, any>, info: { name: string }) => void) | null = null;
+	export let commitIdleMs = 400;
 	// Per-field server-side validation errors (from a 422 `form_validation_failed`
 	// response to `POST /api/generations/start`), keyed by field name. Rendered under
 	// the offending field (see FormField.svelte) and as a per-tab count badge (see
@@ -97,9 +104,15 @@
 		},
 		setFieldValue(name, value) {
 			handleFieldChange(name, value);
+			queueCommit(name);
 		}
 	};
 	setContext(FORM_FIELD_ERROR_ACTIONS_CONTEXT_KEY, fieldErrorActions);
+	const fieldCommit: FormFieldCommit = (fieldName) => {
+		selfCommitting.add(fieldName);
+		queueCommit(fieldName);
+	};
+	setContext(FORM_FIELD_COMMIT_CONTEXT_KEY, fieldCommit);
 	$: fieldErrorsStore.set(fieldErrors || {});
 
 	const MAX_REACTION_ROUNDS = 8;
@@ -256,7 +269,7 @@
 	// Load form schema
 	async function loadFormSchema(force = false) {
 		const requestId = schemaRequest.next();
-		const requestPresetId = presetId;
+		const requestPresetId = presetId ?? '';
 		const requestMode = mode;
 		const requestVariant = variant;
 		cancelSchemaRetry();
@@ -313,7 +326,7 @@
 		if (!tabId) return;
 		modelSlotAutopick.sync({
 			loadKey,
-			slots: collectAutopickSlots(Object.values(schema?.properties ?? {}) as FieldConfig[], formData, presetId, true),
+			slots: collectAutopickSlots(Object.values(schema?.properties ?? {}) as FieldConfig[], formData, presetId ?? '', true),
 			isPinned: (name) => reactionPinned.has(name),
 			isEmpty: (name) => !hasModelValue({ type: 'model' }, formData[name]),
 			currentWire: (name) => modelWire(formData[name]),
@@ -353,6 +366,47 @@
 			[fieldName]: value
 		};
 		onFieldEdit?.(fieldName);
+		if (onFormDataCommit && !committingField(fieldName)) scheduleFallbackCommit(fieldName);
+	}
+
+	const selfCommitting = new Set<string>();
+	const fallbackCommitTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	let destroyed = false;
+
+	function committingField(fieldName: string): boolean {
+		if (selfCommitting.has(fieldName)) return true;
+		const type = allFields.find((field) => field.name === fieldName)?.type;
+		return !!type && typeCommits(type);
+	}
+
+	function cancelFallbackCommit(fieldName: string) {
+		const timer = fallbackCommitTimers.get(fieldName);
+		if (timer === undefined) return;
+		clearTimeout(timer);
+		fallbackCommitTimers.delete(fieldName);
+	}
+
+	function scheduleFallbackCommit(fieldName: string) {
+		cancelFallbackCommit(fieldName);
+		fallbackCommitTimers.set(
+			fieldName,
+			setTimeout(() => {
+				fallbackCommitTimers.delete(fieldName);
+				void emitCommit(fieldName);
+			}, commitIdleMs)
+		);
+	}
+
+	function queueCommit(fieldName: string) {
+		cancelFallbackCommit(fieldName);
+		void emitCommit(fieldName);
+	}
+
+	async function emitCommit(fieldName: string) {
+		if (!onFormDataCommit) return;
+		await tick();
+		if (destroyed || !onFormDataCommit) return;
+		onFormDataCommit(flattenFormData(formData, capabilityHiddenNames), { name: fieldName });
 	}
 
 	// Provenance sibling, kept off the value channel (see MediaLoaderField's
@@ -378,7 +432,7 @@
 	// Reactive: Load schema when preset, mode, or variant changes
 	$: {
 		const currentKey = `${presetId}-${mode}-${variant ?? ''}`;
-		if (currentKey !== previousKey && presetId) {
+		if (currentKey !== previousKey && presetId && !schema) {
 			previousKey = currentKey;
 			schemaRetryCount = 0;
 			// The first normalized payload for a new schema must publish even if
@@ -477,15 +531,70 @@
 		const flattenedData = flattenFormData(formData, capabilityHiddenNames);
 		const flattenedDataKey = JSON.stringify(flattenedData);
 		if (shouldPublishFormData(lastPublishedFormDataKey, flattenedData)) {
+			const echoOnly =
+				externalWrite !== null &&
+				lastPublishedFormDataKey !== null &&
+				isEchoOnly(JSON.parse(lastPublishedFormDataKey), flattenedData, externalWrite);
 			lastPublishedFormDataKey = flattenedDataKey;
 			previousInitialDataKey = flattenedDataKey;
 			rememberPublish(flattenedDataKey);
-			onFormDataChange(flattenedData);
+			externalWrite = null;
+			if (!echoOnly) onFormDataChange(flattenedData);
 		}
 	}
 
+	export function setValues(partial: Record<string, any>): boolean {
+		if (!initialLoadComplete || !formSchema) return false;
+		const changed: Record<string, any> = {};
+		for (const [name, next] of Object.entries(partial)) {
+			if (!valuesEqual(formData[name], next)) changed[name] = next;
+		}
+		const names = Object.keys(changed);
+		if (names.length === 0) return true;
+		externalWrite = new Set(names);
+		formData = { ...formData, ...changed };
+		return true;
+	}
+
+	let externalWrite: Set<string> | null = null;
+	let appliedSchemaKey = '';
+
+	function applySchemaProp(next: FormSchema, key: string, initial: boolean) {
+		appliedSchemaKey = key;
+		schemaRequest.invalidate();
+		cancelSchemaRetry();
+		capabilityTracker.reset();
+		publishedSnapshots = [];
+		capabilityHiddenNames = new Set();
+		compareSchemaKey = '';
+		publishedCompareSignature = '';
+		schemaError = '';
+		schemaLoading = false;
+		lastPublishedFormDataKey = null;
+		formSchema = next;
+		resetReactionBaseline(initialData);
+		formData = hydrateFormData(next, initialData);
+		previousInitialDataKey = JSON.stringify(initialData);
+		initialLoadComplete = true;
+		if (!initial) onSchemaKeyChange?.();
+	}
+
+	function syncSchemaProp(next: FormSchema) {
+		const key = JSON.stringify(next);
+		if (key !== appliedSchemaKey) applySchemaProp(next, key, false);
+	}
+
+	if (schema) applySchemaProp(schema, JSON.stringify(schema), true);
+
+	$: if (schema) syncSchemaProp(schema);
+
 	// Expose method to force schema reload (used by preset reload)
 	export function forceReload(): void {
+		if (schema) {
+			applySchemaProp(schema, JSON.stringify(schema), false);
+			return;
+		}
+		if (!presetId) return;
 		clearFormulaDeclarations();
 		previousKey = `${presetId}-${mode}-${variant ?? ''}`;
 		lastPublishedFormDataKey = null;
@@ -493,6 +602,9 @@
 	}
 
 	onDestroy(() => {
+		destroyed = true;
+		for (const timer of fallbackCommitTimers.values()) clearTimeout(timer);
+		fallbackCommitTimers.clear();
 		if (tabId) clearMissingModel(tabId);
 		capabilityTracker.destroy();
 		modelSlotAutopick.dispose();

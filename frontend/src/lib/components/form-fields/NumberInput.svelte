@@ -6,6 +6,7 @@
 	export let config: any = {};
 	export let value: any;
 	export let onChange: (fieldName: string, value: any) => void;
+	export let onCommit: ((fieldName: string) => void) | undefined = undefined;
 
 	$: label = config.title || name || '';
 	$: description = config.description || '';
@@ -27,17 +28,31 @@
 		return result;
 	}
 
+	let dirty = false;
+
+	function commit() {
+		if (!dirty || !name) return;
+		dirty = false;
+		onCommit?.(name);
+	}
+
 	function handleInput(event: Event) {
 		const target = event.target as HTMLInputElement;
 		if (name) {
 			const numValue = parseFloat(target.value) || 0;
+			dirty = true;
 			onChange(name, numValue);
 		}
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') commit();
 	}
 
 	function stepBy(delta: number) {
 		if (disabled || !name) return;
 		onChange(name, clamp(numericValue + delta));
+		onCommit?.(name);
 	}
 </script>
 
@@ -61,6 +76,9 @@
 			id={name || undefined}
 			{value}
 			on:input={handleInput}
+			on:change={commit}
+			on:keydown={handleKeydown}
+			on:blur={commit}
 			{min}
 			{max}
 			{step}

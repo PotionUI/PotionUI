@@ -3,6 +3,7 @@
 	import { writable, type Writable } from 'svelte/store';
 	import { fieldOwnsErrors, resolveFieldComponent } from '$lib/fields/registry';
 	import { ACTIVE_TAB_ID_CONTEXT_KEY } from '$lib/form/activeTabContext';
+	import { FORM_FIELD_COMMIT_CONTEXT_KEY, type FormFieldCommit } from '$lib/form/commitContext';
 	import LiveSyncMark from '$lib/components/session/LiveSyncMark.svelte';
 	import { formKey } from '$lib/session/sessionMerge';
 	import { formulaApplied } from '$lib/stores/formulaApplied';
@@ -39,6 +40,7 @@
 	export let fieldPath: string | undefined = undefined;
 
 	const fieldType = config.type;
+	const onCommit = getContext<FormFieldCommit | undefined>(FORM_FIELD_COMMIT_CONTEXT_KEY);
 
 	// "tab" entries are rendered by their parent TabsField (which iterates
 	// `config.children` directly) - FormField never dispatches for them.
@@ -108,7 +110,7 @@
 			{:else}
 				{#await componentPromise then Component}
 					{#if Component}
-						<svelte:component this={Component} {name} {config} {value} {onChange} {onOriginChange} {onMaskChange} {host} {fieldPath} />
+						<svelte:component this={Component} {name} {config} {value} {onChange} {onCommit} {onOriginChange} {onMaskChange} {host} {fieldPath} />
 					{:else}
 						<div class="p-2 bg-danger/10 rounded-md text-xs text-danger">
 							Unsupported field type: {fieldType}

@@ -735,3 +735,41 @@ async def test_real_balance_400_on_volume_create_surfaces_the_detail():
     with pytest.raises(RunPodAPIError, match="at least \\$5"):
         await client.create_network_volume(name="v", size_gb=10, data_center_id="EU-RO-1")
     await client.aclose()
+
+
+REAL_VOLUME_POD = {
+    "actions": ["stop", "restart", "terminate"],
+    "args": "",
+    "cloud": "SECURE",
+    "cost": 0.69,
+    "cudaVersion": "13.2",
+    "dataCenterId": "EU-SE-1",
+    "disk": 5,
+    "env": {},
+    "globalNetworking": {"enabled": False},
+    "gpu": {"count": 1, "id": "NVIDIA RTX A6000", "memory": 50, "vcpuCount": 9},
+    "id": "podneutral0001",
+    "image": "nginx:alpine",
+    "locked": False,
+    "mounts": {"network": [{"path": "/models", "volumeId": "volneutral01"}]},
+    "name": "potionui-apitest",
+    "ports": ["80/http"],
+    "registry": None,
+    "runtime": None,
+    "ssh": {"direct": None, "proxy": {"command": "ssh x@ssh.runpod.io", "host": "ssh.runpod.io", "port": 22, "username": "x"}},
+    "status": "RUNNING",
+    "tags": [],
+    "template": None,
+}
+
+
+async def test_a_real_just_created_pod_is_running_with_no_runtime_yet():
+    client = _client(lambda request: httpx.Response(201, json=REAL_VOLUME_POD))
+    pod = await client.create_pod(name="n", image_name="img", gpu_type_ids=["g"], env={}, ports=["80/http"])
+    await client.aclose()
+
+    assert pod.desired_status == "RUNNING"
+    assert pod.cost_per_hr == 0.69
+    assert pod.network_volume_id == "volneutral01"
+    assert pod.public_ip is None
+    assert pod.port_mappings == {}

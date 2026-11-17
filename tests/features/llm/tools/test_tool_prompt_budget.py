@@ -15,7 +15,7 @@ _SCHEMA_CHAR_ALLOWANCES = {
     "organize_gallery": 2500,
     "start_generation": 2350,
     "add_prompt": 2200,
-    "run_media_tool": 5324,
+    "run_media_tool": 5300,
     "edit_elixir": 2400,
 }
 

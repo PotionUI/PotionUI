@@ -195,6 +195,8 @@ async def until_terminal(manager, user, run_id, limit=300):
     for _ in range(limit):
         run = await manager.get(user, run_id)
         if run["status"] in ("done", "failed", "cancelled"):
+            while manager._finishing:
+                await asyncio.sleep(0)
             return run
         await asyncio.sleep(0.01)
     raise AssertionError("the run never finished")

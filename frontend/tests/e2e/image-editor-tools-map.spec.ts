@@ -241,15 +241,15 @@ test.describe('the Image editor tools map on desktop', () => {
 		const panel = page.locator('[data-entry-options="film_grain"]');
 		await expect(panel).toBeVisible();
 		await expect(page.locator('[data-options-apply]')).toHaveCount(0);
-		await expect(panel.locator('[data-param]')).toHaveCount(4);
+		await expect(panel.locator('[data-field-type]:not([data-field-type="row"])')).toHaveCount(4);
 		await screenshot(page, JOURNEY, '03-film-grain-dark-1440');
-		const amount = panel.locator('[data-param="amount"] input').first();
+		const amount = panel.locator('[data-field-name="amount"] input').first();
 		await amount.fill('42');
 		await amount.press('Tab');
 		await expect(page.locator('[data-edit-stack] [data-stack-row]').last()).toContainText('Film grain');
 		await expect(railButton(page, 'film_grain').locator('[data-tool-applied]')).toBeVisible();
 		await selectRailTool(page, 'vignette');
-		await expect(page.locator('[data-entry-options="vignette"] [data-param]')).toHaveCount(3);
+		await expect(page.locator('[data-entry-options="vignette"] [data-field-type]:not([data-field-type="row"])')).toHaveCount(3);
 		await screenshot(page, JOURNEY, '04-vignette-dark-1440');
 	});
 

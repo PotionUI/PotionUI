@@ -24,7 +24,8 @@
 	import ClipList from './ClipList.svelte';
 	import PreviewPane from './PreviewPane.svelte';
 	import ToolFooter from './ToolFooter.svelte';
-	import ToolForm from './ToolForm.svelte';
+	import EntryForm from '$lib/components/tool-tabs/frame/EntryForm.svelte';
+	import { toolParamsToSchema } from './toolSchema';
 	import type {
 		MediaToolInputRef,
 		MediaToolItem,
@@ -185,6 +186,13 @@
 		if (shaderEffect) stillShader.dispose();
 	});
 
+	let formFields = $derived(toolParamsToSchema(tool.params, { compactSliders: false }));
+
+	function changeValues(next: Record<string, unknown>, info: { commit: boolean; name?: string }) {
+		if (info.commit) return;
+		for (const name of Object.keys(next)) if (next[name] !== values[name]) setValue(name, next[name]);
+	}
+
 	function setValue(name: string, next: unknown) {
 		values = { ...values, [name]: next };
 		if (fieldErrors[name]) {
@@ -316,7 +324,7 @@
 			</div>
 		{/if}
 
-		<ToolForm params={tool.params} {values} errors={fieldErrors} onChange={setValue} />
+		<EntryForm fields={formFields} {values} errors={fieldErrors} label="{tool.label} options" onValues={changeValues} />
 
 		{#if readout}
 			<div

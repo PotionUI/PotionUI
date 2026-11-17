@@ -19,12 +19,19 @@ vi.mock('$lib/services/api/mediaTools', () => ({
 	listMediaTools: vi.fn()
 }));
 
-vi.mock('$lib/services/api/index', () => ({
-	api: {
+vi.mock('$lib/services/api/index', async (importOriginal) => {
+	const overrides: Record<string, unknown> = {
+		getPresetFormSchema: async () => {
+			throw new Error('no preset');
+		},
 		listGenerationMedia: (...args: unknown[]) => listGenerationMedia(...args),
 		listUploads: (...args: unknown[]) => listUploads(...args)
-	}
-}));
+	};
+	return {
+		...(await importOriginal<Record<string, unknown>>()),
+		api: new Proxy(overrides, { get: (target, key) => (key in target ? target[key as string] : () => undefined) })
+	};
+});
 
 const { default: MediaToolDialog } = await import('$lib/media-tools/MediaToolDialog.svelte');
 const { mediaToolRuns } = await import('$lib/media-tools/runs');
@@ -142,7 +149,7 @@ function buttonByText(text: string): HTMLButtonElement | undefined {
 }
 
 function param(name: string): HTMLElement {
-	return document.body.querySelector(`[data-param="${name}"]`) as HTMLElement;
+	return document.body.querySelector(`[data-field-name="${name}"]`) as HTMLElement;
 }
 
 async function applyNow() {
@@ -180,8 +187,8 @@ describe('the form built from the params', () => {
 		open({ tool: SPEED });
 		await settle();
 
-		expect(param('speed').getAttribute('data-control')).toBe('slider');
-		expect(param('keep_pitch').getAttribute('data-control')).toBe('switch');
+		expect(param('speed').getAttribute('data-field-type')).toBe('slider');
+		expect(param('keep_pitch').getAttribute('data-field-type')).toBe('checkbox');
 		expect(param('speed').textContent).toContain('2×');
 		expect(param('speed').textContent).toContain('0.25×');
 		expect(param('speed').textContent).toContain('4×');
@@ -191,7 +198,7 @@ describe('the form built from the params', () => {
 	it('draws a select of four options or fewer as a segmented control and more as a dropdown', async () => {
 		open({ tool: ROTATE, items: [still] });
 		await settle();
-		expect(param('degrees').getAttribute('data-control')).toBe('segmented');
+		expect(param('degrees').getAttribute('data-field-type')).toBe('segmented');
 		expect(Array.from(param('degrees').querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual([
 			'90',
 			'180',
@@ -201,27 +208,27 @@ describe('the form built from the params', () => {
 		document.body.innerHTML = '';
 		open({ tool: MANY_OPTIONS, items: [still] });
 		await settle();
-		expect(param('mode').getAttribute('data-control')).toBe('dropdown');
+		expect(param('mode').getAttribute('data-field-type')).toBe('select');
 	});
 
 	it('draws number boxes with a unit, the anchor grid, and a colour with a transparent choice', async () => {
 		open({ tool: FIT_CANVAS, items: [still] });
 		await settle();
 
-		expect(param('width').getAttribute('data-control')).toBe('number');
+		expect(param('width').getAttribute('data-field-type')).toBe('number_box');
 		expect(param('width').textContent).toContain('px');
-		expect(param('scale_percent').getAttribute('data-control')).toBe('slider');
-		expect(param('anchor').getAttribute('data-control')).toBe('anchor');
+		expect(param('scale_percent').getAttribute('data-field-type')).toBe('slider');
+		expect(param('anchor').getAttribute('data-field-type')).toBe('anchor');
 		expect(param('anchor').querySelectorAll('button[data-anchor]')).toHaveLength(9);
-		expect(param('fill').getAttribute('data-control')).toBe('color');
+		expect(param('fill').getAttribute('data-field-type')).toBe('color');
 		expect(param('fill').textContent).toContain('Transparent');
 	});
 
 	it('puts the two number boxes of a pair side by side', async () => {
 		open({ tool: FIT_CANVAS, items: [still] });
 		await settle();
-		const grid = param('width').parentElement!;
-		expect(grid.className).toContain('grid-cols-2');
+		const grid = param('width').closest('.row-grid') as HTMLElement;
+		expect(grid.style.gridTemplateColumns.trim().split(/\s+/).length).toBeGreaterThanOrEqual(2);
 		expect(grid.contains(param('height'))).toBe(true);
 	});
 
@@ -262,7 +269,7 @@ describe('the form built from the params', () => {
 		open({ tool: loop, detach: true });
 		await settle();
 
-		expect(param('repeats').getAttribute('data-control')).toBe('slider');
+		expect(param('repeats').getAttribute('data-field-type')).toBe('slider');
 		expect(param('repeats').textContent).toContain('2');
 		expect((param('repeats').querySelector('input[type="range"]') as HTMLInputElement).value).toBe('2');
 		buttonByText('Apply')!.click();
@@ -481,11 +488,11 @@ describe('applying', () => {
 
 			const control = param('key_color');
 			expect(control.getAttribute('data-invalid')).toBe('true');
-			expect(control.querySelector('[data-param-error]')?.textContent?.trim()).toBe('key_color must be a hex colour');
-			expect(control.querySelector('[data-param-error]')?.getAttribute('role')).toBe('alert');
+			expect(control.querySelector('[data-field-error]')?.textContent?.trim()).toBe('key_color must be a hex colour');
+			expect(control.querySelector('[data-field-error]')?.getAttribute('role')).toBe('alert');
 			const input = control.querySelector('input[type="text"]') as HTMLInputElement;
 			expect(input.getAttribute('aria-invalid')).toBe('true');
-			expect(input.getAttribute('aria-describedby')).toBe('key_color-server-error');
+			expect(input.getAttribute('aria-describedby')).toBe('key_color-field-error');
 			expect(dialog().querySelector('[data-tool-failure]')?.textContent).toBe('key_color must be a hex colour');
 			expect(param('tolerance').getAttribute('data-invalid')).toBeNull();
 		});
@@ -504,7 +511,7 @@ describe('applying', () => {
 			await settle();
 
 			expect(param('key_color').getAttribute('data-invalid')).toBeNull();
-			expect(param('key_color').querySelector('[data-param-error]')).toBeNull();
+			expect(param('key_color').querySelector('[data-field-error]')).toBeNull();
 			expect(param('key_color').querySelector('input[type="text"]')?.getAttribute('aria-invalid')).not.toBe('true');
 		});
 

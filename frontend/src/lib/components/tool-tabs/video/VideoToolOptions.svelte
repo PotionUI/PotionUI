@@ -1,7 +1,8 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge, Button, Kbd } from '$lib/components/ui';
-	import ToolForm from '$lib/media-tools/ToolForm.svelte';
+	import EntryForm from '$lib/components/tool-tabs/frame/EntryForm.svelte';
+	import { toolParamsToSchema } from '$lib/media-tools/toolSchema';
 	import { CROP_ASPECTS, mirrorCropRect, rotateCropRect, turn } from '$lib/media/cropGeometry';
 	import { REPLACE_PARAMS, SPEED_PARAMS, resizeParams, volumeParams } from '$lib/tool-tabs/video/params';
 	import type { EffectGroup } from '$lib/effects/catalog';
@@ -78,6 +79,15 @@
 	function set(name: string, value: unknown) {
 		if (!op) return;
 		onparams(op, { ...params, [name]: value });
+	}
+
+	function setAll(next: Record<string, unknown>) {
+		if (!op) return;
+		onparams(op, next as VideoParams);
+	}
+
+	function schemaOf(list: Parameters<typeof toolParamsToSchema>[0]) {
+		return toolParamsToSchema(list);
 	}
 
 	function trimText(which: 'in' | 'out'): string {
@@ -202,14 +212,14 @@
 	</div>
 	<p class="text-sm text-fg-muted">Drag the corners on the picture. The playback shows the crop live.</p>
 {:else if tool === 'resize' && op}
-	<ToolForm params={resizeParams(sizeOptions)} values={params} onChange={(name, value) => set(name, name === 'short' ? Number(value) : value)} />
+	<EntryForm fields={schemaOf(resizeParams(sizeOptions))} values={params} label="Resize" onValues={(next) => setAll(next.short === undefined ? next : { ...next, short: Number(next.short) })} />
 {:else if tool === 'speed' && op}
-	<ToolForm params={SPEED_PARAMS} values={params} onChange={set} />
+	<EntryForm fields={schemaOf(SPEED_PARAMS)} values={params} label="Speed" onValues={setAll} />
 	<div class={readoutRow}><span class="text-fg-muted">Output</span><span class="font-mono tabular-nums text-fg" data-speed-output>{fixed2(outputLength)} s</span></div>
 {:else if tool === 'mute'}
 	<p class="text-sm text-fg-muted">{hasAudio ? 'Removes the sound from the saved clip. Playback goes quiet so you can hear it.' : 'This clip has no sound to remove.'}</p>
 {:else if tool === 'volume' && op}
-	<ToolForm params={volumeParams(outputLength || clip.duration)} values={params} onChange={set} />
+	<EntryForm fields={schemaOf(volumeParams(outputLength || clip.duration))} values={params} label="Volume" onValues={setAll} />
 {:else if tool === 'replace' && op}
 	<div class="flex flex-col gap-2">
 		<span class={sectionLabel}>Track</span>
@@ -222,7 +232,7 @@
 			<Button variant="secondary" size="sm" class="h-8" icon="upload" loading={busy === 'audio'} onclick={() => onpickaudio('upload')} attrs={{ 'data-replace-pick': 'upload' }}>Upload</Button>
 		</div>
 	</div>
-	<ToolForm params={REPLACE_PARAMS} values={params} onChange={set} />
+	<EntryForm fields={schemaOf(REPLACE_PARAMS)} values={params} label="Replace audio" onValues={setAll} />
 {:else if tool === 'effects'}
 	{#if !effectList.length}
 		<p class="text-sm text-fg-muted" data-effects-empty>No effects are available.</p>
@@ -233,7 +243,7 @@
 			{/each}
 		</div>
 		{#if activeCard && op}
-			<ToolForm params={activeCard.params} values={params} onChange={set} />
+			<EntryForm fields={schemaOf(activeCard.params)} values={params} label="{activeCard.label} options" onValues={setAll} />
 		{/if}
 		{#if showClip}
 			{@render previewButton()}
@@ -265,7 +275,7 @@
 									<p class="text-sm text-fg-muted" data-effect-description>{card.description}</p>
 								{/if}
 								{#if card.params.length}
-									<ToolForm params={card.params} values={params} onChange={(name, value) => onparams(card.id, { ...params, [name]: value })} />
+									<EntryForm fields={schemaOf(card.params)} values={params} label="{card.label} options" onValues={(next) => onparams(card.id, next)} />
 								{/if}
 							</div>
 						{/if}

@@ -8,6 +8,7 @@ const GROUP = `${PLUGIN}.stylize`;
 const TINT = `${PLUGIN}.tint`;
 const TINT_LATER = `${PLUGIN}.tint-later`;
 const FAULTY = `${PLUGIN}.faulty`;
+const FORM = `${PLUGIN}.form`;
 const SPOTLIGHT = `${PLUGIN}.spotlight`;
 const RELIGHT = `${PLUGIN}.relight`;
 
@@ -156,6 +157,30 @@ test.describe('a plugin fills the image editor slots', () => {
 		await page.locator('[data-options-apply]').click();
 		await expect(page.locator('[data-edit-stack="panel"] [data-stack-row="s1"], [data-edit-stack="panel"] [data-status="current"]')).toContainText('Strength 70');
 		await expect(page.locator('[data-stack-row="pending"]')).toHaveCount(0);
+	});
+
+	test('a tool that declares a schema gets the dynamic form and its edits become its pending step', async ({ page }) => {
+		const errors = watchErrors(page);
+		await begin(page, true);
+		await openPicture(page);
+
+		await selectRailTool(page, FORM);
+		const panel = page.locator(`[data-entry-options="${FORM}"]`);
+		await expect(panel.locator('[data-field-name="amount"] input[type="range"]')).toHaveValue('40');
+		await expect(panel.locator('[data-field-name="mode"]').getByRole('button', { name: 'Hard', exact: true })).toBeVisible();
+		await expect(panel.locator('[data-field-name="keep"] input[type="checkbox"]')).not.toBeChecked();
+		await expect(page.locator('[data-stack-row="pending"]')).toHaveCount(0);
+
+		await panel.locator('[data-field-name="amount"] input[type="range"]').fill('70');
+		await expect(page.locator('[data-stack-row="pending"]')).toContainText('Form strength 70');
+		await panel.locator('[data-field-name="mode"]').getByRole('button', { name: 'Hard', exact: true }).click();
+		await page.locator('[data-options-apply]').click();
+		await expect(page.locator('[data-stack-row="pending"]')).toHaveCount(0);
+		await expect(stackRow(page, 'Form')).toContainText('Form strength 70');
+		await expect
+			.poll(async () => (await savedSteps(page)).map((step) => ({ tool: step.tool, amount: step.params?.amount, mode: step.params?.mode, keep: step.params?.keep })), { timeout: 15000 })
+			.toEqual([{ tool: FORM, amount: 70, mode: 'hard', keep: false }]);
+		expect(errors).toEqual([]);
 	});
 
 	test('its step is added to the stack with its summary, autosaves and survives a reload', async ({ page }) => {

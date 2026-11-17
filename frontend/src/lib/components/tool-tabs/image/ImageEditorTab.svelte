@@ -184,6 +184,7 @@
 	import { imageEffects as imageEffectList } from '$lib/tool-tabs/image/shaderEffect';
 	import { canApplyEffect, canResetEffect, effectDefaultsOf } from '$lib/tool-tabs/image/effectState';
 	import CatalogToolOptions from './CatalogToolOptions.svelte';
+	import ToolEntryPanel from '$lib/components/tool-tabs/frame/ToolEntryPanel.svelte';
 	import CropOptions, { aspectLabel, IMAGE_ASPECTS } from './CropOptions.svelte';
 	import CropOverlay from './CropOverlay.svelte';
 	import ImageStartScreen from './ImageStartScreen.svelte';
@@ -338,7 +339,7 @@
 		getSource: () => ({ size: sourceSize, ref: resolvedRef }),
 		render: async (stepsBeneath) => (await renderer.render(stepsBeneath === undefined ? effective : effective.slice(0, stepsBeneath))).canvas,
 		setApply: (state) => (applyOverride = state ? { ...state, tool: activeTool } : null),
-		writeLive: (next) => writeLive(next),
+		writeLive: (next, options) => writeLive(next, options),
 		settleLive: () => settleLive()
 	});
 	$effect(() => toolHost.syncPending(stack.pending));
@@ -452,7 +453,7 @@
 	}
 
 	let cropParams = $derived<CropParams>((pendingHere?.tool === 'crop' ? (pendingHere.params as CropParams) : null) ?? { plan: EMPTY_IMAGE_PLAN, aspect: 'free' });
-	let catalogTool = $derived(activeTool && !registeredTool?.options && !['crop', 'resize', 'paint', 'mask', 'effects', 'adjust', 'slice'].includes(activeTool) && !paintActive ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
+	let catalogTool = $derived(activeTool && !registeredTool?.options && !registeredTool?.schema && !['crop', 'resize', 'paint', 'mask', 'effects', 'adjust', 'slice'].includes(activeTool) && !paintActive ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
 	let catalogValues = $derived<Record<string, unknown>>(
 		pendingHere && catalogTool ? ((pendingHere.params as CatalogParams).values ?? {}) : catalogTool ? initialValues(catalogTool) : {}
 	);
@@ -1017,9 +1018,10 @@
 		if (isLive(stack)) stack = commitLive(stack);
 	}
 
-	function writeLive(next: EditStackState<unknown>) {
+	function writeLive(next: EditStackState<unknown>, options: { hold?: boolean } = {}) {
 		notice = null;
 		stack = next;
+		if (options.hold) return;
 		if (liveTimer) clearTimeout(liveTimer);
 		liveTimer = setTimeout(settleLive, LIVE_COMMIT_MS);
 	}
@@ -1934,14 +1936,18 @@
 	{#if notice}
 		<p class="text-sm text-danger" role="alert">{notice}</p>
 	{/if}
-	{#if registeredTool?.options}
+	{#if registeredTool?.options || registeredTool?.schema}
 		{#if registeredTool.task}
 			<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} what={registeredTool.task === 'remove_object' ? 'object you want removed' : null} />
 			{#if staleMask}
 				<p class="text-sm text-warning" data-mask-stale>The marked area was drawn before a shape change, so it no longer lines up. Mark it again.</p>
 			{/if}
 		{/if}
-		<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.options} props={{ host: toolHost, phone, tool: registeredTool.id }} onclose={closeActiveTool} />
+		{#if registeredTool.schema}
+			<ToolEntryPanel entry={registeredTool} entryKey={entryKey('image', registeredTool.id)} host={toolHost} {phone} onclose={closeActiveTool} />
+		{:else if registeredTool.options}
+			<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.options} props={{ host: toolHost, phone, tool: registeredTool.id }} onclose={closeActiveTool} />
+		{/if}
 	{:else if activeTool === 'crop' && cropInput}
 		<CropOptions params={cropParams} input={cropInput} {phone} onchange={(next) => setDraft('crop', next)} />
 	{:else if activeTool === 'resize' && resizeParams && resizeInput}

@@ -2266,7 +2266,7 @@ media_tools:
 | Key | Declares | Fields |
 |---|---|---|
 | `editor_steps` | A kind of step in an edit | `id`, `editor`, `module`, `label`, `icon`, `lane` |
-| `editor_tools` | A tool in the editor's rail (`ai: true` marks one that runs a model: it gets the iridescent AI ring) | `id`, `editor`, `group`, `label`, `icon`, `order`, `keys`, `options`, `bar`, `overlay`, `task`, `ai` |
+| `editor_tools` | A tool in the editor's rail (`ai: true` marks one that runs a model: it gets the iridescent AI ring) | `id`, `editor`, `group`, `label`, `icon`, `order`, `keys`, `options`, `bar`, `schema`, `overlay`, `task`, `ai` |
 | `editor_groups` | A group in the rail | `id`, `editor`, `label`, `order` |
 | `editor_overlays` | A layer drawn over the canvas | `id`, `editor`, `component`, `cursor` (`crosshair`, `brush`, `default`), `produces` (`selection`) |
 | `editor_menu` | An item in the editor's menu bar ([below](#menu-bar-items)) | `id`, `editor`, `menu`, `group`, `order`, `label`, `icon`, `keys`, `menu_label`, `module` |
@@ -2275,7 +2275,7 @@ media_tools:
 - `editor` is `image`, `video` or `audio`. An unknown value fails validation.
 - Every `id` starts with your plugin id and a dot. A bare or foreign-prefixed id fails validation, and
   so does the same `id` twice for the same `editor` within one key.
-- `module`, `options`, `bar` and `component` are paths inside `frontend/dist`, relative, with no `..`,
+- `module`, `options`, `bar`, `schema` and `component` are paths inside `frontend/dist`, relative, with no `..`,
   no leading `/` and no `:` (so no URLs). `overlay` and `task` name another entry by id; `group` names a
   core group or one of your `editor_groups`.
 - `GET /api/plugins/frontend-extensions` returns these as the flat lists `editor_steps`, `editor_tools`,
@@ -2287,6 +2287,77 @@ media_tools:
 
 All six keys are optional and default to an empty list, so a plugin that declares none of them is unaffected,
 and so is every plugin written before they existed.
+
+### Tool options as a field list
+
+A rail tool can declare its options as a list of form fields instead of writing a component. The editor draws the
+list with the same dynamic form the Generate page uses, so every field type there is available, including field types
+your plugin registers with `field_types:`, and the tool's panel looks like every other one.
+
+In the manifest, point `schema` at a JSON file inside `frontend/dist`:
+
+```yaml
+editor_tools:
+  - id: acme.halftone
+    editor: image
+    group: acme.stylize
+    label: Halftone
+    icon: extension
+    schema: editor/halftone.schema.json
+```
+
+```json
+[
+  { "type": "slider", "name": "amount", "title": "Amount", "minimum": 0, "maximum": 100, "step": 1, "default": 40,
+    "reset": true, "fill": "from-default" },
+  { "type": "segmented", "name": "mode", "title": "Mode", "default": "soft",
+    "options": [{ "label": "Soft", "value": "soft" }, { "label": "Hard", "value": "hard" }] },
+  { "type": "color", "name": "ink", "title": "Ink", "default": "#000000",
+    "visible": false,
+    "reactions": [{ "when": { "field": "mode", "equals": "hard" }, "then": { "set_visibility": true } }] }
+]
+```
+
+A field is a `type` and a `name` plus the keys that type reads (`title`, `default`, `minimum`, `maximum`, `options`,
+`reactions`, ...). Fields nest in `row` and `group` the usual way. The file is read when the plugin is enabled: a
+missing or unreadable file, a field without a `type`, a repeated `name`, or a `type` that no enabled plugin or core
+registers makes the plugin fail to enable, and the error names the tool and the field. The list is served on the
+tool's entry in `GET /api/plugins/frontend-extensions` as `schema`.
+
+With only a schema, the form drives a pending step of your own step kind: the first edit begins a step with the tool's
+`id` and the form's values as its `params`, later edits update it, and Apply adds it to the edit. A tool that needs
+more registers `schema` from code (`registerRailTool`), where it may also be a function of the tool's context, and adds:
+
+| Key | Meaning |
+|---|---|
+| `schema` | A field list, or `(ctx) => fields` run again whenever the context changes. |
+| `values(ctx)` | The values to show. Without it the form shows the pending step's params, then the field defaults. |
+| `onValues(values, { commit, name }, ctx)` | Called with every value of the form. `commit` is false for each change, including every step of a slider drag, and true once when the gesture ends; `name` is the field that changed. Without it the form edits a pending step as above. |
+| `description` | A line of text shown above the form, or `(ctx) => text`. |
+| `options` | Still allowed. The component is drawn below the form, for parts that are not values: action buttons, pickers. |
+
+`ctx` is `{ host, phone, tool, pending, stack, catalog }`: the tool host the options component would receive, the
+pending step, and the image editor's edit stack where there is one. Use `commit` to end an undo step: write the live
+draft on each change and settle it on the commit, so a drag is one step.
+
+```ts
+editors.registerRailTool(
+  {
+    id: 'acme.halftone', editor: 'image', group: 'acme.stylize', label: 'Halftone', icon: 'extension',
+    schema: [{ type: 'slider', name: 'amount', title: 'Amount', minimum: 0, maximum: 100, default: 40 }],
+    values: ({ pending }) => (pending?.params as { amount?: number } | null) ?? { amount: 40 },
+    onValues: (values, info, { host, pending }) => {
+      const draft = { tool: 'acme.halftone', icon: 'extension', label: 'Halftone', summary: `Amount ${values.amount}`, params: values };
+      if (info.commit) return;
+      if (pending?.tool === 'acme.halftone') host.update(draft);
+      else host.begin(draft);
+    }
+  },
+  { pluginId: 'acme' }
+);
+```
+
+A tool with only `options` is unchanged.
 
 ### Menu bar items
 

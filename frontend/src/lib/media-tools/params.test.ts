@@ -2,13 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
 	acceptsValue,
 	buildParams,
-	controlFor,
+	fieldTypeFor,
 	humanize,
 	initialValues,
 	isParamVisible,
 	normalizeOptions,
 	paramIssues,
-	toFieldConfig,
 	visibleParams
 } from './params';
 import type { ToolParam } from './types';
@@ -20,43 +19,43 @@ const select = (count: number, extra: Partial<ToolParam> = {}): ToolParam => ({
 	...extra
 });
 
-describe('controlFor', () => {
+describe('fieldTypeFor', () => {
 	it('draws a select with four options or fewer as a segmented control', () => {
-		expect(controlFor(select(2))).toBe('segmented');
-		expect(controlFor(select(4))).toBe('segmented');
+		expect(fieldTypeFor(select(2))).toBe('segmented');
+		expect(fieldTypeFor(select(4))).toBe('segmented');
 	});
 
 	it('draws a select with five options or more as a dropdown', () => {
-		expect(controlFor(select(5))).toBe('dropdown');
-		expect(controlFor(select(9))).toBe('dropdown');
+		expect(fieldTypeFor(select(5))).toBe('select');
+		expect(fieldTypeFor(select(9))).toBe('select');
 	});
 
 	it('counts bare string options the same as labelled ones', () => {
-		expect(controlFor({ name: 'fit', type: 'select', options: ['pad', 'cover'] })).toBe('segmented');
+		expect(fieldTypeFor({ name: 'fit', type: 'select', options: ['pad', 'cover'] })).toBe('segmented');
 	});
 
 	it('draws a number with both bounds as a slider and anything else as a number box', () => {
-		expect(controlFor({ name: 'a', type: 'float', min: 0, max: 100 })).toBe('slider');
-		expect(controlFor({ name: 'a', type: 'integer', min: 1, max: 8 })).toBe('slider');
-		expect(controlFor({ name: 'a', type: 'integer' })).toBe('number');
-		expect(controlFor({ name: 'a', type: 'float', min: 0 })).toBe('number');
-		expect(controlFor({ name: 'a', type: 'float', max: 5 })).toBe('number');
+		expect(fieldTypeFor({ name: 'a', type: 'float', min: 0, max: 100 })).toBe('slider');
+		expect(fieldTypeFor({ name: 'a', type: 'integer', min: 1, max: 8 })).toBe('slider');
+		expect(fieldTypeFor({ name: 'a', type: 'integer' })).toBe('number_box');
+		expect(fieldTypeFor({ name: 'a', type: 'float', min: 0 })).toBe('number_box');
+		expect(fieldTypeFor({ name: 'a', type: 'float', max: 5 })).toBe('number_box');
 	});
 
 	it('does not offer a slider over an empty range', () => {
-		expect(controlFor({ name: 'a', type: 'float', min: 3, max: 3 })).toBe('number');
+		expect(fieldTypeFor({ name: 'a', type: 'float', min: 3, max: 3 })).toBe('number_box');
 	});
 
 	it('maps the remaining types to their own controls', () => {
-		expect(controlFor({ name: 'a', type: 'checkbox' })).toBe('switch');
-		expect(controlFor({ name: 'a', type: 'color' })).toBe('color');
-		expect(controlFor({ name: 'a', type: 'anchor' })).toBe('anchor');
-		expect(controlFor({ name: 'a', type: 'string' })).toBe('text');
-		expect(controlFor({ name: 'a', type: 'plugin_thing' })).toBe('text');
+		expect(fieldTypeFor({ name: 'a', type: 'checkbox' })).toBe('checkbox');
+		expect(fieldTypeFor({ name: 'a', type: 'color' })).toBe('color');
+		expect(fieldTypeFor({ name: 'a', type: 'anchor' })).toBe('anchor');
+		expect(fieldTypeFor({ name: 'a', type: 'string' })).toBe('string');
+		expect(fieldTypeFor({ name: 'a', type: 'plugin_thing' })).toBe('string');
 	});
 
 	it('draws a select that asks for the anchor widget as the grid, whatever its option count', () => {
-		expect(controlFor(select(9, { widget: 'anchor' }))).toBe('anchor');
+		expect(fieldTypeFor(select(9, { widget: 'anchor' }))).toBe('anchor');
 	});
 });
 
@@ -80,34 +79,6 @@ describe('humanize', () => {
 		expect(humanize('keep_pitch')).toBe('Keep pitch');
 		expect(humanize('bottom-right')).toBe('Bottom right');
 		expect(humanize(undefined)).toBe('');
-	});
-});
-
-describe('toFieldConfig', () => {
-	it('gives a slider its bounds, step and unit', () => {
-		const config = toFieldConfig({ name: 'tolerance', type: 'float', min: 0, max: 100, step: 5, unit: '%', label: 'Tolerance' });
-		expect(config).toMatchObject({ title: 'Tolerance', minimum: 0, maximum: 100, step: 5, unit: '%' });
-	});
-
-	it('steps an integer by one and a float by a hundredth when the tool says nothing', () => {
-		expect(toFieldConfig({ name: 'a', type: 'integer', min: 0, max: 9 }).step).toBe(1);
-		expect(toFieldConfig({ name: 'a', type: 'float', min: 0, max: 9 }).step).toBe(0.01);
-	});
-
-	it('hands a color the transparent flag', () => {
-		expect(toFieldConfig({ name: 'fill', type: 'color', allow_transparent: true }).allow_transparent).toBe(true);
-		expect(toFieldConfig({ name: 'fill', type: 'color' }).allow_transparent).toBe(false);
-	});
-
-	it('hands a select its normalized options', () => {
-		expect(toFieldConfig({ name: 'axis', type: 'select', options: ['horizontal', 'vertical'] }).options).toEqual([
-			{ label: 'Horizontal', value: 'horizontal' },
-			{ label: 'Vertical', value: 'vertical' }
-		]);
-	});
-
-	it('shows an empty number box as Auto', () => {
-		expect(toFieldConfig({ name: 'width', type: 'integer' }).placeholder).toBe('Auto');
 	});
 });
 

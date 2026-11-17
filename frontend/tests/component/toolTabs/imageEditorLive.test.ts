@@ -84,8 +84,8 @@ function release(view: ReturnType<typeof render>, label: string) {
 	flushSync();
 }
 
-async function settle() {
-	for (let i = 0; i < 6; i++) await Promise.resolve();
+async function settle(rounds = 6) {
+	for (let i = 0; i < rounds; i++) await Promise.resolve();
 	flushSync();
 }
 
@@ -210,15 +210,16 @@ describe('Light and Colour entries', () => {
 		expect(isRowDisabled('view.compare')).toBe(false);
 	});
 
-	it('toggles Grayscale on and off with its one switch', () => {
+	it('toggles Grayscale on and off with its one switch', async () => {
 		const view = render('grayscale');
-		const toggle = () => view.q<HTMLElement>('[data-entry-options="grayscale"] [role="switch"][aria-label="Grayscale"]')!;
-		expect(view.all('[data-entry-options="grayscale"] [role="switch"]')).toHaveLength(1);
+		await settle(30);
+		const toggle = () => view.q<HTMLElement>('[data-entry-options="grayscale"] input[type="checkbox"]')!;
+		expect(view.all('[data-entry-options="grayscale"] input[type="checkbox"]')).toHaveLength(1);
 		toggle().click();
-		flushSync();
+		await settle(30);
 		expect(view.rows()).toEqual(['original', 'current']);
 		toggle().click();
-		flushSync();
+		await settle(30);
 		expect(view.written().steps).toHaveLength(1);
 	});
 
@@ -252,16 +253,18 @@ describe('the other entries show only their own controls', () => {
 		expect(view.q('[data-entry-options="curves"] svg, [data-entry-options="curves"] canvas')).not.toBeNull();
 	});
 
-	it('Invert is one switch', () => {
+	it('Invert is one switch', async () => {
 		const view = render('invert');
-		expect(view.all('[data-entry-options="invert"] [role="switch"]')).toHaveLength(1);
+		await settle(30);
+		expect(view.all('[data-entry-options="invert"] input[type="checkbox"]')).toHaveLength(1);
 		expect(view.all('[data-entry-options="invert"] [data-property-slider]')).toHaveLength(0);
 	});
 
-	it('Film grain has the controls of its effect and none of the Adjust sliders', () => {
+	it('Film grain has the controls of its effect and none of the Adjust sliders', async () => {
 		resetMediaToolCatalog(EFFECT_CATALOG);
 		try {
 			const view = render('film_grain');
+			await settle(30);
 			const wanted = effectTools(EFFECT_CATALOG).find((entry) => entry.id === 'film_grain')!.params.map((param) => param.label ?? param.name);
 			const text = view.q('[data-entry-options="film_grain"]')!.textContent ?? '';
 			for (const label of wanted) expect(text).toContain(label);

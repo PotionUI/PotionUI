@@ -28,6 +28,11 @@ editor_steps:
     module: "editor/faultyStep.js"
     label: "Faulty"
     icon: "extension"
+  - id: "e2e-editor-slots.form"
+    editor: "image"
+    module: "editor/tintStep.js"
+    label: "Form"
+    icon: "extension"
 
 editor_tools:
   - id: "e2e-editor-slots.tint"
@@ -51,6 +56,14 @@ editor_tools:
     icon: "extension"
     options: "editor/FaultyOptions.js"
     order: 30
+
+  - id: "e2e-editor-slots.form"
+    editor: "image"
+    group: "e2e-editor-slots.stylize"
+    label: "Form"
+    icon: "extension"
+    schema: "editor/formTool.schema.json"
+    order: 40
 
 editor_overlays:
   - id: "e2e-editor-slots.spotlight"

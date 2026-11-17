@@ -144,7 +144,7 @@ test('a look from the Image editor grades the live video preview and the saved c
 	const card = editor.locator('[data-effect-card="look"]');
 	await expect(card).toBeVisible({ timeout: 10000 });
 	await card.locator('button').first().click();
-	await card.locator('[data-param="look"]').getByRole('button', { name: 'Toggle options' }).click();
+	await card.locator('[data-field-name="look"]').getByRole('button', { name: 'Toggle options' }).click();
 	await page.locator('[role="option"][id^="custom-select-"]').filter({ hasText: 'Noir' }).click();
 	await editor.locator('[data-options-apply]').click();
 	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Look' })).toBeVisible();

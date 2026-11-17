@@ -135,7 +135,7 @@ test('Vignette from the effect catalog previews live on the image canvas through
 	const panel = page.locator('[data-entry-options="vignette"]');
 	await expect(panel).toBeVisible();
 	await expect(page.locator('[data-options-apply]')).toHaveCount(0);
-	const amount = panel.locator('[data-param="amount"] input').first();
+	const amount = panel.locator('[data-field-name="amount"] input').first();
 	await expect(amount).toBeVisible();
 	await amount.fill('60');
 	await amount.press('Tab');

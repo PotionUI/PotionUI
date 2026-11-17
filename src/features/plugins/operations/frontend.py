@@ -3,10 +3,12 @@ Manifest/registry-derived reads for the frontend: quick actions, sidebar
 widgets, renderer/extension-slot contributions, and the hooks catalog.
 """
 import hashlib
+import logging
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterator, List, Optional
 
 from src.features.plugins.repository import PluginRepository
+from src.platform.plugins.editor_schema import EditorSchemaError, read_tool_schema
 from src.platform.plugins.registry import PluginRegistry
 from src.platform.plugins.hooks import hooks_registry
 
@@ -111,6 +113,9 @@ def _revision_inputs(manifest) -> Iterator[Path]:
         return
 
 
+logger = logging.getLogger(__name__)
+
+
 def plugin_frontend_revision(manifest) -> str:
     """Identity of a plugin's frontend surface: its declared version, its
     manifest file, and the compiled bundles a browser imports.
@@ -203,7 +208,12 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
 
         for section, shape in _EDITOR_SECTIONS.items():
             for entry_def in getattr(manifest, section, None) or []:
-                editor_sections[section].append(_editor_entry(manifest.id, entry_def, shape))
+                entry = _editor_entry(manifest.id, entry_def, shape)
+                if section == "editor_tools":
+                    declared = _tool_schema(manifest, entry_def)
+                    if declared is not None:
+                        entry["schema"] = declared
+                editor_sections[section].append(entry)
 
     contributions.sort(key=lambda c: c["order"])
     return {
@@ -250,6 +260,16 @@ def _dist_relative(value: Any) -> Any:
         return value[len(_DIST_PREFIX):]
     return value
 
+
+def _tool_schema(manifest: Any, entry_def: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    relative = entry_def.get("schema_file")
+    if not relative:
+        return None
+    try:
+        return read_tool_schema(manifest.plugin_dir, relative)
+    except EditorSchemaError as exc:
+        logger.error("Plugin %s: editor tool %s schema skipped: %s", manifest.id, entry_def.get("id"), exc)
+        return None
 
 def _editor_entry(plugin_id: str, entry_def: Dict[str, Any], shape: Dict[str, Any]) -> Dict[str, Any]:
     entry: Dict[str, Any] = {"plugin_id": plugin_id}

@@ -114,7 +114,7 @@ test('a LUT from the LUT folder grades the live preview and the saved clip, with
 	const card = editor.locator('[data-effect-card="lut"]');
 	await expect(card).toBeVisible({ timeout: 10000 });
 	await card.locator('button').first().click();
-	await card.locator('[data-param="lut"] button[aria-haspopup="listbox"]').click();
+	await card.locator('[data-field-name="lut"] button[aria-haspopup="listbox"]').click();
 	await page.getByRole('option', { name: 'e2e-warm' }).click();
 	await editor.locator('[data-options-apply]').click();
 	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'LUT' })).toBeVisible();

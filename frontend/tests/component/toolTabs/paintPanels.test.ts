@@ -4,14 +4,23 @@ import { installFakeCanvas } from '../helpers/fakeCanvas';
 import { mountComponent } from '../helpers/mount';
 import { resetRecentColours } from '$lib/paint/recentColours';
 
-vi.mock('$lib/services/api/index', () => ({
-	api: { listFilters: async () => ({ filters: [], ops: [], groups: [] }) }
-}));
+vi.mock('$lib/services/api/index', async (importOriginal) => {
+	const overrides: Record<string, unknown> = { listFilters: async () => ({ filters: [], ops: [], groups: [] }) };
+	return {
+		...(await importOriginal<Record<string, unknown>>()),
+		api: new Proxy(overrides, { get: (target, key) => (key in target ? target[key as string] : () => undefined) })
+	};
+});
 
 const { default: PaintPanel } = await import('$lib/components/paint/PaintPanel.svelte');
 const { default: PaintOptions } = await import('$lib/components/tool-tabs/image/PaintOptions.svelte');
 const { default: ColourControl } = await import('$lib/components/paint/ColourControl.svelte');
-const { default: ToolForm } = await import('$lib/media-tools/ToolForm.svelte');
+const { default: EntryForm } = await import('$lib/components/tool-tabs/frame/EntryForm.svelte');
+const { toolParamsToSchema } = await import('$lib/media-tools/toolSchema');
+const { registerBuiltinFieldComponents } = await import('$lib/fields/builtin');
+const { settle } = await import('../helpers/settle');
+
+registerBuiltinFieldComponents();
 const { PaintSession } = await import('$lib/paint/session');
 
 let restore: () => void;
@@ -262,18 +271,21 @@ describe('seed parameters', () => {
 		{ name: 'points', type: 'integer', min: 0, max: 50000, default: 10 }
 	];
 
-	it('renders a seed as a number field with a roll button, and wide integer ranges as number boxes', () => {
-		const changes: Array<[string, unknown]> = [];
-		mountComponent(ToolForm as never, { params, values: { amount: 20, seed: 5, points: 10 }, onChange: (name: string, value: unknown) => changes.push([name, value]) });
-		expect(q('[data-param="amount"]')!.dataset.control).toBe('slider');
-		expect(q('[data-param="seed"]')!.dataset.control).toBe('seed');
-		expect(q('[data-param="points"]')!.dataset.control).toBe('number');
-		const input = q('[data-param="seed"] input[type="number"]') as HTMLInputElement;
+	it('renders a seed as a number field with a roll button, and wide integer ranges as number boxes', async () => {
+		const changes: Array<Record<string, unknown>> = [];
+		mountComponent(EntryForm as never, { fields: toolParamsToSchema(params as never), values: { amount: 20, seed: 5, points: 10 }, onValues: (next: Record<string, unknown>, info: { commit: boolean }) => !info.commit && changes.push(next) });
+		await settle(10);
+		const field = (name: string) => q(`[data-field-name="${name}"]`)!;
+		expect(field('amount').dataset.fieldType).toBe('slider');
+		expect(field('seed').dataset.fieldType).toBe('seed');
+		expect(field('points').dataset.fieldType).toBe('number_box');
+		const input = q('[data-field-name="seed"] input[type="number"]') as HTMLInputElement;
 		expect(input.value).toBe('5');
 		expect(input.className).toContain('tabular-nums');
-		(q('[data-param="seed"] button[aria-label="Roll a random seed"]') as HTMLButtonElement).click();
-		expect(changes[0][0]).toBe('seed');
-		expect(Number.isInteger(changes[0][1])).toBe(true);
-		expect(q('[data-param="seed"] input[type="range"]')).toBeNull();
+		(q('[data-field-name="seed"] button[aria-label="Roll a random seed"]') as HTMLButtonElement).click();
+		await settle(10);
+		expect(Object.keys(changes[0])).toContain('seed');
+		expect(Number.isInteger(changes[0].seed)).toBe(true);
+		expect(q('[data-field-name="seed"] input[type="range"]')).toBeNull();
 	});
 });

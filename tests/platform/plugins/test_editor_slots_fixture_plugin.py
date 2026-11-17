@@ -70,8 +70,8 @@ def test_the_manifest_loads_with_every_editor_part_validated(world):
 
     assert manifest.validation_error is None
     assert [e["id"] for e in manifest.editor_groups] == [f"{PLUGIN}.stylize"]
-    assert [e["id"] for e in manifest.editor_steps] == [f"{PLUGIN}.tint", f"{PLUGIN}.tint-later", f"{PLUGIN}.faulty"]
-    assert [e["id"] for e in manifest.editor_tools] == [f"{PLUGIN}.tint", f"{PLUGIN}.tint-later", f"{PLUGIN}.faulty"]
+    assert [e["id"] for e in manifest.editor_steps] == [f"{PLUGIN}.tint", f"{PLUGIN}.tint-later", f"{PLUGIN}.faulty", f"{PLUGIN}.form"]
+    assert [e["id"] for e in manifest.editor_tools] == [f"{PLUGIN}.tint", f"{PLUGIN}.tint-later", f"{PLUGIN}.faulty", f"{PLUGIN}.form"]
     assert [e["id"] for e in manifest.editor_overlays] == [f"{PLUGIN}.spotlight"]
     assert [e["id"] for e in manifest.editor_tasks] == [f"{PLUGIN}.relight"]
     assert world.registry.enable_plugin(PLUGIN) is True
@@ -80,7 +80,8 @@ def test_the_manifest_loads_with_every_editor_part_validated(world):
 def test_every_file_the_manifest_points_at_is_in_the_built_bundle(world):
     manifest = world.registry.get_plugin(PLUGIN)
     paths = [e["module"] for e in manifest.editor_steps]
-    paths += [e["options"] for e in manifest.editor_tools]
+    paths += [e["options"] for e in manifest.editor_tools if e["options"]]
+    paths += [e["schema_file"] for e in manifest.editor_tools if e["schema_file"]]
     paths += [e["component"] for e in manifest.editor_overlays]
 
     assert paths and all((SLOTS_DIST / path).is_file() for path in paths)
@@ -107,12 +108,17 @@ def test_the_extension_list_carries_each_part_with_its_plugin_and_dist_relative_
         f"{PLUGIN}.tint": "editor/tintStep.js",
         f"{PLUGIN}.tint-later": "editor/tintStep.js",
         f"{PLUGIN}.faulty": "editor/faultyStep.js",
+        f"{PLUGIN}.form": "editor/tintStep.js",
     }
     assert {e["id"]: (e["group"], e["options"]) for e in listed["editor_tools"]} == {
         f"{PLUGIN}.tint": (f"{PLUGIN}.stylize", "editor/TintOptions.js"),
         f"{PLUGIN}.tint-later": (f"{PLUGIN}.stylize", "editor/TintLaterOptions.js"),
         f"{PLUGIN}.faulty": (f"{PLUGIN}.stylize", "editor/FaultyOptions.js"),
+        f"{PLUGIN}.form": (f"{PLUGIN}.stylize", None),
     }
+    form = next(e for e in listed["editor_tools"] if e["id"] == f"{PLUGIN}.form")
+    assert [(f["type"], f["name"]) for f in form["schema"]] == [("slider", "amount"), ("segmented", "mode"), ("checkbox", "keep")]
+    assert all("schema" not in e for e in listed["editor_tools"] if e["id"] != f"{PLUGIN}.form")
     assert [(e["id"], e["component"], e["produces"]) for e in listed["editor_overlays"]] == [
         (f"{PLUGIN}.spotlight", "editor/Spotlight.js", "selection")
     ]

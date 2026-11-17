@@ -12,7 +12,7 @@ export interface ImageToolHostDeps {
 	getSource(): { size: PixelSize | null; ref: MediaToolInputRef | null };
 	render(stepsBeneath?: number): Promise<HTMLCanvasElement>;
 	setApply(state: { label: string; enabled: boolean } | null): void;
-	writeLive(next: EditStackState<unknown>): void;
+	writeLive(next: EditStackState<unknown>, options?: { hold?: boolean }): void;
 	settleLive(): void;
 }
 
@@ -20,8 +20,9 @@ export interface ImageToolHost extends EditorToolHost<unknown> {
 	stack: Readable<EditStackState<unknown>>;
 	syncPending(pending: PendingEdit<unknown> | null): void;
 	syncStack(stack: EditStackState<unknown>): void;
-	edit(next: EditStackState<unknown>): void;
+	edit(next: EditStackState<unknown>, options?: { hold?: boolean }): void;
 	settle(): void;
+	current(): EditStackState<unknown>;
 }
 
 export function createImageToolHost(deps: ImageToolHostDeps): ImageToolHost {
@@ -38,7 +39,8 @@ export function createImageToolHost(deps: ImageToolHostDeps): ImageToolHost {
 		stack: { subscribe: stack.subscribe },
 		syncPending: (next) => pending.set(next),
 		syncStack: (next) => stack.set(next),
-		edit: (next) => deps.writeLive(next),
+		edit: (next, options) => deps.writeLive(next, options),
+		current: () => deps.getStack(),
 		settle: () => deps.settleLive(),
 		begin: (draft) => deps.setStack(beginEdit(deps.getStack(), draft)),
 		update: (patch: Partial<StepDraft<unknown>>) => deps.setStack(updatePending(deps.getStack(), patch)),

@@ -1,3 +1,4 @@
+import type { FieldConfig } from '$lib/form/reactions';
 import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 import { logger } from '$lib/utils/logger';
 import { pluginOwner } from './registry';
@@ -30,6 +31,7 @@ export interface EditorToolSnapshotEntry {
 	keys?: string | null;
 	options?: string | null;
 	bar?: string | null;
+	schema?: FieldConfig[] | null;
 	overlay?: string | null;
 	task?: string | null;
 	ai?: boolean | null;
@@ -346,6 +348,7 @@ export function describeEditorEntries(snapshot: EditorSnapshot, revisionOf: (plu
 				if (entry.ai || entry.task) tool.ai = true;
 				const options = componentRef(entry.plugin_id, entry.options);
 				if (options) tool.options = options;
+				if (Array.isArray(entry.schema)) tool.schema = entry.schema;
 				const bar = componentRef(entry.plugin_id, entry.bar);
 				if (bar) tool.bar = bar;
 				return railTools.register(tool, pluginOwner(entry.plugin_id));

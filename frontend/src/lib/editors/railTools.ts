@@ -1,6 +1,7 @@
 import type { Readable } from 'svelte/store';
-import type { MediaToolInputRef } from '$lib/media-tools/types';
-import type { PendingEdit, StepDraft } from '$lib/tool-tabs/frame/editStack';
+import type { FieldConfig } from '$lib/form/reactions';
+import type { MediaToolInputRef, ToolDTO } from '$lib/media-tools/types';
+import type { EditStackState, PendingEdit, StepDraft } from '$lib/tool-tabs/frame/editStack';
 import type { RailGroup, RailTool } from '$lib/tool-tabs/frame/types';
 import { guard } from './guard';
 import { createEditorRegistry, entryKey } from './registry';
@@ -18,6 +19,22 @@ export interface RailGroupEntry extends EditorEntryBase {
 	fold?: number;
 }
 
+export interface EntryContext {
+	host: EditorToolHost<any>;
+	phone: boolean;
+	tool: string;
+	pending: PendingEdit<any> | null;
+	stack: EditStackState<any> | null;
+	catalog: readonly ToolDTO[];
+}
+
+export interface EntryValuesInfo {
+	commit: boolean;
+	name?: string;
+}
+
+export type EntrySchema = FieldConfig[] | ((ctx: EntryContext) => FieldConfig[]);
+
 export interface RailToolEntry extends EditorEntryBase {
 	group: string;
 	label: string;
@@ -25,6 +42,10 @@ export interface RailToolEntry extends EditorEntryBase {
 	order?: number;
 	keys?: string;
 	options?: ComponentRef;
+	schema?: EntrySchema;
+	description?: string | ((ctx: EntryContext) => string);
+	values?(ctx: EntryContext): Record<string, unknown>;
+	onValues?(values: Record<string, unknown>, info: EntryValuesInfo, ctx: EntryContext): void;
 	overlay?: string;
 	bar?: ComponentRef;
 	settings?: ComponentRef;

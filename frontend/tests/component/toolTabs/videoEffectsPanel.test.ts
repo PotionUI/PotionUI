@@ -56,12 +56,13 @@ describe('the Effects panel', () => {
 		expect(view.target.innerHTML).not.toMatch(/title=/);
 	});
 
-	it('opens the active effect with its catalog params and sends edits for that effect', () => {
+	it('opens the active effect with its catalog params and sends edits for that effect', async () => {
 		const { q, calls } = panel({ op: 'retro-tape.scanlines', effect: 'retro-tape.scanlines', params: { strength: 35, gap: 3, roll: 8 } });
+		for (let i = 0; i < 40; i++) await Promise.resolve();
 		const card = q('[data-effect-card="retro-tape.scanlines"]')!;
 		expect(card.dataset.open).toBe('true');
 		expect(card.querySelector('[data-effect-description]')!.textContent).toContain('CRT lines');
-		expect(card.querySelectorAll('[data-param]').length).toBe(3);
+		expect(card.querySelectorAll('[data-field-type]:not([data-field-type="row"])').length).toBe(3);
 		expect(q('[data-effect-card="film_grain"]')!.dataset.open).toBeUndefined();
 		q<HTMLButtonElement>('[data-effect-card="fix_colors"] button')!.click();
 		expect(calls).toContainEqual(['effect', 'fix_colors']);

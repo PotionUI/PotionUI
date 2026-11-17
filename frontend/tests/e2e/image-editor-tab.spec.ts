@@ -329,6 +329,7 @@ test.describe('the Image editor tab on desktop', () => {
 
 		await selectRailTool(page, 'colorKey');
 		await expect(page.locator('[data-catalog-tool="color_key"]')).toBeVisible();
+		await screenshot(page, JOURNEY, '12-catalog-tool-color-key-1440');
 		await page.locator('[data-options-apply]').click();
 		await expect.poll(() => log.frames.length).toBeGreaterThan(0);
 		const frame = log.frames[log.frames.length - 1] as { input: Json; steps: Array<{ tool: string }>; format: string };

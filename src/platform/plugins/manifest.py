@@ -725,7 +725,7 @@ class EditorStepSpec(BaseModel):
         return _dist_relative_path(value)
 
 class EditorToolSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     id: str = Field(pattern=EDITOR_ENTRY_ID)
     editor: Literal[EDITOR_KINDS]
@@ -736,14 +736,22 @@ class EditorToolSpec(BaseModel):
     keys: Optional[str] = Field(default=None, min_length=1)
     options: Optional[str] = None
     bar: Optional[str] = None
+    schema_file: Optional[str] = Field(default=None, alias="schema")
     overlay: Optional[str] = Field(default=None, min_length=1)
     task: Optional[str] = Field(default=None, min_length=1)
     ai: bool = False
 
-    @field_validator("options", "bar")
+    @field_validator("options", "bar", "schema_file")
     @classmethod
     def _component_stays_in_dist(cls, value: Optional[str]) -> Optional[str]:
         return _dist_relative_path(value)
+
+    @field_validator("schema_file")
+    @classmethod
+    def _schema_is_a_json_file(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.endswith(".json"):
+            raise ValueError("schema must be a .json file inside frontend/dist")
+        return value
 
 class EditorMenuSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -29,6 +29,7 @@
 	$: defaultValue = config.default;
 	$: unit = typeof config.unit === 'string' ? config.unit : '';
 	$: inline = (config.layout ?? config.configuration?.layout) === 'inline';
+	$: legend = (config.legend ?? config.configuration?.legend) !== false;
 	$: signed = (config.signed ?? config.configuration?.signed) === true;
 	$: hasNumericDefault = typeof defaultValue === 'number' && Number.isFinite(defaultValue);
 	$: resetEnabled = hasNumericDefault && (config.reset ?? config.configuration?.reset) !== false;
@@ -236,7 +237,7 @@
 			></span>
 		{/if}
 	</div>
-	{#if !inline}
+	{#if !inline && legend}
 		<div class="flex items-center justify-between mt-1">
 			<span class="font-mono text-sm tabular-nums text-fg-subtle">{min}{unit}</span>
 			{#if hasDefaultTick}

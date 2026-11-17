@@ -1,12 +1,12 @@
 import { CORE_OWNER } from '$lib/registries/registry';
 import { mediaToolCatalog } from '$lib/media-tools/catalog';
 import type { ToolDTO } from '$lib/media-tools/types';
-import { railGroups, railTools } from '$lib/editors/railTools';
+import { railGroups, railTools, type RailToolEntry } from '$lib/editors/railTools';
 import { stepKinds, type StepKind } from '$lib/editors/stepKinds';
 import { coreSizeAfter, coreStepPayload } from './payload';
 import { PREVIEW_SIDE, coreApplyClientStep } from './render';
 import EntryOptions from '$lib/components/tool-tabs/image/EntryOptions.svelte';
-import EffectCardOptions from '$lib/components/tool-tabs/image/EffectCardOptions.svelte';
+import { effectCardEntry, liveEffectEntry, toggleEntry } from './entrySchemas';
 import { imageEffects } from './shaderEffect';
 import { ensureGenerateEditor } from './generate/register';
 import { ensurePaintEntries } from './paintEntries';
@@ -68,6 +68,13 @@ export const GRADE_SEEDS: readonly EntrySeed[] = [
 	{ id: 'invert', group: 'fx', label: 'Invert', icon: editorToolIcons.invert, order: 40, component: 'entry' }
 ];
 
+function seedBody(seed: EntrySeed): Partial<RailToolEntry> {
+	if (seed.id === 'film_grain' || seed.id === 'vignette') return liveEffectEntry(seed.id);
+	if (seed.id === 'grayscale' || seed.id === 'invert') return toggleEntry(seed.id);
+	if (seed.component === 'card') return effectCardEntry();
+	return { options: { component: EntryOptions } };
+}
+
 export const EFFECT_ENTRY_IDS: ReadonlySet<string> = new Set(['lut', 'film_grain', 'vignette']);
 
 const effectEntries = new Map<string, () => void>();
@@ -86,7 +93,7 @@ function syncEffectEntries(catalog: readonly ToolDTO[]): void {
 		effectEntries.set(
 			id,
 			railTools.register(
-				{ id, editor: 'image', group: effect.block.group === 'colour' ? 'look' : 'fx', label: effect.label, icon: effect.icon || 'editor-effects', order, options: { component: EffectCardOptions } },
+				{ id, editor: 'image', group: effect.block.group === 'colour' ? 'look' : 'fx', label: effect.label, icon: effect.icon || 'editor-effects', order, ...effectCardEntry() },
 				CORE_OWNER
 			)
 		);
@@ -127,7 +134,7 @@ export function ensureCoreImageEditor(): void {
 			label: seed.label,
 			icon: seed.icon,
 			order: seed.order,
-			options: { component: seed.component === 'card' ? EffectCardOptions : EntryOptions }
+			...seedBody(seed)
 		});
 	}
 	for (const id of STEP_TOOLS) stepKinds.register(coreStepKind(id));

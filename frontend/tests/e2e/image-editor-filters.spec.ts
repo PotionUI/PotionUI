@@ -42,10 +42,7 @@ for (const size of SIZES) {
 		const original = await stagePixel(canvas, 0.5, 0.5);
 
 		await page.keyboard.press('r');
-		await expect(dialog.getByRole('button', { name: 'Filters', exact: true }).first()).toHaveAttribute(
-			'aria-pressed',
-			'true'
-		);
+		await expect(dialog.getByText('Apply a filter', { exact: true }).first()).toBeVisible();
 		await expect(dialog.getByRole('radiogroup', { name: 'Filters' })).toBeVisible();
 		await expect(dialog.getByRole('radio', { name: 'None', exact: true })).toHaveAttribute('aria-checked', 'true');
 		await expect(panelApply(dialog)).toBeDisabled();

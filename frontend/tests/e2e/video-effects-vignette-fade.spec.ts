@@ -122,7 +122,7 @@ async function addEffect(editor: Locator, id: string, values: Record<string, str
 	await expect(card).toBeVisible({ timeout: 10000 });
 	await card.locator('button').first().click();
 	await expect(card).toHaveAttribute('data-open', 'true');
-	for (const [name, value] of Object.entries(values)) await card.locator(`[data-param="${name}"] input[type="range"]`).fill(value);
+	for (const [name, value] of Object.entries(values)) await card.locator(`[data-field-name="${name}"] input[type="range"]`).fill(value);
 	await editor.locator('[data-options-apply]').click();
 }
 

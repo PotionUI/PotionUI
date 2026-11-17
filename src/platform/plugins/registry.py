@@ -26,6 +26,7 @@ from src.platform.plugins.router_mounter import (
 from src.platform.media_tools import MediaTool, ToolSpec
 from src.platform.media_tools.types import DEFAULT_SCOPES
 from src.platform.media_tools.effects.loader import EffectLoader, register_effects
+from src.platform.plugins.editor_schema import EditorSchemaError, read_tool_schema, validate_tool_schema
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry
 from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.plugins.automation_nodes import NodeField, NodeTypeSpec
@@ -556,6 +557,7 @@ class PluginRegistry:
         for register_step in (
             self._register_plugin_hooks,
             self._register_plugin_field_types,
+            self._validate_editor_tool_schemas,
             self._register_plugin_model_metadata_fields,
             self._register_plugin_tools,
             self._register_plugin_media_tools,
@@ -694,6 +696,27 @@ class PluginRegistry:
             if error:
                 return error
 
+        return None
+
+    def _validate_editor_tool_schemas(self, manifest: PluginManifest) -> Optional[str]:
+        """
+        Read every `editor_tools[].schema` file and check its field list.
+
+        Runs after the plugin's own field types are registered, so a tool may
+        use them. Returns an error message naming the tool and the field when
+        a file is missing, unreadable, or declares a field type nobody
+        registered; None when every declared schema is sound.
+        """
+        known = None if self.field_registry is None else [defn.type_name for defn in self.field_registry.all()]
+        for tool in manifest.editor_tools:
+            relative = tool.get("schema_file")
+            if not relative:
+                continue
+            where = f"editor_tools '{tool.get('id')}'"
+            try:
+                validate_tool_schema(read_tool_schema(manifest.plugin_dir, relative), known, where)
+            except EditorSchemaError as exc:
+                return str(exc) if str(exc).startswith(where) else f"{where}: {exc}"
         return None
 
     def _register_plugin_model_metadata_fields(self, manifest: PluginManifest) -> Optional[str]:

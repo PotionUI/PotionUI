@@ -75,13 +75,43 @@
 	);
 	$: errorFix = name && errorActions ? deriveFieldErrorFix(name, fieldErrorMessages) : null;
 
+	function invalidMarker(node: HTMLElement, messages: string[]) {
+		let current = messages;
+		const describedby = `${name}-field-error`;
+		function mark() {
+			for (const element of node.querySelectorAll('input, select, textarea')) {
+				if (current.length) {
+					if (element.getAttribute('aria-invalid') !== 'true') element.setAttribute('aria-invalid', 'true');
+					if (element.getAttribute('aria-describedby') !== describedby) element.setAttribute('aria-describedby', describedby);
+				} else {
+					if (element.getAttribute('aria-describedby') === describedby) element.removeAttribute('aria-describedby');
+					if (element.getAttribute('aria-invalid') === 'true') element.removeAttribute('aria-invalid');
+				}
+			}
+		}
+		const observer = new MutationObserver(() => {
+			if (current.length) mark();
+		});
+		observer.observe(node, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-invalid', 'aria-describedby'] });
+		mark();
+		return {
+			update(next: string[]) {
+				current = next;
+				mark();
+			},
+			destroy() {
+				observer.disconnect();
+			}
+		};
+	}
+
 	function applyFix(fix: FieldErrorFix | null) {
 		if (fix && errorActions) applyFieldErrorFix(fix, errorActions);
 	}
 </script>
 
 {#if isVisible && !isTabEntry}
-	<div data-field-name={name || undefined} class:formula-changed={!!appliedChange}>
+	<div data-field-name={name || undefined} data-field-type={fieldType} data-invalid={fieldErrorMessages.length ? 'true' : undefined} use:invalidMarker={fieldErrorMessages} class:formula-changed={!!appliedChange}>
 		<LiveSyncMark tabId={appliedTabId} fieldKey={name ? formKey(name) : null}>
 			{#if appliedChange}
 				<div class="mb-1 truncate font-mono text-xs text-fg-subtle" data-testid="formula-previous-value">
@@ -123,7 +153,7 @@
 			{/if}
 			{#if fieldErrorMessages.length > 0}
 				<div class="mt-1 space-y-1.5">
-					<div class="space-y-0.5" role="alert">
+					<div class="space-y-0.5" role="alert" id="{name}-field-error" data-field-error>
 						{#each fieldErrorMessages as msg}
 							<p class="text-xs text-danger">{msg}</p>
 						{/each}

@@ -58,12 +58,12 @@ for (const size of SIZES) {
 			await expect(dialog).toBeVisible();
 			await expect(dialog.locator('[data-tool-subject]')).toHaveText('harbour-1.png');
 
-			await expect(dialog.locator('[data-param="width"] input')).toHaveValue('1024');
-			await expect(dialog.locator('[data-param="height"] input')).toHaveValue('1024');
-			await expect(dialog.locator('[data-param="scale_percent"]')).toContainText('100%');
-			await expect(dialog.locator('[data-param="anchor"] button[data-anchor]')).toHaveCount(9);
-			await expect(dialog.locator('[data-param="anchor"] [aria-pressed="true"]')).toHaveAttribute('data-anchor', 'center');
-			await expect(dialog.locator('[data-param="fill"] [aria-pressed="true"]')).toHaveText('Transparent');
+			await expect(dialog.locator('[data-field-name="width"] input')).toHaveValue('1024');
+			await expect(dialog.locator('[data-field-name="height"] input')).toHaveValue('1024');
+			await expect(dialog.locator('[data-field-name="scale_percent"]')).toContainText('100%');
+			await expect(dialog.locator('[data-field-name="anchor"] button[data-anchor]')).toHaveCount(9);
+			await expect(dialog.locator('[data-field-name="anchor"] [aria-pressed="true"]')).toHaveAttribute('data-anchor', 'center');
+			await expect(dialog.locator('[data-field-name="fill"] [aria-pressed="true"]')).toHaveText('Transparent');
 
 			await expect(dialog.locator('[data-before-after]')).toBeVisible();
 			await expect(dialog.locator('[data-before-after] img[alt="After"]')).toBeVisible();
@@ -95,17 +95,17 @@ for (const size of SIZES) {
 			await expect.poll(() => log.previews.length).toBe(2);
 			expect((log.previews[1].params as Record<string, unknown>).anchor).toBe('bottom_right');
 
-			await dialog.locator('[data-param="width"] input').fill('1920');
+			await dialog.locator('[data-field-name="width"] input').fill('1920');
 			await expect.poll(() => log.previews.length).toBe(3);
 			expect((log.previews[2].params as Record<string, unknown>).width).toBe(1920);
 
-			await dialog.locator('[data-param="scale_percent"] input[type="range"]').fill('50');
+			await dialog.locator('[data-field-name="scale_percent"] input[type="range"]').fill('50');
 			await expect.poll(() => log.previews.length).toBe(4);
 			expect((log.previews[3].params as Record<string, unknown>).scale_percent).toBe(50);
 
 			await dialog.getByRole('button', { name: 'Colour' }).click();
-			await dialog.locator('[data-param="fill"] input[type="text"]').fill('#ff0000');
-			await dialog.locator('[data-param="fill"] input[type="text"]').press('Enter');
+			await dialog.locator('[data-field-name="fill"] input[type="text"]').fill('#ff0000');
+			await dialog.locator('[data-field-name="fill"] input[type="text"]').press('Enter');
 			await expect.poll(() => log.previews.at(-1) && (log.previews.at(-1)!.params as Record<string, unknown>).fill).toBe('#FF0000');
 			await screenshot(page, JOURNEY, `fit-canvas-colour-${size.tag}`);
 		});
@@ -116,13 +116,13 @@ for (const size of SIZES) {
 			const dialog = dialogOf(page, 'Fit canvas');
 			await expect.poll(() => log.previews.length).toBe(1);
 
-			await dialog.locator('[data-param="width"] input').fill('0');
+			await dialog.locator('[data-field-name="width"] input').fill('0');
 			await expect(dialog.getByText('At least 1')).toBeVisible();
 			await expect(dialog.getByRole('button', { name: 'Apply' })).toBeDisabled();
 			await page.waitForTimeout(600);
 			expect(log.previews).toHaveLength(1);
 
-			await dialog.locator('[data-param="width"] input').fill('800');
+			await dialog.locator('[data-field-name="width"] input').fill('800');
 			await expect(dialog.getByRole('button', { name: 'Apply' })).toBeEnabled();
 		});
 
@@ -131,12 +131,12 @@ for (const size of SIZES) {
 			await pickTool(page, host, 'color_key');
 			const dialog = dialogOf(page, 'Color key');
 
-			await expect(dialog.locator('[data-param="key_color"]')).toHaveCount(0);
-			await dialog.locator('[data-param="key_mode"]').getByRole('button', { name: 'Color', exact: true }).click();
-			await expect(dialog.locator('[data-param="key_color"]')).toBeVisible();
-			await expect(dialog.locator('[data-param="key_color"] input[type="text"]')).toHaveValue('#00B140');
-			await dialog.locator('[data-param="key_mode"]').getByRole('button', { name: 'Auto', exact: true }).click();
-			await expect(dialog.locator('[data-param="key_color"]')).toHaveCount(0);
+			await expect(dialog.locator('[data-field-name="key_color"]')).toHaveCount(0);
+			await dialog.locator('[data-field-name="key_mode"]').getByRole('button', { name: 'Color', exact: true }).click();
+			await expect(dialog.locator('[data-field-name="key_color"]')).toBeVisible();
+			await expect(dialog.locator('[data-field-name="key_color"] input[type="text"]')).toHaveValue('#00B140');
+			await dialog.locator('[data-field-name="key_mode"]').getByRole('button', { name: 'Auto', exact: true }).click();
+			await expect(dialog.locator('[data-field-name="key_color"]')).toHaveCount(0);
 			await screenshot(page, JOURNEY, `color-key-${size.tag}`);
 		});
 	});
@@ -151,8 +151,8 @@ test.describe('media tool dialog behaviour', () => {
 		await pickTool(page, host, 'speed');
 		const dialog = dialogOf(page, 'Speed');
 
-		await expect(dialog.locator('[data-param="speed"]')).toContainText('3.5×');
-		await expect(dialog.locator('[data-param="keep_pitch"] input[type="checkbox"]')).not.toBeChecked();
+		await expect(dialog.locator('[data-field-name="speed"]')).toContainText('3.5×');
+		await expect(dialog.locator('[data-field-name="keep_pitch"] input[type="checkbox"]')).not.toBeChecked();
 	});
 
 	test('shows the size and length the result will have', async ({ page }) => {
@@ -162,7 +162,7 @@ test.describe('media tool dialog behaviour', () => {
 		const dialog = dialogOf(page, 'Speed');
 
 		await expect(dialog.locator('[data-tool-readout]')).toContainText('1280×720 · 00:06.0');
-		await dialog.locator('[data-param="speed"] input[type="range"]').fill('4');
+		await dialog.locator('[data-field-name="speed"] input[type="range"]').fill('4');
 		await expect(dialog.locator('[data-tool-readout]')).toContainText('1280×720 · 00:03.0');
 		await expect(dialog.locator('[data-before-after]')).toHaveCount(0);
 	});
@@ -234,7 +234,7 @@ test.describe('media tool dialog behaviour', () => {
 		await pickTool(page, host, 'rotate');
 		const dialog = dialogOf(page, 'Rotate');
 
-		const choices = dialog.locator('[data-param="degrees"] button');
+		const choices = dialog.locator('[data-field-name="degrees"] button');
 		await expect(choices).toHaveText(['90', '180', '270']);
 		await expect(dialog.locator('[data-before-after] video')).toHaveCount(1);
 		await choices.nth(2).click();

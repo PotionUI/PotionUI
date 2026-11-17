@@ -47,6 +47,41 @@ describe('readEditorSnapshot', () => {
 	});
 });
 
+describe('declared tool schemas', () => {
+	const schema = [{ type: 'slider', name: 'amount', title: 'Amount', minimum: 0, maximum: 100, default: 50 }];
+
+	function withTools(tools: EditorSnapshot['tools']): EditorSnapshot {
+		return { ...snapshot(), steps: [], tasks: [], overlays: [], tools };
+	}
+
+	it('registers the schema a manifest tool carries, beside no options component', () => {
+		const dispose = apply(describeEditorEntries(withTools([{ plugin_id: 'acme', id: 'acme.form', editor: 'image', group: 'acme.stylize', label: 'Form', schema }]), revisionOf));
+		const entry = railTools.get('image', 'acme.form')!;
+		expect(entry.schema).toEqual(schema);
+		expect(entry.options).toBeUndefined();
+		dispose();
+		expect(railTools.get('image', 'acme.form')).toBeUndefined();
+	});
+
+	it('lets a tool carry a schema and an options component together', () => {
+		const dispose = apply(describeEditorEntries(withTools([{ plugin_id: 'acme', id: 'acme.both', editor: 'image', group: 'acme.stylize', label: 'Both', options: 'editor/Both.js', schema }]), revisionOf));
+		const entry = railTools.get('image', 'acme.both')!;
+		expect(entry.schema).toEqual(schema);
+		expect(entry.options).toEqual({ pluginId: 'acme', path: 'editor/Both.js' });
+		dispose();
+	});
+
+	it('leaves a tool without a schema exactly as before, and ignores a schema that is not a list', () => {
+		const dispose = apply(describeEditorEntries(withTools([
+			{ plugin_id: 'acme', id: 'acme.plain', editor: 'image', group: 'acme.stylize', label: 'Plain', options: 'editor/Plain.js', schema: null },
+			{ plugin_id: 'acme', id: 'acme.odd', editor: 'image', group: 'acme.stylize', label: 'Odd', schema: 'nope' as never }
+		]), revisionOf));
+		expect('schema' in railTools.get('image', 'acme.plain')!).toBe(false);
+		expect('schema' in railTools.get('image', 'acme.odd')!).toBe(false);
+		dispose();
+	});
+});
+
 describe('describeEditorEntries', () => {
 	it('registers every entry under the plugin and removes them all when the plugin goes away', () => {
 		const dispose = apply(describeEditorEntries(snapshot(), revisionOf));

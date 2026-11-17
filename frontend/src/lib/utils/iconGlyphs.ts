@@ -170,6 +170,123 @@ const panel: Record<string, Paths> = {
 	extension: 'M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z'
 };
 
+const editor: Record<string, Paths> = {
+	crop: ['M7 3v11a3 3 0 0 0 3 3h11', 'M3 7h11a3 3 0 0 1 3 3v11'],
+	resize: ['M14 4h6v6', 'M20 4l-7 7', 'M10 20H4v-6', 'M4 20l7-7'],
+	canvas: [
+		'M8 8h8v8H8z',
+		'M12 2.5v3M10.5 4 12 2.5 13.5 4',
+		'M12 21.5v-3M10.5 20l1.5 1.5 1.5-1.5',
+		'M2.5 12h3M4 10.5 2.5 12 4 13.5',
+		'M21.5 12h-3M20 10.5l1.5 1.5-1.5 1.5'
+	],
+	slice: ['M3 4h14v7H3z', 'M7 14h14v6H7z'],
+	brush: [
+		'm9 13.5 9.5-9.5a1.6 1.6 0 0 1 2.3 2.3L11.3 15.8',
+		'M9 13.5l2.3 2.3c0 3.2-2.5 5.2-7.3 5 1.4-1 1.8-2.3 2-3.6a3 3 0 0 1 3-3.7z'
+	],
+	eraser: ['M4.5 14.5 14 5l5 5-9.5 9.5z', 'M8.3 10.7l5 5', 'M13 20.5h8'],
+	fill: [
+		'M19 12 12 5l-7 7 5.5 5.5a2 2 0 0 0 2.8 0z',
+		'M12 5V3.5a2 2 0 0 0-3.4-1.4L7 3.5',
+		'M5 12h14',
+		'M21 15.5c1 1.4 1.5 2.2 1.5 3a1.5 1.5 0 0 1-3 0c0-.8.5-1.6 1.5-3z'
+	],
+	eyedropper: [
+		'm13.5 5.5 5 5',
+		'M15.5 3.5a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L18.5 10.5',
+		'M13.5 8 5.5 16 4 20l4-1.5 8-8'
+	],
+	'select-rect': ['M4 8.5V4h4.5', 'M15.5 4H20v4.5', 'M20 15.5V20h-4.5', 'M8.5 20H4v-4.5', 'M11 4h2M11 20h2M4 11v2M20 11v2'],
+	'select-lasso': [
+		'M12 4c4.4 0 8 1.8 8 4.5S16.4 13 12 13 4 11.2 4 8.5 7.6 4 12 4z',
+		'M8.5 12.8C7 15 7.5 18 10.5 18.5',
+		'M11 18.5h.01'
+	],
+	move: ['M12 3v18M3 12h18', 'm9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3'],
+	transform: ['M7 7h10v10H7z', 'M3 3h4v4H3zM17 3h4v4h-4zM3 17h4v4H3zM17 17h4v4h-4z'],
+	'edit-region': [
+		'M5 10c-.5-3.5 3-6.5 7-6.5s8 2.5 7.5 6.5c-.3 2.3 1.2 4.5-.5 7S14 20.5 11 20 4 17 4.5 14c.2-1.7.3-2.5.5-4z',
+		'M12 8.5l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z'
+	],
+	'remove-object': [
+		'M20.4 13.5A8.5 8.5 0 0 1 13.5 20.4M10.5 20.4A8.5 8.5 0 0 1 3.6 13.5M3.6 10.5A8.5 8.5 0 0 1 10.5 3.6M13.5 3.6A8.5 8.5 0 0 1 20.4 10.5',
+		'M9 9l6 6M15 9l-6 6'
+	],
+	light: [
+		'M8.5 12a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0',
+		'M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8'
+	],
+	colour: [
+		'M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-1.8 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z',
+		'M7.5 11.5h.01M10.5 7.5h.01M15 8h.01'
+	],
+	'split-tone': [
+		'M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z',
+		'M19 5 5 19',
+		'M9 19l10-10M13 19l6-6'
+	],
+	curves: ['M4 3v17h17', 'M7 16.5c5 0 3-9 12-9'],
+	'film-grain': [
+		'M6 3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z',
+		'M8 8h.01M13 7h.01M16 11h.01M9.5 13h.01M14 16h.01M7.5 17h.01M17 17h.01'
+	],
+	vignette: [
+		'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z',
+		'M12 7c3 0 5.5 2 5.5 5s-2.5 5-5.5 5-5.5-2-5.5-5S9 7 12 7z'
+	],
+	grayscale: [
+		'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
+		'M4.7 12.3 12 5M5.6 15.4 12 9M7.4 17.6 12 13M10 19l2-2'
+	],
+	invert: [
+		'M12 3C8 8 5.5 10.8 5.5 14.5a6.5 6.5 0 0 0 13 0C18.5 10.8 16 8 12 3z',
+		'M12 3v18',
+		'M12 10.5l-4.5 4.5M12 14.5l-4.5 4.5'
+	],
+	looks: [
+		'M4 9a5 5 0 1 0 10 0a5 5 0 1 0 -10 0',
+		'M10 9a5 5 0 1 0 10 0a5 5 0 1 0 -10 0',
+		'M7 15a5 5 0 1 0 10 0a5 5 0 1 0 -10 0'
+	],
+	'color-key': [
+		'M4.5 8a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0',
+		'M10.5 10.5 20 20',
+		'M15.5 15.5l2.5-2.5M18.5 18.5l2-2'
+	]
+};
+
+export const editorToolIcons: Readonly<Record<string, string>> = {
+	crop: 'editor-tool-crop',
+	resize: 'editor-tool-resize',
+	canvas: 'editor-tool-canvas',
+	slice: 'editor-tool-slice',
+	brush: 'editor-tool-brush',
+	eraser: 'editor-tool-eraser',
+	fill: 'editor-tool-fill',
+	pick: 'editor-tool-eyedropper',
+	rect: 'editor-tool-select-rect',
+	lasso: 'editor-tool-select-lasso',
+	move: 'editor-tool-move',
+	transform: 'editor-tool-transform',
+	edit_region: 'editor-tool-edit-region',
+	remove_object: 'editor-tool-remove-object',
+	light: 'editor-tool-light',
+	colour: 'editor-tool-colour',
+	split_tone: 'editor-tool-split-tone',
+	curves: 'editor-tool-curves',
+	lut: 'cube',
+	film_grain: 'editor-tool-film-grain',
+	vignette: 'editor-tool-vignette',
+	grayscale: 'editor-tool-grayscale',
+	invert: 'editor-tool-invert',
+	looks: 'editor-tool-looks',
+	color_key: 'editor-tool-color-key',
+	subject: 'editor-subject',
+	adjust: 'adjustments-horizontal',
+	plugin_fallback: 'extension'
+};
+
 function prefixed<T>(prefix: string, glyphs: Record<string, T>): Record<string, T> {
 	return Object.fromEntries(Object.entries(glyphs).map(([name, value]) => [`${prefix}-${name}`, value]));
 }
@@ -177,7 +294,8 @@ function prefixed<T>(prefix: string, glyphs: Record<string, T>): Record<string, 
 export const spriteGlyphs: Record<string, Paths> = {
 	...prefixed('chat', chat),
 	...prefixed('composer', composer),
-	...prefixed('panel', panel)
+	...prefixed('panel', panel),
+	...prefixed('editor-tool', editor)
 };
 
 export const spriteFilledGlyphs: Record<string, string[]> = {

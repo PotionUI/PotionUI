@@ -28,7 +28,7 @@ from src.plugin_api.compute import (
 from . import catalog_client
 from .catalog_client import DataCenter as LiveDataCenter
 from .catalog_client import GpuAvailability, RunPodCatalogError
-from .client import NetworkVolume, RunPodAPIError, RunPodClient
+from .client import NetworkVolume, RunPodAPIError, RunPodClient, RunPodPlacementError
 from .provisioning import (
     NETWORK_VOLUME_CREATE,
     NETWORK_VOLUME_NONE,
@@ -62,11 +62,11 @@ _NO_CAPACITY_MARKERS = (
 )
 
 
-def _with_capacity_hint(message: str) -> str:
+def _with_capacity_hint(message: str, placement_failed: bool = False) -> str:
     """Appends an actionable hint to a no-capacity-shaped RunPod error,
     leaving every other error message untouched."""
     lowered = message.lower()
-    if any(marker in lowered for marker in _NO_CAPACITY_MARKERS):
+    if placement_failed or any(marker in lowered for marker in _NO_CAPACITY_MARKERS):
         return (
             f"{message} - the chosen GPU appears out of stock in that data "
             "center on Secure Cloud right now. Try another GPU or data center."
@@ -231,7 +231,7 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         try:
             return await catalog_client.get_catalog(api_key)
         except RunPodCatalogError as exc:
-            logger.warning("RunPod GraphQL catalog unavailable, using the static catalog instead: %s", exc)
+            logger.warning("RunPod catalog unavailable, using the static catalog instead: %s", exc)
             self._catalog_error = str(exc)
             return None
 
@@ -457,7 +457,9 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                     )
                 raise
         except RunPodAPIError as exc:
-            raise ComputeProvisionerError(_with_capacity_hint(str(exc))) from exc
+            raise ComputeProvisionerError(
+                _with_capacity_hint(str(exc), isinstance(exc, RunPodPlacementError))
+            ) from exc
         finally:
             if client is not None:
                 await client.aclose()

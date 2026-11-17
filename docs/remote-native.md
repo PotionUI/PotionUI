@@ -32,7 +32,7 @@ POTIONUI_WORKER_TOKEN=<shared-secret> python worker.py
 ```
 
 Containerized, via the reference `docker/worker.Dockerfile` image — the path
-a remote-execution provider plugin (e.g. `runpod-provider`) expects; see
+a remote-execution provider plugin (e.g. `runpod-provider`, which talks to RunPod's REST API v2) expects; see
 `docker/README.md`'s "RunPod worker image" section.
 
 `worker.py` is a thin wrapper (mirrors `api.py`): it loads `.env` and exposes

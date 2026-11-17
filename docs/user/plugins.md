@@ -34,7 +34,7 @@ These plugins come with PotionUI. Any of them may or may not be enabled on your 
 - **System Monitor** — real-time GPU, RAM, and CPU monitoring shown in the sidebar so you can keep an eye on server load.
 - **Ollama** — a quick action that unloads the models a local Ollama daemon holds in VRAM.
 - **ComfyUI Backend** — runs presets on an external ComfyUI server and imports ComfyUI workflows as presets from Admin → Presets.
-- **RunPod Provider** — provisions a remote native worker on RunPod from the Infrastructure tab of a Remote Native backend in Admin → Backends.
+- **RunPod Provider** — provisions a remote native worker on RunPod (REST API v2) from the Infrastructure tab of a Remote Native backend in Admin → Backends.
 - **Cloud providers** — OpenAI, Google Gemini, Black Forest Labs and OpenRouter each add a cloud backend with its model catalog and ready-made presets for hosted image and video models. **DeepSeek** adds a DeepSeek type to the LLM configurations.
 - **OpenID Connect Login** — sign in through an external identity provider such as Authentik, Keycloak or Entra ID.
 - **A1111 Metadata Export** — exports generations as PNGs that carry A1111/Forge-style parameters metadata.

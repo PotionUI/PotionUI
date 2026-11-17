@@ -48,7 +48,7 @@ backend type. A GPU on another machine is reached one of two ways:
 
 - Run a **Remote Native worker** there and add a `native.remote` backend that points at it (see
   [Remote Native](remote-native.md)). The preset stays `engine: native`; the worker runs the same pipes.
-  The `runpod-provider` plugin can provision such a worker for you.
+  The `runpod-provider` plugin can provision such a worker for you, through RunPod's REST API v2.
 - Run ComfyUI there and add a `comfyui` backend whose `host` points at it. Any preset that declares
   `engine: comfyui` runs there unmodified.
 

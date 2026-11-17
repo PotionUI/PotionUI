@@ -1,9 +1,12 @@
 import { createRequire } from 'node:module';
 import { describe, it, expect } from 'vitest';
-import tailwindConfig from '../../../tailwind.config.js';
 import { devWatchIgnored } from '../../../devWatchIgnore';
 
-const picomatch = createRequire(import.meta.url)('picomatch') as (
+const require = createRequire(import.meta.url);
+
+const tailwindConfig = require('../../../tailwind.config.js').default as { content: string[] };
+
+const picomatch = require('picomatch') as (
 	glob: string | string[],
 	options?: { dot?: boolean }
 ) => (input: string) => boolean;
@@ -11,7 +14,7 @@ const picomatch = createRequire(import.meta.url)('picomatch') as (
 const stripDot = (glob: string) => glob.replace(/^\.\//, '');
 
 function scannedByTailwind(path: string): boolean {
-	const globs: string[] = tailwindConfig.content as string[];
+	const globs = tailwindConfig.content;
 	const included = globs.filter((g) => !g.startsWith('!')).map(stripDot);
 	const excluded = globs.filter((g) => g.startsWith('!')).map((g) => stripDot(g.slice(1)));
 	const hit = (list: string[]) => list.length > 0 && picomatch(list, { dot: true })(path);

@@ -181,9 +181,9 @@ describe('a registered step kind drives the Image editor entry points', () => {
 			railTools.register({ id: 'acme.extra', editor: 'image', group: 'tools', label: 'Extra', icon: 'extension' }, OWNER)
 		);
 		const rail = imageRail();
-		expect(rail.map((group) => group.id)).toEqual(['shape', 'paint', 'generate', 'look', 'fx', 'looks', 'tools', 'acme.stylize']);
-		expect(rail[6].tools.map((tool) => tool.id)).toEqual(['colorKey', 'subject', 'acme.extra']);
-		expect(rail[7].tools).toEqual([{ id: 'acme.halftone', label: 'Halftone', icon: 'extension' }]);
+		expect(rail.map((group) => group.id)).toEqual(['generate', 'shape', 'paint', 'select', 'look', 'fx', 'looks', 'tools', 'acme.stylize']);
+		expect(rail[7].tools.map((tool) => tool.id)).toEqual(['colorKey', 'subject', 'acme.extra']);
+		expect(rail[8].tools).toEqual([{ id: 'acme.halftone', label: 'Halftone', icon: 'extension' }]);
 		expect(isRailTool('acme.halftone')).toBe(true);
 		expect(toolMeta('acme.halftone')).toMatchObject({ label: 'Halftone', icon: 'extension' });
 	});
@@ -191,16 +191,18 @@ describe('a registered step kind drives the Image editor entry points', () => {
 	it('keeps the core rail exactly as it was with nothing registered', () => {
 		const ids = (group: string) => imageRail().find((entry) => entry.id === group)?.tools.map((tool) => tool.id);
 		expect(imageRail().map((group) => [group.id, group.label, group.fold])).toEqual([
+			['generate', 'Generate', 8],
 			['shape', 'Transform', 4],
-			['paint', 'Paint', undefined],
-			['generate', 'Generate', 5],
+			['paint', 'Paint', 7],
+			['select', 'Select and move', 6],
 			['look', 'Light and colour', 2],
 			['fx', 'Effects', 1],
 			['looks', 'Looks', undefined],
 			['tools', 'Cut out', 3]
 		]);
 		expect(ids('shape')).toEqual(['crop', 'resize', 'canvas', 'slice']);
-		expect(ids('paint')).toEqual(['paint']);
+		expect(ids('paint')).toEqual(['paint.brush', 'paint.eraser', 'paint.fill', 'paint.pick']);
+		expect(ids('select')).toEqual(['paint.rect', 'paint.lasso', 'paint.move']);
 		expect(ids('generate')).toEqual(['edit_region', 'remove_object']);
 		expect(ids('look')).toEqual(['light', 'colour', 'split_tone', 'curves', 'lut']);
 		expect(ids('fx')).toEqual(['film_grain', 'vignette', 'grayscale', 'invert']);

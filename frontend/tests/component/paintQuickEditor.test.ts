@@ -92,6 +92,7 @@ async function opened() {
 const buttons = () => Array.from(document.body.querySelectorAll('button'));
 const buttonByText = (text: string) => buttons().find((button) => (button.textContent || '').trim() === text);
 const byLabel = (label: string) => document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+const byText = (text: string) => Array.from(document.body.querySelectorAll<HTMLElement>('button, [role="menuitem"]')).find((node) => (node.textContent || '').trim() === text);
 
 function dotTool() {
 	return {
@@ -109,6 +110,14 @@ function dotTool() {
 			host.commitPixels('Dot', layer, { x: 0, y: 0, width: 2, height: 2 }, before);
 		}
 	};
+}
+
+async function openMenuRow(menu: string, label: string) {
+	document.body.querySelector<HTMLElement>(`[data-paint-menubar] [data-menu-tab="${menu}"]`)!.click();
+	await settle();
+	const row = Array.from(document.body.querySelectorAll<HTMLElement>('[data-paint-menu] [data-menu-row]')).find((node) => (node.textContent || '').trim().startsWith(label))!;
+	row.click();
+	await settle();
 }
 
 async function stroke() {
@@ -157,9 +166,13 @@ describe('quick paint modal', () => {
 
 		expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
 		expect(document.body.textContent).toContain('Edit image');
-		const rail = document.body.querySelector('[aria-label="Tools"]')!;
+		const rail = document.body.querySelector('[aria-label="Paint tools"]')!;
 		const labels = Array.from(rail.querySelectorAll('button')).map((button) => button.getAttribute('aria-label'));
-		for (const tool of session.snapshot().tools) expect(labels).toContain(tool.label);
+		for (const tool of session.snapshot().tools.filter((candidate) => candidate.id !== 'adjust' && candidate.id !== 'filters')) expect(labels).toContain(tool.label);
+		expect(labels).not.toContain('Adjust');
+		expect(labels).not.toContain('Filters');
+		expect(document.body.querySelector('[data-paint-menubar]')).not.toBeNull();
+		expect(document.body.querySelector('[data-paint-layers]')).not.toBeNull();
 		expect(session.snapshot().width).toBe(8);
 		expect(plugin.isOpen()).toBe(true);
 		expect(buttonByText('Save')!.disabled).toBe(false);
@@ -256,8 +269,7 @@ describe('quick paint modal', () => {
 
 		const cleared = mount({ existingMaskUrl: '/api/media/uploads/mask-1.png' });
 		await opened();
-		byLabel('Flip horizontally')!.click();
-		await settle();
+		await openMenuRow('edit', 'Flip horizontally');
 		expect(document.body.textContent).toContain('Inpaint mask will be cleared');
 		buttonByText('Save')!.click();
 		await settle();
@@ -277,14 +289,12 @@ describe('quick paint modal', () => {
 			await opened();
 
 			expect(byLabel('Zigzag')).not.toBeNull();
-			buttonByText('Stamp')!.click();
-			await settle();
+			await openMenuRow('edit', 'Stamp');
 			expect(run).toHaveBeenCalledTimes(1);
 			expect(typeof run.mock.calls[0][0].addImage).toBe('function');
 
-			byLabel('Open another image')!.click();
-			await settle();
-			const menu = document.body.querySelector('[role="menu"]')!;
+			await openMenuRow('file', 'Open another image…');
+			const menu = document.body.querySelector('[data-image-source-menu]')!;
 			expect(menu.textContent).toContain('Stock photos');
 
 			const before = session.snapshot().layers.length;
@@ -304,5 +314,38 @@ describe('quick paint modal', () => {
 		instance = null;
 		await settle();
 		expect(plugin.addImage(document.createElement('canvas'), 'late')).toBe(false);
+	});
+
+	it('moves Adjust and Filters into the layer menu with a Back control', async () => {
+		mount();
+		await opened();
+		document.body.querySelector<HTMLElement>('[data-layer-row="0"] button[aria-label^="Actions for"]')!.click();
+		await settle();
+		const labels = Array.from(document.body.querySelectorAll('[data-layer-menu] [role="menuitem"]')).map((node) => (node.textContent || '').trim());
+		expect(labels).toContain('Adjust colours…');
+		expect(labels).toContain('Apply a filter…');
+		byText('Adjust colours…')!.click();
+		await settle();
+		expect(session.snapshot().toolId).toBe('adjust');
+		expect(document.body.querySelector('[data-paint-layer-panel="adjust"]')).not.toBeNull();
+		expect(document.body.querySelector('[data-paint-layers]')).toBeNull();
+		document.body.querySelector<HTMLElement>('[data-paint-back]')!.click();
+		await settle();
+		expect(session.snapshot().toolId).toBe('brush');
+		expect(document.body.querySelector('[data-paint-layers]')).not.toBeNull();
+	});
+
+	it('keeps Transform and Crop canvas as modal entries and selects tools by letter', async () => {
+		mount();
+		await opened();
+		const labels = Array.from(document.body.querySelectorAll('[aria-label="Paint tools"] button')).map((button) => button.getAttribute('aria-label'));
+		expect(labels).toContain('Transform');
+		expect(labels).toContain('Crop canvas');
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', bubbles: true }));
+		await settle();
+		expect(session.snapshot().toolId).toBe('eraser');
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+		await settle();
+		expect(session.snapshot().toolId).toBe('adjust');
 	});
 });

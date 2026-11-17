@@ -185,8 +185,13 @@
 		{#if menu}
 			<EditorMenuBar ctx={menu} {onopenmenu} {childFooter} />
 		{/if}
-		<div class="flex flex-none items-center gap-2 pl-2">
-			<span class="h-5 w-px flex-none bg-line-strong" aria-hidden="true"></span>
+		<span class="min-w-2 flex-1"></span>
+		{#if saveState}
+			<div class="flex flex-none items-center pl-3 pr-1" data-save-state-slot>
+				{@render saveState()}
+			</div>
+		{/if}
+		<div class="flex flex-none items-center gap-2 pr-4">
 			{@render history()}
 			{#if saving}
 				<span
@@ -236,11 +241,5 @@
 				</span>
 			{/if}
 		</div>
-		<span class="min-w-2 flex-1"></span>
-		{#if saveState}
-			<div class="flex flex-none items-center pl-3 pr-4" data-save-state-slot>
-				{@render saveState()}
-			</div>
-		{/if}
 	</div>
 {/if}

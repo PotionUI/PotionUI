@@ -1,3 +1,4 @@
+import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import type { OpSpec } from '$lib/filters/engine';
 import { scalarParams } from '$lib/filters/steps';
 import { stepKinds, reopenToolOf } from '$lib/editors/stepKinds';
@@ -25,7 +26,7 @@ export const GRADE_ENTRIES: Readonly<Record<'light' | 'colour', GradeEntry>> = {
 	light: {
 		id: 'light',
 		label: 'Light',
-		icon: 'lightbulb',
+		icon: editorToolIcons.light,
 		bundle: 'light',
 		controls: [
 			{ op: 'exposure', param: 'stops', label: 'Exposure' },
@@ -38,7 +39,7 @@ export const GRADE_ENTRIES: Readonly<Record<'light' | 'colour', GradeEntry>> = {
 	colour: {
 		id: 'colour',
 		label: 'Colour',
-		icon: 'palette',
+		icon: editorToolIcons.colour,
 		bundle: 'colour',
 		controls: [
 			{ op: 'white_balance', param: 'temperature', label: 'Temperature' },

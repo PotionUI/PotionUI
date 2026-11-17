@@ -103,7 +103,7 @@ describe('Image editor with a plugin registered through window.__potionui.editor
 		registerPluginTool(PluginToolOptions);
 		await settle();
 		expect(all('[data-tool-rail] button[data-tool]').map((button) => button.dataset.tool).slice(-1)).toEqual(['acme.halftone']);
-		expect(all('[data-tool-rail] button[data-tool]').map((button) => button.dataset.tool).slice(0, 4)).toEqual(['crop', 'resize', 'canvas', 'slice']);
+		expect(all('[data-tool-rail] button[data-tool]').map((button) => button.dataset.tool).slice(0, 6)).toEqual(['edit_region', 'remove_object', 'crop', 'resize', 'canvas', 'slice']);
 	});
 
 	it('renders the registered options through the first branch and lets the tool begin and apply a step', async () => {

@@ -1,39 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { installFakeCanvas } from '../helpers/fakeCanvas';
-import { mountComponent } from '../helpers/mount';
+import { menuContext } from '../helpers/menuContext';
 import { resetFailures } from '$lib/editors/guard';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { listFilters: async () => ({ filters: [], ops: [], groups: [] }) }
 }));
 
-const { default: PaintOptions } = await import('$lib/components/tool-tabs/image/PaintOptions.svelte');
 const { PaintSession } = await import('$lib/paint/session');
 const { createImageEditorApi } = await import('$lib/paint/registries');
+const { imageRail } = await import('$lib/tool-tabs/image/steps');
+const { buildMenu } = await import('$lib/editors/menuItems');
+const { ensureCoreEditorMenu } = await import('$lib/editors/coreMenu');
+const { railTools } = await import('$lib/editors/railTools');
 
 const plugin = createImageEditorApi();
-const CORE = ['Move', 'Brush', 'Eraser', 'Fill', 'Pick', 'Rectangle', 'Lasso'];
 
 let restore: () => void;
 let session: InstanceType<typeof PaintSession>;
 const offs: Array<() => void> = [];
 
-function toolLabels(): string[] {
-	const bar = document.body.querySelector('[data-paint-tools]')!;
-	return Array.from(bar.querySelectorAll('button')).map((button) => button.getAttribute('aria-label') || '');
-}
-
-function mountOptions() {
-	const view = mountComponent(PaintOptions as never, { session, state: session.snapshot() });
-	session.subscribe(() => view.rerender({ state: session.snapshot() }));
-	flushSync();
-	return view;
-}
+const paintGroup = () => imageRail().find((group) => group.id === 'paint')!;
 
 beforeEach(() => {
 	restore = installFakeCanvas();
 	resetFailures();
+	ensureCoreEditorMenu();
 	session = new PaintSession();
 	session.openBlank({ width: 32, height: 32, background: 'white', pen: null });
 });
@@ -45,41 +38,42 @@ afterEach(() => {
 	restore();
 });
 
-describe('paint options with plugin entries', () => {
-	it('lists the core tools first and a plugin tool after them', () => {
-		mountOptions();
-		const core = toolLabels();
+describe('paint entries with plugin registrations', () => {
+	it('lists the core paint entries first and a plugin tool after them, not marked as a plugin', () => {
+		const core = paintGroup().tools.map((tool) => tool.label);
+		expect(core).toEqual(['Brush', 'Eraser', 'Fill', 'Eyedropper']);
 		offs.push(plugin.registerTool({ id: 'zigzag', label: 'Zigzag', icon: 'M0 0', group: 'shapes', pointerDown() {} }));
 		flushSync();
-		const after = toolLabels();
-		expect(after.slice(0, core.length)).toEqual(core);
-		expect(after.at(-1)).toBe('Zigzag');
-		expect(core.length).toBe(CORE.length);
+		expect(paintGroup().tools.map((tool) => tool.label)).toEqual([...core, 'Zigzag']);
+		expect(railTools.get('image', 'paint.zigzag')?.pluginId).toBeUndefined();
 	});
 
-	it('selects a plugin tool and removes it when unregistered', () => {
-		mountOptions();
-		const off = plugin.registerTool({ id: 'zigzag', label: 'Zigzag', icon: 'M0 0', group: 'shapes', pointerDown() {} });
-		flushSync();
-		document.body.querySelector<HTMLButtonElement>('[aria-label="Zigzag"]')!.click();
-		expect(session.snapshot().toolId).toBe('zigzag');
+	it('puts a plugin tool that names the select group in Select and move and removes it again', () => {
+		const off = plugin.registerTool({ id: 'wand', label: 'Wand', icon: 'M0 0', group: 'select', pointerDown() {} });
+		expect(imageRail().find((group) => group.id === 'select')!.tools.map((tool) => tool.label)).toContain('Wand');
 		off();
-		flushSync();
-		expect(toolLabels()).not.toContain('Zigzag');
+		expect(imageRail().find((group) => group.id === 'select')!.tools.map((tool) => tool.label)).not.toContain('Wand');
+		expect(session.getTool('wand')).toBeUndefined();
 	});
 
-	it('shows registered actions and runs them with the session', () => {
-		mountOptions();
+	it('selects a plugin tool through the session', () => {
+		offs.push(plugin.registerTool({ id: 'zigzag', label: 'Zigzag', icon: 'M0 0', group: 'shapes', pointerDown() {} }));
+		session.setTool('zigzag');
+		expect(session.snapshot().toolId).toBe('zigzag');
+	});
+
+	it('offers registered actions in the Edit menu while a paint entry is selected and runs them with the session', () => {
 		const run = vi.fn();
 		offs.push(plugin.registerAction({ id: 'stamp', label: 'Stamp', run }));
-		flushSync();
-		const button = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Stamp')!;
-		button.click();
+		const rows = (tool: string) => buildMenu('edit', menuContext([], { tool })).groups.flat();
+		const row = rows('paint.brush').find((entry) => entry.label === 'Stamp')!;
+		expect(row).toBeDefined();
+		expect(rows('crop').some((entry) => entry.label === 'Stamp')).toBe(false);
+		row.run();
 		expect(run).toHaveBeenCalledWith(session);
 	});
 
 	it('survives an action that throws or rejects and keeps the others usable', async () => {
-		mountOptions();
 		const fine = vi.fn();
 		offs.push(
 			plugin.registerAction({
@@ -92,18 +86,15 @@ describe('paint options with plugin entries', () => {
 			plugin.registerAction({ id: 'late', label: 'Late', run: async () => Promise.reject(new Error('later')) }),
 			plugin.registerAction({ id: 'fine', label: 'Fine', run: fine })
 		);
-		flushSync();
-		const find = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === text)!;
-		expect(() => find('Bad').click()).not.toThrow();
-		expect(() => find('Late').click()).not.toThrow();
+		const find = (text: string) => buildMenu('edit', menuContext([], { tool: 'paint.brush' })).groups.flat().find((entry) => entry.label === text)!;
+		expect(() => find('Bad').run()).not.toThrow();
+		expect(() => find('Late').run()).not.toThrow();
 		await Promise.resolve();
-		find('Fine').click();
+		find('Fine').run();
 		expect(fine).toHaveBeenCalledTimes(1);
-		expect(document.body.querySelector('[data-paint-tools]')).not.toBeNull();
 	});
 
 	it('keeps the session working when a plugin tool throws on pointer events', () => {
-		mountOptions();
 		offs.push(
 			plugin.registerTool({
 				id: 'boom',

@@ -3,6 +3,7 @@ export interface RailTool {
 	label: string;
 	icon: string;
 	keys?: string;
+	ai?: boolean;
 	disabled?: boolean;
 	later?: boolean;
 	reason?: string;

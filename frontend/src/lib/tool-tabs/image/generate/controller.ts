@@ -1,3 +1,4 @@
+import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { get, writable, type Readable } from 'svelte/store';
 import type { MediaToolInputRef, MediaToolStep } from '$lib/media-tools/types';
 import {
@@ -683,7 +684,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			const old = params.run.id;
 			if (old !== run.id) deps.engine.release(old);
 			const next = withFreshRun({ ...params, area, rect: run.rect ?? params.rect }, { id: run.id, status: run.status }, submitted.basis);
-			const draft = generateDraft(next, step.label || task?.label || 'Generate', step.icon || task?.icon || 'sparkles');
+			const draft = generateDraft(next, step.label || task?.label || 'Generate', step.icon || task?.icon || editorToolIcons.edit_region);
 			deps.setStack(commitLive(liveEdit(deps.getStack(), draft, (entry) => entry.id === stepId)));
 			patch({ activeStepId: stepId });
 			return { kind: 'started' };

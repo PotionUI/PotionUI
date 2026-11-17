@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
-import { clearEdits, closeEditorMenu, editorMenu, editorMenuItem, expectNoBoxOverlap, loginAsOwner, openEditorMenu, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, closeEditorMenu, editorMenu, editorMenuItem, expectNoBoxOverlap, loginAsOwner, openEditorMenu, scopedStorageKey, screenshot, selectRailTool, railButton } from './helpers';
 import { mockMediaTools, solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-menu-bar';
@@ -276,7 +276,7 @@ async function prepare(page: Page, taskTool = true): Promise<Server> {
 	await shape(page, '1:1');
 	await expect(page.locator('[data-edit-stack] [data-stack-row]')).toHaveCount(2);
 	if (taskTool) {
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Model defaults');
 	}
 	return server;
@@ -324,6 +324,18 @@ test.describe('the editor menu bar on desktop', () => {
 		await expect(page.locator('[data-frame-save]')).toBeVisible();
 		await expect(page.locator('[data-save-state-slot] [data-edit-save-state]')).toHaveText('Saved');
 		await expect(page.locator('[data-save-state-slot] > *')).toHaveCount(1);
+		const [menuBox, stateBox, undoBox, redoBox, saveBox] = await Promise.all([
+			page.locator('[data-editor-menubar]').boundingBox(),
+			page.locator('[data-save-state-slot]').boundingBox(),
+			page.locator('[data-frame-undo]').boundingBox(),
+			page.locator('[data-frame-redo]').boundingBox(),
+			page.locator('[data-frame-save-split]').boundingBox()
+		]);
+		expect(stateBox!.x).toBeGreaterThan(menuBox!.x + menuBox!.width);
+		expect(undoBox!.x).toBeGreaterThan(stateBox!.x + stateBox!.width - 1);
+		expect(redoBox!.x).toBeGreaterThan(undoBox!.x);
+		expect(saveBox!.x).toBeGreaterThan(redoBox!.x);
+		expect(saveBox!.x + saveBox!.width).toBeGreaterThan(1440 - 40);
 		await expect(page.locator('[data-options-panel] h2')).toHaveCount(0);
 		await expect(page.locator('[data-options-collapse]')).toHaveCount(0);
 		await expect(page.locator('[data-editor-toolbar]')).not.toContainText('480×480');
@@ -464,7 +476,7 @@ test.describe('the editor menu bar on desktop', () => {
 		await openEditorMenu(page, 'Tools');
 		const menu = page.locator('[data-editor-menu="tools"]');
 		const rows = await menu.locator('[data-menu-row]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-row-id')));
-		expect(rows).toEqual(['toolgroup:shape', 'tool:paint', 'toolgroup:generate', 'toolgroup:look', 'toolgroup:fx', 'tool:effects', 'toolgroup:tools']);
+		expect(rows).toEqual(['toolgroup:generate', 'toolgroup:shape', 'toolgroup:paint', 'toolgroup:select', 'toolgroup:look', 'toolgroup:fx', 'tool:effects', 'toolgroup:tools']);
 		await expect(menu.locator('[role="separator"]').first()).toBeVisible();
 		await menuRowById(page, 'toolgroup:generate').hover();
 		await expect(page.locator('[data-editor-submenu="toolgroup:generate"]')).toBeVisible();
@@ -477,12 +489,12 @@ test.describe('the editor menu bar on desktop', () => {
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'resize');
 		await expect(page.locator('[data-title-name]')).toHaveText('Resize');
 		await expect(statusLine(page)).toContainText('Output');
-		await expect(rail(page, 'resize')).toHaveAttribute('aria-pressed', 'true');
+		await expect(railButton(page, 'resize')).toHaveAttribute('aria-pressed', 'true');
 	});
 
 	test('Apply and Reset live in the panel footer, Enter still applies, and Edit offers Apply with its key', async ({ page }) => {
 		await prepare(page, false);
-		await rail(page, 'crop').click();
+		await selectRailTool(page, 'crop');
 		const footer = page.locator('[data-options-panel] [data-options-footer]');
 		await expect(footer.locator('[data-options-apply]')).toContainText('Apply crop');
 		await expect(footer.locator('[data-options-reset]')).toBeVisible();
@@ -574,7 +586,7 @@ test.describe('the editor menu bar at 1024', () => {
 
 	test('Save stays visible, the autosave state collapses to its dot and the marked part leaves the status line', async ({ page }) => {
 		await prepare(page, false);
-		await rail(page, 'crop').click();
+		await selectRailTool(page, 'crop');
 		const save = page.locator('[data-frame-save]');
 		await expect(save).toBeVisible();
 		const saveBox = await save.boundingBox();

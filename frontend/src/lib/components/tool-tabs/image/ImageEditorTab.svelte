@@ -192,9 +192,12 @@
 	import { replaceSource, sourceEntries, type SourceEntryId } from '$lib/tool-tabs/sourceEntries';
 	import { currentSourceOf } from '$lib/components/form-fields/mediaFieldSources';
 	import { isEditableTarget } from '$lib/utils/editableTarget';
+	import { pageOwnsKeys } from '$lib/utils/shortcutGuard';
 	import MaskLayer from './MaskLayer.svelte';
 	import MaskOptions from './MaskOptions.svelte';
 	import PaintOptions from './PaintOptions.svelte';
+	import { canonicalTool, isPaintEntry, paintEntryId, paintToolOfEntry } from '$lib/paint/entries';
+	import { paintToolForKey } from '$lib/paint/toolKeys';
 	import PaintStage from './PaintStage.svelte';
 	import ResizeOptions from './ResizeOptions.svelte';
 
@@ -375,7 +378,9 @@
 	let effective = $derived(effectiveSteps(stack));
 	let applied = $derived(appliedSteps(stack));
 	let editCount = $derived(appliedCount(stack));
-	let dirtyCount = $derived(unsavedEdits(stack, saved) + (activeTool === 'paint' && paintState?.dirty ? 1 : 0));
+	let paintActive = $derived(isPaintEntry(activeTool));
+	let toolKey = $derived(paintActive ? 'paint' : activeTool);
+	let dirtyCount = $derived(unsavedEdits(stack, saved) + (paintActive && paintState?.dirty ? 1 : 0));
 	let replace = $derived(replaceOption(origin));
 	let fileName = $derived(source ? (source.name ?? mediaFileStem(source) ?? 'Picture') : null);
 	let stem = $derived(mediaFileStem(source) ?? 'picture');
@@ -388,15 +393,15 @@
 	let effectCard = $derived(!!activeTool && stillEffectIds.has(activeTool) && !isLiveEntry(activeTool));
 	let liveEntry = $derived(isLiveEntry(activeTool));
 	let looksOrCard = $derived(activeTool === 'effects' || effectCard);
-	let pendingHere = $derived(pending && pending.tool === (effectCard ? 'effects' : activeTool) ? pending : null);
+	let pendingHere = $derived(pending && pending.tool === (effectCard ? 'effects' : toolKey) ? pending : null);
 	let entryLookup = $derived((op: string) => getOp(op, extensions));
 	let appliedSet = $derived(appliedEntries(stack, entryLookup));
-	let appliedList = $derived([...appliedSet]);
+	let appliedList = $derived([...appliedSet].map((id) => (id === 'paint' ? paintEntryId('brush') : id)));
 	let targetIndex = $derived(pending?.target ? effective.findIndex((step) => step.id === pending!.target) : -1);
 	let stepsBeforeTarget = $derived(targetIndex >= 0 ? effective.slice(0, targetIndex) : effective);
 
 	let mode = $derived<'paint' | 'mask' | 'crop' | 'preview'>(
-		activeTool === 'paint' ? 'paint' : activeTool === 'mask' || registeredTool?.task ? 'mask' : activeTool === 'crop' ? 'crop' : 'preview'
+		paintActive ? 'paint' : activeTool === 'mask' || registeredTool?.task ? 'mask' : activeTool === 'crop' ? 'crop' : 'preview'
 	);
 	let taskTool = $derived(!!registeredTool?.task);
 	let settingsRef = $derived(settingsOf(registeredTool));
@@ -439,7 +444,7 @@
 	}
 
 	let cropParams = $derived<CropParams>((pendingHere?.tool === 'crop' ? (pendingHere.params as CropParams) : null) ?? { plan: EMPTY_IMAGE_PLAN, aspect: 'free' });
-	let catalogTool = $derived(activeTool && !registeredTool?.options && !['crop', 'resize', 'paint', 'mask', 'effects', 'adjust', 'slice'].includes(activeTool) ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
+	let catalogTool = $derived(activeTool && !registeredTool?.options && !['crop', 'resize', 'paint', 'mask', 'effects', 'adjust', 'slice'].includes(activeTool) && !paintActive ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
 	let catalogValues = $derived<Record<string, unknown>>(
 		pendingHere && catalogTool ? ((pendingHere.params as CatalogParams).values ?? {}) : catalogTool ? initialValues(catalogTool) : {}
 	);
@@ -1025,6 +1030,7 @@
 
 	async function landPaint(): Promise<boolean> {
 		if (!paintStage) return true;
+		paintSession?.placeFloating();
 		const target = pending?.tool === 'paint' ? pending.target : null;
 		busy = true;
 		try {
@@ -1088,9 +1094,16 @@
 		return true;
 	}
 
-	async function selectTool(id: string) {
+	async function selectTool(requested: string) {
+		const id = canonicalTool(requested);
 		if (!source || busy) return;
-		if (id === activeTool && !(pending && pending.tool !== id)) return;
+		if (id === activeTool && !(pending && pending.tool !== toolKeyOf(id))) return;
+		if (paintActive && isPaintEntry(id) && paintSession && mode === 'paint') {
+			paintSession.setTool(paintToolOfEntry(id));
+			activeTool = id;
+			host.setActiveTool(id);
+			return;
+		}
 		if (!(await leaveTool())) return;
 		notice = null;
 		compare = false;
@@ -1102,6 +1115,10 @@
 			const effect = imageEffectList(catalog).find((candidate) => candidate.id === id);
 			if (effect) setDraft('effects', { kind: 'effect', tool: id, name: effect.label, values: effectDefaults(effect) } satisfies ToolEffectParams);
 		}
+	}
+
+	function toolKeyOf(id: string): string {
+		return isPaintEntry(id) ? 'paint' : id;
 	}
 
 	function closeActiveTool() {
@@ -1119,8 +1136,9 @@
 		const tool = step.tool === 'effects' ? (entryOfStep(step) ?? 'effects') : ((kind && reopenToolOf(kind, step.params)) ?? step.tool);
 		if (!isRailTool(tool, catalog)) return;
 		if (!isLiveEntry(tool)) stack = reopen(stack, id);
-		activeTool = tool;
-		host.setActiveTool(tool);
+		const entry = canonicalTool(tool);
+		activeTool = entry;
+		host.setActiveTool(entry);
 	}
 
 	async function removeAllEdits() {
@@ -1302,6 +1320,43 @@
 	}
 
 	let paintKey = $state(0);
+
+	function enterKey() {
+		if (mode === 'paint' && paintSession?.floatingLayer) {
+			paintSession.placeFloating();
+			return;
+		}
+		return applyTool();
+	}
+
+	$effect(() => {
+		if (mode === 'paint') return;
+		untrack(() => {
+			paintSession = null;
+			paintState = null;
+		});
+	});
+
+	$effect(() => {
+		const toolId = paintState?.toolId;
+		if (!toolId || !paintActive) return;
+		untrack(() => {
+			const entry = paintEntryId(toolId);
+			if (entry === activeTool || !railTools.get('image', entry)) return;
+			activeTool = entry;
+			host.setActiveTool(entry);
+		});
+	});
+
+	function onPaintKey(event: KeyboardEvent) {
+		if (!source || busy || !pageOwnsKeys(event)) return;
+		const entries = railGroups.flatMap((group) => group.tools.filter((tool) => isPaintEntry(tool.id) && !tool.disabled && tool.keys).map((tool) => ({ id: tool.id, key: tool.keys })));
+		const id = paintToolForKey(event, entries);
+		if (!id) return;
+		event.preventDefault();
+		event.stopPropagation();
+		void selectTool(id);
+	}
 
 	async function prepareSave(): Promise<boolean> {
 		if (!(await leaveTool())) return false;
@@ -1704,7 +1759,7 @@
 			void openFile(file);
 			return;
 		}
-		if (isEditableTarget(event.target) || activeTool === 'paint' || replaceBlocked) return;
+		if (isEditableTarget(event.target) || paintActive || replaceBlocked) return;
 		event.preventDefault();
 		void changeFile(file);
 	}
@@ -1718,7 +1773,7 @@
 				? 'Apply slice'
 				: activeTool === 'mask'
 					? 'Save mask'
-					: activeTool === 'paint'
+					: paintActive
 						? 'Apply paint'
 						: looksOrCard
 							? effectParams?.kind === 'effect'
@@ -1753,7 +1808,11 @@
 					: !!pendingHere || mode === 'mask' || mode === 'paint')
 	);
 	let phoneBarred = $derived(phone && activeTool === 'effects');
-	let pendingTools = $derived([...(pending ? [pending.tool === 'effects' && effectCard && activeTool ? activeTool : pending.tool] : []), ...(mode === 'paint' && paintState?.dirty ? ['paint'] : []), ...(maskDirty ? ['mask'] : [])]);
+	let pendingTools = $derived([
+		...(pending ? [pending.tool === 'effects' && effectCard && activeTool ? activeTool : pending.tool === 'paint' ? paintEntryId('brush') : pending.tool] : []),
+		...(mode === 'paint' && paintState?.dirty && activeTool ? [activeTool] : []),
+		...(maskDirty ? ['mask'] : [])
+	]);
 	let originalSummary = $derived(sourceSize ? `${sourceSize.width}×${sourceSize.height} · ${extension}` : extension);
 	let stackMore = $derived(applied.length ? [{ id: 'clear', label: 'Remove all edits', icon: 'trash' }] : []);
 
@@ -1855,6 +1914,7 @@
 
 <svelte:window
 	onpaste={onPaste}
+	onkeydowncapture={onPaintKey}
 	onpagehide={() => {
 		if (!pendingWrite) return;
 		flushWrite();
@@ -1906,7 +1966,7 @@
 		{#if bakeIsCapped(outputDims) && !phone}
 			<p class="text-sm text-warning" data-bake-cap>Looks on pictures over {FULL_SIDE} px are drawn at {FULL_SIDE} px on the long side and scaled back up when saved.</p>
 		{/if}
-	{:else if activeTool === 'paint'}
+	{:else if paintActive}
 		{#if paintSession && paintState}
 			<PaintOptions session={paintSession} state={paintState} {phone} />
 		{:else}
@@ -2023,6 +2083,7 @@
 					bind:this={paintStage}
 					base={paintBase.canvas}
 					layerUrl={pendingHere?.tool === 'paint' ? (pendingHere.params as PaintParams).url : null}
+					tool={paintToolOfEntry(activeTool!)}
 					name={fileName ?? 'picture'}
 					onstate={(session, snapshot) => {
 						paintSession = session;
@@ -2246,7 +2307,7 @@
 			onundo={doUndo}
 			onredo={doRedo}
 			onsave={primarySave}
-			onapply={() => void applyTool()}
+			onapply={() => void enterKey()}
 			stack={stackView}
 		>
 			{#snippet phoneLead()}

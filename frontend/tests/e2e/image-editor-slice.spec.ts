@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
-import { clearEdits, expectNoBoxOverlap, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, expectNoBoxOverlap, loginAsOwner, ownerToken, scopedStorageKey, screenshot, selectRailTool, railButton } from './helpers';
 import { HEIGHT, WIDTH, sheetPng } from './sliceSheet';
 
 const JOURNEY = 'image-editor-slice';
@@ -189,7 +189,7 @@ async function openSheetInEditor(page: Page) {
 	await expect(empty.locator('[data-recent-history] button')).toHaveCount(1);
 	await empty.locator('[data-recent-history] button').first().click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
-	await rail(page, 'slice').click();
+	await selectRailTool(page, 'slice');
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'slice');
 	await expect(page.locator('[data-slice-detect]').first()).toBeVisible();
 }
@@ -226,7 +226,7 @@ test.describe('Slice on desktop', () => {
 		await expect(page.locator('[data-slice-cut]')).toHaveCount(1);
 		await expect(page.locator('[data-slice-cut]')).toContainText('Cuts a panel');
 		await expect(page.locator('[data-slice-cut-merge]')).toHaveText('Merge 04 + 05');
-		await expect(rail(page, 'slice').locator('[data-tool-pending]')).toBeVisible();
+		await expect(railButton(page, 'slice').locator('[data-tool-pending]')).toBeVisible();
 
 		const knob = page.locator('[data-slice-knob="v"]').nth(1);
 		const box = (await knob.boundingBox())!;

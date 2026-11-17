@@ -1248,7 +1248,7 @@ def test_get_frontend_extensions_serves_editor_sections_for_enabled_plugins(mock
     }]
     assert result["editor_tools"] == [{
         "plugin_id": "acme", "id": "acme.halftone", "editor": "image", "group": "look", "label": "Halftone",
-        "icon": "extension", "order": None, "keys": None, "overlay": None, "task": None,
+        "icon": "extension", "order": None, "keys": None, "overlay": None, "task": None, "ai": None,
         "options": "editor/Options.js", "bar": None,
     }]
     assert result["editor_groups"] == [{

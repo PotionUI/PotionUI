@@ -17,5 +17,5 @@ export function toolIdsFor(kind: EditorKind): readonly string[] {
 }
 
 export function isActiveToolOf(kind: EditorKind, id: string | null | undefined): id is string {
-	return !!id && toolIdsFor(kind).includes(id);
+	return !!id && (toolIdsFor(kind).includes(id) || (kind === 'image' && id.startsWith('paint.')));
 }

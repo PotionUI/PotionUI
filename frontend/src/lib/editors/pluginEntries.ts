@@ -32,6 +32,7 @@ export interface EditorToolSnapshotEntry {
 	bar?: string | null;
 	overlay?: string | null;
 	task?: string | null;
+	ai?: boolean | null;
 }
 
 export interface EditorGroupSnapshotEntry {
@@ -342,6 +343,7 @@ export function describeEditorEntries(snapshot: EditorSnapshot, revisionOf: (plu
 				if (entry.keys) tool.keys = entry.keys;
 				if (entry.overlay) tool.overlay = entry.overlay;
 				if (entry.task) tool.task = entry.task;
+				if (entry.ai || entry.task) tool.ai = true;
 				const options = componentRef(entry.plugin_id, entry.options);
 				if (options) tool.options = options;
 				const bar = componentRef(entry.plugin_id, entry.bar);

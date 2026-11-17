@@ -125,7 +125,7 @@
 													data-sheet-child={child.id}
 													onclick={() => pickChild(child)}
 												>
-													<span class="grid h-4 w-4 flex-none place-items-center text-fg-muted">
+													<span class="grid flex-none place-items-center text-fg-muted {child.ai ? 'ai-mark h-6 w-6 rounded' : 'h-4 w-4'}" data-ai-mark={child.ai || undefined}>
 														{#if child.icon}<Icon name={child.icon} className="h-4 w-4" />{/if}
 													</span>
 													<span class="min-w-0 flex-1">

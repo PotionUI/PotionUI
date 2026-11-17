@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
-import { clearEdits, closeEditorMenu, editorMenuItem, loginAsOwner, screenshot } from './helpers';
+import { clearEdits, closeEditorMenu, editorMenuItem, loginAsOwner, screenshot, selectRailTool } from './helpers';
 import { mockMediaTools, solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-generate';
@@ -294,7 +294,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await openHarbor(page);
 		await expect(rail(page, 'edit_region')).toBeVisible();
 		await expect(rail(page, 'remove_object')).toBeVisible();
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'edit_region');
 
 		await expect(page.locator('[data-setup-picker]')).toBeVisible();
@@ -357,7 +357,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('Try again runs the same settings with a new seed and replaces the results', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Model defaults');
 		await markArea(page);
 		await type(page, 'a lantern');
@@ -374,7 +374,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('Remove an object needs a marked object and sends no prompt', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region'), taskEntry('remove_object', 'Remove an object', { offers: [qwen()] })]);
 		await openHarbor(page);
-		await rail(page, 'remove_object').click();
+		await selectRailTool(page, 'remove_object');
 		await expect(prompt(page).locator('[data-prompt-field]')).toHaveCount(0);
 		await expect(prompt(page).locator('[data-prompt-note]')).toHaveText('The marked object will be removed.');
 		await expect(prompt(page).locator('[data-prompt-status="warn"]')).toHaveText('Mark the object first');
@@ -403,7 +403,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('a failed run shows its reason and Retry starts it again', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'a lantern');
 		await generate(page);
@@ -421,7 +421,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		server.holdSubscribe = true;
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'a lantern');
 		await generate(page);
@@ -439,7 +439,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await openHarbor(page);
 		await shape(page, '1:1');
 		await expect(row(page, 's1')).toContainText('Crop');
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'red sailboat');
 		await prompt(page).getByRole('group', { name: 'Results' }).getByRole('button', { name: '3', exact: true }).click();
@@ -451,7 +451,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 		await shape(page, '16:9');
 		await expect(row(page, 's2')).toContainText('The picture changed');
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(2);
@@ -482,7 +482,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
 		await shape(page, '1:1');
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'a lantern');
 		await prompt(page).getByRole('group', { name: 'Results' }).getByRole('button', { name: '2', exact: true }).click();
@@ -505,7 +505,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await page.keyboard.press('Control+Shift+Z');
 		await expect(row(page, 's2')).toContainText('The picture changed');
 
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(2);
@@ -526,10 +526,10 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('after a resize beneath, Redo on the new picture runs again with the same area and seed and replaces the results', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
-		await rail(page, 'resize').click();
+		await selectRailTool(page, 'resize');
 		await scaleTo(page, '75%');
 		await expect(row(page, 's1')).toContainText('Resize');
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'a lantern');
 		await prompt(page).getByRole('group', { name: 'Results' }).getByRole('button', { name: '2', exact: true }).click();
@@ -574,7 +574,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
 		await shape(page, '1:1');
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'a lantern');
 		await generate(page);
@@ -605,7 +605,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('Cancel stops a waiting run, and removing a running step cancels it too', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'a lantern');
 		await generate(page);
@@ -630,7 +630,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		const broken = { preset_id: 'qwen21', mode: 'edit', variant: null, setup: { kind: 'session', id: 'gone', name: 'Soft portrait' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } };
 		await begin(page, [taskEntry('edit_region', 'Edit a region', { default: broken })]);
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await expect(page.locator('[data-picker-notice]')).toHaveText('Your default setup "Soft portrait" was deleted. Pick another.');
 		await expect(prompt(page).locator('[data-setup-chip]')).toHaveText(/Choose a setup/);
 		await expect(prompt(page).locator('[data-prompt-generate]')).toBeDisabled();
@@ -640,7 +640,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('no model: the empty picker, and the greyed picker with its reasons', async ({ page }) => {
 		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [] })]);
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await expect(page.locator('[data-picker-empty]')).toContainText('No model can do this yet');
 		await screenshot(page, JOURNEY, '11-picker-empty-dark-1440');
 	});
@@ -648,7 +648,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('no model can run: the modes are greyed with the reason', async ({ page }) => {
 		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen({ qualifies: false, reason: 'models_missing' }), flux({ qualifies: false, reason: 'not_assigned' })] })]);
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await expect(page.locator('[data-setup-picker]')).toContainText('Models not installed');
 		await expect(page.locator('[data-setup-picker]')).toContainText('Not available to your account');
 		await screenshot(page, JOURNEY, '11b-picker-greyed-dark-1440');
@@ -657,7 +657,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('reloading in the middle of a run re-attaches to it', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'a lantern');
 		await generate(page);
@@ -675,7 +675,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('Settings: change a value, run with it, save to the setup, save as new, and the discard prompt', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true);
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await expect(prompt(page).locator('[data-setup-chip]')).toContainText('Qwen-Image 2.1 · Edit · Soft portrait');
 		await expect(prompt(page).locator('[data-setup-changed]')).toHaveCount(0);
 		await markArea(page);
@@ -760,7 +760,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 	test('Settings go back with the header button and the prompt button, and the Edits list can be shown while open', async ({ page }) => {
 		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true);
 		await openHarbor(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		const settings = prompt(page).locator('[data-prompt-settings]');
 		await settings.click();
 		await expect(settings).toHaveAttribute('aria-pressed', 'true');

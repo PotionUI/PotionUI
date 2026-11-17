@@ -205,3 +205,20 @@ export async function closeEditorMenu(page: Page): Promise<void> {
 	await page.keyboard.press('Escape');
 	await expect(page.locator('[data-editor-menu]')).toHaveCount(0);
 }
+
+export async function selectRailTool(page: Page, id: string, scope?: Locator): Promise<void> {
+	const root = scope ?? page;
+	const direct = root.locator(`[data-tool-rail] button[data-tool="${id}"]`);
+	if ((await direct.count()) > 0) {
+		await direct.first().click();
+		return;
+	}
+	const group = root.locator(`[data-tool-rail] button[data-group-members~="${id}"]`).first();
+	await group.click();
+	const item = page.locator(`[data-flyout-item="${id}"], [data-sheet-item="${id}"]`).first();
+	await item.click();
+}
+
+export function railButton(page: Page, id: string): Locator {
+	return page.locator(`[data-tool-rail] button[data-tool="${id}"], [data-tool-rail] button[data-group-members~="${id}"]`).first();
+}

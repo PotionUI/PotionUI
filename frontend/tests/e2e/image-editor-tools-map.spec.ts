@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { clearEdits, editorMenu, loginAsOwner, openEditorMenu, screenshot } from './helpers';
+import { clearEdits, editorMenu, loginAsOwner, openEditorMenu, screenshot, selectRailTool, railButton } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-tools-map';
@@ -137,9 +137,9 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('a tall window shows every entry as its own icon, in group order, with a divider between groups and no flyouts', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 982);
+		await setRailHeight(page, 1169);
 		const ids = await page.locator('[data-tool-rail] button[data-tool]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-tool')));
-		expect(ids.slice(0, 4)).toEqual(['crop', 'resize', 'canvas', 'slice']);
+		expect(ids.slice(0, 6)).toEqual(['edit_region', 'remove_object', 'crop', 'resize', 'canvas', 'slice']);
 		expect(ids).toContain('film_grain');
 		expect(ids).toContain('lut');
 		expect(ids).toContain('effects');
@@ -147,25 +147,31 @@ test.describe('the Image editor tools map on desktop', () => {
 		expect(ids.indexOf('film_grain')).toBeLessThan(ids.indexOf('effects'));
 		expect(ids.indexOf('effects')).toBeLessThan(ids.indexOf('colorKey'));
 		await expect(page.locator('[data-tool-rail] [data-group-button]')).toHaveCount(0);
-		await expect(page.locator('[data-tool-rail] [role="separator"]')).toHaveCount(6);
+		await expect(page.locator('[data-tool-rail] [role="separator"]')).toHaveCount(7);
 		expect(await page.locator('[data-tool-rail]').first().evaluate((node) => (node as HTMLElement).scrollHeight <= (node as HTMLElement).clientHeight)).toBe(true);
 		await screenshot(page, JOURNEY, '01-rail-tall-dark-1440');
 	});
 
-	test('900 and 720 high fold Effects first, then Light and colour and Cut out, with no scrollbar', async ({ page }) => {
+	test('shorter windows fold Effects first, then Light and colour, Cut out, Transform, Select and move and Paint, with no scrollbar', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 900 - 118);
+		await setRailHeight(page, 1043);
 		expect(await folded(page)).toBe('fx');
 		await expect(group(page, 'fx')).toBeVisible();
 		await expect(rail(page, 'film_grain')).toHaveCount(0);
 		await expect(rail(page, 'light')).toBeVisible();
 		await screenshot(page, JOURNEY, '01c-rail-900-dark-1440');
-		await setRailHeight(page, 720 - 118);
-		expect(await folded(page)).toBe('fx look tools');
+		await setRailHeight(page, 900 - 118);
+		expect(await folded(page)).toBe('fx look tools shape');
 		await expect(group(page, 'look')).toBeVisible();
 		await expect(group(page, 'tools')).toBeVisible();
-		await expect(rail(page, 'crop')).toBeVisible();
+		await expect(group(page, 'shape')).toBeVisible();
+		await expect(rail(page, 'paint.brush')).toBeVisible();
+		await expect(rail(page, 'edit_region')).toBeVisible();
+		await setRailHeight(page, 720 - 118);
+		expect(await folded(page)).toBe('fx look tools shape select paint');
+		await expect(group(page, 'paint')).toBeVisible();
+		await expect(rail(page, 'edit_region')).toBeVisible();
 		expect(await page.locator('[data-tool-rail]').first().evaluate((node) => (node as HTMLElement).scrollHeight <= (node as HTMLElement).clientHeight)).toBe(true);
 		await screenshot(page, JOURNEY, '01d-rail-720-dark-1440');
 	});
@@ -189,7 +195,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'vignette');
 		await expect(group(page, 'fx')).toHaveAttribute('data-shown', 'vignette');
 		expect(await positions()).toEqual(before);
-		await rail(page, 'crop').click();
+		await selectRailTool(page, 'effects');
 		await expect(group(page, 'fx')).toHaveAttribute('data-shown', 'vignette');
 		expect(await positions()).toEqual(before);
 	});
@@ -210,8 +216,8 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('Film grain and Vignette are one entry each with their own panel and live edits', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 982);
-		await rail(page, 'film_grain').click();
+		await setRailHeight(page, 1169);
+		await selectRailTool(page, 'film_grain');
 		const panel = page.locator('[data-entry-options="film_grain"]');
 		await expect(panel).toBeVisible();
 		await expect(page.locator('[data-options-apply]')).toHaveCount(0);
@@ -221,8 +227,8 @@ test.describe('the Image editor tools map on desktop', () => {
 		await amount.fill('42');
 		await amount.press('Tab');
 		await expect(page.locator('[data-edit-stack] [data-stack-row]').last()).toContainText('Film grain');
-		await expect(rail(page, 'film_grain').locator('[data-tool-applied]')).toBeVisible();
-		await rail(page, 'vignette').click();
+		await expect(railButton(page, 'film_grain').locator('[data-tool-applied]')).toBeVisible();
+		await selectRailTool(page, 'vignette');
 		await expect(page.locator('[data-entry-options="vignette"] [data-param]')).toHaveCount(3);
 		await screenshot(page, JOURNEY, '04-vignette-dark-1440');
 	});
@@ -230,14 +236,14 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('Light then Colour write two steps and neither changes the other', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 982);
-		await rail(page, 'light').click();
+		await setRailHeight(page, 1169);
+		await selectRailTool(page, 'light');
 		await expect(page.locator('[data-entry-options="light"] [data-property-slider]')).toHaveCount(5);
 		const contrast = slider(page, 'Contrast');
 		await contrast.fill('12');
 		await contrast.dispatchEvent('change');
 		await screenshot(page, JOURNEY, '06-light-dark-1440');
-		await rail(page, 'colour').click();
+		await selectRailTool(page, 'colour');
 		await expect(page.locator('[data-entry-options="colour"] [data-property-slider]')).toHaveCount(5);
 		await slider(page, 'Saturation').fill('-20');
 		await slider(page, 'Saturation').dispatchEvent('change');
@@ -245,7 +251,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		await expect(rows).toHaveCount(3);
 		await expect(rows.nth(1)).toContainText('Light');
 		await expect(rows.nth(2)).toContainText('Colour');
-		await rail(page, 'light').click();
+		await selectRailTool(page, 'light');
 		await expect(slider(page, 'Contrast')).toHaveValue('12');
 		await expect(page.locator('[data-entry-options="light"] [data-property-slider="Saturation"]')).toHaveCount(0);
 		await rows.nth(2).locator('button').first().click();
@@ -265,8 +271,8 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('Looks is its own entry, its panel lists the looks and nothing sits under the canvas', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 982);
-		await rail(page, 'effects').click();
+		await setRailHeight(page, 1169);
+		await selectRailTool(page, 'effects');
 		await expect(page.locator('[data-options-panel] [data-look-list]')).toBeVisible();
 		await expect(page.locator('[data-tray]')).toHaveCount(0);
 		await page.locator('[data-look-item]:not([data-look-item="__original"])').first().click();
@@ -277,9 +283,9 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('the marking block is the same in Edit a region and Remove an object, Clear area is undoable', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 982);
+		await setRailHeight(page, 1169);
 		await expect(rail(page, 'mask')).toHaveCount(0);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		const block = page.locator('[data-options-panel] [data-mask-area-readout]');
 		await expect(block).toBeVisible();
 		const markup = async () => page.locator('[data-options-panel]').evaluate((node) => Array.from(node.querySelectorAll('[aria-label="Marking tool"] button, [aria-label="Mask brush"] button, [aria-label="Lasso mode"] button')).map((button) => (button.textContent ?? '').trim()).join('|'));
@@ -287,7 +293,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		expect(first).toContain('Brush');
 		expect(first).toContain('Lasso');
 		await screenshot(page, JOURNEY, '08-edit-region-dark-1440');
-		await rail(page, 'remove_object').click();
+		await selectRailTool(page, 'remove_object');
 		await expect(page.locator('[data-options-panel] [data-mask-area-readout]')).toBeVisible();
 		expect(await markup()).toBe(first);
 		await screenshot(page, JOURNEY, '13-remove-object-dark-1440');
@@ -312,7 +318,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		await setRailHeight(page, 720 - 118);
 		await openEditorMenu(page, 'Tools');
 		const menu = page.locator('[data-editor-menu="tools"]');
-		await expect(menu.locator('[data-menu-row]')).toHaveCount(7);
+		await expect(menu.locator('[data-menu-row]')).toHaveCount(8);
 		await menu.locator('[data-row-id="toolgroup:fx"]').hover();
 		await expect(page.locator('[data-editor-submenu="toolgroup:fx"] [data-menu-row]')).toHaveCount(4);
 		await screenshot(page, JOURNEY, '10-tools-menu-dark-1440');
@@ -325,8 +331,8 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('an edit saved before the change opens in the entries that own its steps and edits in place', async ({ page }) => {
 		const server = await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 982);
-		await rail(page, 'light').click();
+		await setRailHeight(page, 1169);
+		await selectRailTool(page, 'light');
 		await slider(page, 'Contrast').fill('5');
 		await slider(page, 'Contrast').dispatchEvent('change');
 		await expect.poll(() => server.creates.length).toBe(1);
@@ -344,7 +350,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		await expect(slider(page, 'Contrast')).toHaveValue('10');
 		await rows.nth(4).locator('button').first().click();
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'film_grain');
-		await rail(page, 'light').click();
+		await selectRailTool(page, 'light');
 		const before = server.saves.length;
 		await slider(page, 'Contrast').fill('33');
 		await slider(page, 'Contrast').dispatchEvent('change');
@@ -365,7 +371,7 @@ test.describe('the Image editor tools map on a phone', () => {
 		await openHarbor(page);
 		const phone = page.getByTestId('phone-tool-tab');
 		const strip = phone.locator('[data-tool-rail="strip"]');
-		await expect(strip.locator('[data-group-button]')).toHaveCount(5);
+		await expect(strip.locator('[data-group-button]')).toHaveCount(7);
 		await strip.locator('[data-group-button="fx"]').click();
 		const sheet = page.locator('[data-rail-sheet="fx"]');
 		await expect(sheet.locator('[data-sheet-item]')).toHaveCount(4);

@@ -352,9 +352,11 @@
 				type="button"
 				class="tool relative flex items-center rounded text-center text-sm leading-[14px] {icons
 					? `h-10 flex-none justify-center ${joined ? 'w-[46px]' : 'w-10'}`
-					: 'min-w-16 flex-none flex-col justify-center gap-[3px] px-1.5 pb-1.5 pt-[7px]'} {inside
-					? `is-on text-signal ${joined ? 'rounded-r-none bg-surface-1' : 'bg-signal/10'}`
-					: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
+					: 'min-w-16 flex-none flex-col justify-center gap-[3px] px-1.5 pb-1.5 pt-[7px]'} {shown.ai
+					? `ai-ring ${inside ? 'ai-ring--on text-fg' : 'text-fg-muted hover:text-fg'}`
+					: inside
+						? `is-on text-signal ${joined ? 'rounded-r-none bg-surface-1' : 'bg-signal/10'}`
+						: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
 				aria-haspopup={strip ? 'dialog' : 'menu'}
 				aria-expanded={strip ? sheetGroup === group.id : flyGroup === group.id}
 				aria-pressed={inside}
@@ -387,7 +389,9 @@
 					type="button"
 					class="tool relative flex items-center rounded text-center text-sm leading-[14px] {icons
 						? `h-10 flex-none justify-center ${joined ? 'w-[46px]' : 'w-10'}`
-						: `flex-col gap-[3px] px-0.5 pb-1.5 pt-[7px] ${strip ? 'min-w-16 flex-none justify-center px-1.5' : ''}`} {on
+						: `flex-col gap-[3px] px-0.5 pb-1.5 pt-[7px] ${strip ? 'min-w-16 flex-none justify-center px-1.5' : ''}`} {tool.ai && !off
+						? `ai-ring ${on ? 'ai-ring--on text-fg' : 'text-fg-muted hover:text-fg'}`
+						: on
 						? `is-on text-signal ${joined ? 'rounded-r-none bg-surface-1' : 'bg-signal/10'}`
 						: off
 							? 'cursor-not-allowed text-fg-disabled'
@@ -439,7 +443,11 @@
 				data-flyout-item={tool.id}
 				onclick={() => chooseFromFly(tool)}
 			>
-				<Icon name={tool.icon} className="h-4 w-4 flex-none {tool.id === active ? 'text-signal' : 'text-fg-muted'}" />
+				{#if tool.ai}
+					<span class="ai-mark grid h-6 w-6 flex-none place-items-center rounded" data-ai-mark><Icon name={tool.icon} className="h-4 w-4 flex-none {tool.id === active ? 'text-signal' : 'text-fg-muted'}" /></span>
+				{:else}
+					<Icon name={tool.icon} className="h-4 w-4 flex-none {tool.id === active ? 'text-signal' : 'text-fg-muted'}" />
+				{/if}
 				<span class="min-w-0 flex-1 truncate">{tool.label}</span>
 				{#if off && reason(tool)}<span class="sr-only">, {reason(tool)}</span>{/if}
 				{#if pending.includes(tool.id)}
@@ -471,7 +479,7 @@
 					data-sheet-item={tool.id}
 					onclick={() => chooseFromSheet(tool)}
 				>
-					<span class="grid h-11 w-11 flex-none place-items-center rounded bg-surface-2 text-fg-muted"><Icon name={tool.icon} className="h-5 w-5" /></span>
+					<span class="grid h-11 w-11 flex-none place-items-center rounded text-fg-muted {tool.ai ? 'ai-mark' : 'bg-surface-2'}" data-ai-mark={tool.ai || undefined}><Icon name={tool.icon} className="h-5 w-5" /></span>
 					<span class="min-w-0 flex-1 truncate">{tool.label}</span>
 					{#if applied.includes(tool.id)}<span class="h-2 w-2 flex-none rounded-full bg-signal" aria-label="Applied"></span>{/if}
 				</button>

@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Request } from '@playwright/test';
-import { clearEdits, editorMenu, editorMenuItem, loginAsOwner, openEditorMenu, ownerToken, screenshot } from './helpers';
+import { clearEdits, editorMenu, editorMenuItem, loginAsOwner, openEditorMenu, ownerToken, screenshot, selectRailTool, railButton } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-plugin-slots';
@@ -59,7 +59,7 @@ function stackRow(page: Page, label: string) {
 }
 
 async function openTint(page: Page, tool = TINT, panel = 'Tint') {
-	await rail(page, tool).click();
+	await selectRailTool(page, tool);
 	await expect(page.locator(`[data-e2e-slot-options="${panel}"]`)).toBeVisible();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Strength 50');
 }
@@ -72,7 +72,7 @@ async function applyTint(page: Page) {
 }
 
 async function applyCrop(page: Page) {
-	await rail(page, 'crop').click();
+	await selectRailTool(page, 'crop');
 	const apply = page.locator('[data-options-apply]');
 	for (const aspect of ['16:9', '1:1', '9:16']) {
 		await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: aspect }).click();
@@ -119,7 +119,7 @@ test.describe('a plugin fills the image editor slots', () => {
 		expect(registered).toEqual({ group: 'Stylize', toolGroup: GROUP, overlay: 'selection' });
 		await screenshot(page, JOURNEY, 'rail-1440');
 
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		const marking = page.getByLabel('Marking tool');
 		await expect(marking.getByText('Spotlight', { exact: true })).toBeVisible();
 		await marking.getByText('Spotlight', { exact: true }).click();
@@ -224,7 +224,7 @@ test.describe('a plugin fills the image editor slots', () => {
 		await begin(page, true);
 		await openPicture(page);
 
-		await rail(page, FAULTY).click();
+		await selectRailTool(page, FAULTY);
 		await expect(page.locator('[data-e2e-slot-options="Faulty"]')).toBeVisible();
 		await expect(page.locator('[data-stack-row="pending"]')).toContainText('Strength 10');
 		await page.locator('[data-options-apply]').click();
@@ -239,7 +239,7 @@ test.describe('a plugin fills the image editor slots', () => {
 		await applyTint(page);
 		await expect(page.locator('[data-edit-stack="panel"] [data-stack-row]:not([data-stack-row="original"])')).toHaveCount(3);
 		await expect(page.locator('[data-render-error]')).toHaveCount(0);
-		await expect(rail(page, 'crop')).toBeVisible();
+		await expect(railButton(page, 'crop')).toBeVisible();
 		await expect(rail(page, TINT_LATER)).toBeVisible();
 	});
 

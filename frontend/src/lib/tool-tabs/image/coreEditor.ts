@@ -9,6 +9,8 @@ import EntryOptions from '$lib/components/tool-tabs/image/EntryOptions.svelte';
 import EffectCardOptions from '$lib/components/tool-tabs/image/EffectCardOptions.svelte';
 import { imageEffects } from './shaderEffect';
 import { ensureGenerateEditor } from './generate/register';
+import { ensurePaintEntries } from './paintEntries';
+import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { CORE_RAIL, CORE_TOOLS, editorCatalogTools, type CoreImageTool } from './steps';
 
 const STEP_TOOLS: readonly CoreImageTool[] = ['crop', 'resize', 'canvas', 'slice', 'paint', 'effects', 'colorKey', 'subject'];
@@ -55,15 +57,15 @@ interface EntrySeed {
 }
 
 export const GRADE_SEEDS: readonly EntrySeed[] = [
-	{ id: 'light', group: 'look', label: 'Light', icon: 'lightbulb', order: 10, component: 'entry' },
-	{ id: 'colour', group: 'look', label: 'Colour', icon: 'palette', order: 20, component: 'entry' },
-	{ id: 'split_tone', group: 'look', label: 'Split tone', icon: 'sliders-horizontal', order: 30, component: 'entry' },
-	{ id: 'curves', group: 'look', label: 'Curves', icon: 'sliders', order: 40, component: 'entry' },
-	{ id: 'lut', group: 'look', label: 'LUT', icon: 'cube', order: 50, component: 'card' },
-	{ id: 'film_grain', group: 'fx', label: 'Film grain', icon: 'sparkles', order: 10, component: 'entry' },
-	{ id: 'vignette', group: 'fx', label: 'Vignette', icon: 'frame', order: 20, component: 'entry' },
-	{ id: 'grayscale', group: 'fx', label: 'Grayscale', icon: 'eyes', order: 30, component: 'entry' },
-	{ id: 'invert', group: 'fx', label: 'Invert', icon: 'swap', order: 40, component: 'entry' }
+	{ id: 'light', group: 'look', label: 'Light', icon: editorToolIcons.light, order: 10, component: 'entry' },
+	{ id: 'colour', group: 'look', label: 'Colour', icon: editorToolIcons.colour, order: 20, component: 'entry' },
+	{ id: 'split_tone', group: 'look', label: 'Split tone', icon: editorToolIcons.split_tone, order: 30, component: 'entry' },
+	{ id: 'curves', group: 'look', label: 'Curves', icon: editorToolIcons.curves, order: 40, component: 'entry' },
+	{ id: 'lut', group: 'look', label: 'LUT', icon: editorToolIcons.lut, order: 50, component: 'card' },
+	{ id: 'film_grain', group: 'fx', label: 'Film grain', icon: editorToolIcons.film_grain, order: 10, component: 'entry' },
+	{ id: 'vignette', group: 'fx', label: 'Vignette', icon: editorToolIcons.vignette, order: 20, component: 'entry' },
+	{ id: 'grayscale', group: 'fx', label: 'Grayscale', icon: editorToolIcons.grayscale, order: 30, component: 'entry' },
+	{ id: 'invert', group: 'fx', label: 'Invert', icon: editorToolIcons.invert, order: 40, component: 'entry' }
 ];
 
 export const EFFECT_ENTRY_IDS: ReadonlySet<string> = new Set(['lut', 'film_grain', 'vignette']);
@@ -109,7 +111,7 @@ let registered = false;
 export function ensureCoreImageEditor(): void {
 	if (registered) return;
 	registered = true;
-	const orders: Record<string, number> = { shape: 100, paint: 200, look: 300, fx: 330, looks: 360, tools: 400 };
+	const orders: Record<string, number> = { shape: 100, look: 300, fx: 330, looks: 360, tools: 400 };
 	CORE_RAIL.forEach((group) => {
 		railGroups.register({ id: group.id, editor: 'image', label: group.label, order: orders[group.id], ...(group.fold === undefined ? {} : { fold: group.fold }) });
 		group.tools.forEach((id, toolIndex) => {
@@ -132,4 +134,5 @@ export function ensureCoreImageEditor(): void {
 	mediaToolCatalog.subscribe(syncCatalogKinds);
 	mediaToolCatalog.subscribe(syncEffectEntries);
 	ensureGenerateEditor();
+	ensurePaintEntries();
 }

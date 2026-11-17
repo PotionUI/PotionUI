@@ -1,6 +1,6 @@
 import { deflateSync } from 'node:zlib';
 import { test, expect, type Page } from '@playwright/test';
-import { clearEdits, loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, ownerToken, screenshot, selectRailTool } from './helpers';
 import { chunk } from './mediaFieldHelpers';
 
 const JOURNEY = 'image-editor-effects';
@@ -131,7 +131,7 @@ test('Vignette from the effect catalog previews live on the image canvas through
 	}
 
 	await page.setViewportSize({ width: 1440, height: 1200 });
-	await page.locator('[data-tool-rail] button[data-tool="vignette"]').click();
+	await selectRailTool(page, 'vignette');
 	const panel = page.locator('[data-entry-options="vignette"]');
 	await expect(panel).toBeVisible();
 	await expect(page.locator('[data-options-apply]')).toHaveCount(0);

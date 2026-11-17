@@ -2266,7 +2266,7 @@ media_tools:
 | Key | Declares | Fields |
 |---|---|---|
 | `editor_steps` | A kind of step in an edit | `id`, `editor`, `module`, `label`, `icon`, `lane` |
-| `editor_tools` | A tool in the editor's rail | `id`, `editor`, `group`, `label`, `icon`, `order`, `keys`, `options`, `bar`, `overlay`, `task` |
+| `editor_tools` | A tool in the editor's rail (`ai: true` marks one that runs a model: it gets the iridescent AI ring) | `id`, `editor`, `group`, `label`, `icon`, `order`, `keys`, `options`, `bar`, `overlay`, `task`, `ai` |
 | `editor_groups` | A group in the rail | `id`, `editor`, `label`, `order` |
 | `editor_overlays` | A layer drawn over the canvas | `id`, `editor`, `component`, `cursor` (`crosshair`, `brush`, `default`), `produces` (`selection`) |
 | `editor_menu` | An item in the editor's menu bar ([below](#menu-bar-items)) | `id`, `editor`, `menu`, `group`, `order`, `label`, `icon`, `keys`, `menu_label`, `module` |

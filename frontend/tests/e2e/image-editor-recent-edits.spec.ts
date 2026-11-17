@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { clearEdits, loginAsOwner, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, screenshot, selectRailTool } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-recent-edits';
@@ -244,7 +244,7 @@ async function applyCrop(page: Page) {
 }
 
 async function applyReel(page: Page) {
-	await rail(page, 'effects').click();
+	await selectRailTool(page, 'effects');
 	await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
 	await page.locator('[data-look-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');

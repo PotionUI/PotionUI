@@ -276,7 +276,7 @@ describe('the other entries show only their own controls', () => {
 		const view = render('vignette');
 		await openEditorMenu(view.view.target, 'tools');
 		const groupIds = Array.from(document.body.querySelectorAll<HTMLElement>('[data-editor-menu] [data-menu-row][data-menu-level="0"]')).map((row) => row.dataset.rowId);
-		expect(groupIds).toEqual(['toolgroup:shape', 'tool:paint', 'toolgroup:generate', 'toolgroup:look', 'toolgroup:fx', 'tool:effects', 'toolgroup:tools']);
+		expect(groupIds).toEqual(['toolgroup:generate', 'toolgroup:shape', 'toolgroup:paint', 'toolgroup:select', 'toolgroup:look', 'toolgroup:fx', 'tool:effects', 'toolgroup:tools']);
 		document.body.querySelector<HTMLButtonElement>('[data-row-id="toolgroup:fx"]')!.click();
 		await settle();
 		const sub = Array.from(document.body.querySelectorAll<HTMLElement>('[data-editor-submenu="toolgroup:fx"] [data-menu-row]'));
@@ -425,5 +425,111 @@ describe('options bar', () => {
 		const view = render('crop');
 		expect(view.all('[data-editor-toolbar]')).toHaveLength(1);
 		expect(view.q('[data-tool-rail]')?.getAttribute('data-tool-rail')).toBe('icons');
+	});
+});
+
+describe('Paint entries in the editor tab', () => {
+	const press = (key: string, init: KeyboardEventInit = {}) => {
+		window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
+		flushSync();
+	};
+
+	it('opens an old saved Paint tool on the Brush entry', async () => {
+		const view = render('paint');
+		await settle();
+		expect(view.q('[data-image-editor]')?.getAttribute('data-tool')).toBe('paint.brush');
+		expect(view.q('[data-tool-rail] button[data-tool="paint.brush"]')?.getAttribute('aria-pressed')).toBe('true');
+	});
+
+	it('selects the paint entries with the tool letters', async () => {
+		const view = render('light');
+		for (const [key, entry] of [['b', 'brush'], ['e', 'eraser'], ['g', 'fill'], ['i', 'pick'], ['m', 'rect'], ['l', 'lasso'], ['v', 'move']]) {
+			press(key);
+			await settle();
+			expect(view.q('[data-image-editor]')?.getAttribute('data-tool')).toBe(`paint.${entry}`);
+		}
+	});
+
+	it('ignores the letters with a modifier and while typing in a field', async () => {
+		const view = render('light');
+		press('e', { ctrlKey: true });
+		await settle();
+		expect(view.q('[data-image-editor]')?.getAttribute('data-tool')).toBe('light');
+		const input = document.body.appendChild(document.createElement('input'));
+		input.focus();
+		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', bubbles: true, composed: true }));
+		await settle();
+		expect(view.q('[data-image-editor]')?.getAttribute('data-tool')).toBe('light');
+	});
+
+	it('shows the paint entries as two rail groups', () => {
+		const view = render('light');
+		const labels = (id: string) => view.all(`[data-tool-rail] button[data-tool^="paint."]`).filter(() => id).map((button) => button.dataset.tool);
+		expect(labels('x')).toEqual(['paint.brush', 'paint.eraser', 'paint.fill', 'paint.pick', 'paint.rect', 'paint.lasso', 'paint.move']);
+	});
+});
+
+describe('the tool letter handler stays out of the way', () => {
+	const toolOf = (view: ReturnType<typeof render>) => view.q('[data-image-editor]')?.getAttribute('data-tool');
+	const fire = (target: Element | Document | Window, key = 'e') => {
+		const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, composed: true });
+		target.dispatchEvent(event);
+		flushSync();
+		return event;
+	};
+
+	it.each([
+		['an input', () => document.createElement('input')],
+		['a textarea', () => document.createElement('textarea')],
+		['a select', () => document.createElement('select')],
+		['a contenteditable', () => {
+			const node = document.createElement('div');
+			node.setAttribute('contenteditable', 'true');
+			return node;
+		}],
+		['a textbox role (the floating prompt)', () => {
+			const node = document.createElement('div');
+			node.setAttribute('role', 'textbox');
+			return node;
+		}]
+	])('does nothing while focus is in %s', async (_name, make) => {
+		const view = render('light');
+		const node = document.body.appendChild(make());
+		const event = fire(node);
+		await settle();
+		expect(toolOf(view)).toBe('light');
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	it('does nothing while a menu, popover or modal holds a dismiss layer', async () => {
+		const { registerDismissLayer, unregisterDismissLayer } = await import('$lib/actions/layerStack');
+		const view = render('light');
+		const layer = { node: document.body.appendChild(document.createElement('div')) } as never;
+		registerDismissLayer(layer);
+		try {
+			const event = fire(document.body);
+			await settle();
+			expect(toolOf(view)).toBe('light');
+			expect(event.defaultPrevented).toBe(false);
+		} finally {
+			unregisterDismissLayer(layer);
+		}
+	});
+
+	it('takes E before the global handler, and leaves E to the global handler once the editor is gone', async () => {
+		const global = vi.fn((event: KeyboardEvent) => event.preventDefault());
+		document.addEventListener('keydown', global);
+		try {
+			const view = render('light');
+			fire(document.body);
+			await settle();
+			expect(toolOf(view)).toBe('paint.eraser');
+			expect(global).not.toHaveBeenCalled();
+			view.view.destroy();
+			fire(document.body);
+			expect(global).toHaveBeenCalledTimes(1);
+		} finally {
+			document.removeEventListener('keydown', global);
+		}
 	});
 });

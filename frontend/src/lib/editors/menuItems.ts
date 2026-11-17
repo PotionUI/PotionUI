@@ -13,6 +13,8 @@ export interface MenuChoice {
 	sub?: string;
 	icon?: string;
 	badge?: string;
+	keybind?: string;
+	ai?: boolean;
 	dot?: string;
 	checked?: boolean;
 	disabled?: string;
@@ -230,6 +232,8 @@ function toolRows(ctx: EditorMenuContext): { group: string; order: number; row: 
 				run: () => ctx.commands.selectTool(tool.id)
 			};
 			if (applied.has(tool.id)) child.dot = 'rgb(var(--signal))';
+				if (tool.keys) child.keybind = tool.keys;
+			if (tool.ai) child.ai = true;
 			if (tool.disabled || tool.later) child.disabled = tool.reason ?? (tool.later ? 'Later' : 'Not available right now');
 			return child;
 		});

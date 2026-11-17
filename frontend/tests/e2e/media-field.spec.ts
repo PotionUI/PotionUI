@@ -400,6 +400,37 @@ for (const size of SIZES) {
 			expect(masks.at(-1)).toBeNull();
 		});
 
+		test('Edit image opens the paint modal built from the shared rail, panel and layer list', async ({ page }) => {
+			const host = await mountField(page, size, {
+				config: { title: 'Image', accept: 'image/*', allow_inpaint: true },
+				value: imageItem(1)
+			});
+			await host.locator('[data-tools-trigger]').first().click();
+			await page.locator('[data-tools-menu] [data-tool="edit"]').click();
+			const modal = page.locator('[data-paint-modal]');
+			await expect(modal).toBeVisible();
+			await expect(modal.locator('canvas[aria-label="Drawing canvas"]')).toBeVisible();
+			await expect(modal.locator('[data-paint-tools]')).toHaveCount(0);
+			await expect(modal.locator('[data-paint-menubar]')).toBeVisible();
+			if (size.tag === '1440') {
+				await expect(modal.locator('[aria-label="Paint tools"] button[data-tool="transform"]')).toBeVisible();
+				await expect(modal.locator('[aria-label="Paint tools"] button[data-tool="crop"]')).toBeVisible();
+				await expect(modal.locator('[data-paint-layers] [data-layer-row]')).toHaveCount(1);
+				await screenshot(page, JOURNEY, '09-modal-brush-1440');
+				await modal.locator('[data-layer-row="0"] button[aria-label^="Actions for"]').click();
+				await page.locator('[data-layer-menu] [role="menuitem"]', { hasText: 'Adjust colours' }).click();
+				await expect(modal.locator('[data-paint-layer-panel="adjust"]')).toBeVisible();
+				await screenshot(page, JOURNEY, '08b-modal-adjust-colours-1440');
+				await modal.locator('[data-paint-back]').click();
+				await expect(modal.locator('[data-paint-layers]')).toBeVisible();
+			} else {
+				await expect(modal.locator('[data-paint-phone-dock]')).toBeVisible();
+				await modal.locator('[data-paint-layers-button]').click();
+				await expect(page.locator('[data-paint-layers-sheet] [data-layer-row]')).toHaveCount(1);
+			}
+			await page.keyboard.press('Escape');
+		});
+
 		test('a lasso area applied from the quick dialog shows the same blue MASK chip', async ({ page }) => {
 			await page.route('**/api/media/upload', async (route) => {
 				await route.fulfill({

@@ -1,6 +1,4 @@
 <script lang="ts" module>
-	export const PAINT_TOOL_IDS = ['brush', 'eraser', 'fill', 'pick', 'rect', 'lasso', 'move'];
-
 	export interface PaintResult {
 		file: File;
 		layers: number;
@@ -18,6 +16,7 @@
 	let {
 		base = null,
 		layerUrl = null,
+		tool = 'brush',
 		name,
 		session = new PaintSession(),
 		prepare = null,
@@ -25,6 +24,7 @@
 	}: {
 		base?: HTMLCanvasElement | null;
 		layerUrl?: string | null;
+		tool?: string;
 		name: string;
 		session?: PaintSession;
 		prepare?: ((session: PaintSession) => void | Promise<void>) | null;
@@ -53,6 +53,7 @@
 			snapshot = session.snapshot();
 			onstate(session, snapshot);
 		});
+		if (!prepare) session.setTool(tool);
 		observer = new ResizeObserver(() => {
 			const box = host!.getBoundingClientRect();
 			session.resize(box.width, box.height, window.devicePixelRatio || 1);
@@ -78,7 +79,7 @@
 					session.addLayer();
 				}
 				session.markSaved();
-				session.setTool('brush');
+				session.setTool(tool);
 			} else {
 				throw new Error('Nothing to paint on');
 			}
@@ -138,6 +139,7 @@
 	}
 
 	function pointerDown(event: PointerEvent) {
+		if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur();
 		stage?.setPointerCapture(event.pointerId);
 		session.onPointerDown(event);
 		event.preventDefault();

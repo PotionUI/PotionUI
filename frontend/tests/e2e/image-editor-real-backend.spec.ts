@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
-import { clearEdits, loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, ownerToken, screenshot, selectRailTool } from './helpers';
 import { chunk } from './mediaFieldHelpers';
 import { solidPng } from './mediaToolMocks';
 
@@ -148,7 +148,7 @@ async function editThrough(page: Page, label: string) {
 	await expectPicture(page, `${label} crop`, { width: 1072, height: 1072 });
 	await screenshot(page, JOURNEY, `${label}-01-crop`);
 
-	await rail(page, 'effects').click();
+	await selectRailTool(page, 'effects');
 	await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
 	await page.locator('[data-look-item="reel"]').click();
 	await page.locator('[data-options-apply]').click();
@@ -156,14 +156,14 @@ async function editThrough(page: Page, label: string) {
 	await expectPicture(page, `${label} look`, { width: 1072, height: 1072 });
 	await screenshot(page, JOURNEY, `${label}-02-look`);
 
-	await rail(page, 'canvas').click();
+	await selectRailTool(page, 'canvas');
 	await expect(page.locator('[data-catalog-tool="fit_canvas"]')).toBeVisible();
 	await page.locator('[data-options-apply]').click();
 	await expect(stackRows(page)).toHaveCount(4);
 	await expectPicture(page, `${label} canvas`, { width: 1024, height: 1024 });
 	await screenshot(page, JOURNEY, `${label}-03-canvas`);
 
-	await rail(page, 'resize').click();
+	await selectRailTool(page, 'resize');
 	await page.getByRole('button', { name: '50%', exact: true }).click();
 	await page.locator('[data-options-apply]').click();
 	await expect(stackRows(page)).toHaveCount(5);
@@ -203,7 +203,7 @@ test.describe('the Image editor against the real backend', () => {
 		await loginAsOwner(page);
 		await clearEdits(page);
 		await openPicture(page, 'library', greenScreenPng(1200, 800));
-		await rail(page, 'colorKey').click();
+		await selectRailTool(page, 'colorKey');
 		await expect(page.locator('[data-catalog-tool="color_key"]')).toBeVisible();
 		await page.locator('[data-options-apply]').click();
 		await expect(stackRows(page)).toHaveCount(2);
@@ -238,7 +238,7 @@ test.describe('the Image editor against the real backend', () => {
 		await openPicture(page, 'library');
 		await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 		await page.locator('[data-options-apply]').click();
-		await rail(page, 'effects').click();
+		await selectRailTool(page, 'effects');
 		await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
 		await page.locator('[data-look-item="reel"]').click();
 		await page.locator('[data-options-apply]').click();

@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { clearEdits, editorMenu, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, editorMenu, loginAsOwner, ownerToken, scopedStorageKey, screenshot, selectRailTool, railButton } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-tab';
@@ -222,14 +222,14 @@ async function openDusk(page: Page, shoot = false) {
 async function cropSquare(page: Page, shoot = false) {
 	await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 	await expect(page.locator('[data-options-panel] [data-crop-output]')).toHaveText('480×480');
-	await expect(rail(page, 'crop').locator('[data-tool-pending]')).toBeVisible();
+	await expect(railButton(page, 'crop').locator('[data-tool-pending]')).toBeVisible();
 	if (shoot) await screenshot(page, JOURNEY, '02-crop-1440');
 	await page.locator('[data-options-apply]').click();
 	await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, `current:${CROP}`]);
 }
 
 async function applyReel(page: Page, shoot = false) {
-	await rail(page, 'effects').click();
+	await selectRailTool(page, 'effects');
 	await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
 	await page.locator('[data-look-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
@@ -327,7 +327,7 @@ test.describe('the Image editor tab on desktop', () => {
 		await expect.poll(() => stackRows(page), { timeout: 15000 }).toEqual([ORIGINAL, `applied:${CROP}`, `current:${REEL}`]);
 		await expect(page.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/);
 
-		await rail(page, 'colorKey').click();
+		await selectRailTool(page, 'colorKey');
 		await expect(page.locator('[data-catalog-tool="color_key"]')).toBeVisible();
 		await page.locator('[data-options-apply]').click();
 		await expect.poll(() => log.frames.length).toBeGreaterThan(0);
@@ -353,10 +353,11 @@ test.describe('painting and masking in the Image editor tab', () => {
 		await empty.locator('[data-recent-history] button').first().click();
 		await expect(page.locator('[data-crop-overlay]')).toBeVisible();
 
-		await rail(page, 'paint').click();
+		await selectRailTool(page, 'paint.brush');
 		const stage = page.locator('[data-paint-stage] canvas[aria-label="Drawing canvas"]');
 		await expect(stage).toBeVisible();
-		await expect(page.locator('[data-paint-tools]')).toBeVisible();
+		await expect(page.locator('[data-paint-tool-panel="brush"]')).toBeVisible();
+		await expect(page.locator('[data-paint-tools]')).toHaveCount(0);
 		const box = (await stage.boundingBox())!;
 		const cx = box.x + box.width / 2;
 		const cy = box.y + box.height / 2;
@@ -370,7 +371,7 @@ test.describe('painting and masking in the Image editor tab', () => {
 		await expect.poll(() => stackRows(page)).toEqual(['original:00Original640×480·PNG', 'current:01Paint·1layer640×480']);
 		expect(log.artifacts).toBe(1);
 
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		const mask = page.locator('[data-mask-layer]');
 		await expect(mask).toBeVisible();
 		await options(page).getByRole('button', { name: 'Brush', exact: true }).click();
@@ -465,7 +466,7 @@ test.describe('the lasso in the Image editor tab', () => {
 		await openDusk(page);
 		await cropSquare(page);
 
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await expect(page.locator('[data-mask-layer]')).toBeVisible();
 		await expect(options(page).getByRole('group', { name: 'Marking tool' })).toBeVisible();
 		await expect(options(page).getByRole('group', { name: 'Lasso mode' })).toBeVisible();
@@ -527,7 +528,7 @@ test.describe('the lasso in the Image editor tab', () => {
 		await start(page, true);
 		await openDusk(page);
 		await cropSquare(page);
-		await rail(page, 'edit_region').click();
+		await selectRailTool(page, 'edit_region');
 		await options(page).getByRole('button', { name: 'Lasso', exact: true }).click();
 
 		await page.getByRole('button', { name: 'Zoom in' }).click();

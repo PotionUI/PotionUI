@@ -1,59 +1,46 @@
 <script lang="ts">
-	import ImageSourceMenu from '$lib/components/paint/ImageSourceMenu.svelte';
-	import LayersPanel from '$lib/components/paint/LayersPanel.svelte';
-	import ToolButton from '$lib/components/paint/ToolButton.svelte';
-	import PaintActions from '$lib/components/paint/PaintActions.svelte';
-	import ToolPanel from '$lib/components/paint/ToolPanel.svelte';
-	import { pluginTools } from '$lib/paint/registries';
+	import { Button } from '$lib/components/ui';
+	import FrameSheet from '$lib/components/tool-tabs/frame/FrameSheet.svelte';
+	import PaintLayers from '$lib/components/paint/PaintLayers.svelte';
+	import PaintPanel from '$lib/components/paint/PaintPanel.svelte';
+	import PaintToolPanel from '$lib/components/paint/PaintToolPanel.svelte';
+	import type { LayerAction } from '$lib/paint/layerActions';
 	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
-	import { PAINT_TOOL_IDS } from './PaintStage.svelte';
 
 	let {
 		session,
 		state: snapshot,
-		phone = false
+		phone = false,
+		layerActions = [],
+		onSaveFilter = () => {}
 	}: {
 		session: PaintSession;
 		state: SessionSnapshot;
 		phone?: boolean;
+		layerActions?: LayerAction[];
+		onSaveFilter?: () => void;
 	} = $props();
 
-	let adding = $state(false);
-	let tools = $derived.by(() => {
-		const pluginIds = new Set(pluginTools.list().map((tool) => tool.id));
-		const seen = new Set<string>();
-		return snapshot.tools.filter((tool) => {
-			if (typeof tool.label !== 'string' || seen.has(tool.id)) return false;
-			if (!PAINT_TOOL_IDS.includes(tool.id) && !pluginIds.has(tool.id)) return false;
-			seen.add(tool.id);
-			return true;
-		});
-	});
+	let layersOpen = $state(false);
 </script>
 
-<div class="flex flex-wrap gap-1" role="toolbar" aria-label="Paint tools" data-paint-tools>
-	{#each tools as tool (tool.id)}
-		<ToolButton
-			icon={tool.icon}
-			label={tool.label}
-			kbd={tool.key}
-			compact
-			position="bottom"
-			pressed={tool.id === snapshot.toolId}
-			onClick={() => session.setTool(tool.id)}
-		/>
-	{/each}
-</div>
-<div class="-mx-4 {phone ? 'max-h-40 overflow-y-auto' : ''}">
-	<ToolPanel {session} state={snapshot} {phone} />
-</div>
-<PaintActions {session} />
-{#if !phone}
-	<div class="relative -mx-4 border-t border-line">
-		<LayersPanel {session} state={snapshot} onAddImage={() => (adding = !adding)} />
-		{#if adding}
-			<ImageSourceMenu mode="layer" onPick={(image) => session.addImage(image.canvas, image.name)} onClose={() => (adding = false)} />
-		{/if}
+{#if phone}
+	<div class="flex flex-col gap-3" data-paint-options="phone">
+		<PaintToolPanel {session} state={snapshot} {phone} {onSaveFilter} />
+		<Button variant="secondary" size="sm" icon="layers" class="w-full" ariaHaspopup="dialog" onclick={() => (layersOpen = true)} attrs={{ 'data-paint-layers-button': '' }}>
+			Layers
+			<span class="font-mono tabular-nums text-fg-subtle">{snapshot.layers.length}</span>
+		</Button>
 	</div>
-	<p class="text-sm text-fg-muted">Strokes undo one by one while Paint is open. Leaving Paint lands them as one step.</p>
+	{#if layersOpen}
+		<FrameSheet label="Layers" onclose={() => (layersOpen = false)}>
+			<div class="px-2 pb-2" data-paint-layers-sheet>
+				<PaintLayers {session} state={snapshot} phone actions={layerActions} />
+			</div>
+		</FrameSheet>
+	{/if}
+{:else}
+	<div data-paint-options="desktop">
+		<PaintPanel {session} state={snapshot} {layerActions} {onSaveFilter} />
+	</div>
 {/if}

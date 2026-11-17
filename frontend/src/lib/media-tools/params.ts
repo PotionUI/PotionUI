@@ -7,6 +7,7 @@ export type ControlKind =
 	| 'dropdown'
 	| 'slider'
 	| 'number'
+	| 'seed'
 	| 'switch'
 	| 'color'
 	| 'anchor'
@@ -45,7 +46,14 @@ export function hasRange(param: ToolParam): boolean {
 	);
 }
 
+export const SLIDER_MAX_SPAN = 1000;
+
+export function isSeedParam(param: ToolParam): boolean {
+	return (param.type === 'integer' || param.type === 'float') && (param.widget === 'seed' || /(^|_)seed$/i.test(param.name));
+}
+
 export function controlFor(param: ToolParam): ControlKind {
+	if (isSeedParam(param)) return 'seed';
 	switch (param.type) {
 		case 'anchor':
 			return 'anchor';
@@ -54,7 +62,7 @@ export function controlFor(param: ToolParam): ControlKind {
 			return normalizeOptions(param).length <= SEGMENTED_MAX_OPTIONS ? 'segmented' : 'dropdown';
 		case 'integer':
 		case 'float':
-			return hasRange(param) ? 'slider' : 'number';
+			return hasRange(param) && param.max! - param.min! <= SLIDER_MAX_SPAN ? 'slider' : 'number';
 		case 'checkbox':
 			return 'switch';
 		case 'color':
@@ -88,6 +96,12 @@ export function toFieldConfig(param: ToolParam): Record<string, unknown> {
 			config.minimum = param.min;
 			config.maximum = param.max;
 			config.step = stepFor(param);
+			break;
+		case 'seed':
+			config.minimum = param.min ?? 0;
+			config.maximum = param.max ?? 2 ** 31 - 1;
+			config.step = 1;
+			config.default = param.default ?? 0;
 			break;
 		case 'number':
 			config.minimum = param.min;

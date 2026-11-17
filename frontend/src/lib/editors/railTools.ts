@@ -29,6 +29,7 @@ export interface RailToolEntry extends EditorEntryBase {
 	bar?: ComponentRef;
 	settings?: ComponentRef;
 	task?: string;
+	ai?: boolean;
 	available?(ctx: ToolAvailability): { ok: true } | { ok: false; reason: string };
 }
 
@@ -72,6 +73,7 @@ export function railFor(editor: EditorKind, ctx: ToolAvailability, extra: Record
 		const tools: RailTool[] = railToolsOf(editor, group.id).map((entry) => {
 			const tool: RailTool = { id: entry.id, label: entry.label, icon: entry.icon };
 			if (entry.keys) tool.keys = entry.keys;
+			if (entry.ai) tool.ai = true;
 			if (!entry.available) return tool;
 			const verdict = entry.pluginId
 				? guard(entryKey(editor, entry.id), 'available', () => entry.available!(ctx), { ok: true as const })

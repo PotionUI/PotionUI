@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SeedField from '$lib/components/form-fields/SeedField.svelte';
 	import CurvePlot from '$lib/components/paint/CurvePlot.svelte';
 	import { Switch } from '$lib/components/ui';
 	import PropertySlider from '$lib/components/tool-tabs/frame/PropertySlider.svelte';
@@ -127,7 +128,16 @@
 			{#each Object.entries(legacy.legacy) as [name, opParam] (name)}
 				{@const param = scalarParams(lookup(legacy.legacyOp)).find((candidate) => candidate.id === opParam)}
 				{@const label = fx?.params.find((candidate) => candidate.name === name)?.label ?? param?.label ?? name}
-				{#if param}
+				{#if param && name === 'seed'}
+					<div data-param="seed" data-control="seed">
+						<SeedField
+							{name}
+							config={{ title: label, minimum: 0, maximum: 2 ** 31 - 1, step: 1, default: param.default }}
+							value={legacyValue(legacy.legacyOp, opParam, param.default)}
+							onChange={(_field: string, value: number) => writeOp(legacy.legacyOp, opParam, value)}
+						/>
+					</div>
+				{:else if param}
 					<PropertySlider
 						{label}
 						value={legacyValue(legacy.legacyOp, opParam, param.default)}

@@ -1,0 +1,52 @@
+.ai-ring {
+	--ai-fill: var(--surface-1);
+	border: 1px solid transparent;
+	background:
+		linear-gradient(rgb(var(--ai-fill)), rgb(var(--ai-fill))) padding-box,
+		linear-gradient(135deg, rgb(var(--ai-1)), rgb(var(--ai-2)), rgb(var(--ai-3))) border-box;
+}
+
+.ai-ring:hover:not(.ai-ring--on) {
+	--ai-fill: var(--surface-2);
+	box-shadow:
+		0 0 10px rgb(var(--ai-2) / 0.35),
+		0 0 3px rgb(var(--ai-1) / 0.3);
+}
+
+@property --ai-angle {
+	syntax: '<angle>';
+	initial-value: 0deg;
+	inherits: false;
+}
+
+.ai-ring--on {
+	--ai-fill: var(--surface-2);
+	border-width: 2px;
+	background:
+		linear-gradient(rgb(var(--ai-fill)), rgb(var(--ai-fill))) padding-box,
+		conic-gradient(from var(--ai-angle), rgb(var(--ai-1)), rgb(var(--ai-2)), rgb(var(--ai-3)), rgb(var(--ai-1))) border-box;
+	box-shadow:
+		0 0 12px rgb(var(--ai-2) / 0.4),
+		0 0 4px rgb(var(--ai-1) / 0.35);
+	animation: ai-ring-spin 3s linear infinite;
+}
+
+@keyframes ai-ring-spin {
+	to {
+		--ai-angle: 360deg;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ai-ring--on {
+		animation: none;
+	}
+}
+
+.ai-mark {
+	--ai-fill: var(--surface-2);
+	border: 1px solid transparent;
+	background:
+		linear-gradient(rgb(var(--ai-fill)), rgb(var(--ai-fill))) padding-box,
+		linear-gradient(135deg, rgb(var(--ai-1)), rgb(var(--ai-2)), rgb(var(--ai-3))) border-box;
+}

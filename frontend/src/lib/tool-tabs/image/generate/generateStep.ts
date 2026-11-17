@@ -1,3 +1,4 @@
+import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { get } from 'svelte/store';
 import { canvasFromUrl } from '$lib/paint/loadPicked';
 import type { EditorRun, NormRect, RunStatus } from '$lib/services/api/editorTasks';
@@ -282,7 +283,7 @@ export const generateStepKind: StepKind<GenerateParams> = {
 	id: GENERATE_TOOL,
 	editor: 'image',
 	label: 'Generate',
-	icon: 'sparkles',
+	icon: editorToolIcons.edit_region,
 	lane: PAINT_LANE,
 	version: GENERATE_VERSION,
 	summary: (_params, ctx) => ctx.step.summary,

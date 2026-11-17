@@ -13,10 +13,12 @@ import {
 	resetGrade,
 	setGradeValue
 } from './entries';
-import { runSteps, payloadGaps } from './payload';
+import { runSteps, payloadGaps, stepPayload } from './payload';
+import { imageRail } from './steps';
+import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { adjustRecipeSteps, type AdjustParams } from './steps';
 import { readImageState, writeImageState } from './state';
-import { OLD_ADJUST_EDIT, OLD_EFFECT_EDIT, OLD_LOOK_EDIT, OLD_MASK_STATE } from './fixtures/oldEdits';
+import { OLD_PAINT_EDIT, OLD_PAINT_STATE, OLD_ADJUST_EDIT, OLD_EFFECT_EDIT, OLD_LOOK_EDIT, OLD_MASK_STATE } from './fixtures/oldEdits';
 
 const lookup = (op: string) => OPS_BY_ID[op];
 const light = GRADE_ENTRIES.light;
@@ -167,5 +169,28 @@ describe('old edits produce the same payload', () => {
 		const state = readImageState(OLD_MASK_STATE);
 		expect(state.mask).toEqual(OLD_MASK_STATE.mask);
 		expect(writeImageState(state)).toEqual(OLD_MASK_STATE);
+	});
+});
+
+describe('a paint session saved before the paint entries', () => {
+	it('opens as the same single paint step and writes back byte for byte', () => {
+		const stack = deserialize(OLD_PAINT_EDIT);
+		expect(serialize(stack)).toEqual(OLD_PAINT_EDIT);
+		const state = readImageState(OLD_PAINT_STATE);
+		expect(state.activeTool).toBe('paint');
+		expect(writeImageState(state)).toEqual(OLD_PAINT_STATE);
+	});
+
+	it('sends the same payload as before', () => {
+		const [step] = appliedSteps(deserialize(OLD_PAINT_EDIT));
+		expect(stepPayload(step, { width: 640, height: 480 })).toEqual([{ tool: 'paint_layer', params: { layer: { item_id: 'art-9' } } }]);
+	});
+});
+
+describe('rail icons', () => {
+	it('gives every core rail entry its own icon', () => {
+		const icons = imageRail().flatMap((group) => group.tools.map((tool) => tool.icon));
+		expect(new Set(icons).size).toBe(icons.length);
+		expect(editorToolIcons.brush).toBe(imageRail().find((group) => group.id === 'paint')!.tools[0].icon);
 	});
 });

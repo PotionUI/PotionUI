@@ -2,6 +2,7 @@
 	import SegmentedField from '$lib/components/form-fields/SegmentedField.svelte';
 	import SelectField from '$lib/components/form-fields/SelectField.svelte';
 	import SliderField from '$lib/components/form-fields/SliderField.svelte';
+	import SeedField from '$lib/components/form-fields/SeedField.svelte';
 	import NumberBoxField from '$lib/components/form-fields/NumberBoxField.svelte';
 	import CheckboxField from '$lib/components/form-fields/CheckboxField.svelte';
 	import ColorField from '$lib/components/form-fields/ColorField.svelte';
@@ -43,6 +44,7 @@
 		dropdown: SelectField,
 		slider: SliderField,
 		number: NumberBoxField,
+		seed: SeedField,
 		switch: CheckboxField,
 		color: ColorField,
 		anchor: AnchorField,

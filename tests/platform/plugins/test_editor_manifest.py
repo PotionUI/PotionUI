@@ -79,6 +79,14 @@ class TestEditorSections(unittest.TestCase):
         schema = validate(editor_tools=[{k: v for k, v in TOOL.items() if k != "options"}])
         self.assertIsNone(schema.editor_tools[0].options)
 
+    def test_tool_ai_flag_is_optional_and_off_by_default(self):
+        self.assertFalse(validate(editor_tools=[TOOL]).editor_tools[0].ai)
+        self.assertTrue(validate(editor_tools=[{**TOOL, "ai": True}]).editor_tools[0].ai)
+
+    def test_tool_ai_flag_must_be_a_boolean(self):
+        with self.assertRaises(ValidationError):
+            validate(editor_tools=[{**TOOL, "ai": "sometimes"}])
+
     def test_unprefixed_or_foreign_prefixed_id_is_refused(self):
         for key, entry in ENTRIES.items():
             for bad in ("halftone", "other.halftone", "acmex.halftone"):

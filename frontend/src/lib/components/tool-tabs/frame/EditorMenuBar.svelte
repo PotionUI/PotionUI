@@ -304,7 +304,7 @@
 		onclick={() => choose(child)}
 		onpointerenter={(event) => hoverChild(event.currentTarget)}
 	>
-		<span class="grid h-4 w-4 flex-none place-items-center text-fg-muted">
+		<span class="grid flex-none place-items-center text-fg-muted {child.ai ? 'ai-mark h-6 w-6 rounded' : 'h-4 w-4'}" data-ai-mark={child.ai || undefined}>
 			{#if child.icon}<Icon name={child.icon} className="h-4 w-4" />{/if}
 		</span>
 		<span class="min-w-0 flex-1">
@@ -312,6 +312,7 @@
 			{#if child.sub}<span class="block truncate text-sm text-fg-subtle">{child.sub}</span>{/if}
 		</span>
 		{#if child.disabled}<span class="sr-only">, {child.disabled}</span>{/if}
+		{#if child.keybind}<span class="flex-none font-mono text-sm tabular-nums text-fg-subtle" data-menu-keybind>{child.keybind}</span>{/if}
 		{#if child.badge}
 			<span class="flex-none rounded bg-surface-3 px-1.5 font-mono text-sm text-fg-muted">{child.badge}</span>
 		{:else if child.dot}

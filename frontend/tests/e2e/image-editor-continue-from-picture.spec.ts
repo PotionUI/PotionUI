@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { clearEdits, loginAsOwner, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, screenshot, selectRailTool } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-continue-from-picture';
@@ -278,7 +278,7 @@ async function applyCrop(page: Page) {
 }
 
 async function applyReel(page: Page) {
-	await rail(page, 'effects').click();
+	await selectRailTool(page, 'effects');
 	await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
 	await page.locator('[data-look-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
@@ -414,7 +414,7 @@ test.describe('Continue an edit from a saved picture on desktop', () => {
 		await expect(editRows(page)).toHaveCount(1);
 		await page.locator('[data-bar-row="edit-image"]').click();
 		await expect(page.locator('[data-image-editor]')).toBeVisible({ timeout: 15000 });
-		await rail(page, 'crop').click();
+		await selectRailTool(page, 'crop');
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 		await applyCrop(page);
 		await expect.poll(() => server.creates.length).toBe(1);

@@ -114,6 +114,7 @@ export interface SessionSnapshot {
 	hasSelection: boolean;
 	selectionSize: { width: number; height: number } | null;
 	hasClipboard: boolean;
+	floatingId: number | null;
 	cropRect: Rect | null;
 	adjustValues: Record<string, FilterValues>;
 	adjustActive: boolean;
@@ -403,6 +404,7 @@ export class PaintSession implements ToolHost, EditorApi {
 				? { width: this.selection.bounds.width, height: this.selection.bounds.height }
 				: null,
 			hasClipboard: this.clipboard !== null,
+			floatingId: this.floatingLayer?.id ?? null,
 			cropRect: this.cropRect,
 			adjustValues: this.adjustValues,
 			adjustActive,
@@ -517,6 +519,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	setTool(id: string): void {
 		if (!this.getTool(id) || id === this.toolId) return;
 		if (this.activePointerId !== null) this.callTool('pointerCancel', (tool) => tool.pointerCancel?.(this));
+		if (id !== 'move') this.placeFloating();
 		if (this.toolId === 'adjust' && !this.fineTune) this.discardAdjust();
 		if (this.toolId === 'filters' || this.fineTune) this.discardFilter();
 		if (this.toolId === 'crop') this.cropRect = null;
@@ -839,7 +842,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		});
 	}
 
-	mergeDown(): void {
+	mergeDown(label = 'Merge down'): void {
 		const index = this.doc.activeIndex;
 		if (index < 1) return;
 		const top = this.doc.layers[index];
@@ -854,7 +857,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		context.drawImage(bottom.canvas, bottom.x - x0, bottom.y - y0);
 		context.globalAlpha = top.visible ? top.opacity : 0;
 		context.drawImage(top.canvas, top.x - x0, top.y - y0);
-		this.mutate('Merge down', () => {
+		this.mutate(label, () => {
 			bottom.canvas = merged;
 			bottom.x = x0;
 			bottom.y = y0;
@@ -862,6 +865,25 @@ export class PaintSession implements ToolHost, EditorApi {
 			bottom.source = undefined;
 			this.doc.layers.splice(index, 1);
 			this.doc.activeIndex = index - 1;
+		});
+	}
+
+	renameLayer(index: number, name: string): void {
+		const layer = this.doc.layers[index];
+		const next = name.trim();
+		if (!layer || !next || next === layer.name) return;
+		this.mutate('Rename layer', () => {
+			layer.name = next;
+		});
+	}
+
+	moveLayerTo(from: number, to: number): void {
+		const count = this.doc.layers.length;
+		if (from === to || from < 0 || to < 0 || from >= count || to >= count) return;
+		this.mutate('Reorder layer', () => {
+			const [layer] = this.doc.layers.splice(from, 1);
+			this.doc.layers.splice(to, 0, layer);
+			this.doc.activeIndex = to;
 		});
 	}
 
@@ -1056,6 +1078,42 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.floating = layer;
 	}
 
+	placeFloating(): boolean {
+		const piece = this.floatingLayer;
+		if (!piece) return false;
+		const index = this.doc.layers.indexOf(piece);
+		if (index < 1) {
+			this.floating = null;
+			this.emit();
+			return true;
+		}
+		this.beginGroup();
+		this.mergeDown('Place');
+		this.pushCommand({
+			label: 'Place',
+			bytes: 0,
+			undo: () => {
+				this.floating = piece;
+				this.emit();
+			},
+			redo: () => {
+				this.floating = null;
+				this.emit();
+			}
+		});
+		this.floating = null;
+		this.endGroup('Place');
+		this.emit();
+		return true;
+	}
+
+	keepFloatingAsLayer(): boolean {
+		if (!this.floatingLayer) return false;
+		this.floating = null;
+		this.emit();
+		return true;
+	}
+
 	setSelection(path: Point[] | null, final: boolean, keepFloating = false): void {
 		if (!keepFloating) this.floating = null;
 		if (!path) {
@@ -1081,6 +1139,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	}
 
 	deselect(): void {
+		this.placeFloating();
 		this.setSelection(null, true);
 	}
 
@@ -1184,6 +1243,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	pasteClipboard(): void {
 		const clip = this.clipboard;
 		if (!clip || !this.ready) return;
+		this.placeFloating();
 		const x = this.selection
 			? this.selection.bounds.x
 			: Math.round((this.doc.width - clip.canvas.width) / 2);
@@ -1210,6 +1270,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		if (this.selection) {
 			this.setSelection(
 				this.selection.path.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+				true,
 				true
 			);
 		}

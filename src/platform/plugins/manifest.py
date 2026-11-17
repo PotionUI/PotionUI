@@ -738,6 +738,7 @@ class EditorToolSpec(BaseModel):
     bar: Optional[str] = None
     overlay: Optional[str] = Field(default=None, min_length=1)
     task: Optional[str] = Field(default=None, min_length=1)
+    ai: bool = False
 
     @field_validator("options", "bar")
     @classmethod

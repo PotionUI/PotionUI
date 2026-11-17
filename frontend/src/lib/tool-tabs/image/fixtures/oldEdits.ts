@@ -47,3 +47,20 @@ export const OLD_MASK_STATE = {
 	mask: { path: 'uploads/mask-1.png', url: '/api/media/uploads/mask-1.png', geometry: '[]' },
 	saved: null
 };
+
+export const OLD_PAINT_EDIT = {
+	v: 1,
+	steps: [step('s1', 'paint', 'Paint · 2 layers', { layer: 'art-9', url: '/api/media/uploads/paint-layer-9.png', layers: 2 }, { icon: 'editor-paint', summary: '640×480', lane: 'paint' })],
+	cursor: 1,
+	pending: null,
+	seq: 1
+};
+
+export const OLD_PAINT_STATE = {
+	v: 1,
+	stack: OLD_PAINT_EDIT,
+	activeTool: 'paint',
+	viewport: { fit: true, zoom: 1, panX: 0, panY: 0 },
+	mask: null,
+	saved: null
+};

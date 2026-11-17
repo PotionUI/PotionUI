@@ -2,6 +2,7 @@ import { CORE_OWNER } from '$lib/registries/registry';
 import { shortcutFor } from '$lib/tool-tabs/frame/keymap';
 import { menuItems, type EditorMenuContext, type MenuChild, type MenuItemEntry } from './menuItems';
 import type { EditorKind } from './types';
+import { ensurePaintMenu } from './paintMenu';
 
 type Core = Omit<MenuItemEntry, 'editor' | 'id'> & { id: string; only?: EditorKind };
 
@@ -304,4 +305,5 @@ export function ensureCoreEditorMenu(): void {
 		const editors: EditorKind[] = only ? [only] : ['image', 'video'];
 		for (const editor of editors) menuItems.register({ ...rest, editor }, CORE_OWNER);
 	}
+	ensurePaintMenu();
 }

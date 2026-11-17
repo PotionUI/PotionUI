@@ -1,3 +1,4 @@
+import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import type { ImageEditPlan } from '$lib/media/imageEditPlan';
 import type { ToolDTO } from '$lib/media-tools/types';
 import type { EditStep, LanePair, StepDraft } from '$lib/tool-tabs/frame/editStack';
@@ -69,15 +70,15 @@ export const CATALOG_TOOL: Record<string, string> = {
 const HANDLED_CATALOG_IDS = new Set(['crop', 'resize', 'rotate', 'flip', 'fit_canvas', 'color_key', 'crop_subject', 'paint_layer', 'place_patch', 'slice']);
 
 export const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; lane?: string }> = {
-	crop: { label: 'Crop', icon: 'editor-crop', lane: GEOMETRY_LANE },
-	resize: { label: 'Resize', icon: 'editor-resize', lane: GEOMETRY_LANE },
-	canvas: { label: 'Canvas', icon: 'editor-canvas', lane: GEOMETRY_LANE },
-	slice: { label: 'Slice', icon: 'editor-slice', lane: OUTPUT_LANE },
-	paint: { label: 'Paint', icon: 'editor-paint', lane: PAINT_LANE },
+	crop: { label: 'Crop', icon: editorToolIcons.crop, lane: GEOMETRY_LANE },
+	resize: { label: 'Resize', icon: editorToolIcons.resize, lane: GEOMETRY_LANE },
+	canvas: { label: 'Canvas', icon: editorToolIcons.canvas, lane: GEOMETRY_LANE },
+	slice: { label: 'Slice', icon: editorToolIcons.slice, lane: OUTPUT_LANE },
+	paint: { label: 'Paint', icon: editorToolIcons.brush, lane: PAINT_LANE },
 	mask: { label: 'Mask', icon: 'editor-mask' },
-	effects: { label: 'Looks', icon: 'editor-effects' },
+	effects: { label: 'Looks', icon: editorToolIcons.looks },
 	adjust: { label: 'Adjust', icon: 'adjustments-horizontal' },
-	colorKey: { label: 'Color key', icon: 'editor-color-key' },
+	colorKey: { label: 'Color key', icon: editorToolIcons.color_key },
 	subject: { label: 'Subject', icon: 'editor-subject', lane: GEOMETRY_LANE }
 };
 
@@ -90,14 +91,13 @@ export interface CoreRailGroup {
 
 export const CORE_RAIL: readonly CoreRailGroup[] = [
 	{ id: 'shape', label: 'Transform', fold: 4, tools: ['crop', 'resize', 'canvas', 'slice'] },
-	{ id: 'paint', label: 'Paint', tools: ['paint'] },
 	{ id: 'look', label: 'Light and colour', fold: 2, tools: [] },
 	{ id: 'fx', label: 'Effects', fold: 1, tools: [] },
 	{ id: 'looks', label: 'Looks', tools: ['effects'] },
 	{ id: 'tools', label: 'Cut out', fold: 3, tools: ['colorKey', 'subject'] }
 ];
 
-export const LEGACY_TOOL_ALIAS: Readonly<Record<string, string>> = { adjust: 'light', mask: 'edit_region' };
+export const LEGACY_TOOL_ALIAS: Readonly<Record<string, string>> = { adjust: 'light', mask: 'edit_region', paint: 'paint.brush' };
 
 export function isRailTool(id: string | null | undefined, catalog: readonly ToolDTO[] = []): id is string {
 	return !!id && (isCoreTool(id) || !!railTools.get('image', id) || editorCatalogTools(catalog).some((tool) => tool.id === id));

@@ -15,6 +15,10 @@ export function setActiveEditor(editor: EditorApi | null): void {
 	activeEditor = editor;
 }
 
+export function activeEditorApi(): EditorApi | null {
+	return activeEditor;
+}
+
 export interface PluginImageEditorApi {
 	registerTool(tool: PaintTool): () => void;
 	registerAdjustment(adjustment: PaintFilter): () => void;

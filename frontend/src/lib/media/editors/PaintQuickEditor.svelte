@@ -2,24 +2,27 @@
 	import { onDestroy, onMount } from 'svelte';
 	import EditorShell from './EditorShell.svelte';
 	import EditorSaveControls from './EditorSaveControls.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Input } from '$lib/components/ui';
+	import Icon from '$lib/components/Icon.svelte';
+	import { Button, IconButton, Input } from '$lib/components/ui';
+	import ToolRail from '$lib/components/tool-tabs/frame/ToolRail.svelte';
+	import PaintOptions from '$lib/components/tool-tabs/image/PaintOptions.svelte';
+	import PaintMenuBar from '$lib/components/paint/PaintMenuBar.svelte';
+	import PaintPanel from '$lib/components/paint/PaintPanel.svelte';
+	import PaintToolPanel from '$lib/components/paint/PaintToolPanel.svelte';
+	import CanvasSizePanel from '$lib/components/paint/CanvasSizePanel.svelte';
+	import { paintIconName } from '$lib/paint/entries';
+	import { modalRailGroups } from '$lib/paint/railGroups';
+	import { paintToolForKey } from '$lib/paint/toolKeys';
+	import type { LayerAction } from '$lib/paint/layerActions';
 	import { resumeKeyboard, suppressKeyboard } from '$lib/services/keyboard';
 	import { isTypingInField } from '$lib/utils/editableTarget';
-	import { primaryModifier } from '$lib/utils/platform';
-	import CanvasPanel from '$lib/components/paint/CanvasPanel.svelte';
 	import FilterStrip from '$lib/components/paint/FilterStrip.svelte';
-	import OptionsPanel from '$lib/components/paint/OptionsPanel.svelte';
 	import SaveFilterDialog from '$lib/components/paint/SaveFilterDialog.svelte';
 	import { decideMaskFate } from '$lib/paint/maskPolicy';
 	import { defaultExportStem, exportFileName } from '$lib/paint/exportName';
 	import ImageSourceMenu from '$lib/components/paint/ImageSourceMenu.svelte';
-	import LayersPanel from '$lib/components/paint/LayersPanel.svelte';
-	import ToolButton from '$lib/components/paint/ToolButton.svelte';
-	import ToolPanel from '$lib/components/paint/ToolPanel.svelte';
 	import PaintStage from '$lib/components/tool-tabs/image/PaintStage.svelte';
 	import type { DrawConfig } from '$lib/paint/drawConfig';
-	import { PAINT_ICONS } from '$lib/paint/icons';
 	import { PaintSession, type SessionSnapshot } from '$lib/paint/session';
 	import type { PickedImage } from '$lib/paint/types';
 	import type { EditorCommitFn, MediaEditorSource } from './types';
@@ -32,10 +35,9 @@
 	export let onClose: () => void;
 	export let commit: EditorCommitFn;
 
-	type Sheet = 'tool' | 'layers' | 'canvas' | null;
+	type LayerPanel = 'adjust' | 'filters' | 'canvas' | null;
 
 	const session = new PaintSession();
-	const modifier = primaryModifier();
 	let stem = defaultExportStem(draw ? null : (source?.fileName ?? null));
 
 	let state: SessionSnapshot = session.snapshot();
@@ -46,7 +48,8 @@
 	let phone = false;
 	let phoneQuery: MediaQueryList | null = null;
 	let menuMode: 'open' | 'layer' | null = null;
-	let sheet: Sheet = null;
+	let layerPanel: LayerPanel = null;
+	let returnTool = 'brush';
 	let themeObserver: MutationObserver | null = null;
 
 	function syncPhone() {
@@ -83,8 +86,15 @@
 	$: zoomLabel = `${Math.round(state.zoom * 100)}%`;
 	$: title = draw ? 'Draw' : 'Edit image';
 	$: fileName = state.sourceName ?? source?.fileName ?? 'Untitled drawing';
-	$: toolHasOptions = (tool?.options?.length ?? 0) > 0;
-	$: sheetTitle = sheet === 'layers' ? 'Layers' : sheet === 'canvas' ? 'Canvas' : (tool?.label ?? 'Options');
+	$: rail = modalRailGroups(state.tools);
+	$: railActive = layerPanel === 'adjust' || layerPanel === 'filters' ? returnTool : state.toolId;
+	$: returnLabel = state.tools.find((candidate) => candidate.id === returnTool)?.label ?? 'Back';
+	$: panelTitle = layerPanel === 'adjust' ? 'Adjust colours' : layerPanel === 'filters' ? 'Apply a filter' : layerPanel === 'canvas' ? 'Canvas size' : (tool?.label ?? 'Options');
+	$: panelIcon = layerPanel ? 'adjustments-horizontal' : paintIconName(state.toolId);
+	$: layerActions = [
+		{ id: 'adjust', label: 'Adjust colours…', icon: 'adjustments-horizontal', run: () => openLayerPanel('adjust') },
+		{ id: 'filter', label: 'Apply a filter…', icon: 'sparkles', run: () => openLayerPanel('filters') }
+	] satisfies LayerAction[];
 	$: note = decision.notice ?? state.notice;
 	$: blocked = state.ready ? null : 'Opening image…';
 
@@ -108,19 +118,27 @@
 		themeObserver?.disconnect();
 	});
 
-	function closeSheet() {
-		sheet = null;
+	function openLayerPanel(next: Exclude<LayerPanel, null>) {
+		if (next !== 'canvas') {
+			if (layerPanel === null) returnTool = state.toolId === 'adjust' || state.toolId === 'filters' ? returnTool : state.toolId;
+			session.setTool(next);
+		}
+		layerPanel = next;
+	}
+
+	function backFromPanel() {
+		const was = layerPanel;
+		layerPanel = null;
+		if (was === 'adjust' || was === 'filters') session.setTool(returnTool);
 	}
 
 	function selectTool(id: string) {
+		if (id === 'adjust' || id === 'filters') {
+			openLayerPanel(id);
+			return;
+		}
+		layerPanel = null;
 		session.setTool(id);
-		const next = session.getTool(id);
-		const needsSheet = next && next.panel && next.panel !== 'options' && next.panel !== 'selection';
-		sheet = needsSheet ? 'tool' : null;
-	}
-
-	function toggleSheet(next: Exclude<Sheet, null>) {
-		sheet = sheet === next ? null : next;
 	}
 
 	function requestClose() {
@@ -135,6 +153,10 @@
 		}
 		if (discardOpen) {
 			discardOpen = false;
+			return;
+		}
+		if (layerPanel) {
+			backFromPanel();
 			return;
 		}
 		if (state.filter.active) {
@@ -177,7 +199,6 @@
 		if (menuMode === 'open') session.openImage(image.canvas, image.name);
 		else session.addImage(image.canvas, image.name);
 		menuMode = null;
-		sheet = null;
 	}
 
 	function onKeydown(event: KeyboardEvent) {
@@ -234,6 +255,9 @@
 			if (state.cropRect) {
 				event.preventDefault();
 				session.applyCrop();
+			} else if (state.floatingId !== null) {
+				event.preventDefault();
+				session.placeFloating();
 			}
 			return;
 		}
@@ -267,8 +291,8 @@
 		} else if (key === 'f') {
 			fullScreen = !fullScreen;
 		} else {
-			const match = state.tools.find((candidate) => candidate.key?.toLowerCase() === key);
-			if (match) selectTool(match.id);
+			const match = paintToolForKey(event, state.tools);
+			if (match) selectTool(match);
 		}
 	}
 
@@ -278,8 +302,9 @@
 	}
 
 
-	const topButton =
-		'inline-flex items-center justify-center gap-1.5 h-8 px-2 max-md:w-10 max-md:h-10 max-md:px-0 rounded border border-line-strong bg-surface-3 text-xs text-fg transition-colors hover:border-line-hover touch-manipulation';
+	function zoomActual() {
+		session.zoomBy(1 / session.zoom);
+	}
 </script>
 
 <svelte:window on:keydown|capture={onKeydown} on:keyup|capture={onKeyup} />
@@ -292,6 +317,29 @@
 	</div>
 {/snippet}
 
+{#snippet panelBody()}
+	{#if layerPanel}
+		<div class="flex flex-col gap-3" data-paint-layer-panel={layerPanel}>
+			<div class="flex items-center gap-2">
+				<button type="button" class="inline-flex h-8 items-center gap-1.5 rounded px-1.5 text-base text-fg-muted hover:bg-surface-2 hover:text-fg focus-visible:outline focus-visible:outline-1 focus-visible:outline-signal" aria-label="Back to {returnLabel}" data-paint-back on:click={backFromPanel}>
+					<Icon name="arrow-left" className="h-4 w-4" />
+					{returnLabel}
+				</button>
+				<span class="text-base font-semibold text-fg">{panelTitle}</span>
+			</div>
+			{#if layerPanel === 'canvas'}
+				<CanvasSizePanel {session} {state} />
+			{:else}
+				<PaintToolPanel {session} {state} {phone} onSaveFilter={() => (saveFilterOpen = true)} />
+			{/if}
+		</div>
+	{:else if phone}
+		<PaintOptions {session} {state} phone {layerActions} onSaveFilter={() => (saveFilterOpen = true)} />
+	{:else}
+		<PaintPanel {session} {state} {layerActions} onSaveFilter={() => (saveFilterOpen = true)} />
+	{/if}
+{/snippet}
+
 <EditorShell
 	{title}
 	{fileName}
@@ -300,113 +348,39 @@
 	{busy}
 	onClose={requestClose}
 >
-	<div class="flex flex-col md:flex-row h-full min-h-0 bg-canvas">
-		<div
-			class="order-3 md:order-1 shrink-0 flex flex-row md:flex-col gap-0.5 p-1.5 border-t md:border-t-0 md:border-r border-line bg-surface-1 overflow-x-auto md:overflow-y-auto"
-			role="toolbar"
-			aria-label="Tools"
-		>
-			{#each state.tools as candidate, index (candidate.id)}
-				{#if index > 0 && state.tools[index - 1].group !== candidate.group}
-					<div class="shrink-0 w-px md:w-auto md:h-px mx-0.5 md:mx-0.5 md:my-1 bg-line self-stretch md:self-auto"></div>
-				{/if}
-				<ToolButton
-					icon={candidate.icon}
-					label={candidate.label}
-					kbd={candidate.key}
-					caption={candidate.caption ?? candidate.label}
-					position="right"
-					pressed={candidate.id === state.toolId}
-					onClick={() => selectTool(candidate.id)}
-				/>
-			{/each}
-			<div class="md:hidden shrink-0 w-px mx-0.5 bg-line self-stretch"></div>
-			<div class="md:hidden contents">
-				<ToolButton
-					icon={PAINT_ICONS.layers}
-					label="Layers"
-					caption="Layers"
-					pressed={sheet === 'layers'}
-					onClick={() => toggleSheet('layers')}
-				/>
-				<ToolButton
-					icon={PAINT_ICONS.canvas}
-					label="Canvas"
-					caption="Canvas"
-					pressed={sheet === 'canvas'}
-					onClick={() => toggleSheet('canvas')}
-				/>
-			</div>
+	<div class="flex flex-col md:flex-row h-full min-h-0 bg-canvas" data-paint-modal>
+		<div class="order-3 md:order-1 flex flex-none min-h-0">
+			<ToolRail groups={rail} active={railActive} variant={phone ? 'strip' : 'icons'} groupedStrip label="Paint tools" onselect={selectTool} />
 		</div>
 
-		<div class="order-1 md:order-2 flex flex-col flex-1 min-w-0 min-h-0">
-			<div class="relative shrink-0 flex items-center gap-1 px-2 py-1 border-b border-line bg-surface-1">
-				<ToolButton
-					icon={PAINT_ICONS.undo}
-					label={state.undoLabel ? `Undo ${state.undoLabel}` : 'Undo'}
-					kbd="{modifier}+Z"
-					compact
-					disabled={!state.canUndo}
-					onClick={() => session.undo()}
-				/>
-				<ToolButton
-					icon={PAINT_ICONS.redo}
-					label={state.redoLabel ? `Redo ${state.redoLabel}` : 'Redo'}
-					kbd="{modifier}+Y"
-					compact
-					disabled={!state.canRedo}
-					onClick={() => session.redo()}
-				/>
-				<div class="w-px h-5 mx-1 bg-line shrink-0"></div>
-				<Tooltip text="Open another image" position="bottom" wrapperClass="inline-flex shrink-0">
-					<button
-						type="button"
-						data-image-source-trigger
-						class={topButton}
-						aria-label="Open another image"
-						aria-expanded={menuMode === 'open'}
-						on:click={() => openMenu('open')}
-					>
-						<svg class="w-3.5 h-3.5 max-md:w-5 max-md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.open} /></svg>
-						<span class="max-md:hidden">Open</span>
-					</button>
-				</Tooltip>
-				<Tooltip text="Add an image as a new layer" position="bottom" wrapperClass="inline-flex shrink-0">
-					<button
-						type="button"
-						data-image-source-trigger
-						class={topButton}
-						aria-label="Add image as layer"
-						aria-expanded={menuMode === 'layer'}
-						on:click={() => openMenu('layer')}
-					>
-						<svg class="w-3.5 h-3.5 max-md:w-5 max-md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.addImage} /></svg>
-						<span class="max-md:hidden">Add image</span>
-					</button>
-				</Tooltip>
-				<div class="flex-1"></div>
-				<ToolButton icon={PAINT_ICONS.minus} label="Zoom out" kbd="-" compact onClick={() => session.zoomBy(1 / 1.25)} />
-				<span class="w-12 text-center font-mono text-xs tabular-nums text-fg-muted">{zoomLabel}</span>
-				<ToolButton icon={PAINT_ICONS.plus} label="Zoom in" kbd="+" compact onClick={() => session.zoomBy(1.25)} />
-				<ToolButton icon={PAINT_ICONS.fit} label="Fit to view" kbd="0" compact onClick={() => session.fit()} />
-				<div class="hidden md:flex items-center gap-1 ml-1 pl-2 border-l border-line">
-					<ToolButton
-						icon={PAINT_ICONS.panel}
-						label={panelHidden ? 'Show panel' : 'Hide panel'}
-						kbd="P"
-						compact
-						pressed={panelHidden}
-						onClick={() => (panelHidden = !panelHidden)}
-					/>
-					<ToolButton
-						icon={PAINT_ICONS.full}
-						label={fullScreen ? 'Exit full screen' : 'Full screen'}
-						kbd="F"
-						compact
-						pressed={fullScreen}
-						onClick={() => (fullScreen = !fullScreen)}
-					/>
+		{#if !panelHidden && !phone}
+			<section class="order-2 hidden md:flex w-[17rem] flex-none flex-col border-r border-line bg-surface-1" aria-label="Tool options, layers and canvas" data-paint-panel-column>
+				<div class="flex h-12 flex-none items-center gap-2 border-b border-line px-4">
+					<Icon name={panelIcon} className="h-3.5 w-3.5 flex-none text-fg-muted" />
+					<h2 class="min-w-0 flex-1 truncate text-base font-semibold text-fg">{panelTitle}</h2>
 				</div>
+				<div class="min-h-0 flex-1 overflow-y-auto p-4" data-paint-panel-body>
+					{@render panelBody()}
+				</div>
+			</section>
+		{/if}
+
+		<div class="order-1 md:order-3 flex flex-col flex-1 min-w-0 min-h-0">
+			<div class="relative shrink-0 flex items-center gap-1 px-2 py-1 border-b border-line bg-surface-1">
+				<PaintMenuBar
+					{session}
+					{state}
+					{rail}
+					activeTool={railActive}
+					{panelHidden}
+					{fullScreen}
+					onOpenImage={() => openMenu('open')}
+					onAddImage={() => openMenu('layer')}
+					onCanvasSize={() => openLayerPanel('canvas')}
+					onSelectTool={selectTool}
+					onTogglePanel={() => (panelHidden = !panelHidden)}
+					onToggleFull={() => (fullScreen = !fullScreen)}
+				/>
 
 				{#if menuMode}
 					<ImageSourceMenu
@@ -418,7 +392,19 @@
 				{/if}
 			</div>
 
-			<PaintStage {session} name={fileName} {prepare} onstate={onState} />
+			<div class="relative flex min-h-0 flex-1 flex-col">
+				<PaintStage {session} name={fileName} {prepare} onstate={onState} />
+				<div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" data-paint-zoombar-host>
+					<div class="pointer-events-auto flex items-center gap-0.5 rounded-lg border border-line-strong bg-surface-2 p-0.5 shadow-floating" role="group" aria-label="Zoom">
+						<IconButton icon="minus" label="Zoom out" kbd="-" size="sm" onclick={() => session.zoomBy(1 / 1.25)} />
+						<span class="w-12 text-center font-mono text-sm tabular-nums text-fg" data-zoom-readout>{zoomLabel}</span>
+						<IconButton icon="plus" label="Zoom in" kbd="+" size="sm" onclick={() => session.zoomBy(1.25)} />
+						<span class="mx-0.5 h-5 w-px bg-line" aria-hidden="true"></span>
+						<button type="button" class="h-8 rounded px-2.5 font-mono text-sm text-fg-muted hover:bg-surface-3/50 hover:text-fg focus-visible:outline focus-visible:outline-1 focus-visible:outline-signal" aria-label="Fit to view" on:click={() => session.fit()}>Fit</button>
+						<button type="button" class="h-8 rounded px-2.5 font-mono text-sm text-fg-muted hover:bg-surface-3/50 hover:text-fg focus-visible:outline focus-visible:outline-1 focus-visible:outline-signal" aria-label="Actual size" on:click={zoomActual}>1:1</button>
+					</div>
+				</div>
+			</div>
 
 			{#if state.toolId === 'filters' && !phone}
 				<div class="shrink-0 border-t border-line bg-surface-1">
@@ -426,60 +412,24 @@
 				</div>
 			{/if}
 
-			<div class="md:hidden">
-				{#if sheet}
-					<div class="flex flex-col max-h-[42vh] border-t border-line-strong bg-surface-1 overflow-y-auto">
-						<div class="sticky top-0 z-10 flex items-center justify-between px-3 py-1.5 border-b border-line bg-surface-1">
-							<span class="text-sm font-semibold text-fg">{sheetTitle}</span>
-							<ToolButton icon="M6 18L18 6M6 6l12 12" label="Close panel" compact onClick={closeSheet} />
-						</div>
-						{#if sheet === 'layers'}
-							<LayersPanel {session} {state} onAddImage={() => openMenu('layer')} />
-						{:else if sheet === 'canvas'}
-							<CanvasPanel {session} {state} onOpenImage={() => openMenu('open')} />
-						{:else}
-							<ToolPanel {session} {state} {phone} onSaveFilter={() => (saveFilterOpen = true)} />
-						{/if}
-					</div>
-				{:else if toolHasOptions}
-					<OptionsPanel
-						{tool}
-						settings={state.settings}
-						compact
-						onSize={(value) => session.setSetting('size', value)}
-						onOpacity={(value) => session.setSetting('opacity', value)}
-						onColor={(value) => session.setColor(value)}
-						onTolerance={(value) => session.setSetting('tolerance', value)}
-					>
-						<ToolButton icon={PAINT_ICONS.dots} label="More options" compact onClick={() => (sheet = 'tool')} />
-					</OptionsPanel>
-				{/if}
-			</div>
+			{#if phone && !panelHidden}
+				<div class="max-h-[42vh] flex-none overflow-y-auto border-t border-line-strong bg-surface-1 p-3" data-paint-phone-dock>
+					{@render panelBody()}
+				</div>
+			{/if}
 
 			<div
-				class="shrink-0 flex items-center gap-3 px-3 py-1 border-t border-line bg-surface-1 font-mono text-xs tabular-nums text-fg-subtle whitespace-nowrap overflow-hidden"
+				class="shrink-0 flex items-center gap-3 px-3 py-1 border-t border-line bg-surface-1 font-mono text-sm tabular-nums text-fg-subtle whitespace-nowrap overflow-hidden"
+				data-paint-status
 			>
 				<span>{state.width} × {state.height}</span>
 				{#if state.layers[state.activeIndex]}<span class="truncate">{state.layers[state.activeIndex].name}</span>{/if}
 				{#if state.selectionSize}<span>sel {state.selectionSize.width} × {state.selectionSize.height}</span>{/if}
 				{#if state.dirty}<span class="text-fg-muted">unsaved</span>{/if}
+				<span class="flex-1"></span>
+				<span class="max-md:hidden">Space drag to pan</span>
 			</div>
 		</div>
-
-		{#if !panelHidden}
-			<aside
-				class="order-4 hidden md:block w-[17rem] shrink-0 border-l border-line bg-surface-1 overflow-y-auto"
-				aria-label="Tool options, layers and canvas"
-			>
-				<ToolPanel {session} {state} onSaveFilter={() => (saveFilterOpen = true)} />
-				<div class="border-t border-line">
-					<LayersPanel {session} {state} onAddImage={() => openMenu('layer')} />
-				</div>
-				<div class="border-t border-line">
-					<CanvasPanel {session} {state} onOpenImage={() => openMenu('open')} />
-				</div>
-			</aside>
-		{/if}
 	</div>
 
 	<svelte:fragment slot="footer">

@@ -147,6 +147,18 @@ describe('invertSelection', () => {
 	});
 });
 
+describe('clipping to an inverted selection', () => {
+	it('clips with the even-odd rule so the hole in the outline stays out', () => {
+		const { session, background } = buildSession();
+		session.setSelection(rectPath({ x: 2, y: 3 }, { x: 6, y: 7 }), true);
+		session.invertSelection();
+		const clip = vi.fn();
+		const context = { beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), clip };
+		session.clipToSelection(context as never, background);
+		expect(clip).toHaveBeenCalledWith('evenodd');
+	});
+});
+
 describe('flipFloating', () => {
 	function floatingPiece() {
 		const { session, internal } = buildSession(12);
@@ -176,6 +188,7 @@ describe('flipFloating', () => {
 	it('flips back on undo', () => {
 		const { session } = floatingPiece();
 		session.flipFloating();
+		expect(alphaAt(session.activeLayer!, 3, 0)).toBe(255);
 		session.undo();
 		expect(alphaAt(session.activeLayer!, 0, 0)).toBe(255);
 		expect(alphaAt(session.activeLayer!, 3, 0)).toBe(0);

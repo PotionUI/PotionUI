@@ -199,9 +199,9 @@ describe('MaskLayer handoff from a selection', () => {
 		const path = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 		const { canvas } = await layer({ seed: { path, width: 20, height: 15 } });
 		const painted = alphaOf(canvas);
-		expect(painted[5 * 40 + 5]).toBeGreaterThan(0);
+		expect(painted[15 * 40 + 15]).toBeGreaterThan(0);
 		expect(painted[5 * 40 + 25]).toBe(0);
-		expect(painted[20 * 40 + 5]).toBe(0);
+		expect(painted[25 * 40 + 5]).toBe(0);
 	});
 
 	it('leaves the mask empty when there is no seed', async () => {

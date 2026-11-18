@@ -2359,6 +2359,49 @@ editors.registerRailTool(
 
 A tool with only `options` is unchanged.
 
+### Canvas actions
+
+A rail tool can put its main actions on the canvas as a bar fixed at the bottom centre, above the zoom control, so
+the user does not travel to the side panel for them. The panel keeps every control; the bar repeats the ones used
+most, and must call the same handlers rather than a second implementation. Core registers the image editor's bars
+(selection, marking, floating piece, crop, brush, slice) through this same field. The video editor shares the bar
+and adds its actions later.
+
+`canvasActions(ctx)` is called whenever the editor's state changes and returns the actions to show. An empty list
+hides the bar. Plugin entries are called inside the guard: a throw or a value that is not a list leaves the bar off.
+
+```ts
+editors.registerRailTool(
+  {
+    id: 'acme.halftone', editor: 'image', group: 'acme.stylize', label: 'Halftone', icon: 'extension',
+    canvasActions: ({ host }) => [
+      { id: 'reset', label: 'Reset', icon: 'refresh', kind: 'action', run: () => host.discard() },
+      { id: 'apply', label: 'Apply', icon: 'check', shortcut: 'Enter', kind: 'action', primary: true, run: () => host.apply() }
+    ]
+  },
+  { pluginId: 'acme' }
+);
+```
+
+| Action field | Meaning |
+|---|---|
+| `id`, `label`, `icon` | Identify the action. `label` is the text, and the tooltip when the bar is narrow and shows icons only. |
+| `kind` | `action` runs `run`. `toggle` is a switch that reads `pressed`. `value` is a compact slider or colour swatch read from `value`. `custom` draws `component` with `props`. |
+| `group` | Neighbouring actions with the same `group` sit together, with a thin rule between groups. Toggles in one group read as a segmented switch. |
+| `primary` | The one white action, drawn last and without a rule before it. |
+| `shortcut` | A key label such as `Enter` or `Esc`, shown with `Kbd` and in the tooltip. It is a label, not a binding. |
+| `disabled`, `reason` | A disabled action stays visible; `reason` says why in its tooltip. |
+| `iconOnly` | Always draw the icon without the label. |
+| `value` | `{ type: 'range' \| 'colour', value, min, max, step, unit, set(value) }` for `kind: 'value'`. |
+| `run()` | Called on click. |
+
+`ctx` is `{ editor, tool, phone, host, surface }`. `host` is the tool host. `surface` is what the editor hands its
+tools: in the image editor it holds the live paint session, the marking controls, the crop and slice controls and
+`editArea()`; read it only through the exported helpers when you build on a core tool.
+
+The bar hides while a stroke or drag is in progress and returns on release. It never covers the dock. On a narrow
+canvas the labels collapse to icons, and on a phone the bar is a full-width strip above the tool sheet.
+
 ### Menu bar items
 
 The editors' header is a menu bar: File, Edit, View and Tools. Core registers every item of those menus through the

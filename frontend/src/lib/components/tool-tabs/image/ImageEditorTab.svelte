@@ -116,7 +116,7 @@
 	import EditorMenuSheet from '$lib/components/tool-tabs/frame/EditorMenuSheet.svelte';
 	import { ensureCoreEditorMenu } from '$lib/editors/coreMenu';
 	import type { EditorMenuCommands, EditorMenuContext } from '$lib/editors/menuItems';
-	import { createMenuRecents, openAllEdits, openRecentEdit } from '$lib/tool-tabs/image/menuEdits';
+	import { createMenuRecents, openRecentEdit } from '$lib/tool-tabs/image/menuEdits';
 	import { statusParts } from '$lib/tool-tabs/frame/statusLine';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import {
@@ -189,6 +189,7 @@
 	import CropOverlay from './CropOverlay.svelte';
 	import ImageStartScreen from './ImageStartScreen.svelte';
 	import ImageSourcePicker from './ImageSourcePicker.svelte';
+	import RecentEditsDialog from './RecentEditsDialog.svelte';
 	import RecentPictures from './RecentPictures.svelte';
 	import ReplaceMenu from '../frame/ReplaceMenu.svelte';
 	import { replaceSource, sourceEntries, type SourceEntryId } from '$lib/tool-tabs/sourceEntries';
@@ -228,6 +229,7 @@
 	let phoneMenuOpen = $state(false);
 	let canvasApi = $state<ReturnType<typeof EditorCanvas> | undefined>();
 	const menuRecents = createMenuRecents();
+	let recentDialog = $state(false);
 	let saveMenuOpen = $state(false);
 	let saving = $state<SavingProgress | null>(null);
 	let busy = $state(false);
@@ -1850,7 +1852,7 @@
 		closeEditor: () => requestCloseTab(host.tabId),
 		replaceWith: (id) => replacePicker?.open(id as SourceEntryId),
 		openRecent: (id) => void openRecentEdit(id),
-		openAllEdits: () => openAllEdits(),
+		openAllEdits: () => (recentDialog = true),
 		undo: () => doUndo(),
 		redo: () => doRedo(),
 		apply: () => void applyTool(),
@@ -2327,6 +2329,10 @@
 {/snippet}
 
 <ImageSourcePicker bind:this={replacePicker} onpick={(ref) => void changeSource(ref)} onfile={(file) => void changeFile(file)} />
+
+{#if recentDialog}
+	<RecentEditsDialog tabId={host.tabId} inPlace={false} onclose={() => (recentDialog = false)} />
+{/if}
 
 <div class="image-editor-tab flex h-full min-h-0 w-full flex-col" data-image-editor data-tool={activeTool ?? ''} data-mode={mode}>
 	{#if autosaveStatus === 'conflict' || autosaveStatus === 'too-large'}

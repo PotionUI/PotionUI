@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
 import { clearEdits, loginAsOwner, screenshot, selectRailTool } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
@@ -215,6 +215,22 @@ async function openEditor(page: Page, phone: boolean) {
 	return screen;
 }
 
+function recentDialog(page: Page) {
+	return page.getByRole('dialog', { name: 'Recent edits' });
+}
+
+async function openRecent(page: Page, screen: Locator) {
+	await screen.locator('[data-start-recent]').click();
+	const dialog = recentDialog(page);
+	await expect(dialog).toBeVisible();
+	return dialog;
+}
+
+async function pickFromHistory(page: Page, screen: Locator) {
+	await screen.locator('[data-start-source="history"]').click();
+	await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
+}
+
 function tiles(page: Page) {
 	return page.locator('[data-edit-tile][data-edit-tile^="ed_"]');
 }
@@ -269,8 +285,14 @@ async function states(page: Page, server: Server, phone: boolean, width: number)
 	};
 
 	let screen = await openEditor(page, phone);
+	await expect(screen.locator('[data-empty-state="page"]')).toContainText('Open a picture to edit');
+	await expect(screen.locator('[data-start-source]')).toHaveCount(4);
+	await expect(screen.locator('[data-start-recent]')).toContainText('27');
+	await expect(screen.locator('[data-edit-tile]')).toHaveCount(0);
+	await screenshot(page, JOURNEY, `00-start-${width}`);
+	let dialog = await openRecent(page, screen);
 	await expect(tiles(page)).toHaveCount(12);
-	await expect(screen.locator('[data-recent-edits]')).toContainText('27');
+	await expect(dialog).toContainText('27 edits');
 	await tile(page, 'ed_2').hover();
 	await screenshot(page, JOURNEY, `01-populated-${width}`);
 
@@ -293,11 +315,11 @@ async function states(page: Page, server: Server, phone: boolean, width: number)
 	await expect(confirmDialog(page)).toHaveCount(0);
 	expect(server.deletes).toEqual([]);
 
-	await screen.getByLabel('Search edits by name').fill('lantern');
-	await expect(screen.locator('[data-empty-state="compact"]')).toContainText('No matching edits');
-	await expect(screen.locator('[data-recent-edits]')).toContainText('0 of 27');
+	await dialog.getByLabel('Search edits by name').fill('lantern');
+	await expect(dialog.locator('[data-empty-state="compact"]')).toContainText('No matching edits');
+	await expect(dialog).toContainText('0 of 27');
 	await screenshot(page, JOURNEY, `03-search-no-match-${width}`);
-	await screen.getByRole('button', { name: 'Clear search' }).first().click();
+	await dialog.getByRole('button', { name: 'Clear search' }).first().click();
 	await expect(tiles(page)).toHaveCount(12);
 
 	await page.getByRole('button', { name: 'Page 2' }).scrollIntoViewIfNeeded();
@@ -305,37 +327,32 @@ async function states(page: Page, server: Server, phone: boolean, width: number)
 	await expect(page.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
 	await screenshot(page, JOURNEY, `09-pagination-${width}`);
 
+	screen = await reopen();
 	let release: () => void = () => undefined;
 	server.gate = new Promise<void>((resolve) => (release = resolve));
-	screen = await reopen();
-	await expect(screen.locator('[data-edits-loading]')).toBeVisible();
+	dialog = await openRecent(page, screen);
+	await expect(dialog.locator('[data-edits-loading]')).toBeVisible();
 	await screenshot(page, JOURNEY, `04-loading-${width}`);
 	server.gate = null;
 	release();
 	await expect(tiles(page)).toHaveCount(12);
 
-	server.failList = true;
 	screen = await reopen();
-	await expect(screen.locator('[data-empty-state="compact"]')).toContainText("Couldn't load your edits");
+	server.failList = true;
+	dialog = await openRecent(page, screen);
+	await expect(dialog.locator('[data-empty-state="compact"]')).toContainText("Couldn't load your edits");
 	await screenshot(page, JOURNEY, `08-load-error-${width}`);
 	server.failList = false;
-	await screen.getByRole('button', { name: 'Retry' }).click();
+	await dialog.getByRole('button', { name: 'Retry' }).click();
 	await expect(tiles(page)).toHaveCount(12);
 
 	const saved = server.rows;
 	server.rows = [];
 	screen = await reopen();
-	await expect(screen.locator('[data-empty-state="page"]')).toContainText('No edits yet');
-	await expect(screen.locator('[data-recent-history] [data-edit-tile]')).toHaveCount(1);
-	await expect(screen.getByLabel('Search edits by name')).toHaveCount(0);
+	await expect(screen.locator('[data-empty-state="page"]')).toContainText('Open a picture to edit');
+	await expect(screen.locator('[data-start-source]')).toHaveCount(4);
+	await expect(screen.locator('[data-start-recent]')).toHaveCount(0);
 	await screenshot(page, JOURNEY, `02-first-use-${width}`);
-
-	server.history = false;
-	screen = await reopen();
-	await expect(screen.locator('[data-empty-state="page"]')).toContainText('No edits yet');
-	await expect(screen.locator('[data-recent-history]')).toHaveCount(0);
-	await screenshot(page, JOURNEY, `02b-first-use-no-history-${width}`);
-	server.history = true;
 	server.rows = saved;
 }
 
@@ -349,8 +366,9 @@ test.describe('Image editor recent edits on desktop', () => {
 	test('change a picture, close the tab, open a new editor tab and continue the edit', async ({ page }) => {
 		const server = await begin(page, 0);
 		let screen = await openEditor(page, false);
-		await expect(screen.locator('[data-empty-state="page"]')).toContainText('No edits yet');
-		await screen.locator('[data-recent-history] button').first().click();
+		await expect(screen.locator('[data-empty-state="page"]')).toContainText('Open a picture to edit');
+		await expect(screen.locator('[data-start-recent]')).toHaveCount(0);
+		await pickFromHistory(page, screen);
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 		await applyCrop(page);
 		await expect.poll(() => server.creates.length).toBe(1);
@@ -359,6 +377,8 @@ test.describe('Image editor recent edits on desktop', () => {
 
 		await closeEditorTab(page, /harbor-dawn/);
 		screen = await openEditor(page, false);
+		await expect(screen.locator('[data-start-recent]')).toContainText('1');
+		await openRecent(page, screen);
 		await expect(tiles(page)).toHaveCount(1);
 		await expect(tiles(page).first().locator('[data-edit-name]')).toHaveText('harbor-dawn');
 		await tiles(page).first().hover();
@@ -377,14 +397,17 @@ test.describe('Image editor recent edits on desktop', () => {
 
 	test('an edit open in another tab is marked and clicking it goes to that tab', async ({ page }) => {
 		const server = await begin(page, 27);
-		await openEditor(page, false);
+		const first = await openEditor(page, false);
+		await openRecent(page, first);
 		await tile(page, 'ed_2').locator('[data-edit-open]').click();
 		await expect(page.locator('[data-image-editor]')).toBeVisible();
+		await expect(recentDialog(page)).toHaveCount(0);
 		expect(new Set(server.gets)).toEqual(new Set(['ed_2']));
 
 		await page.getByRole('button', { name: 'Add new tab' }).click();
 		await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 		await expect(page.getByTestId('tool-tab-empty')).toBeVisible();
+		await openRecent(page, page.getByTestId('tool-tab-empty'));
 		await expect(tile(page, 'ed_2')).toHaveAttribute('data-open-elsewhere', '');
 		await expect(tile(page, 'ed_2').locator('[data-open-badge]')).toContainText('Open in another tab');
 		await tile(page, 'ed_2').hover();
@@ -404,8 +427,9 @@ test.describe('Image editor recent edits on desktop', () => {
 	test('search, rename, duplicate, delete and pagination', async ({ page }) => {
 		const server = await begin(page, 27);
 		const screen = await openEditor(page, false);
+		const dialog = await openRecent(page, screen);
 		await expect(tiles(page)).toHaveCount(12);
-		await expect(screen.locator('[data-recent-edits]')).toContainText('27');
+		await expect(dialog).toContainText('27 edits');
 		await expect(tile(page, 'ed_1').locator('[data-edit-name]')).toHaveText('Cover crop, warm');
 		await expect(tile(page, 'ed_2').locator('[data-edit-name]')).toHaveText('picture-2');
 
@@ -415,11 +439,11 @@ test.describe('Image editor recent edits on desktop', () => {
 		await page.getByRole('button', { name: 'Page 1' }).click();
 		await expect(tiles(page)).toHaveCount(12);
 
-		await screen.getByLabel('Search edits by name').fill('poster');
+		await dialog.getByLabel('Search edits by name').fill('poster');
 		await expect(tiles(page)).toHaveCount(1);
 		expect(server.lists.at(-1)).toContain('search=poster');
-		await expect(screen.locator('[data-recent-edits]')).toContainText('1 of 27');
-		await screen.getByRole('button', { name: 'Clear search' }).click();
+		await expect(dialog).toContainText('1 of 27');
+		await dialog.getByRole('button', { name: 'Clear search' }).click();
 		await expect(tiles(page)).toHaveCount(12);
 
 		await openMenu(page, 'ed_4');
@@ -440,7 +464,7 @@ test.describe('Image editor recent edits on desktop', () => {
 		await page.getByRole('menuitem', { name: 'Duplicate' }).click();
 		await expect(tiles(page).first().locator('[data-edit-name]')).toHaveText('picture-2 copy');
 		expect(server.duplicates).toEqual(['ed_2']);
-		await expect(screen.locator('[data-recent-edits]')).toContainText('28');
+		await expect(dialog).toContainText('28 edits');
 
 		await openMenu(page, 'ed_5');
 		await page.getByRole('menuitem', { name: 'Delete' }).click();
@@ -450,12 +474,13 @@ test.describe('Image editor recent edits on desktop', () => {
 		await dialog.getByRole('button', { name: 'Delete edit' }).click();
 		await expect(tile(page, 'ed_5')).toHaveCount(0);
 		expect(server.deletes).toEqual(['ed_5']);
-		await expect(screen.locator('[data-recent-edits]')).toContainText('27');
+		await expect(dialog).toContainText('27 edits');
 	});
 
 	test('a deleted edit shows a plain message and the list refreshes', async ({ page }) => {
 		const server = await begin(page, 27);
-		await openEditor(page, false);
+		const screen = await openEditor(page, false);
+		await openRecent(page, screen);
 		await expect(tiles(page)).toHaveCount(12);
 		server.rows = server.rows.filter((row) => row.id !== 'ed_6');
 		await tile(page, 'ed_6').locator('[data-edit-open]').click();
@@ -479,14 +504,17 @@ test.describe('Image editor recent edits on a phone', () => {
 		expect(overflow).toBeLessThanOrEqual(0);
 	});
 
-	test('the start strip shows above the list and a tap continues the edit', async ({ page }) => {
+	test('the start screen is the empty state with wrapped buttons and a tap on Recent edits continues an edit', async ({ page }) => {
 		const server = await begin(page, 27);
 		const screen = await openEditor(page, true);
-		await expect(tiles(page)).toHaveCount(12);
-		const strip = await screen.locator('[data-start-panel]').boundingBox();
-		const list = await screen.locator('[data-edits-list]').boundingBox();
-		expect(strip && list && strip.y < list.y).toBe(true);
+		await expect(screen.locator('[data-empty-state="page"]')).toContainText('Open a picture to edit');
 		await expect(screen.locator('[data-start-source]')).toHaveCount(4);
+		await expect(screen.locator('[data-edit-tile]')).toHaveCount(0);
+		await expect(screen.locator('[data-start-recent]')).toContainText('27');
+		const sources = await screen.locator('[data-start-sources]').boundingBox();
+		expect(sources && sources.x >= 0 && sources.x + sources.width <= 390).toBe(true);
+		await openRecent(page, screen);
+		await expect(tiles(page)).toHaveCount(12);
 		await tile(page, 'ed_2').locator('[data-edit-open]').tap();
 		await expect(page.getByTestId('phone-tool-tab').locator('[data-editor-frame="phone"]')).toBeVisible();
 		expect(new Set(server.gets)).toEqual(new Set(['ed_2']));

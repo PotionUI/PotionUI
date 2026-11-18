@@ -1,7 +1,6 @@
 import { writable, type Readable } from 'svelte/store';
 import { api } from '$lib/services/api/index';
 import type { EditsApi } from '$lib/services/api/edits';
-import { tabsStore } from '$lib/stores/tabs';
 import { toasts } from '$lib/stores/toast';
 import type { MenuRecentEdit } from '$lib/editors/menuItems';
 import { continueEditInNewTab, type ContinueOutcome } from '../continueEdit';
@@ -47,9 +46,5 @@ export function explainContinue(result: ContinueOutcome): void {
 
 export async function openRecentEdit(id: string): Promise<void> {
 	explainContinue(await continueEditInNewTab(id, null));
-}
-
-export function openAllEdits(): void {
-	tabsStore.openToolTab('image', null, { fresh: true });
 }
 

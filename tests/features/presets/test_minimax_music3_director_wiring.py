@@ -208,3 +208,17 @@ def test_the_models_reach_the_loader(music3_template):
     assert loader["model"]["file_path"] == "/models/minimax_music3_dit.safetensors"
     assert loader["text_encoder"]["file_path"] == "/models/minimax_music3_te.safetensors"
     assert loader["vae"]["file_path"] == "/models/minimax_music3_dav.safetensors"
+
+
+def test_lyrics_are_optional_only_while_instrumental_is_on(music3_template):
+    entries = music3_template.vars["optional_prompt_modes"]
+    assert entries == [{"mode": "song", "when": {"field": "instrumental", "equals": True}}]
+
+
+def test_an_instrumental_song_generates_from_an_empty_prompt(music3_template):
+    config = _pipe(
+        _process(music3_template, form_over={"instrumental": True}, positive=""),
+        "generator/audio_minimax_music3",
+    )["config"]
+    assert config["lyrics"] == "[instrumental]"
+

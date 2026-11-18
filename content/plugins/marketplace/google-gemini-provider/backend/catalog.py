@@ -89,6 +89,7 @@ STATIC_MODELS: Tuple[CatalogModel, ...] = (
         resolutions=("720p", "1080p"),
         frames=("first_frame", "last_frame"),
         second_prices={"720p": Decimal("0.05"), "1080p": Decimal("0.08")},
+        deprecated_at="2026-10-22",
     ),
     CatalogModel(
         model_id="veo-3.1-generate-preview",

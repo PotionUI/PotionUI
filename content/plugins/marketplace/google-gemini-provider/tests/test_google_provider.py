@@ -364,6 +364,7 @@ async def test_the_suggested_models_are_in_the_built_in_list(provider):
     suggested = provider.suggested_model_ids()
 
     assert suggested and set(suggested) <= {entry.model_id for entry in STATIC_MODELS}
+    assert not [entry.model_id for entry in STATIC_MODELS if entry.model_id in suggested and entry.deprecated_at]
 
 
 async def test_the_key_is_declared_secret_and_the_driver_is_fixed():

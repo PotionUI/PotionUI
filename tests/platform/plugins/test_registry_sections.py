@@ -135,6 +135,9 @@ def test_enable_stages_run_in_dependency_order(tmp_path, monkeypatch):
     for name in dir(PluginRegistry):
         if name.startswith("_register_plugin_"):
             monkeypatch.setattr(registry, name, lambda manifest, name=name: calls.append(name))
+    monkeypatch.setattr(
+        registry, "_validate_editor_tool_schemas", lambda manifest: calls.append("_validate_editor_tool_schemas")
+    )
     monkeypatch.setattr(registry, "_register_backend_section", lambda spec, manifest: calls.append(spec.section))
     monkeypatch.setattr(registry.loader, "validate_dependencies", lambda manifest: (True, []))
 
@@ -143,6 +146,7 @@ def test_enable_stages_run_in_dependency_order(tmp_path, monkeypatch):
     assert calls == [
         "_register_plugin_hooks",
         "_register_plugin_field_types",
+        "_validate_editor_tool_schemas",
         "_register_plugin_model_metadata_fields",
         "_register_plugin_tools",
         "_register_plugin_media_tools",

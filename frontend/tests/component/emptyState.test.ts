@@ -49,17 +49,18 @@ describe('EmptyState', () => {
 		expect(root.querySelector('[data-empty-state-title]')).not.toBeNull();
 	});
 
-	it('draws the dotted surface and centres the block only for the page level', () => {
+	it('centres the block for the page level and leaves the dotted background to the content area', () => {
 		const page = render({ title: 'Nothing', page: true });
 		const surface = page.querySelector('[data-empty-state]')!;
 		expect(surface.getAttribute('data-empty-state')).toBe('page');
-		expect(surface.className).toContain('dot-grid');
+		expect(surface.className).not.toContain('dot-grid');
+		expect(surface.className).not.toContain('bg-canvas');
 		expect(surface.className).toContain('items-center');
 		expect(surface.className).toContain('justify-center');
 		expect(surface.className).toContain('h-full');
 	});
 
-	it('draws no dotted surface for default or compact', () => {
+	it('draws no dotted surface of its own for any level', () => {
 		for (const compact of [false, true]) {
 			const root = render({ title: 'Nothing', compact });
 			expect(root.querySelector('.dot-grid')).toBeNull();

@@ -12,6 +12,6 @@ export const DOCK_CELL = {
 	session: 'min-w-[132px] max-w-[360px]'
 } as const;
 
-export const DOCK_END = 'dock-end ml-auto flex flex-none shrink-0 items-end gap-3 self-stretch whitespace-nowrap pl-4';
+export const DOCK_END = 'dock-end ml-auto flex flex-none shrink-0 items-center gap-3 self-stretch whitespace-nowrap pl-4';
 
 export const DOCK_PICKERS = 'dock-pickers flex min-w-0 flex-[0_1_auto] items-stretch';

@@ -340,7 +340,6 @@
 
 	.dock-end :global(.dock-ctl) {
 		height: 24px;
-		margin-bottom: 4px;
 		flex: none;
 		display: flex;
 		align-items: center;
@@ -371,10 +370,6 @@
 
 		.dock-zone :global(.ctx-step) {
 			min-height: 44px;
-		}
-
-		.dock-end :global(.dock-ctl) {
-			margin-bottom: 0;
 		}
 
 		.dock-end :global(.dock-btn button) {

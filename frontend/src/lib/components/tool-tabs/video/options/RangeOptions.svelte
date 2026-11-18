@@ -24,7 +24,10 @@
 	let duration = $derived(video.clip.duration);
 	let chosen = $derived(taskId && $ui ? $ui.choice[taskId] : null);
 	let tweak = $derived(taskId && $ui ? $ui.tweaks[taskId] : undefined);
-	let seconds = $derived(typeof tweak?.values.duration === 'number' ? (tweak.values.duration as number) : null);
+	let seconds = $derived.by(() => {
+		const value = tweak?.values.duration ?? tweak?.defaults.duration;
+		return typeof value === 'number' ? value : null;
+	});
 	let editing = $state<{ field: 'start' | 'end' | 'seconds'; text: string } | null>(null);
 
 	$effect(() => {

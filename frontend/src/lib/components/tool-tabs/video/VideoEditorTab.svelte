@@ -1261,7 +1261,8 @@
 	});
 	let extendSeconds = $derived.by(() => {
 		const task = registeredTool?.task;
-		const value = task ? $generateUi.tweaks[task]?.values.duration : null;
+		const tweak = task ? $generateUi.tweaks[task] : null;
+		const value = tweak?.values.duration ?? tweak?.defaults.duration;
 		return typeof value === 'number' ? value : null;
 	});
 	let rangeMarker = $derived(taskTool && extendTask && ready ? { at: aiRange?.end ?? duration, label: extendSeconds === null ? 'Added here' : `+${fixed2(extendSeconds)} s` } : null);

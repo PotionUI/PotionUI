@@ -18,6 +18,7 @@
 		muted = false,
 		frameStep = 1 / 24,
 		frames = [],
+		tileWidth = 0,
 		peaks = null,
 		markers = [],
 		fadeIn = 0,
@@ -29,6 +30,7 @@
 		rangeMarker = null,
 		compact = false,
 		active = true,
+		onstripwidth,
 		onseek,
 		onin,
 		onout,
@@ -51,6 +53,7 @@
 		muted?: boolean;
 		frameStep?: number;
 		frames?: (string | null)[];
+		tileWidth?: number;
 		peaks?: number[] | null;
 		markers?: { at: number; label: string }[];
 		fadeIn?: number;
@@ -62,6 +65,7 @@
 		rangeMarker?: { at: number; label: string } | null;
 		compact?: boolean;
 		active?: boolean;
+		onstripwidth?: (width: number) => void;
 		onseek: (seconds: number) => void;
 		onin: (seconds: number) => void;
 		onout: (seconds: number) => void;
@@ -75,6 +79,11 @@
 	} = $props();
 
 	let track = $state<HTMLElement | null>(null);
+	let stripWidth = $state(0);
+
+	$effect(() => {
+		if (stripWidth > 0) onstripwidth?.(stripWidth);
+	});
 
 	const pct = (seconds: number) => (duration > 0 ? Math.max(0, Math.min(1, seconds / duration)) * 100 : 0);
 	let inPct = $derived(pct(inPoint));
@@ -253,10 +262,10 @@
 		onpointerdown={(event) => (rangeMode ? markDrag(event) : drag(event, onseek))}
 		data-scrub-track
 	>
-		<div class="absolute inset-0 flex overflow-hidden rounded" aria-hidden="true" data-scrub-strip>
+		<div class="absolute inset-0 flex overflow-hidden rounded" aria-hidden="true" bind:clientWidth={stripWidth} data-scrub-strip>
 			{#each frames as frame, i (i)}
-				<div class="h-full min-w-0 flex-1 bg-surface-3">
-					{#if frame}<img src={frame} alt="" class="h-full w-full object-cover" draggable="false" data-scrub-frame />{/if}
+				<div class="h-full overflow-hidden bg-surface-3 {tileWidth > 0 ? 'flex-none' : 'min-w-0 flex-1'}" style={tileWidth > 0 ? `width: ${tileWidth}px` : undefined}>
+					{#if frame}<img src={frame} alt="" class="h-full w-full" draggable="false" data-scrub-frame />{/if}
 				</div>
 			{/each}
 		</div>

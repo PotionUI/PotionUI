@@ -141,8 +141,9 @@
 		type LoadedVideoState,
 		type SavedCopy
 	} from '$lib/tool-tabs/video/videoState';
-	import { loadPeaks, runStrip, stripTimes } from '$lib/tool-tabs/video/stripScheduler';
+	import { loadPeaks, runStrip } from '$lib/tool-tabs/video/stripScheduler';
 	import { createFrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
+	import { frameCache, settleWidth, tileLayout, tileTimes } from '$lib/tool-tabs/video/stripTiles';
 	import { effectTiles, tileById, tileMatches, type EffectTile } from '$lib/tool-tabs/video/effectTiles';
 	import { abortableWait, findRun, percentOf, secondsLeft, trackRun, type RenderRunApi } from '$lib/tool-tabs/video/renderRun';
 	import { detachRender, followRender, isFollowing, settleRender, stopRender, type RenderListener } from '$lib/tool-tabs/video/renderFollow';
@@ -1418,23 +1419,40 @@
 		};
 	});
 
+	const STRIP_HEIGHT = 48;
+	let stripWidthRaw = $state(0);
+	let stripWidth = $state(0);
+	let stripLayout = $derived(tileLayout(stripWidth, STRIP_HEIGHT, clip.width > 0 && clip.height > 0 ? clip.width / clip.height : 16 / 9, typeof window === 'undefined' ? 1 : window.devicePixelRatio));
+
+	$effect(() => {
+		const next = stripWidthRaw;
+		stripWidth = settleWidth(untrack(() => stripWidth), next);
+	});
+
 	$effect(() => {
 		const href = url;
 		const length = duration;
-		const count = phone ? 8 : 12;
-		if (!href || !(length > 0)) {
+		const layout = stripLayout;
+		const width = untrack(() => stripWidth);
+		if (!href || !(length > 0) || !layout) {
 			frames = [];
 			return;
 		}
-		frames = Array(count).fill(null);
+		const cacheKey = frameCache.key(href, layout, length);
+		const initial = frameCache.get(cacheKey, layout.count);
+		frames = initial;
+		const missing = new Set(initial.flatMap((frame, i) => (frame ? [] : [i])));
+		if (initial[0]) hostApi.setThumbnail(initial[0]);
+		if (missing.size === 0) return;
 		const controller = new AbortController();
-		const grabber = createFrameGrabber(href, phone ? 40 : 48);
-		const times = stripTimes(length, count);
+		const grabber = createFrameGrabber(href, STRIP_HEIGHT, { width: layout.pixelWidth, height: layout.pixelHeight, quality: 0.85 });
+		const times = tileTimes(length, width, layout);
 		void runStrip({
-			count,
+			count: layout.count,
 			signal: controller.signal,
-			work: (index, signal) => grabber.grab(times[index], signal),
+			work: (index, signal) => (missing.has(index) ? grabber.grab(times[index], signal) : Promise.resolve(initial[index] as string)),
 			onResult: (index, value) => {
+				frameCache.set(cacheKey, index, value);
 				frames = frames.map((frame, i) => (i === index ? value : frame));
 				if (index === 0) hostApi.setThumbnail(value);
 			},
@@ -1892,6 +1910,8 @@
 					muted={playbackMuted}
 					frameStep={1 / fps}
 					{frames}
+					tileWidth={stripLayout?.tileWidth ?? 0}
+					onstripwidth={(width) => (stripWidthRaw = width)}
 					{peaks}
 					{markers}
 					fadeIn={volumeFade.fadeIn}

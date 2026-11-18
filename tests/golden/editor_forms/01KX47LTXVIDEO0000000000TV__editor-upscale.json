@@ -1,0 +1,84 @@
+{
+  "editor_mode": "upscale",
+  "from": "upscale",
+  "preset_id": "01KX47LTXVIDEO0000000000TV",
+  "preset_name": "LTX-2 / 2.3",
+  "shown": [
+    {
+      "label": "Speed profile",
+      "name": "speed_profile",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Refine Strength",
+      "name": "refine_strength",
+      "type": "select"
+    },
+    {
+      "label": "LTX checkpoint (all-in-one)",
+      "name": "model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Gemma3-12B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "Spatial Upscaler",
+      "name": "upscale_model",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Enhance faces and hands",
+      "name": "enhance_faces_hands",
+      "type": "gate"
+    },
+    {
+      "label": "Enhancement strength",
+      "name": "enhancement_strength",
+      "type": "select"
+    },
+    {
+      "label": "Face Detection Model",
+      "name": "face_detector_model",
+      "type": "model"
+    },
+    {
+      "label": "Hand Detection Model",
+      "name": "hand_detector_model",
+      "type": "model"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "sampler"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Add Quality Prompt",
+      "name": "apply_quality_prompt",
+      "type": "checkbox"
+    },
+    {
+      "label": "Refine Sigmas",
+      "name": "refine_sigmas",
+      "type": "textbox"
+    }
+  ],
+  "task": "upscale"
+}

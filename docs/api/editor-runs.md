@@ -80,6 +80,51 @@ The generation behind the run is an ordinary generation: it appears in History w
 
 Only the clients subscribed to that generation, which means its owner, receive it.
 
+## Runs on a video
+
+The video editor uses the same routes. `GET /api/editor/tasks?editor=video` lists only the video tasks (`extend`, `upscale`, `restore`, `refine_faces`, `colorize`, `relight`, `clean_plate`) that a preset on this instance offers. A task entry says what it needs:
+
+```json
+{
+  "id": "extend", "label": "Extend", "editors": ["video"], "region": "none", "prompt": "optional",
+  "range": "optional", "result": "append", "audio": "result", "resizes": false, "offers": []
+}
+```
+
+`range` is `optional` (no range means the whole clip), `result` is `replace` (the new footage has the length of the range) or `append` (it adds time), `audio` is `keep` (the clip's sound stays) or `result` (the added part brings its own sound, silence when the model made none) and `resizes` says a whole-clip result may be larger than the clip. An offer's `region_strategy` is `range`.
+
+`input` and `steps` name the clip as the editor currently shows it (the source plus its steps, as for a picture). `range` marks the part to work on, in seconds, and is left out for the whole clip. The server snaps it to the frames of the clip at its own frame rate, so `range` in the run and in each candidate is the snapped range.
+
+```json
+{
+  "edit": { "id": "ed_...", "step_id": "s4" },
+  "input": { "item_id": "..." },
+  "steps": [],
+  "range": { "start_s": 2.0, "end_s": 4.5 },
+  "prompt": "",
+  "setup": { "preset_id": "...", "mode": "editor:restore", "form_data": {} },
+  "candidates": 1
+}
+```
+
+The server cuts the range frame by frame, sends it to the mode as its input video, and when the generation finishes fits each result to the clip's size and frame rate and to the length of the range (frames are dropped or the last one repeated; a whole-clip `upscale` keeps the result's own size), then splices it into the clip. Frames outside the range are not changed. A `replace` task keeps the clip's own sound; `extend` inserts the new footage at the end of the range (the end of the clip without one) and the part after the range follows it. Each finished candidate carries the whole spliced clip, not a patch:
+
+```json
+{
+  "run": {
+    "id": "er_...", "task": "restore", "status": "done", "range": { "start_s": 2.0, "end_s": 4.5, "whole": false },
+    "candidates": [
+      {
+        "clip": { "item_id": "..." }, "url": "/api/media/uploads/...", "seed": 12345, "generation_file_id": "...",
+        "range": { "start_s": 2.0, "end_s": 4.5 }, "duration_s": 9.0
+      }
+    ]
+  }
+}
+```
+
+An `extend` candidate has `"added": { "at_s": 4.5, "seconds": 5.0 }` instead of `range`. `duration_s` is the length of the new clip. The clip is a stored upload (`clip.item_id`); the run keeps its working copies of the source and the cut under the `editor_run_working` purpose until it settles, like a picture run. A run on a video has `rect: null`.
+
 ## Cancel a run
 
 `DELETE /api/editor/runs/{run_id}` cancels the run's generation and settles the run as `cancelled`. If the generation cannot be cancelled and is still going, the run stays as it is and the answer is `400 cancel_failed` ("The run could not be cancelled, try again"). If the generation has in fact already finished, the run is settled from its real result instead. A run that is already finished is returned as it is.
@@ -155,6 +200,11 @@ When several apply, the first one in this table is reported. Deleting a session 
 | 422 | `task_not_offered` | The editor mode does not offer the task, or the mode name has no `editor:` prefix. |
 | 422 | `mode_is_editor` | Returned by `POST /api/generations/start`: an editor key is for editor runs only. |
 | 422 | `prompt_required`, `region_required`, `region_empty` | The task needs a prompt or a marked area. |
+| 422 | `range_invalid` | The range starts before the clip, ends no later than it starts, or is shorter than one frame. |
+| 422 | `range_outside_clip` | The range starts or ends past the end of the clip. |
+| 422 | `range_not_supported`, `range_required` | A range was sent for a task that takes none, or the task needs one. |
+| 422 | `unsupported_media` | A picture was sent to a video task, or a video to a picture task. |
+| 422 | `clip_unreadable` | The clip's size, rate or length could not be read. |
 | 403 | `limit_exceeded` and the other generation refusals | The same refusals as starting a generation. |
 | 400 | `cancel_failed` | The generation could not be cancelled; try again. |
 | 500 | `run_start_failed` | The run could not be linked to its generation; nothing was started. |

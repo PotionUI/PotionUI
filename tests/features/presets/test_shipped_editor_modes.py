@@ -46,7 +46,8 @@ def test_exactly_the_nine_editor_modes_ship_and_none_of_the_deferred_ones(loader
     shipped = {
         (Path(t.path).relative_to(MARKETPLACE).parts[0], name)
         for t in loader.presets
-        for name in t.editor_modes
+        for name, mode in t.editor_modes.items()
+        if mode.editor.region != "range"
     }
     assert shipped == set(NINE)
 

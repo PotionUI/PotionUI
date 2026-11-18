@@ -144,11 +144,11 @@ class EditorRunManager:
             self.tasks.resolve_offer, user, task_id, body.setup.preset_id, body.setup.mode
         )
         await asyncio.to_thread(self.edits.get, user.id, body.edit.id)
+        self._check_range(offer, body)
         prompt = self._prompt(offer, body.prompt)
         region_ref = body.region if offer.task.region != "none" else None
         if offer.task.region == "required" and region_ref is None:
             raise DomainError("region_required", "Mark the area first", 422)
-        self._check_range(offer, body)
         if "video" in offer.task.editors:
             prepared = await asyncio.to_thread(self._prepare_clip, user, offer, body)
         else:

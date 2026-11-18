@@ -56,7 +56,11 @@ def test_every_named_field_exists_and_nothing_is_reported(templates, folder, nam
 
 
 def test_the_set_of_shipped_editor_modes_is_exactly_the_nine():
-    found = {(path.parents[2].name, path.parent.name) for path in MARKETPLACE.glob("*/editor_modes/*/editor_mode.yml")}
+    found = {
+        (path.parents[2].name, path.parent.name)
+        for path in MARKETPLACE.glob("*/editor_modes/*/editor_mode.yml")
+        if "region: range" not in path.read_text()
+    }
 
     assert found == set(EXPECTED)
 
@@ -70,7 +74,9 @@ def test_every_shipped_editor_mode_is_offered_by_the_manager(templates):
         REGISTRY, lambda: list(templates.values()), lambda user: {t.id for t in templates.values()}, lambda engine: True
     )
 
-    offered = {(Path(entry.template.path).name, entry.name) for entry in manager.editor_entries()}
+    offered = {
+        (Path(entry.template.path).name, entry.name) for entry in manager.editor_entries() if entry.spec.region != "range"
+    }
 
     assert offered == set(EXPECTED)
 

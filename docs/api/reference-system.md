@@ -119,7 +119,7 @@ Response `200`: the standard envelope (`success`, `data`, `message`, `error`). T
 
 **Start An Editor Run**
 
-Crops the marked area with its surroundings, runs a preset mode on it as a normal generation, and blends each result back as a patch. Answers at once with the run; follow it with the run route or the editor_run_update message on /ws/generation.
+Crops the marked area with its surroundings, runs a preset mode on it as a normal generation, and blends each result back as a patch. On a video task it cuts the marked time range (in seconds) and splices each result into the clip. Answers at once with the run; follow it with the run route or the editor_run_update message on /ws/generation.
 
 Key permission: `generate`.
 
@@ -133,6 +133,7 @@ JSON body, `StartEditorRunRequest`:
 - `input` (InputRef, required)
 - `steps` (array of StepRequest, optional)
 - `region` (InputRef, optional)
+- `range` (RunRange, optional)
 - `prompt` (string, optional)
 - `setup` (RunSetup, required)
 - `candidates` (integer, optional, 1.0 to 4.0, default 1)

@@ -670,7 +670,8 @@ class MediaToolService:
         user_id = _user_id(user)
         resolved = self.resolver.resolve(user_id, _model(InputRef, input_ref, "input"))
         if resolved.kind != "video":
-            raise InvalidInputError("unsupported_media", f"A {resolved.kind} file is not a video")
+            subject = "A picture" if resolved.kind == "image" else f"A {resolved.kind} file"
+            raise InvalidInputError("unsupported_media", f"{subject} is not a video")
         chain = self._editor_steps(steps)
         attachments = self._resolve_attachments(user_id, chain)
         with self._scratch() as scratch, ExitStack() as stack:

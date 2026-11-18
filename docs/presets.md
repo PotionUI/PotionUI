@@ -364,13 +364,13 @@ fields:
 | Key | Meaning |
 |---|---|
 | `schema_version` | Required, `1`. |
-| `task` | Required. A core task (`edit_region`, `remove_object`) or a plugin task `<plugin>.<name>`. |
+| `task` | Required. A core task (`edit_region`, `remove_object` for pictures; `extend`, `upscale`, `restore`, `refine_faces`, `colorize`, `relight`, `clean_plate` for video) or a plugin task `<plugin>.<name>`. |
 | `from` | A generation mode of this preset. Leave it out for a standalone mode. |
 | `label`, `short_description`, `order` | The picker name (default: the `from` mode's label, else the title-cased name), one sentence under it, and the sort order within the preset. |
 | `icon` | Optional. An icon name from the app's icon set, shown beside the mode in the picker (`mode_icon` on the offer). Default: the `from` mode's icon, else the standard icon for the mode name, else none. An unknown name → **warning**. |
-| `region` | Required. `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. |
-| `inputs.source` | Required. The `image` field that takes the picture, or `{field: <media field>, index: 0}`, which inserts the picture into a `media` list at that index. |
-| `inputs.mask` | Required for `region: mask`. It must be named `<image field>_inpaint_mask`, and that image field must set `allow_inpaint: true`. With `region: crop` it asks for the region mask cut and resampled like the crop. |
+| `region` | Required. `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. `range`: for a video task. The mode gets a video, the whole clip or the marked time range cut out of it, and the run splices the result back ([video editor modes](#video-editor-modes)). |
+| `inputs.source` | Required. The `image` field that takes the picture (a `video` field for a video task), or `{field: <media field>, index: 0}`, which inserts the picture into a `media` list at that index. |
+| `inputs.mask` | Required for `region: mask`; not allowed with `region: range`. It must be named `<image field>_inpaint_mask`, and that image field must set `allow_inpaint: true`. With `region: crop` it asks for the region mask cut and resampled like the crop. |
 | `inputs.quantity`, `inputs.seed` | Default to the mode's quantity field and its `seed` field. The quantity field is shown in Settings like on the Generate page, and its value (1 to 4) is the number of results of a run; the seed field is shown. |
 | `size` | `area` (default 1048576, 262144 to 4194304), `multiple` (8, 16, 32 or 64), `field` (a `resolution` field), `buckets`. |
 | `context` | Context around the area as a fraction of its size (0 to 4), default `0.5`. A `region_context` field in the form wins. |
@@ -384,6 +384,42 @@ fields:
 of them. `fixed` and `fields.hide` fields stay in the template because the pipeline reads them; binding pins them
 over any admin override. An editor setup (a saved session of kind `editor`) never stores them, and a run replaces
 whatever a request sends for them.
+
+### Video editor modes
+
+A task with `editors: [video]` is offered by the video editor, and its editor modes use `region: range`. The task
+states what it needs: `range` (`optional` for every core video task: no range means the whole clip), `prompt`,
+`region` (`none`: no shipped video mode takes a mask on the frame), `result` (`replace`: the new footage has the
+length of the range, or `append`: it adds time after the range) and `audio` (`keep`: the clip's own sound stays;
+`result`: the sound of the added part comes from the result, silence when it has none). `resizes` marks a task
+whose whole-clip result may be larger than the clip (`upscale`); on a time range the result is fitted to the clip's size.
+
+| Task | Prompt | Result | Offered by (editor mode = generation mode) |
+|---|---|---|---|
+| `extend` | optional | appends at the end of the range or the clip | LTX-2.5, MiniMax-H3, MiniMax-H3-Fast `extend` |
+| `upscale` | none | replaces, may grow the whole clip | LTX-2.5, LTX-2, MiniMax-H3 `upscale`, SeedVR2 `video_upscale` |
+| `restore` | optional | replaces | LTX-2.5 `restore` |
+| `refine_faces` | none | replaces | LTX-2.5, MiniMax-H3, MiniMax-H3-Fast `refine_faces` |
+| `colorize` | optional | replaces | LTX-2.5 `colorize` |
+| `relight` | optional | replaces | LTX-2.5 `day_to_night` |
+| `clean_plate` | optional | replaces | LTX-2.5 `remove_object` (removes people and moving objects) |
+
+```yaml
+schema_version: 1
+task: extend
+from: extend
+region: range
+inputs:
+  source: input_video
+fixed:
+  match_source: true
+  direction: forward
+```
+
+The editor fills the source field with the clip (cut to the range when there is one) and a `fixed` value pins the
+fields the editor decides, such as the extend direction. Times are seconds everywhere; the server turns them into
+frames at the clip's own frame rate. The lint reports `region: range` on a picture task, a picture region on a video
+task, and `inputs.mask` with `region: range`.
 
 ### How an editor mode is addressed
 

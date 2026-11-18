@@ -1,0 +1,104 @@
+{
+  "editor_mode": "refine_faces",
+  "from": "refine_faces",
+  "preset_id": "01KX47H3FASTH30000000000VA",
+  "preset_name": "MiniMax-H3-Fast",
+  "shown": [
+    {
+      "label": "Speed profile",
+      "name": "speed_profile",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "MiniMax-H3-Fast DiT",
+      "name": "model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3-VL-32B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "Video VAE",
+      "name": "video_vae",
+      "type": "model"
+    },
+    {
+      "label": "Audio VAE",
+      "name": "audio_vae",
+      "type": "model"
+    },
+    {
+      "label": "Face Detection Model",
+      "name": "face_detector_model",
+      "type": "model"
+    },
+    {
+      "label": "Hand Detection Model",
+      "name": "hand_detector_model",
+      "type": "model"
+    },
+    {
+      "label": "Faces",
+      "name": "refine_faces",
+      "type": "checkbox"
+    },
+    {
+      "label": "Hands",
+      "name": "refine_hands",
+      "type": "checkbox"
+    },
+    {
+      "label": "Strength",
+      "name": "enhancement_strength",
+      "type": "select"
+    },
+    {
+      "label": "Max subjects",
+      "name": "max_subjects",
+      "type": "slider"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "Refine sampler",
+      "name": "refine_sampler",
+      "type": "select"
+    },
+    {
+      "label": "Working size (short side, px)",
+      "name": "working_short_side",
+      "type": "slider"
+    },
+    {
+      "label": "Colour match",
+      "name": "color_correction",
+      "type": "select"
+    },
+    {
+      "label": "Detect every Nth frame",
+      "name": "detection_stride",
+      "type": "slider"
+    },
+    {
+      "label": "Detection confidence",
+      "name": "detection_confidence",
+      "type": "slider"
+    }
+  ],
+  "task": "refine_faces"
+}

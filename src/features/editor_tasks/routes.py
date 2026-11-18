@@ -113,7 +113,8 @@ def build_runs_router(container: "AppContainer") -> APIRouter:
         summary="Start An Editor Run",
         description=(
             "Crops the marked area with its surroundings, runs a preset mode on it as a normal generation, and "
-            "blends each result back as a patch. Answers at once with the run; follow it with the run route or "
+            "blends each result back as a patch. On a video task it cuts the marked time range (in seconds) and "
+            "splices each result into the clip. Answers at once with the run; follow it with the run route or "
             "the editor_run_update message on /ws/generation."
         ),
     )

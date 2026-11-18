@@ -91,7 +91,7 @@
 			description="Upload a picture or pick one from History, Library or Kits. Paste or drop one anywhere."
 		>
 			{#snippet actions()}
-				<div class="flex flex-wrap items-center justify-center gap-3 max-md:gap-2" data-start-sources>
+				<div class="flex flex-wrap items-center justify-center gap-3 md:-mx-24 md:w-[640px] max-md:gap-2" data-start-sources>
 					{#each entries as entry (entry.id)}
 						<Button
 							variant="secondary"

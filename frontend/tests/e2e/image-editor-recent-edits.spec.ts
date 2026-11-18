@@ -328,6 +328,7 @@ async function states(page: Page, server: Server, phone: boolean, width: number)
 	await screenshot(page, JOURNEY, `09-pagination-${width}`);
 
 	screen = await reopen();
+	await expect(screen.locator('[data-start-recent]')).toBeVisible();
 	let release: () => void = () => undefined;
 	server.gate = new Promise<void>((resolve) => (release = resolve));
 	dialog = await openRecent(page, screen);
@@ -338,6 +339,7 @@ async function states(page: Page, server: Server, phone: boolean, width: number)
 	await expect(tiles(page)).toHaveCount(12);
 
 	screen = await reopen();
+	await expect(screen.locator('[data-start-recent]')).toBeVisible();
 	server.failList = true;
 	dialog = await openRecent(page, screen);
 	await expect(dialog.locator('[data-empty-state="compact"]')).toContainText("Couldn't load your edits");
@@ -468,10 +470,10 @@ test.describe('Image editor recent edits on desktop', () => {
 
 		await openMenu(page, 'ed_5');
 		await page.getByRole('menuitem', { name: 'Delete' }).click();
-		const dialog = confirmDialog(page);
-		await expect(dialog).toContainText('Delete this edit?');
-		await expect(dialog).toContainText('The original picture is not affected.');
-		await dialog.getByRole('button', { name: 'Delete edit' }).click();
+		const confirm = confirmDialog(page);
+		await expect(confirm).toContainText('Delete this edit?');
+		await expect(confirm).toContainText('The original picture is not affected.');
+		await confirm.getByRole('button', { name: 'Delete edit' }).click();
 		await expect(tile(page, 'ed_5')).toHaveCount(0);
 		expect(server.deletes).toEqual(['ed_5']);
 		await expect(dialog).toContainText('27 edits');

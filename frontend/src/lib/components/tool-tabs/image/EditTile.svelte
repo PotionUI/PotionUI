@@ -166,7 +166,7 @@
 
 		<div class="flex min-w-0 flex-col gap-0.5 border-t border-line px-3 py-2.5" bind:this={footer}>
 			{#if renaming}
-				<div>
+				<div data-keeps-escape>
 					<Input
 						bind:value={draft}
 						type="text"

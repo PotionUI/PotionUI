@@ -20,14 +20,26 @@ const FORM_SCHEMA = {
 			children: [
 				{ name: 'strength', type: 'number', title: 'Strength', default: 0.85 },
 				{ name: 'steps', type: 'slider', title: 'Steps', default: 28 },
+				{ name: 'quantity', type: 'stepper', title: 'Quantity', default: 1, configuration: { min: 1, max: 4, step: 1 } },
 				{ name: 'seed', type: 'seed', title: 'Seed', default: -1 }
 			]
 		}
 	}
 };
 
-const qwen = (over: Json = {}): Json => ({ preset_id: 'qwen21', preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, owned: ['quantity', 'source_image'], ...over });
-const flux = (over: Json = {}): Json => ({ preset_id: 'flux-fill', preset_name: 'Flux Fill', mode: 'editor:fill', from_mode: 'inpaint', mode_label: 'Inpaint', mode_icon: 'mode-restyle', label: null, short_description: null, order: 0, variant: null, region_strategy: 'crop', via: null, qualifies: true, reason: null, owned: ['quantity', 'source_image'], ...over });
+const FORMULA_DECLARATION = { groups: [{ id: 'look', label: 'Look', fields: ['strength', 'steps', 'source_image'] }] };
+const FORMULA: Json = { id: 'formula-1', preset_id: 'qwen21', mode: 'editor:edit', variant: null, name: 'Crisp and quick', note: null, groups: [{ id: 'look' }], values: { strength: 0.9, steps: 8, source_image: 'x.png' }, signatures: {}, preset_version: '1', created_at: '2026-11-01T10:00:00Z', updated_at: '2026-11-01T10:00:00Z' };
+const FORMULA_PLAN: Json = {
+	changes: [
+		{ name: 'strength', label: 'Strength', group_id: 'look', group_label: 'Look', type: 'number', advanced: false, old: 0.85, new: 0.9 },
+		{ name: 'steps', label: 'Steps', group_id: 'look', group_label: 'Look', type: 'slider', advanced: false, old: 28, new: 8 }
+	],
+	same: [],
+	skips: [{ name: 'source_image', label: 'Picture', group_id: 'look', code: 'field_removed', reason: 'This setting is not in the form any more.' }]
+};
+
+const qwen = (over: Json = {}): Json => ({ preset_id: 'qwen21', preset_name: 'Qwen-Image 2.1', mode: 'editor:edit', from_mode: 'edit', mode_label: 'Edit', label: null, short_description: null, order: 0, variant: null, region_strategy: 'mask', via: null, qualifies: true, reason: null, quantity_field: 'quantity', owned: ['source_image'], ...over });
+const flux = (over: Json = {}): Json => ({ preset_id: 'flux-fill', preset_name: 'Flux Fill', mode: 'editor:fill', from_mode: 'inpaint', mode_label: 'Inpaint', mode_icon: 'mode-restyle', label: null, short_description: null, order: 0, variant: null, region_strategy: 'crop', via: null, qualifies: true, reason: null, quantity_field: 'quantity', owned: ['source_image'], ...over });
 const fluxWide = (): Json => flux({ mode: 'editor:fill2', from_mode: 'inpaint', mode_label: 'Wide fill', mode_icon: 'mode-extend', short_description: 'Fills a wider area', order: 1 });
 
 function taskEntry(id: string, label: string, over: Json = {}): Json {
@@ -65,6 +77,7 @@ interface Server {
 	runCount: number;
 	holdSubscribe: boolean;
 	held: Array<() => void>;
+	plans: Json[];
 }
 
 function runBody(server: Server, status: string, extra: Json = {}, n = server.runCount): Json {
@@ -92,8 +105,8 @@ async function ok(route: Route, data: unknown, status = 200) {
 	await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: true, data }) });
 }
 
-async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean; sessionName?: string } = {}): Promise<Server> {
-	const server: Server = { tasks, runs: [], runStatus: {}, live: {}, runGets: [], cancels: [], defaults: [], defaultClears: 0, formModes: [], startFails: null, saves: [], sessionPuts: [], sessionPosts: [], sessionFails: null, mediaRuns: [], sockets: [], runCount: 0, holdSubscribe: false, held: [] };
+async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean; sessionName?: string; formulas?: boolean } = {}): Promise<Server> {
+	const server: Server = { tasks, runs: [], runStatus: {}, live: {}, runGets: [], cancels: [], defaults: [], defaultClears: 0, formModes: [], startFails: null, saves: [], sessionPuts: [], sessionPosts: [], sessionFails: null, mediaRuns: [], sockets: [], runCount: 0, holdSubscribe: false, held: [], plans: [] };
 	let revision = 1;
 	const source = solidPng(640, 480);
 	const small = solidPng(64, 64);
@@ -116,7 +129,7 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean;
 	await page.route(/\/api\/media\/serve(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: small }));
 	await page.route('**/api/presets/*/form*', (route) => {
 		server.formModes.push(new URL(route.request().url()).searchParams.get('mode'));
-		return ok(route, { preset_id: 'mock', form_schema: FORM_SCHEMA });
+		return ok(route, { preset_id: 'mock', form_schema: FORM_SCHEMA, ...(options.formulas ? { formulas: FORMULA_DECLARATION } : {}) });
 	});
 	await page.route(/\/api\/edits(\/[^/?]+)?(\?.*)?$/, async (route) => {
 		const request = route.request();
@@ -181,7 +194,11 @@ async function mockAll(page: Page, tasks: Json[], options: { sessions?: boolean;
 		if (server.sessionFails) return route.fulfill({ status: server.sessionFails.status, contentType: 'application/json', body: JSON.stringify({ detail: server.sessionFails.body }) });
 		await ok(route, sessionBody(body, 'sess-1', 4));
 	});
-	await page.route(/\/api\/formulas(\?.*)?$/, (route) => (route.request().method() === 'GET' ? ok(route, []) : route.fallback()));
+	await page.route(/\/api\/formulas(\?.*)?$/, (route) => (route.request().method() === 'GET' ? ok(route, options.formulas ? [FORMULA] : []) : route.fallback()));
+	await page.route(/\/api\/formulas\/[^/]+\/plan$/, async (route) => {
+		server.plans.push(route.request().postDataJSON() as Json);
+		await ok(route, FORMULA_PLAN);
+	});
 	await page.routeWebSocket(/\/ws\/generation/, (ws) => {
 		server.sockets.push(ws);
 		ws.send(JSON.stringify({ type: 'connection_established', client_id: 'e2e-mock' }));
@@ -240,8 +257,6 @@ async function geometry(page: Page) {
 			mode: box(strip.querySelector('[data-testid="preset-header-mode"] button')),
 			session: box(strip.querySelector('[data-testid="session-trigger"]')),
 			save: box(strip.querySelector('[data-testid="session-save"]')),
-			results: box(strip.querySelector('[aria-label="Results"]')),
-			resultsWrap: box(strip.querySelector('[data-testid="dock-results"]')),
 			settings: box(strip.querySelector('[data-prompt-settings]')),
 			cuts: Array.from(strip.querySelectorAll('[data-testid="context-separator"]')).map((cut) => box(cut)!),
 			field: box(dock.querySelector('.ai-ring')),
@@ -295,13 +310,11 @@ function checkStrip(g: Awaited<ReturnType<typeof geometry>>, mode: 'rest' | 'tem
 	expect(g.stripScroll.scroll).toBeLessThanOrEqual(g.stripScroll.client + 1);
 	const labelBottoms = new Set(g.labels.map((label) => Math.round(label.bottom)));
 	expect(labelBottoms.size, `label baselines ${JSON.stringify(g.labels.map((l) => [l.text, l.bottom]))}`).toBe(wrapped ? 2 : 1);
-	const lines = wrapped ? [[g.preset, g.session], [g.results, g.settings]] : [[g.preset, g.session, g.results, g.settings]];
+	const lines = wrapped ? [[g.preset, g.session], [g.settings]] : [[g.preset, g.session, g.settings]];
 	for (const line of lines) {
 		const bottoms = line.filter(Boolean).map((box) => Math.round(box!.bottom));
 		expect(Math.max(...bottoms) - Math.min(...bottoms), `control bottoms ${JSON.stringify(bottoms)}`).toBeLessThanOrEqual(2);
 	}
-	const centres = [g.results, g.settings].map((box) => box!.y + box!.height / 2);
-	expect(Math.max(...centres) - Math.min(...centres), `control centres ${JSON.stringify(centres)}`).toBeLessThanOrEqual(2.5);
 	for (const cut of g.cuts) {
 		expect(Math.abs(cut.y - stripBox.y)).toBeLessThanOrEqual(1);
 		expect(Math.abs(cut.height - 48)).toBeLessThanOrEqual(1);
@@ -316,6 +329,17 @@ function checkStrip(g: Awaited<ReturnType<typeof geometry>>, mode: 'rest' | 'tem
 	expect(g.scroll.page).toBeLessThanOrEqual(g.viewport.height);
 	expect(g.mark!.y).toBeGreaterThanOrEqual(dockBox.y);
 	expect(g.mark!.bottom).toBeLessThanOrEqual(dockBox.bottom);
+}
+
+async function setResults(page: Page, count: number) {
+	const view = page.locator('[data-frame-panel] [data-settings-view="desktop"]');
+	await prompt(page).locator('[data-prompt-settings]').click();
+	const card = view.getByText('Quantity', { exact: true }).first().locator('xpath=ancestor::*[contains(@class, "field-card")][1]');
+	const input = card.locator('input[type="number"]').first();
+	await input.fill(String(count));
+	await input.blur();
+	await prompt(page).locator('[data-prompt-settings]').click();
+	await expect(view).toHaveCount(0);
 }
 
 const options = (page: Page) => page.locator('[data-options-panel]');
@@ -337,8 +361,8 @@ async function closePresetDropdown(page: Page) {
 }
 const row = (page: Page, id = 's1') => page.locator(`[data-edit-stack] [data-stack-row="${id}"]`);
 
-async function begin(page: Page, tasks: Json[], sessions = false, sessionName?: string): Promise<Server> {
-	const server = await mockAll(page, tasks, { sessions, sessionName });
+async function begin(page: Page, tasks: Json[], sessions = false, sessionName?: string, formulas = false): Promise<Server> {
+	const server = await mockAll(page, tasks, { sessions, sessionName, formulas });
 	await loginAsOwner(page);
 	await clearEdits(page);
 	await page.goto('/generate');
@@ -456,7 +480,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await screenshot(page, JOURNEY, '08-whole-picture-dark-1440');
 		await markArea(page);
 		await type(page, 'a small red sailboat, one white sail, calm water');
-		await prompt(page).getByRole('group', { name: 'Results' }).getByRole('button', { name: '2', exact: true }).click();
+		await setResults(page, 2);
 		await screenshot(page, JOURNEY, '01-prompt-dark-1440');
 		await generate(page);
 
@@ -598,7 +622,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'red sailboat');
-		await prompt(page).getByRole('group', { name: 'Results' }).getByRole('button', { name: '3', exact: true }).click();
+		await setResults(page, 3);
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(1);
 		update(server, 'done', { candidates: candidates(3) }, 1);
@@ -641,7 +665,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'a lantern');
-		await prompt(page).getByRole('group', { name: 'Results' }).getByRole('button', { name: '2', exact: true }).click();
+		await setResults(page, 2);
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(1);
 		update(server, 'done', { candidates: candidates(2) });
@@ -688,7 +712,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await type(page, 'a lantern');
-		await prompt(page).getByRole('group', { name: 'Results' }).getByRole('button', { name: '2', exact: true }).click();
+		await setResults(page, 2);
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(1);
 		update(server, 'done', { candidates: candidates(2) });
@@ -887,6 +911,39 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(presetDropdown(page)).toBeVisible();
 	});
 
+	test('the result count is a field of Settings and a formula applied from the dock reaches the run', async ({ page }) => {
+		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true, undefined, true);
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await expect(presetTrigger(page)).toHaveText('Qwen-Image 2.1');
+		await expect(prompt(page).locator('[aria-label="Results"]')).toHaveCount(0);
+		await expect(prompt(page).locator('[data-testid="formulas-button"]')).toBeVisible();
+		await markArea(page);
+		await type(page, 'a small red sailboat');
+		await screenshot(page, JOURNEY, '30-count-in-form-dark-1440');
+		await setResults(page, 3);
+		await prompt(page).locator('[data-testid="formulas-button"]').click();
+		const drawer = page.getByRole('dialog', { name: 'Formulas' });
+		await expect(drawer).toBeVisible();
+		await drawer.locator('[data-row-id="formula-1"]').click();
+		await expect.poll(() => server.plans.length).toBeGreaterThan(0);
+		expect(server.plans[0]).toMatchObject({ mode: 'editor:edit' });
+		await drawer.getByRole('button', { name: /^Apply/ }).click();
+		await page.keyboard.press('Escape');
+		await prompt(page).locator('[data-prompt-settings]').click();
+		const view = page.locator('[data-frame-panel] [data-settings-view="desktop"]');
+		const row = view.locator('[data-applied-formula="formula-1"]');
+		await expect(row).toContainText('Crisp and quick');
+		await expect(row.locator('[data-applied-counts]')).toContainText('2 changed · 1 skipped');
+		await screenshot(page, JOURNEY, '31-formula-applied-dark-1440');
+		await generate(page);
+		await expect.poll(() => server.runs.length).toBe(1);
+		expect((server.runs[0].setup as Json).form_data).toMatchObject({ strength: 0.9, steps: 8, quantity: 3 });
+		expect(server.runs[0].candidates).toBe(3);
+		await row.getByRole('button', { name: 'Remove Crisp and quick' }).click();
+		await expect(view.locator('[data-applied-formula]')).toHaveCount(0);
+	});
+
 	test('Settings: change a value, run with it, save through the session control, save as new, and the discard prompts', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true);
 		await openHarbor(page);
@@ -904,7 +961,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(view.locator('[data-settings-header]')).toContainText('Edit a region');
 		await expect(view.locator('[data-settings-setup]')).toHaveText('Qwen-Image 2.1 · Edit · Soft portrait');
 		await expect(view.locator('[data-settings-body]')).toContainText('Strength');
-		await expect(view.locator('[data-settings-body]')).not.toContainText('Quantity');
+		await expect(view.locator('[data-settings-body]')).toContainText('Quantity');
 		await expect(view.locator('[data-settings-body]')).not.toContainText('Picture');
 		expect(server.formModes).toContain('editor:edit');
 		expect(server.formModes).not.toContain('edit');
@@ -924,7 +981,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		const form = (server.runs[0].setup as Json).form_data as Json;
 		expect(form).toMatchObject({ strength: 0.6, steps: 20 });
 		expect(form).not.toHaveProperty('source_image');
-		expect(form).not.toHaveProperty('quantity');
+		expect(form).toMatchObject({ quantity: 1 });
 
 		await prompt(page).locator('[data-testid="session-save"]').click();
 		await expect.poll(() => server.sessionPuts.length).toBe(1);
@@ -1346,6 +1403,22 @@ test.describe('Edit a region on the phone', () => {
 		await expect(page.locator('[data-editor-layer]')).toBeVisible();
 		await expect(prompt(page).locator('[data-prompt-status="warn"]')).toBeVisible();
 		await screenshot(page, JOURNEY, '07-remove-dark-390');
+	});
+
+	test('a formula applied on the phone is listed in Settings', async ({ page }) => {
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()], default: sessionDefault })], true, undefined, true);
+		await openHarbor(page);
+		await openPhoneTask(page, 'edit_region');
+		await prompt(page).locator('[data-testid="formulas-button"]').click();
+		const drawer = page.getByRole('dialog', { name: 'Formulas' });
+		await expect(drawer).toBeVisible();
+		await drawer.locator('[data-row-id="formula-1"]').click();
+		await drawer.getByRole('button', { name: /^Apply/ }).click();
+		await page.keyboard.press('Escape');
+		await prompt(page).locator('[data-prompt-settings]').click();
+		const view = page.locator('[data-settings-view="phone"]');
+		await expect(view.locator('[data-applied-formula="formula-1"]')).toContainText('Crisp and quick');
+		await screenshot(page, JOURNEY, '32-formula-applied-dark-390');
 	});
 
 	test('Settings replace the prompt in the same sheet, with a back arrow and the discard prompt', async ({ page }) => {

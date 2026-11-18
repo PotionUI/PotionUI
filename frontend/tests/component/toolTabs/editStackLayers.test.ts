@@ -90,4 +90,64 @@ describe('EditStack as layers', () => {
 		expect(drawer.querySelector('input[type="range"]')).not.toBeNull();
 		expect(drawer.querySelector('[aria-label="Layer options for Add clouds"]')).not.toBeNull();
 	});
+
+	it('renames a layer from the row menu', async () => {
+		const names: string[] = [];
+		const stack = reopen(build(paint, patch), 's2');
+		const view = mountComponent(EditStack, {
+			stack,
+			original: { summary: '1024×1024 · PNG' },
+			layered: true,
+			isLayer: isLayerStep,
+			layerThumb,
+			appliesBeneath,
+			onreopen: () => {},
+			onseek: () => {},
+			ontogglehidden: () => {},
+			onremove: () => {},
+			onmove: () => {},
+			onrename: (id: string, label: string) => names.push(`${id}:${label}`)
+		});
+		view.target.querySelector<HTMLButtonElement>('[aria-label="Layer options for Add clouds"]')!.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((node) => node.textContent?.includes('Rename'));
+		expect(item).toBeTruthy();
+		item!.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const input = view.target.querySelector<HTMLInputElement>('[data-stack-rename="s2"]')!;
+		expect(input).not.toBeNull();
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(names).toEqual([]);
+		input.value = 'Clouds';
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+		expect(names).toEqual(['s2:Clouds']);
+	});
+
+	it('shows a red dashed drop line with the reason when a drop is refused', async () => {
+		const view = mountComponent(EditStack, {
+			stack: build(crop, paint),
+			original: { summary: '1024×1024 · PNG' },
+			layered: true,
+			isLayer: isLayerStep,
+			layerThumb,
+			appliesBeneath,
+			pinned: [['paint', 'geometry']],
+			onreopen: () => {},
+			onseek: () => {},
+			ontogglehidden: () => {},
+			onremove: () => {},
+			onmove: () => {}
+		});
+		const grip = view.target.querySelector<HTMLElement>('[data-stack-grip="s2"]')!;
+		const row = view.target.querySelector<HTMLElement>('[data-stack-row="s2"]')!;
+		Object.defineProperty(row, 'offsetHeight', { value: 44 });
+		grip.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientY: 100, bubbles: true }));
+		grip.dispatchEvent(new PointerEvent('pointermove', { clientY: 150, bubbles: true }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const refuse = view.target.querySelector('[data-stack-refuse]');
+		expect(refuse).not.toBeNull();
+		expect(refuse!.querySelector('[data-stack-dropline="blocked"]')!.className).toContain('border-danger');
+		expect(text(refuse)).toContain("Sketch can't go below Crop");
+	});
 });

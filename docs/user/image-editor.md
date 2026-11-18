@@ -16,6 +16,27 @@ Open a new Image editor tab from the **+** button in the tab strip. A tab with n
 
 Opening a picture from History, Library or a picture field in a form goes straight to the editor with that picture loaded.
 
+## Layers
+
+The **Edits** list is also your layer list. Each paint stroke group, picture you add and generated region edit is a layer, listed newest on top and the original picture at the bottom. Looks, crops and other whole-picture edits sit in the same list as slimmer rows.
+
+**Add a layer.** Press **+** in the Edits header. The menu says where the layer will go: *Add above* the row you have selected, or *Add on top* when nothing is selected. Choose:
+
+- **Empty paint layer** opens Paint on a fresh transparent layer.
+- **Picture from Library**, **Picture from History** or **Picture from a file** places the picture as a layer. Drag it to move, and use the handles to scale and rotate, then press **Apply**.
+
+A layer added above a look is simply not tinted by that look. Nothing is reordered behind your back.
+
+**Paint on a layer.** Click a layer row to select it. The brush then paints on that layer. If you pick a brush while a look, crop or the original is selected, the first stroke starts a new layer above it.
+
+**Fade, hide, rename.** The selected layer shows an **Opacity** slider under its row. The eye hides a layer without deleting it. Use the row menu (the three dots) for **Rename**, **Duplicate**, **Merge down**, **Move up**, **Move down** and **Delete**.
+
+**Reorder.** Drag a row by its grip, or select it and press **Alt+Up** or **Alt+Down**. On a phone, use **Move up** and **Move down** in the row menu. A crop trims everything beneath it, so layers do not cross one: the drop line turns red and says why. Looks and layers swap freely.
+
+**On a phone.** Edits is a bottom sheet with 48 pixel rows and a 44 pixel **+** button. Adding a layer closes the sheet and opens Paint.
+
+When you save, the layers are flattened in the order shown, with their opacity and visibility, so the saved picture matches what you see.
+
 ## Edits save themselves
 
 As soon as you change a picture, the editor saves the edit in the background. You do not need to press anything. A small indicator in the editor shows when it is saving, saved, or waiting for your connection. If you lose your connection, the editor keeps your changes and sends them when you are back online.

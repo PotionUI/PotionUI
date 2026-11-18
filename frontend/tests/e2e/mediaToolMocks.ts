@@ -195,6 +195,26 @@ export function solidPng(width: number, height: number): Buffer {
 	]);
 }
 
+export function colourPng(width: number, height: number, [red, green, blue]: [number, number, number]): Buffer {
+	const row = Buffer.alloc(1 + width * 3);
+	for (let x = 0; x < width; x++) {
+		row[1 + x * 3] = red;
+		row[2 + x * 3] = green;
+		row[3 + x * 3] = blue;
+	}
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(width, 0);
+	header.writeUInt32BE(height, 4);
+	header[8] = 8;
+	header[9] = 2;
+	return Buffer.concat([
+		Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+		chunk('IHDR', header),
+		chunk('IDAT', deflateSync(Buffer.concat(Array.from({ length: height }, () => row)))),
+		chunk('IEND', Buffer.alloc(0))
+	]);
+}
+
 async function fulfillJson(route: Route, data: unknown, status = 200) {
 	await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: true, data }) });
 }

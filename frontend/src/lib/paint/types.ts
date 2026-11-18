@@ -33,6 +33,7 @@ export interface Layer {
 	visible: boolean;
 	opacity: number;
 	source?: HTMLCanvasElement;
+	internal?: boolean;
 }
 
 export interface PaintDocument {

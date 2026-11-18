@@ -27,6 +27,8 @@
 		layerUrl = null,
 		layerName = null,
 		layerOpacity = 1,
+		above = null,
+		picture = null,
 		tool = 'brush',
 		name,
 		session = new PaintSession(),
@@ -38,6 +40,8 @@
 		layerUrl?: string | null;
 		layerName?: string | null;
 		layerOpacity?: number;
+		above?: HTMLCanvasElement | null;
+		picture?: { canvas: HTMLCanvasElement; name: string } | null;
 		tool?: string;
 		name: string;
 		session?: PaintSession;
@@ -54,6 +58,7 @@
 	let original: HTMLCanvasElement | null = null;
 	let baseId = -1;
 	let targetId = -1;
+	let aboveId = -1;
 	let observer: ResizeObserver | null = null;
 	let stop: (() => void) | null = null;
 	let failed = $state(false);
@@ -104,8 +109,18 @@
 					session.addLayer();
 					if (layerName) session.renameLayer(session.doc.activeIndex, layerName);
 				}
+				if (above) {
+					const active = session.doc.activeIndex;
+					const overlay = session.addPieceLayer(above, 0, 0, 'Layers above');
+					overlay.internal = true;
+					aboveId = overlay.id;
+					session.setActiveLayer(active);
+				}
 				session.markSaved();
 				session.setTool(tool);
+				if (picture) {
+					session.addImage(picture.canvas, picture.name);
+				}
 			} else {
 				throw new Error('Nothing to paint on');
 			}
@@ -128,6 +143,11 @@
 		if (!layer || layer.opacity === value) return;
 		layer.opacity = value;
 		session.invalidate();
+	}
+
+	export function renameTarget(value: string): void {
+		const index = session.doc.layers.findIndex((layer) => layer.id === targetId);
+		if (index >= 0) session.renameLayer(index, value);
 	}
 
 	export function changed(): boolean {
@@ -181,7 +201,7 @@
 		const edited = baseEdits(width, height);
 		if (edited) layers.push({ file: await canvasToPngFile(edited, 'paint-layer.png'), name: 'Original edits', opacity: 1, visible: true });
 		for (const layer of session.doc.layers) {
-			if (layer.id === baseId) continue;
+			if (layer.id === baseId || layer.id === aboveId) continue;
 			const canvas = docCanvas(layer, width, height);
 			if (!hasPixels(canvas)) continue;
 			count += 1;

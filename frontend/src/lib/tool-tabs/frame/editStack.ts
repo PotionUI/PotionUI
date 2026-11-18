@@ -262,6 +262,37 @@ export function duplicateStep<P>(input: EditStackState<P>, id: string, patch: Pa
 	return rewritten(state, after, state.cursor + 1, `Duplicate ${source.label}`, seq);
 }
 
+export function insertSteps<P>(input: EditStackState<P>, drafts: RevisionDraft<P>[], afterId: string | null): EditStackState<P> {
+	const state = settled(input);
+	if (!drafts.length || state.pending?.target) return input;
+	const found = afterId ? state.steps.findIndex((step) => step.id === afterId) : -1;
+	const at = found >= 0 && found < state.cursor ? found + 1 : state.cursor;
+	let seq = state.seq;
+	const added = drafts.map((draft): EditStep<P> => {
+		seq += 1;
+		return { ...draft, id: `s${seq}`, hidden: draft.hidden === true };
+	});
+	const after = [...state.steps.slice(0, at), ...added, ...state.steps.slice(at)];
+	const label = added.length === 1 ? `Add ${added[0].label}` : `Add ${added.length} layers`;
+	return rewritten(state, after, state.cursor + added.length, label, seq);
+}
+
+export function renameStep<P>(input: EditStackState<P>, id: string, label: string, patch: Partial<StepDraft<P>> = {}): EditStackState<P> {
+	const state = settled(input);
+	const step = state.steps.find((entry) => entry.id === id);
+	const name = label.trim();
+	if (!step || !name) return input;
+	if (name === step.label && !Object.keys(patch).length) return input;
+	const revision: StepRevision<P> = {
+		id,
+		at: state.cursor,
+		before: { ...draftOf(step), hidden: step.hidden },
+		after: { ...draftOf(step), ...patch, label: name, hidden: step.hidden }
+	};
+	const steps = state.steps.map((entry) => (entry.id === id ? { ...entry, ...patch, label: name } : entry));
+	return { ...state, steps, revisions: [...(state.revisions ?? []), revision], redoRevisions: [] };
+}
+
 export function mergeInto<P>(input: EditStackState<P>, belowId: string, upperId: string, params: P, label?: string): EditStackState<P> {
 	const state = settled(input);
 	const lower = state.steps.findIndex((step) => step.id === belowId);

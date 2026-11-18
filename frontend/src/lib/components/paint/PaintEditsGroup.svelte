@@ -27,7 +27,7 @@
 	registerIcon('paint-add-image', PAINT_ICONS.addImage);
 
 	let adding = $state(false);
-	let count = $derived(snapshot.layers.length);
+	let count = $derived(snapshot.layers.filter((layer) => !layer.internal).length);
 
 	const items: MenuItem[] = [
 		{ id: 'new', label: 'New layer', icon: 'plus' },

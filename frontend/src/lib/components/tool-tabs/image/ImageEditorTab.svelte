@@ -88,6 +88,8 @@
 		discardPending,
 		duplicateStep,
 		effectiveSteps,
+		insertSteps,
+		renameStep,
 		isLive,
 		mergeInto,
 		move,
@@ -106,6 +108,7 @@
 		updatePending,
 		type EditStackState,
 		type EditStep,
+		type RevisionDraft,
 		type StepDraft
 	} from '$lib/tool-tabs/frame/editStack';
 	import type { RailGroup, SaveAction, SavingProgress } from '$lib/tool-tabs/frame/types';
@@ -138,6 +141,7 @@
 		adjustDraft,
 		catalogDraft,
 		cropDraft,
+		GEOMETRY_LANE,
 		imageRail,
 		isRailTool,
 		isCoreTool,
@@ -511,7 +515,61 @@
 		mode === 'preview' && compare ? (liveEntry ? effective.filter((step) => entryOfStep(step) !== activeTool) : pending ? beforeSteps(stack) : []) : null
 	);
 	let thumbList = $derived(activeTool === 'effects' ? (pending ? beforeSteps(stack) : effective) : null);
-	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' ? stepsBeforeTarget : effective) : null);
+	let layerAnchor = $state<string | null>(null);
+	let layerPicture = $state.raw<{ canvas: HTMLCanvasElement; name: string } | null>(null);
+	let addSource = $state<'library' | 'history' | 'file' | null>(null);
+	let aboveCanvas = $state.raw<HTMLCanvasElement | null>(null);
+	let anchorCount = $derived.by(() => {
+		if (pending?.target || !layerAnchor) return -1;
+		const at = applied.findIndex((step) => step.id === layerAnchor);
+		return at >= 0 && at < applied.length - 1 ? at + 1 : -1;
+	});
+	let paintBelow = $derived(anchorCount >= 0 ? applied.slice(0, anchorCount).filter((step) => !step.hidden) : null);
+	let paintAbove = $derived.by(() => {
+		if (mode !== 'paint') return [];
+		const from = pending?.target ? applied.findIndex((step) => step.id === pending!.target) + 1 : anchorCount;
+		if (from <= 0) return [];
+		const rest = applied.slice(from);
+		const stop = rest.findIndex((step) => step.lane === GEOMETRY_LANE);
+		return (stop >= 0 ? rest.slice(0, stop) : rest).filter((step) => !step.hidden && step.tool === 'paint');
+	});
+	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' ? stepsBeforeTarget : (paintBelow ?? effective)) : null);
+	let aboveKey = $derived(paintAbove.map((step) => `${(step.params as PaintParams).url}@${opacityOf(step)}`).join('|'));
+	let addAboveLabel = $derived.by(() => {
+		const step = selectedStepId ? applied.find((entry) => entry.id === selectedStepId) : null;
+		return step ? `Add above ${step.label}` : 'Add on top';
+	});
+
+	$effect(() => {
+		const list = untrack(() => paintAbove);
+		void aboveKey;
+		const base = paintBase;
+		aboveCanvas = null;
+		if (!list.length || !base) return;
+		let live = true;
+		const width = base.canvas.width;
+		const height = base.canvas.height;
+		void Promise.all(list.map((step) => canvasFromUrl((step.params as PaintParams).url)))
+			.then((images) => {
+				if (!live) return;
+				const out = document.createElement('canvas');
+				out.width = width;
+				out.height = height;
+				const context = out.getContext('2d');
+				images.forEach((image, index) => {
+					if (!context) return;
+					context.globalAlpha = opacityOf(list[index]);
+					context.drawImage(image, 0, 0, width, height);
+				});
+				aboveCanvas = out;
+			})
+			.catch(() => {
+				if (live) aboveCanvas = null;
+			});
+		return () => {
+			live = false;
+		};
+	});
 
 	let appliedSlice = $derived(appliedSteps(stack).find(isSlice) ?? null);
 	let sliceParams = $derived<SliceParams>(
@@ -1083,15 +1141,19 @@
 			const result = await paintStage.exportLayers();
 			if (!result) {
 				if (pending?.tool === 'paint') stack = discardPending(stack);
+				layerPicture = null;
 				return true;
 			}
 			if (!result.layers.length) {
 				if (target) stack = remove(stack, target);
 				else if (pending?.tool === 'paint') stack = discardPending(stack);
+				layerPicture = null;
 				return true;
 			}
 			const size = outputSize(paintList ?? effective, sourceSize) ?? result.size;
 			const taken = new Set(stack.steps.map((step) => step.label));
+			const anchor = target ?? (anchorCount >= 0 ? layerAnchor : null);
+			const added: RevisionDraft<unknown>[] = [];
 			let first = true;
 			for (const layer of result.layers) {
 				const artifact = await uploadMediaToolArtifact(layer.file);
@@ -1104,12 +1166,20 @@
 					stack = apply(updatePending(stack, draft));
 					if (fade !== opacityOf(stack.steps.find((step) => step.id === target) ?? {})) stack = setOpacity(stack, target, fade);
 					if (!layer.visible) stack = toggleHidden(stack, target);
+				} else if (anchor) {
+					added.push({ ...draft, ...(fade < 1 ? { layer: { opacity: fade, blend: 'normal' as const } } : {}), hidden: !layer.visible });
 				} else {
 					stack = apply(beginEdit(stack, fade < 1 ? { ...draft, layer: { opacity: fade, blend: 'normal' } } : draft));
 					if (!layer.visible) stack = toggleHidden(stack, stack.steps[stack.cursor - 1].id);
 				}
 				first = false;
 			}
+			if (added.length && anchor) {
+				const before = stack.seq;
+				stack = insertSteps(stack, added, anchor);
+				layerAnchor = `s${before + added.length}`;
+			} else if (!target) layerAnchor = null;
+			layerPicture = null;
 			return true;
 		} catch (error) {
 			notice = describeMediaToolFailure(error);
@@ -1156,6 +1226,61 @@
 		const params: PaintParams = { ...(step.params as PaintParams), name, layers: 1 };
 		const copy = paintDraft(params, { width: 0, height: 0 });
 		stack = duplicateStep(stack, id, { label: copy.label, summary: copy.summary, params: params as unknown });
+	}
+
+	async function addEmptyLayer() {
+		if (busy || !source) return;
+		if (paintSession && mode === 'paint') {
+			paintSession.addLayer();
+			if (phone) stackOpen = false;
+			return;
+		}
+		const anchor = selectedStepId;
+		if (!(await leaveTool())) return;
+		await openNewLayer(anchor);
+	}
+
+	async function openNewLayer(anchor: string | null, picture: { canvas: HTMLCanvasElement; name: string } | null = null) {
+		const found = anchor ? stack.steps.findIndex((step) => step.id === anchor) : -1;
+		layerAnchor = found >= 0 && found < stack.cursor ? anchor : null;
+		layerPicture = picture;
+		const entry = paintEntryId('brush');
+		notice = null;
+		compare = false;
+		activeTool = entry;
+		host.setActiveTool(entry);
+		if (phone) stackOpen = false;
+	}
+
+	let addAnchor: string | null = null;
+
+	async function startPictureLayer(from: 'library' | 'history' | 'file') {
+		if (busy || !source) return;
+		addAnchor = selectedStepId;
+		addSource = from;
+	}
+
+	async function placePicture(image: { canvas: HTMLCanvasElement; name: string }) {
+		addSource = null;
+		const name = image.name.replace(/\.[^.]+$/, '') || 'Picture';
+		if (paintSession && mode === 'paint') {
+			paintSession.addImage(image.canvas, name);
+			if (phone) stackOpen = false;
+			return;
+		}
+		if (!(await leaveTool())) return;
+		await openNewLayer(addAnchor, { canvas: image.canvas, name });
+	}
+
+	function renameLayer(id: string, label: string) {
+		const step = stack.steps.find((candidate) => candidate.id === id);
+		if (!step) return;
+		const patch: Partial<StepDraft<unknown>> = step.tool === 'paint' && !isFlattenedPaint(step) ? { params: { ...(step.params as PaintParams), name: label } as unknown } : {};
+		stack = renameStep(stack, id, label, patch);
+		if (stack.pending?.target === id) {
+			paintStage?.renameTarget(label);
+			stack = updatePending(stack, { label, ...patch });
+		}
 	}
 
 	async function mergeLayerDown(id: string) {
@@ -1239,11 +1364,20 @@
 			host.setActiveTool(id);
 			return;
 		}
+		const anchor = selectedStepId;
 		if (!(await leaveTool())) return;
 		notice = null;
 		compare = false;
 		activeTool = id;
 		host.setActiveTool(id);
+		layerAnchor = null;
+		if (isPaintEntry(id) && anchor) {
+			const anchored = stack.steps.findIndex((step) => step.id === anchor);
+			if (anchored >= 0 && anchored < stack.cursor) {
+				if (stack.steps[anchored].tool === 'paint') stack = reopen(stack, anchor);
+				else layerAnchor = anchor;
+			}
+		}
 		const existing = id === 'slice' ? appliedSteps(stack).find(isSlice) : null;
 		if (existing) stack = reopen(stack, existing.id);
 		if (stillEffectIds.has(id) && !isLiveEntry(id) && !openEffect(id)) {
@@ -1257,6 +1391,7 @@
 	}
 
 	function closeActiveTool() {
+		layerAnchor = null;
 		if (pending) stack = discardPending(stack);
 		activeTool = null;
 		host.setActiveTool(null);
@@ -1528,10 +1663,12 @@
 	}
 
 	let paintKey = $state(0);
-	let addingPicture = $state(false);
 	const ADD_LAYER_ITEMS: MenuItem[] = [
-		{ id: 'new', label: 'New layer', icon: 'plus' },
-		{ id: 'image', label: 'Add a picture as a layer…', icon: 'paint-add-image' }
+		{ id: 'new', label: 'Empty paint layer', icon: 'editor-tool-brush' },
+		{ id: 'sep', label: '', separator: true },
+		{ id: 'library', label: 'Picture from Library', icon: 'image' },
+		{ id: 'history', label: 'Picture from History', icon: 'clock' },
+		{ id: 'file', label: 'Picture from a file', icon: 'paint-add-image' }
 	];
 
 	const FLATTENED_NOTE_KEY = 'potionui:image-editor:flattened-paint-note';
@@ -2361,7 +2498,7 @@
 	{#if sourceError}
 		<div class="flex flex-1 items-center justify-center bg-scrim p-6 text-sm text-danger" role="alert">{sourceError}</div>
 	{:else if mode === 'paint'}
-		{#if paintBase}
+		{#if paintBase && (!paintAbove.length || aboveCanvas)}
 			{#key paintBase}
 			{#key `${paintKey}:${pending?.target ?? ''}`}
 				<PaintStage
@@ -2370,6 +2507,8 @@
 					layerUrl={pendingHere?.tool === 'paint' && pendingHere.target ? (pendingHere.params as PaintParams).url : null}
 					layerName={paintLayerName}
 					layerOpacity={paintTargetStep ? opacityOf(paintTargetStep) : 1}
+					above={aboveCanvas}
+					picture={layerPicture}
 					tool={paintToolOfEntry(activeTool!)}
 					zoomControl={!phone}
 					name={fileName ?? 'picture'}
@@ -2541,6 +2680,7 @@
 		mergeable={(upper, lower) => upper.tool === 'paint' && !upper.hidden && lower?.tool === 'paint' && !lower.hidden}
 		onduplicate={(id) => void duplicateLayerStep(id)}
 		onmerge={(id) => void mergeLayerDown(id)}
+		onrename={renameLayer}
 		selectedId={selectedStepId}
 		isLayer={isLayerStep}
 		{layerThumb}
@@ -2560,15 +2700,35 @@
 		}}
 	>
 		{#snippet headerActions()}
-			{#if paintSession && paintTargetStep}
-				<span class="relative flex">
-					<Menu label="Add a layer" icon="plus" size="xs" items={ADD_LAYER_ITEMS} onselect={(id) => (id === 'new' ? paintSession?.addLayer() : (addingPicture = true))} align="right" width={240} menuAttrs={{ 'data-layers-add-menu': '' }} />
-					{#if addingPicture}
-						<div class="absolute right-0 top-full z-20">
-							<ImageSourceMenu mode="layer" onPick={(image) => paintSession?.addImage(image.canvas, image.name)} onClose={() => (addingPicture = false)} />
-						</div>
-					{/if}
-				</span>
+			{#if source}
+				<Menu label="Add a layer" icon="plus" size="xs" align="right" width={phone ? 280 : 260} menuAttrs={{ 'data-layers-add-menu': '' }}>
+					{#snippet trigger({ open, toggle })}
+						<IconButton icon="plus" label="Add a layer" size="xs" class={phone ? '!min-h-11 !min-w-11' : ''} ariaExpanded={open} onclick={toggle} data-layers-add />
+					{/snippet}
+					{#snippet children({ close })}
+						<p class="px-2.5 pb-1 pt-1.5 font-mono text-xs uppercase tracking-[0.08em] text-fg-subtle" data-layers-add-heading>{addAboveLabel}</p>
+						{#each ADD_LAYER_ITEMS as item (item.id)}
+							{#if item.separator}
+								<div class="my-1 h-px bg-line" role="separator"></div>
+							{:else}
+								<button
+									type="button"
+									role="menuitem"
+									class="flex w-full items-center gap-2.5 rounded px-2.5 text-left text-sm text-fg hover:bg-surface-3 focus-visible:bg-surface-3 focus-visible:outline-none {phone ? 'h-12' : 'h-9'}"
+									onclick={() => {
+										close(true);
+										if (item.id === 'new') void addEmptyLayer();
+										else void startPictureLayer(item.id as 'library' | 'history' | 'file');
+									}}
+									data-layers-add-item={item.id}
+								>
+									{#if item.icon}<Icon name={item.icon} className="h-4 w-4 flex-shrink-0" />{/if}
+									<span class="min-w-0 flex-1 truncate">{item.label}</span>
+								</button>
+							{/if}
+						{/each}
+					{/snippet}
+				</Menu>
 			{/if}
 		{/snippet}
 		{#snippet progressRow(index)}
@@ -2778,5 +2938,8 @@
 				{/if}
 			{/snippet}
 		</EditorFrame>
+	{/if}
+	{#if addSource}
+		<ImageSourceMenu mode="layer" start={addSource} onPick={(image) => void placePicture(image)} onClose={() => (addSource = null)} />
 	{/if}
 </div>

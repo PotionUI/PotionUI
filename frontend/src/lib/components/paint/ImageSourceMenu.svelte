@@ -15,6 +15,7 @@
 
 	export let mode: 'open' | 'layer';
 	export let dirty: boolean = false;
+	export let start: 'history' | 'library' | 'file' | null = null;
 	export let onPick: (image: PickedImage) => void;
 	export let onClose: () => void;
 
@@ -62,7 +63,10 @@
 		);
 	}
 
+	let chosen = false;
+
 	function picked(media: PickedMedia) {
+		chosen = true;
 		routePicked(media, { history: fromHistory, library: fromLibrary });
 	}
 
@@ -120,6 +124,8 @@
 	let triggers: HTMLElement[] = [];
 
 	onMount(() => {
+		if (start === 'file') fileInput.click();
+		else if (start) picking = start;
 		triggers = Array.from(document.querySelectorAll<HTMLElement>('[data-image-source-trigger]'));
 		window.addEventListener('paste', onPaste);
 	});
@@ -130,6 +136,7 @@
 	});
 </script>
 
+{#if !start}
 <div
 	data-image-source-menu
 	use:dismiss={{ onDismiss: onClose, ignore: triggers }}
@@ -183,13 +190,17 @@
 	{#if failure}
 		<p class="px-2.5 py-1.5 text-xs text-danger">{failure}</p>
 	{/if}
-
-	<input bind:this={fileInput} type="file" accept="image/*" class="hidden" on:change={fromFile} />
 </div>
+{/if}
+
+<input bind:this={fileInput} type="file" accept="image/*" class="hidden" data-image-source-file on:change={fromFile} on:cancel={() => start && onClose()} />
 
 <MediaPickerModal
 	isOpen={picking !== null}
-	onClose={() => (picking = null)}
+	onClose={() => {
+		picking = null;
+		if (start && !chosen) onClose();
+	}}
 	sources={['history', 'library', 'kits']}
 	initialSource={picking ?? 'history'}
 	mediaTypes={['image']}

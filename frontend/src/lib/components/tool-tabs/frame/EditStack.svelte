@@ -40,6 +40,7 @@
 		mergeable = () => false,
 		onduplicate,
 		onmerge,
+		onrename,
 		folded = false,
 		collapsed = $bindable(false),
 		pinned = DEFAULT_PINNED_LANES,
@@ -72,6 +73,7 @@
 		mergeable?: (upper: EditStep<unknown>, lower: EditStep<unknown> | null) => boolean;
 		onduplicate?: (id: string) => void;
 		onmerge?: (id: string) => void;
+		onrename?: (id: string, label: string) => void;
 		folded?: boolean;
 		collapsed?: boolean;
 		pinned?: readonly LanePair[];
@@ -124,6 +126,33 @@
 	});
 	let dropAllowed = $derived(drag ? dropIndex === drag.from || canMove(stack, drag.id, dropIndex, pinned) : false);
 
+	let renaming = $state<{ id: string } | null>(null);
+	let renameText = $state('');
+
+	function finishRename(commit: boolean) {
+		const current = renaming;
+		const text = renameText.trim();
+		renaming = null;
+		if (commit && current && text) onrename?.(current.id, text);
+	}
+
+	function focusInput(node: HTMLInputElement) {
+		setTimeout(() => {
+			node.focus();
+			node.select();
+		}, 0);
+	}
+
+	let refusal = $derived.by(() => {
+		if (!drag || dropAllowed) return null;
+		const moving = stack.steps.find((step) => step.id === drag!.id);
+		const path = stack.steps.slice(Math.min(drag.from, dropIndex), Math.max(drag.from, dropIndex) + 1).filter((step) => step.id !== drag!.id);
+		const blocker = path.find((step) => step.lane && pinned.some((pair) => pair.includes(step.lane!) && (!moving?.lane || moving.lane !== step.lane) && pair.includes(moving?.lane ?? '')));
+		const below = dropIndex < drag.from;
+		if (!moving || !blocker) return `${moving?.label ?? 'This layer'} can't go there.`;
+		return `${moving.label} can't go ${below ? 'below' : 'above'} ${blocker.label}. ${blocker.label} reshapes everything beneath it, so layers stay on one side.`;
+	});
+
 	const pad = (n: number) => String(n).padStart(2, '0');
 
 	function draggable(row: StackRow<unknown>): boolean {
@@ -147,6 +176,7 @@
 	}
 
 	function rowHeight(row: StackRow<unknown>): string {
+		if (sheet && layered) return 'h-12';
 		if (!layered || row.key === 'original' || isLayerRow(row)) return 'h-11';
 		return 'h-10';
 	}
@@ -181,6 +211,7 @@
 			{ id: 'up', label: 'Move up', icon: 'chevron-up', disabled: !row.step || !canMove(stack, row.step.id, index + 1, pinned) },
 			{ id: 'down', label: 'Move down', icon: 'chevron-down', disabled: !row.step || !canMove(stack, row.step.id, index - 1, pinned) },
 			{ id: 'sep', label: '', separator: true },
+			{ id: 'rename', label: 'Rename', icon: 'pencil', disabled: !onrename || !row.step || row.status === 'undone' },
 			{ id: 'duplicate', label: 'Duplicate', icon: 'copy', disabled: !row.step || !duplicable(row.step) || row.status === 'undone' },
 			{ id: 'merge', label: 'Merge down', icon: 'layers', disabled: !row.step || !mergeable(row.step, stack.steps[row.index - 2] ?? null) },
 			{ id: 'sep2', label: '', separator: true },
@@ -193,6 +224,10 @@
 		const index = row.index - 1;
 		if (id === 'up') onmove(row.step.id, index + 1);
 		else if (id === 'down') onmove(row.step.id, index - 1);
+		else if (id === 'rename') {
+			renameText = row.step.label;
+			renaming = { id: row.step.id };
+		}
 		else if (id === 'duplicate') onduplicate?.(row.step.id);
 		else if (id === 'merge') onmerge?.(row.step.id);
 		else if (id === 'delete') onremove(row.step.id);
@@ -249,12 +284,22 @@
 	}
 </script>
 
+{#snippet refusalLine()}
+	<div class="mx-1 my-0.5" data-stack-refuse>
+		<div class="border-t-2 border-dashed border-danger" data-stack-dropline="blocked"></div>
+		<p class="flex items-start gap-1.5 px-1 pt-1 text-sm text-danger"><Icon name="lock" className="mt-px h-3.5 w-3.5 flex-none" /><span>{refusal}</span></p>
+	</div>
+{/snippet}
+
 <section class="flex min-h-0 flex-col {sheet ? '' : `stack-panel ${shut ? 'h-11 overflow-hidden' : grouped ? 'h-[320px] max-h-[60%]' : 'h-[236px]'} flex-none border-t border-line`}" aria-label="Edits" data-edit-stack={variant} data-folded={shut || undefined}>
 	{#if sheet}
 		<div class="flex flex-none items-center gap-2 px-2 pb-2.5 pt-1">
 			<h2 class="text-lg font-semibold text-fg">Edits</h2>
 			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count>{applied}</span>
 			<span class="flex-1"></span>
+			{#if headerActions}
+				{@render headerActions()}
+			{/if}
 			<IconButton icon="editor-undo" label={undoLabel(stack) ? `Undo ${undoLabel(stack)}` : 'Undo'} size="sm" disabled={!canUndo(stack)} onclick={() => onundo?.()} />
 			<IconButton icon="editor-redo" label={redoLabel(stack) ? `Redo ${redoLabel(stack)}` : 'Redo'} size="sm" disabled={!canRedo(stack)} onclick={() => onredo?.()} />
 		</div>
@@ -289,6 +334,10 @@
 			{@const layerRow = isLayerRow(row)}
 			{@const thumb = info?.thumb ?? (layerRow && row.step ? layerThumb(row.step) : null)}
 			{@const slim = layered && row.key !== 'original' && !layerRow}
+			{@const dropHere = !!refusal && !!drag && row.index - 1 === dropIndex}
+			{#if dropHere && (dropIndex > (drag?.from ?? 0)) === layered}
+				{@render refusalLine()}
+			{/if}
 			<div
 				role="listitem"
 				class="group relative flex {rowHeight(row)} items-center gap-2 rounded pl-1 pr-1.5
@@ -355,7 +404,25 @@
 								{row.hidden ? 'opacity-[0.45]' : ''}"
 						>
 							{#if row.status === 'editing' || row.status === 'pending'}<i class="h-1.5 w-1.5 flex-none rounded-full bg-signal" data-stack-marker={row.status}></i>{/if}
-							<span class="truncate">{row.key === 'original' ? (original.label ?? 'Original') : step?.label}</span>
+							{#if renaming && row.step && renaming.id === row.step.id}
+								<input
+									use:focusInput
+									type="text"
+									aria-label="Layer name"
+									class="h-6 min-w-0 flex-1 rounded border border-line-strong bg-surface-1 px-1.5 text-base text-fg focus-visible:outline-none focus-visible:border-signal"
+									bind:value={renameText}
+									onclick={(event) => event.stopPropagation()}
+									onkeydown={(event) => {
+										event.stopPropagation();
+										if (event.key === 'Enter') finishRename(true);
+										else if (event.key === 'Escape') finishRename(false);
+									}}
+									onblur={() => finishRename(true)}
+									data-stack-rename={row.key}
+								/>
+							{:else}
+								<span class="truncate">{row.key === 'original' ? (original.label ?? 'Original') : step?.label}</span>
+							{/if}
 						</span>
 						{#if info && row.step && row.status !== 'undone' && row.status !== 'pending' && info.state.kind !== 'done'}
 							<span class="flex min-w-0 items-center gap-1.5 text-sm" data-stack-state={info.state.kind}>
@@ -382,7 +449,7 @@
 						{/if}
 					</span>
 				{/snippet}
-				{#if row.key === 'original' || row.status === 'pending' || (info?.locked && row.status !== 'undone')}
+				{#if row.key === 'original' || row.status === 'pending' || (info?.locked && row.status !== 'undone') || (renaming && renaming.id === row.step?.id)}
 					<span class="flex min-w-0 flex-1 items-center gap-2" data-stack-locked={info?.locked ? '' : undefined}>{@render body()}</span>
 				{:else}
 					<button
@@ -410,8 +477,8 @@
 				{#if info?.state.kind === 'busy' && info.state.progress !== undefined}
 					<span class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-surface-3" data-stack-progress><i class="block h-full bg-signal" style="width: {info.state.progress}%"></i></span>
 				{/if}
-				{#if layered && row.step && !sheet && row.status !== 'undone' && row.status !== 'pending'}
-					{#if layerRow}
+				{#if layered && row.step && row.status !== 'undone' && row.status !== 'pending'}
+					{#if layerRow && !sheet}
 						<span class="flex-none font-mono text-sm tabular-nums {isSelected(row) ? 'text-fg' : 'text-fg-subtle'} {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-opacity={row.key}>{percent(row.step)}%</span>
 					{/if}
 					{#if info?.hideToggle !== false}
@@ -419,6 +486,7 @@
 							icon={row.hidden ? 'editor-eye-off' : 'editor-eye'}
 							label="{row.hidden ? 'Show' : 'Hide'} {row.step.label}"
 							size="xs"
+							class={sheet ? 'min-h-11 min-w-11' : ''}
 							ariaPressed={row.hidden}
 							onclick={() => row.step && ontogglehidden(row.step.id)}
 							data-stack-hide={row.key}
@@ -471,6 +539,9 @@
 					</div>
 					<Menu label="Layer options for {row.step.label}" icon="chat-more" size="xs" items={drawerItems(row)} onselect={(id) => chooseDrawer(row, id)} menuAttrs={{ 'data-layer-menu': row.key }} />
 				</div>
+			{/if}
+			{#if dropHere && (dropIndex > (drag?.from ?? 0)) !== layered}
+				{@render refusalLine()}
 			{/if}
 			{#if grouped && progressRow && slot === row.key}
 				<div role="listitem" class="mt-0.5" data-stack-group>

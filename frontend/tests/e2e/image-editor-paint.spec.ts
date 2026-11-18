@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { clearEdits, editorMenuItem, loginAsOwner, ownerToken, scopedStorageKey, screenshot, selectRailTool } from './helpers';
-import { solidPng } from './mediaToolMocks';
+import { colourPng, solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-paint';
 const GENERATION_ID = 'gen-e2e-dusk';
@@ -662,5 +662,129 @@ test.describe('Paint layers are kept one by one', () => {
 		await page.getByRole('menuitem', { name: 'Merge down', exact: true }).click();
 		await expect(page.locator('[data-edit-stack="panel"] [data-stack-kind="layer"]')).toHaveCount(3);
 		expect(log.artifacts).toBe(4);
+	});
+});
+
+test.describe('Adding layers from the Edits list', () => {
+	test.use({ viewport: { width: 1440, height: 1100 } });
+
+	const panel = (page: Page) => page.locator('[data-edit-stack="panel"]');
+	const row = (page: Page, id: string) => panel(page).locator(`[data-stack-row="${id}"]`);
+	const order = (page: Page) => panel(page).locator('[data-stack-kind="layer"]').evaluateAll((rows) => rows.map((node) => node.getAttribute('data-stack-row')).reverse());
+	const add = async (page: Page, item: string) => {
+		await panel(page).locator('[data-layers-add]').click();
+		await page.locator(`[data-layers-add-item="${item}"]`).click();
+	};
+
+	test('an empty layer goes above the selected one, a picture joins it, and the saved file keeps the order', async ({ page }) => {
+		const log = await start(page);
+		await page.route('**/api/e2e-art/art-2.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: colourPng(64, 64, [17, 17, 17]) }));
+		await openDusk(page);
+		await openPaint(page, 'brush');
+		await stroke(page, -80, -70);
+		await add(page, 'new');
+		await stroke(page, -80, 40);
+		await page.locator('[data-options-apply]').click();
+		await expect.poll(() => order(page)).toEqual(['s1', 's2']);
+
+		await row(page, 's1').locator('[data-stack-open]').click();
+		await expect(page.locator(CANVAS)).toBeVisible();
+		await expect
+			.poll(() =>
+				page.locator(CANVAS).evaluate((canvas: HTMLCanvasElement) => {
+					const context = canvas.getContext('2d')!;
+					const [red, green, blue, alpha] = context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+					return red < 45 && green < 45 && blue < 45 && alpha > 200;
+				})
+			)
+			.toBe(true);
+		await panel(page).locator('[data-layers-add]').click();
+		await expect(page.locator('[data-layers-add-heading]')).toHaveText('Add above Paint 1');
+		await screenshot(page, JOURNEY, '22-fe391-add-menu-1440');
+		await page.locator('[data-layers-add-item="new"]').click();
+		await stroke(page, 60, -60);
+		await page.locator('[data-options-apply]').click();
+		await expect.poll(() => order(page)).toEqual(['s1', 's3', 's2']);
+
+		const chooser = page.waitForEvent('filechooser');
+		await add(page, 'file');
+		await (await chooser).setFiles({ name: 'badge.png', mimeType: 'image/png', buffer: colourPng(160, 120, [240, 190, 40]) });
+		await expect(page.locator(CANVAS)).toBeVisible();
+		await page.locator('[data-options-apply]').click();
+		await expect.poll(() => order(page)).toEqual(['s1', 's3', 's4', 's2']);
+		await expect(row(page, 's4')).toContainText('badge');
+
+		await row(page, 's2').locator('[data-stack-open]').focus();
+		await page.keyboard.press('Alt+ArrowDown');
+		await expect.poll(() => order(page)).toEqual(['s1', 's3', 's2', 's4']);
+
+		await row(page, 's3').locator('[data-stack-hide]').click();
+		await expect(row(page, 's3')).toHaveAttribute('data-hidden', 'true');
+
+		await page.locator('[data-frame-save]').click();
+		await expect.poll(() => log.runs.length).toBe(1);
+		const steps = log.runs[0].steps as Array<{ tool: string; hidden?: boolean }>;
+		expect(steps.map((step) => step.tool)).toEqual(['paint_layer', 'paint_layer', 'paint_layer', 'paint_layer']);
+		expect(steps.map((step) => step.hidden === true)).toEqual([false, true, false, false]);
+	});
+
+	test('a layer renames from its menu and Duplicate works on a picture layer', async ({ page }) => {
+		await start(page);
+		await openDusk(page);
+		await openPaint(page, 'brush');
+		const chooser = page.waitForEvent('filechooser');
+		await add(page, 'file');
+		await (await chooser).setFiles({ name: 'badge.png', mimeType: 'image/png', buffer: colourPng(160, 120, [240, 190, 40]) });
+		await expect(page.locator(CANVAS)).toBeVisible();
+		await page.waitForTimeout(400);
+		await screenshot(page, JOURNEY, '23-fe391-picture-layer-1440');
+		await page.locator('[data-options-apply]').click();
+		await expect.poll(() => order(page)).toEqual(['s1']);
+		await row(page, 's1').locator('[data-stack-open]').click();
+		await page.getByRole('button', { name: /^Layer options for/ }).click();
+		await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
+		const input = row(page, 's1').locator('[data-stack-rename]');
+		await expect(input).toBeVisible();
+		await input.fill('Badge');
+		await input.press('Enter');
+		await expect(row(page, 's1')).toContainText('Badge');
+		await page.getByRole('button', { name: /^Layer options for/ }).click();
+		await page.getByRole('menuitem', { name: 'Duplicate', exact: true }).click();
+		await expect.poll(() => order(page)).toEqual(['s1', 's2']);
+		await expect(row(page, 's2')).toContainText('Badge copy');
+	});
+});
+
+test.describe('Adding layers on a phone', () => {
+	test.use({ viewport: { width: 390, height: 844 } });
+
+	test('the Edits sheet has a 44 high add button and 48 high rows, and a new layer opens in Paint', async ({ page }) => {
+		await mockEditor(page);
+		await loginAsOwner(page);
+		await clearEdits(page);
+		await page.goto('/generate');
+		await expect(page.locator('.studio-topbar')).toBeVisible({ timeout: 15000 });
+		await page.getByRole('button', { name: /^Open tabs/ }).click();
+		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
+		const phone = page.getByTestId('phone-tool-tab');
+		await phone.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
+		await expect(phone.locator('[data-tool-rail="strip"]')).toBeVisible();
+		await phone.locator('[data-tool-rail="strip"] button[data-group-button="paint"]').click();
+		await page.locator('[data-rail-sheet="paint"] [data-sheet-item="paint.brush"]').click();
+		await expect(phone.locator('[data-paint-tool-panel="brush"]')).toBeVisible();
+		await phone.locator('[data-frame-edits]').click();
+		const sheet = page.getByRole('dialog', { name: 'Edits' });
+		const plus = sheet.locator('[data-layers-add]');
+		const size = (await plus.boundingBox())!;
+		expect(size.width).toBeGreaterThanOrEqual(44);
+		expect(size.height).toBeGreaterThanOrEqual(44);
+		await plus.click();
+		const item = page.locator('[data-layers-add-item="new"]');
+		expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(48);
+		await screenshot(page, JOURNEY, '24-fe391-390');
+		await item.click();
+		await expect(sheet).toHaveCount(0);
+		await expect(phone.locator(CANVAS)).toBeVisible();
 	});
 });

@@ -44,7 +44,7 @@
 	let rows = $derived(
 		snapshot.layers
 			.map((layer, index) => ({ layer, index }))
-			.filter(({ layer }) => layer.id !== snapshot.floatingId)
+			.filter(({ layer }) => layer.id !== snapshot.floatingId && !layer.internal)
 			.reverse()
 	);
 	let active = $derived(snapshot.layers[snapshot.activeIndex]);
@@ -67,7 +67,7 @@
 	}
 
 	function rowItems(index: number): MenuItem[] {
-		const top = snapshot.layers.length - 1;
+		const top = snapshot.layers.findLastIndex((layer) => !layer.internal);
 		const items: MenuItem[] = [
 			{ id: 'rename', label: 'Rename', icon: 'edit' },
 			{ id: 'duplicate', label: 'Duplicate', icon: 'copy' },

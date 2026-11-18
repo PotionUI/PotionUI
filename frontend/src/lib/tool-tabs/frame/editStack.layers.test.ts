@@ -6,9 +6,11 @@ import {
 	createStack,
 	deserialize,
 	duplicateStep,
+	insertSteps,
 	mergeInto,
 	opacityOf,
 	redo,
+	renameStep,
 	reopen,
 	serialize,
 	setOpacity,
@@ -159,5 +161,37 @@ describe('duplicating and merging layers', () => {
 	it('only merges neighbours', () => {
 		const stack = stackOf('paint', 'crop', 'paint');
 		expect(mergeInto(stack, 's1', 's3', {})).toBe(stack);
+	});
+});
+
+describe('adding layers at a position', () => {
+	const labels = (state: EditStackState<unknown>) => state.steps.map((step) => step.label);
+
+	it('puts new layers right above the anchor, in order, as one undo', () => {
+		const stack = stackOf('paint', 'crop', 'effects');
+		const next = insertSteps(stack, [draft('paint', 'A'), draft('paint', 'B')], 's1');
+		expect(labels(next)).toEqual(['paint', 'A', 'B', 'crop', 'effects']);
+		expect(next.cursor).toBe(5);
+		expect(next.steps.map((step) => step.id)).toEqual(['s1', 's4', 's5', 's2', 's3']);
+		expect(labels(undo(next))).toEqual(['paint', 'crop', 'effects']);
+	});
+
+	it('keeps undone steps behind the cursor and lands on top when the anchor is missing', () => {
+		const stack = undo(stackOf('paint', 'crop'));
+		expect(labels(insertSteps(stack, [draft('paint', 'A')], null))).toEqual(['paint', 'A', 'crop']);
+		expect(labels(insertSteps(stack, [draft('paint', 'A')], 'gone'))).toEqual(['paint', 'A', 'crop']);
+	});
+
+	it('creates hidden layers when asked', () => {
+		const next = insertSteps(stackOf('paint', 'crop'), [{ ...draft('paint', 'A'), hidden: true }], 's1');
+		expect(next.steps[1].hidden).toBe(true);
+	});
+
+	it('renames a step undoably and refuses an empty name', () => {
+		const stack = stackOf('paint');
+		const renamed = renameStep(stack, 's1', ' Sky ', { params: { layer: 'p1', url: 'u', layers: 1, name: 'Sky' } });
+		expect(renamed.steps[0].label).toBe('Sky');
+		expect(labels(undo(renamed))).toEqual(['paint']);
+		expect(renameStep(stack, 's1', '   ')).toBe(stack);
 	});
 });

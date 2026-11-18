@@ -152,7 +152,7 @@ describe('the generation details', () => {
 		details.destroy();
 	});
 
-	it('has no origin row for a generation started in a tab', () => {
+	it('has no origin badge for a generation started in a tab', () => {
 		const details = mountDetails(null);
 		expect(document.body.querySelector('[data-details-origin]')).toBeNull();
 		details.destroy();

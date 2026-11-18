@@ -364,6 +364,7 @@
 							<GenerationCard
 								generation={box.item}
 								tile={{ width: box.width, height: box.height }}
+								live
 								on:imageClick={handleImageClick}
 								on:viewClick={handleViewGeneration}
 								on:deleteClick={handleDeleteClick}

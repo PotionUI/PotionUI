@@ -20,7 +20,9 @@
 	import { api } from '$lib/services/api/index';
 	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { tabsStore } from '$lib/stores/tabs';
-	import { WebSocketService, createGenerationSocket, type WebSocketMessage } from '$lib/services/websocket';
+	import { WebSocketService, createGenerationSocket } from '$lib/services/websocket';
+	import { liveWatcher } from '$lib/generation/live/liveDefault';
+	import type { LiveGeneration } from '$lib/generation/live/liveState';
 	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
 	import { announceReuseConversion } from '$lib/utils/reuseNotice';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
@@ -247,18 +249,9 @@
 	}
 
 	// ── Live status updates ────────────────────────────────────────────────
-	// Subscribe to the generation WebSocket for any in-progress generations
-	// currently shown, so their status/progress update without a manual refresh.
 	let ws: WebSocketService | null = null;
 	let unsubscribeConnection: (() => void) | null = null;
-	const subscribedIds = new Set<string>();
-
-	$: activeIds = currentState.generations
-		.filter((g) => g.status === 'pending' || g.status === 'running')
-		.map((g) => g.id);
-
-	// Re-sync subscriptions whenever the socket is ready or the active set changes.
-	$: if (ws) syncSubscriptions(activeIds);
+	let unsubscribeTerminal: (() => void) | null = null;
 
 	// ── Discover new generations (e.g. started in another tab/device) ──────────
 	// The WebSocket only streams ids this tab already knows about, so a watcher
@@ -279,51 +272,9 @@
 		void versionWatcher?.check();
 	}
 
-	function handleWsMessage(message: WebSocketMessage) {
-		const m = message as Record<string, any>;
-		const generationId = generationIdOf(message);
-		let status: string | null = null;
-		let progress: number | undefined;
-
-		if (m.type === 'generation_status') {
-			status = m.status ?? null;
-			progress = typeof m.progress === 'number' ? m.progress : undefined;
-		} else if (m.type === 'generation_complete') {
-			status = 'completed';
-		} else if (m.type === 'generation_error') {
-			status = 'failed';
-		} else if (m.type === 'generation_cancelled') {
-			status = 'cancelled';
-		} else {
-			return;
-		}
-
-		if (!generationId || !status) return;
-		historyStore.applyLiveStatus(generationId, status, progress);
-
-		// On a terminal state, refetch so the finished thumbnail/files appear. The
-		// event already proves the list changed, so this refetches rather than
-		// asking the version token whether it should.
-		if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-			versionWatcher?.notifyChanged();
-		}
-	}
-
-	function syncSubscriptions(ids: string[]) {
-		if (!ws) return;
-		const next = new Set(ids);
-		for (const id of next) {
-			if (!subscribedIds.has(id)) {
-				ws.subscribe(id, handleWsMessage);
-				subscribedIds.add(id);
-			}
-		}
-		for (const id of [...subscribedIds]) {
-			if (!next.has(id)) {
-				ws.unsubscribe(id, handleWsMessage);
-				subscribedIds.delete(id);
-			}
-		}
+	function handleLiveTerminal(state: LiveGeneration) {
+		historyStore.applyLiveStatus(state.id, state.status);
+		versionWatcher?.notifyChanged();
 	}
 
 	onMount(() => {
@@ -358,6 +309,7 @@
 			versionWatcher?.connectionChanged(connected)
 		);
 		ws.connect();
+		unsubscribeTerminal = liveWatcher.onTerminal(handleLiveTerminal);
 
 		document.addEventListener('visibilitychange', handleVisibility);
 		window.addEventListener('focus', handleFocus);
@@ -369,13 +321,13 @@
 		versionWatcher = null;
 		unsubscribeConnection?.();
 		unsubscribeConnection = null;
+		unsubscribeTerminal?.();
+		unsubscribeTerminal = null;
 		if (typeof document !== 'undefined') {
 			document.removeEventListener('visibilitychange', handleVisibility);
 			window.removeEventListener('focus', handleFocus);
 		}
 		if (ws) {
-			for (const id of subscribedIds) ws.unsubscribe(id, handleWsMessage);
-			subscribedIds.clear();
 			ws.disconnect();
 			ws = null;
 		}

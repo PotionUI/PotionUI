@@ -7,6 +7,8 @@
 	import { setFrameContext } from '$lib/tool-tabs/frame/context';
 	import { resolveFrameKey, targetActivatesOn } from '$lib/tool-tabs/frame/keymap';
 	import type { StackVariant } from '$lib/tool-tabs/frame/types';
+	import type { CanvasAction } from '$lib/editors/railTools';
+	import CanvasActionBar from './CanvasActionBar.svelte';
 	import FrameSheet from './FrameSheet.svelte';
 
 	let {
@@ -20,6 +22,7 @@
 		panelSide = 'left',
 		barVisible = true,
 		phoneSize = null,
+		canvasActions = [],
 		onundo,
 		onredo,
 		onsave,
@@ -45,6 +48,7 @@
 		panelSide?: 'left' | 'right';
 		barVisible?: boolean;
 		phoneSize?: string | null;
+		canvasActions?: CanvasAction[];
 		onundo: () => void;
 		onredo: () => void;
 		onsave: () => void;
@@ -63,6 +67,7 @@
 
 	let root = $state<HTMLElement | null>(null);
 	let spaceHeld = $state(false);
+	let drawing = $state(false);
 
 	setFrameContext({
 		get spaceHeld() {
@@ -105,6 +110,15 @@
 		if (!active) spaceHeld = false;
 	});
 
+	function pointerDown(event: PointerEvent) {
+		if (event.button !== 0 || (event.target instanceof Element && event.target.closest('[data-canvas-actions-host], [data-canvas-actions]'))) return;
+		drawing = true;
+	}
+
+	function pointerUp() {
+		drawing = false;
+	}
+
 	function hold(on: boolean) {
 		if (canCompare) compare = on;
 	}
@@ -117,7 +131,7 @@
 	}
 </script>
 
-<svelte:window onkeydowncapture={onkeydown} onkeyup={onkeyup} onblur={() => (spaceHeld = false)} />
+<svelte:window onkeydowncapture={onkeydown} onkeyup={onkeyup} onblur={() => (spaceHeld = false)} onpointerupcapture={pointerUp} onpointercancelcapture={pointerUp} />
 
 {#snippet panel()}
 	<aside class="flex min-h-0 flex-none flex-col border-line bg-surface-1 {panelSide === 'left' ? 'border-r' : 'border-l'}" style="width: {settingsPaneWidth($viewportWidth)}px" aria-label="Tool options and edits" data-frame-panel={panelSide}>
@@ -130,7 +144,7 @@
 {#if phone}
 	<div bind:this={root} class="relative flex h-full min-h-0 flex-col bg-canvas" data-editor-frame="phone">
 		{@render toolbar()}
-		<div class="relative flex min-h-0 flex-1">
+		<div class="relative flex min-h-0 flex-1" onpointerdowncapture={pointerDown} role="presentation">
 			{@render canvas()}
 			<div class="pointer-events-none absolute inset-x-2.5 flex items-center justify-between {phoneChips === 'top' ? 'top-2.5' : 'bottom-2.5'}">
 				<div class="pointer-events-auto flex items-center gap-1.5">
@@ -175,6 +189,7 @@
 			</div>
 		</div>
 		{@render below?.()}
+		<CanvasActionBar actions={canvasActions} hidden={drawing} variant="strip" />
 		{#if bar && barVisible}
 			<div class="flex h-12 flex-none items-center gap-2.5 border-t border-line bg-surface-1 px-3" data-options-bar="phone">
 				{@render bar()}
@@ -197,8 +212,9 @@
 			{@render rail?.()}
 			{#if panelSide === 'left'}{@render panel()}{/if}
 			<div class="flex min-w-0 flex-1 flex-col">
-				<div class="relative flex min-h-0 flex-1">
+				<div class="relative flex min-h-0 flex-1" onpointerdowncapture={pointerDown} role="presentation" data-frame-canvas>
 					{@render canvas()}
+					<CanvasActionBar actions={canvasActions} hidden={drawing} />
 				</div>
 				{@render below?.()}
 				{#if dock}

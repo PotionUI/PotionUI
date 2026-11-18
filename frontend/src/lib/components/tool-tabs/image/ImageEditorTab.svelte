@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import Icon from '$lib/components/Icon.svelte';
@@ -22,7 +22,9 @@
 	import SaveMenuRows from '$lib/components/tool-tabs/frame/SaveMenuRows.svelte';
 	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
 	import { editorsRevision, entryKey } from '$lib/editors/registry';
-	import { railTools } from '$lib/editors/railTools';
+	import { canvasActionsOf, railTools } from '$lib/editors/railTools';
+	import { overlays } from '$lib/editors/overlays';
+	import { tasks } from '$lib/editors/tasks';
 	import { reopenToolOf, stepKinds } from '$lib/editors/stepKinds';
 	import { ensureCoreImageEditor } from '$lib/tool-tabs/image/coreEditor';
 	import { imageRowInfo, outOfDateCount, outOfDateNotice, runStepAction, stepOutOfDate, stepsBeneath } from '$lib/tool-tabs/image/stepKinds';
@@ -39,7 +41,9 @@
 	import DockStaleNotice from '$lib/components/tool-tabs/generate/DockStaleNotice.svelte';
 	import RunOverlay from '$lib/components/tool-tabs/generate/RunOverlay.svelte';
 	import StaleOutline from '$lib/components/tool-tabs/generate/StaleOutline.svelte';
-	import { LASSO_OVERLAY, chooseOverlay, maskArea, maskToolState } from '$lib/tool-tabs/image/maskOverlays';
+	import { LASSO_OVERLAY, chooseOverlay, maskArea, maskToolEntries, maskToolState } from '$lib/tool-tabs/image/maskOverlays';
+	import { focusDockPrompt, maskControls, type ImageCanvasSurface } from '$lib/tool-tabs/image/canvasActions';
+	import type { Point } from '$lib/paint/types';
 	import { createImageToolHost } from '$lib/tool-tabs/image/toolHost';
 	import { paintFilters } from '$lib/paint/registries';
 	import { filterCatalog, loadFilterCatalog } from '$lib/filters/catalog';
@@ -270,6 +274,7 @@
 	let maskBrush = $state(48);
 	let maskErase = $state(false);
 	let maskDirty = $state(false);
+	let maskSeed = $state.raw<{ path: Point[]; width: number; height: number } | null>(null);
 	let maskHistory = $state({ canUndo: false, canRedo: false });
 
 	let presetNames = $state<Record<string, string>>({});
@@ -1303,6 +1308,30 @@
 		if (stack.pending) stack = sliceLast(apply(stack));
 	}
 
+	function clearSlice() {
+		sliceSelected = [];
+		setSlice({ ...sliceParams, cells: [], layout: { ...sliceParams.layout, preset: null, detected: null } }, 'clear');
+	}
+
+	function cancelCrop() {
+		if (mode === 'crop') closeActiveTool();
+	}
+
+	async function editSelectedArea() {
+		const session = paintSession;
+		const selection = session?.selection;
+		const target = railTools.list('image').find((entry) => entry.task === 'edit_region');
+		if (!session || !selection || !target) return;
+		maskSeed = { path: selection.path.map((point) => ({ x: point.x, y: point.y })), width: session.doc.width, height: session.doc.height };
+		await selectTool(target.id);
+		if (activeTool !== target.id) {
+			maskSeed = null;
+			return;
+		}
+		await tick();
+		focusDockPrompt();
+	}
+
 	function resetTool() {
 		notice = null;
 		if (liveEntry && activeTool) {
@@ -1363,6 +1392,22 @@
 
 	function onPaintKey(event: KeyboardEvent) {
 		if (!source || busy || !pageOwnsKeys(event)) return;
+		if (event.key === 'Escape' && !event.defaultPrevented) {
+			if (mode === 'paint' && paintSession) {
+				const handled = paintSession.cancelSelectionStroke() || (!!paintState?.hasSelection && (paintSession.deselect(), true));
+				if (handled) {
+					event.preventDefault();
+					event.stopPropagation();
+				}
+				return;
+			}
+			if (mode === 'crop' && pendingHere?.tool === 'crop') {
+				event.preventDefault();
+				event.stopPropagation();
+				cancelCrop();
+			}
+			return;
+		}
 		const entries = railGroups.flatMap((group) => group.tools.filter((tool) => isPaintEntry(tool.id) && !tool.disabled && tool.keys).map((tool) => ({ id: tool.id, key: tool.keys })));
 		const id = paintToolForKey(event, entries);
 		if (!id) return;
@@ -1812,6 +1857,38 @@
 								? applyOverride.enabled
 								: !!pendingHere || !!catalogTool)
 	);
+	const overlayRevision = overlays.revision;
+	let canvasSurface = $derived.by<ImageCanvasSurface>(() => {
+		void $overlayRevision;
+		const taskId = registeredTool?.task;
+		return {
+			paint: paintActive && paintSession && paintState ? { session: paintSession, state: paintState } : null,
+			mask:
+				mode === 'mask'
+					? maskControls({
+							entries: maskToolEntries(),
+							state: $maskToolState,
+							erase: maskErase,
+							brush: maskBrush,
+							hasArea: !!$maskArea,
+							canFocusPrompt: !!taskId && tasks.get('image', taskId)?.prompt !== 'none',
+							onBrush: (value) => (maskBrush = value),
+							onErase: (erase) => (maskErase = erase),
+							onClear: resetTool,
+							onInvert: () => maskLayer?.invert(),
+							onChoose: chooseOverlay
+						})
+					: null,
+			crop: cropInput ? { params: cropParams, input: cropInput, canApply, change: (next) => setDraft('crop', next), apply: () => void applyTool(), cancel: cancelCrop } : null,
+			slice: activeTool === 'slice' ? { locked: sliceLocked, hasCells: sliceParams.cells.length > 0, detect: runDetect, clear: clearSlice } : null,
+			editArea: () => void editSelectedArea()
+		};
+	});
+	let canvasActions = $derived.by(() => {
+		void $editorsRevision;
+		if (!source || busy || !registeredTool) return [];
+		return canvasActionsOf(registeredTool, { editor: 'image', tool: registeredTool.id, phone, host: toolHost, surface: canvasSurface });
+	});
 	let canReset = $derived(
 		!busy &&
 			(liveEntry
@@ -2012,10 +2089,7 @@
 			onskip={(id) => setCells(toggleSkip(sliceParams.cells, id), 'skip')}
 			oncollection={(collection) => setSlice({ ...sliceParams, collection }, 'collection')}
 			onadd={() => (sliceAdding = !sliceAdding)}
-			onclear={() => {
-				sliceSelected = [];
-				setSlice({ ...sliceParams, cells: [], layout: { ...sliceParams.layout, preset: null, detected: null } }, 'clear');
-			}}
+			onclear={clearSlice}
 			oncell={sliceCellAction}
 		/>
 		{#if !sliceParams.cells.length && !phone}
@@ -2161,6 +2235,8 @@
 							existing={liveMaskNow?.url ?? null}
 							brush={maskBrush}
 							erase={maskErase}
+							seed={maskSeed}
+							onseeded={() => (maskSeed = null)}
 							{phone}
 							onstroke={(painted) => {
 								if (painted) maskDirty = true;
@@ -2349,6 +2425,7 @@
 			bind:compare
 			bind:stackOpen
 			canCompare={canCompareNow}
+			{canvasActions}
 			barVisible={phone && activeTool === 'effects'}
 			{editCount}
 			phoneSize={outputDims ? `${outputDims.width}×${outputDims.height}` : null}

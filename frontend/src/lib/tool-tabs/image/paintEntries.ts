@@ -13,6 +13,7 @@ import {
 } from '$lib/paint/entries';
 import { pluginTools } from '$lib/paint/registries';
 import type { PaintTool } from '$lib/paint/types';
+import { brushToolActions, selectionToolActions } from './canvasActions';
 
 export const PAINT_FOLD = 5;
 export const SELECT_FOLD = 3;
@@ -20,6 +21,15 @@ export const SELECT_FOLD = 3;
 const PLUGIN_ORDER_BASE = 1000;
 const pluginEntries = new Map<string, { tool: PaintTool; dispose: () => void }>();
 let registered = false;
+
+const SELECTION_TOOLS: ReadonlySet<string> = new Set(['rect', 'lasso', 'move']);
+const BRUSH_TOOLS: ReadonlySet<string> = new Set(['brush', 'eraser']);
+
+function canvasActionsFor(tool: PaintTool) {
+	if (SELECTION_TOOLS.has(tool.id)) return { canvasActions: selectionToolActions };
+	if (BRUSH_TOOLS.has(tool.id)) return { canvasActions: brushToolActions };
+	return {};
+}
 
 function entryFor(tool: PaintTool, order: number) {
 	return {
@@ -30,6 +40,7 @@ function entryFor(tool: PaintTool, order: number) {
 		icon: paintIconFor(tool),
 		order,
 		children: { component: PaintEditsGroup },
+		...canvasActionsFor(tool),
 		...(tool.key ? { keys: tool.key } : {})
 	};
 }

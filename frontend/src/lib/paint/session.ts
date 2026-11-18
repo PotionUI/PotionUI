@@ -1139,6 +1139,50 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.invalidate();
 	}
 
+	invertSelection(): boolean {
+		const selection = this.selection;
+		if (!this.ready || !selection) return false;
+		const width = this.doc.width;
+		const height = this.doc.height;
+		const first = selection.path[0];
+		this.placeFloating();
+		this.setSelection(
+			[
+				{ x: 0, y: 0 },
+				{ x: width, y: 0 },
+				{ x: width, y: height },
+				{ x: 0, y: height },
+				...selection.path.map((p) => ({ x: p.x, y: p.y })),
+				{ x: first.x, y: first.y },
+				{ x: 0, y: height }
+			],
+			true
+		);
+		return true;
+	}
+
+	flipFloating(): boolean {
+		const layer = this.floatingLayer;
+		const selection = this.selection;
+		if (!layer || !selection) return false;
+		const axis = layer.x * 2 + layer.canvas.width;
+		this.mutate('Flip piece', () => {
+			const next = makeCanvas(layer.canvas.width, layer.canvas.height);
+			const context = context2d(next);
+			context.translate(next.width, 0);
+			context.scale(-1, 1);
+			context.drawImage(layer.canvas, 0, 0);
+			layer.canvas = next;
+			layer.source = undefined;
+			this.selection = buildSelection(
+				selection.path.map((p) => ({ x: axis - p.x, y: p.y })),
+				this.doc.width,
+				this.doc.height
+			);
+		});
+		return true;
+	}
+
 	selectAll(): void {
 		if (!this.ready) return;
 		this.setSelection(rectPath({ x: 0, y: 0 }, { x: this.doc.width, y: this.doc.height }), true);
@@ -1184,7 +1228,7 @@ export class PaintSession implements ToolHost, EditorApi {
 			else context.lineTo(x, y);
 		});
 		context.closePath();
-		context.clip();
+		context.clip('evenodd');
 	}
 
 	private selectionPiece(layer: Layer): HTMLCanvasElement | null {

@@ -10,8 +10,15 @@ import { effectCardEntry, gradeEntry, liveEffectEntry, opSlidersEntry, toggleEnt
 import { imageEffects } from './shaderEffect';
 import { ensureGenerateEditor } from './generate/register';
 import { ensurePaintEntries } from './paintEntries';
+import { cropToolActions, sliceToolActions } from './canvasActions';
 import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { CORE_RAIL, CORE_TOOLS, editorCatalogTools, type CoreImageTool } from './steps';
+
+function coreCanvasActions(id: string): Partial<RailToolEntry> {
+	if (id === 'crop') return { canvasActions: cropToolActions };
+	if (id === 'slice') return { canvasActions: sliceToolActions };
+	return {};
+}
 
 const STEP_TOOLS: readonly CoreImageTool[] = ['crop', 'resize', 'canvas', 'slice', 'paint', 'effects', 'colorKey', 'subject'];
 const PREVIEW_TOOLS: ReadonlySet<string> = new Set(['crop', 'resize', 'paint', 'effects', 'slice']);
@@ -125,7 +132,7 @@ export function ensureCoreImageEditor(): void {
 		railGroups.register({ id: group.id, editor: 'image', label: group.label, order: orders[group.id], ...(group.fold === undefined ? {} : { fold: group.fold }) });
 		group.tools.forEach((id, toolIndex) => {
 			const meta = CORE_TOOLS[id];
-			railTools.register({ id, editor: 'image', group: group.id, label: meta.label, icon: meta.icon, order: (toolIndex + 1) * 10 });
+			railTools.register({ id, editor: 'image', group: group.id, label: meta.label, icon: meta.icon, order: (toolIndex + 1) * 10, ...coreCanvasActions(id) });
 		});
 	});
 	for (const seed of GRADE_SEEDS) {

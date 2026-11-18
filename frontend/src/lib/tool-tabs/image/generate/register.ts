@@ -8,6 +8,7 @@ import type { RailToolEntry } from '$lib/editors/railTools';
 import { tasks, type TaskEntry } from '$lib/editors/tasks';
 import type { ComponentRef } from '$lib/editors/types';
 import type { EditorTaskInfo } from '$lib/services/api/editorTasks';
+import { taskToolActions } from '../canvasActions';
 import { GENERATE_TOOL, generateStepKind } from './generateStep';
 
 export const GENERATE_GROUP = 'generate';
@@ -37,7 +38,7 @@ function registerTask(seed: TaskSeed, order: number, owner?: string): () => void
 	if (!taken) {
 		drops.push(
 			railTools.register(
-				{ id: seed.id, editor: 'image', group: GENERATE_GROUP, label: seed.label, icon: seed.icon, order, options: { component: GenerateOptions }, settings: { component: GenerateSettings }, task: seed.id, ai: true },
+				{ id: seed.id, editor: 'image', group: GENERATE_GROUP, label: seed.label, icon: seed.icon, order, options: { component: GenerateOptions }, settings: { component: GenerateSettings }, task: seed.id, ai: true, canvasActions: taskToolActions },
 				owner
 			)
 		);

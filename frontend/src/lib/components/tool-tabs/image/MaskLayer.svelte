@@ -5,7 +5,7 @@
 	import { canvasToPngFile } from '$lib/paint/flatten';
 	import { overlays } from '$lib/editors/overlays';
 	import { entryKey } from '$lib/editors/registry';
-	import type { Rect } from '$lib/paint/types';
+	import type { Point, Rect } from '$lib/paint/types';
 	import { alphaToMask, maskOverlay, parseRgb, type Rgb } from '$lib/tool-tabs/image/mask';
 	import { ensureCoreMaskOverlays } from '$lib/tool-tabs/image/coreMaskOverlays';
 	import {
@@ -18,7 +18,7 @@
 		type MaskOverlayProps,
 		type MaskSurface
 	} from '$lib/tool-tabs/image/maskOverlays';
-	import { regionBounds } from '$lib/tool-tabs/image/maskRegion';
+	import { regionBounds, stampShape } from '$lib/tool-tabs/image/maskRegion';
 	import CanvasChip from '$lib/components/tool-tabs/frame/CanvasChip.svelte';
 	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
 
@@ -30,6 +30,8 @@
 		erase = false,
 		disabled = false,
 		phone = false,
+		seed = null,
+		onseeded,
 		onstroke,
 		onhistory
 	}: {
@@ -40,6 +42,8 @@
 		erase?: boolean;
 		disabled?: boolean;
 		phone?: boolean;
+		seed?: { path: Point[]; width: number; height: number } | null;
+		onseeded?: () => void;
 		onstroke?: (painted: boolean) => void;
 		onhistory?: (state: { canUndo: boolean; canRedo: boolean }) => void;
 	} = $props();
@@ -217,7 +221,30 @@
 			refreshArea();
 		}
 		baseline = alphaOf();
+		if (seed) {
+			fillFrom(seed);
+			onseeded?.();
+		}
 	});
+
+	function fillFrom(shape: { path: Point[]; width: number; height: number }) {
+		const surfaceContext = context();
+		if (!canvas || !surfaceContext || shape.width <= 0 || shape.height <= 0) return;
+		const scaleX = canvas.width / shape.width;
+		const scaleY = canvas.height / shape.height;
+		const image = surfaceContext.createImageData(canvas.width, canvas.height);
+		stampShape(image.data, canvas.width, canvas.height, shape.path.map((point) => ({ x: point.x * scaleX, y: point.y * scaleY })), false, tint);
+		surfaceContext.putImageData(image, 0, 0);
+		changed();
+	}
+
+	export function invert() {
+		const alpha = alphaOf();
+		if (!alpha) return;
+		for (let i = 0; i < alpha.length; i++) alpha[i] = 255 - alpha[i];
+		paintAlpha(alpha);
+		changed();
+	}
 
 	onDestroy(() => maskArea.set(null));
 

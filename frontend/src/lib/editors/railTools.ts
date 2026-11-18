@@ -33,6 +33,44 @@ export interface EntryValuesInfo {
 	name?: string;
 }
 
+export type CanvasActionKind = 'action' | 'toggle' | 'value' | 'custom';
+
+export interface CanvasActionValue {
+	type: 'range' | 'colour';
+	value: number | string;
+	min?: number;
+	max?: number;
+	step?: number;
+	unit?: string;
+	set(value: number | string): void;
+}
+
+export interface CanvasAction {
+	id: string;
+	label: string;
+	icon?: string;
+	shortcut?: string;
+	kind: CanvasActionKind;
+	group?: string;
+	primary?: boolean;
+	pressed?: boolean;
+	disabled?: boolean;
+	reason?: string;
+	iconOnly?: boolean;
+	value?: CanvasActionValue;
+	component?: ComponentRef;
+	props?: Record<string, unknown>;
+	run?(): void;
+}
+
+export interface CanvasActionContext<S = unknown> {
+	editor: EditorKind;
+	tool: string;
+	phone: boolean;
+	host: EditorToolHost<any>;
+	surface: S;
+}
+
 export type EntrySchema = FieldConfig[] | ((ctx: EntryContext) => FieldConfig[]);
 
 export interface RailToolEntry extends EditorEntryBase {
@@ -54,6 +92,7 @@ export interface RailToolEntry extends EditorEntryBase {
 	children?: ComponentRef;
 	task?: string;
 	ai?: boolean;
+	canvasActions?(ctx: CanvasActionContext): CanvasAction[];
 	available?(ctx: ToolAvailability): { ok: true } | { ok: false; reason: string };
 }
 
@@ -111,4 +150,11 @@ export function railFor(editor: EditorKind, ctx: ToolAvailability, extra: Record
 		rail.push(row);
 	}
 	return rail;
+}
+
+export function canvasActionsOf(entry: RailToolEntry | undefined, ctx: CanvasActionContext): CanvasAction[] {
+	const read = entry?.canvasActions;
+	if (!entry || !read) return [];
+	const list = entry.pluginId ? guard(entryKey(entry.editor, entry.id), 'canvasActions', () => read.call(entry, ctx), [] as CanvasAction[]) : read.call(entry, ctx);
+	return Array.isArray(list) ? list : [];
 }

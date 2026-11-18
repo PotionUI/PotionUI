@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { settle } from './helpers/settle';
 
 const sockets = vi.hoisted(() => {
-	const handlers = new Map<string, Set<(m: Record<string, unknown>) => void>>();
+	const handlers = new Map<string, Set<(m: { type: string; [key: string]: unknown }) => void>>();
 	return {
 		handlers,
-		emit(id: string, message: Record<string, unknown>) {
+		emit(id: string, message: { type: string; [key: string]: unknown }) {
 			handlers.get(id)?.forEach((handler) => handler(message));
 		}
 	};
@@ -86,14 +86,12 @@ function record(over: Record<string, unknown> = {}) {
 
 function mountDetails(generation: Record<string, unknown>) {
 	const target = document.body.appendChild(document.createElement('div'));
-	const events: string[] = [];
 	const component = createClassComponent({
 		component: GenerationDetailsModal as never,
 		target,
-		props: { generation: generation as never, isOpen: true },
-		events: { reuse: () => events.push('reuse') }
+		props: { generation: generation as never, isOpen: true }
 	});
-	return { events, destroy: () => component.$destroy() };
+	return { destroy: () => component.$destroy() };
 }
 
 const q = (selector: string) => document.body.querySelector(selector);

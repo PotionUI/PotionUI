@@ -187,7 +187,7 @@ async function openEditorOnDusk(page: Page) {
 	await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 	const empty = page.getByTestId('tool-tab-empty');
 	await expect(empty).toContainText('Open a picture to edit');
-	await expect(empty.locator('[data-recent-history] button')).toHaveCount(1);
+	await expect(empty.locator('[data-start-source="history"]')).toBeVisible();
 	return empty;
 }
 
@@ -214,7 +214,8 @@ async function start(page: Page, seed = false): Promise<Log> {
 async function openDusk(page: Page, shoot = false) {
 	const empty = await openEditorOnDusk(page);
 	if (shoot) await screenshot(page, JOURNEY, '06-empty-1440');
-	await empty.locator('[data-recent-history] button').first().click();
+	await empty.locator('[data-start-source="history"]').click();
+	await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 	await expect(page.locator('[data-crop-overlay]')).toBeVisible();
 }
@@ -246,9 +247,11 @@ async function stroke(page: Page, dx = -80, dy = 0) {
 
 async function dragRect(page: Page, from: [number, number], to: [number, number]) {
 	const area = await box(page);
-	await page.mouse.move(area.x + from[0], area.y + from[1]);
+	const cx = area.x + area.width / 2;
+	const cy = area.y + area.height / 2;
+	await page.mouse.move(cx + from[0], cy + from[1]);
 	await page.mouse.down();
-	await page.mouse.move(area.x + to[0], area.y + to[1], { steps: 6 });
+	await page.mouse.move(cx + to[0], cy + to[1], { steps: 6 });
 	await page.mouse.up();
 }
 
@@ -256,7 +259,7 @@ async function cutAndFloat(page: Page) {
 	await openPaint(page, 'brush');
 	await stroke(page);
 	await openPaint(page, 'rect');
-	await dragRect(page, [200, 150], [300, 230]);
+	await dragRect(page, [-40, -40], [60, 40]);
 	await page.locator('[data-paint-selection]').getByRole('button', { name: 'Cut', exact: true }).click();
 	await page.locator('[data-paint-selection]').getByRole('button', { name: 'Paste', exact: true }).click();
 	await expect(page.locator('[data-floating-row]')).toBeVisible();
@@ -481,7 +484,8 @@ test.describe('Paint on a phone', () => {
 		await page.getByRole('button', { name: /^Open tabs/ }).click();
 		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
 		const phone = page.getByTestId('phone-tool-tab');
-		await phone.locator('[data-recent-history] button').first().click();
+		await phone.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 		await expect(phone.locator('[data-tool-rail="strip"]')).toBeVisible();
 		await phone.locator('[data-tool-rail="strip"] button[data-group-button="paint"]').click();
 		await expect(page.locator('[data-rail-sheet="paint"]')).toBeVisible();

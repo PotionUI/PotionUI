@@ -218,7 +218,8 @@ async function openHarbor(page: Page) {
 	if ((page.viewportSize()?.width ?? 1440) < 768) {
 		await page.getByRole('button', { name: /^Open tabs/ }).click();
 		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
-		await page.getByTestId('phone-tool-tab').locator('[data-recent-history] button').first().click();
+		await page.getByTestId('phone-tool-tab').locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 		await expect(page.locator('[data-editor-frame="phone"]')).toBeVisible();
 		return;
 	}
@@ -226,7 +227,8 @@ async function openHarbor(page: Page) {
 	await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 	const empty = page.getByTestId('tool-tab-empty');
 	await expect(empty).toContainText('Open a picture to edit');
-	await empty.locator('[data-recent-history] button').first().click();
+	await empty.locator('[data-start-source="history"]').click();
+	await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 }
 

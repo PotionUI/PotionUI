@@ -134,7 +134,8 @@ async function openPicture(page: Page, from: 'library' | 'history', buffer = sol
 		await empty.getByRole('button', { name: 'Library', exact: true }).click();
 		await page.locator('[data-pick-tile] [data-pick-main]').first().click();
 	} else {
-		await empty.locator('[data-recent-history] button').first().click();
+		await empty.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 	}
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop', { timeout: 15000 });
 }

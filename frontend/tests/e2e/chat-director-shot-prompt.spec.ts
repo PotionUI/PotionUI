@@ -96,7 +96,7 @@ test.describe('Chat Apply on a single-shot Video Director', () => {
 
 	test('LTX-2.5 video: the version lands in the shot Prompt, not the Global prompt', async ({ page }) => {
 		test.setTimeout(180000);
-		await openPreset(page, 'LTX-2.5', null);
+		await openPreset(page, 'LTX-2.5', /(?<!to )\bVideo\b(?! to)/);
 		await applyShotVersion(page, 'ltx-video');
 	});
 });

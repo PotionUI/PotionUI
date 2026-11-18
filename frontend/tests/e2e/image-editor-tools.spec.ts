@@ -26,8 +26,22 @@ async function openEditor(page: Page, field: Locator) {
 	return dialog;
 }
 
-async function reveal(dialog: Locator, mobile: boolean, name: 'Layers' | 'Canvas') {
-	if (mobile) await dialog.getByRole('button', { name, exact: true }).click();
+async function showLayers(dialog: Locator, mobile: boolean) {
+	if (mobile) await dialog.locator('[data-paint-layers-button]').click();
+}
+
+async function hideLayers(page: Page, mobile: boolean) {
+	if (mobile) await page.locator('[data-frame-sheet] button[aria-label="Close"]').click({ position: { x: 12, y: 12 } });
+}
+
+async function openEditMenu(page: Page, dialog: Locator, row: string) {
+	await dialog.locator('[data-menu-tab="edit"]').click();
+	await page.locator(`[data-menu-row="${row}"]`).click();
+}
+
+async function openFileMenu(page: Page, dialog: Locator, row: string) {
+	await dialog.locator('[data-menu-tab="file"]').click();
+	await page.locator(`[data-menu-row="${row}"]`).click();
 }
 
 async function paintMask(page: Page, field: Locator) {
@@ -125,20 +139,25 @@ for (const size of SIZES) {
 		await page.keyboard.press('v');
 		await strokeAcross(page, canvas, [0.45, 0.45], [0.7, 0.7]);
 
-		await reveal(dialog, mobile, 'Layers');
-		await expect(dialog.getByRole('button', { name: /Select layer Piece/ })).toBeVisible();
+		await showLayers(dialog, mobile);
+		await expect(page.locator('[data-floating-row]')).toBeVisible();
 		await screenshot(page, JOURNEY, `lifted-${size.tag}`);
+		await hideLayers(page, mobile);
 		const moved = await stagePixel(canvas, 0.7, 0.7);
 		near(moved, before, 60);
 		const hole = await stagePixel(canvas, 0.42, 0.42);
 		expect(hole[0] === before[0] && hole[1] === before[1] && hole[2] === before[2]).toBe(false);
 
 		await page.keyboard.press('Control+z');
-		await expect(dialog.getByRole('button', { name: /Select layer Piece/ })).toHaveCount(0);
 		await expect(dialog.getByRole('button', { name: /^Redo/ })).toBeEnabled();
 		near(await stagePixel(canvas, 0.42, 0.42), before, 60);
+		await showLayers(dialog, mobile);
+		await expect(page.locator('[data-floating-row]')).toHaveCount(0);
+		await hideLayers(page, mobile);
 		await page.keyboard.press('Control+y');
-		await expect(dialog.getByRole('button', { name: /Select layer Piece/ })).toBeVisible();
+		await showLayers(dialog, mobile);
+		await expect(page.locator('[data-floating-row]')).toBeVisible();
+		await hideLayers(page, mobile);
 	});
 
 	test(`adjusts colours, crops and flips with the mask cleared at ${size.tag}`, async ({ page }) => {
@@ -168,8 +187,7 @@ for (const size of SIZES) {
 		await expect(visibleText(dialog, '160 × 160')).toHaveCount(0);
 		await screenshot(page, JOURNEY, `cropped-${size.tag}`);
 
-		await reveal(dialog, mobile, 'Canvas');
-		await dialog.getByRole('button', { name: 'Flip horizontally' }).click();
+		await openEditMenu(page, dialog, 'flip-h');
 		await expect(dialog.getByRole('button', { name: /^Undo Flip horizontal/ })).toBeEnabled();
 
 		const popover = await saveEdit(page, dialog);
@@ -226,7 +244,7 @@ for (const size of SIZES) {
 		const field = await openEditField(page, mobile, 128);
 		const dialog = await openEditor(page, field);
 
-		await dialog.getByRole('button', { name: 'Add image as layer' }).first().click();
+		await openFileMenu(page, dialog, 'add');
 		const menu = page.getByRole('menu', { name: 'Add an image as a layer' });
 		await expect(menu).toBeVisible();
 		await screenshot(page, JOURNEY, `add-menu-${size.tag}`);
@@ -235,18 +253,22 @@ for (const size of SIZES) {
 			menu.getByRole('menuitem', { name: 'Upload file' }).click()
 		]);
 		await chooser.setFiles({ name: 'piece.png', mimeType: 'image/png', buffer: fixturePng(96) });
-		await expect(dialog.getByRole('button', { name: 'Transform' })).toHaveAttribute('aria-pressed', 'true');
+		await expect(
+			mobile
+				? dialog.getByRole('button', { name: /^Select and move, Transform$/ })
+				: dialog.getByRole('button', { name: 'Transform', exact: true })
+		).toHaveAttribute('aria-pressed', 'true');
 
-		await reveal(dialog, mobile, 'Layers');
-		await expect(dialog.getByRole('button', { name: /Select layer piece/ })).toBeVisible();
-		if (mobile) await dialog.getByRole('button', { name: 'Transform' }).click();
+		await showLayers(dialog, mobile);
+		await expect(page.getByRole('button', { name: /Select layer piece/ })).toBeVisible();
+		await hideLayers(page, mobile);
 		const slider = dialog.locator('#transform-scale:visible');
 		await expect(slider).toBeVisible();
 		await slider.fill('50');
 		await expect(dialog.getByText('50%').first()).toBeVisible();
 		await screenshot(page, JOURNEY, `transform-${size.tag}`);
 
-		await dialog.getByRole('button', { name: 'Open another image' }).first().click();
+		await openFileMenu(page, dialog, 'open');
 		const openMenu = page.getByRole('menu', { name: 'Open an image' });
 		await expect(openMenu).toBeVisible();
 		await expect(openMenu.getByText(/unsaved changes will be lost/)).toBeVisible();
@@ -256,8 +278,9 @@ for (const size of SIZES) {
 		]);
 		await second.setFiles({ name: 'other.png', mimeType: 'image/png', buffer: fixturePng(96) });
 		await expect(visibleText(dialog, '96 × 96')).toBeVisible();
-		await reveal(dialog, mobile, 'Layers');
-		await expect(dialog.getByRole('button', { name: /Select layer/ })).toHaveCount(1);
+		await showLayers(dialog, mobile);
+		await expect(page.getByRole('button', { name: /Select layer/ })).toHaveCount(1);
+		await hideLayers(page, mobile);
 	});
 
 	test(`lets a plugin register a tool and a filter at ${size.tag}`, async ({ page }) => {
@@ -317,8 +340,16 @@ for (const size of SIZES) {
 
 		const dialog = await openEditor(page, field);
 		const canvas = dialog.getByLabel('Drawing canvas');
-		const line = dialog.getByRole('button', { name: 'E2E line' });
-		await expect(line).toBeVisible();
+		if (mobile) {
+			await dialog.locator('[data-group-button="paint"]').click();
+			const item = page.locator('[data-rail-sheet="paint"] [data-sheet-item="e2e-line"]');
+			await expect(item).toBeVisible();
+			await item.click();
+		}
+		const line = mobile
+			? dialog.getByRole('button', { name: /^Paint, E2E line$/ })
+			: dialog.getByRole('button', { name: 'E2E line' });
+		if (!mobile) await expect(line).toBeVisible();
 		await page.keyboard.press('n');
 		await expect(line).toHaveAttribute('aria-pressed', 'true');
 		await strokeAcross(page, canvas, [0.3, 0.5], [0.7, 0.5]);

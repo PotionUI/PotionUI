@@ -266,7 +266,8 @@ async function openHistoryPicture(page: Page) {
 	await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 	const empty = page.getByTestId('tool-tab-empty');
 	await expect(empty).toContainText('Open a picture to edit');
-	await empty.locator('[data-recent-history] button').first().click();
+	await empty.locator('[data-start-source="history"]').click();
+	await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 }
 

@@ -221,7 +221,7 @@ test.describe('Edit shortcuts on desktop', () => {
 	test('a video effect and a frame open the Video editor on that tool', async ({ page }) => {
 		await openHistoryDetails(page, 'gen-2');
 		await pickRow(await openMenu(page, 'Effects'), 'Film grain');
-		await expect.poll(async () => (await savedToolTabs(page)).map((tab) => [tab.tool, tab.activeTool])).toEqual([['video', 'effects']]);
+		await expect.poll(async () => (await savedToolTabs(page)).map((tab) => [tab.tool, tab.activeTool])).toEqual([['video', 'film_grain']]);
 
 		await goToHistoryInApp(page);
 		await openHistoryDetails(page, 'gen-2');

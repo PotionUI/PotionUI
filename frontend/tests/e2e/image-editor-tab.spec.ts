@@ -187,7 +187,7 @@ async function openEditorOnDusk(page: Page) {
 	await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 	const empty = page.getByTestId('tool-tab-empty');
 	await expect(empty).toContainText('Open a picture to edit');
-	await expect(empty.locator('[data-recent-history] button')).toHaveCount(1);
+	await expect(empty.locator('[data-start-source="history"]')).toBeVisible();
 	return empty;
 }
 
@@ -214,7 +214,8 @@ async function start(page: Page, seed = false): Promise<Log> {
 async function openDusk(page: Page, shoot = false) {
 	const empty = await openEditorOnDusk(page);
 	if (shoot) await screenshot(page, JOURNEY, '06-empty-1440');
-	await empty.locator('[data-recent-history] button').first().click();
+	await empty.locator('[data-start-source="history"]').click();
+	await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 	await expect(page.locator('[data-crop-overlay]')).toBeVisible();
 }
@@ -351,7 +352,8 @@ test.describe('painting and masking in the Image editor tab', () => {
 		await page.goto('/generate');
 		await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
 		const empty = await openEditorOnDusk(page);
-		await empty.locator('[data-recent-history] button').first().click();
+		await empty.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 		await expect(page.locator('[data-crop-overlay]')).toBeVisible();
 
 		await selectRailTool(page, 'paint.brush');
@@ -409,7 +411,8 @@ test.describe('the Image editor tab on a phone', () => {
 		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
 		const phone = page.getByTestId('phone-tool-tab');
 		await expect(phone.getByTestId('tool-tab-empty')).toContainText('Open a picture to edit');
-		await phone.locator('[data-recent-history] button').first().click();
+		await phone.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 
 		await expect(phone.locator('[data-editor-frame="phone"]')).toBeVisible();
 		await expect(phone.locator('[data-tool-rail="strip"]')).toBeVisible();
@@ -553,7 +556,8 @@ test.describe('the lasso on a phone', () => {
 		await page.getByRole('button', { name: /^Open tabs/ }).click();
 		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
 		const phone = page.getByTestId('phone-tool-tab');
-		await phone.locator('[data-recent-history] button').first().click();
+		await phone.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 		await expect(phone.locator('[data-editor-frame="phone"]')).toBeVisible();
 		await phone.locator('[data-tool-rail="strip"] [data-group-button="generate"]').click();
 		await page.locator('[data-rail-sheet="generate"] [data-sheet-item="edit_region"]').click();

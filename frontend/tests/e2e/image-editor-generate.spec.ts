@@ -1315,7 +1315,7 @@ test.describe('Edit a region at 1440 with the default out of the strip', () => {
 	});
 
 	test('Qwen-Image 2.1 with two modes and a long session shows the names whole or says which gave way', async ({ page }) => {
-		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen(), qwen({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })], default: sessionDefault })], true, 'Product shots, soft light v3');
+		await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen(), qwen({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })], default: sessionDefault })], true, 'Product shots v3');
 		await openHarbor(page);
 		await selectRailTool(page, 'edit_region');
 		await expect(presetTrigger(page)).toHaveText('Qwen-Image 2.1');
@@ -1323,7 +1323,7 @@ test.describe('Edit a region at 1440 with the default out of the strip', () => {
 		const found = await cells(page);
 		console.log(`1440 qwen ${JSON.stringify(found)}`);
 		expect(found.preset!.cut).toBe(false);
-		expect(found.session!.text).toContain('Product shots, soft light v3');
+		expect(found.session!.text).toContain('Product shots v3');
 		checkStrip(await geometry(page), 'temp');
 	});
 });

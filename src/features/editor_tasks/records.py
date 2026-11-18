@@ -52,6 +52,9 @@ class EditorRun:
 
     def to_dict(self, progress: Optional[float] = None) -> Dict[str, Any]:
         crop = self.crop or {}
+        window = None
+        if crop.get("kind") == "range":
+            window = {"start_s": crop["start_s"], "end_s": crop["end_s"], "whole": bool(crop.get("whole"))}
         return {
             "id": self.id,
             "task": self.task,
@@ -63,6 +66,7 @@ class EditorRun:
             "error": self.error,
             "rect": self.rect,
             "soft": bool(crop.get("soft", False)),
+            "range": window,
             "candidates": list(self.candidates or []),
             "created_at": dt_iso(self.created_at),
             "updated_at": dt_iso(self.updated_at),

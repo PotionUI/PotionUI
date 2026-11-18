@@ -2,13 +2,16 @@ import asyncio
 import io
 import json
 import logging
+import mimetypes
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from PIL import Image
 
-from src.features.editor_tasks import regions
+from src.features.editor_tasks import clips, regions
 from src.features.editor_tasks.dto import MAX_CANDIDATES, StartEditorRunRequest
 from src.features.editor_tasks.manager import EditorTaskManager, ResolvedOffer
 from src.features.editor_tasks.records import (
@@ -36,7 +39,11 @@ SUBSCRIBER_ID = "editor_runs"
 MESSAGE_TYPE = "editor_run_update"
 RESTART_MESSAGE = "The app restarted while this was generating"
 NO_PICTURE = "The model returned no picture"
+NO_VIDEO = "The model returned no video"
 NOT_PLACED = "The result could not be placed on the picture"
+NOT_SPLICED = "The result could not be placed in the clip"
+RANGE_KIND = "range"
+CLIP_TYPE = "video/mp4"
 GENERATION_FAILED = "The generation failed"
 GENERATION_GONE = "The generation could not be found"
 NOT_FINISHED = "The run could not be finished"
@@ -63,11 +70,16 @@ def png_bytes(image: Image.Image) -> bytes:
 
 @dataclass
 class PreparedRun:
-    geometry: Geometry
-    input_png: bytes
+    geometry: Optional[Geometry]
+    input_png: Optional[bytes]
     mask_png: Optional[bytes]
-    base_png: bytes
+    base_png: Optional[bytes]
     region_png: Optional[bytes]
+    window: Optional[Dict[str, Any]] = None
+    clip_input: Optional[bytes] = None
+    clip_base: Optional[bytes] = None
+    clip_suffix: str = ".mp4"
+    base_suffix: str = ".mp4"
 
 
 class EditorRunManager:
@@ -136,7 +148,11 @@ class EditorRunManager:
         region_ref = body.region if offer.task.region != "none" else None
         if offer.task.region == "required" and region_ref is None:
             raise DomainError("region_required", "Mark the area first", 422)
-        prepared = await asyncio.to_thread(self._prepare, user, offer, body, region_ref)
+        self._check_range(offer, body)
+        if "video" in offer.task.editors:
+            prepared = await asyncio.to_thread(self._prepare_clip, user, offer, body)
+        else:
+            prepared = await asyncio.to_thread(self._prepare, user, offer, body, region_ref)
         stored: Dict[str, Any] = {}
         run_id = ID_PREFIX + self.new_id()
         released = False
@@ -162,9 +178,9 @@ class EditorRunManager:
                 task=task_id,
                 edit_id=body.edit.id,
                 step_id=body.edit.step_id,
-                rect=prepared.geometry.rect(),
+                rect=prepared.geometry.rect() if prepared.geometry is not None else None,
                 crop={
-                    **prepared.geometry.to_dict(),
+                    **(prepared.geometry.to_dict() if prepared.geometry is not None else prepared.window),
                     "files": {name: item.id for name, item in stored.items()},
                     "names": {name: item.filename for name, item in stored.items()},
                 },
@@ -268,6 +284,53 @@ class EditorRunManager:
             raise DomainError("prompt_required", "Describe the change first", 422)
         return text
 
+    @staticmethod
+    def _check_range(offer: ResolvedOffer, body: StartEditorRunRequest) -> None:
+        if body.range is not None and offer.task.range == "none":
+            raise DomainError("range_not_supported", "This task takes no time range", 422)
+        if body.range is None and offer.task.range == "required":
+            raise DomainError("range_required", "Mark the part of the clip first", 422)
+
+    def _prepare_clip(self, user: Any, offer: ResolvedOffer, body: StartEditorRunRequest) -> PreparedRun:
+        with self.media_tools.render_clip(user, body.input, body.steps) as path:
+            found = clips.facts_of(path)
+            asked = body.range
+            window = clips.plan_range(found, asked.start_s if asked else None, asked.end_s if asked else None)
+            whole = window.start == 0 and window.end >= found.frames
+            suffix = path.suffix.lower() or ".mp4"
+            base = path.read_bytes()
+            if whole:
+                cut = None
+            else:
+                with tempfile.TemporaryDirectory() as scratch:
+                    cut = clips.cut(path, found, window, Path(scratch) / "cut.mp4").read_bytes()
+        return PreparedRun(
+            geometry=None,
+            input_png=None,
+            mask_png=None,
+            base_png=None,
+            region_png=None,
+            window={
+                "kind": RANGE_KIND,
+                "whole": whole,
+                "start_frame": window.start,
+                "end_frame": window.end,
+                "start_s": round(window.start_s, 6),
+                "end_s": round(window.end_s, 6),
+                "frames": found.frames,
+                "fps": found.fps,
+                "width": found.width,
+                "height": found.height,
+                "duration": found.duration,
+                "has_audio": found.has_audio,
+                "adopt_size": bool(offer.task.resizes and whole),
+            },
+            clip_input=base if cut is None else cut,
+            clip_base=None if cut is None else base,
+            clip_suffix=suffix if cut is None else ".mp4",
+            base_suffix=suffix,
+        )
+
     def _prepare(self, user: Any, offer: ResolvedOffer, body: StartEditorRunRequest, region_ref: Any) -> PreparedRun:
         with self.media_tools.render_picture(user, body.input, body.steps) as path:
             picture = regions.cap_picture(prepare_image(path).convert("RGB"))
@@ -299,6 +362,9 @@ class EditorRunManager:
         )
 
     async def _store(self, user_id: str, prepared: PreparedRun, stored: Dict[str, Any]) -> None:
+        if prepared.window is not None:
+            await self._store_clip(user_id, prepared, stored)
+            return
         for name, data in (
             ("input", prepared.input_png),
             ("mask", prepared.mask_png),
@@ -311,11 +377,28 @@ class EditorRunManager:
         for name in [name for name, item in stored.items() if item is None]:
             del stored[name]
 
-    async def _put(self, user_id: str, filename: str, data: bytes, working: bool = False) -> Any:
+    async def _store_clip(self, user_id: str, prepared: PreparedRun, stored: Dict[str, Any]) -> None:
+        kind = mimetypes.guess_type(f"x{prepared.clip_suffix}")[0] or CLIP_TYPE
+        stored["input"] = await self._put(
+            user_id, f"editor-input{prepared.clip_suffix}", prepared.clip_input, True, kind
+        )
+        self._hold(stored["input"].id)
+        if prepared.clip_base is None:
+            stored["base"] = stored["input"]
+        else:
+            base_kind = mimetypes.guess_type(f"x{prepared.base_suffix}")[0] or CLIP_TYPE
+            stored["base"] = await self._put(
+                user_id, f"editor-base{prepared.base_suffix}", prepared.clip_base, True, base_kind
+            )
+        self._hold(stored["base"].id)
+
+    async def _put(
+        self, user_id: str, filename: str, data: bytes, working: bool = False, content_type: str = "image/png"
+    ) -> Any:
         return await self.media_store.upload_media(
             file_data=data,
             filename=filename,
-            content_type="image/png",
+            content_type=content_type,
             user_id=user_id,
             purpose=UPLOAD_PURPOSE_EDITOR_RUN if working else UPLOAD_PURPOSE_DERIVED,
             internal=working,
@@ -352,7 +435,7 @@ class EditorRunManager:
             except Exception:
                 logger.warning("Editor run: the file %s could not be removed", filename, exc_info=True)
 
-    def _form(self, offer: ResolvedOffer, body: StartEditorRunRequest, stored: Dict[str, Any], geometry: Geometry) -> Dict[str, Any]:
+    def _form(self, offer: ResolvedOffer, body: StartEditorRunRequest, stored: Dict[str, Any], geometry: Optional[Geometry]) -> Dict[str, Any]:
         spec = offer.spec
         form = dict(body.setup.form_data)
         source = spec.inputs["source"]
@@ -370,7 +453,7 @@ class EditorRunManager:
             else:
                 form.pop(mask_name, None)
         size_field = spec.size.get("field")
-        if size_field:
+        if size_field and geometry is not None:
             form[size_field] = f"{geometry.working[0]}x{geometry.working[1]}"
         form.update(spec.fixed)
         quantity = spec.inputs.get("quantity")
@@ -469,7 +552,7 @@ class EditorRunManager:
             if status not in TERMINAL_GENERATION:
                 status = hint
             if status == "completed":
-                outcome = await self._patches(run)
+                outcome = await (self._clips(run) if (run.crop or {}).get("kind") == RANGE_KIND else self._patches(run))
             elif status == "failed":
                 outcome = (FAILED, None, getattr(generation, "error_user_message", None) or GENERATION_FAILED)
             elif status == "cancelled":
@@ -494,6 +577,65 @@ class EditorRunManager:
         except Exception:
             logger.exception("Editor run %s: stitching failed", run.id)
             return FAILED, None, NOT_PLACED
+
+    async def _clips(self, run: EditorRun) -> Tuple[str, Optional[List[Dict[str, Any]]], Optional[str]]:
+        candidates: List[Dict[str, Any]] = []
+        try:
+            files = self.generations.get_files(run.generation_id, is_final=True, file_type="VIDEO")
+            if not files:
+                files = self.generations.get_files(run.generation_id, file_type="VIDEO")
+            if not files:
+                return FAILED, None, NO_VIDEO
+            rendered = await asyncio.to_thread(self._render_clips, run, files)
+            for data, file_id, seed, detail in rendered:
+                stored = await self._put(run.user_id, "editor-clip.mp4", data, False, CLIP_TYPE)
+                candidates.append(
+                    {"clip": {"item_id": stored.id}, "url": stored.url, "seed": seed, "generation_file_id": file_id, **detail}
+                )
+            return DONE, candidates, None
+        except Exception:
+            logger.exception("Editor run %s: splicing failed", run.id)
+            return FAILED, None, NOT_SPLICED
+
+    def _render_clips(self, run: EditorRun, files: List[Any]) -> List[Tuple[bytes, str, Optional[int], Dict[str, Any]]]:
+        crop = run.crop or {}
+        task = self.tasks.registry.get(run.task)
+        facts = clips.ClipFacts(
+            width=crop["width"], height=crop["height"], fps=crop["fps"], frames=crop["frames"],
+            duration=crop["duration"], has_audio=crop["has_audio"],
+        )
+        window = clips.FrameRange(crop["start_frame"], crop["end_frame"], crop["fps"])
+        base_id = (crop.get("files") or {})["base"]
+        seeds = self._seeds(run.generation_id)
+        rendered = []
+        with tempfile.TemporaryDirectory() as scratch, self.media_tools.open_input(run.user_id, {"item_id": base_id}) as base:
+            folder = Path(scratch)
+            for index, record in enumerate(files[:MAX_CANDIDATES]):
+                with self.media_tools.open_input(run.user_id, {"generation_file_id": record.id}) as result:
+                    out = folder / f"out{index}.mp4"
+                    if task is not None and task.result == "append":
+                        sound = task.audio == "result" and clips.facts_of(result).has_audio
+                        added = clips.conform(
+                            result, facts, folder / f"added{index}.mp4", skip=window.count, with_audio=sound
+                        )
+                        frames = clips.facts_of(added).frames
+                        clips.splice_append(base, facts, window.end, added, frames, sound, out)
+                        detail = {
+                            "added": {"at_s": round(window.end_s, 6), "seconds": round(frames / facts.fps, 6)},
+                            "duration_s": round(facts.duration + frames / facts.fps, 6),
+                        }
+                    else:
+                        patch = clips.conform(
+                            result, facts, folder / f"patch{index}.mp4", count=window.count,
+                            adopt_size=bool(crop.get("adopt_size")),
+                        )
+                        clips.splice_replace(base, facts, window, patch, out)
+                        detail = {
+                            "range": {"start_s": round(window.start_s, 6), "end_s": round(window.end_s, 6)},
+                            "duration_s": round(facts.duration, 6),
+                        }
+                    rendered.append((out.read_bytes(), record.id, seeds.get(index), detail))
+        return rendered
 
     def _render(self, run: EditorRun) -> List[Tuple[bytes, str, Optional[int]]]:
         files = self.generations.get_files(run.generation_id, is_final=True, file_type="IMAGE")

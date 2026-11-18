@@ -1,0 +1,6 @@
+schema_version: 1
+task: upscale
+from: video_upscale
+region: range
+inputs:
+  source: input_video

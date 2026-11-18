@@ -666,6 +666,30 @@ class MediaToolService:
             yield outputs[0].path
 
     @contextmanager
+    def render_clip(self, user: Any, input_ref: InputLike, steps: Sequence[StepLike]) -> Iterator[Path]:
+        user_id = _user_id(user)
+        resolved = self.resolver.resolve(user_id, _model(InputRef, input_ref, "input"))
+        if resolved.kind != "video":
+            raise InvalidInputError("unsupported_media", f"A {resolved.kind} file is not a video")
+        chain = self._editor_steps(steps)
+        attachments = self._resolve_attachments(user_id, chain)
+        with self._scratch() as scratch, ExitStack() as stack:
+            ctx = ToolContext(scratch, user_id=user_id)
+            path = stack.enter_context(self.resolver.stage(resolved))
+            if not chain:
+                yield path
+                return
+            try:
+                media = ctx.probe(path, resolved.kind)
+                bound = self._bind(chain, attachments, stack, ctx)
+                outputs = run_chain(bound, [media], ctx, validate=False)
+            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                raise _refusal(exc) from exc
+            if len(outputs) != 1:
+                raise ToolFailed("The edits did not produce exactly one video")
+            yield outputs[0].path
+
+    @contextmanager
     def open_input(self, user: Any, input_ref: InputLike) -> Iterator[Path]:
         resolved = self.resolver.resolve(_user_id(user), _model(InputRef, input_ref, "input"))
         with self.resolver.stage(resolved) as path:

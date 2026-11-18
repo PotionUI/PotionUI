@@ -85,6 +85,13 @@ def mask_problems(inputs: Dict[str, Any], fields: Dict[str, FieldTemplate]) -> L
     return []
 
 
+def region_problems(region: str, editors: Tuple[str, ...]) -> List[str]:
+    if region == "range" and "video" not in editors:
+        return ["region: range is for a task of the video editor"]
+    if region != "range" and "video" in editors and "image" not in editors:
+        return [f"region: {region} is for pictures; a video task takes region: range"]
+    return []
+
 def size_problems(size: Dict[str, Any], fields: Dict[str, FieldTemplate]) -> List[str]:
     name = size.get("field")
     if not name:
@@ -137,6 +144,7 @@ def lint_editor_mode(
         return issues
 
     problems = [
+        *region_problems(spec.region, tuple(editors_of(spec.task))),
         *source_problems(spec.inputs["source"], fields, editors_of(spec.task)),
         *mask_problems(spec.inputs, fields),
         *size_problems(spec.size, fields),

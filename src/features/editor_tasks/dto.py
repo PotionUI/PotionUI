@@ -18,11 +18,22 @@ class RunSetup(BaseModel):
     form_data: Dict[str, Any] = Field(default_factory=dict)
 
 
+class RunRange(BaseModel):
+    start_s: float = Field(default=0.0, ge=0)
+    end_s: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "RunRange":
+        if self.end_s <= self.start_s:
+            raise ValueError("end_s must be greater than start_s")
+        return self
+
 class StartEditorRunRequest(BaseModel):
     edit: RunEditRef
     input: InputRef
     steps: List[StepRequest] = Field(default_factory=list)
     region: Optional[InputRef] = None
+    range: Optional[RunRange] = None
     prompt: Optional[str] = None
     setup: RunSetup
     candidates: int = Field(default=1, ge=1, le=MAX_CANDIDATES)

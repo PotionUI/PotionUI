@@ -19,7 +19,13 @@ class TaskDefinition:
     fallback: Optional[Tuple[str, str]] = None
     source: str = CORE_SOURCE
     icon: str = "edit"
+    range: Need = "none"
+    result: Literal["replace", "append"] = "replace"
+    audio: Literal["keep", "result"] = "keep"
+    resizes: bool = False
 
+
+VIDEO = ("video",)
 
 CORE_TASKS: Tuple[TaskDefinition, ...] = (
     TaskDefinition(id="edit_region", label="Edit a region", region="optional", prompt="required", icon="edit"),
@@ -30,6 +36,34 @@ CORE_TASKS: Tuple[TaskDefinition, ...] = (
         prompt="none",
         fallback=("edit_region", REMOVE_OBJECT_PROMPT),
         icon="eraser",
+    ),
+    TaskDefinition(
+        id="extend", label="Extend", editors=VIDEO, region="none", prompt="optional", range="optional",
+        result="append", audio="result", icon="mode-extend",
+    ),
+    TaskDefinition(
+        id="upscale", label="Upscale", editors=VIDEO, region="none", prompt="none", range="optional",
+        resizes=True, icon="mode-upscale",
+    ),
+    TaskDefinition(
+        id="restore", label="Restore", editors=VIDEO, region="none", prompt="optional", range="optional",
+        icon="mode-restore",
+    ),
+    TaskDefinition(
+        id="refine_faces", label="Refine faces", editors=VIDEO, region="none", prompt="none", range="optional",
+        icon="mode-refine-faces",
+    ),
+    TaskDefinition(
+        id="colorize", label="Colorize", editors=VIDEO, region="none", prompt="optional", range="optional",
+        icon="mode-colorize",
+    ),
+    TaskDefinition(
+        id="relight", label="Day to night", editors=VIDEO, region="none", prompt="optional", range="optional",
+        icon="mode-day-night",
+    ),
+    TaskDefinition(
+        id="clean_plate", label="Remove moving objects", editors=VIDEO, region="none", prompt="optional",
+        range="optional", icon="mode-remove-object",
     ),
 )
 
@@ -70,6 +104,10 @@ class TaskRegistry:
                 fallback=(fallback["task"], fallback["prompt"]) if fallback else None,
                 source=source,
                 icon=entry.get("icon") or "extension",
+                range=entry.get("range") or "none",
+                result=entry.get("result") or "replace",
+                audio=entry.get("audio") or "keep",
+                resizes=bool(entry.get("resizes")),
             )
         )
 

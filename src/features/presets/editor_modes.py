@@ -132,7 +132,7 @@ class EditorModeFile(BaseModel):
     short_description: Optional[str] = Field(default=None, min_length=1)
     icon: Optional[str] = Field(default=None, min_length=1)
     order: int = 0
-    region: Literal["crop", "mask", "whole"]
+    region: Literal["crop", "mask", "whole", "range"]
     inputs: EditorInputs
     size: EditorSize = Field(default_factory=EditorSize)
     context: float = Field(default=0.5, ge=0.0, le=4.0)
@@ -158,6 +158,8 @@ class EditorModeFile(BaseModel):
     def _mask_region_has_a_mask(self) -> "EditorModeFile":
         if self.region == "mask" and not self.inputs.mask:
             raise ValueError("region: mask needs inputs.mask")
+        if self.region == "range" and self.inputs.mask:
+            raise ValueError("region: range takes no inputs.mask")
         return self
 
     @model_validator(mode="after")

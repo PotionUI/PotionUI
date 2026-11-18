@@ -1,0 +1,6 @@
+schema_version: 1
+task: clean_plate
+from: remove_object
+region: range
+inputs:
+  source: input_video

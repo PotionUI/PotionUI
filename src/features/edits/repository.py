@@ -5,7 +5,8 @@ from src.features.edits.records import Edit
 from src.platform.database import get_cursor
 
 SUMMARY_COLUMNS = (
-    "id, user_id, tool, name, source_kind, source_id, source_name, thumbnail_upload_id, revision, created_at, updated_at"
+    "id, user_id, tool, name, source_kind, source_id, source_name, thumbnail_upload_id, revision, created_at, updated_at, "
+    "CASE WHEN tool = 'video' THEN json_extract(state, '$.clip') END AS clip"
 )
 
 

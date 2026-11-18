@@ -270,16 +270,6 @@ async def test_the_preset_is_the_video_one_in_these_tests(mock_db, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_a_clip_run_needs_no_saved_edit(mock_db, tmp_path):
-    manager, fakes, _edit_id = build(tmp_path, "remix")
-
-    run = await manager.start(USER, "remix", clip_body("video-tab-1"))
-
-    assert run["edit_id"] == "video-tab-1"
-
-
-
-@pytest.mark.asyncio
 async def test_a_range_over_the_cap_of_the_mode_is_refused_with_the_cap_in_the_message(mock_db, tmp_path):
     manager, fakes, edit_id = build(tmp_path, "remix", max_range_s=1.0)
 

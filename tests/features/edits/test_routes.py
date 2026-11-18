@@ -174,13 +174,13 @@ class TestEditRoutes(RoutesBase):
         second = self.call("GET", "?limit=1&offset=1").json()["data"]
         found = self.call("GET", "?search=amm").json()["data"]
         image = self.call("GET", "?tool=image").json()["data"]
-        video = self.call("GET", "?tool=video")
+        audio = self.call("GET", "?tool=audio")
 
         self.assertEqual([edit["name"] for edit in everything["edits"]], ["Gamma", "Beta", "Alpha"])
         self.assertEqual(([edit["name"] for edit in second["edits"]], second["total"]), (["Beta"], 3))
         self.assertEqual([edit["name"] for edit in found["edits"]], ["Gamma"])
         self.assertEqual(image["total"], 3)
-        self.assertEqual((video.status_code, video.json()["detail"]["error"]), (400, "invalid_edit_tool"))
+        self.assertEqual((audio.status_code, audio.json()["detail"]["error"]), (400, "invalid_edit_tool"))
 
     def test_list_rejects_out_of_range_paging(self):
         self.assertEqual(self.call("GET", "?limit=0").status_code, 422)

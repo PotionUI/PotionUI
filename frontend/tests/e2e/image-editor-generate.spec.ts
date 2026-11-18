@@ -348,12 +348,8 @@ const presetTrigger = (page: Page) => prompt(page).locator('[data-testid="preset
 const sessionTrigger = (page: Page) => prompt(page).locator('[data-testid="session-trigger"], button[aria-label="Session"]').first();
 const modeTrigger = (page: Page) => prompt(page).locator('[data-testid="preset-header-mode"] button').first();
 const presetDropdown = (page: Page) => page.locator('[role="dialog"][aria-label="Choose preset"]');
-const defaultSwitch = (page: Page) => presetDropdown(page).locator('[data-picker-default] input[role="switch"]');
-
-async function openDefaultFooter(page: Page) {
-	if ((await presetDropdown(page).count()) === 0) await presetTrigger(page).click();
-	await expect(defaultSwitch(page)).toBeVisible();
-}
+const defaultStar = (page: Page) => prompt(page).locator('[data-testid="default-star"]');
+const starTip = (page: Page) => page.locator('[role="tooltip"]');
 
 async function closePresetDropdown(page: Page) {
 	await page.keyboard.press('Escape');
@@ -463,18 +459,20 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await sessionTrigger(page).click();
 		await page.locator('[data-session-row="sess-1"]').click();
 		await expect(sessionTrigger(page)).toHaveText(/Soft portrait/);
-		await expect(prompt(page).locator('[data-picker-default]')).toHaveCount(0);
-		await expect(prompt(page).locator('[data-default-mark]')).toHaveCount(0);
-		await openDefaultFooter(page);
-		await expect(defaultSwitch(page)).not.toBeChecked();
-		await defaultSwitch(page).click();
+		await expect(defaultStar(page)).toHaveAttribute('aria-pressed', 'false');
+		await defaultStar(page).hover();
+		await expect(starTip(page)).toContainText('Use as my default for Edit a region');
+		await screenshot(page, JOURNEY, '50-star-off-tooltip-dark-1440');
+		await defaultStar(page).click();
 		await expect.poll(() => server.defaults.length).toBe(1);
 		expect(server.defaults[0]).toEqual({ preset_id: 'qwen21', mode: 'editor:edit', setup: { kind: 'session', id: 'sess-1' } });
-		await expect(defaultSwitch(page)).toBeChecked();
-		await expect(presetDropdown(page)).toBeVisible();
-		await screenshot(page, JOURNEY, '28-built-preset-dropdown-default-dark-1440');
-		await closePresetDropdown(page);
-		await expect(prompt(page).locator('[data-default-mark]')).toHaveText('default');
+		await expect(defaultStar(page)).toHaveAttribute('aria-pressed', 'true');
+		await page.mouse.move(5, 5);
+		await screenshot(page, JOURNEY, '50-star-on-dark-1440');
+		await defaultStar(page).hover();
+		await expect(starTip(page)).toContainText('Click to stop using it as your default');
+		await screenshot(page, JOURNEY, '50-star-on-tooltip-dark-1440');
+		await page.mouse.move(5, 5);
 		await screenshot(page, JOURNEY, '12-pickers-dark-1440');
 
 		await screenshot(page, JOURNEY, '08-whole-picture-dark-1440');
@@ -889,10 +887,10 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(page.locator('[data-session-row]')).toHaveCount(1);
 		await page.locator('[data-session-row="sess-flux"]').click();
 		await expect(sessionTrigger(page)).toHaveText(/Wide and soft/);
-		await openDefaultFooter(page);
-		await expect(defaultSwitch(page)).not.toBeChecked();
-		await expect(presetDropdown(page).locator('[data-default-hint]')).toHaveText(/^Your default is Qwen-Image 2\.1 · .+ · .+$/);
-		await closePresetDropdown(page);
+		await expect(defaultStar(page)).toHaveAttribute('aria-pressed', 'false');
+		await defaultStar(page).hover();
+		await expect(starTip(page)).toContainText(/Your default is Qwen-Image 2\.1 · .+ · .+/);
+		await page.mouse.move(5, 5);
 		await screenshot(page, JOURNEY, '12b-pickers-mode-dark-1440');
 		await markArea(page);
 		await type(page, 'a lantern');
@@ -901,14 +899,13 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		expect((server.runs[0].setup as Json)).toMatchObject({ preset_id: 'flux-fill', mode: 'editor:fill2', form_data: { steps: 11 } });
 		expect((server.runs[0].setup as Json)).not.toHaveProperty('variant');
 		expect(server.defaults).toHaveLength(0);
-		await openDefaultFooter(page);
-		await defaultSwitch(page).click();
+		await defaultStar(page).click();
 		await expect.poll(() => server.defaults.length).toBe(1);
 		expect(server.defaults[0]).toEqual({ preset_id: 'flux-fill', mode: 'editor:fill2', setup: { kind: 'session', id: 'sess-flux' } });
-		await expect(presetDropdown(page)).toBeVisible();
-		await defaultSwitch(page).click();
+		await expect(defaultStar(page)).toHaveAttribute('aria-pressed', 'true');
+		await defaultStar(page).click();
 		await expect.poll(() => server.defaultClears).toBe(1);
-		await expect(presetDropdown(page)).toBeVisible();
+		await expect(defaultStar(page)).toHaveAttribute('aria-pressed', 'false');
 	});
 
 	test('the result count is a field of Settings and a formula applied from the dock reaches the run', async ({ page }) => {

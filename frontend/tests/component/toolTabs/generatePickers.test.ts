@@ -19,6 +19,8 @@ vi.mock('$lib/utils/presetHardware', async (orig) => ({
 	fetchDetectedVramGb: vi.fn().mockResolvedValue(16)
 }));
 
+import { keyboardFocus } from '../helpers/keyboardFocus';
+
 const { api } = await import('$lib/services/api/index');
 const { activeConfirm, settleConfirm } = await import('$lib/stores/confirm');
 
@@ -331,59 +333,98 @@ describe('switching with unsaved changes', () => {
 
 describe('use as my default', () => {
 	const mine = (preset_id: string, mode: string, setup: SetupRef = { kind: 'defaults' }) => ({ preset_id, mode, setup, health: { ok: true, reason: null, name: null, mode_label: null } });
-	const footerSwitch = () => document.body.querySelector<HTMLInputElement>('[data-picker-default] [role="switch"]');
-	const openDropdown = async (t: { q: (selector: string) => Element | null }) => {
-		if (!t.q('[data-testid="preset-list-scroll"]')) await click(t.q('[data-testid="preset-picker-trigger"]'));
+	const star = () => document.body.querySelector<HTMLButtonElement>('[data-testid="default-star"]');
+	const tip = async () => {
+		keyboardFocus(star()!);
+		await settle(4);
+		const bubble = document.body.querySelector('[role="tooltip"]');
+		const lines = Array.from(bubble?.querySelectorAll('span > span') ?? []).map((node) => (node.textContent ?? '').trim());
+		star()!.blur();
+		await settle(4);
+		return lines;
 	};
-	const mark = () => document.body.querySelector('[data-default-mark]');
+	const brokenDefault = () => edit({ default: { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 'gone' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } } });
 
-	it('is not in the dock strip, only in the footer of the preset dropdown', async () => {
-		const t = await open([edit()]);
-		expect(t.q('[data-editor-pickers-end] [data-picker-default]')).toBeNull();
-		await openDropdown(t);
-		expect(t.q('[data-testid="preset-list-scroll"]')).not.toBeNull();
-		expect(footerSwitch()).not.toBeNull();
-		expect(t.text('[data-picker-default]')).toContain('Use this setup as my default for Edit a region');
+	it('is a star after the Session picker, and the Preset dropdown and label carry no default switch or suffix', async () => {
+		const t = await open([edit({ offers: [offer()] })]);
+		const steps = t.all('[data-dock-pickers] > *').map((node) => node.getAttribute('data-testid'));
+		expect(steps.indexOf('editor-default-star')).toBe(steps.indexOf('editor-session-step') + 1);
+		await click(t.q('[data-testid="preset-picker-trigger"]'));
+		expect(t.q('[data-picker-default]')).toBeNull();
+		expect(document.body.querySelector('[data-picker-default]')).toBeNull();
+		expect(t.text('[data-testid="context-zone"] .ctx-label')).not.toContain('default');
+		expect(star()!.hasAttribute('title')).toBe(false);
 	});
 
-	it('stores the current preset, editor mode and source when switched on, clears it when switched off and keeps the dropdown open', async () => {
-		const t = await open([edit({ offers: [offer()] })], { sessions: { qwen: [stored('s1', 'Soft portrait', 'editor:edit', 20)] } });
-		await t.controller.pick('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
-		await settle();
-		await openDropdown(t);
-		expect(footerSwitch()!.checked).toBe(false);
-		expect(mark()).toBeNull();
-		await click(footerSwitch());
-		expect(t.ports.setDefault).toHaveBeenCalledWith('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
-		expect(t.q('[data-testid="preset-list-scroll"]')).not.toBeNull();
-		expect(footerSwitch()!.checked).toBe(true);
-		expect(mark()?.textContent).toBe('default');
-		await click(footerSwitch());
-		expect(t.ports.clearDefault).toHaveBeenCalledWith('edit_region');
-		expect(t.q('[data-testid="preset-list-scroll"]')).not.toBeNull();
-		expect(footerSwitch()!.checked).toBe(false);
-		expect(mark()).toBeNull();
+	it('is an outline star with the first line as its label when the setup is not the default, naming what new tools start with', async () => {
+		const t = await open([edit({ offers: [offer()] })]);
+		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('off');
+		expect(star()!.getAttribute('aria-pressed')).toBe('false');
+		expect(star()!.getAttribute('aria-label')).toBe('Use as my default for Edit a region');
+		expect(star()!.disabled).toBe(false);
+		expect(star()!.querySelector('svg')!.getAttribute('class')).not.toContain('fill-current');
+		expect(await tip()).toEqual(['Use as my default for Edit a region', 'New Edit a region tools start with Qwen-Image 2.1 · Edit · No saved session']);
 	});
 
-	it('is on, with the mark in the Preset cell, when the setup in use is the default and off for any other', async () => {
+	it('is a filled signal star when the setup in use is the default', async () => {
 		const t = await open([edit({ default: mine('qwen', 'editor:edit') })]);
-		expect(mark()).not.toBeNull();
-		expect(t.text('[data-testid="context-zone"] .ctx-label')).toContain('Preset · default');
-		await openDropdown(t);
-		expect(footerSwitch()?.checked).toBe(true);
-		expect(t.q('[data-default-hint]')).toBeNull();
-		await t.controller.pick('edit_region', { preset_id: 'flux', mode: 'editor:fill', setup: { kind: 'defaults' } });
-		await settle();
-		expect(footerSwitch()?.checked).toBe(false);
-		expect(mark()).toBeNull();
+		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('on');
+		expect(star()!.getAttribute('aria-pressed')).toBe('true');
+		expect(star()!.getAttribute('aria-label')).toBe('Your default for Edit a region');
+		expect(star()!.className).toContain('text-signal');
+		expect(star()!.querySelector('svg')!.getAttribute('class')).toContain('fill-current');
+		expect(await tip()).toEqual(['Your default for Edit a region', 'Click to stop using it as your default']);
 	});
 
 	it('says what the default is when the current choice differs from it', async () => {
 		const t = await open([edit({ default: mine('qwen', 'editor:edit') })]);
 		await t.controller.pick('edit_region', { preset_id: 'flux', mode: 'editor:fill', setup: { kind: 'defaults' } });
 		await settle();
-		await openDropdown(t);
-		expect(t.text('[data-default-hint]')).toMatch(/^Your default is Qwen-Image 2\.1 · .+ · Model defaults$/);
+		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('off');
+		expect((await tip())[1]).toBe('Your default is Qwen-Image 2.1 · Edit · No saved session');
+	});
+
+	it('stores the current preset, editor mode and source on click, and clears it on the next click', async () => {
+		const t = await open([edit({ offers: [offer()] })], { sessions: { qwen: [stored('s1', 'Soft portrait', 'editor:edit', 20)] } });
+		await t.controller.pick('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
+		await settle();
+		await click(star());
+		expect(t.ports.setDefault).toHaveBeenCalledWith('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 's1' } });
+		expect(star()!.getAttribute('aria-pressed')).toBe('true');
+		await click(star());
+		expect(t.ports.clearDefault).toHaveBeenCalledWith('edit_region');
+		expect(star()!.getAttribute('aria-pressed')).toBe('false');
+	});
+
+	it('is disabled with the reason until a preset and a mode are chosen', async () => {
+		const t = await open([edit()]);
+		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('disabled');
+		expect(star()!.disabled).toBe(true);
+		expect(star()!.getAttribute('aria-disabled')).toBe('true');
+		expect(t.text('[data-default-star] .sr-only')).toBe('Choose a preset and a mode first');
+		await click(star());
+		expect(t.ports.setDefault).not.toHaveBeenCalled();
+	});
+
+	it('shows a warning dot and says why when the saved default is broken, and replaces it on click', async () => {
+		const t = await open([brokenDefault()]);
+		if (!t.q('[data-preset-row]')) await click(t.q('[data-testid="preset-picker-trigger"]'));
+		await click(t.q('[data-preset-row="qwen"] button.row-main'));
+		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('broken');
+		expect(t.q('[data-default-star-warning]')).not.toBeNull();
+		expect(star()!.getAttribute('aria-pressed')).toBe('false');
+		expect(await tip()).toEqual(['Replace your default for Edit a region', 'Your default setup "Soft portrait" was deleted.']);
+		await click(star());
+		expect(t.ports.setDefault).toHaveBeenCalledWith('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'defaults' } });
+	});
+
+	it('sits in the phone row as a 40px target', async () => {
+		const t = await open([edit({ offers: [offer()] })], {}, { phone: true });
+		expect(t.q('[data-editor-pickers="phone"] [data-default-star]')).not.toBeNull();
+		expect(star()!.className).toContain('h-10');
+		expect(star()!.className).toContain('w-10');
+		await click(star());
+		expect(t.ports.setDefault).toHaveBeenCalled();
 	});
 });
 

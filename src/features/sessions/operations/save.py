@@ -85,6 +85,9 @@ def _merge_mode_data(
     """Merge mode-specific data into existing session data."""
     existing_data = existing_data or {}
 
+    if mode and isinstance(new_data, dict) and set(new_data) == {mode} and isinstance(new_data[mode], dict) and "formData" in new_data[mode]:
+        new_data = new_data[mode]
+
     if not mode and isinstance(new_data, dict):
         # Mode-keyed data (dict of dicts) — shallow-merge so saving in one
         # mode doesn't wipe data stored for other modes on the same session.

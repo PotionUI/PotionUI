@@ -380,6 +380,21 @@ class TestEditorStripping:
         assert response.json()["data"]["data"]["editor:edit"]["formData"] == {"seed": 1}
         assert "prompt" not in response.json()["data"]["data"]["editor:edit"]
 
+    def test_the_mode_keyed_body_with_the_mode_argument_keeps_the_values(self, world):
+        preset = world.shipped.ids["Flux3"]
+        nested = {"editor:edit": self.mode_payload(seed=5, steps=9)}
+
+        created = post(world, "Soft", nested, kind="editor", mode="editor:edit", preset=preset).json()["data"]
+        updated = world.client.put(
+            f"/api/sessions/{created['id']}",
+            json={"name": "Soft", "mode": "editor:edit", "kind": "editor", "data": {"editor:edit": self.mode_payload(seed=6, steps=10)}},
+        )
+
+        assert created["data"]["editor:edit"]["formData"] == {"seed": 5, "steps": 9}
+        assert updated.json()["data"]["data"]["editor:edit"]["formData"] == {"seed": 6, "steps": 10}
+        assert list(updated.json()["data"]["data"]) == ["editor:edit"]
+        assert world.sessions.get_by_id(created["id"]).data["editor:edit"]["formData"] == {"seed": 6, "steps": 10}
+
     def test_an_update_by_id_and_a_save_by_name_strip_as_well(self, world):
         preset = world.shipped.ids["Flux3"]
         created = post(world, "Soft", {"editor:edit": self.mode_payload(seed=1)}, kind="editor", preset=preset).json()["data"]

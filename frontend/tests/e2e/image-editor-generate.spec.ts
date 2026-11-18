@@ -28,7 +28,7 @@ const FORM_SCHEMA = {
 };
 
 const FORMULA_DECLARATION = { groups: [{ id: 'look', label: 'Look', fields: ['strength', 'steps', 'source_image'] }] };
-const FORMULA: Json = { id: 'formula-1', preset_id: 'qwen21', mode: 'editor:edit', variant: null, name: 'Crisp and quick', note: null, groups: [{ id: 'look' }], values: { strength: 0.9, steps: 8, source_image: 'x.png' }, signatures: {}, preset_version: '1', created_at: '2026-11-01T10:00:00Z', updated_at: '2026-11-01T10:00:00Z' };
+const FORMULA: Json = { id: 'formula-1', preset_id: 'qwen21', mode: 'editor:edit', variant: null, name: 'Crisp and quick', note: null, groups: [{ id: 'look', label: 'Look', fields: ['strength', 'steps', 'source_image'] }], values: { strength: 0.9, steps: 8, source_image: 'x.png' }, signatures: {}, preset_version: '1', created_at: '2026-11-01T10:00:00Z', updated_at: '2026-11-01T10:00:00Z' };
 const FORMULA_PLAN: Json = {
 	changes: [
 		{ name: 'strength', label: 'Strength', group_id: 'look', group_label: 'Look', type: 'number', advanced: false, old: 0.85, new: 0.9 },
@@ -258,6 +258,7 @@ async function geometry(page: Page) {
 			session: box(strip.querySelector('[data-testid="session-trigger"]')),
 			save: box(strip.querySelector('[data-testid="session-save"]')),
 			settings: box(strip.querySelector('[data-prompt-settings]')),
+			formulas: box(strip.querySelector('[data-testid="formulas-button"]')),
 			cuts: Array.from(strip.querySelectorAll('[data-testid="context-separator"]')).map((cut) => box(cut)!),
 			field: box(dock.querySelector('.ai-ring')),
 			fieldInner: box(dock.querySelector('[data-prompt-field]')),
@@ -309,11 +310,14 @@ function checkStrip(g: Awaited<ReturnType<typeof geometry>>, mode: 'rest' | 'tem
 	expect(g.stripOverflow).toBe('hidden');
 	expect(g.stripScroll.scroll).toBeLessThanOrEqual(g.stripScroll.client + 1);
 	const labelBottoms = new Set(g.labels.map((label) => Math.round(label.bottom)));
-	expect(labelBottoms.size, `label baselines ${JSON.stringify(g.labels.map((l) => [l.text, l.bottom]))}`).toBe(wrapped ? 2 : 1);
-	const lines = wrapped ? [[g.preset, g.session], [g.settings]] : [[g.preset, g.session, g.settings]];
-	for (const line of lines) {
-		const bottoms = line.filter(Boolean).map((box) => Math.round(box!.bottom));
-		expect(Math.max(...bottoms) - Math.min(...bottoms), `control bottoms ${JSON.stringify(bottoms)}`).toBeLessThanOrEqual(2);
+	expect(labelBottoms.size, `label baselines ${JSON.stringify(g.labels.map((l) => [l.text, l.bottom]))}`).toBe(1);
+	const pickerBottoms = [g.preset, g.session].filter(Boolean).map((box) => Math.round(box!.bottom));
+	expect(Math.max(...pickerBottoms) - Math.min(...pickerBottoms), `picker bottoms ${JSON.stringify(pickerBottoms)}`).toBeLessThanOrEqual(2);
+	const rowCentre = g.end!.y + g.end!.height / 2;
+	if (!wrapped) expect(Math.abs(rowCentre - (stripBox.y + stripBox.height / 2)), `row centre ${rowCentre} strip ${stripBox.y + stripBox.height / 2}`).toBeLessThanOrEqual(1);
+	for (const control of [g.settings, g.formulas].filter(Boolean)) {
+		const centre = control!.y + control!.height / 2;
+		expect(Math.abs(centre - rowCentre), `end control centre ${centre} row centre ${rowCentre}`).toBeLessThanOrEqual(1);
 	}
 	for (const cut of g.cuts) {
 		expect(Math.abs(cut.y - stripBox.y)).toBeLessThanOrEqual(1);

@@ -22,7 +22,7 @@
 	import { isChanged } from '$lib/tool-tabs/image/generate/tweaks';
 	import { DOCK_CELL, DOCK_END, DOCK_PICKERS, DOCK_STEP } from '$lib/tool-tabs/image/generate/dockStrip';
 
-	let { phone = false, taskId, label, extras, resultsStep, changedMark, settingsButton }: { phone?: boolean; taskId: string; label: string; extras?: Snippet; resultsStep?: Snippet; changedMark?: Snippet; settingsButton?: Snippet } = $props();
+	let { phone = false, taskId, label, extras, changedMark, settingsButton }: { phone?: boolean; taskId: string; label: string; extras?: Snippet; changedMark?: Snippet; settingsButton?: Snippet } = $props();
 
 	const generate = getGenerateController()!;
 	const ui = generate.ui;
@@ -270,7 +270,6 @@
 			</div>
 			<div class={DOCK_END} data-editor-pickers-end>
 				{@render extras?.()}
-				{@render resultsStep?.()}
 				{@render changedMark?.()}
 				{@render settingsButton?.()}
 			</div>

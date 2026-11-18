@@ -218,7 +218,8 @@ def input_names(inputs: Dict[str, Any]) -> List[str]:
 
 
 def input_field_names(spec: EditorModeSpec) -> List[str]:
-    return input_names(spec.inputs)
+    quantity = spec.inputs.get("quantity")
+    return [name for name in input_names(spec.inputs) if name != quantity]
 
 
 def form_overrides_for(

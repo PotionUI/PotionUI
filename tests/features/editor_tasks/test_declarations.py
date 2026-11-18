@@ -234,7 +234,6 @@ def test_the_owned_fields_cover_the_inputs_the_fixed_values_and_the_hidden_field
         "resolution",
         "output_size",
         "match_source",
-        "quantity",
     }
 
 

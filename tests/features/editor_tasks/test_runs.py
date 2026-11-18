@@ -67,7 +67,26 @@ async def test_owned_fields_overwrite_what_the_caller_sent(setup):
     await manager.start(USER, "edit_region", data)
 
     form = fakes.requests[0].form_data
-    assert form["source_image"] == "uploads/up1.png" and form["quantity"] == 1 and form["seed"] == 77
+    assert form["source_image"] == "uploads/up1.png" and form["quantity"] == 4 and form["seed"] == 77
+
+
+@pytest.mark.asyncio
+async def test_the_count_in_the_form_sets_the_quantity_and_the_old_request_field_fills_in_when_it_is_missing(setup):
+    manager, fakes, edit_id = setup
+    data = body(edit_id, candidates=2)
+    data.setup.form_data["quantity"] = 3
+    await manager.start(USER, "edit_region", data)
+    assert fakes.requests[-1].form_data["quantity"] == 3
+
+    legacy = body(edit_id, candidates=2)
+    legacy.setup.form_data.pop("quantity", None)
+    await manager.start(USER, "edit_region", legacy)
+    assert fakes.requests[-1].form_data["quantity"] == 2
+
+    zero = body(edit_id, candidates=2)
+    zero.setup.form_data["quantity"] = 0
+    await manager.start(USER, "edit_region", zero)
+    assert fakes.requests[-1].form_data["quantity"] == 1
 
 
 @pytest.mark.asyncio

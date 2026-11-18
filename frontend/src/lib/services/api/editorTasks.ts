@@ -44,6 +44,7 @@ export interface TaskOffer {
 	short_description: string | null;
 	order: number;
 	region_strategy: 'crop' | 'mask' | 'whole' | string;
+	quantity_field?: string | null;
 	via: string | null;
 	qualifies: boolean;
 	reason: OfferReason | null;
@@ -225,6 +226,7 @@ function offerOf(raw: unknown): TaskOffer[] {
 			short_description: str(raw.short_description),
 			order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : 0,
 			region_strategy: str(raw.region_strategy) ?? 'crop',
+			quantity_field: str(raw.quantity_field),
 			via: str(raw.via),
 			qualifies: raw.qualifies !== false,
 			reason: str(raw.reason)

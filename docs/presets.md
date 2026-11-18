@@ -371,7 +371,7 @@ fields:
 | `region` | Required. `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. |
 | `inputs.source` | Required. The `image` field that takes the picture, or `{field: <media field>, index: 0}`, which inserts the picture into a `media` list at that index. |
 | `inputs.mask` | Required for `region: mask`. It must be named `<image field>_inpaint_mask`, and that image field must set `allow_inpaint: true`. With `region: crop` it asks for the region mask cut and resampled like the crop. |
-| `inputs.quantity`, `inputs.seed` | Default to the mode's quantity field and its `seed` field. The quantity field is filled by the editor and not shown; the seed field is shown. |
+| `inputs.quantity`, `inputs.seed` | Default to the mode's quantity field and its `seed` field. The quantity field is shown in Settings like on the Generate page, and its value (1 to 4) is the number of results of a run; the seed field is shown. |
 | `size` | `area` (default 1048576, 262144 to 4194304), `multiple` (8, 16, 32 or 64), `field` (a `resolution` field), `buckets`. |
 | `context` | Context around the area as a fraction of its size (0 to 4), default `0.5`. A `region_context` field in the form wins. |
 | `fixed` | Fields hidden in Settings that always get this value in a run. The key must be a field and the value valid for it (an option of a select, a boolean for a checkbox, a number inside the range of a slider). |

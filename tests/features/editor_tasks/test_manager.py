@@ -46,6 +46,7 @@ def test_offers_name_the_modes_and_their_strategy(tmp_path):
     assert offers[0]["order"] == 0
     assert "variant" not in offers[0] and "owned" not in offers[0]
     assert "reason" not in offers[0]
+    assert offers[0]["quantity_field"] == "quantity"
 
 
 def test_an_offer_carries_the_mode_icon_beside_the_label(tmp_path):
@@ -172,7 +173,7 @@ def test_owned_fields_are_the_inputs_the_fixed_values_and_the_hidden_fields(tmp_
         {"A-CROP": task(fixed={"output_size": "match"}, fields={"hide": ["resolution"]})},
     )
 
-    expected = {"source_image", "output_size", "resolution", "quantity"}
+    expected = {"source_image", "output_size", "resolution"}
     assert manager.owned_fields("A-CROP", "editor:edit") == expected
     assert manager.owned_fields("A-CROP", "edit") == set()
     assert manager.owned_fields("A-CROP", "editor:missing") == set()

@@ -307,7 +307,7 @@ def test_an_sdxl_inpaint_editor_mode_serves_without_its_picture_and_mask_inputs(
     served = served_names(schema)
     assert "source_image" in own
     assert not {"source_image", "source_image_inpaint_mask"} & served
-    assert served == own - {"source_image", "source_image_inpaint_mask", "quantity"}
+    assert served == own - {"source_image", "source_image_inpaint_mask"}
 
 
 def test_the_model_access_check_sees_the_model_fields_of_an_editor_mode(world):

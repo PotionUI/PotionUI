@@ -350,7 +350,8 @@ class TestEditorStripping:
     def test_a_mask_mode_loses_the_prompt_layout_pictures_and_owned_fields(self, world):
         preset = world.shipped.ids["QwenImage-2.1"]
         owned = world.shipped.manager.owned_fields(preset, "editor:inpaint")
-        assert {"source_image", "source_image_inpaint_mask", "quantity"} <= owned
+        assert {"source_image", "source_image_inpaint_mask"} <= owned
+        assert "quantity" not in owned
         payload = self.mode_payload(
             source_image="up_1", source_image_inpaint_mask="mask_1", quantity=4, seed=7, steps=12
         )
@@ -358,7 +359,7 @@ class TestEditorStripping:
         response = post(world, "Soft", {"editor:inpaint": payload}, kind="editor", preset=preset)
 
         assert response.json()["data"]["data"] == {
-            "editor:inpaint": {"formData": {"seed": 7, "steps": 12}, "selectedVariant": "default", "presetVersion": "1.4.0"}
+            "editor:inpaint": {"formData": {"quantity": 4, "seed": 7, "steps": 12}, "selectedVariant": "default", "presetVersion": "1.4.0"}
         }
         assert world.sessions.get_by_id(response.json()["data"]["id"]).data == response.json()["data"]["data"]
 
@@ -369,7 +370,7 @@ class TestEditorStripping:
         response = post(world, "Soft", {"editor:edit": payload}, kind="editor", preset=preset)
 
         assert response.json()["data"]["data"] == {
-            "editor:edit": {"formData": {"seed": 9, "steps": 20}, "selectedVariant": "default", "presetVersion": "1.4.0"}
+            "editor:edit": {"formData": {"quantity": 2, "seed": 9, "steps": 20}, "selectedVariant": "default", "presetVersion": "1.4.0"}
         }
 
     def test_the_mode_argument_form_is_stripped_too(self, world):
@@ -431,7 +432,7 @@ class TestEditorStripping:
         second = world.client.get(f"/api/sessions/{created['id']}/versions/2").json()["data"]["data"]
 
         assert first == {"editor:edit": {"formData": {"seed": 1}, "selectedVariant": "default", "presetVersion": "1.4.0"}}
-        assert second["editor:edit"]["formData"] == {"seed": 2}
+        assert second["editor:edit"]["formData"] == {"quantity": 3, "seed": 2}
         assert "prompt" not in first["editor:edit"] and "prompt" not in second["editor:edit"]
 
     def test_a_generation_session_is_not_stripped(self, world):

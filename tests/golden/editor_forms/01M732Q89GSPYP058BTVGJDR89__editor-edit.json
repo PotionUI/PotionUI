@@ -10,6 +10,11 @@
       "type": "seed"
     },
     {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
       "label": "MiniMax-H3-Image DiT",
       "name": "diffusion_model",
       "type": "model"

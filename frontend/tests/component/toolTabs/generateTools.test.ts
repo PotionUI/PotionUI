@@ -116,7 +116,7 @@ describe('floating prompt', () => {
 		expect(strip.className).toContain('border-b');
 		const zone = strip.querySelector('[data-testid="context-zone"]')!;
 		expect(zone.className).toContain('h-12');
-		expect(Array.from(zone.querySelectorAll('.ctx-label')).map((label) => label.textContent?.trim())).toEqual(['Preset', 'Mode', 'Session', 'Results']);
+		expect(Array.from(zone.querySelectorAll('.ctx-label')).map((label) => label.textContent?.trim())).toEqual(['Preset', 'Mode', 'Session']);
 		expect(zone.querySelectorAll('[data-testid="context-separator"]')).toHaveLength(2);
 		expect(strip.querySelector('[data-picker-default]')).toBeNull();
 		expect(strip.querySelector('[data-editor-pickers-end] [data-prompt-settings]')).not.toBeNull();
@@ -127,9 +127,10 @@ describe('floating prompt', () => {
 		expect(second.querySelector('[data-prompt-mark]')).toBeNull();
 		expect(second.querySelector('.ai-ring [data-prompt-field]')).not.toBeNull();
 		const end = strip.querySelector('[data-editor-pickers-end]')!;
-		const order = Array.from(end.children).map((child) => (child.querySelector('[aria-label="Results"]') ? 'results' : child.querySelector('[data-picker-default]') || child.hasAttribute('data-picker-default') ? 'default' : child.querySelector('[data-prompt-settings]') || child.hasAttribute('data-prompt-settings') ? 'settings' : 'other'));
-		expect(order.filter((entry) => entry !== 'other')).toEqual(['results', 'settings']);
-		expect(end.querySelector('[data-testid="dock-results"] .ctx-label')?.textContent?.trim()).toBe('Results');
+		const order = Array.from(end.children).map((child) => (child.querySelector('[data-picker-default]') || child.hasAttribute('data-picker-default') ? 'default' : child.querySelector('[data-prompt-settings]') || child.hasAttribute('data-prompt-settings') ? 'settings' : 'other'));
+		expect(order.filter((entry) => entry !== 'other')).toEqual(['settings']);
+		expect(dock.querySelector('[data-testid="dock-results"]')).toBeNull();
+		expect(dock.querySelector('[aria-label="Results"]')).toBeNull();
 		const mark = q('[data-dock-mark]')!;
 		expect(mark.className).toContain('px-3');
 		expect(mark.className).toContain('border-l');
@@ -150,7 +151,7 @@ describe('floating prompt', () => {
 		const zone = q('[data-testid="context-zone"]')!;
 		expect(zone.className).toContain('dock-zone');
 		const cells = Array.from(zone.querySelectorAll('.ctx-step'));
-		expect(cells).toHaveLength(4);
+		expect(cells).toHaveLength(3);
 		for (const cell of cells) {
 			expect(cell.querySelectorAll(':scope > .ctx-label')).toHaveLength(1);
 			expect(cell.children).toHaveLength(2);
@@ -160,10 +161,6 @@ describe('floating prompt', () => {
 		const controls = Array.from(end.querySelectorAll('.dock-ctl'));
 		expect(controls.map((control) => (control.hasAttribute('data-picker-default') ? 'default' : control.querySelector('[data-prompt-settings]') ? 'settings' : 'other'))).toEqual(['settings']);
 		for (const control of controls) expect(control.querySelector('.ctx-label')).toBeNull();
-		const seg = end.querySelectorAll('[data-testid="dock-results"] [aria-label="Results"] button');
-		expect(seg).toHaveLength(4);
-		expect(seg[0].className).toContain('h-[18px]');
-		expect(end.querySelector('[data-testid="dock-results"] > span:last-child')!.className).toContain('h-6');
 		expect(q('[data-prompt-settings]')!.className).toContain('min-w-6');
 		expect(q('[data-testid="session-save"]')!.className).toContain('h-6');
 	});
@@ -313,7 +310,7 @@ describe('floating prompt', () => {
 		await settle();
 		const second = q('[data-dock-row="prompt"]')!;
 		expect(second.querySelector('[data-prompt-note]')?.textContent?.trim()).toBe('The marked object will be removed.');
-		expect(q('[data-dock-row="strip"] [aria-label="Results"]')).not.toBeNull();
+		expect(q('[data-dock-row="strip"] [aria-label="Results"]')).toBeNull();
 		expect(q('[data-dock-mark] [data-prompt-mark] button')).not.toBeNull();
 		expect(q('[data-prompt-field]')).toBeNull();
 	});
@@ -359,17 +356,14 @@ describe('floating prompt', () => {
 		expect(localStorage.getItem('potionui_editor_prompt_position')).toBeNull();
 	});
 
-	it('shows the results control with 1 to 4 and remembers the choice', async () => {
+	it('has no results control: the count is a field of the Settings form', async () => {
 		const t = build([edit()]);
 		t.controller.use('edit_region');
 		const { q } = mountPrompt(t.controller);
 		await settle();
-		const buttons = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[aria-label="Results"] button'));
-		expect(buttons.map((button) => button.textContent?.trim())).toEqual(['1', '2', '3', '4']);
-		expect(buttons[0].getAttribute('aria-pressed')).toBe('true');
-		buttons[2].click();
-		await settle();
-		expect(q('[aria-label="Results"] button[aria-pressed="true"]')?.textContent?.trim()).toBe('3');
+		expect(document.body.querySelector('[aria-label="Results"]')).toBeNull();
+		expect(q('[data-testid="dock-results"]')).toBeNull();
+		expect(q('[data-prompt-settings]')).not.toBeNull();
 	});
 
 	it('starts a run with Ctrl+Enter and tells the controller about the marked area', async () => {

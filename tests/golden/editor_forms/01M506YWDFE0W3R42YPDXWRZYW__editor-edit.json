@@ -15,6 +15,11 @@
       "type": "seed"
     },
     {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
       "label": "Diffusion Model",
       "name": "diffusion_model",
       "type": "model"

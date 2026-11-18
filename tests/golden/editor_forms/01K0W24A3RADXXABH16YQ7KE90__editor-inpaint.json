@@ -10,6 +10,11 @@
       "type": "seed"
     },
     {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
       "label": "Denoising Strength",
       "name": "denoise",
       "type": "slider"

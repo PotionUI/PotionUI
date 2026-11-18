@@ -185,7 +185,7 @@ def body(edit_id, preset="A-CROP", mode="editor:edit", region=True, **extra):
         "input": {"item_id": "picture"},
         "region": {"item_id": "region"} if region else None,
         "prompt": "a red wool scarf",
-        "setup": {"preset_id": preset, "mode": mode, "form_data": {"quantity": 3, "steps": 20}},
+        "setup": {"preset_id": preset, "mode": mode, "form_data": {"steps": 20}},
     }
     data.update(extra)
     return StartEditorRunRequest.model_validate(data)

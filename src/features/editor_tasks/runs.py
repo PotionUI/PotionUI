@@ -375,11 +375,17 @@ class EditorRunManager:
         form.update(spec.fixed)
         quantity = spec.inputs.get("quantity")
         if quantity:
-            form[quantity] = body.candidates
+            form[quantity] = self._count(form.get(quantity), body.candidates)
         seed_name = spec.inputs.get("seed") or self._seed_field(offer)
         if body.seed is not None and seed_name:
             form[seed_name] = body.seed
         return form
+
+    @staticmethod
+    def _count(value: Any, fallback: int) -> int:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value:
+            return fallback
+        return max(1, min(MAX_CANDIDATES, int(value)))
 
     @staticmethod
     def _seed_field(offer: ResolvedOffer) -> Optional[str]:

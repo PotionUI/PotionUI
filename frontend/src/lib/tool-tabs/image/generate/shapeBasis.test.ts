@@ -478,7 +478,6 @@ describe('Redo on the new picture', () => {
 		expect(t.start.mock.calls.length).toBe(count);
 		expect(get(t.controller.ui).redo).toMatchObject({ stepId: 's2', taskId: 'edit_region', seed: 2 });
 		expect(get(t.controller.ui).prompts.edit_region).toBe('a red sailboat');
-		expect(get(t.controller.ui).results.edit_region).toBe(1);
 		t.controller.setPrompt('edit_region', 'a red sailboat at dusk');
 		t.start.mockResolvedValueOnce(run({ id: 'er_2', rect: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 } }));
 		const before = t.stack();

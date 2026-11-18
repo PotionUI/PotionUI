@@ -28,14 +28,6 @@ function runSocket(): RunSocket {
 	};
 }
 
-function storage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
-	try {
-		return localStorage;
-	} catch {
-		return undefined;
-	}
-}
-
 export type TabGenerateDeps = Pick<ControllerDeps, 'getStack' | 'setStack' | 'source' | 'editLink' | 'landRegion' | 'areaSize' | 'pictureSize' | 'stepsBeneath'>;
 
 export function createTabGenerate(deps: TabGenerateDeps): GenerateController {
@@ -52,7 +44,6 @@ export function createTabGenerate(deps: TabGenerateDeps): GenerateController {
 	controller = createGenerateController({
 		...deps,
 		engine,
-		storage: storage(),
 		onTasks: syncServerTasks,
 		ports: {
 			tasks: () => api.listEditorTasks('image'),

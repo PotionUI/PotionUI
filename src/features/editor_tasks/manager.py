@@ -122,6 +122,7 @@ class EditorTaskManager:
             "short_description": short_description_of(entry),
             "order": spec.order,
             "region_strategy": spec.region,
+            "quantity_field": spec.inputs.get("quantity"),
             "via": via,
             "qualifies": qualifies,
         }

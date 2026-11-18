@@ -6,7 +6,7 @@
 	import { blockedReason, markOf } from '$lib/tool-tabs/image/generate/mark';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, IconButton, Kbd, SegmentedControl } from '$lib/components/ui';
+	import { Button, IconButton, Kbd } from '$lib/components/ui';
 	import { tasks } from '$lib/editors/tasks';
 	import { editorsRevision } from '$lib/editors/registry';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
@@ -38,7 +38,6 @@
 
 	const generate = getGenerateController()!;
 	const ui = generate.ui;
-	const RESULT_ITEMS = [1, 2, 3, 4].map((count) => ({ id: String(count), label: String(count) }));
 
 	let collapsed = $state(false);
 	let root = $state<HTMLElement | null>(null);
@@ -55,7 +54,6 @@
 	let regionRequired = $derived((entry?.region ?? task?.region) === 'required');
 	let regionNone = $derived((entry?.region ?? task?.region) === 'none');
 	let prompt = $derived(taskId ? ($ui.prompts[taskId] ?? '') : '');
-	let results = $derived(taskId ? ($ui.results[taskId] ?? 1) : 1);
 	let chip = $derived.by(() => {
 		void $ui;
 		return taskId ? generate.chipFor(taskId) : null;
@@ -174,15 +172,6 @@
 	{/if}
 {/snippet}
 
-{#snippet resultsControl()}
-	<span class="inline-flex flex-none items-center gap-2 text-sm text-fg-muted">
-		Results
-		<span class="font-mono tabular-nums">
-			<SegmentedControl variant="toggle" ariaLabel="Results" items={RESULT_ITEMS} selected={String(results)} onSelect={(id) => taskId && generate.setResults(taskId, Number(id))} />
-		</span>
-	</span>
-{/snippet}
-
 {#snippet actionButton()}
 	{@render dockMark(true)}
 {/snippet}
@@ -240,15 +229,6 @@
 	{/if}
 {/snippet}
 
-{#snippet dockResults()}
-	<div class="ctx-step flex min-w-0 shrink-0" data-testid="dock-results">
-		<span class="ctx-label whitespace-nowrap text-fg-subtle">Results</span>
-		<span class="flex h-6 items-center font-mono tabular-nums">
-			<SegmentedControl variant="toggle" size="sm" ariaLabel="Results" items={RESULT_ITEMS} selected={String(results)} onSelect={(id) => taskId && generate.setResults(taskId, Number(id))} />
-		</span>
-	</div>
-{/snippet}
-
 {#snippet dockMark(compact: boolean)}
 	<span class="generate-mark-host flex-none" style={compact ? '--mark-size: 60px; --mark-glyph: 54px' : undefined} data-prompt-mark={markInfo.state}>
 		<Tooltip text={markInfo.state === 'running' && runText ? `${markInfo.label}. ${runText}` : markInfo.label} kbd={markInfo.state !== 'running' ? 'Ctrl ↵' : undefined} position="top" delay={150}>
@@ -259,7 +239,7 @@
 
 {#snippet pickersView()}
 	{#if taskId}
-		<EditorPickers {phone} {taskId} {label} {extras} resultsStep={phone ? undefined : dockResults} changedMark={phone ? undefined : changedMark} settingsButton={phone ? undefined : dockSettings} />
+		<EditorPickers {phone} {taskId} {label} {extras} changedMark={phone ? undefined : changedMark} settingsButton={phone ? undefined : dockSettings} />
 	{/if}
 {/snippet}
 
@@ -284,8 +264,7 @@
 		{#if redoArea}<p class="mt-1 flex items-center gap-1.5 text-sm text-fg-subtle" data-prompt-redo><Icon name="info" className="h-3.5 w-3.5" />The picture beneath changed shape</p>{/if}
 		{#if large && !regionNone}<p class="mt-1 flex items-center gap-1.5 text-sm text-fg-subtle"><Icon name="info" className="h-3.5 w-3.5" />Large areas come back softer</p>{/if}
 		{#if $ui.error}<p class="mt-1 text-sm text-danger" role="alert" data-prompt-error>{$ui.error}</p>{/if}
-		<div class="mt-2 flex items-center justify-between gap-2">
-			{@render resultsControl()}
+		<div class="mt-2 flex items-center justify-end gap-2">
 			{@render actionButton()}
 		</div>
 	</div>

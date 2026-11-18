@@ -2,7 +2,7 @@ import { get, writable } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorRun, EditorTaskInfo, TaskOffer } from '$lib/services/api/editorTasks';
 import { apply, beginEdit, createStack, type EditStackState } from '$lib/tool-tabs/frame/editStack';
-import { RESULTS_KEY_PREFIX, createGenerateController, type ControllerDeps } from './controller';
+import { createGenerateController, type ControllerDeps } from './controller';
 import { generateDraft, readGenerateParams, type GenerateParams } from './generateStep';
 import legacy from './fixtures/generateStepV1.json';
 import { createRunEngine, type RunPorts, type RunViews } from './runEngine';
@@ -65,17 +65,16 @@ describe('generate controller: starting', () => {
 		await ready(t);
 		expect(get(t.controller.ui).choice.edit_region).toMatchObject({ setup: { kind: 'defaults' } });
 		expect(get(t.controller.ui).picker.open).toBe(false);
-		t.controller.setResults('edit_region', 3);
 		expect(await t.controller.generate('edit_region', true)).toBe(true);
 		const body = (t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0];
 		expect(body[0]).toBe('edit_region');
-		expect(body[1]).toMatchObject({ edit: { id: 'ed_1', step_id: 's1' }, input: { item_id: 'pic' }, region: { item_id: 'mask1' }, prompt: 'a red sailboat', candidates: 3, seed: null, setup: { preset_id: 'qwen', mode: 'editor:edit', form_data: { steps: 28, seed: 7 } } });
+		expect(body[1]).toMatchObject({ edit: { id: 'ed_1', step_id: 's1' }, input: { item_id: 'pic' }, region: { item_id: 'mask1' }, prompt: 'a red sailboat', candidates: 1, seed: null, setup: { preset_id: 'qwen', mode: 'editor:edit', form_data: { steps: 28, seed: 7 } } });
 		const step = t.stack().steps[0];
 		expect(step).toMatchObject({ tool: 'generate', label: 'Edit a region', lane: 'paint' });
 		const params = readGenerateParams(step.params) as GenerateParams;
 		expect(params.run).toEqual({ id: 'er_1', status: 'queued', error: null });
 		expect(params.setup.source.kind).toBe('defaults');
-		expect(params.candidates).toBe(3);
+		expect(params.candidates).toBe(1);
 		expect(get(t.controller.ui).activeStepId).toBe('s1');
 		expect(t.engine.tracking('er_1')).toBe(true);
 	});
@@ -122,15 +121,24 @@ describe('generate controller: starting', () => {
 		expect(get(t.controller.ui).starting).toBe(false);
 	});
 
-	it('remembers the result count per task', async () => {
-		const t = setup();
-		t.controller.setResults('edit_region', 9);
-		expect(t.store.get(`${RESULTS_KEY_PREFIX}edit_region`)).toBe('4');
-		const again = setup();
-		again.store.set(`${RESULTS_KEY_PREFIX}edit_region`, '2');
-		const second = createGenerateController({ ...again.deps, storage: { getItem: (key) => again.store.get(key) ?? null, setItem: () => undefined } });
-		await second.prepare('edit_region');
-		expect(get(second.ui).results.edit_region).toBe(2);
+	it('sends the count from the form field the offer names, defaults it like the form, and clamps it', async () => {
+		const withCount = { properties: { main: { children: [{ name: 'steps', type: 'number', default: 28 }, { name: 'quantity', type: 'stepper', default: 1 }] } } };
+		const t = setup([task({ offers: [offer({ quantity_field: 'quantity' })] })]);
+		t.ports.schema.mockResolvedValue(withCount as never);
+		await ready(t);
+		expect(await t.controller.generate('edit_region', true)).toBe(true);
+		let body = (t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0][1];
+		expect(body.candidates).toBe(1);
+		expect(body.setup.form_data.quantity).toBe(1);
+		await t.controller.settings('edit_region');
+		t.controller.tweak('edit_region', { steps: 28, quantity: 1 });
+		t.controller.tweak('edit_region', { steps: 28, quantity: 9 });
+		t.engine.release('er_1');
+		expect(await t.controller.generate('edit_region', true)).toBe(true);
+		body = (t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[1][1];
+		expect(body.candidates).toBe(4);
+		expect(body.setup.form_data.quantity).toBe(9);
+		expect(get(t.controller.ui)).not.toHaveProperty('results');
 	});
 });
 

@@ -76,7 +76,6 @@ import {
 	type Tweak
 } from './tweaks';
 
-export const RESULTS_KEY_PREFIX = 'potionui_editor_results_';
 export const MAX_RESULTS = 4;
 export const NOT_SAVED_MESSAGE = 'Your edit is not saved yet. Check your connection and try again.';
 export const NO_PICTURE_MESSAGE = 'This picture has to be in your Library or History first.';
@@ -111,7 +110,6 @@ export interface ControllerDeps {
 	stepsBeneath(stepId: string | null): Promise<MediaToolStep[]>;
 	ports: ControllerPorts;
 	engine: RunEngine;
-	storage?: Pick<Storage, 'getItem' | 'setItem'>;
 	onTasks?(tasks: EditorTaskInfo[]): void;
 }
 
@@ -140,7 +138,6 @@ export interface GenerateUi {
 	catalog: PresetInfo[];
 	reloads: number;
 	prompts: Record<string, string>;
-	results: Record<string, number>;
 	choice: Record<string, SetupChoice | null>;
 	choices: Record<string, ModeChoices>;
 	picker: PickerState;
@@ -167,6 +164,11 @@ export type SaveOutcome = { ok: true } | { ok: false; message: string };
 
 function closedPicker(): PickerState {
 	return { open: false, why: null, notice: null };
+}
+
+export function countOf(offer: Pick<TaskOffer, 'quantity_field'> | null, values: Record<string, unknown>): number {
+	const field = offer?.quantity_field;
+	return field ? clampResults(Number(values[field])) : 1;
 }
 
 export function clampResults(value: number): number {
@@ -224,7 +226,6 @@ export function createGenerateController(deps: ControllerDeps) {
 		catalog: [],
 		reloads: 0,
 		prompts: {},
-		results: {},
 		choice: {},
 		choices: {},
 		picker: closedPicker(),
@@ -241,15 +242,6 @@ export function createGenerateController(deps: ControllerDeps) {
 
 	function patch(change: Partial<GenerateUi>): void {
 		state.update((current) => ({ ...current, ...change }));
-	}
-
-	function storedResults(taskId: string): number {
-		try {
-			const raw = deps.storage?.getItem(`${RESULTS_KEY_PREFIX}${taskId}`);
-			return raw ? clampResults(Number(raw)) : 1;
-		} catch {
-			return 1;
-		}
 	}
 
 	function taskOf(taskId: string): EditorTaskInfo | null {
@@ -311,7 +303,6 @@ export function createGenerateController(deps: ControllerDeps) {
 		const usable = task.offers.filter((offer) => offer.qualifies);
 		await Promise.all(usable.map(loadChoices));
 		if (disposed) return;
-		state.update((current) => ({ ...current, results: { ...current.results, [taskId]: current.results[taskId] ?? storedResults(taskId) } }));
 		const plan = planStart({
 			task,
 			offers: task.offers,
@@ -344,16 +335,6 @@ export function createGenerateController(deps: ControllerDeps) {
 
 	function setPrompt(taskId: string, text: string): void {
 		state.update((current) => ({ ...current, prompts: { ...current.prompts, [taskId]: text }, error: null }));
-	}
-
-	function setResults(taskId: string, count: number): void {
-		const value = clampResults(count);
-		state.update((current) => ({ ...current, results: { ...current.results, [taskId]: value } }));
-		try {
-			deps.storage?.setItem(`${RESULTS_KEY_PREFIX}${taskId}`, String(value));
-		} catch {
-			return;
-		}
 	}
 
 	function askForPicker(why: PickerState['why'] = 'change'): void {
@@ -688,7 +669,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			const resolved = reused ?? (await resolveFor(taskId, choice));
 			if ('error' in resolved) return fail(resolved.error);
 			const stepId = redo ? redo.step.step.id : nextStepId();
-			const candidates = current.results[taskId] ?? 1;
+			const candidates = countOf(offerOf(task.offers, choice), resolved.form_data);
 			const submitted = await submit(taskId, stepId, { prompt, setup: resolved, region, candidates, seed: redo ? redo.state.seed : null });
 			if (!('run' in submitted)) return fail(submitted.error);
 			const run = submitted.run;
@@ -764,7 +745,6 @@ export function createGenerateController(deps: ControllerDeps) {
 		state.update((current) => ({
 			...current,
 			prompts: { ...current.prompts, [params.task]: params.prompt },
-			results: { ...current.results, [params.task]: params.candidates },
 			choice: known ? { ...current.choice, [params.task]: choice } : current.choice,
 			redo: { stepId: entry.step.id, taskId: params.task, setup: params.setup, choice: known ? choiceKey(choice) : (current.choice[params.task] ? choiceKey(current.choice[params.task]!) : null), seed: params.seed, candidates: params.candidates },
 			error: null
@@ -879,7 +859,6 @@ export function createGenerateController(deps: ControllerDeps) {
 		saveTo,
 		saveAsNew,
 		setPrompt,
-		setResults,
 		askForPicker,
 		pickerHandled,
 		pick,

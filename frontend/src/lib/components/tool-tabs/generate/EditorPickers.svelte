@@ -219,7 +219,7 @@
 					</div>
 				{/if}
 
-				<div class="mb-1 flex flex-none items-end pl-1" data-testid="editor-default-star"><EditorDefaultStar {taskId} {label} /></div>
+				<div class="flex flex-none items-center self-center pl-1" data-testid="editor-default-star"><EditorDefaultStar {taskId} {label} /></div>
 
 				{#if showFormulas}
 					<ContextCut />

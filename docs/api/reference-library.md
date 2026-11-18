@@ -774,6 +774,7 @@ Path parameters:
 JSON body, `PlanFormulaRequest`:
 
 - `form_name` (string, optional)
+- `mode` (string, optional)
 - `current_values` (object, optional)
 - `lora_mode` (one of replace, add, optional, default 'replace')
 

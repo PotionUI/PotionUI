@@ -201,7 +201,8 @@ async function openDusk(page: Page) {
 	await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 	const empty = page.getByTestId('tool-tab-empty');
 	await expect(empty).toContainText('Open a picture to edit');
-	await empty.locator('[data-recent-history] button').first().click();
+	await empty.locator('[data-start-source="history"]').click();
+	await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 	await expect(page.locator('[data-crop-overlay]')).toBeVisible();
 }
@@ -377,7 +378,8 @@ test.describe('the canvas action bar on a phone', () => {
 		await page.getByRole('button', { name: /^Open tabs/ }).click();
 		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
 		const phone = page.getByTestId('phone-tool-tab');
-		await phone.locator('[data-recent-history] button').first().click();
+		await phone.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 		await expect(phone.locator('[data-editor-frame="phone"]')).toBeVisible();
 		await phone.locator('[data-tool-rail="strip"] [data-group-button="select"]').click();
 		await page.locator('[data-rail-sheet="select"] [data-sheet-item="paint.lasso"]').click();

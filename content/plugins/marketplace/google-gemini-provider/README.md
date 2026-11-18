@@ -80,7 +80,7 @@ What you will find there:
 | Nano Banana 2 | `gemini-3.1-flash-image` | Text to image and editing with up to 14 pictures, 1K, 2K or 4K. A good default. |
 | Nano Banana Pro | `gemini-3-pro-image` | Google's highest quality image model, best at complex scenes and lettering. 1K, 2K or 4K. |
 | Nano Banana 2 Lite | `gemini-3.1-flash-lite-image` | The cheapest and quickest image model, 1K only. |
-| Veo 3.1 Lite | `veo-3.1-lite-generate-preview` | Lowest cost video with sound, 720p or 1080p. |
+| Veo 3.1 Lite | `veo-3.1-lite-generate-preview` | Lowest cost video with sound, 720p or 1080p. Google retires it on 22 October 2026. |
 | Veo 3.1 | `veo-3.1-generate-preview` | Highest quality video with sound, up to 4K. Google retires it on 22 October 2026. |
 | Veo 3.1 Fast | `veo-3.1-fast-generate-preview` | Quicker, cheaper Veo 3.1, up to 4K. Google retires it on 22 October 2026. |
 

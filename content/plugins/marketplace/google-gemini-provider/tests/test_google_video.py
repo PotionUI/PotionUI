@@ -70,6 +70,7 @@ async def test_the_veo_models_that_google_retires_carry_the_date(provider):
 
     assert spec.deprecated_at == "2026-10-22"
     assert "4k" in {param.name: param for param in spec.params}["resolution"].values
+    assert (await video_spec(provider, LITE)).deprecated_at == "2026-10-22"
 
 
 async def test_text_to_video_sends_the_documented_body_and_returns_a_job_to_poll(provider, gemini):

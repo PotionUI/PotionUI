@@ -42,7 +42,7 @@
 	import RunOverlay from '$lib/components/tool-tabs/generate/RunOverlay.svelte';
 	import StaleOutline from '$lib/components/tool-tabs/generate/StaleOutline.svelte';
 	import { LASSO_OVERLAY, chooseOverlay, maskArea, maskToolEntries, maskToolState } from '$lib/tool-tabs/image/maskOverlays';
-	import { focusDockPrompt, maskControls, type ImageCanvasSurface } from '$lib/tool-tabs/image/canvasActions';
+	import { focusDockPrompt, handleEscape, maskControls, type ImageCanvasSurface } from '$lib/tool-tabs/image/canvasActions';
 	import type { Point } from '$lib/paint/types';
 	import { createImageToolHost } from '$lib/tool-tabs/image/toolHost';
 	import { paintFilters } from '$lib/paint/registries';
@@ -1392,19 +1392,17 @@
 
 	function onPaintKey(event: KeyboardEvent) {
 		if (!source || busy || !pageOwnsKeys(event)) return;
-		if (event.key === 'Escape' && !event.defaultPrevented) {
-			if (mode === 'paint' && paintSession) {
-				const handled = paintSession.cancelSelectionStroke() || (!!paintState?.hasSelection && (paintSession.deselect(), true));
-				if (handled) {
-					event.preventDefault();
-					event.stopPropagation();
-				}
-				return;
-			}
-			if (mode === 'crop' && pendingHere?.tool === 'crop') {
+		if (event.key === 'Escape') {
+			if (event.defaultPrevented) return;
+			const handled = handleEscape({
+				mode,
+				paint: paintSession && paintState ? { session: paintSession, state: paintState } : null,
+				cropPending: pendingHere?.tool === 'crop',
+				cancelCrop
+			});
+			if (handled) {
 				event.preventDefault();
 				event.stopPropagation();
-				cancelCrop();
 			}
 			return;
 		}

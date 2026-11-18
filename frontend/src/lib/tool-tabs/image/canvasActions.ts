@@ -223,3 +223,26 @@ export function sliceToolActions(ctx: CanvasActionContext): CanvasAction[] {
 	const slice = surfaceOf(ctx).slice;
 	return slice ? sliceActions(slice) : [];
 }
+
+export interface EscapeInput {
+	mode: 'paint' | 'mask' | 'crop' | 'preview';
+	paint: PaintControls | null;
+	cropPending: boolean;
+	cancelCrop(): void;
+}
+
+export function handleEscape(input: EscapeInput): boolean {
+	if (input.mode === 'paint') {
+		const paint = input.paint;
+		if (!paint) return false;
+		if (paint.session.cancelSelectionStroke()) return true;
+		if (!paint.state.hasSelection) return false;
+		paint.session.deselect();
+		return true;
+	}
+	if (input.mode === 'crop' && input.cropPending) {
+		input.cancelCrop();
+		return true;
+	}
+	return false;
+}

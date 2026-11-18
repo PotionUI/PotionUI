@@ -32,6 +32,7 @@ export interface PaintParams {
 	layer: string;
 	url: string;
 	layers: number;
+	name?: string;
 }
 
 export interface LookParams {
@@ -170,6 +171,7 @@ export function resizeDraft(params: ResizeParams): StepDraft<ResizeParams> {
 }
 
 export function paintDraft(params: PaintParams, size: { width: number; height: number }): StepDraft<PaintParams> {
+	if (params.name) return draft('paint', params.name, 'Paint layer', params);
 	return draft('paint', `Paint · ${pluralLayers(params.layers)}`, `${size.width}×${size.height}`, params);
 }
 

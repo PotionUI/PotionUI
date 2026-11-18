@@ -13,6 +13,7 @@
 		phone = false,
 		layerActions = [],
 		layers = true,
+		target = null,
 		onSaveFilter = () => {}
 	}: {
 		session: PaintSession;
@@ -20,14 +21,30 @@
 		phone?: boolean;
 		layerActions?: LayerAction[];
 		layers?: boolean;
+		target?: { name: string | null; thumb: string | null } | null;
 		onSaveFilter?: () => void;
 	} = $props();
 
 	let layersOpen = $state(false);
 </script>
 
+{#snippet targetCard()}
+	{#if target}
+		<div class="flex items-center gap-2.5 rounded-lg border border-line bg-surface-1 p-2" data-paint-target={target.name ? 'layer' : 'new'}>
+			<span class="alpha-checker flex h-8 w-8 flex-none items-center justify-center overflow-hidden rounded">
+				{#if target.thumb}<img src={target.thumb} alt="" class="h-full w-full object-contain" />{/if}
+			</span>
+			<span class="flex min-w-0 flex-col">
+				<span class="truncate text-base font-medium text-fg">{target.name ? `Painting on ${target.name}` : 'Painting on a new layer'}</span>
+				<span class="truncate text-sm text-fg-muted">Strokes go to this layer only</span>
+			</span>
+		</div>
+	{/if}
+{/snippet}
+
 {#if phone}
 	<div class="flex flex-col gap-3" data-paint-options="phone">
+		{@render targetCard()}
 		<PaintToolPanel {session} state={snapshot} {phone} {onSaveFilter} />
 		{#if layers}
 		<Button variant="secondary" size="sm" icon="layers" class="w-full" ariaHaspopup="dialog" onclick={() => (layersOpen = true)} attrs={{ 'data-paint-layers-button': '' }}>
@@ -44,7 +61,8 @@
 		</FrameSheet>
 	{/if}
 {:else}
-	<div data-paint-options="desktop">
+	<div class="flex flex-col gap-3" data-paint-options="desktop">
+		{@render targetCard()}
 		<PaintPanel {session} state={snapshot} {layerActions} withLayers={layers} {onSaveFilter} />
 	</div>
 {/if}

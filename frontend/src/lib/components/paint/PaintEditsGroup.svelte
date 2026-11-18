@@ -13,13 +13,15 @@
 		state: snapshot,
 		phone = false,
 		index = 0,
-		actions = []
+		actions = [],
+		rowShown = false
 	}: {
 		session: PaintSession;
 		state: SessionSnapshot;
 		phone?: boolean;
 		index?: number;
 		actions?: LayerAction[];
+		rowShown?: boolean;
 	} = $props();
 
 	registerIcon('paint-add-image', PAINT_ICONS.addImage);
@@ -38,6 +40,13 @@
 	}
 </script>
 
+{#if rowShown}
+	{#if count > 2}
+		<div class="flex flex-col gap-1.5 pb-1" data-paint-group="attached">
+			<PaintLayers {session} state={snapshot} {phone} {actions} nested bind:adding />
+		</div>
+	{/if}
+{:else}
 <div class="flex flex-col gap-1.5 pb-1" data-paint-group>
 	<div class="relative flex h-11 items-center gap-2 rounded bg-signal/[0.08] pl-1 pr-1.5 before:absolute before:-left-2 before:inset-y-2 before:w-0.5 before:bg-signal" data-stack-group-header>
 		<span class="w-3 flex-none" aria-hidden="true"></span>
@@ -53,3 +62,4 @@
 	</div>
 	<PaintLayers {session} state={snapshot} {phone} {actions} nested bind:adding />
 </div>
+{/if}

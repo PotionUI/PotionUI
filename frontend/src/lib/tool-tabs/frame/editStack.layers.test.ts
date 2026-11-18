@@ -5,6 +5,8 @@ import {
 	commitLive,
 	createStack,
 	deserialize,
+	duplicateStep,
+	mergeInto,
 	opacityOf,
 	redo,
 	reopen,
@@ -119,5 +121,43 @@ describe('layer opacity on the edit stack', () => {
 		stack = apply(reopen(stack, 's1'));
 		expect(opacityOf(stack.steps[0])).toBe(0.5);
 		expect(stack.revisions?.length ?? 0).toBe(revisions);
+	});
+});
+
+describe('duplicating and merging layers', () => {
+	it('puts a copy straight above the layer, with its fade, and undo takes it away', () => {
+		let stack = stackOf('paint', 'paint', 'crop');
+		stack = setOpacity(stack, 's1', 0.4);
+		const next = duplicateStep(stack, 's1', { label: 'Sky copy' });
+		expect(next.steps.map((step) => [step.id, step.label])).toEqual([['s1', 'paint'], ['s4', 'Sky copy'], ['s2', 'paint'], ['s3', 'crop']]);
+		expect(opacityOf(next.steps[1])).toBe(0.4);
+		expect(next.cursor).toBe(4);
+		const back = undo(next);
+		expect(back.steps.map((step) => step.id)).toEqual(['s1', 's2', 's3']);
+		expect(back.cursor).toBe(3);
+	});
+
+	it('refuses to duplicate while a layer is open for painting', () => {
+		const stack = reopen(stackOf('paint', 'paint'), 's1');
+		expect(duplicateStep(stack, 's2')).toBe(stack);
+	});
+
+	it('merges a layer into the one below it as a single layer at full strength, and undo brings both back', () => {
+		let stack = stackOf('paint', 'paint', 'crop');
+		stack = setOpacity(stack, 's1', 0.5);
+		const merged = mergeInto(stack, 's1', 's2', { layer: 'merged', url: 'm', layers: 1, name: 'Sky' }, 'Sky');
+		expect(merged.steps.map((step) => step.id)).toEqual(['s1', 's3']);
+		expect(merged.cursor).toBe(2);
+		expect(merged.steps[0].params).toEqual({ layer: 'merged', url: 'm', layers: 1, name: 'Sky' });
+		expect(opacityOf(merged.steps[0])).toBe(1);
+		expect(serialize(merged).v).toBe(1);
+		const back = undo(merged);
+		expect(back.steps.map((step) => step.id)).toEqual(['s1', 's2', 's3']);
+		expect(opacityOf(back.steps[0])).toBe(0.5);
+	});
+
+	it('only merges neighbours', () => {
+		const stack = stackOf('paint', 'crop', 'paint');
+		expect(mergeInto(stack, 's1', 's3', {})).toBe(stack);
 	});
 });

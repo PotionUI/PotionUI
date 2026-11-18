@@ -298,7 +298,7 @@ test.describe('Paint entries in the Image editor', () => {
 		await expect(layerRows(page)).toHaveCount(2);
 
 		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint·1layer640×480100%']);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint1Paintlayer100%']);
 		expect(log.artifacts).toBe(1);
 	});
 
@@ -420,11 +420,13 @@ test.describe('Paint entries in the Image editor', () => {
 		await openPaint(page, 'brush');
 		await stroke(page);
 		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint·1layer640×480100%']);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint1Paintlayer100%']);
 		await page.locator('[data-edit-stack="panel"] [data-stack-row]').nth(0).click();
 		await expect(page.locator(CANVAS)).toBeVisible();
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', /paint\./);
-		await expect(layerRows(page)).toHaveCount(2);
+		await expect(page.locator('[data-stack-row="s1"]')).toBeVisible();
+		await expect(page.locator('[data-layer-drawer="s1"]')).toBeVisible();
+		await expect(page.locator('[data-paint-target="layer"]')).toContainText('Painting on Paint 1');
 	});
 });
 
@@ -569,5 +571,96 @@ test.describe('Edits as layers', () => {
 		await row(page, 's2').locator('[data-stack-open]').click();
 		for (const id of ['s2', 's1', 'original']) await expect(row(page, id)).toHaveAttribute('data-bracket', 'true');
 		await screenshot(page, JOURNEY, '20-cmb407-built-1440');
+	});
+});
+
+test.describe('Paint layers are kept one by one', () => {
+	test.use({ viewport: { width: 1440, height: 1100 } });
+
+	const row = (page: Page, id: string) => page.locator(`[data-edit-stack="panel"] [data-stack-row="${id}"]`);
+	const addLayer = async (page: Page) => {
+		await page.locator('[data-stack-group] button[aria-label="Add a layer"]').click();
+		await page.locator('[role="menuitem"]', { hasText: 'New layer' }).click();
+	};
+	const fade = async (page: Page, id: string, value: string) => {
+		await row(page, id).locator('[data-stack-open]').click();
+		const slider = page.locator(`[data-layer-drawer="${id}"] input[type="range"]`);
+		await slider.fill(value);
+		await slider.dispatchEvent('change');
+	};
+
+	async function threeLayers(page: Page, log: Log) {
+		await openDusk(page);
+		await openPaint(page, 'brush');
+		await stroke(page, -80, -70);
+		await addLayer(page);
+		await stroke(page, -80, 0);
+		await addLayer(page);
+		await stroke(page, -80, 70);
+		await page.locator('[data-options-apply]').click();
+		await expect(page.locator('[data-edit-stack="panel"] [data-stack-kind="layer"]')).toHaveCount(3);
+		expect(log.artifacts).toBe(3);
+	}
+
+	test('three layers keep their name, order, fade and eye after leaving Paint and after a reload', async ({ page }) => {
+		const log = await start(page, true);
+		await threeLayers(page, log);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('01Paint1'), expect.stringContaining('02Paint2'), expect.stringContaining('03Paint3')]);
+		await fade(page, 's2', '40');
+		await row(page, 's3').locator('[data-stack-hide]').click();
+		await expect(row(page, 's3')).toHaveAttribute('data-hidden', 'true');
+		await screenshot(page, JOURNEY, '21-cmb408-built-1440');
+
+		await page.reload();
+		await expect(page.locator('[data-image-editor]')).toBeVisible({ timeout: 30000 });
+		await expect(page.locator('[data-edit-stack="panel"] [data-stack-kind="layer"]')).toHaveCount(3, { timeout: 20000 });
+		await expect(row(page, 's2').locator('[data-stack-opacity]')).toHaveText('40%');
+		await expect(row(page, 's3')).toHaveAttribute('data-hidden', 'true');
+		await expect(row(page, 's1').locator('[data-stack-opacity]')).toHaveText('100%');
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('01Paint1'), expect.stringContaining('02Paint2'), expect.stringContaining('03Paint3')].map((item) => item));
+
+		await row(page, 's2').locator('[data-stack-open]').click();
+		await expect(page.locator(CANVAS)).toBeVisible();
+		await expect(page.locator('[data-paint-target="layer"]')).toContainText('Painting on Paint 2');
+		await expect(row(page, 's2')).toBeVisible();
+		await expect(page.locator('[data-layer-drawer="s2"]')).toBeVisible();
+	});
+
+	test('one undo undoes the fade and the next undoes the stroke', async ({ page }) => {
+		const log = await start(page);
+		await openDusk(page);
+		await openPaint(page, 'brush');
+		await stroke(page);
+		await page.locator('[data-options-apply]').click();
+		await row(page, 's1').locator('[data-stack-open]').click();
+		await expect(page.locator(CANVAS)).toBeVisible();
+		await stroke(page, -60, 60);
+		await fade(page, 's1', '50');
+		const readout = row(page, 's1').locator('[data-stack-opacity]');
+		await expect(readout).toHaveText('50%');
+		await page.locator('[data-frame-undo]').click();
+		await expect(readout).toHaveText('100%');
+		await page.locator('[data-frame-undo]').click();
+		await expect(readout).toHaveText('100%');
+		await page.locator('[data-frame-redo]').click();
+		await expect(readout).toHaveText('100%');
+		await page.locator('[data-frame-redo]').click();
+		await expect(readout).toHaveText('50%');
+		expect(log.artifacts).toBe(1);
+	});
+
+	test('a layer duplicates and merges down from its menu', async ({ page }) => {
+		const log = await start(page);
+		await threeLayers(page, log);
+		await row(page, 's3').locator('[data-stack-open]').click();
+		await page.getByRole('button', { name: /^Layer options for/ }).click();
+		await page.getByRole('menuitem', { name: 'Duplicate', exact: true }).click();
+		await expect(page.locator('[data-edit-stack="panel"] [data-stack-kind="layer"]')).toHaveCount(4);
+		await expect(row(page, 's4')).toContainText('Paint 3 copy');
+		await row(page, 's4').locator('[data-stack-open]').click();
+		await page.getByRole('button', { name: /^Layer options for/ }).click();
+		await page.getByRole('menuitem', { name: 'Merge down', exact: true }).click();
+		await expect(page.locator('[data-edit-stack="panel"] [data-stack-kind="layer"]')).toHaveCount(3);
+		expect(log.artifacts).toBe(4);
 	});
 });

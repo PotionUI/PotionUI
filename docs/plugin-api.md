@@ -1920,7 +1920,10 @@ a file path in a response.
   a replacement track. Use the returned `id` as a run input or in a `media` parameter. They stay out of the Library but
   count toward the plan's storage and per-file limits. They must be an image, audio or video file of at most 512 MB.
   The announced size is checked before the body is read and the bytes are checked again after. The same rules apply
-  to `POST /api/media/upload` with `purpose=derived_artifact`.
+  to `POST /api/media/upload` with `purpose=derived_artifact`. The Image editor stores every paint layer as its own
+  helper upload and its own `paint` step (`{layer, url, layers: 1, name}`, with the step's `layer.opacity` and `hidden`
+  carrying the fade and the eye), so a saved edit keeps each layer; a `paint` step without `name` is an older one-PNG
+  paint and opens as a single layer. Nothing sweeps these helper uploads, so a saved edit keeps every layer file it names.
 
 ### From chat, MCP and automation
 

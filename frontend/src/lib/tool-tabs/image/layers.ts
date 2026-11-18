@@ -35,3 +35,20 @@ export function layerThumb(step: Pick<EditStep, 'tool' | 'params'>): string | nu
 	const url = (step.params as { url?: unknown } | null)?.url;
 	return typeof url === 'string' && url ? url : null;
 }
+
+export function isFlattenedPaint(step: Pick<EditStep, 'tool' | 'params'>): boolean {
+	return step.tool === 'paint' && !(step.params as { name?: unknown } | null)?.name;
+}
+
+export function mergeLayerPixels(below: Uint8ClampedArray, belowOpacity: number, upper: Uint8ClampedArray, upperOpacity: number): Uint8ClampedArray<ArrayBuffer> {
+	const out = new Uint8ClampedArray(below.length);
+	for (let i = 0; i < below.length; i += 4) {
+		const lower = compositeOver([0, 0, 0, 0], [below[i], below[i + 1], below[i + 2], below[i + 3]], belowOpacity);
+		const merged = compositeOver(lower, [upper[i], upper[i + 1], upper[i + 2], upper[i + 3]], upperOpacity);
+		out[i] = merged[0];
+		out[i + 1] = merged[1];
+		out[i + 2] = merged[2];
+		out[i + 3] = merged[3];
+	}
+	return out;
+}

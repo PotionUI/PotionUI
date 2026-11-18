@@ -63,3 +63,13 @@ def test_opacity_is_clamped_and_junk_is_refused(layer_media):
     assert list(over.getdata()) == list(paint_layer.PaintLayer().image(base, {"layer": layer_media}).getdata())
     with pytest.raises(UnsupportedMedia):
         paint_layer.PaintLayer().image(base, {"layer": layer_media, "opacity": "lots"})
+
+
+def test_stacked_paint_layers_match_the_editor(tmp_path):
+    stack = DATA["stack"]
+    result = picture(DATA["base"])
+    for index, (layer, opacity) in enumerate(zip(stack["layers"], stack["opacity"])):
+        path = tmp_path / f"layer-{index}.png"
+        picture(layer).save(path)
+        result = paint_layer.PaintLayer().image(result, {"layer": probe(path), "opacity": opacity})
+    assert_within_one(result, stack["expected"])

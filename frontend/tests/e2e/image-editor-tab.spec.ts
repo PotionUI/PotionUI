@@ -371,7 +371,7 @@ test.describe('painting and masking in the Image editor tab', () => {
 		await expect(page.locator('[data-frame-undo]')).toBeEnabled();
 		await screenshot(page, JOURNEY, 'paint-1440');
 		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual(['original:00Original640×480·PNG', 'current:01Paint·1layer640×480100%']);
+		await expect.poll(() => stackRows(page)).toEqual(['original:00Original640×480·PNG', 'current:01Paint1Paintlayer100%']);
 		expect(log.artifacts).toBe(1);
 
 		await selectRailTool(page, 'edit_region');

@@ -1,7 +1,13 @@
 <script lang="ts" module>
-	export interface PaintResult {
+	export interface PaintLayerOut {
 		file: File;
-		layers: number;
+		name: string;
+		opacity: number;
+		visible: boolean;
+	}
+
+	export interface PaintResult {
+		layers: PaintLayerOut[];
 		size: { width: number; height: number };
 	}
 </script>
@@ -19,6 +25,8 @@
 	let {
 		base = null,
 		layerUrl = null,
+		layerName = null,
+		layerOpacity = 1,
 		tool = 'brush',
 		name,
 		session = new PaintSession(),
@@ -28,6 +36,8 @@
 	}: {
 		base?: HTMLCanvasElement | null;
 		layerUrl?: string | null;
+		layerName?: string | null;
+		layerOpacity?: number;
 		tool?: string;
 		name: string;
 		session?: PaintSession;
@@ -42,6 +52,8 @@
 	let overlay = $state<HTMLCanvasElement>();
 	let snapshot = $state.raw<SessionSnapshot>(untrack(() => session.snapshot()));
 	let original: HTMLCanvasElement | null = null;
+	let baseId = -1;
+	let targetId = -1;
 	let observer: ResizeObserver | null = null;
 	let stop: (() => void) | null = null;
 	let failed = $state(false);
@@ -78,15 +90,19 @@
 			} else if (base) {
 				session.openImage(base, name);
 				original = session.flatten();
+				baseId = session.doc.layers[0]?.id ?? -1;
 				if (layerUrl) {
 					const stored = await canvasFromUrl(layerUrl);
 					const piece = document.createElement('canvas');
 					piece.width = session.docWidth;
 					piece.height = session.docHeight;
 					piece.getContext('2d')?.drawImage(stored, 0, 0, piece.width, piece.height);
-					session.addPieceLayer(piece, 0, 0, 'Paint');
+					const added = session.addPieceLayer(piece, 0, 0, layerName || 'Paint');
+					added.opacity = layerOpacity;
+					targetId = added.id;
 				} else {
 					session.addLayer();
+					if (layerName) session.renameLayer(session.doc.activeIndex, layerName);
 				}
 				session.markSaved();
 				session.setTool(tool);
@@ -107,17 +123,37 @@
 		session.detach();
 	});
 
-	export function changed(): boolean {
-		return snapshot.dirty || (!!layerUrl && snapshot.ready);
+	export function previewOpacity(value: number): void {
+		const layer = session.doc.layers.find((candidate) => candidate.id === targetId);
+		if (!layer || layer.opacity === value) return;
+		layer.opacity = value;
+		session.invalidate();
 	}
 
-	export async function exportLayer(): Promise<PaintResult | null> {
-		if (!original || !snapshot.ready) return null;
-		const flat = session.flatten();
-		const width = flat.width;
-		const height = flat.height;
+	export function changed(): boolean {
+		return snapshot.dirty;
+	}
+
+	function docCanvas(layer: { canvas: HTMLCanvasElement; x: number; y: number }, width: number, height: number): HTMLCanvasElement {
+		const out = document.createElement('canvas');
+		out.width = width;
+		out.height = height;
+		out.getContext('2d')?.drawImage(layer.canvas, layer.x, layer.y);
+		return out;
+	}
+
+	function hasPixels(canvas: HTMLCanvasElement): boolean {
+		const data = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
+		if (!data) return false;
+		for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) return true;
+		return false;
+	}
+
+	function baseEdits(width: number, height: number): HTMLCanvasElement | null {
+		const base = session.doc.layers.find((layer) => layer.id === baseId);
+		if (!base || !original) return null;
 		const before = original.getContext('2d')?.getImageData(0, 0, width, height);
-		const after = flat.getContext('2d')?.getImageData(0, 0, width, height);
+		const after = docCanvas(base, width, height).getContext('2d')?.getImageData(0, 0, width, height);
 		if (!before || !after) return null;
 		const out = document.createElement('canvas');
 		out.width = width;
@@ -127,25 +163,31 @@
 		const layer = context.createImageData(width, height);
 		let painted = false;
 		for (let i = 0; i < after.data.length; i += 4) {
-			const differs =
-				after.data[i] !== before.data[i] ||
-				after.data[i + 1] !== before.data[i + 1] ||
-				after.data[i + 2] !== before.data[i + 2] ||
-				after.data[i + 3] !== before.data[i + 3];
-			if (!differs) continue;
+			if (after.data[i] === before.data[i] && after.data[i + 1] === before.data[i + 1] && after.data[i + 2] === before.data[i + 2] && after.data[i + 3] === before.data[i + 3]) continue;
 			painted = true;
-			layer.data[i] = after.data[i];
-			layer.data[i + 1] = after.data[i + 1];
-			layer.data[i + 2] = after.data[i + 2];
-			layer.data[i + 3] = after.data[i + 3];
+			layer.data.set(after.data.subarray(i, i + 4), i);
 		}
 		if (!painted) return null;
 		context.putImageData(layer, 0, 0);
-		return {
-			file: await canvasToPngFile(out, 'paint-layer.png'),
-			layers: Math.max(1, snapshot.layers.length - 1),
-			size: { width, height }
-		};
+		return out;
+	}
+
+	export async function exportLayers(): Promise<PaintResult | null> {
+		if (!snapshot.ready || (targetId >= 0 && !snapshot.dirty)) return null;
+		const width = session.docWidth;
+		const height = session.docHeight;
+		const layers: PaintLayerOut[] = [];
+		let count = 0;
+		const edited = baseEdits(width, height);
+		if (edited) layers.push({ file: await canvasToPngFile(edited, 'paint-layer.png'), name: 'Original edits', opacity: 1, visible: true });
+		for (const layer of session.doc.layers) {
+			if (layer.id === baseId) continue;
+			const canvas = docCanvas(layer, width, height);
+			if (!hasPixels(canvas)) continue;
+			count += 1;
+			layers.push({ file: await canvasToPngFile(canvas, `paint-layer-${count}.png`), name: layer.name, opacity: layer.opacity, visible: layer.visible });
+		}
+		return { layers, size: { width, height } };
 	}
 
 	function pointerDown(event: PointerEvent) {

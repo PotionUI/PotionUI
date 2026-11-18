@@ -243,7 +243,7 @@ describe('the paint options without the Layers section', () => {
 describe('the generic in-progress hook of the Edits list', () => {
 	const row = createRawSnippet((index: () => number) => ({ render: () => `<span data-fake-group>group at ${index()}</span>` }));
 
-	function mountFake(stack: EditStackState, progress: { target: string | null } | null) {
+	function mountFake(stack: EditStackState, progress: { target: string | null; keepRow?: boolean } | null) {
 		const none = () => undefined;
 		return mountComponent(EditStack as never, {
 			stack,
@@ -271,6 +271,14 @@ describe('the generic in-progress hook of the Edits list', () => {
 		mountFake(reopen(build(crop, resize), 's1'), { target: 's1' });
 		expect(text(q('[data-stack-group]'))).toBe('group at 1');
 		expect(q('[data-stack-row="s1"]')!.className).toContain('!hidden');
+	});
+
+	it('keeps a reopened layer row visible with its drawer when the tool asks to', () => {
+		mountFake(reopen(build(paint, resize), 's1'), { target: 's1', keepRow: true });
+		expect(q('[data-stack-row="s1"]')!.className).not.toContain('!hidden');
+		expect(text(q('[data-stack-group]'))).toBe('group at 2');
+		const order = all('[data-stack-row], [data-stack-group]').map((node) => node.dataset.stackRow ?? 'group');
+		expect(order).toEqual(['original', 's1', 'group', 's2']);
 	});
 
 	it('puts the group before undone steps', () => {

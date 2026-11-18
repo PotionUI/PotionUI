@@ -37,6 +37,10 @@ export class History {
 		return this.evicted + this.applied !== this.savedPosition;
 	}
 
+	get position(): number {
+		return this.evicted + this.applied;
+	}
+
 	get bytes(): number {
 		return this.total;
 	}

@@ -103,6 +103,7 @@ export interface SessionSnapshot {
 	undoLabel: string | null;
 	redoLabel: string | null;
 	dirty: boolean;
+	undoDepth: number;
 	width: number;
 	height: number;
 	geometryChanged: boolean;
@@ -397,6 +398,7 @@ export class PaintSession implements ToolHost, EditorApi {
 			undoLabel: this.history.undoLabel,
 			redoLabel: this.history.redoLabel,
 			dirty: this.history.dirty,
+			undoDepth: this.history.position,
 			width: this.doc.width,
 			height: this.doc.height,
 			geometryChanged: this.geometryChanged,

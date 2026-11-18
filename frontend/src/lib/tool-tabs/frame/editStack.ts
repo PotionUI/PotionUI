@@ -246,6 +246,34 @@ export function clearAll<P>(input: EditStackState<P>): EditStackState<P> {
 	return { steps: after, cursor: 0, pending: null, seq: state.seq, cleared: { steps: state.steps, cursor: state.cursor, label: 'Remove all edits', after } };
 }
 
+function rewritten<P>(state: EditStackState<P>, after: EditStep<P>[], cursor: number, label: string, seq = state.seq): EditStackState<P> {
+	const pending = state.pending?.target && !after.some((step) => step.id === state.pending?.target) ? null : state.pending;
+	return { ...withoutHistory(state), steps: after, cursor, pending, seq, cleared: { steps: state.steps, cursor: state.cursor, label, after } };
+}
+
+export function duplicateStep<P>(input: EditStackState<P>, id: string, patch: Partial<StepDraft<P>> = {}): EditStackState<P> {
+	const state = settled(input);
+	const index = state.steps.findIndex((step) => step.id === id);
+	if (index < 0 || index >= state.cursor || state.pending?.target) return input;
+	const source = state.steps[index];
+	const seq = state.seq + 1;
+	const copy: EditStep<P> = { ...source, label: `${source.label} copy`, ...patch, id: `s${seq}`, hidden: false };
+	const after = [...state.steps.slice(0, index + 1), copy, ...state.steps.slice(index + 1)];
+	return rewritten(state, after, state.cursor + 1, `Duplicate ${source.label}`, seq);
+}
+
+export function mergeInto<P>(input: EditStackState<P>, belowId: string, upperId: string, params: P, label?: string): EditStackState<P> {
+	const state = settled(input);
+	const lower = state.steps.findIndex((step) => step.id === belowId);
+	const upper = state.steps.findIndex((step) => step.id === upperId);
+	if (lower < 0 || upper !== lower + 1 || upper >= state.cursor || state.pending?.target) return input;
+	const below = state.steps[lower];
+	const { layer: _layer, ...rest } = below;
+	const merged: EditStep<P> = { ...rest, params, hidden: false, ...(label ? { label } : {}) };
+	const after = state.steps.flatMap((step, i) => (i === lower ? [merged] : i === upper ? [] : [step]));
+	return rewritten(state, after, state.cursor - 1, `Merge ${state.steps[upper].label} down`);
+}
+
 export function removeUndoable<P>(input: EditStackState<P>, id: string): EditStackState<P> {
 	const state = settled(input);
 	const index = state.steps.findIndex((step) => step.id === id);

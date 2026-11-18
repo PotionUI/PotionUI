@@ -54,4 +54,5 @@ export type StackVariant = 'panel' | 'sheet';
 
 export interface StackProgress {
 	target: string | null;
+	keepRow?: boolean;
 }

@@ -35,6 +35,11 @@
 		layerThumb = () => null,
 		appliesBeneath = () => false,
 		onopacity,
+		headerActions,
+		duplicable = () => false,
+		mergeable = () => false,
+		onduplicate,
+		onmerge,
 		folded = false,
 		collapsed = $bindable(false),
 		pinned = DEFAULT_PINNED_LANES,
@@ -62,6 +67,11 @@
 		layerThumb?: (step: EditStep<unknown>) => string | null;
 		appliesBeneath?: (step: EditStep<unknown>) => boolean;
 		onopacity?: (id: string, opacity: number, live: boolean) => void;
+		headerActions?: Snippet;
+		duplicable?: (step: EditStep<unknown>) => boolean;
+		mergeable?: (upper: EditStep<unknown>, lower: EditStep<unknown> | null) => boolean;
+		onduplicate?: (id: string) => void;
+		onmerge?: (id: string) => void;
 		folded?: boolean;
 		collapsed?: boolean;
 		pinned?: readonly LanePair[];
@@ -171,6 +181,9 @@
 			{ id: 'up', label: 'Move up', icon: 'chevron-up', disabled: !row.step || !canMove(stack, row.step.id, index + 1, pinned) },
 			{ id: 'down', label: 'Move down', icon: 'chevron-down', disabled: !row.step || !canMove(stack, row.step.id, index - 1, pinned) },
 			{ id: 'sep', label: '', separator: true },
+			{ id: 'duplicate', label: 'Duplicate', icon: 'copy', disabled: !row.step || !duplicable(row.step) || row.status === 'undone' },
+			{ id: 'merge', label: 'Merge down', icon: 'layers', disabled: !row.step || !mergeable(row.step, stack.steps[row.index - 2] ?? null) },
+			{ id: 'sep2', label: '', separator: true },
 			{ id: 'delete', label: 'Delete', icon: 'trash', danger: true }
 		];
 	}
@@ -180,6 +193,8 @@
 		const index = row.index - 1;
 		if (id === 'up') onmove(row.step.id, index + 1);
 		else if (id === 'down') onmove(row.step.id, index - 1);
+		else if (id === 'duplicate') onduplicate?.(row.step.id);
+		else if (id === 'merge') onmerge?.(row.step.id);
 		else if (id === 'delete') onremove(row.step.id);
 	}
 
@@ -249,6 +264,9 @@
 			<h2 class="text-base font-semibold text-fg">Edits</h2>
 			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count>{applied}{undone ? ` + ${undone} undone` : ''}</span>
 			<span class="flex-1"></span>
+			{#if headerActions && !shut}
+				{@render headerActions()}
+			{/if}
 			{#if moreItems.length && !shut}
 				<Menu label="Edit stack options" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
 			{/if}
@@ -277,7 +295,7 @@
 					{row.status === 'current' || row.reopened ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
 					{bracketed(row) ? 'is-bracket' : ''}
 					{row.status === 'pending' ? 'border border-dashed border-line-hover' : ''}
-						{grouped && slot === row.key && (row.status === 'pending' || row.reopened) ? '!hidden' : ''}
+						{grouped && !progress?.keepRow && slot === row.key && (row.status === 'pending' || row.reopened) ? '!hidden' : ''}
 					{row.status === 'undone' ? 'opacity-[0.45]' : ''}
 					{dragging ? `z-10 bg-surface-2 shadow-floating ${dropAllowed ? '' : 'cursor-not-allowed'}` : ''}"
 				style={dragging && drag ? `transform: translateY(${drag.dy}px)` : undefined}
@@ -456,7 +474,7 @@
 			{/if}
 			{#if grouped && progressRow && slot === row.key}
 				<div role="listitem" class="mt-0.5" data-stack-group>
-					{@render progressRow((row.status === 'pending' || row.reopened) ? row.index : row.index + 1)}
+					{@render progressRow(((row.status === 'pending' || row.reopened) && !progress?.keepRow) ? row.index : row.index + 1)}
 				</div>
 			{/if}
 		{/each}

@@ -47,6 +47,12 @@ describe('the cut warning on a line through a panel', () => {
 		expect(chip.style.left).toContain('calc(');
 	});
 
+	it('sits at the top of its segment, clear of the knobs at segment middles', () => {
+		const chip = mountOverlay().querySelector('[data-slice-cut]') as HTMLElement;
+		expect(chip.className).not.toContain('-translate-y-1/2');
+		expect(chip.style.top).toContain('0%');
+	});
+
 	it('keeps the merge action clickable', () => {
 		const onchange = vi.fn();
 		const merge = mountOverlay(onchange).querySelector('[data-slice-cut-merge]') as HTMLElement;

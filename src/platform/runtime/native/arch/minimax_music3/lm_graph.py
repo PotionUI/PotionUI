@@ -82,14 +82,14 @@ class StaticLmStep:
         pos = self._cache.filled_len
         if pos >= self._cache.max_len:
             raise RuntimeError(f"MiniMax-Music3 KV cache is full ({pos}/{self._cache.max_len} positions)")
-        self._pos.fill_(pos)
         if self._capture and self._graph is None and not self._capture_failed:
+            self._pos.fill_(pos)
             self._try_capture(inputs_embeds)
-        if self._graph is not None:
-            self._inputs.copy_(inputs_embeds)
-            self._graph.replay()
-            out = self._output.clone()
-        else:
-            out = self._run(inputs_embeds)
+        if self._graph is None:
+            return self._lm.step(inputs_embeds, self._cache)
+        self._pos.fill_(pos)
+        self._inputs.copy_(inputs_embeds)
+        self._graph.replay()
+        out = self._output.clone()
         self._cache.filled_len = pos + 1
         return out

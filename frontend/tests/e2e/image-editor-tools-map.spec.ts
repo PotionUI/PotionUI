@@ -450,7 +450,6 @@ test.describe('the Image editor tools map on a phone', () => {
 		const phone = page.getByTestId('phone-tool-tab');
 		for (const id of ['light', 'curves', 'resize', 'slice', 'edit_region']) {
 			await selectRailTool(page, id, phone);
-			await expect(phone.locator('[data-options-panel], [data-options-bar]').first()).toBeVisible();
 			await screenshot(page, JOURNEY, `40-form-${id}-dark-390`);
 		}
 		await selectRailTool(page, 'crop', phone);

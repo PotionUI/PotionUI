@@ -3,7 +3,7 @@
 	import { Button, IconButton, SegmentedControl } from '$lib/components/ui';
 	import { overlays } from '$lib/editors/overlays';
 	import { MASK_BRUSH } from '$lib/tool-tabs/image/mask';
-	import { maskBrushFields, maskMarkingFields, maskValues } from '$lib/tool-tabs/image/optionSchemas';
+	import { maskBrushFields, maskValues } from '$lib/tool-tabs/image/optionSchemas';
 	import { ensureCoreMaskOverlays } from '$lib/tool-tabs/image/coreMaskOverlays';
 	import {
 		activeOverlay,
@@ -43,7 +43,6 @@
 	let modeItems = $derived((active?.modes ?? []).map(({ id, label }) => ({ id, label })));
 
 	let values = $derived(maskValues(active, mode, brush));
-	let markingFields = $derived(maskMarkingFields(toolItems, active, modeItems));
 	let brushFields = $derived(maskBrushFields(active));
 
 	function pickMode(id: string) {
@@ -52,9 +51,7 @@
 
 	function write(next: Record<string, unknown>, info: { commit: boolean; name?: string }) {
 		if (info.commit) return;
-		if (info.name === 'tool') chooseOverlay(String(next.tool));
-		else if (info.name === 'mode') pickMode(String(next.mode));
-		else if (info.name === 'brush') brush = Number(next.brush);
+		if (info.name === 'brush') brush = Number(next.brush);
 	}
 </script>
 
@@ -76,8 +73,14 @@
 {:else}
 <div class="flex flex-col gap-2">
 	<p class="font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Mark the area</p>
-	{#if markingFields.length}
-		<EntryForm fields={markingFields} {values} label="Marking" onValues={write} />
+	{#if toolItems.length > 1}
+		<SegmentedControl variant="toggle" fullWidth ariaLabel="Marking tool" items={toolItems} selected={active?.id ?? ''} onSelect={chooseOverlay} />
+	{/if}
+	{#if modeItems.length}
+		<SegmentedControl variant="toggle" fullWidth ariaLabel={active?.modesLabel ?? 'Marking mode'} items={modeItems} selected={mode?.id ?? ''} onSelect={pickMode} />
+	{/if}
+	{#if brushFields.length}
+		<EntryForm fields={brushFields} {values} label="Brush" onValues={write} />
 	{/if}
 </div>
 {#if active?.hint}

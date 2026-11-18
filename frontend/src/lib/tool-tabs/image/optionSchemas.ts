@@ -161,13 +161,6 @@ export function maskBrushFields(active: CanvasOverlayEntry | null): FieldConfig[
 	];
 }
 
-export function maskMarkingFields(tools: readonly { id: string; label: string }[], active: CanvasOverlayEntry | null, modes: readonly { id: string; label: string }[]): FieldConfig[] {
-	const fields: FieldConfig[] = [];
-	if (tools.length > 1) fields.push(field({ type: 'segmented', name: 'tool', title: 'Marking tool', options: tools.map((tool) => ({ label: tool.label, value: tool.id })) }));
-	if (modes.length) fields.push(field({ type: 'segmented', name: 'mode', title: active?.modesLabel ?? 'Marking mode', options: modes.map((mode) => ({ label: mode.label, value: mode.id })) }));
-	return [...fields, ...maskBrushFields(active)];
-}
-
 export function maskValues(active: CanvasOverlayEntry | null, mode: OverlayMode | null, brush: number): Record<string, unknown> {
 	return { tool: active?.id ?? '', mode: mode?.id ?? '', brush };
 }

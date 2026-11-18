@@ -18,13 +18,13 @@ const SOURCE: MediaRef = {
 	generation_file_id: '501'
 };
 
-function render(phone = false) {
+function render(phone = false, tool = 'mask') {
 	const host = {
 		tabId: 'tab-1',
 		tool: 'image',
 		source: SOURCE,
-		state: writeImageState(emptyImageState('mask')),
-		activeTool: 'mask',
+		state: writeImageState(emptyImageState(tool)),
+		activeTool: tool,
 		run: null,
 		hint: null,
 		phone,
@@ -80,5 +80,16 @@ describe('ImageEditorTab mask tool', () => {
 		await settle();
 		expect(options.querySelector('[aria-label="Lasso mode"]')).not.toBeNull();
 		expect(options.textContent).toContain('Release to close the shape.');
+	});
+
+	it('takes the Brush choice in a task tool that starts on the lasso', async () => {
+		const { q } = render(false, 'edit_region');
+		await settle();
+		const options = q('[data-options-panel]')!;
+		expect(options.querySelector('[aria-label="Lasso mode"]')).not.toBeNull();
+		Array.from(options.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Brush')!.click();
+		await settle();
+		expect(options.querySelector('[aria-label="Mask brush"]')).not.toBeNull();
+		expect(options.querySelector('[aria-label="Lasso mode"]')).toBeNull();
 	});
 });

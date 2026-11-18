@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { entry, openTool } from './video-helpers';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
@@ -126,8 +127,9 @@ test('a plugin effect appears in the Video editor once the plugin is enabled, pr
 	const upload = await uploadClip(page);
 
 	let editor = await openInEditor(page, upload, 'seeded-before');
-	await expect(editor.locator('[data-effect-card="vignette"]')).toBeVisible({ timeout: 10000 });
-	await expect(editor.locator(`[data-effect-card="${TOOL}"]`)).toHaveCount(0);
+	const railEntry = (id: string) => editor.locator(`[data-tool-rail] button[data-tool="${id}"], [data-tool-rail] button[data-group-members~="${id}"]`);
+	await expect(railEntry('vignette')).toHaveCount(1, { timeout: 10000 });
+	await expect(railEntry(TOOL)).toHaveCount(0);
 
 	await page.goto('/admin?tab=plugins');
 	const catalog = page.locator('[role="list"][aria-label="Plugin catalog"]');
@@ -137,11 +139,10 @@ test('a plugin effect appears in the Video editor once the plugin is enabled, pr
 	await screenshot(page, JOURNEY, 'plugin-enabled');
 
 	editor = await openInEditor(page, upload, 'seeded-after');
-	const card = editor.locator(`[data-effect-card="${TOOL}"]`);
-	await expect(card).toBeVisible({ timeout: 10000 });
-	await expect(card).not.toContainText(/plugin|e2e-effects/i);
-	await editor.locator(`[data-tray-item="${TOOL}"]`).click();
-	await editor.locator('[data-options-apply]').click();
+	await expect(editor.locator(`[data-tool-rail] button[data-tool="${TOOL}"], [data-tool-rail] button[data-group-members~="${TOOL}"]`)).toHaveCount(1, { timeout: 10000 });
+	await openTool(page, editor, TOOL);
+	await expect(entry(editor, TOOL)).toBeVisible({ timeout: 10000 });
+	await expect(editor.locator('[data-options-panel]')).not.toContainText(/plugin|e2e-effects/i);
 	await expect(editor.locator('[data-options-apply]')).toHaveCount(0);
 	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Invert' })).toBeVisible();
 

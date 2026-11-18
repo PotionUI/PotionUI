@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { entry, openTool, setField } from './video-helpers';
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, scopedStorageKey, screenshot } from './helpers';
 import { solidPng } from './mediaToolMocks';
@@ -193,10 +194,9 @@ test.describe('the Video editor tab on desktop', () => {
 		});
 		const mocks = await mockEditorApi(page);
 		const editor = await openEditor(page, seeded([TRIM]));
-		await editor.locator('[data-tool="effects"]').click();
-		await editor.locator('[data-tray-item="film_grain"]').click();
-		await expect(editor.locator('[data-effect-card="film_grain"][data-open]')).toBeVisible();
-		await editor.locator('[data-options-apply]').click();
+		await openTool(page, editor, 'film_grain');
+		await expect(entry(editor, 'film_grain')).toBeVisible();
+		await setField(editor, 'film_grain', 'amount', '45');
 		await expect.poll(() => mocks.frames.length, { timeout: 5000 }).toBe(1);
 		const frameRequest = mocks.frames[0] as { steps: Array<{ tool: string }>; time_seconds: number; input: Json };
 		expect(frameRequest.input).toEqual({ item_id: 'item-1' });
@@ -253,7 +253,7 @@ test.describe('the Video editor tab on desktop', () => {
 		await expect(editor.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/);
 		await expect(bookTab(page, 'observatory-timelapse').getByTestId('tab-unsaved')).toHaveCount(0);
 
-		await editor.locator('[data-tool="mute"]').click();
+		await openTool(page, editor, 'mute');
 		await editor.locator('[data-options-apply]').click();
 		await expect(bookTab(page, 'observatory-timelapse').getByTestId('tab-unsaved')).toBeVisible();
 		mocks.runState['run-3'] = { status: 'completed', progress: 1 };
@@ -299,7 +299,7 @@ test.describe('the Video editor tab on desktop', () => {
 		const editor = await openEditor(page);
 		const media = editor.locator('[data-video-element]');
 
-		await editor.locator('[data-tool="crop"]').click();
+		await openTool(page, editor, 'crop');
 		await editor.locator('[data-options-body]').getByRole('button', { name: 'Rotate right' }).click();
 		await expect(media).toHaveAttribute('style', /rotate\(90deg\)/);
 		await expect(editor.locator('[data-crop-rect]')).toBeVisible();
@@ -311,16 +311,16 @@ test.describe('the Video editor tab on desktop', () => {
 		await expect(editor.getByRole('button', { name: /Reopen Crop/ })).toBeVisible();
 		await expect(editor.locator('[data-crop-rect]')).toHaveCount(0);
 
-		await editor.locator('[data-tool="speed"]').click();
+		await openTool(page, editor, 'speed');
 		await editor.locator('[data-options-apply]').click();
 		await expect.poll(() => media.evaluate((el) => (el as HTMLVideoElement).playbackRate)).toBe(2);
-		await editor.locator('[data-tool="mute"]').click();
+		await openTool(page, editor, 'mute');
 		await editor.locator('[data-options-apply]').click();
 		await expect.poll(() => media.evaluate((el) => (el as HTMLVideoElement).muted)).toBe(true);
 
 		const geo = await trackGeometry(page);
 		await page.mouse.click(geo.x(geo.duration * 0.5), geo.y + 2);
-		await editor.locator('[data-tool="split"]').click();
+		await openTool(page, editor, 'split');
 		await editor.locator('[data-split-playhead]').click();
 		await editor.locator('[data-options-apply]').click();
 		await expect(editor.getByRole('button', { name: /Reopen Split/ })).toBeVisible();
@@ -347,9 +347,9 @@ test.describe('the Video editor tab on a phone', () => {
 		const editor = await openEditor(page);
 		await expect(editor.locator('[data-scrub-bar="compact"]')).toBeVisible();
 		await expect(editor.locator('[data-tool-rail="strip"]')).toBeVisible();
-		await expect(editor.locator('[data-options-bar="phone"]')).toBeVisible();
-		await expect(editor.locator('[data-options-bar="phone"] [data-bar-time="in"]')).toBeVisible();
-		const optionsBox = (await editor.locator('[data-options-bar="phone"]').boundingBox())!;
+		await expect(editor.locator('[data-options-panel="phone"]')).toBeVisible();
+		await expect(editor.locator('[data-options-panel="phone"] [data-trim-field="in"]')).toBeVisible();
+		const optionsBox = (await editor.locator('[data-options-panel="phone"]').boundingBox())!;
 		const stripBox = (await editor.locator('[data-tool-rail="strip"]').boundingBox())!;
 		expect(optionsBox.y).toBeLessThan(stripBox.y);
 		await expect(editor.locator('[data-scrub-frame]').first()).toBeVisible({ timeout: 10000 });
@@ -357,7 +357,7 @@ test.describe('the Video editor tab on a phone', () => {
 		expect(overflowX).toBeLessThanOrEqual(0);
 		await screenshot(page, JOURNEY, 'phone-trim-390');
 
-		await editor.locator('[data-tool="mute"]').click();
+		await openTool(page, editor, 'mute');
 		await editor.locator('[data-options-apply]').click();
 		const phone = page.getByTestId('phone-tool-tab');
 		await phone.getByRole('button', { name: 'Save', exact: true }).click();

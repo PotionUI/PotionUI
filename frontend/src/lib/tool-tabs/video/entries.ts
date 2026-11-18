@@ -40,6 +40,8 @@ export const APPLY_LABELS: Readonly<Record<string, string>> = { trim: 'Apply tri
 
 export const LIVE_ENTRIES: readonly string[] = ['look', 'lut', 'fix_colors', 'film_grain', 'vignette', 'ken_burns', 'fade'];
 
+export const CHOICE_ENTRIES: readonly string[] = ['look', 'lut'];
+
 export const ACTION_ENTRIES: readonly string[] = ['frame'];
 
 type Body = Partial<RailToolEntry>;

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { entry, openTool, setField } from './video-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
@@ -132,11 +133,9 @@ test('grain previews live on a real uploaded clip with no mocks, and Save render
 	const upload = await uploadClip(page);
 	const editor = await openInEditor(page, upload);
 
-	const card = editor.locator('[data-effect-card="film_grain"]');
-	await expect(card).toBeVisible({ timeout: 10000 });
-	await card.locator('button').first().click();
-	await card.locator('[data-field-name="amount"] input[type="range"]').fill('100');
-	await editor.locator('[data-options-apply]').click();
+	await openTool(page, editor, 'film_grain');
+	await expect(entry(editor, 'film_grain')).toBeVisible({ timeout: 10000 });
+	await setField(editor, 'film_grain', 'amount', '100');
 	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Film grain' })).toBeVisible();
 
 	const canvas = editor.locator('[data-live-preview]');

@@ -135,7 +135,7 @@
 	import { requestFrame } from '$lib/tool-tabs/video/frameRequest';
 	import { resizeOptions } from '$lib/tool-tabs/video/params';
 	import { buildSendTargets, videoFieldsOf, withFieldValue, type VideoField, type VideoSendTarget } from '$lib/tool-tabs/video/sendTargets';
-	import { ACTION_ENTRIES, APPLY_LABELS, ensureCoreVideoEditor } from '$lib/tool-tabs/video/entries';
+	import { ACTION_ENTRIES, APPLY_LABELS, CHOICE_ENTRIES, ensureCoreVideoEditor } from '$lib/tool-tabs/video/entries';
 	import { createVideoToolHost, type VideoView } from '$lib/tool-tabs/video/toolHost';
 	import { ensureVideoMenu } from '$lib/tool-tabs/video/videoMenu';
 	import ScrubBar from './ScrubBar.svelte';
@@ -530,6 +530,13 @@
 		hoverTile = null;
 		compare = false;
 		closeClipPreview();
+		beginEffect(id);
+	}
+
+	function beginEffect(id: string) {
+		if (!ready || !isEffectOp(id) || CHOICE_ENTRIES.includes(id) || !effectMap.has(id)) return;
+		if (effective.some((step) => step.tool === id) || edits.pending) return;
+		edits = beginEdit(edits, draftFor(id, defaultsFor(id), effectMap));
 	}
 
 	function pickTile(id: string | null) {
@@ -1471,6 +1478,7 @@
 			bind:stackOpen
 			canCompare={ready}
 			editCount={visibleCount}
+			phoneSize={ready ? `${fixed2(outputLength)} s` : null}
 			phoneChips="bottom"
 			onundo={doUndo}
 			onredo={doRedo}

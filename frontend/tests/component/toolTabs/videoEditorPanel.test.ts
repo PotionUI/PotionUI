@@ -142,7 +142,7 @@ describe('video timeline and Trim', () => {
 		expect(q('[data-scrub-handle]')).toBeNull();
 		q<HTMLButtonElement>('[data-split-playhead]')!.click();
 		flushSync();
-		expect(q('[data-scrub-marker="01"]')).not.toBeNull();
+		expect(q('[data-scrub-marker="01"]')!.getAttribute('style')).toContain('left: 0%');
 	});
 });
 

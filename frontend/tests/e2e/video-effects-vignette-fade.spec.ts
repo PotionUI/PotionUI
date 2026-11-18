@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { entry, openTool, setField } from './video-helpers';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
@@ -117,13 +118,10 @@ async function liveRegions(page: Page, canvas: Locator): Promise<Regions> {
 	return regionsOf(page, shot.toString('base64'), null, 0);
 }
 
-async function addEffect(editor: Locator, id: string, values: Record<string, string>) {
-	const card = editor.locator(`[data-effect-card="${id}"]`);
-	await expect(card).toBeVisible({ timeout: 10000 });
-	await card.locator('button').first().click();
-	await expect(card).toHaveAttribute('data-open', 'true');
-	for (const [name, value] of Object.entries(values)) await card.locator(`[data-field-name="${name}"] input[type="range"]`).fill(value);
-	await editor.locator('[data-options-apply]').click();
+async function addEffect(page: Page, editor: Locator, id: string, values: Record<string, string>) {
+	await openTool(page, editor, id);
+	await expect(entry(editor, id)).toBeVisible({ timeout: 10000 });
+	for (const [name, value] of Object.entries(values)) await setField(editor, id, name, value);
 }
 
 test('vignette and fade preview live on a real clip with no mocks, and Save renders both into the Library item', async ({ page }) => {
@@ -139,7 +137,7 @@ test('vignette and fade preview live on a real clip with no mocks, and Save rend
 	const editor = await openInEditor(page, upload);
 	const canvas = editor.locator('[data-live-preview]');
 
-	await addEffect(editor, 'vignette', { amount: '100' });
+	await addEffect(page, editor, 'vignette', { amount: '100' });
 	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Vignette' })).toBeVisible();
 	await expect(canvas).toBeVisible({ timeout: 10000 });
 	const source = await regionsOf(page, null, null, 0);
@@ -150,7 +148,7 @@ test('vignette and fade preview live on a real clip with no mocks, and Save rend
 	}, { timeout: 15000 }).toBe(true);
 	await screenshot(page, JOURNEY, 'vignette-live-1440');
 
-	await addEffect(editor, 'fade', { fade_in: '0.5', fade_out: '0.5' });
+	await addEffect(page, editor, 'fade', { fade_in: '0.5', fade_out: '0.5' });
 	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Fade' })).toBeVisible();
 	await expect.poll(() => editor.locator('[data-video-element]').evaluate((el) => (el as HTMLVideoElement).currentTime), { timeout: 10000 }).toBeLessThan(0.05);
 	await expect.poll(async () => (await liveRegions(page, canvas)).centre, { timeout: 15000 }).toBeLessThan(8);

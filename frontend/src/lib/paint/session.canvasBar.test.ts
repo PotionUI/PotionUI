@@ -295,4 +295,26 @@ describe('reserved band', () => {
 		expect(session.view.panY).toBe((600 - 66 - 500) / 2);
 		expect(session.snapshot().fitted).toBe(false);
 	});
+
+	it.each([
+		[1440, 900],
+		[1024, 768]
+	])('keeps a wide picture below the zoom band at %ix%i', (width, height) => {
+		for (const bottom of [0, 66]) {
+			const { session } = buildSession(2000);
+			session.resize(width, height, 1);
+			session.setReserve(bottom, 56);
+			session.fit();
+			const { zoom, panY } = session.view;
+			expect(panY).toBeGreaterThanOrEqual(56);
+			expect(panY + 2000 * zoom).toBeLessThanOrEqual(height - bottom);
+		}
+	});
+
+	it('centres the one to one view in the band between the zoom control and the bar', () => {
+		const session = ready();
+		session.setReserve(66, 56);
+		session.actualSize();
+		expect(session.view.panY).toBe(56 + (600 - 66 - 56 - 500) / 2);
+	});
 });

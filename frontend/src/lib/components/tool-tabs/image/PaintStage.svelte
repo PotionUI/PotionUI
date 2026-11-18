@@ -13,7 +13,7 @@
 	import { PaintSession, type SessionSnapshot } from '$lib/paint/session';
 	import { Spinner } from '$lib/components/ui';
 	import { getFrameContext } from '$lib/tool-tabs/frame/context';
-	import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from '$lib/tool-tabs/frame/viewport';
+	import { CANVAS_ZOOM_RESERVE, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from '$lib/tool-tabs/frame/viewport';
 	import CanvasZoomControl from '../frame/CanvasZoomControl.svelte';
 
 	let {
@@ -53,7 +53,7 @@
 	let detachWheel: (() => void) | null = null;
 
 	$effect(() => {
-		session.setReserve(frame?.canvasReserve ?? 0);
+		session.setReserve(frame?.canvasReserve ?? 0, zoomControl ? CANVAS_ZOOM_RESERVE : 0);
 	});
 
 	onMount(async () => {

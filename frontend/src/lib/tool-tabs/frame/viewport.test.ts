@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	CANVAS_BAR_RESERVE,
+	CANVAS_ZOOM_RESERVE,
 	reservedStage,
 	actualSize,
 	fitViewport,
@@ -125,5 +126,24 @@ describe('reservedStage', () => {
 		const kept = resolveView(fitViewport(), reservedStage(stage, CANVAS_BAR_RESERVE), media, 60);
 		expect(kept.zoom).toBeLessThan(plain.zoom);
 		expect(kept.panY + media.height * kept.zoom).toBeLessThanOrEqual(stage.height - CANVAS_BAR_RESERVE);
+	});
+
+	it.each([
+		[1440, 900],
+		[1024, 768]
+	])('keeps the fitted picture clear of the zoom band at %ix%i', (width, height) => {
+		const media = { width: 3000, height: 1000 };
+		for (const bottom of [0, CANVAS_BAR_RESERVE]) {
+			const box = reservedStage({ width, height }, bottom, CANVAS_ZOOM_RESERVE);
+			const view = resolveView(fitViewport(), box, media, 24, CANVAS_ZOOM_RESERVE);
+			expect(view.panY).toBeGreaterThanOrEqual(CANVAS_ZOOM_RESERVE);
+			expect(view.panY + media.height * view.zoom).toBeLessThanOrEqual(height - bottom);
+		}
+	});
+
+	it('keeps a tall fitted picture clear of the zoom band', () => {
+		const box = reservedStage({ width: 1440, height: 900 }, CANVAS_BAR_RESERVE, CANVAS_ZOOM_RESERVE);
+		const view = resolveView(fitViewport(), box, { width: 1000, height: 3000 }, 60, CANVAS_ZOOM_RESERVE);
+		expect(view.panY).toBeGreaterThanOrEqual(CANVAS_ZOOM_RESERVE);
 	});
 });

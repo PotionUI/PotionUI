@@ -28,11 +28,12 @@ export function fitViewport(): Viewport {
 	return { fit: true, zoom: 1, panX: 0, panY: 0 };
 }
 
-export function resolveView(viewport: Viewport, stage: Size, media: Size, padding: number): View {
+export function resolveView(viewport: Viewport, stage: Size, media: Size, padding: number, top = 0): View {
 	if (!viewport.fit || media.width <= 0 || media.height <= 0) {
 		return { zoom: viewport.zoom, panX: viewport.panX, panY: viewport.panY };
 	}
-	return fitView(stage, media, padding, 1);
+	const fitted = fitView(stage, media, padding, 1);
+	return { zoom: fitted.zoom, panX: fitted.panX, panY: fitted.panY + top };
 }
 
 function manual(view: View): Viewport {
@@ -43,16 +44,16 @@ export function zoomAt(view: View, factor: number, anchor: Point): Viewport {
 	return manual(zoomAbout(view, factor, anchor, MIN_ZOOM, MAX_ZOOM));
 }
 
-export function zoomCentered(view: View, factor: number, stage: Size): Viewport {
-	return zoomAt(view, factor, { x: stage.width / 2, y: stage.height / 2 });
+export function zoomCentered(view: View, factor: number, stage: Size, top = 0): Viewport {
+	return zoomAt(view, factor, { x: stage.width / 2, y: top + stage.height / 2 });
 }
 
-export function actualSize(stage: Size, media: Size): Viewport {
+export function actualSize(stage: Size, media: Size, top = 0): Viewport {
 	return {
 		fit: false,
 		zoom: 1,
 		panX: (stage.width - media.width) / 2,
-		panY: (stage.height - media.height) / 2
+		panY: top + (stage.height - media.height) / 2
 	};
 }
 
@@ -87,6 +88,8 @@ export function isActualSize(viewport: Viewport): boolean {
 
 export const CANVAS_BAR_RESERVE = 66;
 
-export function reservedStage(stage: Size, reserve: number): Size {
-	return { width: stage.width, height: Math.max(1, stage.height - Math.max(0, reserve)) };
+export const CANVAS_ZOOM_RESERVE = 56;
+
+export function reservedStage(stage: Size, reserve: number, top = 0): Size {
+	return { width: stage.width, height: Math.max(1, stage.height - Math.max(0, reserve) - Math.max(0, top)) };
 }

@@ -185,6 +185,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	private stageWidth = 0;
 	private stageHeight = 0;
 	private reserve = 0;
+	private reserveTop = 0;
 	private dpr = 1;
 	private autoFit = true;
 	private theme: EditorTheme | null = null;
@@ -575,19 +576,21 @@ export class PaintSession implements ToolHost, EditorApi {
 	}
 
 	private get fitHeight(): number {
-		return Math.max(1, this.stageHeight - this.reserve);
+		return Math.max(1, this.stageHeight - this.reserve - this.reserveTop);
 	}
 
-	setReserve(pixels: number): void {
+	setReserve(pixels: number, top = 0): void {
 		const next = Math.max(0, pixels);
-		if (next === this.reserve) return;
+		const nextTop = Math.max(0, top);
+		if (next === this.reserve && nextTop === this.reserveTop) return;
 		this.reserve = next;
+		this.reserveTop = nextTop;
 		if (this.autoFit && this.ready) this.fit();
 	}
 
 	actualSize(): void {
 		if (!this.doc.width || !this.stageWidth) return;
-		this.view = { zoom: 1, panX: (this.stageWidth - this.doc.width) / 2, panY: (this.fitHeight - this.doc.height) / 2 };
+		this.view = { zoom: 1, panX: (this.stageWidth - this.doc.width) / 2, panY: this.reserveTop + (this.fitHeight - this.doc.height) / 2 };
 		this.autoFit = false;
 		this.emit();
 		this.invalidate();
@@ -595,19 +598,20 @@ export class PaintSession implements ToolHost, EditorApi {
 
 	fit(): void {
 		if (!this.doc.width || !this.stageWidth) return;
-		this.view = fitView(
+		const fitted = fitView(
 			{ width: this.stageWidth, height: this.fitHeight },
 			{ width: this.doc.width, height: this.doc.height },
 			24,
 			FIT_MAX_ZOOM
 		);
+		this.view = { zoom: fitted.zoom, panX: fitted.panX, panY: fitted.panY + this.reserveTop };
 		this.autoFit = true;
 		this.emit();
 		this.invalidate();
 	}
 
 	zoomBy(factor: number, anchor?: Point): void {
-		const at = anchor ?? { x: this.stageWidth / 2, y: this.fitHeight / 2 };
+		const at = anchor ?? { x: this.stageWidth / 2, y: this.reserveTop + this.fitHeight / 2 };
 		this.view = zoomAbout(this.view, factor, at);
 		this.autoFit = false;
 		this.emit();

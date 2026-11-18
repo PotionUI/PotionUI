@@ -12,6 +12,7 @@
 		panView,
 		pinchStep,
 		reservedStage,
+		CANVAS_ZOOM_RESERVE,
 		resolveView,
 		wheelFactor,
 		zoomAt,
@@ -73,8 +74,9 @@
 	let held = $derived(spaceHeld ?? frame?.spaceHeld ?? false);
 	let media = $derived({ width: mediaWidth, height: mediaHeight });
 	let reserve = $derived(phone ? 0 : (frame?.canvasReserve ?? 0));
-	let fitBox = $derived(reservedStage(stage, reserve));
-	let view = $derived(resolveView(viewport, fitBox, media, padding ?? (phone ? 14 : 60)));
+	let top = $derived(phone ? 0 : CANVAS_ZOOM_RESERVE);
+	let fitBox = $derived(reservedStage(stage, reserve, top));
+	let view = $derived(resolveView(viewport, fitBox, media, padding ?? (phone ? 14 : 60), top));
 	let art = $derived({
 		left: view.panX,
 		top: view.panY,
@@ -193,11 +195,11 @@
 	let canZoomOut = $derived(view.zoom > MIN_ZOOM);
 
 	export function zoomIn() {
-		viewport = zoomCentered(view, ZOOM_STEP, fitBox);
+		viewport = zoomCentered(view, ZOOM_STEP, fitBox, top);
 	}
 
 	export function zoomOut() {
-		viewport = zoomCentered(view, 1 / ZOOM_STEP, fitBox);
+		viewport = zoomCentered(view, 1 / ZOOM_STEP, fitBox, top);
 	}
 
 	export function showFit() {
@@ -205,7 +207,7 @@
 	}
 
 	export function showActualSize() {
-		viewport = actualSize(fitBox, media);
+		viewport = actualSize(fitBox, media, top);
 	}
 
 	export function zoomState() {

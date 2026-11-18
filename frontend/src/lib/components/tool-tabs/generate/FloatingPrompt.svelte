@@ -6,7 +6,7 @@
 	import { blockedReason, markOf } from '$lib/tool-tabs/image/generate/mark';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, IconButton, Kbd } from '$lib/components/ui';
+	import { Button, Kbd } from '$lib/components/ui';
 	import { tasks } from '$lib/editors/tasks';
 	import { editorsRevision } from '$lib/editors/registry';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
@@ -138,22 +138,12 @@
 {/snippet}
 
 {#snippet settingsButton()}
-	{#if settings}
-		<IconButton icon="sliders" label="Settings" size="sm" active={settings.open} ariaPressed={settings.open} onclick={settings.toggle} data-prompt-settings />
-	{:else}
-		<Tooltip text="Settings open here soon" position="top">
-			<IconButton icon="sliders" label="Settings" size="sm" disabled data-prompt-settings />
-		</Tooltip>
-	{/if}
-{/snippet}
-
-{#snippet dockSettings()}
-	<span class="dock-ctl">
+	<span class="dock-btn">
 		{#if settings}
-			<IconButton icon="sliders" label="Settings" size="xs" active={settings.open} ariaPressed={settings.open} onclick={settings.toggle} data-prompt-settings />
+			<Button size="sm" icon="sliders" class="h-8 text-base" pressed={settings.open} ariaLabel="Settings" onclick={settings.toggle} attrs={{ 'data-prompt-settings': '' }}>Settings</Button>
 		{:else}
 			<Tooltip text="Settings open here soon" position="top">
-				<IconButton icon="sliders" label="Settings" size="xs" disabled data-prompt-settings />
+				<Button size="sm" icon="sliders" class="h-8 text-base" disabled ariaLabel="Settings" attrs={{ 'data-prompt-settings': '' }}>Settings</Button>
 			</Tooltip>
 		{/if}
 	</span>
@@ -240,7 +230,7 @@
 
 {#snippet pickersView()}
 	{#if taskId}
-		<EditorPickers {phone} {taskId} {label} {extras} changedMark={phone ? undefined : changedMark} settingsButton={phone ? undefined : dockSettings} />
+		<EditorPickers {phone} {taskId} {label} {extras} changedMark={phone ? undefined : changedMark} settingsButton={phone ? undefined : settingsButton} />
 	{/if}
 {/snippet}
 
@@ -255,7 +245,7 @@
 {:else if phone}
 	<div bind:this={root} class="relative flex-none rounded-t-xl border-t border-line-strong bg-surface-1 px-3 pb-3 shadow-[var(--shadow-dock)]" role="group" aria-label={label} data-floating-prompt="phone">
 		<button type="button" class="mx-auto block h-4 w-full" aria-label="Collapse" onclick={() => (collapsed = true)}><span class="mx-auto block h-1 w-9 rounded-sm bg-line-strong"></span></button>
-		<div class="flex h-9 items-center justify-end gap-2">
+		<div class="flex h-10 items-center justify-end gap-2 [&_.dock-btn_button]:min-h-10">
 			{#if taskId}<EditorFormulas {taskId} phone />{/if}
 			{@render changedMark()}
 			{@render settingsButton()}

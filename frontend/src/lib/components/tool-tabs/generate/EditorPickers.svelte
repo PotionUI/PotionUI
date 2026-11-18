@@ -346,6 +346,13 @@
 		align-items: center;
 	}
 
+	.dock-end :global(.dock-btn) {
+		margin-bottom: 3px;
+		flex: none;
+		display: flex;
+		align-items: center;
+	}
+
 	@container (max-width: 759px) {
 		.dock-zone :global(.ctx-seg) {
 			min-width: 0;
@@ -367,6 +374,15 @@
 			min-height: 44px;
 		}
 
+		.dock-end :global(.dock-btn),
+		.dock-end :global(.dock-ctl) {
+			margin-bottom: 0;
+		}
+
+		.dock-end :global(.dock-btn button) {
+			min-height: 40px;
+		}
+
 		.dock-end {
 			flex: 0 0 auto;
 			width: calc(100% + 24px);
@@ -374,6 +390,7 @@
 			margin: 0 -12px;
 			padding: 0 12px;
 			justify-content: flex-end;
+			align-items: center;
 			border-top: 1px solid rgb(var(--line));
 		}
 	}

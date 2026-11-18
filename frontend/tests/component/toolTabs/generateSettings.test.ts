@@ -380,13 +380,21 @@ describe('The result count and formulas', () => {
 		vi.spyOn(api, 'getFormulaDeclaration').mockResolvedValue({ groups: [{ id: 'look', label: 'Look', fields: ['strength'] }] });
 		vi.spyOn(api, 'listFormulas').mockResolvedValue({ success: true, data: [] } as never);
 		const { view, q, toggle, controller } = await open();
-		expect(q('[data-testid="formulas-button"]')).not.toBeNull();
+		const formulas = q('[data-testid="formulas-button"]')!;
+		expect(formulas.textContent?.replace(/\s+/g, ' ').trim()).toBe('Formulas');
+		expect(formulas.getAttribute('aria-label')).toBe('Formulas');
+		expect(q('[data-testid="formulas-count"]')).toBeNull();
+		expect(q('[data-prompt-settings]')?.textContent?.trim()).toBe('Settings');
+		expect(q('[data-prompt-settings]')?.getAttribute('aria-pressed')).toBe('false');
 		await toggle();
+		expect(q('[data-prompt-settings]')?.getAttribute('aria-pressed')).toBe('true');
 		await controller.applyFormula('edit_region', {
 			formData: { strength: 0.9 },
 			applied: { formulaId: 'f1', name: 'Crisp look', key: 'k', changed: { strength: { old: 0.5, new: 0.9, label: 'Strength' } }, skipped: 2, snapshot: { values: { strength: 0.5 }, absent: [] } }
 		});
 		await settle(14);
+		expect(q('[data-testid="formulas-count"]')?.textContent?.trim()).toBe('· 1');
+		expect(q('[data-testid="formulas-button"]')?.getAttribute('aria-pressed')).toBe('false');
 		const row = q('[data-applied-formula="f1"]')!;
 		expect(row.textContent).toContain('Crisp look');
 		expect(row.querySelector('[data-applied-counts]')!.textContent!.replace(/\s+/g, ' ').trim()).toBe('1 changed · 2 skipped');

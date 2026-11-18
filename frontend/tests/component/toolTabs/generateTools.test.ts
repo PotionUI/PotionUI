@@ -158,10 +158,15 @@ describe('floating prompt', () => {
 			expect(cell.children[0].classList.contains('ctx-label')).toBe(true);
 		}
 		const end = q('[data-editor-pickers-end]')!;
-		const controls = Array.from(end.querySelectorAll('.dock-ctl'));
+		const controls = Array.from(end.querySelectorAll('.dock-btn, .dock-ctl'));
 		expect(controls.map((control) => (control.hasAttribute('data-picker-default') ? 'default' : control.querySelector('[data-prompt-settings]') ? 'settings' : 'other'))).toEqual(['settings']);
 		for (const control of controls) expect(control.querySelector('.ctx-label')).toBeNull();
-		expect(q('[data-prompt-settings]')!.className).toContain('min-w-6');
+		const settingsButton = q('[data-prompt-settings]')!;
+		expect(settingsButton.textContent?.trim()).toBe('Settings');
+		expect(settingsButton.getAttribute('aria-label')).toBe('Settings');
+		expect(settingsButton.className).toContain('h-8');
+		expect(settingsButton.className).toContain('text-base');
+		expect(settingsButton.getAttribute('title')).toBeNull();
 		expect(q('[data-testid="session-save"]')!.className).toContain('h-6');
 	});
 

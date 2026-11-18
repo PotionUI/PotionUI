@@ -2,8 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import FormulasDrawer from './FormulasDrawer.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { IconButton } from '$lib/components/ui';
+	import { Button } from '$lib/components/ui';
 	import { formulaLists, formulasKey, getFormulaDeclaration, loadFormulas } from '$lib/stores/formulas';
 	import { sideDrawer } from '$lib/stores/sideDrawer';
 	import type { FormulaDeclaration, FormulaHost } from '$lib/formulas/types';
@@ -83,13 +82,10 @@
 
 {#if declaration}
 	{#if layout === 'dock'}
-	<span class="dock-ctl inline-flex items-center gap-1">
-		<Tooltip text={appliedCount > 0 ? `Formulas, ${appliedCount} applied` : 'Formulas'} position="top">
-			<IconButton icon="book" label="Formulas" size="xs" active={open || appliedCount > 0} ariaPressed={open} onclick={toggle} data-testid="formulas-button" />
-		</Tooltip>
-		{#if count > 0}
-			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-testid="formulas-count">{count}</span>
-		{/if}
+	<span class="dock-btn">
+		<Button size="sm" icon="book" class="h-8 text-base" pressed={open} ariaLabel="Formulas" onclick={toggle} attrs={{ 'data-testid': 'formulas-button' }}>
+			Formulas{#if appliedCount > 0}<span class="font-mono tabular-nums" data-testid="formulas-count">· {appliedCount}</span>{/if}
+		</Button>
 	</span>
 	{:else}
 	<button

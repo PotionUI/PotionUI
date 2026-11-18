@@ -1,0 +1,812 @@
+{
+  "trim": {
+    "rows": [
+      {
+        "tool": "trim",
+        "icon": "editor-trim",
+        "label": "Trim",
+        "summary": "Keep 0.80 → 5.60 s",
+        "lane": "time",
+        "params": {
+          "start": 0.8,
+          "end": 5.6
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "trim",
+          "params": {
+            "start": 0.8,
+            "end": 5.6
+          }
+        }
+      ],
+      "chain": {
+        "ops": [
+          {
+            "kind": "trim",
+            "start": 0.8,
+            "end": 5.6
+          }
+        ],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 4.8
+      }
+    }
+  },
+  "split": {
+    "rows": [
+      {
+        "tool": "split",
+        "icon": "editor-split",
+        "label": "Split",
+        "summary": "At 3.20 s · two items",
+        "lane": "time",
+        "params": {
+          "at": 3.2
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "split",
+          "params": {
+            "mode": "at",
+            "at": 3.2
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "speed": {
+    "rows": [
+      {
+        "tool": "speed",
+        "icon": "editor-speed",
+        "label": "Speed",
+        "summary": "1.25× · keep pitch",
+        "lane": "time",
+        "params": {
+          "speed": 1.25,
+          "keep_pitch": true
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "speed",
+          "params": {
+            "speed": 1.25,
+            "keep_pitch": true
+          }
+        }
+      ],
+      "chain": {
+        "ops": [
+          {
+            "kind": "speed",
+            "speed": 1.25
+          }
+        ],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 5.12
+      }
+    }
+  },
+  "speed-unpitched": {
+    "rows": [
+      {
+        "tool": "speed",
+        "icon": "editor-speed",
+        "label": "Speed",
+        "summary": "0.5×",
+        "lane": "time",
+        "params": {
+          "speed": 0.5,
+          "keep_pitch": false
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "speed",
+          "params": {
+            "speed": 0.5,
+            "keep_pitch": false
+          }
+        }
+      ],
+      "chain": {
+        "ops": [
+          {
+            "kind": "speed",
+            "speed": 0.5
+          }
+        ],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 12.8
+      }
+    }
+  },
+  "crop": {
+    "rows": [
+      {
+        "tool": "crop",
+        "icon": "editor-crop",
+        "label": "Crop",
+        "summary": "75% × 100% · 90° · flip H",
+        "lane": "geometry",
+        "params": {
+          "rect": {
+            "x": 0.125,
+            "y": 0,
+            "width": 0.75,
+            "height": 1
+          },
+          "rotation": 90,
+          "flipH": true,
+          "flipV": false
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "rotate",
+          "params": {
+            "degrees": 90
+          }
+        },
+        {
+          "tool": "flip",
+          "params": {
+            "axis": "horizontal"
+          }
+        },
+        {
+          "tool": "crop",
+          "params": {
+            "x": 90,
+            "y": 0,
+            "width": 540,
+            "height": 1280
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 540,
+          "height": 1280
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "resize": {
+    "rows": [
+      {
+        "tool": "resize",
+        "icon": "editor-resize",
+        "label": "Resize",
+        "summary": "480p · high",
+        "lane": "geometry",
+        "params": {
+          "short": 480,
+          "quality": "high"
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "resize",
+          "params": {
+            "height": 480,
+            "quality": "high"
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 854,
+          "height": 480
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "mute": {
+    "rows": [
+      {
+        "tool": "mute",
+        "icon": "editor-mute",
+        "label": "Mute",
+        "summary": "No sound",
+        "params": {}
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "mute",
+          "params": {}
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "volume-percent": {
+    "rows": [
+      {
+        "tool": "volume",
+        "icon": "editor-volume",
+        "label": "Volume",
+        "summary": "140% · fade in 0.5 s · fade out 1.0 s",
+        "params": {
+          "unit": "percent",
+          "percent": 140,
+          "db": 0,
+          "fade_in": 0.5,
+          "fade_out": 1
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "volume",
+          "params": {
+            "unit": "percent",
+            "percent": 140,
+            "fade_in": 0.5,
+            "fade_out": 1
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "volume-db": {
+    "rows": [
+      {
+        "tool": "volume",
+        "icon": "editor-volume",
+        "label": "Volume",
+        "summary": "-6 dB",
+        "params": {
+          "unit": "db",
+          "percent": 100,
+          "db": -6,
+          "fade_in": 0,
+          "fade_out": 0
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "volume",
+          "params": {
+            "unit": "db",
+            "db": -6,
+            "fade_in": 0,
+            "fade_out": 0
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "replace-audio": {
+    "rows": [
+      {
+        "tool": "replace_audio",
+        "icon": "editor-music",
+        "label": "Replace audio",
+        "summary": "theme.mp3 · from 1.5 s",
+        "params": {
+          "audio": {
+            "item_id": "a-1"
+          },
+          "name": "theme.mp3",
+          "start": 1.5,
+          "loop": false
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "replace_audio",
+          "params": {
+            "audio": {
+              "item_id": "a-1"
+            },
+            "start": 1.5,
+            "loop": false
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "look": {
+    "rows": [
+      {
+        "tool": "look",
+        "icon": "editor-effects",
+        "label": "look",
+        "summary": "Strength 0.8",
+        "params": {
+          "look": "ember",
+          "strength": 0.8
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "look",
+          "params": {
+            "look": "ember",
+            "strength": 0.8
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "lut": {
+    "rows": [
+      {
+        "tool": "lut",
+        "icon": "editor-effects",
+        "label": "lut",
+        "summary": "Strength 0.4",
+        "params": {
+          "lut": "warm.cube",
+          "strength": 0.4
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "lut",
+          "params": {
+            "lut": "warm.cube",
+            "strength": 0.4
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "fix-colours": {
+    "rows": [
+      {
+        "tool": "fix_colors",
+        "icon": "editor-effects",
+        "label": "fix_colors",
+        "summary": "White balance · Strength 75%",
+        "params": {
+          "white_balance": true,
+          "contrast": false,
+          "strength": 75
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "fix_colors",
+          "params": {
+            "white_balance": true,
+            "contrast": false,
+            "strength": 75
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "film-grain": {
+    "rows": [
+      {
+        "tool": "film_grain",
+        "icon": "editor-effects",
+        "label": "film_grain",
+        "summary": "Amount 55% · Size 2 · colour grain",
+        "params": {
+          "amount": 55,
+          "size": 2,
+          "color": true
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "film_grain",
+          "params": {
+            "amount": 55,
+            "size": 2,
+            "color": true
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "vignette": {
+    "rows": [
+      {
+        "tool": "vignette",
+        "icon": "editor-effects",
+        "label": "vignette",
+        "summary": "Amount 60% · Radius 40% · Softness 70%",
+        "params": {
+          "amount": 60,
+          "radius": 40,
+          "softness": 70
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "vignette",
+          "params": {
+            "amount": 60,
+            "radius": 40,
+            "softness": 70
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "ken-burns": {
+    "rows": [
+      {
+        "tool": "ken_burns",
+        "icon": "editor-effects",
+        "label": "ken_burns",
+        "summary": "Start zoom 1x · End zoom 1.5x · Easing Linear",
+        "params": {
+          "zoom_from": 1,
+          "zoom_to": 1.5,
+          "pan_from": "top-left",
+          "pan_to": "bottom-right",
+          "easing": "linear"
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "ken_burns",
+          "params": {
+            "zoom_from": 1,
+            "zoom_to": 1.5,
+            "pan_from": "top-left",
+            "pan_to": "bottom-right",
+            "easing": "linear"
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "fade": {
+    "rows": [
+      {
+        "tool": "fade",
+        "icon": "editor-effects",
+        "label": "fade",
+        "summary": "Fade in 0.5s · Fade out 2s",
+        "params": {
+          "fade_in": 0.5,
+          "fade_out": 2,
+          "sound": false
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "fade",
+          "params": {
+            "fade_in": 0.5,
+            "fade_out": 2,
+            "sound": false
+          }
+        }
+      ],
+      "chain": {
+        "ops": [],
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "duration": 6.4
+      }
+    }
+  },
+  "stack": {
+    "rows": [
+      {
+        "tool": "trim",
+        "icon": "editor-trim",
+        "label": "Trim",
+        "summary": "Keep 0.80 → 5.60 s",
+        "lane": "time",
+        "params": {
+          "start": 0.8,
+          "end": 5.6
+        }
+      },
+      {
+        "tool": "speed",
+        "icon": "editor-speed",
+        "label": "Speed",
+        "summary": "2× · keep pitch",
+        "lane": "time",
+        "params": {
+          "speed": 2,
+          "keep_pitch": true
+        }
+      },
+      {
+        "tool": "crop",
+        "icon": "editor-crop",
+        "label": "Crop",
+        "summary": "50% × 50%",
+        "lane": "geometry",
+        "params": {
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0.5,
+            "height": 0.5
+          },
+          "rotation": 0,
+          "flipH": false,
+          "flipV": false
+        }
+      },
+      {
+        "tool": "resize",
+        "icon": "editor-resize",
+        "label": "Resize",
+        "summary": "360p · balanced",
+        "lane": "geometry",
+        "params": {
+          "short": 360,
+          "quality": "balanced"
+        }
+      },
+      {
+        "tool": "volume",
+        "icon": "editor-volume",
+        "label": "Volume",
+        "summary": "50% · fade out 0.5 s",
+        "params": {
+          "unit": "percent",
+          "percent": 50,
+          "db": 0,
+          "fade_in": 0,
+          "fade_out": 0.5
+        }
+      },
+      {
+        "tool": "look",
+        "icon": "editor-effects",
+        "label": "look",
+        "summary": "Strength 1",
+        "params": {
+          "look": "ember",
+          "strength": 1
+        }
+      },
+      {
+        "tool": "vignette",
+        "icon": "editor-effects",
+        "label": "vignette",
+        "summary": "Amount 40% · Radius 50% · Softness 50%",
+        "params": {
+          "amount": 40,
+          "radius": 50,
+          "softness": 50
+        }
+      },
+      {
+        "tool": "split",
+        "icon": "editor-split",
+        "label": "Split",
+        "summary": "At 1.10 s · two items",
+        "lane": "time",
+        "params": {
+          "at": 1.1
+        }
+      }
+    ],
+    "compiled": {
+      "steps": [
+        {
+          "tool": "trim",
+          "params": {
+            "start": 0.8,
+            "end": 5.6
+          }
+        },
+        {
+          "tool": "speed",
+          "params": {
+            "speed": 2,
+            "keep_pitch": true
+          }
+        },
+        {
+          "tool": "crop",
+          "params": {
+            "x": 0,
+            "y": 0,
+            "width": 640,
+            "height": 360
+          }
+        },
+        {
+          "tool": "resize",
+          "params": {
+            "height": 360,
+            "quality": "balanced"
+          }
+        },
+        {
+          "tool": "volume",
+          "params": {
+            "unit": "percent",
+            "percent": 50,
+            "fade_in": 0,
+            "fade_out": 0.5
+          }
+        },
+        {
+          "tool": "look",
+          "params": {
+            "look": "ember",
+            "strength": 1
+          }
+        },
+        {
+          "tool": "vignette",
+          "params": {
+            "amount": 40,
+            "radius": 50,
+            "softness": 50
+          }
+        },
+        {
+          "tool": "split",
+          "params": {
+            "mode": "at",
+            "at": 0.15
+          }
+        }
+      ],
+      "chain": {
+        "ops": [
+          {
+            "kind": "trim",
+            "start": 0.8,
+            "end": 5.6
+          },
+          {
+            "kind": "speed",
+            "speed": 2
+          }
+        ],
+        "size": {
+          "width": 640,
+          "height": 360
+        },
+        "duration": 2.4
+      }
+    }
+  }
+}

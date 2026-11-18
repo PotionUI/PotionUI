@@ -62,7 +62,7 @@
 	import type { SaveAction } from '$lib/tool-tabs/frame/types';
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
 	import { mediaFileStem } from '$lib/tool-tabs/sources';
-	import { CROP_ASPECTS, FULL_CROP, fitAspect, type CropRect } from '$lib/media/cropGeometry';
+	import { CROP_ASPECTS, FULL_CROP, cropOutputSize, fitAspect, type CropRect } from '$lib/media/cropGeometry';
 	import { ASSUMED_FPS, safeFps } from '$lib/media/frameTiming';
 	import { resolveEditableResource } from '$lib/media/editorSource';
 	import { getCachedSchema } from '$lib/form/schemaCache';
@@ -363,8 +363,9 @@
 		return held && (held as VideoParams).audio ? { name: String((held as VideoParams).name || 'Audio') } : null;
 	});
 	let pendingTools = $derived(pending ? [pending.tool] : []);
+	let outputSize = $derived(editingCrop ? cropOutputSize(cropRect, displaySize) : displaySize);
 	let statusExtra = $derived(
-		ready ? [`${fixed2(outputLength)} s`, `${Math.round(fps * 100) / 100} fps`, ...(tool === 'crop' || tool === 'resize' ? [`Output ${displaySize.width}×${displaySize.height}`] : [])].join(' · ') : null
+		ready ? [`${fixed2(outputLength)} s`, `${Math.round(fps * 100) / 100} fps`, ...(tool === 'crop' || tool === 'resize' ? [`Output ${outputSize.width}×${outputSize.height}`] : [])].join(' · ') : null
 	);
 	let formatLabel = $derived.by(() => {
 		const ext = (source?.name ?? source?.path ?? '').split('.').pop() ?? '';

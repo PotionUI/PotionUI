@@ -118,14 +118,14 @@ describe('Image editor with a plugin registered through window.__potionui.editor
 		const before = all('[data-stack-row]').length;
 		q<HTMLButtonElement>('[data-plugin-begin]')!.click();
 		await settle();
-		expect(all('[data-stack-row]').at(-1)?.dataset.status).toBe('pending');
+		expect(all('[data-stack-row]').at(0)?.dataset.status).toBe('pending');
 		q<HTMLButtonElement>('[data-plugin-label]')!.click();
 		await settle();
 		expect(document.body.textContent).toContain('Make halftone');
 		q<HTMLButtonElement>('[data-plugin-apply]')!.click();
 		await settle();
 		expect(all('[data-stack-row]')).toHaveLength(before + 1);
-		expect(all('[data-stack-row]').at(-1)?.textContent).toContain('Halftone');
+		expect(all('[data-stack-row]').at(0)?.textContent).toContain('Halftone');
 	});
 
 	it('shows a fallback with a Close button when the registered options throw, and keeps the editor working', async () => {
@@ -148,7 +148,7 @@ describe('Image editor with a plugin registered through window.__potionui.editor
 	it('draws a step of an unregistered kind as not available, keeps it, and makes it normal when the kind registers', async () => {
 		const { q, all } = render(stateWithPluginStep());
 		await settle();
-		const rowsOf = () => all('[data-stack-row]').map((row) => row.dataset.stackRow);
+		const rowsOf = () => all('[data-stack-row]').map((row) => row.dataset.stackRow).reverse();
 		expect(rowsOf()).toEqual(['original', 's1', 's2']);
 		const gone = q('[data-stack-row="s2"]')!;
 		expect(gone.textContent).toContain('Halftone');

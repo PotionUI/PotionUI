@@ -177,7 +177,7 @@ async function seedGenerationTab(page: Page) {
 
 async function stackRows(page: Page) {
 	return page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) =>
-		rows.map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`)
+		rows.map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`).reverse()
 	);
 }
 

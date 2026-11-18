@@ -93,7 +93,9 @@
 		remove,
 		reopen,
 		seek,
+		setOpacity,
 		toggleHidden,
+		toggleHiddenUndoable,
 		undo,
 		undoLabel,
 		updatePending,
@@ -104,6 +106,7 @@
 	import type { RailGroup, SaveAction, SavingProgress } from '$lib/tool-tabs/frame/types';
 	import { fitViewport } from '$lib/tool-tabs/frame/viewport';
 	import { geometryKey, liveMask, maskChannelOf, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
+	import { appliesBeneath, isLayerStep, layerThumb } from '$lib/tool-tabs/image/layers';
 	import { inputRef, outputSize, replaceOption, runBody, sourceOrigin, type PixelSize, type SourceOrigin } from '$lib/tool-tabs/image/payload';
 	import { FULL_SIDE, ImageRenderer, bakeIsCapped, isAbort, orient, stepsKey, type Rendered } from '$lib/tool-tabs/image/render';
 	import { showCanvas } from '$lib/tool-tabs/image/displayCanvas';
@@ -391,6 +394,11 @@
 	onMount(() => void generate.loadTasks());
 	let effective = $derived(effectiveSteps(stack));
 	let applied = $derived(appliedSteps(stack));
+	let selectedStepId = $derived.by(() => {
+		if (stack.pending?.target) return stack.pending.target;
+		if (!isLiveEntry(activeTool)) return null;
+		return applied.findLast((step) => entryOfStep(step) === activeTool)?.id ?? null;
+	});
 	let editCount = $derived(appliedCount(stack));
 	let paintActive = $derived(isPaintEntry(activeTool));
 	let toolKey = $derived(paintActive ? 'paint' : activeTool);
@@ -1018,6 +1026,10 @@
 		}
 		if (pending && pending.tool === tool) stack = updatePending(stack, next);
 		else stack = beginEdit(stack, next);
+	}
+
+	function toggleStepVisibility(step: EditStep) {
+		return isLayerStep(step) ? toggleHiddenUndoable(stack, step.id) : toggleHidden(stack, step.id);
 	}
 
 	function settleLive() {
@@ -1934,7 +1946,7 @@
 		reset: () => resetTool(),
 		toggleStepHidden: () => {
 			const step = currentStep;
-			if (step) stack = toggleHidden(stack, step.id);
+			if (step) stack = toggleStepVisibility(step);
 		},
 		removeStep: () => {
 			const step = currentStep;
@@ -2338,7 +2350,16 @@
 		}}
 		onreopen={(id) => void reopenStep(id)}
 		onseek={(cursor) => (stack = seek(stack, cursor))}
-		ontogglehidden={(id) => (stack = toggleHidden(stack, id))}
+		ontogglehidden={(id) => {
+			const step = stack.steps.find((candidate) => candidate.id === id);
+			if (step) stack = toggleStepVisibility(step);
+		}}
+		layered
+		selectedId={selectedStepId}
+		isLayer={isLayerStep}
+		{layerThumb}
+		{appliesBeneath}
+		onopacity={(id, opacity, live) => (stack = setOpacity(stack, id, opacity, live))}
 		onremove={(id) => {
 			generate.stepRemoved(id, stack);
 			stack = remove(stack, id);

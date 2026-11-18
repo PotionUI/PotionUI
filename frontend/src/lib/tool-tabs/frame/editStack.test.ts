@@ -353,7 +353,7 @@ describe('persistence', () => {
 	});
 
 	it('returns an empty stack for garbage or an unknown version', () => {
-		for (const input of [null, 7, 'x', [], {}, { v: 2, steps: [] }, { v: 1, steps: 'no' }]) {
+		for (const input of [null, 7, 'x', [], {}, { v: 3, steps: [] }, { v: 1, steps: 'no' }]) {
 			expect(deserialize(input)).toEqual(createStack());
 		}
 	});

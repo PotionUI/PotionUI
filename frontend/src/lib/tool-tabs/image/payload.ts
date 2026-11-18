@@ -9,6 +9,7 @@ import type {
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
 import type { MediaRef } from '$lib/types/tabs';
 import { callKind } from '$lib/editors/stepKinds';
+import { withLayerOpacity } from './layers';
 import type { PixelSize } from '$lib/editors/types';
 import { imageStepContext, resolveImageStep, stepOutOfDate, unavailablePayload } from './stepKinds';
 import { sliceStepParams, type SliceParams } from './slice/model';
@@ -117,11 +118,11 @@ export function coreStepPayload(step: EditStep, input: PixelSize | null, baked?:
 
 export function stepPayload(step: EditStep, input: PixelSize | null, baked?: string | null, beneath: readonly EditStep[] = []): MediaToolStep[] {
 	const resolved = resolveImageStep(step);
-	if (resolved.status === 'loading') return coreStepPayload(step, input, baked);
+	if (resolved.status === 'loading') return withLayerOpacity(step, coreStepPayload(step, input, baked));
 	if (resolved.status !== 'kind') return unavailablePayload(step);
 	const { kind, params } = resolved;
 	const ctx = imageStepContext(step, input, beneath, baked ?? null);
-	return callKind(kind, 'payload', () => kind.payload(params, ctx), unavailablePayload(step));
+	return withLayerOpacity(step, callKind(kind, 'payload', () => kind.payload(params, ctx), unavailablePayload(step)));
 }
 
 function hiddenPayload(step: EditStep, input: PixelSize | null): MediaToolStep[] {

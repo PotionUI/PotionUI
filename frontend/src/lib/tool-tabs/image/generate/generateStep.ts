@@ -4,7 +4,7 @@ import { canvasFromUrl } from '$lib/paint/loadPicked';
 import { timeRangeOf, type EditorRun, type NormRect, type RunStatus, type TaskOffer, type TimeRange } from '$lib/services/api/editorTasks';
 import { formatEditorTime } from '$lib/tool-tabs/video/videoState';
 import type { StepKind, StepState } from '$lib/editors/stepKinds';
-import type { EditStackState, EditStep, StepDraft } from '$lib/tool-tabs/frame/editStack';
+import { opacityOf, type EditStackState, type EditStep, type StepDraft } from '$lib/tool-tabs/frame/editStack';
 import { geometryKey } from '../mask';
 import { isTerminal, runViews } from './runEngine';
 
@@ -337,7 +337,7 @@ export const generateStepKind: StepKind<GenerateParams> = {
 		if (!params || !result || !place) return [{ tool: 'place_patch', params: {}, hidden: true }];
 		return [{ tool: 'place_patch', params: { patch: { item_id: result.patch.item_id }, ...place } }];
 	},
-	async preview(frame, raw, _ctx, signal) {
+	async preview(frame, raw, ctx, signal) {
 		const params = readGenerateParams(raw);
 		const result = params ? chosenResult(params) : null;
 		const place = params ? patchPlacement(params) : null;
@@ -351,6 +351,7 @@ export const generateStepKind: StepKind<GenerateParams> = {
 		if (!context) return frame;
 		context.imageSmoothingQuality = 'high';
 		context.drawImage(frame.canvas, 0, 0);
+		context.globalAlpha = opacityOf(ctx.step);
 		context.drawImage(patch, place.x * out.width, place.y * out.height, place.width * out.width, place.height * out.height);
 		return { canvas: out, size: frame.size };
 	},

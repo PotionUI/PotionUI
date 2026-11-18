@@ -62,7 +62,7 @@ export function writeImageState(state: ImageTabState): Record<string, unknown> {
 }
 
 export function stackSignature(stack: EditStackState<unknown>): string {
-	return JSON.stringify(stack.steps.slice(0, stack.cursor).map((step) => [step.tool, step.params, step.hidden]));
+	return JSON.stringify(stack.steps.slice(0, stack.cursor).map((step) => (step.layer ? [step.tool, step.params, step.hidden, step.layer.opacity] : [step.tool, step.params, step.hidden])));
 }
 
 export function unsavedEdits(stack: EditStackState<unknown>, saved: SavedCopy | null): number {

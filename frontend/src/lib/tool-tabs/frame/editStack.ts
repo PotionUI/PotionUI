@@ -1,3 +1,8 @@
+export interface StepLayer {
+	opacity: number;
+	blend: 'normal';
+}
+
 export interface EditStep<P = unknown> {
 	id: string;
 	tool: string;
@@ -7,6 +12,7 @@ export interface EditStep<P = unknown> {
 	params: P;
 	hidden: boolean;
 	lane?: string;
+	layer?: StepLayer;
 }
 
 export type StepDraft<P = unknown> = Omit<EditStep<P>, 'id' | 'hidden'>;
@@ -15,11 +21,13 @@ export interface PendingEdit<P = unknown> extends StepDraft<P> {
 	target: string | null;
 }
 
+export type RevisionDraft<P = unknown> = StepDraft<P> & { hidden?: boolean };
+
 export interface StepRevision<P = unknown> {
 	id: string;
 	at: number;
-	before: StepDraft<P>;
-	after: StepDraft<P>;
+	before: RevisionDraft<P>;
+	after: RevisionDraft<P>;
 }
 
 export interface LiveSession<P = unknown> {
@@ -58,6 +66,7 @@ export interface StackRow<P = unknown> {
 }
 
 export const STACK_VERSION = 1;
+export const LAYER_STACK_VERSION = 2;
 
 export function createStack<P = unknown>(): EditStackState<P> {
 	return { steps: [], cursor: 0, pending: null, seq: 0 };
@@ -127,9 +136,10 @@ export function apply<P>(input: EditStackState<P>): EditStackState<P> {
 	const { target, ...draft } = pending;
 	if (target) {
 		const before = state.steps.find((step) => step.id === target);
-		if (before && JSON.stringify(draftOf(before)) === JSON.stringify(draft)) return { ...state, pending: null };
+		if (before && JSON.stringify(contentOf(before)) === JSON.stringify(draft)) return { ...state, pending: null };
 		const steps = state.steps.map((step) => (step.id === target ? { ...step, ...draft } : step));
-		const revisions = before ? [...(state.revisions ?? []), { id: target, at: state.cursor, before: draftOf(before), after: draft }] : (state.revisions ?? []);
+		const after: StepDraft<P> = before?.layer ? { ...draft, layer: before.layer } : draft;
+		const revisions = before ? [...(state.revisions ?? []), { id: target, at: state.cursor, before: draftOf(before), after }] : (state.revisions ?? []);
 		return { ...state, steps, pending: null, revisions, redoRevisions: [] };
 	}
 	const seq = state.seq + 1;
@@ -185,8 +195,8 @@ export function liveEdit<P>(
 		const { live: _live, ...rest } = state;
 		return { ...rest, steps: state.steps.filter((step) => step.id !== found.id), cursor: index < state.cursor ? state.cursor - 1 : state.cursor, pending };
 	}
-	if (!found.hidden && pending === state.pending && JSON.stringify(draftOf(found)) === JSON.stringify(draft)) return state;
-	const steps = restyle(state, found.id, draft).map((step) => (step.id === found.id ? { ...step, hidden: false } : step));
+	if (!found.hidden && pending === state.pending && JSON.stringify(contentOf(found)) === JSON.stringify(draft)) return state;
+	const steps = restyle(state, found.id, found.layer && !draft.layer ? { ...draft, layer: found.layer } : draft).map((step) => (step.id === found.id ? { ...step, hidden: false } : step));
 	return { ...state, steps, pending, live: session };
 }
 
@@ -197,14 +207,21 @@ function settled<P>(state: EditStackState<P>): EditStackState<P> {
 function draftOf<P>(step: EditStep<P>): StepDraft<P> {
 	const draft: StepDraft<P> = { tool: step.tool, icon: step.icon, label: step.label, summary: step.summary, params: step.params };
 	if (step.lane) draft.lane = step.lane;
+	if (step.layer) draft.layer = step.layer;
 	return draft;
 }
 
-function restyle<P>(state: EditStackState<P>, id: string, draft: StepDraft<P>): EditStep<P>[] {
+function contentOf<P>(step: EditStep<P>): StepDraft<P> {
+	const { layer: _layer, ...content } = draftOf(step);
+	return content;
+}
+
+function restyle<P>(state: EditStackState<P>, id: string, draft: RevisionDraft<P>): EditStep<P>[] {
 	return state.steps.map((step) => {
 		if (step.id !== id) return step;
 		const next = { ...step, ...draft };
 		if (!draft.lane) delete next.lane;
+		if (!draft.layer) delete next.layer;
 		return next;
 	});
 }
@@ -259,7 +276,7 @@ export function untouched<P>(state: EditStackState<P>): boolean {
 	const step = pending?.target ? state.steps.find((entry) => entry.id === pending.target) : undefined;
 	if (!pending || !step) return false;
 	const { target: _target, ...draft } = pending;
-	return JSON.stringify(draftOf(step)) === JSON.stringify(draft);
+	return JSON.stringify(contentOf(step)) === JSON.stringify(draft);
 }
 
 export function undo<P>(input: EditStackState<P>): EditStackState<P> {
@@ -324,6 +341,45 @@ export function toggleHidden<P>(state: EditStackState<P>, id: string): EditStack
 	if (!state.steps.some((step) => step.id === id)) return state;
 	const steps = state.steps.map((step) => (step.id === id ? { ...step, hidden: !step.hidden } : step));
 	return { ...state, steps };
+}
+
+export function toggleHiddenUndoable<P>(input: EditStackState<P>, id: string): EditStackState<P> {
+	const state = settled(input);
+	const step = state.steps.find((entry) => entry.id === id);
+	if (!step) return input;
+	const revision: StepRevision<P> = {
+		id,
+		at: state.cursor,
+		before: { ...draftOf(step), hidden: step.hidden },
+		after: { ...draftOf(step), hidden: !step.hidden }
+	};
+	const steps = state.steps.map((entry) => (entry.id === id ? { ...entry, hidden: !entry.hidden } : entry));
+	return { ...state, steps, revisions: [...(state.revisions ?? []), revision], redoRevisions: [] };
+}
+
+export function opacityOf(step: Pick<EditStep, 'layer'>): number {
+	return step.layer ? step.layer.opacity : 1;
+}
+
+export function clampOpacity(value: number): number {
+	if (!Number.isFinite(value)) return 1;
+	return Math.round(Math.min(1, Math.max(0, value)) * 100) / 100;
+}
+
+export function setOpacity<P>(input: EditStackState<P>, id: string, opacity: number, live = false): EditStackState<P> {
+	const found = input.steps.find((entry) => entry.id === id);
+	if (!found) return input;
+	const value = clampOpacity(opacity);
+	if (opacityOf(found) === value) return live ? input : commitLive(input);
+	const state = input.live && input.live.id !== id ? commitLive(input) : input;
+	const session = state.live ?? { id, before: draftOf(found) };
+	const steps = state.steps.map((entry) => {
+		if (entry.id !== id) return entry;
+		const { layer: _layer, ...rest } = entry;
+		return value >= 1 ? rest : { ...rest, layer: { opacity: value, blend: 'normal' as const } };
+	});
+	const next: EditStackState<P> = { ...state, steps, live: session };
+	return live ? next : commitLive(next);
 }
 
 export function remove<P>(input: EditStackState<P>, id: string): EditStackState<P> {
@@ -444,7 +500,7 @@ export function stackRows<P>(state: EditStackState<P>): StackRow<P>[] {
 }
 
 export interface SerializedStack {
-	v: number;
+	v: 1 | 2;
 	steps: EditStep<unknown>[];
 	cursor: number;
 	pending: PendingEdit<unknown> | null;
@@ -453,13 +509,20 @@ export interface SerializedStack {
 
 export function serialize(input: EditStackState<unknown>): SerializedStack {
 	const state = settled(input);
+	const v = state.steps.some((step) => step.layer) ? LAYER_STACK_VERSION : STACK_VERSION;
 	return JSON.parse(
-		JSON.stringify({ v: STACK_VERSION, steps: state.steps, cursor: state.cursor, pending: state.pending, seq: state.seq })
+		JSON.stringify({ v, steps: state.steps, cursor: state.cursor, pending: state.pending, seq: state.seq })
 	);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readLayer(value: unknown): StepLayer | null {
+	if (!isRecord(value) || typeof value.opacity !== 'number' || !Number.isFinite(value.opacity)) return null;
+	const opacity = clampOpacity(value.opacity);
+	return opacity >= 1 ? null : { opacity, blend: 'normal' };
 }
 
 function readDraft(value: Record<string, unknown>): StepDraft<unknown> | null {
@@ -473,6 +536,8 @@ function readDraft(value: Record<string, unknown>): StepDraft<unknown> | null {
 		params: value.params ?? null
 	};
 	if (typeof lane === 'string' && lane) draft.lane = lane;
+	const layer = readLayer(value.layer);
+	if (layer) draft.layer = layer;
 	return draft;
 }
 
@@ -483,7 +548,8 @@ function seqOf(id: string): number {
 
 export function deserialize<P = unknown>(input: unknown): EditStackState<P> {
 	const empty = createStack<P>();
-	if (!isRecord(input) || input.v !== STACK_VERSION || !Array.isArray(input.steps)) return empty;
+	const version = isRecord(input) ? (input.v ?? STACK_VERSION) : null;
+	if (!isRecord(input) || (version !== STACK_VERSION && version !== LAYER_STACK_VERSION) || !Array.isArray(input.steps)) return empty;
 	const seen = new Set<string>();
 	const steps: EditStep<unknown>[] = [];
 	const rawCursor = typeof input.cursor === 'number' && Number.isFinite(input.cursor) ? Math.trunc(input.cursor) : 0;

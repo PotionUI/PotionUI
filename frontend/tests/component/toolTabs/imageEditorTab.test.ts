@@ -75,7 +75,7 @@ async function settle() {
 }
 
 function rows(all: (selector: string) => HTMLElement[]) {
-	return all('[data-edit-stack] [data-stack-row]').map((row) => `${row.dataset.status}${row.hasAttribute('data-hidden') ? ':hidden' : ''}`);
+	return all('[data-edit-stack] [data-stack-row]').map((row) => `${row.dataset.status}${row.hasAttribute('data-hidden') ? ':hidden' : ''}`).reverse();
 }
 
 describe('ImageEditorTab', () => {
@@ -176,6 +176,6 @@ describe('ImageEditorTab', () => {
 		expect(q('[data-image-editor]')?.dataset.tool).toBe('resize');
 		expect(calls.tool).toContain('resize');
 		expect(rows(all)).toEqual(['original', 'applied', 'applied', 'current']);
-		expect(all('[data-stack-row]').at(-1)?.textContent).toContain('Noir');
+		expect(all('[data-stack-row]').at(0)?.textContent).toContain('Noir');
 	});
 });

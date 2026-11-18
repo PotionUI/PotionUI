@@ -67,7 +67,7 @@ function render(activeTool: string, extra: Partial<ToolTabHost> = {}) {
 	const view = mountComponent(ImageEditorTab, { host });
 	const q = <T extends Element = HTMLElement>(selector: string) => view.target.querySelector<T>(selector);
 	const all = (selector: string) => Array.from(view.target.querySelectorAll<HTMLElement>(selector));
-	const rows = () => all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status);
+	const rows = () => all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status).reverse();
 	const written = () => calls.state[calls.state.length - 1]?.stack;
 	return { view, calls, q, all, rows, written };
 }
@@ -139,7 +139,7 @@ describe('Light and Colour entries', () => {
 		expect(view.rows()).toEqual(['current']);
 		drag(view, 'Contrast', 18);
 		expect(view.rows()).toEqual(['original', 'current']);
-		expect(view.all('[data-stack-row]').at(-1)?.textContent).toContain('Light');
+		expect(view.all('[data-stack-row]').at(0)?.textContent).toContain('Light');
 		drag(view, 'Contrast', 30);
 		drag(view, 'Brightness', -5);
 		expect(view.rows()).toEqual(['original', 'current']);
@@ -256,7 +256,7 @@ describe('Light and Colour entries', () => {
 		await release(view, 'Contrast');
 		view.q<HTMLButtonElement>('[data-tool-rail] button[data-tool="crop"]')!.click();
 		await settle();
-		const row = view.all('[data-stack-row]').at(-1)!;
+		const row = view.all('[data-stack-row]').at(0)!;
 		row.querySelector<HTMLButtonElement>('button')!.click();
 		await settle();
 		expect(view.q('[data-image-editor]')?.dataset.tool).toBe('light');

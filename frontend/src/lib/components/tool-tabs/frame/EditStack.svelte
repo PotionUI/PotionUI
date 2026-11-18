@@ -4,6 +4,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, IconButton, Menu, Spinner } from '$lib/components/ui';
 	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
+	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import type { StepRowInfo } from '$lib/editors/stepKinds';
 	import type { MenuItem } from '$lib/components/ui/Menu.svelte';
 	import {
@@ -12,6 +13,7 @@
 		canMove,
 		canRedo,
 		canUndo,
+		opacityOf,
 		redoLabel,
 		stackRows,
 		undoLabel,
@@ -27,6 +29,12 @@
 		stack,
 		original,
 		variant = 'panel',
+		layered = false,
+		selectedId = null,
+		isLayer = () => false,
+		layerThumb = () => null,
+		appliesBeneath = () => false,
+		onopacity,
 		folded = false,
 		collapsed = $bindable(false),
 		pinned = DEFAULT_PINNED_LANES,
@@ -48,6 +56,12 @@
 		stack: EditStackState<unknown>;
 		original: { label?: string; summary: string; thumb?: string | null };
 		variant?: StackVariant;
+		layered?: boolean;
+		selectedId?: string | null;
+		isLayer?: (step: EditStep<unknown>) => boolean;
+		layerThumb?: (step: EditStep<unknown>) => string | null;
+		appliesBeneath?: (step: EditStep<unknown>) => boolean;
+		onopacity?: (id: string, opacity: number, live: boolean) => void;
 		folded?: boolean;
 		collapsed?: boolean;
 		pinned?: readonly LanePair[];
@@ -70,6 +84,9 @@
 	const ROW_HEIGHT = 44;
 
 	let rows = $derived(stackRows(stack));
+	let shownRows = $derived(layered ? [...rows.slice(1).reverse(), rows[0]] : rows);
+	let selectedLook = $derived(layered ? (rows.find((row) => isSelected(row) && !!row.step && appliesBeneath(row.step)) ?? null) : null);
+	let dragOpacity = $state<number | null>(null);
 	let applied = $derived(appliedCount(stack));
 	let undone = $derived(undoneCount(stack));
 	let sheet = $derived(variant === 'sheet');
@@ -92,7 +109,7 @@
 
 	let dropIndex = $derived.by(() => {
 		if (!drag) return -1;
-		const shift = Math.round(drag.dy / drag.height);
+		const shift = Math.round(drag.dy / drag.height) * (layered ? -1 : 1);
 		return Math.max(0, Math.min(applied - 1, drag.from + shift));
 	});
 	let dropAllowed = $derived(drag ? dropIndex === drag.from || canMove(stack, drag.id, dropIndex, pinned) : false);
@@ -111,6 +128,74 @@
 		return `Reopen ${row.step?.label}${row.hidden ? ', hidden' : ''}`;
 	}
 
+	function isSelected(row: StackRow<unknown>): boolean {
+		return row.reopened || (!!row.step && row.key === selectedId && row.status !== 'undone');
+	}
+
+	function isLayerRow(row: StackRow<unknown>): boolean {
+		return layered && !!row.step && isLayer(row.step);
+	}
+
+	function rowHeight(row: StackRow<unknown>): string {
+		if (!layered || row.key === 'original' || isLayerRow(row)) return 'h-11';
+		return 'h-10';
+	}
+
+	function layersBelow(row: StackRow<unknown>): number {
+		let count = 1;
+		for (const other of rows) if (other.step && other.index < row.index && other.status !== 'undone' && isLayer(other.step)) count += 1;
+		return count;
+	}
+
+	function bracketed(row: StackRow<unknown>): boolean {
+		return !!selectedLook && row.status !== 'undone' && row.status !== 'pending' && row.index <= selectedLook.index;
+	}
+
+	function subtitleOf(row: StackRow<unknown>, fallback: string): string {
+		if (!layered || !row.step || row.status === 'undone') return fallback;
+		if (appliesBeneath(row.step)) {
+			const count = layersBelow(row);
+			return count <= 1 ? 'Applies to the original' : `Applies to ${count} layers below`;
+		}
+		if (selectedLook?.step && isLayer(row.step) && row.index > selectedLook.index) return `Not affected by ${selectedLook.step.label}`;
+		return fallback;
+	}
+
+	function percent(step: EditStep<unknown>): number {
+		return Math.round(opacityOf(step) * 100);
+	}
+
+	function drawerItems(row: StackRow<unknown>): MenuItem[] {
+		const index = row.index - 1;
+		return [
+			{ id: 'up', label: 'Move up', icon: 'chevron-up', disabled: !row.step || !canMove(stack, row.step.id, index + 1, pinned) },
+			{ id: 'down', label: 'Move down', icon: 'chevron-down', disabled: !row.step || !canMove(stack, row.step.id, index - 1, pinned) },
+			{ id: 'sep', label: '', separator: true },
+			{ id: 'delete', label: 'Delete', icon: 'trash', danger: true }
+		];
+	}
+
+	function chooseDrawer(row: StackRow<unknown>, id: string) {
+		if (!row.step) return;
+		const index = row.index - 1;
+		if (id === 'up') onmove(row.step.id, index + 1);
+		else if (id === 'down') onmove(row.step.id, index - 1);
+		else if (id === 'delete') onremove(row.step.id);
+	}
+
+	function slideOpacity(row: StackRow<unknown>, value: number) {
+		if (!row.step) return;
+		dragOpacity = value / 100;
+		onopacity?.(row.step.id, value / 100, true);
+	}
+
+	function commitOpacity(row: StackRow<unknown>) {
+		if (!row.step) return;
+		const value = dragOpacity ?? opacityOf(row.step);
+		dragOpacity = null;
+		onopacity?.(row.step.id, value, false);
+	}
+
 	function activate(row: StackRow<unknown>) {
 		if (!row.step) return;
 		if (row.status === 'undone') onseek(row.index);
@@ -121,7 +206,8 @@
 		if (!event.altKey || !row.step || !draggable(row)) return;
 		if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
 		event.preventDefault();
-		const to = row.index - 1 + (event.key === 'ArrowUp' ? -1 : 1);
+		const up = event.key === 'ArrowUp';
+		const to = row.index - 1 + (up === layered ? 1 : -1);
 		if (canMove(stack, row.step.id, to, pinned)) onmove(row.step.id, to);
 	}
 
@@ -178,14 +264,18 @@
 	{/if}
 
 	<div class="min-h-0 flex-initial {sheet ? '' : 'overflow-y-auto px-2 pb-2'} {shut ? 'hidden' : ''}" role="list" data-stack-rows>
-		{#each rows as row (row.key)}
+		{#each shownRows as row (row.key)}
 			{@const step = row.step ?? row.pending}
 			{@const dragging = drag?.id === row.key}
 			{@const info = row.step && rowInfo ? rowInfo(row.step) : null}
+			{@const layerRow = isLayerRow(row)}
+			{@const thumb = info?.thumb ?? (layerRow && row.step ? layerThumb(row.step) : null)}
+			{@const slim = layered && row.key !== 'original' && !layerRow}
 			<div
 				role="listitem"
-				class="group relative flex h-11 items-center gap-2 rounded pl-1 pr-1.5
+				class="group relative flex {rowHeight(row)} items-center gap-2 rounded pl-1 pr-1.5
 					{row.status === 'current' || row.reopened ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
+					{bracketed(row) ? 'is-bracket' : ''}
 					{row.status === 'pending' ? 'border border-dashed border-line-hover' : ''}
 						{grouped && slot === row.key && (row.status === 'pending' || row.reopened) ? '!hidden' : ''}
 					{row.status === 'undone' ? 'opacity-[0.45]' : ''}
@@ -195,6 +285,8 @@
 				data-status={row.status}
 				aria-current={row.reopened ? 'true' : undefined}
 				data-hidden={row.hidden || undefined}
+				data-stack-kind={layered && row.step ? (layerRow ? 'layer' : 'slim') : undefined}
+				data-bracket={bracketed(row) || undefined}
 				data-drop-blocked={dragging && !dropAllowed ? '' : undefined}
 			>
 				<span
@@ -210,7 +302,11 @@
 				</span>
 				{#snippet body()}
 					<span class="w-[18px] flex-none font-mono text-sm tabular-nums text-fg-subtle">{pad(row.index)}</span>
-					{#if row.key === 'original'}
+					{#if row.key === 'original' && layered && original.thumb}
+						<span class="alpha-checker flex h-7 flex-none items-center overflow-hidden rounded" data-stack-thumb>
+							<img src={original.thumb} alt="" class="h-7 w-auto max-w-12 object-contain" />
+						</span>
+					{:else if row.key === 'original'}
 						{#if original.thumb}
 							<span class="alpha-checker relative h-7 w-7 flex-none overflow-hidden rounded" data-stack-thumb>
 								<span class="absolute inset-0 bg-cover bg-center" style={`background-image: url(${JSON.stringify(original.thumb)})`}></span>
@@ -220,12 +316,16 @@
 								<Icon name="image" className="h-3.5 w-3.5" />
 							</span>
 						{/if}
-					{:else if info?.thumb}
+					{:else if thumb && layered}
+						<span class="alpha-checker flex h-7 flex-none items-center overflow-hidden rounded {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-thumb>
+							<img src={thumb} alt="" class="h-7 w-auto max-w-12 object-contain" />
+						</span>
+					{:else if thumb}
 						<span class="alpha-checker relative h-7 w-7 flex-none overflow-hidden rounded {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-thumb>
-							<span class="absolute inset-0 bg-cover bg-center" style={`background-image: url(${JSON.stringify(info.thumb)})`}></span>
+							<span class="absolute inset-0 bg-cover bg-center" style={`background-image: url(${JSON.stringify(thumb)})`}></span>
 						</span>
 					{:else}
-						<span class="grid h-7 w-7 flex-none place-items-center rounded bg-surface-2 text-fg-muted {row.hidden ? 'opacity-[0.45]' : ''}">
+						<span class="grid {slim ? 'h-6 w-6' : 'h-7 w-7'} flex-none place-items-center rounded bg-surface-2 text-fg-muted {row.hidden ? 'opacity-[0.45]' : ''}">
 							<Icon name={step?.icon ?? 'sliders'} className="h-3.5 w-3.5" />
 						</span>
 					{/if}
@@ -259,7 +359,7 @@
 							</span>
 						{:else}
 							<span class="truncate font-mono text-sm text-fg-subtle">
-								{#if row.status === 'editing'}<span class="font-sans text-signal" data-stack-editing>Editing</span><span class="px-1">·</span>{:else if row.status === 'pending'}<span class="font-sans" data-stack-editing>Not applied</span><span class="px-1">·</span>{/if}{row.key === 'original' ? original.summary : row.status === 'undone' ? 'Undone' : step?.summary}
+								{#if row.status === 'editing'}<span class="font-sans text-signal" data-stack-editing>Editing</span><span class="px-1">·</span>{:else if row.status === 'pending'}<span class="font-sans" data-stack-editing>Not applied</span><span class="px-1">·</span>{/if}{row.key === 'original' ? original.summary : row.status === 'undone' ? 'Undone' : subtitleOf(row, step?.summary ?? '')}
 							</span>
 						{/if}
 					</span>
@@ -292,6 +392,21 @@
 				{#if info?.state.kind === 'busy' && info.state.progress !== undefined}
 					<span class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-surface-3" data-stack-progress><i class="block h-full bg-signal" style="width: {info.state.progress}%"></i></span>
 				{/if}
+				{#if layered && row.step && !sheet && row.status !== 'undone' && row.status !== 'pending'}
+					{#if layerRow}
+						<span class="flex-none font-mono text-sm tabular-nums {isSelected(row) ? 'text-fg' : 'text-fg-subtle'} {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-opacity={row.key}>{percent(row.step)}%</span>
+					{/if}
+					{#if info?.hideToggle !== false}
+						<IconButton
+							icon={row.hidden ? 'editor-eye-off' : 'editor-eye'}
+							label="{row.hidden ? 'Show' : 'Hide'} {row.step.label}"
+							size="xs"
+							ariaPressed={row.hidden}
+							onclick={() => row.step && ontogglehidden(row.step.id)}
+							data-stack-hide={row.key}
+						/>
+					{/if}
+				{/if}
 				{#if row.step && !sheet && row.status !== 'undone'}
 					<span class="flex flex-none {row.hidden || row.reopened ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}" data-stack-actions>
 						{#each info?.actions ?? [] as action (action.id)}
@@ -299,7 +414,7 @@
 								<IconButton icon={action.icon} label="{action.label} {row.step.label}" size="xs" onclick={() => row.step && onrowaction?.(row.step.id, action.id)} data-stack-action={action.id} />
 							</Tooltip>
 						{/each}
-						{#if info?.hideToggle !== false}
+						{#if info?.hideToggle !== false && !layered}
 						<Tooltip text={row.hidden ? 'Show step' : 'Hide step'} position="top">
 							<IconButton
 								icon={row.hidden ? 'editor-eye-off' : 'editor-eye'}
@@ -325,6 +440,20 @@
 					</span>
 				{/if}
 			</div>
+			{#if layerRow && isSelected(row) && row.step}
+				<div class="mb-1 ml-1 flex items-center gap-1 border-l-2 border-signal bg-signal/[0.04] py-1 pl-3 pr-1.5" role="group" aria-label="Layer opacity" data-layer-drawer={row.key}>
+					<div class="min-w-0 flex-1">
+						<SliderField
+							name="layer-opacity"
+							config={{ title: 'Opacity', min: 0, max: 100, default: 100, unit: '%', layout: 'inline', reset: true, legend: false }}
+							value={percent(row.step)}
+							onChange={(_name, value) => slideOpacity(row, Number(value))}
+							onCommit={() => commitOpacity(row)}
+						/>
+					</div>
+					<Menu label="Layer options for {row.step.label}" icon="chat-more" size="xs" items={drawerItems(row)} onselect={(id) => chooseDrawer(row, id)} menuAttrs={{ 'data-layer-menu': row.key }} />
+				</div>
+			{/if}
 			{#if grouped && progressRow && slot === row.key}
 				<div role="listitem" class="mt-0.5" data-stack-group>
 					{@render progressRow((row.status === 'pending' || row.reopened) ? row.index : row.index + 1)}
@@ -351,6 +480,16 @@
 		left: -8px;
 		top: 8px;
 		bottom: 8px;
+		width: 2px;
+		background: rgb(var(--signal));
+	}
+
+	.is-bracket::before {
+		content: '';
+		position: absolute;
+		left: -8px;
+		top: 0;
+		bottom: 0;
 		width: 2px;
 		background: rgb(var(--signal));
 	}

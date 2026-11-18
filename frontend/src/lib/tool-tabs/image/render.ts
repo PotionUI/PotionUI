@@ -10,7 +10,7 @@ import { loadMediaToolCatalog } from '$lib/media-tools/catalog';
 import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 import { previewFrame, uploadMediaToolArtifact } from '$lib/services/api/mediaTools';
 import type { MediaToolInputRef } from '$lib/media-tools/types';
-import type { EditStep } from '$lib/tool-tabs/frame/editStack';
+import { opacityOf, type EditStep } from '$lib/tool-tabs/frame/editStack';
 import { whenEditorExtensionsReady } from '$lib/editors/ready';
 import { callKindAsync } from '$lib/editors/stepKinds';
 import { outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
@@ -108,11 +108,12 @@ function cropCanvas(canvas: HTMLCanvasElement, params: CropParams, size: PixelSi
 	return { canvas: out, size: logical };
 }
 
-async function paintCanvas(canvas: HTMLCanvasElement, params: PaintParams): Promise<HTMLCanvasElement> {
+async function paintCanvas(canvas: HTMLCanvasElement, params: PaintParams, opacity: number): Promise<HTMLCanvasElement> {
 	const layer = await canvasFromUrl(params.url);
 	const out = makeCanvas(canvas.width, canvas.height);
 	const context = context2d(out);
 	context.drawImage(canvas, 0, 0);
+	context.globalAlpha = opacity;
 	context.drawImage(layer, 0, 0, out.width, out.height);
 	return out;
 }
@@ -172,7 +173,7 @@ export async function coreApplyClientStep(rendered: Rendered, step: EditStep, ma
 			return { canvas: scaled(rendered.canvas, fitSide(size, maxSide)), size };
 		}
 		case 'paint':
-			return { canvas: await paintCanvas(rendered.canvas, step.params as PaintParams), size: rendered.size };
+			return { canvas: await paintCanvas(rendered.canvas, step.params as PaintParams, opacityOf(step)), size: rendered.size };
 		case 'effects':
 			return { canvas: await effectCanvas(rendered.canvas, step.params as EffectParams), size: rendered.size };
 		default:
@@ -222,7 +223,7 @@ function waitFor<T>(promise: Promise<T>, signal: AbortSignal | undefined, onAbor
 }
 
 export function stepsKey(steps: readonly EditStep[]): string {
-	return JSON.stringify(steps.filter(drawn).map((step) => [step.tool, step.params]));
+	return JSON.stringify(steps.filter(drawn).map((step) => [step.tool, step.params, step.layer?.opacity ?? 1]));
 }
 
 export function sourceKey(source: RenderSource): string {

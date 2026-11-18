@@ -193,13 +193,13 @@ async function openEditorOnDusk(page: Page) {
 
 async function stackRows(page: Page) {
 	return page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) =>
-		rows.map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`)
+		rows.map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`).reverse()
 	);
 }
 
 const ORIGINAL = 'original:00Original640×480·PNG';
 const CROP = '01Crop1:1·480×480';
-const REEL = '02ReelIntensity100';
+const REEL = '02ReelAppliestotheoriginal';
 
 async function start(page: Page, seed = false): Promise<Log> {
 	const log = await mockEditor(page);
@@ -298,7 +298,7 @@ test.describe('Paint entries in the Image editor', () => {
 		await expect(layerRows(page)).toHaveCount(2);
 
 		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint·1layer640×480']);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint·1layer640×480100%']);
 		expect(log.artifacts).toBe(1);
 	});
 
@@ -420,8 +420,8 @@ test.describe('Paint entries in the Image editor', () => {
 		await openPaint(page, 'brush');
 		await stroke(page);
 		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint·1layer640×480']);
-		await page.locator('[data-edit-stack="panel"] [data-stack-row]').nth(1).click();
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint·1layer640×480100%']);
+		await page.locator('[data-edit-stack="panel"] [data-stack-row]').nth(0).click();
 		await expect(page.locator(CANVAS)).toBeVisible();
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', /paint\./);
 		await expect(layerRows(page)).toHaveCount(2);
@@ -498,5 +498,76 @@ test.describe('Paint on a phone', () => {
 		await phone.locator('[data-frame-edits]').click();
 		await expect(page.getByRole('dialog', { name: 'Edits' }).locator('[data-stack-group] [data-layer-row]')).toHaveCount(2);
 		await screenshot(page, JOURNEY, '11-phone-layers-390');
+	});
+});
+
+test.describe('Edits as layers', () => {
+	test.use({ viewport: { width: 1440, height: 1100 } });
+
+	const row = (page: Page, id: string) => page.locator(`[data-edit-stack="panel"] [data-stack-row="${id}"]`);
+	const contrast = (page: Page) => page.locator('[data-field-name="tone_contrast"] input[type="range"]');
+
+	async function paintedLayer(page: Page) {
+		await start(page);
+		await openDusk(page);
+		await openPaint(page, 'brush');
+		await stroke(page);
+		await page.locator('[data-options-apply]').click();
+		await expect(row(page, 's1')).toHaveAttribute('data-stack-kind', 'layer');
+	}
+
+	async function addLook(page: Page) {
+		await selectRailTool(page, 'light');
+		await contrast(page).fill('20');
+		await contrast(page).dispatchEvent('change');
+		await expect(row(page, 's2')).toBeVisible();
+	}
+
+	test('the newest edit is on top and the paint step is a layer row with its opacity and eye', async ({ page }) => {
+		await paintedLayer(page);
+		await addLook(page);
+		const keys = await page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) => rows.map((node) => node.getAttribute('data-stack-row')));
+		expect(keys).toEqual(['s2', 's1', 'original']);
+		await expect(row(page, 's1').locator('[data-stack-opacity]')).toHaveText('100%');
+		await expect(row(page, 's1').locator('[data-stack-hide]')).toBeVisible();
+		await expect(row(page, 's2')).toHaveAttribute('data-stack-kind', 'slim');
+		await expect(row(page, 's2')).toContainText('Applies to 2 layers below');
+	});
+
+	test('a layer fades from the drawer and the fade is undoable', async ({ page }) => {
+		await paintedLayer(page);
+		await row(page, 's1').locator('[data-stack-open]').click();
+		const drawer = page.locator('[data-layer-drawer="s1"]');
+		await expect(drawer).toBeVisible();
+		const slider = drawer.locator('input[type="range"]');
+		await slider.fill('50');
+		await slider.dispatchEvent('change');
+		await expect(row(page, 's1').locator('[data-stack-opacity]')).toHaveText('50%');
+		await selectRailTool(page, 'light');
+		const readout = row(page, 's1').locator('[data-stack-opacity]');
+		for (let i = 0; i < 2 && (await readout.textContent()) !== '100%'; i++) await page.locator('[data-frame-undo]').click();
+		await expect(readout).toHaveText('100%');
+		await expect(row(page, 's1')).toBeVisible();
+	});
+
+	test('hiding a layer is undoable', async ({ page }) => {
+		await paintedLayer(page);
+		await selectRailTool(page, 'light');
+		await row(page, 's1').locator('[data-stack-hide]').click();
+		await expect(row(page, 's1')).toHaveAttribute('data-hidden', 'true');
+		await page.locator('[data-frame-undo]').click();
+		await expect(row(page, 's1')).not.toHaveAttribute('data-hidden', 'true');
+	});
+
+	test('a selected look brackets the layers it applies to', async ({ page }) => {
+		await paintedLayer(page);
+		await row(page, 's1').locator('[data-stack-open]').click();
+		const slider = page.locator('[data-layer-drawer="s1"] input[type="range"]');
+		await slider.fill('50');
+		await slider.dispatchEvent('change');
+		await addLook(page);
+		await row(page, 's2').locator('[data-stack-open]').click();
+		for (const id of ['s2', 's1', 'original']) await expect(row(page, id)).toHaveAttribute('data-bracket', 'true');
+		await screenshot(page, JOURNEY, '20-cmb407-built-1440');
 	});
 });

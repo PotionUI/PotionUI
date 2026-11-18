@@ -84,8 +84,8 @@ def test_core_param_names_are_the_contract_names():
         "mute": [],
         "volume": ["unit", "percent", "db", "fade_in", "fade_out"],
         "replace_audio": ["audio", "start", "loop"],
-        "paint_layer": ["layer"],
-        "place_patch": ["patch", "x", "y", "width", "height"],
+        "paint_layer": ["layer", "opacity"],
+        "place_patch": ["patch", "x", "y", "width", "height", "opacity"],
         "slice": ["rects", "trim", "tolerance", "padding", "aspect", "fill"],
     }
 

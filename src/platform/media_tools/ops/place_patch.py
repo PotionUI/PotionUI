@@ -3,6 +3,7 @@ from __future__ import annotations
 from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
+from src.platform.media_tools.layer_opacity import OPACITY_PARAM, read_opacity, with_opacity
 from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.media_tools.types import EDITOR_SCOPE, ToolMedia, ToolSpec, UnsupportedMedia
 
@@ -28,6 +29,7 @@ SPEC = dict(
         {"name": "y", "type": "float", "label": "Y", "default": 0, "min": 0, "max": 1, "step": 0.0001},
         {"name": "width", "type": "float", "label": "Width", "default": 1, "min": 0.0001, "max": 1, "step": 0.0001},
         {"name": "height", "type": "float", "label": "Height", "default": 1, "min": 0.0001, "max": 1, "step": 0.0001},
+        OPACITY_PARAM,
     ],
 )
 
@@ -46,6 +48,7 @@ class PlacePatch(MediaTool):
         span_h = min(height - top, max(1, round(float(params.get("height", 1)) * height)))
         if patch.size != (span_w, span_h):
             patch = patch.resize((span_w, span_h), Image.Resampling.LANCZOS)
+        patch = with_opacity(patch, read_opacity(params))
         keep_alpha = has_alpha_mode(image)
         canvas = image.convert("RGBA")
         canvas.alpha_composite(patch, dest=(left, top))

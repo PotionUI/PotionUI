@@ -1860,8 +1860,8 @@ still images (grain, VHS, grades) are photo filters, not tools: see
 | `mute` | video with sound | same | none |
 | `volume` | video, audio with sound | same | `unit` percent / db, `percent` 0 to 400, `db` -60 to 20, `fade_in`, `fade_out` (seconds) |
 | `replace_audio` | video (editor only) | same | `audio` (media), `start` (seconds into the track), `loop` |
-| `paint_layer` | image (editor only) | same | `layer` (media, a transparent PNG) |
-| `place_patch` | image (editor only) | same | `patch` (media, an RGBA PNG made by an editor run), `x`, `y`, `width`, `height` (0 to 1, the patch's place as fractions of the picture) |
+| `paint_layer` | image (editor only) | same | `layer` (media, a transparent PNG), `opacity` (0 to 1, default 1) |
+| `place_patch` | image (editor only) | same | `patch` (media, an RGBA PNG made by an editor run), `x`, `y`, `width`, `height` (0 to 1, the patch's place as fractions of the picture), `opacity` (0 to 1, default 1) |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
 transparency (a JPEG that gains an alpha channel is saved as PNG).

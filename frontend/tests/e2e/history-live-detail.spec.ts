@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
+import { dirname, join } from 'node:path';
 import { loginAsOwner, screenshot } from './helpers';
 import { generationStatusMessage } from './generationMocks';
 
@@ -157,7 +158,8 @@ test.describe('a running generation opens from History and turns into the finish
 		await expect(detail.locator('[data-live-stage]')).toHaveCount(0);
 		await expect(detail.locator('[data-details-origin]')).toContainText('Started over MCP');
 		await screenshot(page, JOURNEY, '04-finished-1440');
-		await screenshot(page, JOURNEY, 'origin-header-1440');
+		const shot = await screenshot(page, JOURNEY, 'origin-header-1440');
+		await page.screenshot({ path: join(dirname(shot), 'origin-header-1440.png'), clip: { x: 104, y: 68, width: 1224, height: 72 } });
 	});
 
 	test('a failure shows the error where the media was and keeps the parameters', async ({ page }) => {

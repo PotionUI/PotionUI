@@ -40,7 +40,7 @@
 	<div class="flex items-center justify-between gap-3 py-2">
 		<dt class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">{timeLabel}</dt>
 		<dd class="m-0 font-mono text-sm tabular-nums text-fg" data-live-time>
-			<span class={live ? 'text-signal' : ''}>{time}</span>{#if queued}<span class="text-fg-muted"> · queued {queued}</span>{/if}
+			<span class={live ? 'text-signal' : ''}>{time}</span>{#if queued}<span class="text-fg-muted">{` · queued ${queued}`}</span>{/if}
 		</dd>
 	</div>
 </dl>

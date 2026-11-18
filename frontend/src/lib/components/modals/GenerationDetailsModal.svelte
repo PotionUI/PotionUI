@@ -417,7 +417,7 @@
 	}
 
 	$: formParams = liveParameters(activeGeneration?.form_data, liveNow?.seed ?? null);
-	$: useFormParams = recordLive || !paramsKey;
+	$: useFormParams = recordLive || !paramsKey || (!paramsLoading && Object.keys(currentParams).length === 0);
 	$: paramCount = useFormParams
 		? Object.keys(formParams.params).length
 		: countParameters({ params: shownParams, meta: shownParamMeta, order: currentParamOrder, models: currentModels });
@@ -928,7 +928,7 @@
 					{#if !hostTitle && activeGeneration.preset_version}<span class="font-normal text-fg-muted">{' v'}{activeGeneration.preset_version}</span>{/if}
 				{/snippet}
 				{#snippet rating()}
-					<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />
+					{#if !recordLive}<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />{/if}
 				{/snippet}
 				{#snippet tools()}
 					{#if currentFile}

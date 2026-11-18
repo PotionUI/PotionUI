@@ -110,7 +110,7 @@
 				<span class="min-w-0 truncate" data-live-step>{stepText}</span>
 				<span class="shrink-0 font-mono tabular-nums text-fg-muted">
 					{#if percent !== null}{percent}%{/if}
-					<span class="ml-2" data-live-elapsed>{formatElapsed(elapsed)}<span class="max-sm:hidden"> elapsed</span></span>
+					<span class="ml-2" data-live-elapsed>{formatElapsed(elapsed)}<span class="max-sm:hidden">{' elapsed'}</span></span>
 				</span>
 			</div>
 			<div class="tick-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={percent ?? undefined} aria-label="Generation progress">

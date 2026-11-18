@@ -340,3 +340,30 @@ async def test_remix_needs_a_prompt(mock_db, tmp_path):
         await manager.start(USER, "remix", body)
 
     assert refused.value.code == "prompt_required" and fakes.requests == []
+
+
+@pytest.mark.asyncio
+async def test_a_task_that_needs_a_range_refuses_the_whole_clip(mock_db, tmp_path):
+    manager, fakes, edit_id = build(tmp_path, "refine_faces")
+
+    with pytest.raises(DomainError) as refused:
+        await manager.start(USER, "refine_faces", clip_body(edit_id))
+
+    assert refused.value.code == "range_required" and refused.value.status_code == 422
+    assert fakes.requests == []
+
+
+@pytest.mark.asyncio
+async def test_refine_faces_cuts_the_marked_frames_and_leaves_the_neighbours_untouched(mock_db, tmp_path):
+    manager, fakes, edit_id = build(tmp_path, "refine_faces")
+
+    run = await manager.start(USER, "refine_faces", clip_body(edit_id, (0.5, 1.0)))
+    original = frame_digests(fakes.files["clip"])
+    sent = frame_digests(fakes.upload_bytes("editor-input.mp4"))
+    done = await settle(manager, fakes, run, model_clip(fakes, "model", 5))
+
+    spliced = frame_digests(final_clip(fakes, done))
+    assert sent == original[5:10]
+    assert len(spliced) == 20
+    assert spliced[:5] == original[:5] and spliced[10:] == original[10:]
+    assert spliced[5:10] != original[5:10]

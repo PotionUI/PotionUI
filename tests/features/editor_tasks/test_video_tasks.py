@@ -16,12 +16,15 @@ MARKETPLACE = REPO_ROOT / "content" / "presets" / "marketplace"
 REGISTRY = register_core_tasks(TaskRegistry())
 USER = SimpleNamespace(id="u1")
 
-VIDEO_TASKS = {"extend", "remix"}
+VIDEO_TASKS = {"extend", "remix", "refine_faces"}
 
 EXPECTED = {
     ("LTX-2.5", "extend"): "extend",
     ("MiniMax-H3", "extend"): "extend",
     ("MiniMax-H3", "remix"): "remix",
+    ("LTX-2.5", "refine_faces"): "refine_faces",
+    ("MiniMax-H3", "refine_faces"): "refine_faces",
+    ("MiniMax-H3-Fast", "refine_faces"): "refine_faces",
     ("MiniMax-H3-Fast", "extend"): "extend",
 }
 
@@ -61,10 +64,11 @@ def test_the_video_tasks_are_registered_for_the_video_editor_only():
 def test_every_video_task_states_what_it_needs():
     found = {task.id: task for task in CORE_TASKS if "video" in task.editors}
 
-    assert all(task.range == "optional" and task.region == "none" for task in found.values())
+    assert all(task.region == "none" for task in found.values())
+    assert {task.id: task.range for task in found.values()} == {"extend": "optional", "remix": "optional", "refine_faces": "required"}
     assert found["extend"].result == "append" and found["extend"].audio == "result"
     assert [task.id for task in found.values() if task.resizes] == []
-    assert {task.id for task in found.values() if task.result == "replace"} == {"remix"}
+    assert {task.id for task in found.values() if task.result == "replace"} == {"remix", "refine_faces"}
     assert (found["remix"].prompt, found["remix"].audio) == ("required", "keep")
     assert {task.id: task.prompt for task in found.values()}["extend"] == "optional"
 
@@ -232,3 +236,12 @@ def test_a_cap_must_be_positive():
     parsed, problems = validate_editor_mode_file(data, "m")
 
     assert parsed is None and problems
+
+
+def test_refine_faces_is_offered_by_the_three_h3_and_ltx_presets_and_needs_a_range(templates, manager):
+    entry = next(item for item in manager.offers(USER, "video") if item["id"] == "refine_faces")
+
+    assert entry["range"] == "required" and entry["prompt"] == "none"
+    assert {offer["preset_id"] for offer in entry["offers"]} == {
+        templates[folder].id for folder in ("LTX-2.5", "MiniMax-H3", "MiniMax-H3-Fast")
+    }

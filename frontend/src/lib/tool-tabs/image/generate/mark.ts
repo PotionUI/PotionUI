@@ -30,10 +30,12 @@ export function blockedReason(input: {
 	regionRequired: boolean;
 	hasArea: boolean;
 	redoArea: boolean;
+	rangeBlock?: string | null;
 }): string | null {
 	if (!input.hasSetup) return 'Choose a preset first';
 	if (input.redoArea) return 'Mark the area again';
 	if (input.regionRequired && !input.hasArea) return 'Mark the object first';
+	if (input.rangeBlock) return input.rangeBlock;
 	if (input.promptRequired && !input.prompt.trim()) return 'Describe the change first';
 	return null;
 }

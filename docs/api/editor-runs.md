@@ -82,7 +82,7 @@ Only the clients subscribed to that generation, which means its owner, receive i
 
 ## Runs on a video
 
-The video editor uses the same routes. `GET /api/editor/tasks?editor=video` lists only the video tasks (`extend`, `upscale`, `restore`, `refine_faces`, `colorize`, `relight`, `clean_plate`) that a preset on this instance offers. A task entry says what it needs:
+The video editor uses the same routes. `GET /api/editor/tasks?editor=video` lists only the video tasks (`extend`, `refine_faces`, `remix`) that a preset on this instance offers. A task entry says what it needs:
 
 ```json
 {
@@ -91,7 +91,7 @@ The video editor uses the same routes. `GET /api/editor/tasks?editor=video` list
 }
 ```
 
-`range` is `optional` (no range means the whole clip), `result` is `replace` (the new footage has the length of the range) or `append` (it adds time), `audio` is `keep` (the clip's sound stays) or `result` (the added part brings its own sound, silence when the model made none) and `resizes` says a whole-clip result may be larger than the clip. An offer's `region_strategy` is `range`.
+`range` is `optional` (no range means the whole clip) or `required` (`refine_faces`: a run without one is refused with a 422 `range_required`; an offer's `max_range_s` is the longest range its mode takes, `null` without one, and a longer range is refused with a 422 `range_too_long`), `result` is `replace` (the new footage has the length of the range) or `append` (it adds time), `audio` is `keep` (the clip's sound stays) or `result` (the added part brings its own sound, silence when the model made none) and `resizes` says a whole-clip result may be larger than the clip. An offer's `region_strategy` is `range`.
 
 `input` and `steps` name the clip as the editor currently shows it (the source plus its steps, as for a picture). `range` marks the part to work on, in seconds, and is left out for the whole clip. The server snaps it to the frames of the clip at its own frame rate, so `range` in the run and in each candidate is the snapped range.
 
@@ -101,18 +101,18 @@ The video editor uses the same routes. `GET /api/editor/tasks?editor=video` list
   "input": { "item_id": "..." },
   "steps": [],
   "range": { "start_s": 2.0, "end_s": 4.5 },
-  "prompt": "",
-  "setup": { "preset_id": "...", "mode": "editor:restore", "form_data": {} },
+  "prompt": "make it snow",
+  "setup": { "preset_id": "...", "mode": "editor:remix", "form_data": {} },
   "candidates": 1
 }
 ```
 
-The server cuts the range frame by frame, sends it to the mode as its input video, and when the generation finishes fits each result to the clip's size and frame rate and to the length of the range (frames are dropped or the last one repeated; a whole-clip `upscale` keeps the result's own size), then splices it into the clip. Frames outside the range are not changed. A `replace` task keeps the clip's own sound; `extend` inserts the new footage at the end of the range (the end of the clip without one) and the part after the range follows it. Each finished candidate carries the whole spliced clip, not a patch:
+The server cuts the range frame by frame, sends it to the mode as its input video, and when the generation finishes fits each result to the clip's size and frame rate and to the length of the range (frames are dropped or the last one repeated; a task with `resizes` keeps the result's own size on the whole clip), then splices it into the clip. Frames outside the range are not changed. A `replace` task keeps the clip's own sound; `extend` inserts the new footage at the end of the range (the end of the clip without one) and the part after the range follows it. Each finished candidate carries the whole spliced clip, not a patch:
 
 ```json
 {
   "run": {
-    "id": "er_...", "task": "restore", "status": "done", "range": { "start_s": 2.0, "end_s": 4.5, "whole": false },
+    "id": "er_...", "task": "remix", "status": "done", "range": { "start_s": 2.0, "end_s": 4.5, "whole": false },
     "candidates": [
       {
         "clip": { "item_id": "..." }, "url": "/api/media/uploads/...", "seed": 12345, "generation_file_id": "...",

@@ -64,3 +64,23 @@ export function parseSeconds(text: string): number | null {
 	const value = Number(text.trim().replace(',', '.'));
 	return text.trim() !== '' && Number.isFinite(value) && value >= 0 ? value : null;
 }
+
+export function formatCap(cap: number): string {
+	return `${Number.isInteger(cap) ? cap : cap.toFixed(1)} s`;
+}
+
+export function capRange(next: AiRange, before: AiRange | null, cap: number | null, duration: number): AiRange {
+	if (cap === null || !(cap > 0) || next.end - next.start <= cap + 1e-9) return next;
+	const startMoved = before !== null && Math.abs(next.start - before.start) > 1e-9 && Math.abs(next.end - before.end) <= 1e-9;
+	return clampRange(startMoved ? { start: next.end - cap, end: next.end } : { start: next.start, end: next.start + cap }, duration);
+}
+
+export const RANGE_REQUIRED_REASON = 'Mark the frames to fix';
+
+export function rangeBlockReason(range: AiRange | null, duration: number, cap: number | null, required = false): string | null {
+	if (required && !range) return RANGE_REQUIRED_REASON;
+	if (cap === null || !(cap > 0)) return null;
+	const length = range ? range.end - range.start : duration;
+	if (length <= cap + 1e-9) return null;
+	return range ? `Mark up to ${formatCap(cap)}` : `Mark a section of up to ${formatCap(cap)}`;
+}

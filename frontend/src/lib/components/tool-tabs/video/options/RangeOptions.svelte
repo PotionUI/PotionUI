@@ -3,7 +3,7 @@
 	import { editorsRevision } from '$lib/editors/registry';
 	import { tasks } from '$lib/editors/tasks';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
-	import { defaultRange, lengthOf, parseSeconds, withEnd, withStart } from '$lib/tool-tabs/video/aiRange';
+	import { capRange, defaultRange, formatCap, lengthOf, parseSeconds, withEnd, withStart } from '$lib/tool-tabs/video/aiRange';
 	import type { VideoToolHost } from '$lib/tool-tabs/video/toolHost';
 	import { formatEditorTime } from '$lib/tool-tabs/video/videoState';
 	import { fixed2 } from '$lib/tool-tabs/video/videoSteps';
@@ -20,8 +20,13 @@
 		return taskId ? tasks.get('video', taskId) : undefined;
 	});
 	let extend = $derived(entry?.result === 'append');
+	let required = $derived(entry?.range === 'required');
 	let range = $derived(video.aiRange);
 	let duration = $derived(video.clip.duration);
+	let cap = $derived.by(() => {
+		void $ui;
+		return taskId && generate ? generate.capFor(taskId) : null;
+	});
 	let chosen = $derived(taskId && $ui ? $ui.choice[taskId] : null);
 	let tweak = $derived(taskId && $ui ? $ui.tweaks[taskId] : undefined);
 	let seconds = $derived.by(() => {
@@ -51,7 +56,7 @@
 				generate.tweak(taskId, { ...tweak.values, duration: Math.max(0.5, value) });
 			}
 		} else if (range) {
-			video.setAiRange(field === 'start' ? withStart(range, value, duration) : withEnd(range, value, duration));
+			video.setAiRange(capRange(field === 'start' ? withStart(range, value, duration) : withEnd(range, value, duration), range, cap, duration));
 		}
 	}
 
@@ -73,12 +78,12 @@
 
 	function setStart() {
 		const at = video.playhead;
-		video.setAiRange(range ? withStart(range, at, duration) : defaultRange(at, duration));
+		video.setAiRange(range ? capRange(withStart(range, at, duration), range, cap, duration) : defaultRange(at, duration));
 	}
 
 	function setEnd() {
 		const at = video.playhead;
-		video.setAiRange(range ? withEnd(range, at, duration) : defaultRange(Math.max(0, at - 2), duration));
+		video.setAiRange(range ? capRange(withEnd(range, at, duration), range, cap, duration) : defaultRange(Math.max(0, at - 2), duration));
 	}
 
 	let marker = $derived(range ? formatEditorTime(range.end) : formatEditorTime(duration));
@@ -117,7 +122,7 @@
 				<input type="checkbox" class="h-4 w-4 flex-none rounded-sm border-line-strong bg-surface-2 accent-[rgb(var(--signal))]" checked={!!range} onchange={(event) => toggle((event.currentTarget as HTMLInputElement).checked)} data-range-toggle />
 				<span class="truncate">{range ? 'Marked range' : 'Whole clip'}</span>
 			</label>
-			<span class="whitespace-nowrap font-mono text-sm tabular-nums text-fg-muted" data-range-length>{fixed2(lengthOf(range, duration))} s</span>
+			<span class="whitespace-nowrap font-mono text-sm tabular-nums text-fg-muted" data-range-length>{fixed2(lengthOf(range, duration))} s{#if cap !== null}<span class="text-fg-subtle" data-range-cap> · max {formatCap(cap)}</span>{/if}</span>
 		</div>
 		{#if range}
 			<div class="grid grid-cols-2 gap-2">
@@ -159,7 +164,7 @@
 			{#if range}
 				{extend ? 'The marked range is the part the new footage follows.' : 'Only the marked range is regenerated. The rest of the clip is kept as it is.'}
 			{:else}
-				{extend ? 'With nothing marked, the new footage follows the whole clip.' : 'With nothing marked, the whole clip is regenerated.'}
+				{extend ? 'With nothing marked, the new footage follows the whole clip.' : required ? 'Mark the frames to fix. Only they are regenerated.' : cap !== null && duration > cap ? `Mark a section of up to ${formatCap(cap)}.` : 'With nothing marked, the whole clip is regenerated.'}
 			{/if}
 		</p>
 	{/if}

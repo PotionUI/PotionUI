@@ -42,6 +42,10 @@ CORE_TASKS: Tuple[TaskDefinition, ...] = (
         result="append", audio="result", icon="mode-extend",
     ),
     TaskDefinition(
+        id="refine_faces", label="Refine faces", editors=VIDEO, region="none", prompt="none", range="required",
+        icon="mode-refine-faces",
+    ),
+    TaskDefinition(
         id="remix", label="Remix", editors=VIDEO, region="none", prompt="required", range="optional",
         icon="mode-remix",
     ),

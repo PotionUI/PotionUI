@@ -55,6 +55,7 @@ export interface TaskOffer {
 	order: number;
 	region_strategy: 'crop' | 'mask' | 'whole' | string;
 	quantity_field?: string | null;
+	max_range_s?: number | null;
 	via: string | null;
 	qualifies: boolean;
 	reason: OfferReason | null;
@@ -153,7 +154,7 @@ export function describeEditorTaskFailure(error: unknown): EditorTaskFailure {
 		if (code === 'prompt_required') return { kind: 'prompt_required' };
 		if (code === 'region_required') return { kind: 'region_required' };
 		if (code === 'region_empty') return { kind: 'region_empty' };
-		if (code === 'range_invalid' || code === 'range_outside_clip' || code === 'range_required') return { kind: 'range_invalid', message };
+		if (code === 'range_invalid' || code === 'range_outside_clip' || code === 'range_required' || code === 'range_too_long') return { kind: 'range_invalid', message };
 		if (code === 'form_validation_failed') return { kind: 'setup_incomplete' };
 	}
 	if (status === 403) return { kind: 'limit', message };
@@ -267,6 +268,7 @@ function offerOf(raw: unknown): TaskOffer[] {
 			order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : 0,
 			region_strategy: str(raw.region_strategy) ?? 'crop',
 			quantity_field: str(raw.quantity_field),
+			max_range_s: typeof raw.max_range_s === 'number' && raw.max_range_s > 0 ? raw.max_range_s : null,
 			via: str(raw.via),
 			qualifies: raw.qualifies !== false,
 			reason: str(raw.reason)

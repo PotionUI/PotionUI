@@ -342,6 +342,14 @@ export function createGenerateController(deps: ControllerDeps) {
 		return chipLabel(offer, sourceOf(choice.setup, choicesOf(offer)));
 	}
 
+	function capFor(taskId: string): number | null {
+		const current = get(state);
+		const choice = current.choice[taskId];
+		const task = taskOf(taskId);
+		if (!choice || !task) return null;
+		return offerOf(task.offers, choice)?.max_range_s ?? null;
+	}
+
 	function setPrompt(taskId: string, text: string): void {
 		state.update((current) => ({ ...current, prompts: { ...current.prompts, [taskId]: text }, error: null }));
 	}
@@ -903,6 +911,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		prepare,
 		use,
 		chipFor,
+		capFor,
 		changedFor,
 		settings,
 		tweak,

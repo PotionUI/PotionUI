@@ -26,7 +26,8 @@
 		hasTemp = false,
 		run = null,
 		extras,
-		rangeStatus = null
+		rangeStatus = null,
+		rangeBlock = null
 	}: {
 		phone?: boolean;
 		running?: string | null;
@@ -37,6 +38,7 @@
 		run?: BorderRun | null;
 		extras?: Snippet;
 		rangeStatus?: string | null;
+		rangeBlock?: string | null;
 	} = $props();
 
 	const generate = getGenerateController()!;
@@ -81,14 +83,14 @@
 	let redoArea = $derived(!!$ui.redo && $ui.redo.taskId === taskId && !regionNone && !area);
 	let focused = $state(false);
 	let reason = $derived(
-		blockedReason({ hasSetup: !!chip, promptRequired, prompt, regionRequired, hasArea: !!area, redoArea })
+		blockedReason({ hasSetup: !!chip, promptRequired, prompt, regionRequired, hasArea: !!area, redoArea, rangeBlock })
 	);
 	let borderProgress = $derived(borderProgressOf(run));
 	let runText = $derived(borderProgress.state === 'running' ? `Generating ${borderProgress.percent}%` : borderProgress.state === 'loading' ? 'Waiting' : null);
 	let markInfo = $derived(markOf({ running: !!running, starting: $ui.starting, reason }));
 	let noteShown = $derived(!!$ui.picker.notice || (task?.offers.length ?? 0) === 0);
 	let blocked = $derived(
-		!taskId || !chip || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea
+		!taskId || !chip || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea || !!rangeBlock
 	);
 
 	function setPrompt(event: Event) {

@@ -128,7 +128,7 @@
 	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
 	import { basisBeneath, outOfDateNotice, rebase, refKey } from '$lib/tool-tabs/video/generateChain';
 	import { generateRowInfo } from '$lib/tool-tabs/video/generateRows';
-	import { defaultRange, toRunRange, withEnd, withStart, type AiRange } from '$lib/tool-tabs/video/aiRange';
+	import { capRange, defaultRange, formatCap, rangeBlockReason, toRunRange, withEnd, withStart, type AiRange } from '$lib/tool-tabs/video/aiRange';
 	import { entryKey } from '$lib/editors/registry';
 	import { tasks } from '$lib/editors/tasks';
 	import {
@@ -1266,7 +1266,26 @@
 		return typeof value === 'number' ? value : null;
 	});
 	let rangeMarker = $derived(taskTool && extendTask && ready ? { at: aiRange?.end ?? duration, label: extendSeconds === null ? 'Added here' : `+${fixed2(extendSeconds)} s` } : null);
-	let rangeStatus = $derived(aiRange ? `${fixed2(aiRange.start)} → ${fixed2(aiRange.end)} s` : 'Whole clip');
+	let rangeCap = $derived.by(() => {
+		void $generateUi;
+		const task = registeredTool?.task;
+		return task && taskTool ? generate.capFor(task) : null;
+	});
+	let rangeRequired = $derived.by(() => {
+		void $editorsRevision;
+		const task = registeredTool?.task;
+		return !!task && tasks.get('video', task)?.range === 'required';
+	});
+	let rangeBlock = $derived(taskTool && ready ? rangeBlockReason(aiRange, duration, rangeCap, rangeRequired) : null);
+	let rangeStatus = $derived(
+		`${aiRange ? `${fixed2(aiRange.start)} → ${fixed2(aiRange.end)} s` : 'Whole clip'}${rangeCap !== null ? ` · max ${formatCap(rangeCap)}` : ''}`
+	);
+	$effect(() => {
+		const cap = rangeCap;
+		untrack(() => {
+			if (cap !== null && aiRange) aiRange = capRange(aiRange, null, cap, duration);
+		});
+	});
 	let runStep = $derived.by(() => {
 		const id = $generateUi.activeStepId;
 		return id ? (generateSteps(edits).find((entry) => entry.step.id === id) ?? null) : null;
@@ -1295,7 +1314,7 @@
 	}
 
 	function markRange(next: AiRange | null) {
-		aiRange = next;
+		aiRange = next ? capRange(next, aiRange, rangeCap, duration) : null;
 	}
 
 	function rangeFrom(seconds: number, which: 'start' | 'end') {
@@ -1795,7 +1814,7 @@
 					handles={tool === 'trim' && ready}
 					rangeMode={taskTool && ready}
 					range={aiRange}
-					rangeName={extendTask ? 'Extend from' : 'Section'}
+					rangeName={extendTask ? 'Extend from' : rangeCap !== null ? `Section, max ${formatCap(rangeCap)}` : 'Section'}
 					{rangeMarker}
 					{playing}
 					{loop}
@@ -1936,7 +1955,7 @@
 {/snippet}
 
 {#snippet dockContent()}
-	<FloatingPrompt running={runningId} run={runStep && runStatus ? { status: runStatus, progress: runView?.progress ?? null } : null} settings={promptSettings} tempRow={dockTempRow} hasTemp={dockHasTemp} {rangeStatus} />
+	<FloatingPrompt running={runningId} run={runStep && runStatus ? { status: runStatus, progress: runView?.progress ?? null } : null} settings={promptSettings} tempRow={dockTempRow} hasTemp={dockHasTemp} {rangeStatus} {rangeBlock} />
 {/snippet}
 
 {#snippet phoneDock()}
@@ -1951,7 +1970,7 @@
 		<div class="flex-none border-t border-line bg-surface-1 px-3 py-2" data-task-range-bar>
 			<RangeOptions host={toolHost} phone tool={registeredTool?.id} />
 		</div>
-		<FloatingPrompt phone running={runningId} settings={promptSettings} {rangeStatus} />
+		<FloatingPrompt phone running={runningId} settings={promptSettings} {rangeStatus} {rangeBlock} />
 	{/if}
 {/snippet}
 

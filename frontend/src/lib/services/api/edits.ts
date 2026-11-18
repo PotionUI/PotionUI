@@ -1,7 +1,7 @@
 import type { AxiosInstance } from 'axios';
 import type { APIResponse } from '$lib/types/api';
 
-export type EditTool = 'image';
+export type EditTool = 'image' | 'video';
 export type EditSourceKind = 'history' | 'library' | 'upload';
 export type EditStateDoc = Record<string, unknown>;
 
@@ -13,12 +13,19 @@ export interface EditSource {
 	name?: string | null;
 }
 
+export interface EditClip {
+	duration_seconds?: number;
+	width?: number;
+	height?: number;
+}
+
 export interface EditSummary {
 	id: string;
 	tool: EditTool;
 	name: string | null;
 	source: EditSource;
 	thumbnail_upload_id: string | null;
+	clip?: EditClip | null;
 	revision: number;
 	created_at: string | null;
 	updated_at: string | null;

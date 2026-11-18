@@ -3,7 +3,6 @@
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, EmptyState } from '$lib/components/ui';
 	import EditorMenuSheet from '$lib/components/tool-tabs/frame/EditorMenuSheet.svelte';
 	import { ensureCoreEditorMenu } from '$lib/editors/coreMenu';
 	import type { EditorMenuCommands, EditorMenuContext } from '$lib/editors/menuItems';
@@ -153,6 +152,16 @@
 	import { ACTION_ENTRIES, APPLY_LABELS, CHOICE_ENTRIES, ensureCoreVideoEditor } from '$lib/tool-tabs/video/entries';
 	import { createVideoToolHost, type VideoView } from '$lib/tool-tabs/video/toolHost';
 	import { ensureVideoMenu } from '$lib/tool-tabs/video/videoMenu';
+	import { createEditAutosave, type AutosaveStatus } from '$lib/tool-tabs/image/editAutosave';
+	import { editAutosaveOutbox } from '$lib/tool-tabs/image/editAutosaveOutbox';
+	import { editSourceOf, readEditLink, withEditLink, type EditLink } from '$lib/tool-tabs/image/editLink';
+	import { editLinkForSave } from '$lib/tool-tabs/image/saveLink';
+	import { createMenuRecents, openRecentEdit } from '$lib/tool-tabs/image/menuEdits';
+	import { clipFacts, videoContentKey, videoEditDoc } from '$lib/tool-tabs/video/videoEdit';
+	import EditConflictNotice from '$lib/components/tool-tabs/frame/EditConflictNotice.svelte';
+	import EditSaveIndicator from '$lib/components/tool-tabs/frame/EditSaveIndicator.svelte';
+	import RecentEditsDialog from '$lib/components/tool-tabs/image/RecentEditsDialog.svelte';
+	import VideoStartScreen from './VideoStartScreen.svelte';
 	import ScrubBar from './ScrubBar.svelte';
 	import RenderCard from './RenderCard.svelte';
 	import VideoEntryPanel from './VideoEntryPanel.svelte';
@@ -399,12 +408,14 @@
 	});
 
 	ensureCoreEditorMenu();
+	const menuRecents = createMenuRecents(api, 'video');
+	let recentDialog = $state(false);
 	const menuCommands: EditorMenuCommands = {
 		save: (action) => onSave(action),
 		closeEditor: () => requestCloseTab(host.tabId),
 		replaceWith: (id) => openReplacePicker(id as SourceEntryId),
-		openRecent: () => undefined,
-		openAllEdits: () => undefined,
+		openRecent: (id) => void openRecentEdit(id, 'clip'),
+		openAllEdits: () => (recentDialog = true),
 		undo: () => doUndo(),
 		redo: () => doRedo(),
 		apply: () => applyCurrent(),
@@ -451,7 +462,7 @@
 		currentSource: currentSourceOf(source),
 		replaceLabel: 'Replace clip',
 		replaceBlocked: !!render || starting,
-		recentEdits: null,
+		recentEdits: $menuRecents,
 		canUndo: canUndo(edits),
 		undoLabel: undoLabel(edits),
 		canRedo: canRedo(edits),
@@ -794,6 +805,56 @@
 			renderMode: render?.mode ?? null,
 			renderStartedAt: render?.startedAt ?? null
 		};
+	}
+
+	let editLink = $state<EditLink | null>(readEditLink(untrack(() => host.state)));
+	let autosaveStatus = $state<AutosaveStatus>('idle');
+	let autosaveBusy = $state(false);
+	let clipNow = $derived(clipFacts(ready ? outputLength : source?.metadata?.duration_seconds, clip.width, clip.height));
+
+	const autosave = createEditAutosave({
+		tabId,
+		tool: 'video',
+		contentKey: videoContentKey,
+		edits: {
+			create: (body) => api.createEdit(body),
+			get: (id) => api.getEdit(id),
+			save: (id, body) => api.saveEdit(id, body)
+		},
+		outbox: editAutosaveOutbox,
+		initialState: videoEditDoc(initial, null),
+		readLink: () => readEditLink(host.state),
+		source: () => editSourceOf(host.source),
+		onLink: (link) => (editLink = link),
+		onStatus: (next) => (autosaveStatus = next),
+		onRestore: applyServerState
+	});
+
+	function applyServerState(raw: Record<string, unknown>): Record<string, unknown> {
+		const next = readVideoState(raw);
+		edits = next.stack;
+		saved = next.saved;
+		savedSignature = next.savedSignature;
+		return videoEditDoc(stateSnapshot(), clipNow);
+	}
+
+	async function loadNewerEdit() {
+		autosaveBusy = true;
+		const ok = await autosave.loadNewer();
+		autosaveBusy = false;
+		if (!ok) toasts.error('Could not load the newer version. Try again.');
+	}
+
+	async function keepMineAsCopy() {
+		autosaveBusy = true;
+		const ok = await autosave.keepMine();
+		autosaveBusy = false;
+		if (ok) toasts.success('Your version is saved as a copy.');
+		else toasts.error('Could not save your version as a copy. Try again.');
+	}
+
+	function onMenuOpened(id: string) {
+		if (id === 'file') void menuRecents.load();
 	}
 
 	function announce(run: MediaToolRun, mode: string | null) {
@@ -1212,13 +1273,12 @@
 	$effect(() => toolHost.syncPending(pending));
 	$effect(() => toolHost.syncStack(edits));
 
-	const runLink = `video-${tabId.replace(/[^A-Za-z0-9_-]/g, '-')}`.slice(0, 64);
 	const generate = createTabGenerate(
 		{
 			getStack: () => foldPending(edits) as EditStackState<unknown>,
 			setStack: (next) => (edits = next as EditStackState<VideoParams>),
 			source: () => ({ ref: originalRef }),
-			editLink: async () => ({ id: runLink, revision: 1 }),
+			editLink: () => editLinkForSave(() => autosave.settle()),
 			landRegion: async () => null,
 			areaSize: () => null,
 			stepsBeneath: async (id) => compileSteps(basisBeneath(effectiveSteps(edits), originalRef, id).tail, clip, { skipSplit: true, effects: effectMap }).steps,
@@ -1457,7 +1517,12 @@
 	});
 
 	$effect(() => {
-		hostApi.setState(writeVideoState(stateSnapshot()));
+		hostApi.setState(withEditLink({ ...writeVideoState(stateSnapshot()) }, editLink));
+	});
+
+	$effect(() => {
+		const doc = videoEditDoc(stateSnapshot(), clipNow);
+		untrack(() => autosave.observe(doc));
 	});
 
 	$effect(() => {
@@ -1560,12 +1625,17 @@
 	});
 
 	onMount(() => {
+		const ids = get(tabsStore).tabs.map((tab) => tab.id);
+		if (ids.includes(tabId)) editAutosaveOutbox.prune(ids);
+		autosave.start();
 		webgl2 = supportsWebGL2();
 		void loadMediaToolCatalog();
 		void generate.loadTasks();
 		const run = untrack(() => host.run);
 		if (run?.runId) void reattach(run.runId);
 	});
+
+	onDestroy(() => void autosave.close());
 
 	onDestroy(() => {
 		destroyed = true;
@@ -1582,22 +1652,7 @@
 </script>
 
 {#snippet emptyState()}
-	<div class="flex min-h-0 flex-1 flex-col dot-grid bg-canvas">
-		<div class="flex flex-1 flex-col" data-testid="tool-tab-empty">
-			<EmptyState
-				page
-				icon="video"
-				title="Open a clip to edit"
-				description="Pick a video from your Library or History. Edit from History or Library opens it here too."
-			>
-				{#snippet actions()}
-					{#each sourceEntries('video') as entry (entry.id)}
-						<Button variant="secondary" icon={entry.icon} onclick={() => openReplacePicker(entry.id)}>{entry.label}</Button>
-					{/each}
-				{/snippet}
-			</EmptyState>
-		</div>
-	</div>
+	<VideoStartScreen {tabId} onpick={openReplacePicker} />
 {/snippet}
 
 {#snippet replaceMenu()}
@@ -1629,10 +1684,23 @@
 	onPick={pickedMedia}
 />
 
+{#if recentDialog}
+	<RecentEditsDialog tabId={hostApi.tabId} tool="video" inPlace={false} onclose={() => (recentDialog = false)} />
+{/if}
+
+{#snippet saveStateContent()}
+	<EditSaveIndicator status={autosaveStatus} />
+{/snippet}
+
 {#if !source}
 	{@render emptyState()}
 {:else}
 	<div class="flex h-full min-h-0 flex-col" data-testid="video-editor" data-ready={ready || undefined} data-phone={phone || undefined}>
+		{#if autosaveStatus === 'conflict' || autosaveStatus === 'too-large'}
+			<div class="flex-none" data-edit-notice-host>
+				<EditConflictNotice kind={autosaveStatus} busy={autosaveBusy} onload={() => void loadNewerEdit()} onkeep={() => void keepMineAsCopy()} />
+			</div>
+		{/if}
 		<EditorFrame
 				dock={taskTool && !phone ? dockContent : undefined}
 			{phone}
@@ -1649,12 +1717,13 @@
 		>
 			{#snippet phoneLead()}
 				{@render replaceMenu()}
+				<EditSaveIndicator status={autosaveStatus} chip />
 			{/snippet}
 
 			{#snippet toolbar()}
 				{#if phone}
 					{#if phoneMenuOpen}
-						<EditorMenuSheet ctx={menuCtx} fileName={source?.name ?? stem} onclose={() => (phoneMenuOpen = false)} />
+						<EditorMenuSheet ctx={menuCtx} fileName={source?.name ?? stem} onclose={() => (phoneMenuOpen = false)} onopenmenu={onMenuOpened} />
 					{/if}
 				{:else}
 					<EditorToolbar
@@ -1664,6 +1733,8 @@
 						title={toolLabel}
 						titleIcon={toolIcon}
 						menu={menuCtx}
+						onopenmenu={onMenuOpened}
+						saveState={autosaveStatus === 'idle' ? undefined : saveStateContent}
 						canUndo={canUndo(edits)}
 						canRedo={canRedo(edits)}
 						undoLabel={undoLabel(edits)}

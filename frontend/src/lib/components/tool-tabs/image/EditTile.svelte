@@ -12,6 +12,9 @@
 		look,
 		time,
 		picture,
+		clipUrl = null,
+		duration = null,
+		missingLabel = 'Picture not found',
 		tile,
 		onsize,
 		openElsewhere = false,
@@ -32,6 +35,9 @@
 		look: SourceLook;
 		time: string;
 		picture: string | null | undefined;
+		clipUrl?: string | null;
+		duration?: string | null;
+		missingLabel?: string;
 		tile?: { width: number; height: number };
 		onsize?: (width: number, height: number) => void;
 		openElsewhere?: boolean;
@@ -59,14 +65,21 @@
 	let saving = $state(false);
 	let draft = $state('');
 	let failed = $state(false);
+	let clipFailed = $state(false);
 	let footer = $state<HTMLElement>();
 
 	let shown = $derived(picture && !failed ? picture : null);
-	let missing = $derived(picture === null || failed);
+	let playable = $derived(!shown && clipUrl && !clipFailed ? clipUrl : null);
+	let missing = $derived(!shown && !playable && (picture === null || failed || clipFailed));
 
 	$effect(() => {
 		void picture;
 		failed = false;
+	});
+
+	$effect(() => {
+		void clipUrl;
+		clipFailed = false;
 	});
 
 	function pick(action: string) {
@@ -136,15 +149,37 @@
 					}}
 					onerror={() => (failed = true)}
 				/>
+			{:else if playable}
+				<video
+					src="{playable}#t=0.1"
+					preload="metadata"
+					muted
+					playsinline
+					tabindex="-1"
+					aria-hidden="true"
+					class="absolute inset-0 h-full w-full object-contain"
+					data-clip-frame
+					onloadeddata={(event) => {
+						const el = event.currentTarget as HTMLVideoElement;
+						onsize?.(el.videoWidth, el.videoHeight);
+					}}
+					onerror={() => (clipFailed = true)}
+				></video>
 			{:else if missing}
 				<span class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-surface-2 px-3 text-center text-fg-muted" data-media-missing>
 					<Icon name="warning" className="h-6 w-6 text-warning" strokeWidth={1.75} />
-					<span class="text-sm">Picture not found</span>
+					<span class="text-sm">{missingLabel}</span>
 				</span>
 			{/if}
 			<span
 				class="pointer-events-none absolute inset-0 bg-scrim/0 transition-colors duration-100 group-hover/tile:bg-scrim/35 group-focus-visible/media:bg-scrim/35 max-md:group-hover/tile:bg-scrim/0 [@media(hover:none)]:group-hover/tile:bg-scrim/0"
 			></span>
+			{#if duration}
+				<span
+					class="pointer-events-none absolute bottom-1.5 right-1.5 z-[3] inline-flex h-6 items-center rounded bg-scrim/70 px-1.5 font-mono text-sm tabular-nums text-scrim-on backdrop-blur-sm"
+					data-clip-duration>{duration}</span
+				>
+			{/if}
 			{#if openElsewhere}
 				<span
 					class="absolute left-1.5 top-1.5 z-[3] inline-flex h-6 max-w-[calc(100%-48px)] items-center gap-1.5 whitespace-nowrap rounded bg-scrim/70 px-2 text-sm font-medium text-scrim-on backdrop-blur-sm"

@@ -1,6 +1,6 @@
 import { writable, type Readable } from 'svelte/store';
 import { api } from '$lib/services/api/index';
-import type { EditsApi } from '$lib/services/api/edits';
+import type { EditsApi, EditTool } from '$lib/services/api/edits';
 import { toasts } from '$lib/stores/toast';
 import type { MenuRecentEdit } from '$lib/editors/menuItems';
 import { continueEditInNewTab, type ContinueOutcome } from '../continueEdit';
@@ -12,7 +12,7 @@ export interface MenuRecents extends Readable<MenuRecentEdit[] | null> {
 	load(): Promise<void>;
 }
 
-export function createMenuRecents(edits: Pick<EditsApi, 'listEdits'> = api): MenuRecents {
+export function createMenuRecents(edits: Pick<EditsApi, 'listEdits'> = api, tool: EditTool = 'image'): MenuRecents {
 	const store = writable<MenuRecentEdit[] | null>(null);
 	let loading = false;
 	return {
@@ -21,7 +21,7 @@ export function createMenuRecents(edits: Pick<EditsApi, 'listEdits'> = api): Men
 			if (loading) return;
 			loading = true;
 			try {
-				const response = await edits.listEdits({ tool: 'image', limit: MENU_RECENT_COUNT, offset: 0 });
+				const response = await edits.listEdits({ tool, limit: MENU_RECENT_COUNT, offset: 0 });
 				const list = response.success && response.data ? response.data.edits : [];
 				store.set(
 					list.slice(0, MENU_RECENT_COUNT).map((edit) => {
@@ -38,13 +38,13 @@ export function createMenuRecents(edits: Pick<EditsApi, 'listEdits'> = api): Men
 	};
 }
 
-export function explainContinue(result: ContinueOutcome): void {
+export function explainContinue(result: ContinueOutcome, noun = 'picture'): void {
 	if (result.kind === 'missing') toasts.error('That edit no longer exists.');
-	else if (result.kind === 'source-missing') toasts.error('The picture for this edit is no longer available.');
+	else if (result.kind === 'source-missing') toasts.error(`The ${noun} for this edit is no longer available.`);
 	else if (result.kind === 'failed') toasts.error('Could not open this edit. Try again.');
 }
 
-export async function openRecentEdit(id: string): Promise<void> {
-	explainContinue(await continueEditInNewTab(id, null));
+export async function openRecentEdit(id: string, noun = 'picture'): Promise<void> {
+	explainContinue(await continueEditInNewTab(id, null), noun);
 }
 

@@ -7,12 +7,14 @@ import {
 	type EditSource,
 	type EditSourceKind,
 	type EditSummary,
+	type EditTool,
 	type ListEditsParams
 } from '$lib/services/api/edits';
 import type { LibraryItem } from '$lib/services/api/library';
 import type { GenerationHistoryItem } from '$lib/types/history';
 import type { MediaRef } from '$lib/types/tabs';
 import { readEditLink, withEditLink } from './editLink';
+import { resolveClipSourceRef } from '$lib/tool-tabs/video/videoEdit';
 import { isImageFile, historyFileRef, libraryItemRef } from './sourceRefs';
 
 export const EDITS_PAGE_SIZE = 12;
@@ -50,6 +52,7 @@ export interface RestorePatch {
 
 export interface RecentEditsDeps {
 	edits: EditsPort;
+	tool?: EditTool;
 	library: LibraryPort;
 	tabId: string;
 	openTabs: () => TabLike[];
@@ -114,10 +117,10 @@ export function pageCount(total: number, size = EDITS_PAGE_SIZE): number {
 	return Math.max(1, Math.ceil(Math.max(0, total) / size));
 }
 
-export function openEditTabs(tabs: readonly TabLike[], exceptTabId?: string): Map<string, string> {
+export function openEditTabs(tabs: readonly TabLike[], exceptTabId?: string, tool: EditTool = 'image'): Map<string, string> {
 	const open = new Map<string, string>();
 	for (const tab of tabs) {
-		if (tab.kind !== 'tool' || tab.tool !== 'image' || tab.id === exceptTabId) continue;
+		if (tab.kind !== 'tool' || tab.tool !== tool || tab.id === exceptTabId) continue;
 		const link = readEditLink(tab.state);
 		if (link && !open.has(link.id)) open.set(link.id, tab.id);
 	}
@@ -180,7 +183,8 @@ export function findEditTab(tabs: readonly TabLike[], id: string): string | null
 }
 
 function activeToolOf(state: unknown): string | null {
-	const value = state && typeof state === 'object' ? (state as Record<string, unknown>).activeTool : null;
+	const doc = state && typeof state === 'object' ? (state as Record<string, unknown>) : {};
+	const value = doc.activeTool ?? doc.tool;
 	return typeof value === 'string' && value ? value : null;
 }
 
@@ -196,7 +200,8 @@ export async function prepareContinue(id: string, deps: ContinueDeps): Promise<P
 	if (!record) return { kind: 'failed' };
 	const raced = deps.findOpen(record.id);
 	if (raced) return { kind: 'focused', tabId: raced };
-	const source = await resolveEditSourceRef(record.source, deps.library);
+	const source =
+		record.tool === 'video' ? await resolveClipSourceRef(record.source, deps.library) : await resolveEditSourceRef(record.source, deps.library);
 	if (!source) return { kind: 'source-missing' };
 	const state = withEditLink(record.state, { id: record.id, revision: record.revision });
 	return { kind: 'ready', record, source, state, activeTool: activeToolOf(state) };
@@ -224,6 +229,38 @@ export function createEditPictures(library: LibraryPort) {
 		let found = cache.get(key);
 		if (!found) {
 			found = urlFor(kind, id);
+			cache.set(key, found);
+		}
+		return found;
+	}
+
+	return { resolve };
+}
+
+export interface ClipPoster {
+	poster: string | null;
+	clip: string | null;
+}
+
+export function createEditClips(library: LibraryPort) {
+	const cache = new Map<string, Promise<ClipPoster>>();
+
+	function load(edit: Pick<EditSummary, 'source'>): Promise<ClipPoster> {
+		if (edit.source.kind === 'history') {
+			const file = `/api/media/files/${encodeURIComponent(edit.source.id)}`;
+			return Promise.resolve({ poster: `${file}?size=medium`, clip: file });
+		}
+		return library
+			.getLibraryItem(edit.source.id)
+			.then((response) => ({ poster: response.data?.thumbnail_medium ?? null, clip: response.data?.url ?? null }))
+			.catch(() => ({ poster: null, clip: null }));
+	}
+
+	function resolve(edit: Pick<EditSummary, 'source'>): Promise<ClipPoster> {
+		const key = `${edit.source.kind}:${edit.source.id}`;
+		let found = cache.get(key);
+		if (!found) {
+			found = load(edit);
 			cache.set(key, found);
 		}
 		return found;
@@ -260,6 +297,7 @@ export async function loadHistoryPicks(port: HistoryPort, limit = 8): Promise<Hi
 
 export function createRecentEdits(deps: RecentEditsDeps) {
 	const size = deps.pageSize ?? EDITS_PAGE_SIZE;
+	const tool: EditTool = deps.tool ?? 'image';
 	const debounceMs = deps.debounceMs ?? EDITS_SEARCH_DEBOUNCE_MS;
 	const store = writable<RecentEditsState>({
 		status: 'loading',
@@ -289,7 +327,7 @@ export function createRecentEdits(deps: RecentEditsDeps) {
 		try {
 			const state = get(store);
 			const response = await deps.edits.listEdits({
-				tool: 'image',
+				tool,
 				limit: size,
 				offset: (state.page - 1) * size,
 				...(state.query ? { search: state.query } : {})
@@ -400,7 +438,7 @@ export function createRecentEdits(deps: RecentEditsDeps) {
 	}
 
 	function openElsewhere(id: string): string | null {
-		return openEditTabs(deps.openTabs(), deps.tabId).get(id) ?? null;
+		return openEditTabs(deps.openTabs(), deps.tabId, tool).get(id) ?? null;
 	}
 
 	async function continueEdit(id: string): Promise<ContinueResult> {

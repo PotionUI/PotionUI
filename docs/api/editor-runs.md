@@ -45,7 +45,7 @@ form (`GET /api/presets/{id}/form?mode=editor:<name>`) leaves out the fields the
 }
 ```
 
-- `edit` is a saved edit you own. `input` is the picture and `steps` are the visible edit steps beneath, the same list Save sends; the server renders them to get the picture the model must see (at most 8192 px on the long side).
+- `edit` is a saved edit you own, for a picture (`tool` `image`) or a clip (`tool` `video`; its state holds the source clip's steps and an optional `clip` object with `duration_seconds`, `width` and `height`, which `GET /api/edits` returns for listings). An id that is not yours, or that does not exist, answers `404 edit_not_found`, for clips as for pictures. `input` is the picture and `steps` are the visible edit steps beneath, the same list Save sends; the server renders them to get the picture the model must see (at most 8192 px on the long side).
 - `region` is an image whose pixels at 128 or above mark the area. Leave it out to edit the whole picture, when the task allows it.
 - `setup` names the editor mode, written `editor:<name>` as the offers of `GET /api/editor/tasks` list it, and its form values. The picture, the mask, the output size, the number of results, the seed and the `fixed` values of the editor mode's `editor_mode.yml` are filled by the server and replace whatever you send for them; its `hide` fields keep their own defaults. A mode name without the prefix answers `422 task_not_offered`.
 - `candidates` is 1 to 4. `seed` pins the seed; leave it out to use the form's.

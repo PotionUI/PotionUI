@@ -6,10 +6,11 @@ import {
 	type EditSource,
 	type EditStateDoc,
 	type EditSummary,
+	type EditTool,
 	type SaveEditBody
 } from '$lib/services/api/edits';
 import type { EditAutosaveOutbox } from './editAutosaveOutbox';
-import { contentKey, decideRestore, withEditLink, type EditLink } from './editLink';
+import { contentKey as imageContentKey, decideRestore, withEditLink, type EditLink } from './editLink';
 
 export const EDIT_AUTOSAVE_DEBOUNCE_MS = 1500;
 export const EDIT_AUTOSAVE_MAX_BACKOFF_MS = 30000;
@@ -27,6 +28,8 @@ export interface EditAutosaveDeps {
 	edits: EditsPort;
 	outbox: EditAutosaveOutbox;
 	initialState: EditStateDoc;
+	tool?: EditTool;
+	contentKey?: (state: EditStateDoc) => string;
 	readLink: () => EditLink | null;
 	source: () => EditSource | null;
 	onLink: (link: EditLink | null) => void;
@@ -43,6 +46,8 @@ const inflight = new Map<string, Promise<void>>();
 
 export function createEditAutosave(deps: EditAutosaveDeps) {
 	const { tabId, edits, outbox } = deps;
+	const tool: EditTool = deps.tool ?? 'image';
+	const contentKey = deps.contentKey ?? imageContentKey;
 	const debounceMs = deps.debounceMs ?? EDIT_AUTOSAVE_DEBOUNCE_MS;
 	const maxBackoffMs = deps.maxBackoffMs ?? EDIT_AUTOSAVE_MAX_BACKOFF_MS;
 	const isOnline = deps.isOnline ?? (() => typeof navigator === 'undefined' || navigator.onLine !== false);
@@ -157,7 +162,7 @@ export function createEditAutosave(deps: EditAutosaveDeps) {
 				return 'stop';
 			}
 			try {
-				const response = await edits.create({ tool: 'image', source, state });
+				const response = await edits.create({ tool, source, state });
 				if (mine !== session) return 'stale';
 				const edit = response.data?.edit;
 				if (!edit) {
@@ -393,7 +398,7 @@ export function createEditAutosave(deps: EditAutosaveDeps) {
 		const mark = changes;
 		const state = withEditLink(latest, null);
 		try {
-			const edit = (await edits.create({ tool: 'image', source, state })).data?.edit;
+			const edit = (await edits.create({ tool, source, state })).data?.edit;
 			if (!edit) return false;
 			conflict = null;
 			paused = null;

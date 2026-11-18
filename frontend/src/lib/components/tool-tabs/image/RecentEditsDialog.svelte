@@ -5,11 +5,12 @@
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import { Button, EmptyState, IconButton, Input, LoadErrorState, Pagination } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
-	import type { EditSummary } from '$lib/services/api/edits';
+	import type { EditSummary, EditTool } from '$lib/services/api/edits';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
 	import {
+		createEditClips,
 		createEditPictures,
 		createRecentEdits,
 		editLabel,
@@ -18,23 +19,32 @@
 		pictureKey,
 		relativeTime,
 		sourceLook,
+		type ClipPoster,
 		type ContinueResult
 	} from '$lib/tool-tabs/image/recentEdits';
+	import { clipAspect, formatClipDuration } from '$lib/tool-tabs/video/videoEdit';
 	import EditTile from './EditTile.svelte';
 	import JustifiedTiles from './JustifiedTiles.svelte';
 
 	let {
 		tabId,
+		tool = 'image',
 		inPlace = true,
 		onclose
 	}: {
 		tabId: string;
+		tool?: EditTool;
 		inPlace?: boolean;
 		onclose: () => void;
 	} = $props();
 
+	const toolKind: EditTool = untrack(() => tool);
+	const isClip = toolKind === 'video';
+	const noun = isClip ? 'clip' : 'picture';
+
 	const recent = createRecentEdits({
 		edits: api,
+		tool: toolKind,
 		library: api,
 		tabId: untrack(() => tabId),
 		openTabs: () => get(tabsStore).tabs,
@@ -44,22 +54,24 @@
 				tabsStore.restoreToolTab(untrack(() => tabId), patch);
 				return;
 			}
-			const id = tabsStore.openToolTab('image', patch.source, { activeTool: patch.activeTool, state: patch.state, fresh: true });
+			const id = tabsStore.openToolTab(toolKind, patch.source, { activeTool: patch.activeTool, state: patch.state, fresh: true });
 			tabsStore.setActiveTab(id);
 		}
 	});
 	const pictures = createEditPictures(api);
+	const clipPosters = createEditClips(api);
 
 	const SKELETON_ASPECTS = [1.5, 0.75, 1, 1.78, 1, 0.7, 1.33, 1, 0.75, 1.78, 1, 1.5];
 	const SKELETON_ITEMS = SKELETON_ASPECTS.map((aspect, index) => ({ key: `skeleton-${index}`, aspect }));
 
 	let urls = $state<Record<string, string | null>>({});
+	let clips = $state<Record<string, ClipPoster>>({});
 	const requested = new Set<string>();
 
-	let openMap = $derived(openEditTabs($tabsStore.tabs, tabId));
+	let openMap = $derived(openEditTabs($tabsStore.tabs, tabId, toolKind));
 	let listOff = $derived($recent.status !== 'ready');
 	let totalPages = $derived(pageCount($recent.total));
-	let editItems = $derived($recent.edits.map((edit) => ({ key: edit.id, edit, aspect: null as number | null })));
+	let editItems = $derived($recent.edits.map((edit) => ({ key: edit.id, edit, aspect: isClip ? clipAspect(edit.clip) : (null as number | null) })));
 	let subtitle = $derived(
 		$recent.status !== 'ready' ? '' : $recent.query ? `${$recent.total} of ${$recent.overall} edits` : `${$recent.overall} ${$recent.overall === 1 ? 'edit' : 'edits'}`
 	);
@@ -74,6 +86,12 @@
 			const key = pictureKey(edit);
 			if (requested.has(key)) continue;
 			requested.add(key);
+			if (isClip) {
+				void clipPosters.resolve(edit).then((found) => {
+					clips[key] = found;
+				});
+				continue;
+			}
 			void pictures.resolve(edit).then((url) => {
 				urls[key] = url;
 			});
@@ -82,7 +100,7 @@
 
 	function explain(result: ContinueResult) {
 		if (result.kind === 'missing') toasts.error('That edit no longer exists.');
-		else if (result.kind === 'source-missing') toasts.error('The picture for this edit is no longer available.');
+		else if (result.kind === 'source-missing') toasts.error(`The ${noun} for this edit is no longer available.`);
 		else if (result.kind === 'failed') toasts.error('Could not open this edit. Try again.');
 	}
 
@@ -112,7 +130,7 @@
 	async function remove(edit: EditSummary) {
 		const confirmed = await confirmDialog({
 			title: 'Delete this edit?',
-			message: `“${editLabel(edit).text}” and its changes will be removed. The original picture is not affected.`,
+			message: `“${editLabel(edit).text}” and its changes will be removed. The original ${noun} is not affected.`,
 			variant: 'danger',
 			confirmLabel: 'Delete edit'
 		});
@@ -201,7 +219,10 @@
 						unnamed={label.unnamed}
 						look={sourceLook(edit.source.kind)}
 						time={relativeTime(edit.updated_at ?? edit.created_at)}
-						picture={urls[pictureKey(edit)]}
+						picture={isClip ? (clips[pictureKey(edit)] ? clips[pictureKey(edit)].poster : undefined) : urls[pictureKey(edit)]}
+						clipUrl={isClip ? (clips[pictureKey(edit)]?.clip ?? null) : null}
+						duration={isClip ? formatClipDuration(edit.clip?.duration_seconds) : null}
+						missingLabel={isClip ? 'Clip not found' : 'Picture not found'}
 						tile={box}
 						onsize={report}
 						openElsewhere={elsewhere}

@@ -18,6 +18,10 @@
 		frameStep = 1 / 24,
 		frames = [],
 		peaks = null,
+		markers = [],
+		fadeIn = 0,
+		fadeOut = 0,
+		replacement = null,
 		compact = false,
 		active = true,
 		onseek,
@@ -40,6 +44,10 @@
 		frameStep?: number;
 		frames?: (string | null)[];
 		peaks?: number[] | null;
+		markers?: { at: number; label: string }[];
+		fadeIn?: number;
+		fadeOut?: number;
+		replacement?: { name: string } | null;
 		compact?: boolean;
 		active?: boolean;
 		onseek: (seconds: number) => void;
@@ -207,6 +215,11 @@
 			<div class="pointer-events-none absolute inset-y-0 left-0 rounded-l bg-scrim/60" style="width: {inPct}%" data-scrub-dim="in"></div>
 			<div class="pointer-events-none absolute inset-y-0 right-0 rounded-r bg-scrim/60" style="width: {100 - outPct}%" data-scrub-dim="out"></div>
 		{/if}
+		{#each markers as marker (marker.label)}
+			<div class="pointer-events-none absolute inset-y-0 w-px bg-scrim-on" style="left: {pct(marker.at)}%" data-scrub-marker={marker.label}>
+				<span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 rounded-sm bg-scrim px-1 font-mono text-sm leading-4 text-scrim-on">{marker.label}</span>
+			</div>
+		{/each}
 		{#if handles}
 			<div class="pointer-events-none absolute -inset-y-px rounded border-2 border-scrim-on" style="left: {inPct}%; width: {Math.max(0, outPct - inPct)}%" data-scrub-range></div>
 			<div
@@ -257,6 +270,15 @@
 						<rect x={i + 0.15} y={(20 - h) / 2} width="0.7" height={h} class={inside ? 'fill-fg-muted' : 'fill-fg-subtle opacity-40'} />
 					{/each}
 				</svg>
+			{/if}
+			{#if fadeIn > 0}
+				<div class="pointer-events-none absolute inset-y-0 bg-signal/30" style="left: {inPct}%; width: {Math.min(outPct - inPct, pct(fadeIn))}%; clip-path: polygon(0 100%, 100% 0, 100% 100%)" data-scrub-fade="in"></div>
+			{/if}
+			{#if fadeOut > 0}
+				<div class="pointer-events-none absolute inset-y-0 bg-signal/30" style="right: {100 - outPct}%; width: {Math.min(outPct - inPct, pct(fadeOut))}%; clip-path: polygon(0 0, 100% 100%, 0 100%)" data-scrub-fade="out"></div>
+			{/if}
+			{#if replacement}
+				<span class="pointer-events-none absolute inset-y-0 left-1 flex max-w-full items-center truncate rounded-sm bg-surface-2/90 px-1.5 font-mono text-sm text-signal" data-scrub-track-name>{replacement.name}</span>
 			{/if}
 		</div>
 	{/if}

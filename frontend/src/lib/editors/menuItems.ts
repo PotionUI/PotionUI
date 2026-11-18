@@ -68,6 +68,7 @@ export interface EditorMenuCommands {
 	actualSize(): void;
 	toggleEdits(): void;
 	selectTool(id: string): void;
+	frame?: { save(): void; open(): void };
 }
 
 export interface EditorMenuContext {

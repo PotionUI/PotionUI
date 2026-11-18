@@ -256,7 +256,17 @@ const editor: Record<string, Paths> = {
 		'M4.5 8a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0',
 		'M10.5 10.5 20 20',
 		'M15.5 15.5l2.5-2.5M18.5 18.5l2-2'
-	]
+	],
+	trim: ['M7 5H4v14h3', 'M17 5h3v14h-3', 'M10 12h4'],
+	split: ['M3 7.5h18v9H3z', 'M12 2.5v19'],
+	speed: ['M4 6l8 6-8 6z', 'M13 6l8 6-8 6z'],
+	volume: ['M4 9.5h3.5L12 6v12l-4.5-3.5H4z', 'M15.5 9a4.2 4.2 0 0 1 0 6', 'M18.5 6.5a8 8 0 0 1 0 11'],
+	mute: ['M3.5 9.5h3.5L11.5 6v12L7 14.5H3.5z', 'M15.5 9.5l5 5', 'M20.5 9.5l-5 5'],
+	audio: ['M9 18V6l9-2v12', 'M9 18a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0z', 'M18 16a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0z'],
+	frame: ['M3 4h18v11H3z', 'M12 17.5v4', 'M9.5 19.5l2.5 2 2.5-2'],
+	fade: ['M5 4v16', 'M10 7v10', 'M15 9.5v5', 'M20 11.5v1'],
+	kenburns: ['M3 6h18v12H3z', 'M8 10h8v4H8z', 'M16 10l3-3', 'M19 7h-2.5M19 7v2.5'],
+	fix: ['M4 20L15 9', 'M13.5 7.5l3 3', 'M19 3v3M17.5 4.5h3', 'M20 12v2M19 13h2']
 };
 
 export const editorToolIcons: Readonly<Record<string, string>> = {
@@ -287,6 +297,16 @@ export const editorToolIcons: Readonly<Record<string, string>> = {
 	color_key: 'editor-tool-color-key',
 	subject: 'editor-subject',
 	adjust: 'adjustments-horizontal',
+	trim: 'editor-tool-trim',
+	split: 'editor-tool-split',
+	speed: 'editor-tool-speed',
+	volume: 'editor-tool-volume',
+	mute: 'editor-tool-mute',
+	audio: 'editor-tool-audio',
+	frame: 'editor-tool-frame',
+	fade: 'editor-tool-fade',
+	kenburns: 'editor-tool-kenburns',
+	fix: 'editor-tool-fix',
 	plugin_fallback: 'extension'
 };
 

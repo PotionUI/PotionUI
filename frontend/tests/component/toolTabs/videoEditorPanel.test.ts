@@ -54,7 +54,7 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-describe('video options bar', () => {
+describe('video options panel', () => {
 	it('puts In, Out and the length in the panel, the tool name in the title block, with an icon-only rail', () => {
 		const { q, all } = render('trim');
 		expect(all('[data-editor-toolbar]')).toHaveLength(1);
@@ -95,102 +95,95 @@ describe('video options bar', () => {
 	});
 });
 
-describe('video look and effect tray', () => {
-	it('lists the looks first, then the effects, with Original at the start', () => {
-		const { q, all } = render('effects');
-		expect(q('[data-tray]')).not.toBeNull();
-		expect(all('[data-tray-item]').map((tile) => tile.dataset.trayItem)).toEqual([
-			'__original',
-			'look:warm',
-			'look:mine:reel',
-			'look:smear',
-			'fix_colors',
-			'retro-tape.scanlines',
-			'film_grain',
-			'retro-tape.wobble'
-		]);
-		expect(all('[data-tray-group]').map((group) => group.dataset.trayGroup)).toEqual(['Original', 'Film', 'Mine', 'Art', 'Colour', 'Texture', 'More']);
+describe('video looks panel', () => {
+	const tiles = (all: (sel: string) => HTMLElement[]) => all('[data-look-item]').map((tile) => tile.dataset.lookItem);
+
+	it('lists Original and the looks in groups, with the strength field above', async () => {
+		const { q, all } = render('look');
+		flushSync();
+		expect(tiles(all)).toEqual(['__original', 'look:warm', 'look:mine:reel', 'look:smear']);
+		expect(all('[data-look-group]').map((group) => group.dataset.lookGroup)).toEqual(['Film', 'Mine', 'Art']);
+		const strength = q('[data-entry-form]')!;
+		const list = q('[data-look-list]')!;
+		expect(strength.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(q('[data-look-item="__original"]')?.getAttribute('aria-selected')).toBe('true');
 	});
 
-	it('has no tray for other tools', () => {
-		expect(render('trim').q('[data-tray]')).toBeNull();
+	it('has no looks list on other tools', () => {
+		expect(render('trim').q('[data-look-list]')).toBeNull();
 	});
 
-	it('a click on a look selects it as the pending step and Add effect commits it', () => {
-		const { q, rows } = render('effects');
-		q<HTMLButtonElement>('[data-tray-item="look:warm"]')!.click();
+	it('a click on a look is the pending step, with Reset only and no Apply', () => {
+		const { q, rows } = render('look');
+		q<HTMLButtonElement>('[data-look-item="look:warm"]')!.click();
 		flushSync();
 		expect(rows()).toEqual(['original', 'pending']);
-		expect(q('[data-tray-item="look:warm"]')?.getAttribute('aria-selected')).toBe('true');
-		expect(q('[data-options-panel] [data-bar-effect]')?.textContent).toBe('Look');
-		expect(q('[data-options-panel] [data-field-name="strength"]')).not.toBeNull();
-		const apply = q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')!;
-		expect(apply.textContent).toContain('Add effect');
-		apply.click();
-		flushSync();
-		expect(rows()).toEqual(['original', 'current']);
-		expect(q('[data-tray-item="look:warm"]')?.getAttribute('aria-selected')).toBe('true');
+		expect(q('[data-look-item="look:warm"]')?.getAttribute('aria-selected')).toBe('true');
 		expect(q('[data-options-footer] [data-options-apply]')).toBeNull();
+		expect(q<HTMLButtonElement>('[data-options-footer] [data-options-reset]')?.disabled).toBe(false);
 	});
 
 	it('picking another look replaces the pending one instead of stacking both', () => {
-		const { q, rows } = render('effects');
-		q<HTMLButtonElement>('[data-tray-item="look:warm"]')!.click();
+		const { q, rows } = render('look');
+		q<HTMLButtonElement>('[data-look-item="look:warm"]')!.click();
 		flushSync();
-		q<HTMLButtonElement>('[data-tray-item="look:smear"]')!.click();
+		q<HTMLButtonElement>('[data-look-item="look:smear"]')!.click();
 		flushSync();
 		expect(rows()).toEqual(['original', 'pending']);
-		expect(q('[data-tray-item="look:smear"]')?.getAttribute('aria-selected')).toBe('true');
-		expect(q('[data-tray-item="look:warm"]')?.getAttribute('aria-selected')).toBe('false');
+		expect(q('[data-look-item="look:smear"]')?.getAttribute('aria-selected')).toBe('true');
+		expect(q('[data-look-item="look:warm"]')?.getAttribute('aria-selected')).toBe('false');
 	});
 
 	it('Original drops the pending pick', () => {
-		const { q, rows } = render('effects');
-		q<HTMLButtonElement>('[data-tray-item="film_grain"]')!.click();
+		const { q, rows } = render('look');
+		q<HTMLButtonElement>('[data-look-item="look:warm"]')!.click();
 		flushSync();
 		expect(rows()).toEqual(['original', 'pending']);
-		q<HTMLButtonElement>('[data-tray-item="__original"]')!.click();
+		q<HTMLButtonElement>('[data-look-item="__original"]')!.click();
 		flushSync();
 		expect(rows()).toEqual(['current']);
 	});
 
-	it('moves the strength in the bar into the applied effect live, one undo per drag', () => {
-		const { q, rows } = render('effects');
-		q<HTMLButtonElement>('[data-tray-item="look:warm"]')!.click();
+	it('leaving the tool applies the pick, and strength then moves live in one undo step per drag', async () => {
+		const { q, rows } = render('look');
+		q<HTMLButtonElement>('[data-look-item="look:warm"]')!.click();
 		flushSync();
-		q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')!.click();
+		q<HTMLButtonElement>('[data-tool-rail] [data-tool="trim"]')!.click();
 		flushSync();
-		const range = q<HTMLInputElement>('[data-options-panel] [data-field-name="strength"] input[type="range"]')!;
+		expect(rows()).toEqual(['original', 'current']);
+		q<HTMLButtonElement>('[data-tool-rail] [data-tool="look"]')!.click();
+		for (let i = 0; i < 40; i++) await Promise.resolve();
+		flushSync();
+		const range = q<HTMLInputElement>('[data-entry-options="look"] input[type="range"], [data-entry-options="look"] input[type="number"]')!;
 		for (const value of ['0.8', '0.6', '0.4']) {
 			range.value = value;
 			range.dispatchEvent(new Event('input', { bubbles: true }));
 			flushSync();
 		}
 		expect(rows()).toEqual(['original', 'current']);
-		expect(q('[data-options-panel] [data-field-name="strength"] [data-slider-value]')?.textContent).toBe('0.4');
+		expect(q<HTMLInputElement>('[data-entry-options="look"] input[type="range"], [data-entry-options="look"] input[type="number"]')!.value).toBe('0.4');
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
 		flushSync();
-		expect(q('[data-options-panel] [data-field-name="strength"] [data-slider-value]')?.textContent).toBe('1');
+		expect(q<HTMLInputElement>('[data-entry-options="look"] input[type="range"], [data-entry-options="look"] input[type="number"]')!.value).toBe('1');
 		expect(rows()).toEqual(['original', 'current']);
 	});
 });
 
 describe('video phone layout', () => {
-	it('puts the tray above a one-line bar with Add, and the tool strip at the bottom', () => {
-		const { q } = render('effects', true);
+	it('shows the grouped tool strip at the bottom and the options sheet above it', () => {
+		const { q } = render('look', true);
 		expect(q('[data-tool-rail="strip"]')).not.toBeNull();
-		expect(q('[data-tray]')).not.toBeNull();
-		expect(q('[data-options-bar="phone"]')).not.toBeNull();
-		const tray = q('[data-tray]')!;
-		const bar = q('[data-options-bar="phone"]')!;
-		expect(tray.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		const sheet = q('[data-options-panel="phone"]')!;
+		const strip = q('[data-tool-rail="strip"]')!;
+		expect(q('[data-options-bar="phone"]')).toBeNull();
+		expect(sheet.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 	});
 
-	it('shows In, Out and Apply in the phone bar for Trim and no options panel', () => {
+	it('shows In, Out, Output and Apply for Trim in the options sheet', () => {
 		const { q } = render('trim', true);
-		expect(q('[data-options-bar="phone"] [data-bar-time="in"]')).not.toBeNull();
-		expect(q('[data-options-bar="phone"] [data-bar-time="out"]')).not.toBeNull();
-		expect(q('[data-options-bar="phone"] [data-options-apply]')).not.toBeNull();
-		expect(q('[data-options-panel]')).toBeNull();
+		expect(q('[data-options-panel="phone"] [data-trim-field="in"]')).not.toBeNull();
+		expect(q('[data-options-panel="phone"] [data-trim-field="out"]')).not.toBeNull();
+		expect(q('[data-options-panel="phone"] [data-trim-output]')).not.toBeNull();
+		expect(q('[data-options-panel="phone"] [data-options-apply]')).not.toBeNull();
 	});
 });

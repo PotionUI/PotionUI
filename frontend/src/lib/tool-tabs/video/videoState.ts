@@ -1,7 +1,7 @@
 import { createStack, deserialize, serialize, type EditStackState, type SerializedStack } from '$lib/tool-tabs/frame/editStack';
 import type { MediaRef } from '$lib/types/tabs';
 import type { MediaToolInputRef, MediaToolRun } from '$lib/media-tools/types';
-import { isRailToolId, type RailToolId, type VideoParams } from './videoSteps';
+import { normalizeTool, type VideoParams } from './videoSteps';
 
 export const VIDEO_STATE_VERSION = 1;
 
@@ -15,7 +15,7 @@ export interface SavedCopy {
 export interface VideoEditorState {
 	v: number;
 	stack: SerializedStack;
-	tool: RailToolId | null;
+	tool: string | null;
 	playhead: number;
 	loop: boolean;
 	savedSignature: string;
@@ -27,7 +27,7 @@ export interface VideoEditorState {
 
 export interface LoadedVideoState {
 	stack: EditStackState<VideoParams>;
-	tool: RailToolId | null;
+	tool: string | null;
 	playhead: number;
 	loop: boolean;
 	savedSignature: string;
@@ -69,7 +69,7 @@ export function readVideoState(raw: unknown): LoadedVideoState {
 		: null;
 	return {
 		stack: deserialize<VideoParams>(raw.stack),
-		tool: isRailToolId(raw.tool) ? raw.tool : null,
+		tool: normalizeTool(raw.tool),
 		playhead: Math.max(0, finite(raw.playhead, 0)),
 		loop: raw.loop !== false,
 		savedSignature: str(raw.savedSignature) ?? EMPTY_SIGNATURE,

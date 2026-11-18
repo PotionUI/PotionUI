@@ -107,7 +107,9 @@
 	</button>
 	{/if}
 
-	{#if open}
-		<FormulasDrawer {tab} {declaration} {presetName} {presetVersion} {modeLabel} {host} onClose={close} {onApplied} />
-	{/if}
+	<span class="contents" data-formulas-drawer-host>
+		{#if open}
+			<FormulasDrawer {tab} {declaration} {presetName} {presetVersion} {modeLabel} {host} onClose={close} {onApplied} />
+		{/if}
+	</span>
 {/if}

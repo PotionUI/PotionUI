@@ -5,7 +5,6 @@
 	import LiveElapsed from '$lib/components/LiveElapsed.svelte';
 	import { liveWatcher } from '$lib/generation/live/liveDefault';
 	import { percentOf, tileStepLabel } from '$lib/generation/live/liveView';
-	import { authStore } from '$lib/stores/auth';
 	import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 	import MediaPreview from './MediaPreview.svelte';
 	import ContentPolicyTile from '$lib/components/ContentPolicyTile.svelte';
@@ -152,7 +151,7 @@
 	$: liveShowsPicture = !!liveSeen && (!!liveSeen.clip || !!liveSeen.preview) && mediaFiles.length === 0;
 	$: liveProgress = liveTile?.progress ?? generation.progress;
 	$: livePercent = percentOf(liveProgress);
-	$: liveLabel = liveTile && generation.status === 'running' ? tileStepLabel(liveTile, $authStore.user?.account_type === 'ADMIN') : '';
+	$: liveLabel = liveTile && generation.status === 'running' ? tileStepLabel(liveTile) : '';
 	$: liveWide = !!tile && tile.width >= 220;
 	$: currentMediaFile = mediaFiles[currentImageIndex];
 

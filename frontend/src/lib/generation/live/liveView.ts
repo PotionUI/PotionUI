@@ -66,15 +66,14 @@ export function liveStepLine(
 }
 
 export function tileStepLabel(
-	live: Pick<LiveGeneration, 'currentStep' | 'message' | 'pipeName' | 'pipeId'>,
-	isAdmin: boolean
+	live: Pick<LiveGeneration, 'currentStep' | 'message' | 'pipeName' | 'pipeId'>
 ): string {
 	const stage = resolveStageStatus({
 		currentStep: live.currentStep,
 		message: live.message,
 		pipeName: live.pipeName,
 		pipeId: live.pipeId,
-		isAdmin
+		isAdmin: false
 	});
 	return stage.stepCount ? `${stage.label} · ${stage.stepCount}` : stage.label;
 }

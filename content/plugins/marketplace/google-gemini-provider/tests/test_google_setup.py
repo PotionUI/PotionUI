@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,7 @@ import yaml
 
 from src.plugin_api.cloud import CLOUD_BLOCKS
 
+from backend.catalog import STATIC_MODELS
 from backend.config import GoogleConfig
 
 from .fixtures import KEY
@@ -13,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 PRESETS = ROOT / "presets"
 FORMS = sorted(PRESETS.glob("*/standard/modes/*/form.yml"))
 MESSAGE = "Add your Google Gemini API key."
+MONTHS = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
 
 
 def _manifest():
@@ -105,3 +111,16 @@ def test_the_generation_tabs_hold_an_image_section_and_a_models_section():
         sections = yaml.safe_load((PRESETS / f"VideoGeneration/standard/modes/{mode}/tabs/generation.yml").read_text(encoding="utf-8"))["fields"]
         assert [(section["type"], section["label"]) for section in sections] == [("section", "Video"), ("section", "Models")]
         assert sections[1]["children"].endswith(f"/cloud/models/{mode}.yml")
+
+
+def test_every_built_in_model_with_a_retirement_date_gives_that_date_in_its_readme_row_and_description():
+    rows = [line for line in (ROOT / "README.md").read_text(encoding="utf-8").splitlines() if line.startswith("| ")]
+    dated = [entry for entry in STATIC_MODELS if entry.deprecated_at]
+
+    assert dated
+    for entry in dated:
+        day = date.fromisoformat(entry.deprecated_at)
+        written = f"{day.day} {MONTHS[day.month - 1]} {day.year}"
+        (row,) = [line for line in rows if f"`{entry.model_id}`" in line]
+        assert written in row
+        assert written in entry.description

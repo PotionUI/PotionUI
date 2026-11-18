@@ -1,8 +1,13 @@
 # Google Gemini
 
-Generate pictures and short videos with Google's hosted models through the Gemini API, using a key
-from [Google AI Studio](https://aistudio.google.com), with no graphics card of your own. This page
-walks you from a fresh install to your first generation, then covers costs and the usual problems.
+Generate pictures with Google's hosted models through the Gemini API, using a key from
+[Google AI Studio](https://aistudio.google.com), with no graphics card of your own. This page walks
+you from a fresh install to your first generation, then covers costs and the usual problems.
+
+> **No video for now.** Google shut down the three Veo 3.1 models (Veo 3.1 Lite, Veo 3.1 and Veo 3.1
+> Fast) on 22 October 2026, and its models page names no other Veo model. The Gemini Video
+> preset was made for them, so it has no model Google still serves. Google recommends Gemini Omni
+> (`gemini-omni-1.2-flash`) instead, which this plugin does not support. Pictures are not affected.
 
 ## Getting started
 
@@ -16,7 +21,8 @@ walks you from a fresh install to your first generation, then covers costs and t
   - **Gemini Images**: text to image, and editing pictures you add, with Nano Banana 2, Nano Banana
     Pro and Nano Banana 2 Lite.
   - **Gemini Video**: text to video, image to video from a start picture (optionally with an end
-    picture), and multi-shot films made with the Video Director, with Veo 3.1.
+    picture), and multi-shot films made with the Video Director. It was made for Veo 3.1, which Google
+    shut down on 22 October 2026 (see the note above).
 
 > Every generation runs on Google's servers and is **billed to the Google Cloud project of your API
 > key**, whoever in PotionUI starts it. The prompt and any pictures a user adds leave your server to
@@ -80,18 +86,23 @@ What you will find there:
 | Nano Banana 2 | `gemini-3.1-flash-image` | Text to image and editing with up to 14 pictures, 1K, 2K or 4K. A good default. |
 | Nano Banana Pro | `gemini-3-pro-image` | Google's highest quality image model, best at complex scenes and lettering. 1K, 2K or 4K. |
 | Nano Banana 2 Lite | `gemini-3.1-flash-lite-image` | The cheapest and quickest image model, 1K only. |
-| Veo 3.1 Lite | `veo-3.1-lite-generate-preview` | Lowest cost video with sound, 720p or 1080p. Google retires it on 22 October 2026. |
-| Veo 3.1 | `veo-3.1-generate-preview` | Highest quality video with sound, up to 4K. Google retires it on 22 October 2026. |
-| Veo 3.1 Fast | `veo-3.1-fast-generate-preview` | Quicker, cheaper Veo 3.1, up to 4K. Google retires it on 22 October 2026. |
+| Veo 3.1 Lite | `veo-3.1-lite-generate-preview` | Lowest cost video with sound, 720p or 1080p. Google shut it down on 22 October 2026. |
+| Veo 3.1 | `veo-3.1-generate-preview` | Highest quality video with sound, up to 4K. Google shut it down on 22 October 2026. |
+| Veo 3.1 Fast | `veo-3.1-fast-generate-preview` | Quicker, cheaper Veo 3.1, up to 4K. Google shut it down on 22 October 2026. |
 
 - **Suggested** marks the models the plugin recommends as a place to start.
 - **Price** shows Google's list price. Prices are Google's and can change. Only admins see prices;
   nobody else does, anywhere in PotionUI. For pictures the list shows the price of a picture at the
   smallest size and, as a separate line, what a larger size adds.
 - Badges mark models Google has stopped offering your key (**Missing from provider**) and models it
-  plans to retire (**Deprecated**).
-- A model Google lists that the plugin does not know yet is still shown, with plain defaults (aspect
-  ratio only) and no price.
+  plans to retire or has retired (**Deprecated**, with the date in the badge's tooltip). The three
+  Veo 3.1 models keep the Deprecated badge after their date. They can still be enabled while Google's
+  listing names them without marking them retired (a retired one is **Missing from provider**), or
+  while the built-in list is used (see Troubleshooting), but Google no longer serves them, so a
+  generation with them fails.
+- A model Google lists that the plugin does not know yet is still shown, with plain defaults and no
+  price: aspect ratios and up to 3 reference pictures for a picture model; 16:9 or 9:16, 720p, a
+  start picture and 4, 6 or 8 seconds for a video model.
 
 Refresh again from time to time to pick up new models. A refresh never enables anything on its own.
 
@@ -101,7 +112,7 @@ Refresh again from time to time to pick up new models. A refresh never enables a
 2. Choose **Install preset**.
 3. On its **Access** tab, choose **Add user** next to yourself and everyone else who should use it,
    or switch to **Groups** and choose **Add group**.
-4. Do the same for **Gemini Video** if you want video.
+4. **Gemini Video** installs the same way, but has nothing to run for now (see the note at the top).
 
 ### Step 5 (optional): Control who uses which model
 
@@ -114,7 +125,8 @@ Refresh again from time to time to pick up new models. A refresh never enables a
 
 ### Step 6: Generate
 
-1. Open **Generate**, choose **Choose a preset** and pick **Gemini Images** or **Gemini Video**.
+1. Open **Generate**, choose **Choose a preset** and pick **Gemini Images** (or **Gemini Video**,
+   which has nothing to run for now; see the note at the top).
 2. Pick a mode: text to image or edit for pictures, text to video or image to video for video.
 3. Pick a **model**. Only models enabled in the catalog, allowed for you and able to do this mode are
    listed.
@@ -126,9 +138,9 @@ Refresh again from time to time to pick up new models. A refresh never enables a
 picture, so a quantity of four is four requests and is billed as four pictures.
 
 **Videos** take longer, often one to six minutes. PotionUI sends the job to Google, checks on it
-after 10 seconds and then every 15 seconds, and downloads the video when it is ready. Veo makes
-4, 6 or 8 second videos with sound; 1080p and 4K videos are always 8 seconds long, and PotionUI
-refuses a shorter one before anything is sent.
+after 10 seconds and then every 15 seconds, and downloads the video when it is ready. Veo 3.1 made
+4, 6 or 8 second videos with sound; PotionUI offers those lengths and refuses a 1080p or 4K video
+shorter than 8 seconds before anything is sent.
 
 **Films with the Video Director** work as in the other video presets: each shot is one paid video,
 a shot can continue from the last frame of the shot before it, and the shots are joined at the end.
@@ -166,6 +178,7 @@ The Google Cloud billing page of the key's project is the final word on what you
 | Users see "The model's content filter refused this request. Try a different prompt or picture." | Google's safety filter blocked the prompt, an input picture or the result. As an admin, open the generation in **Administration → Generations**: its **Failure** panel shows which filter and category Google gave. Users never see those details. |
 | Users see "The model answered without a picture. Try rephrasing the prompt." | The model replied in words only. The **Failure** panel shows the start of what it said. |
 | Users see "Google refused this request. The key may not be allowed to use this model." | The key's project lacks access to that model. Pick another model or check the project in Google AI Studio. |
+| Users see "Google does not offer this model to this key." | Google answered that the model was not found: the key cannot reach it, or Google has shut it down (such as the three Veo 3.1 models since 22 October 2026). Turn the model off on the Catalog tab and pick another one. |
 | A video fails with "The provider did not finish in time." | Raise the backend's **Timeout (seconds)**. Google may still finish and bill that job. |
 | **Refresh catalog** lists only the built-in models. | Google's model listing could not be read, so the plugin's own list was used; the log says why. Your enabled models are unaffected. Refresh again later. |
 
@@ -190,6 +203,10 @@ Read on **6 October 2026**:
 - Errors: <https://ai.google.dev/gemini-api/docs/troubleshooting>
 - Prices: <https://ai.google.dev/gemini-api/docs/pricing>
 
+Read on **18 November 2026**: the shutdown of the three Veo 3.1 models on the retirement dates page
+above, the models page (<https://aistudio.google.com/docs/models>), which names no Veo model, and
+Gemini Omni: <https://aistudio.google.com/docs/omni>
+
 ### What the plugin assumes about the Gemini API
 
 - **Auth.** Every call carries the key in the `x-goog-api-key` header.
@@ -197,9 +214,11 @@ Read on **6 October 2026**:
   kept when its id starts with `gemini-` and contains `-image` and it lists `generateContent`, or its
   id starts with `veo-` and it lists `predictLongRunning`. Models with `modelStage: RETIRED` are left
   out; `DEPRECATED` ones carry their `retirementTime` as the retirement date. Known ids get the
-  plugin's curated capabilities and prices (`backend/catalog.py`); unknown ones get aspect ratios
-  only, up to 3 reference pictures, and no price. If the listing fails for any reason other than the
-  key, credit or permission, or names no image or video model, the built-in list is used instead.
+  plugin's curated capabilities and prices (`backend/catalog.py`); unknown ones get no price and
+  default capabilities: aspect ratios and up to 3 reference pictures for an image model; 16:9 or
+  9:16, 720p, a start picture and 4, 6 or 8 seconds for a `veo-` model. If the listing fails for any
+  reason other than the key, credit or permission, or names no image or video model, the built-in
+  list is used instead.
 - **Pictures.** `POST /models/{id}:generateContent` with
   `{"contents": [{"role": "user", "parts": [{"text": ...}, {"inlineData": {"mimeType", "data"}}...]}],
   "generationConfig": {"responseModalities": ["TEXT", "IMAGE"], "imageConfig": {"aspectRatio", "imageSize"}}}`.
@@ -234,12 +253,16 @@ Read on **6 October 2026**:
 This needs a key with billing turned on, so it is done by hand and is not part of the tests.
 
 1. Enable the plugin, restart, add the backend with your key, and refresh the catalog. Check that
-   the three Nano Banana models and the Veo models you have access to are listed.
-2. Install both presets and add yourself on their Access tab. Enable Nano Banana 2 and Veo 3.1 Lite.
+   the three Nano Banana models are listed.
+2. Install **Gemini Images** and add yourself on its Access tab. Enable Nano Banana 2.
 3. In **Gemini Images**, generate text to image at 16:9 and 2K, then edit mode with one picture and
    with three. Check the pictures arrive and that **Administration → Generations** shows a cost.
 4. Try a prompt Google refuses and check users see only the plain sentence while the Failure panel
    names the reason.
-5. In **Gemini Video**, generate a 4 second 720p video, then image to video with a start and an end
-   picture. Try 1080p at 4 seconds and check it is refused before anything is sent.
-6. Start a video and cancel it. The message should say the job may still be billed.
+5. Video cannot be tried with a real key while Google serves no Veo model (see the note at the top).
+   If Google lists a new `veo-` model, the plugin offers it with the video defaults of Step 3 (no end
+   picture, 720p only, no price): install **Gemini Video**, enable that model, generate a 4 second
+   720p video, then image to video with a start picture. An end picture, 1080p or 4K need the
+   model's own entry in `backend/catalog.py`.
+6. With a Veo model Google serves, start a video and cancel it. The message should say the job may
+   still be billed.

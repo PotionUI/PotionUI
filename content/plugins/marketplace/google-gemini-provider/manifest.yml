@@ -1,7 +1,7 @@
 id: "google-gemini-provider"
 name: "Google Gemini"
 version: "0.1.0"
-description: "Generate images and video with Google's hosted models through the Gemini API and a Google AI Studio key. Adds a Google Gemini cloud backend, its model catalog (Nano Banana image models and Veo 3.1) and ready-made image (text to image, edit) and video (text to video, image to video) presets."
+description: "Generate images with Google's hosted models through the Gemini API and a Google AI Studio key. Google shut down the Veo 3.1 video models on 22 October 2026, so the video preset has no model Google still serves. Adds a Google Gemini cloud backend, its model catalog (Nano Banana image models and the shut down Veo 3.1 models) and ready-made image (text to image, edit) and video (text to video, image to video) presets."
 author: "PotionUI Team"
 type: "backend-only"
 category: "backends"

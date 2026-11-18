@@ -84,3 +84,9 @@ export function zoomPercent(view: View): number {
 export function isActualSize(viewport: Viewport): boolean {
 	return !viewport.fit && Math.abs(viewport.zoom - 1) < 1e-6;
 }
+
+export const CANVAS_BAR_RESERVE = 66;
+
+export function reservedStage(stage: Size, reserve: number): Size {
+	return { width: stage.width, height: Math.max(1, stage.height - Math.max(0, reserve)) };
+}

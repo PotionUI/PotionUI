@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, IconButton } from '$lib/components/ui';
 	import { getFrameContext } from '$lib/tool-tabs/frame/context';
 	import {
 		MAX_ZOOM,
@@ -12,6 +11,7 @@
 		isActualSize,
 		panView,
 		pinchStep,
+		reservedStage,
 		resolveView,
 		wheelFactor,
 		zoomAt,
@@ -21,6 +21,7 @@
 		type Viewport
 	} from '$lib/tool-tabs/frame/viewport';
 	import CanvasChip from './CanvasChip.svelte';
+	import CanvasZoomControl from './CanvasZoomControl.svelte';
 
 	let {
 		mediaWidth,
@@ -71,7 +72,9 @@
 	let panning = $state(false);
 	let held = $derived(spaceHeld ?? frame?.spaceHeld ?? false);
 	let media = $derived({ width: mediaWidth, height: mediaHeight });
-	let view = $derived(resolveView(viewport, stage, media, padding ?? (phone ? 14 : 60)));
+	let reserve = $derived(phone ? 0 : (frame?.canvasReserve ?? 0));
+	let fitBox = $derived(reservedStage(stage, reserve));
+	let view = $derived(resolveView(viewport, fitBox, media, padding ?? (phone ? 14 : 60)));
 	let art = $derived({
 		left: view.panX,
 		top: view.panY,
@@ -190,11 +193,11 @@
 	let canZoomOut = $derived(view.zoom > MIN_ZOOM);
 
 	export function zoomIn() {
-		viewport = zoomCentered(view, ZOOM_STEP, stage);
+		viewport = zoomCentered(view, ZOOM_STEP, fitBox);
 	}
 
 	export function zoomOut() {
-		viewport = zoomCentered(view, 1 / ZOOM_STEP, stage);
+		viewport = zoomCentered(view, 1 / ZOOM_STEP, fitBox);
 	}
 
 	export function showFit() {
@@ -202,7 +205,7 @@
 	}
 
 	export function showActualSize() {
-		viewport = actualSize(stage, media);
+		viewport = actualSize(fitBox, media);
 	}
 
 	export function zoomState() {
@@ -271,25 +274,23 @@
 
 	{#if !phone}
 		{#if statusSize}
-			<div class="pointer-events-none absolute bottom-6 left-3.5 flex whitespace-pre font-mono text-sm tabular-nums text-scrim-on/70" data-canvas-status>
+			<div class="pointer-events-none absolute bottom-[22px] left-3.5 flex whitespace-pre font-mono text-sm tabular-nums text-scrim-on/70" data-canvas-status>
 				<span data-status-size>{statusSize}</span>{#if statusExtra}<span class="status-extra" data-status-extra>{' · '}{statusExtra}</span>{/if}
 			</div>
 		{/if}
-		<div
-			class="absolute bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-scrim-on/10 bg-scrim/70 p-[3px] text-scrim-on backdrop-blur"
-			role="group"
-			aria-label="Zoom"
-			data-canvas-zoom
-		>
-			<IconButton icon="minus" label="Zoom out" size="xs" variant="overlay" class="h-7 w-7" disabled={!canZoomOut} onclick={() => (viewport = zoomCentered(view, 1 / ZOOM_STEP, stage))} />
-			<span class="min-w-[52px] text-center font-mono text-sm tabular-nums" aria-live="polite" data-canvas-zoom-value>{zoomPercent(view)}%</span>
-			<IconButton icon="plus" label="Zoom in" size="xs" variant="overlay" class="h-7 w-7" disabled={!canZoomIn} onclick={() => (viewport = zoomCentered(view, ZOOM_STEP, stage))} />
-			<span class="mx-[3px] h-4 w-px bg-scrim-on/15" aria-hidden="true"></span>
-			<Button variant="overlay" size="xs" class="h-7 font-mono" pressed={viewport.fit} onclick={() => (viewport = fitViewport())} attrs={{ 'data-canvas-fit': '' }}>Fit</Button>
-			<Button variant="overlay" size="xs" class="h-7 font-mono" pressed={isActualSize(viewport)} onclick={() => (viewport = actualSize(stage, media))} attrs={{ 'data-canvas-actual': '' }}>1:1</Button>
-		</div>
+		<CanvasZoomControl
+			percent={zoomPercent(view)}
+			{canZoomIn}
+			{canZoomOut}
+			fitted={viewport.fit}
+			actual={isActualSize(viewport)}
+			onzoomin={zoomIn}
+			onzoomout={zoomOut}
+			onfit={showFit}
+			onactual={showActualSize}
+		/>
 		{#if hint !== null}
-			<div class="pointer-events-none absolute bottom-[18px] right-3.5 flex items-center gap-2 font-mono text-sm text-scrim-on/70" data-canvas-hint>
+			<div class="pointer-events-none absolute bottom-[20px] right-3.5 flex items-center gap-2 font-mono text-sm text-scrim-on/70" data-canvas-hint>
 				{#if hint}
 					{@render hint()}
 				{:else}

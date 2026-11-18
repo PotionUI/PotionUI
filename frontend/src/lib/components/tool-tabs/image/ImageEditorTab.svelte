@@ -2177,6 +2177,7 @@
 					base={paintBase.canvas}
 					layerUrl={pendingHere?.tool === 'paint' ? (pendingHere.params as PaintParams).url : null}
 					tool={paintToolOfEntry(activeTool!)}
+					zoomControl={!phone}
 					name={fileName ?? 'picture'}
 					onstate={(session, snapshot) => {
 						paintSession = session;

@@ -148,7 +148,7 @@
 			{@render clustered()}
 		</div>
 	{:else if !hidden}
-		<div class="cab-host pointer-events-none absolute inset-x-3 bottom-[58px] z-10 flex justify-center" data-canvas-actions-host>
+		<div class="cab-host pointer-events-none absolute inset-x-3 bottom-3 z-10 flex justify-center" data-canvas-actions-host>
 			<div
 				class="cab pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-line-strong bg-surface-2 p-1 shadow-floating"
 				role="toolbar"

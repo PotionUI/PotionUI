@@ -181,6 +181,11 @@ test.describe('the Video editor tab on desktop', () => {
 		expect(Math.abs(inPoint - geo.duration * 0.3)).toBeLessThan(geo.duration * 0.06);
 		await expect(editor.getByRole('button', { name: /Trim, pending/ })).toBeVisible();
 		await screenshot(page, JOURNEY, 'trim-1440');
+		const zoomBox = (await page.locator('[data-canvas-zoom]').boundingBox())!;
+		const canvasBox = (await page.locator('[data-editor-canvas]').boundingBox())!;
+		expect(Math.abs(canvasBox.x + canvasBox.width - (zoomBox.x + zoomBox.width) - 12)).toBeLessThanOrEqual(1);
+		expect(Math.abs(zoomBox.y - canvasBox.y - 12)).toBeLessThanOrEqual(1);
+		await screenshot(page, JOURNEY, '40-zoom-top-right-video-1440');
 		await page.keyboard.press('Enter');
 		await expect(editor.getByRole('button', { name: /Reopen Trim/ })).toBeVisible();
 	});

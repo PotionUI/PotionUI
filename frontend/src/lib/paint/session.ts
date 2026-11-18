@@ -97,6 +97,7 @@ export interface SessionSnapshot {
 	settings: ToolSettings;
 	zoom: number;
 	view: View;
+	fitted: boolean;
 	canUndo: boolean;
 	canRedo: boolean;
 	undoLabel: string | null;
@@ -183,6 +184,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	private context: CanvasRenderingContext2D | null = null;
 	private stageWidth = 0;
 	private stageHeight = 0;
+	private reserve = 0;
 	private dpr = 1;
 	private autoFit = true;
 	private theme: EditorTheme | null = null;
@@ -388,6 +390,7 @@ export class PaintSession implements ToolHost, EditorApi {
 			settings: { ...this.settings },
 			zoom: this.view.zoom,
 			view: { ...this.view },
+			fitted: this.autoFit,
 			canUndo: this.history.canUndo,
 			canRedo: this.history.canRedo,
 			undoLabel: this.history.undoLabel,
@@ -571,10 +574,29 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.history.markSaved();
 	}
 
+	private get fitHeight(): number {
+		return Math.max(1, this.stageHeight - this.reserve);
+	}
+
+	setReserve(pixels: number): void {
+		const next = Math.max(0, pixels);
+		if (next === this.reserve) return;
+		this.reserve = next;
+		if (this.autoFit && this.ready) this.fit();
+	}
+
+	actualSize(): void {
+		if (!this.doc.width || !this.stageWidth) return;
+		this.view = { zoom: 1, panX: (this.stageWidth - this.doc.width) / 2, panY: (this.fitHeight - this.doc.height) / 2 };
+		this.autoFit = false;
+		this.emit();
+		this.invalidate();
+	}
+
 	fit(): void {
 		if (!this.doc.width || !this.stageWidth) return;
 		this.view = fitView(
-			{ width: this.stageWidth, height: this.stageHeight },
+			{ width: this.stageWidth, height: this.fitHeight },
 			{ width: this.doc.width, height: this.doc.height },
 			24,
 			FIT_MAX_ZOOM
@@ -585,7 +607,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	}
 
 	zoomBy(factor: number, anchor?: Point): void {
-		const at = anchor ?? { x: this.stageWidth / 2, y: this.stageHeight / 2 };
+		const at = anchor ?? { x: this.stageWidth / 2, y: this.fitHeight / 2 };
 		this.view = zoomAbout(this.view, factor, at);
 		this.autoFit = false;
 		this.emit();
@@ -1120,7 +1142,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		return true;
 	}
 
-	setSelection(path: Point[] | null, final: boolean, keepFloating = false): void {
+	setSelection(path: Point[] | null, final: boolean, keepFloating = false, outline?: Point[]): void {
 		if (!keepFloating) this.floating = null;
 		if (!path) {
 			this.selection = null;
@@ -1132,6 +1154,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		} else {
 			this.draft = null;
 			this.selection = buildSelection(path, this.doc.width, this.doc.height);
+			if (this.selection && outline) this.selection.outline = outline;
 			if (this.selection) this.startAnts();
 			else this.stopAnts();
 		}
@@ -1144,6 +1167,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		if (!this.ready || !selection) return false;
 		const width = this.doc.width;
 		const height = this.doc.height;
+		const inner = (selection.outline ?? selection.path).map((p) => ({ x: p.x, y: p.y }));
 		const first = selection.path[0];
 		this.placeFloating();
 		this.setSelection(
@@ -1156,7 +1180,9 @@ export class PaintSession implements ToolHost, EditorApi {
 				{ x: first.x, y: first.y },
 				{ x: 0, y: height }
 			],
-			true
+			true,
+			false,
+			inner
 		);
 		return true;
 	}
@@ -1179,6 +1205,7 @@ export class PaintSession implements ToolHost, EditorApi {
 				this.doc.width,
 				this.doc.height
 			);
+			if (this.selection && selection.outline) this.selection.outline = selection.outline.map((p) => ({ x: axis - p.x, y: p.y }));
 		});
 		return true;
 	}
@@ -1321,7 +1348,8 @@ export class PaintSession implements ToolHost, EditorApi {
 			this.setSelection(
 				this.selection.path.map((p) => ({ x: p.x + dx, y: p.y + dy })),
 				true,
-				true
+				true,
+				this.selection.outline?.map((p) => ({ x: p.x + dx, y: p.y + dy }))
 			);
 		}
 		this.commitStructure('Nudge', before);
@@ -1899,7 +1927,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	}
 
 	private drawSelection(context: CanvasRenderingContext2D, theme: EditorTheme): void {
-		const path = this.draft ?? this.selection?.path ?? null;
+		const path = this.draft ?? this.selection?.outline ?? this.selection?.path ?? null;
 		if (!path || path.length < 2) return;
 		const zoom = this.view.zoom;
 		context.save();
@@ -1915,7 +1943,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		context.stroke();
 		context.setLineDash([]);
 
-		const bounds = this.selection?.bounds;
+		const bounds = this.selection?.outline ? null : this.selection?.bounds;
 		if (bounds && !this.draft) {
 			const arm = Math.max(4, Math.min(14, bounds.width / 3, bounds.height / 3)) / zoom;
 			context.lineWidth = 2.5 / zoom;

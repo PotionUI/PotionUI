@@ -44,6 +44,7 @@ export interface PaintDocument {
 
 export interface Selection {
 	path: Point[];
+	outline?: Point[];
 	mask: Uint8ClampedArray;
 	bounds: Rect;
 }

@@ -257,6 +257,7 @@ test.describe('the canvas action bar on desktop', () => {
 		const shaped = await squeezed(size);
 		await barButton(page, 'invert').click();
 		await expect.poll(() => squeezed(size)).not.toBe(shaped);
+		await screenshot(page, JOURNEY, '40-zoom-top-right-inverted-1440');
 		await barButton(page, 'invert').click();
 		await expect.poll(() => squeezed(size)).toBe(shaped);
 
@@ -327,7 +328,19 @@ test.describe('the canvas action bar on desktop', () => {
 		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, `current:${CROP}`]);
 	});
 
-	test('the bar sits above the zoom control and collapses to icons on a narrow canvas', async ({ page }) => {
+	test('paint mode shows the zoom top-right and keeps the picture clear of the bar', async ({ page }) => {
+		await start(page);
+		await openDusk(page);
+		await selectRailTool(page, 'paint.brush');
+		await expect(page.locator('[data-paint-stage]')).toBeVisible();
+		await expect(page.locator('[data-canvas-zoom]')).toBeVisible();
+		await page.locator('[data-canvas-zoom] [data-canvas-actual]').click();
+		await expect(page.locator('[data-canvas-zoom-value]')).toHaveText('100%');
+		await page.locator('[data-canvas-zoom] [data-canvas-fit]').click();
+		await screenshot(page, JOURNEY, '40-zoom-top-right-paint-1440');
+	});
+
+	test('the zoom sits in the top-right corner, the picture stays above the bar, and the bar collapses to icons on a narrow canvas', async ({ page }) => {
 		await start(page);
 		await openDusk(page);
 		await selectRailTool(page, 'paint.lasso');
@@ -335,10 +348,14 @@ test.describe('the canvas action bar on desktop', () => {
 		await expect(bar(page)).toBeVisible();
 		const barBox = (await bar(page).boundingBox())!;
 		const zoom = page.locator('[data-canvas-zoom]');
-		if ((await zoom.count()) > 0) {
-			const zoomBox = (await zoom.boundingBox())!;
-			expect(barBox.y + barBox.height).toBeLessThanOrEqual(zoomBox.y + 1);
-		}
+		await expect(zoom).toBeVisible();
+		const zoomBox = (await zoom.boundingBox())!;
+		const stageBox = (await page.locator('[data-paint-stage]').boundingBox())!;
+		expect(Math.abs(stageBox.x + stageBox.width - (zoomBox.x + zoomBox.width) - 12)).toBeLessThanOrEqual(1);
+		expect(Math.abs(zoomBox.y - stageBox.y - 12)).toBeLessThanOrEqual(1);
+		const doc = ((await page.locator('[data-doc-box]').getAttribute('data-doc-box')) ?? '').split(',').map(Number);
+		expect(stageBox.y + doc[1] + doc[3]).toBeLessThanOrEqual(barBox.y + 1);
+		await screenshot(page, JOURNEY, '40-zoom-top-right-lasso-1440');
 		await expect(bar(page).locator('.cab-label').first()).toBeVisible();
 		await page.setViewportSize({ width: 1024, height: 800 });
 		await expect(bar(page).locator('.cab-label').first()).toBeHidden();

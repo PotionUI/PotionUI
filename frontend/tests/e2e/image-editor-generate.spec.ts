@@ -1078,7 +1078,8 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await page.mouse.move(10, 10);
 		await expect(page.locator('[data-canvas-zoom]')).toBeVisible();
 		const zoom = (await page.locator('[data-canvas-zoom]').boundingBox())!;
-		expect(zoom.y + zoom.height).toBeLessThanOrEqual(rest.y + 1);
+		const canvasTop = (await page.locator('[data-editor-canvas]').boundingBox())!.y;
+		expect(Math.abs(zoom.y - canvasTop - 12)).toBeLessThanOrEqual(1);
 		await expect(prompt(page).locator('[data-prompt-grip]')).toHaveCount(0);
 		await markArea(page);
 		await type(page, 'a lantern');

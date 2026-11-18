@@ -200,3 +200,99 @@ describe('flipFloating', () => {
 		expect(session.flipFloating()).toBe(false);
 	});
 });
+
+describe('inverted selection outline', () => {
+	function traced(session: PaintSession) {
+		const points: Array<[number, number]> = [];
+		const context = {
+			save: vi.fn(),
+			restore: vi.fn(),
+			beginPath: vi.fn(),
+			closePath: vi.fn(),
+			stroke: vi.fn(),
+			setLineDash: vi.fn(),
+			moveTo: (x: number, y: number) => points.push([x, y]),
+			lineTo: (x: number, y: number) => points.push([x, y])
+		};
+		(session as unknown as { drawSelection(c: unknown, t: unknown): void }).drawSelection(context, { canvas: '#000', fg: '#fff' });
+		return points;
+	}
+
+	it('traces only the inner contour, with no corner of the picture and no bridge', () => {
+		const { session } = buildSession();
+		const inner = rectPath({ x: 2, y: 3 }, { x: 6, y: 7 });
+		session.setSelection(inner, true);
+		session.invertSelection();
+
+		const points = traced(session);
+		expect(points).toEqual(inner.map((p) => [p.x, p.y]));
+	});
+
+	it('keeps the same contour when inverted twice', () => {
+		const { session } = buildSession();
+		const inner = rectPath({ x: 2, y: 3 }, { x: 6, y: 7 });
+		session.setSelection(inner, true);
+		session.invertSelection();
+		session.invertSelection();
+		expect(traced(session)).toEqual(inner.map((p) => [p.x, p.y]));
+	});
+
+	it('moves the contour with the selection when nudged', () => {
+		const { session } = buildSession();
+		session.setSelection(rectPath({ x: 2, y: 3 }, { x: 6, y: 7 }), true);
+		session.invertSelection();
+		session.nudge(1, 2);
+		expect(traced(session)).toEqual(rectPath({ x: 3, y: 5 }, { x: 7, y: 9 }).map((p) => [p.x, p.y]));
+	});
+
+	it('draws a plain selection from its own path', () => {
+		const { session } = buildSession();
+		const path = rectPath({ x: 2, y: 3 }, { x: 6, y: 7 });
+		session.setSelection(path, true);
+		expect(session.selection!.outline).toBeUndefined();
+		expect(traced(session).slice(0, path.length)).toEqual(path.map((p) => [p.x, p.y]));
+	});
+});
+
+describe('reserved band', () => {
+	function ready(size = 500) {
+		const { session } = buildSession(size);
+		session.resize(800, 600, 1);
+		return session;
+	}
+
+	it('fits the picture into a shorter area when a band is reserved', () => {
+		const plain = ready();
+		plain.fit();
+		const kept = ready();
+		kept.setReserve(66);
+		kept.fit();
+		expect(kept.view.zoom).toBeLessThan(plain.view.zoom);
+		expect(kept.view.panY + 500 * kept.view.zoom).toBeLessThanOrEqual(600 - 66);
+	});
+
+	it('refits on its own when the band appears while fitted', () => {
+		const session = ready();
+		session.fit();
+		const before = session.view.zoom;
+		session.setReserve(300);
+		expect(session.view.zoom).toBeLessThan(before);
+	});
+
+	it('leaves a manual zoom alone', () => {
+		const session = ready();
+		session.zoomBy(2);
+		const before = { ...session.view };
+		session.setReserve(66);
+		expect(session.view).toEqual(before);
+	});
+
+	it('shows the picture at one to one inside the reserved area', () => {
+		const session = ready();
+		session.setReserve(66);
+		session.actualSize();
+		expect(session.view.zoom).toBe(1);
+		expect(session.view.panY).toBe((600 - 66 - 500) / 2);
+		expect(session.snapshot().fitted).toBe(false);
+	});
+});

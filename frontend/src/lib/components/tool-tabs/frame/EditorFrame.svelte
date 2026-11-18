@@ -5,6 +5,7 @@
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
 	import { viewportWidth } from '$lib/stores/viewport';
 	import { setFrameContext } from '$lib/tool-tabs/frame/context';
+	import { CANVAS_BAR_RESERVE } from '$lib/tool-tabs/frame/viewport';
 	import { resolveFrameKey, targetActivatesOn } from '$lib/tool-tabs/frame/keymap';
 	import type { StackVariant } from '$lib/tool-tabs/frame/types';
 	import type { CanvasAction } from '$lib/editors/railTools';
@@ -75,6 +76,9 @@
 		},
 		get sheetHost() {
 			return root;
+		},
+		get canvasReserve() {
+			return !phone && canvasActions.length ? CANVAS_BAR_RESERVE : 0;
 		},
 		get panelSide() {
 			return panelSide;

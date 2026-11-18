@@ -4,6 +4,7 @@ export interface FrameContext {
 	readonly spaceHeld: boolean;
 	readonly sheetHost: HTMLElement | null;
 	readonly panelSide: 'left' | 'right';
+	readonly canvasReserve: number;
 }
 
 const KEY = Symbol('editor-frame');

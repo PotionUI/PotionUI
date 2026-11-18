@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+	CANVAS_BAR_RESERVE,
+	reservedStage,
 	actualSize,
 	fitViewport,
 	isActualSize,
@@ -100,5 +102,28 @@ describe('pan and pinch', () => {
 		const view = { zoom: 1, panX: 0, panY: 0 };
 		const same = { x: 10, y: 10 };
 		expect(pinchStep(view, [same, same], [same, { x: 20, y: 10 }]).zoom).toBe(1);
+	});
+});
+
+describe('reservedStage', () => {
+	it('leaves the width and takes the reserved band off the height', () => {
+		expect(reservedStage({ width: 800, height: 600 }, CANVAS_BAR_RESERVE)).toEqual({ width: 800, height: 600 - CANVAS_BAR_RESERVE });
+	});
+
+	it('changes nothing without a reserve', () => {
+		expect(reservedStage({ width: 800, height: 600 }, 0)).toEqual({ width: 800, height: 600 });
+	});
+
+	it('never collapses the stage', () => {
+		expect(reservedStage({ width: 800, height: 40 }, CANVAS_BAR_RESERVE).height).toBe(1);
+	});
+
+	it('fits the picture above the band, clear of its top edge', () => {
+		const stage = { width: 1000, height: 700 };
+		const media = { width: 1000, height: 1000 };
+		const plain = resolveView(fitViewport(), stage, media, 60);
+		const kept = resolveView(fitViewport(), reservedStage(stage, CANVAS_BAR_RESERVE), media, 60);
+		expect(kept.zoom).toBeLessThan(plain.zoom);
+		expect(kept.panY + media.height * kept.zoom).toBeLessThanOrEqual(stage.height - CANVAS_BAR_RESERVE);
 	});
 });

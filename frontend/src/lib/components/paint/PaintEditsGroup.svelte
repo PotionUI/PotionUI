@@ -47,7 +47,7 @@
 		</span>
 		<span class="flex min-w-0 flex-1 flex-col">
 			<span class="truncate text-base font-medium leading-[18px] text-fg">Paint</span>
-			<span class="truncate text-sm text-signal" data-stack-state="in-progress">In progress<span class="text-fg-subtle"> · </span><span class="font-mono tabular-nums text-fg-subtle" data-layer-count>{count}</span><span class="text-fg-subtle"> {count === 1 ? 'layer' : 'layers'}</span></span>
+			<span class="truncate text-sm text-signal" data-stack-state="in-progress">In progress<span class="whitespace-pre text-fg-subtle">{' · '}</span><span class="font-mono tabular-nums text-fg-subtle" data-layer-count>{count}</span><span class="whitespace-pre text-fg-subtle">{` ${count === 1 ? 'layer' : 'layers'}`}</span></span>
 		</span>
 		<Menu label="Add a layer" icon="plus" size="xs" {items} onselect={choose} align="right" width={240} menuAttrs={{ 'data-layers-add-menu': '' }} />
 	</div>

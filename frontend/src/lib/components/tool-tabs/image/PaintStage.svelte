@@ -12,6 +12,9 @@
 	import { canvasFromUrl } from '$lib/paint/loadPicked';
 	import { PaintSession, type SessionSnapshot } from '$lib/paint/session';
 	import { Spinner } from '$lib/components/ui';
+	import { getFrameContext } from '$lib/tool-tabs/frame/context';
+	import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from '$lib/tool-tabs/frame/viewport';
+	import CanvasZoomControl from '../frame/CanvasZoomControl.svelte';
 
 	let {
 		base = null,
@@ -20,6 +23,7 @@
 		name,
 		session = new PaintSession(),
 		prepare = null,
+		zoomControl = false,
 		onstate
 	}: {
 		base?: HTMLCanvasElement | null;
@@ -28,9 +32,11 @@
 		name: string;
 		session?: PaintSession;
 		prepare?: ((session: PaintSession) => void | Promise<void>) | null;
+		zoomControl?: boolean;
 		onstate: (session: PaintSession, state: SessionSnapshot) => void;
 	} = $props();
 
+	const frame = getFrameContext();
 	let host = $state<HTMLDivElement>();
 	let stage = $state<HTMLCanvasElement>();
 	let overlay = $state<HTMLCanvasElement>();
@@ -45,6 +51,10 @@
 			.join(',')
 	);
 	let detachWheel: (() => void) | null = null;
+
+	$effect(() => {
+		session.setReserve(frame?.canvasReserve ?? 0);
+	});
 
 	onMount(async () => {
 		if (!stage || !overlay || !host) return;
@@ -164,5 +174,18 @@
 		<p class="absolute inset-0 flex items-center justify-center p-6 text-sm text-danger">This picture could not be opened for painting.</p>
 	{:else if !snapshot.ready}
 		<div class="absolute inset-0 flex items-center justify-center"><Spinner /></div>
+	{/if}
+	{#if zoomControl && snapshot.ready}
+		<CanvasZoomControl
+			percent={Math.round(snapshot.zoom * 100)}
+			canZoomIn={snapshot.zoom < MAX_ZOOM}
+			canZoomOut={snapshot.zoom > MIN_ZOOM}
+			fitted={snapshot.fitted}
+			actual={!snapshot.fitted && snapshot.zoom === 1}
+			onzoomin={() => session.zoomBy(ZOOM_STEP)}
+			onzoomout={() => session.zoomBy(1 / ZOOM_STEP)}
+			onfit={() => session.fit()}
+			onactual={() => session.actualSize()}
+		/>
 	{/if}
 </div>

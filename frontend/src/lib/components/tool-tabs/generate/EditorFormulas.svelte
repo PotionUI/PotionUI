@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { Button } from '$lib/components/ui';
 	import FormulasButton from '$lib/components/formulas/FormulasButton.svelte';
 	import { detachedFormTab } from '$lib/form/detachedFormTab';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
@@ -29,7 +31,16 @@
 	);
 </script>
 
-{#if tab && offer}
+{#if !tab || !offer}
+	<span class="dock-btn">
+		<Tooltip text="Choose a preset and a mode first" position="top">
+			<span class="inline-flex">
+				<Button size="sm" icon="book" class="h-8 text-base" disabled ariaLabel="Formulas" attrs={{ 'data-testid': 'formulas-button', 'aria-disabled': 'true', 'aria-describedby': 'dock-setup-hint-formulas' }}>Formulas</Button>
+				<span id="dock-setup-hint-formulas" class="sr-only">Choose a preset and a mode first</span>
+			</span>
+		</Tooltip>
+	</span>
+{:else}
 	<FormulasButton
 		{tab}
 		layout="dock"

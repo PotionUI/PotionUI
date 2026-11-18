@@ -64,6 +64,13 @@
 		void $ui;
 		return taskId ? generate.changedFor(taskId) : false;
 	});
+	let setupReady = $derived(!!chip);
+	const setupHint = 'Choose a preset and a mode first';
+
+	$effect(() => {
+		if (settings?.open && !setupReady) settings.toggle();
+	});
+
 	let chipText = $derived(noModel ? 'No model yet' : (chip ?? 'Choose a preset'));
 	let area = $derived($maskArea);
 	let redoArea = $derived(!!$ui.redo && $ui.redo.taskId === taskId && !regionNone && !area);
@@ -139,8 +146,15 @@
 
 {#snippet settingsButton()}
 	<span class="dock-btn">
-		{#if settings}
+		{#if settings && setupReady}
 			<Button size="sm" icon="sliders" class="h-8 text-base" pressed={settings.open} ariaLabel="Settings" onclick={settings.toggle} attrs={{ 'data-prompt-settings': '' }}>Settings</Button>
+		{:else if settings}
+			<Tooltip text={setupHint} position="top">
+				<span class="inline-flex">
+					<Button size="sm" icon="sliders" class="h-8 text-base" disabled ariaLabel="Settings" attrs={{ 'data-prompt-settings': '', 'aria-disabled': 'true', 'aria-describedby': 'dock-setup-hint-settings' }}>Settings</Button>
+					<span id="dock-setup-hint-settings" class="sr-only">{setupHint}</span>
+				</span>
+			</Tooltip>
 		{:else}
 			<Tooltip text="Settings open here soon" position="top">
 				<Button size="sm" icon="sliders" class="h-8 text-base" disabled ariaLabel="Settings" attrs={{ 'data-prompt-settings': '' }}>Settings</Button>

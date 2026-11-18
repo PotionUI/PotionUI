@@ -50,11 +50,6 @@
       "type": "model"
     },
     {
-      "label": "Turbo LoRA",
-      "name": "turbo_lora",
-      "type": "model"
-    },
-    {
       "label": "LoRAs",
       "name": "loras",
       "type": "lora_picker"

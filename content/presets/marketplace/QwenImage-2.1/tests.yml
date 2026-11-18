@@ -87,7 +87,7 @@ cases:
       resolution: "1664x928"
       not_black: true
 
-  - name: "qwen-image-21-turbo8-fast"
+  - name: "qwen-image-21-turbo-fast"
     mode: "txt2img"
     seed: 4242
     tags: ["fast", "needs-model"]
@@ -97,16 +97,14 @@ cases:
       resolution: "1024x1024"
     models:
       diffusion_model:
-        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+        sha256: "8b74237a7f505773e2c66726fa696444b4c704585c93a347cff9044937f7914a"
+        hf:
+          repo: "Comfy-Org/Qwen-Image-2.1"
+          file: "diffusion_models/qwen_image_2.1_turbo_bf16.safetensors"
       text_encoder:
         sha256: "0000000000000000000000000000000000000000000000000000000000000000"
       vae:
         sha256: "0000000000000000000000000000000000000000000000000000000000000000"
-      turbo_lora:
-        sha256: "a0b7a7634ff2f82ccbe209e16b0ba19b25e2d9e18624d89edc490503b6a75d39"
-        hf:
-          repo: "chriswritescode/Turbo8-LoRA-Qwen-Image-2.1"
-          file: "turbo8_lora_step2500.safetensors"
     checks:
       min_outputs: 1
       resolution: "1024x1024"

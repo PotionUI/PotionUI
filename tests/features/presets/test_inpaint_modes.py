@@ -159,15 +159,12 @@ def test_the_prompt_is_optional_and_labelled(templates, family):
 
 
 
-def test_qwen_turbo_profile_loads_the_turbo_lora(templates):
+def test_qwen_turbo_profile_ignores_a_stale_turbo_lora_value(templates):
     pipes = _process(
         templates, "QwenImage-2.1", "inpaint",
         {"speed_profile": "turbo", "turbo_lora": "/models/loras/turbo8.safetensors"},
     )
-    loras = _pipe(pipes, "model_loader/qwen_image21")["config"]["loras"]
-    assert [entry["file_path"] for entry in loras] == ["/models/loras/turbo8.safetensors"]
-    plain = _process(templates, "QwenImage-2.1", "inpaint")
-    assert not _pipe(plain, "model_loader/qwen_image21")["config"]["loras"]
+    assert not _pipe(pipes, "model_loader/qwen_image21")["config"]["loras"]
 
 
 def test_moss_inpaint_keeps_the_layer_skipped_negative_branch(templates):

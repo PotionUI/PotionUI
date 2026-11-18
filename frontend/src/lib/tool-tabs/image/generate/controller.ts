@@ -605,18 +605,20 @@ export function createGenerateController(deps: ControllerDeps) {
 		return { ok: true };
 	}
 
-	async function pinSession(taskId: string, sessionId: string): Promise<void> {
+	async function pinSession(taskId: string, sessionId: string): Promise<boolean> {
 		const choice = get(state).choice[taskId];
 		const task = taskOf(taskId);
 		const offer = task && choice ? offerOf(task.offers, choice) : null;
 		const found = offer ? sessionChoiceOf(offer, sessionId) : null;
-		if (!offer || !found || !deps.ports.pinSession) return;
+		if (!offer || !found || !deps.ports.pinSession) return true;
 		const pinned = !found.pinned;
 		patchSessions(offer, (sessions) => sessions.map((entry) => (entry.id === sessionId ? { ...entry, pinned } : entry)));
 		try {
 			await deps.ports.pinSession(sessionId, pinned);
+			return true;
 		} catch {
 			patchSessions(offer, (sessions) => sessions.map((entry) => (entry.id === sessionId ? { ...entry, pinned: !pinned } : entry)));
+			return false;
 		}
 	}
 

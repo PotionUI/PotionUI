@@ -10,8 +10,7 @@
 	import EditorFormulas from './EditorFormulas.svelte';
 	import EditorDefaultStar from './EditorDefaultStar.svelte';
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
-	import SessionSaveModal from '$lib/components/session/SessionSaveModal.svelte';
-	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
+	import SessionHost from '$lib/components/session/SessionHost.svelte';
 	import { Spinner } from '$lib/components/ui';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { createSessionDialogs } from '$lib/session/sessionDialogs';
@@ -33,7 +32,7 @@
 	const sessionController = createEditorSessionController(generate, () => taskId);
 	const dialogs = createSessionDialogs(sessionController);
 	const session = sessionController.state;
-	const dialogState = dialogs.state;
+	const sessionActions = { ...dialogs.actions, openScript: undefined };
 
 	let presetPicker = $state<{ openAt(element: HTMLElement | undefined): void } | undefined>();
 	let presetButton = $state<HTMLElement>();
@@ -136,7 +135,7 @@
 			<div class="flex items-center gap-1.5">
 				<div class="min-w-0 flex-1">
 					{#if choice}
-						<SessionControl session={$session} actions={dialogs.actions} {fieldLabels} layout="sheet" autosave={false} />
+						<SessionControl session={$session} actions={sessionActions} {fieldLabels} layout="sheet" autosave={false} shortcut={false} />
 					{/if}
 				</div>
 				<EditorDefaultStar {taskId} {label} phone />
@@ -215,7 +214,7 @@
 					<ContextCut />
 					<div class={DOCK_STEP.session} data-testid="editor-session-step" data-context-step>
 						{@render stepLabel(`${uid}-session`, 'Session')}
-						<SessionControl session={$session} actions={dialogs.actions} {fieldLabels} compact autosave={false} iconSave widthClass={DOCK_CELL.session} labelId="{uid}-session" />
+						<SessionControl session={$session} actions={sessionActions} {fieldLabels} compact autosave={false} shortcut={false} labelId="{uid}-session" />
 					</div>
 				{/if}
 
@@ -259,48 +258,7 @@
 	{/if}
 </div>
 
-<SessionSaveModal
-	isOpen={$dialogState.saveOpen}
-	mode="rename"
-	bind:sessionName={$dialogState.name}
-	nameError={$session.nameError}
-	error={$session.error}
-	isSaving={$session.isSaving}
-	on:close={dialogs.close}
-	on:confirm={() => dialogs.confirmSave(false)}
-/>
-
-<SessionSaveModal
-	isOpen={$dialogState.saveAsOpen}
-	mode="save-as"
-	bind:sessionName={$dialogState.name}
-	nameError={$session.nameError}
-	error={$session.error}
-	isSaving={$session.isSaving}
-	on:close={dialogs.close}
-	on:confirm={() => dialogs.confirmSave(true)}
-/>
-
-<ConfirmModal
-	isOpen={$dialogState.deleteOpen}
-	title="Delete Session"
-	message={`Are you sure you want to delete "${$session.currentSession?.name}"? This action cannot be undone.`}
-	variant="danger"
-	busy={$session.isSessionLoading}
-	on:confirm={dialogs.confirmDelete}
-	on:cancel={dialogs.close}
-/>
-
-<ConfirmModal
-	isOpen={$dialogState.reloadOpen}
-	title="Reload last snapshot"
-	message={`Discard your changes and reload the last snapshot of "${$session.currentSession?.name}"?`}
-	confirmLabel="Reload"
-	variant="warning"
-	busy={$session.isSessionLoading || $session.isQuickSaving || $session.isSaving}
-	on:confirm={dialogs.confirmReload}
-	on:cancel={dialogs.close}
-/>
+<SessionHost controller={sessionController} {dialogs} scripts={false} shortcut={false} />
 
 <style>
 	.dock-zone :global(.ctx-step) {

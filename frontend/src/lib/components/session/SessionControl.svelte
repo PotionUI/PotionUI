@@ -15,7 +15,7 @@
 		layout = 'segment',
 		compact = false,
 		autosave = true,
-		iconSave = false,
+		shortcut = true,
 		labelId = undefined,
 		widthClass = undefined
 	}: {
@@ -25,7 +25,7 @@
 		layout?: 'segment' | 'sheet';
 		compact?: boolean;
 		autosave?: boolean;
-		iconSave?: boolean;
+		shortcut?: boolean;
 		labelId?: string;
 		widthClass?: string;
 	} = $props();
@@ -95,10 +95,10 @@
 </script>
 
 {#snippet saveButton(shape: string)}
-	<Tooltip text={saveTip} kbd={saveDisabled ? undefined : $shortcutLabels['save_session']} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
+	<Tooltip text={saveTip} kbd={saveDisabled || !shortcut ? undefined : $shortcutLabels['save_session']} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
 		<button
 			type="button"
-			class="flex {iconSave && layout !== 'sheet' ? 'h-6 w-6 rounded bg-surface-2 hover:bg-surface-3' : 'w-[78px]'} flex-shrink-0 items-center justify-center gap-1.5 transition-colors {iconSave && layout !== 'sheet' ? '' : shape} {saveDisabled
+			class="flex w-[78px] flex-shrink-0 items-center justify-center gap-1.5 transition-colors {shape} {saveDisabled
 				? 'cursor-not-allowed font-medium text-fg-disabled'
 				: saveState === 'saving'
 					? 'font-medium text-fg-muted'
@@ -110,10 +110,10 @@
 		>
 			{#if saveState === 'saving'}
 				<Spinner size="sm" />
-				{#if !iconSave || layout === 'sheet'}<span>Saving</span>{/if}
+				<span>Saving</span>
 			{:else}
 				<Icon name={current ? 'save' : 'plus'} className="h-3.5 w-3.5" />
-				{#if !iconSave || layout === 'sheet'}<span>Save</span>{/if}
+				<span>Save</span>
 			{/if}
 		</button>
 	</Tooltip>
@@ -178,7 +178,7 @@
 					icon="undo"
 					label="Reload from last snapshot"
 					variant="secondary"
-					size={iconSave ? 'xs' : 'sm'}
+					size="sm"
 					class="!p-0 {reloadDisabled ? '!cursor-not-allowed !bg-surface-3/50 !text-fg-disabled' : ''}"
 					aria-disabled={reloadDisabled ? 'true' : undefined}
 					data-testid="session-reload"

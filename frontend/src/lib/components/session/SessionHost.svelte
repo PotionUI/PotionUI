@@ -9,16 +9,18 @@
 
 	export let controller: SessionController;
 	export let dialogs: SessionDialogs;
+	export let scripts = true;
+	export let shortcut = true;
 
 	const session = controller.state;
 	const dialogState = dialogs.state;
 
 	onMount(() => {
-		keybindingsStore.registerHandler('save_session', dialogs.quickSave);
+		if (shortcut) keybindingsStore.registerHandler('save_session', dialogs.quickSave);
 	});
 
 	onDestroy(() => {
-		keybindingsStore.unregisterHandler('save_session');
+		if (shortcut) keybindingsStore.unregisterHandler('save_session');
 	});
 </script>
 
@@ -65,8 +67,10 @@
 	on:cancel={dialogs.close}
 />
 
+{#if scripts}
 <SessionScriptDialog
 	sessionId={$dialogState.scriptSessionId}
 	sessionName={$session.sessions?.find((item) => item.id === $dialogState.scriptSessionId)?.name ?? ''}
 	onClose={dialogs.close}
 />
+{/if}

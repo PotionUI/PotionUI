@@ -1,6 +1,8 @@
 import { derived, get, writable, type Readable } from 'svelte/store';
 import type { Session, SessionVersionSummary } from '$lib/types/api';
-import type { SessionController, SessionControllerState } from '$lib/session/sessionController';
+import type { SessionController, SessionControllerState, SessionControllerToasts } from '$lib/session/sessionController';
+import { toasts as defaultToasts } from '$lib/stores/toast';
+import { timeAgo } from '$lib/utils/relativeTime';
 import type { GenerateController, GenerateUi } from './controller';
 import { offerKey, offerOf, type SessionChoice } from './setup';
 import { isChanged } from './tweaks';
@@ -75,7 +77,7 @@ export function snapshotOf(ui: GenerateUi, taskId: string | null, local: Local):
 	};
 }
 
-export function createEditorSessionController(generate: GenerateController, taskId: () => string | null): SessionController {
+export function createEditorSessionController(generate: GenerateController, taskId: () => string | null, toasts: SessionControllerToasts = defaultToasts): SessionController {
 	const local = writable<Local>({ ...IDLE });
 	const state: Readable<SessionControllerState> = derived([generate.ui, local], ([ui, own]) => snapshotOf(ui, taskId(), own));
 	let destroyed = false;
@@ -128,13 +130,13 @@ export function createEditorSessionController(generate: GenerateController, task
 		if (!task) return false;
 		patch({ error: null });
 		const outcome = await generate.removeSession(task);
-		if (!outcome.ok) patch({ error: outcome.message });
+		if (!outcome.ok) toasts.error(outcome.message || 'Failed to delete session');
 		return outcome.ok;
 	}
 
 	async function togglePin(sessionId: string): Promise<void> {
 		const task = id();
-		if (task) await generate.pinSession(task, sessionId);
+		if (task && !(await generate.pinSession(task, sessionId))) toasts.error('Failed to update pin');
 	}
 
 	async function reload(): Promise<boolean> {
@@ -162,7 +164,11 @@ export function createEditorSessionController(generate: GenerateController, task
 		if (!task) return;
 		patch({ isRestoringVersion: true, error: null });
 		const loaded = await generate.loadVersion(task, sessionId, versionNumber);
-		patch({ isRestoringVersion: false, error: loaded ? null : 'Could not load that save.' });
+		patch({ isRestoringVersion: false });
+		if (loaded) {
+			const made = get(local).historyVersions.find((entry) => entry.version_number === versionNumber)?.created_at;
+			toasts.info(`Loaded the save from ${made ? timeAgo(made) : 'earlier'} — Save to make it the latest.`);
+		} else toasts.error('Could not load that save.');
 	}
 
 	return {

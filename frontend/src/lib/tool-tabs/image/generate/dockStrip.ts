@@ -8,8 +8,7 @@ export const DOCK_STEP = {
 export const DOCK_CELL = {
 	preset: 'min-w-[88px] max-w-[240px]',
 	mode: 'min-w-[72px] max-w-[240px]',
-	formula: 'min-w-[72px] max-w-[160px]',
-	session: 'min-w-[132px] max-w-[360px]'
+	formula: 'min-w-[72px] max-w-[160px]'
 } as const;
 
 export const DOCK_END = 'dock-end ml-auto flex flex-none shrink-0 items-center gap-3 self-stretch whitespace-nowrap pl-4';

@@ -46,8 +46,9 @@ function build(extra: Partial<ControllerPorts> = {}) {
 		engine,
 		ports
 	});
-	const sessions = createEditorSessionController(controller, () => 'edit_region');
-	return { controller, sessions, ports, state: () => get(sessions.state) };
+	const toasts = { info: vi.fn(), warning: vi.fn(), error: vi.fn() };
+	const sessions = createEditorSessionController(controller, () => 'edit_region', toasts);
+	return { controller, sessions, ports, toasts, state: () => get(sessions.state) };
 }
 
 async function ready() {
@@ -152,6 +153,16 @@ describe('the actions the control calls', () => {
 		expect(t.state().sessions.find((entry) => entry.id === 's1')?.pinned).toBe(true);
 	});
 
+	it('toasts a failed pin and a failed delete the way the generation tab does', async () => {
+		const t = build({ pinSession: vi.fn(async () => Promise.reject(new Error('offline'))), deleteSession: vi.fn(async () => Promise.reject(new Error('offline'))) });
+		await t.controller.prepare('edit_region');
+		await t.sessions.select('s1');
+		await t.sessions.togglePin('s1');
+		expect(t.toasts.error).toHaveBeenCalledWith('Failed to update pin');
+		expect(await t.sessions.deleteSession()).toBe(false);
+		expect(t.toasts.error).toHaveBeenCalledTimes(2);
+	});
+
 	it('lists the versions of a session and loads one as unsaved changes', async () => {
 		const t = await ready();
 		await t.sessions.openHistory('s1');
@@ -161,6 +172,7 @@ describe('the actions the control calls', () => {
 		expect(t.state().currentSession?.id).toBe('s1');
 		expect(t.state().hasUnsavedChanges).toBe(true);
 		expect(t.state().isRestoringVersion).toBe(false);
+		expect(t.toasts.info).toHaveBeenCalledWith(expect.stringContaining('Save to make it the latest.'));
 		t.sessions.closeHistory();
 		expect(t.state().historySessionId).toBeNull();
 	});
@@ -171,7 +183,7 @@ describe('the actions the control calls', () => {
 		await t.sessions.openHistory('s1');
 		expect(t.state().historyError).toBe('Could not load the history. Try again.');
 		await t.sessions.restoreVersion('s1', 2);
-		expect(t.state().error).toBe('Could not load that save.');
+		expect(t.toasts.error).toHaveBeenCalledWith('Could not load that save.');
 	});
 
 	it('reloads the last snapshot by dropping the unsaved changes', async () => {

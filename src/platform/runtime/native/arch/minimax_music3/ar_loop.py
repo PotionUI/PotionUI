@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from contextlib import nullcontext
 
 import torch
 
@@ -30,6 +31,7 @@ from ._ar_timing import ArTiming
 from .cfg_sampling import full_vocab_mask, guided_top_k_sample_id
 from .depth_decoder import depth_kv_cache, generate_depth_codes
 from .lm import MiniMaxMusic3AudioLM
+from .lm_graph import StaticLmStep
 from .prompt import AUDIO_CODE_OFFSET, AUDIO_END_TOKEN_ID, MAX_AUDIO_FRAMES, MAX_PROMPT_TOKENS
 
 logger = logging.getLogger(__name__)
@@ -108,6 +110,7 @@ def generate(
     top_k: int = 50,
     on_frame: Callable[[int, int], None] | None = None,
     is_cancelled: Callable[[], bool] | None = None,
+    graph_lm_step: bool = False,
 ) -> torch.Tensor:
     """Run the AR core end-to-end. ``input_ids``: ``[2, L]`` (conditional +
     unconditional rows — see ``prompt.MiniMaxMusic3Tokenizer.build_conditional_pair``).
@@ -141,7 +144,8 @@ def generate(
     llm_hidden = hidden_all[:, -1, :]  # [2, hidden] -- seeds frame 0
 
     frame_hiddens: list[torch.Tensor] = []
-    with depth_kv_cache() as depth_cache:
+    lm_step_ctx = StaticLmStep(lm, cache, capture=True) if graph_lm_step else nullcontext()
+    with depth_kv_cache() as depth_cache, lm_step_ctx as lm_step:
         for frame_idx in range(max_frames + 1):  # +1: frame 0 is discarded, never counted against max_frames
             if is_cancelled is not None and is_cancelled():
                 raise SamplingCancelled(frame_idx)
@@ -166,7 +170,9 @@ def generate(
                     continue
                 feedback = _feedback_embedding(lm, code0, codes).to(device)  # [1, hidden]
             with timing.track("lm_step"):
-                llm_hidden = lm.step(feedback.unsqueeze(0).expand(2, 1, -1), cache).squeeze(1)  # [2, hidden]
+                step_input = feedback.unsqueeze(0).expand(2, 1, -1)
+                step_out = lm_step(step_input) if lm_step is not None else lm.step(step_input, cache)
+                llm_hidden = step_out.squeeze(1)  # [2, hidden]
 
     timing.emit(len(frame_hiddens))
     if not frame_hiddens:

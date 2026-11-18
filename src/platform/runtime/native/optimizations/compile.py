@@ -296,8 +296,6 @@ def music3_ar_compile_gate(native_lm, *, resident: bool, is_cuda: bool) -> tuple
         return False, "cpu"
     if not resident:
         return False, "streaming"
-    if getattr(native_lm, "quant_format", None) is not None:
-        return False, "quantized"
     module = getattr(native_lm, "module", None)
     decoder = getattr(getattr(module, "model", None), "audio_decoder", None)
     if decoder is None:
@@ -305,6 +303,23 @@ def music3_ar_compile_gate(native_lm, *, resident: bool, is_cuda: bool) -> tuple
     if _quantized(decoder):
         return False, "quantized-linear"
     if _has_runtime_lora(decoder):
+        return False, "runtime-lora"
+    return True, "ok"
+
+
+def music3_lm_graph_gate(native_lm, *, resident: bool, is_cuda: bool) -> tuple[bool, str]:
+    if not torch_compile_enabled():
+        return False, "disabled"
+    if not hasattr(torch.cuda, "CUDAGraph"):
+        return False, "torch-no-cuda-graph"
+    if not is_cuda:
+        return False, "cpu"
+    if not resident:
+        return False, "streaming"
+    module = getattr(native_lm, "module", None)
+    if module is None:
+        return False, "no-module"
+    if _has_runtime_lora(module):
         return False, "runtime-lora"
     return True, "ok"
 

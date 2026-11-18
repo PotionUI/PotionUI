@@ -140,6 +140,15 @@ class _GlobalAttention(nn.Module):
         v_all = cache_v[:, :, :pos + 1, :].to(q.dtype)
         return self.o_proj(self._attend(q, k_all, v_all, mask=None))
 
+    def step_static(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
+                    cache_k: torch.Tensor, cache_v: torch.Tensor, pos_index: torch.Tensor,
+                    mask: torch.Tensor) -> torch.Tensor:
+        q, k, v = self._qkv(x)
+        q, k = apply_rope_qk(q, k, cos, sin)
+        cache_k.index_copy_(2, pos_index, k.to(cache_k.dtype))
+        cache_v.index_copy_(2, pos_index, v.to(cache_v.dtype))
+        return self.o_proj(self._attend(q, cache_k.to(q.dtype), cache_v.to(q.dtype), mask=mask.to(q.dtype)))
+
 
 class _GlobalBlock(nn.Module):
     def __init__(self, cfg: MiniMaxMusic3TextEncoderConfig, operations, device=None, dtype=None) -> None:
@@ -156,6 +165,11 @@ class _GlobalBlock(nn.Module):
 
     def step(self, x, cos, sin, cache_k, cache_v, pos):
         x = x + self.self_attn.step(self.input_layernorm(x), cos, sin, cache_k, cache_v, pos)
+        x = x + self.mlp(self.post_attention_layernorm(x))
+        return x
+
+    def step_static(self, x, cos, sin, cache_k, cache_v, pos_index, mask):
+        x = x + self.self_attn.step_static(self.input_layernorm(x), cos, sin, cache_k, cache_v, pos_index, mask)
         x = x + self.mlp(self.post_attention_layernorm(x))
         return x
 
@@ -276,4 +290,12 @@ class MiniMaxMusic3AudioLM(NativeArchModule):
         for i, layer in enumerate(self.model.layers):
             x = layer.step(x, cos, sin, cache.keys[i], cache.values[i], pos)
         cache.filled_len = pos + 1
+        return self.model.norm(x)
+
+    def step_static(self, inputs_embeds: torch.Tensor, cache: GlobalLMKVCache,
+                    pos_index: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        cos, sin = self.model.rope_at(pos_index, inputs_embeds.dtype)
+        x = inputs_embeds
+        for i, layer in enumerate(self.model.layers):
+            x = layer.step_static(x, cos, sin, cache.keys[i], cache.values[i], pos_index, mask)
         return self.model.norm(x)

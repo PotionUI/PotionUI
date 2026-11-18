@@ -154,7 +154,7 @@ def _fake_ar_generate_factory(order, num_frames=25, total_frames=25):
     """Mirrors ar_loop.generate's real per-frame contract: `is_cancelled()`
     is polled every iteration, unconditionally -- the test's own callable
     decides when (if ever) it flips."""
-    def fake_ar_generate(lm_module, input_ids, generator, max_frames, cfg_scale, top_k, on_frame, is_cancelled):
+    def fake_ar_generate(lm_module, input_ids, generator, max_frames, cfg_scale, top_k, on_frame, is_cancelled, graph_lm_step=False):
         order.append(("ar", "generate"))
         for i in range(1, num_frames + 1):
             if is_cancelled():

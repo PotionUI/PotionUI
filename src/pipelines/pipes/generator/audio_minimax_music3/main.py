@@ -43,7 +43,7 @@ from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorP
 from src.pipelines.pipes._shared.generation.audio_output import release_lm, write_wav
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.platform.runtime.native.arch.minimax_music3 import ar_loop, flow
-from src.platform.runtime.native.optimizations.compile import maybe_compile_music3_ar
+from src.platform.runtime.native.optimizations.compile import maybe_compile_music3_ar, music3_lm_graph_gate
 from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 from src.pipelines.pipes.generator.audio_minimax_music3.lm_placement import place_lm
 
@@ -252,10 +252,14 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
             # (optimizations/compile.py); undone automatically by
             # `lm_model.offload()` below (NativeModel.move_to("cpu") restores
             # any `_compiled` handle before the module leaves the GPU).
-            maybe_compile_music3_ar(lm_model, resident=placed.resident, is_cuda=str(c.device).startswith("cuda"))
+            is_cuda = str(c.device).startswith("cuda")
+            maybe_compile_music3_ar(lm_model, resident=placed.resident, is_cuda=is_cuda)
+            graph_lm_step, graph_reason = music3_lm_graph_gate(lm_model, resident=placed.resident, is_cuda=is_cuda)
+            logger.info("[GENERATOR MINIMAX-MUSIC3] LM step graph: %s (%s)", "on" if graph_lm_step else "off", graph_reason)
             frame_hiddens = ar_loop.generate(
                 lm_model.module, input_ids.to(c.device), generator, c.max_frames,
                 cfg_scale=c.ar_cfg_scale, top_k=c.top_k, on_frame=on_frame, is_cancelled=cancelled,
+                graph_lm_step=graph_lm_step,
             )
         finally:
             placed.release()

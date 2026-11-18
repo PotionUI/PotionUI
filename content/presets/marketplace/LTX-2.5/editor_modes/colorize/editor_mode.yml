@@ -1,6 +1,0 @@
-schema_version: 1
-task: colorize
-from: colorize
-region: range
-inputs:
-  source: input_video

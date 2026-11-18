@@ -42,28 +42,8 @@ CORE_TASKS: Tuple[TaskDefinition, ...] = (
         result="append", audio="result", icon="mode-extend",
     ),
     TaskDefinition(
-        id="upscale", label="Upscale", editors=VIDEO, region="none", prompt="none", range="optional",
-        resizes=True, icon="mode-upscale",
-    ),
-    TaskDefinition(
-        id="restore", label="Restore", editors=VIDEO, region="none", prompt="optional", range="optional",
-        icon="mode-restore",
-    ),
-    TaskDefinition(
-        id="refine_faces", label="Refine faces", editors=VIDEO, region="none", prompt="none", range="optional",
-        icon="mode-refine-faces",
-    ),
-    TaskDefinition(
-        id="colorize", label="Colorize", editors=VIDEO, region="none", prompt="optional", range="optional",
-        icon="mode-colorize",
-    ),
-    TaskDefinition(
-        id="relight", label="Day to night", editors=VIDEO, region="none", prompt="optional", range="optional",
-        icon="mode-day-night",
-    ),
-    TaskDefinition(
-        id="clean_plate", label="Remove moving objects", editors=VIDEO, region="none", prompt="optional",
-        range="optional", icon="mode-remove-object",
+        id="remix", label="Remix", editors=VIDEO, region="none", prompt="required", range="optional",
+        icon="mode-remix",
     ),
 )
 

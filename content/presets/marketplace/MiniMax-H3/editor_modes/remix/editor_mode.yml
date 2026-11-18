@@ -1,0 +1,10 @@
+schema_version: 1
+task: remix
+from: remix
+region: range
+max_range_s: 14
+inputs:
+  source: source_video
+fixed:
+  keep_sound: true
+  max_seconds: 14

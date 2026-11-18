@@ -16,27 +16,17 @@ MARKETPLACE = REPO_ROOT / "content" / "presets" / "marketplace"
 REGISTRY = register_core_tasks(TaskRegistry())
 USER = SimpleNamespace(id="u1")
 
-VIDEO_TASKS = {"extend", "upscale", "restore", "refine_faces", "colorize", "relight", "clean_plate"}
+VIDEO_TASKS = {"extend", "remix"}
 
 EXPECTED = {
     ("LTX-2.5", "extend"): "extend",
-    ("LTX-2.5", "upscale"): "upscale",
-    ("LTX-2.5", "restore"): "restore",
-    ("LTX-2.5", "refine_faces"): "refine_faces",
-    ("LTX-2.5", "colorize"): "colorize",
-    ("LTX-2.5", "day_to_night"): "relight",
-    ("LTX-2.5", "remove_object"): "clean_plate",
-    ("LTX-2", "upscale"): "upscale",
     ("MiniMax-H3", "extend"): "extend",
-    ("MiniMax-H3", "upscale"): "upscale",
-    ("MiniMax-H3", "refine_faces"): "refine_faces",
+    ("MiniMax-H3", "remix"): "remix",
     ("MiniMax-H3-Fast", "extend"): "extend",
-    ("MiniMax-H3-Fast", "refine_faces"): "refine_faces",
-    ("SeedVR2", "video_upscale"): "upscale",
 }
 
 VIDEO_FIELD = {"name": "clip", "type": "video", "label": "Clip"}
-RANGE = {"schema_version": 1, "task": "upscale", "from": "edit", "region": "range", "inputs": {"source": "clip"}}
+RANGE = {"schema_version": 1, "task": "remix", "from": "edit", "region": "range", "inputs": {"source": "clip"}}
 
 
 def need(task_id):
@@ -73,9 +63,9 @@ def test_every_video_task_states_what_it_needs():
 
     assert all(task.range == "optional" and task.region == "none" for task in found.values())
     assert found["extend"].result == "append" and found["extend"].audio == "result"
-    assert [task.id for task in found.values() if task.resizes] == ["upscale"]
-    assert {task.id for task in found.values() if task.result == "replace"} == VIDEO_TASKS - {"extend"}
-    assert {task.id: task.prompt for task in found.values()}["upscale"] == "none"
+    assert [task.id for task in found.values() if task.resizes] == []
+    assert {task.id for task in found.values() if task.result == "replace"} == {"remix"}
+    assert (found["remix"].prompt, found["remix"].audio) == ("required", "keep")
     assert {task.id: task.prompt for task in found.values()}["extend"] == "optional"
 
 
@@ -111,6 +101,9 @@ def test_each_video_mode_hides_what_the_editor_supplies(templates):
     extend = templates["LTX-2.5"].editor_modes["extend"].editor
     h3 = templates["MiniMax-H3"].editor_modes["extend"].editor
 
+    remix = templates["MiniMax-H3"].editor_modes["remix"].editor
+
+    assert remix.fixed == {"keep_sound": True, "max_seconds": 14} and remix.inputs["source"] == "source_video"
     assert extend.fixed == {"match_source": True, "direction": "forward"}
     assert h3.fixed == {"direction": "after"}
     assert extend.inputs["source"] == "input_video" and h3.inputs["source"] == "source_video"
@@ -147,8 +140,8 @@ def test_an_entry_carries_the_needs_of_the_task(manager):
     entries = {entry["id"]: entry for entry in manager.offers(USER, "video")}
 
     assert (entries["extend"]["range"], entries["extend"]["result"], entries["extend"]["audio"]) == ("optional", "append", "result")
-    assert (entries["upscale"]["prompt"], entries["upscale"]["resizes"]) == ("none", True)
-    assert entries["colorize"]["resizes"] is False
+    assert (entries["remix"]["prompt"], entries["remix"]["result"], entries["remix"]["audio"]) == ("required", "replace", "keep")
+    assert entries["remix"]["range"] == "optional"
 
 
 def test_the_extend_offers_name_every_preset_that_extends(templates, manager):
@@ -185,7 +178,7 @@ def test_a_range_mode_cannot_serve_a_picture_task(root):
 
 
 def test_a_picture_region_cannot_serve_a_video_task(root):
-    write_preset(root, {**CROP, "task": "upscale", "inputs": {"source": "clip"}}, fields=[VIDEO_FIELD, *BASE_FIELDS])
+    write_preset(root, {**CROP, "task": "remix", "inputs": {"source": "clip"}}, fields=[VIDEO_FIELD, *BASE_FIELDS])
 
     assert any("a video task takes region: range" in issue.message for issue in issues_for(root))
 
@@ -209,3 +202,33 @@ def test_range_is_a_known_region():
     parsed, problems = validate_editor_mode_file(RANGE, "x")
 
     assert problems == [] and isinstance(parsed, EditorModeFile) and parsed.region == "range"
+
+
+def test_remix_is_offered_by_h3_alone_with_the_cap_of_the_mode(templates, manager):
+    entry = next(item for item in manager.offers(USER, "video") if item["id"] == "remix")
+
+    assert [offer["preset_id"] for offer in entry["offers"]] == [templates["MiniMax-H3"].id]
+    assert [offer["max_range_s"] for offer in entry["offers"]] == [14]
+    assert templates["MiniMax-H3"].editor_modes["remix"].editor.max_range_s == 14
+
+
+def test_an_offer_without_a_cap_carries_none(manager):
+    entry = next(item for item in manager.offers(USER, "video") if item["id"] == "extend")
+
+    assert [offer["max_range_s"] for offer in entry["offers"]] == [None, None, None]
+
+
+def test_a_cap_is_declared_only_on_a_range_mode():
+    data = {"schema_version": 1, "task": "edit_region", "region": "crop", "inputs": {"source": "x"}, "max_range_s": 3}
+
+    parsed, problems = validate_editor_mode_file(data, "m")
+
+    assert parsed is None and any("max_range_s" in problem for problem in problems)
+
+
+def test_a_cap_must_be_positive():
+    data = {**RANGE, "max_range_s": 0}
+
+    parsed, problems = validate_editor_mode_file(data, "m")
+
+    assert parsed is None and problems

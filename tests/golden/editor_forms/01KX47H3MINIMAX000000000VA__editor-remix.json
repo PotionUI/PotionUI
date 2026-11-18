@@ -1,6 +1,6 @@
 {
-  "editor_mode": "upscale",
-  "from": "upscale",
+  "editor_mode": "remix",
+  "from": "remix",
   "preset_id": "01KX47H3MINIMAX000000000VA",
   "preset_name": "MiniMax-H3",
   "shown": [
@@ -20,12 +20,7 @@
       "type": "stepper"
     },
     {
-      "label": "Target Size",
-      "name": "target_size",
-      "type": "select"
-    },
-    {
-      "label": "MiniMax-H3 DiT",
+      "label": "MiniMax-H3 DiT (reference partition)",
       "name": "model",
       "type": "model"
     },
@@ -45,8 +40,8 @@
       "type": "model"
     },
     {
-      "label": "Latent Upscaler",
-      "name": "upscale_model",
+      "label": "Flex adapter",
+      "name": "flex_adapter",
       "type": "model"
     },
     {
@@ -55,13 +50,13 @@
       "type": "model"
     },
     {
-      "label": "Refine denoise",
-      "name": "refine_denoise",
-      "type": "select"
+      "label": "Pictures",
+      "name": "pictures",
+      "type": "image"
     },
     {
       "label": "LoRAs",
-      "name": "refine_loras",
+      "name": "loras",
       "type": "lora_picker"
     },
     {
@@ -70,8 +65,8 @@
       "type": "slider"
     },
     {
-      "label": "Refine sampler",
-      "name": "refine_sampler",
+      "label": "Sampler",
+      "name": "sampler",
       "type": "select"
     },
     {
@@ -80,24 +75,24 @@
       "type": "select"
     },
     {
-      "label": "Refine video sigma shift",
-      "name": "refine_video_sigma_shift",
+      "label": "Video shift",
+      "name": "video_sigma_shift",
       "type": "slider"
     },
     {
-      "label": "Refine manual sigmas (video)",
-      "name": "refine_manual_sigmas",
+      "label": "Audio shift",
+      "name": "audio_sigma_shift",
+      "type": "slider"
+    },
+    {
+      "label": "Manual sigmas (video)",
+      "name": "manual_sigmas",
       "type": "textbox"
     },
     {
-      "label": "Refine manual sigmas (audio)",
-      "name": "refine_manual_audio_sigmas",
+      "label": "Manual sigmas (audio)",
+      "name": "manual_audio_sigmas",
       "type": "textbox"
-    },
-    {
-      "label": "Refine audio",
-      "name": "audio_refine",
-      "type": "select"
     },
     {
       "label": "Sparse attention",
@@ -125,11 +120,6 @@
       "type": "slider"
     },
     {
-      "label": "Sequence chunk rows",
-      "name": "seq_chunk_rows",
-      "type": "slider"
-    },
-    {
       "label": "Cache threshold",
       "name": "step_cache_threshold",
       "type": "slider"
@@ -150,5 +140,5 @@
       "type": "checkbox"
     }
   ],
-  "task": "upscale"
+  "task": "remix"
 }

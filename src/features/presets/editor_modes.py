@@ -136,6 +136,7 @@ class EditorModeFile(BaseModel):
     inputs: EditorInputs
     size: EditorSize = Field(default_factory=EditorSize)
     context: float = Field(default=0.5, ge=0.0, le=4.0)
+    max_range_s: Optional[float] = Field(default=None, gt=0)
     fixed: Dict[str, Any] = Field(default_factory=dict)
     fields: EditorFields = Field(default_factory=EditorFields)
     pipeline: List[ExtensionPipeOp] = Field(default_factory=list)
@@ -160,6 +161,12 @@ class EditorModeFile(BaseModel):
             raise ValueError("region: mask needs inputs.mask")
         if self.region == "range" and self.inputs.mask:
             raise ValueError("region: range takes no inputs.mask")
+        return self
+
+    @model_validator(mode="after")
+    def _cap_is_for_ranges(self) -> "EditorModeFile":
+        if self.max_range_s is not None and self.region != "range":
+            raise ValueError("max_range_s is only valid with region: range")
         return self
 
     @model_validator(mode="after")
@@ -446,6 +453,7 @@ def _spec(candidate: EditorModeCandidate, file: EditorModeFile, mode: ModeTempla
         order=file.order,
         fixed=copy.deepcopy(file.fixed),
         hide=list(file.fields.hide),
+        max_range_s=file.max_range_s,
     )
 
 

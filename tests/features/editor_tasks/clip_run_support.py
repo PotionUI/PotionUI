@@ -10,25 +10,28 @@ from src.features.media.upload_repository import UploadRepository
 from tests.features.editor_tasks.clip_support import lossless_clip
 from tests.features.editor_tasks.run_support import Fakes
 from src.features.editor_tasks.manager import EditorTaskManager
-from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
+from src.features.editor_tasks.registry import TaskDefinition, TaskRegistry, register_core_tasks
 from tests.features.editor_tasks.support import BASE_FIELDS, CROP, load, write_preset
 
 CLIP_FIELD = {"name": "clip", "type": "video", "label": "Clip"}
 PRESET = "V-RANGE"
 
 
-def build_tasks(tmp_path, task, **changes):
+def build_tasks(tmp_path, task, extra=(), **changes):
     root = tmp_path / "presets"
     root.mkdir()
     write_preset(root, range_mode(task, **changes), fields=[CLIP_FIELD, *BASE_FIELDS], preset_id=PRESET)
     write_preset(root, CROP, preset_id="A-CROP")
     loader = load(root)
+    registry = register_core_tasks(TaskRegistry())
+    for item in extra:
+        registry.register(item)
     return EditorTaskManager(
-        register_core_tasks(TaskRegistry()), lambda: loader.all(), lambda user: {PRESET, "A-CROP"}, lambda engine: True
+        registry, lambda: loader.all(), lambda user: {PRESET, "A-CROP"}, lambda engine: True
     )
 
 
-def range_mode(task="upscale", **changes):
+def range_mode(task="remix", **changes):
     return {
         "schema_version": 1,
         "task": task,
@@ -68,9 +71,9 @@ class ClipFakes(Fakes):
         return [item for item in self.uploads if item["filename"] == filename]
 
 
-def build_clip_manager(tmp_path, task="upscale", frames=20, **changes):
+def build_clip_manager(tmp_path, task="remix", frames=20, extra=(), **changes):
     fakes = ClipFakes(tmp_path, frames)
-    tasks = build_tasks(tmp_path, task, **changes)
+    tasks = build_tasks(tmp_path, task, extra, **changes)
     manager = EditorRunManager(
         EditorRunRepository(),
         tasks,
@@ -91,6 +94,7 @@ def clip_body(edit_id, span=None, preset=PRESET, mode="editor:edit", **extra):
         "edit": {"id": edit_id, "step_id": "s9"},
         "input": {"item_id": "clip"},
         "setup": {"preset_id": preset, "mode": mode, "form_data": {"quantity": 2}},
+        "prompt": "make it rain",
     }
     if span is not None:
         data["range"] = {"start_s": span[0], "end_s": span[1]}

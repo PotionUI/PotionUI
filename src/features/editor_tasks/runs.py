@@ -292,11 +292,24 @@ class EditorRunManager:
         if body.range is None and offer.task.range == "required":
             raise DomainError("range_required", "Mark the part of the clip first", 422)
 
+    @staticmethod
+    def _check_cap(offer: ResolvedOffer, window: "clips.FrameRange") -> None:
+        cap = offer.spec.max_range_s
+        if cap is None:
+            return
+        if window.end_s - window.start_s > cap + 0.5 / window.fps:
+            raise DomainError(
+                "range_too_long",
+                f"{offer.task.label} works on up to {cap:g} s; mark a shorter section",
+                422,
+            )
+
     def _prepare_clip(self, user: Any, offer: ResolvedOffer, body: StartEditorRunRequest) -> PreparedRun:
         with self.media_tools.render_clip(user, body.input, body.steps) as path:
             found = clips.facts_of(path)
             asked = body.range
             window = clips.plan_range(found, asked.start_s if asked else None, asked.end_s if asked else None)
+            self._check_cap(offer, window)
             whole = window.start == 0 and window.end >= found.frames
             suffix = path.suffix.lower() or ".mp4"
             base = path.read_bytes()

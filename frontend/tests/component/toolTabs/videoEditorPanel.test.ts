@@ -95,6 +95,57 @@ describe('video options panel', () => {
 	});
 });
 
+describe('video timeline and Trim', () => {
+	function track(q: ReturnType<typeof render>['q']) {
+		const el = q('[data-scrub-track]')!;
+		el.getBoundingClientRect = () => ({ left: 0, right: 800, width: 800, top: 0, bottom: 48, height: 48, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+	}
+
+	function drag(handle: Element, from: number, to: number[]) {
+		handle.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: from, bubbles: true, cancelable: true }));
+		for (const x of to) handle.dispatchEvent(new MouseEvent('pointermove', { clientX: x, bubbles: true }));
+		handle.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+		flushSync();
+	}
+
+	it('dragging the in handle moves the In field, and the field moves the handle', () => {
+		const { q } = render('trim');
+		track(q);
+		drag(q('[data-scrub-handle="in"]')!, 0, [50, 100, 150]);
+		expect(q<HTMLInputElement>('[data-trim-field="in"]')!.value).toBe('00:01.50');
+		expect(q('[data-scrub-handle="in"]')!.getAttribute('aria-valuenow')).toBe('1.5');
+		const out = q<HTMLInputElement>('[data-trim-field="out"]')!;
+		out.dispatchEvent(new FocusEvent('focus'));
+		out.value = '00:06.00';
+		out.dispatchEvent(new Event('input', { bubbles: true }));
+		out.dispatchEvent(new FocusEvent('blur'));
+		flushSync();
+		expect(q('[data-scrub-handle="out"]')!.getAttribute('aria-valuenow')).toBe('6');
+		expect(q('[data-trim-output]')!.textContent).toBe('4.50 s');
+	});
+
+	it('a whole drag is one undo step', () => {
+		const { q, rows } = render('trim');
+		track(q);
+		drag(q('[data-scrub-handle="in"]')!, 0, [20, 40, 60, 80, 100]);
+		expect(rows()).toEqual(['original', 'pending']);
+		q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')!.click();
+		flushSync();
+		expect(rows()).toEqual(['original', 'current']);
+		q<HTMLButtonElement>('[data-frame-undo]')!.click();
+		flushSync();
+		expect(rows()).toEqual(['current', 'undone']);
+	});
+
+	it('shows the handles only on Trim and a numbered marker where a Split acts', () => {
+		const { q } = render('split');
+		expect(q('[data-scrub-handle]')).toBeNull();
+		q<HTMLButtonElement>('[data-split-playhead]')!.click();
+		flushSync();
+		expect(q('[data-scrub-marker="01"]')).not.toBeNull();
+	});
+});
+
 describe('video looks panel', () => {
 	const tiles = (all: (sel: string) => HTMLElement[]) => all('[data-look-item]').map((tile) => tile.dataset.lookItem);
 

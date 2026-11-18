@@ -41,7 +41,7 @@ const api = vi.hoisted(() => ({
 		put: vi.fn().mockRejectedValue(new Error('not mocked'))
 	})),
 	getGenerationThumbnailURL: vi.fn(() => '/thumb.png'),
-	getGenerationParams: vi.fn().mockResolvedValue({ success: true, data: { parameters: {}, models: [] } }),
+	getGenerationParams: vi.fn().mockResolvedValue({ success: true, data: { parameters: { prompt: 'A concrete observatory dome at dusk', steps: 28 }, models: [] } }),
 	getGenerationById: vi.fn(),
 	cancelGeneration: vi.fn().mockResolvedValue({ success: true, data: { cancel_notice: null } }),
 	getTags: vi.fn().mockResolvedValue({ success: true, data: { tags: [] } }),
@@ -103,7 +103,7 @@ afterEach(() => {
 });
 
 describe('a running generation in Generation Details', () => {
-	it('opens with the parameters from form_data, a cancel action and disabled result actions', async () => {
+	it('opens with the recorded parameters, a cancel action and disabled result actions', async () => {
 		api.getGenerationById.mockResolvedValue({ success: true, data: record() });
 		const view = mountDetails(record());
 		await settle();
@@ -112,8 +112,9 @@ describe('a running generation in Generation Details', () => {
 		expect(q('[data-live-action="reuse"]')).not.toBeNull();
 		expect(q('[data-live-disabled="download"] button')?.hasAttribute('disabled')).toBe(true);
 		expect(document.body.textContent).toContain('A concrete observatory dome at dusk');
-		expect(document.body.textContent).toContain('Chosen when sampling starts');
-		expect(api.getGenerationParams).not.toHaveBeenCalled();
+		expect(document.body.textContent).not.toContain('Chosen when sampling starts');
+		expect(document.body.textContent).not.toContain('Information');
+		expect(api.getGenerationParams).toHaveBeenCalledWith('gen-live', 0);
 		view.destroy();
 	});
 
@@ -182,7 +183,7 @@ describe('a running generation in Generation Details', () => {
 		await settle();
 		await settle();
 		expect(q('[data-live-stage]')).toBeNull();
-		expect(q('[data-live-finished-notice]')?.textContent).toContain('2 images are ready');
+		expect(q('[data-live-finished-notice]')).toBeNull();
 		expect(sockets.handlers.has('gen-live')).toBe(false);
 		view.destroy();
 	});

@@ -59,10 +59,8 @@
 	import type { GenerationParameterMeta } from '$lib/types/generation';
 	import LiveStage from '$lib/components/generation/LiveStage.svelte';
 	import LiveActionBar from '$lib/components/generation/LiveActionBar.svelte';
-	import LiveInfoRows from '$lib/components/generation/LiveInfoRows.svelte';
 	import { liveWatcher, liveClock } from '$lib/generation/live/liveDefault';
 	import { isTerminalLive } from '$lib/generation/live/liveState';
-	import { liveParameters } from '$lib/generation/live/liveParams';
 	import {
 		batchSlots,
 		batchTotal,
@@ -70,8 +68,7 @@
 		formatElapsed,
 		isLiveStatus,
 		liveStepLine,
-		percentOf,
-		queuedSeconds
+		percentOf
 	} from '$lib/generation/live/liveView';
 	import { resolveOriginAction, type OriginAction } from '$lib/generation/live/originAction';
 	import { openOriginEdit } from '$lib/tool-tabs/editOrigin';
@@ -317,10 +314,13 @@
 	// blink this pane. Keying also picks up a file change, which reading
 	// currentFileIndex inside the function did not.
 	$: paramsKey =
-		activeGeneration?.files?.length && !recordLive ? `${activeGenerationId}:${currentFileIndex}` : '';
+		activeGeneration?.files?.length || recordLive || sawLive
+			? `${activeGenerationId}:${currentFileIndex}:${recordLive ? (liveNow?.pipeId ?? '') : ''}`
+			: '';
 	$: if (paramsKey && paramsKey !== loadedParamsKey) {
+		const silent = loadedParamsKey.startsWith(`${activeGenerationId}:`);
 		loadedParamsKey = paramsKey;
-		loadParametersForCurrentFile();
+		loadParametersForCurrentFile(silent);
 	}
 
 
@@ -357,14 +357,13 @@
 	$: sawLive = !!activeGenerationId && liveSeenId === activeGenerationId;
 	$: endedInPlace = sawLive && (activeGeneration?.status === 'failed' || activeGeneration?.status === 'cancelled');
 	$: liveStage = recordLive || endedInPlace;
-	let finishedDismissedFor = '';
-	$: finishedNotice = sawLive && activeGeneration?.status === 'completed' && finishedDismissedFor !== activeGenerationId;
+	$: justFinished = sawLive && activeGeneration?.status === 'completed';
 
 	let slotChoice: number | null = null;
 	let lastItemIndex = 0;
 	$: if (liveNow?.itemIndex != null) lastItemIndex = liveNow.itemIndex;
 	let finishAppliedFor = '';
-	$: if (finishedNotice && finishAppliedFor !== activeGenerationId && mediaFiles.length > 0) {
+	$: if (justFinished && finishAppliedFor !== activeGenerationId && mediaFiles.length > 0) {
 		finishAppliedFor = activeGenerationId;
 		currentFileIndex = Math.min(slotChoice ?? lastItemIndex, mediaFiles.length - 1);
 	}
@@ -416,22 +415,8 @@
 		if (galleryCount > 0) void refreshDetail();
 	}
 
-	$: formParams = liveParameters(activeGeneration?.form_data, liveNow?.seed ?? null);
-	$: useFormParams = recordLive || (sawLive && (!paramsKey || (!paramsLoading && Object.keys(currentParams).length === 0)));
-	$: paramCount = useFormParams
-		? Object.keys(formParams.params).length
-		: countParameters({ params: shownParams, meta: shownParamMeta, order: currentParamOrder, models: currentModels });
+	$: paramCount = countParameters({ params: shownParams, meta: shownParamMeta, order: currentParamOrder, models: currentModels });
 	$: liveElapsed = activeGeneration && recordLive ? elapsedSeconds(activeGeneration, $liveClock) : null;
-	$: infoQueued = activeGeneration ? queuedSeconds(activeGeneration) : null;
-	$: infoQueuedText = infoQueued !== null && infoQueued >= 1 ? formatElapsed(infoQueued) : null;
-	$: infoTime = !activeGeneration
-		? ''
-		: recordLive
-			? formatElapsed(liveElapsed)
-			: formatElapsed(
-					activeGeneration.run_seconds ??
-						elapsedSeconds(activeGeneration, parseServerDate(activeGeneration.updated_at)?.getTime() ?? 0)
-				);
 	$: liveFinished = mediaFiles.length;
 	$: liveTotal = Math.max(batchTotal(activeGeneration?.form_data, liveNow?.itemCount ?? null), liveFinished);
 	$: liveSlots = batchSlots(
@@ -528,10 +513,10 @@
 		return merged;
 	}
 
-	async function loadParametersForCurrentFile() {
+	async function loadParametersForCurrentFile(silent = false) {
 		if (!activeGenerationId) return;
 
-		paramsLoading = true;
+		if (!silent) paramsLoading = true;
 		try {
 			const response = await api.getGenerationParams(activeGenerationId, currentFileIndex);
 			if (response.success && response.data) {
@@ -979,7 +964,7 @@
 							<Badge variant="signal" size="sm" class="uppercase tracking-wide">{queuedNow ? 'Queued' : 'Running'}</Badge>
 						{:else if endedInPlace}
 							<Badge variant="danger" size="sm" class="uppercase tracking-wide">{activeGeneration.status === 'cancelled' ? 'Cancelled' : 'Failed'}</Badge>
-						{:else if finishedNotice}
+						{:else if justFinished}
 							<Badge variant="success" size="sm" class="uppercase tracking-wide">Completed</Badge>
 						{/if}
 					{#if hostTitle && presetLabel}
@@ -1047,17 +1032,6 @@
 				onOpenedInTab={handleClose}
 			/>
 		{/if}
-		{#if finishedNotice}
-			<div class="flex shrink-0 items-center gap-2 border-b border-success/30 bg-success/10 px-4 py-2 text-sm text-success" role="status" data-live-finished-notice>
-				<Icon name="check" className="h-4 w-4 shrink-0" />
-				<span class="min-w-0 flex-1">
-					{mediaFiles.length > 1
-						? `Finished · ${mediaFiles.length} images are ready. You are looking at image ${currentFileIndex + 1}.`
-						: 'Finished · your result is ready.'}
-				</span>
-				<IconButton icon="close" label="Dismiss" size="sm" onclick={() => (finishedDismissedFor = activeGenerationId)} />
-			</div>
-		{/if}
 	{/snippet}
 
 	{#snippet stage()}
@@ -1108,22 +1082,6 @@
 	{#snippet columnContent()}
 		{#if activeGeneration}
 				<div class="pb-4">
-					{#if liveStage && activeGeneration}
-						<div class="px-4 pt-4">
-							<DetailsSection id="information" strip title="Information" icon="info" collapsible={false}>
-								<LiveInfoRows
-									id={activeGenerationId}
-									preset={presetLabel}
-									created={formatDate(activeGeneration.created_at)}
-									timeLabel={recordLive ? 'Elapsed' : 'Ran for'}
-									time={infoTime}
-									queued={infoQueuedText}
-									live={recordLive}
-								/>
-							</DetailsSection>
-						</div>
-					{/if}
-
 					{#if failure && !endedInPlace}
 						<div class="px-4 pb-4 pt-4">
 							<GenerationFailureAlert notice={failure} />
@@ -1139,10 +1097,10 @@
 					<div data-details-panel>
 						<DetailsSection id="parameters" strip title="Parameters" note={mediaFiles.length > 1 ? `image ${currentFileIndex + 1}` : undefined} count={paramsLoading ? undefined : paramCount} icon="sliders" collapsible={false}>
 							<ParametersView
-								params={useFormParams ? formParams.params : shownParams}
-								meta={useFormParams ? formParams.meta : shownParamMeta}
-								order={useFormParams ? null : currentParamOrder}
-								models={useFormParams ? [] : currentModels}
+								params={shownParams}
+								meta={shownParamMeta}
+								order={currentParamOrder}
+								models={currentModels}
 								{axisTags}
 								formData={activeGeneration.form_data ?? null}
 								loading={paramsLoading}
@@ -1228,7 +1186,6 @@
 							</DetailsSection>
 						{/if}
 
-						{#if !recordLive}
 						<DetailsSection id="models" title="Models" icon="model" count={currentModels.length > 0 ? currentModels.length : undefined}>
 							{#if paramsLoading}
 								<div class="flex items-center justify-center py-4">
@@ -1264,7 +1221,6 @@
 								<p class="px-3 text-sm text-fg-subtle">No models</p>
 							{/if}
 						</DetailsSection>
-					{/if}
 
 						{#each extraSections as section (section.id)}
 							<div data-extra-section={section.id}>

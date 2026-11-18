@@ -142,7 +142,8 @@ test.describe('a running generation opens from History and turns into the finish
 		await expect(detail.locator('[data-live-step]')).toContainText('step 17/28');
 		await expect(detail.locator('[data-live-preview]')).toBeVisible();
 		await expect(detail).toContainText(PROMPT);
-		await expect(detail).toContainText('Chosen when sampling starts');
+		await expect(detail).not.toContainText('Chosen when sampling starts');
+		await expect(detail).not.toContainText('Information');
 		await expect(detail.locator('[data-details-origin]')).toContainText(`Started over MCP · ${KEY_NAME}`);
 		await expect(detail.locator('[data-live-action="open-in-tab"]')).toBeVisible();
 		await expect(detail.locator('[data-live-disabled="download"] button')).toBeDisabled();
@@ -154,7 +155,8 @@ test.describe('a running generation opens from History and turns into the finish
 		server.records[RUN] = record(RUN, 'completed', { origin: mcpOrigin, files: [0, 1, 2, 3].map((i) => file(RUN, i)) });
 		push(server, RUN, { type: 'gallery_update', generation_id: RUN, pipe_id: 2, pipe_name: 'gallery', output_type: 'gallery', images: [PREVIEW], image_urls_list: [{ derived: false, seed: 1 }] });
 		push(server, RUN, { type: 'generation_complete', data: { id: RUN, generation_id: RUN, status: 'completed', progress: 1 } });
-		await expect(detail.locator('[data-live-finished-notice]')).toContainText('Finished', { timeout: 15000 });
+		await expect(detail.locator('[data-live-stage]')).toHaveCount(0, { timeout: 15000 });
+		await expect(detail.locator('[data-live-finished-notice]')).toHaveCount(0);
 		await expect(detail.locator('[data-live-stage]')).toHaveCount(0);
 		await expect(detail.locator('[data-details-origin]')).toContainText('Started over MCP');
 		await screenshot(page, JOURNEY, '04-finished-1440');

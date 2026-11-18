@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { batchSlots, batchTotal, elapsedSeconds, formatElapsed, liveStepLine, queuedSeconds, tileStepLabel } from './liveView';
-import { liveParameters, SEED_PENDING_COPY } from './liveParams';
 import { initialLive } from './liveState';
 
 describe('liveView', () => {
@@ -31,17 +30,5 @@ describe('liveView', () => {
 		expect(batchTotal({}, null)).toBe(1);
 		expect(batchSlots(4, 1, null).map((s) => s.state)).toEqual(['done', 'active', 'waiting', 'waiting']);
 		expect(batchSlots(4, 1, 'failed').map((s) => s.state)).toEqual(['done', 'failed', 'waiting', 'waiting']);
-	});
-});
-
-describe('liveParameters', () => {
-	it('builds rows from form_data and states when the seed is chosen', () => {
-		const form = { prompt: 'a dome', steps: 28, seed: -1, lora: { a: 1 }, empty: '' };
-		const { params } = liveParameters(form, null);
-		expect(params).toMatchObject({ prompt: 'a dome', steps: 28, seed: SEED_PENDING_COPY });
-		expect(params).not.toHaveProperty('lora');
-		expect(params).not.toHaveProperty('empty');
-		expect(liveParameters(form, 4211984).params.seed).toBe(4211984);
-		expect(liveParameters({ seed: 7 }, null).params.seed).toBe(7);
 	});
 });

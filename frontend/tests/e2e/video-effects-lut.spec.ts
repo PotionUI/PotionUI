@@ -121,6 +121,7 @@ test('a LUT from the LUT folder grades the live preview and the saved clip, with
 
 	const canvas = editor.locator('[data-live-preview]');
 	await expect(canvas).toBeVisible({ timeout: 10000 });
+	await page.addStyleTag({ content: '[data-live-chips] { visibility: hidden; }' });
 	await expect.poll(async () => (await channelMeans(page, null, null)).reduce((sum, value) => sum + value, 0), { timeout: 15000 }).toBeGreaterThan(0);
 	const source = await channelMeans(page, null, null);
 	await expect.poll(async () => JSON.stringify({ warmer: warmer(await liveMeans(page, canvas), source), live: await liveMeans(page, canvas), source }), { timeout: 15000 }).toContain('"warmer":true');

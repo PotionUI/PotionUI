@@ -1,0 +1,730 @@
+[
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "exposure.stops",
+  "value": -2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Exposure -2\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":-2,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Exposure -2\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":-2,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "exposure.stops",
+  "value": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Exposure +2\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":2,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Exposure +2\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":2,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "exposure.stops",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "exposure.stops",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "tone.brightness",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Brightness -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":-100,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Brightness -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":-100,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "tone.brightness",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Brightness +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":100,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Brightness +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":100,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "tone.brightness",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "tone.brightness",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "tone.contrast",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Contrast -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":-100,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Contrast -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":-100,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "tone.contrast",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Contrast +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":100,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Contrast +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":100,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "tone.contrast",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "tone.contrast",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "fade.black_lift",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "fade.black_lift",
+  "value": 40,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Black lift +40\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":40,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Black lift +40\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":40,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "fade.black_lift",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "fade.black_lift",
+  "value": 10,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Black lift +10\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":10,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Black lift +10\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":10,\"fade.white_cap\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "fade.white_cap",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "fade.white_cap",
+  "value": 30,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"White cap +30\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":30}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"White cap +30\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":30}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "fade.white_cap",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "light",
+  "key": "fade.white_cap",
+  "value": 7.5,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"White cap +7.5\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":7.5}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"White cap +7.5\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":7.5}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade-chain",
+  "entry": "light",
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Exposure +3 · Brightness +4 · Contrast +5\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":3,\"tone.brightness\":4,\"tone.contrast\":5,\"fade.black_lift\":6,\"fade.white_cap\":7}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Exposure +3 · Brightness +4 · Contrast +5\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":3,\"tone.brightness\":4,\"tone.contrast\":5,\"fade.black_lift\":6,\"fade.white_cap\":7}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "light",
+  "key": "exposure.stops",
+  "value": 1,
+  "startOp": "exposure",
+  "startParam": "stops",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 1\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":1}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 1\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":1}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "light",
+  "key": "tone.brightness",
+  "value": 50,
+  "startOp": "exposure",
+  "startParam": "stops",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":2}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Brightness +50\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":50,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":2}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Brightness +50\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":50,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "light",
+  "key": "tone.contrast",
+  "value": 50,
+  "startOp": "exposure",
+  "startParam": "stops",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":2}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Contrast +50\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":50,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":2}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Contrast +50\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":50,\"fade.black_lift\":0,\"fade.white_cap\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "light",
+  "key": "fade.black_lift",
+  "value": 20,
+  "startOp": "exposure",
+  "startParam": "stops",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":2}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Black lift +20\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":20,\"fade.white_cap\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":2}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"Black lift +20\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":20,\"fade.white_cap\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "light",
+  "key": "fade.white_cap",
+  "value": 15,
+  "startOp": "exposure",
+  "startParam": "stops",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":2}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"White cap +15\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":15}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Exposure\",\"summary\":\"Stops 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"exposure\",\"name\":\"Exposure\",\"values\":{\"stops\":2}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-light\",\"label\":\"Light\",\"summary\":\"White cap +15\",\"params\":{\"kind\":\"adjust\",\"op\":\"light\",\"name\":\"Light\",\"values\":{\"exposure.stops\":0,\"tone.brightness\":0,\"tone.contrast\":0,\"fade.black_lift\":0,\"fade.white_cap\":15}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "white_balance.temperature",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Temperature -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":-100,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Temperature -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":-100,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "white_balance.temperature",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Temperature +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":100,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Temperature +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":100,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "white_balance.temperature",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "white_balance.temperature",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "white_balance.tint",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Tint -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":-100,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Tint -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":-100,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "white_balance.tint",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Tint +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":100,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Tint +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":100,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "white_balance.tint",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "white_balance.tint",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "tone.saturation",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Saturation -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":-100,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Saturation -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":-100,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "tone.saturation",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Saturation +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":100,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Saturation +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":100,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "tone.saturation",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "tone.saturation",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "tone.hue",
+  "value": -180,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Hue -180\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":-180,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Hue -180\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":-180,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "tone.hue",
+  "value": 180,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Hue +180\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":180,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Hue +180\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":180,\"vibrance.amount\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "tone.hue",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "tone.hue",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "vibrance.amount",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Vibrance -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":-100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Vibrance -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":-100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "vibrance.amount",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Vibrance +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Vibrance +100\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "vibrance.amount",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade",
+  "entry": "colour",
+  "key": "vibrance.amount",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "grade-chain",
+  "entry": "colour",
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Temperature +3 · Tint +4 · Saturation +5\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":3,\"white_balance.tint\":4,\"tone.saturation\":5,\"tone.hue\":6,\"vibrance.amount\":7}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Temperature +3 · Tint +4 · Saturation +5\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":3,\"white_balance.tint\":4,\"tone.saturation\":5,\"tone.hue\":6,\"vibrance.amount\":7}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "colour",
+  "key": "white_balance.temperature",
+  "value": 50,
+  "startOp": "white_balance",
+  "startParam": "temperature",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 50\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":50,\"tint\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 50\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":50,\"tint\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "colour",
+  "key": "white_balance.tint",
+  "value": 50,
+  "startOp": "white_balance",
+  "startParam": "temperature",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 2 · Tint 50\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":2,\"tint\":50}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 2 · Tint 50\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":2,\"tint\":50}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "colour",
+  "key": "tone.saturation",
+  "value": 50,
+  "startOp": "white_balance",
+  "startParam": "temperature",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":2,\"tint\":0}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Saturation +50\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":50,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":2,\"tint\":0}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Saturation +50\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":50,\"tone.hue\":0,\"vibrance.amount\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "colour",
+  "key": "tone.hue",
+  "value": 90,
+  "startOp": "white_balance",
+  "startParam": "temperature",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":2,\"tint\":0}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Hue +90\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":90,\"vibrance.amount\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":2,\"tint\":0}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Hue +90\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":90,\"vibrance.amount\":0}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}"
+ },
+ {
+  "kind": "grade-legacy",
+  "entry": "colour",
+  "key": "vibrance.amount",
+  "value": 50,
+  "startOp": "white_balance",
+  "startParam": "temperature",
+  "startValue": 2,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":2,\"tint\":0}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Vibrance +50\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":50}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"White balance\",\"summary\":\"Temperature 2\",\"params\":{\"kind\":\"adjust\",\"op\":\"white_balance\",\"name\":\"White balance\",\"values\":{\"temperature\":2,\"tint\":0}},\"id\":\"s1\",\"hidden\":false},{\"tool\":\"effects\",\"icon\":\"editor-tool-colour\",\"label\":\"Colour\",\"summary\":\"Vibrance +50\",\"params\":{\"kind\":\"adjust\",\"op\":\"colour\",\"name\":\"Colour\",\"values\":{\"white_balance.temperature\":0,\"white_balance.tint\":0,\"tone.saturation\":0,\"tone.hue\":0,\"vibrance.amount\":50}},\"id\":\"s2\",\"hidden\":false}],\"cursor\":2,\"pending\":null,\"seq\":2}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "shadow_hue",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "shadow_hue",
+  "value": 360,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Shadow hue 360\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":360,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Shadow hue 360\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":360,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "shadow_hue",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "shadow_hue",
+  "value": 120,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Shadow hue 120\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":120,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Shadow hue 120\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":120,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "shadow_sat",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "shadow_sat",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Shadow saturation 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":100,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Shadow saturation 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":100,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "shadow_sat",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "shadow_sat",
+  "value": 33,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Shadow saturation 33\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":33,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Shadow saturation 33\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":33,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "highlight_hue",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "highlight_hue",
+  "value": 360,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Highlight hue 360\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":360,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Highlight hue 360\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":360,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "highlight_hue",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "highlight_hue",
+  "value": 120,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Highlight hue 120\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":120,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Highlight hue 120\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":120,\"highlight_sat\":0,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "highlight_sat",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "highlight_sat",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Highlight saturation 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":100,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Highlight saturation 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":100,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "highlight_sat",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "highlight_sat",
+  "value": 33,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Highlight saturation 33\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":33,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Highlight saturation 33\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":33,\"balance\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "balance",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Balance -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":-100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Balance -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":-100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "balance",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Balance 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Split tone\",\"summary\":\"Balance 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"split_tone\",\"name\":\"Split tone\",\"values\":{\"shadow_hue\":0,\"shadow_sat\":0,\"highlight_hue\":0,\"highlight_sat\":0,\"balance\":100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "balance",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "split_tone",
+  "param": "balance",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "shadows",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":-100,\"midtones\":0,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":-100,\"midtones\":0,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "shadows",
+  "value": -37,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows -37\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":-37,\"midtones\":0,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows -37\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":-37,\"midtones\":0,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "shadows",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "shadows",
+  "value": 64,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows 64\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":64,\"midtones\":0,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows 64\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":64,\"midtones\":0,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "shadows",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":100,\"midtones\":0,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":100,\"midtones\":0,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "midtones",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Midtones -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":-100,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Midtones -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":-100,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "midtones",
+  "value": -37,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Midtones -37\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":-37,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Midtones -37\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":-37,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "midtones",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "midtones",
+  "value": 64,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Midtones 64\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":64,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Midtones 64\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":64,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "midtones",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Midtones 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":100,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Midtones 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":100,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "highlights",
+  "value": -100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Highlights -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":0,\"highlights\":-100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Highlights -100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":0,\"highlights\":-100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "highlights",
+  "value": -37,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Highlights -37\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":0,\"highlights\":-37}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Highlights -37\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":0,\"highlights\":-37}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "highlights",
+  "value": 0,
+  "live": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}",
+  "committed": "{\"v\":1,\"steps\":[],\"cursor\":0,\"pending\":null,\"seq\":0}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "highlights",
+  "value": 64,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Highlights 64\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":0,\"highlights\":64}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Highlights 64\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":0,\"highlights\":64}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op",
+  "entry": "curves",
+  "param": "highlights",
+  "value": 100,
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Highlights 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":0,\"highlights\":100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Highlights 100\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":0,\"midtones\":0,\"highlights\":100}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ },
+ {
+  "kind": "op-chain",
+  "entry": "curves",
+  "live": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows -20 · Midtones -10\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":-20,\"midtones\":-10,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}",
+  "committed": "{\"v\":1,\"steps\":[{\"tool\":\"effects\",\"icon\":\"editor-tool-looks\",\"label\":\"Curves\",\"summary\":\"Shadows -20 · Midtones -10\",\"params\":{\"kind\":\"adjust\",\"op\":\"curves\",\"name\":\"Curves\",\"values\":{\"shadows\":-20,\"midtones\":-10,\"highlights\":0}},\"id\":\"s1\",\"hidden\":false}],\"cursor\":1,\"pending\":null,\"seq\":1}"
+ }
+]

@@ -4,7 +4,7 @@
 	import Menu, { type MenuItem } from '$lib/components/ui/Menu.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
 	import ImageSourceMenu from '$lib/components/paint/ImageSourceMenu.svelte';
-	import PropertySlider from '$lib/components/tool-tabs/frame/PropertySlider.svelte';
+	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import { dropRow, slotFor } from '$lib/paint/dragReorder';
 	import { PAINT_ICONS } from '$lib/paint/icons';
 	import type { LayerAction } from '$lib/paint/layerActions';
@@ -297,7 +297,13 @@
 					</div>
 					{#if isActive}
 						<div class="px-3 pb-2" role="group" aria-label="Layer opacity" data-layer-opacity>
-							<PropertySlider label="Opacity" inline value={opacityPercent} min={0} max={100} defaultValue={100} unit="%" onchange={liveOpacity} oncommit={commitOpacity} />
+							<SliderField
+								name="layer-opacity"
+								config={{ title: 'Opacity', min: 0, max: 100, default: 100, unit: '%', layout: 'inline', reset: true, legend: false }}
+								value={opacityPercent}
+								onChange={(_name, value) => liveOpacity(Number(value))}
+								onCommit={commitOpacity}
+							/>
 						</div>
 					{/if}
 				</div>

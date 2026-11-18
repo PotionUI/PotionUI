@@ -2,7 +2,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { IconButton } from '$lib/components/ui';
-	import PropertySlider from '$lib/components/tool-tabs/frame/PropertySlider.svelte';
+	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import type { EffectTool } from '$lib/effects/catalog';
 	import { CROP_ASPECTS, mirrorCropRect, rotateCropRect, turn } from '$lib/media/cropGeometry';
 	import { fixed2, readCrop, type RailToolId, type VideoOp, type VideoParams } from '$lib/tool-tabs/video/videoSteps';
@@ -71,15 +71,22 @@
 			{#if strength && op}
 				{@const min = strength.min ?? 0}
 				{@const max = strength.max ?? 1}
-				<PropertySlider
-					label={strength.label ?? strength.name}
-					value={Number(params[strength.name] ?? strength.default ?? min)}
-					{min}
-					{max}
-					step={strength.step ?? (strength.type === 'integer' ? 1 : (max - min) / 100)}
-					defaultValue={Number(strength.default ?? min)}
-					onchange={(value) => onparams(op, { ...params, [strength.name]: value })}
-				/>
+				<div data-field-name="strength">
+					<SliderField
+						name="video-strength"
+						config={{
+							title: strength.label ?? strength.name,
+							min,
+							max,
+							step: strength.step ?? (strength.type === 'integer' ? 1 : (max - min) / 100),
+							default: Number(strength.default ?? min),
+							reset: true,
+							legend: false
+						}}
+						value={Number(params[strength.name] ?? strength.default ?? min)}
+						onChange={(_name, value) => onparams(op, { ...params, [strength.name]: Number(value) })}
+					/>
+				</div>
 			{/if}
 		</div>
 	{/if}
@@ -116,16 +123,21 @@
 	{#if strength && op}
 		{@const min = strength.min ?? 0}
 		{@const max = strength.max ?? 1}
-		<div class="flex w-64 min-w-40 max-w-80 flex-1 items-center">
-			<PropertySlider
-				inline
-				label={strength.label ?? strength.name}
+		<div class="flex w-64 min-w-40 max-w-80 flex-1 items-center" data-field-name="strength">
+			<SliderField
+				name="video-strength-bar"
+				config={{
+					title: strength.label ?? strength.name,
+					min,
+					max,
+					step: strength.step ?? (strength.type === 'integer' ? 1 : (max - min) / 100),
+					default: Number(strength.default ?? min),
+					layout: 'inline',
+					reset: true,
+					legend: false
+				}}
 				value={Number(params[strength.name] ?? strength.default ?? min)}
-				{min}
-				{max}
-				step={strength.step ?? (strength.type === 'integer' ? 1 : (max - min) / 100)}
-				defaultValue={Number(strength.default ?? min)}
-				onchange={(value) => onparams(op, { ...params, [strength.name]: value })}
+				onChange={(_name, value) => onparams(op, { ...params, [strength.name]: Number(value) })}
 			/>
 		</div>
 	{/if}

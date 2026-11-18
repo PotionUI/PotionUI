@@ -275,7 +275,7 @@ test.describe('Paint entries in the Image editor', () => {
 		await openDusk(page);
 		await openPaint(page, 'brush');
 		await expect(page.locator('[data-paint-tools]')).toHaveCount(0);
-		await expect(page.locator('[data-paint-tool-panel="brush"] [data-property-slider]')).toHaveCount(2);
+		await expect(page.locator('[data-paint-tool-panel="brush"] [data-field-name]')).toHaveCount(2);
 		await expect(page.locator('[data-edit-stack] [data-stack-group] [data-paint-layers] [data-layer-row]')).toHaveCount(2);
 		await expect(page.locator('[data-options-panel] [data-paint-layers]')).toHaveCount(0);
 		await expect(page.locator('[data-stack-group] [data-stack-state="in-progress"]')).toContainText('In progress');
@@ -284,7 +284,7 @@ test.describe('Paint entries in the Image editor', () => {
 		await screenshot(page, JOURNEY, '01-brush-1440');
 
 		await selectRailTool(page, 'paint.eraser');
-		await expect(page.locator('[data-paint-tool-panel="eraser"] [data-property-slider]')).toHaveCount(1);
+		await expect(page.locator('[data-paint-tool-panel="eraser"] [data-field-name]')).toHaveCount(1);
 		await expect(page.locator('[data-paint-colour]')).toHaveCount(0);
 		await screenshot(page, JOURNEY, '03-eraser-1440');
 		await selectRailTool(page, 'paint.fill');

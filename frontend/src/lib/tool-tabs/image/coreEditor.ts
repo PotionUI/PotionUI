@@ -5,8 +5,8 @@ import { railGroups, railTools, type RailToolEntry } from '$lib/editors/railTool
 import { stepKinds, type StepKind } from '$lib/editors/stepKinds';
 import { coreSizeAfter, coreStepPayload } from './payload';
 import { PREVIEW_SIDE, coreApplyClientStep } from './render';
-import EntryOptions from '$lib/components/tool-tabs/image/EntryOptions.svelte';
-import { effectCardEntry, liveEffectEntry, toggleEntry } from './entrySchemas';
+import CurvesPlotOptions from '$lib/components/tool-tabs/image/CurvesPlotOptions.svelte';
+import { effectCardEntry, gradeEntry, liveEffectEntry, opSlidersEntry, toggleEntry } from './entrySchemas';
 import { imageEffects } from './shaderEffect';
 import { ensureGenerateEditor } from './generate/register';
 import { ensurePaintEntries } from './paintEntries';
@@ -72,7 +72,9 @@ function seedBody(seed: EntrySeed): Partial<RailToolEntry> {
 	if (seed.id === 'film_grain' || seed.id === 'vignette') return liveEffectEntry(seed.id);
 	if (seed.id === 'grayscale' || seed.id === 'invert') return toggleEntry(seed.id);
 	if (seed.component === 'card') return effectCardEntry();
-	return { options: { component: EntryOptions } };
+	if (seed.id === 'light' || seed.id === 'colour') return gradeEntry(seed.id);
+	if (seed.id === 'split_tone') return opSlidersEntry('split_tone');
+	return { ...opSlidersEntry('curves'), options: { component: CurvesPlotOptions } };
 }
 
 export const EFFECT_ENTRY_IDS: ReadonlySet<string> = new Set(['lut', 'film_grain', 'vignette']);

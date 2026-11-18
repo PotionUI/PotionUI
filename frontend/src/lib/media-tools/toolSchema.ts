@@ -14,6 +14,7 @@ export interface ToolSchemaOptions {
 	compactSliders?: boolean;
 	sliderLayout?: 'inline';
 	pairNumberBoxes?: boolean;
+	signedSliders?: boolean;
 }
 
 const warned = new Set<string>();
@@ -60,6 +61,7 @@ function fieldFor(param: ToolParam, type: ParamFieldType, options: ToolSchemaOpt
 				if (strictlyInside(param)) config.fill = 'from-default';
 			} else config.reset = false;
 			if (options.sliderLayout) config.layout = options.sliderLayout;
+			if (options.signedSliders && typeof param.min === 'number' && param.min < 0) config.signed = true;
 			break;
 		case 'seed':
 			config.minimum = param.min ?? 0;

@@ -35,7 +35,7 @@ function mountPanel(tool: string, component: unknown = PaintPanel, extra: Record
 }
 
 const q = (selector: string) => document.body.querySelector<HTMLElement>(selector);
-const sliders = () => Array.from(document.body.querySelectorAll<HTMLElement>('[data-paint-tool-panel] [data-property-slider]')).map((node) => node.dataset.propertySlider);
+const sliders = () => Array.from(document.body.querySelectorAll<HTMLElement>('[data-paint-tool-panel] [data-field-name] label')).map((node) => node.textContent);
 const rows = () => Array.from(document.body.querySelectorAll<HTMLElement>('[data-layer-row]'));
 
 beforeEach(() => {

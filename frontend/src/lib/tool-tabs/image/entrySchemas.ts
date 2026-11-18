@@ -6,12 +6,13 @@ import { sharedExtensions } from '$lib/filters/extensions';
 import { getOp } from '$lib/filters/engine';
 import { scalarParams } from '$lib/filters/steps';
 import { paramField, toolParamsToSchema } from '$lib/media-tools/toolSchema';
+import type { ToolParam } from '$lib/media-tools/types';
 import { paintFilters } from '$lib/paint/registries';
 import { liveEdit, type EditStackState, type StepDraft } from '$lib/tool-tabs/frame/editStack';
 import { adjustStepFor, setAdjustToggle, setAdjustValue, toggleIsOn } from './adjustSections';
-import { LIVE_EFFECTS, OP_ENTRIES, liveEffectState, matchEffect, type LiveEffectEntry } from './entries';
+import { GRADE_ENTRIES, LIVE_EFFECTS, OP_ENTRIES, controlKey, gradeValue, liveEffectState, matchEffect, setGradeValue, type GradeControl, type LiveEffectEntry } from './entries';
 import { imageEffects } from './shaderEffect';
-import { toolEffectDraft, type AdjustParams, type EffectParams, type ToolEffectParams } from './steps';
+import { CURVE_POINTS, toolEffectDraft, type AdjustParams, type EffectParams, type ToolEffectParams } from './steps';
 import type { ImageToolHost } from './toolHost';
 
 type SchemaEntry = Pick<RailToolEntry, 'schema' | 'values' | 'onValues' | 'description'>;
@@ -163,6 +164,88 @@ export function effectCardEntry(): SchemaEntry {
 			const draft = toolEffectDraft(params, ctx.catalog) as StepDraft<unknown>;
 			if (heldEffect(ctx)) ctx.host.update(draft);
 			else ctx.host.begin(draft);
+		}
+	};
+}
+
+const SIGNED_SLIDERS = { signedSliders: true } as const;
+
+export const gradeFieldName = (control: GradeControl): string => controlKey(control).replace('.', '_');
+
+function opSlider(name: string, label: string, param: { type: string; min: number; max: number; default: number; unit?: string }) {
+	const tool: ToolParam = {
+		name,
+		label,
+		type: param.type === 'float' ? 'float' : 'integer',
+		min: param.min,
+		max: param.max,
+		step: param.type === 'float' ? 0.05 : 1,
+		default: param.default,
+		unit: param.unit
+	};
+	return paramField(tool, SIGNED_SLIDERS);
+}
+
+export function gradeEntry(id: 'light' | 'colour'): SchemaEntry {
+	const entry = GRADE_ENTRIES[id];
+	return {
+		schema: () =>
+			entry.controls.flatMap((control) => {
+				const param = scalarParams(lookup(control.op)).find((candidate) => candidate.id === control.param);
+				return param ? [opSlider(gradeFieldName(control), control.label, param)] : [];
+			}),
+		values: (ctx) => {
+			const stack = ctx.stack ?? stackOf(ctx);
+			return Object.fromEntries(entry.controls.map((control) => [gradeFieldName(control), gradeValue(stack, entry, control, lookup)]));
+		},
+		onValues: (values, info, ctx) => {
+			const host = imageHost(ctx);
+			if (info.commit) {
+				host.settle();
+				return;
+			}
+			const before = host.current();
+			let next = before;
+			for (const control of entry.controls) {
+				const value = values[gradeFieldName(control)];
+				if (typeof value !== 'number' || gradeValue(next, entry, control, lookup) === value) continue;
+				next = setGradeValue(next, entry, control, value, lookup);
+			}
+			if (next !== before) host.edit(next, { hold: true });
+		}
+	};
+}
+
+export function opSlidersEntry(id: 'split_tone' | 'curves'): SchemaEntry {
+	const entry = OP_ENTRIES[id];
+	const controls: ReadonlyArray<{ param: string; label: string }> = id === 'curves' ? CURVE_POINTS.map((point) => ({ param: point.id, label: point.label })) : (entry.controls ?? []);
+	const paramOf = (param: string) => (id === 'curves' ? { type: 'integer', min: -100, max: 100, default: 0 } : scalarParams(lookup(entry.op)).find((candidate) => candidate.id === param));
+	return {
+		schema: () =>
+			controls.flatMap((control) => {
+				const param = paramOf(control.param);
+				return param ? [opSlider(control.param, control.label, param)] : [];
+			}),
+		values: (ctx) => {
+			const stack = ctx.stack ?? stackOf(ctx);
+			return Object.fromEntries(controls.map((control) => [control.param, legacyValue(stack, entry.op, control.param, paramOf(control.param)?.default ?? 0)]));
+		},
+		onValues: (values, info, ctx) => {
+			const host = imageHost(ctx);
+			if (info.commit) {
+				host.settle();
+				return;
+			}
+			const spec = lookup(entry.op);
+			if (!spec) return;
+			const before = host.current();
+			let next = before;
+			for (const control of controls) {
+				const value = values[control.param];
+				if (typeof value !== 'number' || legacyValue(next, entry.op, control.param, paramOf(control.param)?.default ?? 0) === value) continue;
+				next = setAdjustValue(next, spec, control.param, value);
+			}
+			if (next !== before) host.edit(next, { hold: true });
 		}
 	};
 }

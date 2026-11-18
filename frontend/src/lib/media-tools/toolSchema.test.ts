@@ -24,6 +24,13 @@ describe('paramField', () => {
 		expect(field.legend).toBeUndefined();
 	});
 
+	it('shows a plus sign on a slider that crosses zero only when asked to', () => {
+		const param: ToolParam = { name: 'a', type: 'float', min: -1, max: 1, default: 0 };
+		expect((paramField(param) as unknown as Record<string, unknown>).signed).toBeUndefined();
+		expect(paramField(param, { signedSliders: true })).toMatchObject({ signed: true });
+		expect((paramField({ name: 'a', type: 'float', min: 0, max: 1, default: 0 }, { signedSliders: true }) as unknown as Record<string, unknown>).signed).toBeUndefined();
+	});
+
 	it('steps an integer by one and a float by a hundredth when the tool says nothing', () => {
 		expect(paramField({ name: 'a', type: 'integer', min: 0, max: 9 })).toMatchObject({ step: 1 });
 		expect(paramField({ name: 'a', type: 'float', min: 0, max: 9 })).toMatchObject({ step: 0.01 });

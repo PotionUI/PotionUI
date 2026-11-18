@@ -95,7 +95,8 @@ async function mockServer(page: Page): Promise<Server> {
 const rail = (page: Page, tool: string) => page.locator(`[data-tool-rail] button[data-tool="${tool}"]`);
 const group = (page: Page, id: string) => page.locator(`[data-tool-rail] button[data-group-button="${id}"]`);
 const folded = (page: Page) => page.locator('[data-tool-rail]').first().getAttribute('data-rail-folded');
-const slider = (page: Page, label: string) => page.locator(`[data-property-slider="${label}"] input[type="range"]`);
+const FIELD_OF: Record<string, string> = { Contrast: 'tone_contrast', Saturation: 'tone_saturation' };
+const slider = (page: Page, label: string) => page.locator(`[data-field-name="${FIELD_OF[label] ?? label}"] input[type="range"]`);
 
 async function begin(page: Page): Promise<Server> {
 	const server = await mockServer(page);
@@ -258,13 +259,13 @@ test.describe('the Image editor tools map on desktop', () => {
 		await openHarbor(page);
 		await setRailHeight(page, 1169);
 		await selectRailTool(page, 'light');
-		await expect(page.locator('[data-entry-options="light"] [data-property-slider]')).toHaveCount(5);
+		await expect(page.locator('[data-entry-options="light"] [data-field-type="slider"]')).toHaveCount(5);
 		const contrast = slider(page, 'Contrast');
 		await contrast.fill('12');
 		await contrast.dispatchEvent('change');
 		await screenshot(page, JOURNEY, '06-light-dark-1440');
 		await selectRailTool(page, 'colour');
-		await expect(page.locator('[data-entry-options="colour"] [data-property-slider]')).toHaveCount(5);
+		await expect(page.locator('[data-entry-options="colour"] [data-field-type="slider"]')).toHaveCount(5);
 		await slider(page, 'Saturation').fill('-20');
 		await slider(page, 'Saturation').dispatchEvent('change');
 		const rows = page.locator('[data-edit-stack] [data-stack-row]');
@@ -273,7 +274,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		await expect(rows.nth(2)).toContainText('Colour');
 		await selectRailTool(page, 'light');
 		await expect(slider(page, 'Contrast')).toHaveValue('12');
-		await expect(page.locator('[data-entry-options="light"] [data-property-slider="Saturation"]')).toHaveCount(0);
+		await expect(page.locator('[data-entry-options="light"] [data-field-name="tone_saturation"]')).toHaveCount(0);
 		await rows.nth(2).locator('button').first().click();
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'colour');
 		await expect(slider(page, 'Saturation')).toHaveValue('-20');
@@ -296,7 +297,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		await expect(page.locator('[data-options-panel] [data-look-list]')).toBeVisible();
 		await expect(page.locator('[data-tray]')).toHaveCount(0);
 		await page.locator('[data-look-item]:not([data-look-item="__original"])').first().click();
-		await expect(page.locator('[data-options-panel] [data-property-slider="Intensity"]')).toBeVisible();
+		await expect(page.locator('[data-options-panel] [data-field-name="intensity"]')).toBeVisible();
 		await screenshot(page, JOURNEY, '07-looks-dark-1440');
 	});
 

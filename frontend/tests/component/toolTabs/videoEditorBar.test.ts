@@ -123,7 +123,7 @@ describe('video look and effect tray', () => {
 		expect(rows()).toEqual(['original', 'pending']);
 		expect(q('[data-tray-item="look:warm"]')?.getAttribute('aria-selected')).toBe('true');
 		expect(q('[data-options-panel] [data-bar-effect]')?.textContent).toBe('Look');
-		expect(q('[data-options-panel] [data-property-slider="Strength"]')).not.toBeNull();
+		expect(q('[data-options-panel] [data-field-name="strength"]')).not.toBeNull();
 		const apply = q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')!;
 		expect(apply.textContent).toContain('Add effect');
 		apply.click();
@@ -160,17 +160,17 @@ describe('video look and effect tray', () => {
 		flushSync();
 		q<HTMLButtonElement>('[data-options-footer] [data-options-apply]')!.click();
 		flushSync();
-		const range = q<HTMLInputElement>('[data-options-panel] [data-property-slider="Strength"] input')!;
+		const range = q<HTMLInputElement>('[data-options-panel] [data-field-name="strength"] input[type="range"]')!;
 		for (const value of ['0.8', '0.6', '0.4']) {
 			range.value = value;
 			range.dispatchEvent(new Event('input', { bubbles: true }));
 			flushSync();
 		}
 		expect(rows()).toEqual(['original', 'current']);
-		expect(q('[data-options-panel] [data-property-slider="Strength"] [data-property-value]')?.textContent).toBe('0.4');
+		expect(q('[data-options-panel] [data-field-name="strength"] [data-slider-value]')?.textContent).toBe('0.4');
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
 		flushSync();
-		expect(q('[data-options-panel] [data-property-slider="Strength"] [data-property-value]')?.textContent).toBe('1');
+		expect(q('[data-options-panel] [data-field-name="strength"] [data-slider-value]')?.textContent).toBe('1');
 		expect(rows()).toEqual(['original', 'current']);
 	});
 });

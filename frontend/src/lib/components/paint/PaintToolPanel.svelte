@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui';
-	import PropertySlider from '$lib/components/tool-tabs/frame/PropertySlider.svelte';
+	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import AdjustPanel from '$lib/components/paint/AdjustPanel.svelte';
 	import ColourControl from '$lib/components/paint/ColourControl.svelte';
 	import CropPanel from '$lib/components/paint/CropPanel.svelte';
@@ -54,13 +54,19 @@
 		</div>
 	{:else}
 		{#if options.includes('size')}
-			<PropertySlider label="Size" value={snapshot.settings.size} min={1} max={200} defaultValue={DEFAULT_SIZE} unit=" px" onchange={(value) => session.setSetting('size', value)} />
+			<div data-field-name="size">
+				<SliderField name="paint-size" config={{ title: 'Size', min: 1, max: 200, default: DEFAULT_SIZE, unit: ' px', reset: true, legend: false }} value={snapshot.settings.size} onChange={(_name, value) => session.setSetting('size', Number(value))} />
+			</div>
 		{/if}
 		{#if options.includes('opacity')}
-			<PropertySlider label="Opacity" value={snapshot.settings.opacity} min={1} max={100} defaultValue={100} unit="%" onchange={(value) => session.setSetting('opacity', value)} />
+			<div data-field-name="opacity">
+				<SliderField name="paint-opacity" config={{ title: 'Opacity', min: 1, max: 100, default: 100, unit: '%', reset: true, legend: false }} value={snapshot.settings.opacity} onChange={(_name, value) => session.setSetting('opacity', Number(value))} />
+			</div>
 		{/if}
 		{#if options.includes('tolerance')}
-			<PropertySlider label="Tolerance" value={snapshot.settings.tolerance} min={0} max={100} defaultValue={32} onchange={(value) => session.setSetting('tolerance', value)} />
+			<div data-field-name="tolerance">
+				<SliderField name="paint-tolerance" config={{ title: 'Tolerance', min: 0, max: 100, default: 32, reset: true, legend: false }} value={snapshot.settings.tolerance} onChange={(_name, value) => session.setSetting('tolerance', Number(value))} />
+			</div>
 		{/if}
 		{#if options.includes('color')}
 			<div class="flex flex-col gap-1.5">

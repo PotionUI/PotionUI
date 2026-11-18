@@ -212,6 +212,8 @@ describe('SliderField layout', () => {
 
 		expect(slider.root().getAttribute('data-changed')).toBe('true');
 		expect(slider.target.querySelector('[data-slider-value]')!.textContent?.trim()).toBe('+25');
+		expect(slider.target.querySelector('[data-slider-value]')!.className).toContain('tabular-nums');
+		expect(slider.target.querySelector('[data-slider-value]')!.className).toContain('font-mono');
 	});
 
 	it('does not mark a value at its default as changed', () => {
@@ -224,20 +226,5 @@ describe('SliderField layout', () => {
 		const slider = mountSlider({ ...SIGNED, layout: 'inline' }, 25);
 
 		expect(slider.target.querySelector('span.pointer-events-none')).toBeTruthy();
-	});
-});
-
-describe('SliderField as the base for PropertySlider', () => {
-	it('offers each behaviour PropertySlider has: commit on change, reset on double-click and Backspace, two-sided fill, inline layout', () => {
-		const slider = mountSlider({ ...SIGNED, layout: 'inline', fill: 'from-default', signed: true }, 30);
-
-		setRange(slider.range(), 35);
-		fire(slider.range(), 'change');
-		expect(slider.onCommit).toHaveBeenCalledTimes(1);
-
-		slider.range().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-		press(slider.range(), 'keydown', 'Backspace');
-		expect(slider.onChange).toHaveBeenCalledWith('level', 0);
-		expect(slider.root().getAttribute('data-slider-layout')).toBe('inline');
 	});
 });

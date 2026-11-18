@@ -16,9 +16,9 @@
 		FrameSheet,
 		LookList,
 		OptionsPanel,
-		PropertySlider,
 		ToolRail
 	} from '$lib/components/tool-tabs/frame';
+	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import SaveMenuRows from '$lib/components/tool-tabs/frame/SaveMenuRows.svelte';
 	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
 	import { editorsRevision, entryKey } from '$lib/editors/registry';
@@ -462,6 +462,7 @@
 	let effectOriginal = $derived(effectUpdating ? ((stack.steps.find((step) => step.id === pendingHere?.target)?.params as EffectParams | undefined) ?? null) : null);
 
 	let lookParams = $derived(effectParams?.kind === 'look' ? effectParams : null);
+	let intensityConfig = $derived({ title: 'Intensity', min: 0, max: 100, step: 1, default: lookParams ? (trayById.get(lookParams.filter)?.intensity ?? 100) : 100, reset: true, legend: false });
 	let trayItems = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
 		const visible = $filterCatalog.items.filter((item) => !isLocked(item, extensions) && (!needle || item.name.toLowerCase().includes(needle)));
@@ -2034,7 +2035,9 @@
 	{#if lookParams}
 		<div class="flex flex-col gap-2" data-look-controls>
 			<span class="inline-flex h-6 w-fit flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{lookParams.name}</span>
-			<PropertySlider label="Intensity" value={lookParams.intensity} min={0} max={100} defaultValue={trayById.get(lookParams.filter)?.intensity ?? 100} onchange={(value) => setDraft('effects', { ...lookParams, intensity: value })} />
+			<div data-field-name="intensity">
+				<SliderField name="intensity" config={intensityConfig} value={lookParams.intensity} onChange={(_name, value) => setDraft('effects', { ...lookParams, intensity: Number(value) })} />
+			</div>
 		</div>
 	{:else if effectParams?.kind === 'effect'}
 		<span class="inline-flex h-6 w-fit flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{effectParams.name}</span>
@@ -2052,7 +2055,9 @@
 		{#if lookParams}
 			<span class="inline-flex h-6 flex-none items-center rounded bg-signal/10 px-2 font-mono text-sm text-signal" data-bar-look>{lookParams.name}</span>
 			<div class="flex min-w-0 flex-1 items-center">
-				<PropertySlider inline label="Intensity" value={lookParams.intensity} min={0} max={100} defaultValue={trayById.get(lookParams.filter)?.intensity ?? 100} onchange={(value) => setDraft('effects', { ...lookParams, intensity: value })} />
+				<div class="min-w-0 flex-1" data-field-name="intensity">
+					<SliderField name="intensity" config={{ ...intensityConfig, layout: 'inline' }} value={lookParams.intensity} onChange={(_name, value) => setDraft('effects', { ...lookParams, intensity: Number(value) })} />
+				</div>
 			</div>
 		{:else}
 			<span class="min-w-0 flex-1 truncate text-sm text-fg-subtle">{effectParams?.kind === 'effect' ? effectParams.name : 'Tap a look to preview it'}</span>

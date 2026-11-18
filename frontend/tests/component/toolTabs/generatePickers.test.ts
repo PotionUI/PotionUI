@@ -333,7 +333,7 @@ describe('switching with unsaved changes', () => {
 
 describe('use as my default', () => {
 	const mine = (preset_id: string, mode: string, setup: SetupRef = { kind: 'defaults' }) => ({ preset_id, mode, setup, health: { ok: true, reason: null, name: null, mode_label: null } });
-	const star = () => document.body.querySelector<HTMLButtonElement>('[data-testid="default-star"]');
+	const star = () => document.body.querySelector<HTMLButtonElement>('[data-testid="default-button"]');
 	const tip = async () => {
 		keyboardFocus(star()!);
 		await settle(4);
@@ -345,10 +345,15 @@ describe('use as my default', () => {
 	};
 	const brokenDefault = () => edit({ default: { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'session', id: 'gone' }, health: { ok: false, reason: 'session_deleted', name: 'Soft portrait', mode_label: 'Edit' } } });
 
-	it('is a star after the Session picker, and the Preset dropdown and label carry no default switch or suffix', async () => {
+	it('is a labelled button in the session step after Save and Reload, and the Preset dropdown and label carry no default switch or suffix', async () => {
 		const t = await open([edit({ offers: [offer()] })]);
-		const steps = t.all('[data-dock-pickers] > *').map((node) => node.getAttribute('data-testid'));
-		expect(steps.indexOf('editor-default-star')).toBe(steps.indexOf('editor-session-step') + 1);
+		const group = document.body.querySelector('[data-editor-pickers="desktop"] [data-session-actions]')!;
+		expect(group.closest('[data-testid="editor-session-step"]')).not.toBeNull();
+		const kids = Array.from(group.querySelectorAll('button')).map((node) => node.getAttribute('data-testid'));
+		expect(kids[0]).toBe('session-save');
+		expect(kids[kids.length - 1]).toBe('default-button');
+		expect(star()!.textContent).toContain('Default');
+		expect(star()!.className).toContain('!h-8');
 		await click(t.q('[data-testid="preset-picker-trigger"]'));
 		expect(t.q('[data-picker-default]')).toBeNull();
 		expect(document.body.querySelector('[data-picker-default]')).toBeNull();
@@ -356,9 +361,9 @@ describe('use as my default', () => {
 		expect(star()!.hasAttribute('title')).toBe(false);
 	});
 
-	it('is an outline star with the first line as its label when the setup is not the default, naming what new tools start with', async () => {
+	it('is an outline star button with the first line as its label when the setup is not the default, naming what new tools start with', async () => {
 		const t = await open([edit({ offers: [offer()] })]);
-		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('off');
+		expect(t.q('[data-default-button]')!.getAttribute('data-default-button')).toBe('off');
 		expect(star()!.getAttribute('aria-pressed')).toBe('false');
 		expect(star()!.getAttribute('aria-label')).toBe('Use as my default for Edit a region');
 		expect(star()!.disabled).toBe(false);
@@ -366,12 +371,12 @@ describe('use as my default', () => {
 		expect(await tip()).toEqual(['Use as my default for Edit a region', 'New Edit a region tools start with Qwen-Image 2.1 · Edit · No saved session']);
 	});
 
-	it('is a filled signal star when the setup in use is the default', async () => {
+	it('is a filled signal star button when the setup in use is the default', async () => {
 		const t = await open([edit({ default: mine('qwen', 'editor:edit') })]);
-		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('on');
+		expect(t.q('[data-default-button]')!.getAttribute('data-default-button')).toBe('on');
 		expect(star()!.getAttribute('aria-pressed')).toBe('true');
 		expect(star()!.getAttribute('aria-label')).toBe('Your default for Edit a region');
-		expect(star()!.className).toContain('text-signal');
+		expect(star()!.querySelector('svg')!.getAttribute('class')).toContain('text-signal');
 		expect(star()!.querySelector('svg')!.getAttribute('class')).toContain('fill-current');
 		expect(await tip()).toEqual(['Your default for Edit a region', 'Click to stop using it as your default']);
 	});
@@ -380,7 +385,7 @@ describe('use as my default', () => {
 		const t = await open([edit({ default: mine('qwen', 'editor:edit') })]);
 		await t.controller.pick('edit_region', { preset_id: 'flux', mode: 'editor:fill', setup: { kind: 'defaults' } });
 		await settle();
-		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('off');
+		expect(t.q('[data-default-button]')!.getAttribute('data-default-button')).toBe('off');
 		expect((await tip())[1]).toBe('Your default is Qwen-Image 2.1 · Edit · No saved session');
 	});
 
@@ -398,10 +403,10 @@ describe('use as my default', () => {
 
 	it('is disabled with the reason until a preset and a mode are chosen', async () => {
 		const t = await open([edit()]);
-		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('disabled');
+		expect(t.q('[data-default-button]')!.getAttribute('data-default-button')).toBe('disabled');
 		expect(star()!.disabled).toBe(true);
 		expect(star()!.getAttribute('aria-disabled')).toBe('true');
-		expect(t.text('[data-default-star] .sr-only')).toBe('Choose a preset and a mode first');
+		expect(t.text('[data-default-button] .sr-only')).toBe('Choose a preset and a mode first');
 		await click(star());
 		expect(t.ports.setDefault).not.toHaveBeenCalled();
 	});
@@ -410,19 +415,24 @@ describe('use as my default', () => {
 		const t = await open([brokenDefault()]);
 		if (!t.q('[data-preset-row]')) await click(t.q('[data-testid="preset-picker-trigger"]'));
 		await click(t.q('[data-preset-row="qwen"] button.row-main'));
-		expect(t.q('[data-default-star]')!.getAttribute('data-default-star')).toBe('broken');
-		expect(t.q('[data-default-star-warning]')).not.toBeNull();
+		expect(t.q('[data-default-button]')!.getAttribute('data-default-button')).toBe('broken');
+		expect(t.q('[data-default-button-warning]')).not.toBeNull();
 		expect(star()!.getAttribute('aria-pressed')).toBe('false');
 		expect(await tip()).toEqual(['Replace your default for Edit a region', 'Your default setup "Soft portrait" was deleted.']);
 		await click(star());
 		expect(t.ports.setDefault).toHaveBeenCalledWith('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'defaults' } });
 	});
 
+	it('stays reachable without a setup choice, beside nothing else', async () => {
+		const t = await open([edit()]);
+		expect(document.body.querySelector('[data-testid="editor-default-button"] [data-testid="default-button"]')).not.toBeNull();
+	});
+
 	it('sits in the phone row as a 40px target', async () => {
 		const t = await open([edit({ offers: [offer()] })], {}, { phone: true });
-		expect(t.q('[data-editor-pickers="phone"] [data-default-star]')).not.toBeNull();
-		expect(star()!.className).toContain('h-10');
-		expect(star()!.className).toContain('w-10');
+		expect(t.q('[data-editor-pickers="phone"] [data-default-button]')).not.toBeNull();
+		expect(star()!.className).toContain('!h-10');
+		expect(star()!.textContent).toContain('Default');
 		await click(star());
 		expect(t.ports.setDefault).toHaveBeenCalled();
 	});
@@ -506,7 +516,7 @@ describe('on the phone', () => {
 });
 
 describe('the setup strip sizing', () => {
-	const shrinkOf = (node: Element | null) => Number(/shrink-\[(\d+)\]/.exec(node?.className ?? '')?.[1] ?? 'NaN');
+	const shrinkOf = (node: Element | null) => Number(/shrink-\[([\d.]+)\]/.exec(node?.className ?? '')?.[1] ?? 'NaN');
 
 	it('lets the three cells size to their content and share a short strip by priority: preset, then session, then mode', async () => {
 		const t = await open([quiet({ offers: [offer(), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', order: 1 })] })], { sessions: { qwen: [stored('s1', 'Soft portrait', 'editor:edit', 20)] } });
@@ -520,7 +530,7 @@ describe('the setup strip sizing', () => {
 		expect(shrinkOf(preset)).toBeLessThan(shrinkOf(session));
 		expect(shrinkOf(session)).toBeLessThan(shrinkOf(mode));
 		expect(preset.closest('[data-dock-pickers]')!.className).toContain('min-w-0');
-		expect(t.q('[data-testid="session-trigger"]')!.closest('[data-testid="context-session"]')!.className).toContain('max-w-[404px]');
+		expect(t.q('[data-testid="session-trigger"]')!.closest('[data-testid="context-session"]')!.className).toContain('max-w-[500px]');
 	});
 
 	it('keeps the right group at its own width', async () => {

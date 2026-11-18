@@ -8,7 +8,7 @@
 	import ContextCut from '$lib/components/ui/ContextCut.svelte';
 	import EditorNotices from './EditorNotices.svelte';
 	import EditorFormulas from './EditorFormulas.svelte';
-	import EditorDefaultStar from './EditorDefaultStar.svelte';
+	import EditorDefaultButton from './EditorDefaultButton.svelte';
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
 	import SessionHost from '$lib/components/session/SessionHost.svelte';
 	import { Spinner } from '$lib/components/ui';
@@ -55,6 +55,7 @@
 	let formulaValue = $derived(choice?.setup.kind === 'formula' ? choice.setup.id : NO_FORMULA);
 	let changed = $derived(isChanged($ui.tweaks[taskId]));
 	let nothingOffered = $derived(offers.length === 0);
+	let sessionWidth = $derived($session.currentSession ? 'min-w-[250px] max-w-[538px]' : 'min-w-[230px] max-w-[500px]');
 
 	$effect(() => {
 		const wanted = $ui.picker.open && $ui.picker.why === 'first_use';
@@ -138,7 +139,7 @@
 						<SessionControl session={$session} actions={sessionActions} {fieldLabels} layout="sheet" autosave={false} shortcut={false} />
 					{/if}
 				</div>
-				<EditorDefaultStar {taskId} {label} phone />
+				<EditorDefaultButton {taskId} {label} phone />
 			</div>
 			{#if showFormulas}
 				<PickerSelect value={formulaValue} options={formulaOptions} label="Choose formula" placeholder="Formula" onchange={pickFormula} />
@@ -214,11 +215,13 @@
 					<ContextCut />
 					<div class={DOCK_STEP.session} data-testid="editor-session-step" data-context-step>
 						{@render stepLabel(`${uid}-session`, 'Session')}
-						<SessionControl session={$session} actions={sessionActions} {fieldLabels} compact autosave={false} shortcut={false} labelId="{uid}-session" />
+						<SessionControl session={$session} actions={sessionActions} {fieldLabels} compact widthClass={sessionWidth} autosave={false} shortcut={false} labelId="{uid}-session">
+							{#snippet trailing()}<EditorDefaultButton {taskId} {label} />{/snippet}
+						</SessionControl>
 					</div>
+				{:else}
+					<div class="flex flex-none items-center self-center px-3" data-testid="editor-default-button"><EditorDefaultButton {taskId} {label} /></div>
 				{/if}
-
-				<div class="flex flex-none items-center self-center pl-1" data-testid="editor-default-star"><EditorDefaultStar {taskId} {label} /></div>
 
 				{#if showFormulas}
 					<ContextCut />
@@ -276,6 +279,11 @@
 		align-items: center;
 	}
 
+	.dock-zone :global(.session-actions) {
+		position: relative;
+		top: -8px;
+	}
+
 	.dock-end :global(.dock-ctl) {
 		height: 24px;
 		flex: none;
@@ -292,6 +300,27 @@
 	@container (max-width: 759px) {
 		.dock-zone :global(.ctx-seg) {
 			min-width: 0;
+		}
+
+		.dock-zone :global([data-context-step]) {
+			flex-shrink: 1 !important;
+		}
+
+		.dock-zone :global([data-testid='preset-picker-trigger']) {
+			min-width: 72px;
+		}
+
+		.dock-zone :global([data-testid='preset-header-mode'] button) {
+			min-width: 48px;
+		}
+
+		.dock-zone :global(.default-label) {
+			display: none;
+		}
+
+		.dock-zone :global([data-testid='default-button']) {
+			width: 32px;
+			padding: 0 !important;
 		}
 	}
 

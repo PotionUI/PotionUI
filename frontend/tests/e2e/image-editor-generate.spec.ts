@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
-import { clearEdits, closeEditorMenu, editorMenuItem, loginAsOwner, screenshot, selectRailTool } from './helpers';
+import { clearEdits, closeEditorMenu, editorMenuItem, loginAsOwner, screenshot, selectRailTool, shotPath } from './helpers';
 import { mockMediaTools, solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-generate';
@@ -257,6 +257,8 @@ async function geometry(page: Page) {
 			mode: box(strip.querySelector('[data-testid="preset-header-mode"] button')),
 			session: box(strip.querySelector('[data-testid="session-trigger"]')),
 			save: box(strip.querySelector('[data-testid="session-save"]')),
+			reload: box(strip.querySelector('[data-testid="session-reload"]')),
+			defaultButton: box(strip.querySelector('[data-testid="default-button"]')),
 			settings: box(strip.querySelector('[data-prompt-settings]')),
 			formulas: box(strip.querySelector('[data-testid="formulas-button"]')),
 			cuts: Array.from(strip.querySelectorAll('[data-testid="context-separator"]')).map((cut) => box(cut)!),
@@ -319,6 +321,13 @@ function checkStrip(g: Awaited<ReturnType<typeof geometry>>, mode: 'rest' | 'tem
 		const centre = control!.y + control!.height / 2;
 		expect(Math.abs(centre - rowCentre), `end control centre ${centre} row centre ${rowCentre}`).toBeLessThanOrEqual(1);
 	}
+	for (const control of wrapped ? [] : [g.save, g.reload, g.defaultButton].filter(Boolean)) {
+		const centre = control!.y + control!.height / 2;
+		expect(Math.abs(centre - rowCentre), `session button centre ${centre} row centre ${rowCentre}`).toBeLessThanOrEqual(1);
+	}
+	expect(g.defaultButton, 'default button').not.toBeNull();
+	expect(Math.abs(g.defaultButton!.height - g.save!.height), 'default button height matches Save').toBeLessThanOrEqual(0.5);
+	if (g.reload) expect(Math.abs(g.defaultButton!.x - g.reload.right - (g.reload.x - g.save!.right)), 'Default gap matches Save to Reload').toBeLessThanOrEqual(1);
 	for (const cut of g.cuts) {
 		expect(Math.abs(cut.y - stripBox.y)).toBeLessThanOrEqual(1);
 		expect(Math.abs(cut.height - 48)).toBeLessThanOrEqual(1);
@@ -352,7 +361,7 @@ const presetTrigger = (page: Page) => prompt(page).locator('[data-testid="preset
 const sessionTrigger = (page: Page) => prompt(page).locator('[data-testid="session-trigger"], button[aria-label="Session"]').first();
 const modeTrigger = (page: Page) => prompt(page).locator('[data-testid="preset-header-mode"] button').first();
 const presetDropdown = (page: Page) => page.locator('[role="dialog"][aria-label="Choose preset"]');
-const defaultStar = (page: Page) => prompt(page).locator('[data-testid="default-star"]');
+const defaultStar = (page: Page) => prompt(page).locator('[data-testid="default-button"]');
 const starTip = (page: Page) => page.locator('[role="tooltip"]');
 
 async function closePresetDropdown(page: Page) {
@@ -375,7 +384,8 @@ async function openHarbor(page: Page) {
 	if ((page.viewportSize()?.width ?? 1440) < 768) {
 		await page.getByRole('button', { name: /^Open tabs/ }).click();
 		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
-		await page.getByTestId('phone-tool-tab').locator('[data-recent-history] button').first().click();
+		await page.getByTestId('phone-tool-tab').locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 		await expect(page.locator('[data-editor-frame="phone"]')).toBeVisible();
 		return;
 	}
@@ -383,7 +393,8 @@ async function openHarbor(page: Page) {
 	await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 	const empty = page.getByTestId('tool-tab-empty');
 	await expect(empty).toContainText('Open a picture to edit');
-	await empty.locator('[data-recent-history] button').first().click();
+	await empty.locator('[data-start-source="history"]').click();
+	await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 }
 
@@ -464,6 +475,8 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await page.locator('[data-session-row="sess-1"]').click();
 		await expect(sessionTrigger(page)).toHaveText(/Soft portrait/);
 		await expect(defaultStar(page)).toHaveAttribute('aria-pressed', 'false');
+		await page.mouse.move(5, 5);
+		await page.locator('[data-frame-dock] [data-dock-row="strip"]').screenshot({ path: shotPath(JOURNEY, '60-default-button-off-dark-1440'), animations: 'disabled' });
 		await defaultStar(page).hover();
 		await expect(starTip(page)).toContainText('Use as my default for Edit a region');
 		await screenshot(page, JOURNEY, '50-star-off-tooltip-dark-1440');
@@ -472,6 +485,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		expect(server.defaults[0]).toEqual({ preset_id: 'qwen21', mode: 'editor:edit', setup: { kind: 'session', id: 'sess-1' } });
 		await expect(defaultStar(page)).toHaveAttribute('aria-pressed', 'true');
 		await page.mouse.move(5, 5);
+		await page.locator('[data-frame-dock] [data-dock-row="strip"]').screenshot({ path: shotPath(JOURNEY, '60-default-button-on-dark-1440'), animations: 'disabled' });
 		await screenshot(page, JOURNEY, '50-star-on-dark-1440');
 		await defaultStar(page).hover();
 		await expect(starTip(page)).toContainText('Click to stop using it as your default');
@@ -1328,7 +1342,7 @@ test.describe('Edit a region in a narrow window', () => {
 		expect(g.end!.right).toBeLessThanOrEqual(g.dock!.right);
 		expect(g.save!.x).toBeGreaterThan(g.session!.right - 1);
 		expect(g.save!.right).toBeLessThanOrEqual(g.strip!.right);
-		expect(g.session!.width).toBeGreaterThan(60);
+		expect(g.session!.width).toBeGreaterThan(40);
 		const audit = await ringAudit(page);
 		expect(audit.found, JSON.stringify(audit)).toEqual([]);
 		await screenshot(page, JOURNEY, '23-built-rest-dark-1024');

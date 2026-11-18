@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { Button } from '$lib/components/ui';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
 	import { brokenDefaultNotice, modeName, offerOf, setupName, sourceOf, type SetupChoice } from '$lib/tool-tabs/image/generate/setup';
 
@@ -64,24 +65,26 @@
 	}
 </script>
 
-<span class="default-star flex flex-none items-center" data-default-star={status}>
-	<Tooltip {text} {detail} position={phone ? 'top' : 'bottom'} wrapperClass="inline-flex">
-		<span class="inline-flex">
-			<button
-				type="button"
-				class="relative inline-flex items-center justify-center rounded transition-[color,background-color] duration-100 touch-manipulation hover:bg-surface-3/50 disabled:cursor-not-allowed disabled:opacity-50 {phone ? 'h-10 w-10' : 'h-6 w-6'} {status === 'on' ? 'text-signal' : 'text-fg-muted hover:text-fg'}"
-				aria-label={status === 'disabled' ? `Use as my default for ${label}` : text}
-				aria-pressed={status === 'on'}
-				aria-disabled={status === 'disabled' ? 'true' : undefined}
-				aria-describedby={status === 'disabled' ? `${uid}-hint` : undefined}
-				disabled={status === 'disabled'}
-				data-testid="default-star"
-				onclick={toggle}
-			>
-				<Icon name="star" className="h-4 w-4 {status === 'on' ? 'fill-current' : ''}" />
-				{#if status === 'broken'}<span class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-warning" data-default-star-warning></span>{/if}
-			</button>
-			{#if status === 'disabled'}<span id="{uid}-hint" class="sr-only">{text}</span>{/if}
-		</span>
+<span class="flex flex-none items-center" data-default-button={status}>
+	<Tooltip {text} {detail} position={phone ? 'top' : 'bottom'} wrapperClass="flex flex-shrink-0">
+		<Button
+			variant="secondary"
+			size="sm"
+			disabled={status === 'disabled'}
+			ariaLabel={status === 'disabled' ? `Use as my default for ${label}` : text}
+			class="relative {phone ? '!h-10' : '!h-8'} !px-2 !py-0"
+			attrs={{
+				'aria-pressed': status === 'on',
+				'aria-disabled': status === 'disabled' ? 'true' : undefined,
+				'aria-describedby': status === 'disabled' ? `${uid}-hint` : undefined,
+				'data-testid': 'default-button'
+			}}
+			onclick={toggle}
+		>
+			<Icon name="star" className="h-3.5 w-3.5 {status === 'on' ? 'fill-current text-signal' : 'text-fg-muted'}" />
+			<span class="default-label">Default</span>
+			{#if status === 'broken'}<span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warning" data-default-button-warning></span>{/if}
+		</Button>
 	</Tooltip>
+	{#if status === 'disabled'}<span id="{uid}-hint" class="sr-only">{text}</span>{/if}
 </span>

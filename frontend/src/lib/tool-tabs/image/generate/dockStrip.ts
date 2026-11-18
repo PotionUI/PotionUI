@@ -1,8 +1,8 @@
 export const DOCK_STEP = {
-	preset: 'ctx-step flex min-w-0 flex-[0_1_auto] shrink-[1] pl-0 pr-3',
-	session: 'ctx-step flex min-w-0 flex-[0_1_auto] shrink-[3] px-3',
-	mode: 'ctx-step flex min-w-0 flex-[0_1_auto] shrink-[6] px-3',
-	formula: 'ctx-step flex min-w-0 flex-[0_1_auto] shrink-[6] px-3'
+	preset: 'ctx-step flex min-w-0 flex-[0_1_auto] shrink-[0.3] pl-0 pr-3',
+	session: 'ctx-step flex min-w-0 flex-[0_1_auto] shrink-[8] px-3',
+	mode: 'ctx-step flex min-w-0 flex-[0_1_auto] shrink-[12] px-3',
+	formula: 'ctx-step flex min-w-0 flex-[0_1_auto] shrink-[12] px-3'
 } as const;
 
 export const DOCK_CELL = {

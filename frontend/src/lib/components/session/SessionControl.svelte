@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
 	import type { SessionPanelActions, SessionPanelState } from '$lib/session/sessionDialogs';
 	import Icon from '$lib/components/Icon.svelte';
@@ -17,7 +18,8 @@
 		autosave = true,
 		shortcut = true,
 		labelId = undefined,
-		widthClass = undefined
+		widthClass = undefined,
+		trailing = undefined
 	}: {
 		session: SessionPanelState;
 		actions: SessionPanelActions;
@@ -28,6 +30,7 @@
 		shortcut?: boolean;
 		labelId?: string;
 		widthClass?: string;
+		trailing?: Snippet;
 	} = $props();
 
 	const uid = $props.id();
@@ -119,6 +122,24 @@
 	</Tooltip>
 {/snippet}
 
+{#snippet actionButtons()}
+		{@render saveButton(`h-8 rounded text-sm ${saveDisabled ? 'bg-surface-3/50' : 'bg-surface-3 hover:bg-line-hover'}`)}
+		{#if current}
+			<Tooltip text={reloadTip} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
+				<IconButton
+					icon="undo"
+					label="Reload from last snapshot"
+					variant="secondary"
+					size="sm"
+					class="!p-0 {reloadDisabled ? '!cursor-not-allowed !bg-surface-3/50 !text-fg-disabled' : ''}"
+					aria-disabled={reloadDisabled ? 'true' : undefined}
+					data-testid="session-reload"
+					onclick={reload}
+				/>
+			</Tooltip>
+		{/if}
+{/snippet}
+
 {#if layout === 'sheet'}
 	<div
 		bind:this={anchorEl}
@@ -171,20 +192,13 @@
 				<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
 			</button>
 		</Tooltip>
-		{@render saveButton(`h-8 rounded text-sm ${saveDisabled ? 'bg-surface-3/50' : 'bg-surface-3 hover:bg-line-hover'}`)}
-		{#if current}
-			<Tooltip text={reloadTip} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
-				<IconButton
-					icon="undo"
-					label="Reload from last snapshot"
-					variant="secondary"
-					size="sm"
-					class="!p-0 {reloadDisabled ? '!cursor-not-allowed !bg-surface-3/50 !text-fg-disabled' : ''}"
-					aria-disabled={reloadDisabled ? 'true' : undefined}
-					data-testid="session-reload"
-					onclick={reload}
-				/>
-			</Tooltip>
+		{#if trailing}
+			<div class="session-actions flex flex-none items-center gap-1.5" data-session-actions>
+				{@render actionButtons()}
+				{@render trailing()}
+			</div>
+		{:else}
+			{@render actionButtons()}
 		{/if}
 	</div>
 {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import FieldShell from './FieldShell.svelte';
 	import { numberBoxIssue, parseNumberBox } from './numberBox';
 
@@ -21,13 +22,28 @@
 	let text = '';
 	let focused = false;
 	let dirty = false;
-	$: if (!focused || !dirty) text = typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
+	let followNext = false;
+	$: syncText(value, focused);
 	$: issue = numberBoxIssue(typeof value === 'number' ? value : null, text, min, max);
+
+	function shown(next: unknown): string {
+		return typeof next === 'number' && Number.isFinite(next) ? String(next) : '';
+	}
+
+	function syncText(next: unknown, hasFocus: boolean) {
+		if (hasFocus && !followNext) return;
+		followNext = false;
+		text = shown(next);
+	}
 
 	function commit() {
 		if (!dirty || !name) return;
 		dirty = false;
+		followNext = true;
 		onCommit?.(name);
+		void tick().then(() => {
+			if (!dirty) text = shown(value);
+		});
 	}
 
 	function handleInput(event: Event) {
@@ -36,6 +52,7 @@
 		const parsed = parseNumberBox(text, integer);
 		if (parsed === undefined) return;
 		dirty = true;
+		followNext = false;
 		onChange(name, parsed);
 	}
 

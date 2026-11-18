@@ -382,6 +382,47 @@ test.describe('the Image editor tools map on desktop', () => {
 		expect((steps[0].params as Json).values).toEqual({ brightness: 20, contrast: 33, saturation: -15, hue: 0 });
 		expect(steps.slice(1)).toEqual(OLD_STEPS.slice(1));
 	});
+	test('the option panels are fields: Curves, Crop with its box, Resize and Slice', async ({ page }) => {
+		await begin(page);
+		await openHarbor(page);
+		await setRailHeight(page, 1169);
+		await selectRailTool(page, 'curves');
+		await expect(page.locator('[data-entry-options="curves"] [data-field-type="slider"]')).toHaveCount(3);
+		await screenshot(page, JOURNEY, '40-form-curves-dark-1440');
+		await selectRailTool(page, 'crop');
+		await expect(page.locator('[data-crop-fields] [data-field-name]')).toHaveCount(6);
+		await page.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
+		await expect(page.locator('[data-crop-corner]').first()).toBeVisible();
+		const width = page.locator('[aria-label="Crop width"]');
+		const before = await width.inputValue();
+		await width.fill('200');
+		await width.press('Enter');
+		await expect(page.locator('[aria-label="Crop width"]')).toHaveValue('200');
+		expect(before).not.toBe('200');
+		await screenshot(page, JOURNEY, '40-form-crop-dark-1440');
+		await selectRailTool(page, 'resize');
+		await expect(page.locator('[data-field-name="width"] input')).toBeVisible();
+		await screenshot(page, JOURNEY, '40-form-resize-dark-1440');
+		await selectRailTool(page, 'slice');
+		await page.locator('[data-slice-preset="3x2"]').first().click();
+		await expect(page.locator('[data-field-name="cols"] input')).toHaveValue('3');
+		await screenshot(page, JOURNEY, '40-form-slice-dark-1440');
+		await page.locator('[data-slice-tab="output"]').click();
+		await screenshot(page, JOURNEY, '40-form-slice-output-dark-1440');
+	});
+
+	test('Light shows its sliders as fields', async ({ page }) => {
+		await begin(page);
+		await openHarbor(page);
+		await setRailHeight(page, 1169);
+		await selectRailTool(page, 'light');
+		await slider(page, 'Contrast').fill('24');
+		await slider(page, 'Contrast').dispatchEvent('change');
+		await screenshot(page, JOURNEY, '40-form-light-dark-1440');
+		await selectRailTool(page, 'edit_region');
+		await screenshot(page, JOURNEY, '40-form-edit-region-dark-1440');
+	});
+
 });
 
 test.describe('the Image editor tools map on a phone', () => {
@@ -401,5 +442,18 @@ test.describe('the Image editor tools map on a phone', () => {
 		await expect(sheet).toHaveCount(0);
 		await expect(phone.locator('[data-entry-options="film_grain"]')).toBeVisible();
 		await screenshot(page, JOURNEY, '12-phone-film-grain-dark-390');
+	});
+
+	test('the option panels are fields on a phone', async ({ page }) => {
+		await begin(page);
+		await openHarbor(page);
+		const phone = page.getByTestId('phone-tool-tab');
+		for (const id of ['light', 'curves', 'resize', 'slice', 'edit_region']) {
+			await selectRailTool(page, id, phone);
+			await expect(phone.locator('[data-options-panel], [data-options-bar]').first()).toBeVisible();
+			await screenshot(page, JOURNEY, `40-form-${id}-dark-390`);
+		}
+		await selectRailTool(page, 'crop', phone);
+		await screenshot(page, JOURNEY, '40-form-crop-dark-390');
 	});
 });

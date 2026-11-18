@@ -88,10 +88,14 @@ export function maskControls(input: MaskControlsInput): MaskControls {
 	};
 }
 
-export function focusDockPrompt(): void {
+export function focusDockPrompt(retries = 12): void {
 	if (typeof document === 'undefined') return;
 	const field = document.querySelector<HTMLTextAreaElement>('[data-prompt-field]');
-	field?.focus();
+	if (field) {
+		field.focus();
+		return;
+	}
+	if (retries > 0) requestAnimationFrame(() => focusDockPrompt(retries - 1));
 }
 
 function surfaceOf(ctx: CanvasActionContext): ImageCanvasSurface {

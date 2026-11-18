@@ -298,7 +298,7 @@ test.describe('Image editor autosave on a phone', () => {
 		await expect(phone.locator('[data-editor-frame="phone"]')).toBeVisible();
 		await expect(indicator(page)).toHaveCount(0);
 
-		await phone.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
+		await phone.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 		await phone.locator('[data-options-apply]').click();
 		await expect.poll(() => server.creates.length).toBe(1);
 		await expect(indicator(page, 'saved')).toBeVisible();

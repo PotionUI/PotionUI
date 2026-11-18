@@ -256,7 +256,7 @@ async function markArea(page: Page) {
 
 async function shape(page: Page, aspect: string) {
 	const phone = (page.viewportSize()?.width ?? 1440) < 768;
-	const scope = phone ? page.getByTestId('phone-tool-tab') : page.locator('[data-options-panel]');
+	const scope = phone ? page.getByTestId('phone-tool-tab').locator('[data-options-panel]') : page.locator('[data-options-panel]');
 	await scope.locator('[data-crop-aspects] button', { hasText: aspect }).click();
 	await page.locator('[data-options-apply]').click();
 }

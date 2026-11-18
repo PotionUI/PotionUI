@@ -327,7 +327,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		for (const [x, y] of [[0.6, 0.3], [0.6, 0.6], [0.3, 0.6], [0.3, 0.3]]) await page.mouse.move(box.x + box.width * x, box.y + box.height * y, { steps: 4 });
 		await page.mouse.up();
 		await expect(page.locator('[data-mask-area]')).toBeVisible();
-		await page.getByRole('button', { name: 'Clear area' }).click();
+		await page.locator('[data-options-panel]').getByRole('button', { name: 'Clear area' }).click();
 		await expect(page.locator('[data-mask-area]')).toBeHidden();
 		await page.locator('[data-frame-undo]').click();
 		await expect(page.locator('[data-mask-area]')).toBeVisible();
@@ -391,7 +391,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		await screenshot(page, JOURNEY, '40-form-curves-dark-1440');
 		await selectRailTool(page, 'crop');
 		await expect(page.locator('[data-crop-fields] [data-field-name]')).toHaveCount(6);
-		await page.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
+		await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 		await expect(page.locator('[data-crop-corner]').first()).toBeVisible();
 		const width = page.locator('[aria-label="Crop width"]');
 		const before = await width.inputValue();

@@ -414,7 +414,7 @@ test.describe('the Image editor tab on a phone', () => {
 		await expect(phone.locator('[data-editor-frame="phone"]')).toBeVisible();
 		await expect(phone.locator('[data-tool-rail="strip"]')).toBeVisible();
 		await expect(phone.locator('[data-options-panel="phone"]')).toBeVisible();
-		await phone.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
+		await phone.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 		await phone.locator('[data-options-apply]').click();
 		await expect(phone.locator('[data-frame-edits]')).toContainText('1 edit');
 		await phone.locator('[data-tool-rail="strip"] button[data-tool="effects"]').click();

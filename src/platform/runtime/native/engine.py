@@ -1365,15 +1365,19 @@ class NativeGenerator:
             "text_encoder": self._te_size_gb(),
             "vae": self.vae.estimated_vram_gb or 0.0,
         }
+        headroom = self._sampling_headroom_gb(latents_shape, ref_latents, preview_reserve_gb)
+        return plan_placement(
+            budget, sizes, self.dit.quant_format, self.device_plan,
+            working_headroom_gb=headroom,
+        )
+
+    def _sampling_headroom_gb(self, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> float:
         headroom = sampling_headroom_gb(
             (latents_shape[-2], latents_shape[-1]), latent_frames=_latent_frames(latents_shape)
         )
         headroom += ref_latents_headroom_gb(self._ref_hw_frames(ref_latents))
         headroom += max(0.0, float(preview_reserve_gb))
-        return plan_placement(
-            budget, sizes, self.dit.quant_format, self.device_plan,
-            working_headroom_gb=headroom,
-        )
+        return headroom
 
     @staticmethod
     def _ref_hw_frames(ref_latents) -> list[tuple[tuple[int, int], int]]:
@@ -1549,7 +1553,7 @@ class NativeGenerator:
         if offloaded and torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def _move_dit_to_gpu(self, device: str) -> None:
+    def _move_dit_to_gpu(self, device: str, headroom_gb: float = 0.0) -> None:
         """Move the DiT onto ``device`` for sampling, making room first.
 
         Frees foreign residents up front (``_ensure_room_for``); if the move still
@@ -1559,7 +1563,7 @@ class NativeGenerator:
         """
         need = float(getattr(self.dit, "estimated_vram_gb", None) or 0.0)
         if need > 0.0:
-            need += minimum_inference_memory_gb()
+            need += max(minimum_inference_memory_gb(), float(headroom_gb))
         self._ensure_room_for(need, device)
         try:
             self.dit.move_to(device)
@@ -1609,11 +1613,7 @@ class NativeGenerator:
         free = free_vram_gb(device) or 0.0
         # Sampling headroom only — decode frees the weights and tiles if needed,
         # so its spike must not be charged against the resident-weights budget.
-        headroom = sampling_headroom_gb(
-            (latents_shape[-2], latents_shape[-1]), latent_frames=_latent_frames(latents_shape)
-        )
-        headroom += ref_latents_headroom_gb(self._ref_hw_frames(ref_latents))
-        headroom += max(0.0, float(preview_reserve_gb))
+        headroom = self._sampling_headroom_gb(latents_shape, ref_latents, preview_reserve_gb)
         return max(0.0, free - headroom)
 
     def _stream_dit_to_gpu(self, device: str, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> None:
@@ -1917,7 +1917,9 @@ class NativeGenerator:
         # residency (as many leaves resident as fit, the rest streamed from pinned
         # CPU RAM) instead of the old all-or-nothing move that would OOM.
         if self._resident("dit"):
-            self._move_dit_to_gpu(device)
+            self._move_dit_to_gpu(
+                device, headroom_gb=self._sampling_headroom_gb(latents_shape, ref_latents, preview_gb),
+            )
             # Resident placement only: regionally torch.compile the DiT blocks
             # (opt-in, gated). Streaming placement is deliberately excluded — the
             # per-forward weight swap is incompatible with a compiled graph.

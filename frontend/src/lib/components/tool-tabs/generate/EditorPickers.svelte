@@ -347,7 +347,6 @@
 	}
 
 	.dock-end :global(.dock-btn) {
-		margin-bottom: 3px;
 		flex: none;
 		display: flex;
 		align-items: center;
@@ -374,7 +373,6 @@
 			min-height: 44px;
 		}
 
-		.dock-end :global(.dock-btn),
 		.dock-end :global(.dock-ctl) {
 			margin-bottom: 0;
 		}

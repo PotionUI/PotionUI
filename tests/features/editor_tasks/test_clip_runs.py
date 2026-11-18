@@ -253,3 +253,12 @@ async def test_the_preset_is_the_video_one_in_these_tests(mock_db, tmp_path):
 
     assert fakes.requests[0].preset_id == PRESET and fakes.requests[0].mode == "editor:edit"
     assert run["task"] == "restore"
+
+
+@pytest.mark.asyncio
+async def test_a_clip_run_needs_no_saved_edit(mock_db, tmp_path):
+    manager, fakes, _edit_id = build(tmp_path, "upscale")
+
+    run = await manager.start(USER, "upscale", clip_body("video-tab-1"))
+
+    assert run["edit_id"] == "video-tab-1"

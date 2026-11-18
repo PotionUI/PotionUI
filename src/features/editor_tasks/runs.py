@@ -143,7 +143,8 @@ class EditorRunManager:
         offer = await asyncio.to_thread(
             self.tasks.resolve_offer, user, task_id, body.setup.preset_id, body.setup.mode
         )
-        await asyncio.to_thread(self.edits.get, user.id, body.edit.id)
+        if "video" not in offer.task.editors:
+            await asyncio.to_thread(self.edits.get, user.id, body.edit.id)
         self._check_range(offer, body)
         prompt = self._prompt(offer, body.prompt)
         region_ref = body.region if offer.task.region != "none" else None

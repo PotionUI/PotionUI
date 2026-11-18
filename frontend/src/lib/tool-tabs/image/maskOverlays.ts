@@ -68,3 +68,15 @@ export function resetMaskTool(): void {
 	maskToolState.set({ overlay: BRUSH_OVERLAY });
 	maskArea.set(null);
 }
+
+export function maskHintText(entry: CanvasOverlayEntry | null, what: string | null = null): string | null {
+	if (!entry?.hint) return null;
+	return what ? entry.hint.replace('part you want to change', what) : entry.hint;
+}
+
+export const QUICK_BRUSH_HINT = 'Paint over what the model should repaint. Everything you leave alone is kept.';
+
+export function quickMaskHint(entry: CanvasOverlayEntry | null): string {
+	if (!entry || entry.id === BRUSH_OVERLAY) return QUICK_BRUSH_HINT;
+	return entry.hint ?? QUICK_BRUSH_HINT;
+}

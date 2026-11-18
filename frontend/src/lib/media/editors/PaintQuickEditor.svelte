@@ -155,6 +155,7 @@
 			discardOpen = false;
 			return;
 		}
+		if (session.cancelSelectionStroke()) return;
 		if (layerPanel) {
 			backFromPanel();
 			return;

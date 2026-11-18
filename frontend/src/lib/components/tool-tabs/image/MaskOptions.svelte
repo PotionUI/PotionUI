@@ -11,6 +11,7 @@
 		maskArea,
 		maskToolEntries,
 		maskToolState,
+		maskHintText,
 		modeFor,
 		overlayLabel
 	} from '$lib/tool-tabs/image/maskOverlays';
@@ -44,6 +45,7 @@
 
 	let values = $derived(maskValues(active, mode, brush));
 	let brushFields = $derived(maskBrushFields(active));
+	let hintText = $derived(maskHintText(active, what));
 
 	function pickMode(id: string) {
 		erase = active?.modes?.find((entry) => entry.id === id)?.subtract ?? false;
@@ -70,6 +72,9 @@
 	{#if brushFields.length}
 		<EntryForm fields={brushFields} {values} label="Brush" onValues={write} />
 	{/if}
+	{#if hintText}
+		<p class="text-sm text-fg-muted" data-mask-hint>{hintText}</p>
+	{/if}
 {:else}
 <div class="flex flex-col gap-2">
 	<p class="font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Mark the area</p>
@@ -83,8 +88,8 @@
 		<EntryForm fields={brushFields} {values} label="Brush" onValues={write} />
 	{/if}
 </div>
-{#if active?.hint}
-	<p class="text-sm text-fg-muted">{what ? active.hint.replace('part you want to change', what) : active.hint}</p>
+{#if hintText}
+	<p class="text-sm text-fg-muted">{hintText}</p>
 {/if}
 <div class="flex items-center justify-between gap-2 text-sm" data-mask-area-readout>
 	<span class="text-fg-muted">Marked area</span>

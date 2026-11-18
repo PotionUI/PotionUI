@@ -7,6 +7,7 @@
 	import FiltersPanel from '$lib/components/paint/FiltersPanel.svelte';
 	import TransformPanel from '$lib/components/paint/TransformPanel.svelte';
 	import { DEFAULT_SIZE } from '$lib/paint/palette';
+	import { selectionTarget } from '$lib/paint/raster/layerContent';
 	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 
 	let {
@@ -24,6 +25,7 @@
 	let tool = $derived(snapshot.tools.find((candidate) => candidate.id === snapshot.toolId));
 	let panel = $derived(tool?.panel ?? 'options');
 	let options = $derived(tool?.options ?? []);
+	let target = $derived(selectionTarget(snapshot.activeLayerName, snapshot.activeLayerEmpty));
 </script>
 
 <div class="flex flex-col gap-3" data-paint-tool-panel={snapshot.toolId}>
@@ -43,14 +45,20 @@
 					{#if snapshot.selectionSize}{snapshot.selectionSize.width} × {snapshot.selectionSize.height}{:else}none{/if}
 				</span>
 			</div>
+			{#if target.label}
+				<p class="text-sm text-fg-muted" data-selection-layer>{target.label}</p>
+			{/if}
 			<div class="grid grid-cols-3 gap-1.5">
-				<Button variant="secondary" size="sm" disabled={!snapshot.hasSelection} onclick={() => session.cutSelection()}>Cut</Button>
+				<Button variant="secondary" size="sm" disabled={!snapshot.hasSelection || !!target.emptyReason} onclick={() => session.cutSelection()}>Cut</Button>
 				<Button variant="secondary" size="sm" disabled={!snapshot.hasSelection} onclick={() => session.copySelection()}>Copy</Button>
 				<Button variant="secondary" size="sm" disabled={!snapshot.hasClipboard} onclick={() => session.pasteClipboard()}>Paste</Button>
-				<Button variant="secondary" size="sm" disabled={!snapshot.hasSelection} onclick={() => session.deleteSelection()}>Delete</Button>
+				<Button variant="secondary" size="sm" disabled={!snapshot.hasSelection || !!target.emptyReason} onclick={() => session.deleteSelection()}>Delete</Button>
 				<Button variant="secondary" size="sm" onclick={() => session.selectAll()}>Select all</Button>
 				<Button variant="secondary" size="sm" disabled={!snapshot.hasSelection} onclick={() => session.deselect()}>Deselect</Button>
 			</div>
+			{#if snapshot.hasSelection && target.emptyReason}
+				<p class="text-sm text-fg-subtle" data-selection-empty>{target.emptyReason}</p>
+			{/if}
 		</div>
 	{:else}
 		{#if options.includes('size')}

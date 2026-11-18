@@ -44,7 +44,7 @@ export function createLassoTool(): PaintTool {
 		key: 'L',
 		group: 'select',
 		panel: 'selection',
-		hint: 'Draw freehand around what you want. Release to close the shape.',
+		hint: 'Draw freehand around what you want. Release to close the shape. Selects pixels to cut, copy or move. To mark an area for Edit a region, use Mark the area there.',
 		cursor: 'crosshair',
 		pointerDown(_host: ToolHost, point: Point) {
 			points = [point];

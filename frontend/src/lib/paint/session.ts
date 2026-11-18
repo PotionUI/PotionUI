@@ -48,6 +48,7 @@ import { History, type Command } from './history';
 import { DEFAULT_PEN, DEFAULT_SIZE, rgbaToHex } from './palette';
 import { blendByMask, clearByMask, extractByMask, sampleMaskForLayer } from './raster/layerMask';
 import { buildSelection, rectPath } from './raster/selection';
+import { isCanvasEmpty } from './raster/layerContent';
 import { createPatch, patchBytes, writePatch } from './patch';
 import { guard } from '$lib/editors/guard';
 import { paintFilters, pluginTools, setActiveEditor } from './registries';
@@ -112,6 +113,8 @@ export interface SessionSnapshot {
 	activeIndex: number;
 	revision: number;
 	hasSelection: boolean;
+	activeLayerName: string | null;
+	activeLayerEmpty: boolean;
 	selectionSize: { width: number; height: number } | null;
 	hasClipboard: boolean;
 	floatingId: number | null;
@@ -224,6 +227,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		image: ImageData;
 	} | null = null;
 	private contentRevision = 0;
+	private emptyCache: { layer: Layer; revision: number; empty: boolean } | null = null;
 	private unsubscribers: Array<() => void> = [];
 	private releaseSurfaces: (() => void) | null = null;
 
@@ -400,6 +404,8 @@ export class PaintSession implements ToolHost, EditorApi {
 			activeIndex: this.doc.activeIndex,
 			revision: this.revision,
 			hasSelection: this.selection !== null,
+			activeLayerName: this.activeLayer?.name ?? null,
+			activeLayerEmpty: this.activeLayerEmpty(),
 			selectionSize: this.selection
 				? { width: this.selection.bounds.width, height: this.selection.bounds.height }
 				: null,
@@ -1746,6 +1752,22 @@ export class PaintSession implements ToolHost, EditorApi {
 		if (!this.ready) return;
 		event.preventDefault();
 		this.zoomBy(event.deltaY < 0 ? 1.12 : 1 / 1.12, this.clientPoint(event));
+	}
+
+	private activeLayerEmpty(): boolean {
+		const layer = this.activeLayer;
+		if (!layer || this.tool?.panel !== 'selection') return false;
+		const cached = this.emptyCache;
+		if (cached && cached.layer === layer && cached.revision === this.contentRevision) return cached.empty;
+		const empty = isCanvasEmpty(layer.canvas);
+		this.emptyCache = { layer, revision: this.contentRevision, empty };
+		return empty;
+	}
+
+	cancelSelectionStroke(): boolean {
+		if (this.activePointerId === null || this.tool?.group !== 'select') return false;
+		this.cancelActive();
+		return true;
 	}
 
 	private cancelActive(): void {

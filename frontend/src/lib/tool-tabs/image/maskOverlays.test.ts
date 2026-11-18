@@ -9,8 +9,11 @@ import {
 	chooseOverlay,
 	maskToolEntries,
 	maskToolState,
+	maskHintText,
 	modeFor,
 	overlayLabel,
+	quickMaskHint,
+	QUICK_BRUSH_HINT,
 	resetMaskTool
 } from './maskOverlays';
 
@@ -80,5 +83,21 @@ describe('the mask tool list comes from the overlay registry', () => {
 		expect(modeFor(brush, false)?.id).toBe('paint');
 		expect(modeFor(brush, true)?.id).toBe('erase');
 		expect(modeFor(lasso, true)).toBeNull();
+	});
+});
+
+describe('tool hints', () => {
+	const hinted: CanvasOverlayEntry = { ...lasso, hint: 'Draw around the part you want to change. Release to close the shape.' };
+
+	it('exposes the active tool hint, with the subject swapped in', () => {
+		expect(maskHintText(hinted)).toContain('Release to close the shape.');
+		expect(maskHintText(hinted, 'the sky')).toContain('Draw around the the sky.');
+		expect(maskHintText(lasso)).toBeNull();
+	});
+
+	it('keeps the brush line for the brush and shows the lasso hint for the lasso', () => {
+		expect(quickMaskHint(brush)).toBe(QUICK_BRUSH_HINT);
+		expect(quickMaskHint(null)).toBe(QUICK_BRUSH_HINT);
+		expect(quickMaskHint(hinted)).toContain('Release to close the shape.');
 	});
 });

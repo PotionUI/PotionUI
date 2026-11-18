@@ -343,3 +343,38 @@ describe('placing a floating piece', () => {
 		expect(internal.doc.layers[1].name).not.toBe('Sky');
 	});
 });
+
+describe('selection lasso stroke and target layer', () => {
+	function press(session: PaintSession) {
+		(session as unknown as { activePointerId: number | null }).activePointerId = 1;
+	}
+
+	it('Escape cancels an in-progress lasso stroke and clears the partial shape', () => {
+		const { session } = buildSession();
+		session.setTool('lasso');
+		const tool = session.getTool('lasso');
+		tool?.pointerDown?.(session, { x: 1, y: 1 }, POINTER);
+		tool?.pointerMove?.(session, { x: 9, y: 2 }, POINTER);
+		press(session);
+		expect(session.cancelSelectionStroke()).toBe(true);
+		expect(session.snapshot().hasSelection).toBe(false);
+		expect(session.cancelSelectionStroke()).toBe(false);
+	});
+
+	it('does not cancel a stroke of a non-selection tool', () => {
+		const { session } = buildSession();
+		session.setTool('brush');
+		press(session);
+		expect(session.cancelSelectionStroke()).toBe(false);
+	});
+
+	it('reports the target layer and whether it is empty', () => {
+		const { session, internal } = buildSession();
+		session.setTool('rect');
+		expect(session.snapshot().activeLayerName).toBe('Background');
+		expect(session.snapshot().activeLayerEmpty).toBe(false);
+		(internal.doc.layers[0].canvas as unknown as FakeCanvas).pixels.fill(0);
+		(session as unknown as { contentRevision: number }).contentRevision++;
+		expect(session.snapshot().activeLayerEmpty).toBe(true);
+	});
+});

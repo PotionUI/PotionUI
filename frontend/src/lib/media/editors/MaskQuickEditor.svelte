@@ -7,6 +7,8 @@
 	import { Button } from '$lib/components/ui';
 	import { loadImage } from '$lib/media/loadImage';
 	import { MASK_BRUSH, STORED_MASK_CUTOFF } from '$lib/tool-tabs/image/mask';
+	import { overlays } from '$lib/editors/overlays';
+	import { activeOverlay, maskToolEntries, maskToolState, quickMaskHint } from '$lib/tool-tabs/image/maskOverlays';
 	import type { EditorCommitFn, MediaEditorSource } from './types';
 
 	export let source: MediaEditorSource;
@@ -23,6 +25,10 @@
 	let erase = false;
 	let painted = existingMaskUrl !== null;
 	let emptyNotice: string | null = null;
+	const overlayRevision = overlays.revision;
+
+	$: entries = $overlayRevision >= 0 ? maskToolEntries() : [];
+	$: quickHint = quickMaskHint(activeOverlay(entries, $maskToolState));
 
 	onMount(async () => {
 		try {
@@ -98,9 +104,7 @@
 		>
 			<MaskOptions bind:brush bind:erase />
 
-			<p class="text-sm text-fg-subtle">
-				Paint over what the model should repaint. Everything you leave alone is kept.
-			</p>
+			<p class="text-sm text-fg-subtle" data-quick-hint>{quickHint}</p>
 
 			<div class="flex-1"></div>
 

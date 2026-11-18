@@ -520,7 +520,7 @@ describe('the setup strip sizing', () => {
 		expect(shrinkOf(preset)).toBeLessThan(shrinkOf(session));
 		expect(shrinkOf(session)).toBeLessThan(shrinkOf(mode));
 		expect(preset.closest('[data-dock-pickers]')!.className).toContain('min-w-0');
-		expect(t.q('[data-testid="session-trigger"]')!.closest('[data-testid="context-session"]')!.className).toContain('max-w-[360px]');
+		expect(t.q('[data-testid="session-trigger"]')!.closest('[data-testid="context-session"]')!.className).toContain('max-w-[404px]');
 	});
 
 	it('keeps the right group at its own width', async () => {

@@ -120,7 +120,7 @@ describe('floating prompt', () => {
 		expect(zone.querySelectorAll('[data-testid="context-separator"]')).toHaveLength(2);
 		expect(strip.querySelector('[data-picker-default]')).toBeNull();
 		expect(strip.querySelector('[data-editor-pickers-end] [data-prompt-settings]')).not.toBeNull();
-		expect(strip.querySelector('[data-testid="session-save"]')?.textContent?.trim()).toBe('');
+		expect(strip.querySelector('[data-testid="session-save"]')?.textContent?.trim()).toBe('Save');
 		const second = q('[data-dock-row="prompt"]')!;
 		expect(second.className).toContain('pb-3');
 		expect(second.querySelector('[aria-label="Results"]')).toBeNull();
@@ -167,7 +167,7 @@ describe('floating prompt', () => {
 		expect(settingsButton.className).toContain('h-8');
 		expect(settingsButton.className).toContain('text-base');
 		expect(settingsButton.getAttribute('title')).toBeNull();
-		expect(q('[data-testid="session-save"]')!.className).toContain('h-6');
+		expect(q('[data-testid="session-save"]')!.className).toContain('h-8');
 	});
 
 	it('shows the mode icon beside the mode name as the Generate page does, and none when the server sent none', async () => {

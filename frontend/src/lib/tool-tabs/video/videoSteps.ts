@@ -121,7 +121,7 @@ export const OP_LANES: Partial<Record<BuiltinOp, string>> = {
 
 export const LEGACY_TOOLS: Readonly<Record<string, string>> = { effects: 'look', replace: 'replace_audio' };
 
-const NON_STEP_TOOLS: readonly string[] = ['effects', 'replace', 'frame'];
+const NON_STEP_TOOLS: readonly string[] = ['effects', 'replace', 'frame', 'generate'];
 
 export function normalizeTool(value: unknown): string | null {
 	if (typeof value !== 'string' || !value) return null;

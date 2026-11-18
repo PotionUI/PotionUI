@@ -8,6 +8,8 @@ export interface TaskEntry extends EditorEntryBase {
 	region: 'required' | 'optional' | 'none';
 	prompt: 'required' | 'optional' | 'none';
 	stepKind: string;
+	range?: 'required' | 'optional' | 'none';
+	result?: 'replace' | 'append';
 	fallback?: { task: string; prompt: string };
 }
 

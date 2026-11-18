@@ -13,7 +13,8 @@ import {
 	type StartRunBody,
 	type UpdateEditorSessionBody,
 	type TaskDefault,
-	type TaskOffer
+	type TaskOffer,
+	type TimeRange
 } from '$lib/services/api/editorTasks';
 import type { PresetInfo, SessionVersionDetail, SessionVersionSummary } from '$lib/types/api';
 import { appliedSteps, apply, beginEdit, commitLive, liveEdit, type EditStackState, type EditStep } from '$lib/tool-tabs/frame/editStack';
@@ -112,6 +113,10 @@ export interface ControllerDeps {
 	stepsBeneath(stepId: string | null): Promise<MediaToolStep[]>;
 	ports: ControllerPorts;
 	engine: RunEngine;
+	editor?: 'image' | 'video';
+	range?(): TimeRange | null;
+	inputFor?(stepId: string | null): MediaToolInputRef | null;
+	basisOf?(stepId: string | null): GenerateBasis;
 	onTasks?(tasks: EditorTaskInfo[]): void;
 }
 
@@ -656,21 +661,23 @@ export function createGenerateController(deps: ControllerDeps) {
 		prompt: string;
 		setup: ResolvedSetup;
 		region: { item_id: string } | null;
+		range?: TimeRange | null;
 		candidates: number;
 		seed: number | null;
 	}): Promise<{ run: EditorRun; basis: GenerateBasis } | { error: string }> {
-		const ref = deps.source().ref;
+		const ref = deps.inputFor ? deps.inputFor(stepId) : deps.source().ref;
 		if (!ref) return { error: NO_PICTURE_MESSAGE };
 		const link = await deps.editLink();
 		if (!link) return { error: NOT_SAVED_MESSAGE };
 		const task = taskOf(taskId);
-		const basis = basisFor(stepsBeneathOf(appliedSteps(deps.getStack()), stepId), deps.pictureSize?.(stepId) ?? null);
+		const basis = deps.basisOf ? deps.basisOf(stepId) : basisFor(stepsBeneathOf(appliedSteps(deps.getStack()), stepId), deps.pictureSize?.(stepId) ?? null);
 		const steps = await deps.stepsBeneath(stepId);
 		const body: StartRunBody = {
 			edit: { id: link.id, step_id: stepId },
 			input: ref,
 			steps,
 			region: task?.region === 'none' ? null : input.region,
+			...(deps.range ? { range: task?.range === 'none' ? null : (input.range ?? null) } : {}),
 			prompt: task?.prompt === 'none' ? null : input.prompt.trim() || null,
 			setup: { preset_id: input.setup.preset_id, mode: input.setup.mode, form_data: input.setup.form_data },
 			candidates: input.candidates,
@@ -712,7 +719,8 @@ export function createGenerateController(deps: ControllerDeps) {
 			if ('error' in resolved) return fail(resolved.error);
 			const stepId = redo ? redo.step.step.id : nextStepId();
 			const candidates = countOf(offerOf(task.offers, choice), resolved.form_data);
-			const submitted = await submit(taskId, stepId, { prompt, setup: resolved, region, candidates, seed: redo ? redo.state.seed : null });
+			const range = deps.range ? deps.range() : undefined;
+			const submitted = await submit(taskId, stepId, { prompt, setup: resolved, region, range, candidates, seed: redo ? redo.state.seed : null });
 			if (!('run' in submitted)) return fail(submitted.error);
 			const run = submitted.run;
 			if (redo) {
@@ -741,7 +749,8 @@ export function createGenerateController(deps: ControllerDeps) {
 				rect: run.rect,
 				soft: false,
 				run: { id: run.id, status: run.status, error: null },
-				basis: submitted.basis
+				basis: submitted.basis,
+				...(range === undefined ? {} : { range })
 			};
 			const stack = apply(beginEdit(deps.getStack(), generateDraft(params, task.label, task.icon)));
 			deps.setStack(stack);
@@ -805,7 +814,7 @@ export function createGenerateController(deps: ControllerDeps) {
 				fail(editorTaskFailureMessage({ kind: 'task_not_offered' }));
 				return { kind: 'failed' };
 			}
-			const change = shapeChange(params, stepsBeneathOf(appliedSteps(deps.getStack()), stepId));
+			const change = deps.basisOf ? 'none' : shapeChange(params, stepsBeneathOf(appliedSteps(deps.getStack()), stepId));
 			if (change === 'other' && params.area.region) return askForArea({ step, params });
 			patch({ starting: true, error: null });
 			try {
@@ -817,7 +826,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			}
 			const setup: ResolvedSetup = { ...params.setup, form_data: form };
 			const area = change === 'resize' ? remapArea(params.area, params.basis?.size ?? null, deps.pictureSize?.(stepId) ?? null) : params.area;
-			const submitted = await submit(params.task, stepId, { prompt: params.prompt, setup, region: area.region, candidates: params.candidates, seed: keepSeed ? params.seed : null });
+			const submitted = await submit(params.task, stepId, { prompt: params.prompt, setup, region: area.region, range: params.range, candidates: params.candidates, seed: keepSeed ? params.seed : null });
 			if (!('run' in submitted)) {
 				fail(submitted.error);
 				return { kind: 'failed' };
@@ -934,7 +943,8 @@ export function createGenerateController(deps: ControllerDeps) {
 		taskOf,
 		defaultsChoice,
 		sameChoice,
-		dispose
+		dispose,
+		editor: deps.editor ?? 'image'
 	};
 }
 

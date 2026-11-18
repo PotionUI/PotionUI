@@ -12,7 +12,7 @@
 
 	let entry = $derived.by(() => {
 		void $editorsRevision;
-		return $ui?.taskId ? tasks.get('image', $ui.taskId) : undefined;
+		return $ui?.taskId ? tasks.get(generate?.editor ?? 'image', $ui.taskId) : undefined;
 	});
 </script>
 

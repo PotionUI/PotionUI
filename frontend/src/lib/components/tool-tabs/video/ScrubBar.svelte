@@ -4,6 +4,7 @@
 	import { pageOwnsKeys } from '$lib/utils/shortcutGuard';
 	import { formatEditorTime } from '$lib/tool-tabs/video/videoState';
 	import { fixed2 } from '$lib/tool-tabs/video/videoSteps';
+	import { fromDrag, type AiRange } from '$lib/tool-tabs/video/aiRange';
 
 	let {
 		duration,
@@ -22,6 +23,10 @@
 		fadeIn = 0,
 		fadeOut = 0,
 		replacement = null,
+		range = null,
+		rangeMode = false,
+		rangeName = 'Section',
+		rangeMarker = null,
 		compact = false,
 		active = true,
 		onseek,
@@ -30,7 +35,10 @@
 		ontoggleplay,
 		onstep,
 		ontoggleloop,
-		ontogglemute
+		ontogglemute,
+		onrange,
+		onrangestart,
+		onrangeend
 	}: {
 		duration: number;
 		playhead: number;
@@ -48,6 +56,10 @@
 		fadeIn?: number;
 		fadeOut?: number;
 		replacement?: { name: string } | null;
+		range?: AiRange | null;
+		rangeMode?: boolean;
+		rangeName?: string;
+		rangeMarker?: { at: number; label: string } | null;
 		compact?: boolean;
 		active?: boolean;
 		onseek: (seconds: number) => void;
@@ -57,6 +69,9 @@
 		onstep: (direction: -1 | 1) => void;
 		ontoggleloop?: () => void;
 		ontogglemute?: () => void;
+		onrange?: (range: AiRange) => void;
+		onrangestart?: (seconds: number) => void;
+		onrangeend?: (seconds: number) => void;
 	} = $props();
 
 	let track = $state<HTMLElement | null>(null);
@@ -65,6 +80,8 @@
 	let inPct = $derived(pct(inPoint));
 	let outPct = $derived(pct(outPoint));
 	let headPct = $derived(pct(playhead));
+	let rangeStartPct = $derived(range ? pct(range.start) : 0);
+	let rangeEndPct = $derived(range ? pct(range.end) : 0);
 	let trimmed = $derived(duration > 0 && (inPoint > 0.005 || outPoint < duration - 0.005));
 
 	let ticks = $derived.by(() => {
@@ -101,9 +118,34 @@
 		target.addEventListener('pointercancel', up);
 	}
 
-	function handleKey(event: KeyboardEvent, which: 'in' | 'out') {
+	function markDrag(event: PointerEvent) {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const target = event.currentTarget as HTMLElement;
+		target.setPointerCapture?.(event.pointerId);
+		const anchor = timeAt(event.clientX);
+		const originX = event.clientX;
+		let moved = false;
+		const move = (next: PointerEvent) => {
+			if (!moved && Math.abs(next.clientX - originX) < 4) return;
+			moved = true;
+			onrange?.(fromDrag(anchor, timeAt(next.clientX), duration));
+		};
+		const up = () => {
+			if (!moved) onseek(anchor);
+			target.removeEventListener('pointermove', move);
+			target.removeEventListener('pointerup', up);
+			target.removeEventListener('pointercancel', up);
+		};
+		target.addEventListener('pointermove', move);
+		target.addEventListener('pointerup', up);
+		target.addEventListener('pointercancel', up);
+	}
+
+	function handleKey(event: KeyboardEvent, which: 'in' | 'out' | 'range-start' | 'range-end') {
 		const step = event.shiftKey ? 1 : frameStep;
-		const value = which === 'in' ? inPoint : outPoint;
+		const value = which === 'in' ? inPoint : which === 'out' ? outPoint : which === 'range-start' ? (range?.start ?? 0) : (range?.end ?? duration);
 		let next: number | null = null;
 		if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') next = value - step;
 		else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') next = value + step;
@@ -112,7 +154,10 @@
 		if (next === null) return;
 		event.preventDefault();
 		event.stopPropagation();
-		(which === 'in' ? onin : onout)(Math.max(0, Math.min(duration, next)));
+		const clamped = Math.max(0, Math.min(duration, next));
+		if (which === 'range-start') onrangestart?.(clamped);
+		else if (which === 'range-end') onrangeend?.(clamped);
+		else (which === 'in' ? onin : onout)(clamped);
 	}
 
 	function onkeydown(event: KeyboardEvent) {
@@ -121,8 +166,8 @@
 		if (event.target instanceof Element && event.target.closest('[data-scrub-handle]')) return;
 		const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
 		if (key === 'k') ontoggleplay();
-		else if (key === 'i') onin(playhead);
-		else if (key === 'o') onout(playhead);
+		else if (key === 'i') (rangeMode ? (onrangestart ?? onin) : onin)(playhead);
+		else if (key === 'o') (rangeMode ? (onrangeend ?? onout) : onout)(playhead);
 		else if (key === 'ArrowLeft' && !event.shiftKey) onstep(-1);
 		else if (key === 'ArrowRight' && !event.shiftKey) onstep(1);
 		else return;
@@ -172,9 +217,13 @@
 			<IconButton icon={muted ? 'editor-mute' : 'editor-volume'} label={muted ? 'Unmute playback' : 'Mute playback'} size="sm" active={muted} ariaPressed={muted} onclick={() => ontogglemute?.()} data-scrub-mute />
 			<span class="flex-1"></span>
 			<span class="flex items-center gap-4 whitespace-nowrap font-mono text-sm uppercase tabular-nums text-fg-subtle" data-scrub-readouts>
-				<span>In <span class="text-fg" data-scrub-in>{formatEditorTime(inPoint)}</span></span>
-				<span>Out <span class="text-fg" data-scrub-out>{formatEditorTime(outPoint)}</span></span>
-				<span>Length <span class="normal-case text-fg" data-scrub-length>{fixed2(outputLength)} s</span></span>
+				{#if rangeMode}
+					<span class="text-signal" data-scrub-section>{rangeName} <span data-scrub-section-times>{range ? `${formatEditorTime(range.start)} → ${formatEditorTime(range.end)}` : 'Whole clip'}</span></span>
+				{:else}
+					<span>In <span class="text-fg" data-scrub-in>{formatEditorTime(inPoint)}</span></span>
+					<span>Out <span class="text-fg" data-scrub-out>{formatEditorTime(outPoint)}</span></span>
+				{/if}
+				<span>Length <span class="normal-case text-fg" data-scrub-length>{fixed2(rangeMode ? (range ? range.end - range.start : duration) : outputLength)} s</span></span>
 			</span>
 		{:else}
 			<span class="flex-1"></span>
@@ -201,7 +250,7 @@
 		aria-valuemax={Math.round(duration * 100) / 100}
 		aria-valuenow={Math.round(playhead * 100) / 100}
 		aria-valuetext={formatEditorTime(playhead)}
-		onpointerdown={(event) => drag(event, onseek)}
+		onpointerdown={(event) => (rangeMode ? markDrag(event) : drag(event, onseek))}
 		data-scrub-track
 	>
 		<div class="absolute inset-0 flex overflow-hidden rounded" aria-hidden="true" data-scrub-strip>
@@ -220,6 +269,48 @@
 				<span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 rounded-sm bg-scrim px-1 font-mono text-sm leading-4 text-scrim-on">{marker.label}</span>
 			</div>
 		{/each}
+		{#if rangeMode && rangeMarker}
+			<div class="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-signal" style="left: {pct(rangeMarker.at)}%" data-scrub-extend-marker>
+				<span class="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm bg-signal-solid px-1.5 font-mono text-sm leading-4 text-white">{rangeMarker.label}</span>
+			</div>
+		{/if}
+		{#if rangeMode && range}
+			<div class="pointer-events-none absolute -inset-y-px rounded border-2 border-signal bg-signal/10" style="left: {rangeStartPct}%; width: {Math.max(0, rangeEndPct - rangeStartPct)}%" data-scrub-section-box>
+				<span class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-sm bg-scrim/80 px-2 font-mono text-sm leading-5 tabular-nums text-scrim-on">{rangeName} · {fixed2(range.end - range.start)} s</span>
+			</div>
+			<div
+				class="absolute -inset-y-px -ml-2 flex w-3 cursor-ew-resize items-center justify-center rounded-l bg-signal-solid focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-signal"
+				style="left: {rangeStartPct}%"
+				role="slider"
+				tabindex="0"
+				aria-label="Range start"
+				aria-valuemin={0}
+				aria-valuemax={Math.round(duration * 100) / 100}
+				aria-valuenow={Math.round(range.start * 100) / 100}
+				aria-valuetext={formatEditorTime(range.start)}
+				onpointerdown={(event) => drag(event, (seconds) => onrangestart?.(seconds))}
+				onkeydown={(event) => handleKey(event, 'range-start')}
+				data-scrub-handle="range-start"
+			>
+				<span class="h-4 w-0.5 rounded-sm bg-white/80"></span>
+			</div>
+			<div
+				class="absolute -inset-y-px -mr-2 flex w-3 cursor-ew-resize items-center justify-center rounded-r bg-signal-solid focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-signal"
+				style="right: {100 - rangeEndPct}%"
+				role="slider"
+				tabindex="0"
+				aria-label="Range end"
+				aria-valuemin={0}
+				aria-valuemax={Math.round(duration * 100) / 100}
+				aria-valuenow={Math.round(range.end * 100) / 100}
+				aria-valuetext={formatEditorTime(range.end)}
+				onpointerdown={(event) => drag(event, (seconds) => onrangeend?.(seconds))}
+				onkeydown={(event) => handleKey(event, 'range-end')}
+				data-scrub-handle="range-end"
+			>
+				<span class="h-4 w-0.5 rounded-sm bg-white/80"></span>
+			</div>
+		{/if}
 		{#if handles}
 			<div class="pointer-events-none absolute -inset-y-px rounded border-2 border-scrim-on" style="left: {inPct}%; width: {Math.max(0, outPct - inPct)}%" data-scrub-range></div>
 			<div
@@ -260,7 +351,7 @@
 		</div>
 	</div>
 
-	{#if !compact}
+	{#if !compact && !rangeMode}
 		<div class="relative h-5 overflow-hidden rounded bg-surface-2" aria-hidden="true" data-scrub-wave={peaks ? 'ready' : 'empty'}>
 			{#if peaks && peaks.length}
 				<svg class="absolute inset-0 h-full w-full" viewBox="0 0 {peaks.length} 20" preserveAspectRatio="none">

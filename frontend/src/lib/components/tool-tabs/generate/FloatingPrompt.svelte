@@ -25,7 +25,8 @@
 		tempRow,
 		hasTemp = false,
 		run = null,
-		extras
+		extras,
+		rangeStatus = null
 	}: {
 		phone?: boolean;
 		running?: string | null;
@@ -35,11 +36,15 @@
 		hasTemp?: boolean;
 		run?: BorderRun | null;
 		extras?: Snippet;
+		rangeStatus?: string | null;
 	} = $props();
 
 	const generate = getGenerateController()!;
 	const ui = generate.ui;
 
+	const video = generate.editor === 'video';
+	const placeholder = $derived(video && $ui.taskId === 'extend' ? 'Describe what happens next' : 'Describe the change');
+	const noPromptNote = video ? 'No description needed.' : 'The marked object will be removed.';
 	let collapsed = $state(false);
 	let root = $state<HTMLElement | null>(null);
 
@@ -47,7 +52,7 @@
 	let task = $derived($ui.tasks.find((entry) => entry.id === taskId) ?? null);
 	let entry = $derived.by(() => {
 		void $editorsRevision;
-		return taskId ? tasks.get('image', taskId) : undefined;
+		return taskId ? tasks.get(generate.editor, taskId) : undefined;
 	});
 	let label = $derived(entry?.label ?? task?.label ?? 'Generate');
 	let needsPrompt = $derived((entry?.prompt ?? task?.prompt ?? 'required') !== 'none');
@@ -72,7 +77,7 @@
 	});
 
 	let chipText = $derived(noModel ? 'No model yet' : (chip ?? 'Choose a preset'));
-	let area = $derived($maskArea);
+	let area = $derived(video ? null : $maskArea);
 	let redoArea = $derived(!!$ui.redo && $ui.redo.taskId === taskId && !regionNone && !area);
 	let focused = $state(false);
 	let reason = $derived(
@@ -168,7 +173,9 @@
 		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="redo"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />Mark the area again</span>
 	{:else if regionRequired && !area}
 		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="warn"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />Mark the object first</span>
-	{:else if !area && !regionNone}
+	{:else if video}
+			<span class="min-w-0 truncate whitespace-nowrap font-mono text-sm tabular-nums text-fg-muted" data-prompt-status="range">{rangeStatus ?? 'Whole clip'}</span>
+		{:else if !area && !regionNone}
 		<span class="min-w-0 truncate whitespace-nowrap text-sm text-fg-muted" data-prompt-status="whole">Whole picture</span>
 	{:else if area}
 		<span class="flex min-w-0 items-center gap-2 whitespace-nowrap text-sm text-fg-muted" data-prompt-status="area">Marked area<span class="font-mono tabular-nums text-fg">{areaLabel(area)}</span></span>
@@ -187,7 +194,7 @@
 			class="input min-h-9 resize-none"
 			style="max-height: {phone ? 112 : 96}px"
 			rows={phone ? 2 : 1}
-			placeholder="Describe the change"
+			placeholder={placeholder}
 			aria-label="Describe the change"
 			value={prompt}
 			oninput={setPrompt}
@@ -196,7 +203,7 @@
 		></textarea>
 	{:else}
 		<div class="flex min-h-9 items-center gap-2 rounded bg-surface-2 px-3 py-2 text-base text-fg-muted" data-prompt-note>
-			<Icon name={entry?.icon ?? 'sparkles'} className="h-3.5 w-3.5 flex-none" />The marked object will be removed.
+			<Icon name={entry?.icon ?? 'sparkles'} className="h-3.5 w-3.5 flex-none" />{noPromptNote}
 		</div>
 	{/if}
 {/snippet}
@@ -217,7 +224,7 @@
 				class="block min-h-10 w-full resize-none border-0 bg-transparent px-3 py-2 text-base text-fg outline-none placeholder:text-fg-subtle focus:ring-0"
 				style="max-height: 96px"
 				rows="1"
-				placeholder="Describe the change"
+				placeholder={placeholder}
 				aria-label="Describe the change"
 				value={prompt}
 				oninput={setPrompt}
@@ -229,7 +236,7 @@
 		</div>
 	{:else}
 		<div class="flex min-h-10 min-w-0 flex-1 items-center gap-2.5 rounded bg-surface-2 px-3 text-base text-fg-muted" data-prompt-note>
-			<Icon name={entry?.icon ?? 'sparkles'} className="h-3.5 w-3.5 flex-none" />The marked object will be removed.
+			<Icon name={entry?.icon ?? 'sparkles'} className="h-3.5 w-3.5 flex-none" />{noPromptNote}
 		</div>
 	{/if}
 {/snippet}

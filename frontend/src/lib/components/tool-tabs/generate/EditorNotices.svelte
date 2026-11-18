@@ -24,7 +24,7 @@
 {#if nothingOffered}
 	<p class="m-0 flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded bg-surface-2 px-2.5 text-sm text-fg-muted" data-picker-empty>
 		<Icon name="model" className="h-3.5 w-3.5 flex-none" />
-		<span><b class="font-semibold text-fg">No model can do this yet.</b> {isAdmin ? 'Install a model that edits pictures, for example from Admin → Recipes.' : 'Ask your admin to add a model that edits pictures.'}</span>
+		<span><b class="font-semibold text-fg">No model can do this yet.</b> {isAdmin ? `Install a model that edits ${generate.editor === 'video' ? 'clips' : 'pictures'}, for example from Admin → Recipes.` : `Ask your admin to add a model that edits ${generate.editor === 'video' ? 'clips' : 'pictures'}.`}</span>
 	</p>
 {:else if needsPick && hint}
 	<p class="m-0 flex min-h-8 items-center gap-2 text-sm text-fg-muted" data-picker-hint><Icon name="info" className="h-3.5 w-3.5 flex-none" />Choose a preset first</p>

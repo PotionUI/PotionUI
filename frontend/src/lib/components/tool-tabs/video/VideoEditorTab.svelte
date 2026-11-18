@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
@@ -116,6 +116,21 @@
 	import { PREVIEW_CAPS } from '$lib/effects/budget';
 	import { supportsWebGL2 } from '$lib/effects/ShaderChain';
 	import LivePreview from './LivePreview.svelte';
+	import FloatingPrompt from '$lib/components/tool-tabs/generate/FloatingPrompt.svelte';
+	import CandidateStrip from '$lib/components/tool-tabs/generate/CandidateStrip.svelte';
+	import DockStaleNotice from '$lib/components/tool-tabs/generate/DockStaleNotice.svelte';
+	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
+	import RangeOptions from '$lib/components/tool-tabs/video/options/RangeOptions.svelte';
+	import { createTabGenerate } from '$lib/tool-tabs/image/generate/wiring';
+	import { provideGenerateController } from '$lib/tool-tabs/image/generate/context';
+	import { settingsOf } from '$lib/tool-tabs/image/generate/register';
+	import { generateSteps, leftOutCount, leftOutNotice, rangeText, readGenerateParams } from '$lib/tool-tabs/image/generate/generateStep';
+	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
+	import { basisBeneath, outOfDateNotice, rebase, refKey } from '$lib/tool-tabs/video/generateChain';
+	import { generateRowInfo } from '$lib/tool-tabs/video/generateRows';
+	import { defaultRange, toRunRange, validRange, withEnd, withStart, type AiRange } from '$lib/tool-tabs/video/aiRange';
+	import { entryKey } from '$lib/editors/registry';
+	import { tasks } from '$lib/editors/tasks';
 	import {
 		EMPTY_SIGNATURE,
 		directInputRef,
@@ -210,7 +225,9 @@
 	let video = $state<HTMLVideoElement | null>(null);
 	let meta = $state<{ width: number; height: number; duration: number } | null>(null);
 	let videoError = $state(false);
-	let inputRef = $state.raw<MediaToolInputRef | null>(null);
+	let originalRef = $state.raw<MediaToolInputRef | null>(null);
+	let aiRange = $state.raw<AiRange | null>(null);
+	let settingsFor = $state<string | null>(null);
 	let origin = $state<'library' | 'history' | null>(null);
 	let refReason = $state<string | null>(null);
 	let frames = $state<(string | null)[]>([]);
@@ -232,7 +249,12 @@
 
 	let phone = $derived(host.phone);
 	let source = $derived(host.source as RefWithMeta | null);
-	let url = $derived(source?.url ?? null);
+	let chain = $derived.by(() => {
+		void $runViews;
+		return rebase(effectiveSteps(edits), originalRef);
+	});
+	let inputRef = $derived(chain.input ?? originalRef);
+	let url = $derived(chain.url ?? source?.url ?? null);
 	let stem = $derived(mediaFileStem(source));
 	let fps = $derived(safeFps(source?.metadata?.fps ?? ASSUMED_FPS));
 	let ready = $derived(!!meta && meta.duration > 0);
@@ -244,11 +266,13 @@
 	let pending = $derived(edits.pending);
 	let preview = $derived(previewSteps(edits));
 	let effective = $derived(effectiveSteps(edits));
-	let saveCompiled = $derived(compileSteps(effective, clip, { effects: effectMap }));
-	let signature = $derived(ready ? stepsSignature(saveCompiled.steps) : savedSignature);
-	let previewCompiled = $derived(compileSteps(preview, clip, { skipSplit: true, effects: effectMap }));
-	let beforeCompiled = $derived(compileSteps(beforeSteps(edits), clip, { skipSplit: true, effects: effectMap }));
-	let effectivePlayback = $derived(playbackPreview(effective, clip));
+	let saveCompiled = $derived(compileSteps(chain.tail, clip, { effects: effectMap }));
+	let saveSteps = $derived(chain.base && saveCompiled.steps.length === 0 ? [{ tool: 'trim', params: { start: 0, end: Math.round(clip.duration * 1000) / 1000 } }] : saveCompiled.steps);
+	let signature = $derived(ready ? (chain.base ? JSON.stringify({ input: refKey(chain.input), steps: saveSteps }) : stepsSignature(saveSteps)) : savedSignature);
+	let previewCompiled = $derived(compileSteps(tailOf(preview), clip, { skipSplit: true, effects: effectMap }));
+	let beforeCompiled = $derived(compileSteps(tailOf(beforeSteps(edits)), clip, { skipSplit: true, effects: effectMap }));
+	let effectivePlayback = $derived(playbackPreview(chain.tail, clip));
+	let aiCompiled = $derived(compileSteps(chain.tail, clip, { skipSplit: true, effects: effectMap }));
 	let base = $derived(keptRange(duration, effectivePlayback.ops));
 
 	let effectsTool = $derived(isEffectOp(tool));
@@ -269,9 +293,11 @@
 		return previewWith(edits, draft);
 	});
 	let playbackSteps = $derived(
-		editingCrop
-			? [...beforeSteps(edits), { ...draftFor('crop', { ...panelParams, rect: FULL_CROP }), id: 'crop-edit', hidden: false }]
-			: (hoverSteps ?? preview)
+		tailOf(
+			editingCrop
+				? [...beforeSteps(edits), { ...draftFor('crop', { ...panelParams, rect: FULL_CROP }), id: 'crop-edit', hidden: false }]
+				: (hoverSteps ?? preview)
+		)
 	);
 	let playback = $derived(playbackPreview(playbackSteps, clip));
 	let liveCompiled = $derived(compileSteps(playbackSteps, clip, { skipSplit: true, effects: effectMap }));
@@ -281,7 +307,7 @@
 	let range = $derived(keptRange(duration, playback.ops));
 	let scrubIn = $derived(tool === 'trim' && panelOp === 'trim' ? Number(panelParams.start ?? range.start) : range.start);
 	let scrubOut = $derived(tool === 'trim' && panelOp === 'trim' ? Number(panelParams.end ?? range.end) : range.end);
-	let outputLength = $derived(playbackPreview(preview, clip).duration);
+	let outputLength = $derived(playbackPreview(tailOf(preview), clip).duration);
 	let displaySize = $derived(playback.size);
 	let crop = $derived(playback.crop);
 	let cropRect = $derived<CropRect>(editingCrop ? readCrop(panelParams).rect : FULL_CROP);
@@ -297,7 +323,7 @@
 		return new Set(tiles.filter((tile) => source.some((entry) => tileMatches(tile, entry.tool, entry.params))).map((tile) => tile.id));
 	});
 	let pendingMeaningful = $derived(!!pending && isVideoOp(pending.tool) && ready && (!!pending.target || !isNoop(pending.tool, pending.params, clip, base)));
-	let hasEdits = $derived(saveCompiled.steps.length > 0 || pendingMeaningful);
+	let hasEdits = $derived(saveCompiled.steps.length > 0 || pendingMeaningful || !!chain.base);
 	let visibleCount = $derived(effective.length);
 	let dirty = $derived(ready ? dirtyCount(signature, savedSignature, visibleCount) : 0);
 	let canSave = $derived(ready && !!inputRef && hasEdits);
@@ -313,7 +339,7 @@
 	let beforeKey = $derived(compare && ready && !!inputRef && !playing && !clipPreview && !live.canvas ? JSON.stringify([beforeCompiled.steps, Math.round(playhead * 1000)]) : null);
 	let showAfterFrame = $derived(!!afterFrame && afterFrame.key === frameKey);
 	let previewSignature = $derived(JSON.stringify(previewCompiled.steps));
-	let sizeOptions = $derived(resizeOptions(compileSteps(beforeSteps(edits), clip).chain.size));
+	let sizeOptions = $derived(resizeOptions(compileSteps(tailOf(beforeSteps(edits)), clip).chain.size));
 	let replaceOption = $derived(
 		origin !== 'library'
 			? { allowed: false, reason: 'Files from History stay as generated' }
@@ -346,7 +372,7 @@
 	});
 	let toolLabel = $derived(registeredTool?.label ?? tool);
 	let toolIcon = $derived(registeredTool?.icon ?? 'editor-effects');
-	let appliedTools = $derived([...new Set(appliedSteps(edits).filter((step) => !step.hidden).map((step) => step.tool))]);
+	let appliedTools = $derived([...new Set(appliedSteps(edits).filter((step) => !step.hidden).map((step) => (step.tool === 'generate' ? (readGenerateParams(step.params)?.task ?? step.tool) : step.tool)))]);
 	let markers = $derived.by(() => {
 		const list = appliedSteps(edits).map((step, index) => ({ step, label: String(index + 1).padStart(2, '0') }));
 		if (pending) list.push({ step: { ...pending, id: 'pending', hidden: false }, label: String(list.length + 1).padStart(2, '0') });
@@ -389,10 +415,11 @@
 		},
 		removeStep: () => {
 			const step = currentStep;
-			if (step) edits = remove(edits, step.id);
+			if (step) removeStep(step.id);
 		},
 		removeAll: () => {
 			settleLive();
+			generate.allRemoved(edits as EditStackState<unknown>);
 			edits = clearAll(commitLive(edits));
 		},
 		toggleCompare: () => (compare = !compare),
@@ -487,6 +514,10 @@
 				if (!destroyed) markUnavailable(need.tool);
 			})
 			.finally(() => analysisLoading.delete(need.key));
+	}
+
+	function tailOf(steps: readonly EditStep<unknown>[]): EditStep<unknown>[] {
+		return rebase(steps, originalRef).tail;
 	}
 
 	function foldPending(state: EditStackState<VideoParams>): EditStackState<VideoParams> {
@@ -596,6 +627,14 @@
 	function reopenStep(id: string) {
 		const step = edits.steps.find((entry) => entry.id === id);
 		if (!step) return;
+		if (step.tool === 'generate') {
+			const task = readGenerateParams(step.params)?.task;
+			if (task && knownTool(task)) {
+				selectTool(task);
+				void tick().then(() => generate.activate(id));
+			}
+			return;
+		}
 		const rail = railToolOf(step.tool);
 		const entry = rail ? knownTool(rail) : null;
 		settleLive();
@@ -815,7 +854,9 @@
 	async function startRender(mode: MediaToolSaveMode, then?: (run: MediaToolRun) => void) {
 		if (!inputRef || !ready || render || starting) return;
 		edits = foldPending(edits);
-		const compiled = compileSteps(effectiveSteps(edits), clip, { effects: effectMap });
+		const found = rebase(effectiveSteps(edits), originalRef);
+		const compiled = compileSteps(found.tail, clip, { effects: effectMap });
+		if (found.base && compiled.steps.length === 0) compiled.steps = [{ tool: 'trim', params: { start: 0, end: Math.round(clip.duration * 1000) / 1000 } }];
 		if (compiled.steps.length === 0) return;
 		const finalMode: MediaToolSaveMode = mode === 'update' && (!saved || hasSplit(compiled.steps)) ? 'new' : mode;
 		const output: { mode: MediaToolSaveMode; target_item_id?: string } = { mode: finalMode };
@@ -827,7 +868,7 @@
 				runId,
 				percent: 0,
 				mode: finalMode,
-				signature: stepsSignature(compiled.steps),
+				signature: found.base ? JSON.stringify({ input: refKey(found.input), steps: compiled.steps }) : stepsSignature(compiled.steps),
 				startedAt: Date.now(),
 				total: compiled.chain.duration,
 				output: `MP4 · ${compiled.chain.size.width}×${compiled.chain.size.height}`,
@@ -1128,11 +1169,15 @@
 		get effects() {
 			return effectMap;
 		},
+		get aiRange() {
+			return aiRange;
+		},
 		panelParams: (op) => paramsFor(op),
 		setParams: (op, params) => setParams(op, params),
 		setAspect: (key) => setAspect(key),
 		setIn: (seconds) => setIn(seconds),
 		setOut: (seconds) => setOut(seconds),
+		setAiRange: (range) => markRange(range),
 		previewClip: () => void previewClip(),
 		cancelPreview: () => closeClipPreview(),
 		frameAction: (action) => void frameAction(action),
@@ -1167,20 +1212,113 @@
 	$effect(() => toolHost.syncPending(pending));
 	$effect(() => toolHost.syncStack(edits));
 
+	const runLink = `video-${tabId.replace(/[^A-Za-z0-9_-]/g, '-')}`.slice(0, 64);
+	const generate = createTabGenerate(
+		{
+			getStack: () => foldPending(edits) as EditStackState<unknown>,
+			setStack: (next) => (edits = next as EditStackState<VideoParams>),
+			source: () => ({ ref: originalRef }),
+			editLink: async () => ({ id: runLink, revision: 1 }),
+			landRegion: async () => null,
+			areaSize: () => null,
+			stepsBeneath: async (id) => compileSteps(basisBeneath(effectiveSteps(edits), originalRef, id).tail, clip, { skipSplit: true, effects: effectMap }).steps,
+			range: () => toRunRange(aiRange, duration, aiCompiled.chain.ops),
+			inputFor: (id) => basisBeneath(effectiveSteps(edits), originalRef, id).input,
+			basisOf: (id) => basisBeneath(effectiveSteps(edits), originalRef, id).basis
+		},
+		'video'
+	);
+	provideGenerateController(generate);
+	const generateUi = generate.ui;
+	$effect(() => generate.use(registeredTool?.task ?? null));
+	$effect(() => {
+		const current = edits;
+		untrack(() => generate.resume(current as EditStackState<unknown>));
+	});
+	let loadedUrl: string | null = untrack(() => url);
+	$effect(() => {
+		const next = url;
+		untrack(() => {
+			if (next === loadedUrl) return;
+			loadedUrl = next;
+			meta = null;
+			videoError = false;
+		});
+	});
+	let taskTool = $derived(!!registeredTool?.task);
+	let settingsRef = $derived(settingsOf(registeredTool));
+	let settingsOpen = $derived(!!settingsRef && settingsFor !== null && settingsFor === tool);
+	let promptSettings = $derived(settingsRef ? { open: settingsOpen, toggle: () => (settingsFor = settingsOpen ? null : tool) } : undefined);
+	$effect(() => {
+		const current = tool;
+		untrack(() => {
+			if (settingsFor && settingsFor !== current) settingsFor = null;
+		});
+	});
+	let extendTask = $derived.by(() => {
+		void $editorsRevision;
+		return !!registeredTool?.task && tasks.get('video', registeredTool.task)?.result === 'append';
+	});
+	let extendSeconds = $derived.by(() => {
+		const task = registeredTool?.task;
+		const value = task ? $generateUi.tweaks[task]?.values.duration : null;
+		return typeof value === 'number' ? value : null;
+	});
+	let rangeMarker = $derived(taskTool && extendTask && ready ? { at: aiRange?.end ?? duration, label: extendSeconds === null ? 'Added here' : `+${fixed2(extendSeconds)} s` } : null);
+	let rangeStatus = $derived(aiRange ? `${fixed2(aiRange.start)} → ${fixed2(aiRange.end)} s` : 'Whole clip');
+	let runStep = $derived.by(() => {
+		const id = $generateUi.activeStepId;
+		return id ? (generateSteps(edits).find((entry) => entry.step.id === id) ?? null) : null;
+	});
+	let runView = $derived(runStep ? ($runViews[runStep.params.run.id] ?? null) : null);
+	let runStatus = $derived(runStep ? (runView?.status ?? runStep.params.run.status) : null);
+	let runningId = $derived(runStep && (runStatus === 'queued' || runStatus === 'running') ? runStep.step.id : null);
+	let runOutOfDate = $derived(!!runStep && chain.stale.has(runStep.step.id));
+	let dockHasTemp = $derived(!!runStep && runStatus === 'done' && (runStep.params.results.length > 0 || runOutOfDate));
+	let saveNotices = $derived([leftOutNotice(leftOutCount(effective)), outOfDateNotice(chain.stale.size)].filter((line): line is string => !!line));
+
+	async function redoStep(id: string) {
+		await generate.redo(id);
+	}
+
+	function stepAction(id: string, action: string) {
+		if (action === 'cancel') void generate.cancel(id);
+		else if (action === 'again') void generate.tryAgain(id);
+		else if (action === 'retry') void generate.retry(id);
+		else if (action === 'redo') void redoStep(id);
+	}
+
+	function removeStep(id: string) {
+		generate.stepRemoved(id, edits as EditStackState<unknown>);
+		edits = remove(edits, id);
+	}
+
+	function markRange(next: AiRange | null) {
+		aiRange = next;
+	}
+
+	function rangeFrom(seconds: number, which: 'start' | 'end') {
+		if (!ready) return;
+		const current = aiRange;
+		if (!current) markRange(defaultRange(which === 'start' ? seconds : Math.max(0, seconds - 2), duration));
+		else markRange(which === 'start' ? withStart(current, seconds, duration) : withEnd(current, seconds, duration));
+	}
+
 	function rowInfo(step: EditStep<unknown>): StepRowInfo | null {
+		if (step.tool === 'generate') return generateRowInfo(step, chain.stale.has(step.id));
 		if (!afterPlan?.analysis.some((need) => need.tool === step.tool)) return null;
 		return { state: { kind: 'busy', label: 'Measuring colours' }, locked: false };
 	}
 
 	$effect(() => {
 		const ref = source;
-		inputRef = null;
+		originalRef = null;
 		origin = null;
 		refReason = null;
 		if (!ref) return;
 		const direct = directInputRef(ref);
 		if (direct) {
-			inputRef = direct;
+			originalRef = direct;
 			origin = 'item_id' in direct ? 'library' : 'history';
 			return;
 		}
@@ -1188,10 +1326,10 @@
 		void resolveEditableResource(null, ref.relative_path || ref.path, 'video').then((resolved) => {
 			if (cancelled) return;
 			if (resolved.itemId) {
-				inputRef = { item_id: resolved.itemId };
+				originalRef = { item_id: resolved.itemId };
 				origin = 'library';
 			} else if (resolved.generationFileId) {
-				inputRef = { generation_file_id: resolved.generationFileId };
+				originalRef = { generation_file_id: resolved.generationFileId };
 				origin = 'history';
 			} else refReason = resolved.reason;
 		});
@@ -1404,12 +1542,14 @@
 	onMount(() => {
 		webgl2 = supportsWebGL2();
 		void loadMediaToolCatalog();
+		void generate.loadTasks();
 		const run = untrack(() => host.run);
 		if (run?.runId) void reattach(run.runId);
 	});
 
 	onDestroy(() => {
 		destroyed = true;
+		generate.dispose();
 		if (liveTimer) clearTimeout(liveTimer);
 		cancelAnimationFrame(raf);
 		detachRender(tabId, listener);
@@ -1474,6 +1614,7 @@
 {:else}
 	<div class="flex h-full min-h-0 flex-col" data-testid="video-editor" data-ready={ready || undefined} data-phone={phone || undefined}>
 		<EditorFrame
+				dock={taskTool && !phone ? dockContent : undefined}
 			{phone}
 			bind:compare
 			bind:stackOpen
@@ -1499,6 +1640,7 @@
 					<EditorToolbar
 						fileName={source?.name ?? stem}
 						emptyLabel="No clip"
+						{saveNotices}
 						title={toolLabel}
 						titleIcon={toolIcon}
 						menu={menuCtx}
@@ -1643,6 +1785,9 @@
 			{/snippet}
 
 			{#snippet below()}
+				{#if taskTool && phone}
+					{@render phoneDock()}
+				{/if}
 				<ScrubBar
 					duration={duration}
 					{playhead}
@@ -1650,6 +1795,10 @@
 					outPoint={scrubOut}
 					outputLength={outputLength}
 					handles={tool === 'trim' && ready}
+					rangeMode={taskTool && ready}
+					range={aiRange}
+					rangeName={extendTask ? 'Extend from' : 'Section'}
+					{rangeMarker}
 					{playing}
 					{loop}
 					muted={playbackMuted}
@@ -1669,6 +1818,9 @@
 					}}
 					onin={setIn}
 					onout={setOut}
+					onrange={markRange}
+					onrangestart={(seconds) => rangeFrom(seconds, 'start')}
+					onrangeend={(seconds) => rangeFrom(seconds, 'end')}
 					ontoggleplay={togglePlay}
 					onstep={step}
 					ontoggleloop={() => (loop = !loop)}
@@ -1700,12 +1852,14 @@
 						label={render.mode === 'replace' ? 'Replacing original' : 'Saving as new'}
 						oncancel={cancelRender}
 					/>
-				{:else}
+				{:else if settingsOpen && settingsRef && !phone}
+					<EditorEntryComponent entry={entryKey('video', registeredTool!.id)} componentRef={settingsRef} props={{ host: toolHost, phone, onback: () => (settingsFor = null) }} onclose={() => (settingsFor = null)} />
+				{:else if !(phone && taskTool)}
 					<OptionsPanel
 						title={toolLabel}
 						icon={toolIcon}
-						actions={footerActions}
-						showApply={!effectsTool && !ACTION_ENTRIES.includes(tool)}
+						actions={footerActions && !taskTool}
+						showApply={!effectsTool && !taskTool && !ACTION_ENTRIES.includes(tool)}
 						applyLabel={applyText}
 						{canApply}
 						canReset={resetEnabled}
@@ -1733,7 +1887,8 @@
 						onreopen={reopenStep}
 						onseek={(cursor) => (edits = seek(edits, cursor))}
 						ontogglehidden={(id) => (edits = toggleHidden(edits, id))}
-						onremove={(id) => (edits = remove(edits, id))}
+						onrowaction={stepAction}
+						onremove={removeStep}
 						onmove={(id, to) => (edits = move(edits, id, to))}
 						onundo={doUndo}
 						onredo={doRedo}
@@ -1768,6 +1923,35 @@
 			<img src={beforeFrame.url} alt="" class="h-full w-full object-fill" data-video-before />
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet dockTempRow()}
+	{#if runStep && runStatus === 'done' && runStep.params.results.length && !runOutOfDate}
+		<CandidateStrip dock video results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
+		<span class="min-w-0 truncate font-mono text-sm tabular-nums text-fg-subtle" data-dock-result-note>{runStep.params.results.length} {runStep.params.results.length === 1 ? 'result' : 'results'} · {rangeText(runStep.params.range)}</span>
+	{:else if runStep && runStatus === 'done' && runOutOfDate}
+		<DockStaleNotice noun="clip" onredo={() => void redoStep(runStep!.step.id)} />
+	{/if}
+{/snippet}
+
+{#snippet dockContent()}
+	<FloatingPrompt running={runningId} run={runStep && runStatus ? { status: runStatus, progress: runView?.progress ?? null } : null} settings={promptSettings} tempRow={dockTempRow} hasTemp={dockHasTemp} {rangeStatus} />
+{/snippet}
+
+{#snippet phoneDock()}
+	{#if runStep && runStatus === 'done' && runStep.params.results.length && !runOutOfDate}
+		<div class="flex flex-none justify-center bg-canvas pb-2" data-generate-strip-phone>
+			<CandidateStrip phone video results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
+		</div>
+	{/if}
+	{#if settingsOpen && settingsRef}
+		<EditorEntryComponent entry={entryKey('video', registeredTool!.id)} componentRef={settingsRef} props={{ host: toolHost, phone, onback: () => (settingsFor = null) }} onclose={() => (settingsFor = null)} />
+	{:else}
+		<div class="flex-none border-t border-line bg-surface-1 px-3 py-2" data-task-range-bar>
+			<RangeOptions host={toolHost} phone tool={registeredTool?.id} />
+		</div>
+		<FloatingPrompt phone running={runningId} settings={promptSettings} {rangeStatus} />
+	{/if}
 {/snippet}
 
 {#snippet trimHint()}

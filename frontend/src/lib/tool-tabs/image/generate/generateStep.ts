@@ -1,7 +1,8 @@
 import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { get } from 'svelte/store';
 import { canvasFromUrl } from '$lib/paint/loadPicked';
-import type { EditorRun, NormRect, RunStatus, TaskOffer } from '$lib/services/api/editorTasks';
+import { timeRangeOf, type EditorRun, type NormRect, type RunStatus, type TaskOffer, type TimeRange } from '$lib/services/api/editorTasks';
+import { formatEditorTime } from '$lib/tool-tabs/video/videoState';
 import type { StepKind, StepState } from '$lib/editors/stepKinds';
 import type { EditStackState, EditStep, StepDraft } from '$lib/tool-tabs/frame/editStack';
 import { geometryKey } from '../mask';
@@ -31,6 +32,10 @@ export interface GenerateResult {
 	patch: { item_id: string };
 	url: string;
 	seed: number | null;
+	clip?: boolean;
+	range?: TimeRange | null;
+	added?: { at_s: number; seconds: number } | null;
+	duration_s?: number | null;
 }
 
 export interface GenerateArea {
@@ -63,6 +68,7 @@ export interface GenerateParams {
 	soft: boolean;
 	run: GenerateRun;
 	basis?: GenerateBasis;
+	range?: TimeRange | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,7 +80,12 @@ const STATUSES: readonly RunStatus[] = ['queued', 'running', 'done', 'failed', '
 function resultsOf(raw: unknown): GenerateResult[] {
 	return (Array.isArray(raw) ? raw : []).flatMap((entry): GenerateResult[] => {
 		if (!isRecord(entry) || !isRecord(entry.patch) || typeof entry.patch.item_id !== 'string' || typeof entry.url !== 'string') return [];
-		return [{ patch: { item_id: entry.patch.item_id }, url: entry.url, seed: typeof entry.seed === 'number' ? entry.seed : null }];
+		const result: GenerateResult = { patch: { item_id: entry.patch.item_id }, url: entry.url, seed: typeof entry.seed === 'number' ? entry.seed : null };
+		if (entry.clip === true) {
+			const added = isRecord(entry.added) && typeof entry.added.at_s === 'number' && typeof entry.added.seconds === 'number' ? { at_s: entry.added.at_s, seconds: entry.added.seconds } : null;
+			Object.assign(result, { clip: true, range: timeRangeOf(entry.range), added, duration_s: typeof entry.duration_s === 'number' ? entry.duration_s : null });
+		}
+		return [result];
 	});
 }
 
@@ -122,7 +133,8 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 		rect: rectOf(raw.rect),
 		soft: raw.soft === true,
 		run: { id: raw.run.id, status: raw.run.status as RunStatus, error: typeof raw.run.error === 'string' ? raw.run.error : null },
-		...(basis ? { basis } : {})
+		...(basis ? { basis } : {}),
+		...('range' in raw ? { range: timeRangeOf(raw.range) } : {})
 	};
 }
 
@@ -194,7 +206,15 @@ export function promptStart(prompt: string): string {
 	return text.slice(0, PROMPT_ROW_LIMIT).replace(/\s+\S*$/, '') || text.slice(0, PROMPT_ROW_LIMIT);
 }
 
+export function rangeText(range: TimeRange | null | undefined): string {
+	return range ? `${formatEditorTime(range.start_s)} → ${formatEditorTime(range.end_s)}` : 'Whole clip';
+}
+
 export function summaryOf(params: GenerateParams): string {
+	if (params.range !== undefined) {
+		const where = rangeText(params.range);
+		return params.run.status === 'done' && params.results.length ? `${params.chosen + 1} of ${params.results.length} · ${where}` : where;
+	}
 	if (params.run.status === 'done' && params.results.length) {
 		const count = `${params.chosen + 1} of ${params.results.length}`;
 		const start = promptStart(params.prompt);

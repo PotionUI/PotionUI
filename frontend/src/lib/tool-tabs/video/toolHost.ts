@@ -6,6 +6,7 @@ import type { EffectTool } from '$lib/effects/catalog';
 import type { MediaToolInputRef } from '$lib/media-tools/types';
 import { beginEdit, discardPending, liveEdit, updatePending, type EditStackState, type PendingEdit, type StepDraft } from '$lib/tool-tabs/frame/editStack';
 import type { EffectTile } from './effectTiles';
+import type { AiRange } from './aiRange';
 import { isEffectOp, type ClipInfo, type VideoParams } from './videoSteps';
 
 export interface VideoView {
@@ -26,9 +27,11 @@ export interface VideoView {
 	readonly tiles: readonly EffectTile[];
 	readonly pickedTiles: ReadonlySet<string>;
 	readonly effects: ReadonlyMap<string, EffectTool>;
+	readonly aiRange: AiRange | null;
 	panelParams(op: string): VideoParams;
 	setParams(op: string, params: VideoParams): void;
 	setAspect(key: string): void;
+	setAiRange(range: AiRange | null): void;
 	setIn(seconds: number): void;
 	setOut(seconds: number): void;
 	previewClip(): void;

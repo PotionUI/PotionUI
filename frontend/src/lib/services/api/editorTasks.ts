@@ -12,14 +12,24 @@ export interface NormRect {
 	height: number;
 }
 
+export interface TimeRange {
+	start_s: number;
+	end_s: number;
+}
+
 export interface RunCandidate {
 	patch: { item_id: string };
 	url: string;
 	seed: number | null;
 	generation_file_id?: string | null;
+	clip?: boolean;
+	range?: TimeRange | null;
+	added?: { at_s: number; seconds: number } | null;
+	duration_s?: number | null;
 }
 
 export interface EditorRun {
+	range?: (TimeRange & { whole: boolean }) | null;
 	id: string;
 	task: string;
 	status: RunStatus;
@@ -84,6 +94,11 @@ export interface EditorTaskInfo {
 	icon: string;
 	region: TaskRequirement;
 	prompt: TaskRequirement;
+	editors?: string[];
+	range?: TaskRequirement;
+	result?: 'replace' | 'append';
+	audio?: 'keep' | 'result';
+	resizes?: boolean;
 	fallback: { task: string; prompt: string } | null;
 	offers: TaskOffer[];
 	default: TaskDefault | null;
@@ -94,6 +109,7 @@ export interface StartRunBody {
 	input: { item_id?: string; generation_file_id?: string };
 	steps: MediaToolStep[];
 	region: { item_id: string } | null;
+	range?: TimeRange | null;
 	prompt: string | null;
 	setup: { preset_id: string; mode: string; form_data: Record<string, unknown> };
 	candidates: number;
@@ -105,6 +121,7 @@ export type EditorTaskFailure =
 	| { kind: 'prompt_required' }
 	| { kind: 'region_required' }
 	| { kind: 'region_empty' }
+	| { kind: 'range_invalid'; message: string | null }
 	| { kind: 'setup_incomplete' }
 	| { kind: 'limit'; message: string | null }
 	| { kind: 'cancel_failed' }
@@ -136,6 +153,7 @@ export function describeEditorTaskFailure(error: unknown): EditorTaskFailure {
 		if (code === 'prompt_required') return { kind: 'prompt_required' };
 		if (code === 'region_required') return { kind: 'region_required' };
 		if (code === 'region_empty') return { kind: 'region_empty' };
+		if (code === 'range_invalid' || code === 'range_outside_clip' || code === 'range_required') return { kind: 'range_invalid', message };
 		if (code === 'form_validation_failed') return { kind: 'setup_incomplete' };
 	}
 	if (status === 403) return { kind: 'limit', message };
@@ -153,6 +171,8 @@ export function editorTaskFailureMessage(failure: EditorTaskFailure): string {
 		case 'region_required':
 		case 'region_empty':
 			return 'Mark the area first.';
+		case 'range_invalid':
+			return failure.message ?? 'Mark the part of the clip again.';
 		case 'setup_incomplete':
 			return 'This setup is missing a model. Open Settings and choose it.';
 		case 'limit':
@@ -177,6 +197,17 @@ function rectOf(raw: unknown): NormRect | null {
 	return { x: x as number, y: y as number, width: width as number, height: height as number };
 }
 
+function finite(value: unknown): number | null {
+	return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+export function timeRangeOf(raw: unknown): TimeRange | null {
+	if (!isRecord(raw)) return null;
+	const start = finite(raw.start_s);
+	const end = finite(raw.end_s);
+	return start !== null && end !== null ? { start_s: start, end_s: end } : null;
+}
+
 const STATUSES: readonly RunStatus[] = ['queued', 'running', 'done', 'failed', 'cancelled'];
 
 export function normalizeRun(raw: unknown): EditorRun {
@@ -184,10 +215,18 @@ export function normalizeRun(raw: unknown): EditorRun {
 	const status = STATUSES.includes(run.status as RunStatus) ? (run.status as RunStatus) : 'failed';
 	const candidates = (Array.isArray(run.candidates) ? run.candidates : []).flatMap((entry): RunCandidate[] => {
 		if (!isRecord(entry)) return [];
-		const patch = isRecord(entry.patch) ? str(entry.patch.item_id) : null;
+		const clip = isRecord(entry.clip) ? str(entry.clip.item_id) : null;
+		const patch = isRecord(entry.patch) ? str(entry.patch.item_id) : clip;
 		const url = str(entry.url);
 		if (!patch || !url) return [];
-		return [{ patch: { item_id: patch }, url, seed: typeof entry.seed === 'number' ? entry.seed : null, generation_file_id: str(entry.generation_file_id) }];
+		const candidate: RunCandidate = { patch: { item_id: patch }, url, seed: typeof entry.seed === 'number' ? entry.seed : null, generation_file_id: str(entry.generation_file_id) };
+		if (clip) {
+			candidate.clip = true;
+			candidate.range = timeRangeOf(entry.range);
+			candidate.added = isRecord(entry.added) && finite(entry.added.at_s) !== null && finite(entry.added.seconds) !== null ? { at_s: entry.added.at_s as number, seconds: entry.added.seconds as number } : null;
+			candidate.duration_s = finite(entry.duration_s);
+		}
+		return [candidate];
 	});
 	const progress = typeof run.progress === 'number' && Number.isFinite(run.progress) ? Math.max(0, Math.min(1, run.progress > 1 ? run.progress / 100 : run.progress)) : 0;
 	return {
@@ -201,6 +240,7 @@ export function normalizeRun(raw: unknown): EditorRun {
 		error: str(run.error),
 		soft: run.soft === true,
 		rect: rectOf(run.rect),
+		range: isRecord(run.range) && timeRangeOf(run.range) ? { ...timeRangeOf(run.range)!, whole: run.range.whole === true } : null,
 		candidates
 	};
 }
@@ -259,6 +299,17 @@ export function normalizeDefault(raw: unknown): TaskDefault | null {
 	};
 }
 
+function videoFieldsOf(raw: Record<string, unknown>): Partial<EditorTaskInfo> {
+	if (!Array.isArray(raw.editors)) return {};
+	return {
+		editors: raw.editors.filter((entry): entry is string => typeof entry === 'string'),
+		range: requirement(raw.range, 'none'),
+		result: raw.result === 'append' ? 'append' : 'replace',
+		audio: raw.audio === 'result' ? 'result' : 'keep',
+		resizes: raw.resizes === true
+	};
+}
+
 export function normalizeTask(raw: unknown): EditorTaskInfo | null {
 	if (!isRecord(raw)) return null;
 	const id = str(raw.id);
@@ -270,6 +321,7 @@ export function normalizeTask(raw: unknown): EditorTaskInfo | null {
 		icon: str(raw.icon) ?? 'sparkles',
 		region: requirement(raw.region, 'optional'),
 		prompt: requirement(raw.prompt, 'required'),
+		...videoFieldsOf(raw),
 		fallback,
 		offers: (Array.isArray(raw.offers) ? raw.offers : []).flatMap(offerOf),
 		default: normalizeDefault(raw.default)

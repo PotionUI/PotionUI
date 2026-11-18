@@ -7,6 +7,7 @@
 		chosen,
 		phone = false,
 		dock = false,
+		video = false,
 		canRetry = true,
 		onchoose,
 		onagain
@@ -15,6 +16,7 @@
 		chosen: number;
 		phone?: boolean;
 		dock?: boolean;
+		video?: boolean;
 		canRetry?: boolean;
 		onchoose: (index: number) => void;
 		onagain: () => void;
@@ -47,7 +49,11 @@
 			onclick={() => onchoose(index)}
 			data-candidate={index}
 		>
-			<img src={result.url} alt="" class="alpha-checker h-full w-full object-cover" draggable="false" />
+			{#if video}
+				<video src="{result.url}#t=0.1" class="h-full w-full object-cover" preload="metadata" muted playsinline tabindex="-1" data-candidate-video></video>
+			{:else}
+				<img src={result.url} alt="" class="alpha-checker h-full w-full object-cover" draggable="false" />
+			{/if}
 			<span class="absolute bottom-[3px] left-[3px] rounded-sm px-[5px] font-mono text-sm leading-4 tabular-nums {index === chosen ? 'bg-signal-solid text-white' : 'bg-scrim/70 text-scrim-on'}">{index + 1}</span>
 		</button>
 	{/each}

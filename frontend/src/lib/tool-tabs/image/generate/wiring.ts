@@ -7,10 +7,9 @@ import { api } from '$lib/services/api/index';
 import { loadPresets } from '$lib/stores/presetsCatalog';
 import { createGenerationSocket } from '$lib/services/websocket';
 import { createGenerateController, type ControllerDeps, type GenerateController } from './controller';
-import { syncServerTasks } from './register';
+import { syncServerTasks, syncVideoTasks } from './register';
 import { createRunEngine, type RunMessage, type RunSocket } from './runEngine';
 
-const EDITOR_SEED_TAB = 'image-editor-setup';
 const capabilityOf = (modelId: string) => sharedCapabilityCache.get(modelId);
 
 function runSocket(): RunSocket {
@@ -28,9 +27,9 @@ function runSocket(): RunSocket {
 	};
 }
 
-export type TabGenerateDeps = Pick<ControllerDeps, 'getStack' | 'setStack' | 'source' | 'editLink' | 'landRegion' | 'areaSize' | 'pictureSize' | 'stepsBeneath'>;
+export type TabGenerateDeps = Pick<ControllerDeps, 'getStack' | 'setStack' | 'source' | 'editLink' | 'landRegion' | 'areaSize' | 'pictureSize' | 'stepsBeneath' | 'range' | 'inputFor' | 'basisOf'>;
 
-export function createTabGenerate(deps: TabGenerateDeps): GenerateController {
+export function createTabGenerate(deps: TabGenerateDeps, editor: 'image' | 'video' = 'image'): GenerateController {
 	let controller!: GenerateController;
 	const engine = createRunEngine(
 		{
@@ -44,9 +43,10 @@ export function createTabGenerate(deps: TabGenerateDeps): GenerateController {
 	controller = createGenerateController({
 		...deps,
 		engine,
-		onTasks: syncServerTasks,
+		editor,
+		onTasks: editor === 'video' ? syncVideoTasks : syncServerTasks,
 		ports: {
-			tasks: () => api.listEditorTasks('image'),
+			tasks: () => api.listEditorTasks(editor),
 			sessions: (presetId) => api.listEditorSessions(presetId),
 			formulas: async (presetId, mode) => {
 				const response = await api.listFormulas(presetId, mode);
@@ -69,7 +69,7 @@ export function createTabGenerate(deps: TabGenerateDeps): GenerateController {
 				},
 			seed: ({ presetId, schema, incoming }) =>
 				seedFormValues(
-					{ schema, presetId, tabId: EDITOR_SEED_TAB, incoming: incoming as Record<string, any>, audience: get(formAudienceStore), videoDirectorActive: false },
+					{ schema, presetId, tabId: `${editor}-editor-setup`, incoming: incoming as Record<string, any>, audience: get(formAudienceStore), videoDirectorActive: false },
 					{ search: searchAutopickSlot, check: checkSlotValue, loadCapabilities: loadCloudCapabilities, capabilityOf }
 				),
 			missingModel: (schema, values) => missingModelIn(schema, values as Record<string, any>, capabilityOf),

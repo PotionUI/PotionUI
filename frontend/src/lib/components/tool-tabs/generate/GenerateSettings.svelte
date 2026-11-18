@@ -21,7 +21,7 @@
 	let key = $derived(taskId && $ui.choice[taskId] ? choiceKey($ui.choice[taskId]!) : null);
 	let entry = $derived.by(() => {
 		void $editorsRevision;
-		return taskId ? tasks.get('image', taskId) : undefined;
+		return taskId ? tasks.get(generate.editor, taskId) : undefined;
 	});
 	let label = $derived(entry?.label ?? $ui.tasks.find((item) => item.id === taskId)?.label ?? 'Edit');
 	let context = $state.raw<SettingsContext | null>(null);

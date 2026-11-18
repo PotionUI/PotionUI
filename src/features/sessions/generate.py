@@ -39,7 +39,7 @@ KIND_CONTAINER = "container"
 
 FIELD_KINDS: Dict[str, str] = {
     **{name: KIND_VALUE for name in (
-        "string", "textbox", "number", "integer", "boolean", "checkbox", "slider", "stepper", "seed",
+        "string", "textbox", "number", "number_box", "integer", "boolean", "checkbox", "slider", "stepper", "seed",
         "resolution", "select", "checkbox_group", "tags", "cloud_options", "sampler", "schedule",
         "carousel", "llm", "gate", "prompt_timeline", "camera_shot", "segmented", "anchor", "color",
     )},

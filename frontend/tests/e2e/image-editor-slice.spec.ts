@@ -229,17 +229,11 @@ test.describe('Slice on desktop', () => {
 		await expect(page.locator('[data-slice-cut-merge]')).toHaveText('Merge 04 + 05');
 		await expect(railButton(page, 'slice').locator('[data-tool-pending]')).toBeVisible();
 
-		const grip = await page.evaluate(() => {
-			const centres = Array.from(document.querySelectorAll('[data-slice-knob="v"]')).map((knob) => {
-				const rect = knob.getBoundingClientRect();
-				return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-			});
-			const columns = Array.from(new Set(centres.map((c) => Math.round(c.x / 4)))).sort((a, b) => a - b);
-			return centres.filter((c) => Math.round(c.x / 4) === columns[1]).sort((a, b) => a.y - b.y)[0];
-		});
-		await page.mouse.move(grip.x, grip.y);
+		const knob = page.locator('[data-slice-knob="v"]').nth(1);
+		const box = (await knob.boundingBox())!;
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 		await page.mouse.down();
-		await page.mouse.move(grip.x + 6, grip.y, { steps: 3 });
+		await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2, { steps: 3 });
 		await expect(page.locator('[data-slice-drag-chip]')).toContainText(/Gutter · \d+ px/);
 		await expect(page.locator('[data-slice-magnet]')).toHaveCount(2);
 		await screenshot(page, JOURNEY, '02-grid-snapped-1440');

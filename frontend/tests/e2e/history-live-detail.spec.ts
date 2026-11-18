@@ -104,6 +104,9 @@ async function install(page: Page, runOrigin: unknown = mcpOrigin): Promise<Serv
 		const id = route.request().url().match(/history\/([A-Z0-9]+)/)![1];
 		return server.records[id] ? ok(route, server.records[id]) : route.fulfill({ status: 404, json: { success: false } });
 	});
+	await page.route(/\/api\/generations\/01E2ELIVEDETAIL[A-Z0-9]+\/params\/\d+$/, (route) =>
+		ok(route, { parameters: { prompt: PROMPT, steps: 28, cfg: 3.5, sampler: 'euler' }, models: [], parameter_meta: {}, parameter_order: ['prompt', 'steps', 'cfg', 'sampler'] })
+	);
 	await page.route(/\/api\/generations\/01E2ELIVEDETAIL[A-Z0-9]+\/cancel$/, (route) => ok(route, { cancel_notice: null }));
 	return server;
 }

@@ -15,6 +15,11 @@
       "type": "seed"
     },
     {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
       "label": "Target Size",
       "name": "target_size",
       "type": "select"

@@ -15,6 +15,11 @@
       "type": "seed"
     },
     {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
       "label": "LTX-2.5 DiT (transformer-only)",
       "name": "model",
       "type": "model"

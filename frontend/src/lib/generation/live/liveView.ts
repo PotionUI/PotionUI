@@ -33,6 +33,10 @@ export function queuedSeconds(generation: Timed): number | null {
 	return Math.max(0, (started.getTime() - created.getTime()) / 1000);
 }
 
+function pipeNameOf(live: Pick<LiveGeneration, 'pipeName' | 'currentStep'>): string | null {
+	return live.pipeName ?? live.currentStep?.match(/<<PIPE:([^:>]+)/)?.[1] ?? null;
+}
+
 export interface LiveStepLine {
 	text: string;
 	stepCount: string | null;
@@ -53,7 +57,7 @@ export function liveStepLine(
 	const stage = resolveStageStatus({
 		currentStep: live.currentStep,
 		message: live.message,
-		pipeName: live.pipeName,
+		pipeName: pipeNameOf(live),
 		pipeId: live.pipeId,
 		isAdmin: options.isAdmin
 	});
@@ -71,7 +75,7 @@ export function tileStepLabel(
 	const stage = resolveStageStatus({
 		currentStep: live.currentStep,
 		message: live.message,
-		pipeName: live.pipeName,
+		pipeName: pipeNameOf(live),
 		pipeId: live.pipeId,
 		isAdmin: false
 	});

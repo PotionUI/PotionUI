@@ -371,7 +371,7 @@
 
 	let settleTimer: ReturnType<typeof setTimeout> | undefined;
 	let settleKey = '';
-	$: liveSettled = recordLive && !!liveNow && isTerminalLive(liveNow.status);
+	$: liveSettled = sawLive && !!liveNow && isTerminalLive(liveNow.status);
 	$: if (liveSettled && settleKey !== `${activeGenerationId}:${liveNow?.status}`) {
 		settleKey = `${activeGenerationId}:${liveNow?.status}`;
 		void settleDetail(3);
@@ -391,7 +391,7 @@
 		const id = activeGenerationId;
 		if (!id) return null;
 		try {
-			const response = await api.getGenerationById(id, true);
+			const response = await api.getGenerationById(id, true, true);
 			if (response.success && response.data && id === activeGenerationId) {
 				loadedGeneration = response.data;
 				return response.data;
@@ -1007,8 +1007,11 @@
 						<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" class="flex-shrink-0" />
 					</span>
 						{#if originInfo}
-							<span class="inline-flex min-w-0 flex-shrink items-center" data-details-origin>
+							<span class="inline-flex min-w-0 flex-shrink items-center max-sm:hidden" data-details-origin>
 								<GenerationOriginChip generation={activeGeneration} onopened={handleClose} />
+							</span>
+							<span class="inline-flex flex-shrink-0 items-center sm:hidden">
+								<GenerationOriginChip generation={activeGeneration} iconOnly onopened={handleClose} />
 							</span>
 						{/if}
 				{/snippet}

@@ -319,7 +319,7 @@ test.describe('the canvas action bar on desktop', () => {
 
 		await barButton(page, 'cancel').click();
 		await expect(railButton(page, 'crop').locator('[data-tool-pending]')).toHaveCount(0);
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL]);
+		await expect.poll(() => stackRows(page)).toEqual([`current:${ORIGINAL.replace('original:', '')}`]);
 
 		await selectRailTool(page, 'crop');
 		await bar(page).locator('[data-crop-aspects] button', { hasText: '1:1' }).click();

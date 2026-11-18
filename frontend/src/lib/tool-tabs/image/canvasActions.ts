@@ -130,7 +130,7 @@ export function selectionActions({ session, state }: PaintControls, editArea: ()
 		{ id: 'delete', label: 'Delete', icon: ICON.trash, kind: 'action', group: 'clip', disabled: !!emptyLayer, reason: emptyLayer, run: () => session.deleteSelection() },
 		{ id: 'invert', label: 'Invert', icon: ICON.invert, kind: 'action', group: 'shape', run: () => void session.invertSelection() },
 		{ id: 'deselect', label: 'Deselect', icon: ICON.deselect, shortcut: 'Esc', kind: 'action', group: 'end', run: () => session.deselect() },
-		{ id: 'edit-area', label: 'Edit this area', icon: ICON.sparkles, kind: 'action', primary: true, run: editArea }
+		{ id: 'edit-area', label: 'Edit this area', shortLabel: 'Edit area', icon: ICON.sparkles, kind: 'action', primary: true, run: editArea }
 	];
 }
 

@@ -2385,7 +2385,7 @@ editors.registerRailTool(
 
 | Action field | Meaning |
 |---|---|
-| `id`, `label`, `icon` | Identify the action. `label` is the text, and the tooltip when the bar is narrow and shows icons only. |
+| `id`, `label`, `icon` | Identify the action. `label` is the text, and the tooltip when the bar is narrow and shows icons only. `shortLabel` is the shorter text the phone strip uses. |
 | `kind` | `action` runs `run`. `toggle` is a switch that reads `pressed`. `value` is a compact slider or colour swatch read from `value`. `custom` draws `component` with `props`. |
 | `group` | Neighbouring actions with the same `group` sit together, with a thin rule between groups. Toggles in one group read as a segmented switch. |
 | `primary` | The one white action, drawn last and without a rule before it. |

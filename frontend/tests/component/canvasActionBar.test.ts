@@ -102,6 +102,14 @@ describe('CanvasActionBar', () => {
 		expect(row.className).toContain('invisible');
 	});
 
+	it('uses the short label on the phone strip and the full one on the floating bar', () => {
+		const action = act('edit-area', undefined, { label: 'Edit this area', shortLabel: 'Edit area', primary: true });
+		const strip = place(CanvasActionBar, { actions: [action], variant: 'strip' });
+		expect(button(strip.target, 'edit-area').textContent?.trim()).toBe('Edit area');
+		const floating = place(CanvasActionBar, { actions: [action] });
+		expect(button(floating.target, 'edit-area').textContent?.trim()).toBe('Edit this area');
+	});
+
 	it('renders a custom component the action brings', () => {
 		const Custom = (anchor: Comment) => {
 			const span = document.createElement('span');

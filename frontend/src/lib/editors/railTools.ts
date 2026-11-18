@@ -48,6 +48,7 @@ export interface CanvasActionValue {
 export interface CanvasAction {
 	id: string;
 	label: string;
+	shortLabel?: string;
 	icon?: string;
 	shortcut?: string;
 	kind: CanvasActionKind;

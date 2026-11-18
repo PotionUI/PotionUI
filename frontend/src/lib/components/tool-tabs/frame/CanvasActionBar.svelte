@@ -92,7 +92,7 @@
 	{:else if strip}
 		<button
 			type="button"
-			class="flex min-w-14 flex-none flex-col items-center justify-center gap-1 rounded px-2.5 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {action.primary ? 'bg-accent text-accent-contrast' : 'text-fg-muted hover:text-fg'}"
+			class="flex min-w-0 flex-col items-center justify-center gap-1 rounded px-1 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {action.primary ? 'flex-[1.3] bg-accent text-accent-contrast' : 'flex-1 text-fg-muted hover:text-fg'}"
 			disabled={action.disabled}
 			aria-label={action.label}
 			onclick={() => action.run?.()}
@@ -100,7 +100,7 @@
 			data-canvas-kind="action"
 		>
 			{#if action.icon}<Icon name={action.icon} className="h-4 w-4" />{/if}
-			<span class="whitespace-nowrap">{action.label}</span>
+			<span class="whitespace-nowrap">{action.shortLabel ?? action.label}</span>
 		</button>
 	{:else}
 		<Tooltip text={action.label} detail={reasonOf(action)} kbd={action.shortcut}>

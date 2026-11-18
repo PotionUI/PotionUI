@@ -20,10 +20,9 @@
 
 	let text = '';
 	let focused = false;
-	$: if (!focused) text = typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
-	$: issue = numberBoxIssue(typeof value === 'number' ? value : null, text, min, max);
-
 	let dirty = false;
+	$: if (!focused || !dirty) text = typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
+	$: issue = numberBoxIssue(typeof value === 'number' ? value : null, text, min, max);
 
 	function commit() {
 		if (!dirty || !name) return;
@@ -61,6 +60,7 @@
 			value={text}
 			{placeholder}
 			{disabled}
+			aria-label={config.aria_label || undefined}
 			aria-invalid={issue !== null}
 			class="input h-8 w-full px-2.5 py-0 font-mono text-sm tabular-nums {unit ? 'pr-9' : ''}"
 			on:focus={() => (focused = true)}

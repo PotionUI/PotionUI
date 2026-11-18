@@ -172,7 +172,7 @@ const SIGNED_SLIDERS = { signedSliders: true } as const;
 
 export const gradeFieldName = (control: GradeControl): string => controlKey(control).replace('.', '_');
 
-function opSlider(name: string, label: string, param: { type: string; min: number; max: number; default: number; unit?: string }) {
+function opSlider(name: string, label: string, param: { type: string; min: number; max: number; default: number; unit?: string | null }) {
 	const tool: ToolParam = {
 		name,
 		label,
@@ -181,7 +181,7 @@ function opSlider(name: string, label: string, param: { type: string; min: numbe
 		max: param.max,
 		step: param.type === 'float' ? 0.05 : 1,
 		default: param.default,
-		unit: param.unit
+		unit: param.unit ?? undefined
 	};
 	return paramField(tool, SIGNED_SLIDERS);
 }

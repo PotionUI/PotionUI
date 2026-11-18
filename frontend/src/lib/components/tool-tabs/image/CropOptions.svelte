@@ -19,7 +19,9 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import tooltip from '$lib/actions/tooltip';
-	import { ORIENTATION, rectInPixels, withAspect, withOrientation, withRectField, type OrientationKey, type RectField } from '$lib/tool-tabs/image/cropActions';
+	import EntryForm from '$lib/components/tool-tabs/frame/EntryForm.svelte';
+	import { ORIENTATION, rectInPixels, withAspect, withOrientation, type OrientationKey } from '$lib/tool-tabs/image/cropActions';
+	import { cropAspectFields, cropFromLongest, cropFromRect, cropLongestFields, cropRectFields, cropValues } from '$lib/tool-tabs/image/optionSchemas';
 	import { planDisplaySize, planOutputSize } from '$lib/media/imageEditPlan';
 	import type { PixelSize } from '$lib/tool-tabs/image/payload';
 	import type { CropParams } from '$lib/tool-tabs/image/steps';
@@ -44,18 +46,15 @@
 		onchange: (next: CropParams) => void;
 	} = $props();
 
-	const FIELDS: { key: RectField; label: string }[] = [
-		{ key: 'x', label: 'X' },
-		{ key: 'y', label: 'Y' },
-		{ key: 'width', label: 'W' },
-		{ key: 'height', label: 'H' }
-	];
-
 	let frame = $derived(planDisplaySize(params.plan, input));
 	let pixels = $derived(rectInPixels(params, frame));
 	let output = $derived(planOutputSize(params.plan, input));
 	let cropped = $derived(planOutputSize({ ...params.plan, targetLongestSide: null }, input));
 	let sides = $derived(outputSides.filter((side) => side < Math.max(cropped.width, cropped.height)));
+	let values = $derived(cropValues(params, pixels));
+	let aspectFields = $derived(cropAspectFields(aspects));
+	let longestFields = $derived(cropLongestFields(sides.slice(0, sideLimit)));
+	const rectFields = cropRectFields();
 
 	const chip =
 		'h-8 rounded border font-mono text-sm tabular-nums transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-signal';
@@ -70,13 +69,21 @@
 		onchange(withOrientation(params, key));
 	}
 
-	function setField(key: RectField, event: Event) {
-		const value = Number((event.target as HTMLInputElement).value);
-		if (Number.isFinite(value)) onchange(withRectField(params, frame, key, value));
-	}
-
-	function longest(side: number | null) {
-		onchange({ ...params, plan: { ...params.plan, targetLongestSide: side } });
+	function write(next: Record<string, unknown>, info: { commit: boolean; name?: string }) {
+		const name = info.name;
+		if (name === 'aspect') {
+			if (info.commit) return;
+			const key = String(next.aspect);
+			chooseAspect(key, aspects.find((aspect) => aspect.key === key)?.ratio ?? null);
+			return;
+		}
+		if (name === 'longest') {
+			if (!info.commit) onchange(cropFromLongest(params, next.longest));
+			return;
+		}
+		if (!info.commit || !name) return;
+		const rect = cropFromRect(params, frame, name, next[name]);
+		if (rect) onchange(rect);
 	}
 </script>
 
@@ -101,18 +108,8 @@
 		<span class="font-mono tabular-nums text-success" data-crop-output>{output.width}×{output.height}</span>
 	</div>
 {:else}
-	<div>
-		<p class="mb-2 font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Aspect</p>
-		<div class="grid grid-cols-3 gap-1.5" role="group" aria-label="Aspect" data-crop-aspects>
-			{#each aspects as aspect (aspect.key)}
-				<button
-					type="button"
-					class="{chip} {params.aspect === aspect.key ? on : off}"
-					aria-pressed={params.aspect === aspect.key}
-					onclick={() => chooseAspect(aspect.key, aspect.ratio)}>{aspect.label}</button
-				>
-			{/each}
-		</div>
+	<div data-crop-aspects>
+		<EntryForm fields={aspectFields} {values} label="Aspect" onValues={write} />
 	</div>
 	<div>
 		<p class="mb-2 font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Orientation</p>
@@ -131,21 +128,8 @@
 			{/each}
 		</div>
 	</div>
-	<div class="grid grid-cols-2 gap-1.5" role="group" aria-label="Crop rectangle" data-crop-fields>
-		{#each FIELDS as field (field.key)}
-			<label class="flex h-8 items-center gap-2 rounded border border-line-strong bg-surface-2 px-2 focus-within:border-signal/60">
-				<span class="font-mono text-sm text-fg-subtle">{field.label}</span>
-				<input
-					type="number"
-					min="0"
-					step="1"
-					class="min-w-0 flex-1 bg-transparent text-right font-mono text-sm tabular-nums text-fg focus:outline-none"
-					aria-label={field.label === 'X' ? 'Crop X' : field.label === 'Y' ? 'Crop Y' : field.label === 'W' ? 'Crop width' : 'Crop height'}
-					value={pixels[field.key]}
-					onchange={(event) => setField(field.key, event)}
-				/>
-			</label>
-		{/each}
+	<div data-crop-fields>
+		<EntryForm fields={rectFields} {values} label="Crop rectangle" onValues={write} />
 	</div>
 	<div class="h-px bg-line"></div>
 	<div class="flex flex-col gap-1.5 text-sm">
@@ -159,15 +143,7 @@
 		</div>
 	</div>
 	{#if sides.length}
-		<div>
-			<p class="mb-2 font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Longest side</p>
-			<div class="grid grid-cols-4 gap-1.5" role="group" aria-label="Longest side">
-				<button type="button" class="{chip} {params.plan.targetLongestSide === null ? on : off}" aria-pressed={params.plan.targetLongestSide === null} onclick={() => longest(null)}>FULL</button>
-				{#each sides.slice(0, sideLimit) as side (side)}
-					<button type="button" class="{chip} {params.plan.targetLongestSide === side ? on : off}" aria-pressed={params.plan.targetLongestSide === side} onclick={() => longest(side)}>{side}</button>
-				{/each}
-			</div>
-		</div>
+		<EntryForm fields={longestFields} {values} label="Longest side" onValues={write} />
 	{/if}
 	{#if hint}<p class="text-sm text-fg-muted">{hint}</p>{/if}
 {/if}

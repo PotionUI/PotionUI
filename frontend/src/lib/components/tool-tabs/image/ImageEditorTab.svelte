@@ -462,7 +462,6 @@
 	let effectOriginal = $derived(effectUpdating ? ((stack.steps.find((step) => step.id === pendingHere?.target)?.params as EffectParams | undefined) ?? null) : null);
 
 	let lookParams = $derived(effectParams?.kind === 'look' ? effectParams : null);
-	let intensityConfig = $derived({ title: 'Intensity', min: 0, max: 100, step: 1, default: lookParams ? (trayById.get(lookParams.filter)?.intensity ?? 100) : 100, reset: true, legend: false });
 	let trayItems = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
 		const visible = $filterCatalog.items.filter((item) => !isLocked(item, extensions) && (!needle || item.name.toLowerCase().includes(needle)));
@@ -477,6 +476,7 @@
 		);
 	});
 	let trayById = $derived(new Map($filterCatalog.items.map((item) => [item.id, item] as const)));
+	let intensityConfig = $derived({ title: 'Intensity', min: 0, max: 100, step: 1, default: lookParams ? (trayById.get(lookParams.filter)?.intensity ?? 100) : 100, reset: true, legend: false });
 	let lookContains = $derived(
 			lookParams ? [...new Set((trayById.get(lookParams.filter)?.steps ?? []).map((step) => getOp(step.op, extensions)?.label).filter((label): label is string => !!label))] : []
 		);

@@ -269,9 +269,10 @@ color `default:` that does not fit, and `allow_transparent` that is not a boolea
     max: 8192
     unit: "px"                   # suffix inside the box
     placeholder: "Auto"          # shown while blank (default "Auto")
+    aria_label: "Crop X"         # accessible name when the visible label is short
 ```
 
-A submitted `number_box` value must be a number (a whole number with `integer: true`) inside `min`/`max`, or blank.
+A submitted `number_box` value must be a number (a whole number with `integer: true`) inside `min`/`max`, or blank. While a typed number is being edited the box keeps the typed text; once the number is committed (Enter or leaving the box) it shows the value the form holds, so a value the form corrected or clamped appears as corrected.
 
 `slider` fields accept four optional display keys in `configuration:`; without them a slider looks and behaves as before.
 

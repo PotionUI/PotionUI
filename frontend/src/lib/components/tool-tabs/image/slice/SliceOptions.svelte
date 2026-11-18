@@ -11,10 +11,10 @@
 
 <script lang="ts">
 	import tooltip from '$lib/actions/tooltip';
-	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import NumberStepper from '$lib/components/NumberStepper.svelte';
-	import { Button, Input, Kbd, SegmentedControl, Switch } from '$lib/components/ui';
+	import EntryForm from '$lib/components/tool-tabs/frame/EntryForm.svelte';
+	import { Button, Input, Switch } from '$lib/components/ui';
+	import { SLICE_NO_COLLECTION, clampInt, sliceCellsFields, sliceGridFields, sliceNameFields, sliceSaveFields, sliceValues } from '$lib/tool-tabs/image/optionSchemas';
 	import { GRID_PRESETS, MAX_GRID, PATTERN_TOKENS, type SliceAspect, type SliceParams } from '$lib/tool-tabs/image/slice/model';
 
 	let {
@@ -67,7 +67,12 @@
 		oncell: (kind: 'split' | 'skip' | 'delete' | 'merge') => void;
 	} = $props();
 
-	let patternInput = $state<HTMLInputElement | null>(null);
+	let namesSection = $state<HTMLElement | null>(null);
+	let values = $derived(sliceValues(params));
+	let gridFields = $derived(sliceGridFields(locked));
+	let cellsFields = $derived(sliceCellsFields(locked));
+	let nameFields = $derived(sliceNameFields(locked));
+	let saveFields = $derived(sliceSaveFields(collections, locked));
 	let cellCount = $derived(params.cells.length);
 	let keptCount = $derived(params.cells.filter((cell) => !cell.skip).length);
 	let current = $derived(cellCount ? tab : 'layout');
@@ -79,8 +84,44 @@
 	const off = 'border-line-strong bg-surface-2 text-fg-muted hover:border-line-hover hover:text-fg';
 	const head = 'font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle';
 
+	function writeGrid(next: Record<string, unknown>, info: { commit: boolean; name?: string }) {
+		if (info.name === 'snap') {
+			if (!info.commit) onsnap(next.snap === true);
+			return;
+		}
+		if (!info.commit) return;
+		const value = clampInt(next[info.name ?? ''], 1, MAX_GRID);
+		if (value === null) return;
+		if (info.name === 'cols') onpreset(value, params.layout.rows);
+		else if (info.name === 'rows') onpreset(params.layout.cols, value);
+	}
+
+	function writeCells(next: Record<string, unknown>, info: { commit: boolean; name?: string }) {
+		const name = info.name;
+		if (name === 'trim') {
+			if (!info.commit) onoutput({ trim: next.trim === true });
+		} else if (name === 'aspect') {
+			if (!info.commit) onoutput({ aspect: next.aspect as SliceAspect });
+		} else if (info.commit && name === 'tolerance') {
+			const value = clampInt(next.tolerance, 0, 64);
+			if (value !== null) onoutput({ tolerance: value });
+		} else if (info.commit && name === 'padding') {
+			const value = clampInt(next.padding, 0, 256);
+			if (value !== null) onoutput({ padding: value });
+		}
+	}
+
+	function writeName(next: Record<string, unknown>, info: { commit: boolean }) {
+		if (!info.commit) onpattern(String(next.pattern ?? ''));
+	}
+
+	function writeSave(next: Record<string, unknown>, info: { commit: boolean }) {
+		if (info.commit) return;
+		oncollection(next.collection && next.collection !== SLICE_NO_COLLECTION ? String(next.collection) : null);
+	}
+
 	function insertToken(token: string) {
-		const el = patternInput;
+		const el = namesSection?.querySelector<HTMLInputElement>('[data-field-name="pattern"] input') ?? null;
 		const value = params.pattern;
 		const start = el?.selectionStart ?? value.length;
 		const end = el?.selectionEnd ?? value.length;
@@ -184,22 +225,7 @@
 					</button>
 				{/each}
 			</div>
-			<div class="grid grid-cols-2 gap-2">
-				<div class="flex flex-col gap-1">
-					<span class="text-sm text-fg-muted">Columns</span>
-					<NumberStepper value={params.layout.cols} min={1} max={MAX_GRID} label="Columns" onChange={(value) => onpreset(value, params.layout.rows)} />
-				</div>
-				<div class="flex flex-col gap-1">
-					<span class="text-sm text-fg-muted">Rows</span>
-					<NumberStepper value={params.layout.rows} min={1} max={MAX_GRID} label="Rows" onChange={(value) => onpreset(params.layout.cols, value)} />
-				</div>
-			</div>
-			<div class="flex items-center gap-2 pt-0.5">
-				<Switch checked={params.layout.snap} size="sm" label="Snap to gutters" onchange={(value) => onsnap(value)} />
-				<span class="text-base text-fg">Snap to gutters</span>
-				<span class="flex-1"></span>
-				<span class="inline-flex items-center gap-1 text-sm text-fg-subtle"><Kbd keys={['Alt']} />frees</span>
-			</div>
+			<EntryForm fields={gridFields} {values} label="Grid" onValues={writeGrid} />
 			<div class="flex gap-1.5">
 				<Button variant="ghost" size="sm" class="h-7 flex-1 justify-center" icon="plus" pressed={adding} disabled={locked} onclick={() => onadd()} attrs={{ 'data-slice-add': '' }}>Add box</Button>
 				<Button variant="ghost" size="sm" class="h-7 flex-1 justify-center" icon="refresh" disabled={!cellCount || locked} onclick={() => onclear()} attrs={{ 'data-slice-clear': '' }}>Clear</Button>
@@ -215,32 +241,7 @@
 				<span class="flex-1"></span>
 				<span class="font-mono text-sm tabular-nums text-fg-subtle">{keptCount} of {cellCount} kept</span>
 			</div>
-			<div class="flex items-center gap-2">
-				<Switch checked={params.output.trim} size="sm" label="Trim background" disabled={locked} onchange={(value) => onoutput({ trim: value })} />
-				<span class="text-base text-fg">Trim background</span>
-			</div>
-			<div class="grid grid-cols-2 gap-2">
-				<div class="flex flex-col gap-1">
-					<span class="text-sm text-fg-muted">Tolerance</span>
-					<NumberStepper value={params.output.tolerance} min={0} max={64} label="Tolerance" onChange={(value) => onoutput({ tolerance: value })} />
-				</div>
-				<div class="flex flex-col gap-1">
-					<span class="text-sm text-fg-muted">Padding, px</span>
-					<NumberStepper value={params.output.padding} min={0} max={256} step={4} label="Padding" onChange={(value) => onoutput({ padding: value })} />
-				</div>
-			</div>
-			<SegmentedControl
-				variant="toggle"
-				fullWidth
-				ariaLabel="Aspect for every cell"
-				items={[
-					{ id: 'keep', label: 'Keep' },
-					{ id: 'square', label: 'Square' },
-					{ id: 'portrait', label: 'Portrait 2:3' }
-				]}
-				selected={params.output.aspect}
-				onSelect={(id) => onoutput({ aspect: id as SliceAspect })}
-			/>
+			<EntryForm fields={cellsFields} {values} label="Every cell" onValues={writeCells} />
 			<p class="flex items-center gap-1.5 text-sm text-fg-muted" data-slice-fill>
 				{#if transparent}
 					<span class="swatch-checker h-3.5 w-3.5 flex-none rounded-sm border border-line-strong" aria-hidden="true"></span>
@@ -254,17 +255,9 @@
 
 		<div class="h-px bg-line"></div>
 
-		<section class="flex flex-col gap-2" data-slice-section="names">
+		<section class="flex flex-col gap-2" data-slice-section="names" bind:this={namesSection}>
 			<p class={head}>Names</p>
-			<Input
-				value={params.pattern}
-				class="h-8 px-2.5 font-mono text-base"
-				aria-label="Name pattern"
-				disabled={locked}
-				onfocus={(event: FocusEvent) => (patternInput = event.currentTarget as HTMLInputElement)}
-				oninput={(event: Event) => onpattern((event.currentTarget as HTMLInputElement).value)}
-				data-slice-pattern
-			/>
+			<EntryForm fields={nameFields} {values} label="Names" onValues={writeName} />
 			<div class="flex flex-wrap items-center gap-1" role="group" aria-label="Insert a token">
 				{#each PATTERN_TOKENS as token (token)}
 					<button type="button" class="{chip} h-6 px-1.5 {off}" disabled={locked} onclick={() => insertToken(token)}>{token}</button>
@@ -304,15 +297,7 @@
 		<div class="h-px bg-line"></div>
 
 		<section class="flex flex-col gap-2" data-slice-section="output">
-			<p class={head}>Save to</p>
-			<CustomSelect
-				value={params.collection ?? ''}
-				options={[{ value: '', label: 'No collection' }, ...collections]}
-				fill
-				triggerIcon={false}
-				disabled={locked}
-				on:change={(event) => oncollection(event.detail ? String(event.detail) : null)}
-			/>
+			<EntryForm fields={saveFields} {values} label="Save to" onValues={writeSave} />
 			<p class="font-mono text-sm tabular-nums text-fg-subtle" data-slice-count>{keptCount} {keptCount === 1 ? 'image' : 'images'} · PNG · Library</p>
 		</section>
 	{/if}

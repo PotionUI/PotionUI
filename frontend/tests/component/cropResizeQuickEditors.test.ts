@@ -136,6 +136,15 @@ describe('crop modal for pictures', () => {
 	});
 });
 
+async function typeSide(name: string, text: string) {
+	const input = document.body.querySelector<HTMLInputElement>(`[data-field-name="${name}"] input`)!;
+	input.focus();
+	input.value = text;
+	input.dispatchEvent(new Event('input', { bubbles: true }));
+	input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+	await settle();
+}
+
 describe('resize modal for pictures', () => {
 	it('offers source based sizes, a custom size that follows the shape and no upscaling shortcuts', async () => {
 		await open('resize', image);
@@ -143,13 +152,10 @@ describe('resize modal for pictures', () => {
 		expect(document.body.querySelector('[aria-label="Scale"]')).toBeNull();
 		expect(buttons().filter((button) => (button.textContent || '').startsWith('50%')).length).toBe(1);
 		expect(document.body.textContent).not.toContain('200%');
-		expect(byLabel('Keep aspect ratio')!.getAttribute('aria-pressed')).toBe('true');
+		expect(document.body.querySelector<HTMLInputElement>('[data-field-name="lock"] input[type="checkbox"]')!.checked).toBe(true);
 
-		const width = document.body.querySelector<HTMLInputElement>('[data-resize-width]')!;
-		width.value = '1000';
-		width.dispatchEvent(new Event('change', { bubbles: true }));
-		await settle();
-		expect(document.body.querySelector<HTMLInputElement>('[data-resize-height]')!.value).toBe('667');
+		await typeSide('width', '1000');
+		expect(document.body.querySelector<HTMLInputElement>('[data-field-name="height"] input')!.value).toBe('667');
 	});
 
 	it('refuses the original size and a size larger than the original', async () => {
@@ -159,10 +165,7 @@ describe('resize modal for pictures', () => {
 		expect(document.body.textContent).toContain('Pick a size smaller than the original.');
 		expect(byText('Apply')!.disabled).toBe(true);
 
-		const width = document.body.querySelector<HTMLInputElement>('[data-resize-width]')!;
-		width.value = '4000';
-		width.dispatchEvent(new Event('change', { bubbles: true }));
-		await settle();
+		await typeSide('width', '4000');
 		expect(byText('Apply')!.disabled).toBe(true);
 		expect(startMediaToolRun).not.toHaveBeenCalled();
 	});

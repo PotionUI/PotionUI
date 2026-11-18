@@ -54,7 +54,7 @@ describe.each(['light', 'colour'] as const)('%s entry against the old panel', (i
 
 	it('declares one signed, resettable slider per control with its old label, in the old order', () => {
 		const fake = fakeHost(empty());
-		const fields = (entry.schema as (c: EntryContext) => Array<Record<string, unknown>>)(ctxOf(fake, id));
+		const fields = (entry.schema as unknown as (c: EntryContext) => Array<Record<string, unknown>>)(ctxOf(fake, id));
 		expect(fields.map((field) => field.title)).toEqual(grade.controls.map((control) => control.label));
 		expect(fields.map((field) => field.name)).toEqual(grade.controls.map(gradeFieldName));
 		for (const field of fields) {
@@ -134,7 +134,7 @@ describe.each([
 	const names = id === 'curves' ? CURVE_POINTS.map((point) => point.id as string) : ['shadow_hue', 'shadow_sat', 'highlight_hue', 'highlight_sat', 'balance'];
 
 	it('declares the old sliders in the old order', () => {
-		const fields = (entry.schema as (c: EntryContext) => Array<Record<string, unknown>>)(ctxOf(fakeHost(empty()), id));
+		const fields = (entry.schema as unknown as (c: EntryContext) => Array<Record<string, unknown>>)(ctxOf(fakeHost(empty()), id));
 		expect(fields.map((field) => field.name)).toEqual(names);
 		expect(fields.every((field) => field.type === 'slider' && field.reset === true)).toBe(true);
 	});

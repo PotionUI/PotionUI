@@ -1,8 +1,9 @@
 <script lang="ts">
-	import SliderField from '$lib/components/form-fields/SliderField.svelte';
+	import EntryForm from '$lib/components/tool-tabs/frame/EntryForm.svelte';
 	import { Button, IconButton, SegmentedControl } from '$lib/components/ui';
 	import { overlays } from '$lib/editors/overlays';
 	import { MASK_BRUSH } from '$lib/tool-tabs/image/mask';
+	import { maskBrushFields, maskMarkingFields, maskValues } from '$lib/tool-tabs/image/optionSchemas';
 	import { ensureCoreMaskOverlays } from '$lib/tool-tabs/image/coreMaskOverlays';
 	import {
 		activeOverlay,
@@ -41,8 +42,19 @@
 	let toolItems = $derived(entries.map((entry) => ({ id: entry.id, label: overlayLabel(entry) })));
 	let modeItems = $derived((active?.modes ?? []).map(({ id, label }) => ({ id, label })));
 
+	let values = $derived(maskValues(active, mode, brush));
+	let markingFields = $derived(maskMarkingFields(toolItems, active, modeItems));
+	let brushFields = $derived(maskBrushFields(active));
+
 	function pickMode(id: string) {
 		erase = active?.modes?.find((entry) => entry.id === id)?.subtract ?? false;
+	}
+
+	function write(next: Record<string, unknown>, info: { commit: boolean; name?: string }) {
+		if (info.commit) return;
+		if (info.name === 'tool') chooseOverlay(String(next.tool));
+		else if (info.name === 'mode') pickMode(String(next.mode));
+		else if (info.name === 'brush') brush = Number(next.brush);
 	}
 </script>
 
@@ -58,32 +70,16 @@
 		<span class="flex-1"></span>
 		{#if onclear}<IconButton icon="trash" label="Clear area" size="sm" disabled={!$maskArea} onclick={onclear} data-clear-area />{/if}
 	</div>
-	{#if active?.size}
-		<SliderField
-			name="brush"
-			config={{ title: active.size.label, min: active.size.min, max: active.size.max, step: active.size.step, default: active.size.default, unit: active.size.unit }}
-			value={brush}
-			onChange={(_name, value) => (brush = Number(value))}
-		/>
+	{#if brushFields.length}
+		<EntryForm fields={brushFields} {values} label="Brush" onValues={write} />
 	{/if}
 {:else}
 <div class="flex flex-col gap-2">
 	<p class="font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Mark the area</p>
-	{#if toolItems.length > 1}
-		<SegmentedControl variant="toggle" fullWidth ariaLabel="Marking tool" items={toolItems} selected={active?.id ?? ''} onSelect={chooseOverlay} />
-	{/if}
-	{#if modeItems.length}
-		<SegmentedControl variant="toggle" fullWidth ariaLabel={active?.modesLabel ?? 'Marking mode'} items={modeItems} selected={mode?.id ?? ''} onSelect={pickMode} />
+	{#if markingFields.length}
+		<EntryForm fields={markingFields} {values} label="Marking" onValues={write} />
 	{/if}
 </div>
-{#if active?.size}
-	<SliderField
-		name="brush"
-		config={{ title: active.size.label, min: active.size.min, max: active.size.max, step: active.size.step, default: active.size.default, unit: active.size.unit }}
-		value={brush}
-		onChange={(_name, value) => (brush = Number(value))}
-	/>
-{/if}
 {#if active?.hint}
 	<p class="text-sm text-fg-muted">{what ? active.hint.replace('part you want to change', what) : active.hint}</p>
 {/if}

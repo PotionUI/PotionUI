@@ -104,6 +104,14 @@ describe('the core menu', () => {
 		]);
 	});
 
+	it('lists Recent edits and See all edits in the Video editor File menu too', () => {
+		const menu = buildMenu('file', context([], { editor: 'video' }));
+		const labels = menu.groups.flat().map((entry) => entry.label);
+		expect(labels).toContain('Recent edits');
+		const recent = row('file', 'Recent edits', context([], { editor: 'video' }))!;
+		expect(recent.children?.map((child) => child.id)).toEqual(['e1', 'recent-sep', 'recent-all']);
+	});
+
 	it('shows Save before Save as new once a copy exists, and the plus icon on Save as new', () => {
 		const menu = buildMenu('file', context([], { saved: true, replace: { allowed: true } }));
 		const save = menu.groups[1];
@@ -211,9 +219,8 @@ describe('the core menu', () => {
 		expect(none.children?.[0]).toMatchObject({ id: 'recent-none' });
 	});
 
-	it('hides Send to when there is nowhere to send and Recent edits outside the image editor', () => {
+	it('hides Send to when there is nowhere to send and Replace without a source', () => {
 		expect(row('file', 'Send to', context([], { sendTargets: [] }))).toBeUndefined();
-		expect(row('file', 'Recent edits', context([], { editor: 'video' }))).toBeUndefined();
 		expect(row('file', 'Replace picture', context([], { hasSource: false }))).toBeUndefined();
 	});
 
@@ -235,7 +242,7 @@ describe('the core menu', () => {
 		const file = flatRows(buildMenu('file', ctx)).map((entry) => entry.label);
 		expect(file).toContain('Replace clip');
 		expect(file).toContain('Copy link');
-		expect(file).not.toContain('Recent edits');
+		expect(file).toContain('Recent edits');
 	});
 });
 

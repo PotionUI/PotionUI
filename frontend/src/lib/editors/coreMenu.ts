@@ -72,7 +72,6 @@ const core: Core[] = [
 		order: 20,
 		label: 'Recent edits',
 		icon: 'clock',
-		only: 'image',
 		children: recentRows,
 		childrenWidth: 260
 	},

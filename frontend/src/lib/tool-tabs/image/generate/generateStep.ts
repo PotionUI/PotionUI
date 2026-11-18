@@ -79,9 +79,12 @@ const STATUSES: readonly RunStatus[] = ['queued', 'running', 'done', 'failed', '
 
 function resultsOf(raw: unknown): GenerateResult[] {
 	return (Array.isArray(raw) ? raw : []).flatMap((entry): GenerateResult[] => {
-		if (!isRecord(entry) || !isRecord(entry.patch) || typeof entry.patch.item_id !== 'string' || typeof entry.url !== 'string') return [];
-		const result: GenerateResult = { patch: { item_id: entry.patch.item_id }, url: entry.url, seed: typeof entry.seed === 'number' ? entry.seed : null };
-		if (entry.clip === true) {
+		if (!isRecord(entry) || typeof entry.url !== 'string') return [];
+		const clipId = isRecord(entry.clip) && typeof entry.clip.item_id === 'string' ? entry.clip.item_id : null;
+		const patchId = isRecord(entry.patch) && typeof entry.patch.item_id === 'string' ? entry.patch.item_id : clipId;
+		if (!patchId) return [];
+		const result: GenerateResult = { patch: { item_id: patchId }, url: entry.url, seed: typeof entry.seed === 'number' ? entry.seed : null };
+		if (clipId !== null || entry.clip === true) {
 			const added = isRecord(entry.added) && typeof entry.added.at_s === 'number' && typeof entry.added.seconds === 'number' ? { at_s: entry.added.at_s, seconds: entry.added.seconds } : null;
 			Object.assign(result, { clip: true, range: timeRangeOf(entry.range), added, duration_s: typeof entry.duration_s === 'number' ? entry.duration_s : null });
 		}

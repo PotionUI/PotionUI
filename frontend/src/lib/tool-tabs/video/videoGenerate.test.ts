@@ -214,6 +214,18 @@ describe('a settled candidate as a step', () => {
 		expect(found.stale.size).toBe(0);
 	});
 
+	it('takes the clips of a run that arrives over the socket as the server sent it', async () => {
+		const t = setup([info('restore')]);
+		(t.enginePorts.start as ReturnType<typeof vi.fn>).mockResolvedValueOnce(doneRun({ status: 'running', candidates: [] }));
+		await t.controller.prepare('restore');
+		await t.controller.generate('restore', false);
+		const socketRun = { id: 'er_1', status: 'done', candidates: [{ clip: { item_id: 'clip_w' }, url: '/uploads/w.mp4', seed: 3, range: { start_s: 2, end_s: 4 }, added: { at_s: 4, seconds: 5 }, duration_s: 11.4 }] };
+		t.controller.settle({ stepId: 's1', status: 'done', error: null, run: socketRun as never });
+		const [entry] = generateSteps(t.stack());
+		expect(entry.params.results).toEqual([{ patch: { item_id: 'clip_w' }, url: '/uploads/w.mp4', seed: 3, clip: true, range: { start_s: 2, end_s: 4 }, added: { at_s: 4, seconds: 5 }, duration_s: 11.4 }]);
+		expect(rebase(appliedSteps(t.stack()), ORIGINAL).url).toBe('/uploads/w.mp4');
+	});
+
 	it('plays the result picked in the strip', async () => {
 		const t = setup([info('restore')]);
 		await t.controller.prepare('restore');

@@ -128,7 +128,7 @@
 	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
 	import { basisBeneath, outOfDateNotice, rebase, refKey } from '$lib/tool-tabs/video/generateChain';
 	import { generateRowInfo } from '$lib/tool-tabs/video/generateRows';
-	import { defaultRange, toRunRange, validRange, withEnd, withStart, type AiRange } from '$lib/tool-tabs/video/aiRange';
+	import { defaultRange, toRunRange, withEnd, withStart, type AiRange } from '$lib/tool-tabs/video/aiRange';
 	import { entryKey } from '$lib/editors/registry';
 	import { tasks } from '$lib/editors/tasks';
 	import {
@@ -1786,9 +1786,6 @@
 			{/snippet}
 
 			{#snippet below()}
-				{#if taskTool && phone}
-					{@render phoneDock()}
-				{/if}
 				<ScrubBar
 					duration={duration}
 					{playhead}
@@ -1827,6 +1824,9 @@
 					ontoggleloop={() => (loop = !loop)}
 					ontogglemute={() => (playbackMuted = !playbackMuted)}
 				/>
+				{#if taskTool && phone}
+					{@render phoneDock()}
+				{/if}
 			{/snippet}
 
 			{#snippet panelTop()}

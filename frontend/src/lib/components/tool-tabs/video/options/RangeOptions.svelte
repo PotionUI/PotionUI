@@ -149,7 +149,9 @@
 				<Button variant="ghost" size="sm" icon="trash" onclick={() => video.setAiRange(null)} attrs={{ 'data-range-clear': '' }}>Clear range</Button>
 			</div>
 		{:else}
-			<p class="m-0 text-sm text-fg-muted">Drag on the timeline to mark a part of the clip, or tick the box.</p>
+			{#if !phone}
+				<p class="m-0 text-sm text-fg-muted">Drag on the timeline to mark a part of the clip, or tick the box.</p>
+			{/if}
 		{/if}
 	</div>
 	{#if !phone}

@@ -152,7 +152,7 @@
 	$: liveProgress = liveTile?.progress ?? generation.progress;
 	$: livePercent = percentOf(liveProgress);
 	$: liveLabel = liveTile && generation.status === 'running' ? tileStepLabel(liveTile) : '';
-	$: liveWide = !!tile && tile.width >= 220;
+	$: liveWide = !!tile && tile.width >= 180;
 	$: currentMediaFile = mediaFiles[currentImageIndex];
 
 	// Reset index if generation changes

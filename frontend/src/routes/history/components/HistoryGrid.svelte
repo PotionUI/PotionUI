@@ -73,6 +73,9 @@
 		);
 		const file = media[leadIndex(media)];
 		if (file?.width && file?.height) return clampAspect(file.width / file.height);
+		const width = Number(generation.form_data?.width);
+		const height = Number(generation.form_data?.height);
+		if (width > 0 && height > 0) return clampAspect(width / height);
 		return 1;
 	}
 

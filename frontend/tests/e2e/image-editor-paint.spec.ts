@@ -371,12 +371,12 @@ test.describe('Paint entries in the Image editor', () => {
 		await expect(layerRows(page)).toHaveCount(2);
 		await screenshot(page, JOURNEY, '05-layer-menu-1440');
 
-		await page.locator('[data-colour-swatch]').click();
+		await page.locator('[data-options-panel] [data-colour-swatch]').click();
 		const picker = page.locator('[data-colour-picker]');
 		await expect(picker).toBeVisible();
 		await screenshot(page, JOURNEY, '06-colour-picker-1440');
 		await picker.locator('[aria-label="Use colour #e5484d"]').click();
-		await expect(page.locator('[data-colour-hex]')).toHaveText('#e5484d');
+		await expect(page.locator('[data-options-panel] [data-colour-hex]')).toHaveText('#e5484d');
 		await page.keyboard.press('Escape');
 		await expect(picker).toHaveCount(0);
 		await expect(page.locator('[data-image-editor]')).toBeVisible();

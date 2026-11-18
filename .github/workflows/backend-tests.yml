@@ -81,43 +81,61 @@ jobs:
         id: week
         run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
 
-      - name: Restore apt archives
-        id: apt
-        uses: actions/cache/restore@v4
+      - name: Restore static ffmpeg
+        id: ffmpeg
+        uses: actions/cache@v4
         with:
-          path: ~/apt-archives
-          key: apt-${{ runner.os }}-libglib-ffmpeg-${{ steps.week.outputs.week }}
+          path: ~/ffmpeg-static
+          key: ffmpeg-static-${{ runner.os }}-7.0.2-abda8d77ce83
+
+      # ffmpeg unlocks the media-editing suite's video/audio round-trips. It is
+      # a pinned static build (sha256-verified, cached) so the ffmpeg dependency
+      # tree never goes through the Ubuntu apt mirror, which stalls on the
+      # runners.
+      - name: Install ffmpeg (static, pinned)
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        timeout-minutes: 8
+        env:
+          FFMPEG_VERSION: "7.0.2"
+          FFMPEG_SHA256: abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67
+        run: |
+          tarball="ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz"
+          for attempt in 1 2 3 4 5; do
+            for base in releases old-releases; do
+              rm -f "$RUNNER_TEMP/$tarball"
+              if curl -fsSL --connect-timeout 20 --max-time 120 -o "$RUNNER_TEMP/$tarball" "https://johnvansickle.com/ffmpeg/$base/$tarball" \
+                && echo "$FFMPEG_SHA256  $RUNNER_TEMP/$tarball" | sha256sum -c - ; then
+                mkdir -p ~/ffmpeg-static
+                tar -xJf "$RUNNER_TEMP/$tarball" -C ~/ffmpeg-static --strip-components=1 --wildcards '*/ffmpeg' '*/ffprobe'
+                exit 0
+              fi
+            done
+            sleep $((attempt * 10))
+          done
+          echo "::error title=Infrastructure::ffmpeg download failed or checksum mismatch after 5 tries (johnvansickle.com unreachable); not a test failure"
+          exit 1
+
+      - name: Add ffmpeg to PATH
+        run: echo "$HOME/ffmpeg-static" >> "$GITHUB_PATH"
 
       # libglib2.0-0 supplies libgthread-2.0.so.0, which `import cv2` needs
       # (see docs/testing-notes.md) - without it the cv2-dependent suites
-      # skip silently rather than fail, so install it for real coverage.
-      # ffmpeg unlocks the media-editing suite's video/audio round-trips the
-      # same way.
-      - name: Install system dependencies
-        timeout-minutes: 16
+      # skip silently rather than fail. It is normally preinstalled, so apt is
+      # only touched when it is missing.
+      - name: Ensure libglib2.0-0
+        timeout-minutes: 8
         run: |
+          dpkg -s libglib2.0-0 >/dev/null 2>&1 && exit 0
           sudo grep -rl "dl.google.com" /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
-          mkdir -p ~/apt-archives/partial
-          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dir::Cache::Archives=$HOME/apt-archives"
-          for attempt in 1 2 3; do
-            if [ "$attempt" -gt 1 ]; then
-              sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-              sudo dpkg --configure -a || true
-            fi
+          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          for attempt in 1 2 3 4 5; do
             sudo timeout -k 10 90 apt-get update $APT_OPTS || true
-            sudo timeout -k 10 180 apt-get install -y --no-install-recommends $APT_OPTS libglib2.0-0 ffmpeg && break
-            [ "$attempt" = 3 ] && exit 1
-            sleep 10
+            sudo timeout -k 10 120 apt-get install -y --no-install-recommends $APT_OPTS libglib2.0-0 && exit 0
+            sudo dpkg --configure -a || true
+            sleep $((attempt * 10))
           done
-          sudo rm -rf ~/apt-archives/partial ~/apt-archives/lock
-          sudo chown -R "$(id -u):$(id -g)" ~/apt-archives
-
-      - name: Save apt archives
-        if: steps.apt.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/apt-archives
-          key: apt-${{ runner.os }}-libglib-ffmpeg-${{ steps.week.outputs.week }}
+          echo "::error title=Infrastructure::apt mirror unreachable after 5 tries installing libglib2.0-0; not a test failure"
+          exit 1
 
       - name: Restore Python environment
         id: venv

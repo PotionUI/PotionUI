@@ -417,7 +417,7 @@
 	}
 
 	$: formParams = liveParameters(activeGeneration?.form_data, liveNow?.seed ?? null);
-	$: useFormParams = recordLive || !paramsKey || (!paramsLoading && Object.keys(currentParams).length === 0);
+	$: useFormParams = recordLive || (sawLive && (!paramsKey || (!paramsLoading && Object.keys(currentParams).length === 0)));
 	$: paramCount = useFormParams
 		? Object.keys(formParams.params).length
 		: countParameters({ params: shownParams, meta: shownParamMeta, order: currentParamOrder, models: currentModels });

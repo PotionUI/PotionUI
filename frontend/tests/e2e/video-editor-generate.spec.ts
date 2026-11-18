@@ -265,7 +265,7 @@ test.describe('the AI tools in the Video editor', () => {
 		await expect.poll(() => server.runs.length).toBe(1);
 		const body = server.runs[0];
 		expect(body).toMatchObject({
-			edit: { id: 'video-video-tab-1', step_id: 's1' },
+			edit: { id: expect.stringMatching(/^ed_/), step_id: 's1' },
 			input: { item_id: 'item-1' },
 			steps: [],
 			region: null,

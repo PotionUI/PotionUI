@@ -1278,7 +1278,7 @@
 			getStack: () => foldPending(edits) as EditStackState<unknown>,
 			setStack: (next) => (edits = next as EditStackState<VideoParams>),
 			source: () => ({ ref: originalRef }),
-			editLink: () => editLinkForSave(() => autosave.settle()),
+			editLink: () => editLinkForSave(() => autosave.ensure()),
 			landRegion: async () => null,
 			areaSize: () => null,
 			stepsBeneath: async (id) => compileSteps(basisBeneath(effectiveSteps(edits), originalRef, id).tail, clip, { skipSplit: true, effects: effectMap }).steps,

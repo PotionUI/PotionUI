@@ -174,4 +174,31 @@ describe('autosaving a clip edit', () => {
 		expect(readVideoState(t.restored[0]).stack.steps).toHaveLength(1);
 		expect(t.stored()).toEqual({ id: 'ed_1', revision: 3 });
 	});
+
+	it('creates the edit on demand for a clip nobody changed, so an AI run has a real edit to point at', async () => {
+		const t = setup();
+		await t.boot();
+		const link = await t.engine.ensure();
+		expect(link).toEqual({ id: 'ed_new', revision: 1 });
+		expect(t.edits.create).toHaveBeenCalledWith({ tool: 'video', source: SOURCE, state: doc(null) });
+		expect(await t.engine.ensure()).toEqual({ id: 'ed_new', revision: 1 });
+		expect(t.edits.create).toHaveBeenCalledTimes(1);
+		expect(t.edits.save).not.toHaveBeenCalled();
+	});
+
+	it('hands back the linked edit without saving again when nothing is waiting', async () => {
+		const t = setup({ id: 'ed_1', revision: 4 });
+		await t.boot();
+		expect(await t.engine.ensure()).toEqual({ id: 'ed_1', revision: 4 });
+		expect(t.edits.save).not.toHaveBeenCalled();
+		expect(t.edits.create).not.toHaveBeenCalled();
+	});
+
+	it('saves what is waiting before it answers', async () => {
+		const t = setup({ id: 'ed_1', revision: 1 });
+		await t.boot();
+		t.engine.observe(doc(4));
+		expect(await t.engine.ensure()).toEqual({ id: 'ed_1', revision: 2 });
+		expect(t.edits.save).toHaveBeenCalledTimes(1);
+	});
 });

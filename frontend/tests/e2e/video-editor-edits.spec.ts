@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { clearEdits, editorMenu, loginAsOwner, openEditorMenu, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, closeEditorMenu, editorMenu, editorMenuItem, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 import { solidPng } from './mediaToolMocks';
 import { EFFECT_CATALOG } from '../component/fixtures/effectCatalog';
 
@@ -153,9 +153,8 @@ test.describe('clips are saved as edits', () => {
 		expect(edit.source).toMatchObject({ kind: 'library', id: 'item-1', name: 'observatory-timelapse.webm' });
 		expect((edit.clip as { duration_seconds: number }).duration_seconds).toBeGreaterThan(0);
 
-		await openEditorMenu(page, 'File');
-		await expect(page.locator('[data-editor-menu] [data-menu-row]').filter({ hasText: 'observatory-timelapse' }).first()).toBeVisible();
-		await page.keyboard.press('Escape');
+		await expect(await editorMenuItem(page, 'File', 'Recent edits', 'observatory-timelapse')).toBeVisible();
+		await closeEditorMenu(page);
 		await editorMenu(page, 'File', 'See all edits');
 		const dialog = page.locator('[data-recent-edits]');
 		await expect(dialog.locator('[data-edit-tile]')).toHaveCount(1);
@@ -180,7 +179,7 @@ test.describe('clips are saved as edits', () => {
 		await expect(dialog.locator('[data-clip-duration]')).toHaveText(['0:06', '1:15', '0:12']);
 		for (const [index, expected] of [1, 9 / 16, 16 / 9].entries()) {
 			const box = (await tiles.nth(index).locator('[data-edit-open]').boundingBox())!;
-			expect(box.width / box.height).toBeCloseTo(expected, 0);
+			expect(box.width / box.height).toBeCloseTo(expected, 1);
 		}
 		await expect(dialog.locator('[data-edit-open] img').first()).toBeVisible();
 		await screenshot(page, JOURNEY, '71-edits-dialog');

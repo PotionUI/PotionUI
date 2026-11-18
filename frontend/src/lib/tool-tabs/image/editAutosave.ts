@@ -433,10 +433,20 @@ export function createEditAutosave(deps: EditAutosaveDeps) {
 		return null;
 	}
 
+	async function ensure(): Promise<EditLink | null> {
+		if (!link && !outbox.pending(tabId)) {
+			const source = deps.source();
+			if (!source || !started) return null;
+			outbox.put(tabId, { source, state: latest });
+		}
+		return settle();
+	}
+
 	return {
 		start,
 		stop,
 		settle,
+		ensure,
 		close,
 		observe,
 		flushNow,

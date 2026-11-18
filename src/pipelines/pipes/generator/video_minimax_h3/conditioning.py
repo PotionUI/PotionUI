@@ -15,7 +15,7 @@ Both share the same encode/noise/patchify recipe (`encode_keyframe_condition`
 below); they differ only in what canvas the image is fit onto before that.
 An `fl2va` keyframe is fit onto the TARGET canvas (`fit_keyframe_to_canvas`),
 overlaying the generated frames it anchors. A `ref2va` reference keeps its
-OWN resolution (`normalize_reference_image`) -- no upper pixel cap, no crop
+OWN resolution (`normalize_reference_image`) -- no upper pixel cap
 -- because it is a PREFIX ahead of the generated rows rather than an overlay
 onto them (`layout.build_ref2va_packed_sequence` reads each reference's
 geometry from what was actually encoded here).
@@ -181,8 +181,7 @@ def normalize_reference_image(
 ) -> Image.Image:
     """Put one `ref2va` image reference on its OWN resolution: each axis
     rounded to `canvas_multiple` with a floor of `canvas_multiple`, no upper
-    pixel cap and no crop -- unlike `fit_keyframe_to_canvas`'s target-canvas
-    fit.
+    pixel cap.
     """
     image = pad_reference_to_aspect_range(image)
     width, height = image.size
@@ -190,7 +189,7 @@ def normalize_reference_image(
     target_height, target_width = _snap_size_within_aspect_range(height * scale, width * scale, height, width, canvas_multiple)
     if (width, height) == (target_width, target_height):
         return image
-    return image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    return fit_keyframe_to_canvas(image, target_height, target_width, is_geometry_anchor=True)
 
 
 def normalize_reference_video(
@@ -239,7 +238,8 @@ def normalize_reference_video(
     if frames.shape[1:3] == (height, width):
         return frames
     return np.stack([
-        np.asarray(Image.fromarray(frame).resize((width, height), Image.Resampling.LANCZOS)) for frame in frames
+        np.asarray(fit_keyframe_to_canvas(Image.fromarray(frame), height, width, is_geometry_anchor=True))
+        for frame in frames
     ])
 
 

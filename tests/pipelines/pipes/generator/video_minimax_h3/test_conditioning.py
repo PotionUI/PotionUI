@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import torch
 import torch.nn as nn
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     KEYFRAME_ENCODE_SEED,
@@ -273,6 +273,9 @@ class _SizedPicture:
     def resize(self, size, _resampling):
         return _SizedPicture(size)
 
+    def crop(self, box):
+        return _SizedPicture((box[2] - box[0], box[3] - box[1]))
+
 
 def _picture_sizes():
     fine = range(1, 300, 7)
@@ -409,9 +412,9 @@ def test_reference_image_within_1_to_4_is_not_padded(size):
 def test_reference_image_within_1_to_4_resizes_exactly_as_before():
     rng = np.random.default_rng(0)
     image = Image.fromarray(rng.integers(0, 256, (360, 240, 4), dtype=np.uint8), mode="RGBA")
-    fitted = normalize_reference_image(image, canvas_multiple=16, short_edge=80)
+    fitted = normalize_reference_image(image, canvas_multiple=16, short_edge=96)
     assert fitted.mode == "RGBA"
-    assert fitted.tobytes() == image.resize((80, 128), Image.Resampling.LANCZOS).tobytes()
+    assert fitted.tobytes() == image.resize((96, 144), Image.Resampling.LANCZOS).tobytes()
 
 
 def test_reference_image_without_pixels_is_rejected():
@@ -427,6 +430,92 @@ def test_reference_image_aspect_ratio_exactly_4_to_1_accepted():
 def test_reference_image_uses_no_upper_pixel_cap_unlike_fl2va_canvas():
     fitted = normalize_reference_image(_SizedPicture((8192, 8192)), canvas_multiple=32, short_edge=4096)
     assert fitted.size == (4096, 4096)
+
+
+def _noise_picture(width, height):
+    rng = np.random.default_rng(width * 10_000 + height)
+    return Image.fromarray(rng.integers(0, 256, (height, width, 3), dtype=np.uint8))
+
+
+def _disc_picture(width, height):
+    picture = Image.new("RGB", (width, height), (240, 240, 240))
+    radius = min(width, height) * 3 // 8
+    left, top = width // 2 - radius, height // 2 - radius
+    ImageDraw.Draw(picture).ellipse([left, top, left + 2 * radius - 1, top + 2 * radius - 1], fill=(200, 30, 30))
+    return picture
+
+
+def _disc_ratio(pixels):
+    pixels = np.asarray(pixels).astype(int)
+    red = (pixels[..., 0] > 150) & (pixels[..., 1] < 110)
+    rows, cols = np.where(red.any(axis=1))[0], np.where(red.any(axis=0))[0]
+    return (cols.max() - cols.min() + 1) / (rows.max() - rows.min() + 1)
+
+
+@pytest.mark.parametrize("size, encoded", [
+    ((1600, 823), (1600, 800)),
+    ((1600, 824), (1600, 800)),
+    ((823, 1600), (800, 1600)),
+    ((824, 1600), (800, 1600)),
+])
+def test_a_reference_image_within_3_percent_of_its_grid_size_keeps_the_resize(size, encoded):
+    picture = _noise_picture(*size)
+    fitted = normalize_reference_image(picture, canvas_multiple=32)
+    assert fitted.size == encoded
+    assert fitted.tobytes() == picture.resize(encoded, Image.Resampling.LANCZOS).tobytes()
+
+
+@pytest.mark.parametrize("size, encoded", [((1600, 825), (1600, 800)), ((825, 1600), (800, 1600))])
+def test_a_reference_image_past_3_percent_of_its_grid_size_is_cover_cropped(size, encoded):
+    picture = _noise_picture(*size)
+    fitted = normalize_reference_image(picture, canvas_multiple=32)
+    cropped = fit_keyframe_to_canvas(picture, encoded[1], encoded[0], is_geometry_anchor=False)
+    assert fitted.size == encoded
+    assert fitted.tobytes() == cropped.tobytes()
+    assert fitted.tobytes() != picture.resize(encoded, Image.Resampling.LANCZOS).tobytes()
+
+
+@pytest.mark.parametrize("size", [
+    (4032, 3024), (1920, 1080), (1080, 1920), (1280, 720), (1170, 2532), (854, 480), (640, 360),
+    (2079, 2048), (1087, 1056), (500, 375),
+])
+def test_a_reference_image_within_3_percent_has_the_bytes_of_the_plain_resize(size):
+    picture = _noise_picture(*size)
+    fitted = normalize_reference_image(picture, canvas_multiple=32)
+    assert fitted.tobytes() == picture.resize(fitted.size, Image.Resampling.LANCZOS).tobytes()
+
+
+@pytest.mark.parametrize("size, encoded", [
+    ((800, 600), (800, 576)), ((480, 270), (480, 256)), ((450, 300), (448, 288)), ((320, 240), (320, 224)),
+    ((640, 274), (640, 256)), ((287, 256), (256, 256)), ((828, 1792), (800, 1792)), ((320, 180), (320, 160)),
+])
+def test_a_reference_image_past_3_percent_keeps_its_encoded_size_and_its_shape(size, encoded):
+    fitted = normalize_reference_image(_disc_picture(*size), canvas_multiple=32)
+    assert fitted.size == encoded
+    assert _disc_ratio(fitted) == pytest.approx(1.0, abs=0.01)
+
+
+def test_an_rgba_reference_image_past_3_percent_is_cover_cropped_and_stays_rgba():
+    rng = np.random.default_rng(0)
+    image = Image.fromarray(rng.integers(0, 256, (360, 240, 4), dtype=np.uint8), mode="RGBA")
+    fitted = normalize_reference_image(image, canvas_multiple=16, short_edge=80)
+    assert fitted.mode == "RGBA"
+    assert fitted.size == (80, 128)
+    assert fitted.tobytes() == fit_keyframe_to_canvas(image, 128, 80, is_geometry_anchor=False).tobytes()
+
+
+def test_a_reference_image_half_a_tile_too_wide_keeps_its_middle_half():
+    picture = _noise_picture(63, 32)
+    fitted = normalize_reference_image(picture, canvas_multiple=32)
+    assert fitted.size == (32, 32)
+    assert fitted.tobytes() == picture.crop((15, 0, 47, 32)).tobytes()
+
+
+def test_a_reference_image_under_one_tile_grows_to_it_and_keeps_its_middle_quarter():
+    picture = _noise_picture(60, 15)
+    fitted = normalize_reference_image(picture, canvas_multiple=32)
+    assert fitted.size == (32, 32)
+    assert fitted.tobytes() == picture.resize((128, 32), Image.Resampling.LANCZOS).crop((48, 0, 80, 32)).tobytes()
 
 
 # -- ref2va video/audio references: normalize -> encode -> pack --------------
@@ -568,6 +657,45 @@ def test_reference_video_off_the_grid_below_its_canvas_is_rescaled_down_to_it():
     assert got.shape[1:3] == (96, 192)
 
 
+def _clip_of(picture, count=3):
+    return np.stack([np.asarray(picture)] * count)
+
+
+@pytest.mark.parametrize("size, encoded", [((640, 395), (640, 384)), ((395, 640), (384, 640))])
+def test_a_reference_video_within_3_percent_of_its_grid_size_keeps_the_resize(size, encoded):
+    picture = _noise_picture(*size)
+    got = normalize_reference_video(_clip_of(picture), fps=24.0, num_frames=3)
+    resized = np.asarray(picture.resize(encoded, Image.Resampling.LANCZOS))
+    assert got.shape == (3, encoded[1], encoded[0], 3)
+    assert all(np.array_equal(frame, resized) for frame in got)
+
+
+@pytest.mark.parametrize("size, encoded", [
+    ((640, 396), (640, 384)), ((396, 640), (384, 640)), ((480, 270), (480, 256)),
+])
+def test_a_reference_video_past_3_percent_of_its_grid_size_is_cover_cropped(size, encoded):
+    picture = _noise_picture(*size)
+    got = normalize_reference_video(_clip_of(picture), fps=24.0, num_frames=3)
+    cropped = np.asarray(fit_keyframe_to_canvas(picture, encoded[1], encoded[0], is_geometry_anchor=False))
+    assert got.shape == (3, encoded[1], encoded[0], 3)
+    assert all(np.array_equal(frame, cropped) for frame in got)
+    assert not np.array_equal(got[0], np.asarray(picture.resize(encoded, Image.Resampling.LANCZOS)))
+
+
+@pytest.mark.parametrize("size", [(1920, 1080), (1280, 720), (854, 480), (1080, 1920), (1170, 2532)])
+def test_a_reference_video_within_3_percent_has_the_bytes_of_the_plain_resize(size):
+    picture = _noise_picture(*size)
+    got = normalize_reference_video(_clip_of(picture, count=1), fps=24.0, num_frames=1)
+    height, width = got.shape[1:3]
+    assert np.array_equal(got[0], np.asarray(picture.resize((width, height), Image.Resampling.LANCZOS)))
+
+
+def test_a_reference_video_past_3_percent_keeps_its_shape():
+    got = normalize_reference_video(_clip_of(_disc_picture(480, 270), count=1), fps=24.0, num_frames=1)
+    assert got.shape[1:3] == (256, 480)
+    assert _disc_ratio(got[0]) == pytest.approx(1.0, abs=0.01)
+
+
 class _Rescaled(Exception):
     pass
 
@@ -577,9 +705,14 @@ class _SizedFrame:
         raise _Rescaled(size)
 
 
+def _fit_to(_frame, height, width, *, is_geometry_anchor):
+    raise _Rescaled((width, height))
+
+
 @pytest.fixture
 def sized_frames(monkeypatch):
     monkeypatch.setattr(Image, "fromarray", lambda _frame: _SizedFrame())
+    monkeypatch.setattr("src.pipelines.pipes.generator.video_minimax_h3.conditioning.fit_keyframe_to_canvas", _fit_to)
 
 
 def _video_sizes():

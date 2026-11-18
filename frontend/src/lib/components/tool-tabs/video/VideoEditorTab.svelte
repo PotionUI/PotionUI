@@ -275,9 +275,9 @@
 	let aiCompiled = $derived(compileSteps(chain.tail, clip, { skipSplit: true, effects: effectMap }));
 	let base = $derived(keptRange(duration, effectivePlayback.ops));
 
-	let effectsTool = $derived(isEffectOp(tool));
+	let effectsTool = $derived(isEffectOp(tool) && !railTools.get('video', tool)?.task);
 	let pluginEntry = $derived(!!railTools.get('video', tool)?.pluginId);
-	let panelOp = $derived<VideoOp | null>(tool === 'frame' ? null : tool);
+	let panelOp = $derived<VideoOp | null>(tool === 'frame' || railTools.get('video', tool)?.task ? null : tool);
 	let tiles = $derived(effectTiles(effectList).filter((tile) => tile.lookParam !== null));
 	let effectStep = $derived(effectsTool && panelOp ? (effective.findLast((step) => step.tool === panelOp) ?? null) : null);
 	let panelParams = $derived.by<VideoParams>(() => (panelOp ? paramsFor(panelOp) : {}));

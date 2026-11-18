@@ -43,7 +43,10 @@
 		const value = parseSeconds(typed);
 		if (value === null) return;
 		if (field === 'seconds') {
-			if (tweak && taskId && generate) generate.tweak(taskId, { ...tweak.values, duration: Math.max(0.5, value) });
+			if (tweak && taskId && generate) {
+				if (!tweak.settled) generate.tweak(taskId, { ...tweak.values });
+				generate.tweak(taskId, { ...tweak.values, duration: Math.max(0.5, value) });
+			}
 		} else if (range) {
 			video.setAiRange(field === 'start' ? withStart(range, value, duration) : withEnd(range, value, duration));
 		}

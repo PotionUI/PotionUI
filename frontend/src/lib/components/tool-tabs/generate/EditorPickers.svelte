@@ -7,6 +7,7 @@
 	import PresetThumbnail from '$lib/components/preset/PresetThumbnail.svelte';
 	import ContextCut from '$lib/components/ui/ContextCut.svelte';
 	import EditorNotices from './EditorNotices.svelte';
+	import EditorFormulas from './EditorFormulas.svelte';
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
 	import SessionSaveModal from '$lib/components/session/SessionSaveModal.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
@@ -270,6 +271,7 @@
 			</div>
 			<div class={DOCK_END} data-editor-pickers-end>
 				{@render extras?.()}
+				<EditorFormulas {taskId} />
 				{@render changedMark?.()}
 				{@render settingsButton?.()}
 			</div>

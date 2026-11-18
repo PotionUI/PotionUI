@@ -252,7 +252,7 @@ def plan_formula(
     formula = get_formula(collaborators, user.id, formula_id)
     form_name = request.form_name or formula.variant
     try:
-        loaded = collaborators.forms.load(formula.preset_id, formula.mode, form_name)
+        loaded = collaborators.forms.load(formula.preset_id, request.mode or formula.mode, form_name)
     except FormUnavailable as exc:
         raise FormulaError("form_unavailable", str(exc), 422) from exc
 

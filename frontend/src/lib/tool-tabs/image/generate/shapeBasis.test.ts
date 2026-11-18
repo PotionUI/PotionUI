@@ -413,8 +413,7 @@ function harness(initial: EditStackState<unknown>) {
 			saveSession: async () => ({ id: 'new', name: 'New', version: 1, updated_at: null }),
 			updateSession: async () => ({ id: 's1', name: 'Soft portrait', version: 2, updated_at: null })
 		},
-		engine,
-		storage: { getItem: () => null, setItem: () => undefined }
+		engine
 	};
 	controller = createGenerateController(deps);
 	const start = ports.start as ReturnType<typeof vi.fn>;

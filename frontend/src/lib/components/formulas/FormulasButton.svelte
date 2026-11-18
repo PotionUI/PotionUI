@@ -2,9 +2,11 @@
 	import { onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import FormulasDrawer from './FormulasDrawer.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { IconButton } from '$lib/components/ui';
 	import { formulaLists, formulasKey, getFormulaDeclaration, loadFormulas } from '$lib/stores/formulas';
 	import { sideDrawer } from '$lib/stores/sideDrawer';
-	import type { FormulaDeclaration } from '$lib/formulas/types';
+	import type { FormulaDeclaration, FormulaHost } from '$lib/formulas/types';
 	import type { GenerationTab } from '$lib/types/tabs';
 
 	let {
@@ -13,6 +15,8 @@
 		presetVersion,
 		modeLabel,
 		onApplied,
+		host,
+		appliedCount = 0,
 		layout
 	}: {
 		tab: GenerationTab;
@@ -20,7 +24,9 @@
 		presetVersion: string;
 		modeLabel: string;
 		onApplied?: () => void;
-		layout: 'rail' | 'sheet';
+		host?: FormulaHost;
+		appliedCount?: number;
+		layout: 'rail' | 'sheet' | 'dock';
 	} = $props();
 
 	let loaded = $state.raw<{ key: string; value: FormulaDeclaration | null } | null>(null);
@@ -76,6 +82,16 @@
 </script>
 
 {#if declaration}
+	{#if layout === 'dock'}
+	<span class="dock-ctl inline-flex items-center gap-1">
+		<Tooltip text={appliedCount > 0 ? `Formulas, ${appliedCount} applied` : 'Formulas'} position="top">
+			<IconButton icon="book" label="Formulas" size="xs" active={open || appliedCount > 0} ariaPressed={open} onclick={toggle} data-testid="formulas-button" />
+		</Tooltip>
+		{#if count > 0}
+			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-testid="formulas-count">{count}</span>
+		{/if}
+	</span>
+	{:else}
 	<button
 		type="button"
 		class="flex flex-shrink-0 items-center justify-center gap-1.5 rounded text-sm transition-colors {layout === 'rail'
@@ -93,8 +109,9 @@
 			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-testid="formulas-count">{count}</span>
 		{/if}
 	</button>
+	{/if}
 
 	{#if open}
-		<FormulasDrawer {tab} {declaration} {presetName} {presetVersion} {modeLabel} onClose={close} {onApplied} />
+		<FormulasDrawer {tab} {declaration} {presetName} {presetVersion} {modeLabel} {host} onClose={close} {onApplied} />
 	{/if}
 {/if}

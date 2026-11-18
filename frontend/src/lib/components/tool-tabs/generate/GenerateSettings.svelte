@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Spinner } from '$lib/components/ui';
+	import { IconButton, Spinner } from '$lib/components/ui';
 	import GenerationFormPane from '$lib/components/generation/GenerationFormPane.svelte';
 	import dismiss from '$lib/actions/dismiss';
 	import { editorsRevision } from '$lib/editors/registry';
@@ -51,6 +51,7 @@
 
 	let tweak = $derived(taskId ? $ui.tweaks[taskId] : undefined);
 	let changed = $derived(isChanged(tweak));
+	let appliedFormulas = $derived(taskId ? ($ui.formulas[taskId] ?? []) : []);
 	let formTab = $derived(
 		context
 			? detachedFormTab({ id: `editor-settings:${context.key}`, presetId: context.offer.preset_id, mode: context.offer.mode, formData: context.values })
@@ -103,6 +104,24 @@
 		{:else if status === 'failed' || !formTab}
 			<p class="rounded bg-surface-2 px-2.5 py-2 text-sm text-fg-muted" role="alert" data-settings-unavailable>Pick a setup to see its settings.</p>
 		{:else}
+			{#if appliedFormulas.length > 0}
+				<ul class="mb-3 flex flex-col gap-1.5" aria-label="Applied formulas" data-applied-formulas>
+					{#each appliedFormulas as applied (applied.id)}
+						<li class="flex items-center gap-3 rounded-lg border border-signal/40 bg-signal/10 px-3 py-2" data-applied-formula={applied.id}>
+							<Icon name="check" className="h-4 w-4 flex-shrink-0 text-signal" />
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm text-fg"><span class="font-semibold">{applied.name}</span> applied</div>
+								<div class="font-mono text-sm tabular-nums text-fg-muted" data-applied-counts>
+									{applied.changed} changed{#if applied.skipped > 0}{' · '}{applied.skipped} skipped{/if}
+								</div>
+							</div>
+							<Tooltip text="Remove {applied.name}" position="bottom" delay={150}>
+								<IconButton icon="close" label="Remove {applied.name}" size="sm" onclick={() => taskId && generate.removeAppliedFormula(taskId, applied.id)} />
+							</Tooltip>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 			{#key `${formTab.id}:${reloads}`}
 				<GenerationFormPane tab={formTab} sectionCollapsedContext={folds} onFormDataChange={edited} />
 			{/key}

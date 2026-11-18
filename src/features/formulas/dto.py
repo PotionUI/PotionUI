@@ -64,5 +64,6 @@ class UpdateFormulaRequest(BaseModel):
 
 class PlanFormulaRequest(BaseModel):
     form_name: Optional[str] = None
+    mode: Optional[str] = None
     current_values: Dict[str, Any] = Field(default_factory=dict)
     lora_mode: Literal["replace", "add"] = "replace"

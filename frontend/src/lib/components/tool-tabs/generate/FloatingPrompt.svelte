@@ -12,6 +12,7 @@
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
 	import { areaLabel } from '$lib/tool-tabs/image/generate/area';
 	import { maskArea } from '$lib/tool-tabs/image/maskOverlays';
+	import EditorFormulas from './EditorFormulas.svelte';
 	import EditorPickers from './EditorPickers.svelte';
 	import GenerateDockLayout from './GenerateDockLayout.svelte';
 	import EditorNotices from './EditorNotices.svelte';
@@ -255,6 +256,7 @@
 	<div bind:this={root} class="relative flex-none rounded-t-xl border-t border-line-strong bg-surface-1 px-3 pb-3 shadow-[var(--shadow-dock)]" role="group" aria-label={label} data-floating-prompt="phone">
 		<button type="button" class="mx-auto block h-4 w-full" aria-label="Collapse" onclick={() => (collapsed = true)}><span class="mx-auto block h-1 w-9 rounded-sm bg-line-strong"></span></button>
 		<div class="flex h-9 items-center justify-end gap-2">
+			{#if taskId}<EditorFormulas {taskId} phone />{/if}
 			{@render changedMark()}
 			{@render settingsButton()}
 		</div>

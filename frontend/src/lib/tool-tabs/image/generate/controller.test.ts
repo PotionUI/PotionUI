@@ -21,7 +21,6 @@ function setup(tasks: EditorTaskInfo[] = [task()], extra: Partial<ControllerDeps
 		cancel: vi.fn(async () => run({ status: 'cancelled' })),
 		socket: () => ({ subscribe: () => () => undefined, connected: () => false, onConnection: () => () => undefined, close: () => undefined })
 	};
-	const store = new Map<string, string>();
 	let controller!: ReturnType<typeof createGenerateController>;
 	const engine = createRunEngine(enginePorts, { views, pollMs: 1000, onSettled: (view) => controller.settle(view) });
 	const ports = {
@@ -44,11 +43,10 @@ function setup(tasks: EditorTaskInfo[] = [task()], extra: Partial<ControllerDeps
 		stepsBeneath: vi.fn(async () => []),
 		ports,
 		engine,
-		storage: { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => void store.set(key, value) },
 		...extra
 	};
 	controller = createGenerateController(deps);
-	return { controller, deps, ports, enginePorts, engine, views, store, stack: () => stack };
+	return { controller, deps, ports, enginePorts, engine, views, stack: () => stack };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -139,6 +137,56 @@ describe('generate controller: starting', () => {
 		expect(body.candidates).toBe(4);
 		expect(body.setup.form_data.quantity).toBe(9);
 		expect(get(t.controller.ui)).not.toHaveProperty('results');
+	});
+});
+
+describe('generate controller: formulas applied to the run', () => {
+	const formulaApplication = (id: string, before: Record<string, unknown>, after: Record<string, unknown>, skipped = 0) => ({
+		formData: { ...before, ...after },
+		applied: {
+			formulaId: id,
+			name: `Formula ${id}`,
+			key: 'k',
+			changed: Object.fromEntries(Object.keys(after).map((field) => [field, { old: before[field], new: after[field], label: field }])),
+			skipped,
+			snapshot: { values: Object.fromEntries(Object.keys(after).filter((field) => field in before).map((field) => [field, before[field]])), absent: Object.keys(after).filter((field) => !(field in before)) }
+		}
+	});
+
+	async function applied() {
+		const t = setup();
+		await ready(t);
+		const first = formulaApplication('f1', { steps: 28, seed: 7 }, { steps: 8 }, 3);
+		await t.controller.applyFormula('edit_region', first);
+		return t;
+	}
+
+	it('sends the formula values in the run and lists the formula with what it skipped', async () => {
+		const t = await applied();
+		expect(get(t.controller.ui).formulas.edit_region).toMatchObject([{ id: 'f1', changed: 1, skipped: 3 }]);
+		expect(t.controller.changedFor('edit_region')).toBe(true);
+		expect(await t.controller.generate('edit_region', true)).toBe(true);
+		expect((t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0][1].setup.form_data).toEqual({ steps: 8, seed: 7 });
+	});
+
+	it('stacks a second formula, then removes one and keeps the other', async () => {
+		const t = await applied();
+		await t.controller.applyFormula('edit_region', formulaApplication('f2', { steps: 8, seed: 7 }, { seed: 99 }));
+		expect(get(t.controller.ui).formulas.edit_region?.map((entry) => entry.id)).toEqual(['f1', 'f2']);
+		t.controller.removeAppliedFormula('edit_region', 'f1');
+		expect(get(t.controller.ui).formulas.edit_region?.map((entry) => entry.id)).toEqual(['f2']);
+		expect(get(t.controller.ui).tweaks.edit_region?.values).toEqual({ steps: 28, seed: 99 });
+		t.controller.removeAppliedFormula('edit_region', 'f2');
+		expect(get(t.controller.ui).formulas.edit_region).toEqual([]);
+		expect(t.controller.changedFor('edit_region')).toBe(false);
+		expect(await t.controller.generate('edit_region', true)).toBe(true);
+		expect((t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[0][1].setup.form_data).toEqual({ steps: 28, seed: 7 });
+	});
+
+	it('forgets the applied formulas when another setup is picked', async () => {
+		const t = await applied();
+		await t.controller.pick('edit_region', { preset_id: 'qwen', mode: 'editor:edit', setup: { kind: 'formula', id: 'other' } });
+		expect(get(t.controller.ui).formulas.edit_region).toBeUndefined();
 	});
 });
 

@@ -18,7 +18,9 @@ import {
 import type { PresetInfo, SessionVersionDetail, SessionVersionSummary } from '$lib/types/api';
 import { appliedSteps, apply, beginEdit, commitLive, liveEdit, type EditStackState, type EditStep } from '$lib/tool-tabs/frame/editStack';
 import { missingModelMessage, type MissingModelField } from '$lib/generation/requiredModelField';
+import type { FormulaApplication, FormulaHost } from '$lib/formulas/types';
 import type { EditLink } from '../editLink';
+import { addApplied, appliedFormulaOf, withoutApplied, type AppliedFormula } from './formulas';
 import type { RunEngine } from './runEngine';
 import {
 	GENERATE_TOOL,
@@ -137,6 +139,7 @@ export interface GenerateUi {
 	tasks: EditorTaskInfo[];
 	catalog: PresetInfo[];
 	reloads: number;
+	formulas: Record<string, AppliedFormula[]>;
 	prompts: Record<string, string>;
 	choice: Record<string, SetupChoice | null>;
 	choices: Record<string, ModeChoices>;
@@ -225,6 +228,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		tasks: [],
 		catalog: [],
 		reloads: 0,
+		formulas: {},
 		prompts: {},
 		choice: {},
 		choices: {},
@@ -351,8 +355,12 @@ export function createGenerateController(deps: ControllerDeps) {
 		if (offer) await loadChoices(offer);
 		state.update((current) => {
 			const tweaks = { ...current.tweaks };
-			if (tweaks[taskId]?.key !== choiceKey(choice)) delete tweaks[taskId];
-			return { ...current, choice: { ...current.choice, [taskId]: choice }, tweaks, picker: closedPicker(), error: null };
+			const formulas = { ...current.formulas };
+			if (tweaks[taskId]?.key !== choiceKey(choice)) {
+				delete tweaks[taskId];
+				delete formulas[taskId];
+			}
+			return { ...current, choice: { ...current.choice, [taskId]: choice }, tweaks, formulas, picker: closedPicker(), error: null };
 		});
 	}
 	
@@ -436,9 +444,13 @@ export function createGenerateController(deps: ControllerDeps) {
 	function setTweak(taskId: string, next: Tweak | null): void {
 		state.update((current) => {
 			const tweaks = { ...current.tweaks };
+			const formulas = { ...current.formulas };
 			if (next) tweaks[taskId] = next;
-			else delete tweaks[taskId];
-			return { ...current, tweaks };
+			else {
+				delete tweaks[taskId];
+				delete formulas[taskId];
+			}
+			return { ...current, tweaks, formulas };
 		});
 	}
 
@@ -464,6 +476,34 @@ export function createGenerateController(deps: ControllerDeps) {
 		const choice = get(state).choice[taskId];
 		if (!current || !choice || current.key !== choiceKey(choice)) return;
 		setTweak(taskId, editTweak(current, data));
+	}
+
+	async function applyFormula(taskId: string, application: FormulaApplication): Promise<void> {
+		if (!get(state).tweaks[taskId] && !(await settings(taskId))) return;
+		const open = get(state).tweaks[taskId];
+		if (!open) return;
+		setTweak(taskId, loadedTweak(open, application.formData));
+		state.update((current) => ({
+			...current,
+			formulas: { ...current.formulas, [taskId]: addApplied(current.formulas[taskId] ?? [], appliedFormulaOf(application)) },
+			reloads: current.reloads + 1
+		}));
+	}
+
+	function removeAppliedFormula(taskId: string, formulaId: string): void {
+		const open = get(state).tweaks[taskId];
+		const entry = get(state).formulas[taskId]?.find((item) => item.id === formulaId);
+		if (!open || !entry) return;
+		setTweak(taskId, loadedTweak(open, withoutApplied(open.values, entry)));
+		state.update((current) => ({
+			...current,
+			formulas: { ...current.formulas, [taskId]: (current.formulas[taskId] ?? []).filter((item) => item.id !== formulaId) },
+			reloads: current.reloads + 1
+		}));
+	}
+
+	function formulaHost(taskId: string): FormulaHost {
+		return { apply: (application) => void applyFormula(taskId, application) };
 	}
 
 	function discardTweaks(taskId: string): void {
@@ -856,6 +896,9 @@ export function createGenerateController(deps: ControllerDeps) {
 		settings,
 		tweak,
 		discardTweaks,
+		applyFormula,
+		removeAppliedFormula,
+		formulaHost,
 		saveTo,
 		saveAsNew,
 		setPrompt,

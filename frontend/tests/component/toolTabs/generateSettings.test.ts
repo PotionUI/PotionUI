@@ -10,6 +10,7 @@ import SettingsHost from './SettingsHost.svelte';
 
 const { api } = await import('$lib/services/api/index');
 const { clearSchemaCache } = await import('$lib/form/schemaCache');
+const { clearFormulaDeclarations } = await import('$lib/stores/formulas');
 const { registerBuiltinFieldComponents } = await import('$lib/fields/builtin');
 const { markEditorExtensionsReady } = await import('$lib/editors');
 const { syncServerTasks } = await import('$lib/tool-tabs/image/generate/register');
@@ -91,8 +92,9 @@ const SCHEMA_WITH_QUANTITY = {
 
 function build(task: EditorTaskInfo, sessions: unknown[]) {
 	let stack: EditStackState<unknown> = createStack();
+	const start = vi.fn(async (..._args: unknown[]): Promise<never> => { throw new Error('unused'); });
 	const engine = createRunEngine(
-		{ start: async () => { throw new Error('unused'); }, get: async () => { throw new Error('unused'); }, cancel: async () => { throw new Error('unused'); }, socket: () => ({ subscribe: () => () => undefined, connected: () => false, onConnection: () => () => undefined, close: () => undefined }) },
+		{ start, get: async () => { throw new Error('unused'); }, cancel: async () => { throw new Error('unused'); }, socket: () => ({ subscribe: () => () => undefined, connected: () => false, onConnection: () => () => undefined, close: () => undefined }) },
 		{ views: writable({}) }
 	);
 	const ports = {
@@ -116,7 +118,7 @@ function build(task: EditorTaskInfo, sessions: unknown[]) {
 		engine,
 		ports
 	};
-	return { controller: createGenerateController(deps), ports };
+	return { controller: createGenerateController(deps), ports, start };
 }
 
 const SESSIONS = [{ id: 's1', name: 'Soft portrait', updated_at: null, version: 3, data: { 'editor:edit': { formData: { strength: 0.5 } } } }];
@@ -143,6 +145,7 @@ function typeInto(input: HTMLInputElement, value: string) {
 
 beforeEach(() => {
 	clearSchemaCache();
+	clearFormulaDeclarations();
 	ensureCoreImageEditor();
 	markEditorExtensionsReady();
 });
@@ -347,6 +350,58 @@ describe('Settings on the phone', () => {
 		await settle(14);
 		expect(q('[data-settings-view]')).toBeNull();
 		expect(q('[data-floating-prompt="phone"]')).not.toBeNull();
+		view.destroy();
+	});
+});
+
+
+describe('The result count and formulas', () => {
+	const counted = () => edit({ offers: [offer({ quantity_field: 'quantity' }), offer({ mode: 'editor:other', mode_label: 'Other', order: 1 })] });
+
+	it('has no Results control in the dock and takes the count from the Quantity field of Settings', async () => {
+		const { view, q, toggle, controller, start } = await open(false, counted(), SESSIONS, SCHEMA_WITH_QUANTITY);
+		expect(q('[aria-label="Results"]')).toBeNull();
+		await toggle();
+		const input = q<HTMLInputElement>('[data-settings-body] input[type="number"][name="quantity"], [data-settings-body] input[type="number"]:not([name="strength"])');
+		const quantity = Array.from(view.target.querySelectorAll<HTMLInputElement>('[data-settings-body] input')).find((el) => el.closest('[class*="field-card"], [data-field]')?.textContent?.includes('Quantity')) ?? input;
+		expect(quantity).toBeTruthy();
+		typeInto(quantity!, '3');
+		await settle(14);
+		controller.setPrompt('edit_region', 'a boat');
+		await controller.generate('edit_region', false);
+		expect(start).toHaveBeenCalledTimes(1);
+		const body = start.mock.calls[0][1] as { candidates: number; setup: { form_data: Record<string, unknown> } };
+		expect(body.candidates).toBe(3);
+		expect(body.setup.form_data.quantity).toBe(3);
+		view.destroy();
+	});
+
+	it('offers Formulas in the dock when the mode declares formula groups, and lists an applied one in Settings with what it skipped', async () => {
+		vi.spyOn(api, 'getFormulaDeclaration').mockResolvedValue({ groups: [{ id: 'look', label: 'Look', fields: ['strength'] }] });
+		vi.spyOn(api, 'listFormulas').mockResolvedValue({ success: true, data: [] } as never);
+		const { view, q, toggle, controller } = await open();
+		expect(q('[data-testid="formulas-button"]')).not.toBeNull();
+		await toggle();
+		await controller.applyFormula('edit_region', {
+			formData: { strength: 0.9 },
+			applied: { formulaId: 'f1', name: 'Crisp look', key: 'k', changed: { strength: { old: 0.5, new: 0.9, label: 'Strength' } }, skipped: 2, snapshot: { values: { strength: 0.5 }, absent: [] } }
+		});
+		await settle(14);
+		const row = q('[data-applied-formula="f1"]')!;
+		expect(row.textContent).toContain('Crisp look');
+		expect(row.querySelector('[data-applied-counts]')!.textContent!.replace(/\s+/g, ' ').trim()).toBe('1 changed · 2 skipped');
+		expect(q<HTMLInputElement>('[data-settings-body] input[type="number"]')!.value).toBe('0.9');
+		q<HTMLButtonElement>('[data-applied-formula="f1"] button[aria-label="Remove Crisp look"]')!.click();
+		await settle(14);
+		expect(q('[data-applied-formula]')).toBeNull();
+		expect(q<HTMLInputElement>('[data-settings-body] input[type="number"]')!.value).toBe('0.5');
+		view.destroy();
+	});
+
+	it('shows no Formulas button when the mode declares no formula groups', async () => {
+		vi.spyOn(api, 'getFormulaDeclaration').mockResolvedValue(null);
+		const { view, q } = await open();
+		expect(q('[data-testid="formulas-button"]')).toBeNull();
 		view.destroy();
 	});
 });

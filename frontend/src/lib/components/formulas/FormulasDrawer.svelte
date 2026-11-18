@@ -21,6 +21,7 @@
 	import type {
 		Formula,
 		FormulaDeclaration,
+		FormulaHost,
 		LoraMode,
 		MenuAction,
 		ServerPlan
@@ -41,6 +42,7 @@
 		presetName,
 		presetVersion,
 		modeLabel,
+		host,
 		onClose,
 		onApplied
 	}: {
@@ -49,6 +51,7 @@
 		presetName: string;
 		presetVersion: string;
 		modeLabel: string;
+		host?: FormulaHost;
 		onClose: () => void;
 		onApplied?: () => void;
 	} = $props();
@@ -216,6 +219,7 @@
 		try {
 			const response = await api.planFormula(formula.id, {
 				form_name: tab.selectedVariant ?? null,
+				mode: tab.selectedMode ?? null,
 				current_values: tab.formData ?? {},
 				lora_mode: loraMode
 			});
@@ -284,15 +288,19 @@
 		if (!plan || !applying || planStale) return;
 		const result = applyPlan(tab.formData ?? {}, plan, selected);
 		if (Object.keys(result.changed).length === 0) return;
-		tabsStore.updateTab(tab.id, { formData: result.formData });
-		formulaApplied.set(tab.id, {
+		const applied = {
 			formulaId: applying.id,
 			name: applying.name,
 			key: appliedKey(tab),
 			changed: result.changed,
 			skipped: plan.skips.length,
 			snapshot: result.snapshot
-		});
+		};
+		if (host) host.apply({ formData: result.formData, applied });
+		else {
+			tabsStore.updateTab(tab.id, { formData: result.formData });
+			formulaApplied.set(tab.id, applied);
+		}
 		if (keepOpen) {
 			backToList();
 			return;
@@ -413,7 +421,7 @@
 		{:else}
 			<DrawerSearch bind:value={query} bind:el={searchEl} placeholder="Search formulas for this preset and mode" label="Search formulas" />
 
-			{#if keepOpen}<FormulaAppliedBar {tab} compact />{/if}
+			{#if keepOpen && !host}<FormulaAppliedBar {tab} compact />{/if}
 
 			{#if schemaError}
 				<div class="mx-3 mb-2 flex items-center justify-between gap-3 rounded-lg border border-danger/25 bg-danger/10 px-3 py-2" role="alert">

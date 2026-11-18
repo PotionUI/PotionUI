@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
@@ -21,6 +22,8 @@ from typing import Iterator, Optional
 from src.platform.util.ids import generate_ulid
 
 DEFAULT_CHUNK_SIZE = 65536
+REPLACE_ATTEMPTS_ON_WINDOWS = 10
+REPLACE_RETRY_DELAY_SECONDS = 0.05
 
 
 class StorageKeyError(ValueError):
@@ -164,6 +167,22 @@ class FileStorageDriver(ABC):
         return None
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _replace(source: Path, destination: Path) -> None:
+    attempts = REPLACE_ATTEMPTS_ON_WINDOWS if _is_windows() else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt == attempts:
+                raise
+            time.sleep(REPLACE_RETRY_DELAY_SECONDS)
+
+
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
     """Write `data` to `path` atomically: temp file in the same directory,
     fsync, then `os.replace()`. A crash or full disk mid-write can never leave
@@ -177,7 +196,7 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
                 raise OSError(f"Short write: expected {len(data)} bytes, wrote {written}")
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_path, path)
+        _replace(tmp_path, path)
     except Exception:
         try:
             if tmp_path.exists():
@@ -205,7 +224,7 @@ def _atomic_copy_file(source_path: Path, dest_path: Path) -> int:
             shutil.copyfileobj(src, dst)
             dst.flush()
             os.fsync(dst.fileno())
-        os.replace(tmp_path, dest_path)
+        _replace(tmp_path, dest_path)
     except Exception:
         try:
             if tmp_path.exists():

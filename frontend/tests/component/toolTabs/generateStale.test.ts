@@ -105,7 +105,7 @@ describe('an out of date row', () => {
 
 	it('keeps Redo on the row of the stale step while it is the open one', () => {
 		const { row, calls } = mountStack(reopen(stackWith(crop(0), crop(0.25)), 's2'));
-		expect(row().getAttribute('data-status')).toBe('pending');
+		expect(row().getAttribute('data-status')).toBe('selected');
 		expect(clean(row())).toContain('The picture changed');
 		const redo = row().querySelector<HTMLButtonElement>('[data-stack-action="redo"]');
 		expect(redo).not.toBeNull();
@@ -114,10 +114,10 @@ describe('an out of date row', () => {
 		expect(calls).toEqual(['s2:redo']);
 	});
 
-	it('offers no row actions on an open step that is up to date', () => {
+	it('offers no Redo on an open step that is up to date', () => {
 		const { row } = mountStack(reopen(stackWith(crop(0), crop(0)), 's2'));
-		expect(row().getAttribute('data-status')).toBe('pending');
-		expect(row().querySelector('[data-stack-action]')).toBeNull();
+		expect(row().getAttribute('data-status')).toBe('selected');
+		expect(row().querySelector('[data-stack-action="redo"]')).toBeNull();
 	});
 
 	it('says it in the dock notice row with a Redo button', () => {

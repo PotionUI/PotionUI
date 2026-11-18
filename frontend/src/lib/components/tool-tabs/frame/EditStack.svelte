@@ -105,14 +105,16 @@
 
 	function rowLabel(row: StackRow<unknown>): string {
 		if (row.status === 'undone') return `Redo to ${row.step?.label}`;
-		if (row.status === 'pending') return `${row.pending?.label}, pending`;
+		if (row.status === 'pending') return `${row.pending?.label}, not applied`;
+		if (row.status === 'editing') return `${row.step?.label}, being edited`;
+		if (row.status === 'selected') return `${row.step?.label}, selected`;
 		return `Reopen ${row.step?.label}${row.hidden ? ', hidden' : ''}`;
 	}
 
 	function activate(row: StackRow<unknown>) {
 		if (!row.step) return;
 		if (row.status === 'undone') onseek(row.index);
-		else if (row.status === 'applied' || row.status === 'current') onreopen(row.step.id);
+		else if (row.status === 'applied' || row.status === 'current' || row.status === 'selected' || row.status === 'editing') onreopen(row.step.id);
 	}
 
 	function onRowKeydown(event: KeyboardEvent, row: StackRow<unknown>) {
@@ -183,14 +185,15 @@
 			<div
 				role="listitem"
 				class="group relative flex h-11 items-center gap-2 rounded pl-1 pr-1.5
-					{row.status === 'current' ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
+					{row.status === 'current' || row.reopened ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
 					{row.status === 'pending' ? 'border border-dashed border-line-hover' : ''}
-						{grouped && slot === row.key && row.status === 'pending' ? '!hidden' : ''}
+						{grouped && slot === row.key && (row.status === 'pending' || row.reopened) ? '!hidden' : ''}
 					{row.status === 'undone' ? 'opacity-[0.45]' : ''}
 					{dragging ? `z-10 bg-surface-2 shadow-floating ${dropAllowed ? '' : 'cursor-not-allowed'}` : ''}"
 				style={dragging && drag ? `transform: translateY(${drag.dy}px)` : undefined}
 				data-stack-row={row.key}
 				data-status={row.status}
+				aria-current={row.reopened ? 'true' : undefined}
 				data-hidden={row.hidden || undefined}
 				data-drop-blocked={dragging && !dropAllowed ? '' : undefined}
 			>
@@ -228,14 +231,15 @@
 					{/if}
 					<span class="flex min-w-0 flex-1 flex-col">
 						<span
-							class="truncate text-base font-medium leading-[18px]
+							class="flex min-w-0 items-center gap-1.5 text-base font-medium leading-[18px]
 								{row.status === 'pending' ? 'text-fg-muted' : 'text-fg'}
 								{row.status === 'undone' ? 'line-through decoration-fg-subtle' : ''}
 								{row.hidden ? 'opacity-[0.45]' : ''}"
 						>
-							{row.key === 'original' ? (original.label ?? 'Original') : step?.label}
+							{#if row.status === 'editing' || row.status === 'pending'}<i class="h-1.5 w-1.5 flex-none rounded-full bg-signal" data-stack-marker={row.status}></i>{/if}
+							<span class="truncate">{row.key === 'original' ? (original.label ?? 'Original') : step?.label}</span>
 						</span>
-						{#if info && row.step && row.status !== 'undone' && (row.status !== 'pending' || row.reopened) && info.state.kind !== 'done'}
+						{#if info && row.step && row.status !== 'undone' && row.status !== 'pending' && info.state.kind !== 'done'}
 							<span class="flex min-w-0 items-center gap-1.5 text-sm" data-stack-state={info.state.kind}>
 								{#if info.state.kind === 'busy'}
 									{#if info.state.progress !== undefined}
@@ -255,7 +259,7 @@
 							</span>
 						{:else}
 							<span class="truncate font-mono text-sm text-fg-subtle">
-								{row.key === 'original' ? original.summary : row.status === 'undone' ? 'Undone' : step?.summary}
+								{#if row.status === 'editing'}<span class="font-sans text-signal" data-stack-editing>Editing</span><span class="px-1">·</span>{:else if row.status === 'pending'}<span class="font-sans" data-stack-editing>Not applied</span><span class="px-1">·</span>{/if}{row.key === 'original' ? original.summary : row.status === 'undone' ? 'Undone' : step?.summary}
 							</span>
 						{/if}
 					</span>
@@ -288,19 +292,8 @@
 				{#if info?.state.kind === 'busy' && info.state.progress !== undefined}
 					<span class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-surface-3" data-stack-progress><i class="block h-full bg-signal" style="width: {info.state.progress}%"></i></span>
 				{/if}
-				{#if row.status === 'pending'}
-					{#if row.reopened && row.step && !sheet && info?.state.kind === 'skipped'}
-						<span class="flex flex-none" data-stack-actions>
-							{#each info.actions ?? [] as action (action.id)}
-								<Tooltip text={action.label} position="top">
-									<IconButton icon={action.icon} label="{action.label} {row.step.label}" size="xs" onclick={() => row.step && onrowaction?.(row.step.id, action.id)} data-stack-action={action.id} />
-								</Tooltip>
-							{/each}
-						</span>
-					{/if}
-					<span class="inline-flex h-5 flex-none items-center rounded bg-surface-3 px-1.5 font-mono text-sm text-fg-muted">PENDING</span>
-				{:else if row.step && !sheet && row.status !== 'undone'}
-					<span class="flex flex-none {row.hidden ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}" data-stack-actions>
+				{#if row.step && !sheet && row.status !== 'undone'}
+					<span class="flex flex-none {row.hidden || row.reopened ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}" data-stack-actions>
 						{#each info?.actions ?? [] as action (action.id)}
 							<Tooltip text={action.label} position="top">
 								<IconButton icon={action.icon} label="{action.label} {row.step.label}" size="xs" onclick={() => row.step && onrowaction?.(row.step.id, action.id)} data-stack-action={action.id} />
@@ -334,7 +327,7 @@
 			</div>
 			{#if grouped && progressRow && slot === row.key}
 				<div role="listitem" class="mt-0.5" data-stack-group>
-					{@render progressRow(row.status === 'pending' ? row.index : row.index + 1)}
+					{@render progressRow((row.status === 'pending' || row.reopened) ? row.index : row.index + 1)}
 				</div>
 			{/if}
 		{/each}

@@ -45,7 +45,7 @@ export const DEFAULT_PINNED_LANES: readonly LanePair[] = [
 	['mask', 'geometry']
 ];
 
-export type StackRowStatus = 'original' | 'applied' | 'current' | 'undone' | 'pending';
+export type StackRowStatus = 'original' | 'applied' | 'current' | 'undone' | 'pending' | 'selected' | 'editing';
 
 export interface StackRow<P = unknown> {
 	key: string;
@@ -254,7 +254,7 @@ export function canRedo(state: EditStackState<unknown>): boolean {
 	return state.pending === null && (state.cursor < state.steps.length || !!redoRevision(state));
 }
 
-function untouched<P>(state: EditStackState<P>): boolean {
+export function untouched<P>(state: EditStackState<P>): boolean {
 	const pending = state.pending;
 	const step = pending?.target ? state.steps.find((entry) => entry.id === pending.target) : undefined;
 	if (!pending || !step) return false;
@@ -426,7 +426,7 @@ export function stackRows<P>(state: EditStackState<P>): StackRow<P>[] {
 	});
 	appliedSteps(state).forEach((step, i) => {
 		const current = i === state.cursor - 1 && !state.pending;
-		rows.push(row(step, i + 1, step.id === reopened ? 'pending' : current ? 'current' : 'applied'));
+		rows.push(row(step, i + 1, step.id === reopened ? (untouched(state) ? 'selected' : 'editing') : current ? 'current' : 'applied'));
 	});
 	if (state.pending && !reopened) {
 		rows.push({

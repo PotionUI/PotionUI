@@ -62,6 +62,16 @@ describe('ToolEntryPanel', () => {
 		expect(calls.update[0].params).toEqual({ amount: 80 });
 	});
 
+	it('shows the values of a reopened step without writing anything back', async () => {
+		const { host, calls, pending } = fakeHost();
+		pending.set({ tool: 'acme.form', label: 'Form', summary: 'Amount 70', params: { amount: 70 }, target: 's1' });
+		mountComponent(ToolEntryPanel as never, { entry: { id: 'acme.form', editor: 'image', group: 'g', label: 'Form', icon: 'extension', schema: SCHEMA }, entryKey: 'image:acme.form', host });
+		await settle(20);
+		expect(range().value).toBe('70');
+		expect(calls.begin).toHaveLength(0);
+		expect(calls.update).toHaveLength(0);
+	});
+
 	it('hands values, commit and the context to the tool, and shows the values it returns', async () => {
 		const { host } = fakeHost();
 		const seen: Array<{ values: any; info: any; tool: string }> = [];

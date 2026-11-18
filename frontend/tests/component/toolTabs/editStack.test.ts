@@ -6,8 +6,10 @@ import {
 	beginEdit,
 	createStack,
 	reopen,
+	stackRows,
 	toggleHidden,
 	undo,
+	updatePending,
 	type EditStackState,
 	type StepDraft
 } from '$lib/tool-tabs/frame/editStack';
@@ -74,20 +76,48 @@ describe('EditStack rows', () => {
 		expect(row('s3').querySelector('[data-stack-actions]')).toBeNull();
 	});
 
-	it('shows a new edit as a PENDING row and hides the undone note', () => {
+	it('shows a new edit as a not applied row with no row actions', () => {
 		const { row, q } = render(beginEdit(build(crop), resize));
 		expect(row('pending').dataset.status).toBe('pending');
-		expect(text(row('pending'))).toContain('PENDING');
+		expect(text(row('pending'))).not.toContain('PENDING');
+		expect(text(row('pending'))).toContain('Not applied');
 		expect(text(row('pending'))).toContain('02');
-		expect(row('pending').className).toContain('border-dashed');
+		expect(row('pending').querySelector('[data-stack-marker="pending"]')).not.toBeNull();
+		expect(row('pending').querySelector('[data-stack-actions]')).toBeNull();
 		expect(q('[data-stack-note="undone"]')).toBeNull();
 	});
 
-	it('shows a reopened step as PENDING in place', () => {
+	it('selects a clicked step without making it an edit', () => {
 		const { row } = render(reopen(build(crop, resize), 's1'));
-		expect(row('s1').dataset.status).toBe('pending');
-		expect(text(row('s1'))).toContain('PENDING');
-		expect(row('s1').querySelector('[data-stack-open]')).toBeNull();
+		expect(row('s1').dataset.status).toBe('selected');
+		expect(row('s1').getAttribute('aria-current')).toBe('true');
+		expect(row('s1').className).toContain('is-current');
+		expect(text(row('s1'))).not.toContain('Editing');
+		expect(row('s1').querySelector('[data-stack-marker]')).toBeNull();
+		expect(row('s1').querySelector('[data-stack-open]')!.getAttribute('aria-label')).toBe('Crop, selected');
+		expect(row('s1').querySelector('[data-stack-hide]')).not.toBeNull();
+		expect(row('s1').querySelector('[data-stack-remove]')).not.toBeNull();
+	});
+
+	it('marks a step Editing once a value changed and keeps its icons usable', () => {
+		const { row, calls } = render(updatePending(reopen(build(crop, resize), 's1'), { summary: '1:1' }));
+		expect(row('s1').dataset.status).toBe('editing');
+		expect(text(row('s1'))).toContain('Editing');
+		expect(text(row('s1'))).not.toContain('PENDING');
+		expect(row('s1').querySelector('[data-stack-marker="editing"]')).not.toBeNull();
+		expect(row('s1').querySelector('[data-stack-open]')!.getAttribute('aria-label')).toBe('Crop, being edited');
+		expect(row('s1').querySelector('[data-stack-actions]')!.className).not.toContain('opacity-0');
+		row('s1').querySelector<HTMLButtonElement>('[data-stack-hide]')!.click();
+		row('s1').querySelector<HTMLButtonElement>('[data-stack-remove]')!.click();
+		expect(calls).toEqual(['hide:s1', 'remove:s1']);
+	});
+
+	it('returns to a plain selected row when the edit is reset to the applied values', () => {
+		const edited = updatePending(reopen(build(crop, resize), 's1'), { summary: '1:1' });
+		expect(stackRows(edited)[1].status).toBe('editing');
+		const reset = updatePending(edited, { summary: crop.summary });
+		expect(stackRows(reset)[1].status).toBe('selected');
+		expect(text(render(reset).row('s1'))).not.toContain('Editing');
 	});
 
 	it('dims a hidden step and keeps its eye visible', () => {

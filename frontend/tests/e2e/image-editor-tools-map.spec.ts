@@ -457,3 +457,39 @@ test.describe('the Image editor tools map on a phone', () => {
 		await screenshot(page, JOURNEY, '40-form-crop-dark-390');
 	});
 });
+
+test.describe('Edits rows on desktop', () => {
+	test.use({ viewport: { width: 1440, height: 1100 } });
+
+	test('a clicked step is only selected, a changed value marks it Editing with its icons, a new edit is Not applied', async ({ page }) => {
+		await begin(page);
+		await openHarbor(page);
+		await setRailHeight(page, 1169);
+		const rows = page.locator('[data-edit-stack] [data-stack-row]');
+		const width = page.locator('[data-field-name="width"] input');
+		await selectRailTool(page, 'resize');
+		await width.fill('320');
+		await width.press('Enter');
+		await expect(page.locator('[data-stack-row="pending"]')).toContainText('Not applied');
+		await expect(page.locator('[data-stack-row="pending"]')).not.toContainText('PENDING');
+		await expect(page.locator('[data-stack-row="pending"] [data-stack-actions]')).toHaveCount(0);
+		await screenshot(page, JOURNEY, '60-edits-rows-new-dark-1440');
+		await page.locator('[data-options-apply]').first().click();
+		await expect(rows).toHaveCount(2);
+		await selectRailTool(page, 'crop');
+		await rows.nth(1).locator('button').first().click();
+		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'resize');
+		await expect(rows.nth(1)).toHaveAttribute('data-status', 'selected');
+		await expect(rows.nth(1)).not.toContainText('Editing');
+		await expect(rows.nth(1).locator('[data-stack-hide]')).toBeVisible();
+		await screenshot(page, JOURNEY, '60-edits-rows-selected-dark-1440');
+		await width.fill('400');
+		await width.press('Enter');
+		await expect(rows.nth(1)).toHaveAttribute('data-status', 'editing');
+		await expect(rows.nth(1)).toContainText('Editing');
+		await expect(rows.nth(1)).not.toContainText('PENDING');
+		await expect(rows.nth(1).locator('[data-stack-hide]')).toBeVisible();
+		await expect(rows.nth(1).locator('[data-stack-remove]')).toBeVisible();
+		await screenshot(page, JOURNEY, '60-edits-rows-editing-dark-1440');
+	});
+});

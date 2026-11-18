@@ -319,14 +319,16 @@ describe('rows', () => {
 		expect(rows[2].pending?.label).toBe('Reel');
 	});
 
-	it('shows a reopened step as pending in place', () => {
-		const rows = stackRows(reopen(applyAll(crop, resize), 's1'));
+	it('shows a reopened step as selected until a value changes, then editing', () => {
+		const reopened = reopen(applyAll(crop, resize), 's1');
+		const rows = stackRows(reopened);
 		expect(rows.map((row) => [row.key, row.status, row.reopened])).toEqual([
 			['original', 'original', false],
-			['s1', 'pending', true],
+			['s1', 'selected', true],
 			['s2', 'applied', false]
 		]);
 		expect(rows[1].pending?.target).toBe('s1');
+		expect(stackRows(updatePending(reopened, { summary: '1:1' }))[1].status).toBe('editing');
 	});
 });
 

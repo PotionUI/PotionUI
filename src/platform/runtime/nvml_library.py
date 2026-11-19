@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ctypes
 import os
-import sys
 import threading
 from pathlib import Path
 from typing import Mapping, Optional
@@ -10,12 +9,9 @@ from typing import Mapping, Optional
 import pynvml
 
 from src.platform.observability.logger import logger
+from src.platform.util.host import is_windows as _running_on_windows
 
 _lock = threading.Lock()
-
-
-def _running_on_windows() -> bool:
-    return sys.platform == "win32"
 
 
 def _load_dll(path: Path):

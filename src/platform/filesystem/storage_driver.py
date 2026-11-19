@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Iterator, Optional
 
+from src.platform.util.host import is_windows
 from src.platform.util.ids import generate_ulid
 
 DEFAULT_CHUNK_SIZE = 65536
@@ -167,12 +168,8 @@ class FileStorageDriver(ABC):
         return None
 
 
-def _is_windows() -> bool:
-    return os.name == "nt"
-
-
 def _replace(source: Path, destination: Path) -> None:
-    attempts = REPLACE_ATTEMPTS_ON_WINDOWS if _is_windows() else 1
+    attempts = REPLACE_ATTEMPTS_ON_WINDOWS if is_windows() else 1
     for attempt in range(1, attempts + 1):
         try:
             os.replace(source, destination)

@@ -199,8 +199,16 @@ PYTHON_VERSION_PROBE_CODE = "import sys; print('%d.%d.%d' % sys.version_info[:3]
 # each call site.
 # ---------------------------------------------------------------------------
 
-def is_windows() -> bool:
-    return os.name == "nt"
+def _import_shared_is_windows():
+    checkout = str(REPO_ROOT)
+    if checkout not in sys.path:
+        sys.path.insert(0, checkout)
+    from src.platform.util.host import is_windows as shared_is_windows
+
+    return shared_is_windows
+
+
+is_windows = _import_shared_is_windows()
 
 
 def launcher_command(arguments: str) -> str:

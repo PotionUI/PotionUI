@@ -179,6 +179,8 @@ describe('stack to run steps', () => {
 		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, null, { id: 'ed_1', revision: 3 }).output).toEqual({ mode: 'new', edit: { id: 'ed_1', revision: 3 } });
 		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, null, null).output).toEqual({ mode: 'new' });
 		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, 'col-9').output).not.toHaveProperty('edit');
+		expect(runBody(steps, { generation_file_id: '7' }, 'new', null, null, null, '  Harbor at dawn ').output).toEqual({ mode: 'new', name: 'Harbor at dawn' });
+		expect(runBody(steps, { generation_file_id: '7' }, 'new', null, null, null, '   ').output).toEqual({ mode: 'new' });
 	});
 });
 

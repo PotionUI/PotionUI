@@ -166,6 +166,7 @@
 		type ToolEffectParams
 	} from '$lib/tool-tabs/image/steps';
 	import { mediaFileStem } from '$lib/tool-tabs/sources';
+	import { saveNameFor } from '$lib/tool-tabs/saveName';
 	import { imageEffects } from '$lib/tool-tabs/image/shaderEffect';
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
 	import { isGenerationTab, userGenerationTabs, type GenerationTab, type MediaRef } from '$lib/types/tabs';
@@ -477,7 +478,10 @@
 	let dirtyCount = $derived(unsavedEdits(stack, saved) + (unsavedLayers ? 1 : 0));
 	let replace = $derived(replaceOption(origin));
 	let fileName = $derived(source ? (source.name ?? mediaFileStem(source) ?? 'Picture') : null);
-	let stem = $derived(mediaFileStem(source) ?? 'picture');
+	let stem = $derived.by(() => {
+		void $tabsStore;
+		return saveNameFor(host.tabId, source) ?? 'picture';
+	});
 	let extension = $derived((fileName?.split('.').pop() ?? 'png').toUpperCase());
 	let layerTask = $derived(!sequential && !!registeredTool?.task && !tasks.get('image', registeredTool.task)?.grows);
 
@@ -2082,6 +2086,10 @@
 		return item ? (item.original_filename ?? item.filename) : 'The copy';
 	}
 
+	function saveName(): string | null {
+		return saveNameFor(host.tabId, source);
+	}
+
 	async function runSave(saveMode: 'new' | 'update' | 'replace') {
 		const ref = resolvedRef;
 		if (!ref || saving) return;
@@ -2099,7 +2107,7 @@
 				keys: [`tool-tab:${host.tabId}`],
 				toolId: payload.find((step) => !step.hidden)?.tool ?? 'edit',
 				label: 'Image edit',
-				body: runBody(payload, ref, saveMode, saved?.itemId ?? null, null, editLink)
+				body: runBody(payload, ref, saveMode, saved?.itemId ?? null, null, editLink, saveName())
 			});
 			host.setRun({ runId: handle.runId, progress: 0 });
 			stop = mediaToolRuns.subscribe((runs) => {
@@ -2172,7 +2180,7 @@
 				keys: [`tool-tab:${host.tabId}`],
 				toolId: 'slice',
 				label: 'Slice',
-				body: runBody(payload, ref, 'new', null, params.collection)
+				body: runBody(payload, ref, 'new', null, params.collection, null, saveName())
 			});
 			sliceRunId = handle.runId;
 			host.setRun({ runId: handle.runId, progress: 0 });

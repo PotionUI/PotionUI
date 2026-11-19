@@ -63,7 +63,7 @@
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
 	import { loopStep } from '$lib/tool-tabs/video/playbackLoop';
 	import { promptExcerptOf } from '$lib/components/modals/mediaPickerSelection';
-	import { mediaFileStem } from '$lib/tool-tabs/sources';
+	import { saveNameFor } from '$lib/tool-tabs/saveName';
 	import { CROP_ASPECTS, FULL_CROP, cropOutputSize, fitAspect, type CropRect } from '$lib/media/cropGeometry';
 	import { ASSUMED_FPS, safeFps } from '$lib/media/frameTiming';
 	import { resolveEditableResource } from '$lib/media/editorSource';
@@ -268,7 +268,10 @@
 	});
 	let inputRef = $derived(chain.input ?? originalRef);
 	let url = $derived(chain.url ?? source?.url ?? null);
-	let stem = $derived(mediaFileStem(source));
+	let stem = $derived.by(() => {
+		void $tabsStore;
+		return saveNameFor(tabId, source);
+	});
 	let fps = $derived(safeFps(source?.metadata?.fps ?? ASSUMED_FPS));
 	let ready = $derived(!!meta && meta.duration > 0);
 	let clip = $derived<ClipInfo>(meta ?? { width: 1280, height: 720, duration: 0 });
@@ -938,7 +941,9 @@
 		if (found.base && compiled.steps.length === 0) compiled.steps = [{ tool: 'trim', params: { start: 0, end: Math.round(clip.duration * 1000) / 1000 } }];
 		if (compiled.steps.length === 0) return;
 		const finalMode: MediaToolSaveMode = mode === 'update' && (!saved || hasSplit(compiled.steps)) ? 'new' : mode;
-		const output: { mode: MediaToolSaveMode; target_item_id?: string } = { mode: finalMode };
+		const output: { mode: MediaToolSaveMode; target_item_id?: string; name?: string } = { mode: finalMode };
+		const outputName = saveNameFor(tabId, source);
+		if (outputName) output.name = outputName.slice(0, 200);
 		if (finalMode === 'update' && saved) output.target_item_id = saved.itemId;
 		starting = true;
 		try {

@@ -28,6 +28,7 @@ class OutputSpec(BaseModel):
     target_item_id: Optional[str] = None
     collection_id: Optional[str] = None
     edit: Optional[EditRef] = None
+    name: Optional[str] = Field(None, max_length=200)
 
 
 class StartRunRequest(BaseModel):

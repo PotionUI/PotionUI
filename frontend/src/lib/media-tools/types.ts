@@ -100,6 +100,7 @@ export interface StartMediaToolRunBody {
 		target_item_id?: string;
 		collection_id?: string;
 		edit?: { id: string; revision: number };
+		name?: string;
 	};
 }
 

@@ -79,7 +79,7 @@ async function openGenerate(page: Page) {
 test.describe('tool tabs on desktop', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test('an Image editor tab takes the whole tab area, renames, survives a reload and asks before discarding edits', async ({ page }) => {
+	test('an Image editor tab takes the whole tab area, renames, survives a reload and closes without asking when nothing would be lost', async ({ page }) => {
 		await openGenerate(page);
 		await expect(page.locator('.generation-panel')).toBeVisible();
 

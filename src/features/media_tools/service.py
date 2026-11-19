@@ -3,6 +3,7 @@ import io
 import logging
 import math
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -125,6 +126,7 @@ class _Plan:
     target: Optional[ResolvedInput] = None
     collection_id: Optional[str] = None
     edit_link: Optional[dict] = None
+    name_hint: Optional[str] = None
 
 
 def _tool_ids(steps: Sequence[Step]) -> List[str]:
@@ -155,6 +157,12 @@ def _shared_generation_id(inputs: List[ResolvedInput]) -> Optional[str]:
 
 def _user_id(user: Any) -> str:
     return str(getattr(user, "id", user))
+
+
+def _hint_stem(hint: Optional[str]) -> Optional[str]:
+    cleaned = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", " ", hint or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    return cleaned[:120].strip(" .") or None
 
 
 def _safe_stem(name: Optional[str]) -> str:
@@ -1013,6 +1021,7 @@ class MediaToolService:
             target=target,
             collection_id=collection_id,
             edit_link=self._edit_link(user_id, spec_out),
+            name_hint=(spec_out.name or "").strip() or None,
         )
 
     def _edit_link(self, user_id: str, spec_out: OutputSpec) -> Optional[dict]:
@@ -1226,7 +1235,7 @@ class MediaToolService:
         for index, media in enumerate(outputs):
             matched = last.cardinality == "one_to_one" and len(plan.inputs) == total
             source = plan.inputs[index] if matched else plan.inputs[0]
-            stem = _safe_stem(source.original_filename)
+            stem = (len(plan.inputs) == 1 and _hint_stem(plan.name_hint)) or _safe_stem(source.original_filename)
             extension = media.path.suffix
             if last.cardinality == "one_to_many" or (fanned and total > len(plan.inputs)):
                 names.append(f"{stem} — part {index + 1} of {total}{extension}")
@@ -1239,7 +1248,7 @@ class MediaToolService:
     @staticmethod
     def _slice_names(plan: _Plan, outputs: list) -> List[Optional[str]]:
         spec, params = plan.steps[-1]
-        stem = _safe_stem(plan.inputs[0].original_filename)
+        stem = _hint_stem(plan.name_hint) or _safe_stem(plan.inputs[0].original_filename)
         typed = cell_names(params)
         used: set = set()
         names: List[Optional[str]] = []

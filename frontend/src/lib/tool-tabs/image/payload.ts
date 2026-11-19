@@ -173,12 +173,15 @@ export function runBody(
 	mode: MediaToolSaveMode,
 	targetItemId?: string | null,
 	collectionId?: string | null,
-	edit?: { id: string; revision: number } | null
+	edit?: { id: string; revision: number } | null,
+	name?: string | null
 ): StartMediaToolRunBody {
 	const output: StartMediaToolRunBody['output'] = { mode };
 	if (mode === 'update' && targetItemId) output.target_item_id = targetItemId;
 	if (collectionId) output.collection_id = collectionId;
 	if (edit) output.edit = { id: edit.id, revision: edit.revision };
+	const trimmed = (name ?? '').trim();
+	if (trimmed) output.name = trimmed.slice(0, 200);
 	return { steps, inputs: [input], output };
 }
 

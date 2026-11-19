@@ -1,12 +1,9 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
-	import Menu, { type MenuItem } from '$lib/components/ui/Menu.svelte';
 	import PaintLayers from '$lib/components/paint/PaintLayers.svelte';
 	import { paintIconName } from '$lib/paint/entries';
-	import { PAINT_ICONS } from '$lib/paint/icons';
 	import type { LayerAction } from '$lib/paint/layerActions';
 	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
-	import { registerIcon } from '$lib/utils/IconLibrary';
 
 	let {
 		session,
@@ -24,26 +21,13 @@
 		rowShown?: boolean;
 	} = $props();
 
-	registerIcon('paint-add-image', PAINT_ICONS.addImage);
-
-	let adding = $state(false);
 	let count = $derived(snapshot.layers.filter((layer) => !layer.internal).length);
-
-	const items: MenuItem[] = [
-		{ id: 'new', label: 'New layer', icon: 'plus' },
-		{ id: 'image', label: 'Add a picture as a layer…', icon: 'paint-add-image' }
-	];
-
-	function choose(id: string) {
-		if (id === 'new') session.addLayer();
-		else adding = true;
-	}
 </script>
 
 {#if rowShown}
 	{#if count > 2}
 		<div class="flex flex-col gap-1.5 pb-1" data-paint-group="attached">
-			<PaintLayers {session} state={snapshot} {phone} {actions} nested bind:adding />
+			<PaintLayers {session} state={snapshot} {phone} {actions} nested />
 		</div>
 	{/if}
 {:else}
@@ -58,8 +42,7 @@
 			<span class="truncate text-base font-medium leading-[18px] text-fg">Paint</span>
 			<span class="truncate text-sm text-signal" data-stack-state="in-progress">In progress<span class="whitespace-pre text-fg-subtle">{' · '}</span><span class="font-mono tabular-nums text-fg-subtle" data-layer-count>{count}</span><span class="whitespace-pre text-fg-subtle">{` ${count === 1 ? 'layer' : 'layers'}`}</span></span>
 		</span>
-		<Menu label="Add a layer" icon="plus" size="xs" {items} onselect={choose} align="right" width={240} menuAttrs={{ 'data-layers-add-menu': '' }} />
 	</div>
-	<PaintLayers {session} state={snapshot} {phone} {actions} nested bind:adding />
+	<PaintLayers {session} state={snapshot} {phone} {actions} nested />
 </div>
 {/if}

@@ -358,8 +358,8 @@ test.describe('Paint entries in the Image editor', () => {
 		await openDusk(page);
 		await openPaint(page, 'brush');
 		const steps = await page.locator('[data-stack-count]').textContent();
-		await page.locator('[data-stack-group] button[aria-label="Add a layer"]').click();
-		await page.locator('[role="menuitem"]', { hasText: 'New layer' }).click();
+		await page.locator('[data-layers-add]').click();
+		await page.locator('[data-layers-add-item="new"]').click();
 		await expect(layerRows(page)).toHaveCount(3);
 		await expect(page.locator('[data-stack-count]')).toHaveText(steps ?? '');
 		await layerMenu(page, 2, 'Rename');
@@ -579,8 +579,8 @@ test.describe('Paint layers are kept one by one', () => {
 
 	const row = (page: Page, id: string) => page.locator(`[data-edit-stack="panel"] [data-stack-row="${id}"]`);
 	const addLayer = async (page: Page) => {
-		await page.locator('[data-stack-group] button[aria-label="Add a layer"]').click();
-		await page.locator('[role="menuitem"]', { hasText: 'New layer' }).click();
+		await page.locator('[data-layers-add]').click();
+		await page.locator('[data-layers-add-item="new"]').click();
 	};
 	const fade = async (page: Page, id: string, value: string) => {
 		await row(page, id).locator('[data-stack-open]').click();

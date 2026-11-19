@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mountComponent } from '../helpers/mount';
 import { apply, beginEdit, createStack, reopen, setOpacity, type EditStackState, type StepDraft } from '$lib/tool-tabs/frame/editStack';
-import { appliesBeneath, isLayerStep, layerThumb } from '$lib/tool-tabs/image/layers';
+import { appliesBeneath, isLayerStep, layerThumb, patchMaskOf } from '$lib/tool-tabs/image/layers';
 
 const { default: EditStack } = await import('$lib/components/tool-tabs/frame/EditStack.svelte');
 
@@ -149,5 +149,52 @@ describe('EditStack as layers', () => {
 		expect(refuse).not.toBeNull();
 		expect(refuse!.querySelector('[data-stack-dropline="blocked"]')!.className).toContain('border-danger');
 		expect(text(refuse)).toContain("Sketch can't go below Crop");
+	});
+
+	it('shows the mask of a selected patch in its drawer and toggles Show mask', () => {
+		const params = {
+			v: 2,
+			task: 'edit_region',
+			prompt: 'clouds',
+			setup: { preset_id: 'p', mode: 'editor:edit', form_data: {}, source: { kind: 'defaults', id: null, name: null }, label: '' },
+			area: { region: { item_id: 'r1', url: 'data:image/png;base64,AA==' }, size: null },
+			candidates: 1,
+			results: [{ patch: { item_id: 'p1' }, url: 'u', seed: 1 }],
+			chosen: 0,
+			seed: 1,
+			rect: { x: 0.1, y: 0.1, width: 0.5, height: 0.5 },
+			soft: false,
+			run: { id: 'er_1', status: 'done', error: null }
+		};
+		const stack = reopen(build(paint, { ...patch, params }), 's2');
+		const toggles: string[] = [];
+		let shown = false;
+		const view = mountComponent(EditStack, {
+			stack,
+			original: { summary: '1024×1024 · PNG' },
+			layered: true,
+			selectedId: 's2',
+			isLayer: isLayerStep,
+			layerThumb,
+			appliesBeneath,
+			maskOf: patchMaskOf,
+			get showMask() {
+				return shown;
+			},
+			ontogglemask: () => toggles.push('toggle'),
+			onreopen: () => {},
+			onseek: () => {},
+			ontogglehidden: () => {},
+			onremove: () => {},
+			onmove: () => {}
+		});
+		const drawer = view.target.querySelector('[data-layer-drawer="s2"]')!;
+		expect(drawer.querySelector('[data-patch-mask-thumb] img')).not.toBeNull();
+		expect(text(drawer.querySelector('[data-patch-mask]'))).toContain('Edited region');
+		const button = drawer.querySelector<HTMLButtonElement>('[data-patch-mask-toggle="s2"]')!;
+		expect(button.textContent?.trim()).toBe('Show mask');
+		button.click();
+		expect(toggles).toEqual(['toggle']);
+		expect(view.target.querySelector('[data-layer-drawer="s1"]')).toBeNull();
 	});
 });

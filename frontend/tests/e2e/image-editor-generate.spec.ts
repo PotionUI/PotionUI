@@ -596,6 +596,57 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(row(page)).toContainText('1 of 1');
 	});
 
+	test('a finished patch shows its mask in the drawer and Show mask outlines it on the canvas', async ({ page }) => {
+		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
+		const ellipse = await page.evaluate(() => {
+			const canvas = document.createElement('canvas');
+			canvas.width = 480;
+			canvas.height = 360;
+			const context = canvas.getContext('2d')!;
+			context.fillStyle = '#000';
+			context.fillRect(0, 0, 480, 360);
+			context.fillStyle = '#fff';
+			context.beginPath();
+			context.ellipse(240, 120, 160, 70, 0, 0, Math.PI * 2);
+			context.fill();
+			return canvas.toDataURL('image/png').split(',')[1];
+		});
+		await page.route('**/api/e2e-art/art.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(ellipse, 'base64') }));
+		await openHarbor(page);
+		await selectRailTool(page, 'edit_region');
+		await markArea(page);
+		await type(page, 'soft clouds');
+		await generate(page);
+		await expect.poll(() => server.runs.length).toBe(1);
+		update(server, 'done', { candidates: candidates(1) });
+		await expect(row(page)).toContainText('Edit a region');
+		await expect(row(page).locator('[data-stack-thumb]')).toBeVisible();
+		await row(page).locator('[data-stack-open]').click();
+		const drawer = page.locator('[data-layer-drawer="s1"]');
+		await expect(drawer).toBeVisible();
+		await expect(drawer.locator('[data-patch-mask-thumb] img')).toBeVisible();
+		await expect(drawer).toContainText('Edited region');
+		await expect(page.locator('[data-patch-mask-overlay]')).toHaveCount(0);
+		const toggle = drawer.locator('[data-patch-mask-toggle="s1"]');
+		await expect(toggle).toHaveText('Show mask');
+		await toggle.click();
+		await expect(toggle).toHaveText('Hide mask');
+		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+		const overlay = page.locator('[data-patch-mask-overlay]');
+		await expect(overlay).toBeVisible();
+		await expect.poll(async () => overlay.evaluate((node) => (node as HTMLCanvasElement).width)).toBeGreaterThan(0);
+		await expect.poll(async () => overlay.evaluate((node) => {
+			const canvas = node as HTMLCanvasElement;
+			const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+			let edge = 0;
+			for (let i = 3; i < data.length; i += 4) if (data[i] === 255) edge += 1;
+			return edge;
+		})).toBeGreaterThan(50);
+		await screenshot(page, JOURNEY, '70-patch-mask-dark-1440');
+		await toggle.click();
+		await expect(page.locator('[data-patch-mask-overlay]')).toHaveCount(0);
+	});
+
 	test('a failed run shows its reason and Retry starts it again', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);

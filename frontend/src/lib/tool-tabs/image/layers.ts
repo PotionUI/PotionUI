@@ -1,5 +1,7 @@
 import type { MediaToolStep } from '$lib/media-tools/types';
 import { opacityOf, type EditStep } from '$lib/tool-tabs/frame/editStack';
+import type { NormRect } from '$lib/services/api/editorTasks';
+import { chosenResult, patchPlacement, readGenerateParams } from './generate/generateStep';
 
 export type Rgba = readonly [number, number, number, number];
 
@@ -34,6 +36,42 @@ export function layerThumb(step: Pick<EditStep, 'tool' | 'params'>): string | nu
 	if (step.tool !== 'paint') return null;
 	const url = (step.params as { url?: unknown } | null)?.url;
 	return typeof url === 'string' && url ? url : null;
+}
+
+export interface AboveLayer {
+	url: string;
+	rect: NormRect | null;
+	opacity: number;
+}
+
+export function aboveLayerOf(step: EditStep): AboveLayer | null {
+	if (step.hidden) return null;
+	if (step.tool === 'paint') {
+		const url = (step.params as { url?: unknown } | null)?.url;
+		return typeof url === 'string' && url ? { url, rect: null, opacity: opacityOf(step) } : null;
+	}
+	if (step.tool !== 'generate') return null;
+	const params = readGenerateParams(step.params);
+	const result = params ? chosenResult(params) : null;
+	const rect = params ? patchPlacement(params) : null;
+	return result && rect ? { url: result.url, rect, opacity: opacityOf(step) } : null;
+}
+
+export function aboveKeyOf(layers: readonly AboveLayer[]): string {
+	return layers.map((layer) => `${layer.url}@${layer.opacity}@${layer.rect ? `${layer.rect.x},${layer.rect.y},${layer.rect.width},${layer.rect.height}` : ''}`).join('|');
+}
+
+export interface PatchMask {
+	url: string | null;
+	rect: NormRect;
+}
+
+export function patchMaskOf(step: Pick<EditStep, 'tool' | 'params'>): PatchMask | null {
+	if (step.tool !== 'generate') return null;
+	const params = readGenerateParams(step.params);
+	const rect = params ? patchPlacement(params) : null;
+	if (!params || !rect) return null;
+	return { url: params.area.region?.url ?? null, rect };
 }
 
 export function isFlattenedPaint(step: Pick<EditStep, 'tool' | 'params'>): boolean {

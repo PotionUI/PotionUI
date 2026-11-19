@@ -114,7 +114,8 @@
 	import type { RailGroup, SaveAction, SavingProgress } from '$lib/tool-tabs/frame/types';
 	import { fitViewport } from '$lib/tool-tabs/frame/viewport';
 	import { geometryKey, liveMask, maskChannelOf, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
-	import { appliesBeneath, isFlattenedPaint, isLayerStep, layerThumb, mergeLayerPixels } from '$lib/tool-tabs/image/layers';
+	import { aboveKeyOf, aboveLayerOf, appliesBeneath, isFlattenedPaint, isLayerStep, layerThumb, mergeLayerPixels, patchMaskOf } from '$lib/tool-tabs/image/layers';
+	import PatchMaskOverlay from '$lib/components/tool-tabs/image/PatchMaskOverlay.svelte';
 	import { inputRef, outputSize, replaceOption, runBody, sourceOrigin, type PixelSize, type SourceOrigin } from '$lib/tool-tabs/image/payload';
 	import { FULL_SIDE, ImageRenderer, bakeIsCapped, isAbort, orient, stepsKey, type Rendered } from '$lib/tool-tabs/image/render';
 	import { showCanvas } from '$lib/tool-tabs/image/displayCanvas';
@@ -364,7 +365,7 @@
 	});
 	$effect(() => toolHost.syncPending(stack.pending));
 	$effect(() => toolHost.syncStack(stack));
-	let regionCache: { path: string; id: string } | null = null;
+	let regionCache: { path: string; id: string; url: string } | null = null;
 	const generate = createTabGenerate({
 		getStack: () => stack,
 		setStack: (next) => (stack = next),
@@ -386,11 +387,11 @@
 			if (!(await landMask())) return null;
 			const live = liveMaskNow;
 			if (!live) return null;
-			if (regionCache?.path === live.path) return { item_id: regionCache.id };
+			if (regionCache?.path === live.path) return { item_id: regionCache.id, url: regionCache.url };
 			const file = await canvasToPngFile(await canvasFromUrl(live.url), `${stem}-area.png`);
 			const artifact = await uploadMediaToolArtifact(file);
-			regionCache = { path: live.path, id: artifact.id };
-			return { item_id: artifact.id };
+			regionCache = { path: live.path, id: artifact.id, url: artifact.url };
+			return { item_id: artifact.id, url: artifact.url };
 		}
 	});
 	provideGenerateController(generate);
@@ -519,6 +520,12 @@
 	let layerPicture = $state.raw<{ canvas: HTMLCanvasElement; name: string } | null>(null);
 	let addSource = $state<'library' | 'history' | 'file' | null>(null);
 	let aboveCanvas = $state.raw<HTMLCanvasElement | null>(null);
+	let showMask = $state(false);
+	let shownMask = $derived.by(() => {
+		if (!showMask || mode === 'paint' || !selectedStepId) return null;
+		const step = applied.find((entry) => entry.id === selectedStepId);
+		return step && !step.hidden ? patchMaskOf(step) : null;
+	});
 	let anchorCount = $derived.by(() => {
 		if (pending?.target || !layerAnchor) return -1;
 		const at = applied.findIndex((step) => step.id === layerAnchor);
@@ -531,10 +538,13 @@
 		if (from <= 0) return [];
 		const rest = applied.slice(from);
 		const stop = rest.findIndex((step) => step.lane === GEOMETRY_LANE);
-		return (stop >= 0 ? rest.slice(0, stop) : rest).filter((step) => !step.hidden && step.tool === 'paint');
+		return (stop >= 0 ? rest.slice(0, stop) : rest).flatMap((step) => {
+			const layer = aboveLayerOf(step);
+			return layer ? [layer] : [];
+		});
 	});
 	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' ? stepsBeforeTarget : (paintBelow ?? effective)) : null);
-	let aboveKey = $derived(paintAbove.map((step) => `${(step.params as PaintParams).url}@${opacityOf(step)}`).join('|'));
+	let aboveKey = $derived(aboveKeyOf(paintAbove));
 	let addAboveLabel = $derived.by(() => {
 		const step = selectedStepId ? applied.find((entry) => entry.id === selectedStepId) : null;
 		return step ? `Add above ${step.label}` : 'Add on top';
@@ -549,7 +559,7 @@
 		let live = true;
 		const width = base.canvas.width;
 		const height = base.canvas.height;
-		void Promise.all(list.map((step) => canvasFromUrl((step.params as PaintParams).url)))
+		void Promise.all(list.map((layer) => canvasFromUrl(layer.url)))
 			.then((images) => {
 				if (!live) return;
 				const out = document.createElement('canvas');
@@ -558,8 +568,10 @@
 				const context = out.getContext('2d');
 				images.forEach((image, index) => {
 					if (!context) return;
-					context.globalAlpha = opacityOf(list[index]);
-					context.drawImage(image, 0, 0, width, height);
+					const { rect, opacity } = list[index];
+					context.globalAlpha = opacity;
+					if (rect) context.drawImage(image, rect.x * width, rect.y * height, rect.width * width, rect.height * height);
+					else context.drawImage(image, 0, 0, width, height);
 				});
 				aboveCanvas = out;
 			})
@@ -2577,6 +2589,9 @@
 						/>
 					{/key}
 				{/if}
+				{#if shownMask}
+					<PatchMaskOverlay mask={shownMask} />
+				{/if}
 				{#if taskTool && runOutline}
 					<StaleOutline rect={runOutline} />
 				{/if}
@@ -2685,6 +2700,9 @@
 		isLayer={isLayerStep}
 		{layerThumb}
 		{appliesBeneath}
+		maskOf={patchMaskOf}
+		{showMask}
+		ontogglemask={() => (showMask = !showMask)}
 		onopacity={(id, opacity, live) => (stack = setOpacity(stack, id, opacity, live))}
 		onremove={(id) => {
 			generate.stepRemoved(id, stack);

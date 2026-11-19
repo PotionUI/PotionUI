@@ -24,6 +24,7 @@
 		type StackRow
 	} from '$lib/tool-tabs/frame/editStack';
 	import type { StackProgress, StackVariant } from '$lib/tool-tabs/frame/types';
+	import type { PatchMask } from '$lib/tool-tabs/image/layers';
 
 	let {
 		stack,
@@ -35,6 +36,9 @@
 		layerThumb = () => null,
 		appliesBeneath = () => false,
 		onopacity,
+		maskOf = () => null,
+		showMask = false,
+		ontogglemask,
 		headerActions,
 		duplicable = () => false,
 		mergeable = () => false,
@@ -68,6 +72,9 @@
 		layerThumb?: (step: EditStep<unknown>) => string | null;
 		appliesBeneath?: (step: EditStep<unknown>) => boolean;
 		onopacity?: (id: string, opacity: number, live: boolean) => void;
+		maskOf?: (step: EditStep<unknown>) => PatchMask | null;
+		showMask?: boolean;
+		ontogglemask?: () => void;
 		headerActions?: Snippet;
 		duplicable?: (step: EditStep<unknown>) => boolean;
 		mergeable?: (upper: EditStep<unknown>, lower: EditStep<unknown> | null) => boolean;
@@ -527,7 +534,9 @@
 				{/if}
 			</div>
 			{#if layerRow && isSelected(row) && row.step}
-				<div class="mb-1 ml-1 flex items-center gap-1 border-l-2 border-signal bg-signal/[0.04] py-1 pl-3 pr-1.5" role="group" aria-label="Layer opacity" data-layer-drawer={row.key}>
+				{@const patchMask = maskOf(row.step)}
+				<div class="mb-1 ml-1 flex flex-col gap-1.5 border-l-2 border-signal bg-signal/[0.04] py-1 pl-3 pr-1.5" role="group" aria-label="Layer opacity" data-layer-drawer={row.key}>
+					<div class="flex items-center gap-1">
 					<div class="min-w-0 flex-1">
 						<SliderField
 							name="layer-opacity"
@@ -538,6 +547,21 @@
 						/>
 					</div>
 					<Menu label="Layer options for {row.step.label}" icon="chat-more" size="xs" items={drawerItems(row)} onselect={(id) => chooseDrawer(row, id)} menuAttrs={{ 'data-layer-menu': row.key }} />
+					</div>
+					{#if patchMask}
+						<div class="flex items-center gap-2.5 pb-0.5" data-patch-mask={row.key}>
+							<span class="w-12 flex-none text-sm text-fg-subtle">Mask</span>
+							<span class="relative h-7 w-[42px] flex-none overflow-hidden rounded bg-canvas shadow-[inset_0_0_0_1px_rgb(var(--line-strong))]" data-patch-mask-thumb>
+								{#if patchMask.url}
+									<img src={patchMask.url} alt="" class="h-full w-full object-contain" />
+								{:else}
+									<span class="absolute bg-fg/90" style="left: {patchMask.rect.x * 100}%; top: {patchMask.rect.y * 100}%; width: {patchMask.rect.width * 100}%; height: {patchMask.rect.height * 100}%"></span>
+								{/if}
+							</span>
+							<span class="min-w-0 flex-1 text-sm leading-tight text-fg">Edited region<span class="block text-fg-subtle">Outside it, unchanged</span></span>
+							<Button size="xs" pressed={showMask} onclick={() => ontogglemask?.()} attrs={{ 'data-patch-mask-toggle': row.key }}>{showMask ? 'Hide mask' : 'Show mask'}</Button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 			{#if dropHere && (dropIndex > (drag?.from ?? 0)) !== layered}

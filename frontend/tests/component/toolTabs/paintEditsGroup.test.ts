@@ -116,13 +116,11 @@ describe('the in-progress Paint group in the Edits list', () => {
 		expect(session.snapshot().layers[0].visible).toBe(false);
 	});
 
-	it('adds a layer from the plus on the group header', () => {
+	it('leaves adding layers to the Edits header: the group header has no plus', () => {
 		mountGroup(build(crop));
-		q('[data-stack-group-header] button[aria-label="Add a layer"]')!.click();
-		flushSync();
-		all('[role="menuitem"]').find((node) => node.textContent?.includes('New layer'))!.click();
-		flushSync();
-		expect(session.snapshot().layers).toHaveLength(2);
+		expect(q('[data-stack-group-header]')).not.toBeNull();
+		expect(q('[data-stack-group-header] button[aria-label="Add a layer"]')).toBeNull();
+		expect(q('[data-layers-add-menu]')).toBeNull();
 	});
 
 	it('shows the floating piece as a marked row with Place, and places it', () => {

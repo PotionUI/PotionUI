@@ -39,7 +39,7 @@ export interface GenerateResult {
 }
 
 export interface GenerateArea {
-	region: { item_id: string } | null;
+	region: { item_id: string; url?: string } | null;
 	size: { width: number; height: number } | null;
 }
 
@@ -128,7 +128,7 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 			},
 			label: typeof setup.label === 'string' ? setup.label : ''
 		},
-		area: { region: isRecord(area.region) && typeof area.region.item_id === 'string' ? { item_id: area.region.item_id } : null, size },
+		area: { region: isRecord(area.region) && typeof area.region.item_id === 'string' ? { item_id: area.region.item_id, ...(typeof area.region.url === 'string' && area.region.url ? { url: area.region.url } : {}) } : null, size },
 		candidates: typeof raw.candidates === 'number' && raw.candidates >= 1 ? Math.min(4, Math.trunc(raw.candidates)) : 1,
 		results,
 		chosen,

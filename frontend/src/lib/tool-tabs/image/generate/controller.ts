@@ -107,7 +107,7 @@ export interface ControllerDeps {
 	setStack(next: EditStackState<unknown>): void;
 	source(): { ref: MediaToolInputRef | null };
 	editLink(): Promise<EditLink | null>;
-	landRegion(): Promise<{ item_id: string } | null>;
+	landRegion(): Promise<{ item_id: string; url?: string } | null>;
 	areaSize(): { width: number; height: number } | null;
 	pictureSize?(stepId: string | null): { width: number; height: number } | null;
 	stepsBeneath(stepId: string | null): Promise<MediaToolStep[]>;
@@ -668,7 +668,7 @@ export function createGenerateController(deps: ControllerDeps) {
 	async function submit(taskId: string, stepId: string, input: {
 		prompt: string;
 		setup: ResolvedSetup;
-		region: { item_id: string } | null;
+		region: { item_id: string; url?: string } | null;
 		range?: TimeRange | null;
 		candidates: number;
 		seed: number | null;
@@ -684,7 +684,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			edit: { id: link.id, step_id: stepId },
 			input: ref,
 			steps,
-			region: task?.region === 'none' ? null : input.region,
+			region: task?.region === 'none' || !input.region ? null : { item_id: input.region.item_id },
 			...(deps.range ? { range: task?.range === 'none' ? null : (input.range ?? null) } : {}),
 			prompt: task?.prompt === 'none' ? null : input.prompt.trim() || null,
 			setup: { preset_id: input.setup.preset_id, mode: input.setup.mode, form_data: input.setup.form_data },
@@ -712,7 +712,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		if (task.region === 'required' && !areaMarked) return fail('Mark the area first.');
 		patch({ starting: true, error: null });
 		try {
-			let region: { item_id: string } | null = null;
+			let region: { item_id: string; url?: string } | null = null;
 			if (task.region !== 'none' && areaMarked) {
 				try {
 					region = await deps.landRegion();

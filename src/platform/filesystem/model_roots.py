@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from src.platform.filesystem.model_types import directory_to_type, is_model_type, model_types, type_to_directory
+from src.platform.util.host import is_windows
 
 HOME_ROOT_ID = "home"
 
@@ -136,10 +137,6 @@ def binding_subdir_key(subdir: str, *, case_insensitive: bool = False) -> str:
 def default_case_insensitive(os_name: Optional[str] = None) -> bool:
     os_name = os.name if os_name is None else os_name
     return os_name == "nt" or sys.platform == "darwin"
-
-
-def is_windows() -> bool:
-    return os.name == "nt"
 
 
 def paths_overlap(a_key: str, b_key: str) -> bool:

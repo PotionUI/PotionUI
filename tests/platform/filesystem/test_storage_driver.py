@@ -242,7 +242,7 @@ def replace_seam(monkeypatch):
         monkeypatch.setattr(storage_driver, "os", SimpleNamespace(**{**vars(os), "replace": recorder}))
         monkeypatch.setattr(storage_driver, "time", SimpleNamespace(sleep=sleeps.append))
         if windows is not None:
-            monkeypatch.setattr(storage_driver, "_is_windows", lambda: windows)
+            monkeypatch.setattr(storage_driver, "is_windows", lambda: windows)
         return recorder
 
     install.sleeps = sleeps

@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 import platform
 from typing import Any, List, Optional, TYPE_CHECKING
 
@@ -15,6 +14,7 @@ from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.api_scopes import ApiScope, key_access
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
+from src.platform.util.host import is_windows
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -106,7 +106,7 @@ class ModelRootsController(BaseController):
     async def list_roots(self) -> APIResponse:
         data = self.manager.get_overview()
         data["server_os"] = platform.system() or "Linux"
-        data["path_style"] = "windows" if os.name == "nt" else "posix"
+        data["path_style"] = "windows" if is_windows() else "posix"
         return self.success_response(data=data)
 
     async def detect(self, request: DetectRootRequest) -> APIResponse:

@@ -17,7 +17,7 @@ def test_windows_never_reaches_os_kill(monkeypatch):
         raise AssertionError("os.kill must never be called on Windows")
 
     monkeypatch.setattr(os, "kill", boom)
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(process, "is_windows", lambda: True)
     monkeypatch.setattr(process, "_pid_alive_windows", lambda pid: pid == 4242)
     assert process.pid_alive(4242) is True
     assert process.pid_alive(4243) is False
@@ -27,6 +27,6 @@ def test_posix_permission_error_means_alive(monkeypatch):
     def denied(_pid, _sig):
         raise PermissionError(errno.EPERM, "denied")
 
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(process, "is_windows", lambda: False)
     monkeypatch.setattr(os, "kill", denied)
     assert process.pid_alive(1) is True

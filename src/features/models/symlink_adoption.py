@@ -16,15 +16,12 @@ from src.platform.filesystem.model_roots import (
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.filesystem.model_types import model_types, type_to_directory
 from src.platform.settings.repository import SettingRepository
+from src.platform.util.host import is_windows
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
 
 _LEGACY_SETTING_KEYS = ("models_location_external_path", "models_location_overrides")
-
-
-def is_windows() -> bool:
-    return os.name == "nt"
 
 
 def _is_link(path: Path) -> bool:

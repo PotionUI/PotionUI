@@ -9,6 +9,7 @@ exercised here — see README.md's quickstart for the manual walkthrough.
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -2760,3 +2761,17 @@ def test_check_gpu_no_card_stays_a_non_blocking_warning_so_doctor_keeps_exiting_
     assert result.blocking is False
     assert "CPU-only is fine" not in result.repair
     assert "./potionui start --profile remote" in result.repair
+
+
+def test_the_launcher_starts_from_another_folder_on_an_isolated_interpreter(tmp_path):
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", str(Path(cli.__file__).resolve()), "--help"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("usage:")

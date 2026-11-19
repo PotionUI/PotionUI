@@ -218,3 +218,22 @@ describe('EditStack as layers', () => {
 		expect(view.target.querySelector('[data-layer-drawer="s1"]')).toBeNull();
 	});
 });
+
+describe('selecting rows for painting', () => {
+	it('marks the selected layer as current and leaves the Original row static without a handler', () => {
+		const { q } = render(layered(paint, patch), { selectedId: 's1' });
+		expect(q('[data-stack-row="s1"]')!.getAttribute('aria-current')).toBe('true');
+		expect(q('[data-stack-row="s2"]')!.getAttribute('aria-current')).toBeNull();
+		expect(q('[data-stack-open="original"]')).toBeNull();
+	});
+
+	it('lets the Original row be picked when a handler is given', () => {
+		const picked: string[] = [];
+		const { q } = render(layered(paint), { onoriginal: () => picked.push('original'), selectedId: 'original' });
+		const button = q<HTMLButtonElement>('[data-stack-open="original"]')!;
+		expect(q('[data-stack-row="original"]')!.getAttribute('aria-current')).toBe('true');
+		expect(q('[data-stack-row="s1"]')!.getAttribute('aria-current')).toBeNull();
+		button.click();
+		expect(picked).toEqual(['original']);
+	});
+});

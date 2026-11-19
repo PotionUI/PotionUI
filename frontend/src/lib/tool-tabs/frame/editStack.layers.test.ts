@@ -182,6 +182,13 @@ describe('adding layers at a position', () => {
 		expect(labels(insertSteps(stack, [draft('paint', 'A')], 'gone'))).toEqual(['paint', 'A', 'crop']);
 	});
 
+	it('inserts right above the original for an empty anchor, and undo takes it out again', () => {
+		const stack = stackOf('paint', 'crop');
+		const next = insertSteps(stack, [draft('paint', 'A')], '');
+		expect(labels(next)).toEqual(['A', 'paint', 'crop']);
+		expect(labels(undo(next))).toEqual(['paint', 'crop']);
+	});
+
 	it('creates hidden layers when asked', () => {
 		const next = insertSteps(stackOf('paint', 'crop'), [{ ...draft('paint', 'A'), hidden: true }], 's1');
 		expect(next.steps[1].hidden).toBe(true);

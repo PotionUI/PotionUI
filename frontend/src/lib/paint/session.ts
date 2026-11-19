@@ -291,6 +291,10 @@ export class PaintSession implements ToolHost, EditorApi {
 		return this.doc.layers[this.doc.activeIndex] ?? null;
 	}
 
+	get pointerActive(): boolean {
+		return this.activePointerId !== null;
+	}
+
 	get zoom(): number {
 		return this.view.zoom;
 	}
@@ -507,6 +511,30 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.emit();
 	}
 
+	showLayers(width: number, height: number, layers: Layer[], activeIndex: number): void {
+		this.cancelActive();
+		const resized = !this.ready || width !== this.doc.width || height !== this.doc.height;
+		this.doc = { width, height, layers, activeIndex };
+		if (resized) {
+			this.selection = null;
+			this.draft = null;
+			this.cropRect = null;
+			this.geometry = identityGeometry(width, height);
+			this.stopAnts();
+		}
+		this.ready = true;
+		this.dropBases();
+		if (resized && this.autoFit) this.fit();
+		this.invalidate();
+		this.emit();
+	}
+
+	refresh(): void {
+		this.dropBases();
+		this.invalidate();
+		this.emit();
+	}
+
 	openImage(canvas: HTMLCanvasElement, name: string): void {
 		this.sourceName = name;
 		this.loadCanvas(canvas, true);
@@ -681,6 +709,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.history.push({
 			label,
 			bytes: commands.reduce((sum, command) => sum + command.bytes, 0),
+			pixels: commands.every((command) => command.pixels) || undefined,
 			undo: () => {
 				for (const command of [...commands].reverse()) command.undo();
 			},
@@ -717,6 +746,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.pushCommand({
 			label,
 			bytes: patchBytes(patch),
+			pixels: true,
 			undo: () => apply('before'),
 			redo: () => apply('after')
 		});

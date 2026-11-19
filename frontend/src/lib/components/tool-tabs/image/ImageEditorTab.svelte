@@ -5,7 +5,10 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { pickFromUpload } from '$lib/components/form-fields/mediaLoaderPicks';
 	import { canvasToPngFile } from '$lib/paint/flatten';
-	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
+	import { PaintSession, type SessionSnapshot } from '$lib/paint/session';
+	import type { Command } from '$lib/paint/history';
+	import type { Layer } from '$lib/paint/types';
+	import { fitInside } from '$lib/paint/geometry';
 	import { Button, IconButton, Kbd, Menu, Spinner } from '$lib/components/ui';
 	import type { MenuItem } from '$lib/components/ui/Menu.svelte';
 	import {
@@ -83,7 +86,6 @@
 		reopenLatest,
 		canRedo,
 		canUndo,
-		clampOpacity,
 		commitLive,
 		createStack,
 		discardPending,
@@ -109,7 +111,6 @@
 		updatePending,
 		type EditStackState,
 		type EditStep,
-		type RevisionDraft,
 		type StepDraft
 	} from '$lib/tool-tabs/frame/editStack';
 	import type { RailGroup, SaveAction, SavingProgress } from '$lib/tool-tabs/frame/types';
@@ -117,6 +118,7 @@
 	import { expandUi } from '$lib/tool-tabs/image/generate/expand';
 	import { geometryKey, liveMask, maskChannelOf, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
 	import { SWITCH_TO_LAYERS, aboveKeyOf, aboveLayerOf, arrangeLayers, isFlattenedPaint, isLayerStep, layerOrdered, layerThumb, layersOf, mergeLayerPixels, patchMaskOf, settledLayered, switchToLayers } from '$lib/tool-tabs/image/layers';
+	import { PaintLayerStore, blankCanvas, copyCanvas, diffCommand, docCanvas, isNormalized, newLayer, nextPaintName, normalizeLayer, paintInto, relinkLayer } from '$lib/tool-tabs/image/paintLayers';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import PatchMaskOverlay from '$lib/components/tool-tabs/image/PatchMaskOverlay.svelte';
 	import { inputRef, outputSize, replaceOption, runBody, sourceOrigin, type PixelSize, type SourceOrigin } from '$lib/tool-tabs/image/payload';
@@ -282,14 +284,29 @@
 	let beforeRender = $state.raw<Rendered | null>(null);
 	let thumbRender = $state.raw<Rendered | null>(null);
 	let paintBase = $state.raw<Rendered | null>(null);
-	let paintBaseSig = $state<string | null>(null);
+	let paintBaseKey = $state<string | null>(null);
 	let renderError = $state<string | null>(null);
 	let rendering = $state(false);
 	let surfaceVersion = $state(0);
 
-	let paintStage = $state<ReturnType<typeof PaintStage> | undefined>();
+	type HistoryMark = { kind: 'stack' } | { kind: 'pixels'; id: string; command: Command };
+	const ORIGINAL_ROW = 'original';
 	let paintSession = $state.raw<PaintSession | null>(null);
 	let paintState = $state.raw<SessionSnapshot | null>(null);
+	let paintRow = $state<string | null>(null);
+	let layerRevision = $state(0);
+	let undoMarks = $state.raw<HistoryMark[]>([]);
+	let redoMarks = $state.raw<HistoryMark[]>([]);
+	const layerStore = new PaintLayerStore({
+		upload: async (file) => {
+			const artifact = await uploadMediaToolArtifact(file);
+			return { id: artifact.id, url: artifact.url };
+		},
+		uploaded: (id, previous, next) => (stack = relinkLayer(stack, id, previous, next)),
+		changed: () => (layerRevision += 1),
+		failed: (error) => (notice = describeMediaToolFailure(error))
+	});
+	onDestroy(() => layerStore.dispose());
 	let maskLayer = $state<ReturnType<typeof MaskLayer> | undefined>();
 	let maskBrush = $state(48);
 	let maskErase = $state(false);
@@ -345,25 +362,6 @@
 		void $editorsRevision;
 		return activeTool ? railTools.get('image', activeTool) : undefined;
 	});
-	let stackGroup = $derived.by(() => {
-		if (!paintActive || !source || !paintState) return null;
-		return { target: pendingHere?.target ?? null, after: anchorCount >= 0 ? layerAnchor : null, live: paintLive };
-	});
-	let paintLive = $derived.by(() => {
-		const session = paintSession;
-		const state = paintState;
-		if (!session || !state || paintTargetStep) return null;
-		const index = state.activeIndex;
-		const layer = state.layers[index];
-		if (!layer) return null;
-		return {
-			label: paintLayerName,
-			hidden: !layer.visible,
-			opacity: layer.opacity,
-			onhide: () => session.toggleLayerVisible(index),
-			onopacity: (value: number) => session.setLayerOpacity(index, value)
-		};
-	});
 	let rowInfoFor = $derived.by(() => {
 		void $editorsRevision;
 		void $runViews;
@@ -378,7 +376,7 @@
 		getStack: () => stack,
 		setStack: (next) => (stack = next),
 		getSource: () => ({ size: sourceSize, ref: resolvedRef }),
-		render: async (stepsBeneath) => (await renderer.render(stepsBeneath === undefined ? effective : effective.slice(0, stepsBeneath))).canvas,
+		render: async (stepsBeneath) => (await renderer.render(layerStore.display(stepsBeneath === undefined ? effective : effective.slice(0, stepsBeneath)))).canvas,
 		setApply: (state) => (applyOverride = state ? { ...state, tool: activeTool } : null),
 		writeLive: (next, options) => writeLive(next, options),
 		settleLive: () => settleLive()
@@ -426,6 +424,8 @@
 		},
 		beneath: (id) => stepsBeneathOf(runBase(appliedSteps(stack), id), id),
 		stepsBeneath: async (id) => {
+			settleLayer();
+			if (!(await layerStore.flush())) throw new Error('A layer could not be saved');
 			let list = runBase(effective, id);
 			const at = id ? list.findIndex((step) => step.id === id) : -1;
 			if (at >= 0) list = list.slice(0, at);
@@ -461,6 +461,7 @@
 	let effective = $derived(effectiveSteps(stack));
 	let applied = $derived(appliedSteps(stack));
 	let selectedStepId = $derived.by(() => {
+		if (paintActive) return paintRow;
 		if (stack.pending?.target) return stack.pending.target;
 		if (!isLiveEntry(activeTool)) return null;
 		return applied.findLast((step) => entryOfStep(step) === activeTool)?.id ?? null;
@@ -468,7 +469,11 @@
 	let editCount = $derived(appliedCount(stack));
 	let paintActive = $derived(isPaintEntry(activeTool));
 	let toolKey = $derived(paintActive ? 'paint' : activeTool);
-	let dirtyCount = $derived(unsavedEdits(stack, saved) + (paintActive && paintState?.dirty ? 1 : 0));
+	let unsavedLayers = $derived.by(() => {
+		void layerRevision;
+		return layerStore.unsaved;
+	});
+	let dirtyCount = $derived(unsavedEdits(stack, saved) + (unsavedLayers ? 1 : 0));
 	let replace = $derived(replaceOption(origin));
 	let fileName = $derived(source ? (source.name ?? mediaFileStem(source) ?? 'Picture') : null);
 	let stem = $derived(mediaFileStem(source) ?? 'picture');
@@ -496,8 +501,9 @@
 	let appliedSet = $derived(appliedEntries(stack, entryLookup));
 	let appliedList = $derived([...appliedSet].map((id) => (id === 'paint' ? paintEntryId('brush') : id)));
 	let targetIndex = $derived(pending?.target ? effective.findIndex((step) => step.id === pending!.target) : -1);
-	let paintTargetStep = $derived(pending?.tool === 'paint' && pending.target ? (stack.steps.find((step) => step.id === pending!.target) ?? null) : null);
-	let paintLayerName = $derived(paintTargetStep ? (isFlattenedPaint(paintTargetStep) ? 'Paint' : paintNameOf(paintTargetStep)) : nextPaintName(new Set(stack.steps.map((step) => step.label))));
+	let paintStep = $derived(paintActive && paintRow ? (applied.find((step) => step.id === paintRow) ?? null) : null);
+	let paintTargetStep = $derived(paintStep?.tool === 'paint' ? paintStep : null);
+	let paintTargetId = $derived(paintTargetStep?.id ?? null);
 	let stepsBeforeTarget = $derived(targetIndex >= 0 ? effective.slice(0, targetIndex) : effective);
 
 	let growsTool = $derived.by(() => {
@@ -610,67 +616,307 @@
 		mode === 'preview' && compare ? (liveEntry ? effective.filter((step) => entryOfStep(step) !== activeTool) : pending ? beforeSteps(stack) : []) : null
 	);
 	let thumbList = $derived(activeTool === 'effects' ? (pending ? beforeSteps(stack) : effective) : null);
-	let layerAnchor = $state<string | null>(null);
-	let layerPicture = $state.raw<{ canvas: HTMLCanvasElement; name: string } | null>(null);
 	let addSource = $state<'library' | 'history' | 'file' | null>(null);
-	let aboveCanvas = $state.raw<HTMLCanvasElement | null>(null);
-	let anchorCount = $derived.by(() => {
-		if (pending?.target || !layerAnchor) return -1;
-		const at = applied.findIndex((step) => step.id === layerAnchor);
-		return at >= 0 && at < applied.length - 1 ? at + 1 : -1;
-	});
-	let paintBelow = $derived(anchorCount >= 0 ? applied.slice(0, anchorCount).filter((step) => !step.hidden) : null);
-	let paintAbove = $derived.by(() => {
-		if (mode !== 'paint') return [];
-		const from = pending?.target ? applied.findIndex((step) => step.id === pending!.target) + 1 : anchorCount;
-		if (from <= 0) return [];
-		const rest = applied.slice(from);
+	let picturePending: { id: string; canvas: HTMLCanvasElement } | null = null;
+	let paintSplit = $derived.by(() => {
+		if (mode !== 'paint') return null;
+		const at = paintStep ? applied.indexOf(paintStep) : -1;
+		const cut = paintRow === ORIGINAL_ROW ? 0 : at < 0 ? applied.length : paintTargetStep ? at : at + 1;
+		const beneath = applied.slice(0, cut).filter((step) => !step.hidden);
+		const rest = applied.slice(paintTargetStep ? at + 1 : cut);
 		const stop = rest.findIndex((step) => step.lane === GEOMETRY_LANE);
-		return (stop >= 0 ? rest.slice(0, stop) : rest).flatMap((step) => {
+		const above = (stop >= 0 ? rest.slice(0, stop) : rest).filter((step) => !step.hidden && isLayerStep(step));
+		return { below: sequential ? beneath : layersOf(beneath), above };
+	});
+	let paintBelowDraft = $derived.by(() => {
+		void layerRevision;
+		return paintSplit ? layerStore.display(paintSplit.below) : null;
+	});
+	let paintBelowKey = $derived(paintBelowDraft ? stepsKey(paintBelowDraft) : null);
+	let paintBelow = $derived.by(() => {
+		void paintBelowKey;
+		return untrack(() => paintBelowDraft);
+	});
+	type AboveDraw = { key: string; local: Layer | null; url: string | null; rect: { x: number; y: number; width: number; height: number } | null; opacity: number };
+	let paintAboveLayers = $derived.by(() => {
+		void layerRevision;
+		return (paintSplit?.above ?? []).flatMap((step): AboveDraw[] => {
+			const local = step.tool === 'paint' ? layerStore.layer(step.id) : null;
+			if (local) return [{ key: `${step.id}@${layerStore.version(step.id)}@${opacityOf(step)}`, local, url: null, rect: null, opacity: opacityOf(step) }];
 			const layer = aboveLayerOf(step);
-			return layer ? [layer] : [];
+			return layer ? [{ key: aboveKeyOf([layer]), local: null, ...layer }] : [];
 		});
 	});
-	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' && (pendingHere.target || sequential) ? stepsBeforeTarget : (paintBelow ?? (sequential ? effective : layersOf(effective)))) : null);
-	let paintListSig = $derived(paintList ? JSON.stringify(paintList) : null);
-	let aboveKey = $derived(aboveKeyOf(paintAbove));
+	let paintAboveKey = $derived(paintAboveLayers.map((layer) => layer.key).join('|'));
 	let addAboveLabel = $derived.by(() => {
+		if (selectedStepId === ORIGINAL_ROW) return 'Add above Original';
 		const step = selectedStepId ? applied.find((entry) => entry.id === selectedStepId) : null;
 		return step && (sequential || isLayerStep(step)) ? `Add above ${step.label}` : 'Add on top';
 	});
 
+	const belowLayer: Layer = { ...newLayer('Below', blankCanvas(1, 1)), internal: true };
+	const aboveLayer: Layer = { ...newLayer('Above', blankCanvas(1, 1)), internal: true };
+	const STACK_MARK: HistoryMark = { kind: 'stack' };
+	let blankTarget: Layer | null = null;
+	let shadow: HTMLCanvasElement | null = null;
+	let paintTarget = $state.raw<{ id: string | null; layer: Layer } | null>(null);
+	let aboveShown = $state<string | null>(null);
+	let shownTarget: { id: string | null; layer: Layer } | null = null;
+	let paintCurrent = $state(false);
+
+	let thumbOf = $derived.by(() => {
+		void layerRevision;
+		return (step: EditStep) => layerStore.thumb(step) ?? layerThumb(step);
+	});
+
+	function docSize(): { width: number; height: number } | null {
+		return paintBase ? { width: paintBase.canvas.width, height: paintBase.canvas.height } : null;
+	}
+
 	$effect(() => {
-		const list = untrack(() => paintAbove);
-		void aboveKey;
+		const id = paintTargetId;
 		const base = paintBase;
-		aboveCanvas = null;
-		if (!list.length || !base) return;
-		let live = true;
+		if (mode !== 'paint' || !base) return;
 		const width = base.canvas.width;
 		const height = base.canvas.height;
-		void Promise.all(list.map((layer) => canvasFromUrl(layer.url)))
+		return untrack(() => {
+			if (!id) {
+				if (!blankTarget || !isNormalized(blankTarget, width, height)) blankTarget = newLayer('Paint', blankCanvas(width, height));
+				if (paintTarget?.layer !== blankTarget) paintTarget = { id: null, layer: blankTarget };
+				return;
+			}
+			const step = stack.steps.find((entry) => entry.id === id);
+			if (!step) return;
+			const picture = picturePending?.id === id && !layerStore.has(id) ? picturePending : null;
+			if (picture) {
+				picturePending = null;
+				const size = fitInside(picture.canvas, { width, height }, 0.6);
+				const piece = copyCanvas(picture.canvas, size.width, size.height);
+				const layer = newLayer(step.label, piece, Math.round((width - piece.width) / 2), Math.round((height - piece.height) / 2));
+				layer.source = picture.canvas;
+				layerStore.adopt(id, layer, width, height);
+				paintTarget = { id, layer };
+				paintSession?.setTool('transform');
+				return;
+			}
+			let live = true;
+			void layerStore
+				.load(step, width, height)
+				.then((layer) => {
+					if (live && paintTargetId === id && paintTarget?.layer !== layer) paintTarget = { id, layer };
+				})
+				.catch((error) => (notice = describeMediaToolFailure(error)));
+			return () => {
+				live = false;
+			};
+		});
+	});
+
+	$effect(() => {
+		const key = paintAboveKey;
+		const list = untrack(() => paintAboveLayers);
+		const size = docSize();
+		if (!size) return;
+		let live = true;
+		void Promise.all(list.map((layer) => (layer.local ? docCanvas(layer.local, size.width, size.height) : canvasFromUrl(layer.url!))))
 			.then((images) => {
 				if (!live) return;
-				const out = document.createElement('canvas');
-				out.width = width;
-				out.height = height;
-				const context = out.getContext('2d');
+				if (aboveLayer.canvas.width !== size.width || aboveLayer.canvas.height !== size.height) aboveLayer.canvas = blankCanvas(size.width, size.height);
+				const context = aboveLayer.canvas.getContext('2d');
+				if (!context) return;
+				context.clearRect(0, 0, size.width, size.height);
 				images.forEach((image, index) => {
-					if (!context) return;
 					const { rect, opacity } = list[index];
 					context.globalAlpha = opacity;
-					if (rect) context.drawImage(image, rect.x * width, rect.y * height, rect.width * width, rect.height * height);
-					else context.drawImage(image, 0, 0, width, height);
+					if (rect) context.drawImage(image, rect.x * size.width, rect.y * size.height, rect.width * size.width, rect.height * size.height);
+					else context.drawImage(image, 0, 0, size.width, size.height);
 				});
-				aboveCanvas = out;
+				context.globalAlpha = 1;
+				aboveShown = `${key}#${size.width}x${size.height}`;
+				paintSession?.refresh();
 			})
 			.catch(() => {
-				if (live) aboveCanvas = null;
+				if (live) aboveShown = null;
 			});
 		return () => {
 			live = false;
 		};
 	});
+
+	$effect(() => {
+		const session = paintSession;
+		const base = paintBase;
+		const target = paintTarget;
+		const shownAbove = aboveShown;
+		const wanted = `${paintAboveKey}#${base?.canvas.width}x${base?.canvas.height}`;
+		if (!session || !base || !target || shownAbove !== wanted || paintBaseKey !== paintBelowKey || target.id !== paintTargetId) {
+			paintCurrent = false;
+			return;
+		}
+		untrack(() => {
+			const width = base.canvas.width;
+			const height = base.canvas.height;
+			if (shownTarget && shownTarget.layer !== target.layer) {
+				const row = paintRow;
+				settleLayer();
+				paintRow = row;
+			}
+			if (belowLayer.canvas.width !== width || belowLayer.canvas.height !== height) belowLayer.canvas = blankCanvas(width, height);
+			paintInto(belowLayer.canvas, base.canvas);
+			syncTargetLook(target);
+			const want = paintAboveLayers.length ? [belowLayer, target.layer, aboveLayer] : [belowLayer, target.layer];
+			if (shownTarget?.layer !== target.layer || session.doc.layers[0] !== belowLayer || session.doc.width !== width || session.doc.height !== height) {
+				session.showLayers(width, height, want, 1);
+				shownTarget = target;
+				shadow = copyCanvas(docCanvas(target.layer, width, height));
+			} else {
+				const extras = session.doc.layers.filter((layer) => layer !== belowLayer && layer !== target.layer && layer !== aboveLayer);
+				session.doc.layers = [...want.slice(0, 2), ...extras, ...want.slice(2)];
+				session.refresh();
+			}
+			paintCurrent = true;
+		});
+	});
+
+	function syncTargetLook(target: { id: string | null; layer: Layer }) {
+		const step = target.id ? stack.steps.find((entry) => entry.id === target.id) : null;
+		target.layer.opacity = step ? opacityOf(step) : 1;
+		target.layer.visible = step ? !step.hidden : true;
+	}
+
+	$effect(() => {
+		const step = paintTargetStep;
+		const target = paintTarget;
+		if (!step || !target || target.id !== step.id) return;
+		untrack(() => {
+			syncTargetLook(target);
+			paintSession?.refresh();
+		});
+	});
+
+	$effect(() => {
+		const steps = stack.steps;
+		untrack(() => layerStore.sync(steps));
+	});
+
+	$effect(() => {
+		const session = paintSession;
+		if (!session) return;
+		return session.subscribe(() => queueMicrotask(autoSettle));
+	});
+
+	$effect(() => {
+		if (mode === 'paint') {
+			untrack(() => {
+				if (!paintSession) paintSession = new PaintSession();
+			});
+			return;
+		}
+		untrack(() => {
+			settleLayer();
+			shownTarget = null;
+			paintTarget = null;
+			paintCurrent = false;
+			paintSession = null;
+			paintState = null;
+		});
+	});
+
+	function knownLayers(): Set<Layer> {
+		return new Set([belowLayer, aboveLayer, ...(shownTarget ? [shownTarget.layer] : [])]);
+	}
+
+	function autoSettle() {
+		const session = paintSession;
+		const target = shownTarget;
+		if (!session || !target || !paintCurrent || session.pointerActive || session.floatingLayer) return;
+		const known = knownLayers();
+		const extras = session.doc.layers.some((layer) => !known.has(layer));
+		if (!extras && !session.history.canUndo) return;
+		if (target.layer.source && !isNormalized(target.layer, session.docWidth, session.docHeight)) return;
+		settleLayer();
+	}
+
+	function settleLayer() {
+		const session = paintSession;
+		const target = shownTarget;
+		if (!session || !target || !session.ready) return;
+		const width = session.docWidth;
+		const height = session.docHeight;
+		const known = knownLayers();
+		session.placeFloating();
+		const extras = session.doc.layers.filter((layer) => !known.has(layer));
+		const normalized = isNormalized(target.layer, width, height);
+		if (!session.history.canUndo && !extras.length && normalized) return;
+		const fast = !extras.length && normalized && session.history.pixelsOnly;
+		const commands = session.history.drain();
+		const pixels: Command[] = [];
+		if (fast) pixels.push(...commands);
+		else {
+			const command = diffCommand(target.layer, shadow ?? blankCanvas(width, height), width, height);
+			if (command) pixels.push(command);
+		}
+		let id = target.id;
+		if (pixels.length && !id) id = materialize(target, width, height);
+		if (id && pixels.length) {
+			recordMarks(pixels.map((command) => ({ kind: 'pixels' as const, id: id!, command })));
+			layerStore.touch(id);
+		}
+		for (const extra of extras) keepPieceAsLayer(extra, id, width, height);
+		if (extras.length || !fast) session.showLayers(width, height, session.doc.layers.includes(aboveLayer) ? [belowLayer, target.layer, aboveLayer] : [belowLayer, target.layer], 1);
+		shadow = copyCanvas(docCanvas(target.layer, width, height));
+	}
+
+	function layerAnchorOf(row: string | null): string | null {
+		if (row === ORIGINAL_ROW) return '';
+		const found = row ? stack.steps.findIndex((step) => step.id === row) : -1;
+		if (found >= 0 && found < stack.cursor && (sequential || isLayerStep(stack.steps[found]))) return row;
+		return sequential ? null : (appliedSteps(stack).findLast(isLayerStep)?.id ?? null);
+	}
+
+	function insertLayer(name: string, row: string | null): string {
+		const params: PaintParams = { layer: '', url: '', layers: 1, name };
+		const before = stack.seq;
+		stack = insertSteps(discardPending(stack), [paintDraft(params, { width: 0, height: 0 }) as StepDraft<unknown>], layerAnchorOf(row));
+		noteStack();
+		return `s${before + 1}`;
+	}
+
+	function materialize(target: { id: string | null; layer: Layer }, width: number, height: number): string {
+		const id = insertLayer(nextPaintName(stack.steps.map((step) => step.label)), paintRow);
+		layerStore.adopt(id, target.layer, width, height);
+		target.id = id;
+		blankTarget = null;
+		paintRow = id;
+		return id;
+	}
+
+	function keepPieceAsLayer(piece: Layer, after: string | null, width: number, height: number) {
+		normalizeLayer(piece, width, height);
+		const id = insertLayer(nextPaintName(stack.steps.map((step) => step.label)), after);
+		layerStore.adopt(id, piece, width, height);
+		paintRow = id;
+	}
+
+	function recordMarks(marks: HistoryMark[]) {
+		undoMarks = [...undoMarks, ...marks].slice(-400);
+		redoMarks = [];
+	}
+
+	function noteStack() {
+		stackSig = stackSigOf(stack);
+		recordMarks([STACK_MARK]);
+	}
+
+	function resetLayers() {
+		layerStore.dispose();
+		undoMarks = [];
+		redoMarks = [];
+		shownTarget = null;
+		paintTarget = null;
+		blankTarget = null;
+		layerRevision += 1;
+	}
 
 	let appliedSlice = $derived(appliedSteps(stack).find(isSlice) ?? null);
 	let sliceParams = $derived<SliceParams>(
@@ -773,22 +1019,24 @@
 	let shownSize = $derived(mode === 'crop' ? cropFrame : (mainRender?.size ?? null));
 	let outputDims = $derived(outputSize(effective, sourceSize));
 
-	let stackMarks = $state.raw<number[]>([]);
-	let redoMarks = $state.raw<number[]>([]);
-	let stackSig = '';
 	const stackSigOf = (value: EditStackState<unknown>) => `${value.cursor}:${value.steps.length}:${value.revisions?.length ?? 0}:${value.redoRevisions?.length ?? 0}`;
-	let paintDepth = $derived(paintState?.undoDepth ?? 0);
-	let stackFirst = $derived(mode === 'paint' && stackMarks.length > 0 && stackMarks[stackMarks.length - 1] >= paintDepth);
-	let paintUndo = $derived(mode === 'paint' && !stackFirst && paintState?.canUndo ? paintState : null);
+	let stackSig = stackSigOf(untrack(() => stack));
+	let sessionUndo = $derived(mode === 'paint' && paintState?.canUndo ? (paintState.undoLabel ?? 'stroke') : null);
+	let sessionRedo = $derived(mode === 'paint' && paintState?.canRedo ? (paintState.redoLabel ?? 'stroke') : null);
+	let pixelUndo = $derived(topPixels(undoMarks));
+	let pixelRedo = $derived(topPixels(redoMarks));
 	let sliceUndo = $derived(activeTool === 'slice' && sliceHistory.past.length ? sliceHistory.labels[sliceHistory.labels.length - 1] || 'slice edit' : null);
 	let sliceRedo = $derived(activeTool === 'slice' && sliceHistory.future.length ? sliceHistory.futureLabels[0] || 'slice edit' : null);
 	let maskUndo = $derived(mode === 'mask' && maskHistory.canUndo);
-	let stackRedoFirst = $derived(mode === 'paint' && redoMarks.length > 0 && redoMarks[redoMarks.length - 1] === paintDepth);
-	let paintRedo = $derived(mode === 'paint' && !stackRedoFirst && paintState?.canRedo ? paintState : null);
-	let undoText = $derived(paintUndo ? (paintUndo.undoLabel ?? 'stroke') : stackFirst ? (undoLabel({ ...stack, pending: null }) ?? 'edit') : maskUndo ? 'marked area' : (sliceUndo ?? undoLabel(stack)));
-		let canUndoNow = $derived(!!paintUndo || stackFirst || !!sliceUndo || maskUndo || canUndo(stack));
-	let canRedoNow = $derived(!!paintRedo || stackRedoFirst || (mode === 'mask' && maskHistory.canRedo) || !!sliceRedo || canRedo(stack));
-	let redoText = $derived(paintRedo ? (paintRedo.redoLabel ?? 'stroke') : stackRedoFirst ? (redoLabel({ ...stack, pending: null }) ?? 'edit') : (sliceRedo ?? redoLabel(stack)));
+	let undoText = $derived(sessionUndo ?? pixelUndo ?? (maskUndo ? 'marked area' : (sliceUndo ?? undoLabel(stack))));
+	let canUndoNow = $derived(!!sessionUndo || !!pixelUndo || !!sliceUndo || maskUndo || canUndo(stack));
+	let canRedoNow = $derived(!!sessionRedo || !!pixelRedo || (mode === 'mask' && maskHistory.canRedo) || !!sliceRedo || canRedo(stack));
+	let redoText = $derived(sessionRedo ?? pixelRedo ?? sliceRedo ?? redoLabel(stack));
+
+	function topPixels(marks: HistoryMark[]): string | null {
+		const mark = marks[marks.length - 1];
+		return mark?.kind === 'pixels' ? mark.command.label : null;
+	}
 	let canSave = $derived(
 		!!source && !!resolvedRef && !saving && !busy && (referencesOnly || !(saveSlice && sliceSaved)) && (effective.length > 0 || !!pending || mode === 'paint')
 	);
@@ -997,6 +1245,7 @@
 
 	function applyServerState(raw: Record<string, unknown>): Record<string, unknown> {
 		const next = readImageState(raw);
+		resetLayers();
 		stack = sliceLast(next.stack);
 		sequential = !layerOrdered(stack);
 		mask = next.mask;
@@ -1163,16 +1412,25 @@
 		};
 	}
 
-	$effect(() => track(mode === 'paint' ? null : mainSteps, (value) => (mainRender = value), undefined, true));
-	$effect(() => track(beforeList, (value) => (beforeRender = value)));
-	$effect(() => track(thumbList, (value) => (thumbRender = value)));
+	let mainDraft = $derived.by(() => {
+		void layerRevision;
+		return mode === 'paint' ? null : layerStore.display(mainSteps);
+	});
+	let mainKey = $derived(mainDraft ? stepsKey(mainDraft) : null);
+	let mainList = $derived.by(() => {
+		void mainKey;
+		return untrack(() => mainDraft);
+	});
+	$effect(() => track(mainList, (value) => (mainRender = value), undefined, true));
+	$effect(() => track(beforeList && layerStore.display(beforeList), (value) => (beforeRender = value)));
+	$effect(() => track(thumbList && layerStore.display(thumbList), (value) => (thumbRender = value)));
 	$effect(() => {
-		const sig = paintListSig;
+		const key = paintBelowKey;
 		return track(
-			paintList,
+			paintBelow,
 			(value) => {
 				paintBase = value;
-				paintBaseSig = sig;
+				paintBaseKey = value ? key : null;
 			},
 			4096
 		);
@@ -1261,91 +1519,18 @@
 		setDraft('effects', { kind: 'look', filter: item.id, name: item.name, intensity } satisfies EffectParams);
 	}
 
-	async function landPaint(): Promise<boolean> {
-		if (!paintStage) return true;
-		paintSession?.placeFloating();
-		const target = pending?.tool === 'paint' ? pending.target : null;
-		busy = true;
-		try {
-			const result = await paintStage.exportLayers();
-			if (!result) {
-				if (pending?.tool === 'paint') stack = discardPending(stack);
-				layerPicture = null;
-				return true;
-			}
-			if (!result.layers.length) {
-				if (target) stack = remove(stack, target);
-				else if (pending?.tool === 'paint') stack = discardPending(stack);
-				layerPicture = null;
-				return true;
-			}
-			const size = outputSize(paintList ?? effective, sourceSize) ?? result.size;
-			const taken = new Set(stack.steps.map((step) => step.label));
-			const anchor = target ?? (anchorCount >= 0 ? layerAnchor : null) ?? (sequential ? null : (applied.findLast(isLayerStep)?.id ?? null));
-			const added: RevisionDraft<unknown>[] = [];
-			let first = true;
-			for (const layer of result.layers) {
-				const artifact = await uploadMediaToolArtifact(layer.file);
-				const name = /^Layer( \d+)?$/.test(layer.name) ? nextPaintName(taken) : layer.name;
-				taken.add(name);
-				const params: PaintParams = { layer: artifact.id, url: artifact.url, layers: 1, name };
-				const draft = paintDraft(params, size) as StepDraft<unknown>;
-				const fade = clampOpacity(layer.opacity);
-				if (first && target) {
-					stack = apply(updatePending(stack, draft));
-					if (fade !== opacityOf(stack.steps.find((step) => step.id === target) ?? {})) stack = setOpacity(stack, target, fade);
-					if (!layer.visible) stack = toggleHidden(stack, target);
-				} else if (anchor) {
-					added.push({ ...draft, ...(fade < 1 ? { layer: { opacity: fade, blend: 'normal' as const } } : {}), hidden: !layer.visible });
-				} else {
-					stack = apply(beginEdit(stack, fade < 1 ? { ...draft, layer: { opacity: fade, blend: 'normal' } } : draft));
-					if (!layer.visible) stack = toggleHidden(stack, stack.steps[stack.cursor - 1].id);
-				}
-				first = false;
-			}
-			if (added.length && anchor) {
-				const before = stack.seq;
-				stack = insertSteps(stack, added, anchor);
-				layerAnchor = `s${before + added.length}`;
-			} else if (!target) layerAnchor = null;
-			layerPicture = null;
-			return true;
-		} catch (error) {
-			notice = describeMediaToolFailure(error);
-			return false;
-		} finally {
-			busy = false;
-		}
-	}
-
-	function nextPaintName(taken: Set<string>): string {
-		let n = 1;
-		while (taken.has(`Paint ${n}`)) n += 1;
-		return `Paint ${n}`;
-	}
-
-	async function loadStepCanvas(step: EditStep, width: number, height: number): Promise<HTMLCanvasElement> {
-		const stored = await canvasFromUrl((step.params as PaintParams).url);
-		const out = document.createElement('canvas');
-		out.width = width;
-		out.height = height;
-		out.getContext('2d')?.drawImage(stored, 0, 0, width, height);
-		return out;
-	}
-
 	function paintNameOf(step: EditStep): string {
 		return isFlattenedPaint(step) ? 'Paint' : ((step.params as PaintParams).name ?? step.label);
 	}
 
-	async function settlePaint(): Promise<boolean> {
-		if (mode !== 'paint') return true;
-		if (!(await landPaint())) return false;
-		paintKey += 1;
-		return true;
+	async function pixelsOf(step: EditStep): Promise<HTMLCanvasElement | null> {
+		const url = (step.params as PaintParams).url;
+		return layerStore.canvasOf(step.id) ?? (url ? await canvasFromUrl(url) : null);
 	}
 
 	async function duplicateLayerStep(id: string) {
-		if (busy || !(await settlePaint())) return;
+		if (busy) return;
+		settleLayer();
 		const step = stack.steps.find((candidate) => candidate.id === id);
 		if (!step || step.tool !== 'paint') return;
 		const taken = new Set(stack.steps.map((candidate) => candidate.label));
@@ -1354,51 +1539,48 @@
 		for (let n = 2; taken.has(name); n += 1) name = `${base} ${n}`;
 		const params: PaintParams = { ...(step.params as PaintParams), name, layers: 1 };
 		const copy = paintDraft(params, { width: 0, height: 0 });
+		const seq = stack.seq;
 		stack = duplicateStep(stack, id, { label: copy.label, summary: copy.summary, params: params as unknown });
+		if (stack.seq === seq) return;
+		noteStack();
+		layerStore.copy(id, `s${stack.seq}`, params.url);
+	}
+
+	function openPaintOn(id: string | null) {
+		paintRow = id;
+		notice = null;
+		compare = false;
+		if (!paintActive) {
+			const entry = paintEntryId('brush');
+			activeTool = entry;
+			host.setActiveTool(entry);
+		}
+		if (phone) stackOpen = false;
 	}
 
 	async function addEmptyLayer() {
 		if (busy || !source) return;
-		const inPaint = mode === 'paint';
-		const anchor = selectedStepId ?? (inPaint ? layerAnchor : null);
-		const reopened = !!pending?.target;
-		if (!(await leaveTool())) return;
-		if (inPaint) paintKey += 1;
-		await openNewLayer(inPaint && !reopened ? (landedAnchor() ?? anchor) : anchor);
+		const row = selectedStepId;
+		if (mode === 'paint') settleLayer();
+		else if (!(await leaveTool())) return;
+		openPaintOn(insertLayer(nextPaintName(stack.steps.map((step) => step.label)), row));
 	}
 
-	function landedAnchor(): string | null {
-		return layerAnchor ?? applied.findLast(isLayerStep)?.id ?? null;
-	}
+	let addRow: string | null = null;
 
-	async function openNewLayer(anchor: string | null, picture: { canvas: HTMLCanvasElement; name: string } | null = null) {
-		const found = anchor ? stack.steps.findIndex((step) => step.id === anchor) : -1;
-		layerAnchor = found >= 0 && found < stack.cursor && (sequential || isLayerStep(stack.steps[found])) ? anchor : null;
-		layerPicture = picture;
-		const entry = paintEntryId('brush');
-		notice = null;
-		compare = false;
-		activeTool = entry;
-		host.setActiveTool(entry);
-		if (phone) stackOpen = false;
-	}
-
-	let addAnchor: string | null = null;
-
-	async function startPictureLayer(from: 'library' | 'history' | 'file') {
+	function startPictureLayer(from: 'library' | 'history' | 'file') {
 		if (busy || !source) return;
-		addAnchor = selectedStepId;
+		addRow = selectedStepId;
 		addSource = from;
 	}
 
 	async function placePicture(image: { canvas: HTMLCanvasElement; name: string }) {
 		addSource = null;
-		const name = image.name.replace(/\.[^.]+$/, '') || 'Picture';
-		const inPaint = mode === 'paint';
-		const reopened = !!pending?.target;
-		if (!(await leaveTool())) return;
-		if (inPaint) paintKey += 1;
-		await openNewLayer(inPaint && !reopened ? (landedAnchor() ?? addAnchor) : addAnchor, { canvas: image.canvas, name });
+		if (mode === 'paint') settleLayer();
+		else if (!(await leaveTool())) return;
+		const id = insertLayer(image.name.replace(/\.[^.]+$/, '') || 'Picture', addRow);
+		picturePending = { id, canvas: image.canvas };
+		openPaintOn(id);
 	}
 
 	function renameLayer(id: string, label: string) {
@@ -1406,35 +1588,41 @@
 		if (!step) return;
 		const patch: Partial<StepDraft<unknown>> = step.tool === 'paint' && !isFlattenedPaint(step) ? { params: { ...(step.params as PaintParams), name: label } as unknown } : {};
 		stack = renameStep(stack, id, label, patch);
-		if (stack.pending?.target === id) {
-			paintStage?.renameTarget(label);
-			stack = updatePending(stack, { label, ...patch });
-		}
+		const layer = layerStore.layer(id);
+		if (layer) layer.name = label;
 	}
 
 	async function mergeLayerDown(id: string) {
-		if (busy || !(await settlePaint())) return;
+		if (busy) return;
+		settleLayer();
 		const index = stack.steps.findIndex((candidate) => candidate.id === id);
-		const upper = stack.steps[index];
-		const lower = stack.steps[index - 1];
-		if (!upper || !lower || upper.tool !== 'paint' || lower.tool !== 'paint' || index > stack.cursor - 1 || busy) return;
+		const upperId = stack.steps[index]?.id;
+		const lowerId = stack.steps[index - 1]?.id;
+		if (!upperId || !lowerId || stack.steps[index].tool !== 'paint' || stack.steps[index - 1].tool !== 'paint' || index > stack.cursor - 1) return;
 		busy = true;
 		try {
-			const sized = await canvasFromUrl((lower.params as PaintParams).url);
-			const width = sized.width;
-			const height = sized.height;
-			const below = await loadStepCanvas(lower, width, height);
-			const above = await loadStepCanvas(upper, width, height);
-			const lowerData = below.getContext('2d')!.getImageData(0, 0, width, height);
-			const upperData = above.getContext('2d')!.getImageData(0, 0, width, height);
-			const merged = mergeLayerPixels(lowerData.data, opacityOf(lower), upperData.data, opacityOf(upper));
-			const out = document.createElement('canvas');
-			out.width = width;
-			out.height = height;
+			if (!(await layerStore.flush([upperId, lowerId]))) return;
+			const upper = stack.steps.find((step) => step.id === upperId)!;
+			const lower = stack.steps.find((step) => step.id === lowerId)!;
+			const below = await pixelsOf(lower);
+			const above = await pixelsOf(upper);
+			const sized = below ?? above;
+			if (!sized) {
+				stack = mergeInto(stack, lower.id, upper.id, lower.params);
+				noteStack();
+				return;
+			}
+			const { width, height } = sized;
+			const pixels = (canvas: HTMLCanvasElement | null) => (canvas ? copyCanvas(canvas, width, height) : blankCanvas(width, height)).getContext('2d')!.getImageData(0, 0, width, height);
+			const merged = mergeLayerPixels(pixels(below).data, opacityOf(lower), pixels(above).data, opacityOf(upper));
+			const out = blankCanvas(width, height);
 			out.getContext('2d')!.putImageData(new ImageData(merged, width, height), 0, 0);
 			const artifact = await uploadMediaToolArtifact(await canvasToPngFile(out, 'paint-layer.png'));
 			const params: PaintParams = { layer: artifact.id, url: artifact.url, layers: 1, name: paintNameOf(lower) };
 			stack = mergeInto(stack, lower.id, upper.id, params as unknown);
+			noteStack();
+			layerStore.replace(lower.id, out, artifact.url);
+			if (paintRow === upper.id) paintRow = lower.id;
 		} catch (error) {
 			notice = describeMediaToolFailure(error);
 		} finally {
@@ -1475,12 +1663,20 @@
 	async function leaveTool(): Promise<boolean> {
 		settleLive();
 		hoverLook = null;
-		if (mode === 'paint') return landPaint();
+		if (mode === 'paint') {
+			settleLayer();
+			return true;
+		}
 		if (mode === 'mask') return landMask();
 		landSlice();
 		sliceAdding = false;
 		if (stack.pending) stack = sliceLast(apply(stack));
 		return true;
+	}
+
+	function paintRowFor(row: string | null): string | null {
+		const step = row ? appliedSteps(stack).find((entry) => entry.id === row) : null;
+		return step && (sequential || isLayerStep(step)) ? step.id : null;
 	}
 
 	async function selectTool(requested: string) {
@@ -1493,20 +1689,13 @@
 			host.setActiveTool(id);
 			return;
 		}
-		const anchor = selectedStepId;
+		const row = paintRowFor(selectedStepId) ?? paintRowFor(paintRow);
 		if (!(await leaveTool())) return;
 		notice = null;
 		compare = false;
 		activeTool = id;
 		host.setActiveTool(id);
-		layerAnchor = null;
-		if (isPaintEntry(id) && anchor) {
-			const anchored = stack.steps.findIndex((step) => step.id === anchor);
-			if (anchored >= 0 && anchored < stack.cursor) {
-				if (stack.steps[anchored].tool === 'paint') stack = reopen(stack, anchor);
-				else if (sequential || isLayerStep(stack.steps[anchored])) layerAnchor = anchor;
-			}
-		}
+		if (isPaintEntry(id)) paintRow = row;
 		const existing = id === 'slice' ? appliedSteps(stack).find(isSlice) : null;
 		if (existing) stack = reopen(stack, existing.id);
 		if (stillEffectIds.has(id) && !isLiveEntry(id) && !openEffect(id)) {
@@ -1520,7 +1709,6 @@
 	}
 
 	function closeActiveTool() {
-		layerAnchor = null;
 		if (pending) stack = discardPending(stack);
 		activeTool = null;
 		host.setActiveTool(null);
@@ -1530,6 +1718,12 @@
 		const step = stack.steps.find((candidate) => candidate.id === id);
 		if (!step || busy) return;
 		if (pending?.target === id) return;
+		if (step.tool === 'paint' || (mode === 'paint' && isLayerStep(step))) {
+			if (mode === 'paint') settleLayer();
+			else if (!(await leaveTool())) return;
+			openPaintOn(id);
+			return;
+		}
 		if (!(await leaveTool())) return;
 		const kind = stepKinds.get('image', step.tool);
 		const tool = step.tool === 'effects' ? (entryOfStep(step) ?? 'effects') : ((kind && reopenToolOf(kind, step.params)) ?? step.tool);
@@ -1547,56 +1741,61 @@
 		stack = next;
 	}
 
-	function stackEditInPaint(direction: 'undo' | 'redo'): boolean {
-		if (direction === 'undo' ? !stackFirst : !stackRedoFirst) return false;
-		const held = stack.pending;
-		if (direction === 'undo') {
-			const mark = stackMarks[stackMarks.length - 1];
-			stackMarks = stackMarks.slice(0, -1);
-			redoMarks = [...redoMarks, mark];
-			stack = { ...undo({ ...stack, pending: null }), pending: held };
-		} else {
-			const mark = redoMarks[redoMarks.length - 1];
-			redoMarks = redoMarks.slice(0, -1);
-			stackMarks = [...stackMarks, mark];
-			stack = { ...redo({ ...stack, pending: null }), pending: held };
+	$effect(() => {
+		const sig = stackSigOf(stack);
+		untrack(() => {
+			if (sig === stackSig) return;
+			stackSig = sig;
+			recordMarks([STACK_MARK]);
+		});
+	});
+
+	function stepPixels(direction: 'undo' | 'redo'): boolean {
+		let from = direction === 'undo' ? undoMarks : redoMarks;
+		let done: HistoryMark | null = null;
+		while (from.length) {
+			const mark = from[from.length - 1];
+			if (mark.kind !== 'pixels') break;
+			from = from.slice(0, -1);
+			if (!layerStore.layer(mark.id) || !stack.steps.some((step) => step.id === mark.id)) continue;
+			if (direction === 'undo') mark.command.undo();
+			else mark.command.redo();
+			done = mark;
+			break;
 		}
-		stackSig = stackSigOf(stack);
+		if (direction === 'undo') {
+			undoMarks = from;
+			if (done) redoMarks = [...redoMarks, done];
+		} else {
+			redoMarks = from;
+			if (done) undoMarks = [...undoMarks, done];
+		}
+		if (!done || done.kind !== 'pixels') return false;
+		layerStore.touch(done.id);
+		if (shownTarget?.id === done.id && paintSession) {
+			shadow = copyCanvas(docCanvas(shownTarget.layer, paintSession.docWidth, paintSession.docHeight));
+			paintSession.refresh();
+		}
 		return true;
 	}
 
-	$effect(() => {
-		const sig = stackSigOf(stack);
-		const inPaint = mode === 'paint';
-		untrack(() => {
-			if (!inPaint) {
-				stackMarks = [];
-				redoMarks = [];
-			} else if (sig !== stackSig) {
-				stackMarks = [...stackMarks, paintDepth];
-				redoMarks = [];
-			}
-			stackSig = sig;
-		});
-	});
-
-	$effect(() => {
-		void paintSession;
-		untrack(() => {
-			stackMarks = [];
-			redoMarks = [];
-		});
-	});
-
-	$effect(() => {
-		const value = paintTargetStep ? opacityOf(paintTargetStep) : null;
-		if (value === null) return;
-		untrack(() => paintStage?.previewOpacity(value));
-	});
+	function stepStack(direction: 'undo' | 'redo') {
+		const held = !!stack.pending;
+		stack = direction === 'undo' ? undo(stack) : redo(stack);
+		stackSig = stackSigOf(stack);
+		const marks = direction === 'undo' ? undoMarks : redoMarks;
+		if (held || marks[marks.length - 1]?.kind !== 'stack') return;
+		if (direction === 'undo') {
+			undoMarks = undoMarks.slice(0, -1);
+			redoMarks = [...redoMarks, STACK_MARK];
+		} else {
+			redoMarks = redoMarks.slice(0, -1);
+			undoMarks = [...undoMarks, STACK_MARK];
+		}
+	}
 
 	function doUndo() {
-		if (stackEditInPaint('undo')) return;
-		if (paintUndo && paintSession) {
+		if (sessionUndo && paintSession) {
 			paintSession.undo();
 			return;
 		}
@@ -1609,14 +1808,14 @@
 				return;
 			}
 		}
+		if (stepPixels('undo')) return;
 		const unswitch = stack.cleared?.label === SWITCH_TO_LAYERS && stack.cleared.after === stack.steps;
-		stack = undo(stack);
+		stepStack('undo');
 		if (unswitch) sequential = true;
 	}
 
 	function doRedo() {
-		if (stackEditInPaint('redo')) return;
-		if (mode === 'paint' && paintState?.canRedo && paintSession) {
+		if (sessionRedo && paintSession) {
 			paintSession.redo();
 			return;
 		}
@@ -1629,7 +1828,8 @@
 				return;
 			}
 		}
-		stack = redo(stack);
+		if (stepPixels('redo')) return;
+		stepStack('redo');
 	}
 
 	function writeSlice(next: SliceParams) {
@@ -1727,7 +1927,7 @@
 	async function applyTool() {
 		if (busy || !source) return;
 		if (mode === 'paint') {
-			if (await landPaint()) paintKey += 1;
+			settleLayer();
 			return;
 		}
 		if (mode === 'mask') {
@@ -1780,11 +1980,6 @@
 			maskDirty = true;
 			return;
 		}
-		if (mode === 'paint') {
-			paintKey += 1;
-			if (pending?.tool === 'paint' && !pending.target) stack = discardPending(stack);
-			return;
-		}
 		if (activeTool === 'slice') {
 			sliceSelected = [];
 			sliceAdding = false;
@@ -1793,9 +1988,8 @@
 		if (pending) stack = discardPending(stack);
 	}
 
-	let paintKey = $state(0);
 	const ADD_LAYER_ITEMS: MenuItem[] = [
-		{ id: 'new', label: 'Empty paint layer', icon: 'editor-tool-brush' },
+		{ id: 'new', label: 'Empty layer', icon: 'editor-tool-brush' },
 		{ id: 'sep', label: '', separator: true },
 		{ id: 'library', label: 'Picture from Library', icon: 'image' },
 		{ id: 'history', label: 'Picture from History', icon: 'clock' },
@@ -1824,20 +2018,12 @@
 	}
 
 	function enterKey() {
-		if (mode === 'paint' && paintSession?.floatingLayer) {
-			paintSession.placeFloating();
+		if (mode === 'paint') {
+			settleLayer();
 			return;
 		}
 		return applyTool();
 	}
-
-	$effect(() => {
-		if (mode === 'paint') return;
-		untrack(() => {
-			paintSession = null;
-			paintState = null;
-		});
-	});
 
 	$effect(() => {
 		const toolId = paintState?.toolId;
@@ -1876,8 +2062,9 @@
 
 	async function prepareSave(): Promise<boolean> {
 		if (!(await leaveTool())) return false;
-		if (mode === 'paint') paintKey += 1;
-		return true;
+		if (await layerStore.flush()) return true;
+		notice = 'A layer could not be saved. Try again.';
+		return false;
 	}
 
 	function itemName(item: MediaToolItem | undefined): string {
@@ -2289,9 +2476,7 @@
 				? 'Apply slice'
 				: activeTool === 'mask'
 					? 'Save mask'
-					: paintActive
-						? 'Apply paint'
-						: looksOrCard
+					: looksOrCard
 							? effectParams?.kind === 'effect'
 								? effectUpdating
 									? 'Update effect'
@@ -2303,9 +2488,7 @@
 	);
 	let canApply = $derived(
 		!busy &&
-			(mode === 'paint'
-				? !!paintState?.ready
-				: mode === 'mask'
+			(mode === 'mask'
 					? maskDirty
 					: activeTool === 'slice'
 						? pendingHere?.tool === 'slice' && !sliceLocked
@@ -2353,12 +2536,11 @@
 				? appliedSet.has(activeTool!)
 				: looksOrCard
 					? canResetEffect(effectParams, $filterCatalog.items, stillEffects)
-					: !!pendingHere || mode === 'mask' || mode === 'paint')
+					: !!pendingHere || mode === 'mask')
 	);
 	let phoneBarred = $derived(phone && activeTool === 'effects');
 	let pendingTools = $derived([
-		...(pending ? [pending.tool === 'effects' && effectCard && activeTool ? activeTool : pending.tool === 'paint' ? paintEntryId('brush') : pending.tool] : []),
-		...(mode === 'paint' && paintState?.dirty && activeTool ? [activeTool] : []),
+		...(pending ? [pending.tool === 'effects' && effectCard && activeTool ? activeTool : pending.tool] : []),
 		...(maskDirty ? ['mask'] : [])
 	]);
 	let originalSummary = $derived(sourceSize ? `${sourceSize.width}×${sourceSize.height} · ${extension}` : extension);
@@ -2380,7 +2562,7 @@
 						: null
 		})
 	);
-	let footerActions = $derived(phone ? !phoneBarred && !taskTool : !taskTool && !!activeTool);
+	let footerActions = $derived(!paintActive && (phone ? !phoneBarred && !taskTool : !taskTool && !!activeTool));
 
 	const menuCommands: EditorMenuCommands = {
 		save: (action) => onSave(action),
@@ -2440,8 +2622,8 @@
 		undoLabel: undoText,
 		canRedo: canRedoNow,
 		redoLabel: redoText,
-		apply: activeTool && !taskTool && !liveEntry ? { label: applyLabel, enabled: canApply, reason: 'Nothing to apply yet' } : null,
-		reset: !activeTool
+		apply: activeTool && !taskTool && !liveEntry && !paintActive ? { label: applyLabel, enabled: canApply, reason: 'Nothing to apply yet' } : null,
+		reset: !activeTool || paintActive
 			? null
 			: taskTool
 				? { label: 'Clear area', icon: 'trash', enabled: !!$maskArea, reason: 'Mark an area first' }
@@ -2520,7 +2702,7 @@
 		{/if}
 	{:else if paintActive}
 		{#if paintSession && paintState}
-			<PaintOptions session={paintSession} state={paintState} {phone} layers={false} target={{ name: paintTargetStep ? paintLayerName : null, thumb: paintTargetStep ? layerThumb(paintTargetStep) : null }} />
+			<PaintOptions session={paintSession} state={paintState} {phone} layers={false} target={{ name: paintTargetStep ? paintNameOf(paintTargetStep) : null, thumb: paintTargetStep ? thumbOf(paintTargetStep) : null }} />
 		{:else}
 			<div class="flex justify-center py-4"><Spinner /></div>
 		{/if}
@@ -2629,27 +2811,17 @@
 	{#if sourceError}
 		<div class="flex flex-1 items-center justify-center bg-scrim p-6 text-sm text-danger" role="alert">{sourceError}</div>
 	{:else if mode === 'paint'}
-		{#if paintBase && paintBaseSig === paintListSig && (!paintAbove.length || aboveCanvas)}
-			{#key paintBase}
-			{#key `${paintKey}:${pending?.target ?? ''}`}
+		{#if paintSession}
+			{#key paintSession}
 				<PaintStage
-					bind:this={paintStage}
-					base={paintBase.canvas}
-					layerUrl={pendingHere?.tool === 'paint' && pendingHere.target ? (pendingHere.params as PaintParams).url : null}
-					layerName={paintLayerName}
-					layerOpacity={paintTargetStep ? opacityOf(paintTargetStep) : 1}
-					above={aboveCanvas}
-					picture={layerPicture}
+					session={paintSession}
 					tool={paintToolOfEntry(activeTool!)}
 					zoomControl={!phone}
-					locked={busy}
-					name={fileName ?? 'picture'}
+					locked={busy || !paintCurrent}
 					onstate={(session, snapshot) => {
-						paintSession = session;
-						paintState = snapshot;
+						if (session === paintSession) paintState = snapshot;
 					}}
 				/>
-			{/key}
 			{/key}
 		{:else}
 			<div class="flex flex-1 items-center justify-center bg-scrim"><Spinner /></div>
@@ -2791,7 +2963,7 @@
 		pinned={IMAGE_PINNED_LANES}
 		moreItems={stackMore}
 		rowInfo={rowInfoFor}
-		progress={stackGroup}
+		history={{ canUndo: canUndoNow, canRedo: canRedoNow, undoLabel: canUndoNow ? undoText : null, redoLabel: canRedoNow ? redoText : null }}
 		onrowaction={(id, action) => {
 			const step = stack.steps.find((candidate) => candidate.id === id);
 			if (!step) return;
@@ -2805,6 +2977,7 @@
 			runStepAction(step, action);
 		}}
 		onreopen={(id) => void reopenStep(id)}
+		onoriginal={paintActive ? () => openPaintOn(ORIGINAL_ROW) : undefined}
 		onseek={(cursor) => (stack = seek(stack, cursor))}
 		ontogglehidden={(id) => {
 			const step = stack.steps.find((candidate) => candidate.id === id);
@@ -2818,7 +2991,7 @@
 		onrename={renameLayer}
 		selectedId={selectedStepId}
 		isLayer={isLayerStep}
-		{layerThumb}
+		layerThumb={thumbOf}
 		movable={!sequential}
 		maskOf={patchMaskOf}
 		{showMask}

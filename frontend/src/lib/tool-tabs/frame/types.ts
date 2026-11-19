@@ -52,16 +52,9 @@ export type SaveAction =
 
 export type StackVariant = 'panel' | 'sheet';
 
-export interface LiveLayer {
-	label: string;
-	hidden: boolean;
-	opacity: number;
-	onhide: () => void;
-	onopacity: (value: number) => void;
-}
-
-export interface StackProgress {
-	target: string | null;
-	after?: string | null;
-	live?: LiveLayer | null;
+export interface StackHistory {
+	canUndo: boolean;
+	canRedo: boolean;
+	undoLabel: string | null;
+	redoLabel: string | null;
 }

@@ -24,12 +24,16 @@ The **Layers** list holds the original picture at the bottom and everything plac
 
 **Add a layer.** Press **+** in the Layers header. The menu says where the layer will go: *Add above* the layer you have selected, or *Add on top* otherwise. Choose:
 
-- **Empty paint layer** opens Paint on a fresh transparent layer.
-- **Picture from Library**, **Picture from History** or **Picture from a file** places the picture as a layer. Drag it to move, and use the handles to scale and rotate, then press **Apply**.
+- **Empty layer** adds a transparent layer right away, selects it and opens the brush on it.
+- **Picture from Library**, **Picture from History** or **Picture from a file** adds the picture as a layer right away. Drag it to move and use the handles to scale and rotate; it settles in place when you pick another tool or layer, or press **Enter**.
 
-A new layer always joins the Layers list, even after you added a look or a crop, so that look or crop applies to it too.
+The new row shows in the Layers list the moment you add it, even after you added a look or a crop, so that look or crop applies to it too. Nothing else ever adds a layer: switching tools, clicking elsewhere or leaving Paint leaves the list as it is.
 
-**Paint on a layer.** Click a layer row to select it. The brush then paints on that layer, and the Paint panel says which one (*Painting on Paint 2*). With no layer selected, Paint starts a new layer; it shows in the Layers list as soon as you open the brush and becomes a regular layer when you press **Apply**, switch tool or add another layer. The Layers list is the only layer list, so adding, reordering, renaming, fading and hiding all happen there, never inside the Paint panel. Layers always use the size of the original picture: while you paint, the canvas shows the layers without your edits, so the strokes stay in place when you change a crop later.
+**Paint on a layer.** Click a layer row to select it. The brush, eraser, fill and selection tools then work straight on that layer, and the Paint panel says which one (*Painting on Paint 2*). There is no Apply step: every stroke is part of the layer as soon as you lift the pen, and the layer saves itself in the background a moment after you stop. If the selected row is **Original** or a layer you cannot paint on, such as a region edit, your first stroke adds one new layer right above it and selects it. The Layers list is the only layer list, so adding, reordering, renaming, fading and hiding all happen there, never inside the Paint panel. Layers always use the size of the original picture: while you paint, the canvas shows the layers without your edits, so the strokes stay in place when you change a crop later.
+
+**Undo.** **Undo** steps back one stroke at a time on whichever layer it was made, and also undoes adding, removing, reordering, fading, renaming, duplicating and merging layers, all in the order you did them.
+
+**Cut and paste.** A cut or pasted piece floats above the selected layer until you press **Enter** or pick another tool, which places it into that layer. **Keep as layer** makes the piece a layer of its own instead.
 
 **Fade, hide, rename.** The selected layer shows an **Opacity** slider under its row. The eye hides a layer without deleting it. Use the row menu (the three dots) for **Rename**, **Duplicate**, **Merge down**, **Move up**, **Move down** and **Delete**. A region edit's row also shows its mask, with **Show mask** to outline it on the canvas.
 

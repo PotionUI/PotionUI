@@ -266,7 +266,7 @@ export function insertSteps<P>(input: EditStackState<P>, drafts: RevisionDraft<P
 	const state = settled(input);
 	if (!drafts.length || state.pending?.target) return input;
 	const found = afterId ? state.steps.findIndex((step) => step.id === afterId) : -1;
-	const at = found >= 0 && found < state.cursor ? found + 1 : state.cursor;
+	const at = afterId === '' ? 0 : found >= 0 && found < state.cursor ? found + 1 : state.cursor;
 	let seq = state.seq;
 	const added = drafts.map((draft): EditStep<P> => {
 		seq += 1;

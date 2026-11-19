@@ -344,7 +344,7 @@ test.describe('the Image editor tab on desktop', () => {
 test.describe('painting and masking in the Image editor tab', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test('a paint session lands as one step and the mask rides along with Send', async ({ page }) => {
+	test('a stroke makes one paint layer and the mask rides along with Send', async ({ page }) => {
 		const log = await mockEditor(page);
 		await loginAsOwner(page);
 		await clearEdits(page);
@@ -370,9 +370,8 @@ test.describe('painting and masking in the Image editor tab', () => {
 		await page.mouse.up();
 		await expect(page.locator('[data-frame-undo]')).toBeEnabled();
 		await screenshot(page, JOURNEY, 'paint-1440');
-		await page.locator('[data-options-apply]').click();
 		await expect.poll(() => stackRows(page)).toEqual(['original:Original640×480·PNG', 'current:Paint1Paintlayer100%']);
-		expect(log.artifacts).toBe(1);
+		await expect.poll(() => log.artifacts).toBe(1);
 
 		await selectRailTool(page, 'edit_region');
 		const mask = page.locator('[data-mask-layer]');

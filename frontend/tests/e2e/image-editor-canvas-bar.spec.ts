@@ -223,6 +223,7 @@ async function maskAlpha(page: Page, fx: number, fy: number): Promise<number> {
 const SHAPE: Array<[number, number]> = [[0.55, 0.3], [0.8, 0.3], [0.86, 0.55], [0.6, 0.68], [0.5, 0.5]];
 
 async function lasso(page: Page, path: Array<[number, number]> = SHAPE, finish = true) {
+	await expect(page.locator('[data-paint-stage][data-paint-ready]')).toBeVisible();
 	const box = (await page.locator(STAGE).boundingBox())!;
 	const at = ([fx, fy]: [number, number]) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
 	const [first, ...rest] = path;

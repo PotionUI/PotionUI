@@ -394,7 +394,7 @@
 			</div>
 
 			<div class="relative flex min-h-0 flex-1 flex-col">
-				<PaintStage {session} name={fileName} {prepare} onstate={onState} />
+				<PaintStage {session} {prepare} onstate={onState} />
 				<div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" data-paint-zoombar-host>
 					<div class="pointer-events-auto flex items-center gap-0.5 rounded-lg border border-line-strong bg-surface-2 p-0.5 shadow-floating" role="group" aria-label="Zoom">
 						<IconButton icon="minus" label="Zoom out" kbd="-" size="sm" onclick={() => session.zoomBy(1 / 1.25)} />

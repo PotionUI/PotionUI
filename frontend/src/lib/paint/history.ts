@@ -1,6 +1,7 @@
 export interface Command {
 	label: string;
 	bytes: number;
+	pixels?: boolean;
 	undo(): void;
 	redo(): void;
 }
@@ -39,6 +40,10 @@ export class History {
 
 	get position(): number {
 		return this.evicted + this.applied;
+	}
+
+	get pixelsOnly(): boolean {
+		return this.commands.slice(0, this.applied).every((command) => command.pixels);
 	}
 
 	get bytes(): number {
@@ -82,6 +87,12 @@ export class History {
 		this.applied += 1;
 		this.emit();
 		return command;
+	}
+
+	drain(): Command[] {
+		const applied = this.commands.slice(0, this.applied);
+		this.clear();
+		return applied;
 	}
 
 	clear(): void {

@@ -104,7 +104,7 @@ export function coreStepPayload(step: EditStep, input: PixelSize | null, baked?:
 			return [{ tool: 'resize', params: params.lock ? { width: out.width } : { width: out.width, height: out.height } }];
 		}
 		case 'paint':
-			return [{ tool: 'paint_layer', params: { layer: layerRef((step.params as PaintParams).layer) } }];
+			return (step.params as PaintParams).layer ? [{ tool: 'paint_layer', params: { layer: layerRef((step.params as PaintParams).layer) } }] : [];
 		case 'effects':
 			if (isToolEffect(step.params)) return [{ tool: step.params.tool, params: { ...step.params.values } }];
 			if (!baked) throw new PayloadError({ kind: 'bake', step: step.id });

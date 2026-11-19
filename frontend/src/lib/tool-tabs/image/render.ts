@@ -16,6 +16,7 @@ import { callKindAsync } from '$lib/editors/stepKinds';
 import { outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
 import { imageStepContext, resolveImageStep, stepOutOfDate, type ImageStepLike } from './stepKinds';
 import { imageEffects, stillShader } from './shaderEffect';
+import { localLayerCanvas } from './paintLayers';
 import { adjustRecipeSteps, type CropParams, type EffectParams, type PaintParams, type ResizeParams, type ToolEffectParams } from './steps';
 
 export const FULL_SIDE = 8192;
@@ -109,7 +110,8 @@ function cropCanvas(canvas: HTMLCanvasElement, params: CropParams, size: PixelSi
 }
 
 async function paintCanvas(canvas: HTMLCanvasElement, params: PaintParams, opacity: number): Promise<HTMLCanvasElement> {
-	const layer = await canvasFromUrl(params.url);
+	const layer = localLayerCanvas(params.url) ?? (params.url ? await canvasFromUrl(params.url) : null);
+	if (!layer) return canvas;
 	const out = makeCanvas(canvas.width, canvas.height);
 	const context = context2d(out);
 	context.drawImage(canvas, 0, 0);

@@ -27,6 +27,7 @@ interface Log {
 	artifacts: number;
 	uploads: number;
 	frames: Json[];
+	pngs: Map<string, Buffer>;
 }
 
 async function json(route: Route, data: unknown, status = 200) {
@@ -53,7 +54,7 @@ function generation(): Json {
 }
 
 async function mockEditor(page: Page): Promise<Log> {
-	const log: Log = { runs: [], artifacts: 0, uploads: 0, frames: [] };
+	const log: Log = { runs: [], artifacts: 0, uploads: 0, frames: [], pngs: new Map() };
 	const source = solidPng(640, 480);
 	const small = solidPng(64, 64);
 
@@ -63,9 +64,16 @@ async function mockEditor(page: Page): Promise<Log> {
 	await page.route(`**/api/media/generations/${GENERATION_ID}/observatory-dusk.png*`, (route) =>
 		route.fulfill({ status: 200, contentType: 'image/png', body: source })
 	);
-	await page.route('**/api/e2e-art/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: small }));
+	await page.route('**/api/e2e-art/**', (route) => {
+		const name = new URL(route.request().url()).pathname.split('/').pop()!.replace(/\.png$/, '');
+		return route.fulfill({ status: 200, contentType: 'image/png', body: log.pngs.get(name) ?? small });
+	});
 	await page.route(/\/api\/media-tools\/artifacts$/, async (route) => {
 		log.artifacts += 1;
+		const body = route.request().postDataBuffer();
+		const start = body ? body.indexOf(Buffer.from([0x89, 0x50, 0x4e, 0x47])) : -1;
+		const end = body && start >= 0 ? body.indexOf(Buffer.from('IEND'), start) : -1;
+		if (body && start >= 0 && end > start) log.pngs.set(`art-${log.artifacts}`, body.subarray(start, end + 8));
 		await json(route, {
 			id: `art-${log.artifacts}`,
 			media_type: 'image',
@@ -220,13 +228,13 @@ async function openDusk(page: Page, shoot = false) {
 	await expect(page.locator('[data-crop-overlay]')).toBeVisible();
 }
 
-
 const CANVAS = '[data-paint-stage] canvas[aria-label="Drawing canvas"]';
-const liveRow = (page: Page) => page.locator('[data-edit-stack] [data-stack-section="layers"] [data-stack-live]');
+const panel = (page: Page) => page.locator('[data-edit-stack="panel"]');
+const layerRows = (page: Page) => panel(page).locator('[data-stack-section="layers"] [data-stack-kind="layer"]');
+const layerOrder = (page: Page) => layerRows(page).evaluateAll((rows) => rows.map((node) => node.getAttribute('data-stack-row')).reverse());
 
 async function ready(page: Page) {
-	const stage = page.locator('[data-paint-stage][data-paint-ready]');
-	await expect(stage).toBeVisible();
+	await expect(page.locator('[data-paint-stage][data-paint-ready]')).toBeVisible();
 }
 
 async function addPaintLayer(page: Page) {
@@ -257,6 +265,24 @@ async function stroke(page: Page, dx = -80, dy = 0) {
 	await page.mouse.up();
 }
 
+function pixel(page: Page, dx: number, dy: number) {
+	return page.locator(CANVAS).evaluate(
+		(canvas: HTMLCanvasElement, [x, y]) => {
+			const rect = canvas.getBoundingClientRect();
+			const scale = canvas.width / rect.width;
+			const data = canvas.getContext('2d')!.getImageData(Math.round((rect.width / 2 + x) * scale), Math.round((rect.height / 2 + y) * scale), 1, 1).data;
+			return Array.from(data).join(',');
+		},
+		[dx, dy]
+	);
+}
+
+async function painted(page: Page, dx: number, dy: number) {
+	await ready(page);
+	const [red, green, blue] = (await pixel(page, dx + 80, dy + 24)).split(',').map(Number);
+	return red < 60 && green < 60 && blue < 60;
+}
+
 async function dragRect(page: Page, from: [number, number], to: [number, number]) {
 	const area = await box(page);
 	const cx = area.x + area.width / 2;
@@ -280,17 +306,19 @@ async function cutAndFloat(page: Page) {
 test.describe('Paint entries in the Image editor', () => {
 	test.use({ viewport: { width: 1440, height: 1200 } });
 
-	test('a brush stroke lands as one step and moving among paint entries keeps the session', async ({ page }) => {
+	test('the first stroke makes one layer at once and the paint entries keep painting on it', async ({ page }) => {
 		const log = await start(page);
 		await openDusk(page);
 		await openPaint(page, 'brush');
 		await expect(page.locator('[data-paint-tools]')).toHaveCount(0);
 		await expect(page.locator('[data-paint-tool-panel="brush"] [data-field-name]')).toHaveCount(2);
-		await expect(liveRow(page)).toHaveCount(1);
-		await expect(liveRow(page)).toContainText('Paint 1');
+		await expect(layerRows(page)).toHaveCount(0);
 		await expect(page.locator('[data-paint-target="new"]')).toContainText('Painting on a new layer');
-		await expect(page.locator('[data-paint-layers], [data-paint-group], [data-stack-group], [data-layer-row]')).toHaveCount(0);
+		await expect(page.locator('[data-paint-layers], [data-paint-group], [data-stack-group], [data-layer-row], [data-stack-live]')).toHaveCount(0);
 		await stroke(page);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:Paint1Paintlayer100%']);
+		await expect(page.locator('[data-paint-target="layer"]')).toContainText('Painting on Paint 1');
+		await expect(page.locator('[data-options-apply], [data-options-reset]')).toHaveCount(0);
 		await expect(page.locator('[data-frame-undo]')).toBeEnabled();
 		await screenshot(page, JOURNEY, '01-brush-1440');
 
@@ -302,24 +330,25 @@ test.describe('Paint entries in the Image editor', () => {
 		await selectRailTool(page, 'paint.pick');
 		await expect(page.locator('[data-paint-colour]')).toBeVisible();
 		await selectRailTool(page, 'paint.brush');
-		await expect(page.locator('[data-frame-undo]')).toBeEnabled();
-		await expect(liveRow(page)).toHaveCount(1);
-
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:Paint1Paintlayer100%']);
-		expect(log.artifacts).toBe(1);
+		await stroke(page, -80, 80);
+		await expect(layerRows(page)).toHaveCount(1);
+		await expect.poll(() => log.artifacts).toBeGreaterThanOrEqual(1);
 	});
 
-	test('leaving Paint for another entry applies the strokes as one step', async ({ page }) => {
+	test('leaving Paint for another entry changes nothing in the layers', async ({ page }) => {
 		await start(page);
 		await openDusk(page);
 		await openPaint(page, 'brush');
 		await stroke(page);
+		await expect(layerRows(page)).toHaveCount(1);
 		await selectRailTool(page, 'effects');
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('Paint')]);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('Paint1')]);
+		await openPaint(page, 'brush');
+		await expect(layerRows(page)).toHaveCount(1);
+		await expect(page.locator('[data-paint-target="layer"]')).toContainText('Painting on Paint 1');
 	});
 
-	test('cut, move three times, one floating row, Enter merges and keeps the layer count', async ({ page }) => {
+	test('cut, move three times, one floating row, Enter places it back on the same layer', async ({ page }) => {
 		await start(page);
 		await openDusk(page);
 		await cutAndFloat(page);
@@ -332,21 +361,21 @@ test.describe('Paint entries in the Image editor', () => {
 			await page.mouse.up();
 		}
 		await expect(page.locator('[data-floating-row]')).toHaveCount(1);
+		await expect(layerRows(page)).toHaveCount(1);
 		await screenshot(page, JOURNEY, '04-select-move-floating-piece-1440');
 		await page.keyboard.press('Enter');
 		await expect(page.locator('[data-floating-row]')).toHaveCount(0);
-		await expect(liveRow(page)).toHaveCount(1);
+		await expect(layerRows(page)).toHaveCount(1);
 	});
 
-	test('Keep as a new layer leaves the piece as a layer', async ({ page }) => {
+	test('Keep as a new layer makes the piece a layer row right away', async ({ page }) => {
 		await start(page);
 		await openDusk(page);
 		await cutAndFloat(page);
 		await openPaint(page, 'move');
 		await page.locator('[data-floating-keep]').click();
 		await expect(page.locator('[data-floating-row]')).toHaveCount(0);
-		await page.locator('[data-options-apply]').click();
-		await expect(page.locator('[data-edit-stack] [data-stack-section="layers"] [data-stack-kind="layer"]')).toHaveCount(2);
+		await expect(layerRows(page)).toHaveCount(2);
 	});
 
 	test('switching to another paint tool places the piece', async ({ page }) => {
@@ -355,6 +384,7 @@ test.describe('Paint entries in the Image editor', () => {
 		await cutAndFloat(page);
 		await selectRailTool(page, 'paint.brush');
 		await expect(page.locator('[data-floating-row]')).toHaveCount(0);
+		await expect(layerRows(page)).toHaveCount(1);
 	});
 
 	test('the Layers panel is the layer list while painting: a layer is added, selected and renamed there, and the colour picker', async ({ page }) => {
@@ -363,13 +393,13 @@ test.describe('Paint entries in the Image editor', () => {
 		await openPaint(page, 'brush');
 		await stroke(page);
 		await addPaintLayer(page);
-		await expect(page.locator('[data-stack-section="layers"] [data-stack-row="s1"]')).toBeVisible();
-		await expect(liveRow(page)).toContainText('Paint 2');
-		await expect(page.locator('[data-paint-target="new"]')).toBeVisible();
+		await expect(layerRows(page)).toHaveCount(2);
+		await expect(panel(page).locator('[data-stack-row="s2"]')).toHaveAttribute('aria-current', 'true');
+		await expect(page.locator('[data-paint-target="layer"]')).toContainText('Painting on Paint 2');
 		await stroke(page, -60, 60);
-		await page.locator('[data-stack-section="layers"] [data-stack-row="s1"] [data-stack-open]').click();
+		await expect(layerRows(page)).toHaveCount(2);
+		await panel(page).locator('[data-stack-row="s1"] [data-stack-open]').click();
 		await expect(page.locator('[data-paint-target="layer"]')).toContainText('Painting on Paint 1');
-		await expect(page.locator('[data-stack-section="layers"] [data-stack-row="s2"]')).toBeVisible();
 		await page.getByRole('button', { name: /^Layer options for/ }).click();
 		await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
 		await page.locator('input[aria-label="Layer name"]').fill('Sky');
@@ -421,19 +451,133 @@ test.describe('Paint entries in the Image editor', () => {
 		await page.keyboard.press('Escape');
 	});
 
-	test('reopening an applied paint step opens it as one layer over the original', async ({ page }) => {
+	test('clicking a paint layer from another tool opens Paint on that layer', async ({ page }) => {
 		await start(page);
 		await openDusk(page);
 		await openPaint(page, 'brush');
 		await stroke(page);
-		await page.locator('[data-options-apply]').click();
+		await selectRailTool(page, 'crop');
 		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:Paint1Paintlayer100%']);
-		await page.locator('[data-edit-stack="panel"] [data-stack-row]').nth(0).click();
+		await panel(page).locator('[data-stack-row="s1"] [data-stack-open]').click();
 		await expect(page.locator(CANVAS)).toBeVisible();
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', /paint\./);
-		await expect(page.locator('[data-stack-row="s1"]')).toBeVisible();
 		await expect(page.locator('[data-layer-drawer="s1"]')).toBeVisible();
 		await expect(page.locator('[data-paint-target="layer"]')).toContainText('Painting on Paint 1');
+	});
+});
+
+test.describe('Layers that exist from the moment they are added', () => {
+	test.use({ viewport: { width: 1440, height: 1100 } });
+
+	test('adding gives exactly one selected row, strokes land in it, and clicking away, switching tools or reloading creates nothing', async ({ page }) => {
+		test.setTimeout(90000);
+		const log = await start(page);
+		await openDusk(page);
+		await addPaintLayer(page);
+		await expect(layerRows(page)).toHaveCount(1);
+		await expect(panel(page).locator('[data-stack-row="s1"]')).toHaveAttribute('aria-current', 'true');
+		await stroke(page, -80, -80);
+		await addPaintLayer(page);
+		await expect(layerRows(page)).toHaveCount(2);
+		await expect(panel(page).locator('[data-stack-row="s2"]')).toHaveAttribute('aria-current', 'true');
+		await stroke(page, -80, 60);
+		await expect.poll(() => layerOrder(page)).toEqual(['s1', 's2']);
+		await page.waitForTimeout(400);
+		await screenshot(page, JOURNEY, '50-simple-layers-1440');
+
+		const body = (await page.locator('[data-options-panel="desktop"] [data-options-body]').boundingBox())!;
+		await page.mouse.click(body.x + 12, body.y + body.height - 12);
+		await selectRailTool(page, 'crop');
+		await selectRailTool(page, 'light');
+		await openPaint(page, 'eraser');
+		await openPaint(page, 'brush');
+		await expect.poll(() => layerOrder(page)).toEqual(['s1', 's2']);
+		await expect.poll(() => painted(page, -80, -80)).toBe(true);
+		await expect.poll(() => painted(page, -80, 60)).toBe(true);
+
+		await expect.poll(() => log.artifacts).toBe(2);
+		await page.waitForTimeout(600);
+		await page.reload();
+		await expect(page.locator('[data-image-editor]')).toBeVisible({ timeout: 30000 });
+		await expect(layerRows(page)).toHaveCount(2, { timeout: 20000 });
+		await expect.poll(() => layerOrder(page)).toEqual(['s1', 's2']);
+		await panel(page).locator('[data-stack-row="s1"] [data-stack-open]').click();
+		await expect.poll(() => painted(page, -80, -80), { timeout: 15000 }).toBe(true);
+		await expect.poll(() => painted(page, -80, 60), { timeout: 15000 }).toBe(true);
+		await expect(layerRows(page)).toHaveCount(2);
+	});
+
+	test('a stroke with Original selected makes one new layer right above it', async ({ page }) => {
+		await start(page);
+		await openDusk(page);
+		await openPaint(page, 'brush');
+		await stroke(page, -80, -80);
+		await addPaintLayer(page);
+		await stroke(page, -80, 60);
+		await panel(page).locator('[data-stack-row="original"] [data-stack-open]').click();
+		await expect(panel(page).locator('[data-stack-row="original"]')).toHaveAttribute('aria-current', 'true');
+		await expect(page.locator('[data-paint-target="new"]')).toBeVisible();
+		await expect(layerRows(page)).toHaveCount(2);
+		await stroke(page, -80, 0);
+		await expect.poll(() => layerOrder(page)).toEqual(['s3', 's1', 's2']);
+		await stroke(page, -80, 100);
+		await expect(layerRows(page)).toHaveCount(3);
+	});
+
+	test('undo goes back one stroke at a time, then removes the layer', async ({ page }) => {
+		await start(page);
+		await openDusk(page);
+		await addPaintLayer(page);
+		await stroke(page, -80, -80);
+		await stroke(page, -80, 60);
+		const undo = page.locator('[data-frame-undo]');
+		await expect(undo).toHaveAttribute('aria-label', 'Undo Brush stroke');
+		await undo.click();
+		await expect.poll(() => painted(page, -80, 60)).toBe(false);
+		await expect.poll(() => painted(page, -80, -80)).toBe(true);
+		await undo.click();
+		await expect.poll(() => painted(page, -80, -80)).toBe(false);
+		await expect(layerRows(page)).toHaveCount(1);
+		await page.locator('[data-frame-redo]').click();
+		await expect.poll(() => painted(page, -80, -80)).toBe(true);
+		await expect.poll(() => painted(page, -80, 60)).toBe(false);
+		await undo.click();
+		await expect.poll(() => painted(page, -80, -80)).toBe(false);
+		await undo.click();
+		await expect(layerRows(page)).toHaveCount(0);
+	});
+
+	test('saving sends each layer as the file holding its strokes', async ({ page }) => {
+		const log = await start(page);
+		await openDusk(page);
+		await addPaintLayer(page);
+		await stroke(page, -80, -80);
+		await addPaintLayer(page);
+		await stroke(page, -80, 60);
+		await page.locator('[data-frame-save]').click();
+		await expect.poll(() => log.runs.length).toBe(1);
+		const steps = log.runs[0].steps as Array<{ tool: string; params: { layer?: { item_id: string } } }>;
+		expect(steps.map((step) => step.tool)).toEqual(['paint_layer', 'paint_layer']);
+		const ids = steps.map((step) => step.params.layer!.item_id);
+		expect(new Set(ids).size).toBe(2);
+		for (const id of ids) {
+			const opaque = await page.evaluate(async (url) => {
+				const image = new Image();
+				image.src = url;
+				await image.decode();
+				const canvas = document.createElement('canvas');
+				canvas.width = image.naturalWidth;
+				canvas.height = image.naturalHeight;
+				const context = canvas.getContext('2d')!;
+				context.drawImage(image, 0, 0);
+				const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+				let count = 0;
+				for (let i = 3; i < data.length; i += 4) if (data[i] > 0) count += 1;
+				return { count, total: data.length / 4 };
+			}, `/api/e2e-art/${id}.png`);
+			expect(opaque.count).toBeGreaterThan(0);
+			expect(opaque.count).toBeLessThan(opaque.total / 4);
+		}
 	});
 });
 
@@ -481,6 +625,7 @@ test.describe('the rail with Paint groups', () => {
 	});
 });
 
+
 test.describe('Paint on a phone', () => {
 	test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
@@ -505,7 +650,9 @@ test.describe('Paint on a phone', () => {
 		await expect(phone.locator('[data-paint-layers-button]')).toHaveCount(0);
 		await expect(phone.locator('[data-paint-options="phone"] [data-paint-layers]')).toHaveCount(0);
 		await phone.locator('[data-frame-edits]').click();
-		await expect(page.getByRole('dialog', { name: 'Edits' }).locator('[data-stack-live]')).toHaveCount(1);
+		const sheet = page.getByRole('dialog', { name: 'Edits' });
+		await expect(sheet.locator('[data-layers-add]')).toBeVisible();
+		await expect(sheet.locator('[data-stack-live]')).toHaveCount(0);
 		await screenshot(page, JOURNEY, '11-phone-layers-390');
 	});
 });
@@ -521,7 +668,6 @@ test.describe('Edits as layers', () => {
 		await openDusk(page);
 		await openPaint(page, 'brush');
 		await stroke(page);
-		await page.locator('[data-options-apply]').click();
 		await expect(row(page, 's1')).toHaveAttribute('data-stack-kind', 'layer');
 	}
 
@@ -604,7 +750,7 @@ test.describe('Edits as layers', () => {
 		await expect(row(page, 's1')).not.toHaveAttribute('data-hidden', 'true');
 	});
 
-	test('a layer painted after a look lands under it, so the look applies to the whole layered picture', async ({ page }) => {
+	test('a layer added after a look lands under it, so the look applies to the whole layered picture', async ({ page }) => {
 		test.setTimeout(60000);
 		await paintedLayer(page);
 		await row(page, 's1').locator('[data-stack-open]').click();
@@ -614,16 +760,16 @@ test.describe('Edits as layers', () => {
 		await addLook(page);
 		await addPaintLayer(page);
 		await stroke(page, 60, 60);
-		await page.locator('[data-options-apply]').click();
 		const order = () => page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) => rows.map((node) => [node.getAttribute('data-stack-row'), Number(node.getAttribute('data-stack-index'))] as const).sort((a, b) => a[1] - b[1]).map(([key]) => key));
 		await expect.poll(order).toEqual(['original', 's1', 's3', 's2']);
 		await expect(page.locator('[data-edit-stack="panel"] [data-stack-section="edits"] [data-stack-row]')).toHaveCount(1);
 		await selectRailTool(page, 'crop');
 		await page.locator('[data-frame-undo]').click();
+		await expect.poll(order).toEqual(['original', 's1', 's3', 's2']);
+		await page.locator('[data-frame-undo]').click();
 		await expect.poll(order).toEqual(['original', 's1', 's2']);
 		await addPaintLayer(page);
 		await stroke(page, -60, 60);
-		await page.locator('[data-options-apply]').click();
 		await expect.poll(order).toEqual(['original', 's1', 's4', 's2']);
 		await selectRailTool(page, 'crop');
 		await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
@@ -641,7 +787,6 @@ test.describe('Paint layers are kept one by one', () => {
 	test.use({ viewport: { width: 1440, height: 1100 } });
 
 	const row = (page: Page, id: string) => page.locator(`[data-edit-stack="panel"] [data-stack-row="${id}"]`);
-	const addLayer = addPaintLayer;
 	const fade = async (page: Page, id: string, value: string) => {
 		await row(page, id).locator('[data-stack-open]').click();
 		const slider = page.locator(`[data-layer-drawer="${id}"] input[type="range"]`);
@@ -653,13 +798,12 @@ test.describe('Paint layers are kept one by one', () => {
 		await openDusk(page);
 		await openPaint(page, 'brush');
 		await stroke(page, -80, -70);
-		await addLayer(page);
+		await addPaintLayer(page);
 		await stroke(page, -80, 0);
-		await addLayer(page);
+		await addPaintLayer(page);
 		await stroke(page, -80, 70);
-		await page.locator('[data-options-apply]').click();
-		await expect(page.locator('[data-edit-stack="panel"] [data-stack-kind="layer"]')).toHaveCount(3);
-		expect(log.artifacts).toBe(3);
+		await expect(layerRows(page)).toHaveCount(3);
+		await expect.poll(() => log.artifacts).toBe(3);
 	}
 
 	test('three layers keep their name, order, fade and eye after leaving Paint and after a reload', async ({ page }) => {
@@ -673,16 +817,15 @@ test.describe('Paint layers are kept one by one', () => {
 
 		await page.reload();
 		await expect(page.locator('[data-image-editor]')).toBeVisible({ timeout: 30000 });
-		await expect(page.locator('[data-edit-stack="panel"] [data-stack-kind="layer"]')).toHaveCount(3, { timeout: 20000 });
+		await expect(layerRows(page)).toHaveCount(3, { timeout: 20000 });
 		await expect(row(page, 's2').locator('[data-stack-opacity]')).toHaveText('40%');
 		await expect(row(page, 's3')).toHaveAttribute('data-hidden', 'true');
 		await expect(row(page, 's1').locator('[data-stack-opacity]')).toHaveText('100%');
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('Paint1'), expect.stringContaining('Paint2'), expect.stringContaining('Paint3')].map((item) => item));
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('Paint1'), expect.stringContaining('Paint2'), expect.stringContaining('Paint3')]);
 
 		await row(page, 's2').locator('[data-stack-open]').click();
 		await expect(page.locator(CANVAS)).toBeVisible();
 		await expect(page.locator('[data-paint-target="layer"]')).toContainText('Painting on Paint 2');
-		await expect(row(page, 's2')).toBeVisible();
 		await expect(page.locator('[data-layer-drawer="s2"]')).toBeVisible();
 	});
 
@@ -692,7 +835,7 @@ test.describe('Paint layers are kept one by one', () => {
 		await row(page, 's2').locator('[data-stack-open]').click();
 		await expect(page.locator(CANVAS)).toBeVisible();
 		await expect(page.locator('[data-paint-target="layer"]')).toContainText('Painting on Paint 2');
-		await expect(page.locator('[data-edit-stack="panel"] [data-stack-section="layers"] [data-stack-kind="layer"]')).toHaveCount(3);
+		await expect(layerRows(page)).toHaveCount(3);
 		await expect(page.locator('[data-paint-layers], [data-paint-group], [data-stack-group], [data-layer-row]')).toHaveCount(0);
 		await expect(row(page, 's2')).toHaveAttribute('aria-current', 'true');
 		await page.waitForTimeout(400);
@@ -700,26 +843,26 @@ test.describe('Paint layers are kept one by one', () => {
 	});
 
 	test('one undo undoes the fade and the next undoes the stroke', async ({ page }) => {
-		const log = await start(page);
+		await start(page);
 		await openDusk(page);
 		await openPaint(page, 'brush');
 		await stroke(page);
-		await page.locator('[data-options-apply]').click();
 		await row(page, 's1').locator('[data-stack-open]').click();
-		await expect(page.locator(CANVAS)).toBeVisible();
 		await stroke(page, -60, 60);
 		await fade(page, 's1', '50');
 		const readout = row(page, 's1').locator('[data-stack-opacity]');
 		await expect(readout).toHaveText('50%');
 		await page.locator('[data-frame-undo]').click();
 		await expect(readout).toHaveText('100%');
+		await expect.poll(() => painted(page, -60, 60)).toBe(true);
 		await page.locator('[data-frame-undo]').click();
+		await expect.poll(() => painted(page, -60, 60)).toBe(false);
 		await expect(readout).toHaveText('100%');
 		await page.locator('[data-frame-redo]').click();
+		await expect.poll(() => painted(page, -60, 60)).toBe(true);
 		await expect(readout).toHaveText('100%');
 		await page.locator('[data-frame-redo]').click();
 		await expect(readout).toHaveText('50%');
-		expect(log.artifacts).toBe(1);
 	});
 
 	test('a layer duplicates and merges down from its menu', async ({ page }) => {
@@ -728,22 +871,20 @@ test.describe('Paint layers are kept one by one', () => {
 		await row(page, 's3').locator('[data-stack-open]').click();
 		await page.getByRole('button', { name: /^Layer options for/ }).click();
 		await page.getByRole('menuitem', { name: 'Duplicate', exact: true }).click();
-		await expect(page.locator('[data-edit-stack="panel"] [data-stack-kind="layer"]')).toHaveCount(4);
+		await expect(layerRows(page)).toHaveCount(4);
 		await expect(row(page, 's4')).toContainText('Paint 3 copy');
 		await row(page, 's4').locator('[data-stack-open]').click();
 		await page.getByRole('button', { name: /^Layer options for/ }).click();
 		await page.getByRole('menuitem', { name: 'Merge down', exact: true }).click();
-		await expect(page.locator('[data-edit-stack="panel"] [data-stack-kind="layer"]')).toHaveCount(3);
-		expect(log.artifacts).toBe(4);
+		await expect(layerRows(page)).toHaveCount(3);
+		await expect.poll(() => log.artifacts).toBe(4);
 	});
 });
 
 test.describe('Adding layers from the Edits list', () => {
 	test.use({ viewport: { width: 1440, height: 1100 } });
 
-	const panel = (page: Page) => page.locator('[data-edit-stack="panel"]');
 	const row = (page: Page, id: string) => panel(page).locator(`[data-stack-row="${id}"]`);
-	const order = (page: Page) => panel(page).locator('[data-stack-kind="layer"]').evaluateAll((rows) => rows.map((node) => node.getAttribute('data-stack-row')).reverse());
 	const add = async (page: Page, item: string) => {
 		await panel(page).locator('[data-layers-add]').click();
 		await page.locator(`[data-layers-add-item="${item}"]`).click();
@@ -752,46 +893,35 @@ test.describe('Adding layers from the Edits list', () => {
 
 	test('an empty layer goes above the selected one, a picture joins it, and the saved file keeps the order', async ({ page }) => {
 		const log = await start(page);
-		await page.route('**/api/e2e-art/art-2.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: colourPng(64, 64, [17, 17, 17]) }));
 		await openDusk(page);
 		await openPaint(page, 'brush');
 		await stroke(page, -80, -70);
 		await add(page, 'new');
 		await stroke(page, -80, 40);
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => order(page)).toEqual(['s1', 's2']);
+		await expect.poll(() => layerOrder(page)).toEqual(['s1', 's2']);
 
 		await row(page, 's1').locator('[data-stack-open]').click();
 		await expect(page.locator(CANVAS)).toBeVisible();
-		await expect
-			.poll(() =>
-				page.locator(CANVAS).evaluate((canvas: HTMLCanvasElement) => {
-					const context = canvas.getContext('2d')!;
-					const [red, green, blue, alpha] = context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
-					return red < 45 && green < 45 && blue < 45 && alpha > 200;
-				})
-			)
-			.toBe(true);
+		await expect.poll(() => painted(page, -80, 40)).toBe(true);
 		await panel(page).locator('[data-layers-add]').click();
 		await expect(page.locator('[data-layers-add-heading]')).toHaveText('Add above Paint 1');
 		await screenshot(page, JOURNEY, '22-fe391-add-menu-1440');
 		await page.locator('[data-layers-add-item="new"]').click();
 		await ready(page);
+		await expect.poll(() => layerOrder(page)).toEqual(['s1', 's3', 's2']);
 		await stroke(page, 60, -60);
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => order(page)).toEqual(['s1', 's3', 's2']);
+		await expect.poll(() => layerOrder(page)).toEqual(['s1', 's3', 's2']);
 
 		const chooser = page.waitForEvent('filechooser');
 		await add(page, 'file');
 		await (await chooser).setFiles({ name: 'badge.png', mimeType: 'image/png', buffer: colourPng(160, 120, [240, 190, 40]) });
 		await expect(page.locator(CANVAS)).toBeVisible();
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => order(page)).toEqual(['s1', 's3', 's4', 's2']);
+		await expect.poll(() => layerOrder(page)).toEqual(['s1', 's3', 's4', 's2']);
 		await expect(row(page, 's4')).toContainText('badge');
 
 		await row(page, 's2').locator('[data-stack-open]').focus();
 		await page.keyboard.press('Alt+ArrowDown');
-		await expect.poll(() => order(page)).toEqual(['s1', 's3', 's2', 's4']);
+		await expect.poll(() => layerOrder(page)).toEqual(['s1', 's3', 's2', 's4']);
 
 		await row(page, 's3').locator('[data-stack-hide]').click();
 		await expect(row(page, 's3')).toHaveAttribute('data-hidden', 'true');
@@ -811,10 +941,9 @@ test.describe('Adding layers from the Edits list', () => {
 		await add(page, 'file');
 		await (await chooser).setFiles({ name: 'badge.png', mimeType: 'image/png', buffer: colourPng(160, 120, [240, 190, 40]) });
 		await expect(page.locator(CANVAS)).toBeVisible();
+		await expect.poll(() => layerOrder(page)).toEqual(['s1']);
 		await page.waitForTimeout(400);
 		await screenshot(page, JOURNEY, '23-fe391-picture-layer-1440');
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => order(page)).toEqual(['s1']);
 		await row(page, 's1').locator('[data-stack-open]').click();
 		await page.getByRole('button', { name: /^Layer options for/ }).click();
 		await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
@@ -825,7 +954,7 @@ test.describe('Adding layers from the Edits list', () => {
 		await expect(row(page, 's1')).toContainText('Badge');
 		await page.getByRole('button', { name: /^Layer options for/ }).click();
 		await page.getByRole('menuitem', { name: 'Duplicate', exact: true }).click();
-		await expect.poll(() => order(page)).toEqual(['s1', 's2']);
+		await expect.poll(() => layerOrder(page)).toEqual(['s1', 's2']);
 		await expect(row(page, 's2')).toContainText('Badge copy');
 	});
 });

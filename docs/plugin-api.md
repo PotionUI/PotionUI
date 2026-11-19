@@ -1923,7 +1923,8 @@ a file path in a response.
   The announced size is checked before the body is read and the bytes are checked again after. The same rules apply
   to `POST /api/media/upload` with `purpose=derived_artifact`. The Image editor stores every paint layer as its own
   helper upload and its own `paint` step (`{layer, url, layers: 1, name}`, with the step's `layer.opacity` and `hidden`
-  carrying the fade and the eye), so a saved edit keeps each layer; a `paint` step without `name` is an older one-PNG
+  carrying the fade and the eye), so a saved edit keeps each layer; a layer that was added but not painted yet has
+  an empty `layer` and `url` and sends no step; a `paint` step without `name` is an older one-PNG
   paint and opens as a single layer. Nothing sweeps these helper uploads, so a saved edit keeps every layer file it names.
 
 ### From chat, MCP and automation

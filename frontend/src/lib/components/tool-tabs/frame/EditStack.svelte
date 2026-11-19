@@ -24,7 +24,7 @@
 		type StackRow
 	} from '$lib/tool-tabs/frame/editStack';
 	import { readStackFolds, writeStackFolds, type StackFoldName } from '$lib/tool-tabs/frame/stackFolds';
-	import type { LiveLayer, StackProgress, StackVariant } from '$lib/tool-tabs/frame/types';
+	import type { StackHistory, StackVariant } from '$lib/tool-tabs/frame/types';
 	import type { PatchMask } from '$lib/tool-tabs/image/layers';
 
 	let {
@@ -51,10 +51,11 @@
 		pinned = DEFAULT_PINNED_LANES,
 		moreItems = [],
 		notes,
-		progress = null,
+		history = null,
 		rowInfo,
 		onrowaction,
 		onreopen,
+		onoriginal,
 		onseek,
 		ontogglehidden,
 		onremove,
@@ -86,10 +87,11 @@
 		pinned?: readonly LanePair[];
 		moreItems?: MenuItem[];
 		notes?: Snippet;
-		progress?: StackProgress | null;
+		history?: StackHistory | null;
 		rowInfo?: (step: EditStep<unknown>) => StepRowInfo | null;
 		onrowaction?: (id: string, action: string) => void;
 		onreopen: (id: string) => void;
+		onoriginal?: () => void;
 		onseek: (cursor: number) => void;
 		ontogglehidden: (id: string) => void;
 		onremove: (id: string) => void;
@@ -112,14 +114,7 @@
 	let applied = $derived(appliedCount(stack));
 	let undone = $derived(undoneCount(stack));
 	let sheet = $derived(variant === 'sheet');
-	let liveLayer = $derived<LiveLayer | null>(layered && progress && !progress.target ? (progress.live ?? null) : null);
-	let liveAnchor = $derived.by(() => {
-		if (!liveLayer) return null;
-		if (progress?.after && layerRows.some((row) => row.key === progress.after)) return progress.after;
-		let last = 'original';
-		for (const row of layerRows.slice().reverse()) if (row.status !== 'undone' && row.status !== 'pending') last = row.key;
-		return last;
-	});
+	let undoState = $derived<StackHistory>(history ?? { canUndo: canUndo(stack), canRedo: canRedo(stack), undoLabel: undoLabel(stack), redoLabel: redoLabel(stack) });
 	let opened = $state(false);
 	let shut = $derived(!sheet && (collapsed || (folded && !opened)));
 	let folds = $state(readStackFolds());
@@ -216,6 +211,7 @@
 	}
 
 	function rowLabel(row: StackRow<unknown>): string {
+		if (row.key === 'original') return `Select ${original.label ?? 'Original'}`;
 		if (row.status === 'undone') return `Redo to ${row.step?.label}`;
 		if (row.status === 'pending') return `${row.pending?.label}, not applied`;
 		if (row.status === 'editing') return `${row.step?.label}, being edited`;
@@ -224,6 +220,7 @@
 	}
 
 	function isSelected(row: StackRow<unknown>): boolean {
+		if (row.key === 'original') return layered && selectedId === 'original';
 		return row.reopened || (!!row.step && row.key === selectedId && row.status !== 'undone');
 	}
 
@@ -283,6 +280,7 @@
 	}
 
 	function activate(row: StackRow<unknown>) {
+		if (row.key === 'original') onoriginal?.();
 		if (!row.step) return;
 		if (row.status === 'undone') onseek(row.index);
 		else if (row.status === 'applied' || row.status === 'current' || row.status === 'selected' || row.status === 'editing') onreopen(row.step.id);
@@ -341,7 +339,7 @@
 		<div
 			role="listitem"
 			class="group relative flex {rowHeight(row)} items-center gap-2 rounded pl-1 pr-1.5
-				{row.status === 'current' || row.reopened ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
+				{(row.status === 'current' && !selectedId) || isSelected(row) ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
 				{row.status === 'pending' ? 'border border-dashed border-line-hover' : ''}
 				{row.status === 'undone' ? 'opacity-[0.45]' : ''}
 				{dragging ? `z-10 bg-surface-2 shadow-floating ${dropAllowed ? '' : 'cursor-not-allowed'}` : ''}"
@@ -349,7 +347,7 @@
 			data-stack-row={row.key}
 			data-stack-index={row.index}
 			data-status={row.status}
-			aria-current={row.reopened ? 'true' : undefined}
+			aria-current={isSelected(row) ? 'true' : undefined}
 			data-hidden={row.hidden || undefined}
 			data-stack-kind={layered && row.step ? (layerRow ? 'layer' : 'slim') : undefined}
 			data-drop-blocked={dragging && !dropAllowed ? '' : undefined}
@@ -451,7 +449,7 @@
 					{/if}
 				</span>
 			{/snippet}
-			{#if row.key === 'original' || row.status === 'pending' || (info?.locked && row.status !== 'undone') || (renaming && renaming.id === row.step?.id)}
+			{#if (row.key === 'original' && !(layered && onoriginal)) || row.status === 'pending' || (info?.locked && row.status !== 'undone') || (renaming && renaming.id === row.step?.id)}
 				<span class="flex min-w-0 flex-1 items-center gap-2" data-stack-locked={info?.locked ? '' : undefined}>{@render body()}</span>
 			{:else}
 				<button
@@ -564,49 +562,6 @@
 		{/if}
 {/snippet}
 
-{#snippet liveRowView(live: LiveLayer)}
-	<div
-		role="listitem"
-		class="group relative flex {sheet ? 'h-12' : 'h-11'} items-center gap-2 rounded bg-signal/[0.08] pl-1 pr-1.5 before:absolute before:-left-2 before:inset-y-2 before:w-0.5 before:bg-signal"
-		data-stack-live
-		data-status="live"
-		aria-current="true"
-		data-hidden={live.hidden || undefined}
-	>
-		<span class="w-3 flex-none" aria-hidden="true"></span>
-		<span class="grid h-7 w-7 flex-none place-items-center rounded bg-surface-2 text-fg-muted {live.hidden ? 'opacity-[0.45]' : ''}">
-			<Icon name="editor-paint" className="h-3.5 w-3.5" />
-		</span>
-		<span class="flex min-w-0 flex-1 flex-col {live.hidden ? 'opacity-[0.45]' : ''}">
-			<span class="flex min-w-0 items-center gap-1.5 text-base font-medium leading-[18px] text-fg">
-				<i class="h-1.5 w-1.5 flex-none rounded-full bg-signal" data-stack-marker="live"></i>
-				<span class="truncate" data-stack-live-name>{live.label}</span>
-			</span>
-			<span class="truncate font-mono text-sm text-fg-subtle"><span class="font-sans text-signal">Painting</span><span class="px-1">·</span>New layer</span>
-		</span>
-		{#if !sheet}
-			<span class="flex-none font-mono text-sm tabular-nums text-fg {live.hidden ? 'opacity-[0.45]' : ''}" data-stack-opacity="live">{Math.round(live.opacity * 100)}%</span>
-		{/if}
-		<IconButton
-			icon={live.hidden ? 'editor-eye-off' : 'editor-eye'}
-			label="{live.hidden ? 'Show' : 'Hide'} {live.label}"
-			size="xs"
-			class={sheet ? 'min-h-11 min-w-11' : ''}
-			ariaPressed={live.hidden}
-			onclick={() => live.onhide()}
-			data-stack-hide="live"
-		/>
-	</div>
-	<div class="mb-1 ml-1 flex flex-col gap-1.5 border-l-2 border-signal bg-signal/[0.04] py-1 pl-3 pr-1.5" role="group" aria-label="Layer opacity" data-layer-drawer="live">
-		<SliderField
-			name="layer-opacity"
-			config={{ title: 'Opacity', min: 0, max: 100, default: 100, unit: '%', layout: 'inline', reset: true, legend: false }}
-			value={Math.round(live.opacity * 100)}
-			onChange={(_name, value) => live.onopacity(Number(value) / 100)}
-		/>
-	</div>
-{/snippet}
-
 {#snippet sectionHeader(name: StackFoldName)}
 	{@const count = name === 'layers' ? layerCount : editCount}
 	{@const closed = shut || folds[name]}
@@ -632,8 +587,8 @@
 					{@render headerActions()}
 				{/if}
 				{#if sheet}
-					<IconButton icon="editor-undo" label={undoLabel(stack) ? `Undo ${undoLabel(stack)}` : 'Undo'} size="sm" disabled={!canUndo(stack)} onclick={() => onundo?.()} />
-					<IconButton icon="editor-redo" label={redoLabel(stack) ? `Redo ${redoLabel(stack)}` : 'Redo'} size="sm" disabled={!canRedo(stack)} onclick={() => onredo?.()} />
+					<IconButton icon="editor-undo" label={undoState.undoLabel ? `Undo ${undoState.undoLabel}` : 'Undo'} size="sm" disabled={!undoState.canUndo} onclick={() => onundo?.()} />
+					<IconButton icon="editor-redo" label={undoState.redoLabel ? `Redo ${undoState.redoLabel}` : 'Redo'} size="sm" disabled={!undoState.canRedo} onclick={() => onredo?.()} />
 				{:else if moreItems.length && !closed}
 					<Menu label="Edit stack options" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
 				{/if}
@@ -649,9 +604,6 @@
 		{#if !folds.layers}
 			<div class={sheet ? '' : 'px-2'} role="list" aria-label="Layers" data-stack-section="layers">
 				{#each layerRows as row (row.key)}
-					{#if liveLayer && liveAnchor === row.key}
-						{@render liveRowView(liveLayer)}
-					{/if}
 					{@render stackRow(row)}
 				{/each}
 			</div>

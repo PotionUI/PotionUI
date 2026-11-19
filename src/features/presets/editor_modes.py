@@ -137,6 +137,7 @@ class EditorModeFile(BaseModel):
     size: EditorSize = Field(default_factory=EditorSize)
     context: float = Field(default=0.5, ge=0.0, le=4.0)
     max_range_s: Optional[float] = Field(default=None, gt=0)
+    instruction: Optional[str] = Field(default=None, min_length=1)
     fixed: Dict[str, Any] = Field(default_factory=dict)
     fields: EditorFields = Field(default_factory=EditorFields)
     pipeline: List[ExtensionPipeOp] = Field(default_factory=list)
@@ -454,6 +455,7 @@ def _spec(candidate: EditorModeCandidate, file: EditorModeFile, mode: ModeTempla
         fixed=copy.deepcopy(file.fixed),
         hide=list(file.fields.hide),
         max_range_s=file.max_range_s,
+        instruction=file.instruction,
     )
 
 

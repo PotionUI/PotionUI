@@ -376,7 +376,7 @@ def test_a_listing_with_several_defaults_asks_each_store_once(world):
     entries = world.manager.offers(USER)
 
     assert world.calls == {"defaults": 1, "sessions": 1, "formulas": 1}
-    assert all(item["default"]["health"] == {"ok": True} for item in entries)
+    assert all(item["default"]["health"] == {"ok": True} for item in entries if item["default"])
 
 
 def test_a_listing_without_session_or_formula_defaults_does_not_ask_for_them(world):

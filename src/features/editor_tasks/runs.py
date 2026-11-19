@@ -50,6 +50,7 @@ NOT_FINISHED = "The run could not be finished"
 TERMINAL_GENERATION = frozenset({"completed", "failed", "cancelled"})
 PNG_LEVEL = 1
 ORIGIN_KIND = "editor"
+PROMPT_SLOT = "{prompt}"
 
 Submit = Callable[[GenerationRequest, Any], Awaitable[Dict[str, Any]]]
 CancelGeneration = Callable[[str, Any], Awaitable[Any]]
@@ -277,11 +278,19 @@ class EditorRunManager:
             return None
 
     def _prompt(self, offer: ResolvedOffer, prompt: Optional[str]) -> str:
-        if offer.via is not None and offer.task.fallback is not None:
-            return offer.task.fallback[1]
         text = (prompt or "").strip()
-        if offer.task.prompt == "required" and not text:
+        task = offer.task
+        if offer.via is not None and task.fallback is not None:
+            wording = task.fallback[1]
+            if PROMPT_SLOT in wording:
+                if not text:
+                    raise DomainError("prompt_required", "Describe the change first", 422)
+                return wording.replace(PROMPT_SLOT, text)
+            return wording
+        if task.prompt == "required" and not text:
             raise DomainError("prompt_required", "Describe the change first", 422)
+        if task.prompt == "none" and offer.spec.instruction:
+            return offer.spec.instruction
         return text
 
     @staticmethod
@@ -348,12 +357,17 @@ class EditorRunManager:
         with self.media_tools.render_picture(user, body.input, body.steps) as path:
             picture = regions.cap_picture(prepare_image(path).convert("RGB"))
         region = None
+        task = offer.task
+        land = regions.land_matte if task.matte else regions.land_mask
         if region_ref is not None:
             with self.media_tools.open_input(user, region_ref) as path:
                 with Image.open(path) as opened:
-                    region = regions.land_mask(opened, picture.size)
-        if offer.task.region == "required" and region is None:
+                    region = land(opened, picture.size)
+        if task.region == "required" and region is None:
             raise DomainError("region_empty", "Mark the area first", 422)
+        if task.grow > 0:
+            shadow = task.id == "remove_object" and body.options.get("include_shadow") is True
+            region = regions.grow_region(region, task.grow, shadow)
         spec = offer.spec
         array = np.asarray(picture)
         geometry = regions.plan(
@@ -364,6 +378,8 @@ class EditorRunManager:
             spec.size["area"],
             spec.size["multiple"],
             spec.size.get("buckets"),
+            feather=task.feather,
+            matte=task.matte,
         )
         cut = regions.prepare(array, region, geometry, spec.region == "crop" and bool(spec.inputs.get("mask")))
         return PreparedRun(
@@ -658,6 +674,9 @@ class EditorRunManager:
             return []
         geometry = Geometry.from_dict(run.crop)
         held = run.crop.get("files") or {}
+        task = self.tasks.registry.get(run.task)
+        if task is not None and task.produces == "matte":
+            return self._render_cutouts(run, files, geometry)
         base = self._load(run.user_id, held["base"], "RGB")
         region = self._load(run.user_id, held.get("region"), "L")
         seeds = self._seeds(run.generation_id)
@@ -668,6 +687,17 @@ class EditorRunManager:
                     result = opened.convert("RGB")
             patch = regions.stitch(base, region, result, geometry)
             rendered.append((png_bytes(Image.fromarray(patch)), record.id, seeds.get(index)))
+        return rendered
+
+    def _render_cutouts(self, run: EditorRun, files: List[Any], geometry: Geometry) -> List[Tuple[bytes, str, Optional[int]]]:
+        seeds = self._seeds(run.generation_id)
+        rendered = []
+        for index, record in enumerate(files[:MAX_CANDIDATES]):
+            with self.media_tools.open_input(run.user_id, {"generation_file_id": record.id}) as path:
+                with Image.open(path) as opened:
+                    result = opened.convert("RGBA")
+            cutout = regions.cutout(result, geometry.picture)
+            rendered.append((png_bytes(Image.fromarray(cutout)), record.id, seeds.get(index)))
         return rendered
 
     def _load(self, user_id: str, upload_id: Optional[str], mode: str) -> Optional[np.ndarray]:

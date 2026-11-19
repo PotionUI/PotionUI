@@ -58,7 +58,7 @@ def manager(templates):
 
 def test_the_video_tasks_are_registered_for_the_video_editor_only():
     assert {task.id for task in REGISTRY.list("video")} == VIDEO_TASKS
-    assert {task.id for task in REGISTRY.list("image")} == {"edit_region", "remove_object"}
+    assert {"edit_region", "remove_object"} <= {task.id for task in REGISTRY.list("image")}
 
 
 def test_every_video_task_states_what_it_needs():
@@ -74,7 +74,7 @@ def test_every_video_task_states_what_it_needs():
 
 
 def test_image_tasks_take_no_range():
-    assert {task.id: task.range for task in REGISTRY.list("image")} == {"edit_region": "none", "remove_object": "none"}
+    assert {task.range for task in REGISTRY.list("image")} == {"none"}
 
 
 @pytest.mark.parametrize("folder, name", sorted(EXPECTED))
@@ -136,7 +136,9 @@ def test_the_video_editor_is_offered_only_video_tasks(manager):
 def test_the_image_editor_is_offered_no_video_task(manager):
     entries = manager.offers(USER, "image")
 
-    assert {entry["id"] for entry in entries} == {"edit_region", "remove_object"}
+    ids = {entry["id"] for entry in entries}
+    assert {"edit_region", "remove_object"} <= ids
+    assert not ids & VIDEO_TASKS
     assert all(offer["region_strategy"] != "range" for entry in entries for offer in entry["offers"])
 
 

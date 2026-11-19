@@ -179,6 +179,29 @@ def dilate_box(region, radius):
     return out
 
 
+def dilate_round(region, radius):
+    out = np.asarray(region, dtype=bool)
+    radius = int(radius)
+    if radius <= 0:
+        return out.copy()
+    try:
+        import cv2
+    except ImportError:
+        return dilate_box(out, radius)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
+    return cv2.dilate(out.astype(np.uint8), kernel) > 0
+
+
+def extend_down(region, rows):
+    out = np.asarray(region, dtype=bool)
+    rows = int(rows)
+    if rows <= 0 or not out.any():
+        return out.copy()
+    padded = np.pad(out.astype(np.int32), [(rows, 0), (0, 0)])
+    total = np.concatenate([np.zeros((1, out.shape[1]), dtype=np.int32), np.cumsum(padded, axis=0, dtype=np.int32)])
+    return (total[rows + 1 :] - total[: -rows - 1]) > 0
+
+
 def feather_alpha(region, feather_px):
     region = np.asarray(region, dtype=bool)
     feather_px = int(feather_px)
@@ -245,6 +268,12 @@ def mask_patch(content, mask, feather_px):
         return np.dstack([rgb, np.full((height, width), 255, dtype=np.uint8)])
     alpha = feather_alpha(region, max(2, int(feather_px)))
     return np.dstack([rgb, np.clip(np.rint(alpha * 255.0), 0, 255).astype(np.uint8)])
+
+
+def matte_patch(content, matte):
+    rgb = np.clip(np.rint(content.astype(np.float32)), 0, 255).astype(np.uint8)
+    alpha = np.clip(np.asarray(matte, dtype=np.float32), 0, 255)
+    return np.dstack([rgb, np.rint(alpha).astype(np.uint8)])
 
 
 def alpha_over(original, patch):

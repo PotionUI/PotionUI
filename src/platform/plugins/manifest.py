@@ -694,10 +694,14 @@ class EditorTaskSpec(BaseModel):
     editors: List[Literal["image", "video", "audio"]] = Field(default_factory=lambda: ["image"], min_length=1)
     region: Literal["required", "optional", "none"] = "optional"
     prompt: Literal["required", "optional", "none"] = "required"
-    produces: Literal["patch", "replace"] = "patch"
+    produces: Literal["patch", "replace", "matte"] = "patch"
     tool: Optional[str] = Field(default=None, min_length=1)
     step_kind: Optional[str] = Field(default=None, min_length=1)
     fallback: Optional[EditorTaskFallbackSpec] = None
+    grow: float = Field(default=0.0, ge=0.0, le=0.5)
+    feather: float = Field(default=1.0, ge=0.0, le=8.0)
+    matte: bool = False
+    internal: bool = False
 
 def _dist_relative_path(value: Optional[str]) -> Optional[str]:
     if value is None:

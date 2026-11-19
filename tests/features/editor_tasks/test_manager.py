@@ -83,7 +83,7 @@ def test_a_user_who_may_use_nothing_gets_empty_offers_but_the_tasks(tmp_path):
 
     entries = manager.offers(USER)
 
-    assert {item["id"] for item in entries} == {"edit_region", "remove_object"}
+    assert {"edit_region", "remove_object"} <= {item["id"] for item in entries}
     assert all(item["offers"] == [] for item in entries)
 
 

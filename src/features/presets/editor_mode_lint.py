@@ -161,6 +161,9 @@ def lint_editor_mode(
     if spec.from_mode in promptless and needs(spec.task) == "required":
         issues.append(("warning", f"{prefix}: task '{spec.task}' requires a prompt, and the mode it derives from takes none"))
 
+    if spec.instruction and needs(spec.task) != "none":
+        issues.append(("warning", f"{prefix}: instruction is only used by a task that takes no prompt; '{spec.task}' does"))
+
     owned = {*input_names(spec.inputs), *spec.fixed, *spec.hide}
     for key, field in fields.items():
         if field.type in MEDIA_TYPES and key not in owned and not key.endswith(MASK_SUFFIX):

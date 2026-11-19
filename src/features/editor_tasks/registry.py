@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple
 
 CORE_SOURCE = "core"
 REMOVE_OBJECT_PROMPT = "Remove the marked object. Fill the area so it matches its surroundings."
+REPLACE_BACKGROUND_PROMPT = (
+    "Keep the subject exactly as it is, do not change it. Replace everything marked with this background: {prompt}"
+)
 
 Need = Literal["required", "optional", "none"]
 
@@ -15,7 +18,7 @@ class TaskDefinition:
     editors: Tuple[str, ...] = ("image",)
     region: Need = "optional"
     prompt: Need = "required"
-    produces: Literal["patch", "replace"] = "patch"
+    produces: Literal["patch", "replace", "matte"] = "patch"
     fallback: Optional[Tuple[str, str]] = None
     source: str = CORE_SOURCE
     icon: str = "edit"
@@ -23,6 +26,10 @@ class TaskDefinition:
     result: Literal["replace", "append"] = "replace"
     audio: Literal["keep", "result"] = "keep"
     resizes: bool = False
+    grow: float = 0.0
+    feather: float = 1.0
+    matte: bool = False
+    internal: bool = False
 
 
 VIDEO = ("video",)
@@ -36,6 +43,26 @@ CORE_TASKS: Tuple[TaskDefinition, ...] = (
         prompt="none",
         fallback=("edit_region", REMOVE_OBJECT_PROMPT),
         icon="eraser",
+        grow=0.04,
+        feather=1.6,
+    ),
+    TaskDefinition(
+        id="replace_background",
+        label="Replace the background",
+        region="required",
+        prompt="required",
+        fallback=("edit_region", REPLACE_BACKGROUND_PROMPT),
+        icon="image",
+        matte=True,
+    ),
+    TaskDefinition(
+        id="find_subject",
+        label="Find the subject",
+        region="none",
+        prompt="none",
+        produces="matte",
+        icon="subject",
+        internal=True,
     ),
     TaskDefinition(
         id="extend", label="Extend", editors=VIDEO, region="none", prompt="optional", range="optional",
@@ -52,6 +79,12 @@ CORE_TASKS: Tuple[TaskDefinition, ...] = (
 )
 
 CORE_TASK_IDS = frozenset(task.id for task in CORE_TASKS)
+
+
+def _unit(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value < 0:
+        return default
+    return float(value)
 
 
 class TaskRegistrationError(ValueError):
@@ -92,6 +125,10 @@ class TaskRegistry:
                 result=entry.get("result") or "replace",
                 audio=entry.get("audio") or "keep",
                 resizes=bool(entry.get("resizes")),
+                grow=_unit(entry.get("grow"), 0.0),
+                feather=_unit(entry.get("feather"), 1.0),
+                matte=bool(entry.get("matte")),
+                internal=bool(entry.get("internal")),
             )
         )
 

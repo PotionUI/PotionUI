@@ -113,6 +113,7 @@ class EditorModeSpec:
     fixed: Dict[str, Any] = field(default_factory=dict)
     hide: List[str] = field(default_factory=list)
     max_range_s: Optional[float] = None
+    instruction: Optional[str] = None
 
 
 @dataclass

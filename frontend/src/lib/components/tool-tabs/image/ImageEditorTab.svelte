@@ -114,6 +114,7 @@
 	} from '$lib/tool-tabs/frame/editStack';
 	import type { RailGroup, SaveAction, SavingProgress } from '$lib/tool-tabs/frame/types';
 	import { fitViewport } from '$lib/tool-tabs/frame/viewport';
+	import { expandUi } from '$lib/tool-tabs/image/generate/expand';
 	import { geometryKey, liveMask, maskChannelOf, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
 	import { aboveKeyOf, aboveLayerOf, appliesBeneath, isFlattenedPaint, isLayerStep, layerThumb, mergeLayerPixels, patchMaskOf } from '$lib/tool-tabs/image/layers';
 	import PatchMaskOverlay from '$lib/components/tool-tabs/image/PatchMaskOverlay.svelte';
@@ -385,6 +386,26 @@
 			const at = id ? list.findIndex((step) => step.id === id) : -1;
 			return outputSize(at >= 0 ? list.slice(0, at) : list, sourceSize);
 		},
+		spawnEdit: async (base, name) => {
+			const link = editSourceOf(host.source);
+			if (!link) return null;
+			try {
+				const label = mediaFileStem(host.source);
+				const response = await api.createEdit({ tool: 'image', name: (label ? `${label} · ${name}` : name).slice(0, 120), source: link, state: writeImageState({ stack: base, activeTool: null, viewport: fitViewport(), mask: null, saved: null }) });
+				const record = response.success && response.data ? response.data.edit : null;
+				return record ? { id: record.id, revision: record.revision } : null;
+			} catch {
+				return null;
+			}
+		},
+		saveSpawned: async (link, next) => {
+			try {
+				const response = await api.saveEdit(link.id, { revision: link.revision, state: writeImageState({ stack: next, activeTool: null, viewport: fitViewport(), mask: null, saved: null }) });
+				return response.success !== false;
+			} catch {
+				return false;
+			}
+		},
 		stepsBeneath: async (id) => {
 			let list = effective;
 			const at = id ? list.findIndex((step) => step.id === id) : -1;
@@ -450,10 +471,20 @@
 	let paintLayerName = $derived(paintTargetStep ? (isFlattenedPaint(paintTargetStep) ? 'Paint' : paintNameOf(paintTargetStep)) : nextPaintName(new Set(stack.steps.map((step) => step.label))));
 	let stepsBeforeTarget = $derived(targetIndex >= 0 ? effective.slice(0, targetIndex) : effective);
 
+	let growsTool = $derived.by(() => {
+		void $editorsRevision;
+		return registeredTool?.task ? !!tasks.get('image', registeredTool.task)?.grows : false;
+	});
 	let mode = $derived<'paint' | 'mask' | 'crop' | 'preview'>(
-		paintActive ? 'paint' : activeTool === 'mask' || registeredTool?.task ? 'mask' : activeTool === 'crop' ? 'crop' : 'preview'
+		paintActive ? 'paint' : activeTool === 'mask' || (registeredTool?.task && !growsTool) ? 'mask' : activeTool === 'crop' ? 'crop' : 'preview'
 	);
 	let taskTool = $derived(!!registeredTool?.task);
+	$effect(() => {
+		const size = outputSize(appliedSteps(stack), sourceSize);
+		untrack(() =>
+			expandUi.update((ui) => (ui.source?.width === size?.width && ui.source?.height === size?.height ? ui : { ...ui, source: size ? { width: size.width, height: size.height } : null }))
+		);
+	});
 	let settingsRef = $derived(settingsOf(registeredTool));
 	let dockRef = $derived(registeredTool?.dock ?? (registeredTool?.task ? { component: FloatingPrompt } : undefined));
 	let settingsFor = $state<string | null>(null);
@@ -466,7 +497,7 @@
 	});
 	let promptSettings = $derived(settingsRef ? { open: settingsOpen, toggle: () => (settingsFor = settingsOpen ? null : activeTool) } : undefined);
 	$effect(() => {
-		if (!taskTool) return;
+		if (!taskTool || growsTool) return;
 		const before = get(maskToolState);
 		chooseOverlay(LASSO_OVERLAY);
 		return () => maskToolState.set(before);
@@ -2265,7 +2296,7 @@
 	let statusInfo = $derived(
 		statusParts({
 			tool: activeTool,
-			areaTool: taskTool || activeTool === 'mask',
+			areaTool: (taskTool && !growsTool) || activeTool === 'mask',
 			size: outputDims,
 			marked: $maskArea,
 			output:
@@ -2371,7 +2402,7 @@
 		<p class="text-sm text-danger" role="alert">{notice}</p>
 	{/if}
 	{#if registeredTool?.options || registeredTool?.schema}
-		{#if registeredTool.task}
+		{#if registeredTool.task && !growsTool}
 			<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} what={maskWhatOf(registeredTool.task)} />
 			{#if staleMask}
 				<p class="text-sm text-warning" data-mask-stale>The marked area was drawn before a shape change, so it no longer lines up. Mark it again.</p>

@@ -27,7 +27,7 @@ function runSocket(): RunSocket {
 	};
 }
 
-export type TabGenerateDeps = Pick<ControllerDeps, 'getStack' | 'setStack' | 'source' | 'editLink' | 'landRegion' | 'areaSize' | 'pictureSize' | 'stepsBeneath' | 'range' | 'inputFor' | 'basisOf' | 'applyMatte' | 'landPicture'>;
+export type TabGenerateDeps = Pick<ControllerDeps, 'getStack' | 'setStack' | 'source' | 'editLink' | 'landRegion' | 'areaSize' | 'pictureSize' | 'stepsBeneath' | 'range' | 'inputFor' | 'basisOf' | 'applyMatte' | 'landPicture' | 'spawnEdit' | 'saveSpawned'>;
 
 export function createTabGenerate(deps: TabGenerateDeps, editor: 'image' | 'video' = 'image'): GenerateController {
 	let controller!: GenerateController;

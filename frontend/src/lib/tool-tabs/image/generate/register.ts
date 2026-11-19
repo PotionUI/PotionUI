@@ -2,6 +2,7 @@ import type { Component } from 'svelte';
 import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { CORE_OWNER } from '$lib/registries/registry';
 import GenerateOptions from '$lib/components/tool-tabs/generate/GenerateOptions.svelte';
+import ExpandOptions from '$lib/components/tool-tabs/generate/ExpandOptions.svelte';
 import RangeOptions from '$lib/components/tool-tabs/video/options/RangeOptions.svelte';
 import ReplaceBackgroundOptions from '$lib/components/tool-tabs/generate/ReplaceBackgroundOptions.svelte';
 import GenerateSettings from '$lib/components/tool-tabs/generate/GenerateSettings.svelte';
@@ -18,13 +19,15 @@ import { REPLACE_BACKGROUND_PROMPT, replaceBackgroundStepKind } from './backgrou
 export const GENERATE_GROUP = 'generate';
 export { REPLACE_BACKGROUND_PROMPT };
 export const REMOVE_PROMPT = 'Remove the marked object. Fill the area so it matches its surroundings.';
+export const EXPAND_PROMPT = 'Continue the picture beyond its edges so the new area matches it.';
 
-type TaskSeed = Pick<TaskEntry, 'id' | 'label' | 'icon' | 'region' | 'prompt' | 'fallback' | 'range' | 'result'>;
+type TaskSeed = Pick<TaskEntry, 'id' | 'label' | 'icon' | 'region' | 'prompt' | 'fallback' | 'range' | 'result' | 'grows'>;
 
 export const CORE_TASKS: readonly TaskSeed[] = [
 	{ id: 'edit_region', label: 'Edit a region', icon: editorToolIcons.edit_region, region: 'optional', prompt: 'required' },
 	{ id: 'remove_object', label: 'Remove an object', icon: editorToolIcons.remove_object, region: 'required', prompt: 'none', fallback: { task: 'edit_region', prompt: REMOVE_PROMPT } },
-	{ id: 'replace_background', label: 'Replace the background', icon: editorToolIcons.replace_background, region: 'required', prompt: 'required', fallback: { task: 'edit_region', prompt: REPLACE_BACKGROUND_PROMPT } }
+	{ id: 'replace_background', label: 'Replace the background', icon: editorToolIcons.replace_background, region: 'required', prompt: 'required', fallback: { task: 'edit_region', prompt: REPLACE_BACKGROUND_PROMPT } },
+	{ id: 'expand', label: 'Expand', icon: 'expand', region: 'none', prompt: 'optional', fallback: { task: 'edit_region', prompt: EXPAND_PROMPT }, grows: true }
 ];
 
 const CORE_OPTIONS: Readonly<Record<string, Component<any>>> = { replace_background: ReplaceBackgroundOptions as unknown as Component<any> };
@@ -42,13 +45,14 @@ function registerTask(seed: TaskSeed, order: number, owner?: string, editor: 'im
 	if (seed.range) entry.range = seed.range;
 	if (seed.result) entry.result = seed.result;
 	if (seed.fallback) entry.fallback = seed.fallback;
+	if (seed.grows) entry.grows = true;
 	const drops: Array<() => void> = [];
 	if (!tasks.get(editor, seed.id)) drops.push(tasks.register(entry, owner));
 	const taken = railTools.list(editor).some((tool) => tool.task === seed.id);
 	if (!taken) {
 		drops.push(
 			railTools.register(
-				{ id: seed.id, editor, group: GENERATE_GROUP, label: seed.label, icon: seed.icon, order, options: { component: options ?? GenerateOptions }, settings: { component: GenerateSettings }, task: seed.id, ai: true, ...(editor === 'image' ? { canvasActions: taskToolActions } : {}) },
+				{ id: seed.id, editor, group: GENERATE_GROUP, label: seed.label, icon: seed.icon, order, options: { component: options ?? (seed.grows ? ExpandOptions : GenerateOptions) }, settings: { component: GenerateSettings }, task: seed.id, ai: true, ...(editor === 'image' && !seed.grows ? { canvasActions: taskToolActions } : {}) },
 				owner
 			)
 		);
@@ -78,7 +82,7 @@ export function syncServerTasks(infos: readonly EditorTaskInfo[]): void {
 	for (const info of shown) {
 		order += 10;
 		if (dynamic.has(info.id)) continue;
-		dynamic.set(info.id, registerTask({ id: info.id, label: info.label, icon: info.icon, region: info.region, prompt: info.prompt, fallback: info.fallback ?? undefined }, order, CORE_OWNER));
+		dynamic.set(info.id, registerTask({ id: info.id, label: info.label, icon: info.icon, region: info.region, prompt: info.prompt, fallback: info.fallback ?? undefined, ...(info.grows ? { grows: true } : {}) }, order, CORE_OWNER));
 	}
 }
 

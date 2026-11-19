@@ -8,7 +8,8 @@ export type Rgba = readonly [number, number, number, number];
 const LAYER_TOOLS: ReadonlySet<string> = new Set(['paint', 'generate']);
 const OPACITY_TOOLS: ReadonlySet<string> = new Set(['paint_layer', 'place_patch']);
 
-export function isLayerStep(step: Pick<EditStep, 'tool'>): boolean {
+export function isLayerStep(step: Pick<EditStep, 'tool'> & Partial<Pick<EditStep, 'params'>>): boolean {
+	if (step.tool === 'generate') return !readGenerateParams(step.params)?.expand;
 	return LAYER_TOOLS.has(step.tool);
 }
 

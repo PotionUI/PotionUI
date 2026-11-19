@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 import { canvasFromUrl } from '$lib/paint/loadPicked';
 import { timeRangeOf, type EditorRun, type NormRect, type RunStatus, type TaskOffer, type TimeRange } from '$lib/services/api/editorTasks';
 import { formatEditorTime } from '$lib/tool-tabs/video/videoState';
-import type { StepKind, StepState } from '$lib/editors/stepKinds';
+import type { PreviewFrame, StepKind, StepState } from '$lib/editors/stepKinds';
 import { opacityOf, type EditStackState, type EditStep, type StepDraft } from '$lib/tool-tabs/frame/editStack';
 import { geometryKey } from '../mask';
 import { isTerminal, runViews } from './runEngine';
@@ -11,6 +11,7 @@ import { readOptions, type TaskOptions } from './taskOptions';
 
 export const GENERATE_TOOL = 'generate';
 const PAINT_LANE = 'paint';
+const GEOMETRY_LANE = 'geometry';
 export const GENERATE_VERSION = 2;
 export const EDITOR_KEY_PREFIX = 'editor:';
 export const PROMPT_ROW_LIMIT = 12;
@@ -50,6 +51,16 @@ export interface GenerateRun {
 	error: string | null;
 }
 
+export interface ExpandParams {
+	width: number;
+	height: number;
+	x: number;
+	y: number;
+	label: string;
+	ratio: [number, number] | null;
+	anchor: { x: number; y: number };
+}
+
 export interface GenerateBasis {
 	geometry: string;
 	size: { width: number; height: number } | null;
@@ -71,6 +82,7 @@ export interface GenerateParams {
 	basis?: GenerateBasis;
 	range?: TimeRange | null;
 	options?: TaskOptions;
+	expand?: ExpandParams;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -106,6 +118,26 @@ function basisOf(raw: unknown): GenerateBasis | null {
 	return { geometry: raw.geometry, size };
 }
 
+function whole(value: unknown): number | null {
+	return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function unit(value: unknown): number {
+	return typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.5;
+}
+
+export function expandOf(raw: unknown): ExpandParams | null {
+	if (!isRecord(raw)) return null;
+	const width = whole(raw.width);
+	const height = whole(raw.height);
+	const x = whole(raw.x);
+	const y = whole(raw.y);
+	if (!width || !height || x === null || y === null) return null;
+	const ratio = Array.isArray(raw.ratio) && raw.ratio.length === 2 && raw.ratio.every((part) => typeof part === 'number' && part > 0) ? ([raw.ratio[0], raw.ratio[1]] as [number, number]) : null;
+	const anchor = isRecord(raw.anchor) ? { x: unit(raw.anchor.x), y: unit(raw.anchor.y) } : { x: 0.5, y: 0.5 };
+	return { width, height, x, y, label: typeof raw.label === 'string' ? raw.label : '', ratio, anchor };
+}
+
 export function readGenerateParams(raw: unknown): GenerateParams | null {
 	if (!isRecord(raw) || !isRecord(raw.run) || typeof raw.run.id !== 'string' || !STATUSES.includes(raw.run.status as RunStatus)) return null;
 	const setup = isRecord(raw.setup) ? raw.setup : {};
@@ -116,6 +148,7 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 	const size = isRecord(area.size) && typeof area.size.width === 'number' && typeof area.size.height === 'number' ? { width: area.size.width, height: area.size.height } : null;
 	const basis = basisOf(raw.basis);
 	const options = readOptions(raw.options);
+	const expand = expandOf(raw.expand);
 	return {
 		v: raw.v === GENERATE_VERSION ? GENERATE_VERSION : 1,
 		task: typeof raw.task === 'string' ? raw.task : '',
@@ -141,6 +174,7 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 		run: { id: raw.run.id, status: raw.run.status as RunStatus, error: typeof raw.run.error === 'string' ? raw.run.error : null },
 		...(basis ? { basis } : {}),
 		...(options ? { options } : {}),
+		...(expand ? { expand } : {}),
 		...('range' in raw ? { range: timeRangeOf(raw.range) } : {})
 	};
 }
@@ -217,7 +251,13 @@ export function rangeText(range: TimeRange | null | undefined): string {
 	return range ? `${formatEditorTime(range.start_s)} → ${formatEditorTime(range.end_s)}` : 'Whole clip';
 }
 
+export function expandSummary(expand: ExpandParams): string {
+	const size = `${expand.width}×${expand.height}`;
+	return expand.label ? `${expand.label} · ${size}` : size;
+}
+
 export function summaryOf(params: GenerateParams): string {
+	if (params.expand) return params.run.status === 'done' && params.results.length ? expandSummary(params.expand) : params.expand.label || `${params.expand.width}×${params.expand.height}`;
 	if (params.range !== undefined) {
 		const where = rangeText(params.range);
 		return params.run.status === 'done' && params.results.length ? `${params.chosen + 1} of ${params.results.length} · ${where}` : where;
@@ -231,7 +271,7 @@ export function summaryOf(params: GenerateParams): string {
 }
 
 export function generateDraft(params: GenerateParams, label: string, icon: string): StepDraft<GenerateParams> {
-	return { tool: GENERATE_TOOL, icon, label, summary: summaryOf(params), params, lane: PAINT_LANE };
+	return { tool: GENERATE_TOOL, icon, label, summary: summaryOf(params), params, lane: params.expand ? GEOMETRY_LANE : PAINT_LANE };
 }
 
 export function chosenResult(params: GenerateParams): GenerateResult | null {
@@ -321,8 +361,27 @@ export function leftOutNotice(count: number): string | null {
 
 export function patchPlacement(params: GenerateParams): { x: number; y: number; width: number; height: number } | null {
 	const result = chosenResult(params);
-	if (params.run.status !== 'done' || !result || !params.rect) return null;
+	if (params.expand || params.run.status !== 'done' || !result || !params.rect) return null;
 	return { x: params.rect.x, y: params.rect.y, width: params.rect.width, height: params.rect.height };
+}
+
+export function expandLanded(params: GenerateParams): boolean {
+	return !!params.expand && params.run.status === 'done' && !!chosenResult(params);
+}
+
+async function expandPreview(frame: PreviewFrame, expand: ExpandParams, url: string, signal: AbortSignal): Promise<PreviewFrame> {
+	const patch = await canvasFromUrl(url);
+	if (signal.aborted) return frame;
+	const scale = frame.canvas.width / Math.max(1, frame.size.width);
+	const out = document.createElement('canvas');
+	out.width = Math.max(1, Math.round(expand.width * scale));
+	out.height = Math.max(1, Math.round(expand.height * scale));
+	const context = out.getContext('2d', { willReadFrequently: true });
+	if (!context) return frame;
+	context.imageSmoothingQuality = 'high';
+	context.drawImage(frame.canvas, Math.round(expand.x * scale), Math.round(expand.y * scale), frame.canvas.width, frame.canvas.height);
+	context.drawImage(patch, 0, 0, out.width, out.height);
+	return { canvas: out, size: { width: expand.width, height: expand.height } };
 }
 
 export const generateStepKind: StepKind<GenerateParams> = {
@@ -333,10 +392,18 @@ export const generateStepKind: StepKind<GenerateParams> = {
 	lane: PAINT_LANE,
 	version: GENERATE_VERSION,
 	summary: (_params, ctx) => ctx.step.summary,
-	outputSize: (_params, ctx) => ctx.input,
+	outputSize(raw, ctx) {
+		const params = readGenerateParams(raw);
+		return params?.expand && expandLanded(params) ? { width: params.expand.width, height: params.expand.height } : ctx.input;
+	},
 	payload(raw) {
 		const params = readGenerateParams(raw);
 		const result = params ? chosenResult(params) : null;
+		if (params?.expand) {
+			if (!result || !expandLanded(params)) return [{ tool: 'place_patch', params: {}, hidden: true }];
+			const { width, height, x, y } = params.expand;
+			return [{ tool: 'place_patch', params: { patch: { item_id: result.patch.item_id }, x: 0, y: 0, width: 1, height: 1, canvas_width: width, canvas_height: height, canvas_x: x, canvas_y: y } }];
+		}
 		const place = params ? patchPlacement(params) : null;
 		if (!params || !result || !place) return [{ tool: 'place_patch', params: {}, hidden: true }];
 		return [{ tool: 'place_patch', params: { patch: { item_id: result.patch.item_id }, ...place } }];
@@ -344,6 +411,7 @@ export const generateStepKind: StepKind<GenerateParams> = {
 	async preview(frame, raw, ctx, signal) {
 		const params = readGenerateParams(raw);
 		const result = params ? chosenResult(params) : null;
+		if (params?.expand && result && expandLanded(params)) return expandPreview(frame, params.expand, result.url, signal);
 		const place = params ? patchPlacement(params) : null;
 		if (!result || !place) return frame;
 		const patch = await canvasFromUrl(result.url);

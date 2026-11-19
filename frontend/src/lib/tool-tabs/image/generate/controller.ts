@@ -21,6 +21,7 @@ import { appliedSteps, apply, beginEdit, commitLive, liveEdit, type EditStackSta
 import { missingModelMessage, type MissingModelField } from '$lib/generation/requiredModelField';
 import type { FormulaApplication, FormulaHost } from '$lib/formulas/types';
 import type { EditLink } from '../editLink';
+import { expandUi, paramsOf, retarget, targetsOf, type ExpandTarget } from './expand';
 import { addApplied, appliedFormulaOf, withoutApplied, type AppliedFormula } from './formulas';
 import type { RunEngine } from './runEngine';
 import {
@@ -39,6 +40,7 @@ import {
 	withChosen,
 	withFreshRun,
 	withRun,
+	type ExpandParams,
 	type GenerateBasis,
 	type GenerateParams,
 	type ResolvedSetup
@@ -125,6 +127,8 @@ export interface ControllerDeps {
 	onTasks?(tasks: EditorTaskInfo[]): void;
 	applyMatte?(url: string): Promise<boolean>;
 	landPicture?(source: MediaRef | File): Promise<{ item_id: string; url: string | null; name: string | null } | null>;
+	spawnEdit?(stack: EditStackState<unknown>, name: string): Promise<EditLink | null>;
+	saveSpawned?(link: EditLink, stack: EditStackState<unknown>): Promise<boolean>;
 }
 
 export interface PickerState {
@@ -165,6 +169,7 @@ export interface GenerateUi {
 	taskId: string | null;
 	tweaks: Record<string, Tweak>;
 	redo: RedoState | null;
+	spawned: string[];
 }
 
 export interface SettingsContext {
@@ -256,7 +261,8 @@ export function createGenerateController(deps: ControllerDeps) {
 		activeStepId: null,
 		taskId: null,
 		tweaks: {},
-		redo: null
+		redo: null,
+		spawned: []
 	});
 	let disposed = false;
 	let tasksLoad: Promise<void> | null = null;
@@ -690,10 +696,12 @@ export function createGenerateController(deps: ControllerDeps) {
 		candidates: number;
 		seed: number | null;
 		options?: TaskOptions;
+		expand?: ExpandParams | null;
+		link?: EditLink;
 	}): Promise<{ run: EditorRun; basis: GenerateBasis } | { error: string }> {
 		const ref = deps.inputFor ? deps.inputFor(stepId) : deps.source().ref;
 		if (!ref) return { error: NO_PICTURE_MESSAGE };
-		const link = await deps.editLink();
+		const link = input.link ?? (await deps.editLink());
 		if (!link) return { error: NOT_SAVED_MESSAGE };
 		const task = taskOf(taskId);
 		const basis = deps.basisOf ? deps.basisOf(stepId) : basisFor(stepsBeneathOf(appliedSteps(deps.getStack()), stepId), deps.pictureSize?.(stepId) ?? null);
@@ -704,6 +712,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			steps,
 			region: task?.region === 'none' || !input.region ? null : { item_id: input.region.item_id },
 			...(deps.range ? { range: task?.range === 'none' ? null : (input.range ?? null) } : {}),
+			...(input.expand ? { expand: { width: input.expand.width, height: input.expand.height, x: input.expand.x, y: input.expand.y } } : {}),
 			prompt: task?.prompt === 'none' ? null : input.prompt.trim() || null,
 			setup: { preset_id: input.setup.preset_id, mode: input.setup.mode, form_data: input.setup.form_data },
 			candidates: input.candidates,
@@ -727,6 +736,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			askForPicker('change');
 			return false;
 		}
+		if (task.grows) return generateExpand(taskId, choice);
 		const prompt = current.prompts[taskId] ?? '';
 		const options = runOptionsOf(current.options[taskId]);
 		if (task.prompt === 'required' && !prompt.trim()) return fail('Describe the change first.');
@@ -886,6 +896,79 @@ export function createGenerateController(deps: ControllerDeps) {
 		}
 	}
 
+	function expandParamsOf(taskId: string, prompt: string, setup: ResolvedSetup, expand: ExpandParams, run: EditorRun, basis: GenerateBasis): GenerateParams {
+		return {
+			v: GENERATE_VERSION,
+			task: taskId,
+			prompt: prompt.trim(),
+			setup,
+			area: { region: null, size: null },
+			candidates: 1,
+			results: [],
+			chosen: 0,
+			seed: null,
+			rect: run.rect,
+			soft: false,
+			run: { id: run.id, status: run.status, error: null },
+			basis,
+			expand
+		};
+	}
+
+	async function spawnExpand(taskId: string, base: EditStackState<unknown>, prompt: string, setup: ResolvedSetup, target: ExpandTarget, label: string, icon: string): Promise<string | null> {
+		if (!deps.spawnEdit || !deps.saveSpawned) return null;
+		const stepId = `s${base.seq + 1}`;
+		const link = await deps.spawnEdit(base, target.label);
+		if (!link) return null;
+		const submitted = await submit(taskId, stepId, { prompt, setup, region: null, candidates: 1, seed: null, expand: paramsOf(target), link });
+		if (!('run' in submitted)) return null;
+		const params = expandParamsOf(taskId, prompt, setup, paramsOf(target), submitted.run, submitted.basis);
+		const stack = apply(beginEdit(base, generateDraft(params, label, icon)));
+		return (await deps.saveSpawned(link, stack)) ? target.label : null;
+	}
+
+	async function generateExpand(taskId: string, choice: SetupChoice): Promise<boolean> {
+		const task = taskOf(taskId);
+		if (!task) return false;
+		const targets = targetsOf(get(expandUi), deps.pictureSize?.(null) ?? get(expandUi).source);
+		if (!targets.length) return fail('Choose a format first.');
+		patch({ starting: true, error: null, spawned: [] });
+		try {
+			const prompt = get(state).prompts[taskId] ?? '';
+			const resolved = await resolveFor(taskId, choice);
+			if ('error' in resolved) return fail(resolved.error);
+			const base = deps.getStack();
+			const [first, ...rest] = targets;
+			const stepId = nextStepId();
+			const submitted = await submit(taskId, stepId, { prompt, setup: resolved, region: null, candidates: 1, seed: null, expand: paramsOf(first) });
+			if (!('run' in submitted)) return fail(submitted.error);
+			const run = submitted.run;
+			const params = expandParamsOf(taskId, prompt, resolved, paramsOf(first), run, submitted.basis);
+			const stack = apply(beginEdit(deps.getStack(), generateDraft(params, task.label, task.icon)));
+			deps.setStack(stack);
+			const created = stack.steps[stack.steps.length - 1];
+			if (created && created.id !== stepId) deps.engine.adopt(run, created.id);
+			patch({ activeStepId: created?.id ?? stepId });
+			if (run.status === 'done' || run.status === 'failed' || run.status === 'cancelled') settle(get(deps.engine.views)[run.id]);
+			const made: string[] = [];
+			const missed: string[] = [];
+			for (const target of rest) {
+				try {
+					const name = await spawnExpand(taskId, base, prompt, resolved, target, task.label, task.icon);
+					(name ? made : missed).push(name ?? target.label);
+				} catch {
+					missed.push(target.label);
+				}
+			}
+			patch({ spawned: made, ...(missed.length ? { error: `${missed.join(', ')} could not be started. Try them again.` } : {}) });
+			return true;
+		} catch (error) {
+			return fail(startFailureText(error, NOT_STARTED_MESSAGE));
+		} finally {
+			patch({ starting: false });
+		}
+	}
+
 	function redoTarget(taskId: string): { state: RedoState; step: { step: EditStep; params: GenerateParams }; choice: string | null } | null {
 		const redo = get(state).redo;
 		if (!redo || redo.taskId !== taskId) return null;
@@ -947,7 +1030,17 @@ export function createGenerateController(deps: ControllerDeps) {
 			}
 			const setup: ResolvedSetup = { ...params.setup, form_data: form };
 			const area = change === 'resize' ? remapArea(params.area, params.basis?.size ?? null, deps.pictureSize?.(stepId) ?? null) : params.area;
-			const submitted = await submit(params.task, stepId, { prompt: params.prompt, setup, region: area.region, range: params.range, candidates: params.candidates, seed: keepSeed ? params.seed : null, options: params.options });
+			let expand = params.expand;
+			if (expand) {
+				const picture = deps.pictureSize?.(stepId) ?? null;
+				const next = picture ? retarget(expand, picture) : expand;
+				if (!next) {
+					fail('This picture already has that shape.');
+					return { kind: 'failed' };
+				}
+				expand = next;
+			}
+			const submitted = await submit(params.task, stepId, { prompt: params.prompt, setup, region: area.region, range: params.range, candidates: params.candidates, seed: keepSeed ? params.seed : null, expand, options: params.options });
 			if (!('run' in submitted)) {
 				fail(submitted.error);
 				return { kind: 'failed' };
@@ -955,7 +1048,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			const run = submitted.run;
 			const old = params.run.id;
 			if (old !== run.id) deps.engine.release(old);
-			const next = withFreshRun({ ...params, area, rect: run.rect ?? params.rect }, { id: run.id, status: run.status }, submitted.basis);
+			const next = withFreshRun({ ...params, area, rect: run.rect ?? params.rect, ...(expand ? { expand } : {}) }, { id: run.id, status: run.status }, submitted.basis);
 			const draft = generateDraft(next, step.label || task?.label || 'Generate', step.icon || task?.icon || editorToolIcons.edit_region);
 			deps.setStack(commitLive(liveEdit(deps.getStack(), draft, (entry) => entry.id === stepId)));
 			patch({ activeStepId: stepId });

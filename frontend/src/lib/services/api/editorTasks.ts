@@ -103,9 +103,27 @@ export interface EditorTaskInfo {
 	internal?: boolean;
 	matte?: boolean;
 	grow?: number;
+	grows?: boolean;
 	fallback: { task: string; prompt: string } | null;
 	offers: TaskOffer[];
 	default: TaskDefault | null;
+}
+
+export interface ExpandFormat {
+	id: string;
+	label: string;
+	ratio: string;
+	source: 'built_in' | 'house';
+	group_id: string | null;
+}
+
+export function normalizeFormat(raw: unknown): ExpandFormat | null {
+	if (!isRecord(raw)) return null;
+	const id = str(raw.id);
+	const label = str(raw.label);
+	const ratio = str(raw.ratio);
+	if (!id || !label || !ratio) return null;
+	return { id, label, ratio, source: raw.source === 'house' ? 'house' : 'built_in', group_id: str(raw.group_id) };
 }
 
 export interface StartRunBody {
@@ -114,6 +132,7 @@ export interface StartRunBody {
 	steps: MediaToolStep[];
 	region: { item_id: string } | null;
 	range?: TimeRange | null;
+	expand?: { width: number; height: number; x: number; y: number };
 	prompt: string | null;
 	setup: { preset_id: string; mode: string; form_data: Record<string, unknown> };
 	candidates: number;
@@ -316,6 +335,10 @@ function videoFieldsOf(raw: Record<string, unknown>): Partial<EditorTaskInfo> {
 	};
 }
 
+function growsOf(raw: Record<string, unknown>): Partial<EditorTaskInfo> {
+	return raw.grows === true ? { grows: true } : {};
+}
+
 export function normalizeTask(raw: unknown): EditorTaskInfo | null {
 	if (!isRecord(raw)) return null;
 	const id = str(raw.id);
@@ -331,6 +354,7 @@ export function normalizeTask(raw: unknown): EditorTaskInfo | null {
 		...(raw.internal === true ? { internal: true } : {}),
 		...(raw.matte === true ? { matte: true } : {}),
 		...(typeof raw.grow === 'number' && Number.isFinite(raw.grow) && raw.grow >= 0 ? { grow: raw.grow } : {}),
+		...growsOf(raw),
 		fallback,
 		offers: (Array.isArray(raw.offers) ? raw.offers : []).flatMap(offerOf),
 		default: normalizeDefault(raw.default)
@@ -395,6 +419,15 @@ export function createEditorTasksApi(client: AxiosInstance) {
 			const tasks = payloadOf(response.data).tasks;
 			return (Array.isArray(tasks) ? tasks : []).flatMap((entry) => {
 				const parsed = normalizeTask(entry);
+				return parsed ? [parsed] : [];
+			});
+		},
+
+		async listExpandFormats(): Promise<ExpandFormat[]> {
+			const response = await client.get('/api/editor/expand/formats');
+			const formats = payloadOf(response.data).formats;
+			return (Array.isArray(formats) ? formats : []).flatMap((entry) => {
+				const parsed = normalizeFormat(entry);
 				return parsed ? [parsed] : [];
 			});
 		},

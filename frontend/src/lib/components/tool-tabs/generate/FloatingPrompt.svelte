@@ -14,6 +14,7 @@
 	import { offerOf } from '$lib/tool-tabs/image/generate/setup';
 	import { viaNote } from '$lib/tool-tabs/image/generate/taskOptions';
 	import { areaLabel } from '$lib/tool-tabs/image/generate/area';
+	import { expandUi, targetsOf } from '$lib/tool-tabs/image/generate/expand';
 	import { maskArea } from '$lib/tool-tabs/image/maskOverlays';
 	import EditorFormulas from './EditorFormulas.svelte';
 	import EditorPickers from './EditorPickers.svelte';
@@ -48,11 +49,13 @@
 	const ui = generate.ui;
 
 	const video = generate.editor === 'video';
-	const placeholder = $derived(video && $ui.taskId === 'extend' ? 'Describe what happens next' : 'Describe the change');
+	
 	let collapsed = $state(false);
 	let root = $state<HTMLElement | null>(null);
 
 	let taskId = $derived($ui.taskId);
+	let growsTask = $derived(!video && !!taskId && !!tasks.get(generate.editor, taskId)?.grows);
+	const placeholder = $derived(video && $ui.taskId === 'extend' ? 'Describe what happens next' : growsTask ? 'Describe the new area, or leave it empty' : 'Describe the change');
 	let task = $derived($ui.tasks.find((entry) => entry.id === taskId) ?? null);
 	let entry = $derived.by(() => {
 		void $editorsRevision;
@@ -84,11 +87,12 @@
 
 	let chipText = $derived(noModel ? 'No model yet' : (chip ?? 'Choose a preset'));
 	let area = $derived(video ? null : $maskArea);
+	let expandBlock = $derived(growsTask && targetsOf($expandUi).length === 0 ? 'Choose a format first' : null);
 	let redoArea = $derived(!!$ui.redo && $ui.redo.taskId === taskId && !regionNone && !area);
 	let focused = $state(false);
 	let reason = $derived.by(() => {
 		if (direct) return directBlockedReason($ui.background, !!area);
-		const blockedBy = blockedReason({ hasSetup: !!chip, promptRequired, prompt, regionRequired, hasArea: !!area, redoArea, rangeBlock });
+		const blockedBy = blockedReason({ hasSetup: !!chip, promptRequired, prompt, regionRequired, hasArea: !!area, redoArea, rangeBlock: rangeBlock ?? expandBlock });
 		return taskId === REPLACE_BACKGROUND_TASK && blockedBy === 'Mark the object first' ? NEEDS_SUBJECT_REASON : blockedBy;
 	});
 	let borderProgress = $derived(borderProgressOf(run));
@@ -102,7 +106,7 @@
 	});
 	let noteShown = $derived(!!$ui.picker.notice || (task?.offers.length ?? 0) === 0 || viaShown);
 	let blocked = $derived(
-		!taskId || (!chip && !direct) || (direct && !!reason) || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea || !!rangeBlock
+		!taskId || (!chip && !direct) || (direct && !!reason) || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea || !!rangeBlock || !!expandBlock
 	);
 
 	function setPrompt(event: Event) {

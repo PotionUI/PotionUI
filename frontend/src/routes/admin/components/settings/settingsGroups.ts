@@ -108,6 +108,7 @@ export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	public_base_url: 'access',
 	workbench_single_result_gallery: 'generation',
 	compare_confirm_above: 'generation',
+	editor_expand_formats: 'generation',
 	notify_admins_on_generation_failure: 'generation',
 	notify_admins_on_generation_failure_categories: 'generation',
 	elixirs_max_nodes: 'generation',

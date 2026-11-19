@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createEditorTasksApi, describeEditorTaskFailure, editorTaskFailureMessage, normalizeDefault, normalizeRun, normalizeTask } from './editorTasks';
+import { createEditorTasksApi, describeEditorTaskFailure, editorTaskFailureMessage, normalizeDefault, normalizeFormat, normalizeRun, normalizeTask } from './editorTasks';
 
 function failure(status: number, detail: unknown) {
 	return { response: { status, data: { detail } } };
@@ -122,5 +122,28 @@ describe('default from the server', () => {
 		expect(ok).toMatchObject({ setup: { kind: 'session', id: 's' }, health: { ok: true, name: 'Soft', mode_label: 'Edit' } });
 		const broken = normalizeDefault({ preset_id: 'p', mode: 'edit', setup: { kind: 'defaults', id: null, name: null }, health: { ok: false, reason: 'preset_missing', missing: { kind: 'preset', id: 'p' }, name: 'Qwen edit', mode_label: 'Edit' } });
 		expect(broken).toMatchObject({ setup: { kind: 'defaults' }, health: { ok: false, reason: 'preset_missing', name: 'Qwen edit' } });
+	});
+});
+
+describe('the expand task and its formats', () => {
+	it('reads the grows flag and leaves it off for other tasks', () => {
+		expect(normalizeTask({ id: 'expand', label: 'Expand', grows: true, offers: [] })?.grows).toBe(true);
+		expect(normalizeTask({ id: 'edit_region', label: 'Edit', offers: [] })).not.toHaveProperty('grows');
+	});
+
+	it('reads a format and refuses a broken one', () => {
+		expect(normalizeFormat({ id: 'story', label: 'Story', ratio: '9:16', source: 'built_in', group_id: null })).toEqual({ id: 'story', label: 'Story', ratio: '9:16', source: 'built_in', group_id: null });
+		expect(normalizeFormat({ id: 'house.t', label: 'T', ratio: '5:2', source: 'house', group_id: 'g' })?.source).toBe('house');
+		expect(normalizeFormat({ id: 'x', label: 'X' })).toBeNull();
+	});
+
+	it('asks the server for the formats', async () => {
+		const get = vi.fn(async () => ({ data: { success: true, data: { formats: [{ id: 'story', label: 'Story', ratio: '9:16', source: 'built_in', group_id: null }, { nope: true }] } } }));
+		const api = createEditorTasksApi({ get } as never);
+
+		const formats = await api.listExpandFormats();
+
+		expect(get).toHaveBeenCalledWith('/api/editor/expand/formats');
+		expect(formats.map((format) => format.id)).toEqual(['story']);
 	});
 });

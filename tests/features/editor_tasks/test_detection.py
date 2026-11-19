@@ -1,5 +1,6 @@
 import sys
 from contextlib import contextmanager
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 
@@ -299,7 +300,7 @@ def test_the_yolo_detector_uses_the_best_weights_it_finds_and_loads_each_once(tm
         ("hand", (1.0, 2.0, 30.0, 40.0), 0.88),
     ]
     loads = [call[1] for call in fake_helper if call[0] == "load"]
-    assert sorted(path.rsplit("/", 1)[1] for path in loads) == ["face_yolov8s.pt", "hand_yolov8n.pt"]
+    assert sorted(Path(path).name for path in loads) == ["face_yolov8s.pt", "hand_yolov8n.pt"]
 
 
 def test_the_yolo_detector_answers_only_the_kinds_it_has_weights_for(tmp_path, fake_helper):

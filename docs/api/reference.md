@@ -23,7 +23,7 @@ Your instance serves interactive documentation of its own routes on the backend 
 
 ## Pages
 
-733 routes in total.
+734 routes in total.
 
 | Page | Routes | What is in it |
 | --- | --- | --- |
@@ -32,6 +32,6 @@ Your instance serves interactive documentation of its own routes on the backend 
 | Reference: History, library and prompts | 171 | Your own content: the library, kits, collections, tags, saved prompts and segments, phrasebook and workspaces. |
 | Reference: Account, keys and MCP | 15 | Signing in, API keys, MCP and users. |
 | Reference: Assistant and language models | 3 | The chat assistant and the language-model configuration behind it. |
-| Reference: System | 36 | Health, settings, plugins, recipes, documentation and statistics. |
+| Reference: System | 37 | Health, settings, plugins, recipes, documentation and statistics. |
 | Reference: Administration | 296 | Routes that need a key with the admin permission. Only an administrator can create such a key. |
 | Reference: Browser session only | 66 | Routes that never accept an API key. A key that calls one gets 403 key_not_allowed. |

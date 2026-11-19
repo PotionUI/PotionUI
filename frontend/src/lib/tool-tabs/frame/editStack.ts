@@ -493,6 +493,51 @@ export function move<P>(
 	return { ...withoutHistory(state), steps };
 }
 
+export function groupedFirst<P>(steps: readonly EditStep<P>[], first: (step: EditStep<P>) => boolean): boolean {
+	let other = false;
+	for (const step of steps) {
+		if (!first(step)) other = true;
+		else if (other) return false;
+	}
+	return true;
+}
+
+export function trailingAdded<P>(state: EditStackState<P>, first: (step: EditStep<P>) => boolean): number {
+	const applied = appliedSteps(state);
+	let tail = 0;
+	while (tail < applied.length && first(applied[applied.length - 1 - tail])) tail += 1;
+	if (tail === 0 || tail === applied.length) return 0;
+	return groupedFirst(applied.slice(0, applied.length - tail), first) ? tail : 0;
+}
+
+export function bringFirst<P>(input: EditStackState<P>, first: (step: EditStep<P>) => boolean, label?: string): EditStackState<P> {
+	if (groupedFirst(appliedSteps(input), first)) return input;
+	const state = settled(input);
+	const applied = appliedSteps(state);
+	const after = [...applied.filter(first), ...applied.filter((step) => !first(step)), ...undoneSteps(state)];
+	if (label) return { ...withoutHistory(state), steps: after, cleared: { steps: state.steps, cursor: state.cursor, label, after } };
+	const tail = trailingAdded(state, first);
+	if (!tail) return { ...state, steps: after };
+	const moved = applied.slice(applied.length - tail);
+	const name = tail === 1 ? moved[0].label : `Add ${tail} layers`;
+	return { ...withoutHistory(state), steps: after, cleared: { steps: state.steps, cursor: state.cursor - tail, label: name, after } };
+}
+
+export function moveWithin<P>(
+	state: EditStackState<P>,
+	id: string,
+	offset: number,
+	same: (a: EditStep<P>, b: EditStep<P>) => boolean
+): number | null {
+	const applied = appliedSteps(state);
+	const from = applied.findIndex((step) => step.id === id);
+	if (from < 0 || !Number.isInteger(offset) || offset === 0) return null;
+	const group = applied.flatMap((step, index) => (same(step, applied[from]) ? [index] : []));
+	const at = group.indexOf(from) + offset;
+	if (at < 0 || at >= group.length) return null;
+	return group[at];
+}
+
 export function previewSteps<P>(state: EditStackState<P>): EditStep<P>[] {
 	const pending = state.pending;
 	const current = effectiveSteps(state);

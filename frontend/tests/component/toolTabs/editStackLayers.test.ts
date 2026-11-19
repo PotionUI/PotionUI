@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mountComponent } from '../helpers/mount';
 import { apply, beginEdit, createStack, reopen, setOpacity, type EditStackState, type StepDraft } from '$lib/tool-tabs/frame/editStack';
-import { appliesBeneath, isLayerStep, layerThumb, patchMaskOf } from '$lib/tool-tabs/image/layers';
+import { arrangeLayers, isLayerStep, layerThumb, patchMaskOf } from '$lib/tool-tabs/image/layers';
 
 const { default: EditStack } = await import('$lib/components/tool-tabs/frame/EditStack.svelte');
 
@@ -14,15 +14,19 @@ function build(...drafts: StepDraft[]): EditStackState {
 	return drafts.reduce((state, draft) => apply(beginEdit(state, draft)), createStack());
 }
 
-function render(stack: EditStackState) {
+function layered(...drafts: StepDraft[]): EditStackState {
+	return drafts.reduce((state, draft) => arrangeLayers(apply(beginEdit(state, draft))), createStack());
+}
+
+function render(stack: EditStackState, extra: Record<string, unknown> = {}) {
 	const calls: string[] = [];
 	const view = mountComponent(EditStack, {
+		...extra,
 		stack,
 		original: { summary: '1024×1024 · PNG' },
 		layered: true,
 		isLayer: isLayerStep,
 		layerThumb,
-		appliesBeneath,
 		onopacity: (id: string, value: number, live: boolean) => calls.push(`opacity:${id}:${value}:${live}`),
 		onreopen: () => {},
 		onseek: () => {},
@@ -38,14 +42,25 @@ function render(stack: EditStackState) {
 const text = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 
 describe('EditStack as layers', () => {
-	it('lists the newest step on top and the original last, numbering unchanged', () => {
-		const { all } = render(build(paint, crop, patch));
-		expect(all('[data-stack-row]').map((row) => row.dataset.stackRow)).toEqual(['s3', 's2', 's1', 'original']);
-		expect(all('[data-stack-row]').map((row) => text(row).slice(0, 2))).toEqual(['03', '02', '01', '00']);
+	it('splits the stack into a Layers panel with the original last and an Edits panel numbered newest first', () => {
+		const { all, q } = render(layered(paint, crop, patch, warm));
+		expect(all('[data-stack-section="layers"] [data-stack-row]').map((row) => row.dataset.stackRow)).toEqual(['s3', 's1', 'original']);
+		expect(all('[data-stack-section="edits"] [data-stack-row]').map((row) => row.dataset.stackRow)).toEqual(['s4', 's2']);
+		expect(all('[data-stack-section="edits"] [data-stack-number]').map((cell) => text(cell))).toEqual(['02', '01']);
+		expect(q('[data-stack-section="layers"] [data-stack-number]')).toBeNull();
+		expect(text(q('[data-stack-count="layers"]'))).toBe('2');
+		expect(text(q('[data-stack-count="edits"]'))).toBe('2');
+		expect(text(q('[data-stack-edits-hint]'))).toBe('Edits apply to the whole layered picture.');
 	});
 
-	it('draws pixel steps as layer rows with an opacity value and other steps as slim rows without one', () => {
-		const { q } = render(setOpacity(build(paint, crop, patch), 's3', 0.5));
+	it('says what edits do when there are none yet', () => {
+		const { all, q } = render(layered(paint));
+		expect(all('[data-stack-section="edits"] [data-stack-row]')).toHaveLength(0);
+		expect(text(q('[data-stack-edits-hint]'))).toContain('No edits yet');
+	});
+
+	it('draws layer rows with an opacity value and edit rows without one', () => {
+		const { q } = render(setOpacity(layered(paint, crop, patch), 's3', 0.5));
 		expect(q('[data-stack-row="s1"]')!.dataset.stackKind).toBe('layer');
 		expect(q('[data-stack-row="s3"]')!.dataset.stackKind).toBe('layer');
 		expect(q('[data-stack-row="s2"]')!.dataset.stackKind).toBe('slim');
@@ -57,27 +72,61 @@ describe('EditStack as layers', () => {
 	});
 
 	it('gives every row an eye', () => {
-		const { q, calls } = render(build(paint, crop, warm));
+		const { q, calls } = render(layered(paint, crop, warm));
 		for (const id of ['s1', 's2', 's3']) expect(q(`[data-stack-hide="${id}"]`)).not.toBeNull();
 		q<HTMLButtonElement>('[data-stack-hide="s1"]')!.click();
 		expect(calls).toEqual(['hide:s1']);
 	});
 
-	it('says how many layers a look applies to, and brackets what is under it when it is selected', () => {
-		const stack = build(paint, patch, warm);
-		const idle = render(stack);
-		expect(text(idle.q('[data-stack-row="s3"]'))).toContain('Applies to 3 layers below');
-		expect(idle.all('[data-bracket]')).toHaveLength(0);
-
-		const selected = render(reopen(stack, 's3'));
-		expect(selected.all('[data-bracket]').map((row) => row.dataset.stackRow)).toEqual(['s3', 's2', 's1', 'original']);
+	it('no longer explains which layers an edit reaches', () => {
+		const { all, q } = render(reopen(layered(paint, patch, warm), 's3'));
+		expect(text(q('[data-stack-row="s3"]'))).not.toContain('Applies to');
+		expect(all('[data-bracket]')).toHaveLength(0);
+		expect(text(q('[data-stack-rows]'))).not.toContain('Not affected by');
 	});
 
-	it('tells the layers above a selected look that it does not touch them', () => {
-		const { q } = render(reopen(build(paint, warm, patch), 's2'));
-		expect(text(q('[data-stack-row="s3"]'))).toContain('Not affected by Warm light');
-		expect(q('[data-stack-row="s3"]')!.dataset.bracket).toBeUndefined();
-		expect(q('[data-stack-row="s1"]')!.dataset.bracket).toBeDefined();
+	it('moves a layer only among layers and an edit only among edits', () => {
+		const stack = layered(paint, crop, patch, warm);
+		const { q, calls } = render(stack);
+		const key = (id: string, up: boolean) => q(`[data-stack-open="${id}"]`)!.dispatchEvent(new KeyboardEvent('keydown', { key: up ? 'ArrowUp' : 'ArrowDown', altKey: true, bubbles: true }));
+		key('s1', true);
+		key('s3', true);
+		key('s2', true);
+		key('s4', true);
+		expect(calls).toEqual(['move:s1:1', 'move:s2:3']);
+	});
+
+	it('drags an edit within the Edits panel without a refusal line', async () => {
+		const view = mountComponent(EditStack, {
+			stack: layered(paint, crop, warm),
+			original: { summary: '1024×1024 · PNG' },
+			layered: true,
+			isLayer: isLayerStep,
+			layerThumb,
+			pinned: [['paint', 'geometry']],
+			onreopen: () => {},
+			onseek: () => {},
+			ontogglehidden: () => {},
+			onremove: () => {},
+			onmove: (id: string, to: number) => moves.push(`${id}:${to}`)
+		});
+		const moves: string[] = [];
+		const grip = view.target.querySelector<HTMLElement>('[data-stack-grip="s3"]')!;
+		const row = view.target.querySelector<HTMLElement>('[data-stack-row="s3"]')!;
+		Object.defineProperty(row, 'offsetHeight', { value: 40 });
+		grip.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientY: 100, bubbles: true }));
+		grip.dispatchEvent(new PointerEvent('pointermove', { clientY: 200, bubbles: true }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(view.target.querySelector('[data-stack-refuse]')).toBeNull();
+		grip.dispatchEvent(new PointerEvent('pointerup', { clientY: 200, bubbles: true }));
+		expect(moves).toEqual(['s3:1']);
+	});
+
+	it('locks reordering when the stack keeps its earlier order', () => {
+		const { q, calls } = render(build(crop, paint), { movable: false });
+		expect(q('[data-stack-grip="s2"]')).toBeNull();
+		q('[data-stack-open="s2"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true }));
+		expect(calls).toEqual([]);
 	});
 
 	it('opens the opacity drawer under the selected layer only, with Move up, Move down and Delete', () => {
@@ -100,8 +149,7 @@ describe('EditStack as layers', () => {
 			layered: true,
 			isLayer: isLayerStep,
 			layerThumb,
-			appliesBeneath,
-			onreopen: () => {},
+				onreopen: () => {},
 			onseek: () => {},
 			ontogglehidden: () => {},
 			onremove: () => {},
@@ -122,33 +170,6 @@ describe('EditStack as layers', () => {
 		input.dispatchEvent(new Event('input', { bubbles: true }));
 		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 		expect(names).toEqual(['s2:Clouds']);
-	});
-
-	it('shows a red dashed drop line with the reason when a drop is refused', async () => {
-		const view = mountComponent(EditStack, {
-			stack: build(crop, paint),
-			original: { summary: '1024×1024 · PNG' },
-			layered: true,
-			isLayer: isLayerStep,
-			layerThumb,
-			appliesBeneath,
-			pinned: [['paint', 'geometry']],
-			onreopen: () => {},
-			onseek: () => {},
-			ontogglehidden: () => {},
-			onremove: () => {},
-			onmove: () => {}
-		});
-		const grip = view.target.querySelector<HTMLElement>('[data-stack-grip="s2"]')!;
-		const row = view.target.querySelector<HTMLElement>('[data-stack-row="s2"]')!;
-		Object.defineProperty(row, 'offsetHeight', { value: 44 });
-		grip.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientY: 100, bubbles: true }));
-		grip.dispatchEvent(new PointerEvent('pointermove', { clientY: 150, bubbles: true }));
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		const refuse = view.target.querySelector('[data-stack-refuse]');
-		expect(refuse).not.toBeNull();
-		expect(refuse!.querySelector('[data-stack-dropline="blocked"]')!.className).toContain('border-danger');
-		expect(text(refuse)).toContain("Sketch can't go below Crop");
 	});
 
 	it('shows the mask of a selected patch in its drawer and toggles Show mask', () => {
@@ -176,8 +197,7 @@ describe('EditStack as layers', () => {
 			selectedId: 's2',
 			isLayer: isLayerStep,
 			layerThumb,
-			appliesBeneath,
-			maskOf: patchMaskOf,
+				maskOf: patchMaskOf,
 			get showMask() {
 				return shown;
 			},

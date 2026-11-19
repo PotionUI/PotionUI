@@ -43,6 +43,7 @@ export interface StepKind<P = unknown> extends EditorEntryBase {
 	label: string;
 	icon: string;
 	lane?: string;
+	layer?: boolean;
 	version?: number;
 	migrate?(params: unknown, from: number): P;
 	summary(params: P, ctx: StepContext<P>): string;

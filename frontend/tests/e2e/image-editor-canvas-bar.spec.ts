@@ -177,11 +177,11 @@ async function seedGenerationTab(page: Page) {
 
 async function stackRows(page: Page) {
 	return page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) =>
-		rows.map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`).reverse()
+		rows.sort((a, b) => Number(a.getAttribute('data-stack-index')) - Number(b.getAttribute('data-stack-index'))).map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`)
 	);
 }
 
-const ORIGINAL = 'original:00Original640×480·PNG';
+const ORIGINAL = 'original:Original640×480·PNG';
 const CROP = '01Crop1:1·480×480';
 const STAGE = '[data-paint-stage] canvas[aria-label="Drawing canvas"]';
 const FLOATING = '[data-canvas-actions="floating"]';

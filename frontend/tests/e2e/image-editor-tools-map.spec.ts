@@ -249,7 +249,7 @@ test.describe('the Image editor tools map on desktop', () => {
 		const amount = panel.locator('[data-field-name="amount"] input').first();
 		await amount.fill('42');
 		await amount.press('Tab');
-		await expect(page.locator('[data-edit-stack] [data-stack-row]').first()).toContainText('Film grain');
+		await expect(page.locator('[data-edit-stack] [data-stack-section="edits"] [data-stack-row]').first()).toContainText('Film grain');
 		await expect(railButton(page, 'film_grain').locator('[data-tool-applied]')).toBeVisible();
 		await selectRailTool(page, 'vignette');
 		await expect(page.locator('[data-entry-options="vignette"] [data-field-type]:not([data-field-type="row"])')).toHaveCount(3);
@@ -270,8 +270,8 @@ test.describe('the Image editor tools map on desktop', () => {
 		await expect(page.locator('[data-entry-options="colour"] [data-field-type="slider"]')).toHaveCount(5);
 		await slider(page, 'Saturation').fill('-20');
 		await slider(page, 'Saturation').dispatchEvent('change');
-		const rows = page.locator('[data-edit-stack] [data-stack-row]');
-		await expect(rows).toHaveCount(3);
+		const rows = page.locator('[data-edit-stack] [data-stack-section="edits"] [data-stack-row]');
+		await expect(rows).toHaveCount(2);
 		await expect(rows.nth(1)).toContainText('Light');
 		await expect(rows.nth(0)).toContainText('Colour');
 		await selectRailTool(page, 'light');
@@ -364,8 +364,8 @@ test.describe('the Image editor tools map on desktop', () => {
 		await slider(page, 'Contrast').fill('6');
 		await slider(page, 'Contrast').dispatchEvent('change');
 		await page.getByRole('button', { name: 'Load the newer one' }).click();
-		const rows = page.locator('[data-edit-stack] [data-stack-row]');
-		await expect(rows).toHaveCount(5);
+		const rows = page.locator('[data-edit-stack] [data-stack-section="edits"] [data-stack-row]');
+		await expect(rows).toHaveCount(4);
 		await expect(rows.nth(3)).toContainText('Tone');
 		await expect(rows.nth(0)).toContainText('Grain');
 		await rows.nth(3).locator('button').first().click();
@@ -467,7 +467,7 @@ test.describe('Edits rows on desktop', () => {
 		await begin(page);
 		await openHarbor(page);
 		await setRailHeight(page, 1169);
-		const rows = page.locator('[data-edit-stack] [data-stack-row]');
+		const rows = page.locator('[data-edit-stack] [data-stack-section="edits"] [data-stack-row]');
 		const width = page.locator('[data-field-name="width"] input');
 		await selectRailTool(page, 'resize');
 		await width.fill('320');
@@ -477,7 +477,7 @@ test.describe('Edits rows on desktop', () => {
 		await expect(page.locator('[data-stack-row="pending"] [data-stack-actions]')).toHaveCount(0);
 		await screenshot(page, JOURNEY, '60-edits-rows-new-dark-1440');
 		await page.locator('[data-options-apply]').first().click();
-		await expect(rows).toHaveCount(2);
+		await expect(rows).toHaveCount(1);
 		await selectRailTool(page, 'crop');
 		await rows.nth(0).locator('button').first().click();
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'resize');

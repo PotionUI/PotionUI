@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { apply, beginEdit, createStack, deserialize, serialize, setOpacity, type EditStep } from '$lib/tool-tabs/frame/editStack';
 import golden from './layerParity.golden.json';
-import { appliesBeneath, compositeOver, isFlattenedPaint, isLayerStep, layerThumb, mergeLayerPixels, withLayerOpacity, type Rgba } from './layers';
+import { compositeOver, isFlattenedPaint, isLayerStep, layerThumb, mergeLayerPixels, withLayerOpacity, type Rgba } from './layers';
 import { runSteps } from './payload';
 import { paintDraft } from './steps';
 
@@ -45,12 +45,11 @@ describe('layer steps in the payload', () => {
 		expect(withLayerOpacity({ layer: { opacity: 0.5, blend: 'normal' } }, [{ tool: 'place_patch', params: {}, hidden: true }])).toEqual([{ tool: 'place_patch', params: {}, hidden: true }]);
 	});
 
-	it('marks paint and generated steps as layers and looks as applying beneath', () => {
+	it('marks paint, generated and background steps as layers and everything else as edits', () => {
 		expect(isLayerStep({ tool: 'paint' })).toBe(true);
 		expect(isLayerStep({ tool: 'generate' })).toBe(true);
 		expect(isLayerStep({ tool: 'crop' })).toBe(false);
-		expect(appliesBeneath({ tool: 'effects' })).toBe(true);
-		expect(appliesBeneath({ tool: 'paint' })).toBe(false);
+		expect(isLayerStep({ tool: 'effects' })).toBe(false);
 		expect(layerThumb({ tool: 'paint', params: { url: 'u' } })).toBe('u');
 		expect(layerThumb({ tool: 'crop', params: {} })).toBeNull();
 	});

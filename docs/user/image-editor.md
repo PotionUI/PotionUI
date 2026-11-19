@@ -18,24 +18,34 @@ Opening a picture from History, Library or a picture field in a form goes straig
 
 ## Layers
 
-The **Edits** list is also your layer list. Each paint stroke group, picture you add and generated region edit is a layer, listed newest on top and the original picture at the bottom. Looks, crops and other whole-picture edits sit in the same list as slimmer rows.
+The side panel has two lists: **Layers** on top and **Edits** under it. Layers stack up to make your picture; edits then change that whole layered picture.
 
-**Add a layer.** Press **+** in the Edits header. The menu says where the layer will go: *Add above* the row you have selected, or *Add on top* when nothing is selected. Choose:
+The **Layers** list holds the original picture at the bottom and everything placed on it: paint layers, pictures you add, and the results of **Edit a region**, **Remove an object** and **Replace the background**. The newest layer is on top. Each row shows a thumbnail, the name, the opacity and an eye.
+
+**Add a layer.** Press **+** in the Layers header. The menu says where the layer will go: *Add above* the layer you have selected, or *Add on top* otherwise. Choose:
 
 - **Empty paint layer** opens Paint on a fresh transparent layer.
 - **Picture from Library**, **Picture from History** or **Picture from a file** places the picture as a layer. Drag it to move, and use the handles to scale and rotate, then press **Apply**.
 
-A layer added above a look is simply not tinted by that look. Nothing is reordered behind your back.
+A new layer always joins the Layers list, even after you added a look or a crop, so that look or crop applies to it too.
 
-**Paint on a layer.** Click a layer row to select it. The brush then paints on that layer. If you pick a brush while a look, crop or the original is selected, the first stroke starts a new layer above it.
+**Paint on a layer.** Click a layer row to select it. The brush then paints on that layer. Layers always use the size of the original picture: while you paint, the canvas shows the layers without your edits, so the strokes stay in place when you change a crop later.
 
-**Fade, hide, rename.** The selected layer shows an **Opacity** slider under its row. The eye hides a layer without deleting it. Use the row menu (the three dots) for **Rename**, **Duplicate**, **Merge down**, **Move up**, **Move down** and **Delete**.
+**Fade, hide, rename.** The selected layer shows an **Opacity** slider under its row. The eye hides a layer without deleting it. Use the row menu (the three dots) for **Rename**, **Duplicate**, **Merge down**, **Move up**, **Move down** and **Delete**. A region edit's row also shows its mask, with **Show mask** to outline it on the canvas.
 
-**Reorder.** Drag a row by its grip, or select it and press **Alt+Up** or **Alt+Down**. On a phone, use **Move up** and **Move down** in the row menu. A crop trims everything beneath it, so layers do not cross one: the drop line turns red and says why. Looks and layers swap freely.
+**Reorder.** Drag a row by its grip, or select it and press **Alt+Up** or **Alt+Down**. On a phone, use **Move up** and **Move down** in the row menu. Layers move among layers.
 
-**On a phone.** Edits is a bottom sheet with 48 pixel rows and a 44 pixel **+** button. Adding a layer closes the sheet and opens Paint.
+**Region edits.** **Edit a region**, **Remove an object** and **Replace the background** work on the layered picture before your edits: while one of them is open, the canvas shows the layers without the crop or looks, and you mark the area there. The result lands on top of the layers, and a later crop or look applies to it like to any other layer.
 
-When you save, the layers are flattened in the order shown, with their opacity and visibility, so the saved picture matches what you see.
+## Edits
+
+The **Edits** list holds everything that changes the whole picture: looks and effects, light and colour, crop, resize, rotate, canvas size and upscale. They are numbered in the order they apply, newest on top, each with an eye and a delete button on hover. Drag them, or use **Alt+Up** and **Alt+Down**, to change their order among the edits.
+
+Edits apply to the whole layered picture: first all visible layers are combined, bottom to top with their opacity, then each visible edit is applied in order. When you save, the file is made the same way, so it matches what you see.
+
+**Older edits.** An edit made before layers and edits were split may have a look or a crop between its layers, where it only reached the layers beneath it. Such an edit still opens and saves exactly as before, and a note in the panel says so. Its layers and edits cannot be reordered until you press **Switch to layers**, which moves every layer under the edits. The result may change, for example a layer painted after a crop is then placed on the original picture; **Undo** brings the old order back. Dismiss the note to keep the old order.
+
+**On a phone.** Layers and Edits are two sections of one bottom sheet, with 48 pixel rows and a 44 pixel **+** button. Adding a layer closes the sheet and opens Paint.
 
 ## Remove an object
 
@@ -59,7 +69,7 @@ Pick **Replace the background** in the **Generate** group, right after Remove.
 
    Picture, Colour and Transparent need no model and finish at once with **Replace the background**. Until there is a subject or a marked background, the button says **Find the subject or mark the background first**.
 
-The result is a row in the **Edits** list called **Replace background** (or a region edit for Describe). Hide it with the eye or delete it to bring the original background back, and press **Replace the background** again to try another choice on the same mask.
+The result is a layer called **Replace background** (or a region edit for Describe) in the **Layers** list. Hide it with the eye or delete it to bring the original background back, and press **Replace the background** again to try another choice on the same mask.
 ## Expand a picture to another format
 
 **Expand** (in the Generate group of the rail) puts your picture on a larger canvas and generates the new area so it continues the picture. Use it to turn a square into a story, a landscape or a wide banner.
@@ -73,7 +83,7 @@ Nothing under the new step is changed: hide the step and the original is back. A
 
 **Several formats at once.** The first format becomes a step in the edit you are working on. Every other format becomes an edit of its own, a copy of this edit with its own Expand step, started at the same time and queued with your other generations. Changing the canvas size is a different result for each format, so they cannot be steps of one stack. Open the others from **Recent edits**; they finish by themselves whether or not you open them.
 
-Expand changes the size of the picture, so like a crop it is a barrier: paint layers and generated patches stay above or below it and cannot be dragged across.
+Expand changes the size of the picture, so it is an edit, not a layer: it sits in the **Edits** list and applies to the whole layered picture, like a crop.
 
 **Your own formats.** An administrator adds named formats in Admin, Settings, Generation, *Expand formats*: a name, a ratio such as 5:2, and who is offered it (everyone or one group).
 

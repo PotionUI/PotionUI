@@ -193,13 +193,13 @@ async function openEditorOnDusk(page: Page) {
 
 async function stackRows(page: Page) {
 	return page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) =>
-		rows.map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`).reverse()
+		rows.sort((a, b) => Number(a.getAttribute('data-stack-index')) - Number(b.getAttribute('data-stack-index'))).map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`)
 	);
 }
 
-const ORIGINAL = 'original:00Original640×480·PNG';
+const ORIGINAL = 'original:Original640×480·PNG';
 const CROP = '01Crop1:1·480×480';
-const REEL = '02ReelAppliestotheoriginal';
+const REEL = '02ReelIntensity100';
 
 async function start(page: Page, seed = false): Promise<Log> {
 	const log = await mockEditor(page);
@@ -371,7 +371,7 @@ test.describe('painting and masking in the Image editor tab', () => {
 		await expect(page.locator('[data-frame-undo]')).toBeEnabled();
 		await screenshot(page, JOURNEY, 'paint-1440');
 		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual(['original:00Original640×480·PNG', 'current:01Paint1Paintlayer100%']);
+		await expect.poll(() => stackRows(page)).toEqual(['original:Original640×480·PNG', 'current:Paint1Paintlayer100%']);
 		expect(log.artifacts).toBe(1);
 
 		await selectRailTool(page, 'edit_region');

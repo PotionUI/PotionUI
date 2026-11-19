@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from src.platform.media_tools import UnsupportedMedia, probe
-from src.platform.media_tools.ops import paint_layer, place_patch
+from src.platform.media_tools.ops import crop, paint_layer, place_patch
 
 GOLDEN = Path(__file__).resolve().parents[4] / "frontend/src/lib/tool-tabs/image/layerParity.golden.json"
 DATA = json.loads(GOLDEN.read_text())
@@ -73,3 +73,23 @@ def test_stacked_paint_layers_match_the_editor(tmp_path):
         picture(layer).save(path)
         result = paint_layer.PaintLayer().image(result, {"layer": probe(path), "opacity": opacity})
     assert_within_one(result, stack["expected"])
+
+
+def test_layers_then_a_look_then_a_crop_match_the_editor(tmp_path):
+    composed = DATA["composed"]
+    pixels = {"pa": composed["layers"][0], "pb": composed["layers"][1], "look": composed["baked"]}
+    media = {}
+    for key, values in pixels.items():
+        path = tmp_path / f"{key}.png"
+        picture(values).save(path)
+        media[key] = probe(path)
+    result = picture(DATA["base"])
+    tools = {"paint_layer": paint_layer.PaintLayer(), "crop": crop.Crop()}
+    for entry in composed["payload"]:
+        params = dict(entry["params"])
+        if "layer" in params:
+            params["layer"] = media[params["layer"]["item_id"]]
+        result = tools[entry["tool"]].image(result, params)
+    assert [entry["tool"] for entry in composed["payload"]] == ["paint_layer", "paint_layer", "paint_layer", "crop"]
+    assert result.size == (composed["cropPx"]["width"], composed["cropPx"]["height"])
+    assert_within_one(result, composed["expected"])

@@ -157,7 +157,7 @@ describe('Image editor footer', () => {
 
 	it('applies the open effect on Enter', async () => {
 		const { all } = renderImageEditor('effects', pendingLookState());
-		const rows = () => all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status).reverse();
+		const rows = () => all('[data-edit-stack] [data-stack-row]').sort((a, b) => Number(a.dataset.stackIndex) - Number(b.dataset.stackIndex)).map((row) => row.dataset.status);
 		expect(rows()).toEqual(['original', 'applied', 'pending']);
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 		await settle();
@@ -183,7 +183,7 @@ describe('Image effect entries', () => {
 		resetMediaToolCatalog([]);
 	});
 
-	const rows = (view: ReturnType<typeof renderImageEditor>) => view.all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status).reverse();
+	const rows = (view: ReturnType<typeof renderImageEditor>) => view.all('[data-edit-stack] [data-stack-row]').sort((a, b) => Number(a.dataset.stackIndex) - Number(b.dataset.stackIndex)).map((row) => row.dataset.status);
 	const grainInput = (view: ReturnType<typeof renderImageEditor>) => view.q<HTMLInputElement>('[data-entry-options="film_grain"] input[type="range"], [data-entry-options="film_grain"] input[type="number"]')!;
 
 	it('opens the stored Film grain step in its own panel with its values and no Apply', async () => {
@@ -303,7 +303,7 @@ describe('Video effect entries', () => {
 
 	const input = (view: ReturnType<typeof renderVideoEditor>) => view.q<HTMLInputElement>('[data-entry-options] input[type="range"], [data-entry-options] input[type="number"]')!;
 	const amount = (view: ReturnType<typeof renderVideoEditor>) => input(view).value;
-	const rows = (view: ReturnType<typeof renderVideoEditor>) => view.all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status);
+	const rows = (view: ReturnType<typeof renderVideoEditor>) => view.all('[data-edit-stack] [data-stack-row]').sort((a, b) => Number(a.dataset.stackIndex) - Number(b.dataset.stackIndex)).map((row) => row.dataset.status);
 
 	async function open(view: ReturnType<typeof renderVideoEditor>, id: string) {
 		view.q<HTMLButtonElement>(`[data-tool-rail] [data-tool="${id}"]`)!.click();

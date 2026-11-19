@@ -3,7 +3,7 @@ import { canvasFromUrl } from '$lib/paint/loadPicked';
 import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import type { MediaToolStep } from '$lib/media-tools/types';
 import type { StepKind } from '$lib/editors/stepKinds';
-import type { StepDraft } from '$lib/tool-tabs/frame/editStack';
+import { opacityOf, type StepDraft } from '$lib/tool-tabs/frame/editStack';
 import type { MediaRef } from '$lib/types/tabs';
 
 export const REPLACE_BACKGROUND_TASK = 'replace_background';
@@ -139,9 +139,9 @@ export function hexToRgb(hex: string): [number, number, number] {
 	return [parseInt(value.slice(1, 3), 16), parseInt(value.slice(3, 5), 16), parseInt(value.slice(5, 7), 16)];
 }
 
-export function mixBackground(base: Uint8ClampedArray, matte: Uint8ClampedArray, backdrop: Backdrop): void {
+export function mixBackground(base: Uint8ClampedArray, matte: Uint8ClampedArray, backdrop: Backdrop, opacity = 1): void {
 	for (let i = 0; i + 3 < base.length; i += 4) {
-		const weight = (matte[i] / 255) * (matte[i + 3] / 255);
+		const weight = (matte[i] / 255) * (matte[i + 3] / 255) * opacity;
 		if (weight <= 0) continue;
 		if (backdrop.kind === 'transparent') {
 			base[i + 3] = Math.round(base[i + 3] * (1 - weight));
@@ -180,11 +180,12 @@ export const replaceBackgroundStepKind: StepKind<ReplaceBackgroundParams> = {
 	label: 'Replace background',
 	icon: editorToolIcons.replace_background,
 	lane: 'paint',
+	layer: true,
 	version: REPLACE_BACKGROUND_VERSION,
 	summary: (_params, ctx) => ctx.step.summary,
 	outputSize: (_params, ctx) => ctx.input,
 	payload: (raw) => backgroundPayload(raw),
-	async preview(frame, raw, _ctx, signal) {
+	async preview(frame, raw, ctx, signal) {
 		const params = readReplaceBackgroundParams(raw);
 		if (!params?.matte.url) return frame;
 		const { width, height } = frame.canvas;
@@ -201,7 +202,7 @@ export const replaceBackgroundStepKind: StepKind<ReplaceBackgroundParams> = {
 		if (!context) return frame;
 		context.drawImage(frame.canvas, 0, 0);
 		const image = context.getImageData(0, 0, width, height);
-		mixBackground(image.data, pixelsOf(matte), backdrop);
+		mixBackground(image.data, pixelsOf(matte), backdrop, opacityOf(ctx.step));
 		context.putImageData(image, 0, 0);
 		return { canvas: out, size: frame.size };
 	},

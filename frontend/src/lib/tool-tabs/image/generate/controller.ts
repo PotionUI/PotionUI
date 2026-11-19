@@ -124,6 +124,7 @@ export interface ControllerDeps {
 	range?(): TimeRange | null;
 	inputFor?(stepId: string | null): MediaToolInputRef | null;
 	basisOf?(stepId: string | null): GenerateBasis;
+	beneath?(stepId: string | null): EditStep[];
 	onTasks?(tasks: EditorTaskInfo[]): void;
 	applyMatte?(url: string): Promise<boolean>;
 	landPicture?(source: MediaRef | File): Promise<{ item_id: string; url: string | null; name: string | null } | null>;
@@ -684,6 +685,10 @@ export function createGenerateController(deps: ControllerDeps) {
 		patch({ reloads: get(state).reloads + 1 });
 	}
 
+	function beneathOf(stepId: string | null): EditStep[] {
+		return deps.beneath ? deps.beneath(stepId) : stepsBeneathOf(appliedSteps(deps.getStack()), stepId);
+	}
+
 	function nextStepId(): string {
 		return `s${deps.getStack().seq + 1}`;
 	}
@@ -704,7 +709,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		const link = input.link ?? (await deps.editLink());
 		if (!link) return { error: NOT_SAVED_MESSAGE };
 		const task = taskOf(taskId);
-		const basis = deps.basisOf ? deps.basisOf(stepId) : basisFor(stepsBeneathOf(appliedSteps(deps.getStack()), stepId), deps.pictureSize?.(stepId) ?? null);
+		const basis = deps.basisOf ? deps.basisOf(stepId) : basisFor(beneathOf(stepId), deps.pictureSize?.(stepId) ?? null);
 		const steps = await deps.stepsBeneath(stepId);
 		const body: StartRunBody = {
 			edit: { id: link.id, step_id: stepId },
@@ -1018,7 +1023,7 @@ export function createGenerateController(deps: ControllerDeps) {
 				fail(editorTaskFailureMessage({ kind: 'task_not_offered' }));
 				return { kind: 'failed' };
 			}
-			const change = deps.basisOf ? 'none' : shapeChange(params, stepsBeneathOf(appliedSteps(deps.getStack()), stepId));
+			const change = deps.basisOf ? 'none' : shapeChange(params, beneathOf(stepId));
 			if (change === 'other' && params.area.region) return askForArea({ step, params });
 			patch({ starting: true, error: null });
 			try {

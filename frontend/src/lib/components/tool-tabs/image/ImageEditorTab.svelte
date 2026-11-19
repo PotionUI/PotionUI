@@ -116,7 +116,8 @@
 	import { fitViewport } from '$lib/tool-tabs/frame/viewport';
 	import { expandUi } from '$lib/tool-tabs/image/generate/expand';
 	import { geometryKey, liveMask, maskChannelOf, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
-	import { aboveKeyOf, aboveLayerOf, appliesBeneath, isFlattenedPaint, isLayerStep, layerThumb, mergeLayerPixels, patchMaskOf } from '$lib/tool-tabs/image/layers';
+	import { SWITCH_TO_LAYERS, aboveKeyOf, aboveLayerOf, arrangeLayers, isFlattenedPaint, isLayerStep, layerOrdered, layerThumb, layersOf, mergeLayerPixels, patchMaskOf, settledLayered, switchToLayers } from '$lib/tool-tabs/image/layers';
+	import { confirmDialog } from '$lib/stores/confirm';
 	import PatchMaskOverlay from '$lib/components/tool-tabs/image/PatchMaskOverlay.svelte';
 	import { inputRef, outputSize, replaceOption, runBody, sourceOrigin, type PixelSize, type SourceOrigin } from '$lib/tool-tabs/image/payload';
 	import { FULL_SIDE, ImageRenderer, bakeIsCapped, isAbort, orient, stepsKey, type Rendered } from '$lib/tool-tabs/image/render';
@@ -238,6 +239,8 @@
 
 	const initial = untrack(() => readImageState(host.state, knownTool(host.activeTool)));
 	let stack = $state.raw<EditStackState<unknown>>(sliceLast(initial.stack));
+	let sequential = $state(!layerOrdered(untrack(() => stack)));
+	let sequentialNoteDismissed = $state(false);
 	let activeTool = $state<string | null>(knownTool(initial.activeTool));
 	let sendFirst = $state.raw<{ tabId: string; field: string } | null>(null);
 	let viewport = $state(initial.viewport);
@@ -382,7 +385,7 @@
 			return { item_id: artifact.id, url: artifact.url, name: source instanceof File ? source.name : (source.name ?? null) };
 		},
 		pictureSize: (id) => {
-			const list = appliedSteps(stack);
+			const list = runBase(appliedSteps(stack), id);
 			const at = id ? list.findIndex((step) => step.id === id) : -1;
 			return outputSize(at >= 0 ? list.slice(0, at) : list, sourceSize);
 		},
@@ -406,8 +409,9 @@
 				return false;
 			}
 		},
+		beneath: (id) => stepsBeneathOf(runBase(appliedSteps(stack), id), id),
 		stepsBeneath: async (id) => {
-			let list = effective;
+			let list = runBase(effective, id);
 			const at = id ? list.findIndex((step) => step.id === id) : -1;
 			if (at >= 0) list = list.slice(0, at);
 			return renderer.payload(list);
@@ -454,8 +458,18 @@
 	let fileName = $derived(source ? (source.name ?? mediaFileStem(source) ?? 'Picture') : null);
 	let stem = $derived(mediaFileStem(source) ?? 'picture');
 	let extension = $derived((fileName?.split('.').pop() ?? 'png').toUpperCase());
-	let liveMaskNow = $derived(liveMask(mask, effective));
-	let staleMask = $derived(maskIsStale(mask, effective));
+	let layerTask = $derived(!sequential && !!registeredTool?.task && !tasks.get('image', registeredTool.task)?.grows);
+
+	function runBase<S extends EditStep>(list: S[], id: string | null): S[] {
+		if (sequential) return list;
+		const existing = id ? list.find((step) => step.id === id) : null;
+		if (existing) return isLayerStep(existing) ? layersOf(list) : list;
+		const task = registeredTool?.task ? tasks.get('image', registeredTool.task) : null;
+		return task?.grows ? list : layersOf(list);
+	}
+	let maskBasis = $derived(layerTask ? layersOf(effective) : effective);
+	let liveMaskNow = $derived(liveMask(mask, maskBasis));
+	let staleMask = $derived(maskIsStale(mask, maskBasis));
 
 	let pending = $derived(stack.pending);
 	let stillEffectIds = $derived(new Set(imageEffectList(catalog).map((effect) => effect.id)));
@@ -557,7 +571,26 @@
 		let hoverItem = $derived<FilterItem | null>(activeTool === 'effects' && hoverLook && lookParams?.filter !== hoverLook ? (trayById.get(hoverLook) ?? null) : null);
 	let hoverDraft = $derived(hoverItem ? (lookDraft({ kind: 'look', filter: hoverItem.id, name: hoverItem.name, intensity: hoverItem.intensity }) as StepDraft<unknown>) : null);
 	let canCompareNow = $derived(mode === 'preview' && (liveEntry ? appliedSet.has(activeTool!) : !!pending));
-	let mainSteps = $derived(mode === 'preview' ? previewWith(stack, hoverDraft) : mode === 'crop' ? (pendingHere?.tool === 'crop' ? stepsBeforeTarget : effective) : effective);
+	let showMask = $state(false);
+	let shownMask = $derived.by(() => {
+		if (!showMask || mode === 'paint' || !selectedStepId) return null;
+		const step = applied.find((entry) => entry.id === selectedStepId);
+		return step && !step.hidden ? patchMaskOf(step) : null;
+	});
+	let shownMaskLayers = $derived(!!shownMask && !sequential);
+	let mainSteps = $derived(
+		mode === 'preview'
+			? shownMaskLayers
+				? layersOf(effective)
+				: previewWith(stack, hoverDraft)
+			: mode === 'crop'
+				? pendingHere?.tool === 'crop'
+					? stepsBeforeTarget
+					: effective
+				: mode === 'mask'
+					? maskBasis
+					: effective
+	);
 	let beforeList = $derived(
 		mode === 'preview' && compare ? (liveEntry ? effective.filter((step) => entryOfStep(step) !== activeTool) : pending ? beforeSteps(stack) : []) : null
 	);
@@ -566,12 +599,6 @@
 	let layerPicture = $state.raw<{ canvas: HTMLCanvasElement; name: string } | null>(null);
 	let addSource = $state<'library' | 'history' | 'file' | null>(null);
 	let aboveCanvas = $state.raw<HTMLCanvasElement | null>(null);
-	let showMask = $state(false);
-	let shownMask = $derived.by(() => {
-		if (!showMask || mode === 'paint' || !selectedStepId) return null;
-		const step = applied.find((entry) => entry.id === selectedStepId);
-		return step && !step.hidden ? patchMaskOf(step) : null;
-	});
 	let anchorCount = $derived.by(() => {
 		if (pending?.target || !layerAnchor) return -1;
 		const at = applied.findIndex((step) => step.id === layerAnchor);
@@ -589,11 +616,11 @@
 			return layer ? [layer] : [];
 		});
 	});
-	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' ? stepsBeforeTarget : (paintBelow ?? effective)) : null);
+	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' && (pendingHere.target || sequential) ? stepsBeforeTarget : (paintBelow ?? (sequential ? effective : layersOf(effective)))) : null);
 	let aboveKey = $derived(aboveKeyOf(paintAbove));
 	let addAboveLabel = $derived.by(() => {
 		const step = selectedStepId ? applied.find((entry) => entry.id === selectedStepId) : null;
-		return step ? `Add above ${step.label}` : 'Add on top';
+		return step && (sequential || isLayerStep(step)) ? `Add above ${step.label}` : 'Add on top';
 	});
 
 	$effect(() => {
@@ -824,9 +851,26 @@
 	});
 
 	$effect(() => {
-		const next = sliceLast(stack);
-		if (next !== stack) stack = next;
+		const current = stack;
+		untrack(() => {
+			let next = sliceLast(current);
+			if (sequential && settledLayered(next)) sequential = false;
+			if (!sequential) next = arrangeLayers(next);
+			if (next !== current) stack = next;
+		});
 	});
+
+	async function useLayerOrder() {
+		const ok = await confirmDialog({
+			title: 'Switch to layers?',
+			message: 'Edits will apply to the whole layered picture, and layers painted after a crop or resize are placed on the original picture, so the result may change. Undo brings the old order back.',
+			confirmLabel: 'Switch to layers',
+			cancelLabel: 'Keep the old order'
+		});
+		if (!ok || !(await leaveTool())) return;
+		stack = switchToLayers(stack);
+		sequential = false;
+	}
 
 	$effect(() => {
 		if (!saveMenuOpen && referencesOnly) referencesOnly = false;
@@ -938,6 +982,7 @@
 	function applyServerState(raw: Record<string, unknown>): Record<string, unknown> {
 		const next = readImageState(raw);
 		stack = sliceLast(next.stack);
+		sequential = !layerOrdered(stack);
 		mask = next.mask;
 		saved = next.saved;
 		const payload = writeImageState({ stack, activeTool, viewport, mask, saved });
@@ -1210,7 +1255,7 @@
 			}
 			const size = outputSize(paintList ?? effective, sourceSize) ?? result.size;
 			const taken = new Set(stack.steps.map((step) => step.label));
-			const anchor = target ?? (anchorCount >= 0 ? layerAnchor : null);
+			const anchor = target ?? (anchorCount >= 0 ? layerAnchor : null) ?? (sequential ? null : (applied.findLast(isLayerStep)?.id ?? null));
 			const added: RevisionDraft<unknown>[] = [];
 			let first = true;
 			for (const layer of result.layers) {
@@ -1300,7 +1345,7 @@
 
 	async function openNewLayer(anchor: string | null, picture: { canvas: HTMLCanvasElement; name: string } | null = null) {
 		const found = anchor ? stack.steps.findIndex((step) => step.id === anchor) : -1;
-		layerAnchor = found >= 0 && found < stack.cursor ? anchor : null;
+		layerAnchor = found >= 0 && found < stack.cursor && (sequential || isLayerStep(stack.steps[found])) ? anchor : null;
 		layerPicture = picture;
 		const entry = paintEntryId('brush');
 		notice = null;
@@ -1384,7 +1429,7 @@
 			if (!file) return false;
 			const stored = await api.uploadMedia(file, 'derived_artifact');
 			if (!stored.success || !stored.data) throw new Error(stored.message || 'The mask could not be saved');
-			mask = maskChannelOf(stored.data, geometryKey(effective));
+			mask = maskChannelOf(stored.data, geometryKey(maskBasis));
 			maskDirty = false;
 			return true;
 		} catch (error) {
@@ -1433,7 +1478,7 @@
 			const anchored = stack.steps.findIndex((step) => step.id === anchor);
 			if (anchored >= 0 && anchored < stack.cursor) {
 				if (stack.steps[anchored].tool === 'paint') stack = reopen(stack, anchor);
-				else layerAnchor = anchor;
+				else if (sequential || isLayerStep(stack.steps[anchored])) layerAnchor = anchor;
 			}
 		}
 		const existing = id === 'slice' ? appliedSteps(stack).find(isSlice) : null;
@@ -1538,7 +1583,9 @@
 				return;
 			}
 		}
+		const unswitch = stack.cleared?.label === SWITCH_TO_LAYERS && stack.cleared.after === stack.steps;
 		stack = undo(stack);
+		if (unswitch) sequential = true;
 	}
 
 	function doRedo() {
@@ -2745,7 +2792,7 @@
 		selectedId={selectedStepId}
 		isLayer={isLayerStep}
 		{layerThumb}
-		{appliesBeneath}
+		movable={!sequential}
 		maskOf={patchMaskOf}
 		{showMask}
 		ontogglemask={() => (showMask = !showMask)}
@@ -2801,6 +2848,16 @@
 			{/if}
 		{/snippet}
 		{#snippet notes()}
+			{#if sequential && !sequentialNoteDismissed && !layerOrdered(stack)}
+				<div class="mx-2 mb-2.5 mt-1 flex flex-none items-start gap-2 rounded bg-surface-2 px-2.5 py-2 text-sm text-fg-muted" data-stack-note="sequential">
+					<Icon name="info" className="mt-px h-3.5 w-3.5 flex-none" />
+					<span class="flex min-w-0 flex-1 flex-col items-start gap-1.5">
+						<span>Made before layers and edits were split: each edit here still applies only to what is beneath it.</span>
+						<Button size="xs" onclick={() => void useLayerOrder()} attrs={{ 'data-stack-switch-layers': '' }}>Switch to layers</Button>
+					</span>
+					<IconButton icon="close" label="Dismiss" size="xs" onclick={() => (sequentialNoteDismissed = true)} data-stack-note-dismiss />
+				</div>
+			{/if}
 			{#if flattenedPaintNote}
 				<div class="mx-2 mb-2.5 mt-1 flex flex-none items-start gap-2 rounded bg-surface-2 px-2.5 py-2 text-sm text-fg-muted" data-stack-note="flattened-paint">
 					<Icon name="info" className="mt-px h-3.5 w-3.5 flex-none" />

@@ -253,13 +253,13 @@ function rail(page: Page, tool: string) {
 
 async function stackRows(page: Page) {
 	return page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) =>
-		rows.map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`).reverse()
+		rows.sort((a, b) => Number(a.getAttribute('data-stack-index')) - Number(b.getAttribute('data-stack-index'))).map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`)
 	);
 }
 
-const ORIGINAL = 'original:00Original640×480·PNG';
+const ORIGINAL = 'original:Original640×480·PNG';
 const CROP = '01Crop1:1·480×480';
-const REEL = '02ReelAppliestotheoriginal';
+const REEL = '02ReelIntensity100';
 
 async function openHistoryPicture(page: Page) {
 	await page.getByRole('button', { name: 'Add new tab' }).click();
@@ -404,7 +404,7 @@ test.describe('Continue an edit from a saved picture on desktop', () => {
 		await screenshot(page, JOURNEY, '04-one-row-edit-gone-1440');
 		await page.locator('[data-bar-row="edit-image"]').click();
 		await expect(page.locator('[data-image-editor]')).toBeVisible({ timeout: 15000 });
-		await expect.poll(() => stackRows(page)).toEqual(['current:00Original640×480·PNG']);
+		await expect.poll(() => stackRows(page)).toEqual(['current:Original640×480·PNG']);
 		expect(server.gets).toEqual([]);
 	});
 

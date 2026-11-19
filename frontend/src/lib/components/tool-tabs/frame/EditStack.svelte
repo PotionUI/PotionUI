@@ -34,7 +34,7 @@
 		selectedId = null,
 		isLayer = () => false,
 		layerThumb = () => null,
-		appliesBeneath = () => false,
+		movable = true,
 		onopacity,
 		maskOf = () => null,
 		showMask = false,
@@ -70,7 +70,7 @@
 		selectedId?: string | null;
 		isLayer?: (step: EditStep<unknown>) => boolean;
 		layerThumb?: (step: EditStep<unknown>) => string | null;
-		appliesBeneath?: (step: EditStep<unknown>) => boolean;
+		movable?: boolean;
 		onopacity?: (id: string, opacity: number, live: boolean) => void;
 		maskOf?: (step: EditStep<unknown>) => PatchMask | null;
 		showMask?: boolean;
@@ -104,7 +104,11 @@
 
 	let rows = $derived(stackRows(stack));
 	let shownRows = $derived(layered ? [...rows.slice(1).reverse(), rows[0]] : rows);
-	let selectedLook = $derived(layered ? (rows.find((row) => isSelected(row) && !!row.step && appliesBeneath(row.step)) ?? null) : null);
+	let layerRows = $derived(layered ? shownRows.filter((row) => row.key === 'original' || isLayerKind(row)) : []);
+	let editRows = $derived(layered ? shownRows.filter((row) => row.key !== 'original' && !isLayerKind(row)) : []);
+	let editNumbers = $derived(new Map(rows.filter((row) => row.key !== 'original' && !isLayerKind(row)).map((row, i) => [row.key, i + 1] as const)));
+	let layerCount = $derived(rows.filter((row) => row.key !== 'original' && row.status !== 'undone' && row.status !== 'pending' && isLayerKind(row)).length);
+	let editCount = $derived(rows.filter((row) => row.key !== 'original' && row.status !== 'undone' && row.status !== 'pending' && !isLayerKind(row)).length);
 	let dragOpacity = $state<number | null>(null);
 	let applied = $derived(appliedCount(stack));
 	let undone = $derived(undoneCount(stack));
@@ -129,6 +133,11 @@
 	let dropIndex = $derived.by(() => {
 		if (!drag) return -1;
 		const shift = Math.round(drag.dy / drag.height) * (layered ? -1 : 1);
+		if (layered) {
+			const group = sectionIndices(drag.id);
+			const at = Math.max(0, Math.min(group.length - 1, group.indexOf(drag.from) + shift));
+			return group[at] ?? drag.from;
+		}
 		return Math.max(0, Math.min(applied - 1, drag.from + shift));
 	});
 	let dropAllowed = $derived(drag ? dropIndex === drag.from || canMove(stack, drag.id, dropIndex, pinned) : false);
@@ -151,7 +160,7 @@
 	}
 
 	let refusal = $derived.by(() => {
-		if (!drag || dropAllowed) return null;
+		if (!drag || dropAllowed || layered) return null;
 		const moving = stack.steps.find((step) => step.id === drag!.id);
 		const path = stack.steps.slice(Math.min(drag.from, dropIndex), Math.max(drag.from, dropIndex) + 1).filter((step) => step.id !== drag!.id);
 		const blocker = path.find((step) => step.lane && pinned.some((pair) => pair.includes(step.lane!) && (!moving?.lane || moving.lane !== step.lane) && pair.includes(moving?.lane ?? '')));
@@ -163,7 +172,33 @@
 	const pad = (n: number) => String(n).padStart(2, '0');
 
 	function draggable(row: StackRow<unknown>): boolean {
-		return !!row.step && (row.status === 'applied' || row.status === 'current') && !stack.pending?.target;
+		return movable && !!row.step && (row.status === 'applied' || row.status === 'current') && !stack.pending?.target;
+	}
+
+	function isLayerKind(row: StackRow<unknown>): boolean {
+		const step = row.step ?? row.pending;
+		return !!step && isLayer(step as EditStep<unknown>);
+	}
+
+	function sectionIndices(id: string): number[] {
+		const steps = stack.steps.slice(0, applied);
+		const moving = steps.find((step) => step.id === id);
+		if (!moving) return [];
+		const layer = isLayer(moving);
+		return steps.flatMap((step, index) => (isLayer(step) === layer ? [index] : []));
+	}
+
+	function neighbour(row: StackRow<unknown>, offset: number): number | null {
+		if (!row.step) return null;
+		if (!layered) return row.index - 1 + offset;
+		const group = sectionIndices(row.step.id);
+		const at = group.indexOf(row.index - 1) + offset;
+		return at >= 0 && at < group.length ? group[at] : null;
+	}
+
+	function canStep(row: StackRow<unknown>, offset: number): boolean {
+		const to = neighbour(row, offset);
+		return movable && !!row.step && to !== null && canMove(stack, row.step.id, to, pinned);
 	}
 
 	function rowLabel(row: StackRow<unknown>): string {
@@ -188,35 +223,14 @@
 		return 'h-10';
 	}
 
-	function layersBelow(row: StackRow<unknown>): number {
-		let count = 1;
-		for (const other of rows) if (other.step && other.index < row.index && other.status !== 'undone' && isLayer(other.step)) count += 1;
-		return count;
-	}
-
-	function bracketed(row: StackRow<unknown>): boolean {
-		return !!selectedLook && row.status !== 'undone' && row.status !== 'pending' && row.index <= selectedLook.index;
-	}
-
-	function subtitleOf(row: StackRow<unknown>, fallback: string): string {
-		if (!layered || !row.step || row.status === 'undone') return fallback;
-		if (appliesBeneath(row.step)) {
-			const count = layersBelow(row);
-			return count <= 1 ? 'Applies to the original' : `Applies to ${count} layers below`;
-		}
-		if (selectedLook?.step && isLayer(row.step) && row.index > selectedLook.index) return `Not affected by ${selectedLook.step.label}`;
-		return fallback;
-	}
-
 	function percent(step: EditStep<unknown>): number {
 		return Math.round(opacityOf(step) * 100);
 	}
 
 	function drawerItems(row: StackRow<unknown>): MenuItem[] {
-		const index = row.index - 1;
 		return [
-			{ id: 'up', label: 'Move up', icon: 'chevron-up', disabled: !row.step || !canMove(stack, row.step.id, index + 1, pinned) },
-			{ id: 'down', label: 'Move down', icon: 'chevron-down', disabled: !row.step || !canMove(stack, row.step.id, index - 1, pinned) },
+			{ id: 'up', label: 'Move up', icon: 'chevron-up', disabled: !canStep(row, 1) },
+			{ id: 'down', label: 'Move down', icon: 'chevron-down', disabled: !canStep(row, -1) },
 			{ id: 'sep', label: '', separator: true },
 			{ id: 'rename', label: 'Rename', icon: 'pencil', disabled: !onrename || !row.step || row.status === 'undone' },
 			{ id: 'duplicate', label: 'Duplicate', icon: 'copy', disabled: !row.step || !duplicable(row.step) || row.status === 'undone' },
@@ -228,9 +242,10 @@
 
 	function chooseDrawer(row: StackRow<unknown>, id: string) {
 		if (!row.step) return;
-		const index = row.index - 1;
-		if (id === 'up') onmove(row.step.id, index + 1);
-		else if (id === 'down') onmove(row.step.id, index - 1);
+		const up = neighbour(row, 1);
+		const down = neighbour(row, -1);
+		if (id === 'up' && up !== null && canStep(row, 1)) onmove(row.step.id, up);
+		else if (id === 'down' && down !== null && canStep(row, -1)) onmove(row.step.id, down);
 		else if (id === 'rename') {
 			renameText = row.step.label;
 			renaming = { id: row.step.id };
@@ -263,9 +278,9 @@
 		if (!event.altKey || !row.step || !draggable(row)) return;
 		if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
 		event.preventDefault();
-		const up = event.key === 'ArrowUp';
-		const to = row.index - 1 + (up === layered ? 1 : -1);
-		if (canMove(stack, row.step.id, to, pinned)) onmove(row.step.id, to);
+		const offset = (event.key === 'ArrowUp') === layered ? 1 : -1;
+		const to = neighbour(row, offset);
+		if (to !== null && canStep(row, offset)) onmove(row.step.id, to);
 	}
 
 	function startDrag(event: PointerEvent, row: StackRow<unknown>) {
@@ -298,282 +313,348 @@
 	</div>
 {/snippet}
 
-<section class="flex min-h-0 flex-col {sheet ? '' : `stack-panel ${shut ? 'h-11 overflow-hidden' : grouped ? 'h-[320px] max-h-[60%]' : 'h-[236px]'} flex-none border-t border-line`}" aria-label="Edits" data-edit-stack={variant} data-folded={shut || undefined}>
-	{#if sheet}
-		<div class="flex flex-none items-center gap-2 px-2 pb-2.5 pt-1">
-			<h2 class="text-lg font-semibold text-fg">Edits</h2>
-			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count>{applied}</span>
-			<span class="flex-1"></span>
-			{#if headerActions}
-				{@render headerActions()}
-			{/if}
-			<IconButton icon="editor-undo" label={undoLabel(stack) ? `Undo ${undoLabel(stack)}` : 'Undo'} size="sm" disabled={!canUndo(stack)} onclick={() => onundo?.()} />
-			<IconButton icon="editor-redo" label={redoLabel(stack) ? `Redo ${redoLabel(stack)}` : 'Redo'} size="sm" disabled={!canRedo(stack)} onclick={() => onredo?.()} />
-		</div>
-	{:else}
-		<div class="flex h-11 flex-none items-center gap-2 pl-4 pr-2">
-			<Icon name="editor-layers" className="h-3.5 w-3.5 flex-none text-fg-muted" />
-			<h2 class="text-base font-semibold text-fg">Edits</h2>
-			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count>{applied}{undone ? ` + ${undone} undone` : ''}</span>
-			<span class="flex-1"></span>
-			{#if headerActions && !shut}
-				{@render headerActions()}
-			{/if}
-			{#if moreItems.length && !shut}
-				<Menu label="Edit stack options" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
-			{/if}
-			<IconButton
-				icon={shut ? 'chevron-right' : 'chevron-down'}
-				label={shut ? 'Show edits' : 'Hide edits'}
-				size="sm"
-				ariaExpanded={!shut}
-				onclick={() => (folded && !collapsed ? (opened = !opened) : (collapsed = !collapsed))}
-				data-stack-fold
-			/>
-		</div>
-	{/if}
-
-	<div class="min-h-0 flex-initial {sheet ? '' : 'overflow-y-auto px-2 pb-2'} {shut ? 'hidden' : ''}" role="list" data-stack-rows>
-		{#each shownRows as row (row.key)}
-			{@const step = row.step ?? row.pending}
-			{@const dragging = drag?.id === row.key}
-			{@const info = row.step && rowInfo ? rowInfo(row.step) : null}
-			{@const layerRow = isLayerRow(row)}
-			{@const thumb = info?.thumb ?? (layerRow && row.step ? layerThumb(row.step) : null)}
-			{@const slim = layered && row.key !== 'original' && !layerRow}
-			{@const dropHere = !!refusal && !!drag && row.index - 1 === dropIndex}
-			{#if dropHere && (dropIndex > (drag?.from ?? 0)) === layered}
-				{@render refusalLine()}
-			{/if}
-			<div
-				role="listitem"
-				class="group relative flex {rowHeight(row)} items-center gap-2 rounded pl-1 pr-1.5
-					{row.status === 'current' || row.reopened ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
-					{bracketed(row) ? 'is-bracket' : ''}
-					{row.status === 'pending' ? 'border border-dashed border-line-hover' : ''}
-						{grouped && !progress?.keepRow && slot === row.key && (row.status === 'pending' || row.reopened) ? '!hidden' : ''}
-					{row.status === 'undone' ? 'opacity-[0.45]' : ''}
-					{dragging ? `z-10 bg-surface-2 shadow-floating ${dropAllowed ? '' : 'cursor-not-allowed'}` : ''}"
-				style={dragging && drag ? `transform: translateY(${drag.dy}px)` : undefined}
-				data-stack-row={row.key}
-				data-status={row.status}
-				aria-current={row.reopened ? 'true' : undefined}
-				data-hidden={row.hidden || undefined}
-				data-stack-kind={layered && row.step ? (layerRow ? 'layer' : 'slim') : undefined}
-				data-bracket={bracketed(row) || undefined}
-				data-drop-blocked={dragging && !dropAllowed ? '' : undefined}
+{#snippet stackRow(row: StackRow<unknown>)}
+		{@const step = row.step ?? row.pending}
+		{@const dragging = drag?.id === row.key}
+		{@const info = row.step && rowInfo ? rowInfo(row.step) : null}
+		{@const layerRow = isLayerRow(row)}
+		{@const thumb = info?.thumb ?? (layerRow && row.step ? layerThumb(row.step) : null)}
+		{@const slim = layered && row.key !== 'original' && !layerRow}
+		{@const dropHere = !!refusal && !!drag && row.index - 1 === dropIndex}
+		{#if dropHere && (dropIndex > (drag?.from ?? 0)) === layered}
+			{@render refusalLine()}
+		{/if}
+		<div
+			role="listitem"
+			class="group relative flex {rowHeight(row)} items-center gap-2 rounded pl-1 pr-1.5
+				{row.status === 'current' || row.reopened ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
+				{row.status === 'pending' ? 'border border-dashed border-line-hover' : ''}
+					{grouped && !progress?.keepRow && slot === row.key && (row.status === 'pending' || row.reopened) ? '!hidden' : ''}
+				{row.status === 'undone' ? 'opacity-[0.45]' : ''}
+				{dragging ? `z-10 bg-surface-2 shadow-floating ${dropAllowed ? '' : 'cursor-not-allowed'}` : ''}"
+			style={dragging && drag ? `transform: translateY(${drag.dy}px)` : undefined}
+			data-stack-row={row.key}
+			data-stack-index={row.index}
+			data-status={row.status}
+			aria-current={row.reopened ? 'true' : undefined}
+			data-hidden={row.hidden || undefined}
+			data-stack-kind={layered && row.step ? (layerRow ? 'layer' : 'slim') : undefined}
+			data-drop-blocked={dragging && !dropAllowed ? '' : undefined}
+		>
+			<span
+				class="grid w-3 flex-none place-items-center text-fg-disabled {draggable(row) ? 'cursor-grab touch-none' : ''}"
+				aria-hidden="true"
+				onpointerdown={(event) => startDrag(event, row)}
+				onpointermove={moveDrag}
+				onpointerup={endDrag}
+				onpointercancel={() => (drag = null)}
+				data-stack-grip={draggable(row) ? row.key : undefined}
 			>
-				<span
-					class="grid w-3 flex-none place-items-center text-fg-disabled {draggable(row) ? 'cursor-grab touch-none' : ''}"
-					aria-hidden="true"
-					onpointerdown={(event) => startDrag(event, row)}
-					onpointermove={moveDrag}
-					onpointerup={endDrag}
-					onpointercancel={() => (drag = null)}
-					data-stack-grip={draggable(row) ? row.key : undefined}
-				>
-					{#if row.step}<Icon name="grip" className="h-3.5 w-3.5" />{/if}
-				</span>
-				{#snippet body()}
+				{#if row.step}<Icon name="grip" className="h-3.5 w-3.5" />{/if}
+			</span>
+			{#snippet body()}
+				{#if !layered}
 					<span class="w-[18px] flex-none font-mono text-sm tabular-nums text-fg-subtle">{pad(row.index)}</span>
-					{#if row.key === 'original' && layered && original.thumb}
-						<span class="alpha-checker flex h-7 flex-none items-center overflow-hidden rounded" data-stack-thumb>
-							<img src={original.thumb} alt="" class="h-7 w-auto max-w-12 object-contain" />
-						</span>
-					{:else if row.key === 'original'}
-						{#if original.thumb}
-							<span class="alpha-checker relative h-7 w-7 flex-none overflow-hidden rounded" data-stack-thumb>
-								<span class="absolute inset-0 bg-cover bg-center" style={`background-image: url(${JSON.stringify(original.thumb)})`}></span>
-							</span>
-						{:else}
-							<span class="grid h-7 w-7 flex-none place-items-center rounded bg-surface-2 text-fg-muted">
-								<Icon name="image" className="h-3.5 w-3.5" />
-							</span>
-						{/if}
-					{:else if thumb && layered}
-						<span class="alpha-checker flex h-7 flex-none items-center overflow-hidden rounded {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-thumb>
-							<img src={thumb} alt="" class="h-7 w-auto max-w-12 object-contain" />
-						</span>
-					{:else if thumb}
-						<span class="alpha-checker relative h-7 w-7 flex-none overflow-hidden rounded {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-thumb>
-							<span class="absolute inset-0 bg-cover bg-center" style={`background-image: url(${JSON.stringify(thumb)})`}></span>
+				{:else if row.key !== 'original' && !isLayerKind(row)}
+					<span class="w-[18px] flex-none font-mono text-sm tabular-nums text-fg-subtle" data-stack-number={row.key}>{pad(editNumbers.get(row.key) ?? 0)}</span>
+				{/if}
+				{#if row.key === 'original' && layered && original.thumb}
+					<span class="alpha-checker flex h-7 flex-none items-center overflow-hidden rounded" data-stack-thumb>
+						<img src={original.thumb} alt="" class="h-7 w-auto max-w-12 object-contain" />
+					</span>
+				{:else if row.key === 'original'}
+					{#if original.thumb}
+						<span class="alpha-checker relative h-7 w-7 flex-none overflow-hidden rounded" data-stack-thumb>
+							<span class="absolute inset-0 bg-cover bg-center" style={`background-image: url(${JSON.stringify(original.thumb)})`}></span>
 						</span>
 					{:else}
-						<span class="grid {slim ? 'h-6 w-6' : 'h-7 w-7'} flex-none place-items-center rounded bg-surface-2 text-fg-muted {row.hidden ? 'opacity-[0.45]' : ''}">
-							<Icon name={step?.icon ?? 'sliders'} className="h-3.5 w-3.5" />
+						<span class="grid h-7 w-7 flex-none place-items-center rounded bg-surface-2 text-fg-muted">
+							<Icon name="image" className="h-3.5 w-3.5" />
 						</span>
 					{/if}
-					<span class="flex min-w-0 flex-1 flex-col">
-						<span
-							class="flex min-w-0 items-center gap-1.5 text-base font-medium leading-[18px]
-								{row.status === 'pending' ? 'text-fg-muted' : 'text-fg'}
-								{row.status === 'undone' ? 'line-through decoration-fg-subtle' : ''}
-								{row.hidden ? 'opacity-[0.45]' : ''}"
-						>
-							{#if row.status === 'editing' || row.status === 'pending'}<i class="h-1.5 w-1.5 flex-none rounded-full bg-signal" data-stack-marker={row.status}></i>{/if}
-							{#if renaming && row.step && renaming.id === row.step.id}
-								<input
-									use:focusInput
-									type="text"
-									aria-label="Layer name"
-									class="h-6 min-w-0 flex-1 rounded border border-line-strong bg-surface-1 px-1.5 text-base text-fg focus-visible:outline-none focus-visible:border-signal"
-									bind:value={renameText}
-									onclick={(event) => event.stopPropagation()}
-									onkeydown={(event) => {
-										event.stopPropagation();
-										if (event.key === 'Enter') finishRename(true);
-										else if (event.key === 'Escape') finishRename(false);
-									}}
-									onblur={() => finishRename(true)}
-									data-stack-rename={row.key}
-								/>
-							{:else}
-								<span class="truncate">{row.key === 'original' ? (original.label ?? 'Original') : step?.label}</span>
+				{:else if thumb && layered}
+					<span class="alpha-checker flex h-7 flex-none items-center overflow-hidden rounded {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-thumb>
+						<img src={thumb} alt="" class="h-7 w-auto max-w-12 object-contain" />
+					</span>
+				{:else if thumb}
+					<span class="alpha-checker relative h-7 w-7 flex-none overflow-hidden rounded {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-thumb>
+						<span class="absolute inset-0 bg-cover bg-center" style={`background-image: url(${JSON.stringify(thumb)})`}></span>
+					</span>
+				{:else}
+					<span class="grid {slim ? 'h-6 w-6' : 'h-7 w-7'} flex-none place-items-center rounded bg-surface-2 text-fg-muted {row.hidden ? 'opacity-[0.45]' : ''}">
+						<Icon name={step?.icon ?? 'sliders'} className="h-3.5 w-3.5" />
+					</span>
+				{/if}
+				<span class="flex min-w-0 flex-1 flex-col">
+					<span
+						class="flex min-w-0 items-center gap-1.5 text-base font-medium leading-[18px]
+							{row.status === 'pending' ? 'text-fg-muted' : 'text-fg'}
+							{row.status === 'undone' ? 'line-through decoration-fg-subtle' : ''}
+							{row.hidden ? 'opacity-[0.45]' : ''}"
+					>
+						{#if row.status === 'editing' || row.status === 'pending'}<i class="h-1.5 w-1.5 flex-none rounded-full bg-signal" data-stack-marker={row.status}></i>{/if}
+						{#if renaming && row.step && renaming.id === row.step.id}
+							<input
+								use:focusInput
+								type="text"
+								aria-label="Layer name"
+								class="h-6 min-w-0 flex-1 rounded border border-line-strong bg-surface-1 px-1.5 text-base text-fg focus-visible:outline-none focus-visible:border-signal"
+								bind:value={renameText}
+								onclick={(event) => event.stopPropagation()}
+								onkeydown={(event) => {
+									event.stopPropagation();
+									if (event.key === 'Enter') finishRename(true);
+									else if (event.key === 'Escape') finishRename(false);
+								}}
+								onblur={() => finishRename(true)}
+								data-stack-rename={row.key}
+							/>
+						{:else}
+							<span class="truncate">{row.key === 'original' ? (original.label ?? 'Original') : step?.label}</span>
+						{/if}
+					</span>
+					{#if info && row.step && row.status !== 'undone' && row.status !== 'pending' && info.state.kind !== 'done'}
+						<span class="flex min-w-0 items-center gap-1.5 text-sm" data-stack-state={info.state.kind}>
+							{#if info.state.kind === 'busy'}
+								{#if info.state.progress !== undefined}
+									<span class="truncate text-signal">{info.state.label} <span class="font-mono tabular-nums">{Math.round(info.state.progress)}%</span></span>
+								{:else}
+									<Spinner size="sm" /><span class="truncate text-fg-muted">{info.state.label}</span>
+								{/if}
+							{:else if info.state.kind === 'skipped'}
+								{#if info.state.detail}
+									<Tooltip text={info.state.detail} position="top" wrapperClass="flex min-w-0">
+										<span class="truncate {info.state.tone === 'danger' ? 'text-danger' : info.state.tone === 'warning' ? 'text-warning' : 'text-fg-subtle'}">{info.state.label}</span>
+									</Tooltip>
+								{:else}
+									<span class="truncate {info.state.tone === 'danger' ? 'text-danger' : info.state.tone === 'warning' ? 'text-warning' : 'text-fg-subtle'}">{info.state.label}</span>
+								{/if}
 							{/if}
 						</span>
-						{#if info && row.step && row.status !== 'undone' && row.status !== 'pending' && info.state.kind !== 'done'}
-							<span class="flex min-w-0 items-center gap-1.5 text-sm" data-stack-state={info.state.kind}>
-								{#if info.state.kind === 'busy'}
-									{#if info.state.progress !== undefined}
-										<span class="truncate text-signal">{info.state.label} <span class="font-mono tabular-nums">{Math.round(info.state.progress)}%</span></span>
-									{:else}
-										<Spinner size="sm" /><span class="truncate text-fg-muted">{info.state.label}</span>
-									{/if}
-								{:else if info.state.kind === 'skipped'}
-									{#if info.state.detail}
-										<Tooltip text={info.state.detail} position="top" wrapperClass="flex min-w-0">
-											<span class="truncate {info.state.tone === 'danger' ? 'text-danger' : info.state.tone === 'warning' ? 'text-warning' : 'text-fg-subtle'}">{info.state.label}</span>
-										</Tooltip>
-									{:else}
-										<span class="truncate {info.state.tone === 'danger' ? 'text-danger' : info.state.tone === 'warning' ? 'text-warning' : 'text-fg-subtle'}">{info.state.label}</span>
-									{/if}
-								{/if}
-							</span>
-						{:else}
-							<span class="truncate font-mono text-sm text-fg-subtle">
-								{#if row.status === 'editing'}<span class="font-sans text-signal" data-stack-editing>Editing</span><span class="px-1">·</span>{:else if row.status === 'pending'}<span class="font-sans" data-stack-editing>Not applied</span><span class="px-1">·</span>{/if}{row.key === 'original' ? original.summary : row.status === 'undone' ? 'Undone' : subtitleOf(row, step?.summary ?? '')}
-							</span>
-						{/if}
-					</span>
-				{/snippet}
-				{#if row.key === 'original' || row.status === 'pending' || (info?.locked && row.status !== 'undone') || (renaming && renaming.id === row.step?.id)}
-					<span class="flex min-w-0 flex-1 items-center gap-2" data-stack-locked={info?.locked ? '' : undefined}>{@render body()}</span>
-				{:else}
-					<button
-						type="button"
-						class="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline-none"
-						aria-label={rowLabel(row)}
-						onclick={() => activate(row)}
-						onkeydown={(event) => onRowKeydown(event, row)}
-						data-stack-open={row.key}
-					>
-						{@render body()}
-					</button>
-				{/if}
-				{#if info && row.step && row.status !== 'pending' && row.status !== 'undone'}
-					<span class="flex min-w-0 flex-none items-center gap-1.5">
-						{#if info.row && info.entry}
-							<EditorEntryComponent entry={info.entry} componentRef={info.row} props={{ step: row.step, state: info.state }} variant="row" />
-						{/if}
-						{#if info.state.kind === 'skipped' && info.state.action}
-							{@const action = info.state.action}
-							<Button size="xs" variant="ghost" onclick={() => row.step && onrowaction?.(row.step.id, action.id)}>{action.label}</Button>
-						{/if}
-					</span>
-				{/if}
-				{#if info?.state.kind === 'busy' && info.state.progress !== undefined}
-					<span class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-surface-3" data-stack-progress><i class="block h-full bg-signal" style="width: {info.state.progress}%"></i></span>
-				{/if}
-				{#if layered && row.step && row.status !== 'undone' && row.status !== 'pending'}
-					{#if layerRow && !sheet}
-						<span class="flex-none font-mono text-sm tabular-nums {isSelected(row) ? 'text-fg' : 'text-fg-subtle'} {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-opacity={row.key}>{percent(row.step)}%</span>
+					{:else}
+						<span class="truncate font-mono text-sm text-fg-subtle">
+							{#if row.status === 'editing'}<span class="font-sans text-signal" data-stack-editing>Editing</span><span class="px-1">·</span>{:else if row.status === 'pending'}<span class="font-sans" data-stack-editing>Not applied</span><span class="px-1">·</span>{/if}{row.key === 'original' ? original.summary : row.status === 'undone' ? 'Undone' : (step?.summary ?? '')}
+						</span>
 					{/if}
-					{#if info?.hideToggle !== false}
+				</span>
+			{/snippet}
+			{#if row.key === 'original' || row.status === 'pending' || (info?.locked && row.status !== 'undone') || (renaming && renaming.id === row.step?.id)}
+				<span class="flex min-w-0 flex-1 items-center gap-2" data-stack-locked={info?.locked ? '' : undefined}>{@render body()}</span>
+			{:else}
+				<button
+					type="button"
+					class="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline-none"
+					aria-label={rowLabel(row)}
+					onclick={() => activate(row)}
+					onkeydown={(event) => onRowKeydown(event, row)}
+					data-stack-open={row.key}
+				>
+					{@render body()}
+				</button>
+			{/if}
+			{#if info && row.step && row.status !== 'pending' && row.status !== 'undone'}
+				<span class="flex min-w-0 flex-none items-center gap-1.5">
+					{#if info.row && info.entry}
+						<EditorEntryComponent entry={info.entry} componentRef={info.row} props={{ step: row.step, state: info.state }} variant="row" />
+					{/if}
+					{#if info.state.kind === 'skipped' && info.state.action}
+						{@const action = info.state.action}
+						<Button size="xs" variant="ghost" onclick={() => row.step && onrowaction?.(row.step.id, action.id)}>{action.label}</Button>
+					{/if}
+				</span>
+			{/if}
+			{#if info?.state.kind === 'busy' && info.state.progress !== undefined}
+				<span class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-surface-3" data-stack-progress><i class="block h-full bg-signal" style="width: {info.state.progress}%"></i></span>
+			{/if}
+			{#if layered && row.step && row.status !== 'undone' && row.status !== 'pending'}
+				{#if layerRow && !sheet}
+					<span class="flex-none font-mono text-sm tabular-nums {isSelected(row) ? 'text-fg' : 'text-fg-subtle'} {row.hidden ? 'opacity-[0.45]' : ''}" data-stack-opacity={row.key}>{percent(row.step)}%</span>
+				{/if}
+				{#if info?.hideToggle !== false}
+					<IconButton
+						icon={row.hidden ? 'editor-eye-off' : 'editor-eye'}
+						label="{row.hidden ? 'Show' : 'Hide'} {row.step.label}"
+						size="xs"
+						class={sheet ? 'min-h-11 min-w-11' : ''}
+						ariaPressed={row.hidden}
+						onclick={() => row.step && ontogglehidden(row.step.id)}
+						data-stack-hide={row.key}
+					/>
+				{/if}
+			{/if}
+			{#if row.step && !sheet && row.status !== 'undone'}
+				<span class="flex flex-none {row.hidden || row.reopened ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}" data-stack-actions>
+					{#each info?.actions ?? [] as action (action.id)}
+						<Tooltip text={action.label} position="top">
+							<IconButton icon={action.icon} label="{action.label} {row.step.label}" size="xs" onclick={() => row.step && onrowaction?.(row.step.id, action.id)} data-stack-action={action.id} />
+						</Tooltip>
+					{/each}
+					{#if info?.hideToggle !== false && !layered}
+					<Tooltip text={row.hidden ? 'Show step' : 'Hide step'} position="top">
 						<IconButton
 							icon={row.hidden ? 'editor-eye-off' : 'editor-eye'}
 							label="{row.hidden ? 'Show' : 'Hide'} {row.step.label}"
 							size="xs"
-							class={sheet ? 'min-h-11 min-w-11' : ''}
 							ariaPressed={row.hidden}
 							onclick={() => row.step && ontogglehidden(row.step.id)}
 							data-stack-hide={row.key}
 						/>
+					</Tooltip>
 					{/if}
+					{#if info?.removable !== false}
+				<Tooltip text="Remove step" position="top">
+						<IconButton
+							icon="trash"
+							label="Remove {row.step.label}"
+							size="xs"
+							onclick={() => row.step && onremove(row.step.id)}
+							data-stack-remove={row.key}
+						/>
+					</Tooltip>
 				{/if}
-				{#if row.step && !sheet && row.status !== 'undone'}
-					<span class="flex flex-none {row.hidden || row.reopened ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}" data-stack-actions>
-						{#each info?.actions ?? [] as action (action.id)}
-							<Tooltip text={action.label} position="top">
-								<IconButton icon={action.icon} label="{action.label} {row.step.label}" size="xs" onclick={() => row.step && onrowaction?.(row.step.id, action.id)} data-stack-action={action.id} />
-							</Tooltip>
-						{/each}
-						{#if info?.hideToggle !== false && !layered}
-						<Tooltip text={row.hidden ? 'Show step' : 'Hide step'} position="top">
-							<IconButton
-								icon={row.hidden ? 'editor-eye-off' : 'editor-eye'}
-								label="{row.hidden ? 'Show' : 'Hide'} {row.step.label}"
-								size="xs"
-								ariaPressed={row.hidden}
-								onclick={() => row.step && ontogglehidden(row.step.id)}
-								data-stack-hide={row.key}
-							/>
-						</Tooltip>
-						{/if}
-						{#if info?.removable !== false}
-					<Tooltip text="Remove step" position="top">
-							<IconButton
-								icon="trash"
-								label="Remove {row.step.label}"
-								size="xs"
-								onclick={() => row.step && onremove(row.step.id)}
-								data-stack-remove={row.key}
-							/>
-						</Tooltip>
-					{/if}
-					</span>
+				</span>
+			{/if}
+		</div>
+		{#if layerRow && isSelected(row) && row.step}
+			{@const patchMask = maskOf(row.step)}
+			<div class="mb-1 ml-1 flex flex-col gap-1.5 border-l-2 border-signal bg-signal/[0.04] py-1 pl-3 pr-1.5" role="group" aria-label="Layer opacity" data-layer-drawer={row.key}>
+				<div class="flex items-center gap-1">
+				<div class="min-w-0 flex-1">
+					<SliderField
+						name="layer-opacity"
+						config={{ title: 'Opacity', min: 0, max: 100, default: 100, unit: '%', layout: 'inline', reset: true, legend: false }}
+						value={percent(row.step)}
+						onChange={(_name, value) => slideOpacity(row, Number(value))}
+						onCommit={() => commitOpacity(row)}
+					/>
+				</div>
+				<Menu label="Layer options for {row.step.label}" icon="chat-more" size="xs" items={drawerItems(row)} onselect={(id) => chooseDrawer(row, id)} menuAttrs={{ 'data-layer-menu': row.key }} />
+				</div>
+				{#if patchMask}
+					<div class="flex items-center gap-2.5 pb-0.5" data-patch-mask={row.key}>
+						<span class="w-12 flex-none text-sm text-fg-subtle">Mask</span>
+						<span class="relative h-7 w-[42px] flex-none overflow-hidden rounded bg-canvas shadow-[inset_0_0_0_1px_rgb(var(--line-strong))]" data-patch-mask-thumb>
+							{#if patchMask.url}
+								<img src={patchMask.url} alt="" class="h-full w-full object-contain" />
+							{:else}
+								<span class="absolute bg-fg/90" style="left: {patchMask.rect.x * 100}%; top: {patchMask.rect.y * 100}%; width: {patchMask.rect.width * 100}%; height: {patchMask.rect.height * 100}%"></span>
+							{/if}
+						</span>
+						<span class="min-w-0 flex-1 text-sm leading-tight text-fg">Edited region<span class="block text-fg-subtle">Outside it, unchanged</span></span>
+						<Button size="xs" pressed={showMask} onclick={() => ontogglemask?.()} attrs={{ 'data-patch-mask-toggle': row.key }}>{showMask ? 'Hide mask' : 'Show mask'}</Button>
+					</div>
 				{/if}
 			</div>
-			{#if layerRow && isSelected(row) && row.step}
-				{@const patchMask = maskOf(row.step)}
-				<div class="mb-1 ml-1 flex flex-col gap-1.5 border-l-2 border-signal bg-signal/[0.04] py-1 pl-3 pr-1.5" role="group" aria-label="Layer opacity" data-layer-drawer={row.key}>
-					<div class="flex items-center gap-1">
-					<div class="min-w-0 flex-1">
-						<SliderField
-							name="layer-opacity"
-							config={{ title: 'Opacity', min: 0, max: 100, default: 100, unit: '%', layout: 'inline', reset: true, legend: false }}
-							value={percent(row.step)}
-							onChange={(_name, value) => slideOpacity(row, Number(value))}
-							onCommit={() => commitOpacity(row)}
-						/>
-					</div>
-					<Menu label="Layer options for {row.step.label}" icon="chat-more" size="xs" items={drawerItems(row)} onselect={(id) => chooseDrawer(row, id)} menuAttrs={{ 'data-layer-menu': row.key }} />
-					</div>
-					{#if patchMask}
-						<div class="flex items-center gap-2.5 pb-0.5" data-patch-mask={row.key}>
-							<span class="w-12 flex-none text-sm text-fg-subtle">Mask</span>
-							<span class="relative h-7 w-[42px] flex-none overflow-hidden rounded bg-canvas shadow-[inset_0_0_0_1px_rgb(var(--line-strong))]" data-patch-mask-thumb>
-								{#if patchMask.url}
-									<img src={patchMask.url} alt="" class="h-full w-full object-contain" />
-								{:else}
-									<span class="absolute bg-fg/90" style="left: {patchMask.rect.x * 100}%; top: {patchMask.rect.y * 100}%; width: {patchMask.rect.width * 100}%; height: {patchMask.rect.height * 100}%"></span>
-								{/if}
-							</span>
-							<span class="min-w-0 flex-1 text-sm leading-tight text-fg">Edited region<span class="block text-fg-subtle">Outside it, unchanged</span></span>
-							<Button size="xs" pressed={showMask} onclick={() => ontogglemask?.()} attrs={{ 'data-patch-mask-toggle': row.key }}>{showMask ? 'Hide mask' : 'Show mask'}</Button>
-						</div>
-					{/if}
-				</div>
+		{/if}
+		{#if dropHere && (dropIndex > (drag?.from ?? 0)) !== layered}
+			{@render refusalLine()}
+		{/if}
+		{#if grouped && progressRow && slot === row.key}
+			<div role="listitem" class="mt-0.5" data-stack-group>
+				{@render progressRow(((row.status === 'pending' || row.reopened) && !progress?.keepRow) ? row.index : row.index + 1)}
+			</div>
+		{/if}
+{/snippet}
+
+{#snippet sectionHeader(name: 'layers' | 'edits')}
+	{@const count = name === 'layers' ? layerCount : editCount}
+	<div class="flex flex-none items-center gap-2 {sheet ? 'h-12 px-2' : name === 'layers' ? 'h-11 pl-4 pr-2' : 'h-10 border-t border-line pl-4 pr-2'}" data-stack-header={name}>
+		{#if !sheet}
+			<Icon name={name === 'layers' ? 'editor-layers' : 'sliders'} className="h-3.5 w-3.5 flex-none text-fg-muted" />
+		{/if}
+		<h2 class="{sheet ? 'text-lg' : 'text-base'} font-semibold text-fg">{name === 'layers' ? 'Layers' : 'Edits'}</h2>
+		<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count={name}>{count}</span>
+		<span class="flex-1"></span>
+		{#if name === 'layers'}
+			{#if headerActions && !shut}
+				{@render headerActions()}
 			{/if}
-			{#if dropHere && (dropIndex > (drag?.from ?? 0)) !== layered}
-				{@render refusalLine()}
+			{#if sheet}
+				<IconButton icon="editor-undo" label={undoLabel(stack) ? `Undo ${undoLabel(stack)}` : 'Undo'} size="sm" disabled={!canUndo(stack)} onclick={() => onundo?.()} />
+				<IconButton icon="editor-redo" label={redoLabel(stack) ? `Redo ${redoLabel(stack)}` : 'Redo'} size="sm" disabled={!canRedo(stack)} onclick={() => onredo?.()} />
+			{:else}
+				{#if moreItems.length && !shut}
+					<Menu label="Edit stack options" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
+				{/if}
+				<IconButton
+					icon={shut ? 'chevron-right' : 'chevron-down'}
+					label={shut ? 'Show layers and edits' : 'Hide layers and edits'}
+					size="sm"
+					ariaExpanded={!shut}
+					onclick={() => (folded && !collapsed ? (opened = !opened) : (collapsed = !collapsed))}
+					data-stack-fold
+				/>
 			{/if}
-			{#if grouped && progressRow && slot === row.key}
-				<div role="listitem" class="mt-0.5" data-stack-group>
-					{@render progressRow(((row.status === 'pending' || row.reopened) && !progress?.keepRow) ? row.index : row.index + 1)}
-				</div>
-			{/if}
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet layeredView()}
+	{@render sectionHeader('layers')}
+	<div class="min-h-0 flex-initial {sheet ? '' : 'overflow-y-auto pb-2'} {shut ? 'hidden' : ''}" data-stack-rows>
+		<div class={sheet ? '' : 'px-2'} role="list" aria-label="Layers" data-stack-section="layers">
+			{#each layerRows as row (row.key)}
+				{@render stackRow(row)}
+			{/each}
+		</div>
+		<div class={sheet ? 'mt-2' : 'mt-1'}>
+			{@render sectionHeader('edits')}
+		</div>
+		<div class={sheet ? '' : 'px-2'} role="list" aria-label="Edits" data-stack-section="edits">
+			{#each editRows as row (row.key)}
+				{@render stackRow(row)}
+			{/each}
+		</div>
+		<p class="px-4 pb-1 pt-1.5 text-sm text-fg-subtle" data-stack-edits-hint>
+			{editRows.length ? 'Edits apply to the whole layered picture.' : 'No edits yet. Looks, light, crop and resize land here and apply to the whole layered picture.'}
+		</p>
+	</div>
+{/snippet}
+
+<section class="flex min-h-0 flex-col {sheet ? '' : `stack-panel ${shut ? 'h-11 overflow-hidden' : layered ? 'h-[360px] max-h-[62%]' : grouped ? 'h-[320px] max-h-[60%]' : 'h-[236px]'} flex-none border-t border-line`}" aria-label={layered ? 'Layers and edits' : 'Edits'} data-edit-stack={variant} data-folded={shut || undefined} data-stack-layered={layered || undefined}>
+	{#if layered}
+		{@render layeredView()}
+	{:else}
+		{#if sheet}
+			<div class="flex flex-none items-center gap-2 px-2 pb-2.5 pt-1">
+				<h2 class="text-lg font-semibold text-fg">Edits</h2>
+				<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count>{applied}</span>
+				<span class="flex-1"></span>
+				{#if headerActions}
+					{@render headerActions()}
+				{/if}
+				<IconButton icon="editor-undo" label={undoLabel(stack) ? `Undo ${undoLabel(stack)}` : 'Undo'} size="sm" disabled={!canUndo(stack)} onclick={() => onundo?.()} />
+				<IconButton icon="editor-redo" label={redoLabel(stack) ? `Redo ${redoLabel(stack)}` : 'Redo'} size="sm" disabled={!canRedo(stack)} onclick={() => onredo?.()} />
+			</div>
+		{:else}
+			<div class="flex h-11 flex-none items-center gap-2 pl-4 pr-2">
+				<Icon name="editor-layers" className="h-3.5 w-3.5 flex-none text-fg-muted" />
+				<h2 class="text-base font-semibold text-fg">Edits</h2>
+				<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count>{applied}{undone ? ` + ${undone} undone` : ''}</span>
+				<span class="flex-1"></span>
+				{#if headerActions && !shut}
+					{@render headerActions()}
+				{/if}
+				{#if moreItems.length && !shut}
+					<Menu label="Edit stack options" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
+				{/if}
+				<IconButton
+					icon={shut ? 'chevron-right' : 'chevron-down'}
+					label={shut ? 'Show edits' : 'Hide edits'}
+					size="sm"
+					ariaExpanded={!shut}
+					onclick={() => (folded && !collapsed ? (opened = !opened) : (collapsed = !collapsed))}
+					data-stack-fold
+				/>
+			</div>
+		{/if}
+
+	<div class="min-h-0 flex-initial {sheet ? '' : 'overflow-y-auto px-2 pb-2'} {shut ? 'hidden' : ''}" role="list" data-stack-rows>
+		{#each shownRows as row (row.key)}
+			{@render stackRow(row)}
 		{/each}
 	</div>
+	{/if}
 
 	{#if undone && !stack.pending && !sheet}
 		<div class="mx-2 mb-2.5 mt-1 flex flex-none items-start gap-2 rounded bg-surface-2 px-2.5 py-2 text-sm text-fg-muted" data-stack-note="undone">
@@ -593,16 +674,6 @@
 		left: -8px;
 		top: 8px;
 		bottom: 8px;
-		width: 2px;
-		background: rgb(var(--signal));
-	}
-
-	.is-bracket::before {
-		content: '';
-		position: absolute;
-		left: -8px;
-		top: 0;
-		bottom: 0;
 		width: 2px;
 		background: rgb(var(--signal));
 	}

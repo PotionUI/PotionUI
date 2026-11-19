@@ -2505,6 +2505,11 @@ the step kind at once, from the manifest, and fills in the rest when the file ha
 | `onAction(step, action, ctx)` | Handles a row action. |
 | `version`, `migrate(params, from)` | Params saved with an older `v` are passed through `migrate`; params with a newer `v` than `version` are shown as "Made with a newer version" and are not run. |
 | `reopenTool` | The rail tool id (or a function of the params returning one) that reopens the step. |
+| `layer` | `true` makes the step a layer: it is listed under **Layers**, keeps the picture's size, is placed under every edit, and gets the opacity drawer (send `opacity` from `payload` through a tool that reads it, and draw it in `preview` with `opacityOf(ctx.step)`). Default: an edit, listed under **Edits** and applied to the whole layered picture. |
+
+A stack is stored in the order it renders, layers first: the Image editor keeps every layer step before every edit step,
+so a reader that applies the steps one after another gets the same picture. Stacks saved before that split, with a
+look or a crop between their layers, are read and rendered in their stored order unchanged.
 
 Until the file loads the row reads "Loading"; if it cannot be loaded the row reads "Could not load" and the failure is logged
 once. `lane` comes from the manifest entry. Fields a manifest cannot carry (`row`, `extras`, `contract`) are available only to a

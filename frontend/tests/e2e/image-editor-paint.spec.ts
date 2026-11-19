@@ -193,13 +193,13 @@ async function openEditorOnDusk(page: Page) {
 
 async function stackRows(page: Page) {
 	return page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) =>
-		rows.map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`).reverse()
+		rows.sort((a, b) => Number(a.getAttribute('data-stack-index')) - Number(b.getAttribute('data-stack-index'))).map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`)
 	);
 }
 
-const ORIGINAL = 'original:00Original640×480·PNG';
+const ORIGINAL = 'original:Original640×480·PNG';
 const CROP = '01Crop1:1·480×480';
-const REEL = '02ReelAppliestotheoriginal';
+const REEL = '02ReelIntensity100';
 
 async function start(page: Page, seed = false): Promise<Log> {
 	const log = await mockEditor(page);
@@ -298,7 +298,7 @@ test.describe('Paint entries in the Image editor', () => {
 		await expect(layerRows(page)).toHaveCount(2);
 
 		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint1Paintlayer100%']);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:Paint1Paintlayer100%']);
 		expect(log.artifacts).toBe(1);
 	});
 
@@ -357,11 +357,11 @@ test.describe('Paint entries in the Image editor', () => {
 		await start(page);
 		await openDusk(page);
 		await openPaint(page, 'brush');
-		const steps = await page.locator('[data-stack-count]').textContent();
+		const steps = await page.locator('[data-stack-count="layers"]').textContent();
 		await page.locator('[data-layers-add]').click();
 		await page.locator('[data-layers-add-item="new"]').click();
 		await expect(layerRows(page)).toHaveCount(3);
-		await expect(page.locator('[data-stack-count]')).toHaveText(steps ?? '');
+		await expect(page.locator('[data-stack-count="layers"]')).toHaveText(steps ?? '');
 		await layerMenu(page, 2, 'Rename');
 		await page.locator('input[aria-label="Layer name"]').fill('Sky');
 		await page.keyboard.press('Enter');
@@ -420,7 +420,7 @@ test.describe('Paint entries in the Image editor', () => {
 		await openPaint(page, 'brush');
 		await stroke(page);
 		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:01Paint1Paintlayer100%']);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, 'current:Paint1Paintlayer100%']);
 		await page.locator('[data-edit-stack="panel"] [data-stack-row]').nth(0).click();
 		await expect(page.locator(CANVAS)).toBeVisible();
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', /paint\./);
@@ -525,15 +525,18 @@ test.describe('Edits as layers', () => {
 		await expect(row(page, 's2')).toBeVisible();
 	}
 
-	test('the newest edit is on top and the paint step is a layer row with its opacity and eye', async ({ page }) => {
+	test('layers and edits sit in two panels: the paint step is a layer row with its opacity and eye, the look an edit', async ({ page }) => {
 		await paintedLayer(page);
 		await addLook(page);
-		const keys = await page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) => rows.map((node) => node.getAttribute('data-stack-row')));
-		expect(keys).toEqual(['s2', 's1', 'original']);
+		const keys = (section: string) => page.locator(`[data-edit-stack="panel"] [data-stack-section="${section}"] [data-stack-row]`).evaluateAll((rows) => rows.map((node) => node.getAttribute('data-stack-row')));
+		expect(await keys('layers')).toEqual(['s1', 'original']);
+		expect(await keys('edits')).toEqual(['s2']);
 		await expect(row(page, 's1').locator('[data-stack-opacity]')).toHaveText('100%');
 		await expect(row(page, 's1').locator('[data-stack-hide]')).toBeVisible();
 		await expect(row(page, 's2')).toHaveAttribute('data-stack-kind', 'slim');
-		await expect(row(page, 's2')).toContainText('Applies to 2 layers below');
+		await expect(row(page, 's2').locator('[data-stack-number]')).toHaveText('01');
+		await expect(row(page, 's2')).not.toContainText('Applies to');
+		await expect(page.locator('[data-stack-edits-hint]')).toHaveText('Edits apply to the whole layered picture.');
 	});
 
 	test('a layer fades from the drawer and the fade is undoable', async ({ page }) => {
@@ -561,16 +564,38 @@ test.describe('Edits as layers', () => {
 		await expect(row(page, 's1')).not.toHaveAttribute('data-hidden', 'true');
 	});
 
-	test('a selected look brackets the layers it applies to', async ({ page }) => {
+	test('a layer painted after a look lands under it, so the look applies to the whole layered picture', async ({ page }) => {
+		test.setTimeout(60000);
 		await paintedLayer(page);
 		await row(page, 's1').locator('[data-stack-open]').click();
 		const slider = page.locator('[data-layer-drawer="s1"] input[type="range"]');
 		await slider.fill('50');
 		await slider.dispatchEvent('change');
 		await addLook(page);
-		await row(page, 's2').locator('[data-stack-open]').click();
-		for (const id of ['s2', 's1', 'original']) await expect(row(page, id)).toHaveAttribute('data-bracket', 'true');
-		await screenshot(page, JOURNEY, '20-cmb407-built-1440');
+		await page.locator('[data-layers-add]').click();
+		await page.locator('[data-layers-add-item="new"]').click();
+		await stroke(page, 60, 60);
+		await page.locator('[data-options-apply]').click();
+		const order = () => page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) => rows.map((node) => [node.getAttribute('data-stack-row'), Number(node.getAttribute('data-stack-index'))] as const).sort((a, b) => a[1] - b[1]).map(([key]) => key));
+		await expect.poll(order).toEqual(['original', 's1', 's3', 's2']);
+		await expect(page.locator('[data-edit-stack="panel"] [data-stack-section="edits"] [data-stack-row]')).toHaveCount(1);
+		await selectRailTool(page, 'crop');
+		await page.locator('[data-frame-undo]').click();
+		await expect.poll(order).toEqual(['original', 's1', 's2']);
+		await page.locator('[data-layers-add]').click();
+		await page.locator('[data-layers-add-item="new"]').click();
+		await stroke(page, -60, 60);
+		await page.locator('[data-options-apply]').click();
+		await expect.poll(order).toEqual(['original', 's1', 's4', 's2']);
+		await selectRailTool(page, 'crop');
+		await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
+		await page.locator('[data-options-apply]').click();
+		await expect.poll(order).toEqual(['original', 's1', 's4', 's2', 's5']);
+		await expect(page.locator('[data-edit-stack="panel"] [data-stack-section="edits"] [data-stack-number]')).toHaveText(['02', '01']);
+		await expect(page.locator('[data-bracket]')).toHaveCount(0);
+		await expect(row(page, 's1').locator('[data-stack-opacity]')).toHaveText('50%');
+		await page.waitForTimeout(400);
+		await screenshot(page, JOURNEY, '40-two-panels-1440');
 	});
 });
 
@@ -605,7 +630,7 @@ test.describe('Paint layers are kept one by one', () => {
 	test('three layers keep their name, order, fade and eye after leaving Paint and after a reload', async ({ page }) => {
 		const log = await start(page, true);
 		await threeLayers(page, log);
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('01Paint1'), expect.stringContaining('02Paint2'), expect.stringContaining('03Paint3')]);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('Paint1'), expect.stringContaining('Paint2'), expect.stringContaining('Paint3')]);
 		await fade(page, 's2', '40');
 		await row(page, 's3').locator('[data-stack-hide]').click();
 		await expect(row(page, 's3')).toHaveAttribute('data-hidden', 'true');
@@ -617,7 +642,7 @@ test.describe('Paint layers are kept one by one', () => {
 		await expect(row(page, 's2').locator('[data-stack-opacity]')).toHaveText('40%');
 		await expect(row(page, 's3')).toHaveAttribute('data-hidden', 'true');
 		await expect(row(page, 's1').locator('[data-stack-opacity]')).toHaveText('100%');
-		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('01Paint1'), expect.stringContaining('02Paint2'), expect.stringContaining('03Paint3')].map((item) => item));
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, expect.stringContaining('Paint1'), expect.stringContaining('Paint2'), expect.stringContaining('Paint3')].map((item) => item));
 
 		await row(page, 's2').locator('[data-stack-open]').click();
 		await expect(page.locator(CANVAS)).toBeVisible();

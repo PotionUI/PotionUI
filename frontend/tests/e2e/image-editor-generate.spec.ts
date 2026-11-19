@@ -429,11 +429,6 @@ async function shape(page: Page, aspect: string) {
 	await page.locator('[data-options-apply]').click();
 }
 
-async function scaleTo(page: Page, percent: string) {
-	await page.getByRole('button', { name: percent, exact: true }).click();
-	await page.locator('[data-options-apply]').click();
-}
-
 async function pickPreset(page: Page, id: string) {
 	await expect(page.locator('[role="dialog"][aria-label="Choose preset"]')).toBeVisible();
 	await page.locator(`[data-preset-row="${id}"] button.row-main`).click();
@@ -697,7 +692,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await page.locator('[data-stack-open="s1"]').click();
 		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 		await shape(page, '16:9');
-		await expect(row(page, 's2')).toContainText('The picture changed');
+		await expect(row(page, 's2')).not.toContainText('The picture changed');
 		await selectRailTool(page, 'edit_region');
 		await markArea(page);
 		await generate(page);
@@ -721,11 +716,11 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		update(server, 'running', { progress: 0.4 }, 6);
 		push(server, { type: 'workbench_update', generation_id: runGeneration(6), pipe_id: 1, output_type: 'image', temporary: true, image: PREVIEW });
 		await expect(row(page, 's7')).toContainText('Generating 40%');
-		await expect(row(page, 's2')).toContainText('The picture changed');
+		await expect(row(page, 's2')).toContainText('1 of 3');
 		await screenshot(page, JOURNEY, '09c-row-states-dark-1440');
 	});
 
-	test('a step whose picture beneath changed shape is out of date, left out of Save, and up to date again when the change is undone', async ({ page }) => {
+	test('a patch made after a crop is a layer under the crop: it runs on the whole layered picture and stays up to date when the crop changes', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
 		await shape(page, '1:1');
@@ -735,126 +730,28 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await setResults(page, 2);
 		await generate(page);
 		await expect.poll(() => server.runs.length).toBe(1);
+		expect((server.runs[0].steps as Json[]).map((step) => step.tool)).toEqual([]);
 		update(server, 'done', { candidates: candidates(2) });
 		await expect(row(page, 's2')).toContainText('1 of 2');
+		await expect(page.locator('[data-edit-stack] [data-stack-section="layers"] [data-stack-row="s2"]')).toHaveCount(1);
+		await expect(page.locator('[data-edit-stack] [data-stack-section="edits"] [data-stack-row="s1"]')).toHaveCount(1);
+
+		await page.locator('[data-stack-open="s1"]').click();
+		await shape(page, '16:9');
+		await expect(row(page, 's2')).toContainText('1 of 2');
+		await expect(row(page, 's2')).not.toContainText('The picture changed');
 		await expect(row(page, 's2').locator('[data-stack-action="redo"]')).toHaveCount(0);
 
-		await page.locator('[data-stack-open="s1"]').click();
-		await shape(page, '16:9');
-		await expect(row(page, 's2')).toContainText('The picture changed');
-		await expect(row(page, 's2').locator('[data-stack-action="redo"]')).toHaveCount(1);
-		await expect(row(page, 's2').locator('[data-stack-hide="s2"]')).toHaveCount(0);
-		await expect(row(page, 's2').locator('[data-stack-thumb]')).toHaveCount(0);
-
-		await page.locator('[data-frame-undo]').click();
-		await expect(row(page, 's2')).toContainText('1 of 2');
-		await expect(row(page, 's2')).not.toContainText('The picture changed');
-		await page.keyboard.press('Control+Shift+Z');
-		await expect(row(page, 's2')).toContainText('The picture changed');
-
-		await selectRailTool(page, 'edit_region');
-		await markArea(page);
-		await generate(page);
-		await expect.poll(() => server.runs.length).toBe(2);
-		await expect(row(page, 's3')).toContainText('Waiting');
 		await page.locator('[data-frame-save-menu]').click();
-		const notices = page.locator('[data-save-notices]');
-		await expect(notices).toContainText('1 edit is not included: it is still generating.');
-		await expect(notices).toContainText('1 edit is not included: the picture beneath it changed.');
-		await screenshot(page, JOURNEY, '09b-save-menu-dark-1440');
+		await expect(page.locator('[data-save-notices]')).toHaveCount(0);
 		await page.locator('[data-save-row="save-new"]').click();
 		await expect.poll(() => server.mediaRuns.length).toBe(1);
-		const patches = (server.mediaRuns[0].steps as Json[]).filter((step) => step.tool === 'place_patch');
-		expect(patches).toHaveLength(2);
-		expect(patches.every((step) => step.hidden === true)).toBe(true);
-		expect(patches.some((step) => (step.params as Json).patch && ((step.params as Json).patch as Json).item_id === 'patch-1')).toBe(true);
-	});
-
-	test('after a resize beneath, Redo on the new picture runs again with the same area and seed and replaces the results', async ({ page }) => {
-		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
-		await openHarbor(page);
-		await selectRailTool(page, 'resize');
-		await scaleTo(page, '75%');
-		await expect(row(page, 's1')).toContainText('Resize');
-		await selectRailTool(page, 'edit_region');
-		await markArea(page);
-		await type(page, 'a lantern');
-		await setResults(page, 2);
-		await generate(page);
-		await expect.poll(() => server.runs.length).toBe(1);
-		update(server, 'done', { candidates: candidates(2) });
-		await expect(row(page, 's2')).toContainText('1 of 2');
-
-		await page.locator('[data-stack-open="s1"]').click();
-		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'resize');
-		await scaleTo(page, '50%');
-		await expect(row(page, 's2')).toContainText('The picture changed');
-
-		await page.locator('[data-stack-open="s2"]').click();
-		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'edit_region');
-		await expect(page.locator('[data-stale-outline]')).toBeVisible();
-		await expect(page.locator('[data-candidate-strip]')).toHaveCount(0);
-		await expect(prompt(page).locator('[data-dock-row="temp"] [data-dock-stale]')).toContainText('The picture changed');
-		await expect(prompt(page).locator('[data-dock-redo]')).toBeVisible();
-		await expect(row(page, 's2').locator('[data-stack-action="redo"]')).toBeVisible();
-		await row(page, 's2').locator('[data-stack-action="redo"]').click();
-		await expect.poll(() => server.runs.length).toBe(2);
-		const body = server.runs[1];
-		expect(body.region).toEqual(server.runs[0].region);
-		expect(body.seed).toBe(100);
-		expect(body.candidates).toBe(2);
-		expect(body.prompt).toBe('a lantern');
-		expect((body.edit as Json).step_id).toBe('s2');
-		expect(((body.steps as Json[])[0].params as Json).width).toBe(320);
-		await expect(row(page, 's2')).toContainText('Waiting');
-		await expect(page.locator('[data-edit-stack] [data-stack-row]')).toHaveCount(3);
-		update(server, 'done', { candidates: candidates(1) });
-		await expect(row(page, 's2')).toContainText('1 of 1');
-		await expect(row(page, 's2')).not.toContainText('The picture changed');
-		await expect(page.locator('[data-stale-outline]')).toHaveCount(0);
-
-		await page.locator('[data-frame-undo]').click();
-		await expect(row(page, 's2')).toContainText('The picture changed');
-		await page.locator('[data-stack-open="s1"]').click();
-		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'resize');
-		await row(page, 's2').hover();
-		await expect(row(page, 's2').locator('[data-stack-action="redo"]')).toBeVisible();
-		await page.locator('[data-stack-open="s2"]').click();
-		await expect(prompt(page).locator('[data-dock-stale]')).toContainText('The picture changed');
-		await prompt(page).locator('[data-dock-redo]').click();
-		await expect.poll(() => server.runs.length).toBe(3);
-	});
-
-	test('after a crop beneath, Redo asks for the area again and Generate replaces the same step', async ({ page }) => {
-		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
-		await openHarbor(page);
-		await shape(page, '1:1');
-		await selectRailTool(page, 'edit_region');
-		await markArea(page);
-		await type(page, 'a lantern');
-		await generate(page);
-		await expect.poll(() => server.runs.length).toBe(1);
-		update(server, 'done', { candidates: candidates(1) });
-		await expect(row(page, 's2')).toContainText('1 of 1');
-		await page.locator('[data-stack-open="s1"]').click();
-		await shape(page, '16:9');
-		await expect(row(page, 's2')).toContainText('The picture changed');
-		await row(page, 's2').hover();
-		await row(page, 's2').locator('[data-stack-action="redo"]').click();
-		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'edit_region');
-		await expect(prompt(page).locator('[data-prompt-status="redo"]')).toHaveText('Mark the area again');
-		await expect(prompt(page).locator('[data-prompt-redo]')).toHaveText('The picture beneath changed shape');
-		await expect(prompt(page).locator('[data-prompt-field]')).toHaveValue('a lantern');
-		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toBeDisabled();
-		expect(server.runs).toHaveLength(1);
-		await markArea(page);
-		await expect(prompt(page).locator('[data-prompt-generate], [data-prompt-mark] button')).toBeEnabled();
-		await generate(page);
-		await expect.poll(() => server.runs.length).toBe(2);
-		expect((server.runs[1].edit as Json).step_id).toBe('s2');
-		expect(server.runs[1].seed).toBe(100);
-		await expect(row(page, 's2')).toContainText('Waiting');
-		await expect(page.locator('[data-edit-stack] [data-stack-row]')).toHaveCount(3);
+		const tools = (server.mediaRuns[0].steps as Json[]).map((step) => step.tool);
+		expect(tools[0]).toBe('place_patch');
+		expect(tools.indexOf('crop')).toBeGreaterThan(0);
+		const patch = (server.mediaRuns[0].steps as Json[])[0];
+		expect(patch.hidden).toBeUndefined();
+		expect(((patch.params as Json).patch as Json).item_id).toBe('patch-1');
 	});
 
 	test('Cancel stops a waiting run, and removing a running step cancels it too', async ({ page }) => {
@@ -1440,7 +1337,7 @@ test.describe('Edit a region on the phone', () => {
 		await screenshot(page, JOURNEY, '09-stack-dark-390');
 	});
 
-	test('an out of date step on the phone', async ({ page }) => {
+	test('a patch and a crop sit in the two sections of the phone sheet, rows 48 high', async ({ page }) => {
 		const server = await begin(page, [taskEntry('edit_region', 'Edit a region', { offers: [qwen()] })]);
 		await openHarbor(page);
 		await shape(page, '1:1');
@@ -1459,7 +1356,12 @@ test.describe('Edit a region on the phone', () => {
 		await expect(sheet).toHaveCount(0);
 		await shape(page, '16:9');
 		await page.locator('[data-frame-edits]').click();
-		await expect(page.getByRole('dialog', { name: 'Edits' }).locator('[data-stack-row="s2"]')).toContainText('The picture changed');
+		const sheet2 = page.getByRole('dialog', { name: 'Edits' });
+		await expect(sheet2.locator('[data-stack-section="layers"] [data-stack-row="s2"]')).toContainText('1 of 3');
+		await expect(sheet2.locator('[data-stack-row="s2"]')).not.toContainText('The picture changed');
+		const heights = await sheet2.locator('[data-stack-row]').evaluateAll((rows) => rows.map((node) => Math.round(node.getBoundingClientRect().height)));
+		expect(heights.every((height) => height === 48)).toBe(true);
+		await screenshot(page, JOURNEY, '41-two-panels-390');
 		await screenshot(page, JOURNEY, '09c-row-states-dark-390');
 	});
 

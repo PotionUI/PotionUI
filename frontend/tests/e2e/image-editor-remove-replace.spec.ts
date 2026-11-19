@@ -119,7 +119,7 @@ test.describe('Replace the background', () => {
 		await hex.fill('#336699');
 		await hex.press('Enter');
 		await panel(page).locator('[data-replace-background-apply]').click();
-		await expect(page.locator('[data-edit-stack] [data-stack-row]').filter({ hasText: 'Replace background' }).filter({ hasText: '#336699' })).toHaveCount(1);
+		await expect(page.locator('[data-edit-stack] [data-stack-section="layers"] [data-stack-row]').filter({ hasText: 'Replace background' }).filter({ hasText: '#336699' })).toHaveCount(1);
 
 		await choice.getByRole('button', { name: 'Transparent', exact: true }).click();
 		await panel(page).locator('[data-replace-background-apply]').click();

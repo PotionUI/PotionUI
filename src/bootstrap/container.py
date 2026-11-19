@@ -285,6 +285,7 @@ from src.features.kits.resource_provider import KitsResourceProvider
 from src.features.kits.routes import KitController
 from src.features.edits.manager import EditManager
 from src.features.editor_tasks.default_repository import TaskDefaultRepository
+from src.features.editor_tasks.formats import SETTING_KEY as EXPAND_FORMATS_SETTING, ExpandFormats
 from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
 from src.features.editor_tasks.repository import EditorRunRepository
@@ -627,6 +628,7 @@ class AppContainer:
     editor_task_registry: TaskRegistry
     editor_tasks: EditorTaskManager
     editor_runs: EditorRunManager
+    expand_formats: ExpandFormats
 
     # User groups
     user_group_repository: "UserGroupRepository"
@@ -1706,6 +1708,10 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         output_broadcaster.connection_hub,
     )
     editor_runs.subscribe(plugin_registry.hook_chain)
+    expand_formats = ExpandFormats(
+        lambda: settings.get_setting(EXPAND_FORMATS_SETTING),
+        lambda user_id: [group.id for group in user_group_repository.get_user_groups(user_id)],
+    )
 
     # Library components (uploads as first-class, curatable resources)
 

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 from src.features.media_tools.dto import InputRef, StepRequest
 
 MAX_CANDIDATES = 4
+MAX_EXPAND_SIDE = 8192
 
 
 class RunEditRef(BaseModel):
@@ -28,12 +29,19 @@ class RunRange(BaseModel):
             raise ValueError("end_s must be greater than start_s")
         return self
 
+class RunExpand(BaseModel):
+    width: int = Field(ge=1, le=MAX_EXPAND_SIDE)
+    height: int = Field(ge=1, le=MAX_EXPAND_SIDE)
+    x: int = Field(default=0, ge=0, le=MAX_EXPAND_SIDE)
+    y: int = Field(default=0, ge=0, le=MAX_EXPAND_SIDE)
+
 class StartEditorRunRequest(BaseModel):
     edit: RunEditRef
     input: InputRef
     steps: List[StepRequest] = Field(default_factory=list)
     region: Optional[InputRef] = None
     range: Optional[RunRange] = None
+    expand: Optional[RunExpand] = None
     prompt: Optional[str] = None
     setup: RunSetup
     candidates: int = Field(default=1, ge=1, le=MAX_CANDIDATES)

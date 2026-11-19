@@ -22,6 +22,10 @@ EXPECTED = {
     ("ZImage", "inpaint"): "mask",
     ("MOSS-Image", "inpaint"): "mask",
     ("SDXL", "inpaint"): "mask",
+    ("QwenImage-2.1", "expand"): "mask",
+    ("ZImage", "expand"): "mask",
+    ("MOSS-Image", "expand"): "mask",
+    ("SDXL", "expand"): "mask",
 }
 
 ONE_CLICK = {
@@ -116,7 +120,7 @@ def test_the_editor_mode_carries_the_client_facing_fields(templates, folder, nam
     offer = next(
         offer
         for entry in manager.offers(type("User", (), {"id": "u"})())
-        if entry["id"] == "edit_region"
+        if entry["id"] == template.editor_modes[name].editor.task
         for offer in entry["offers"]
         if offer["preset_id"] == template.id and offer["mode"] == f"editor:{name}"
     )

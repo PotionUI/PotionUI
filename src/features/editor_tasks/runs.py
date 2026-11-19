@@ -4,14 +4,14 @@ import json
 import logging
 import mimetypes
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from PIL import Image
 
-from src.features.editor_tasks import clips, regions
+from src.features.editor_tasks import clips, expand as expand_ops, regions
 from src.features.editor_tasks.dto import MAX_CANDIDATES, StartEditorRunRequest
 from src.features.editor_tasks.manager import EditorTaskManager, ResolvedOffer
 from src.features.editor_tasks.records import (
@@ -43,6 +43,7 @@ NO_VIDEO = "The model returned no video"
 NOT_PLACED = "The result could not be placed on the picture"
 NOT_SPLICED = "The result could not be placed in the clip"
 RANGE_KIND = "range"
+EXPAND_KIND = "expand"
 CLIP_TYPE = "video/mp4"
 GENERATION_FAILED = "The generation failed"
 GENERATION_GONE = "The generation could not be found"
@@ -81,6 +82,16 @@ class PreparedRun:
     clip_base: Optional[bytes] = None
     clip_suffix: str = ".mp4"
     base_suffix: str = ".mp4"
+    canvas_png: Optional[bytes] = None
+    chain: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class ExpandChain:
+    user: Any
+    offer: ResolvedOffer
+    body: StartEditorRunRequest
+    prompt: str
 
 
 class EditorRunManager:
@@ -113,6 +124,7 @@ class EditorRunManager:
         self.clock = clock
         self.new_id = new_id
         self._live: Dict[str, str] = {}
+        self._chains: Dict[str, ExpandChain] = {}
         self._finishing: Set[str] = set()
         self._holds: Dict[str, int] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -146,11 +158,14 @@ class EditorRunManager:
         )
         await asyncio.to_thread(self.edits.get, user.id, body.edit.id)
         self._check_range(offer, body)
+        self._check_expand(offer, body)
         prompt = self._prompt(offer, body.prompt)
         region_ref = body.region if offer.task.region != "none" else None
         if offer.task.region == "required" and region_ref is None:
             raise DomainError("region_required", "Mark the area first", 422)
-        if "video" in offer.task.editors:
+        if offer.task.grows:
+            prepared = await asyncio.to_thread(self._prepare_expand, user, offer, body)
+        elif "video" in offer.task.editors:
             prepared = await asyncio.to_thread(self._prepare_clip, user, offer, body)
         else:
             prepared = await asyncio.to_thread(self._prepare, user, offer, body, region_ref)
@@ -166,13 +181,7 @@ class EditorRunManager:
                 "task": task_id,
                 "run_id": run_id,
             }
-            request = GenerationRequest(
-                preset_id=body.setup.preset_id,
-                prompt=prompt,
-                mode=offer.mode_name,
-                form_data=self._form(offer, body, stored, prepared.geometry),
-            )
-            request._editor_run = True
+            request = self._request(offer, body, prompt, stored, prepared)
             run = EditorRun(
                 id=run_id,
                 user_id=user.id,
@@ -182,6 +191,7 @@ class EditorRunManager:
                 rect=prepared.geometry.rect() if prepared.geometry is not None else None,
                 crop={
                     **(prepared.geometry.to_dict() if prepared.geometry is not None else prepared.window),
+                    **(prepared.chain or {}),
                     "files": {name: item.id for name, item in stored.items()},
                     "names": {name: item.filename for name, item in stored.items()},
                 },
@@ -204,6 +214,8 @@ class EditorRunManager:
             await self._discard(user.id, self._entries(stored), run_id)
             raise
         self._live[generation_id] = run_id
+        if offer.task.grows:
+            self._chains[run_id] = ExpandChain(user, offer, body, prompt)
         await asyncio.to_thread(self.repository.update, run_id, self.clock(), generation_id=generation_id)
         current = await asyncio.to_thread(self.repository.find, run_id)
         await self._announce(current)
@@ -218,7 +230,15 @@ class EditorRunManager:
         progress = None
         if not run.terminal:
             run, progress = await self._reconcile(run)
-        return run.to_dict(progress)
+        return run.to_dict(self._overall(run, progress))
+
+    @staticmethod
+    def _overall(run: Optional[EditorRun], progress: Optional[float]) -> Optional[float]:
+        crop = (run.crop if run is not None else None) or {}
+        passes = crop.get("passes")
+        if progress is None or crop.get("kind") != EXPAND_KIND or not passes:
+            return progress
+        return (int(crop.get("index") or 0) + min(1.0, max(0.0, float(progress)))) / len(passes)
 
     async def cancel(self, user: Any, run_id: str) -> Dict[str, Any]:
         run = await asyncio.to_thread(self._owned, user.id, run_id)
@@ -280,6 +300,8 @@ class EditorRunManager:
     def _prompt(self, offer: ResolvedOffer, prompt: Optional[str]) -> str:
         text = (prompt or "").strip()
         task = offer.task
+        if task.fallback is not None and task.prompt == "optional":
+            return text or task.fallback[1]
         if offer.via is not None and task.fallback is not None:
             wording = task.fallback[1]
             if PROMPT_SLOT in wording:
@@ -299,6 +321,13 @@ class EditorRunManager:
             raise DomainError("range_not_supported", "This task takes no time range", 422)
         if body.range is None and offer.task.range == "required":
             raise DomainError("range_required", "Mark the part of the clip first", 422)
+
+    @staticmethod
+    def _check_expand(offer: ResolvedOffer, body: StartEditorRunRequest) -> None:
+        if offer.task.grows and body.expand is None:
+            raise DomainError("expand_required", "Choose the new size first", 422)
+        if body.expand is not None and not offer.task.grows:
+            raise DomainError("expand_not_supported", "This task does not change the canvas", 422)
 
     @staticmethod
     def _check_cap(offer: ResolvedOffer, window: "clips.FrameRange") -> None:
@@ -390,6 +419,152 @@ class EditorRunManager:
             region_png=png_bytes(Image.fromarray(cut.region)) if cut.region is not None else None,
         )
 
+    def _expand_inputs(
+        self, offer: ResolvedOffer, canvas_rgb: np.ndarray, step: expand_ops.Pass
+    ) -> Tuple[Geometry, Image.Image, Optional[Image.Image]]:
+        spec = offer.spec
+        width, height = step.size
+        has_mask = bool(spec.inputs.get("mask"))
+        strategy = "mask" if has_mask and spec.region == "mask" else "whole"
+        window = expand_ops.pass_input(canvas_rgb, step)
+        soft = expand_ops.soft_mask((height, width), step.known_local(), expand_ops.overlap_for(step.size))
+        geometry = regions.plan(
+            window.shape,
+            soft,
+            strategy,
+            0.0,
+            spec.size["area"],
+            spec.size["multiple"],
+            spec.size.get("buckets"),
+        )
+        geometry = replace(
+            geometry, box=(0, height, 0, width), whole=True, has_region=True, feather_px=expand_ops.overlap_for(step.size)
+        )
+        if strategy == "mask":
+            return geometry, Image.fromarray(window), Image.fromarray(soft) if has_mask else None
+        work_w, work_h = geometry.working
+        image = Image.fromarray(regions.resample_image(window, work_w, work_h))
+        mask = Image.fromarray(regions.resample_image(soft, work_w, work_h)) if has_mask else None
+        return geometry, image, mask
+
+    def _prepare_expand(self, user: Any, offer: ResolvedOffer, body: StartEditorRunRequest) -> PreparedRun:
+        with self.media_tools.render_picture(user, body.input, body.steps) as path:
+            picture = regions.cap_picture(prepare_image(path).convert("RGB"))
+        asked = body.expand
+        try:
+            canvas = expand_ops.make_canvas(picture.size, asked.width, asked.height, asked.x, asked.y)
+        except expand_ops.ExpandError as failure:
+            raise DomainError(failure.code, failure.message, 422)
+        passes = expand_ops.plan_passes(canvas)
+        source = np.asarray(picture)
+        canvas_rgb = expand_ops.blank_canvas(source, canvas)
+        geometry, image, mask = self._expand_inputs(offer, canvas_rgb, passes[0])
+        return PreparedRun(
+            geometry=geometry,
+            input_png=png_bytes(image),
+            mask_png=png_bytes(mask) if mask is not None else None,
+            base_png=png_bytes(picture),
+            region_png=None,
+            canvas_png=png_bytes(Image.fromarray(canvas_rgb)),
+            chain={
+                "kind": EXPAND_KIND,
+                "canvas": canvas.to_dict(),
+                "passes": [step.to_dict() for step in passes],
+                "index": 0,
+            },
+        )
+
+    async def _expand(self, run: EditorRun) -> Optional[Tuple[str, Optional[List[Dict[str, Any]]], Optional[str]]]:
+        chain = self._chains.get(run.id)
+        if chain is None:
+            return FAILED, None, RESTART_MESSAGE
+        try:
+            files = self.generations.get_files(run.generation_id, is_final=True, file_type="IMAGE")
+            if not files:
+                files = self.generations.get_files(run.generation_id, file_type="IMAGE")
+            if not files:
+                return FAILED, None, NO_PICTURE
+            canvas_rgb = await asyncio.to_thread(self._expand_stitch, run, files[0])
+            crop = run.crop or {}
+            index = int(crop["index"])
+            if index + 1 < len(crop["passes"]):
+                await self._expand_next(run, chain, canvas_rgb, index + 1)
+                return None
+            canvas = expand_ops.Canvas.from_dict(crop["canvas"])
+            patch = png_bytes(Image.fromarray(expand_ops.patch_of(canvas_rgb, canvas)))
+            stored = await self._put(run.user_id, "editor-patch.png", patch)
+            seed = self._seeds(run.generation_id).get(0)
+            return DONE, [{"patch": {"item_id": stored.id}, "url": stored.url, "seed": seed, "generation_file_id": files[0].id}], None
+        except Exception:
+            logger.exception("Editor run %s: expanding failed", run.id)
+            return FAILED, None, NOT_PLACED
+
+    def _expand_stitch(self, run: EditorRun, record: Any) -> np.ndarray:
+        crop = run.crop or {}
+        step = expand_ops.Pass.from_dict(crop["passes"][int(crop["index"])])
+        canvas_rgb = self._load(run.user_id, (crop.get("files") or {}).get("canvas"), "RGB")
+        base = expand_ops.pass_input(canvas_rgb, step)
+        with self.media_tools.open_input(run.user_id, {"generation_file_id": record.id}) as path:
+            with Image.open(path) as opened:
+                result = opened.convert("RGB")
+        expand_ops.place(canvas_rgb, expand_ops.stitch_pass(base, result, step), step)
+        return canvas_rgb
+
+    async def _expand_next(self, run: EditorRun, chain: ExpandChain, canvas_rgb: np.ndarray, index: int) -> None:
+        crop = dict(run.crop or {})
+        step = expand_ops.Pass.from_dict(crop["passes"][index])
+        geometry, image, mask = await asyncio.to_thread(self._expand_inputs, chain.offer, canvas_rgb, step)
+        prepared = PreparedRun(
+            geometry=geometry,
+            input_png=png_bytes(image),
+            mask_png=png_bytes(mask) if mask is not None else None,
+            base_png=None,
+            region_png=None,
+            canvas_png=png_bytes(Image.fromarray(canvas_rgb)),
+        )
+        stored: Dict[str, Any] = {}
+        released = False
+        try:
+            await self._store(run.user_id, prepared, stored)
+            files = dict(crop.get("files") or {})
+            names = dict(crop.get("names") or {})
+            replaced = [(files.get(name), names.get(name)) for name in ("input", "mask", "canvas")]
+            for name in ("input", "mask", "canvas"):
+                files.pop(name, None)
+                names.pop(name, None)
+            for name, item in stored.items():
+                files[name] = item.id
+                names[name] = item.filename
+            request = self._request(chain.offer, chain.body, chain.prompt, stored, prepared)
+            origin = {
+                "kind": ORIGIN_KIND,
+                "edit_id": run.edit_id,
+                "step_id": run.step_id,
+                "task": run.task,
+                "run_id": run.id,
+            }
+            submitted = await self._submit(request, chain.user)
+            generation_id = submitted["generation_id"]
+            if not await self._tag(generation_id, origin):
+                await self._abort_generation(generation_id, chain.user)
+                raise DomainError("run_start_failed", "The run could not be started, try again", 500)
+            crop.update({**geometry.to_dict(), "index": index, "files": files, "names": names})
+            previous = run.generation_id
+            await asyncio.to_thread(
+                self.repository.update, run.id, self.clock(), generation_id=generation_id, crop=crop, status=RUNNING
+            )
+            self._live[generation_id] = run.id
+            self._live.pop(previous, None)
+            self._release(stored)
+            released = True
+        except BaseException:
+            if not released:
+                self._release(stored)
+            await self._discard(run.user_id, self._entries(stored), run.id)
+            raise
+        await self._discard(run.user_id, replaced, run.id)
+        await self._announce(await asyncio.to_thread(self.repository.find, run.id))
+
     async def _store(self, user_id: str, prepared: PreparedRun, stored: Dict[str, Any]) -> None:
         if prepared.window is not None:
             await self._store_clip(user_id, prepared, stored)
@@ -399,6 +574,7 @@ class EditorRunManager:
             ("mask", prepared.mask_png),
             ("base", prepared.base_png),
             ("region", prepared.region_png),
+            ("canvas", prepared.canvas_png),
         ):
             stored[name] = None if data is None else await self._put(user_id, f"editor-{name}.png", data, True)
             if stored[name] is not None:
@@ -464,7 +640,26 @@ class EditorRunManager:
             except Exception:
                 logger.warning("Editor run: the file %s could not be removed", filename, exc_info=True)
 
-    def _form(self, offer: ResolvedOffer, body: StartEditorRunRequest, stored: Dict[str, Any], geometry: Optional[Geometry]) -> Dict[str, Any]:
+    def _request(
+        self, offer: ResolvedOffer, body: StartEditorRunRequest, prompt: str, stored: Dict[str, Any], prepared: PreparedRun
+    ) -> GenerationRequest:
+        request = GenerationRequest(
+            preset_id=body.setup.preset_id,
+            prompt=prompt,
+            mode=offer.mode_name,
+            form_data=self._form(offer, body, stored, prepared.geometry, 1 if offer.task.grows else None),
+        )
+        request._editor_run = True
+        return request
+
+    def _form(
+        self,
+        offer: ResolvedOffer,
+        body: StartEditorRunRequest,
+        stored: Dict[str, Any],
+        geometry: Optional[Geometry],
+        count: Optional[int] = None,
+    ) -> Dict[str, Any]:
         spec = offer.spec
         form = dict(body.setup.form_data)
         source = spec.inputs["source"]
@@ -487,7 +682,7 @@ class EditorRunManager:
         form.update(spec.fixed)
         quantity = spec.inputs.get("quantity")
         if quantity:
-            form[quantity] = self._count(form.get(quantity), body.candidates)
+            form[quantity] = count if count is not None else self._count(form.get(quantity), body.candidates)
         seed_name = spec.inputs.get("seed") or self._seed_field(offer)
         if body.seed is not None and seed_name:
             form[seed_name] = body.seed
@@ -521,6 +716,7 @@ class EditorRunManager:
             logger.exception("Editor run: generation %s could not be cancelled", generation_id)
 
     def _forget(self, run: EditorRun) -> None:
+        self._chains.pop(run.id, None)
         if run.generation_id:
             self._live.pop(run.generation_id, None)
 
@@ -561,18 +757,30 @@ class EditorRunManager:
         if run_id in self._finishing:
             return
         self._finishing.add(run_id)
+        chained = False
         try:
-            await self._settle_from_generation(run_id, hint)
+            chained = bool(await self._settle_from_generation(run_id, hint))
         except Exception:
             logger.exception("Editor run %s could not be finished", run_id)
             await self._fail(run_id, NOT_FINISHED)
         finally:
             self._finishing.discard(run_id)
+        if chained:
+            await self._recheck(run_id)
 
-    async def _settle_from_generation(self, run_id: str, hint: Optional[str]) -> None:
+    async def _recheck(self, run_id: str) -> None:
         run = await asyncio.to_thread(self.repository.find, run_id)
         if run is None or run.terminal or not run.generation_id:
             return
+        generation = await asyncio.to_thread(self.generations.get_by_id, run.generation_id)
+        status = getattr(generation, "status", None)
+        if status in TERMINAL_GENERATION:
+            await self._finish(run_id, status)
+
+    async def _settle_from_generation(self, run_id: str, hint: Optional[str]) -> bool:
+        run = await asyncio.to_thread(self.repository.find, run_id)
+        if run is None or run.terminal or not run.generation_id:
+            return False
         generation = await asyncio.to_thread(self.generations.get_by_id, run.generation_id)
         if generation is None:
             outcome = (FAILED, None, GENERATION_GONE)
@@ -580,16 +788,23 @@ class EditorRunManager:
             status = getattr(generation, "status", None)
             if status not in TERMINAL_GENERATION:
                 status = hint
-            if status == "completed":
-                outcome = await (self._clips(run) if (run.crop or {}).get("kind") == RANGE_KIND else self._patches(run))
+            kind = (run.crop or {}).get("kind")
+            if status == "completed" and kind == EXPAND_KIND:
+                continued = await self._expand(run)
+                if continued is None:
+                    return True
+                outcome = continued
+            elif status == "completed":
+                outcome = await (self._clips(run) if kind == RANGE_KIND else self._patches(run))
             elif status == "failed":
                 outcome = (FAILED, None, getattr(generation, "error_user_message", None) or GENERATION_FAILED)
             elif status == "cancelled":
                 outcome = (CANCELLED, None, None)
             else:
-                return
+                return False
         settled = await asyncio.to_thread(self.repository.settle, run.id, self.clock(), *outcome)
         await self._after_settle(await asyncio.to_thread(self.repository.find, run.id), settled)
+        return False
 
     async def _patches(self, run: EditorRun) -> Tuple[str, Optional[List[Dict[str, Any]]], Optional[str]]:
         candidates: List[Dict[str, Any]] = []

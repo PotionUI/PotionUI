@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from src.features.editor_tasks.registry import (
     CORE_TASK_IDS,
+    EXPAND_PROMPT,
     REMOVE_OBJECT_PROMPT,
     TaskDefinition,
     TaskRegistrationError,
@@ -20,12 +21,15 @@ ENTRY = {"id": "shiny.colorize", "label": "Colorize a region", "region": "requir
 def test_core_tasks_are_present():
     registry = register_core_tasks(TaskRegistry())
 
-    image = {"edit_region", "remove_object", "replace_background", "find_subject"}
+    image = {"edit_region", "remove_object", "replace_background", "find_subject", "expand"}
     assert image <= {task.id for task in registry.list("image")}
     assert CORE_TASK_IDS >= image | {task.id for task in registry.list("video")}
     assert registry.get("remove_object").fallback == ("edit_region", REMOVE_OBJECT_PROMPT)
     assert registry.get("remove_object").prompt == "none"
     assert registry.get("edit_region").fallback is None
+    assert registry.get("expand").grows and registry.get("expand").region == "none"
+    assert registry.get("expand").fallback == ("edit_region", EXPAND_PROMPT)
+    assert not registry.get("edit_region").grows
 
 
 def test_a_listing_filters_by_editor():

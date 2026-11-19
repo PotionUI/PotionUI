@@ -1,0 +1,10 @@
+schema_version: 1
+task: expand
+from: inpaint
+region: mask
+inputs:
+  source: source_image
+  mask: source_image_inpaint_mask
+fixed:
+  denoise: 1.0
+  region_context: '1.0'

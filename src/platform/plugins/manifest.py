@@ -702,6 +702,7 @@ class EditorTaskSpec(BaseModel):
     feather: float = Field(default=1.0, ge=0.0, le=8.0)
     matte: bool = False
     internal: bool = False
+    grows: bool = False
 
 def _dist_relative_path(value: Optional[str]) -> Optional[str]:
     if value is None:

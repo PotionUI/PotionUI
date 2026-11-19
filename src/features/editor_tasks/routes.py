@@ -1,9 +1,10 @@
 import asyncio
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 
 from src.features.editor_tasks.dto import SetTaskDefaultRequest, StartEditorRunRequest
+from src.features.editor_tasks.formats import ExpandFormats
 from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.runs import EditorRunManager
 from src.platform.http.base_controller import APIResponse, BaseController
@@ -16,9 +17,15 @@ if TYPE_CHECKING:
 
 
 class EditorTaskController(BaseController):
-    def __init__(self, manager: EditorTaskManager):
+    def __init__(self, manager: EditorTaskManager, formats: Optional[ExpandFormats] = None):
         super().__init__()
         self.manager = manager
+        self.formats = formats
+
+    @guarded(fallback=Fail("list_expand_formats_failed", "Failed to list the formats", 400))
+    async def list_formats(self, user) -> APIResponse:
+        formats = await asyncio.to_thread(self.formats.for_user, user) if self.formats is not None else []
+        return self.success_response(data={"formats": formats})
 
     @guarded(fallback=Fail("list_editor_tasks_failed", "Failed to list editor tasks", 400))
     async def list_tasks(self, user, editor: str) -> APIResponse:
@@ -37,7 +44,7 @@ class EditorTaskController(BaseController):
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    controller = EditorTaskController(container.editor_tasks)
+    controller = EditorTaskController(container.editor_tasks, getattr(container, "expand_formats", None))
     router = APIRouter(
         prefix="/api/editor", tags=["Editor"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)]
     )
@@ -53,6 +60,18 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user=Depends(get_current_active_user),
     ) -> APIResponse:
         return await controller.list_tasks(current_user, editor)
+
+    @router.get(
+        "/expand/formats",
+        response_model=APIResponse,
+        summary="List Expand Formats",
+        description=(
+            "The named formats the Expand task offers: the built-in ones and the house formats an administrator "
+            "added for everyone or for a group you belong to. Each has a ratio as W:H."
+        ),
+    )
+    async def list_formats(current_user=Depends(get_current_active_user)) -> APIResponse:
+        return await controller.list_formats(current_user)
 
     @router.put(
         "/tasks/{task_id}/default",

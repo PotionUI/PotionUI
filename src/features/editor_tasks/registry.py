@@ -7,6 +7,7 @@ REMOVE_OBJECT_PROMPT = "Remove the marked object. Fill the area so it matches it
 REPLACE_BACKGROUND_PROMPT = (
     "Keep the subject exactly as it is, do not change it. Replace everything marked with this background: {prompt}"
 )
+EXPAND_PROMPT = "Continue the picture beyond its edges so the new area matches it."
 
 Need = Literal["required", "optional", "none"]
 
@@ -30,6 +31,7 @@ class TaskDefinition:
     feather: float = 1.0
     matte: bool = False
     internal: bool = False
+    grows: bool = False
 
 
 VIDEO = ("video",)
@@ -63,6 +65,15 @@ CORE_TASKS: Tuple[TaskDefinition, ...] = (
         produces="matte",
         icon="subject",
         internal=True,
+    ),
+    TaskDefinition(
+        id="expand",
+        label="Expand",
+        region="none",
+        prompt="optional",
+        fallback=("edit_region", EXPAND_PROMPT),
+        icon="expand",
+        grows=True,
     ),
     TaskDefinition(
         id="extend", label="Extend", editors=VIDEO, region="none", prompt="optional", range="optional",
@@ -129,6 +140,7 @@ class TaskRegistry:
                 feather=_unit(entry.get("feather"), 1.0),
                 matte=bool(entry.get("matte")),
                 internal=bool(entry.get("internal")),
+                grows=bool(entry.get("grows")),
             )
         )
 

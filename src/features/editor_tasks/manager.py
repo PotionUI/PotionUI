@@ -188,6 +188,7 @@ class EditorTaskManager:
             "internal": task.internal,
             "matte": task.matte,
             "grow": task.grow,
+            "grows": task.grows,
             "fallback": fallback,
             "offers": offers,
             "default": None,

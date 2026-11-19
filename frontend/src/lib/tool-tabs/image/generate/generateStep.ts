@@ -8,6 +8,7 @@ import { opacityOf, type EditStackState, type EditStep, type StepDraft } from '$
 import { geometryKey } from '../mask';
 import { isTerminal, runViews } from './runEngine';
 import { readOptions, type TaskOptions } from './taskOptions';
+import { isDetectingTask } from './detections';
 import { dimsOf, isResizedParams, isResizingTask, pictureKey, readRunOptions, resizedPictureOf, scaleText, type PixelDims } from './upscale';
 
 export const GENERATE_TOOL = 'generate';
@@ -325,7 +326,7 @@ export function withFreshRun(params: GenerateParams, run: { id: string; status: 
 }
 
 export function busyLabel(task: string, parts: { done: number; total: number } | null): string {
-	const verb = isResizingTask(task) ? 'Upscaling' : 'Generating';
+	const verb = isResizingTask(task) ? 'Upscaling' : isDetectingTask(task) ? 'Fixing' : 'Generating';
 	return parts && parts.total > 1 ? `${verb} ${Math.min(parts.total, parts.done + 1)} of ${parts.total}` : verb;
 }
 

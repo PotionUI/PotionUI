@@ -14,6 +14,9 @@ import {
 	type UpdateEditorSessionBody,
 	type TaskDefault,
 	type TaskOffer,
+	type DetectionBody,
+	type DetectionResult,
+	type NormRect,
 	type TimeRange
 } from '$lib/services/api/editorTasks';
 import type { PresetInfo, SessionVersionDetail, SessionVersionSummary } from '$lib/types/api';
@@ -25,6 +28,7 @@ import { expandUi, paramsOf, retarget, targetsOf, type ExpandTarget } from './ex
 import { addApplied, appliedFormulaOf, withoutApplied, type AppliedFormula } from './formulas';
 import type { RunEngine } from './runEngine';
 import { landUpscale } from '../upscaleRebase';
+import { idleDetections, isDetectingTask, tickedBoxes, withAllTicked, withTicked, type DetectionState } from './detections';
 import { UPSCALE_FACTORS, isResizingTask, pictureKey, resizedPictureOf, upscaleReasonText, upscaleSize, type RunOptions } from './upscale';
 import {
 	GENERATE_TOOL,
@@ -94,6 +98,7 @@ export const NO_PICTURE_MESSAGE = 'This picture has to be in your Library or His
 export const CHOOSE_SETUP = 'Choose a setup';
 
 export interface ControllerPorts {
+	detect?(taskId: string, body: DetectionBody): Promise<DetectionResult>;
 	tasks(): Promise<EditorTaskInfo[]>;
 	sessions(presetId: string): Promise<EditorSessionEntry[]>;
 	formulas(presetId: string, mode: string): Promise<Array<{ id: string; name: string; values: Record<string, unknown> }>>;
@@ -116,7 +121,7 @@ export interface ControllerDeps {
 	setStack(next: EditStackState<unknown>): void;
 	source(): { ref: MediaToolInputRef | null };
 	editLink(): Promise<EditLink | null>;
-	landRegion(soft?: boolean): Promise<{ item_id: string; url?: string } | null>;
+	landRegion(soft?: boolean, boxes?: NormRect[]): Promise<{ item_id: string; url?: string } | null>;
 	areaSize(): { width: number; height: number } | null;
 	pictureSize?(stepId: string | null): { width: number; height: number } | null;
 	stepsBeneath(stepId: string | null): Promise<MediaToolStep[]>;
@@ -161,6 +166,7 @@ export interface GenerateUi {
 	formulas: Record<string, AppliedFormula[]>;
 	prompts: Record<string, string>;
 	options: Record<string, TaskOptions>;
+	detections: Record<string, DetectionState>;
 	background: BackgroundChoice;
 	subject: SubjectState;
 	choice: Record<string, SetupChoice | null>;
@@ -254,6 +260,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		formulas: {},
 		prompts: {},
 		options: {},
+		detections: {},
 		background: initialBackground(),
 		subject: idleSubject(),
 		choice: {},
@@ -352,6 +359,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		const redo = get(state).redo;
 		patch({ taskId, error: null, picker: closedPicker(), activeStepId: null, ...(redo && redo.taskId !== taskId ? { redo: null } : {}) });
 		if (taskId) void prepare(taskId);
+		if (taskId && isDetectingTask(taskId)) void detect(taskId);
 	}
 
 	function chipFor(taskId: string): string | null {
@@ -383,6 +391,66 @@ export function createGenerateController(deps: ControllerDeps) {
 
 	function setPrompt(taskId: string, text: string): void {
 		state.update((current) => ({ ...current, prompts: { ...current.prompts, [taskId]: text }, error: null }));
+	}
+
+	function setStrength(taskId: string, value: number | null): void {
+		state.update((current) => {
+			const next = { ...(current.options[taskId] ?? {}) };
+			if (value === null) delete next.strength;
+			else next.strength = value;
+			return { ...current, options: { ...current.options, [taskId]: next }, error: null };
+		});
+	}
+
+	function strengthOf(taskId: string): number | undefined {
+		const value = get(state).options[taskId]?.strength;
+		return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+	}
+
+	function offerFor(taskId: string): TaskOffer | null {
+		const choice = get(state).choice[taskId];
+		const task = taskOf(taskId);
+		return choice && task ? offerOf(task.offers, choice) : null;
+	}
+
+	function patchDetections(taskId: string, change: (current: DetectionState) => DetectionState): void {
+		state.update((current) => ({ ...current, detections: { ...current.detections, [taskId]: change(current.detections[taskId] ?? idleDetections()) } }));
+	}
+
+	async function detect(taskId: string): Promise<void> {
+		if (!deps.ports.detect || !isDetectingTask(taskId)) return;
+		const ref = deps.inputFor ? deps.inputFor(null) : deps.source().ref;
+		if (!ref) {
+			patchDetections(taskId, () => ({ ...idleDetections(), status: 'failed', error: NO_PICTURE_MESSAGE }));
+			return;
+		}
+		patchDetections(taskId, () => ({ ...idleDetections(), status: 'loading' }));
+		try {
+			const steps = await deps.stepsBeneath(null);
+			const found = await deps.ports.detect(taskId, { input: ref, steps });
+			if (disposed) return;
+			patchDetections(taskId, () => ({ ...idleDetections(), status: 'ready', picture: found.picture, items: found.detections.map((item) => ({ ...item, on: true })) }));
+		} catch (error) {
+			if (disposed) return;
+			const failure = describeEditorTaskFailure(error);
+			patchDetections(taskId, () => ({ ...idleDetections(), status: failure.kind === 'detector_unavailable' ? 'unavailable' : 'failed', error: editorTaskFailureMessage(failure) }));
+		}
+	}
+
+	function tickDetection(taskId: string, id: string, on: boolean): void {
+		patchDetections(taskId, (current) => withTicked(current, id, on));
+	}
+
+	function tickAllDetections(taskId: string, on: boolean): void {
+		patchDetections(taskId, (current) => withAllTicked(current, on));
+	}
+
+	function hoverDetection(taskId: string, id: string | null): void {
+		patchDetections(taskId, (current) => (current.hover === id ? current : { ...current, hover: id }));
+	}
+
+	function boxesFor(taskId: string): NormRect[] {
+		return tickedBoxes(get(state).detections[taskId]);
 	}
 
 	function setOption(taskId: string, name: string, on: boolean): void {
@@ -734,7 +802,8 @@ export function createGenerateController(deps: ControllerDeps) {
 			setup: { preset_id: input.setup.preset_id, mode: input.setup.mode, form_data: input.setup.form_data },
 			candidates: input.candidates,
 			seed: input.seed,
-			...(isResizingTask(taskId) ? (input.options ?? {}) : {})
+			...(isResizingTask(taskId) ? (input.options ?? {}) : {}),
+			...(typeof input.options?.strength === 'number' ? { strength: input.options.strength } : {})
 		};
 		const options = isResizingTask(taskId) ? undefined : runOptionsOf(input.options);
 		if (options) body.options = options;
@@ -757,15 +826,18 @@ export function createGenerateController(deps: ControllerDeps) {
 		if (task.grows) return generateExpand(taskId, choice);
 		const prompt = current.prompts[taskId] ?? '';
 		const resize = optionsFor(taskId);
-		const options = resize ?? runOptionsOf(current.options[taskId]);
+		const strength = isDetectingTask(taskId) ? strengthOf(taskId) : undefined;
+		const options = resize ?? (strength === undefined ? runOptionsOf(current.options[taskId]) : { ...(runOptionsOf(current.options[taskId]) ?? {}), strength });
+		const boxes = isDetectingTask(taskId) ? boxesFor(taskId) : [];
 		if (task.prompt === 'required' && !prompt.trim()) return fail('Describe the change first.');
-		if (task.region === 'required' && !areaMarked) return fail('Mark the area first.');
+		const marked = areaMarked || boxes.length > 0;
+		if (task.region === 'required' && !marked) return fail('Mark the area first.');
 		patch({ starting: true, error: null });
 		try {
 			let region: { item_id: string; url?: string } | null = null;
-			if (task.region !== 'none' && areaMarked) {
+			if (task.region !== 'none' && marked) {
 				try {
-					region = await deps.landRegion(task.matte === true);
+					region = await (boxes.length ? deps.landRegion(task.matte === true, boxes) : deps.landRegion(task.matte === true));
 				} catch (error) {
 					return fail(startFailureText(error, AREA_UNREADABLE_MESSAGE));
 				}
@@ -1164,6 +1236,14 @@ export function createGenerateController(deps: ControllerDeps) {
 		applyBackground,
 		setOptions,
 		optionsFor,
+		setStrength,
+		strengthOf,
+		offerFor,
+		detect,
+		tickDetection,
+		tickAllDetections,
+		hoverDetection,
+		boxesFor,
 		askForPicker,
 		pickerHandled,
 		pick,

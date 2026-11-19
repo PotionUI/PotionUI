@@ -78,4 +78,12 @@ describe('syncServerTasks', () => {
 		syncServerTasks([{ id: 'super_res', label: 'Super', icon: 'extension', region: 'none', prompt: 'none', fallback: null, offers: [], default: null, resizes: true } as EditorTaskInfo]);
 		expect(isResizingTask('super_res')).toBe(true);
 	});
+
+	it('registers fix_faces with its own options, a note and a required region', () => {
+		syncServerTasks([{ id: 'fix_faces', label: 'Fix faces and hands', icon: 'mode-refine-faces', region: 'required', prompt: 'none', fallback: null, offers: [], default: null } as EditorTaskInfo]);
+		expect(tasks.get('image', 'fix_faces')).toMatchObject({ region: 'required', prompt: 'none' });
+		expect(tasks.get('image', 'fix_faces')?.note).toContain('face');
+		expect(railTools.get('image', 'fix_faces')?.options).toBeTruthy();
+		expect(railTools.get('image', 'fix_faces')?.options).not.toBe(railTools.get('image', 'upscale')?.options);
+	});
 });

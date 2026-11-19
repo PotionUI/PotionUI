@@ -111,6 +111,22 @@ The result is a step in the **Edits** list like a crop or a resize. Hide it with
 
 Hiding the upscale does not rescale the edits above it; they use the sizes they have.
 
+## Fix faces and hands
+
+**Fix faces and hands** (in the Generate group on the rail) redraws faces and hands that came out wrong, one at a time, and keeps who the person is. There is no prompt.
+
+1. When you open the tool, the editor looks at the picture as it stands and draws a box on every face and hand it finds. The panel lists them, each with a **Face** or **Hand** label and how sure the finder was.
+2. Untick a box to leave it alone. You can also click its label on the picture. **All** and **None** tick or untick the whole list, and **Find again** looks again after you change the picture.
+3. To fix something the finder missed, mark it by hand with the brush or the lasso. What is fixed is every ticked box together with everything you marked.
+4. Set **Strength**. Low keeps the face as it is and only cleans it up, high redraws more. It starts at the value the chosen setup recommends.
+5. Choose a setup the first time, then press **Fix faces and hands**.
+
+Each separate spot is redrawn in turn, and the step shows which one is being worked on, for example *Fixing 2 of 3*, with a bar that fills as they finish. If you ask for several results, result 1 holds the first try of every spot, result 2 the second try of every spot, and so on, so you can pick one whole picture.
+
+The result is a layer, like Edit a region: hide it with the eye, fade it, move it, remove it, or press **Try again**. The setup, the strength and the picked result are kept on the layer.
+
+If the server cannot find faces, the panel says so and the picture is not covered in boxes. You can still mark the areas by hand and run the task.
+
 ## Edits save themselves
 
 As soon as you change a picture, the editor saves the edit in the background. You do not need to press anything. A small indicator in the editor shows when it is saving, saved, or waiting for your connection. If you lose your connection, the editor keeps your changes and sends them when you are back online.

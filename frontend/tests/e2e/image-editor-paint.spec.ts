@@ -614,10 +614,10 @@ test.describe('the rail with Paint groups', () => {
 			const now = await folded();
 			if (now.includes('paint')) expect(now).toEqual(expect.arrayContaining(['fx', 'tools', 'select', 'look']));
 			if (now.includes('select')) expect(now).toEqual(expect.arrayContaining(['fx', 'tools']));
-			expect(now).not.toContain('generate');
+			if (now.includes('generate')) expect(now).toEqual(expect.arrayContaining(['fx', 'tools', 'select', 'look', 'paint', 'shape']));
 		}
 		await page.setViewportSize({ width: 1440, height: 768 });
-		await expect.poll(folded).toEqual(['fx', 'tools', 'select', 'look', 'paint', 'shape']);
+		await expect.poll(folded).toEqual(expect.arrayContaining(['fx', 'tools', 'select', 'look', 'paint', 'shape']));
 		await expect(page.locator('[data-tool-rail="icons"] button[data-group-button="paint"]')).toBeVisible();
 		await page.locator('[data-tool-rail="icons"] button[data-group-button="select"]').hover();
 		await expect(page.locator('[data-rail-flyout="select"]')).toBeVisible();

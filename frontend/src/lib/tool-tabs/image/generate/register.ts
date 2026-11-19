@@ -7,6 +7,8 @@ import RangeOptions from '$lib/components/tool-tabs/video/options/RangeOptions.s
 import ReplaceBackgroundOptions from '$lib/components/tool-tabs/generate/ReplaceBackgroundOptions.svelte';
 import GenerateSettings from '$lib/components/tool-tabs/generate/GenerateSettings.svelte';
 import UpscaleOptions from '$lib/components/tool-tabs/generate/UpscaleOptions.svelte';
+import FixFacesOptions from '$lib/components/tool-tabs/generate/FixFacesOptions.svelte';
+import { FIX_FACES_TASK } from './detections';
 import { railGroups, railTools } from '$lib/editors/railTools';
 import { stepKinds } from '$lib/editors/stepKinds';
 import type { RailToolEntry } from '$lib/editors/railTools';
@@ -25,8 +27,8 @@ export const EXPAND_PROMPT = 'Continue the picture beyond its edges so the new a
 
 type TaskSeed = Pick<TaskEntry, 'id' | 'label' | 'icon' | 'region' | 'prompt' | 'fallback' | 'range' | 'result' | 'grows' | 'note'>;
 
-const TASK_OPTIONS: Readonly<Record<string, Component<any>>> = { [UPSCALE_TASK]: UpscaleOptions as unknown as Component<any> };
-const TASK_NOTES: Readonly<Record<string, string>> = { [UPSCALE_TASK]: 'Enlarges the whole picture. Choose the size in the options.' };
+const TASK_OPTIONS: Readonly<Record<string, Component<any>>> = { [UPSCALE_TASK]: UpscaleOptions as unknown as Component<any>, [FIX_FACES_TASK]: FixFacesOptions as unknown as Component<any> };
+const TASK_NOTES: Readonly<Record<string, string>> = { [UPSCALE_TASK]: 'Enlarges the whole picture. Choose the size in the options.', [FIX_FACES_TASK]: 'Redraws each ticked face and hand, and any area you mark, keeping who it is.' };
 
 export const CORE_TASKS: readonly TaskSeed[] = [
 	{ id: 'edit_region', label: 'Edit a region', icon: editorToolIcons.edit_region, region: 'optional', prompt: 'required' },

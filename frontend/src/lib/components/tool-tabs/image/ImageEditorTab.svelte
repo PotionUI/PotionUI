@@ -39,6 +39,9 @@
 	import { busyLabel, generateSteps, leftOutCount, leftOutNotice, shapeChange, stepsBeneathOf } from '$lib/tool-tabs/image/generate/generateStep';
 	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
 	import { maskWhatOf } from '$lib/tool-tabs/image/generate/taskOptions';
+import { paintBoxes } from '$lib/tool-tabs/image/generate/detections';
+import type { NormRect } from '$lib/services/api/editorTasks';
+import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.svelte';
 	import { settingsOf } from '$lib/tool-tabs/image/generate/register';
 	import { canvasFromUrl } from '$lib/paint/loadPicked';
 	import FloatingPrompt from '$lib/components/tool-tabs/generate/FloatingPrompt.svelte';
@@ -433,7 +436,8 @@
 			if (at >= 0) list = list.slice(0, at);
 			return renderer.payload(list);
 		},
-		landRegion: async (soft) => {
+		landRegion: async (soft, boxes) => {
+			if (boxes?.length) return landWithBoxes(boxes);
 			if (soft && maskLayer?.hasStrokes()) {
 				const canvas = maskLayer.renderSoftMask();
 				if (canvas) {
@@ -451,6 +455,23 @@
 			return { item_id: artifact.id, url: artifact.url };
 		}
 	});
+	async function landWithBoxes(boxes: NormRect[]): Promise<{ item_id: string; url?: string } | null> {
+		if (!(await landMask())) return null;
+		const live = liveMaskNow;
+		const hand = live ? await canvasFromUrl(live.url) : null;
+		const size = hand ? { width: hand.width, height: hand.height } : mainRender ? { width: mainRender.canvas.width, height: mainRender.canvas.height } : (sourceSize ?? { width: 1024, height: 1024 });
+		const canvas = document.createElement('canvas');
+		canvas.width = size.width;
+		canvas.height = size.height;
+		const context = canvas.getContext('2d');
+		if (!context) return null;
+		context.fillStyle = 'black';
+		context.fillRect(0, 0, size.width, size.height);
+		if (hand) context.drawImage(hand, 0, 0, size.width, size.height);
+		paintBoxes(context, boxes, size);
+		const artifact = await uploadMediaToolArtifact(await canvasToPngFile(canvas, `${stem}-faces.png`));
+		return { item_id: artifact.id, url: artifact.url };
+	}
 	provideGenerateController(generate);
 	const generateUi = generate.ui;
 	$effect(() => generate.use(registeredTool?.task ?? null));
@@ -2910,6 +2931,14 @@
 				{/if}
 				{#if taskTool && runOutline}
 					<StaleOutline rect={runOutline} />
+				{/if}
+				{#if taskTool && registeredTool?.task && $generateUi.detections[registeredTool.task]?.status === 'ready'}
+					<DetectionBoxes
+						items={$generateUi.detections[registeredTool.task].items}
+						hover={$generateUi.detections[registeredTool.task].hover}
+						ontoggle={(id, on) => generate.tickDetection(registeredTool!.task!, id, on)}
+						onhover={(id) => generate.hoverDetection(registeredTool!.task!, id)}
+					/>
 				{/if}
 				{#if taskTool && runStep && runStatus && runStatus !== 'done' && runStatus !== 'failed' && runStatus !== 'cancelled'}
 					<RunOverlay rect={runView?.run?.rect ?? runStep.params.rect} preview={runView?.preview ?? null} waiting={runStatus === 'queued'} />

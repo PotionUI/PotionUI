@@ -14,6 +14,7 @@
 	import { offerOf } from '$lib/tool-tabs/image/generate/setup';
 	import { viaNote } from '$lib/tool-tabs/image/generate/taskOptions';
 	import { areaLabel } from '$lib/tool-tabs/image/generate/area';
+	import { isDetectingTask } from '$lib/tool-tabs/image/generate/detections';
 	import { expandUi, targetsOf } from '$lib/tool-tabs/image/generate/expand';
 	import { busyLabel } from '$lib/tool-tabs/image/generate/generateStep';
 	import { maskArea } from '$lib/tool-tabs/image/maskOverlays';
@@ -87,12 +88,16 @@
 
 	let chipText = $derived(noModel ? 'No model yet' : (chip ?? 'Choose a preset'));
 	let area = $derived(video ? null : $maskArea);
+	let ticked = $derived(taskId && isDetectingTask(taskId) ? ($ui.detections[taskId]?.items.filter((item) => item.on).length ?? 0) : 0);
+	let hasArea = $derived(!!area || ticked > 0);
+	const FACES_HINT = 'Tick a face or mark an area first';
 	let expandBlock = $derived(growsTask && targetsOf($expandUi).length === 0 ? 'Choose a format first' : null);
 	let redoArea = $derived(!!$ui.redo && $ui.redo.taskId === taskId && !regionNone && !area);
 	let focused = $state(false);
 	let reason = $derived.by(() => {
 		if (direct) return directBlockedReason($ui.background, !!area);
-		const blockedBy = blockedReason({ hasSetup: !!chip, promptRequired, prompt, regionRequired, hasArea: !!area, redoArea, rangeBlock: rangeBlock ?? expandBlock });
+		const blockedBy = blockedReason({ hasSetup: !!chip, promptRequired, prompt, regionRequired, hasArea, redoArea, rangeBlock: rangeBlock ?? expandBlock });
+		if (taskId && isDetectingTask(taskId) && blockedBy === 'Mark the object first') return FACES_HINT;
 		return taskId === REPLACE_BACKGROUND_TASK && blockedBy === 'Mark the object first' ? NEEDS_SUBJECT_REASON : blockedBy;
 	});
 	let borderProgress = $derived(borderProgressOf(run));
@@ -107,7 +112,7 @@
 	});
 	let noteShown = $derived(!!$ui.picker.notice || (task?.offers.length ?? 0) === 0 || viaShown);
 	let blocked = $derived(
-		!taskId || (!chip && !direct) || (direct && !!reason) || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea || !!rangeBlock || !!expandBlock
+		!taskId || (!chip && !direct) || (direct && !!reason) || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !hasArea) || redoArea || !!rangeBlock || !!expandBlock
 	);
 
 	function setPrompt(event: Event) {
@@ -192,8 +197,8 @@
 {#snippet statusLine()}
 	{#if redoArea}
 		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="redo"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />Mark the area again</span>
-	{:else if regionRequired && !area}
-		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="warn"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />{taskId === REPLACE_BACKGROUND_TASK ? 'Mark the background first' : 'Mark the object first'}</span>
+	{:else if regionRequired && !hasArea}
+		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="warn"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />{taskId === REPLACE_BACKGROUND_TASK ? 'Mark the background first' : isDetectingTask(taskId) ? FACES_HINT : 'Mark the object first'}</span>
 	{:else if video}
 			<span class="min-w-0 truncate whitespace-nowrap font-mono text-sm tabular-nums text-fg-muted" data-prompt-status="range">{rangeStatus ?? 'Whole clip'}</span>
 		{:else if !area && !regionNone}

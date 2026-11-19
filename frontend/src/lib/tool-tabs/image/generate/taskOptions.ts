@@ -46,5 +46,6 @@ export function viaNote(offer: Pick<TaskOffer, 'via'> | null | undefined, labelO
 export function maskWhatOf(task: string | null | undefined): string | null {
 	if (task === 'remove_object') return 'object you want removed';
 	if (task === 'replace_background') return 'background you want replaced';
+	if (task === 'fix_faces') return 'face or hand you want redrawn';
 	return null;
 }

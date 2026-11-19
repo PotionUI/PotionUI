@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createEditorTasksApi, describeEditorTaskFailure, editorTaskFailureMessage, normalizeDefault, normalizeFormat, normalizeRun, normalizeTask } from './editorTasks';
+import { createEditorTasksApi, describeEditorTaskFailure, normalizeDetections, editorTaskFailureMessage, normalizeDefault, normalizeFormat, normalizeRun, normalizeTask } from './editorTasks';
 
 function failure(status: number, detail: unknown) {
 	return { response: { status, data: { detail } } };
@@ -172,5 +172,43 @@ describe('upscale runs', () => {
 		expect(describeEditorTaskFailure(failure(422, { error: 'upscale_not_larger' }))).toEqual({ kind: 'upscale_not_larger' });
 		expect(describeEditorTaskFailure(failure(422, { error: 'upscale_too_large' }))).toEqual({ kind: 'upscale_too_large' });
 		expect(editorTaskFailureMessage({ kind: 'upscale_not_larger' })).toBe('Pick a size larger than the picture.');
+	});
+});
+
+describe('faces and hands', () => {
+	it('reads detections and drops what has no box or kind', () => {
+		const result = normalizeDetections({
+			picture: { width: 640, height: 480 },
+			detections: [
+				{ id: 'd1', kind: 'face', box: { x: 0.1, y: 0.1, width: 0.2, height: 0.3 }, score: 0.9 },
+				{ id: 'd2', kind: 'hand', box: { x: 0.5, y: 0.5, width: 0.1, height: 0.1 } },
+				{ id: 'd3', kind: 'tail', box: { x: 0, y: 0, width: 1, height: 1 }, score: 1 },
+				{ id: 'd4', kind: 'face', box: { x: 0, y: 0, width: 0, height: 1 }, score: 1 },
+				{ kind: 'face', box: { x: 0, y: 0, width: 1, height: 1 } }
+			]
+		});
+		expect(result.picture).toEqual({ width: 640, height: 480 });
+		expect(result.detections.map((item) => [item.id, item.kind, item.score])).toEqual([['d1', 'face', 0.9], ['d2', 'hand', 0]]);
+	});
+
+	it('posts the picture source and the steps to the detections route', async () => {
+		const post = vi.fn(async () => ({ data: { success: true, data: { picture: { width: 10, height: 10 }, detections: [] } } }));
+		const api = createEditorTasksApi({ post } as never);
+		const result = await api.detectEditorTask('fix_faces', { input: { item_id: 'p' }, steps: [] });
+		expect(post).toHaveBeenCalledWith('/api/editor/tasks/fix_faces/detections', { input: { item_id: 'p' }, steps: [] });
+		expect(result.detections).toEqual([]);
+	});
+
+	it('tells an absent detector from a server failure', () => {
+		expect(describeEditorTaskFailure(failure(503, { error: 'detector_unavailable' }))).toEqual({ kind: 'detector_unavailable' });
+		expect(describeEditorTaskFailure(failure(503, { error: 'other' }))).toEqual({ kind: 'server', status: 503 });
+	});
+
+	it('reads the strength of an offer and ignores a broken one', () => {
+		const offer = (strength: unknown) => normalizeTask({ id: 'fix_faces', offers: [{ preset_id: 'p', mode: 'm', strength }] })!.offers[0].strength;
+		expect(offer({ default: 0.35, min: 0.1, max: 0.8 })).toEqual({ default: 0.35, min: 0.1, max: 0.8 });
+		expect(offer({ default: 5, min: 0.1, max: 0.8 })).toEqual({ default: 0.8, min: 0.1, max: 0.8 });
+		expect(offer({ default: 0.3, min: 0.9, max: 0.1 })).toBeNull();
+		expect(offer(undefined)).toBeNull();
 	});
 });

@@ -68,6 +68,7 @@ export interface TaskOffer {
 	order: number;
 	region_strategy: 'crop' | 'mask' | 'whole' | string;
 	quantity_field?: string | null;
+	strength?: { default: number; min: number; max: number } | null;
 	max_range_s?: number | null;
 	via: string | null;
 	qualifies: boolean;
@@ -153,6 +154,24 @@ export interface StartRunBody {
 	options?: Record<string, unknown>;
 	scale?: number;
 	target?: PixelDims;
+	strength?: number;
+}
+
+export interface DetectionBody {
+	input: { item_id?: string; generation_file_id?: string };
+	steps: MediaToolStep[];
+}
+
+export interface RawDetection {
+	id: string;
+	kind: 'face' | 'hand';
+	box: NormRect;
+	score: number;
+}
+
+export interface DetectionResult {
+	picture: PixelDims;
+	detections: RawDetection[];
 }
 
 export type EditorTaskFailure =
@@ -163,6 +182,7 @@ export type EditorTaskFailure =
 	| { kind: 'range_invalid'; message: string | null }
 	| { kind: 'upscale_not_larger' }
 	| { kind: 'upscale_too_large' }
+	| { kind: 'detector_unavailable' }
 	| { kind: 'setup_incomplete' }
 	| { kind: 'limit'; message: string | null }
 	| { kind: 'cancel_failed' }
@@ -201,6 +221,7 @@ export function describeEditorTaskFailure(error: unknown): EditorTaskFailure {
 	}
 	if (status === 403) return { kind: 'limit', message };
 	if (status === 400 && code === 'cancel_failed') return { kind: 'cancel_failed' };
+	if (status === 503 && code === 'detector_unavailable') return { kind: 'detector_unavailable' };
 	if (status >= 500) return { kind: 'server', status };
 	return { kind: 'rejected', status, code, message };
 }
@@ -220,6 +241,8 @@ export function editorTaskFailureMessage(failure: EditorTaskFailure): string {
 			return 'Pick a size larger than the picture.';
 		case 'upscale_too_large':
 			return 'That size is too large. Pick a smaller factor or size.';
+		case 'detector_unavailable':
+			return 'Finding faces and hands is not available on this server.';
 		case 'setup_incomplete':
 			return 'This setup is missing a model. Open Settings and choose it.';
 		case 'limit':
@@ -271,6 +294,20 @@ export function timeRangeOf(raw: unknown): TimeRange | null {
 }
 
 const STATUSES: readonly RunStatus[] = ['queued', 'running', 'done', 'failed', 'cancelled'];
+
+export function normalizeDetections(raw: unknown): DetectionResult {
+	const data = isRecord(raw) ? raw : {};
+	const picture = pixelDimsOf(data.picture) ?? { width: 1, height: 1 };
+	const detections = (Array.isArray(data.detections) ? data.detections : []).flatMap((entry): RawDetection[] => {
+		if (!isRecord(entry)) return [];
+		const id = str(entry.id);
+		const box = rectOf(entry.box);
+		const kind = entry.kind === 'hand' ? 'hand' : entry.kind === 'face' ? 'face' : null;
+		if (!id || !box || !kind || box.width <= 0 || box.height <= 0) return [];
+		return [{ id, kind, box, score: finite(entry.score) ?? 0 }];
+	});
+	return { picture, detections };
+}
 
 export function normalizeRun(raw: unknown): EditorRun {
 	const run = isRecord(raw) ? raw : {};
@@ -333,12 +370,22 @@ function offerOf(raw: unknown): TaskOffer[] {
 			order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : 0,
 			region_strategy: str(raw.region_strategy) ?? 'crop',
 			quantity_field: str(raw.quantity_field),
+			strength: strengthOf(raw.strength),
 			max_range_s: typeof raw.max_range_s === 'number' && raw.max_range_s > 0 ? raw.max_range_s : null,
 			via: str(raw.via),
 			qualifies: raw.qualifies !== false,
 			reason: str(raw.reason)
 		}
 	];
+}
+
+function strengthOf(raw: unknown): { default: number; min: number; max: number } | null {
+	if (!isRecord(raw)) return null;
+	const low = finite(raw.min);
+	const high = finite(raw.max);
+	const value = finite(raw.default);
+	if (low === null || high === null || value === null || high <= low) return null;
+	return { default: Math.min(high, Math.max(low, value)), min: low, max: high };
 }
 
 function setupRefOf(raw: unknown): SetupRef {
@@ -477,6 +524,11 @@ export function createEditorTasksApi(client: AxiosInstance) {
 		async startEditorRun(taskId: string, body: StartRunBody): Promise<EditorRun> {
 			const response = await client.post(`${task(taskId)}/runs`, body);
 			return normalizeRun(payloadOf(response.data).run);
+		},
+
+		async detectEditorTask(taskId: string, body: DetectionBody): Promise<DetectionResult> {
+			const response = await client.post(`${task(taskId)}/detections`, body);
+			return normalizeDetections(payloadOf(response.data));
 		},
 
 		async getEditorRun(runId: string): Promise<EditorRun> {

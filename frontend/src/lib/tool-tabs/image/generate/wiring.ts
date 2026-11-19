@@ -47,6 +47,7 @@ export function createTabGenerate(deps: TabGenerateDeps, editor: 'image' | 'vide
 		onTasks: editor === 'video' ? syncVideoTasks : syncServerTasks,
 		ports: {
 			tasks: () => api.listEditorTasks(editor),
+			detect: (task, body) => api.detectEditorTask(task, body),
 			sessions: (presetId) => api.listEditorSessions(presetId),
 			formulas: async (presetId, mode) => {
 				const response = await api.listFormulas(presetId, mode);

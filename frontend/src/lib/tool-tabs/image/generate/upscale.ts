@@ -12,6 +12,7 @@ export const GEOMETRY_LANE_ID = 'geometry';
 export type RunOptions = {
 	scale?: number;
 	target?: PixelDims;
+	strength?: number;
 };
 
 export type UpscaleOutcome = { ok: true; size: PixelDims } | { ok: false; reason: 'invalid' | 'not_larger' | 'too_large' };
@@ -39,10 +40,15 @@ export function dimsOf(raw: unknown): PixelDims | null {
 
 export function readRunOptions(raw: unknown): RunOptions | null {
 	if (typeof raw !== 'object' || raw === null) return null;
-	const scale = positive((raw as Record<string, unknown>).scale);
-	const target = dimsOf((raw as Record<string, unknown>).target);
-	if (scale !== null) return { scale };
-	return target ? { target } : null;
+	const record = raw as Record<string, unknown>;
+	const scale = positive(record.scale);
+	const target = dimsOf(record.target);
+	const strength = typeof record.strength === 'number' && Number.isFinite(record.strength) && record.strength >= 0 ? record.strength : null;
+	const options: RunOptions = {};
+	if (scale !== null) options.scale = scale;
+	else if (target) options.target = target;
+	if (strength !== null) options.strength = strength;
+	return Object.keys(options).length ? options : null;
 }
 
 export function upscaleSize(source: PixelDims, options: RunOptions): UpscaleOutcome {

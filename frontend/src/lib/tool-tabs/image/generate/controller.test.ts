@@ -1,7 +1,7 @@
 import { get, writable } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorRun, EditorTaskInfo, TaskOffer } from '$lib/services/api/editorTasks';
-import { apply, beginEdit, createStack, type EditStackState } from '$lib/tool-tabs/frame/editStack';
+import { apply, beginEdit, createStack, remove, undo, type EditStackState } from '$lib/tool-tabs/frame/editStack';
 import { createGenerateController, type ControllerDeps } from './controller';
 import { generateDraft, readGenerateParams, type GenerateParams } from './generateStep';
 import legacy from './fixtures/generateStepV1.json';
@@ -311,15 +311,27 @@ describe('generate controller: a step through its life', () => {
 		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.status).toBe('cancelled');
 	});
 
-	it('cancels the run when its step is removed and when everything is cleared', async () => {
+	it('keeps the run when its step is removed, so Undo brings back a step that still works', async () => {
 		const t = await withStep();
+		const removed = remove(t.stack(), 's1');
 		t.controller.stepRemoved('s1', t.stack());
+		t.deps.setStack(removed);
 		await vi.advanceTimersByTimeAsync(0);
+		expect(t.enginePorts.cancel).not.toHaveBeenCalled();
+		expect(removed.steps).toHaveLength(0);
+		t.deps.setStack(undo(removed));
+		expect(t.stack().steps).toHaveLength(1);
+		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.id).toBe('er_1');
+		await t.controller.cancel('s1');
 		expect(t.enginePorts.cancel).toHaveBeenCalledWith('er_1');
-		const clear = await withStep();
-		clear.controller.allRemoved(clear.stack());
+		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.status).toBe('cancelled');
+	});
+
+	it('keeps every run when everything is cleared', async () => {
+		const t = await withStep();
+		t.controller.allRemoved(t.stack());
 		await vi.advanceTimersByTimeAsync(0);
-		expect(clear.enginePorts.cancel).toHaveBeenCalledWith('er_1');
+		expect(t.enginePorts.cancel).not.toHaveBeenCalled();
 	});
 
 	it('re-attaches a run left in flight in the stack, once', async () => {

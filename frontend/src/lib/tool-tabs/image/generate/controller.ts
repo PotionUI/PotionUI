@@ -1100,14 +1100,11 @@ export function createGenerateController(deps: ControllerDeps) {
 	function stepRemoved(stepId: string, stack: EditStackState<unknown>): void {
 		const step = stack.steps.find((entry) => entry.id === stepId);
 		if (!step || step.tool !== GENERATE_TOOL) return;
-		const params = readGenerateParams(step.params);
-		if (params) void deps.engine.remove(params.run.id);
 		if (get(state).activeStepId === stepId) patch({ activeStepId: null });
 		if (get(state).redo?.stepId === stepId) patch({ redo: null });
 	}
 
-	function allRemoved(stack: EditStackState<unknown>): void {
-		for (const entry of generateSteps(stack)) void deps.engine.remove(entry.params.run.id);
+	function allRemoved(_stack: EditStackState<unknown>): void {
 		patch({ activeStepId: null, redo: null });
 	}
 

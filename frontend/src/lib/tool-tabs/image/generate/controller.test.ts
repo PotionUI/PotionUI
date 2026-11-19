@@ -311,27 +311,39 @@ describe('generate controller: a step through its life', () => {
 		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.status).toBe('cancelled');
 	});
 
-	it('keeps the run when its step is removed, so Undo brings back a step that still works', async () => {
+	it('cancels a run still going when its step is removed, and Undo brings the step back as cancelled', async () => {
 		const t = await withStep();
 		const removed = remove(t.stack(), 's1');
 		t.controller.stepRemoved('s1', t.stack());
 		t.deps.setStack(removed);
 		await vi.advanceTimersByTimeAsync(0);
-		expect(t.enginePorts.cancel).not.toHaveBeenCalled();
-		expect(removed.steps).toHaveLength(0);
-		t.deps.setStack(undo(removed));
-		expect(t.stack().steps).toHaveLength(1);
-		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.id).toBe('er_1');
-		await t.controller.cancel('s1');
 		expect(t.enginePorts.cancel).toHaveBeenCalledWith('er_1');
+		(t.enginePorts.get as ReturnType<typeof vi.fn>).mockResolvedValue(run({ status: 'cancelled' }));
+		t.deps.setStack(undo(removed));
+		t.controller.resume(t.stack());
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.stack().steps).toHaveLength(1);
 		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.status).toBe('cancelled');
 	});
 
-	it('keeps every run when everything is cleared', async () => {
+	it('never touches a finished run when its step is removed or everything is cleared', async () => {
+		const t = await withStep();
+		t.controller.settle({ stepId: 's1', status: 'done', error: null, run: done });
+		const removed = remove(t.stack(), 's1');
+		t.controller.stepRemoved('s1', t.stack());
+		t.controller.allRemoved(t.stack());
+		t.deps.setStack(removed);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.enginePorts.cancel).not.toHaveBeenCalled();
+		t.deps.setStack(undo(removed));
+		expect((readGenerateParams(t.stack().steps[0].params) as GenerateParams).run.status).toBe('done');
+	});
+
+	it('cancels every run still going when everything is cleared', async () => {
 		const t = await withStep();
 		t.controller.allRemoved(t.stack());
 		await vi.advanceTimersByTimeAsync(0);
-		expect(t.enginePorts.cancel).not.toHaveBeenCalled();
+		expect(t.enginePorts.cancel).toHaveBeenCalledWith('er_1');
 	});
 
 	it('re-attaches a run left in flight in the stack, once', async () => {

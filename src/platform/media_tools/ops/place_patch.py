@@ -35,6 +35,13 @@ SPEC = dict(
         {"name": "canvas_height", "type": "integer", "label": "Canvas height", "default": 0, "min": 0, "max": MAX_IMAGE_DIMENSION, "unit": "px"},
         {"name": "canvas_x", "type": "integer", "label": "Picture X on canvas", "default": 0, "min": 0, "max": MAX_IMAGE_DIMENSION, "unit": "px"},
         {"name": "canvas_y", "type": "integer", "label": "Picture Y on canvas", "default": 0, "min": 0, "max": MAX_IMAGE_DIMENSION, "unit": "px"},
+        {
+            "name": "replace",
+            "type": "checkbox",
+            "label": "Replace the picture",
+            "description": "The patch is the whole picture at its own size, for example an upscale",
+            "default": False,
+        },
     ],
 )
 
@@ -60,6 +67,8 @@ class PlacePatch(MediaTool):
         with Image.open(patch_media.path) as opened:
             patch = opened.convert("RGBA")
         keep_alpha = has_alpha_mode(image)
+        if params.get("replace") in (True, "true", 1):
+            return self._replaced(image, patch, read_opacity(params))
         image = grown(image, params)
         width, height = image.size
         left = min(width - 1, max(0, round(float(params.get("x", 0)) * width)))
@@ -72,6 +81,18 @@ class PlacePatch(MediaTool):
         canvas = image.convert("RGBA")
         canvas.alpha_composite(patch, dest=(left, top))
         result = canvas if keep_alpha else canvas.convert("RGB")
+        icc = image.info.get("icc_profile")
+        if icc:
+            result.info["icc_profile"] = icc
+        return result
+
+    def _replaced(self, image: Image.Image, patch: Image.Image, opacity: float) -> Image.Image:
+        keep_alpha = has_alpha_mode(image)
+        base = image.convert("RGBA")
+        if base.size != patch.size:
+            base = base.resize(patch.size, Image.Resampling.LANCZOS)
+        base.alpha_composite(with_opacity(patch, opacity))
+        result = base if keep_alpha else base.convert("RGB")
         icc = image.info.get("icc_profile")
         if icc:
             result.info["icc_profile"] = icc

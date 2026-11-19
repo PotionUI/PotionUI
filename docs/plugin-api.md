@@ -1861,7 +1861,7 @@ still images (grain, VHS, grades) are photo filters, not tools: see
 | `volume` | video, audio with sound | same | `unit` percent / db, `percent` 0 to 400, `db` -60 to 20, `fade_in`, `fade_out` (seconds) |
 | `replace_audio` | video (editor only) | same | `audio` (media), `start` (seconds into the track), `loop` |
 | `paint_layer` | image (editor only) | same | `layer` (media, a transparent PNG), `opacity` (0 to 1, default 1) |
-| `place_patch` | image (editor only) | same | `patch` (media, an RGBA PNG made by an editor run), `x`, `y`, `width`, `height` (0 to 1, the patch's place as fractions of the picture), `opacity` (0 to 1, default 1) |
+| `place_patch` | image (editor only) | same | `patch` (media, an RGBA PNG made by an editor run), `x`, `y`, `width`, `height` (0 to 1, the patch's place as fractions of the picture), `opacity` (0 to 1, default 1), `canvas_width`, `canvas_height`, `canvas_x`, `canvas_y` (pixels, grow the picture onto a larger transparent canvas first), `replace` (checkbox, default off: the patch is the whole picture at its own size, as an upscale makes it) |
 | `replace_background` | image (editor only) | same | `kind` (`color` default, `picture`, `transparent`), `color` (`#rrggbb`, default `#ffffff`, for `kind: color`), `picture` (media, cover-fitted to the canvas, for `kind: picture`), `matte` (media, a grayscale mask, white = the background; its soft values are used as they are), `opacity` (0 to 1, how much of the replacement shows, default 1). `transparent` makes an RGBA picture with alpha multiplied by 1 minus the matte |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their

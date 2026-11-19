@@ -236,3 +236,25 @@ def test_already_compressed_media_is_not_gzipped(build_dir):
 
     assert resp.status_code == 200
     assert "content-encoding" not in resp.headers
+
+
+def test_js_is_served_as_javascript_when_the_mime_mapping_is_poisoned(build_dir):
+    import mimetypes
+
+    from src.platform.http.mime_types import ensure_web_mime_types
+
+    mimetypes.init()
+    original = mimetypes.types_map.get(".js")
+    mimetypes.add_type("text/plain", ".js")
+    try:
+        ensure_web_mime_types()
+        app = _app_with_api_route()
+        mount_frontend(app, build_dir=build_dir)
+        client = TestClient(app)
+
+        resp = client.get("/_app/immutable/app.js")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/javascript")
+    finally:
+        mimetypes.types_map[".js"] = original or "text/javascript"

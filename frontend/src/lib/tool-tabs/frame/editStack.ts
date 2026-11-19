@@ -23,11 +23,17 @@ export interface PendingEdit<P = unknown> extends StepDraft<P> {
 
 export type RevisionDraft<P = unknown> = StepDraft<P> & { hidden?: boolean };
 
+export interface StackSnapshot<P = unknown> {
+	steps: EditStep<P>[];
+	cursor: number;
+}
+
 export interface StepRevision<P = unknown> {
 	id: string;
 	at: number;
 	before: RevisionDraft<P>;
 	after: RevisionDraft<P>;
+	swap?: { before: StackSnapshot<P>; after: StackSnapshot<P> };
 }
 
 export interface LiveSession<P = unknown> {
@@ -246,9 +252,20 @@ export function clearAll<P>(input: EditStackState<P>): EditStackState<P> {
 	return { steps: after, cursor: 0, pending: null, seq: state.seq, cleared: { steps: state.steps, cursor: state.cursor, label: 'Remove all edits', after } };
 }
 
+function swapRevision<P>(state: EditStackState<P>, after: EditStep<P>[], cursor: number, label: string): StepRevision<P> {
+	const stub: StepDraft<P> = { tool: 'swap', icon: '', label, summary: '', params: undefined as P };
+	return { id: '', at: cursor, before: stub, after: stub, swap: { before: { steps: state.steps, cursor: state.cursor }, after: { steps: after, cursor } } };
+}
+
 function rewritten<P>(state: EditStackState<P>, after: EditStep<P>[], cursor: number, label: string, seq = state.seq): EditStackState<P> {
 	const pending = state.pending?.target && !after.some((step) => step.id === state.pending?.target) ? null : state.pending;
-	return { ...withoutHistory(state), steps: after, cursor, pending, seq, cleared: { steps: state.steps, cursor: state.cursor, label, after } };
+	const revisions = [...(state.revisions ?? []), swapRevision(state, after, cursor, label)];
+	return { ...state, steps: after, cursor, pending, seq, revisions, redoRevisions: [], cleared: { steps: state.steps, cursor: state.cursor, label, after } };
+}
+
+function swapped<P>(state: EditStackState<P>, snapshot: StackSnapshot<P>): EditStackState<P> {
+	const { cleared: _cleared, ...rest } = state;
+	return { ...rest, steps: [...snapshot.steps.slice(0, snapshot.cursor), ...undoneSteps(state)], cursor: snapshot.cursor };
 }
 
 export function duplicateStep<P>(input: EditStackState<P>, id: string, patch: Partial<StepDraft<P>> = {}): EditStackState<P> {
@@ -323,7 +340,8 @@ function undoRevision<P>(state: EditStackState<P>): StepRevision<P> | undefined 
 
 function redoRevision<P>(state: EditStackState<P>): StepRevision<P> | undefined {
 	const last = lastRevision(state.redoRevisions);
-	return last && last.at === state.cursor ? last : undefined;
+	if (!last) return undefined;
+	return (last.swap ? last.swap.before.cursor : last.at) === state.cursor ? last : undefined;
 }
 
 export function canRedo(state: EditStackState<unknown>): boolean {
@@ -342,8 +360,11 @@ export function undo<P>(input: EditStackState<P>): EditStackState<P> {
 	const state = settled(input);
 	if (state.pending && !untouched(state)) return { ...state, pending: null };
 	if (state.pending) return undo({ ...state, pending: null });
-	const revision = removalToUndo(state) ? undefined : undoRevision(state);
-	if (revision) {
+	const revision = undoRevision(state);
+	if (revision?.swap) {
+		return { ...swapped(state, revision.swap.before), revisions: (state.revisions ?? []).slice(0, -1), redoRevisions: [...(state.redoRevisions ?? []), revision] };
+	}
+	if (revision && !removalToUndo(state)) {
 		return {
 			...state,
 			steps: restyle(state, revision.id, revision.before),
@@ -361,6 +382,9 @@ export function redo<P>(input: EditStackState<P>): EditStackState<P> {
 	const state = settled(input);
 	if (!canRedo(state)) return input;
 	const revision = redoRevision(state);
+	if (revision?.swap) {
+		return { ...swapped(state, revision.swap.after), revisions: [...(state.revisions ?? []), revision], redoRevisions: (state.redoRevisions ?? []).slice(0, -1) };
+	}
 	if (revision) {
 		return {
 			...state,
@@ -490,7 +514,9 @@ export function move<P>(
 	const state = settled(input);
 	const from = state.steps.findIndex((step) => step.id === id);
 	const steps = [...moved(appliedSteps(state), from, to), ...undoneSteps(state)];
-	return { ...withoutHistory(state), steps };
+	const { cleared: _cleared, ...rest } = state;
+	const revisions = [...(state.revisions ?? []), swapRevision(state, steps, state.cursor, `Move ${state.steps[from].label}`)];
+	return { ...rest, steps, revisions, redoRevisions: [] };
 }
 
 export function groupedFirst<P>(steps: readonly EditStep<P>[], first: (step: EditStep<P>) => boolean): boolean {

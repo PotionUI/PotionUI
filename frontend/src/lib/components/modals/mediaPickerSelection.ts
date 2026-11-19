@@ -57,19 +57,19 @@ function excerpt(text: string): string {
 	return flat.length > LABEL_EXCERPT ? `${flat.slice(0, LABEL_EXCERPT - 1).trimEnd()}…` : flat;
 }
 
+export function promptExcerptOf(form: Record<string, unknown> | null | undefined): string {
+	for (const key of PROMPT_KEYS) {
+		const value = form?.[key];
+		if (typeof value === 'string' && value.trim()) return excerpt(value);
+	}
+	return '';
+}
+
 export function historyTileLabel(
 	generation: GenerationHistoryItem,
 	file: GenerationFile
 ): { label: string; sublabel: string } {
-	const form = (generation.form_data ?? {}) as Record<string, unknown>;
-	let prompt = '';
-	for (const key of PROMPT_KEYS) {
-		const value = form[key];
-		if (typeof value === 'string' && value.trim()) {
-			prompt = excerpt(value);
-			break;
-		}
-	}
+	const prompt = promptExcerptOf(generation.form_data);
 	const filename = (file.file_path ?? '').split('/').pop() || file.file_path || '';
 	const date = typeof generation.created_at === 'string' ? generation.created_at.slice(0, 10) : '';
 	const preset = generation.preset_name ?? '';

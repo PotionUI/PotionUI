@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayName, generationImageUrl } from './loadPicked';
+import { displayName, generationImageUrl, titleFromFilename } from './loadPicked';
 
 describe('generationImageUrl', () => {
 	it('builds the generation media route from a stored path', () => {
@@ -21,5 +21,18 @@ describe('displayName', () => {
 
 	it('falls back when every candidate is blank', () => {
 		expect(displayName([null, ''], 'image.png')).toBe('image.png');
+	});
+});
+
+describe('titleFromFilename', () => {
+	it('drops the extension and keeps the rest', () => {
+		expect(titleFromFilename('dusk over the bay.png')).toBe('dusk over the bay');
+		expect(titleFromFilename('a.b.jpg')).toBe('a.b');
+	});
+
+	it('has no title for a bare index, an empty name or nothing', () => {
+		expect(titleFromFilename('0.png')).toBeNull();
+		expect(titleFromFilename('  ')).toBeNull();
+		expect(titleFromFilename(undefined)).toBeNull();
 	});
 });

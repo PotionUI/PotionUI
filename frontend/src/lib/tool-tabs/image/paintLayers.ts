@@ -338,10 +338,18 @@ function relinkStep<S extends { id?: string; tool: string; params: unknown }>(st
 	return params === step.params ? step : { ...step, params };
 }
 
+function relinkRevision<S extends { id?: string; tool: string; params: unknown }, R extends { id: string; before: S; after: S; swap?: { before: { steps: S[]; cursor: number }; after: { steps: S[]; cursor: number } } }>(revision: R, id: string, previous: string, next: LayerUpload): R {
+	const relinkSnapshot = (snapshot: { steps: S[]; cursor: number }) => ({ ...snapshot, steps: snapshot.steps.map((step) => relinkStep(step, id, previous, next)) });
+	const swap = revision.swap ? { before: relinkSnapshot(revision.swap.before), after: relinkSnapshot(revision.swap.after) } : undefined;
+	if (revision.id !== id) return swap ? { ...revision, swap } : revision;
+	const out = { ...revision, before: relinkStep(revision.before, id, previous, next), after: relinkStep(revision.after, id, previous, next) };
+	return swap ? { ...out, swap } : out;
+}
+
 export function relinkLayer<P>(state: EditStackState<P>, id: string, previous: string, next: LayerUpload): EditStackState<P> {
 	const steps = state.steps.map((step) => relinkStep(step, id, previous, next));
-	const revisions = state.revisions?.map((revision) => (revision.id === id ? { ...revision, before: relinkStep(revision.before, id, previous, next), after: relinkStep(revision.after, id, previous, next) } : revision));
-	const redoRevisions = state.redoRevisions?.map((revision) => (revision.id === id ? { ...revision, before: relinkStep(revision.before, id, previous, next), after: relinkStep(revision.after, id, previous, next) } : revision));
+	const revisions = state.revisions?.map((revision) => relinkRevision(revision, id, previous, next));
+	const redoRevisions = state.redoRevisions?.map((revision) => relinkRevision(revision, id, previous, next));
 	const pending = state.pending?.target === id ? relinkStep(state.pending, id, previous, next) : state.pending;
 	const out: EditStackState<P> = { ...state, steps, pending };
 	if (revisions) out.revisions = revisions;
@@ -359,4 +367,11 @@ export function nextPaintName(taken: Iterable<string>): string {
 	let n = 1;
 	while (names.has(`Paint ${n}`)) n += 1;
 	return `Paint ${n}`;
+}
+
+export function nextPictureName(taken: Iterable<string>): string {
+	const names = new Set(taken);
+	let n = 1;
+	while (names.has(`Picture ${n}`)) n += 1;
+	return `Picture ${n}`;
 }

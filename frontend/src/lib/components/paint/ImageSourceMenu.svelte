@@ -9,7 +9,8 @@
 	import { Spinner } from '$lib/components/ui';
 	import { primaryModifier } from '$lib/utils/platform';
 	import { PAINT_ICONS } from '$lib/paint/icons';
-	import { canvasFromBlob, canvasFromUrl, displayName, generationImageUrl } from '$lib/paint/loadPicked';
+	import { canvasFromBlob, canvasFromUrl, displayName, generationImageUrl, titleFromFilename } from '$lib/paint/loadPicked';
+	import { promptExcerptOf } from '$lib/components/modals/mediaPickerSelection';
 	import { imageSources } from '$lib/paint/registries';
 	import type { ImageSource, PickedImage } from '$lib/paint/types';
 
@@ -45,20 +46,23 @@
 		}
 	}
 
-	function fromHistory(_generation: unknown, file: { file_path?: string } | null) {
+	function fromHistory(generation: { form_data?: Record<string, unknown> } | null, file: { file_path?: string } | null) {
 		picking = null;
 		const url = file?.file_path ? generationImageUrl(file.file_path) : null;
 		if (!url || !file?.file_path) return;
 		const name = file.file_path.split('/').pop() ?? 'image.png';
-		finish(canvasFromUrl(url).then((canvas) => ({ canvas, name })));
+		const title = promptExcerptOf(generation?.form_data) || null;
+		finish(canvasFromUrl(url).then((canvas) => ({ canvas, name, title })));
 	}
 
-	function fromLibrary(item: { url: string; original_filename?: string; filename: string }) {
+	function fromLibrary(item: { url: string; original_filename?: string; filename: string; provenance?: Record<string, unknown> | null }) {
 		picking = null;
+		const title = titleFromFilename(item.original_filename) || promptExcerptOf(item.provenance) || null;
 		finish(
 			canvasFromUrl(item.url).then((canvas) => ({
 				canvas,
-				name: displayName([item.original_filename, item.filename], 'image.png')
+				name: displayName([item.original_filename, item.filename], 'image.png'),
+				title
 			}))
 		);
 	}
@@ -75,7 +79,7 @@
 		const file = input.files?.[0];
 		input.value = '';
 		if (!file) return;
-		finish(canvasFromBlob(file).then((canvas) => ({ canvas, name: file.name })));
+		finish(canvasFromBlob(file).then((canvas) => ({ canvas, name: file.name, title: titleFromFilename(file.name) })));
 	}
 
 	async function readClipboard(): Promise<PickedImage | null> {
@@ -84,7 +88,7 @@
 			const type = item.types.find((candidate) => candidate.startsWith('image/'));
 			if (type) {
 				const blob = await item.getType(type);
-				return { canvas: await canvasFromBlob(blob), name: 'pasted-image.png' };
+				return { canvas: await canvasFromBlob(blob), name: 'pasted-image.png', title: 'pasted-image' };
 			}
 		}
 		failure = 'There is no image on the clipboard.';
@@ -106,16 +110,17 @@
 		);
 		if (!file) return;
 		event.preventDefault();
-		finish(canvasFromBlob(file).then((canvas) => ({ canvas, name: 'pasted-image.png' })));
+		finish(canvasFromBlob(file).then((canvas) => ({ canvas, name: 'pasted-image.png', title: 'pasted-image' })));
 	}
 
 	function fromPlugin(source: ImageSource) {
 		finish(
 			source.pick().then(async (result) => {
 				if (!result) return null;
-				if (result.canvas) return { canvas: result.canvas, name: result.name };
-				if (result.blob) return { canvas: await canvasFromBlob(result.blob), name: result.name };
-				if (result.url) return { canvas: await canvasFromUrl(result.url), name: result.name };
+				const title = titleFromFilename(result.name);
+				if (result.canvas) return { canvas: result.canvas, name: result.name, title };
+				if (result.blob) return { canvas: await canvasFromBlob(result.blob), name: result.name, title };
+				if (result.url) return { canvas: await canvasFromUrl(result.url), name: result.name, title };
 				return null;
 			})
 		);

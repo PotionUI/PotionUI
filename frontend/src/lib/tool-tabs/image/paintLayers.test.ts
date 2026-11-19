@@ -11,7 +11,7 @@ vi.mock('$lib/paint/loadPicked', () => ({
 	}
 }));
 
-const { PaintLayerStore, diffCommand, localLayerCanvas, newLayer, nextPaintName, relinkLayer } = await import('./paintLayers');
+const { PaintLayerStore, diffCommand, localLayerCanvas, newLayer, nextPaintName, nextPictureName, relinkLayer } = await import('./paintLayers');
 
 class FakeImageData {
 	constructor(
@@ -221,5 +221,35 @@ describe('diffCommand', () => {
 
 	it('names new layers after the first free Paint number', () => {
 		expect(nextPaintName(['Paint 1', 'Paint 3'])).toBe('Paint 2');
+	});
+
+	it('names new picture layers after the first free Picture number', () => {
+		expect(nextPictureName(['Picture 1', 'Picture 3', 'Paint 1'])).toBe('Picture 2');
+		expect(nextPictureName([])).toBe('Picture 1');
+	});
+
+	it('relinks the layer inside the reorder, duplicate and merge snapshots', () => {
+		const before = [step('s1', '/a.png'), step('s2', '/other.png')];
+		const after = [step('s2', '/other.png'), step('s1', '/a.png')];
+		const state: EditStackState<unknown> = {
+			steps: after,
+			cursor: 2,
+			pending: null,
+			seq: 2,
+			revisions: [
+				{
+					id: '',
+					at: 2,
+					before: before[0],
+					after: before[0],
+					swap: { before: { steps: before, cursor: 2 }, after: { steps: after, cursor: 2 } }
+				}
+			]
+		};
+		const next = relinkLayer(state, 's1', '/a.png', { id: 'p2', url: '/b.png' } as never);
+		const swap = next.revisions![0].swap!;
+		expect((swap.before.steps[0].params as { url: string }).url).toBe('/b.png');
+		expect((swap.after.steps[1].params as { url: string }).url).toBe('/b.png');
+		expect((swap.after.steps[0].params as { url: string }).url).toBe('/other.png');
 	});
 });

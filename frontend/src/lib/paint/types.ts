@@ -176,6 +176,7 @@ export interface PaintFilter {
 export interface PickedImage {
 	canvas: HTMLCanvasElement;
 	name: string;
+	title?: string | null;
 }
 
 export interface ImageSource {

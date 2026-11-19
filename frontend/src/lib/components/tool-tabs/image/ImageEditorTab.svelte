@@ -118,7 +118,7 @@
 	import { expandUi } from '$lib/tool-tabs/image/generate/expand';
 	import { geometryKey, liveMask, maskChannelOf, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
 	import { SWITCH_TO_LAYERS, aboveKeyOf, aboveLayerOf, arrangeLayers, isFlattenedPaint, isLayerStep, layerOrdered, layerThumb, layersOf, mergeLayerPixels, patchMaskOf, settledLayered, switchToLayers } from '$lib/tool-tabs/image/layers';
-	import { PaintLayerStore, blankCanvas, copyCanvas, diffCommand, docCanvas, isNormalized, newLayer, nextPaintName, normalizeLayer, paintInto, relinkLayer } from '$lib/tool-tabs/image/paintLayers';
+	import { PaintLayerStore, blankCanvas, copyCanvas, diffCommand, docCanvas, isNormalized, newLayer, nextPaintName, nextPictureName, normalizeLayer, paintInto, relinkLayer } from '$lib/tool-tabs/image/paintLayers';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import PatchMaskOverlay from '$lib/components/tool-tabs/image/PatchMaskOverlay.svelte';
 	import { inputRef, outputSize, replaceOption, runBody, sourceOrigin, type PixelSize, type SourceOrigin } from '$lib/tool-tabs/image/payload';
@@ -1574,11 +1574,11 @@
 		addSource = from;
 	}
 
-	async function placePicture(image: { canvas: HTMLCanvasElement; name: string }) {
+	async function placePicture(image: { canvas: HTMLCanvasElement; name: string; title?: string | null }) {
 		addSource = null;
 		if (mode === 'paint') settleLayer();
 		else if (!(await leaveTool())) return;
-		const id = insertLayer(image.name.replace(/\.[^.]+$/, '') || 'Picture', addRow);
+		const id = insertLayer(image.title?.trim() || nextPictureName(stack.steps.map((step) => step.label)), addRow);
 		picturePending = { id, canvas: image.canvas };
 		openPaintOn(id);
 	}

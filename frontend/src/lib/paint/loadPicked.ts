@@ -41,3 +41,8 @@ export function displayName(
 	}
 	return fallback;
 }
+
+export function titleFromFilename(name: string | undefined | null): string | null {
+	const stem = (name ?? '').trim().replace(/\.[^./\\]+$/, '').trim();
+	return stem && !/^\d+$/.test(stem) ? stem : null;
+}

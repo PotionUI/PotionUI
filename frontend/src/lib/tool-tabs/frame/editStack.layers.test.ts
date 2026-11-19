@@ -8,6 +8,9 @@ import {
 	duplicateStep,
 	insertSteps,
 	mergeInto,
+	move,
+	redoLabel,
+	undoLabel,
 	opacityOf,
 	redo,
 	renameStep,
@@ -200,5 +203,96 @@ describe('adding layers at a position', () => {
 		expect(renamed.steps[0].label).toBe('Sky');
 		expect(labels(undo(renamed))).toEqual(['paint']);
 		expect(renameStep(stack, 's1', '   ')).toBe(stack);
+	});
+});
+
+
+describe('layer actions are single undo steps in one history', () => {
+	const ids = (state: EditStackState<unknown>) => state.steps.map((step) => step.id);
+
+	it('undoes and redoes a reorder instead of removing the top layer', () => {
+		const stack = stackOf('paint', 'paint', 'paint');
+		const moved = move(stack, 's3', 0);
+		expect(ids(moved)).toEqual(['s3', 's1', 's2']);
+		expect(undoLabel(moved)).toBe('Move paint');
+		const back = undo(moved);
+		expect(ids(back)).toEqual(['s1', 's2', 's3']);
+		expect(back.cursor).toBe(3);
+		const again = redo(back);
+		expect(ids(again)).toEqual(['s3', 's1', 's2']);
+		expect(again.cursor).toBe(3);
+	});
+
+	it('walks back several reorders one at a time, then the layers', () => {
+		let stack = stackOf('paint', 'paint', 'paint');
+		stack = move(stack, 's3', 0);
+		stack = move(stack, 's2', 0);
+		expect(ids(stack)).toEqual(['s2', 's3', 's1']);
+		stack = undo(stack);
+		expect(ids(stack)).toEqual(['s3', 's1', 's2']);
+		stack = undo(stack);
+		expect(ids(stack)).toEqual(['s1', 's2', 's3']);
+		stack = undo(stack);
+		expect(ids(stack)).toEqual(['s1', 's2', 's3']);
+		expect(stack.cursor).toBe(2);
+	});
+
+	it('undoes a layer added after the reorder before the reorder', () => {
+		let stack = stackOf('paint', 'paint');
+		stack = move(stack, 's2', 0);
+		stack = apply(beginEdit(stack, draft('paint')));
+		stack = undo(stack);
+		expect(ids(stack).slice(0, 2)).toEqual(['s2', 's1']);
+		expect(stack.cursor).toBe(2);
+		stack = undo(stack);
+		expect(ids(stack)).toEqual(['s1', 's2', 's3']);
+	});
+
+	it('keeps an earlier rename undoable after a duplicate is undone', () => {
+		let stack = stackOf('paint', 'paint');
+		stack = renameStep(stack, 's1', 'Sky');
+		stack = duplicateStep(stack, 's1');
+		expect(stack.steps).toHaveLength(3);
+		stack = undo(stack);
+		expect(stack.steps).toHaveLength(2);
+		expect(stack.cursor).toBe(2);
+		stack = undo(stack);
+		expect(stack.steps[0].label).toBe('paint');
+		expect(stack.cursor).toBe(2);
+	});
+
+	it('redoes a duplicate and a merge', () => {
+		let stack = stackOf('paint', 'paint');
+		stack = duplicateStep(stack, 's1');
+		stack = redo(undo(stack));
+		expect(stack.steps).toHaveLength(3);
+		expect(stack.cursor).toBe(3);
+		stack = mergeInto(stack, 's1', stack.steps[1].id, { layer: 'p1', url: 'm', layers: 1 });
+		expect(stack.steps).toHaveLength(2);
+		const back = undo(stack);
+		expect(back.steps).toHaveLength(3);
+		expect(redoLabel(back)).toMatch(/^Merge/);
+		expect(redo(back).steps).toHaveLength(2);
+	});
+
+	it('keeps a rename and an eye toggle undoable after a reorder', () => {
+		let stack = stackOf('paint', 'paint');
+		stack = renameStep(stack, 's1', 'Sky');
+		stack = toggleHiddenUndoable(stack, 's2');
+		stack = move(stack, 's2', 0);
+		stack = undo(stack);
+		expect(ids(stack)).toEqual(['s1', 's2']);
+		expect(stack.steps[1].hidden).toBe(true);
+		stack = undo(stack);
+		expect(stack.steps[1].hidden).toBe(false);
+		stack = undo(stack);
+		expect(stack.steps[0].label).toBe('paint');
+		expect(stack.cursor).toBe(2);
+	});
+
+	it('does not put a reorder into a saved stack', () => {
+		const stack = move(stackOf('paint', 'paint'), 's2', 0);
+		expect(JSON.stringify(serialize(stack))).not.toContain('swap');
+		expect(deserialize(serialize(stack)).steps.map((step) => step.id)).toEqual(['s2', 's1']);
 	});
 });

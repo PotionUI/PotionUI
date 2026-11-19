@@ -865,6 +865,29 @@ test.describe('Paint layers are kept one by one', () => {
 		await expect(readout).toHaveText('50%');
 	});
 
+	test('reorder then Undo restores the order, Redo re-applies it', async ({ page }) => {
+		const log = await start(page);
+		await threeLayers(page, log);
+		const before = (await layerOrder(page)) as string[];
+		expect(before).toHaveLength(3);
+		await row(page, before[0]).locator('[data-stack-open]').focus();
+		await page.keyboard.press('Alt+ArrowUp');
+		let moved: string[] = [];
+		await expect.poll(async () => (moved = (await layerOrder(page)) as string[])).not.toEqual(before);
+		await expect(layerRows(page)).toHaveCount(3);
+		await expect(page.locator('[data-frame-undo]')).toHaveAttribute('aria-label', /Undo Move/);
+		await page.locator('[data-frame-undo]').click();
+		await expect.poll(() => layerOrder(page)).toEqual(before);
+		await expect(layerRows(page)).toHaveCount(3);
+		await page.locator('[data-frame-redo]').click();
+		await expect.poll(() => layerOrder(page)).toEqual(moved);
+		await page.locator('[data-frame-undo]').click();
+		await expect.poll(() => layerOrder(page)).toEqual(before);
+		await page.locator('[data-frame-undo]').click();
+		await expect(layerRows(page)).toHaveCount(3);
+		await expect.poll(() => painted(page, -80, 70)).toBe(false);
+	});
+
 	test('a layer duplicates and merges down from its menu', async ({ page }) => {
 		const log = await start(page);
 		await threeLayers(page, log);

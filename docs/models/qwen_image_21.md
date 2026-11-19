@@ -98,3 +98,5 @@ The Comfy-Org repack ships under the **Qwen Research License** (not Apache-2.0) 
 ## Hardware
 
 The bf16 checkpoint set is **~33 GB on disk** together (14.23 GB DiT + 17.53 GB text encoder + 0.68 GB VAE) — no fp8/quantized repack is published yet. `recommended_vram_gb: 24` on the preset; a 24 GB card needs the model-lifecycle cache's text-encoder offload between the encode and denoise phases to fit, which is automatic. No `min_vram_gb` until a lower tier is GPU-validated.
+
+**Edit and combine at full size.** The prefix K/V cache holds keys and values for every text and reference token in all 32 blocks for the whole run: about 4 GB for one 1072x1920 reference (8040 tokens at width 4096, bf16), twice that with CFG. The DiT declares it through `run_cache_reserve_gb`, so sampling placement reserves it together with the reference tokens' activations and evicts the co-resident Qwen3-VL-8B text encoder (15.2 GB) before the DiT moves in. Before this, a 1072x1920 combine on a 32 GB card kept the text encoder resident and ran out of memory in the first forward.

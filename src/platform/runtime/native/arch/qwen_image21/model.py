@@ -260,13 +260,25 @@ class QwenImage21DiT(NativeArchModule):
                tuple(image_slots) if image_slots else (), *ids)
         return cache, key
 
+    def _prefix_kv_bytes(self, batch: int, prefix_len: int, itemsize: int) -> int:
+        return 2 * batch * prefix_len * self.config.inner_dim * itemsize * len(self.transformer_blocks)
+
+    def run_cache_reserve_gb(self, latents_shape, ref_hw_frames, context_tokens: int, itemsize: int) -> float:
+        """The prefix K/V one conditioning branch keeps for the whole run: text
+        plus every reference image's tokens (unpatched latents, one token per
+        latent pixel), keys and values in every block."""
+        prefix_len = int(context_tokens) + sum(h * w * max(1, frames) for (h, w), frames in ref_hw_frames)
+        if prefix_len <= 0:
+            return 0.0
+        return self._prefix_kv_bytes(int(latents_shape[0]), prefix_len, int(itemsize)) / 1024 ** 3
+
     def _prefix_kv_fits(self, hidden_states: Tensor, prefix_len: int) -> bool:
         free_gb = effective_free_vram_gb(hidden_states.device)
         if free_gb is None:
             return True
         itemsize = hidden_states.element_size()
         inner = self.config.inner_dim
-        entry_bytes = 2 * hidden_states.shape[0] * prefix_len * inner * itemsize * len(self.transformer_blocks)
+        entry_bytes = self._prefix_kv_bytes(hidden_states.shape[0], prefix_len, itemsize)
         pass_bytes = 4 * hidden_states.shape[0] * hidden_states.shape[1] * inner * self.config.mlp_ratio * itemsize
         return free_gb * 1024 ** 3 >= entry_bytes + pass_bytes
 

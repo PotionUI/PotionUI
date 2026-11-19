@@ -96,12 +96,19 @@ _SAMPLING_MB_PER_LATENT_PX = 0.1
 # fits-fine models (26.3GB Krea-2 on a 32GB card @1080p) into streaming.
 _SAMPLING_MIN_HEADROOM_GB = 0.75
 
+CALIBRATION_PATCH = 2
+
+
+def _tokens_scale(patch: int) -> float:
+    return (CALIBRATION_PATCH / max(1, int(patch))) ** 2
+
 
 def sampling_headroom_gb(
     latent_hw: tuple[int, int],
     base_gb: float = _SAMPLING_MIN_HEADROOM_GB,
     *,
     latent_frames: int = 1,
+    patch: int = CALIBRATION_PATCH,
 ) -> float:
     """Working headroom for the SAMPLING phase only (no decode reservation).
 
@@ -118,11 +125,21 @@ def sampling_headroom_gb(
     latent — the DiT's attention/activation buffers scale with the full token
     count (T*H*W), not just one frame's H*W; a still image (T=1, the default)
     keeps the existing 2D numbers exactly.
+
+    ``patch`` is the DiT's spatial patch size. The per-pixel constant was
+    calibrated on a 2x2-patched DiT (four latent pixels per token); the spike
+    follows the token count, so a patch-1 DiT (Qwen-Image-2.1, FLUX.2 Klein)
+    pays four times as much per latent pixel.
     """
     h, w = latent_hw
-    return max(base_gb, (h * w) * max(1, latent_frames) * _SAMPLING_MB_PER_LATENT_PX / 1024.0)
+    term = (h * w) * max(1, latent_frames) * _SAMPLING_MB_PER_LATENT_PX * _tokens_scale(patch) / 1024.0
+    return max(base_gb, term)
 
-def ref_latents_headroom_gb(ref_hw_frames: list[tuple[tuple[int, int], int]]) -> float:
+def ref_latents_headroom_gb(
+    ref_hw_frames: list[tuple[tuple[int, int], int]],
+    *,
+    patch: int = CALIBRATION_PATCH,
+) -> float:
     """Extra (UNFLOORED) sampling-phase headroom for reference-latent tokens
     concatenated onto the main image's DiT forward — Qwen-Image-Edit's
     in-context edit path (``arch/qwen_image/model.py``'s ``ref_latents`` loop
@@ -145,9 +162,10 @@ def ref_latents_headroom_gb(ref_hw_frames: list[tuple[tuple[int, int], int]]) ->
     history this project has already been burned by once). Callers add this
     directly onto the main term's already-floored result, never call it alone.
     """
+    scale = _tokens_scale(patch)
     total = 0.0
     for (h, w), frames in ref_hw_frames:
-        total += (h * w) * max(1, frames) * _SAMPLING_MB_PER_LATENT_PX / 1024.0
+        total += (h * w) * max(1, frames) * _SAMPLING_MB_PER_LATENT_PX * scale / 1024.0
     return total
 
 

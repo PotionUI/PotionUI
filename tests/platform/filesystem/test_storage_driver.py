@@ -3,11 +3,16 @@
 `httpx.MockTransport` - never a real network call) so the two drivers are
 provably interchangeable from a caller's point of view."""
 
+import errno
+import os
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
+from src.platform.filesystem import storage_driver
 from src.platform.filesystem.storage_driver import LocalFileStorageDriver, StorageKeyError, validate_key
 from src.platform.filesystem.s3_driver import S3FileStorageDriver
 
@@ -201,3 +206,184 @@ class TestS3DriverAddressing:
             auth = request.headers["Authorization"]
             assert auth.startswith("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/")
             assert "Signature=" in auth
+
+
+class _ReplaceRecorder:
+    def __init__(self, refusals):
+        self.refusals = list(refusals)
+        self.calls = []
+        self.raised = []
+
+    def __call__(self, source, destination):
+        self.calls.append((Path(source), Path(destination)))
+        if self.refusals:
+            error = self.refusals.pop(0)
+            self.raised.append(error)
+            raise error
+        for _ in range(20):
+            try:
+                os.replace(source, destination)
+                return
+            except PermissionError:
+                time.sleep(0.05)
+        os.replace(source, destination)
+
+
+def _refusal(winerror=32):
+    return PermissionError(errno.EACCES, "Access is denied or the file is in use", None, winerror)
+
+
+@pytest.fixture
+def replace_seam(monkeypatch):
+    sleeps = []
+
+    def install(refusals, windows=True):
+        recorder = _ReplaceRecorder(refusals)
+        monkeypatch.setattr(storage_driver, "os", SimpleNamespace(**{**vars(os), "replace": recorder}))
+        monkeypatch.setattr(storage_driver, "time", SimpleNamespace(sleep=sleeps.append))
+        if windows is not None:
+            monkeypatch.setattr(storage_driver, "is_windows", lambda: windows)
+        return recorder
+
+    install.sleeps = sleeps
+    return install
+
+
+def _part_files(tmp_path):
+    return sorted(p.name for p in tmp_path.rglob("*.part"))
+
+
+class TestLocalDriverPublishRename:
+    @pytest.mark.parametrize("winerror", [32, 5])
+    def test_a_rename_refused_once_on_windows_is_tried_again_after_a_short_wait_and_publishes(self, tmp_path, replace_seam, winerror):
+        recorder = replace_seam([_refusal(winerror)])
+        source = tmp_path / "out.wav"
+        source.write_bytes(b"RIFF" * 1000)
+        driver = LocalFileStorageDriver(str(tmp_path / "storage"))
+
+        written = driver.put_file("uploads/result.wav", source)
+
+        assert written == 4000
+        assert driver.get_bytes("uploads/result.wav") == b"RIFF" * 1000
+        assert len(recorder.calls) == 2
+        assert recorder.calls[0] == recorder.calls[1]
+        assert replace_seam.sleeps == [0.05]
+        assert _part_files(tmp_path) == []
+
+    def test_put_bytes_tries_a_refused_rename_again_on_windows_too(self, tmp_path, replace_seam):
+        recorder = replace_seam([_refusal(), _refusal()])
+        driver = LocalFileStorageDriver(str(tmp_path))
+
+        driver.put_bytes("generations/2026-01-01/g1/0.png", b"png")
+
+        assert driver.get_bytes("generations/2026-01-01/g1/0.png") == b"png"
+        assert len(recorder.calls) == 3
+        assert replace_seam.sleeps == [0.05, 0.05]
+        assert _part_files(tmp_path) == []
+
+    def test_a_rename_refused_on_every_attempt_raises_the_last_refusal_unchanged_and_leaves_no_part_file(self, tmp_path, replace_seam):
+        recorder = replace_seam([_refusal() for _ in range(11)])
+        source = tmp_path / "out.wav"
+        source.write_bytes(b"data")
+        driver = LocalFileStorageDriver(str(tmp_path / "storage"))
+
+        with pytest.raises(PermissionError) as raised:
+            driver.put_file("uploads/result.wav", source)
+
+        assert raised.value is recorder.raised[-1]
+        assert len(recorder.calls) == 10
+        assert replace_seam.sleeps == [0.05] * 9
+        assert driver.exists("uploads/result.wav") is False
+        assert _part_files(tmp_path) == []
+
+    def test_a_rename_that_succeeds_at_once_neither_waits_nor_renames_twice(self, tmp_path, replace_seam):
+        recorder = replace_seam([])
+        driver = LocalFileStorageDriver(str(tmp_path))
+
+        driver.put_bytes("uploads/a.png", b"x")
+
+        assert len(recorder.calls) == 1
+        assert replace_seam.sleeps == []
+
+    def test_off_windows_a_refused_rename_raises_at_once(self, tmp_path, replace_seam):
+        refusal = _refusal()
+        recorder = replace_seam([refusal], windows=False)
+        source = tmp_path / "out.wav"
+        source.write_bytes(b"data")
+        driver = LocalFileStorageDriver(str(tmp_path / "storage"))
+
+        with pytest.raises(PermissionError) as raised:
+            driver.put_file("uploads/result.wav", source)
+
+        assert raised.value is refusal
+        assert len(recorder.calls) == 1
+        assert replace_seam.sleeps == []
+        assert _part_files(tmp_path) == []
+
+    def test_the_platform_the_tests_run_on_decides_whether_a_refused_rename_is_tried_again(self, tmp_path, replace_seam):
+        refusal = _refusal()
+        recorder = replace_seam([refusal], windows=None)
+        driver = LocalFileStorageDriver(str(tmp_path))
+
+        if os.name == "nt":
+            driver.put_bytes("uploads/a.png", b"x")
+            assert driver.get_bytes("uploads/a.png") == b"x"
+            assert len(recorder.calls) == 2
+            assert replace_seam.sleeps == [0.05]
+        else:
+            with pytest.raises(PermissionError) as raised:
+                driver.put_bytes("uploads/a.png", b"x")
+            assert raised.value is refusal
+            assert len(recorder.calls) == 1
+            assert replace_seam.sleeps == []
+        assert _part_files(tmp_path) == []
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            OSError(errno.EXDEV, "Invalid cross-device link"),
+            FileNotFoundError(errno.ENOENT, "No such file or directory"),
+            IsADirectoryError(errno.EISDIR, "Is a directory"),
+        ],
+        ids=["cross-device", "not-found", "is-a-directory"],
+    )
+    def test_on_windows_a_rename_failure_other_than_a_refusal_raises_at_once(self, tmp_path, replace_seam, failure):
+        recorder = replace_seam([failure])
+        driver = LocalFileStorageDriver(str(tmp_path))
+
+        with pytest.raises(OSError) as raised:
+            driver.put_bytes("uploads/a.png", b"x")
+
+        assert raised.value is failure
+        assert len(recorder.calls) == 1
+        assert replace_seam.sleeps == []
+        assert _part_files(tmp_path) == []
+
+    @pytest.mark.skipif(os.name != "nt", reason="a sharing violation is a Windows file-locking behaviour")
+    def test_on_windows_a_part_file_another_handle_holds_at_rename_time_is_published_once_that_handle_closes(self, tmp_path, monkeypatch):
+        held = []
+        sleeps = []
+        real_replace = os.replace
+
+        def replace_while_held(source, destination):
+            if not held:
+                held.append(open(source, "rb"))
+            real_replace(source, destination)
+
+        def release(seconds):
+            sleeps.append(seconds)
+            for handle in held:
+                handle.close()
+            time.sleep(seconds)
+
+        monkeypatch.setattr(storage_driver, "os", SimpleNamespace(**{**vars(os), "replace": replace_while_held}))
+        monkeypatch.setattr(storage_driver, "time", SimpleNamespace(sleep=release))
+        source = tmp_path / "out.wav"
+        source.write_bytes(b"RIFF" * 1000)
+        driver = LocalFileStorageDriver(str(tmp_path / "storage"))
+
+        driver.put_file("uploads/result.wav", source)
+
+        assert driver.get_bytes("uploads/result.wav") == b"RIFF" * 1000
+        assert sleeps[0] == 0.05
+        assert _part_files(tmp_path) == []

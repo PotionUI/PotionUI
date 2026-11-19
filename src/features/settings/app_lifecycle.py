@@ -10,6 +10,8 @@ import asyncio
 import os
 import sys
 
+from src.platform.util.host import is_windows
+
 
 def restart_argv() -> list:
     """The exec argv that faithfully re-runs the current process.
@@ -32,10 +34,6 @@ def restart_argv() -> list:
             name = name[: -len(".__main__")]
         return [sys.executable, "-m", name] + sys.argv[1:]
     return [sys.executable] + sys.argv
-
-
-def is_windows() -> bool:
-    return sys.platform == "win32"
 
 
 def _restart_process(argv: list) -> None:

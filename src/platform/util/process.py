@@ -3,6 +3,8 @@ from __future__ import annotations
 import errno
 import os
 
+from src.platform.util.host import is_windows
+
 
 def _pid_alive_windows(pid: int) -> bool:
     import ctypes
@@ -25,7 +27,7 @@ def _pid_alive_windows(pid: int) -> bool:
 
 def pid_alive(pid: int) -> bool:
     # on Windows signal 0 is CTRL_C_EVENT: os.kill(pid, 0) sends a Ctrl-C, it does not probe
-    if os.name == "nt":
+    if is_windows():
         return _pid_alive_windows(pid)
     try:
         os.kill(pid, 0)

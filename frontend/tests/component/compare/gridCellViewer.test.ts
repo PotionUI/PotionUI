@@ -314,14 +314,15 @@ describe('grid cell viewer', () => {
 		expect(onRetryFailed).toHaveBeenCalled();
 	});
 
-	it('shows progress for a running cell and a hole for a deleted one', async () => {
+	it('shows the live stage for a running cell and a hole for a deleted one', async () => {
 		const grid = makeGrid({
 			5: { status: 'running', progress: { step: 14, total: 28 } },
 			6: { status: 'deleted' }
 		});
 		mounted = mountViewer({ grid });
 		await flush();
-		expect((document.body.querySelector('[data-testid="cell-viewer-empty"]') as HTMLElement).textContent).toContain('14 / 28');
+		expect(document.body.querySelector('[role="progressbar"][aria-label="Generation progress"]')).not.toBeNull();
+		expect(document.body.querySelector('[data-testid="cell-viewer-empty"]')).toBeNull();
 		mounted.set({ index: 6 });
 		await flush();
 		expect((document.body.querySelector('[data-testid="cell-viewer-empty"]') as HTMLElement).textContent).toContain('Deleted');

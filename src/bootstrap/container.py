@@ -286,6 +286,8 @@ from src.features.kits.routes import KitController
 from src.features.edits.manager import EditManager
 from src.features.editor_tasks.default_repository import TaskDefaultRepository
 from src.features.editor_tasks.formats import SETTING_KEY as EXPAND_FORMATS_SETTING, ExpandFormats
+from src.features.editor_tasks.detection import DetectorRegistry, EditorDetectionService
+from src.features.editor_tasks.yolo_detector import DETECTOR_ID as YOLO_DETECTOR_ID, YoloDetector
 from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
 from src.features.editor_tasks.repository import EditorRunRepository
@@ -629,6 +631,8 @@ class AppContainer:
     editor_tasks: EditorTaskManager
     editor_runs: EditorRunManager
     expand_formats: ExpandFormats
+    editor_detector_registry: DetectorRegistry
+    editor_detection: EditorDetectionService
 
     # User groups
     user_group_repository: "UserGroupRepository"
@@ -1712,6 +1716,10 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         lambda: settings.get_setting(EXPAND_FORMATS_SETTING),
         lambda user_id: [group.id for group in user_group_repository.get_user_groups(user_id)],
     )
+
+    editor_detector_registry = DetectorRegistry()
+    editor_detector_registry.register(YOLO_DETECTOR_ID, YoloDetector.kinds, YoloDetector(model_roots))
+    editor_detection = EditorDetectionService(editor_detector_registry, editor_task_registry, media_tool_service)
 
     # Library components (uploads as first-class, curatable resources)
 

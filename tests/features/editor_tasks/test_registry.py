@@ -21,7 +21,7 @@ ENTRY = {"id": "shiny.colorize", "label": "Colorize a region", "region": "requir
 def test_core_tasks_are_present():
     registry = register_core_tasks(TaskRegistry())
 
-    image = {"edit_region", "remove_object", "replace_background", "find_subject", "expand"}
+    image = {"edit_region", "remove_object", "replace_background", "find_subject", "expand", "fix_faces"}
     assert image <= {task.id for task in registry.list("image")}
     assert CORE_TASK_IDS >= image | {task.id for task in registry.list("video")}
     assert registry.get("remove_object").fallback == ("edit_region", REMOVE_OBJECT_PROMPT)

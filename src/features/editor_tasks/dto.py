@@ -47,6 +47,11 @@ class StartEditorRunRequest(BaseModel):
     candidates: int = Field(default=1, ge=1, le=MAX_CANDIDATES)
     seed: Optional[int] = Field(default=None, ge=0)
     options: Dict[str, Any] = Field(default_factory=dict)
+    strength: Optional[float] = Field(default=None, ge=0)
+
+class DetectionRequest(BaseModel):
+    input: InputRef
+    steps: List[StepRequest] = Field(default_factory=list)
 
 class DefaultSetup(BaseModel):
     kind: Literal["session", "formula", "defaults"]

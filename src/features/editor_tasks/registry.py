@@ -87,6 +87,9 @@ CORE_TASKS: Tuple[TaskDefinition, ...] = (
         id="remix", label="Remix", editors=VIDEO, region="none", prompt="required", range="optional",
         icon="mode-remix",
     ),
+    TaskDefinition(
+        id="fix_faces", label="Fix faces and hands", region="required", prompt="none", icon="mode-refine-faces",
+    ),
 )
 
 CORE_TASK_IDS = frozenset(task.id for task in CORE_TASKS)

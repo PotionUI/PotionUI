@@ -124,6 +124,9 @@ class EditorTaskManager:
             "region_strategy": spec.region,
             "max_range_s": spec.max_range_s,
             "quantity_field": spec.inputs.get("quantity"),
+            "strength": (
+                {key: spec.strength[key] for key in ("default", "min", "max")} if spec.strength else None
+            ),
             "via": via,
             "qualifies": qualifies,
         }

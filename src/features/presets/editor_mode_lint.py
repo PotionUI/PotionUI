@@ -53,6 +53,21 @@ def fixed_value_problems(name: str, spec: FieldTemplate, value: Any) -> List[str
     return []
 
 
+def strength_problems(strength: Optional[Dict[str, Any]], fields: Dict[str, FieldTemplate]) -> List[str]:
+    if not strength:
+        return []
+    name = strength["field"]
+    spec = fields.get(name)
+    if spec is None:
+        return [f"strength.field names '{name}', which is not a field of the mode"]
+    if spec.type not in RANGE_TYPES:
+        return [f"strength.field '{name}' is a {spec.type} field, not a number field"]
+    configuration = spec.configuration or {}
+    low, high = configuration.get("min"), configuration.get("max")
+    if _number(low) and strength["min"] < low or _number(high) and strength["max"] > high:
+        return [f"strength range {strength['min']} to {strength['max']} is outside the range {low} to {high} of '{name}'"]
+    return []
+
 def source_problems(
     source: Any, fields: Dict[str, FieldTemplate], editors: Iterable[str]
 ) -> List[str]:
@@ -148,6 +163,7 @@ def lint_editor_mode(
         *source_problems(spec.inputs["source"], fields, editors_of(spec.task)),
         *mask_problems(spec.inputs, fields),
         *size_problems(spec.size, fields),
+        *strength_problems(spec.strength, fields),
     ]
     for key in ("quantity", "seed"):
         value = spec.inputs.get(key)

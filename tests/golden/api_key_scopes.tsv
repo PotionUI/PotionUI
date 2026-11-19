@@ -205,6 +205,7 @@ GET	/api/editor/expand/formats	read	-	marker
 DELETE	/api/editor/runs/{run_id}	-	generate	marker
 GET	/api/editor/runs/{run_id}	read	-	marker
 GET	/api/editor/tasks	read	-	marker
+POST	/api/editor/tasks/fix_faces/detections	-	generate	marker
 DELETE	/api/editor/tasks/{task_id}/default	-	content	marker
 PUT	/api/editor/tasks/{task_id}/default	-	content	marker
 POST	/api/editor/tasks/{task_id}/runs	-	generate	marker

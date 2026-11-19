@@ -91,6 +91,21 @@ Query parameters:
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
+### POST /api/editor/tasks/fix_faces/detections
+
+**Find Faces And Hands**
+
+Renders the picture the way a run does and answers with the faces and hands found in it, each with a box in 0..1 of the picture, so the editor can offer them for ticking before a Fix faces run. Answers 503 detector_unavailable when no detector or its weights are installed.
+
+Key permission: `generate`.
+
+JSON body, `DetectionRequest`:
+
+- `input` (InputRef, required)
+- `steps` (array of StepRequest, optional)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ### PUT /api/editor/tasks/{task_id}/default
 
 **Set My Default Setup For A Task**
@@ -150,6 +165,9 @@ JSON body, `StartEditorRunRequest`:
 - `candidates` (integer, optional, 1.0 to 4.0, default 1)
 - `seed` (integer, optional, at least 0.0)
 - `options` (object, optional)
+- `strength` (number, optional, at least 0.0)
+- `scale` (number, optional, at most 64.0)
+- `target` (UpscaleTarget, optional)
 
 Response `202`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 

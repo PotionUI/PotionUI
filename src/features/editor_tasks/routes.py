@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from src.features.editor_tasks.dto import SetTaskDefaultRequest, StartEditorRunRequest
+from src.features.editor_tasks.detection import EditorDetectionService
+from src.features.editor_tasks.dto import DetectionRequest, SetTaskDefaultRequest, StartEditorRunRequest
 from src.features.editor_tasks.formats import ExpandFormats
 from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.runs import EditorRunManager
@@ -119,8 +120,19 @@ class EditorRunController(BaseController):
         return self.success_response(data={"run": await self.runs.cancel(user, run_id)})
 
 
+class EditorDetectionController(BaseController):
+    def __init__(self, detection: EditorDetectionService):
+        super().__init__()
+        self.detection = detection
+
+    @guarded(fallback=Fail("editor_detection_failed", "Failed to find the faces and hands", 400))
+    async def detect(self, user, task_id: str, body: DetectionRequest) -> APIResponse:
+        return self.success_response(data=await self.detection.detect(user, task_id, body))
+
+
 def build_runs_router(container: "AppContainer") -> APIRouter:
     controller = EditorRunController(container.editor_runs)
+    detection_controller = EditorDetectionController(container.editor_detection)
     router = APIRouter(
         prefix="/api/editor", tags=["Editor"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.GENERATE)]
     )
@@ -141,6 +153,19 @@ def build_runs_router(container: "AppContainer") -> APIRouter:
         task_id: str, body: StartEditorRunRequest, current_user=Depends(get_current_active_user)
     ) -> APIResponse:
         return await controller.start(current_user, task_id, body)
+
+    @router.post(
+        "/tasks/fix_faces/detections",
+        response_model=APIResponse,
+        summary="Find Faces And Hands",
+        description=(
+            "Renders the picture the way a run does and answers with the faces and hands found in it, each with a "
+            "box in 0..1 of the picture, so the editor can offer them for ticking before a Fix faces run. Answers "
+            "503 detector_unavailable when no detector or its weights are installed."
+        ),
+    )
+    async def find_faces(body: DetectionRequest, current_user=Depends(get_current_active_user)) -> APIResponse:
+        return await detection_controller.detect(current_user, "fix_faces", body)
 
     @router.get(
         "/runs/{run_id}",

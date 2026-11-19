@@ -36,7 +36,7 @@ def api(mock_db, tmp_path):
     manager, fakes = build_manager(tmp_path)
     app = FastAPI()
     register_error_handlers(app)
-    app.include_router(build_runs_router(SimpleNamespace(editor_runs=manager)))
+    app.include_router(build_runs_router(SimpleNamespace(editor_runs=manager, editor_detection=None)))
     resolver = FakeResolver()
     resolver.add(READ_KEY, account("u1"), [S.READ])
     resolver.add(CONTENT_KEY, account("u1"), [S.CONTENT])

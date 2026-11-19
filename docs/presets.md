@@ -364,8 +364,7 @@ fields:
 | Key | Meaning |
 |---|---|
 | `schema_version` | Required, `1`. |
-| `task` | Required. A core task (`edit_region`, `remove_object`, `replace_background`, `find_subject` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
-| `task` | Required. A core task (`edit_region`, `remove_object`, `expand` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
+| `task` | Required. A core task (`edit_region`, `remove_object`, `replace_background`, `find_subject`, `expand`, `fix_faces` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
 | `from` | A generation mode of this preset. Leave it out for a standalone mode. |
 | `label`, `short_description`, `order` | The picker name (default: the `from` mode's label, else the title-cased name), one sentence under it, and the sort order within the preset. |
 | `instruction` | Optional. The prompt a run sends when the task takes no prompt (`prompt: none`, such as `remove_object`). Ignored by a task that takes one (lint **warning**). A fallback offer uses the task's own fallback prompt instead. |
@@ -381,6 +380,7 @@ fields:
 | `fields.change` | Per field: `label`, `description`, `ai_hint`, `default`, `audience`. |
 | `fields.add` | Field groups added at a `tab` or `section` anchor, with the same shape as a [plugin extension](presets/plugins.md). |
 | `pipeline` | The extension pipe operations (`add`, `patch`). Not allowed beside a `pipeline.yml`. |
+| `strength` | Optional `{field, default, min, max}`: a strength the editor offers as its own control. `field` is a number field of the mode (`slider`, `number`, `integer` or `stepper`) and its own range must contain `min` to `max`; `min < max` and `default` lies between them. A run without a `strength` gets `default`; a requested one is clamped to `min..max`, and either replaces the form value of `field`. `field` may also be listed under `fields.hide`, so Settings does not show a second control, but not under `inputs` or `fixed`. The offer carries it as `strength: {default, min, max}`, `null` when the mode has none. The SDXL `fix_faces` mode binds it to the detailer denoise `fix_strength` with default `0.35`. |
 
 `inputs`, `fixed` and `fields.hide` are the fields Settings does not show, and a field may appear in only one
 of them. `fixed` and `fields.hide` fields stay in the template because the pipeline reads them; binding pins them

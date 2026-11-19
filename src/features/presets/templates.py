@@ -114,6 +114,7 @@ class EditorModeSpec:
     hide: List[str] = field(default_factory=list)
     max_range_s: Optional[float] = None
     instruction: Optional[str] = None
+    strength: Optional[Dict[str, Any]] = None
 
 
 @dataclass

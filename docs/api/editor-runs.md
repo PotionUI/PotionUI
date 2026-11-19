@@ -251,3 +251,33 @@ When several apply, the first one in this table is reported. Deleting a session 
 | 403 | `limit_exceeded` and the other generation refusals | The same refusals as starting a generation. |
 | 400 | `cancel_failed` | The generation could not be cancelled; try again. |
 | 500 | `run_start_failed` | The run could not be linked to its generation; nothing was started. |
+
+## Fix faces: detections and strength
+
+`fix_faces` repaints the faces and hands the user ticks. The editor first asks which are in the picture, then starts an ordinary run whose `region` is the union of the ticked boxes and any areas the user marked by hand.
+
+`POST /api/editor/tasks/fix_faces/detections` takes the picture the way a run start does, and needs the `generate` scope:
+
+```json
+{ "input": { "item_id": "..." }, "steps": [] }
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "picture": { "width": 1024, "height": 768 },
+    "detections": [
+      { "id": "d1", "kind": "face", "box": { "x": 0.08, "y": 0.06, "width": 0.24, "height": 0.48 }, "score": 0.9 },
+      { "id": "d2", "kind": "hand", "box": { "x": 0.04, "y": 0.57, "width": 0.12, "height": 0.36 }, "score": 0.7 }
+    ]
+  }
+}
+```
+
+- `picture` is the size of the picture the detectors ran on, the same render a run uses (at most 8192 px on the long side). `box` is in 0 to 1 of that picture (`x`, `y` is the top left corner), widened by a tenth of its size on each side and kept inside the picture.
+- `kind` is `face` or `hand`. `id` is `d1`, `d2`, ... in the order of the list: top to bottom, then left to right. The ids are only stable within one answer. `score` is the detector's confidence, 0 to 1.
+- Detectors are a registry: the shipped one runs the YOLO face and hand weights the SDXL detailer uses (`detection_bbox` model folders), on the CPU, and a plugin adds its own with `register_detector` of `src.plugin_api.editor`. Boxes of the same kind that overlap by more than 60% are merged into the one with the better score.
+- `503 detector_unavailable`: no detector can run (no weights are installed, or the detection runtime is missing). The message says why. `404`: a picture that is not the caller's.
+
+An offer of a mode with a `strength` in its `editor_mode.yml` carries `"strength": {"default": 0.35, "min": 0.1, "max": 1.0}` (`null` for every other mode). A run start takes an optional `"strength": 0.5`, clamped to that range and used in place of the form value of the mode's strength field; a start without it uses `default`. A mode without a `strength` ignores the key.

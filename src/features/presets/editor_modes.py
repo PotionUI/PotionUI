@@ -81,6 +81,23 @@ class EditorSize(BaseModel):
         return value
 
 
+class EditorStrength(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str = Field(min_length=1)
+    default: float
+    min: float
+    max: float
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "EditorStrength":
+        if self.min >= self.max:
+            raise ValueError("min must be less than max")
+        if not self.min <= self.default <= self.max:
+            raise ValueError("default must be between min and max")
+        return self
+
+
 class FieldChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -138,6 +155,7 @@ class EditorModeFile(BaseModel):
     context: float = Field(default=0.5, ge=0.0, le=4.0)
     max_range_s: Optional[float] = Field(default=None, gt=0)
     instruction: Optional[str] = Field(default=None, min_length=1)
+    strength: Optional[EditorStrength] = None
     fixed: Dict[str, Any] = Field(default_factory=dict)
     fields: EditorFields = Field(default_factory=EditorFields)
     pipeline: List[ExtensionPipeOp] = Field(default_factory=list)
@@ -282,6 +300,8 @@ def _overlap_problems(file: EditorModeFile) -> List[str]:
         claims.setdefault(name, []).append("inputs")
     for name in file.fixed:
         claims.setdefault(name, []).append("fixed")
+    if file.strength is not None and file.strength.field in claims:
+        claims[file.strength.field].append("strength")
     for name in file.fields.hide:
         claims.setdefault(name, []).append("hide")
     return [
@@ -456,6 +476,7 @@ def _spec(candidate: EditorModeCandidate, file: EditorModeFile, mode: ModeTempla
         hide=list(file.fields.hide),
         max_range_s=file.max_range_s,
         instruction=file.instruction,
+        strength=file.strength.model_dump() if file.strength is not None else None,
     )
 
 
@@ -479,6 +500,8 @@ def build_editor_mode(
     inventory = _inventory(mode)
     unknown = [name for name in file.fixed if name not in inventory]
     problems = [f"{candidate.label}: fixed names '{name}', which is not a field of the form" for name in unknown]
+    if file.strength is not None and file.strength.field not in inventory:
+        problems.append(f"{candidate.label}: strength.field names '{file.strength.field}', which is not a field of the form")
     if problems:
         return None, problems
 
@@ -566,3 +589,11 @@ def apply_editor_modes(
                 continue
             built[name] = mode
         preset.editor_modes = built
+
+
+def clamp_strength(spec: EditorModeSpec, requested: Optional[float]) -> Optional[Tuple[str, float]]:
+    strength = spec.strength
+    if strength is None:
+        return None
+    value = strength["default"] if requested is None else min(strength["max"], max(strength["min"], float(requested)))
+    return strength["field"], value

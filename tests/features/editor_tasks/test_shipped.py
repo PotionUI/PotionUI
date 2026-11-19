@@ -8,6 +8,7 @@ from src.features.editor_tasks.manager import EditorTaskManager
 from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
 from src.features.presets.editor_mode_lint import lint_editor_mode
 from src.features.presets.loader import PresetTemplateLoader
+from src.features.presets.mode_labels import mode_display_icon
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MARKETPLACE = REPO_ROOT / "content" / "presets" / "marketplace"
@@ -26,6 +27,7 @@ EXPECTED = {
     ("ZImage", "expand"): "mask",
     ("MOSS-Image", "expand"): "mask",
     ("SDXL", "expand"): "mask",
+    ("SDXL", "fix_faces"): "crop",
 }
 
 ONE_CLICK = {
@@ -39,6 +41,8 @@ ONE_CLICK = {
     ("Krea2", "replace_background"): ("replace_background", "crop", "edit"),
     ("ImageTools", "find_subject"): ("find_subject", "whole", "remove_background"),
 }
+
+TASKS = {("SDXL", "fix_faces"): "fix_faces"}
 
 REGISTRY = register_core_tasks(TaskRegistry())
 
@@ -138,8 +142,9 @@ def test_every_shipped_offer_carries_its_from_modes_icon_and_a_label(templates):
     assert len(offers) >= len(EXPECTED)
     for offer in offers:
         assert offer["mode_label"]
-        if offer["from_mode"] in ("edit", "inpaint"):
-            assert offer["mode_icon"] == {"edit": "pencil", "inpaint": "brush"}[offer["from_mode"]]
+        assert offer["mode_icon"] == {"edit": "pencil", "inpaint": "brush"}.get(
+            offer["from_mode"], mode_display_icon(offer["from_mode"])
+        )
 
 
 def test_the_one_click_tasks_are_offered_by_exactly_the_declaring_presets(templates):

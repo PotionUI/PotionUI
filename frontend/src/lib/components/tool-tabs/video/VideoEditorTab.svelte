@@ -60,6 +60,8 @@
 	} from '$lib/tool-tabs/frame/editStack';
 	import type { SaveAction } from '$lib/tool-tabs/frame/types';
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
+	import { loopStep } from '$lib/tool-tabs/video/playbackLoop';
+	import { promptExcerptOf } from '$lib/components/modals/mediaPickerSelection';
 	import { mediaFileStem } from '$lib/tool-tabs/sources';
 	import { CROP_ASPECTS, FULL_CROP, cropOutputSize, fitAspect, type CropRect } from '$lib/media/cropGeometry';
 	import { ASSUMED_FPS, safeFps } from '$lib/media/frameTiming';
@@ -710,15 +712,20 @@
 		void video.play().catch(() => undefined);
 	}
 
+	function wrapLoop() {
+		if (!video) return;
+		video.currentTime = range.start;
+		playhead = range.start;
+		if (video.paused) void video.play().catch(() => undefined);
+	}
+
 	function frameLoop() {
 		if (!video) return;
-		const t = video.currentTime;
-		if (t >= range.end - 0.005) {
-			if (loop) video.currentTime = range.start;
-			else {
-				video.pause();
-				video.currentTime = range.end;
-			}
+		const step = loopStep({ time: video.currentTime, rangeEnd: range.end, loop, ended: video.ended });
+		if (step === 'wrap') wrapLoop();
+		else if (step === 'stop') {
+			video.pause();
+			video.currentTime = range.end;
 		}
 		playhead = video.currentTime;
 		if (playing) raf = requestAnimationFrame(frameLoop);
@@ -731,10 +738,19 @@
 	}
 
 	function onPause() {
+		if (video?.ended && loop) return;
 		playing = false;
 		cancelAnimationFrame(raf);
 		if (video) playhead = video.currentTime;
 		storedPlayhead = playhead;
+	}
+
+	function onEnded() {
+		if (!loop) return;
+		wrapLoop();
+		playing = true;
+		cancelAnimationFrame(raf);
+		raf = requestAnimationFrame(frameLoop);
 	}
 
 	function onMetadata() {
@@ -1132,16 +1148,18 @@
 
 	function pickedMedia(media: PickedMedia) {
 		routePicked(media, {
-			history: (_generation, file) => pickHistory(_generation, file as never),
+			history: (generation, file) => pickHistory(generation, file as never),
 			library: (item) => pickLibrary(item as never)
 		});
 	}
 
-	function pickHistory(_generation: unknown, file: { id?: string | number; file_path: string } & Record<string, unknown>) {
+	function pickHistory(generation: { form_data?: Record<string, unknown> } | null, file: { id?: string | number; file_path: string } & Record<string, unknown>) {
 		pickers = null;
 		if (!file) return;
 		const item = pickFromGeneration(file as never).item as Record<string, unknown>;
 		const ref = { ...item, type: 'video' } as MediaRef & Record<string, unknown>;
+		const title = promptExcerptOf(generation?.form_data);
+		if (title) ref.title = title;
 		if (file.id !== undefined && file.id !== null) ref.generation_file_id = String(file.id);
 		void changeSource(ref as MediaRef);
 	}
@@ -1822,6 +1840,7 @@
 									onloadedmetadata={onMetadata}
 									onplay={onPlay}
 									onpause={onPause}
+									onended={onEnded}
 									onerror={() => (videoError = true)}
 									data-video-element
 								><track kind="captions" /></video>

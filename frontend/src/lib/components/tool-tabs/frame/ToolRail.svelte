@@ -183,8 +183,9 @@
 			sheetGroup = group.id;
 			return;
 		}
+		const heldOpen = flyGroup === group.id && pinned;
 		pinned = true;
-		if (flyGroup === group.id && event.detail > 0) {
+		if (heldOpen && event.detail > 0) {
 			closeFly(false);
 			return;
 		}

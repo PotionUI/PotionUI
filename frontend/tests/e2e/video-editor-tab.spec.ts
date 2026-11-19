@@ -190,6 +190,52 @@ test.describe('the Video editor tab on desktop', () => {
 		await expect(editor.getByRole('button', { name: /Reopen Trim/ })).toBeVisible();
 	});
 
+	test('opens the Effects group flyout on one click after the pointer hovered it long enough to open it', async ({ page }) => {
+		await mockEditorApi(page);
+		const editor = await openEditor(page);
+		const group = editor.locator('[data-tool-rail] [data-group-button="effects"]');
+		await expect(group).toBeVisible();
+		const box = (await group.boundingBox())!;
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		await expect(page.locator('[data-rail-flyout="effects"]')).toBeVisible();
+		await page.mouse.down();
+		await page.mouse.up();
+		await page.waitForTimeout(400);
+		await expect(page.locator('[data-rail-flyout="effects"]')).toBeVisible();
+		await group.click();
+		await expect(page.locator('[data-rail-flyout="effects"]')).toHaveCount(0);
+	});
+
+	for (const trimmed of [false, true]) {
+		test(`keeps playing round and round with Loop on${trimmed ? ' inside the trim range' : ''}`, async ({ page }) => {
+			await mockEditorApi(page);
+			const state = seeded(trimmed ? [TRIM] : [], 'trim');
+			const editor = await openEditor(page, state);
+			const video = editor.locator('[data-video-element]');
+			await expect(editor.locator('[data-scrub-loop]')).toHaveAttribute('aria-pressed', 'true');
+			await video.evaluate((element) => {
+				const media = element as HTMLVideoElement;
+				media.muted = true;
+				const w = window as unknown as { __wraps: number; __last: number; __maxT: number };
+				w.__wraps = 0;
+				w.__last = 0;
+				w.__maxT = 0;
+				const tick = () => {
+					if (media.currentTime < w.__last - 0.2) w.__wraps += 1;
+					w.__last = media.currentTime;
+					w.__maxT = Math.max(w.__maxT, media.currentTime);
+					requestAnimationFrame(tick);
+				};
+				requestAnimationFrame(tick);
+			});
+			await editor.locator('[data-scrub-play]').click();
+			await page.waitForFunction(() => (window as unknown as { __wraps: number }).__wraps >= 2, null, { timeout: 15000 });
+			expect(await video.evaluate((element) => (element as HTMLVideoElement).paused)).toBe(false);
+			await expect(editor.locator('[data-scrub-play]')).toHaveAttribute('aria-label', /Pause/i);
+			if (trimmed) expect(await page.evaluate(() => (window as unknown as { __maxT: number }).__maxT)).toBeLessThan(1.6);
+		});
+	}
+
 	test('without WebGL2 previews film grain on the paused frame, compares before and after, and plays Preview 3 s', async ({ page }) => {
 		await page.addInitScript(() => {
 			const original = HTMLCanvasElement.prototype.getContext;

@@ -1,5 +1,6 @@
 import { EDIT_SOURCE_NAME_MAX, type EditSource, type EditStateDoc } from '$lib/services/api/edits';
 import type { MediaRef } from '$lib/types/tabs';
+import { nameStem } from '$lib/tool-tabs/sources';
 import { readImageState, writeImageState } from './state';
 
 export interface EditLink {
@@ -27,8 +28,10 @@ export function withEditLink(payload: EditStateDoc, link: EditLink | null): Edit
 }
 
 function sourceNameOf(source: MediaRef): string | null {
+	const title = (source.title ?? '').trim();
+	if (title) return title.slice(0, EDIT_SOURCE_NAME_MAX);
 	const name = (source.name ?? '').trim();
-	return name ? name.slice(0, EDIT_SOURCE_NAME_MAX) : null;
+	return name && nameStem(name) ? name.slice(0, EDIT_SOURCE_NAME_MAX) : null;
 }
 
 export function editSourceOf(source: MediaRef | null): EditSource | null {

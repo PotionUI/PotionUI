@@ -2,6 +2,7 @@ import type { APIResponse } from '$lib/types/api';
 import type { EditClip, EditSource, EditStateDoc } from '$lib/services/api/edits';
 import type { LibraryItem } from '$lib/services/api/library';
 import type { MediaRef } from '$lib/types/tabs';
+import { nameStem } from '$lib/tool-tabs/sources';
 import { readVideoState, writeVideoState, type LoadedVideoState } from './videoState';
 
 export interface ClipLibraryPort {
@@ -58,7 +59,8 @@ export async function resolveClipSourceRef(source: EditSource, library: ClipLibr
 	const name = (source.name ?? '').trim();
 	if (source.kind === 'history') {
 		const url = `/api/media/files/${encodeURIComponent(source.id)}`;
-		return { path: url, relative_path: url, url, name: name || 'clip', type: 'video', generation_file_id: source.id };
+		const title = nameStem(name);
+		return { path: url, relative_path: url, url, name: name || 'clip', ...(title ? { title } : {}), type: 'video', generation_file_id: source.id };
 	}
 	try {
 		const item = (await library.getLibraryItem(source.id)).data;

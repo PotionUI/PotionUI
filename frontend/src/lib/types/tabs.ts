@@ -357,6 +357,7 @@ export interface MediaRef {
 	relative_path?: string;
 	url?: string;
 	name?: string;
+	title?: string;
 	type?: string;
 	/** User-set handle for a multi-item media field's entry (MediaLoaderField
 	 *  `multi: true`) - other systems (e.g. a `<Picture N>` prompt binding)

@@ -1,6 +1,7 @@
 import type { MediaToolArtifact } from '$lib/media-tools/types';
 import type { LibraryItem } from '$lib/services/api/library';
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
+import { promptExcerptOf } from '$lib/components/modals/mediaPickerSelection';
 import type { MediaRef } from '$lib/types/tabs';
 
 function sized<T extends MediaRef>(ref: T, width?: number | null, height?: number | null): T {
@@ -8,7 +9,11 @@ function sized<T extends MediaRef>(ref: T, width?: number | null, height?: numbe
 	return ref;
 }
 
-export function historyFileRef(file: Pick<GenerationFile, 'id' | 'file_path' | 'width' | 'height'>): MediaRef {
+export function historyFileRef(
+	file: Pick<GenerationFile, 'id' | 'file_path' | 'width' | 'height'>,
+	generation?: Pick<GenerationHistoryItem, 'form_data'> | null
+): MediaRef {
+	const title = promptExcerptOf(generation?.form_data);
 	const segments = file.file_path.split('/').filter(Boolean);
 	const filename = segments[segments.length - 1] ?? 'image.png';
 	const generationId = segments[segments.length - 2] ?? '';
@@ -18,6 +23,7 @@ export function historyFileRef(file: Pick<GenerationFile, 'id' | 'file_path' | '
 			relative_path: file.file_path,
 			url: `/api/media/generations/${generationId}/${filename}`,
 			name: filename,
+			...(title ? { title } : {}),
 			type: 'image',
 			generation_file_id: String(file.id)
 		},
@@ -56,7 +62,7 @@ export function recentHistoryPictures(generations: readonly GenerationHistoryIte
 	for (const generation of generations) {
 		for (const file of generation.files ?? []) {
 			if (!file.is_final || !isImageFile(file)) continue;
-			refs.push(historyFileRef(file));
+			refs.push(historyFileRef(file, generation));
 			if (refs.length >= limit) return refs;
 		}
 	}

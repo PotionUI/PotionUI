@@ -1,6 +1,7 @@
 import type { ComponentType } from 'svelte';
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 import type { LibraryItem } from '$lib/services/api/library';
+import { promptExcerptOf } from '$lib/components/modals/mediaPickerSelection';
 import { madeInEditor, type MadeInEditor } from '$lib/library/libraryItemMeta';
 import {
 	isAudioFileType,
@@ -22,6 +23,7 @@ export interface MediaToolItem {
 	kind: MediaKind;
 	url: string;
 	filename: string;
+	title?: string;
 	width?: number;
 	height?: number;
 	durationSeconds?: number | null;
@@ -248,11 +250,13 @@ export function buildHistoryToolContext(
 			kinds.add(kind);
 
 			const filename = file.file_path.split('/').pop() || file.file_path;
+			const title = promptExcerptOf(generation.form_data);
 			items.push({
 				id: `${generation.id}:${index}`,
 				kind,
 				url: `/api/media/generations/${generation.id}/${filename}`,
 				filename,
+				...(title ? { title } : {}),
 				width: file.width,
 				height: file.height,
 				durationSeconds: file.duration_seconds,

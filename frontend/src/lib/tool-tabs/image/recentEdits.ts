@@ -12,6 +12,7 @@ import {
 } from '$lib/services/api/edits';
 import type { LibraryItem } from '$lib/services/api/library';
 import type { GenerationHistoryItem } from '$lib/types/history';
+import { nameStem } from '$lib/tool-tabs/sources';
 import type { MediaRef } from '$lib/types/tabs';
 import { readEditLink, withEditLink } from './editLink';
 import { resolveClipSourceRef } from '$lib/tool-tabs/video/videoEdit';
@@ -147,7 +148,8 @@ export async function resolveEditSourceRef(source: EditSource, library: LibraryP
 	const name = (source.name ?? '').trim();
 	if (source.kind === 'history') {
 		const url = `/api/media/files/${encodeURIComponent(source.id)}`;
-		return { path: url, relative_path: url, url, name: name || 'image', type: 'image', generation_file_id: source.id };
+		const title = nameStem(name);
+		return { path: url, relative_path: url, url, name: name || 'image', ...(title ? { title } : {}), type: 'image', generation_file_id: source.id };
 	}
 	try {
 		const item = (await library.getLibraryItem(source.id)).data;
@@ -279,7 +281,7 @@ export function historyPicks(generations: readonly GenerationHistoryItem[], limi
 	for (const generation of generations) {
 		for (const file of generation.files ?? []) {
 			if (!file.is_final || !isImageFile(file)) continue;
-			picks.push({ ref: historyFileRef(file), at: file.created_at ?? generation.created_at ?? null });
+			picks.push({ ref: historyFileRef(file, generation), at: file.created_at ?? generation.created_at ?? null });
 			if (picks.length >= limit) return picks;
 		}
 	}

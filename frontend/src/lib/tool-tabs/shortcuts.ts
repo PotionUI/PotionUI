@@ -19,6 +19,7 @@ export interface ShortcutItem {
 	kind: string;
 	url: string;
 	filename: string;
+	title?: string;
 	itemId?: string | null;
 	generationFileId?: string | null;
 	madeInEditor?: MadeInEditor | null;
@@ -149,6 +150,7 @@ export function mediaRefForItem(item: ShortcutItem): MediaRef {
 		path: item.url,
 		url: item.url,
 		name: item.filename,
+		...(item.title ? { title: item.title } : {}),
 		type: item.kind,
 		...(item.itemId ? { item_id: item.itemId } : {}),
 		...(item.generationFileId ? { generation_file_id: item.generationFileId } : {})

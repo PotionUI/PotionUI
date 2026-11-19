@@ -189,6 +189,27 @@ describe('ToolRail flyout', () => {
 		expect(flyout()).toBeNull();
 	});
 
+	it('a click on a group whose flyout opened by hover keeps it open, and a second click closes it', () => {
+		vi.useFakeTimers();
+		const { root, resize, flyout } = rail();
+		resize(900 - 118);
+		const button = root().querySelector<HTMLElement>('[data-group-button="fx"]')!;
+		button.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+		vi.advanceTimersByTime(300);
+		flushSync();
+		expect(flyout()).not.toBeNull();
+		button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+		flushSync();
+		expect(flyout()).not.toBeNull();
+		button.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
+		vi.advanceTimersByTime(500);
+		flushSync();
+		expect(flyout()).not.toBeNull();
+		button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+		flushSync();
+		expect(flyout()).toBeNull();
+	});
+
 	it('works from the keyboard: Enter opens, arrows move, Enter picks, Escape closes and returns focus', async () => {
 		const { root, resize, picked, flyout } = rail();
 		resize(900 - 118);

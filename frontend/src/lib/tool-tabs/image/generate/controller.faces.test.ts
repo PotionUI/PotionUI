@@ -129,6 +129,21 @@ describe('a Fix faces run', () => {
 		expect(readGenerateParams(step.params)?.options).toEqual({ strength: 0.5 });
 	});
 
+	it('clears the found boxes when the run lands and finds them again on request', async () => {
+		const t = setup();
+		t.controller.use('fix_faces');
+		await t.controller.prepare('fix_faces');
+		await flush();
+		await t.controller.generate('fix_faces', false);
+		await flush();
+		expect(get(t.controller.ui).detections.fix_faces.status).toBe('ready');
+		t.controller.settle({ stepId: 's1', status: 'done', error: null, run: run({ status: 'done', progress: 1, candidates: [{ patch: { item_id: 'p1' }, url: '/p1.png', seed: 1 }] }) });
+		expect(get(t.controller.ui).detections.fix_faces).toMatchObject({ status: 'idle', items: [] });
+		expect(t.controller.boxesFor('fix_faces')).toEqual([]);
+		await t.controller.detect('fix_faces');
+		expect(get(t.controller.ui).detections.fix_faces.items).toHaveLength(2);
+	});
+
 	it('runs on hand marks alone with no boxes ticked', async () => {
 		const t = setup();
 		t.controller.use('fix_faces');

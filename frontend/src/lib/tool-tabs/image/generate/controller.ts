@@ -1182,6 +1182,8 @@ export function createGenerateController(deps: ControllerDeps) {
 		const landed = view.status === 'done' ? next.steps.find((step) => step.id === view.stepId) : undefined;
 		const picture = landed ? resizedPictureOf(landed.params) : null;
 		deps.setStack(picture ? landUpscale(next, view.stepId, picture.size) : next);
+		const task = landed ? readGenerateParams(landed.params)?.task : null;
+		if (task && isDetectingTask(task)) patchDetections(task, () => idleDetections());
 	}
 
 	function resume(stack: EditStackState<unknown>): void {

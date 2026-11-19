@@ -219,10 +219,14 @@ test.describe('Fix faces and hands on desktop', () => {
 
 		update(server, 'done', doneBody());
 		await expect(layerRow(page)).toContainText('1 of 2');
+		await expect(page.locator('[data-detection-box]')).toHaveCount(0);
+		await expect(page.locator('[data-detection-row]')).toHaveCount(0);
 		await expect(page.locator('[data-status-size]')).toContainText('640×480');
 		await page.locator('[data-stack-hide="s1"]').first().click();
 		await page.locator('[data-stack-hide="s1"]').first().click();
 		await expect(layerRow(page)).toBeVisible();
+		await page.locator('[data-fix-faces-find]').click();
+		await expect(page.locator('[data-detection-box]')).toHaveCount(3);
 		await screenshot(page, JOURNEY, '03-done-dark-1440');
 	});
 

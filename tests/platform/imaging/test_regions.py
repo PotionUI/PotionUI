@@ -89,3 +89,39 @@ def test_place_patch_runs_inside_a_chain(tmp_path):
 
     placed = np.asarray(Image.open(out.path).convert("RGB"))
     assert np.abs(placed.astype(int) - regions.alpha_over(original, patch).astype(int)).max() <= 1
+
+
+def test_round_dilation_is_a_disc_and_sits_inside_the_box_dilation():
+    region = np.zeros((41, 41), dtype=bool)
+    region[20, 20] = True
+
+    disc = regions.dilate_round(region, 8)
+    box = regions.dilate_box(region, 8)
+
+    assert disc[20, 28] and disc[12, 20] and not disc[12, 12] and not disc[20, 29]
+    assert box[12, 12] and (disc <= box).all()
+    assert 180 < disc.sum() < 230
+    assert regions.dilate_round(region, 0).sum() == 1 and regions.dilate_round(region, 0) is not region
+
+
+def test_extend_down_grows_only_downward_and_stops_at_the_picture():
+    region = np.zeros((20, 6), dtype=bool)
+    region[5:8, 2:4] = True
+
+    taller = regions.extend_down(region, 4)
+
+    assert taller[5:12, 2:4].all() and not taller[12:, :].any() and not taller[:5, :].any()
+    assert not taller[:, :2].any() and not taller[:, 4:].any()
+    assert regions.extend_down(region, 50)[19, 2] and regions.extend_down(region, 0).sum() == region.sum()
+    assert not regions.extend_down(np.zeros((5, 5), dtype=bool), 3).any()
+
+
+def test_a_matte_patch_takes_the_matte_as_its_alpha_unchanged():
+    content = np.full((4, 6, 3), 77.6, dtype=np.float32)
+    matte = np.tile(np.array([0, 30, 90, 128, 200, 255], dtype=np.uint8), (4, 1))
+
+    patch = regions.matte_patch(content, matte)
+
+    assert patch.shape == (4, 6, 4) and patch.dtype == np.uint8
+    assert (patch[..., 3] == matte).all()
+    assert (patch[..., :3] == 78).all()

@@ -82,6 +82,18 @@ def test_the_base_manifest_entry_validates():
     assert [item.id for item in manifest.editor_tasks] == ["shiny.colorize"]
 
 
+def test_the_manifest_takes_grow_feather_matte_and_internal_with_old_defaults():
+    plain = PluginManifestSchema.model_validate({**BASE, "editor_tasks": [ENTRY]}).editor_tasks[0]
+    full = PluginManifestSchema.model_validate(
+        {**BASE, "editor_tasks": [{**ENTRY, "produces": "matte", "grow": 0.05, "feather": 2, "matte": True, "internal": True}]}
+    ).editor_tasks[0]
+
+    assert (plain.grow, plain.feather, plain.matte, plain.internal) == (0.0, 1.0, False, False)
+    assert (full.produces, full.grow, full.feather, full.matte, full.internal) == ("matte", 0.05, 2.0, True, True)
+    with pytest.raises(ValidationError):
+        PluginManifestSchema.model_validate({**BASE, "editor_tasks": [{**ENTRY, "grow": -1}]})
+
+
 @pytest.mark.parametrize(
     "entries, message",
     [

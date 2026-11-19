@@ -3,6 +3,7 @@ import { stepKinds } from '$lib/editors/stepKinds';
 import { appliedSteps, bringFirst, groupedFirst, opacityOf, undoneCount, type EditStackState, type EditStep } from '$lib/tool-tabs/frame/editStack';
 import type { NormRect } from '$lib/services/api/editorTasks';
 import { chosenResult, patchPlacement, readGenerateParams } from './generate/generateStep';
+import { isResizedParams } from './generate/upscale';
 
 export type Rgba = readonly [number, number, number, number];
 
@@ -12,7 +13,7 @@ const OPACITY_TOOLS: ReadonlySet<string> = new Set(['paint_layer', 'place_patch'
 export const SWITCH_TO_LAYERS = 'Switch to layers';
 
 export function isLayerStep(step: Pick<EditStep, 'tool'> & Partial<Pick<EditStep, 'params'>>): boolean {
-	if (step.tool === 'generate') return !readGenerateParams(step.params)?.expand;
+	if (step.tool === 'generate') return !readGenerateParams(step.params)?.expand && !isResizedParams(step.params);
 	return LAYER_TOOLS.has(step.tool) || stepKinds.get('image', step.tool)?.layer === true;
 }
 

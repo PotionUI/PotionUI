@@ -84,6 +84,13 @@ describe('layers first, then edits', () => {
 		expect(isLayerStep({ tool: 'generate', params: { ...run, expand: { width: 800, height: 600, x: 80, y: 60 } } })).toBe(false);
 		expect(isLayerStep({ tool: 'generate', params: { ...run, task: 'edit_region' } })).toBe(true);
 	});
+
+	it('keeps an Upscale step, running or done, with the edits', () => {
+		const run = { v: 2, task: 'upscale', prompt: '', setup: { preset_id: 'p', mode: 'm', form_data: {} }, area: { region: null, size: null }, candidates: 1, results: [], chosen: 0, seed: null, rect: null, soft: false, run: { id: 'r', status: 'running', error: null } };
+		expect(isLayerStep({ tool: 'generate', params: run })).toBe(false);
+		const landed = { ...run, run: { id: 'r', status: 'done', error: null }, results: [{ patch: { item_id: 'p1' }, url: '/p.png', seed: 1, size: { width: 800, height: 600 } }] };
+		expect(isLayerStep({ tool: 'generate', params: { ...landed, task: 'other_resize' } })).toBe(false);
+	});
 });
 
 describe('layers, a look and a crop render the same in the browser and the saved file', () => {

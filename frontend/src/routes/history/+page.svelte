@@ -3,7 +3,6 @@
 	import { showDeleteError } from '$lib/elixirs/openBrew';
 	import { onMount, onDestroy } from 'svelte';
 	import { generationIdOf } from '$lib/generation/messages/wire';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { get } from 'svelte/store';
 	import {
@@ -19,12 +18,10 @@
 	} from '$lib/stores/historyVersionWatcher';
 	import { api } from '$lib/services/api/index';
 	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
-	import { tabsStore } from '$lib/stores/tabs';
 	import { WebSocketService, createGenerationSocket } from '$lib/services/websocket';
 	import { liveWatcher } from '$lib/generation/live/liveDefault';
 	import type { LiveGeneration } from '$lib/generation/live/liveState';
-	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
-	import { announceReuseConversion } from '$lib/utils/reuseNotice';
+	import { reuseInNewTab } from '$lib/utils/reuseInNewTab';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
@@ -377,17 +374,12 @@
 		}
 	}
 
-	function handleReuseRequest(generation: GenerationHistoryItem) {
-		if (!generation.preset_id) return;
-
-		const tabName = buildReuseTabTitle('Reused', generation, resolvePresetName);
-		const reuse = buildHistoryReuseTabData(generation);
-
-		tabsStore.addTabWithData(tabName, reuse.tabData);
-		announceReuseConversion(reuse);
-
-		handleModalClose();
-		goto('/generate');
+	async function handleReuseRequest(generation: GenerationHistoryItem) {
+		try {
+			await reuseInNewTab(generation, resolvePresetName);
+		} finally {
+			handleModalClose();
+		}
 	}
 </script>
 

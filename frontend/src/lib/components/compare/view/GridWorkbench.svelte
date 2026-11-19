@@ -3,6 +3,7 @@
 	import { get } from 'svelte/store';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
+	import { reuseInNewTab } from '$lib/utils/reuseInNewTab';
 	import { cancelGrid, getActiveGrid, retryFailed, turnOffCompare } from '$lib/generation/compare/compareStore.svelte';
 	import CompareGrid from './CompareGrid.svelte';
 	import GridCellViewer from './GridCellViewer.svelte';
@@ -53,6 +54,7 @@
 			onIndex={(index) => (viewIndex = index)}
 			onClose={() => (viewIndex = null)}
 			onUse={useSettings}
+			onReuse={(generation) => void reuseInNewTab(generation).then(() => (viewIndex = null))}
 			onExport={() => (exporting = true)}
 			onRetryFailed={() => void retryFailed(tabId)}
 		/>

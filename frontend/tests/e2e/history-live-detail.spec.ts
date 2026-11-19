@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
 import { dirname, join } from 'node:path';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, scopedStorageKey, screenshot } from './helpers';
 import { generationStatusMessage } from './generationMocks';
 
 const JOURNEY = 'history-live-detail';
@@ -180,6 +180,26 @@ test.describe('a running generation opens from History and turns into the finish
 		await expect(detail).toContainText(PROMPT);
 		await expect(detail.locator('[data-live-action="reuse"]')).toContainText('Try again in a tab');
 		await screenshot(page, JOURNEY, '05-failed-1440');
+	});
+
+	test('Reuse settings in the details of a finished generation opens a Generate tab with its settings', async ({ page }) => {
+		test.setTimeout(90000);
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await install(page);
+		await page.goto('/history');
+		await expect(tile(page, DONE[0])).toBeVisible({ timeout: 20000 });
+		await tile(page, DONE[0]).locator('.media-zoom').click();
+		const detail = dialog(page);
+		await expect(detail).toBeVisible({ timeout: 10000 });
+		await detail.getByRole('button', { name: 'Reuse settings' }).click();
+		await page.waitForURL(/\/generate/, { timeout: 20000 });
+		await expect(dialog(page)).toHaveCount(0);
+		const key = await scopedStorageKey(page, 'potionui_tabs_state');
+		await expect
+			.poll(() =>
+				page.evaluate((k) => (JSON.parse(localStorage.getItem(k) ?? 'null')?.tabs ?? []).map((tab: { name: string }) => tab.name), key)
+			)
+			.toContain('Reused: Krea 2');
 	});
 
 	test('phone width', async ({ page }) => {

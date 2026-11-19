@@ -14,6 +14,7 @@
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import type { CollectionLike } from '$lib/components/collections/types';
 	import { timeAgo } from '$lib/utils/relativeTime';
+	import { reuseInNewTab } from '$lib/utils/reuseInNewTab';
 	import { hasMeaningfulSegments } from '$lib/utils/richSegments';
 	import { summarizePromptVariables } from '$lib/prompts/promptCardDisplay';
 
@@ -274,5 +275,6 @@
 		isOpen={true}
 		initialFileIndex={selectedFileIndex}
 		on:close={closeGenerationModal}
+		on:reuse={(e) => void reuseInNewTab(e.detail).finally(closeGenerationModal)}
 	/>
 {/if}

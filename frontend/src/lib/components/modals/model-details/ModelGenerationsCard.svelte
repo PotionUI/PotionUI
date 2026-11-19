@@ -8,6 +8,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import type { GenerationHistoryItem } from '$lib/types/history';
+	import { reuseInNewTab } from '$lib/utils/reuseInNewTab';
 	import { EmptyState, IconButton, Spinner } from '$lib/components/ui';
 	import JustifiedGenerationGallery from '$lib/components/JustifiedGenerationGallery.svelte';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
@@ -125,5 +126,6 @@
 		isOpen={true}
 		initialFileIndex={selectedFileIndex}
 		on:close={handleModalClose}
+		on:reuse={(e) => void reuseInNewTab(e.detail).finally(handleModalClose)}
 	/>
 {/if}

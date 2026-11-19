@@ -4,6 +4,7 @@
 	import dismiss from '$lib/actions/dismiss';
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
+	import { reuseInNewTab } from '$lib/utils/reuseInNewTab';
 	import type { GenerationState } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { readBatchProgress } from '$lib/generation/batchProgress';
@@ -825,6 +826,7 @@
 			generationId={detailsId}
 			initialFileIndex={generation.workbenchIndex ?? 0}
 			on:close={() => (detailsOpen = false)}
+			on:reuse={(e) => void reuseInNewTab(e.detail).finally(() => (detailsOpen = false))}
 		/>
 	{/if}
 </div>

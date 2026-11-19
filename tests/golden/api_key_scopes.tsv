@@ -201,6 +201,7 @@ POST	/api/downloads/{download_id}/cancel	-	admin	admin_dependency
 POST	/api/downloads/{download_id}/pause	-	admin	admin_dependency
 POST	/api/downloads/{download_id}/resume	-	admin	admin_dependency
 POST	/api/downloads/{download_id}/retry	-	admin	admin_dependency
+GET	/api/editor/expand/formats	read	-	marker
 DELETE	/api/editor/runs/{run_id}	-	generate	marker
 GET	/api/editor/runs/{run_id}	read	-	marker
 GET	/api/editor/tasks	read	-	marker

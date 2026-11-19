@@ -2,7 +2,6 @@ import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
-import cv2
 import numpy as np
 from PIL import Image, ImageFilter
 
@@ -153,6 +152,8 @@ def fill_unknown(window: np.ndarray, known: Rect) -> np.ndarray:
     padded = np.pad(core, ((top, height - bottom), (left, width - right), (0, 0)), mode="edge")
     radius = max(height, width) / 24
     blurred = np.asarray(Image.fromarray(padded).filter(ImageFilter.GaussianBlur(radius))).astype(np.float32)
+    import cv2
+
     reach = cv2.distanceTransform(new_area((height, width), known).astype(np.uint8), cv2.DIST_L2, 3)
     t = np.clip(reach / max(1.0, radius), 0.0, 1.0)
     take = (t * t * (3.0 - 2.0 * t))[:, :, None]
@@ -169,6 +170,8 @@ def new_area(shape: Tuple[int, int], known: Rect) -> np.ndarray:
 
 
 def soft_mask(shape: Tuple[int, int], known: Rect, overlap: int) -> np.ndarray:
+    import cv2
+
     region = new_area(shape, known)
     distance = cv2.distanceTransform((~region).astype(np.uint8), cv2.DIST_L2, 3)
     t = np.clip(distance / max(1, overlap), 0.0, 1.0)

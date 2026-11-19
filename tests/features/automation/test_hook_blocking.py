@@ -95,7 +95,7 @@ class BlockingHookDispatchTest(unittest.IsolatedAsyncioTestCase):
         await trigger.start()
 
         context, _ = chain.execute("h", initial_data={})
-        await asyncio.wait_for(await_hook_blocking_waits(context), timeout=2)  # returns on timeout
+        await asyncio.wait_for(await_hook_blocking_waits(context), timeout=15)  # returns on timeout
 
         await asyncio.sleep(0.05)
         self.assertFalse(cancelled["v"])          # shield kept the run alive

@@ -140,9 +140,9 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('a tall window shows every entry as its own icon, in group order, with a divider between groups and no flyouts', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 1169);
+		await setRailHeight(page, 1253);
 		const ids = await page.locator('[data-tool-rail] button[data-tool]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-tool')));
-		expect(ids.slice(0, 6)).toEqual(['edit_region', 'remove_object', 'crop', 'resize', 'canvas', 'slice']);
+		expect(ids.slice(0, 6)).toEqual(['edit_region', 'remove_object', 'replace_background', 'expand', 'crop', 'resize']);
 		expect(ids).toContain('film_grain');
 		expect(ids).toContain('lut');
 		expect(ids).toContain('effects');
@@ -158,13 +158,13 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('shorter windows fold Effects first, then Cut out, Select and move, Light and colour, Paint and Transform, with no scrollbar', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 1043);
+		await setRailHeight(page, 1127);
 		expect(await folded(page)).toBe('fx');
 		await expect(group(page, 'fx')).toBeVisible();
 		await expect(rail(page, 'film_grain')).toHaveCount(0);
 		await expect(rail(page, 'light')).toBeVisible();
 		await screenshot(page, JOURNEY, '01c-rail-900-dark-1440');
-		await setRailHeight(page, 900 - 118);
+		await setRailHeight(page, 900 - 118 + 84);
 		expect(await folded(page)).toBe('fx tools select look');
 		await expect(group(page, 'look')).toBeVisible();
 		await expect(group(page, 'tools')).toBeVisible();
@@ -185,11 +185,11 @@ test.describe('the Image editor tools map on desktop', () => {
 		await begin(page);
 		await openHarbor(page);
 		const expected: Record<number, { folded: string; icons: number }> = {
-			720: { folded: 'fx tools select look paint shape', icons: 9 },
-			800: { folded: 'fx tools select look paint', icons: 12 },
-			900: { folded: 'fx tools select look', icons: 15 },
-			1000: { folded: 'fx tools select look', icons: 15 },
-			1100: { folded: 'fx tools select', icons: 19 }
+			720: { folded: 'fx tools select look paint shape', icons: 11 },
+			800: { folded: 'fx tools select look paint shape', icons: 11 },
+			900: { folded: 'fx tools select look paint', icons: 14 },
+			1000: { folded: 'fx tools select look', icons: 17 },
+			1100: { folded: 'fx tools select look', icons: 17 }
 		};
 		for (const height of [720, 800, 900, 1000, 1100]) {
 			await setRailHeight(page, height - 118);
@@ -202,7 +202,7 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('picking from a flyout selects the entry, closes it, and selecting never moves an icon', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 900 - 118);
+		await setRailHeight(page, 900 - 118 + 84);
 		const positions = () => page.locator('[data-tool-rail] > button').evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
 		const before = await positions();
 		await group(page, 'fx').click();
@@ -226,7 +226,7 @@ test.describe('the Image editor tools map on desktop', () => {
 	test('Escape closes the flyout before anything else and returns focus to the icon', async ({ page }) => {
 		await begin(page);
 		await openHarbor(page);
-		await setRailHeight(page, 900 - 118);
+		await setRailHeight(page, 900 - 118 + 84);
 		await group(page, 'fx').focus();
 		await page.keyboard.press('Enter');
 		await expect(page.locator('[data-rail-flyout]')).toBeVisible();

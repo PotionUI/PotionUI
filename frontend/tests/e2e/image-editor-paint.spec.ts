@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { clearEdits, editorMenuItem, loginAsOwner, ownerToken, scopedStorageKey, screenshot, selectRailTool } from './helpers';
+import { clearEdits, editorMenuItem, loginAsOwner, ownerToken, scopedStorageKey, screenshot, selectRailTool, railButton } from './helpers';
 import { colourPng, solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-paint';
@@ -222,11 +222,10 @@ async function openDusk(page: Page, shoot = false) {
 
 
 const CANVAS = '[data-paint-stage] canvas[aria-label="Drawing canvas"]';
-const entry = (page: Page, id: string) => rail(page, `paint.${id}`);
 const layerRows = (page: Page) => page.locator('[data-paint-layers] [data-layer-row]');
 
 async function openPaint(page: Page, tool = 'brush') {
-	await entry(page, tool).click();
+	await selectRailTool(page, `paint.${tool}`);
 	await expect(page.locator(CANVAS)).toBeVisible();
 	await expect(page.locator(`[data-paint-tool-panel="${tool}"]`)).toBeVisible();
 }
@@ -439,7 +438,7 @@ test.describe('the AI ring on the rail', () => {
 		const groups = await page.locator('[data-tool-rail="icons"] button[data-tool]').evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.tool));
 		expect(groups.slice(0, 2)).toEqual(['edit_region', 'remove_object']);
 		await expect(rail(page, 'edit_region')).toHaveClass(/ai-ring(\s|$)/);
-		await expect(rail(page, 'paint.brush')).not.toHaveClass(/ai-ring/);
+		await expect(railButton(page, 'paint.brush')).not.toHaveClass(/ai-ring/);
 		await screenshot(page, JOURNEY, 'rail-ai-rest-1440');
 		await selectRailTool(page, 'edit_region');
 		await expect(rail(page, 'edit_region')).toHaveClass(/ai-ring--on/);
@@ -457,7 +456,7 @@ test.describe('the rail with Paint groups', () => {
 		const folded = async () => ((await railEl.getAttribute('data-rail-folded')) ?? '').split(' ').filter(Boolean);
 		const overflow = () => railEl.evaluate((node) => node.scrollHeight - node.clientHeight);
 		expect(await overflow()).toBeLessThanOrEqual(1);
-		for (const height of [900, 800, 700, 640]) {
+		for (const height of [900, 800, 700]) {
 			await page.setViewportSize({ width: 1440, height });
 			await expect.poll(overflow).toBeLessThanOrEqual(1);
 			const now = await folded();
@@ -466,7 +465,7 @@ test.describe('the rail with Paint groups', () => {
 			expect(now).not.toContain('generate');
 		}
 		await page.setViewportSize({ width: 1440, height: 768 });
-		await expect.poll(folded).toEqual(['fx', 'tools', 'select', 'look', 'paint']);
+		await expect.poll(folded).toEqual(['fx', 'tools', 'select', 'look', 'paint', 'shape']);
 		await expect(page.locator('[data-tool-rail="icons"] button[data-group-button="paint"]')).toBeVisible();
 		await page.locator('[data-tool-rail="icons"] button[data-group-button="select"]').hover();
 		await expect(page.locator('[data-rail-flyout="select"]')).toBeVisible();

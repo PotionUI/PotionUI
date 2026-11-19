@@ -28,9 +28,20 @@ editor mode). `mode_label` and `mode_icon` are what the mode picker shows: the l
 mode for a task is offered with `via: null` and its modes of the fallback task are not offered for it. The served
 form (`GET /api/presets/{id}/form?mode=editor:<name>`) leaves out the fields the editor fills or hides.
 
+Each task entry also carries what the editor needs to treat it: `id`, `label`, `icon`, `editors`, `region`, `prompt`,
+`range`, `result`, `audio`, `resizes`, `fallback` (`{task, prompt}` or `null`; the prompt may contain `{prompt}`, which a
+run replaces with the user's text), `offers`, `default`, and these, all optional for older clients to ignore:
+
+| Field | Meaning |
+|---|---|
+| `produces` | `patch` (stitched onto the picture), `replace`, or `matte` (a cutout, see below). |
+| `internal` | `true` for a task that has no tool in the rail and is run by other tools (`find_subject`). |
+| `matte` | `true` when the `region` is a soft matte kept grayscale and used as the patch alpha (`replace_background`). |
+| `grow` | The fraction of the marked area's longer side the server grows the region by before the run (`remove_object`: `0.04`; `0` for the rest). |
+
 ## Start a run
 
-`POST /api/editor/tasks/{task_id}/runs` answers `202` with the run. Task ids come from `GET /api/editor/tasks`: `edit_region` and `remove_object` ship with the app. `remove_object` runs the mode with a built-in prompt.
+`POST /api/editor/tasks/{task_id}/runs` answers `202` with the run. Task ids come from `GET /api/editor/tasks`: `edit_region`, `remove_object`, `replace_background` and `find_subject` ship with the app. `remove_object` takes no prompt and runs the mode with its `instruction` (or the task's built-in prompt through the fallback); `replace_background` needs a `prompt` describing the new background and takes a soft matte as `region`.
 
 ```json
 {
@@ -41,7 +52,8 @@ form (`GET /api/presets/{id}/form?mode=editor:<name>`) leaves out the fields the
   "prompt": "a red wool scarf",
   "setup": { "preset_id": "...", "mode": "editor:edit", "form_data": {} },
   "candidates": 2,
-  "seed": null
+  "seed": null,
+  "options": {}
 }
 ```
 
@@ -49,6 +61,8 @@ form (`GET /api/presets/{id}/form?mode=editor:<name>`) leaves out the fields the
 - `region` is an image whose pixels at 128 or above mark the area. Leave it out to edit the whole picture, when the task allows it.
 - `setup` names the editor mode, written `editor:<name>` as the offers of `GET /api/editor/tasks` list it, and its form values. The picture, the mask, the output size, the number of results, the seed and the `fixed` values of the editor mode's `editor_mode.yml` are filled by the server and replace whatever you send for them; its `hide` fields keep their own defaults. A mode name without the prefix answers `422 task_not_offered`.
 - `candidates` is 1 to 4. `seed` pins the seed; leave it out to use the form's.
+- `options` is optional (default `{}`) and carries per-task switches. `include_shadow: true` on `remove_object` grows the removed area 2.5 times as much and also downward by a quarter of the marked height, so the object's shadow goes with it; any other value, and any other key, changes nothing.
+- For a task with `grow` above 0 the server dilates the region before cropping, so the crop, the mask the mode gets and the stitch all use the grown area; the stitch feather is multiplied by the task's `feather`. For a `matte` task the region keeps its gray levels and the patch alpha is the matte itself.
 
 The generation carries the editor key as its `mode`, and `POST /api/generations/start` itself refuses an editor key with `422 mode_is_editor`; only a run may use one. The run goes through the same submit path as that route, so the plan limits, quotas, content policy and preset access that apply there apply here, with the same answers. A refused start leaves no run behind.
 
@@ -69,6 +83,8 @@ The generation carries the editor key as its `mode`, and `POST /api/generations/
   }
 }
 ```
+
+A task with `produces: "matte"` (`find_subject`) answers candidates of the same shape, but the PNG behind `patch.item_id` is the subject as an RGBA cutout at the size of the picture (alpha from the model, nothing to stitch), and `rect` is the whole picture (`x` 0, `y` 0, `width` 1, `height` 1). `replace_background` answers an ordinary patch whose alpha is the matte; to put a colour, a picture or transparency behind the subject without a model run, use the editor tool `replace_background` of [media tools](plugin-api.md) with the cutout's matte.
 
 `status` is `queued`, `running`, `done`, `failed` or `cancelled`. `rect` is where the patch goes, as fractions of the picture. `soft` is true when the crop is much larger than the size the model works at, so the result comes back softer. A run the server lost in a restart answers `failed`.
 

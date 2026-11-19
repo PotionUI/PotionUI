@@ -364,9 +364,10 @@ fields:
 | Key | Meaning |
 |---|---|
 | `schema_version` | Required, `1`. |
-| `task` | Required. A core task (`edit_region`, `remove_object` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
+| `task` | Required. A core task (`edit_region`, `remove_object`, `replace_background`, `find_subject` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
 | `from` | A generation mode of this preset. Leave it out for a standalone mode. |
 | `label`, `short_description`, `order` | The picker name (default: the `from` mode's label, else the title-cased name), one sentence under it, and the sort order within the preset. |
+| `instruction` | Optional. The prompt a run sends when the task takes no prompt (`prompt: none`, such as `remove_object`). Ignored by a task that takes one (lint **warning**). A fallback offer uses the task's own fallback prompt instead. |
 | `icon` | Optional. An icon name from the app's icon set, shown beside the mode in the picker (`mode_icon` on the offer). Default: the `from` mode's icon, else the standard icon for the mode name, else none. An unknown name → **warning**. |
 | `region` | Required. `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. `range`: for a video task. The mode gets a video, the whole clip or the marked time range cut out of it, and the run splices the result back ([video editor modes](#video-editor-modes)). |
 | `inputs.source` | Required. The `image` field that takes the picture (a `video` field for a video task), or `{field: <media field>, index: 0}`, which inserts the picture into a `media` list at that index. |
@@ -423,6 +424,55 @@ longest section the mode can work on: a run whose range, or whole clip, is longe
 frames at the clip's own frame rate. The lint reports `region: range` on a picture task, a picture region on a video
 task, and `inputs.mask` with `region: range`.
 
+### One-click picture tools
+
+Three core tasks work on a marked area or the whole picture without a prompt box of their own, or with a short one.
+
+| Task | Region | Prompt | What it does |
+|---|---|---|---|
+| `remove_object` | required (the marked object) | none | Removes the object. The marked area is grown before the run (`grow: 0.04`, 4 % of the longer side of the marked area, at least 6 px) so the object's edge and soft shadow fall inside it, and the stitch feather is 1.6 times the default. The run option `include_shadow: true` grows it 2.5 times as much and also downward by a quarter of the marked height. |
+| `replace_background` | required, a soft **matte** (white = the background to replace) | required: the new background | The matte is kept grayscale (`matte: true`): it is never thresholded for the stitch, so its soft edge becomes the alpha of the result. The mode gets the matte thresholded like any mask. |
+| `find_subject` | none | none | `internal`: it has no tool in the rail and is run by other tools. It returns the subject as an RGBA PNG at the picture's size, alpha kept (`produces: matte`), instead of a patch to stitch. |
+
+`grow` (a fraction of the longer side of the marked area, grown with a round dilation capped at 15 % of the
+picture), `feather` (a multiplier on the stitch feather), `matte` and `internal` are fields of the task definition
+(also manifest keys, [plugin API](plugin-api.md#contributing-an-editor-task)). The grown region is what the crop, the
+mask given to the mode and the stitch all use.
+
+A task that takes no prompt sends the `instruction` of the offered editor mode as the generation prompt, and an
+empty prompt when the mode has none. A fallback prompt may contain `{prompt}`, replaced by the user's prompt (a
+fallback without it is sent as written); `replace_background` falls back to "Keep the subject exactly as it is, do not
+change it. Replace everything marked with this background: {prompt}".
+
+```yaml
+# editor_modes/remove_object/editor_mode.yml
+schema_version: 1
+task: remove_object
+from: edit
+instruction: Remove the marked object. Fill the area so it matches its surroundings, continuing the textures and lighting.
+region: crop
+inputs:
+  source: source_image
+```
+
+```yaml
+# editor_modes/replace_background/editor_mode.yml: no instruction, the user writes the new background
+schema_version: 1
+task: replace_background
+from: inpaint
+region: mask
+inputs:
+  source: source_image
+  mask: source_image_inpaint_mask
+```
+
+`find_subject` is declared on a mode that cuts a subject out; the `ImageTools` preset ships it from `remove_background`
+with `region: whole` and `inputs.source: input_image`. A picture or colour behind the subject, or transparency, is
+not a model run: the editor tool `replace_background` ([media tools](plugin-api.md)) fills the matte with it.
+
+Shipped: `remove_object` and `replace_background` on ZImage `inpaint`, QwenImage-2.1 `inpaint`, QwenImage `edit` and
+Krea2 `edit`; `find_subject` on ImageTools `remove_background`.
+
 ### How an editor mode is addressed
 
 An editor mode is addressed as `editor:<name>` wherever a mode key is stored: the run body, a default, a session
@@ -434,10 +484,13 @@ service may use one. The run and default routes answer a mode name without the p
 
 ### Which editor lists a mode
 
-The task decides, through the `editors` of its definition (default `[image]`). `remove_object` needs no editor mode
-on a preset: a preset that ships none for it offers its `edit_region` editor modes with the built-in prompt "Remove
-the marked object. Fill the area so it matches its surroundings.". A preset that ships its own `remove_object` mode
-uses it, and does not also offer its `edit_region` modes for removal; other presets keep the fallback.
+The task decides, through the `editors` of its definition (default `[image]`). `remove_object` and
+`replace_background` need no editor mode on a preset: a preset that ships none for them offers its `edit_region`
+editor modes (offers carry `via: "edit_region"`) with the task's fallback prompt ("Remove the marked object. Fill the
+area so it matches its surroundings."; for `replace_background` the fallback with the user's text in `{prompt}`). A
+preset that ships its own mode for the task uses it with that mode's `instruction`, and does not also offer its
+`edit_region` modes for it; other presets keep the fallback. The setup picker of the tool lists the offers of the
+task, the preset's own modes and the fallback ones.
 
 ### What a member sees
 

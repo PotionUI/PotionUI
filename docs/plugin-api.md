@@ -1862,6 +1862,7 @@ still images (grain, VHS, grades) are photo filters, not tools: see
 | `replace_audio` | video (editor only) | same | `audio` (media), `start` (seconds into the track), `loop` |
 | `paint_layer` | image (editor only) | same | `layer` (media, a transparent PNG), `opacity` (0 to 1, default 1) |
 | `place_patch` | image (editor only) | same | `patch` (media, an RGBA PNG made by an editor run), `x`, `y`, `width`, `height` (0 to 1, the patch's place as fractions of the picture), `opacity` (0 to 1, default 1) |
+| `replace_background` | image (editor only) | same | `kind` (`color` default, `picture`, `transparent`), `color` (`#rrggbb`, default `#ffffff`, for `kind: color`), `picture` (media, cover-fitted to the canvas, for `kind: picture`), `matte` (media, a grayscale mask, white = the background; its soft values are used as they are), `opacity` (0 to 1, how much of the replacement shows, default 1). `transparent` makes an RGBA picture with alpha multiplied by 1 minus the matte |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
 transparency (a JPEG that gains an alpha channel is saved as PNG).
@@ -1869,7 +1870,7 @@ transparency (a JPEG that gains an alpha channel is saved as PNG).
 `mute`, `volume` and `replace_audio` copy the video stream when they run alone; next to a picture or timing edit they
 share that edit's single encode. `replace_audio` keeps the video's length: the track starts `start` seconds in and, with
 `loop`, repeats until the picture ends. `split` with `mode: at` cuts at one time point into two items; video parts are
-re-encoded so the cut lands on the exact frame. Tools whose `scopes` are only `editor` (`replace_audio`, `paint_layer`, `place_patch`)
+re-encoded so the cut lands on the exact frame. Tools whose `scopes` are only `editor` (`replace_audio`, `paint_layer`, `place_patch`, `replace_background`)
 are left out of the Library and History menus because they need a file picked in the editor.
 
 A `media` parameter names another file: `{"item_id": "..."}` (a Library item or a helper upload) or
@@ -2187,7 +2188,20 @@ editor_tasks:
 
 The `id` must start with your plugin id and a dot; ids without a dot belong to core. `region` and
 `prompt` are `required`, `optional` or `none`. A `fallback` names a task to run, with a built-in prompt,
-when no mode offers this one.
+when no mode offers this one; the prompt may contain `{prompt}`, which a run replaces with the user's text.
+
+Optional keys that shape the run (all default to the old behaviour):
+
+| Key | Meaning |
+|---|---|
+| `produces` | `patch` (default), `replace`, or `matte`: the run returns the model's RGBA picture at the picture's size instead of a patch. |
+| `grow` | `0` to `0.5`, default `0`. The marked region is grown by this fraction of its longer side (at least 6 px) before the run. |
+| `feather` | `0` to `8`, default `1`. A multiplier on the stitch feather. |
+| `matte` | `true`: the region is a soft matte, kept grayscale and used as the patch alpha. |
+| `internal` | `true`: no rail tool; the task is run by other tools. |
+
+An editor mode may also set `instruction:`, the prompt sent for a task whose `prompt` is `none`
+([Editor modes](presets.md#one-click-picture-tools)).
 
 A task is offered by presets, not by the manifest: an editor mode names it in its `editor_mode.yml`
 ([Editor modes](presets.md#editor-modes)). An editor mode that belongs to your plugin (a preset from your
@@ -2199,7 +2213,7 @@ is rejected by lint.
 
 What the host does with a task:
 
-- The server keeps one task registry. Core registers `edit_region` and `remove_object`; a plugin's entries are
+- The server keeps one task registry. Core registers `edit_region`, `remove_object`, `replace_background` and `find_subject`; a plugin's entries are
   added when it is enabled and dropped when it is disabled. An id that another source already holds is
   refused, so a plugin cannot replace a core task. `editors` defaults to `[image]`.
 - `GET /api/editor/tasks?editor=image` lists the registered tasks for that editor, each with `offers` (the

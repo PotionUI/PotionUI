@@ -138,6 +138,7 @@ JSON body, `StartEditorRunRequest`:
 - `setup` (RunSetup, required)
 - `candidates` (integer, optional, 1.0 to 4.0, default 1)
 - `seed` (integer, optional, at least 0.0)
+- `options` (object, optional)
 
 Response `202`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 

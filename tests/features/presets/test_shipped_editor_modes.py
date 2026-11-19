@@ -23,6 +23,10 @@ NINE = {
     ("QwenImage", "edit"): ("edit", "crop"),
     ("SDXL", "inpaint"): ("inpaint", "mask"),
     ("ZImage", "inpaint"): ("inpaint", "mask"),
+    ("MOSS-Image", "expand"): ("inpaint", "mask"),
+    ("QwenImage-2.1", "expand"): ("inpaint", "mask"),
+    ("SDXL", "expand"): ("inpaint", "mask"),
+    ("ZImage", "expand"): ("inpaint", "mask"),
 }
 
 ONE_CLICK = {
@@ -66,7 +70,7 @@ def test_each_editor_mode_resolves_through_find_mode(loader, directory, name):
     assert mode is not None
     assert mode.editor.from_mode == from_mode
     assert mode.editor.region == region
-    assert mode.editor.task == "edit_region"
+    assert mode.editor.task == ("expand" if name == "expand" else "edit_region")
     assert from_mode in template.modes
 
 

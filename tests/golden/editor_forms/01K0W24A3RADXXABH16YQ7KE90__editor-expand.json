@@ -1,0 +1,129 @@
+{
+  "editor_mode": "expand",
+  "from": "inpaint",
+  "preset_id": "01K0W24A3RADXXABH16YQ7KE90",
+  "preset_name": "SDXL",
+  "shown": [
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "Mask Blur",
+      "name": "mask_blur",
+      "type": "slider"
+    },
+    {
+      "label": "Model",
+      "name": "model",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "POSITIVE EMBEDDING 1",
+      "name": "positive_embedding_1",
+      "type": "model"
+    },
+    {
+      "label": "POSITIVE EMBEDDING 2",
+      "name": "positive_embedding_2",
+      "type": "model"
+    },
+    {
+      "label": "POSITIVE EMBEDDING 3",
+      "name": "positive_embedding_3",
+      "type": "model"
+    },
+    {
+      "label": "NEGATIVE EMBEDDING 1",
+      "name": "negative_embedding_1",
+      "type": "model"
+    },
+    {
+      "label": "NEGATIVE EMBEDDING 2",
+      "name": "negative_embedding_2",
+      "type": "model"
+    },
+    {
+      "label": "NEGATIVE EMBEDDING 3",
+      "name": "negative_embedding_3",
+      "type": "model"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Clip Skip",
+      "name": "clip_skip",
+      "type": "number"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "select"
+    },
+    {
+      "label": "Scheduler",
+      "name": "scheduler",
+      "type": "select"
+    },
+    {
+      "label": "Adaptive Diffusion Model (ADM) Guidance",
+      "name": "adm_guidance_enabled",
+      "type": "gate"
+    },
+    {
+      "label": "ADM Positive Scale",
+      "name": "adm_positive_scale",
+      "type": "slider"
+    },
+    {
+      "label": "ADM Negative Scale",
+      "name": "adm_negative_scale",
+      "type": "slider"
+    },
+    {
+      "label": "ADM End Point",
+      "name": "adm_scaler_end",
+      "type": "slider"
+    },
+    {
+      "label": "Self-Attention Guidance (SAG)",
+      "name": "sag_enabled",
+      "type": "gate"
+    },
+    {
+      "label": "SAG Scale",
+      "name": "sag_scale",
+      "type": "slider"
+    },
+    {
+      "label": "SAG Blur Sigma",
+      "name": "sag_sigma",
+      "type": "slider"
+    },
+    {
+      "label": "SAG Threshold",
+      "name": "sag_threshold",
+      "type": "slider"
+    }
+  ],
+  "task": "expand"
+}

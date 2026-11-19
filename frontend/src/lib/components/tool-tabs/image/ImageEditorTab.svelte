@@ -34,6 +34,7 @@
 	import { isLargeArea } from '$lib/tool-tabs/image/generate/area';
 	import { generateSteps, leftOutCount, leftOutNotice, shapeChange, stepsBeneathOf } from '$lib/tool-tabs/image/generate/generateStep';
 	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
+	import { maskWhatOf } from '$lib/tool-tabs/image/generate/taskOptions';
 	import { settingsOf } from '$lib/tool-tabs/image/generate/register';
 	import { canvasFromUrl } from '$lib/paint/loadPicked';
 	import FloatingPrompt from '$lib/components/tool-tabs/generate/FloatingPrompt.svelte';
@@ -372,6 +373,13 @@
 		source: () => ({ ref: resolvedRef }),
 		editLink: () => editLinkForSave(() => autosave.settle()),
 		areaSize: () => get(maskArea),
+		applyMatte: async (url) => (maskLayer ? await maskLayer.importBackground(url) : false),
+		landPicture: async (source) => {
+			if (!(source instanceof File) && !source.url) return null;
+			const file = source instanceof File ? source : await canvasToPngFile(await canvasFromUrl(source.url!), `${stem}-background.png`);
+			const artifact = await uploadMediaToolArtifact(file);
+			return { item_id: artifact.id, url: artifact.url, name: source instanceof File ? source.name : (source.name ?? null) };
+		},
 		pictureSize: (id) => {
 			const list = appliedSteps(stack);
 			const at = id ? list.findIndex((step) => step.id === id) : -1;
@@ -2357,7 +2365,7 @@
 	{/if}
 	{#if registeredTool?.options || registeredTool?.schema}
 		{#if registeredTool.task}
-			<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} what={registeredTool.task === 'remove_object' ? 'object you want removed' : null} />
+			<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} what={maskWhatOf(registeredTool.task)} />
 			{#if staleMask}
 				<p class="text-sm text-warning" data-mask-stale>The marked area was drawn before a shape change, so it no longer lines up. Mark it again.</p>
 			{/if}

@@ -10,6 +10,7 @@
 	import { tasks } from '$lib/editors/tasks';
 	import { editorsRevision } from '$lib/editors/registry';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
+	import { NEEDS_SUBJECT_REASON, REPLACE_BACKGROUND_TASK, directBlockedReason, isDirectMode } from '$lib/tool-tabs/image/generate/backgroundStep';
 	import { offerOf } from '$lib/tool-tabs/image/generate/setup';
 	import { viaNote } from '$lib/tool-tabs/image/generate/taskOptions';
 	import { areaLabel } from '$lib/tool-tabs/image/generate/area';
@@ -48,7 +49,6 @@
 
 	const video = generate.editor === 'video';
 	const placeholder = $derived(video && $ui.taskId === 'extend' ? 'Describe what happens next' : 'Describe the change');
-	const noPromptNote = video ? 'No description needed.' : 'The marked object will be removed.';
 	let collapsed = $state(false);
 	let root = $state<HTMLElement | null>(null);
 
@@ -59,8 +59,10 @@
 		return taskId ? tasks.get(generate.editor, taskId) : undefined;
 	});
 	let label = $derived(entry?.label ?? task?.label ?? 'Generate');
-	let needsPrompt = $derived((entry?.prompt ?? task?.prompt ?? 'required') !== 'none');
-	let promptRequired = $derived((entry?.prompt ?? task?.prompt) === 'required');
+	let direct = $derived(isDirectMode($ui.taskId, $ui.background.mode));
+	let noPromptNote = $derived(video ? 'No description needed.' : direct ? 'The marked background is replaced right away.' : 'The marked object will be removed.');
+	let needsPrompt = $derived((entry?.prompt ?? task?.prompt ?? 'required') !== 'none' && !direct);
+	let promptRequired = $derived((entry?.prompt ?? task?.prompt) === 'required' && !direct);
 	let regionRequired = $derived((entry?.region ?? task?.region) === 'required');
 	let regionNone = $derived((entry?.region ?? task?.region) === 'none');
 	let prompt = $derived(taskId ? ($ui.prompts[taskId] ?? '') : '');
@@ -73,7 +75,7 @@
 		void $ui;
 		return taskId ? generate.changedFor(taskId) : false;
 	});
-	let setupReady = $derived(!!chip);
+	let setupReady = $derived(!!chip && !direct);
 	const setupHint = 'Choose a preset and a mode first';
 
 	$effect(() => {
@@ -84,12 +86,15 @@
 	let area = $derived(video ? null : $maskArea);
 	let redoArea = $derived(!!$ui.redo && $ui.redo.taskId === taskId && !regionNone && !area);
 	let focused = $state(false);
-	let reason = $derived(
-		blockedReason({ hasSetup: !!chip, promptRequired, prompt, regionRequired, hasArea: !!area, redoArea, rangeBlock })
-	);
+	let reason = $derived.by(() => {
+		if (direct) return directBlockedReason($ui.background, !!area);
+		const blockedBy = blockedReason({ hasSetup: !!chip, promptRequired, prompt, regionRequired, hasArea: !!area, redoArea, rangeBlock });
+		return taskId === REPLACE_BACKGROUND_TASK && blockedBy === 'Mark the object first' ? NEEDS_SUBJECT_REASON : blockedBy;
+	});
 	let borderProgress = $derived(borderProgressOf(run));
 	let runText = $derived(borderProgress.state === 'running' ? `Generating ${borderProgress.percent}%` : borderProgress.state === 'loading' ? 'Waiting' : null);
 	let markInfo = $derived(markOf({ running: !!running, starting: $ui.starting, reason }));
+	let markLabel = $derived(direct && markInfo.state === 'ready' ? 'Replace the background' : markInfo.label);
 	let viaShown = $derived.by(() => {
 		const picked = taskId ? $ui.choice[taskId] : null;
 		const offer = task && picked ? offerOf(task.offers, picked) : null;
@@ -97,7 +102,7 @@
 	});
 	let noteShown = $derived(!!$ui.picker.notice || (task?.offers.length ?? 0) === 0 || viaShown);
 	let blocked = $derived(
-		!taskId || !chip || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea || !!rangeBlock
+		!taskId || (!chip && !direct) || (direct && !!reason) || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea || !!rangeBlock
 	);
 
 	function setPrompt(event: Event) {
@@ -113,7 +118,9 @@
 	}
 
 	function start() {
-		if (taskId && !blocked) void generate.generate(taskId, !!area);
+		if (!taskId || blocked) return;
+		if (direct) void generate.applyBackground(!!area);
+		else void generate.generate(taskId, !!area);
 	}
 
 	function markClick() {
@@ -181,7 +188,7 @@
 	{#if redoArea}
 		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="redo"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />Mark the area again</span>
 	{:else if regionRequired && !area}
-		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="warn"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />Mark the object first</span>
+		<span class="flex min-w-0 items-center gap-2 text-sm text-warning" data-prompt-status="warn"><Icon name="warning" className="h-3.5 w-3.5 flex-none" />{taskId === REPLACE_BACKGROUND_TASK ? 'Mark the background first' : 'Mark the object first'}</span>
 	{:else if video}
 			<span class="min-w-0 truncate whitespace-nowrap font-mono text-sm tabular-nums text-fg-muted" data-prompt-status="range">{rangeStatus ?? 'Whole clip'}</span>
 		{:else if !area && !regionNone}
@@ -252,14 +259,16 @@
 
 {#snippet dockMark(compact: boolean)}
 	<span class="generate-mark-host flex-none" style={compact ? '--mark-size: 60px; --mark-glyph: 54px' : undefined} data-prompt-mark={markInfo.state}>
-		<Tooltip text={markInfo.state === 'running' && runText ? `${markInfo.label}. ${runText}` : markInfo.label} kbd={markInfo.state !== 'running' ? 'Ctrl ↵' : undefined} position="top" delay={150}>
-			<GenerateMark state={markInfo.state} disabled={markInfo.disabled} label={markInfo.label} onclick={markClick} />
+		<Tooltip text={markInfo.state === 'running' && runText ? `${markLabel}. ${runText}` : markLabel} kbd={markInfo.state !== 'running' ? 'Ctrl ↵' : undefined} position="top" delay={150}>
+			<GenerateMark state={markInfo.state} disabled={markInfo.disabled} label={markLabel} onclick={markClick} />
 		</Tooltip>
 	</span>
 {/snippet}
 
 {#snippet pickersView()}
-	{#if taskId}
+	{#if direct}
+		<p class="m-0 flex h-12 min-w-0 items-center gap-2 text-sm text-fg-muted" data-direct-note><Icon name="info" className="h-3.5 w-3.5 flex-none" />No model needed. The marked background is replaced directly.</p>
+	{:else if taskId}
 		<EditorPickers {phone} {taskId} {label} {extras} changedMark={phone ? undefined : changedMark} settingsButton={phone ? undefined : settingsButton} />
 	{/if}
 {/snippet}
@@ -277,8 +286,7 @@
 		<button type="button" class="mx-auto block h-4 w-full" aria-label="Collapse" onclick={() => (collapsed = true)}><span class="mx-auto block h-1 w-9 rounded-sm bg-line-strong"></span></button>
 		<div class="flex h-10 items-center justify-end gap-2 [&_.dock-btn_button]:min-h-10">
 			{#if taskId}<EditorFormulas {taskId} phone />{/if}
-			{@render changedMark()}
-			{@render settingsButton()}
+			{#if !direct}{@render changedMark()}{@render settingsButton()}{/if}
 		</div>
 		<div class="mt-0.5">{@render pickersView()}</div>
 		<div class="mt-2">{@render promptField()}</div>

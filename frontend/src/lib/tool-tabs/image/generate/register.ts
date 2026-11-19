@@ -3,6 +3,7 @@ import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { CORE_OWNER } from '$lib/registries/registry';
 import GenerateOptions from '$lib/components/tool-tabs/generate/GenerateOptions.svelte';
 import RangeOptions from '$lib/components/tool-tabs/video/options/RangeOptions.svelte';
+import ReplaceBackgroundOptions from '$lib/components/tool-tabs/generate/ReplaceBackgroundOptions.svelte';
 import GenerateSettings from '$lib/components/tool-tabs/generate/GenerateSettings.svelte';
 import { railGroups, railTools } from '$lib/editors/railTools';
 import { stepKinds } from '$lib/editors/stepKinds';
@@ -12,16 +13,21 @@ import type { ComponentRef } from '$lib/editors/types';
 import type { EditorTaskInfo } from '$lib/services/api/editorTasks';
 import { taskToolActions } from '../canvasActions';
 import { GENERATE_TOOL, generateStepKind } from './generateStep';
+import { REPLACE_BACKGROUND_PROMPT, replaceBackgroundStepKind } from './backgroundStep';
 
 export const GENERATE_GROUP = 'generate';
+export { REPLACE_BACKGROUND_PROMPT };
 export const REMOVE_PROMPT = 'Remove the marked object. Fill the area so it matches its surroundings.';
 
 type TaskSeed = Pick<TaskEntry, 'id' | 'label' | 'icon' | 'region' | 'prompt' | 'fallback' | 'range' | 'result'>;
 
 export const CORE_TASKS: readonly TaskSeed[] = [
 	{ id: 'edit_region', label: 'Edit a region', icon: editorToolIcons.edit_region, region: 'optional', prompt: 'required' },
-	{ id: 'remove_object', label: 'Remove an object', icon: editorToolIcons.remove_object, region: 'required', prompt: 'none', fallback: { task: 'edit_region', prompt: REMOVE_PROMPT } }
+	{ id: 'remove_object', label: 'Remove an object', icon: editorToolIcons.remove_object, region: 'required', prompt: 'none', fallback: { task: 'edit_region', prompt: REMOVE_PROMPT } },
+	{ id: 'replace_background', label: 'Replace the background', icon: editorToolIcons.replace_background, region: 'required', prompt: 'required', fallback: { task: 'edit_region', prompt: REPLACE_BACKGROUND_PROMPT } }
 ];
+
+const CORE_OPTIONS: Readonly<Record<string, Component<any>>> = { replace_background: ReplaceBackgroundOptions as unknown as Component<any> };
 
 export function settingsOf(tool: RailToolEntry | undefined): ComponentRef | undefined {
 	if (!tool) return undefined;
@@ -55,19 +61,21 @@ export function ensureGenerateEditor(): void {
 	registered = true;
 	railGroups.register({ id: GENERATE_GROUP, editor: 'image', label: 'Generate', order: 50, fold: 7 });
 	stepKinds.register(generateStepKind);
-	CORE_TASKS.forEach((seed, index) => registerTask(seed, (index + 1) * 10, CORE_OWNER));
+	stepKinds.register(replaceBackgroundStepKind);
+	CORE_TASKS.forEach((seed, index) => registerTask(seed, (index + 1) * 10, CORE_OWNER, 'image', CORE_OPTIONS[seed.id]));
 }
 
 export function syncServerTasks(infos: readonly EditorTaskInfo[]): void {
 	ensureGenerateEditor();
-	const wanted = new Map(infos.map((info) => [info.id, info]));
+	const shown = infos.filter((info) => !info.internal);
+	const wanted = new Map(shown.map((info) => [info.id, info]));
 	for (const [id, drop] of dynamic) {
 		if (wanted.has(id)) continue;
 		drop();
 		dynamic.delete(id);
 	}
 	let order = 100;
-	for (const info of infos) {
+	for (const info of shown) {
 		order += 10;
 		if (dynamic.has(info.id)) continue;
 		dynamic.set(info.id, registerTask({ id: info.id, label: info.label, icon: info.icon, region: info.region, prompt: info.prompt, fallback: info.fallback ?? undefined }, order, CORE_OWNER));

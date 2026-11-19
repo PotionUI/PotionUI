@@ -216,6 +216,12 @@ const editor: Record<string, Paths> = {
 		'M5 19 15 9',
 		'M13.5 6L16.6 4.6L18 1.5L19.4 4.6L22.5 6L19.4 7.4L18 10.5L16.6 7.4z'
 	],
+	'replace-background': [
+		'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
+		'M12 8.4a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4z',
+		'M8.6 17.2a3.4 3.4 0 0 1 6.8 0',
+		'M3 14.5l3.6-3 2.4 1.8'
+	],
 	light: [
 		'M8.5 12a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0',
 		'M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8'
@@ -284,6 +290,7 @@ export const editorToolIcons: Readonly<Record<string, string>> = {
 	transform: 'editor-tool-transform',
 	edit_region: 'editor-tool-edit-region',
 	remove_object: 'editor-tool-remove-object',
+	replace_background: 'editor-tool-replace-background',
 	light: 'editor-tool-light',
 	colour: 'editor-tool-colour',
 	split_tone: 'editor-tool-split-tone',

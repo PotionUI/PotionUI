@@ -19,6 +19,7 @@
 		type MaskSurface
 	} from '$lib/tool-tabs/image/maskOverlays';
 	import { regionBounds, stampShape } from '$lib/tool-tabs/image/maskRegion';
+	import { backgroundMarkFrom } from '$lib/tool-tabs/image/generate/subject';
 	import CanvasChip from '$lib/components/tool-tabs/frame/CanvasChip.svelte';
 	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
 
@@ -236,6 +237,25 @@
 		stampShape(image.data, canvas.width, canvas.height, shape.path.map((point) => ({ x: point.x * scaleX, y: point.y * scaleY })), false, tint);
 		surfaceContext.putImageData(image, 0, 0);
 		changed();
+	}
+
+	export async function importBackground(url: string): Promise<boolean> {
+		const surfaceContext = context();
+		if (!canvas || !surfaceContext) return false;
+		try {
+			const image = await loadImage(url);
+			const scratch = document.createElement('canvas');
+			scratch.width = canvas.width;
+			scratch.height = canvas.height;
+			const scratchContext = scratch.getContext('2d', { willReadFrequently: true });
+			if (!scratchContext) return false;
+			scratchContext.drawImage(image, 0, 0, scratch.width, scratch.height);
+			paintAlpha(backgroundMarkFrom(scratchContext.getImageData(0, 0, scratch.width, scratch.height).data));
+			changed();
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	export function invert() {

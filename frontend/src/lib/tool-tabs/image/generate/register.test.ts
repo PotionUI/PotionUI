@@ -37,6 +37,25 @@ describe('syncServerTasks', () => {
 		expect(tasks.get('image', 'acme.relight')).toBeDefined();
 	});
 
+	it('gives an internal task no rail tool and drops it from the registry listing', () => {
+		syncServerTasks([{ ...INFO, id: 'find_subject', internal: true }, { ...INFO, id: 'plain_task' }]);
+		expect(railTools.get('image', 'find_subject')).toBeUndefined();
+		expect(railTools.get('image', 'plain_task')).toBeDefined();
+	});
+
+	it('puts Replace the background in the Generate group right after Remove an object, with its own panel', () => {
+		syncServerTasks([]);
+		const group = railTools.list('image').filter((tool) => tool.group === GENERATE_GROUP).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((tool) => tool.id);
+		expect(group.indexOf('replace_background')).toBe(group.indexOf('remove_object') + 1);
+		const tool = railTools.get('image', 'replace_background');
+		expect(tool?.task).toBe('replace_background');
+		expect(tool?.label).toBe('Replace the background');
+		const panel = (id: string) => (railTools.get('image', id)?.options as { component?: unknown } | undefined)?.component;
+		expect(panel('replace_background')).toBeTruthy();
+		expect(panel('replace_background')).not.toBe(panel('remove_object'));
+		expect(tasks.get('image', 'replace_background')).toMatchObject({ region: 'required', prompt: 'required' });
+	});
+
 	it('still registers both the task and its rail tool for a task no manifest declared', () => {
 		syncServerTasks([{ ...INFO, id: 'plain_task' }]);
 		expect(tasks.get('image', 'plain_task')).toBeDefined();

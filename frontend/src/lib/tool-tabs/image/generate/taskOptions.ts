@@ -42,3 +42,9 @@ export function viaNote(offer: Pick<TaskOffer, 'via'> | null | undefined, labelO
 	const label = labelOf?.(via) ?? VIA_LABELS[via];
 	return label ? `Uses ${label} with a built-in instruction.` : null;
 }
+
+export function maskWhatOf(task: string | null | undefined): string | null {
+	if (task === 'remove_object') return 'object you want removed';
+	if (task === 'replace_background') return 'background you want replaced';
+	return null;
+}

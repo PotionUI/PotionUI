@@ -64,6 +64,10 @@ import {
 } from './setup';
 
 import { runOptionsOf, withOption, type TaskOptions } from './taskOptions';
+import { FIND_SUBJECT_TASK, backgroundDraft, directBlockedReason, initialBackground, paramsFor, pictureTarget, type BackgroundChoice, type BackgroundPicture } from './backgroundStep';
+import { SUBJECT_FAILED, SUBJECT_NEEDS_MODEL, SUBJECT_NOT_MARKED, idleSubject, subjectChoice, type SubjectState } from './subject';
+import { isTerminal, type RunView } from './runEngine';
+import type { MediaRef } from '$lib/types/tabs';
 import { getSchemaDefaults } from '$lib/form/defaults';
 import {
 	editTweak,
@@ -119,6 +123,8 @@ export interface ControllerDeps {
 	inputFor?(stepId: string | null): MediaToolInputRef | null;
 	basisOf?(stepId: string | null): GenerateBasis;
 	onTasks?(tasks: EditorTaskInfo[]): void;
+	applyMatte?(url: string): Promise<boolean>;
+	landPicture?(source: MediaRef | File): Promise<{ item_id: string; url: string | null; name: string | null } | null>;
 }
 
 export interface PickerState {
@@ -148,6 +154,8 @@ export interface GenerateUi {
 	formulas: Record<string, AppliedFormula[]>;
 	prompts: Record<string, string>;
 	options: Record<string, TaskOptions>;
+	background: BackgroundChoice;
+	subject: SubjectState;
 	choice: Record<string, SetupChoice | null>;
 	choices: Record<string, ModeChoices>;
 	picker: PickerState;
@@ -238,6 +246,8 @@ export function createGenerateController(deps: ControllerDeps) {
 		formulas: {},
 		prompts: {},
 		options: {},
+		background: initialBackground(),
+		subject: idleSubject(),
 		choice: {},
 		choices: {},
 		picker: closedPicker(),
@@ -672,7 +682,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		return `s${deps.getStack().seq + 1}`;
 	}
 
-	async function submit(taskId: string, stepId: string, input: {
+	async function submit(taskId: string, stepId: string | null, input: {
 		prompt: string;
 		setup: ResolvedSetup;
 		region: { item_id: string; url?: string } | null;
@@ -778,6 +788,96 @@ export function createGenerateController(deps: ControllerDeps) {
 			if (created && created.id !== stepId) deps.engine.adopt(run, created.id);
 			patch({ activeStepId: created?.id ?? stepId });
 			if (run.status === 'done' || run.status === 'failed' || run.status === 'cancelled') settle(get(deps.engine.views)[run.id]);
+			return true;
+		} catch (error) {
+			return fail(startFailureText(error, NOT_STARTED_MESSAGE));
+		} finally {
+			patch({ starting: false });
+		}
+	}
+
+	function setBackground(change: Partial<BackgroundChoice>): void {
+		state.update((current) => ({ ...current, background: { ...current.background, ...change }, error: null }));
+	}
+
+	async function chooseBackgroundPicture(source: MediaRef | File): Promise<boolean> {
+		let picture: BackgroundPicture | null = source instanceof File ? null : pictureTarget(source);
+		if (!picture && deps.landPicture) picture = await deps.landPicture(source).catch(() => null);
+		if (!picture) return fail('That picture could not be used. Try another.');
+		setBackground({ picture, mode: 'picture' });
+		return true;
+	}
+
+	function subjectFailed(message: string): false {
+		patch({ subject: { status: 'failed', progress: 0, error: message } });
+		return false;
+	}
+
+	function untilSettled(runId: string): Promise<RunView> {
+		return new Promise((resolve) => {
+			let off: (() => void) | null = null;
+			let done = false;
+			off = deps.engine.views.subscribe((all) => {
+				const view = all[runId];
+				if (!view || done) return;
+				if (isTerminal(view.status)) {
+					done = true;
+					off?.();
+					resolve(view);
+					return;
+				}
+				const subject = get(state).subject;
+				if (subject.status === 'running' && subject.progress !== view.progress) patch({ subject: { ...subject, progress: view.progress } });
+			});
+			if (done) off();
+		});
+	}
+
+	async function findSubject(): Promise<boolean> {
+		if (get(state).subject.status === 'running') return false;
+		await loadTasks();
+		const info = taskOf(FIND_SUBJECT_TASK);
+		const choice = subjectChoice(info);
+		if (!info || !choice) return subjectFailed(SUBJECT_NEEDS_MODEL);
+		patch({ subject: { status: 'running', progress: 0, error: null }, error: null });
+		try {
+			const resolved = await resolveFor(FIND_SUBJECT_TASK, choice);
+			if ('error' in resolved) return subjectFailed(resolved.error);
+			const submitted = await submit(FIND_SUBJECT_TASK, null, { prompt: '', setup: resolved, region: null, candidates: 1, seed: null });
+			if (!('run' in submitted)) return subjectFailed(submitted.error);
+			const runId = submitted.run.id;
+			const view = await untilSettled(runId);
+			const url = view.status === 'done' ? (view.run?.candidates[0]?.url ?? null) : null;
+			deps.engine.release(runId);
+			if (view.status === 'cancelled') {
+				patch({ subject: idleSubject() });
+				return false;
+			}
+			if (!url) return subjectFailed(SUBJECT_FAILED);
+			if (!deps.applyMatte || !(await deps.applyMatte(url))) return subjectFailed(SUBJECT_NOT_MARKED);
+			patch({ subject: { status: 'done', progress: 1, error: null } });
+			return true;
+		} catch (error) {
+			return subjectFailed(startFailureText(error, SUBJECT_FAILED));
+		}
+	}
+
+	async function applyBackground(areaMarked: boolean): Promise<boolean> {
+		const current = get(state);
+		if (current.starting) return false;
+		const reason = directBlockedReason(current.background, areaMarked);
+		if (reason) return fail(reason);
+		patch({ starting: true, error: null });
+		try {
+			let region: { item_id: string; url?: string } | null = null;
+			try {
+				region = await deps.landRegion();
+			} catch (error) {
+				return fail(startFailureText(error, AREA_UNREADABLE_MESSAGE));
+			}
+			const params = region ? paramsFor(current.background, { item_id: region.item_id, url: region.url ?? null }) : null;
+			if (!params) return fail(directBlockedReason(current.background, !!region) ?? AREA_UNREADABLE_MESSAGE);
+			deps.setStack(apply(beginEdit(deps.getStack(), backgroundDraft(params))));
 			return true;
 		} catch (error) {
 			return fail(startFailureText(error, NOT_STARTED_MESSAGE));
@@ -936,6 +1036,10 @@ export function createGenerateController(deps: ControllerDeps) {
 		saveAsNew,
 		setPrompt,
 		setOption,
+		setBackground,
+		chooseBackgroundPicture,
+		findSubject,
+		applyBackground,
 		askForPicker,
 		pickerHandled,
 		pick,

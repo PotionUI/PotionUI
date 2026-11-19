@@ -274,7 +274,7 @@ describe('rail', () => {
 		expect(editorCatalogTools(catalog).map((entry) => entry.id)).toEqual(['pixel.sort']);
 		const rail = imageRail(catalog);
 		expect(rail.map((group) => [group.label, group.tools.map((entry) => entry.label)])).toEqual([
-			['Generate', ['Edit a region', 'Remove an object']],
+			['Generate', ['Edit a region', 'Remove an object', 'Replace the background']],
 			['Transform', ['Crop', 'Resize', 'Canvas', 'Slice']],
 			['Paint', ['Brush', 'Eraser', 'Fill', 'Eyedropper']],
 			['Select and move', ['Rectangle select', 'Lasso select', 'Move']],

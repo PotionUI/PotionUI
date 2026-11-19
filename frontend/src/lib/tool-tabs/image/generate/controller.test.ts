@@ -661,6 +661,78 @@ describe('generate controller: sessions of the editor', () => {
 	});
 });
 
+describe('generate controller: replacing the background', () => {
+	const finder = (over: Partial<EditorTaskInfo> = {}) => task({ id: 'find_subject', label: 'Find the subject', region: 'none', prompt: 'none', internal: true, offers: [offer({ preset_id: 'matting', mode: 'editor:matte' })], ...over });
+	const matted = (over: Partial<EditorRun> = {}) => run({ id: 'er_m', task: 'find_subject', status: 'done', candidates: [{ patch: { item_id: 'cand1' }, url: '/api/media/cand1.png', seed: null }], ...over });
+	const startMock = (t: ReturnType<typeof setup>) => t.enginePorts.start as ReturnType<typeof vi.fn>;
+
+	it('finds the subject with no region and no prompt, marks the background and leaves no step', async () => {
+		const applyMatte = vi.fn(async () => true);
+		const t = setup([finder()], { applyMatte });
+		startMock(t).mockResolvedValueOnce(matted());
+		expect(await t.controller.findSubject()).toBe(true);
+		const [taskId, body] = startMock(t).mock.calls[0];
+		expect(taskId).toBe('find_subject');
+		expect(body).toMatchObject({ edit: { id: 'ed_1', step_id: null }, input: { item_id: 'pic' }, region: null, prompt: null, setup: { preset_id: 'matting', mode: 'editor:matte' } });
+		expect(applyMatte).toHaveBeenCalledWith('/api/media/cand1.png');
+		expect(t.stack().steps).toHaveLength(0);
+		expect(get(t.controller.ui).subject).toEqual({ status: 'done', progress: 1, error: null });
+		expect(t.engine.tracking('er_m')).toBe(false);
+	});
+
+	it('says the matting model is missing when nothing offers the task', async () => {
+		const t = setup([finder({ offers: [] })], { applyMatte: vi.fn(async () => true) });
+		expect(await t.controller.findSubject()).toBe(false);
+		expect(get(t.controller.ui).subject.error).toContain('Remove background');
+		expect(startMock(t)).not.toHaveBeenCalled();
+	});
+
+	it('shows a plain failure when the run does not finish and marks nothing', async () => {
+		const applyMatte = vi.fn(async () => true);
+		const t = setup([finder()], { applyMatte });
+		startMock(t).mockResolvedValueOnce(matted({ status: 'failed', error: 'CUDA out of memory', candidates: [] }));
+		expect(await t.controller.findSubject()).toBe(false);
+		expect(get(t.controller.ui).subject).toEqual({ status: 'failed', progress: 0, error: 'The subject could not be found. Try again.' });
+		expect(applyMatte).not.toHaveBeenCalled();
+	});
+
+	it('says so when the mask could not take the subject', async () => {
+		const t = setup([finder()], { applyMatte: vi.fn(async () => false) });
+		startMock(t).mockResolvedValueOnce(matted());
+		expect(await t.controller.findSubject()).toBe(false);
+		expect(get(t.controller.ui).subject.status).toBe('failed');
+	});
+
+	it('adds a step for a colour with no model, taking the mask as the matte', async () => {
+		const t = setup([finder()]);
+		t.controller.setBackground({ mode: 'color', color: '#336699' });
+		expect(await t.controller.applyBackground(true)).toBe(true);
+		expect(startMock(t)).not.toHaveBeenCalled();
+		expect(t.stack().steps[0]).toMatchObject({ tool: 'replace_background', label: 'Replace background', summary: '#336699', params: { kind: 'color', color: '#336699', matte: { item_id: 'mask1' } } });
+	});
+
+	it('refuses with a plain reason until there is a mark or a picture', async () => {
+		const t = setup([finder()]);
+		t.controller.setBackground({ mode: 'color' });
+		expect(await t.controller.applyBackground(false)).toBe(false);
+		expect(get(t.controller.ui).error).toBe('Find the subject or mark the background first');
+		t.controller.setBackground({ mode: 'picture' });
+		expect(await t.controller.applyBackground(true)).toBe(false);
+		expect(get(t.controller.ui).error).toBe('Choose a picture first');
+		expect(t.stack().steps).toHaveLength(0);
+	});
+
+	it('takes a library item as the picture and uploads anything else', async () => {
+		const landPicture = vi.fn(async () => ({ item_id: 'up1', url: '/up1.png', name: 'Harbour' }));
+		const t = setup([finder()], { landPicture });
+		expect(await t.controller.chooseBackgroundPicture({ path: 'p', url: '/lib.png', name: 'Sea', type: 'image', item_id: 'lib1' } as never)).toBe(true);
+		expect(get(t.controller.ui).background).toMatchObject({ mode: 'picture', picture: { item_id: 'lib1', name: 'Sea' } });
+		expect(landPicture).not.toHaveBeenCalled();
+		expect(await t.controller.chooseBackgroundPicture({ path: 'p', url: '/h.png', name: 'h', type: 'image', generation_file_id: '9' } as never)).toBe(true);
+		expect(get(t.controller.ui).background.picture?.item_id).toBe('up1');
+	});
+});
+
 describe('generate controller: task options', () => {
 	const remove = () => task({ id: 'remove_object', label: 'Remove an object', region: 'required', prompt: 'none' });
 	const startBody = (t: ReturnType<typeof setup>, index = 0) => (t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[index][1];

@@ -60,6 +60,22 @@ Pick **Replace the background** in the **Generate** group, right after Remove.
    Picture, Colour and Transparent need no model and finish at once with **Replace the background**. Until there is a subject or a marked background, the button says **Find the subject or mark the background first**.
 
 The result is a row in the **Edits** list called **Replace background** (or a region edit for Describe). Hide it with the eye or delete it to bring the original background back, and press **Replace the background** again to try another choice on the same mask.
+## Expand a picture to another format
+
+**Expand** (in the Generate group of the rail) puts your picture on a larger canvas and generates the new area so it continues the picture. Use it to turn a square into a story, a landscape or a wide banner.
+
+1. Pick one or more **formats**: Square 1:1, Portrait 4:5, Story 9:16, Landscape 16:9, Wide banner 3:1, any format your administrator added for everyone or for your group, or **Custom** with your own width and height. Each row shows the size the picture would grow to. The picture is never shrunk or cropped: the canvas is the smallest one of that shape that holds it.
+2. **Drag the picture** in the Position preview to choose where the new area goes, or select it and use the arrow keys (Shift for bigger steps). **Center** puts it back in the middle. The position applies to every format you picked.
+3. Write what should appear in the new area, or leave the box empty: the model then continues the picture.
+4. Press **Generate**.
+
+Nothing under the new step is changed: hide the step and the original is back. A big expansion is made in passes, each one growing the picture by a bounded step so the model always works at sizes it handles well; the panel says when a format takes more than one pass.
+
+**Several formats at once.** The first format becomes a step in the edit you are working on. Every other format becomes an edit of its own, a copy of this edit with its own Expand step, started at the same time and queued with your other generations. Changing the canvas size is a different result for each format, so they cannot be steps of one stack. Open the others from **Recent edits**; they finish by themselves whether or not you open them.
+
+Expand changes the size of the picture, so like a crop it is a barrier: paint layers and generated patches stay above or below it and cannot be dragged across.
+
+**Your own formats.** An administrator adds named formats in Admin, Settings, Generation, *Expand formats*: a name, a ratio such as 5:2, and who is offered it (everyone or one group).
 
 ## Edits save themselves
 

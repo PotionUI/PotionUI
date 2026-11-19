@@ -365,6 +365,7 @@ fields:
 |---|---|
 | `schema_version` | Required, `1`. |
 | `task` | Required. A core task (`edit_region`, `remove_object`, `replace_background`, `find_subject` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
+| `task` | Required. A core task (`edit_region`, `remove_object`, `expand` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
 | `from` | A generation mode of this preset. Leave it out for a standalone mode. |
 | `label`, `short_description`, `order` | The picker name (default: the `from` mode's label, else the title-cased name), one sentence under it, and the sort order within the preset. |
 | `instruction` | Optional. The prompt a run sends when the task takes no prompt (`prompt: none`, such as `remove_object`). Ignored by a task that takes one (lint **warning**). A fallback offer uses the task's own fallback prompt instead. |
@@ -491,6 +492,36 @@ area so it matches its surroundings."; for `replace_background` the fallback wit
 preset that ships its own mode for the task uses it with that mode's `instruction`, and does not also offer its
 `edit_region` modes for it; other presets keep the fallback. The setup picker of the tool lists the offers of the
 task, the preset's own modes and the fallback ones.
+
+### Expand
+
+`expand` puts the picture on a larger canvas and generates the new area (`region: none`, `prompt: optional`, and the
+task's `grows` flag says the result is larger than the picture). The server builds the canvas, fills the new area from
+the picture's edges, hands the mode the canvas and, when `inputs.mask` is set, a mask over the new area that reaches a
+little into the picture so the model continues it across the seam. A large expansion runs as several generations in a
+row (each grows the known picture by at most 80 percent per side, so the model keeps working at its own sizes);
+each pass is stitched into the canvas before the next one starts. The original pixels are never changed, and the result
+is one patch with the size of the new canvas.
+
+Declare it on a mode that repaints a masked area. `region: mask` with `inputs.mask` is the natural fit, and `fixed`
+usually pins the strength to full:
+
+```yaml
+schema_version: 1
+task: expand
+from: inpaint
+region: mask
+inputs:
+  source: source_image
+  mask: source_image_inpaint_mask
+fixed:
+  denoise: 1.0
+```
+
+Shipped: Z-Image, SDXL, Qwen-Image 2.1 and MOSS-Image declare it on their inpaint mode. A preset with no `expand` mode
+is offered through its `edit_region` modes with the built-in prompt "Continue the picture beyond its edges so the new
+area matches it."; those modes get the whole canvas (and a mask when they take one). One image is made per format, so
+the mode's quantity is sent as 1.
 
 ### What a member sees
 

@@ -39,6 +39,16 @@ Response `200`: the standard envelope (`success`, `data`, `message`, `error`). T
 
 ## Editor
 
+### GET /api/editor/expand/formats
+
+**List Expand Formats**
+
+The named formats the Expand task offers: the built-in ones and the house formats an administrator added for everyone or for a group you belong to. Each has a ratio as W:H.
+
+Key permission: `read`.
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ### GET /api/editor/runs/{run_id}
 
 **Get An Editor Run**
@@ -134,6 +144,7 @@ JSON body, `StartEditorRunRequest`:
 - `steps` (array of StepRequest, optional)
 - `region` (InputRef, optional)
 - `range` (RunRange, optional)
+- `expand` (RunExpand, optional)
 - `prompt` (string, optional)
 - `setup` (RunSetup, required)
 - `candidates` (integer, optional, 1.0 to 4.0, default 1)

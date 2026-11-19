@@ -5,6 +5,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.features.editor_tasks.formats import ExpandFormats
 from src.features.editor_tasks.routes import build_router
 from src.platform.security import current_user
 from src.platform.security.api_scopes import ApiScope as S
@@ -31,7 +32,14 @@ def bearer(token):
 def client(tmp_path):
     manager = build(tmp_path, {"A-CROP": CROP, "B-MASK": MASK})
     app = FastAPI()
-    app.include_router(build_router(SimpleNamespace(editor_tasks=manager)))
+    app.include_router(
+        build_router(
+            SimpleNamespace(
+                editor_tasks=manager,
+                expand_formats=ExpandFormats(lambda: [{"id": "team", "label": "Team", "ratio": "5:2"}], lambda user_id: []),
+            )
+        )
+    )
     resolver = FakeResolver()
     resolver.add(READ_KEY, account("u1"), [S.READ])
     resolver.add(GENERATE_KEY, account("u1"), [S.GENERATE])
@@ -60,6 +68,29 @@ def test_a_session_gets_its_offers_with_a_null_default(client):
     assert {"edit_region", "remove_object"} <= {item["id"] for item in tasks}
     assert all(item["default"] is None for item in tasks)
     assert [o["preset_id"] for o in offers(response)] == ["A-CROP", "B-MASK"]
+
+
+def test_the_expand_task_says_it_grows_the_canvas_and_asks_for_no_region(client):
+    response = client.get("/api/editor/tasks?editor=image", headers=bearer(SESSION))
+
+    expand = next(item for item in response.json()["data"]["tasks"] if item["id"] == "expand")
+    assert expand["grows"] is True and expand["region"] == "none" and expand["prompt"] == "optional"
+    assert expand["fallback"]["task"] == "edit_region"
+    assert next(item for item in response.json()["data"]["tasks"] if item["id"] == "edit_region")["grows"] is False
+
+
+def test_the_formats_route_lists_the_built_in_formats_then_the_house_ones(client):
+    response = client.get("/api/editor/expand/formats", headers=bearer(SESSION))
+
+    assert response.status_code == 200
+    formats = response.json()["data"]["formats"]
+    assert [item["id"] for item in formats] == ["square", "portrait", "story", "landscape", "wide_banner", "house.team"]
+    assert formats[2] == {"id": "story", "label": "Story", "ratio": "9:16", "source": "built_in", "group_id": None}
+    assert formats[-1]["source"] == "house"
+
+
+def test_the_formats_route_needs_a_login(client):
+    assert client.get("/api/editor/expand/formats").status_code in (401, 403)
 
 
 def test_the_editor_defaults_to_image(client):

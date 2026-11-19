@@ -215,7 +215,7 @@ describe('a registered step kind drives the Image editor entry points', () => {
 		expect(ids('shape')).toEqual(['crop', 'resize', 'canvas', 'slice']);
 		expect(ids('paint')).toEqual(['paint.brush', 'paint.eraser', 'paint.fill', 'paint.pick']);
 		expect(ids('select')).toEqual(['paint.rect', 'paint.lasso', 'paint.move']);
-		expect(ids('generate')).toEqual(['edit_region', 'remove_object', 'replace_background']);
+		expect(ids('generate')).toEqual(['edit_region', 'remove_object', 'replace_background', 'expand']);
 		expect(ids('look')).toEqual(['light', 'colour', 'split_tone', 'curves', 'lut']);
 		expect(ids('fx')).toEqual(['film_grain', 'vignette', 'grayscale', 'invert']);
 		expect(ids('looks')).toEqual(['effects']);

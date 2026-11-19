@@ -80,6 +80,15 @@ def test_core_tasks_survive_unregistering_a_source():
     assert registry.get("edit_region") is not None
 
 
+def test_a_plugin_task_can_declare_that_it_grows_the_canvas(plugins):
+    registry, tasks, marketplace = plugins
+    write_plugin(marketplace, [{**ENTRY, "grows": True}])
+    registry.discover_plugins()
+
+    assert registry.enable_plugin("shiny") is True
+    assert tasks.get("shiny.colorize").grows is True
+
+
 def test_the_base_manifest_entry_validates():
     manifest = PluginManifestSchema.model_validate({**BASE, "editor_tasks": [ENTRY]})
 
@@ -141,6 +150,7 @@ def test_a_plugin_task_is_registered_on_enable_and_removed_on_disable(plugins):
     assert task.region == "required"
     assert task.prompt == "optional"
     assert task.fallback == ("edit_region", "Colorize it.")
+    assert task.grows is False
 
     registry.disable_plugin("shiny")
 

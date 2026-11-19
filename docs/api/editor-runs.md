@@ -66,6 +66,33 @@ run replaces with the user's text), `offers`, `default`, and these, all optional
 
 The generation carries the editor key as its `mode`, and `POST /api/generations/start` itself refuses an editor key with `422 mode_is_editor`; only a run may use one. The run goes through the same submit path as that route, so the plan limits, quotas, content policy and preset access that apply there apply here, with the same answers. A refused start leaves no run behind.
 
+## Expand a picture
+
+`expand` is a core task with `grows: true`: its result is larger than the picture, so a run names the new canvas instead of a region.
+
+```json
+{
+  "edit": { "id": "ed_...", "step_id": "s7" },
+  "input": { "item_id": "..." },
+  "steps": [],
+  "expand": { "width": 1024, "height": 1821, "x": 0, "y": 399 },
+  "prompt": null,
+  "setup": { "preset_id": "...", "mode": "editor:expand", "form_data": {} }
+}
+```
+
+`expand.width` and `height` are the new canvas and `x` and `y` where the picture's top-left corner sits on it (clamped so the picture stays inside). The canvas has to be at least as large as the picture (`422 expand_smaller`), differ from it (`422 expand_same`), stay within 8192 px a side and 36 megapixels (`422 expand_too_large`). A run for `expand` without `expand` answers `422 expand_required`; `expand` on another task answers `422 expand_not_supported`. An empty `prompt` runs the built-in "Continue the picture beyond its edges so the new area matches it.". One picture is made, whatever the form's quantity says.
+
+A large expansion is made in passes; the server runs them one after another inside the same run (each pass is a generation with the run's origin, and the run's `generation_id` follows the current one), and `progress` covers all of them. The finished run has one candidate whose patch is an RGBA picture with the size of the new canvas, opaque over the new area and transparent where the picture was; its `rect` is the whole canvas (`{x: 0, y: 0, width: 1, height: 1}`). Place it with the media tool `place_patch` using `canvas_width`, `canvas_height`, `canvas_x` and `canvas_y` (all optional, 0 keeps the picture's size), which first place the picture on a transparent canvas of that size.
+
+`GET /api/editor/expand/formats` lists the named formats the caller may use, built-in first:
+
+```json
+{ "formats": [{ "id": "story", "label": "Story", "ratio": "9:16", "source": "built_in", "group_id": null }] }
+```
+
+House formats come from the system setting `editor_expand_formats` (a list of `{id, label, ratio, group_id}`), appear with the id `house.<id>` and `source: "house"`, and a format with a `group_id` is listed only for members of that group.
+
 ## Follow a run
 
 `GET /api/editor/runs/{run_id}` answers the run:

@@ -122,14 +122,14 @@
 		move({ x: 0.5, y: 0.5 });
 	}
 
-	const row = 'flex h-9 w-full items-center gap-2 rounded border px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal';
+	const row = 'flex h-8 w-full items-center gap-2 rounded border px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal';
 	const idle = 'border-line-strong bg-surface-2 text-fg-muted hover:border-line-hover hover:text-fg';
 	const on = 'border-signal bg-surface-3 text-fg';
 	let placed = $derived(lead && source ? placement(source, lead, lead.anchor) : null);
 </script>
 
 <div class="flex flex-col gap-3" data-expand-options>
-	<div class="flex flex-col gap-1.5" role="group" aria-label="Formats">
+	<div class="flex flex-col gap-1" role="group" aria-label="Formats">
 		<div class="flex items-center justify-between">
 			<span class="text-sm font-medium text-fg">Format</span>
 			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-expand-count>{targets.length} of {MAX_PICKS}</span>
@@ -170,8 +170,8 @@
 				<span class="text-sm font-medium text-fg">Position</span>
 				<button type="button" class="text-sm text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal" onclick={recenter} data-expand-center>Center</button>
 			</div>
-			<div class="flex justify-center rounded border border-line bg-canvas p-2">
-				<div bind:this={box} class="relative w-full overflow-hidden rounded border border-line-strong bg-surface-2" style="aspect-ratio: {lead.width} / {lead.height}; width: min(100%, calc(14rem * {lead.width} / {lead.height}))" data-expand-frame>
+			<div class="flex justify-center rounded border border-line bg-canvas p-1.5">
+				<div bind:this={box} class="relative w-full overflow-hidden rounded border border-line-strong bg-surface-2" style="aspect-ratio: {lead.width} / {lead.height}; width: min(100%, calc(9rem * {lead.width} / {lead.height}))" data-expand-frame>
 					{#if placed}
 						<div
 							class="absolute cursor-grab touch-none overflow-hidden rounded-sm border border-signal bg-surface-3 shadow-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal {drag ? 'cursor-grabbing' : ''}"

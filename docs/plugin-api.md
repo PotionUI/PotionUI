@@ -2188,7 +2188,8 @@ editor_tasks:
 
 The `id` must start with your plugin id and a dot; ids without a dot belong to core. `region` and
 `prompt` are `required`, `optional` or `none`. A `fallback` names a task to run, with a built-in prompt,
-when no mode offers this one; the prompt may contain `{prompt}`, which a run replaces with the user's text.
+when no mode offers this one; the prompt may contain `{prompt}`, which a run replaces with the user's text. `grows: true` marks a task whose result is larger than the picture (the way core's
+`expand` is); its runs carry an `expand` canvas instead of a region (see [Editor runs](api/editor-runs.md#expand-a-picture)).
 
 Optional keys that shape the run (all default to the old behaviour):
 

@@ -34,6 +34,7 @@
 		session = new PaintSession(),
 		prepare = null,
 		zoomControl = false,
+		locked = false,
 		onstate
 	}: {
 		base?: HTMLCanvasElement | null;
@@ -47,6 +48,7 @@
 		session?: PaintSession;
 		prepare?: ((session: PaintSession) => void | Promise<void>) | null;
 		zoomControl?: boolean;
+		locked?: boolean;
 		onstate: (session: PaintSession, state: SessionSnapshot) => void;
 	} = $props();
 
@@ -211,6 +213,10 @@
 	}
 
 	function pointerDown(event: PointerEvent) {
+		if (locked) {
+			event.preventDefault();
+			return;
+		}
 		if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur();
 		stage?.setPointerCapture(event.pointerId);
 		session.onPointerDown(event);

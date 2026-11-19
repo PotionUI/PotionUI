@@ -227,8 +227,6 @@ const liveRow = (page: Page) => page.locator('[data-edit-stack] [data-stack-sect
 async function ready(page: Page) {
 	const stage = page.locator('[data-paint-stage][data-paint-ready]');
 	await expect(stage).toBeVisible();
-	await page.waitForTimeout(500);
-	await expect(stage).toBeVisible();
 }
 
 async function addPaintLayer(page: Page) {

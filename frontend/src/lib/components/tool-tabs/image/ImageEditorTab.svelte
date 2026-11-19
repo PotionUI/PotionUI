@@ -282,6 +282,7 @@
 	let beforeRender = $state.raw<Rendered | null>(null);
 	let thumbRender = $state.raw<Rendered | null>(null);
 	let paintBase = $state.raw<Rendered | null>(null);
+	let paintBaseSig = $state<string | null>(null);
 	let renderError = $state<string | null>(null);
 	let rendering = $state(false);
 	let surfaceVersion = $state(0);
@@ -631,6 +632,7 @@
 		});
 	});
 	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' && (pendingHere.target || sequential) ? stepsBeforeTarget : (paintBelow ?? (sequential ? effective : layersOf(effective)))) : null);
+	let paintListSig = $derived(paintList ? JSON.stringify(paintList) : null);
 	let aboveKey = $derived(aboveKeyOf(paintAbove));
 	let addAboveLabel = $derived.by(() => {
 		const step = selectedStepId ? applied.find((entry) => entry.id === selectedStepId) : null;
@@ -1164,7 +1166,17 @@
 	$effect(() => track(mode === 'paint' ? null : mainSteps, (value) => (mainRender = value), undefined, true));
 	$effect(() => track(beforeList, (value) => (beforeRender = value)));
 	$effect(() => track(thumbList, (value) => (thumbRender = value)));
-	$effect(() => track(paintList, (value) => (paintBase = value), 4096));
+	$effect(() => {
+		const sig = paintListSig;
+		return track(
+			paintList,
+			(value) => {
+				paintBase = value;
+				paintBaseSig = sig;
+			},
+			4096
+		);
+	});
 
 	function recoverSurfaces() {
 		renders.clear();
@@ -2617,7 +2629,7 @@
 	{#if sourceError}
 		<div class="flex flex-1 items-center justify-center bg-scrim p-6 text-sm text-danger" role="alert">{sourceError}</div>
 	{:else if mode === 'paint'}
-		{#if paintBase && (!paintAbove.length || aboveCanvas)}
+		{#if paintBase && paintBaseSig === paintListSig && (!paintAbove.length || aboveCanvas)}
 			{#key paintBase}
 			{#key `${paintKey}:${pending?.target ?? ''}`}
 				<PaintStage
@@ -2630,6 +2642,7 @@
 					picture={layerPicture}
 					tool={paintToolOfEntry(activeTool!)}
 					zoomControl={!phone}
+					locked={busy}
 					name={fileName ?? 'picture'}
 					onstate={(session, snapshot) => {
 						paintSession = session;

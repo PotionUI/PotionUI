@@ -46,6 +46,12 @@ describe('modeOptionsOf', () => {
 		]);
 	});
 
+	it('says under a mode that reaches the task through the fallback that it does', () => {
+		const options = modeOptionsOf([offer({ via: 'edit_region', short_description: 'Change one part.' }), offer({ mode: 'editor:edit2', mode_label: 'Edit 2' })], 'qwen');
+		expect(options[0].description).toBe('Change one part. Uses Edit a region with a built-in instruction.');
+		expect(options[1].description).toBe('Repaints inside the mask');
+	});
+
 	it('is empty without a preset', () => {
 		expect(modeOptionsOf([offer()], null)).toEqual([]);
 	});

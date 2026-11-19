@@ -100,6 +100,9 @@ export interface EditorTaskInfo {
 	result?: 'replace' | 'append';
 	audio?: 'keep' | 'result';
 	resizes?: boolean;
+	internal?: boolean;
+	matte?: boolean;
+	grow?: number;
 	fallback: { task: string; prompt: string } | null;
 	offers: TaskOffer[];
 	default: TaskDefault | null;
@@ -115,6 +118,7 @@ export interface StartRunBody {
 	setup: { preset_id: string; mode: string; form_data: Record<string, unknown> };
 	candidates: number;
 	seed: number | null;
+	options?: Record<string, unknown>;
 }
 
 export type EditorTaskFailure =
@@ -324,6 +328,9 @@ export function normalizeTask(raw: unknown): EditorTaskInfo | null {
 		region: requirement(raw.region, 'optional'),
 		prompt: requirement(raw.prompt, 'required'),
 		...videoFieldsOf(raw),
+		...(raw.internal === true ? { internal: true } : {}),
+		...(raw.matte === true ? { matte: true } : {}),
+		...(typeof raw.grow === 'number' && Number.isFinite(raw.grow) && raw.grow >= 0 ? { grow: raw.grow } : {}),
 		fallback,
 		offers: (Array.isArray(raw.offers) ? raw.offers : []).flatMap(offerOf),
 		default: normalizeDefault(raw.default)

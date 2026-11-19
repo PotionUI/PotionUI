@@ -1,6 +1,7 @@
 import type { TaskOffer } from '$lib/services/api/editorTasks';
 import type { PresetInfo } from '$lib/types/api';
 import type { PickerOption } from '$lib/components/preset/PickerSelect.svelte';
+import { viaNote } from './taskOptions';
 import { howOf, modeName, offerReasonText, offersOfPreset, qualifying, type FormulaChoice } from './setup';
 
 export function presetListOf(offers: readonly TaskOffer[], catalog: readonly PresetInfo[]): PresetInfo[] {
@@ -25,13 +26,19 @@ export function presetDisabledReasons(offers: readonly TaskOffer[]): Record<stri
 	return reasons;
 }
 
+function descriptionOf(offer: TaskOffer): string {
+	const base = offer.short_description ?? howOf(offer);
+	const note = viaNote(offer);
+	return note ? `${base.replace(/\.$/, '')}. ${note}` : base;
+}
+
 export function modeOptionsOf(offers: readonly TaskOffer[], presetId: string | null | undefined): PickerOption[] {
 	if (!presetId) return [];
 	return qualifying(offersOfPreset(offers, presetId)).map((offer) => ({
 		value: offer.mode,
 		label: modeName(offer),
 		...(offer.mode_icon ? { icon: offer.mode_icon } : {}),
-		description: offer.short_description ?? howOf(offer)
+		description: descriptionOf(offer)
 	}));
 }
 

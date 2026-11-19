@@ -660,3 +660,43 @@ describe('generate controller: sessions of the editor', () => {
 		expect(await c.loadVersion('edit_region', 's1', 1)).toBe(false);
 	});
 });
+
+describe('generate controller: task options', () => {
+	const remove = () => task({ id: 'remove_object', label: 'Remove an object', region: 'required', prompt: 'none' });
+	const startBody = (t: ReturnType<typeof setup>, index = 0) => (t.enginePorts.start as ReturnType<typeof vi.fn>).mock.calls[index][1];
+
+	it('sends the shadow option only when it is on and keeps it in the step', async () => {
+		const t = setup([remove()]);
+		await t.controller.prepare('remove_object');
+		expect(await t.controller.generate('remove_object', true)).toBe(true);
+		expect('options' in startBody(t)).toBe(false);
+		expect(readGenerateParams(t.stack().steps[0].params)?.options).toBeUndefined();
+
+		const on = setup([remove()]);
+		await on.controller.prepare('remove_object');
+		on.controller.setOption('remove_object', 'include_shadow', true);
+		expect(await on.controller.generate('remove_object', true)).toBe(true);
+		expect(startBody(on).options).toEqual({ include_shadow: true });
+		expect(readGenerateParams(on.stack().steps[0].params)?.options).toEqual({ include_shadow: true });
+	});
+
+	it('drops the option again when it is switched off', async () => {
+		const t = setup([remove()]);
+		await t.controller.prepare('remove_object');
+		t.controller.setOption('remove_object', 'include_shadow', true);
+		t.controller.setOption('remove_object', 'include_shadow', false);
+		await t.controller.generate('remove_object', true);
+		expect('options' in startBody(t)).toBe(false);
+	});
+
+	it('runs again with the options the step was made with', async () => {
+		const t = setup([remove()]);
+		await t.controller.prepare('remove_object');
+		t.controller.setOption('remove_object', 'include_shadow', true);
+		await t.controller.generate('remove_object', true);
+		t.controller.setOption('remove_object', 'include_shadow', false);
+		(t.enginePorts.start as ReturnType<typeof vi.fn>).mockResolvedValueOnce(run({ id: 'er_2' }));
+		await t.controller.tryAgain('s1');
+		expect(startBody(t, 1).options).toEqual({ include_shadow: true });
+	});
+});

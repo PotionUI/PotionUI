@@ -7,6 +7,7 @@ import type { StepKind, StepState } from '$lib/editors/stepKinds';
 import { opacityOf, type EditStackState, type EditStep, type StepDraft } from '$lib/tool-tabs/frame/editStack';
 import { geometryKey } from '../mask';
 import { isTerminal, runViews } from './runEngine';
+import { readOptions, type TaskOptions } from './taskOptions';
 
 export const GENERATE_TOOL = 'generate';
 const PAINT_LANE = 'paint';
@@ -69,6 +70,7 @@ export interface GenerateParams {
 	run: GenerateRun;
 	basis?: GenerateBasis;
 	range?: TimeRange | null;
+	options?: TaskOptions;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -113,6 +115,7 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 	const chosen = typeof raw.chosen === 'number' && raw.chosen >= 0 && raw.chosen < results.length ? Math.trunc(raw.chosen) : 0;
 	const size = isRecord(area.size) && typeof area.size.width === 'number' && typeof area.size.height === 'number' ? { width: area.size.width, height: area.size.height } : null;
 	const basis = basisOf(raw.basis);
+	const options = readOptions(raw.options);
 	return {
 		v: raw.v === GENERATE_VERSION ? GENERATE_VERSION : 1,
 		task: typeof raw.task === 'string' ? raw.task : '',
@@ -137,6 +140,7 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 		soft: raw.soft === true,
 		run: { id: raw.run.id, status: raw.run.status as RunStatus, error: typeof raw.run.error === 'string' ? raw.run.error : null },
 		...(basis ? { basis } : {}),
+		...(options ? { options } : {}),
 		...('range' in raw ? { range: timeRangeOf(raw.range) } : {})
 	};
 }

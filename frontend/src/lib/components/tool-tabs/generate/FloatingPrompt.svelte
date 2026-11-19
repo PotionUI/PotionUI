@@ -10,6 +10,8 @@
 	import { tasks } from '$lib/editors/tasks';
 	import { editorsRevision } from '$lib/editors/registry';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
+	import { offerOf } from '$lib/tool-tabs/image/generate/setup';
+	import { viaNote } from '$lib/tool-tabs/image/generate/taskOptions';
 	import { areaLabel } from '$lib/tool-tabs/image/generate/area';
 	import { maskArea } from '$lib/tool-tabs/image/maskOverlays';
 	import EditorFormulas from './EditorFormulas.svelte';
@@ -88,7 +90,12 @@
 	let borderProgress = $derived(borderProgressOf(run));
 	let runText = $derived(borderProgress.state === 'running' ? `Generating ${borderProgress.percent}%` : borderProgress.state === 'loading' ? 'Waiting' : null);
 	let markInfo = $derived(markOf({ running: !!running, starting: $ui.starting, reason }));
-	let noteShown = $derived(!!$ui.picker.notice || (task?.offers.length ?? 0) === 0);
+	let viaShown = $derived.by(() => {
+		const picked = taskId ? $ui.choice[taskId] : null;
+		const offer = task && picked ? offerOf(task.offers, picked) : null;
+		return !!viaNote(offer, (id) => tasks.get(generate.editor, id)?.label);
+	});
+	let noteShown = $derived(!!$ui.picker.notice || (task?.offers.length ?? 0) === 0 || viaShown);
 	let blocked = $derived(
 		!taskId || !chip || $ui.starting || (promptRequired && !prompt.trim()) || (regionRequired && !area) || redoArea || !!rangeBlock
 	);

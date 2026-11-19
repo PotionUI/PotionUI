@@ -9,6 +9,7 @@
 	import { detachedFormTab, localSectionCollapsed } from '$lib/form/detachedFormTab';
 	import { getGenerateController } from '$lib/tool-tabs/image/generate/context';
 	import type { SettingsContext } from '$lib/tool-tabs/image/generate/controller';
+	import { viaNote } from '$lib/tool-tabs/image/generate/taskOptions';
 	import { choiceKey, chipLabel } from '$lib/tool-tabs/image/generate/setup';
 	import { isChanged } from '$lib/tool-tabs/image/generate/tweaks';
 
@@ -59,6 +60,7 @@
 	);
 	let folds = $derived(context ? localSectionCollapsed(context.offer.preset_id, context.offer.mode) : undefined);
 	let setupText = $derived(context ? chipLabel(context.offer, context.source) : '');
+	let via = $derived(context ? viaNote(context.offer, (id) => tasks.get(generate.editor, id)?.label) : null);
 
 	function edited(data: Record<string, unknown>) {
 		if (taskId) generate.tweak(taskId, data);
@@ -88,6 +90,9 @@
 				<span class="inline-flex flex-none items-center gap-1.5 text-signal" data-settings-changed><span class="h-1.5 w-1.5 rounded-full bg-signal"></span>Changed</span>
 			{/if}
 		</div>
+		{#if via}
+			<p class="m-0 mt-1 text-sm text-fg-muted" data-settings-via>{via}</p>
+		{/if}
 	</div>
 {/snippet}
 

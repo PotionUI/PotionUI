@@ -63,6 +63,7 @@ import {
 	type SetupChoice
 } from './setup';
 
+import { runOptionsOf, withOption, type TaskOptions } from './taskOptions';
 import { getSchemaDefaults } from '$lib/form/defaults';
 import {
 	editTweak,
@@ -146,6 +147,7 @@ export interface GenerateUi {
 	reloads: number;
 	formulas: Record<string, AppliedFormula[]>;
 	prompts: Record<string, string>;
+	options: Record<string, TaskOptions>;
 	choice: Record<string, SetupChoice | null>;
 	choices: Record<string, ModeChoices>;
 	picker: PickerState;
@@ -235,6 +237,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		reloads: 0,
 		formulas: {},
 		prompts: {},
+		options: {},
 		choice: {},
 		choices: {},
 		picker: closedPicker(),
@@ -352,6 +355,10 @@ export function createGenerateController(deps: ControllerDeps) {
 
 	function setPrompt(taskId: string, text: string): void {
 		state.update((current) => ({ ...current, prompts: { ...current.prompts, [taskId]: text }, error: null }));
+	}
+
+	function setOption(taskId: string, name: string, on: boolean): void {
+		state.update((current) => ({ ...current, options: { ...current.options, [taskId]: withOption(current.options[taskId], name, on) }, error: null }));
 	}
 
 	function askForPicker(why: PickerState['why'] = 'change'): void {
@@ -672,6 +679,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		range?: TimeRange | null;
 		candidates: number;
 		seed: number | null;
+		options?: TaskOptions;
 	}): Promise<{ run: EditorRun; basis: GenerateBasis } | { error: string }> {
 		const ref = deps.inputFor ? deps.inputFor(stepId) : deps.source().ref;
 		if (!ref) return { error: NO_PICTURE_MESSAGE };
@@ -691,6 +699,8 @@ export function createGenerateController(deps: ControllerDeps) {
 			candidates: input.candidates,
 			seed: input.seed
 		};
+		const options = runOptionsOf(input.options);
+		if (options) body.options = options;
 		try {
 			return { run: await deps.engine.start(taskId, body, stepId), basis };
 		} catch (error) {
@@ -708,6 +718,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			return false;
 		}
 		const prompt = current.prompts[taskId] ?? '';
+		const options = runOptionsOf(current.options[taskId]);
 		if (task.prompt === 'required' && !prompt.trim()) return fail('Describe the change first.');
 		if (task.region === 'required' && !areaMarked) return fail('Mark the area first.');
 		patch({ starting: true, error: null });
@@ -728,12 +739,12 @@ export function createGenerateController(deps: ControllerDeps) {
 			const stepId = redo ? redo.step.step.id : nextStepId();
 			const candidates = countOf(offerOf(task.offers, choice), resolved.form_data);
 			const range = deps.range ? deps.range() : undefined;
-			const submitted = await submit(taskId, stepId, { prompt, setup: resolved, region, range, candidates, seed: redo ? redo.state.seed : null });
+			const submitted = await submit(taskId, stepId, { prompt, setup: resolved, region, range, candidates, seed: redo ? redo.state.seed : null, options });
 			if (!('run' in submitted)) return fail(submitted.error);
 			const run = submitted.run;
 			if (redo) {
 				const next = withFreshRun(
-					{ ...redo.step.params, v: GENERATE_VERSION, prompt: task.prompt === 'none' ? '' : prompt.trim(), setup: resolved, area: { region, size: region ? deps.areaSize() : null }, candidates, rect: run.rect ?? redo.step.params.rect },
+					{ ...redo.step.params, v: GENERATE_VERSION, prompt: task.prompt === 'none' ? '' : prompt.trim(), setup: resolved, area: { region, size: region ? deps.areaSize() : null }, candidates, rect: run.rect ?? redo.step.params.rect, options },
 					{ id: run.id, status: run.status },
 					submitted.basis
 				);
@@ -758,7 +769,8 @@ export function createGenerateController(deps: ControllerDeps) {
 				soft: false,
 				run: { id: run.id, status: run.status, error: null },
 				basis: submitted.basis,
-				...(range === undefined ? {} : { range })
+				...(range === undefined ? {} : { range }),
+				...(options ? { options } : {})
 			};
 			const stack = apply(beginEdit(deps.getStack(), generateDraft(params, task.label, task.icon)));
 			deps.setStack(stack);
@@ -804,6 +816,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		state.update((current) => ({
 			...current,
 			prompts: { ...current.prompts, [params.task]: params.prompt },
+			options: { ...current.options, [params.task]: params.options ?? {} },
 			choice: known ? { ...current.choice, [params.task]: choice } : current.choice,
 			redo: { stepId: entry.step.id, taskId: params.task, setup: params.setup, choice: known ? choiceKey(choice) : (current.choice[params.task] ? choiceKey(current.choice[params.task]!) : null), seed: params.seed, candidates: params.candidates },
 			error: null
@@ -834,7 +847,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			}
 			const setup: ResolvedSetup = { ...params.setup, form_data: form };
 			const area = change === 'resize' ? remapArea(params.area, params.basis?.size ?? null, deps.pictureSize?.(stepId) ?? null) : params.area;
-			const submitted = await submit(params.task, stepId, { prompt: params.prompt, setup, region: area.region, range: params.range, candidates: params.candidates, seed: keepSeed ? params.seed : null });
+			const submitted = await submit(params.task, stepId, { prompt: params.prompt, setup, region: area.region, range: params.range, candidates: params.candidates, seed: keepSeed ? params.seed : null, options: params.options });
 			if (!('run' in submitted)) {
 				fail(submitted.error);
 				return { kind: 'failed' };
@@ -922,6 +935,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		saveTo,
 		saveAsNew,
 		setPrompt,
+		setOption,
 		askForPicker,
 		pickerHandled,
 		pick,

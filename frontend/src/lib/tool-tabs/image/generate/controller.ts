@@ -112,7 +112,7 @@ export interface ControllerDeps {
 	setStack(next: EditStackState<unknown>): void;
 	source(): { ref: MediaToolInputRef | null };
 	editLink(): Promise<EditLink | null>;
-	landRegion(): Promise<{ item_id: string; url?: string } | null>;
+	landRegion(soft?: boolean): Promise<{ item_id: string; url?: string } | null>;
 	areaSize(): { width: number; height: number } | null;
 	pictureSize?(stepId: string | null): { width: number; height: number } | null;
 	stepsBeneath(stepId: string | null): Promise<MediaToolStep[]>;
@@ -736,7 +736,7 @@ export function createGenerateController(deps: ControllerDeps) {
 			let region: { item_id: string; url?: string } | null = null;
 			if (task.region !== 'none' && areaMarked) {
 				try {
-					region = await deps.landRegion();
+					region = await deps.landRegion(task.matte === true);
 				} catch (error) {
 					return fail(startFailureText(error, AREA_UNREADABLE_MESSAGE));
 				}
@@ -871,7 +871,7 @@ export function createGenerateController(deps: ControllerDeps) {
 		try {
 			let region: { item_id: string; url?: string } | null = null;
 			try {
-				region = await deps.landRegion();
+				region = await deps.landRegion(true);
 			} catch (error) {
 				return fail(startFailureText(error, AREA_UNREADABLE_MESSAGE));
 			}

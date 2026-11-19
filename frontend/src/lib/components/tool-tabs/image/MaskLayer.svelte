@@ -318,6 +318,27 @@
 		return out;
 	}
 
+	export function renderSoftMask(): HTMLCanvasElement | null {
+		const surfaceContext = context();
+		if (!canvas || !surfaceContext) return null;
+		const data = surfaceContext.getImageData(0, 0, canvas.width, canvas.height).data;
+		const out = document.createElement('canvas');
+		out.width = canvas.width;
+		out.height = canvas.height;
+		const outContext = out.getContext('2d');
+		if (!outContext) return null;
+		const soft = outContext.createImageData(out.width, out.height);
+		for (let i = 0; i < data.length; i += 4) {
+			const value = data[i + 3];
+			soft.data[i] = value;
+			soft.data[i + 1] = value;
+			soft.data[i + 2] = value;
+			soft.data[i + 3] = 255;
+		}
+		outContext.putImageData(soft, 0, 0);
+		return out;
+	}
+
 	export async function exportMask(name: string, cutoff = 64): Promise<File | null> {
 		const out = renderMask(cutoff);
 		return out ? canvasToPngFile(out, name) : null;

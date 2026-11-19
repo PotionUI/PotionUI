@@ -722,6 +722,22 @@ describe('generate controller: replacing the background', () => {
 		expect(t.stack().steps).toHaveLength(0);
 	});
 
+	it('lands the soft matte for a described background and for a direct one, the plain mask for other tasks', async () => {
+		const replace = task({ id: 'replace_background', label: 'Replace the background', region: 'required', prompt: 'required', matte: true });
+		const t = setup([replace, task()]);
+		await t.controller.prepare('replace_background');
+		t.controller.setPrompt('replace_background', 'a beach at dusk');
+		await t.controller.generate('replace_background', true);
+		expect(t.deps.landRegion).toHaveBeenLastCalledWith(true);
+		t.controller.setBackground({ mode: 'transparent' });
+		await t.controller.applyBackground(true);
+		expect(t.deps.landRegion).toHaveBeenLastCalledWith(true);
+		await t.controller.prepare('edit_region');
+		t.controller.setPrompt('edit_region', 'a red sailboat');
+		await t.controller.generate('edit_region', true);
+		expect(t.deps.landRegion).toHaveBeenLastCalledWith(false);
+	});
+
 	it('takes a library item as the picture and uploads anything else', async () => {
 		const landPicture = vi.fn(async () => ({ item_id: 'up1', url: '/up1.png', name: 'Harbour' }));
 		const t = setup([finder()], { landPicture });

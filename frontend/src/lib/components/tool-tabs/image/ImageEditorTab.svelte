@@ -371,7 +371,7 @@
 		getStack: () => stack,
 		setStack: (next) => (stack = next),
 		source: () => ({ ref: resolvedRef }),
-		editLink: () => editLinkForSave(() => autosave.settle()),
+		editLink: () => editLinkForSave(() => autosave.ensure()),
 		areaSize: () => get(maskArea),
 		applyMatte: async (url) => (maskLayer ? await maskLayer.importBackground(url) : false),
 		landPicture: async (source) => {
@@ -391,7 +391,14 @@
 			if (at >= 0) list = list.slice(0, at);
 			return renderer.payload(list);
 		},
-		landRegion: async () => {
+		landRegion: async (soft) => {
+			if (soft && maskLayer?.hasStrokes()) {
+				const canvas = maskLayer.renderSoftMask();
+				if (canvas) {
+					const artifact = await uploadMediaToolArtifact(await canvasToPngFile(canvas, `${stem}-matte.png`));
+					return { item_id: artifact.id, url: artifact.url };
+				}
+			}
 			if (!(await landMask())) return null;
 			const live = liveMaskNow;
 			if (!live) return null;

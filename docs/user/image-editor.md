@@ -37,6 +37,30 @@ A layer added above a look is simply not tinted by that look. Nothing is reorder
 
 When you save, the layers are flattened in the order shown, with their opacity and visibility, so the saved picture matches what you see.
 
+## Remove an object
+
+Pick **Remove an object** in the **Generate** group, mark what you want gone with the lasso or the brush, and press **Remove**. There is nothing to describe: the marked area is filled so it matches what is around it.
+
+- **Include its shadow** is a checkbox in the options. Tick it when the object leaves a shadow or reflection behind and you want that cleaned up with it. It is off by default and is remembered for **Try again** on that edit.
+- It runs on your default setup for Remove, the same way Edit a region does. Pick another preset or mode in the bar above the prompt, or press the star to make it your default.
+- Some setups remove objects through **Edit a region**. When yours does, the setup says **Uses Edit a region with a built-in instruction.** under it, so you know why it behaves like a region edit.
+
+## Replace the background
+
+Pick **Replace the background** in the **Generate** group, right after Remove.
+
+1. **Find the subject.** Press **Find the subject** and the editor marks everything except the subject. The marked part is the background, shown with the same tint as any other marked area. This needs a matting model; if there is none, the panel says to set up **Remove background** in ImageTools.
+2. **Fix the mask.** The mark is a normal one, so draw with the **Brush** or the **Lasso** to add or take away background, and **Clear area** starts over. You can also skip step 1 and mark the background yourself.
+3. **Choose the new background.**
+   - **Describe** asks a model for it. Write what the background should be in the box below, press **Generate**, and pick from the results like any other region edit.
+   - **Picture** uses a picture from your Library, History or a file. It is fitted to cover the whole picture.
+   - **Colour** fills the background with one colour.
+   - **Transparent** removes the background, so the saved picture keeps transparency. Save it as PNG.
+
+   Picture, Colour and Transparent need no model and finish at once with **Replace the background**. Until there is a subject or a marked background, the button says **Find the subject or mark the background first**.
+
+The result is a row in the **Edits** list called **Replace background** (or a region edit for Describe). Hide it with the eye or delete it to bring the original background back, and press **Replace the background** again to try another choice on the same mask.
+
 ## Edits save themselves
 
 As soon as you change a picture, the editor saves the edit in the background. You do not need to press anything. A small indicator in the editor shows when it is saving, saved, or waiting for your connection. If you lose your connection, the editor keeps your changes and sends them when you are back online.

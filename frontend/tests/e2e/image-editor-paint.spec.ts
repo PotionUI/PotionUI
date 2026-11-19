@@ -888,6 +888,29 @@ test.describe('Paint layers are kept one by one', () => {
 		await expect.poll(() => painted(page, -80, 70)).toBe(false);
 	});
 
+	test('delete then Undo restores the layer with its pixels, Redo deletes it again', async ({ page }) => {
+		const log = await start(page);
+		await threeLayers(page, log);
+		const before = (await layerOrder(page)) as string[];
+		await row(page, 's2').hover();
+		await row(page, 's2').locator('[data-stack-remove]').click();
+		await expect(layerRows(page)).toHaveCount(2);
+		await expect(page.locator('[data-frame-undo]')).toHaveAttribute('aria-label', /Undo Remove/);
+		await page.locator('[data-frame-undo]').click();
+		await expect(layerRows(page)).toHaveCount(3);
+		await expect.poll(() => layerOrder(page)).toEqual(before);
+		await row(page, 's2').locator('[data-stack-open]').click();
+		await expect(page.locator(CANVAS)).toBeVisible();
+		await expect.poll(() => painted(page, -80, 0)).toBe(true);
+		await page.locator('[data-frame-redo]').click();
+		await expect(layerRows(page)).toHaveCount(2);
+		await page.locator('[data-frame-undo]').click();
+		await expect(layerRows(page)).toHaveCount(3);
+		await page.locator('[data-frame-undo]').click();
+		await expect(layerRows(page)).toHaveCount(3);
+		await expect.poll(() => painted(page, -80, 70)).toBe(false);
+	});
+
 	test('a layer duplicates and merges down from its menu', async ({ page }) => {
 		const log = await start(page);
 		await threeLayers(page, log);

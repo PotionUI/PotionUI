@@ -10,6 +10,11 @@ import {
 	mergeInto,
 	move,
 	redoLabel,
+	remove,
+	removeUndoable,
+	clearAll,
+	seek,
+	bringFirst,
 	undoLabel,
 	opacityOf,
 	redo,
@@ -294,5 +299,69 @@ describe('layer actions are single undo steps in one history', () => {
 		const stack = move(stackOf('paint', 'paint'), 's2', 0);
 		expect(JSON.stringify(serialize(stack))).not.toContain('swap');
 		expect(deserialize(serialize(stack)).steps.map((step) => step.id)).toEqual(['s2', 's1']);
+	});
+
+	it('deletes a layer as one undo and redo step and keeps earlier history', () => {
+		let stack = stackOf('paint', 'paint', 'paint');
+		stack = renameStep(stack, 's1', 'Sky');
+		stack = remove(stack, 's2');
+		expect(ids(stack)).toEqual(['s1', 's3']);
+		expect(undoLabel(stack)).toBe('Remove paint');
+		stack = undo(stack);
+		expect(ids(stack)).toEqual(['s1', 's2', 's3']);
+		expect(stack.cursor).toBe(3);
+		stack = redo(stack);
+		expect(ids(stack)).toEqual(['s1', 's3']);
+		stack = undo(stack);
+		stack = undo(stack);
+		expect(stack.steps[0].label).toBe('paint');
+		expect(stack.cursor).toBe(3);
+	});
+
+	it('deletes an edit that sits after a reorder and walks back in order', () => {
+		let stack = stackOf('paint', 'paint', 'paint');
+		stack = move(stack, 's3', 0);
+		stack = removeUndoable(stack, 's1');
+		stack = undo(stack);
+		expect(ids(stack)).toEqual(['s3', 's1', 's2']);
+		stack = undo(stack);
+		expect(ids(stack)).toEqual(['s1', 's2', 's3']);
+	});
+
+	it('removes all edits as one step that redoes and keeps earlier history', () => {
+		let stack = stackOf('paint', 'paint');
+		stack = renameStep(stack, 's1', 'Sky');
+		stack = clearAll(stack);
+		expect(stack.steps).toHaveLength(0);
+		stack = undo(stack);
+		expect(stack.steps).toHaveLength(2);
+		expect(redo(stack).steps).toHaveLength(0);
+		stack = undo(stack);
+		expect(stack.steps[0].label).toBe('paint');
+	});
+
+	it('moving the cursor with seek keeps the history', () => {
+		let stack = stackOf('paint', 'paint', 'paint');
+		stack = renameStep(stack, 's1', 'Sky');
+		stack = seek(stack, 1);
+		expect(stack.cursor).toBe(1);
+		stack = seek(stack, 3);
+		expect(stack.cursor).toBe(3);
+		expect(stack.steps[0].label).toBe('Sky');
+		stack = undo(stack);
+		expect(stack.steps[0].label).toBe('paint');
+	});
+
+	it('bringing layers first by name is an undo step that keeps history', () => {
+		let stack = stackOf('crop', 'paint');
+		stack = renameStep(stack, 's1', 'Crop it');
+		stack = bringFirst(stack, (step) => step.tool === 'paint', 'Layers first');
+		expect(ids(stack)).toEqual(['s2', 's1']);
+		stack = undo(stack);
+		expect(ids(stack)).toEqual(['s1', 's2']);
+		expect(redo(stack).steps.map((step) => step.id)).toEqual(['s2', 's1']);
+		stack = undo(redo(stack));
+		stack = undo(stack);
+		expect(stack.steps[0].label).toBe('crop');
 	});
 });

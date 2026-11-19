@@ -276,7 +276,7 @@ test.describe('the Image editor tab on desktop', () => {
 				{ tool: 'paint_layer', params: { layer: { item_id: 'art-1' } } }
 			],
 			inputs: [{ generation_file_id: String(FILE_ID) }],
-			output: { mode: 'new', edit: { id: expect.any(String), revision: expect.any(Number) } }
+			output: { mode: 'new', name: 'observatory-dusk', edit: { id: expect.any(String), revision: expect.any(Number) } }
 		});
 		await expect(page.getByText('Saved to Library').first()).toBeVisible();
 		await expect(page.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/);
@@ -292,7 +292,7 @@ test.describe('the Image editor tab on desktop', () => {
 				{ tool: 'paint_layer', params: { layer: { item_id: 'art-2' } } }
 			],
 			inputs: [{ generation_file_id: String(FILE_ID) }],
-			output: { mode: 'update', target_item_id: 'copy-run-1', edit: { id: expect.any(String), revision: expect.any(Number) } }
+			output: { mode: 'update', name: 'observatory-dusk', target_item_id: 'copy-run-1', edit: { id: expect.any(String), revision: expect.any(Number) } }
 		});
 	});
 

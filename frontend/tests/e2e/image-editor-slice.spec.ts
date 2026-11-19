@@ -265,7 +265,7 @@ test.describe('Slice on desktop', () => {
 
 		await page.locator('[data-slice-tab="output"]').click();
 		await expect(page.locator('[data-slice-name-row]')).toHaveCount(5);
-		await expect(page.locator('[data-slice-name-row="01"] input')).toHaveValue('mira-sheet-01');
+		await expect(page.locator('[data-slice-name-row="01"] input')).toHaveValue('a character sheet-01');
 		await expect(page.locator('[data-slice-strip] [data-strip-item]')).toHaveCount(4);
 		await expect(page.locator('[data-slice-strip] [data-strip-skipped]')).toHaveCount(1);
 		await screenshot(page, JOURNEY, '04-cell-options-1440');
@@ -286,7 +286,7 @@ test.describe('Slice on desktop', () => {
 		await primary.click();
 		await expect.poll(() => log.runs.length).toBe(1);
 		const body = log.runs[0] as { steps: { tool: string; params: Json }[]; output: Json };
-		expect(body.output).toEqual({ mode: 'new' });
+		expect(body.output).toEqual({ mode: 'new', name: 'a character sheet' });
 		expect(body.steps[body.steps.length - 1].tool).toBe('slice');
 		const params = body.steps[body.steps.length - 1].params as { rects: { x: number; y: number; w: number; h: number; name: string }[]; fill: string };
 		expect(params.rects).toHaveLength(4);
@@ -295,7 +295,7 @@ test.describe('Slice on desktop', () => {
 			expect(rect.x + rect.w).toBeLessThanOrEqual(1.000001);
 			expect(rect.y + rect.h).toBeLessThanOrEqual(1.000001);
 		}
-		expect(params.rects.map((rect) => rect.name)).toEqual(['mira-sheet-01', 'mira-sheet-02', 'mira-sheet-03', 'mira-sheet-04']);
+		expect(params.rects.map((rect) => rect.name)).toEqual(['a character sheet-01', 'a character sheet-02', 'a character sheet-03', 'a character sheet-04']);
 		expect(params.rects[0].x).toBeCloseTo(24 / WIDTH, 2);
 		expect(params.fill).toBe('auto');
 

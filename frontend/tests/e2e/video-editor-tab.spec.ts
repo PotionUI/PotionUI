@@ -286,7 +286,7 @@ test.describe('the Video editor tab on desktop', () => {
 				{ tool: 'film_grain', params: { amount: 30, size: 2, color: false, seed: 7 } }
 			],
 			inputs: [{ item_id: 'item-1' }],
-			output: { mode: 'new' }
+			output: { mode: 'new', name: 'observatory-timelapse' }
 		});
 
 		await editor.locator('[data-frame-cancel-save]').click();
@@ -386,7 +386,7 @@ test.describe('the Video editor tab on desktop', () => {
 		expect(steps[2].params).toEqual({ speed: 2, keep_pitch: true });
 		expect(steps[4].params.mode).toBe('at');
 		expect(Number(steps[4].params.at)).toBeCloseTo(geo.duration * 0.25, 1);
-		expect(mocks.runs[0].output).toEqual({ mode: 'new' });
+		expect(mocks.runs[0].output).toEqual({ mode: 'new', name: 'observatory-timelapse' });
 	});
 });
 

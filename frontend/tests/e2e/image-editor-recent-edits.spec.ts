@@ -269,7 +269,7 @@ async function applyReel(page: Page) {
 
 async function closeEditorTab(page: Page, name: RegExp) {
 	await page.locator('button.book-tab', { hasText: name }).locator('.close-button').click({ force: true });
-	await page.getByRole('button', { name: /Discard and close|^Confirm$/ }).click();
+	await expect(page.getByRole('alertdialog')).toHaveCount(0);
 	await expect(page.locator('button.book-tab', { hasText: name })).toHaveCount(0);
 }
 

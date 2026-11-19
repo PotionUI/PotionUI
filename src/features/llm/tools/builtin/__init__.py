@@ -62,6 +62,7 @@ from src.features.llm.tools.builtin.regional_prompt_tool import SetRegionalPromp
 from src.features.llm.tools.builtin.video_director_tool import GetVideoDirectorTool
 from src.features.llm.tools.builtin.music_director_tool import GetMusicDirectorTool, UpdateMusicDirectorTool
 from src.features.llm.tools.builtin.manage_collections_tool import ManageCollectionsTool
+from src.features.llm.tools.builtin.manage_kits_tool import ManageKitsTool
 from src.features.llm.tools.builtin.organize_gallery_tool import OrganizeGalleryTool
 from src.features.llm.tools.builtin.list_sessions_tool import ListSessionsTool
 from src.features.llm.tools.builtin.start_generation_tool import StartGenerationTool
@@ -131,6 +132,7 @@ def register_builtin_tools(registry, media_tool_registry=None) -> None:
         GetMusicDirectorTool(),
         UpdateMusicDirectorTool(),
         ManageCollectionsTool(),
+        ManageKitsTool(),
         ListLibraryItemsTool(),
         OrganizeGalleryTool(),
         StartGenerationTool(),

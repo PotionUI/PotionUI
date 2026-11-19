@@ -2015,6 +2015,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         media_indexer=media_indexer,
         settings=settings,
         collection_repository=collection_repository,
+        kit_repository=kit_repository,
         tag_repository=tag_repository,
         plugin_registry=plugin_registry,
         generation_history_facade=generation_history_facade,

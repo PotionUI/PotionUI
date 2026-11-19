@@ -25,6 +25,12 @@ NINE = {
     ("ZImage", "inpaint"): ("inpaint", "mask"),
 }
 
+ONE_CLICK = {
+    (folder, task)
+    for folder in ("ZImage", "QwenImage-2.1", "QwenImage", "Krea2")
+    for task in ("remove_object", "replace_background")
+} | {("ImageTools", "find_subject")}
+
 
 @pytest.fixture(scope="module")
 def loader():
@@ -42,14 +48,14 @@ def test_every_shipped_preset_loads_without_errors(loader):
     assert loader.load_errors == {}
 
 
-def test_exactly_the_nine_editor_modes_ship_and_none_of_the_deferred_ones(loader):
+def test_exactly_the_nine_editor_modes_and_the_one_click_ones_ship(loader):
     shipped = {
         (Path(t.path).relative_to(MARKETPLACE).parts[0], name)
         for t in loader.presets
         for name, mode in t.editor_modes.items()
         if mode.editor.region != "range"
     }
-    assert shipped == set(NINE)
+    assert shipped == set(NINE) | ONE_CLICK
 
 
 @pytest.mark.parametrize("directory, name", sorted(NINE))

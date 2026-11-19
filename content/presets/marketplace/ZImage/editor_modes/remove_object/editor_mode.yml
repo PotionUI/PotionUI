@@ -1,0 +1,8 @@
+schema_version: 1
+task: remove_object
+from: inpaint
+instruction: Remove the marked object. Fill the area so it matches its surroundings, continuing the textures and lighting.
+region: mask
+inputs:
+  source: source_image
+  mask: source_image_inpaint_mask

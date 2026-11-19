@@ -1,0 +1,13 @@
+schema_version: 1
+task: remove_object
+from: edit
+instruction: Remove the marked object. Fill the area so it matches its surroundings, continuing the textures and lighting.
+region: crop
+inputs:
+  source: source_image
+fixed:
+  output_size: match
+fields:
+  hide:
+  - resolution
+  - output_fit

@@ -1,0 +1,94 @@
+{
+  "editor_mode": "replace_background",
+  "from": "edit",
+  "preset_id": "4TK1KBQZ2XMB8ME0PTMXS1YJQP",
+  "preset_name": "Krea-2",
+  "shown": [
+    {
+      "label": "Speed profile",
+      "name": "speed_profile",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "Detail",
+      "name": "resolution",
+      "type": "resolution"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3-VL-4B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE (Qwen-Image)",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "Reference fidelity",
+      "name": "ref_boost",
+      "type": "slider"
+    },
+    {
+      "label": "Edit LoRA",
+      "name": "edit_lora",
+      "type": "model"
+    },
+    {
+      "label": "Edit LoRA strength",
+      "name": "edit_lora_strength",
+      "type": "slider"
+    },
+    {
+      "label": "Extra LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Read the picture",
+      "name": "vision_grounded_encode",
+      "type": "checkbox"
+    },
+    {
+      "label": "Reading detail",
+      "name": "grounding_px",
+      "type": "slider"
+    },
+    {
+      "label": "Reading prompt",
+      "name": "grounding_system_prompt",
+      "type": "textbox"
+    },
+    {
+      "label": "CFG scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "select"
+    }
+  ],
+  "task": "replace_background"
+}

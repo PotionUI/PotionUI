@@ -24,6 +24,18 @@ EXPECTED = {
     ("SDXL", "inpaint"): "mask",
 }
 
+ONE_CLICK = {
+    ("ZImage", "remove_object"): ("remove_object", "mask", "inpaint"),
+    ("QwenImage-2.1", "remove_object"): ("remove_object", "mask", "inpaint"),
+    ("QwenImage", "remove_object"): ("remove_object", "crop", "edit"),
+    ("Krea2", "remove_object"): ("remove_object", "crop", "edit"),
+    ("ZImage", "replace_background"): ("replace_background", "mask", "inpaint"),
+    ("QwenImage-2.1", "replace_background"): ("replace_background", "mask", "inpaint"),
+    ("QwenImage", "replace_background"): ("replace_background", "crop", "edit"),
+    ("Krea2", "replace_background"): ("replace_background", "crop", "edit"),
+    ("ImageTools", "find_subject"): ("find_subject", "whole", "remove_background"),
+}
+
 REGISTRY = register_core_tasks(TaskRegistry())
 
 
@@ -55,14 +67,27 @@ def test_every_named_field_exists_and_nothing_is_reported(templates, folder, nam
     assert mode.editor.from_mode in template.modes
 
 
-def test_the_set_of_shipped_editor_modes_is_exactly_the_nine():
+def test_the_set_of_shipped_editor_modes_is_exactly_the_nine_and_the_one_click_ones():
     found = {
         (path.parents[2].name, path.parent.name)
         for path in MARKETPLACE.glob("*/editor_modes/*/editor_mode.yml")
         if "region: range" not in path.read_text()
     }
 
-    assert found == set(EXPECTED)
+    assert found == set(EXPECTED) | set(ONE_CLICK)
+
+
+@pytest.mark.parametrize("folder, name", sorted(ONE_CLICK))
+def test_every_one_click_mode_names_its_task_and_lints_clean(templates, folder, name):
+    task, region, from_mode = ONE_CLICK[(folder, name)]
+    template = templates[folder]
+    mode = template.editor_modes[name]
+
+    issues = lint_editor_mode(template, name, mode, need, editors, None)
+
+    assert [message for level, message in issues if level != "info"] == []
+    assert (mode.editor.task, mode.editor.region, mode.editor.from_mode) == (task, region, from_mode)
+    assert bool(mode.editor.instruction) == (task == "remove_object")
 
 
 def test_no_editor_yml_is_left_in_a_shipped_preset():
@@ -78,7 +103,7 @@ def test_every_shipped_editor_mode_is_offered_by_the_manager(templates):
         (Path(entry.template.path).name, entry.name) for entry in manager.editor_entries() if entry.spec.region != "range"
     }
 
-    assert offered == set(EXPECTED)
+    assert offered == set(EXPECTED) | set(ONE_CLICK)
 
 
 @pytest.mark.parametrize("folder, name", sorted(EXPECTED))
@@ -109,4 +134,20 @@ def test_every_shipped_offer_carries_its_from_modes_icon_and_a_label(templates):
     assert len(offers) >= len(EXPECTED)
     for offer in offers:
         assert offer["mode_label"]
-        assert offer["mode_icon"] == {"edit": "pencil", "inpaint": "brush"}[offer["from_mode"]]
+        if offer["from_mode"] in ("edit", "inpaint"):
+            assert offer["mode_icon"] == {"edit": "pencil", "inpaint": "brush"}[offer["from_mode"]]
+
+
+def test_the_one_click_tasks_are_offered_by_exactly_the_declaring_presets(templates):
+    manager = EditorTaskManager(
+        REGISTRY, lambda: list(templates.values()), lambda user: {t.id for t in templates.values()}, lambda engine: True
+    )
+    by_id = {entry["id"]: entry for entry in manager.offers(SimpleNamespace(id="u"))}
+    names = {template.id: Path(template.path).name for template in templates.values()}
+
+    for task in ("remove_object", "replace_background", "find_subject"):
+        direct = {names[offer["preset_id"]] for offer in by_id[task]["offers"] if offer["via"] is None}
+        assert direct == {folder for (folder, _), (wanted, _, _) in ONE_CLICK.items() if wanted == task}
+    assert by_id["find_subject"]["internal"] is True
+    assert by_id["replace_background"]["matte"] is True
+    assert by_id["remove_object"]["grow"] == 0.04

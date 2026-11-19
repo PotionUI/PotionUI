@@ -156,10 +156,7 @@ test.describe('tool tabs on desktop', () => {
 		await expect(page.locator('.generation-panel')).toHaveCount(0);
 
 		await bookTab(page, 'Hero shot').locator('.close-button').click({ force: true });
-		const dialog = page.getByRole('alertdialog');
-		await expect(dialog).toContainText('Discard 2 unsaved edits?');
-		await screenshot(page, JOURNEY, 'discard-prompt-1440');
-		await dialog.getByRole('button', { name: 'Discard and close' }).click();
+		await expect(page.getByRole('alertdialog')).toHaveCount(0);
 		await expect(bookTab(page, 'Hero shot')).toHaveCount(0);
 
 		await expect(page.locator('.generation-panel')).toBeVisible();

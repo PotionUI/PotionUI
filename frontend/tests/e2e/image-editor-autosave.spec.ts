@@ -29,6 +29,7 @@ interface Server {
 	conflictNext: boolean;
 	down: boolean;
 	remoteState: Json | null;
+	latestState: Json | null;
 	gate: Promise<void> | null;
 }
 
@@ -78,6 +79,7 @@ async function mockServer(page: Page): Promise<Server> {
 		conflictNext: false,
 		down: false,
 		remoteState: null,
+		latestState: null,
 		gate: null
 	};
 	const source = solidPng(640, 480);
@@ -98,9 +100,14 @@ async function mockServer(page: Page): Promise<Server> {
 		const id = new URL(request.url()).pathname.split('/')[3] ?? null;
 		if (server.down) return route.abort('failed');
 		if (server.gate) await server.gate;
+		if (method === 'GET' && !id) {
+			const edits = server.creates.length ? [editRecord(server, EDIT_ID, null)] : [];
+			return ok(route, { edits, total: edits.length, limit: 50, offset: 0 });
+		}
 		if (method === 'POST' && !id) {
 			const body = request.postDataJSON() as Json;
 			server.creates.push(body);
+			server.latestState = body.state as Json;
 			const newId = server.nextId === 1 ? EDIT_ID : `ed_e2e_${server.nextId}`;
 			server.nextId += 1;
 			server.revision = 1;
@@ -108,11 +115,12 @@ async function mockServer(page: Page): Promise<Server> {
 		}
 		if (method === 'GET' && id) {
 			server.gets.push(id);
-			return ok(route, { edit: editRecord(server, id, server.remoteState ?? ((server.creates[0]?.state as Json) ?? {})) });
+			return ok(route, { edit: editRecord(server, id, server.remoteState ?? server.latestState ?? ((server.creates[0]?.state as Json) ?? {})) });
 		}
 		if (method === 'PUT' && id) {
 			const body = request.postDataJSON() as Json;
 			server.saves.push({ id, body });
+			server.latestState = body.state as Json;
 			if (server.conflictNext || body.revision !== server.revision) {
 				server.conflictNext = false;
 				server.revision += 1;
@@ -198,6 +206,44 @@ test.describe('Image editor autosave on desktop', () => {
 		expect(steps).toHaveLength(2);
 		expect(server.creates).toHaveLength(1);
 		await expect(indicator(page, 'saved')).toBeVisible();
+	});
+
+	test('closing a tab whose edit is saved asks nothing and the edit comes back from Recent edits', async ({ page }) => {
+		const server = await begin(page);
+		await openHarbor(page);
+		await applyCrop(page);
+		await expect(indicator(page, 'saved')).toBeVisible();
+		await applyReel(page);
+		await expect.poll(() => server.saves.length).toBe(1);
+		await expect(indicator(page, 'saved')).toBeVisible();
+
+		await page.locator('button.book-tab').last().locator('.close-button').click({ force: true });
+		await expect(page.getByRole('alertdialog')).toHaveCount(0);
+		await expect(page.getByTestId('tool-tab-host')).toHaveCount(0);
+
+		await page.getByRole('button', { name: 'Add new tab' }).click();
+		await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
+		await page.getByTestId('tool-tab-empty').locator('[data-start-recent]').click();
+		await page.getByRole('dialog', { name: 'Recent edits' }).locator('[data-edit-open]').first().click();
+		await expect(page.locator('[data-image-editor]')).toBeVisible();
+		await expect(page.locator('[data-stack-row]').filter({ hasText: 'Reel' })).toHaveCount(1);
+		await expect(page.locator('[data-stack-row]').filter({ hasText: 'Crop' })).toHaveCount(1);
+	});
+
+	test('closing a tab whose edit could not be saved says what is lost', async ({ page }) => {
+		const server = await begin(page);
+		await openHarbor(page);
+		await applyCrop(page);
+		await expect(indicator(page, 'saved')).toBeVisible();
+		server.conflictNext = true;
+		await applyReel(page);
+		await expect(indicator(page, 'conflict')).toBeVisible();
+
+		await page.locator('button.book-tab').last().locator('.close-button').click({ force: true });
+		const dialog = page.getByRole('alertdialog');
+		await expect(dialog).toContainText('will be lost');
+		await dialog.getByRole('button', { name: 'Cancel' }).click();
+		await expect(page.locator('[data-image-editor]')).toBeVisible();
 	});
 
 	test('shows Saving while a request is in flight', async ({ page }) => {

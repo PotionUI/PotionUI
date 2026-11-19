@@ -3,6 +3,7 @@
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
+	import { editCloseLoss } from '$lib/tool-tabs/closeGuard';
 	import EditorMenuSheet from '$lib/components/tool-tabs/frame/EditorMenuSheet.svelte';
 	import { ensureCoreEditorMenu } from '$lib/editors/coreMenu';
 	import type { EditorMenuCommands, EditorMenuContext } from '$lib/editors/menuItems';
@@ -1562,7 +1563,7 @@
 	});
 
 	$effect(() => {
-		hostApi.setDirty(dirty);
+		hostApi.setDirty(autosaveStatus === 'saved' ? 0 : dirty);
 	});
 
 	$effect(() => {
@@ -1669,6 +1670,15 @@
 		void generate.loadTasks();
 		const run = untrack(() => host.run);
 		if (run?.runId) void reattach(run.runId);
+	});
+
+	onMount(() => {
+		hostApi.setCloseGuard?.(async () => {
+			const edits = untrack(() => (ready ? visibleCount : 0));
+			if (edits > 0) await autosave.settle();
+			return editCloseLoss({ edits, layersFlushed: true, status: autosave.status() });
+		});
+		return () => hostApi.setCloseGuard?.(null);
 	});
 
 	onDestroy(() => void autosave.close());

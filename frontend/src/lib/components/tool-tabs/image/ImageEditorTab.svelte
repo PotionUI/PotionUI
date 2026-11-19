@@ -31,6 +31,7 @@
 	import { tasks } from '$lib/editors/tasks';
 	import { reopenToolOf, stepKinds } from '$lib/editors/stepKinds';
 	import { ensureCoreImageEditor } from '$lib/tool-tabs/image/coreEditor';
+	import { editCloseLoss } from '$lib/tool-tabs/closeGuard';
 	import { imageRowInfo, outOfDateCount, outOfDateNotice, runStepAction, stepOutOfDate, stepsBeneath } from '$lib/tool-tabs/image/stepKinds';
 	import { createTabGenerate } from '$lib/tool-tabs/image/generate/wiring';
 	import { provideGenerateController } from '$lib/tool-tabs/image/generate/context';
@@ -1314,9 +1315,19 @@
 
 	onDestroy(() => untrack(flushWrite));
 
+	onMount(() => {
+		host.setCloseGuard?.(async () => {
+			const layersFlushed = untrack(() => layerStore.unsaved) === 0 || (await layerStore.flush());
+			const edits = untrack(() => unsavedEdits(stack, null));
+			if (edits > 0) await autosave.settle();
+			return editCloseLoss({ edits, layersFlushed, status: autosave.status() });
+		});
+		return () => host.setCloseGuard?.(null);
+	});
+
 	let lastDirty = -1;
 	$effect(() => {
-		const count = dirtyCount;
+		const count = autosaveStatus === 'saved' && !unsavedLayers ? 0 : dirtyCount;
 		if (count === lastDirty) return;
 		const first = lastDirty === -1;
 		lastDirty = count;

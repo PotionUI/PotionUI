@@ -29,6 +29,7 @@ from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
 from src.features.generation.memory_advisory import resolve_device_evidence
 from src.features.providers.registry import ensure_providers_discovered
+from src.platform.http.mime_types import ensure_web_mime_types
 from src.platform.runtime.guarded_import import warm_up_heavy_imports
 from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_damage
 from src.platform.runtime.offload.pool import shutdown_offload
@@ -423,6 +424,7 @@ def health_payload(ready: bool = True) -> dict:
 
 def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     """Build and return the fully-assembled FastAPI application."""
+    ensure_web_mime_types()
     # Run database migrations BEFORE building the container (it needs DB access).
     run_migrations_sync()
     ensure_database_statistics()

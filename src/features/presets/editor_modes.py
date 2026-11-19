@@ -56,6 +56,7 @@ class EditorInputs(BaseModel):
     mask: Optional[str] = None
     quantity: Optional[str] = None
     seed: Optional[str] = None
+    scale: Optional[str] = None
 
     @field_validator("source")
     @classmethod
@@ -241,7 +242,7 @@ def editor_overrides(spec: EditorModeSpec, with_inputs: bool = False) -> Dict[st
 def input_names(inputs: Dict[str, Any]) -> List[str]:
     source = inputs.get("source")
     names = [source["field"] if isinstance(source, dict) else source]
-    names.extend(inputs.get(key) for key in ("mask", "quantity", "seed"))
+    names.extend(inputs.get(key) for key in ("mask", "quantity", "seed", "scale"))
     return [name for name in names if name]
 
 

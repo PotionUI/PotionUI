@@ -53,6 +53,16 @@ def fixed_value_problems(name: str, spec: FieldTemplate, value: Any) -> List[str
     return []
 
 
+def scale_problems(spec: Any, fields: Dict[str, FieldTemplate]) -> List[str]:
+    name = spec.inputs.get("scale")
+    found = fields.get(name) if name else None
+    if found is not None and found.type not in RANGE_TYPES:
+        return [f"inputs.scale '{name}' is a {found.type} field, not a number field"]
+    if spec.task == "upscale" and not name and not spec.size.get("field"):
+        return ["an upscale mode needs inputs.scale or size.field to receive the size it must produce"]
+    return []
+
+
 def strength_problems(strength: Optional[Dict[str, Any]], fields: Dict[str, FieldTemplate]) -> List[str]:
     if not strength:
         return []
@@ -165,10 +175,11 @@ def lint_editor_mode(
         *size_problems(spec.size, fields),
         *strength_problems(spec.strength, fields),
     ]
-    for key in ("quantity", "seed"):
+    for key in ("quantity", "seed", "scale"):
         value = spec.inputs.get(key)
         if value and value not in fields:
             problems.append(f"inputs.{key} names '{value}', which is not a field of the mode")
+    problems.extend(scale_problems(spec, fields))
     for key, value in spec.fixed.items():
         problems.extend(fixed_value_problems(key, fields[key], value) if key in fields else [])
     issues.extend(("error", f"{prefix}: {message}") for message in problems)

@@ -58,7 +58,7 @@ def manager(templates):
 
 def test_the_video_tasks_are_registered_for_the_video_editor_only():
     assert {task.id for task in REGISTRY.list("video")} == VIDEO_TASKS
-    assert {"edit_region", "remove_object"} <= {task.id for task in REGISTRY.list("image")}
+    assert {"edit_region", "remove_object", "fix_faces", "upscale"} <= {task.id for task in REGISTRY.list("image")}
 
 
 def test_every_video_task_states_what_it_needs():
@@ -137,7 +137,7 @@ def test_the_image_editor_is_offered_no_video_task(manager):
     entries = manager.offers(USER, "image")
 
     ids = {entry["id"] for entry in entries}
-    assert {"edit_region", "remove_object"} <= ids
+    assert {"edit_region", "remove_object", "fix_faces", "upscale"} <= ids
     assert not ids & VIDEO_TASKS
     assert all(offer["region_strategy"] != "range" for entry in entries for offer in entry["offers"])
 

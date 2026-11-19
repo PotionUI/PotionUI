@@ -7,6 +7,7 @@ from src.features.editor_tasks.dto import SetTaskDefaultRequest
 from src.features.editor_tasks.registry import TaskDefinition, TaskRegistry
 from src.features.presets.editor_mode_lint import lint_editor_mode
 from src.features.presets.editor_modes import input_field_names
+from src.features.presets.extensions import walk_fields
 from src.features.presets.mode_labels import mode_display_name, mode_display_icon
 from src.features.presets.templates import (
     EDITOR_KEY_PREFIX,
@@ -51,6 +52,20 @@ class ResolvedOffer:
 
 def owned_names(spec: EditorModeSpec) -> Set[str]:
     return {*input_field_names(spec), *spec.fixed, *spec.hide}
+
+
+def scale_limits(mode: ModeTemplate, spec: EditorModeSpec) -> Optional[Tuple[float, float]]:
+    name = spec.inputs.get("scale")
+    if not name:
+        return None
+    for form in mode.forms:
+        for field, _ in walk_fields(form.fields):
+            if field.name == name:
+                configuration = field.configuration or {}
+                low, high = configuration.get("min"), configuration.get("max")
+                if isinstance(low, (int, float)) and isinstance(high, (int, float)):
+                    return float(low), float(high)
+    return None
 
 
 def short_description_of(entry: EditorEntry) -> Optional[str]:
@@ -127,12 +142,20 @@ class EditorTaskManager:
             "strength": (
                 {key: spec.strength[key] for key in ("default", "min", "max")} if spec.strength else None
             ),
+            "scale": self._scale_offer(entry),
             "via": via,
             "qualifies": qualifies,
         }
         if not qualifies:
             offer["reason"] = NO_BACKEND
         return offer
+
+    @staticmethod
+    def _scale_offer(entry: EditorEntry) -> Optional[Dict[str, Any]]:
+        limits = scale_limits(entry.mode, entry.spec)
+        if limits is None:
+            return None
+        return {"field": entry.spec.inputs.get("scale"), "min": limits[0], "max": limits[1]}
 
     def offers(self, user: Any, editor: str = "image") -> List[Dict[str, Any]]:
         visible = self._visible_preset_ids(user)
@@ -192,6 +215,7 @@ class EditorTaskManager:
             "matte": task.matte,
             "grow": task.grow,
             "grows": task.grows,
+            "plan": task.plan,
             "fallback": fallback,
             "offers": offers,
             "default": None,

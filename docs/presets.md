@@ -364,7 +364,7 @@ fields:
 | Key | Meaning |
 |---|---|
 | `schema_version` | Required, `1`. |
-| `task` | Required. A core task (`edit_region`, `remove_object`, `replace_background`, `find_subject`, `expand`, `fix_faces` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
+| `task` | Required. A core task (`edit_region`, `remove_object`, `replace_background`, `find_subject`, `expand`, `fix_faces`, `upscale` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
 | `from` | A generation mode of this preset. Leave it out for a standalone mode. |
 | `label`, `short_description`, `order` | The picker name (default: the `from` mode's label, else the title-cased name), one sentence under it, and the sort order within the preset. |
 | `instruction` | Optional. The prompt a run sends when the task takes no prompt (`prompt: none`, such as `remove_object`). Ignored by a task that takes one (lint **warning**). A fallback offer uses the task's own fallback prompt instead. |
@@ -373,6 +373,7 @@ fields:
 | `inputs.source` | Required. The `image` field that takes the picture (a `video` field for a video task), or `{field: <media field>, index: 0}`, which inserts the picture into a `media` list at that index. |
 | `inputs.mask` | Required for `region: mask`; not allowed with `region: range`. It must be named `<image field>_inpaint_mask`, and that image field must set `allow_inpaint: true`. With `region: crop` it asks for the region mask cut and resampled like the crop. |
 | `inputs.quantity`, `inputs.seed` | Default to the mode's quantity field and its `seed` field. The quantity field is shown in Settings like on the Generate page, and its value (1 to 4) is the number of results of a run; the seed field is shown. |
+| `inputs.scale` | For the `upscale` task: the number field (`slider`, `number`, `integer` or `stepper`) that receives the factor the run enlarges by. Its `min` and `max` are the factors the offer accepts (`scale: {min, max}` on the offer). |
 | `size` | `area` (default 1048576, 262144 to 4194304), `multiple` (8, 16, 32 or 64), `field` (a `resolution` field), `buckets`. |
 | `context` | Context around the area as a fraction of its size (0 to 4), default `0.5`. A `region_context` field in the form wins. |
 | `fixed` | Fields hidden in Settings that always get this value in a run. The key must be a field and the value valid for it (an option of a select, a boolean for a checkbox, a number inside the range of a slider). |
@@ -386,6 +387,23 @@ fields:
 of them. `fixed` and `fields.hide` fields stay in the template because the pipeline reads them; binding pins them
 over any admin override. An editor setup (a saved session of kind `editor`) never stores them, and a run replaces
 whatever a request sends for them.
+
+### Upscale and part-based modes
+
+`region: whole` is for a task that works on the whole picture: the mode gets the picture, no mask. The `upscale` task uses it, and the editor runs it in **tiles**: it renders the picture beneath the upscale at its full size, cuts it into overlapping tiles of about `size.area` source pixels (so `area` is the tile budget; a picture that fits one tile is one tile) and runs the mode once for each tile, one after another, with the tile as `inputs.source`. The factor goes into `inputs.scale` and, when the mode has one, the output size of the tile (`WxH`) into `size.field`; a mode needs at least one of the two, or the lint reports an error. The results are resampled to the size each tile should have and feather-blended across the overlap into one picture, which the editor replaces the picture with (`place_patch` with `replace`). `fix_faces` runs the same way in parts, one for each separate marked area, with `region: crop` or `mask`. See [editor runs](api/editor-runs.md#runs-in-several-parts).
+
+Pick `size.area` for what one tile costs at the largest factor: the mode makes a picture `scale` times larger than the tile. SeedVR2 asks for 262144 (a 512 px tile, 2048 px at 4x), the SDXL upscale for 589824.
+
+```yaml
+schema_version: 1
+task: upscale
+from: upscale
+region: whole
+inputs: { source: input_image, scale: scale }
+size: { area: 262144, multiple: 16 }
+fixed: { target_short_side: 0 }
+fields: { hide: [resolution_target] }
+```
 
 ### Video editor modes
 

@@ -28,6 +28,8 @@ NINE = {
     ("SDXL", "expand"): ("inpaint", "mask"),
     ("ZImage", "expand"): ("inpaint", "mask"),
     ("SDXL", "fix_faces"): ("refine_faces", "crop"),
+    ("SDXL", "upscale"): ("upscale", "whole"),
+    ("SeedVR2", "upscale"): ("upscale", "whole"),
 }
 
 ONE_CLICK = {
@@ -71,7 +73,7 @@ def test_each_editor_mode_resolves_through_find_mode(loader, directory, name):
     assert mode is not None
     assert mode.editor.from_mode == from_mode
     assert mode.editor.region == region
-    assert mode.editor.task == (name if name in ("expand", "fix_faces") else "edit_region")
+    assert mode.editor.task == (name if name in ("expand", "fix_faces", "upscale") else "edit_region")
     assert from_mode in template.modes
 
 

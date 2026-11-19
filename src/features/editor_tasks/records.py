@@ -55,6 +55,16 @@ class EditorRun:
         window = None
         if crop.get("kind") == "range":
             window = {"start_s": crop["start_s"], "end_s": crop["end_s"], "whole": bool(crop.get("whole"))}
+        parts = crop.get("parts")
+        if parts is not None:
+            total = int(parts["total"])
+            done = total if self.status == DONE else min(int(parts["done"]), total)
+            shown = progress if progress is not None else (1.0 if self.status == DONE else done / total)
+        else:
+            total = 1
+            done = 1 if self.status == DONE else 0
+            shown = progress if progress is not None else (1.0 if self.status == DONE else 0.0)
+        output = crop.get("output")
         return {
             "id": self.id,
             "task": self.task,
@@ -62,7 +72,9 @@ class EditorRun:
             "edit_id": self.edit_id,
             "step_id": self.step_id,
             "generation_id": self.generation_id,
-            "progress": progress if progress is not None else (1.0 if self.status == DONE else 0.0),
+            "progress": shown,
+            "parts": {"done": done, "total": total},
+            "size": {"width": output[0], "height": output[1]} if output else None,
             "error": self.error,
             "rect": self.rect,
             "soft": bool(crop.get("soft", False)),

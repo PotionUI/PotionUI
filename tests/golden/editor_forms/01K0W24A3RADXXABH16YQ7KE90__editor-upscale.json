@@ -1,0 +1,84 @@
+{
+  "editor_mode": "upscale",
+  "from": "upscale",
+  "preset_id": "01K0W24A3RADXXABH16YQ7KE90",
+  "preset_name": "SDXL",
+  "shown": [
+    {
+      "label": "Re-detail",
+      "name": "refine",
+      "type": "checkbox"
+    },
+    {
+      "label": "Detail strength",
+      "name": "td_denoise",
+      "type": "slider"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Upscaler",
+      "name": "upscale_model",
+      "type": "model"
+    },
+    {
+      "label": "Checkpoint",
+      "name": "model",
+      "type": "model"
+    },
+    {
+      "label": "Tile overlap",
+      "name": "td_overlap",
+      "type": "slider"
+    },
+    {
+      "label": "Tile blending",
+      "name": "td_feather_amount",
+      "type": "slider"
+    },
+    {
+      "label": "Minimum tile size",
+      "name": "td_min_tile_size",
+      "type": "slider"
+    },
+    {
+      "label": "Detail boost",
+      "name": "td_detail_boost",
+      "type": "slider"
+    },
+    {
+      "label": "Options",
+      "name": "td_adaptive_tiles",
+      "type": "checkbox_group"
+    },
+    {
+      "label": "Steps",
+      "name": "td_steps",
+      "type": "slider"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "td_cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Clip Skip",
+      "name": "clip_skip",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "select"
+    },
+    {
+      "label": "Scheduler",
+      "name": "scheduler",
+      "type": "select"
+    }
+  ],
+  "task": "upscale"
+}

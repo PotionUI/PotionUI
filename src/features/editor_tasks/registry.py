@@ -32,6 +32,7 @@ class TaskDefinition:
     matte: bool = False
     internal: bool = False
     grows: bool = False
+    plan: Literal["single", "components", "tiles"] = "single"
 
 
 VIDEO = ("video",)
@@ -89,6 +90,10 @@ CORE_TASKS: Tuple[TaskDefinition, ...] = (
     ),
     TaskDefinition(
         id="fix_faces", label="Fix faces and hands", region="required", prompt="none", icon="mode-refine-faces",
+        plan="components",
+    ),
+    TaskDefinition(
+        id="upscale", label="Upscale", region="none", prompt="none", icon="mode-upscale", resizes=True, plan="tiles",
     ),
 )
 

@@ -35,6 +35,10 @@ class RunExpand(BaseModel):
     x: int = Field(default=0, ge=0, le=MAX_EXPAND_SIDE)
     y: int = Field(default=0, ge=0, le=MAX_EXPAND_SIDE)
 
+class UpscaleTarget(BaseModel):
+    width: int = Field(ge=1, le=65536)
+    height: int = Field(ge=1, le=65536)
+
 class StartEditorRunRequest(BaseModel):
     edit: RunEditRef
     input: InputRef
@@ -48,6 +52,8 @@ class StartEditorRunRequest(BaseModel):
     seed: Optional[int] = Field(default=None, ge=0)
     options: Dict[str, Any] = Field(default_factory=dict)
     strength: Optional[float] = Field(default=None, ge=0)
+    scale: Optional[float] = Field(default=None, gt=1, le=64)
+    target: Optional[UpscaleTarget] = None
 
 class DetectionRequest(BaseModel):
     input: InputRef

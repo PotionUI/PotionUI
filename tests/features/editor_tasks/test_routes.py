@@ -65,7 +65,7 @@ def test_a_session_gets_its_offers_with_a_null_default(client):
 
     assert response.status_code == 200
     tasks = response.json()["data"]["tasks"]
-    assert {"edit_region", "remove_object", "fix_faces"} <= {item["id"] for item in tasks}
+    assert {"edit_region", "remove_object", "fix_faces", "upscale"} <= {item["id"] for item in tasks}
     assert all(item["default"] is None for item in tasks)
     assert [o["preset_id"] for o in offers(response)] == ["A-CROP", "B-MASK"]
 

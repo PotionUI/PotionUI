@@ -145,8 +145,9 @@ def build_runs_router(container: "AppContainer") -> APIRouter:
         description=(
             "Crops the marked area with its surroundings, runs a preset mode on it as a normal generation, and "
             "blends each result back as a patch. On a video task it cuts the marked time range (in seconds) and "
-            "splices each result into the clip. Answers at once with the run; follow it with the run route or "
-            "the editor_run_update message on /ws/generation."
+            "splices each result into the clip. Upscale and Fix faces run in parts, one generation after another, "
+            "and the upscale takes a scale or a target size. Answers at once with the run; follow it with the run "
+            "route or the editor_run_update message on /ws/generation."
         ),
     )
     async def start_run(

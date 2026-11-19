@@ -11,9 +11,9 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple
 import numpy as np
 from PIL import Image
 
-from src.features.editor_tasks import clips, expand as expand_ops, regions
+from src.features.editor_tasks import clips, expand as expand_ops, parts, regions, upscale
 from src.features.editor_tasks.dto import MAX_CANDIDATES, StartEditorRunRequest
-from src.features.editor_tasks.manager import EditorTaskManager, ResolvedOffer
+from src.features.editor_tasks.manager import EditorTaskManager, ResolvedOffer, scale_limits
 from src.features.editor_tasks.records import (
     CANCELLED,
     DONE,
@@ -26,6 +26,7 @@ from src.features.editor_tasks.regions import Geometry
 from src.features.editor_tasks.repository import EditorRunRepository
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.hooks import GENERATION_HOOKS
+from src.features.presets.editor_modes import clamp_strength
 from src.features.presets.extensions import walk_fields
 from src.features.media.validators import UPLOAD_PURPOSE_DERIVED, UPLOAD_PURPOSE_EDITOR_RUN
 from src.platform.database.rows import now_iso
@@ -52,6 +53,10 @@ TERMINAL_GENERATION = frozenset({"completed", "failed", "cancelled"})
 PNG_LEVEL = 1
 ORIGIN_KIND = "editor"
 PROMPT_SLOT = "{prompt}"
+PARTS_KIND = "parts"
+COMPOSE_REGIONS = "regions"
+COMPOSE_TILES = "tiles"
+PART_FAILED = "A part of the run could not be started"
 
 Submit = Callable[[GenerationRequest, Any], Awaitable[Dict[str, Any]]]
 CancelGeneration = Callable[[str, Any], Awaitable[Any]]
@@ -94,6 +99,28 @@ class ExpandChain:
     prompt: str
 
 
+@dataclass
+class PartsPlan:
+    compose: str
+    items: List[Dict[str, Any]]
+    base_png: bytes
+    region_png: Optional[bytes]
+    picture: Tuple[int, int]
+    rect: Dict[str, float]
+    soft: bool = False
+    output: Optional[Tuple[int, int]] = None
+    scale: Optional[float] = None
+
+
+@dataclass
+class PartsJob:
+    user: Any
+    offer: ResolvedOffer
+    body: StartEditorRunRequest
+    prompt: str
+    origin: Dict[str, Any]
+
+
 class EditorRunManager:
 
     def __init__(
@@ -127,6 +154,9 @@ class EditorRunManager:
         self._chains: Dict[str, ExpandChain] = {}
         self._finishing: Set[str] = set()
         self._holds: Dict[str, int] = {}
+        self._jobs: Dict[str, PartsJob] = {}
+        self._cancelled: Set[str] = set()
+        self._rerun: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def subscribe(self, hook_chain: Any) -> None:
@@ -140,16 +170,16 @@ class EditorRunManager:
             data = hook_data(context)
             run_id = self._live.get(data.get("generation_id"))
             if run_id is not None:
-                self._schedule(run_id, data.get("status"))
+                self._schedule(run_id, data.get("status"), data.get("generation_id"))
         except Exception:
             logger.exception("Editor runs: the completion hook failed")
         return context
 
-    def _schedule(self, run_id: str, hint: Optional[str] = None) -> None:
+    def _schedule(self, run_id: str, hint: Optional[str] = None, generation_id: Optional[str] = None) -> None:
         loop = self._loop
         if loop is None or loop.is_closed():
             return
-        asyncio.run_coroutine_threadsafe(self._finish(run_id, hint), loop)
+        asyncio.run_coroutine_threadsafe(self._finish(run_id, hint, generation_id), loop)
 
     async def start(self, user: Any, task_id: str, body: StartEditorRunRequest) -> Dict[str, Any]:
         self._loop = asyncio.get_running_loop()
@@ -163,6 +193,9 @@ class EditorRunManager:
         region_ref = body.region if offer.task.region != "none" else None
         if offer.task.region == "required" and region_ref is None:
             raise DomainError("region_required", "Mark the area first", 422)
+        self._check_scale(offer, body)
+        if offer.task.plan != "single" and "video" not in offer.task.editors:
+            return await self._start_parts(user, task_id, offer, body, prompt, region_ref)
         if offer.task.grows:
             prepared = await asyncio.to_thread(self._prepare_expand, user, offer, body)
         elif "video" in offer.task.editors:
@@ -222,7 +255,7 @@ class EditorRunManager:
         generation = await asyncio.to_thread(self.generations.get_by_id, generation_id)
         status = getattr(generation, "status", None)
         if status in TERMINAL_GENERATION:
-            self._schedule(run_id, status)
+            self._schedule(run_id, status, generation_id)
         return current.to_dict()
 
     async def get(self, user: Any, run_id: str) -> Dict[str, Any]:
@@ -244,25 +277,44 @@ class EditorRunManager:
         run = await asyncio.to_thread(self._owned, user.id, run_id)
         if run.terminal:
             return run.to_dict()
-        if run.generation_id:
+        current = self._current(run)
+        if (run.crop or {}).get("parts") is not None:
+            self._cancelled.add(run.id)
+        if current:
             refused = False
             try:
-                refused = await self._cancel_generation(run.generation_id, user) is False
+                refused = await self._cancel_generation(current, user) is False
             except Exception as failure:
                 logger.info("Editor run %s: the generation was not cancelled: %s", run.id, failure)
                 refused = True
             if refused:
-                generation = await asyncio.to_thread(self.generations.get_by_id, run.generation_id)
+                generation = await asyncio.to_thread(self.generations.get_by_id, current)
                 status = getattr(generation, "status", None)
                 if status not in TERMINAL_GENERATION:
+                    self._cancelled.discard(run.id)
                     raise DomainError("cancel_failed", "The run could not be cancelled, try again", 400)
-                await self._finish(run.id, status)
-                current = await asyncio.to_thread(self.repository.find, run.id)
-                return current.to_dict()
+                await self._finish(run.id, status, current)
+                current_run = await asyncio.to_thread(self.repository.find, run.id)
+                return current_run.to_dict()
         settled = await asyncio.to_thread(self.repository.settle, run.id, self.clock(), CANCELLED, None, None)
-        current = await asyncio.to_thread(self.repository.find, run.id)
-        await self._after_settle(current, settled)
-        return current.to_dict()
+        latest = await asyncio.to_thread(self.repository.find, run.id)
+        await self._after_settle(latest, settled)
+        return latest.to_dict()
+
+    @staticmethod
+    def _current(run: EditorRun) -> Optional[str]:
+        parts_state = (run.crop or {}).get("parts")
+        if parts_state is not None:
+            return parts_state.get("generation_id")
+        return run.generation_id
+
+    @staticmethod
+    def _progress(run: EditorRun, value: Optional[float]) -> Optional[float]:
+        parts_state = (run.crop or {}).get("parts")
+        if parts_state is None:
+            return value
+        total = int(parts_state["total"])
+        return min(1.0, (int(parts_state["done"]) + min(1.0, max(0.0, value or 0.0))) / total)
 
     def _owned(self, user_id: str, run_id: str) -> EditorRun:
         run = self.repository.get(user_id, run_id)
@@ -271,21 +323,22 @@ class EditorRunManager:
         return run
 
     async def _reconcile(self, run: EditorRun) -> Tuple[EditorRun, Optional[float]]:
-        if run.generation_id is None:
+        current = self._current(run)
+        if current is None:
             return await self._fail(run.id, RESTART_MESSAGE), None
-        generation = await asyncio.to_thread(self.generations.get_by_id, run.generation_id)
+        generation = await asyncio.to_thread(self.generations.get_by_id, current)
         if generation is None:
             return await self._fail(run.id, GENERATION_GONE), None
         status = getattr(generation, "status", None)
         if status in TERMINAL_GENERATION:
-            await self._finish(run.id, status)
+            await self._finish(run.id, status, current)
             return await asyncio.to_thread(self.repository.find, run.id), None
-        if run.generation_id not in self._live:
+        if current not in self._live:
             return await self._fail(run.id, RESTART_MESSAGE), None
         if status == "running" and run.status != RUNNING:
             await asyncio.to_thread(self.repository.update, run.id, self.clock(), status=RUNNING)
             run = await asyncio.to_thread(self.repository.find, run.id)
-        return run, getattr(generation, "progress", None)
+        return run, self._progress(run, getattr(generation, "progress", None))
 
     async def _fail(self, run_id: str, reason: str) -> Optional[EditorRun]:
         try:
@@ -314,6 +367,11 @@ class EditorRunManager:
         if task.prompt == "none" and offer.spec.instruction:
             return offer.spec.instruction
         return text
+
+    @staticmethod
+    def _check_scale(offer: ResolvedOffer, body: StartEditorRunRequest) -> None:
+        if offer.task.plan != "tiles" and (body.scale is not None or body.target is not None):
+            raise DomainError("scale_not_supported", "This task takes no scale or target size", 422)
 
     @staticmethod
     def _check_range(offer: ResolvedOffer, body: StartEditorRunRequest) -> None:
@@ -647,7 +705,7 @@ class EditorRunManager:
             preset_id=body.setup.preset_id,
             prompt=prompt,
             mode=offer.mode_name,
-            form_data=self._form(offer, body, stored, prepared.geometry, 1 if offer.task.grows else None),
+            form_data=self._form(offer, body, stored, prepared.geometry, count=1 if offer.task.grows else None),
         )
         request._editor_run = True
         return request
@@ -658,6 +716,8 @@ class EditorRunManager:
         body: StartEditorRunRequest,
         stored: Dict[str, Any],
         geometry: Optional[Geometry],
+        scale: Optional[float] = None,
+        output: Optional[Tuple[int, int]] = None,
         count: Optional[int] = None,
     ) -> Dict[str, Any]:
         spec = offer.spec
@@ -679,7 +739,15 @@ class EditorRunManager:
         size_field = spec.size.get("field")
         if size_field and geometry is not None:
             form[size_field] = f"{geometry.working[0]}x{geometry.working[1]}"
+        elif size_field and output is not None:
+            form[size_field] = f"{output[0]}x{output[1]}"
+        scale_field = spec.inputs.get("scale")
+        if scale_field and scale is not None:
+            form[scale_field] = scale
         form.update(spec.fixed)
+        strength = clamp_strength(spec, body.strength)
+        if strength is not None:
+            form[strength[0]] = strength[1]
         quantity = spec.inputs.get("quantity")
         if quantity:
             form[quantity] = count if count is not None else self._count(form.get(quantity), body.candidates)
@@ -717,8 +785,11 @@ class EditorRunManager:
 
     def _forget(self, run: EditorRun) -> None:
         self._chains.pop(run.id, None)
-        if run.generation_id:
-            self._live.pop(run.generation_id, None)
+        self._jobs.pop(run.id, None)
+        self._cancelled.discard(run.id)
+        self._rerun.pop(run.id, None)
+        for generation_id in [key for key, value in self._live.items() if value == run.id]:
+            del self._live[generation_id]
 
     async def _after_settle(self, run: Optional[EditorRun], settled: bool) -> None:
         if run is None:
@@ -744,6 +815,383 @@ class EditorRunManager:
         except Exception:
             logger.exception("Editor run %s: its working files could not be forgotten", run.id)
 
+    async def _start_parts(
+        self, user: Any, task_id: str, offer: ResolvedOffer, body: StartEditorRunRequest, prompt: str, region_ref: Any
+    ) -> Dict[str, Any]:
+        plan = await asyncio.to_thread(self._plan_parts, user, offer, body, region_ref)
+        run_id = ID_PREFIX + self.new_id()
+        stored: Dict[str, Any] = {}
+        released = False
+        try:
+            await self._store_parts_base(user.id, plan, stored)
+            run = EditorRun(
+                id=run_id,
+                user_id=user.id,
+                task=task_id,
+                edit_id=body.edit.id,
+                step_id=body.edit.step_id,
+                rect=plan.rect,
+                crop={
+                    "kind": PARTS_KIND,
+                    "compose": plan.compose,
+                    "picture": list(plan.picture),
+                    "output": list(plan.output) if plan.output else None,
+                    "scale": plan.scale,
+                    "soft": plan.soft,
+                    "files": {name: item.id for name, item in stored.items()},
+                    "names": {name: item.filename for name, item in stored.items()},
+                    "parts": {"total": len(plan.items), "done": 0, "generation_id": None, "items": plan.items},
+                },
+            )
+            await asyncio.to_thread(self.repository.create, run, self.clock())
+            self._release(stored)
+            released = True
+            job = PartsJob(
+                user=user,
+                offer=offer,
+                body=body,
+                prompt=prompt,
+                origin={
+                    "kind": ORIGIN_KIND,
+                    "edit_id": body.edit.id,
+                    "step_id": body.edit.step_id,
+                    "task": task_id,
+                    "run_id": run_id,
+                },
+            )
+            self._jobs[run_id] = job
+            try:
+                generation_id = await self._submit_part(run_id, job, 0)
+            except BaseException:
+                self._jobs.pop(run_id, None)
+                await asyncio.to_thread(self.repository.delete, run_id)
+                raise
+        except BaseException:
+            if not released:
+                self._release(stored)
+            await self._discard(user.id, self._entries(stored), run_id)
+            raise
+        await asyncio.to_thread(self.repository.update, run_id, self.clock(), generation_id=generation_id)
+        current = await asyncio.to_thread(self.repository.find, run_id)
+        await self._announce(current)
+        generation = await asyncio.to_thread(self.generations.get_by_id, generation_id)
+        status = getattr(generation, "status", None)
+        if status in TERMINAL_GENERATION:
+            self._schedule(run_id, status, generation_id)
+        return current.to_dict()
+
+    def _plan_parts(self, user: Any, offer: ResolvedOffer, body: StartEditorRunRequest, region_ref: Any) -> PartsPlan:
+        if offer.task.plan == "tiles":
+            return self._plan_tiles(user, offer, body)
+        with self.media_tools.render_picture(user, body.input, body.steps) as path:
+            picture = regions.cap_picture(prepare_image(path).convert("RGB"))
+        with self.media_tools.open_input(user, region_ref) as path:
+            with Image.open(path) as opened:
+                region = regions.land_mask(opened, picture.size)
+        if region is None:
+            raise DomainError("region_empty", "Mark the area first", 422)
+        found = parts.Components(region)
+        if found.count > parts.MAX_PARTS:
+            raise DomainError("too_many_regions", f"Mark at most {parts.MAX_PARTS} separate areas", 422)
+        spec = offer.spec
+        array = np.asarray(picture)
+        context = regions.context_from(body.setup.form_data, spec.context)
+        geometries = [
+            regions.plan(
+                array.shape,
+                found.mask(index),
+                spec.region,
+                context,
+                spec.size["area"],
+                spec.size["multiple"],
+                spec.size.get("buckets"),
+            )
+            for index in range(found.count)
+        ]
+        union = parts.union_box([geometry.box for geometry in geometries])
+        width, height = picture.size
+        return PartsPlan(
+            compose=COMPOSE_REGIONS,
+            items=[{"geometry": geometry.to_dict()} for geometry in geometries],
+            base_png=png_bytes(picture),
+            region_png=png_bytes(Image.fromarray(region)),
+            picture=(width, height),
+            rect={
+                "x": union[2] / width,
+                "y": union[0] / height,
+                "width": (union[3] - union[2]) / width,
+                "height": (union[1] - union[0]) / height,
+            },
+            soft=any(geometry.soft for geometry in geometries),
+        )
+
+    def _plan_tiles(self, user: Any, offer: ResolvedOffer, body: StartEditorRunRequest) -> PartsPlan:
+        with self.media_tools.render_picture(user, body.input, body.steps) as path:
+            picture = prepare_image(path).convert("RGB")
+        target = (body.target.width, body.target.height) if body.target is not None else None
+        output, derived = upscale.output_size(picture.size, body.scale, target)
+        factor = round(body.scale if body.scale is not None else derived, 4)
+        limits = scale_limits(offer.mode, offer.spec)
+        if limits is not None and not limits[0] <= factor <= limits[1]:
+            raise DomainError(
+                "upscale_scale_unsupported",
+                f"{offer.task.label} with this setup scales by {limits[0]:g} to {limits[1]:g}",
+                422,
+            )
+        tiles = upscale.plan_tiles(picture.size, tile_area=offer.spec.size["area"], output=output)
+        return PartsPlan(
+            compose=COMPOSE_TILES,
+            items=[{"tile": tile.to_dict()} for tile in tiles.tiles],
+            base_png=png_bytes(picture),
+            region_png=None,
+            picture=picture.size,
+            rect={"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+            output=output,
+            scale=factor,
+        )
+
+    async def _store_parts_base(self, user_id: str, plan: PartsPlan, stored: Dict[str, Any]) -> None:
+        for name, data in (("base", plan.base_png), ("region", plan.region_png)):
+            if data is None:
+                continue
+            stored[name] = await self._put(user_id, f"editor-{name}.png", data, True)
+            self._hold(stored[name].id)
+
+    def _part_inputs(
+        self, run: EditorRun, index: int
+    ) -> Tuple[PreparedRun, Optional[Geometry], Optional[Tuple[int, int]]]:
+        crop = run.crop or {}
+        item = crop["parts"]["items"][index]
+        base = self._load(run.user_id, crop["files"]["base"], "RGB")
+        if crop["compose"] == COMPOSE_TILES:
+            tile = upscale.Tile.from_dict(item["tile"])
+            top, bottom, left, right = tile.source
+            prepared = PreparedRun(
+                geometry=None,
+                input_png=png_bytes(Image.fromarray(base[top:bottom, left:right])),
+                mask_png=None,
+                base_png=None,
+                region_png=None,
+            )
+            return prepared, None, tile.output_size
+        geometry = Geometry.from_dict(item["geometry"])
+        region = self._load(run.user_id, crop["files"]["region"], "L")
+        spec = self._jobs[run.id].offer.spec
+        with_mask = spec.region == "crop" and bool(spec.inputs.get("mask"))
+        cut = regions.prepare(base, parts.Components(region).mask(index), geometry, with_mask)
+        prepared = PreparedRun(
+            geometry=geometry,
+            input_png=png_bytes(cut.image),
+            mask_png=png_bytes(cut.mask) if cut.mask is not None else None,
+            base_png=None,
+            region_png=None,
+        )
+        return prepared, geometry, None
+
+    async def _submit_part(self, run_id: str, job: PartsJob, index: int) -> str:
+        run = await asyncio.to_thread(self.repository.find, run_id)
+        prepared, geometry, output = await asyncio.to_thread(self._part_inputs, run, index)
+        user_id = job.user.id
+        stored: Dict[str, Any] = {}
+        released = False
+        keys: List[str] = []
+        try:
+            await self._store(user_id, prepared, stored)
+            keys = [f"part{index}.{name}" for name in stored]
+            crop = dict(run.crop)
+            crop["files"] = {**crop["files"], **{f"part{index}.{name}": item.id for name, item in stored.items()}}
+            crop["names"] = {**crop["names"], **{f"part{index}.{name}": item.filename for name, item in stored.items()}}
+            await asyncio.to_thread(self.repository.update, run_id, self.clock(), crop=crop)
+            self._release(stored)
+            released = True
+            request = GenerationRequest(
+                preset_id=job.body.setup.preset_id,
+                prompt=job.prompt,
+                mode=job.offer.mode_name,
+                form_data=self._form(job.offer, job.body, stored, geometry, crop.get("scale"), output),
+            )
+            request._editor_run = True
+            submitted = await self._submit(request, job.user)
+            generation_id = submitted["generation_id"]
+            if not await self._tag(generation_id, job.origin):
+                await self._abort_generation(generation_id, job.user)
+                raise DomainError("run_start_failed", "The run could not be started, try again", 500)
+        except BaseException:
+            if not released:
+                self._release(stored)
+            await self._discard(user_id, self._entries(stored), run_id)
+            await self._drop_part_files(run_id, keys)
+            raise
+        latest = await asyncio.to_thread(self.repository.find, run_id)
+        crop = dict(latest.crop)
+        state = dict(crop["parts"])
+        state["generation_id"] = generation_id
+        state["items"] = [
+            {**item, "generation_id": generation_id} if position == index else item
+            for position, item in enumerate(state["items"])
+        ]
+        crop["parts"] = state
+        self._live[generation_id] = run_id
+        await asyncio.to_thread(self.repository.update, run_id, self.clock(), crop=crop)
+        return generation_id
+
+    async def _drop_part_files(self, run_id: str, keys: List[str]) -> None:
+        if not keys:
+            return
+        try:
+            latest = await asyncio.to_thread(self.repository.find, run_id)
+            if latest is None:
+                return
+            crop = dict(latest.crop)
+            crop["files"] = {name: value for name, value in crop["files"].items() if name not in keys}
+            crop["names"] = {name: value for name, value in crop["names"].items() if name not in keys}
+            await asyncio.to_thread(self.repository.update, run_id, self.clock(), crop=crop)
+        except Exception:
+            logger.exception("Editor run %s: its part files could not be forgotten", run_id)
+
+    async def _settle_parts(self, run: EditorRun, hint: Optional[str], hinted: Optional[str]) -> None:
+        while True:
+            current = self._current(run)
+            if not current:
+                return
+            generation = await asyncio.to_thread(self.generations.get_by_id, current)
+            if generation is None:
+                outcome = (FAILED, None, GENERATION_GONE)
+                break
+            status = getattr(generation, "status", None)
+            if status not in TERMINAL_GENERATION and hinted in (None, current):
+                status = hint
+            hint = hinted = None
+            if status == "completed":
+                state = run.crop["parts"]
+                if int(state["done"]) + 1 >= int(state["total"]):
+                    outcome = await self._compose_parts(run)
+                    break
+                outcome = await self._advance_parts(run)
+                if outcome is not None:
+                    break
+                run = await asyncio.to_thread(self.repository.find, run.id)
+                if run is None or run.terminal:
+                    return
+                continue
+            if status == "failed":
+                outcome = (FAILED, None, getattr(generation, "error_user_message", None) or GENERATION_FAILED)
+            elif status == "cancelled":
+                outcome = (CANCELLED, None, None)
+            else:
+                return
+            break
+        settled = await asyncio.to_thread(self.repository.settle, run.id, self.clock(), *outcome)
+        await self._after_settle(await asyncio.to_thread(self.repository.find, run.id), settled)
+
+    async def _advance_parts(
+        self, run: EditorRun
+    ) -> Optional[Tuple[str, Optional[List[Dict[str, Any]]], Optional[str]]]:
+        job = self._jobs.get(run.id)
+        if job is None:
+            return FAILED, None, RESTART_MESSAGE
+        if run.id in self._cancelled:
+            return CANCELLED, None, None
+        finished = int(run.crop["parts"]["done"])
+        await self._finish_part(run, finished)
+        try:
+            generation_id = await self._submit_part(run.id, job, finished + 1)
+        except Exception as failure:
+            logger.exception("Editor run %s: part %s could not be started", run.id, finished + 2)
+            return FAILED, None, failure.message if isinstance(failure, DomainError) else PART_FAILED
+        latest = await asyncio.to_thread(self.repository.find, run.id)
+        if latest is None or latest.terminal or run.id in self._cancelled:
+            self._live.pop(generation_id, None)
+            await self._abort_generation(generation_id, job.user)
+            return CANCELLED, None, None
+        return None
+
+    async def _finish_part(self, run: EditorRun, index: int) -> None:
+        latest = await asyncio.to_thread(self.repository.find, run.id)
+        crop = dict(latest.crop)
+        state = dict(crop["parts"])
+        state["done"] = index + 1
+        crop["parts"] = state
+        prefix = f"part{index}."
+        entries = [
+            (crop["files"].get(name), filename) for name, filename in crop["names"].items() if name.startswith(prefix)
+        ]
+        crop["files"] = {name: value for name, value in crop["files"].items() if not name.startswith(prefix)}
+        crop["names"] = {name: value for name, value in crop["names"].items() if not name.startswith(prefix)}
+        await asyncio.to_thread(self.repository.update, run.id, self.clock(), crop=crop)
+        if entries:
+            await self._discard(run.user_id, entries, run.id)
+
+    async def _compose_parts(self, run: EditorRun) -> Tuple[str, Optional[List[Dict[str, Any]]], Optional[str]]:
+        candidates: List[Dict[str, Any]] = []
+        try:
+            held: List[List[Any]] = []
+            for item in run.crop["parts"]["items"]:
+                files = self.generations.get_files(item["generation_id"], is_final=True, file_type="IMAGE")
+                if not files:
+                    files = self.generations.get_files(item["generation_id"], file_type="IMAGE")
+                if not files:
+                    return FAILED, None, NO_PICTURE
+                held.append(list(files)[:MAX_CANDIDATES])
+            count = min(len(files) for files in held)
+            rendered = await asyncio.to_thread(self._render_parts, run, held, count)
+            output = (run.crop or {}).get("output")
+            for data, file_ids, seed in rendered:
+                stored = await self._put(run.user_id, "editor-patch.png", data)
+                candidate = {
+                    "patch": {"item_id": stored.id},
+                    "url": stored.url,
+                    "seed": seed,
+                    "generation_file_id": file_ids[0],
+                    "generation_file_ids": file_ids,
+                }
+                if output:
+                    candidate["size"] = {"width": output[0], "height": output[1]}
+                candidates.append(candidate)
+            return DONE, candidates, None
+        except Exception:
+            logger.exception("Editor run %s: stitching failed", run.id)
+            return FAILED, None, NOT_PLACED
+
+    def _render_parts(
+        self, run: EditorRun, held: List[List[Any]], count: int
+    ) -> List[Tuple[bytes, List[str], Optional[int]]]:
+        crop = run.crop
+        items = crop["parts"]["items"]
+        seeds = self._seeds(items[0]["generation_id"])
+        base = self._load(run.user_id, crop["files"]["base"], "RGB")
+        rendered = []
+        if crop["compose"] == COMPOSE_TILES:
+            tiles = [upscale.Tile.from_dict(item["tile"]) for item in items]
+            for candidate in range(count):
+                canvas = upscale.Canvas(tuple(crop["output"]))
+                for tile, files in zip(tiles, held):
+                    canvas.place(tile, self._result_image(run.user_id, files[candidate]))
+                data = png_bytes(Image.fromarray(canvas.rgba()))
+                rendered.append((data, [files[candidate].id for files in held], seeds.get(candidate)))
+            return rendered
+        region = self._load(run.user_id, crop["files"]["region"], "L")
+        found = parts.Components(region)
+        geometries = [Geometry.from_dict(item["geometry"]) for item in items]
+        cuts = []
+        for index, geometry in enumerate(geometries):
+            top, bottom, left, right = geometry.box
+            cuts.append((base[top:bottom, left:right], found.mask(index)[top:bottom, left:right]))
+        union = parts.union_box([geometry.box for geometry in geometries])
+        for candidate in range(count):
+            placed = []
+            for geometry, (base_cut, mask_cut), files in zip(geometries, cuts, held):
+                result = self._result_image(run.user_id, files[candidate])
+                placed.append((geometry.box, regions.stitch(base_cut, mask_cut, result, geometry)))
+            data = png_bytes(Image.fromarray(parts.compose_patches(placed, union)))
+            rendered.append((data, [files[candidate].id for files in held], seeds.get(candidate)))
+        return rendered
+
+    def _result_image(self, user_id: str, record: Any) -> Image.Image:
+        with self.media_tools.open_input(user_id, {"generation_file_id": record.id}) as path:
+            with Image.open(path) as opened:
+                return opened.convert("RGB")
+
     async def _announce(self, run: Optional[EditorRun]) -> None:
         if run is None or not run.generation_id:
             return
@@ -753,33 +1201,38 @@ class EditorRunManager:
         except Exception:
             logger.exception("Editor run %s: the update could not be sent", run.id)
 
-    async def _finish(self, run_id: str, hint: Optional[str] = None) -> None:
+    async def _finish(self, run_id: str, hint: Optional[str] = None, generation_id: Optional[str] = None) -> None:
         if run_id in self._finishing:
+            self._rerun[run_id] = (hint, generation_id)
             return
         self._finishing.add(run_id)
-        chained = False
         try:
-            chained = bool(await self._settle_from_generation(run_id, hint))
-        except Exception:
-            logger.exception("Editor run %s could not be finished", run_id)
-            await self._fail(run_id, NOT_FINISHED)
+            while True:
+                chained = False
+                try:
+                    chained = bool(await self._settle_from_generation(run_id, hint, generation_id))
+                except Exception:
+                    logger.exception("Editor run %s could not be finished", run_id)
+                    await self._fail(run_id, NOT_FINISHED)
+                    break
+                if run_id in self._rerun:
+                    hint, generation_id = self._rerun.pop(run_id)
+                elif chained:
+                    hint = generation_id = None
+                else:
+                    break
         finally:
             self._finishing.discard(run_id)
-        if chained:
-            await self._recheck(run_id)
+            self._rerun.pop(run_id, None)
 
-    async def _recheck(self, run_id: str) -> None:
+    async def _settle_from_generation(
+        self, run_id: str, hint: Optional[str], hinted: Optional[str] = None
+    ) -> bool:
         run = await asyncio.to_thread(self.repository.find, run_id)
         if run is None or run.terminal or not run.generation_id:
-            return
-        generation = await asyncio.to_thread(self.generations.get_by_id, run.generation_id)
-        status = getattr(generation, "status", None)
-        if status in TERMINAL_GENERATION:
-            await self._finish(run_id, status)
-
-    async def _settle_from_generation(self, run_id: str, hint: Optional[str]) -> bool:
-        run = await asyncio.to_thread(self.repository.find, run_id)
-        if run is None or run.terminal or not run.generation_id:
+            return False
+        if (run.crop or {}).get("parts") is not None:
+            await self._settle_parts(run, hint, hinted)
             return False
         generation = await asyncio.to_thread(self.generations.get_by_id, run.generation_id)
         if generation is None:

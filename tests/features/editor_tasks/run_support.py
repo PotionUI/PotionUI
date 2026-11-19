@@ -56,6 +56,9 @@ class Fakes:
         self.cancelled: List[str] = []
         self.generation = SimpleNamespace(status="running", progress=0.4, error_user_message=None)
         self.generation_files: List[Any] = []
+        self.generation_by_id: Dict[str, Any] = {}
+        self.files_by_generation: Dict[str, List[Any]] = {}
+        self.submit_gate = None
         self.submit_error: Exception = None
         self.deleted: List[str] = []
         self.cancel_result: Any = None
@@ -74,11 +77,17 @@ class Fakes:
     async def add_existing(self, data, purpose="derived_artifact"):
         return await self.upload_media(data, "tab.png", "image/png", "u1", purpose)
 
-    def add_result(self, file_id="f1", size=(512, 512)):
+    def add_result(self, file_id="f1", size=(512, 512), generation_id=None, pixels=None):
         path = self.root / f"{file_id}.png"
-        Image.fromarray(np.full((size[1], size[0], 3), 120, dtype=np.uint8)).save(path)
+        if pixels is None:
+            pixels = np.full((size[1], size[0], 3), 120, dtype=np.uint8)
+        Image.fromarray(pixels).save(path)
         self.files[file_id] = path
-        self.generation_files.append(SimpleNamespace(id=file_id))
+        record = SimpleNamespace(id=file_id)
+        if generation_id is None:
+            self.generation_files.append(record)
+        else:
+            self.files_by_generation.setdefault(generation_id, []).append(record)
 
     @staticmethod
     def key(ref):
@@ -129,6 +138,8 @@ class Fakes:
     async def submit(self, request, user):
         if self.submit_error is not None:
             raise self.submit_error
+        if self.submit_gate is not None:
+            await self.submit_gate.wait()
         self.requests.append(request)
         return {"generation_id": next(self.generation_ids)}
 
@@ -139,10 +150,10 @@ class Fakes:
         return self.cancel_result
 
     def get_by_id(self, generation_id):
-        return None if self.gone else self.generation
+        return None if self.gone else self.generation_by_id.get(generation_id, self.generation)
 
     def get_files(self, generation_id, is_final=None, file_type=None):
-        return list(self.generation_files)
+        return list(self.files_by_generation.get(generation_id, self.generation_files))
 
     def update_origin(self, generation_id, origin):
         self.origins[generation_id] = origin

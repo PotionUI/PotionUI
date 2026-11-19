@@ -28,6 +28,8 @@ EXPECTED = {
     ("MOSS-Image", "expand"): "mask",
     ("SDXL", "expand"): "mask",
     ("SDXL", "fix_faces"): "crop",
+    ("SDXL", "upscale"): "whole",
+    ("SeedVR2", "upscale"): "whole",
 }
 
 ONE_CLICK = {
@@ -41,8 +43,6 @@ ONE_CLICK = {
     ("Krea2", "replace_background"): ("replace_background", "crop", "edit"),
     ("ImageTools", "find_subject"): ("find_subject", "whole", "remove_background"),
 }
-
-TASKS = {("SDXL", "fix_faces"): "fix_faces"}
 
 REGISTRY = register_core_tasks(TaskRegistry())
 

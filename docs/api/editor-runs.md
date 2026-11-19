@@ -103,6 +103,7 @@ House formats come from the system setting `editor_expand_formats` (a list of `{
     "id": "er_...", "task": "edit_region", "status": "done",
     "edit_id": "ed_...", "step_id": "s7", "generation_id": "...",
     "progress": 1.0, "error": null, "soft": false,
+    "parts": { "done": 1, "total": 1 }, "size": null,
     "rect": { "x": 0.31, "y": 0.22, "width": 0.28, "height": 0.35 },
     "candidates": [
       { "patch": { "item_id": "..." }, "url": "/api/media/uploads/...", "seed": 12345, "generation_file_id": "..." }
@@ -113,7 +114,7 @@ House formats come from the system setting `editor_expand_formats` (a list of `{
 
 A task with `produces: "matte"` (`find_subject`) answers candidates of the same shape, but the PNG behind `patch.item_id` is the subject as an RGBA cutout at the size of the picture (alpha from the model, nothing to stitch), and `rect` is the whole picture (`x` 0, `y` 0, `width` 1, `height` 1). `replace_background` answers an ordinary patch whose alpha is the matte; to put a colour, a picture or transparency behind the subject without a model run, use the editor tool `replace_background` of [media tools](plugin-api.md) with the cutout's matte.
 
-`status` is `queued`, `running`, `done`, `failed` or `cancelled`. `rect` is where the patch goes, as fractions of the picture. `soft` is true when the crop is much larger than the size the model works at, so the result comes back softer. A run the server lost in a restart answers `failed`.
+`status` is `queued`, `running`, `done`, `failed` or `cancelled`. `rect` is where the patch goes, as fractions of the picture. `soft` is true when the crop is much larger than the size the model works at, so the result comes back softer. A run the server lost in a restart answers `failed`. `parts` says how many generations the run is made of and how many have finished (`{"done": 0, "total": 1}` for an ordinary run, see "Runs in several parts"); `size` is `null` except for an upscale, where it is the size of the result.
 
 The generation behind the run is an ordinary generation: it appears in History with its `origin` (`{"kind": "editor", "edit_id", "step_id", "task", "run_id"}`), and the live preview arrives as `workbench_update` on `/ws/generation` once you subscribe to its `generation_id`. When the run changes state the same socket sends:
 
@@ -167,6 +168,53 @@ The server cuts the range frame by frame, sends it to the mode as its input vide
 ```
 
 An `extend` candidate has `"added": { "at_s": 4.5, "seconds": 5.0 }` instead of `range`. `duration_s` is the length of the new clip. The clip is a stored upload (`clip.item_id`); the run keeps its working copies of the source and the cut under the `editor_run_working` purpose until it settles, like a picture run. A run on a video has `rect: null`.
+
+## Runs in several parts
+
+A run may consist of several **parts**. A part is one crop of the picture and one generation of the editor mode on it; the parts of a run are submitted one after another, never at the same time, each as its own generation tagged with the run's `origin`. Which tasks work this way is the `plan` of the task in `GET /api/editor/tasks`: `single` (one part: `edit_region`, `remove_object`), `components` (`fix_faces`: one part for each separate area of the `region`) or `tiles` (`upscale`: one part for each tile of the picture). A video run has one part.
+
+- Every part runs with the same quantity, the run's `candidates`, on the original picture. Candidate k of the run is the k-th result of every part placed together, so the number of candidates is the smallest number of results any part returned. A candidate lists `generation_file_ids`, the k-th result of each part in part order; `generation_file_id` is the one of the first part.
+- The run's `generation_id` is the generation of its first part and stays the id the run is announced under: `editor_run_update` is sent to the subscribers of that generation, when the run starts and when it settles. The generations of the later parts are ordinary generations in History; poll the run for what is happening in between.
+- `parts` is `{ "done": 1, "total": 3 }` while the run works. `progress` is `(done + progress of the running part) / total`, so it only ever moves forward. A failed part fails the run with that generation's error and the remaining parts never start. Cancelling stops the running part and the parts after it. A restart of the app fails a run that is between its parts, as it does any run.
+- The working files of a finished part are removed as soon as the next part starts.
+- A run of one part, which is every run of `edit_region` and `remove_object`, is stored and answered exactly as before; `parts` is `{"done": 0, "total": 1}` until it is done.
+
+`fix_faces` builds its parts from the connected areas of the landed `region` (pixels at 128 or above that touch), in reading order, at most 16 (`422 too_many_regions`). Each part is cropped, sized and feathered like a run of `edit_region` on that area alone. A candidate's patch is the union of the parts' crops, `rect` is that union, and the patch is transparent where no part changed the picture.
+
+## Upscale
+
+The `upscale` task enlarges the whole picture. It takes no `region` and no `prompt`. Its offers carry `"scale": { "field": "upscale_factor", "min": 1.5, "max": 4.0 }`, the factors the mode's form accepts (`null` for a mode that is not an upscaler). The start body carries exactly one of:
+
+```json
+{ "scale": 2.5 }
+```
+
+```json
+{ "target": { "width": 3840, "height": 2160 } }
+```
+
+- `scale` is the factor on both sides, above 1. `target` is the size the result must fit inside: the picture keeps its aspect and is enlarged until one side meets the target, never past it. The result is `round(width * factor)` by `round(height * factor)`.
+- The picture to enlarge is the one the steps beneath render, at its full size (an upscale is not limited to 8192 px). Everything the user has done beneath is part of the result; the answer is a whole new picture, not a patch of the old one.
+- The result may be at most 16384 px on a side and at most 67,108,864 pixels (16384 x 16384 / 4, that is 8192 x 8192); a larger one answers `422 upscale_too_large`. A result that is not larger than the picture answers `422 upscale_not_larger`. Neither or both of `scale` and `target` answers `422 upscale_factor_required` or `422 upscale_factor_ambiguous`, a factor outside the offer's `scale` range `422 upscale_scale_unsupported`, and `scale` or `target` on any other task `422 scale_not_supported`.
+- The picture is cut into overlapping tiles. A tile is about `size.area` pixels of the source (1 MP by default, an `editor_mode.yml` may ask for 0.25 to 4 MP) with an overlap of an eighth of its side, 16 to 128 px, and the tiles of a picture that fits one are one tile. The mode receives each tile as its source picture and the factor in the form field its `inputs.scale` names (and the tile's output size in `size.field`, when it has one). Each result is resampled to the exact size its tile covers if the model returned a different one, and the results are blended across the overlap, so no seam shows.
+- The finished candidate is the whole enlarged picture: `patch` is an RGBA PNG of the new size, opaque, and the candidate and the run carry `"size": { "width": 4096, "height": 4096 }`. `rect` is the whole picture, `{ "x": 0, "y": 0, "width": 1, "height": 1 }`.
+
+```json
+{
+  "run": {
+    "id": "er_...", "task": "upscale", "status": "done", "parts": { "done": 9, "total": 9 },
+    "size": { "width": 4096, "height": 4096 }, "rect": { "x": 0, "y": 0, "width": 1, "height": 1 },
+    "candidates": [
+      {
+        "patch": { "item_id": "..." }, "url": "/api/media/uploads/...", "seed": 12345,
+        "generation_file_id": "...", "generation_file_ids": ["..."], "size": { "width": 4096, "height": 4096 }
+      }
+    ]
+  }
+}
+```
+
+The editor places an upscale with the `place_patch` tool with `replace` on: the patch is the picture, at its own size. Because the run always renders the steps beneath it, whatever lies beneath the upscale is baked into the result and stays in the stack. The server does not move anything that lies above; scaling the pixel-space parameters of those steps is the editor's job.
 
 ## Cancel a run
 
@@ -243,6 +291,8 @@ When several apply, the first one in this table is reported. Deleting a session 
 | 422 | `task_not_offered` | The editor mode does not offer the task, or the mode name has no `editor:` prefix. |
 | 422 | `mode_is_editor` | Returned by `POST /api/generations/start`: an editor key is for editor runs only. |
 | 422 | `prompt_required`, `region_required`, `region_empty` | The task needs a prompt or a marked area. |
+| 422 | `too_many_regions` | `fix_faces` takes at most 16 separate areas. |
+| 422 | `upscale_factor_required`, `upscale_factor_ambiguous`, `upscale_not_larger`, `upscale_too_large`, `upscale_scale_unsupported`, `scale_not_supported` | The scale or target of an upscale is missing, doubled, would not enlarge the picture, is over the size limits or outside what the mode accepts, or was sent to another task. |
 | 422 | `range_invalid` | The range starts before the clip, ends no later than it starts, or is shorter than one frame. |
 | 422 | `range_outside_clip` | The range starts or ends past the end of the clip. |
 | 422 | `range_not_supported`, `range_required` | A range was sent for a task that takes none, or the task needs one. |

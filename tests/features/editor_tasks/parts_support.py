@@ -56,12 +56,12 @@ FIX_FACES_MASK = {
 }
 
 
-def build_parts_manager(tmp_path, presets: Dict[str, Any]):
+def build_parts_manager(tmp_path, presets: Dict[str, Any], without=()):
     fakes = Fakes(tmp_path)
     root = tmp_path / "presets"
     root.mkdir()
     for preset_id, editor in presets.items():
-        write_preset(root, editor, fields=[*BASE_FIELDS, SCALE_FIELD, STRENGTH_FIELD], preset_id=preset_id)
+        write_preset(root, editor, fields=[f for f in [*BASE_FIELDS, SCALE_FIELD, STRENGTH_FIELD] if f["name"] not in without], preset_id=preset_id)
     loader = load(root)
     tasks = EditorTaskManager(
         register_core_tasks(TaskRegistry()),

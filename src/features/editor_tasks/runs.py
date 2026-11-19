@@ -912,7 +912,7 @@ class EditorRunManager:
         width, height = picture.size
         return PartsPlan(
             compose=COMPOSE_REGIONS,
-            items=[{"geometry": geometry.to_dict()} for geometry in geometries],
+            items=self._pass_items(offer, body, geometries),
             base_png=png_bytes(picture),
             region_png=png_bytes(Image.fromarray(region)),
             picture=(width, height),
@@ -924,6 +924,15 @@ class EditorRunManager:
             },
             soft=any(geometry.soft for geometry in geometries),
         )
+
+    @staticmethod
+    def _pass_items(offer: ResolvedOffer, body: StartEditorRunRequest, geometries: List[Geometry]) -> List[Dict[str, Any]]:
+        passes = body.candidates if not offer.spec.inputs.get("quantity") else 1
+        return [
+            {"geometry": geometry.to_dict(), "part": index, "pass": number}
+            for number in range(passes)
+            for index, geometry in enumerate(geometries)
+        ]
 
     def _plan_tiles(self, user: Any, offer: ResolvedOffer, body: StartEditorRunRequest) -> PartsPlan:
         with self.media_tools.render_picture(user, body.input, body.steps) as path:
@@ -978,7 +987,7 @@ class EditorRunManager:
         region = self._load(run.user_id, crop["files"]["region"], "L")
         spec = self._jobs[run.id].offer.spec
         with_mask = spec.region == "crop" and bool(spec.inputs.get("mask"))
-        cut = regions.prepare(base, parts.Components(region).mask(index), geometry, with_mask)
+        cut = regions.prepare(base, parts.Components(region).mask(item.get("part", index)), geometry, with_mask)
         prepared = PreparedRun(
             geometry=geometry,
             input_png=png_bytes(cut.image),
@@ -991,6 +1000,8 @@ class EditorRunManager:
     async def _submit_part(self, run_id: str, job: PartsJob, index: int) -> str:
         run = await asyncio.to_thread(self.repository.find, run_id)
         prepared, geometry, output = await asyncio.to_thread(self._part_inputs, run, index)
+        number = int(run.crop["parts"]["items"][index].get("pass", 0))
+        passes = max((int(item.get("pass", 0)) for item in run.crop["parts"]["items"]), default=0) + 1
         user_id = job.user.id
         stored: Dict[str, Any] = {}
         released = False
@@ -1008,8 +1019,13 @@ class EditorRunManager:
                 preset_id=job.body.setup.preset_id,
                 prompt=job.prompt,
                 mode=job.offer.mode_name,
-                form_data=self._form(job.offer, job.body, stored, geometry, crop.get("scale"), output),
+                form_data=self._form(
+                    job.offer, job.body, stored, geometry, crop.get("scale"), output, 1 if passes > 1 else None
+                ),
             )
+            seed_name = job.offer.spec.inputs.get("seed") or self._seed_field(job.offer)
+            if number and job.body.seed is not None and seed_name:
+                request.form_data[seed_name] = job.body.seed + number
             request._editor_run = True
             submitted = await self._submit(request, job.user)
             generation_id = submitted["generation_id"]
@@ -1126,13 +1142,20 @@ class EditorRunManager:
         candidates: List[Dict[str, Any]] = []
         try:
             held: List[List[Any]] = []
-            for item in run.crop["parts"]["items"]:
+            by_part: Dict[int, List[Any]] = {}
+            passes = any(item.get("pass") for item in run.crop["parts"]["items"])
+            for position, item in enumerate(run.crop["parts"]["items"]):
                 files = self.generations.get_files(item["generation_id"], is_final=True, file_type="IMAGE")
                 if not files:
                     files = self.generations.get_files(item["generation_id"], file_type="IMAGE")
                 if not files:
                     return FAILED, None, NO_PICTURE
-                held.append(list(files)[:MAX_CANDIDATES])
+                if passes:
+                    by_part.setdefault(item["part"], []).append(files[0])
+                else:
+                    held.append(list(files)[:MAX_CANDIDATES])
+            if by_part:
+                held = [by_part[index] for index in sorted(by_part)]
             count = min(len(files) for files in held)
             rendered = await asyncio.to_thread(self._render_parts, run, held, count)
             output = (run.crop or {}).get("output")
@@ -1157,7 +1180,7 @@ class EditorRunManager:
         self, run: EditorRun, held: List[List[Any]], count: int
     ) -> List[Tuple[bytes, List[str], Optional[int]]]:
         crop = run.crop
-        items = crop["parts"]["items"]
+        items = [item for item in crop["parts"]["items"] if not item.get("pass")]
         seeds = self._seeds(items[0]["generation_id"])
         base = self._load(run.user_id, crop["files"]["base"], "RGB")
         rendered = []

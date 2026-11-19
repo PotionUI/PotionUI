@@ -1,7 +1,6 @@
 from typing import Sequence, Tuple
 
 import numpy as np
-from scipy import ndimage
 
 from src.features.editor_tasks.regions import LANDED
 
@@ -12,6 +11,8 @@ Box = Tuple[int, int, int, int]
 
 class Components:
     def __init__(self, region: np.ndarray):
+        from scipy import ndimage
+
         labels, count = ndimage.label(region >= LANDED)
         found = ndimage.find_objects(labels)
         ordered = sorted(range(count), key=lambda index: (found[index][0].start, found[index][1].start, index))

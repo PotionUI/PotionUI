@@ -445,3 +445,47 @@ async def test_the_single_part_task_keeps_its_stored_shape_and_gains_parts_and_s
 
     assert run["parts"] == {"done": 0, "total": 1} and done["parts"] == {"done": 1, "total": 1} and done["size"] is None
     assert "parts" not in stored and "kind" not in stored and stored["strategy"] == "crop"
+
+
+@pytest.fixture
+def quantityless(mock_db, tmp_path):
+    make_users()
+    manager, fakes, tasks = build_parts_manager(tmp_path, {"FIX-FACES": FIX_FACES}, without=("quantity",))
+    regions_mask(PICTURE, TWO_FACES).save(fakes.files["region"])
+    return manager, fakes, make_edit().id
+
+
+@pytest.mark.asyncio
+async def test_a_mode_without_a_quantity_field_runs_each_part_once_per_candidate(quantityless):
+    manager, fakes, edit_id = quantityless
+
+    run = await manager.start(USER, "fix_faces", fix_body(edit_id, candidates=2, seed=10))
+
+    assert run["parts"] == {"done": 0, "total": 4}
+    picture = np.asarray(Image.open(fakes.files["picture"]).convert("RGB"))
+    found = parts.Components(np.asarray(Image.open(fakes.files["region"]).convert("L")))
+    geometries = [regions.plan(picture.shape, found.mask(i), "crop", 0.5, 1048576, 16, None) for i in range(2)]
+    seeds = []
+    for index in range(4):
+        await until(lambda: len(fakes.requests) == index + 1)
+        form = fakes.requests[index].form_data
+        source = Image.open(fakes.files[form["source_image"].split("/")[-1].split(".")[0]])
+        seeds.append(form["seed"])
+        await settle_part(manager, fakes, f"g{index + 1}", results=[structured(*source.size, index)], size=source.size)
+    done = await until_terminal(manager, USER, run["id"])
+
+    assert seeds == [10, 10, 11, 11]
+    assert "quantity" not in fakes.requests[0].form_data
+    assert done["status"] == "done" and len(done["candidates"]) == 2
+    assert [c["generation_file_ids"] for c in done["candidates"]] == [["g1-0", "g2-0"], ["g3-0", "g4-0"]]
+    union = parts.union_box([g.box for g in geometries])
+    for k, candidate in enumerate(done["candidates"]):
+        patch = np.asarray(Image.open(fakes.files[candidate["patch"]["item_id"]]))
+        placed = []
+        for i, geometry in enumerate(geometries):
+            top, bottom, left, right = geometry.box
+            size = Image.open(fakes.files[f"g{2 * k + i + 1}-0"]).size
+            result = Image.fromarray(structured(*size, 2 * k + i))
+            cut = (picture[top:bottom, left:right], found.mask(i)[top:bottom, left:right])
+            placed.append((geometry.box, regions.stitch(cut[0], cut[1], result, geometry)))
+        assert np.array_equal(patch, parts.compose_patches(placed, union))

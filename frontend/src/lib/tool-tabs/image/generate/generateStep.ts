@@ -8,6 +8,7 @@ import { opacityOf, type EditStackState, type EditStep, type StepDraft } from '$
 import { geometryKey } from '../mask';
 import { isTerminal, runViews } from './runEngine';
 import { readOptions, type TaskOptions } from './taskOptions';
+import { dimsOf, isResizedParams, isResizingTask, pictureKey, readRunOptions, resizedPictureOf, scaleText, type PixelDims } from './upscale';
 
 export const GENERATE_TOOL = 'generate';
 const PAINT_LANE = 'paint';
@@ -34,6 +35,7 @@ export interface GenerateResult {
 	patch: { item_id: string };
 	url: string;
 	seed: number | null;
+	size?: PixelDims;
 	clip?: boolean;
 	range?: TimeRange | null;
 	added?: { at_s: number; seconds: number } | null;
@@ -83,6 +85,7 @@ export interface GenerateParams {
 	range?: TimeRange | null;
 	options?: TaskOptions;
 	expand?: ExpandParams;
+	out?: PixelDims;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -98,6 +101,8 @@ function resultsOf(raw: unknown): GenerateResult[] {
 		const patchId = isRecord(entry.patch) && typeof entry.patch.item_id === 'string' ? entry.patch.item_id : clipId;
 		if (!patchId) return [];
 		const result: GenerateResult = { patch: { item_id: patchId }, url: entry.url, seed: typeof entry.seed === 'number' ? entry.seed : null };
+		const resultSize = dimsOf(entry.size);
+		if (resultSize) result.size = resultSize;
 		if (clipId !== null || entry.clip === true) {
 			const added = isRecord(entry.added) && typeof entry.added.at_s === 'number' && typeof entry.added.seconds === 'number' ? { at_s: entry.added.at_s, seconds: entry.added.seconds } : null;
 			Object.assign(result, { clip: true, range: timeRangeOf(entry.range), added, duration_s: typeof entry.duration_s === 'number' ? entry.duration_s : null });
@@ -147,8 +152,9 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 	const chosen = typeof raw.chosen === 'number' && raw.chosen >= 0 && raw.chosen < results.length ? Math.trunc(raw.chosen) : 0;
 	const size = isRecord(area.size) && typeof area.size.width === 'number' && typeof area.size.height === 'number' ? { width: area.size.width, height: area.size.height } : null;
 	const basis = basisOf(raw.basis);
-	const options = readOptions(raw.options);
+	const options = readRunOptions(raw.options) ?? readOptions(raw.options);
 	const expand = expandOf(raw.expand);
+	const out = dimsOf(raw.out);
 	return {
 		v: raw.v === GENERATE_VERSION ? GENERATE_VERSION : 1,
 		task: typeof raw.task === 'string' ? raw.task : '',
@@ -175,6 +181,7 @@ export function readGenerateParams(raw: unknown): GenerateParams | null {
 		...(basis ? { basis } : {}),
 		...(options ? { options } : {}),
 		...(expand ? { expand } : {}),
+		...(out ? { out } : {}),
 		...('range' in raw ? { range: timeRangeOf(raw.range) } : {})
 	};
 }
@@ -215,7 +222,7 @@ function geometryList(key: string): Array<[string, unknown]> | null {
 }
 
 export function shapeChange(params: GenerateParams, beneath: readonly EditStep[]): ShapeChange {
-	if (!params.basis) return 'none';
+	if (!params.basis || isResizedParams(params)) return 'none';
 	const now = geometryKey(beneath);
 	if (now === params.basis.geometry) return 'none';
 	const before = geometryList(params.basis.geometry);
@@ -256,7 +263,16 @@ export function expandSummary(expand: ExpandParams): string {
 	return expand.label ? `${expand.label} · ${size}` : size;
 }
 
+function resizedSummary(params: GenerateParams): string {
+	const how = scaleText(params.options) || 'Upscale';
+	const result = params.run.status === 'done' ? chosenResult(params) : null;
+	if (!result) return how;
+	const count = params.results.length > 1 ? `${params.chosen + 1} of ${params.results.length} · ` : '';
+	return result.size ? `${count}${how} · ${result.size.width}×${result.size.height}` : `${count}${how}`;
+}
+
 export function summaryOf(params: GenerateParams): string {
+	if (isResizedParams(params)) return resizedSummary(params);
 	if (params.expand) return params.run.status === 'done' && params.results.length ? expandSummary(params.expand) : params.expand.label || `${params.expand.width}×${params.expand.height}`;
 	if (params.range !== undefined) {
 		const where = rangeText(params.range);
@@ -271,7 +287,7 @@ export function summaryOf(params: GenerateParams): string {
 }
 
 export function generateDraft(params: GenerateParams, label: string, icon: string): StepDraft<GenerateParams> {
-	return { tool: GENERATE_TOOL, icon, label, summary: summaryOf(params), params, lane: params.expand ? GEOMETRY_LANE : PAINT_LANE };
+	return { tool: GENERATE_TOOL, icon, label, summary: summaryOf(params), params, lane: params.expand || isResizedParams(params) ? GEOMETRY_LANE : PAINT_LANE };
 }
 
 export function chosenResult(params: GenerateParams): GenerateResult | null {
@@ -308,11 +324,16 @@ export function withFreshRun(params: GenerateParams, run: { id: string; status: 
 	return next;
 }
 
+export function busyLabel(task: string, parts: { done: number; total: number } | null): string {
+	const verb = isResizingTask(task) ? 'Upscaling' : 'Generating';
+	return parts && parts.total > 1 ? `${verb} ${Math.min(parts.total, parts.done + 1)} of ${parts.total}` : verb;
+}
+
 export function generateStateOf(params: GenerateParams): StepState {
 	const view = get(runViews)[params.run.id];
 	const status = view?.status ?? params.run.status;
 	if (status === 'queued') return { kind: 'busy', label: 'Waiting' };
-	if (status === 'running') return { kind: 'busy', label: 'Generating', progress: Math.round((view?.progress ?? 0) * 100) };
+	if (status === 'running') return { kind: 'busy', label: busyLabel(params.task, view?.run?.parts ?? null), progress: Math.round((view?.progress ?? 0) * 100) };
 	if (status === 'failed') return { kind: 'skipped', tone: 'danger', label: `Did not finish: ${view?.error ?? params.run.error ?? 'something went wrong'}` };
 	if (status === 'cancelled') return { kind: 'skipped', tone: 'muted', label: 'Cancelled' };
 	return { kind: 'done' };
@@ -382,6 +403,29 @@ async function expandPreview(frame: PreviewFrame, expand: ExpandParams, url: str
 	context.drawImage(frame.canvas, Math.round(expand.x * scale), Math.round(expand.y * scale), frame.canvas.width, frame.canvas.height);
 	context.drawImage(patch, 0, 0, out.width, out.height);
 	return { canvas: out, size: { width: expand.width, height: expand.height } };
+	}
+
+function fitTo(size: PixelDims, maxSide: number): PixelDims {
+	const longest = Math.max(size.width, size.height);
+	if (longest <= maxSide) return size;
+	const scale = maxSide / longest;
+	return { width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)) };
+}
+
+async function previewResized(frame: { canvas: HTMLCanvasElement; size: PixelDims }, url: string, size: PixelDims, maxSide: number, opacity: number, signal: AbortSignal) {
+	const patch = await canvasFromUrl(url);
+	if (signal.aborted) return frame;
+	const target = fitTo(size, maxSide);
+	const out = document.createElement('canvas');
+	out.width = target.width;
+	out.height = target.height;
+	const context = out.getContext('2d', { willReadFrequently: true });
+	if (!context) return frame;
+	context.imageSmoothingQuality = 'high';
+	if (opacity < 1) context.drawImage(frame.canvas, 0, 0, out.width, out.height);
+	context.globalAlpha = opacity;
+	context.drawImage(patch, 0, 0, out.width, out.height);
+	return { canvas: out, size };
 }
 
 export const generateStepKind: StepKind<GenerateParams> = {
@@ -393,12 +437,15 @@ export const generateStepKind: StepKind<GenerateParams> = {
 	version: GENERATE_VERSION,
 	summary: (_params, ctx) => ctx.step.summary,
 	outputSize(raw, ctx) {
+		const resized = resizedPictureOf(raw);
+		if (resized) return resized.size;
 		const params = readGenerateParams(raw);
 		return params?.expand && expandLanded(params) ? { width: params.expand.width, height: params.expand.height } : ctx.input;
 	},
 	payload(raw) {
 		const params = readGenerateParams(raw);
 		const result = params ? chosenResult(params) : null;
+		if (params && result && resizedPictureOf(raw)) return [{ tool: 'place_patch', params: { patch: { item_id: result.patch.item_id }, replace: true } }];
 		if (params?.expand) {
 			if (!result || !expandLanded(params)) return [{ tool: 'place_patch', params: {}, hidden: true }];
 			const { width, height, x, y } = params.expand;
@@ -411,6 +458,8 @@ export const generateStepKind: StepKind<GenerateParams> = {
 	async preview(frame, raw, ctx, signal) {
 		const params = readGenerateParams(raw);
 		const result = params ? chosenResult(params) : null;
+		const resized = resizedPictureOf(raw);
+		if (params && result && resized) return previewResized(frame, result.url, resized.size, ctx.maxSide ?? 1600, opacityOf(ctx.step), signal);
 		if (params?.expand && result && expandLanded(params)) return expandPreview(frame, params.expand, result.url, signal);
 		const place = params ? patchPlacement(params) : null;
 		if (!result || !place) return frame;
@@ -430,6 +479,15 @@ export const generateStepKind: StepKind<GenerateParams> = {
 	state(step) {
 		const params = readGenerateParams(step.params);
 		return params ? generateStateOf(params) : { kind: 'done' };
+	},
+	shapeKey: (raw, beneath) => (isResizedParams(raw) ? pictureKey(beneath) : geometryKey(beneath)),
+	rebase(raw, factor) {
+		const params = readGenerateParams(raw);
+		if (!params || !(factor > 0) || factor === 1) return raw;
+		const next: GenerateParams = { ...params };
+		if (params.area.size) next.area = { ...params.area, size: { width: Math.max(1, Math.round(params.area.size.width * factor)), height: Math.max(1, Math.round(params.area.size.height * factor)) } };
+		if (params.basis?.size) next.basis = { ...params.basis, size: { width: Math.max(1, Math.round(params.basis.size.width * factor)), height: Math.max(1, Math.round(params.basis.size.height * factor)) } };
+		return next;
 	},
 	shapeBasis(raw) {
 		const params = readGenerateParams(raw);

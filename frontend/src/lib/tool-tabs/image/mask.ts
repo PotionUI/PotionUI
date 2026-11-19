@@ -1,5 +1,6 @@
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
 import { GEOMETRY_LANE } from './steps';
+import { resizedPictureEntry } from './generate/upscale';
 
 export interface MaskChannel {
 	path: string;
@@ -9,7 +10,13 @@ export interface MaskChannel {
 
 export function geometryKey(steps: readonly EditStep[]): string {
 	return JSON.stringify(
-		steps.filter((step) => !step.hidden && step.lane === GEOMETRY_LANE).map((step) => [step.tool, step.params])
+		steps
+			.filter((step) => !step.hidden && step.lane === GEOMETRY_LANE)
+			.flatMap((step): Array<[string, unknown]> => {
+				if (step.tool !== 'generate') return [[step.tool, step.params]];
+				const resized = resizedPictureEntry(step.params);
+				return resized ? [resized] : [];
+			})
 	);
 }
 

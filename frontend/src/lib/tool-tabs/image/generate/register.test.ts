@@ -4,6 +4,7 @@ import { railTools } from '$lib/editors/railTools';
 import { tasks } from '$lib/editors/tasks';
 import type { EditorTaskInfo } from '$lib/services/api/editorTasks';
 import { GENERATE_GROUP, syncServerTasks } from './register';
+import { isResizingTask } from './upscale';
 
 const INFO: EditorTaskInfo = { id: 'acme.relight', label: 'Relight', icon: 'extension', region: 'optional', prompt: 'optional', fallback: null } as EditorTaskInfo;
 const drops: Array<() => void> = [];
@@ -60,5 +61,21 @@ describe('syncServerTasks', () => {
 		syncServerTasks([{ ...INFO, id: 'plain_task' }]);
 		expect(tasks.get('image', 'plain_task')).toBeDefined();
 		expect(railTools.get('image', 'plain_task')?.task).toBe('plain_task');
+	});
+
+	it('registers upscale with its own options, a note, no region and no prompt', () => {
+		syncServerTasks([{ id: 'upscale', label: 'Upscale', icon: 'mode-upscale', region: 'none', prompt: 'none', fallback: null, offers: [], default: null, resizes: true } as EditorTaskInfo]);
+		const entry = tasks.get('image', 'upscale');
+		expect(entry).toMatchObject({ region: 'none', prompt: 'none', stepKind: 'generate' });
+		expect(entry?.note).toContain('whole picture');
+		const tool = railTools.get('image', 'upscale');
+		expect(tool?.group).toBe(GENERATE_GROUP);
+		expect(tool?.options).toBeTruthy();
+		expect(tool?.options).not.toBe(railTools.get('image', 'edit_region')?.options);
+	});
+
+	it('marks a task the server calls resizing so its step lands in the geometry lane', () => {
+		syncServerTasks([{ id: 'super_res', label: 'Super', icon: 'extension', region: 'none', prompt: 'none', fallback: null, offers: [], default: null, resizes: true } as EditorTaskInfo]);
+		expect(isResizingTask('super_res')).toBe(true);
 	});
 });

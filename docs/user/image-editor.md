@@ -91,6 +91,26 @@ Expand changes the size of the picture, so it is an edit, not a layer: it sits i
 
 **Your own formats.** An administrator adds named formats in Admin, Settings, Generation, *Expand formats*: a name, a ratio such as 5:2, and who is offered it (everyone or one group).
 
+## Upscale
+
+**Upscale** (in the Generate group on the rail) makes the whole picture bigger with an upscaling setup. There is no prompt and nothing to mark.
+
+1. Pick **2×** or **4×**, or type a width or a height under **Or set a size**. The other side follows, so the shape of the picture is kept. **Result** shows the size you will get. A size that is not larger than the picture, or larger than 16384 pixels on a side, cannot be started and says why.
+2. Choose a setup in the bar below the canvas the first time, then press **Upscale**.
+3. A large picture is cut into overlapping tiles and each tile is enlarged in turn. The step shows which tile is being worked on, for example *Upscaling 3 of 6*, and a bar that fills as the tiles finish. The tiles are blended back together, so no seams show.
+
+The result is a step in the **Edits** list like a crop or a resize. Hide it with the eye to see the smaller picture again, remove it, or press **Try again** to run it once more. The status line under the canvas shows the new size.
+
+**What happens to your other edits.** An upscale always works on the picture as it stands beneath it, so everything beneath is baked into the enlarged picture. Those edits stay in the list and can still be hidden or opened, but they are no longer applied a second time on top.
+
+- If you change something beneath the upscale (a crop, a look, paint, a region edit), the upscale is marked *The picture changed* and is left out until you press **Redo on the new picture**.
+- Edits above the upscale are kept and follow the new size. A crop or a resize that was measured in pixels is multiplied by the same factor, so it covers the same part of the picture. A region edit above keeps its place, because it was placed on the picture as a fraction of its width and height.
+- Paint layers and picture layers keep their place, and are resampled to the larger picture.
+- A marked area that you have not run yet has to be marked again after the picture changes size.
+- Paint cannot be dragged across an upscale, in the same way it cannot cross a crop.
+
+Hiding the upscale does not rescale the edits above it; they use the sizes they have.
+
 ## Edits save themselves
 
 As soon as you change a picture, the editor saves the edit in the background. You do not need to press anything. A small indicator in the editor shows when it is saving, saved, or waiting for your connection. If you lose your connection, the editor keeps your changes and sends them when you are back online.

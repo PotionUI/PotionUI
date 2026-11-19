@@ -2,7 +2,7 @@
 	import { Button, Spinner } from '$lib/components/ui';
 	import TickProgress from '$lib/components/tool-tabs/frame/TickProgress.svelte';
 
-	let { status, progress = 0, dock = false, showCancel = true, onclick }: { status: 'queued' | 'running'; progress?: number; dock?: boolean; showCancel?: boolean; onclick: () => void } = $props();
+	let { status, progress = 0, dock = false, showCancel = true, label = 'Generating', onclick }: { status: 'queued' | 'running'; progress?: number; dock?: boolean; showCancel?: boolean; label?: string; onclick: () => void } = $props();
 
 	let percent = $derived(Math.round(progress * 100));
 </script>
@@ -11,8 +11,8 @@
 	{#if status === 'queued'}
 		<Spinner size="sm" />Waiting for a free slot
 	{:else}
-		Generating · {percent}%
-		<TickProgress {percent} label="Generating" class="max-sm:!w-14" />
+		{label} · {percent}%
+		<TickProgress {percent} {label} class="max-sm:!w-14" />
 	{/if}
 	{#if showCancel}
 	<Button variant={dock ? 'secondary' : 'overlay'} size="xs" class="h-7" onclick={onclick} attrs={{ 'data-run-cancel': '' }}>Cancel</Button>

@@ -60,6 +60,7 @@ export function sizeAfter(step: EditStep, input: PixelSize | null, beneath: read
 	const resolved = resolveImageStep(step);
 	if (resolved.status === 'loading') return coreSizeAfter(step, input);
 	if (resolved.status !== 'kind') return input;
+	if (stepOutOfDate(step, beneath)) return input;
 	const { kind, params } = resolved;
 	const ctx = imageStepContext(step, input, beneath);
 	return callKind(kind, 'outputSize', () => (kind.outputSize ? kind.outputSize(params, ctx) : input), input);

@@ -52,6 +52,8 @@ export interface StepKind<P = unknown> extends EditorEntryBase {
 	payload(params: P, ctx: StepContext<P>): MediaToolStep[];
 	state?(step: EditStep<P>, ctx: StepContext<P>): StepState;
 	shapeBasis?(params: P): string | null;
+	shapeKey?(params: P, beneath: readonly EditStep[]): string;
+	rebase?(params: P, factor: number): P;
 	onAction?(step: EditStep<P>, action: string, ctx: StepContext<P>): void;
 	row?: ComponentRef;
 	extras?(step: EditStep<P>, state: StepState): RowExtras;

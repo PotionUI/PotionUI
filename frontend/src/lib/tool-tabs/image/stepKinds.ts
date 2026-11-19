@@ -44,7 +44,9 @@ export function stepOutOfDate(step: EditStep, beneath: readonly EditStep[]): boo
 	if (resolved.status !== 'kind' || !resolved.kind.shapeBasis) return false;
 	const { kind, params } = resolved;
 	const recorded = callKind(kind, 'shapeBasis', () => kind.shapeBasis!(params), null);
-	return recorded !== null && recorded !== geometryKey(beneath);
+	if (recorded === null) return false;
+	const current = kind.shapeKey ? callKind(kind, 'shapeKey', () => kind.shapeKey!(params, beneath), geometryKey(beneath)) : geometryKey(beneath);
+	return recorded !== current;
 }
 
 export function stepsBeneath(steps: readonly EditStep[], index: number): EditStep[] {

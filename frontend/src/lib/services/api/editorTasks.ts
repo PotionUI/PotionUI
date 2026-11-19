@@ -17,10 +17,21 @@ export interface TimeRange {
 	end_s: number;
 }
 
+export interface PixelDims {
+	width: number;
+	height: number;
+}
+
+export interface RunParts {
+	done: number;
+	total: number;
+}
+
 export interface RunCandidate {
 	patch: { item_id: string };
 	url: string;
 	seed: number | null;
+	size?: PixelDims | null;
 	generation_file_id?: string | null;
 	clip?: boolean;
 	range?: TimeRange | null;
@@ -40,6 +51,8 @@ export interface EditorRun {
 	error: string | null;
 	soft: boolean;
 	rect: NormRect | null;
+	parts?: RunParts | null;
+	size?: PixelDims | null;
 	candidates: RunCandidate[];
 }
 
@@ -138,6 +151,8 @@ export interface StartRunBody {
 	candidates: number;
 	seed: number | null;
 	options?: Record<string, unknown>;
+	scale?: number;
+	target?: PixelDims;
 }
 
 export type EditorTaskFailure =
@@ -146,6 +161,8 @@ export type EditorTaskFailure =
 	| { kind: 'region_required' }
 	| { kind: 'region_empty' }
 	| { kind: 'range_invalid'; message: string | null }
+	| { kind: 'upscale_not_larger' }
+	| { kind: 'upscale_too_large' }
 	| { kind: 'setup_incomplete' }
 	| { kind: 'limit'; message: string | null }
 	| { kind: 'cancel_failed' }
@@ -178,6 +195,8 @@ export function describeEditorTaskFailure(error: unknown): EditorTaskFailure {
 		if (code === 'region_required') return { kind: 'region_required' };
 		if (code === 'region_empty') return { kind: 'region_empty' };
 		if (code === 'range_invalid' || code === 'range_outside_clip' || code === 'range_required' || code === 'range_too_long') return { kind: 'range_invalid', message };
+		if (code === 'upscale_not_larger') return { kind: 'upscale_not_larger' };
+		if (code === 'upscale_too_large') return { kind: 'upscale_too_large' };
 		if (code === 'form_validation_failed') return { kind: 'setup_incomplete' };
 	}
 	if (status === 403) return { kind: 'limit', message };
@@ -197,6 +216,10 @@ export function editorTaskFailureMessage(failure: EditorTaskFailure): string {
 			return 'Mark the area first.';
 		case 'range_invalid':
 			return failure.message ?? 'Mark the part of the clip again.';
+		case 'upscale_not_larger':
+			return 'Pick a size larger than the picture.';
+		case 'upscale_too_large':
+			return 'That size is too large. Pick a smaller factor or size.';
 		case 'setup_incomplete':
 			return 'This setup is missing a model. Open Settings and choose it.';
 		case 'limit':
@@ -225,6 +248,21 @@ function finite(value: unknown): number | null {
 	return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+export function pixelDimsOf(raw: unknown): PixelDims | null {
+	if (!isRecord(raw)) return null;
+	const width = finite(raw.width);
+	const height = finite(raw.height);
+	return width !== null && height !== null && width > 0 && height > 0 ? { width: Math.round(width), height: Math.round(height) } : null;
+}
+
+export function runPartsOf(raw: unknown): RunParts | null {
+	if (!isRecord(raw)) return null;
+	const total = finite(raw.total);
+	const done = finite(raw.done);
+	if (total === null || done === null || total < 1) return null;
+	return { done: Math.max(0, Math.min(Math.trunc(total), Math.trunc(done))), total: Math.trunc(total) };
+}
+
 export function timeRangeOf(raw: unknown): TimeRange | null {
 	if (!isRecord(raw)) return null;
 	const start = finite(raw.start_s);
@@ -244,6 +282,8 @@ export function normalizeRun(raw: unknown): EditorRun {
 		const url = str(entry.url);
 		if (!patch || !url) return [];
 		const candidate: RunCandidate = { patch: { item_id: patch }, url, seed: typeof entry.seed === 'number' ? entry.seed : null, generation_file_id: str(entry.generation_file_id) };
+		const size = pixelDimsOf(entry.size);
+		if (size) candidate.size = size;
 		if (clip) {
 			candidate.clip = true;
 			candidate.range = timeRangeOf(entry.range);
@@ -264,6 +304,8 @@ export function normalizeRun(raw: unknown): EditorRun {
 		error: str(run.error),
 		soft: run.soft === true,
 		rect: rectOf(run.rect),
+		parts: runPartsOf(run.parts),
+		size: pixelDimsOf(run.size),
 		range: isRecord(run.range) && timeRangeOf(run.range) ? { ...timeRangeOf(run.range)!, whole: run.range.whole === true } : null,
 		candidates
 	};

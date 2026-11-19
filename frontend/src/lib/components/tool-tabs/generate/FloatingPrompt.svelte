@@ -15,6 +15,7 @@
 	import { viaNote } from '$lib/tool-tabs/image/generate/taskOptions';
 	import { areaLabel } from '$lib/tool-tabs/image/generate/area';
 	import { expandUi, targetsOf } from '$lib/tool-tabs/image/generate/expand';
+	import { busyLabel } from '$lib/tool-tabs/image/generate/generateStep';
 	import { maskArea } from '$lib/tool-tabs/image/maskOverlays';
 	import EditorFormulas from './EditorFormulas.svelte';
 	import EditorPickers from './EditorPickers.svelte';
@@ -49,7 +50,6 @@
 	const ui = generate.ui;
 
 	const video = generate.editor === 'video';
-	
 	let collapsed = $state(false);
 	let root = $state<HTMLElement | null>(null);
 
@@ -63,7 +63,7 @@
 	});
 	let label = $derived(entry?.label ?? task?.label ?? 'Generate');
 	let direct = $derived(isDirectMode($ui.taskId, $ui.background.mode));
-	let noPromptNote = $derived(video ? 'No description needed.' : direct ? 'The marked background is replaced right away.' : 'The marked object will be removed.');
+	let noPromptNote = $derived(entry?.note ?? (video ? 'No description needed.' : direct ? 'The marked background is replaced right away.' : 'The marked object will be removed.'));
 	let needsPrompt = $derived((entry?.prompt ?? task?.prompt ?? 'required') !== 'none' && !direct);
 	let promptRequired = $derived((entry?.prompt ?? task?.prompt) === 'required' && !direct);
 	let regionRequired = $derived((entry?.region ?? task?.region) === 'required');
@@ -96,7 +96,8 @@
 		return taskId === REPLACE_BACKGROUND_TASK && blockedBy === 'Mark the object first' ? NEEDS_SUBJECT_REASON : blockedBy;
 	});
 	let borderProgress = $derived(borderProgressOf(run));
-	let runText = $derived(borderProgress.state === 'running' ? `Generating ${borderProgress.percent}%` : borderProgress.state === 'loading' ? 'Waiting' : null);
+	let runVerb = $derived(busyLabel(taskId ?? '', run?.parts ?? null));
+	let runText = $derived(borderProgress.state === 'running' ? `${runVerb} ${borderProgress.percent}%` : borderProgress.state === 'loading' ? 'Waiting' : null);
 	let markInfo = $derived(markOf({ running: !!running, starting: $ui.starting, reason }));
 	let markLabel = $derived(direct && markInfo.state === 'ready' ? 'Replace the background' : markInfo.label);
 	let viaShown = $derived.by(() => {

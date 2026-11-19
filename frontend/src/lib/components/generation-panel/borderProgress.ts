@@ -3,6 +3,7 @@ import { deriveDeckState } from './deckStatus';
 export interface BorderRun {
 	status: string;
 	progress?: number | null;
+	parts?: { done: number; total: number } | null;
 }
 
 export interface BorderProgress {

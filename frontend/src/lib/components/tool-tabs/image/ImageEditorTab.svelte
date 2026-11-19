@@ -36,7 +36,7 @@
 	import { createTabGenerate } from '$lib/tool-tabs/image/generate/wiring';
 	import { provideGenerateController } from '$lib/tool-tabs/image/generate/context';
 	import { isLargeArea } from '$lib/tool-tabs/image/generate/area';
-	import { generateSteps, leftOutCount, leftOutNotice, shapeChange, stepsBeneathOf } from '$lib/tool-tabs/image/generate/generateStep';
+	import { busyLabel, generateSteps, leftOutCount, leftOutNotice, shapeChange, stepsBeneathOf } from '$lib/tool-tabs/image/generate/generateStep';
 	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
 	import { maskWhatOf } from '$lib/tool-tabs/image/generate/taskOptions';
 	import { settingsOf } from '$lib/tool-tabs/image/generate/register';
@@ -515,8 +515,13 @@
 		void $editorsRevision;
 		return registeredTool?.task ? !!tasks.get('image', registeredTool.task)?.grows : false;
 	});
+	let taskRegionNone = $derived.by(() => {
+		void $editorsRevision;
+		return registeredTool?.task ? tasks.get('image', registeredTool.task)?.region === 'none' : false;
+	});
+	let noMaskTask = $derived(growsTool || taskRegionNone);
 	let mode = $derived<'paint' | 'mask' | 'crop' | 'preview'>(
-		paintActive ? 'paint' : activeTool === 'mask' || (registeredTool?.task && !growsTool) ? 'mask' : activeTool === 'crop' ? 'crop' : 'preview'
+		paintActive ? 'paint' : activeTool === 'mask' || (registeredTool?.task && !noMaskTask) ? 'mask' : activeTool === 'crop' ? 'crop' : 'preview'
 	);
 	let taskTool = $derived(!!registeredTool?.task);
 	$effect(() => {
@@ -537,7 +542,7 @@
 	});
 	let promptSettings = $derived(settingsRef ? { open: settingsOpen, toggle: () => (settingsFor = settingsOpen ? null : activeTool) } : undefined);
 	$effect(() => {
-		if (!taskTool || growsTool) return;
+		if (!taskTool || noMaskTask) return;
 		const before = get(maskToolState);
 		chooseOverlay(LASSO_OVERLAY);
 		return () => maskToolState.set(before);
@@ -2570,7 +2575,7 @@
 	let statusInfo = $derived(
 		statusParts({
 			tool: activeTool,
-			areaTool: (taskTool && !growsTool) || activeTool === 'mask',
+			areaTool: (taskTool && !noMaskTask) || activeTool === 'mask',
 			size: outputDims,
 			marked: $maskArea,
 			output:
@@ -2676,7 +2681,7 @@
 		<p class="text-sm text-danger" role="alert">{notice}</p>
 	{/if}
 	{#if registeredTool?.options || registeredTool?.schema}
-		{#if registeredTool.task && !growsTool}
+		{#if registeredTool.task && !noMaskTask}
 			<MaskOptions bind:brush={maskBrush} bind:erase={maskErase} onclear={resetTool} what={maskWhatOf(registeredTool.task)} />
 			{#if staleMask}
 				<p class="text-sm text-warning" data-mask-stale>The marked area was drawn before a shape change, so it no longer lines up. Mark it again.</p>
@@ -2929,7 +2934,7 @@
 		</EditorCanvas>
 		{#if taskTool && phone && runningId && runStatus}
 			<div class="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2" data-run-chip-host>
-				<RunChip status={runStatus === 'queued' ? 'queued' : 'running'} progress={runView?.progress ?? 0} onclick={() => void generate.cancel(runningId!)} />
+				<RunChip status={runStatus === 'queued' ? 'queued' : 'running'} progress={runView?.progress ?? 0} label={busyLabel(runStep?.params.task ?? '', runView?.run?.parts ?? null)} onclick={() => void generate.cancel(runningId!)} />
 			</div>
 		{/if}
 		{#if renderError}
@@ -2967,7 +2972,7 @@
 		<EditorEntryComponent
 			entry={entryKey('image', registeredTool!.id)}
 			componentRef={dockRef}
-			props={{ running: runningId, run: runStep && runStatus ? { status: runStatus, progress: runView?.progress ?? null } : null, large: largeArea, settings: promptSettings, tempRow: dockTempRow, hasTemp: dockHasTemp, extras: registeredTool?.dockExtras ? dockExtrasView : undefined }}
+			props={{ running: runningId, run: runStep && runStatus ? { status: runStatus, progress: runView?.progress ?? null, parts: runView?.run?.parts ?? null } : null, large: largeArea, settings: promptSettings, tempRow: dockTempRow, hasTemp: dockHasTemp, extras: registeredTool?.dockExtras ? dockExtrasView : undefined }}
 		/>
 	{/if}
 {/snippet}

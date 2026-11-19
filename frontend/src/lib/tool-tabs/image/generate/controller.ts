@@ -24,6 +24,8 @@ import type { EditLink } from '../editLink';
 import { expandUi, paramsOf, retarget, targetsOf, type ExpandTarget } from './expand';
 import { addApplied, appliedFormulaOf, withoutApplied, type AppliedFormula } from './formulas';
 import type { RunEngine } from './runEngine';
+import { landUpscale } from '../upscaleRebase';
+import { UPSCALE_FACTORS, isResizingTask, pictureKey, resizedPictureOf, upscaleReasonText, upscaleSize, type RunOptions } from './upscale';
 import {
 	GENERATE_TOOL,
 	GENERATE_VERSION,
@@ -370,6 +372,15 @@ export function createGenerateController(deps: ControllerDeps) {
 		return offerOf(task.offers, choice)?.max_range_s ?? null;
 	}
 
+	function optionsFor(taskId: string): RunOptions | undefined {
+		if (!isResizingTask(taskId)) return undefined;
+		return (get(state).options[taskId] as RunOptions | undefined) ?? { scale: UPSCALE_FACTORS[0] };
+	}
+
+	function setOptions(taskId: string, options: RunOptions): void {
+		state.update((current) => ({ ...current, options: { ...current.options, [taskId]: options }, error: null }));
+	}
+
 	function setPrompt(taskId: string, text: string): void {
 		state.update((current) => ({ ...current, prompts: { ...current.prompts, [taskId]: text }, error: null }));
 	}
@@ -709,7 +720,8 @@ export function createGenerateController(deps: ControllerDeps) {
 		const link = input.link ?? (await deps.editLink());
 		if (!link) return { error: NOT_SAVED_MESSAGE };
 		const task = taskOf(taskId);
-		const basis = deps.basisOf ? deps.basisOf(stepId) : basisFor(beneathOf(stepId), deps.pictureSize?.(stepId) ?? null);
+		const beneath = beneathOf(stepId);
+		const basis = deps.basisOf ? deps.basisOf(stepId) : isResizingTask(taskId) ? { geometry: pictureKey(beneath), size: deps.pictureSize?.(stepId) ?? null } : basisFor(beneath, deps.pictureSize?.(stepId) ?? null);
 		const steps = await deps.stepsBeneath(stepId);
 		const body: StartRunBody = {
 			edit: { id: link.id, step_id: stepId },
@@ -721,9 +733,10 @@ export function createGenerateController(deps: ControllerDeps) {
 			prompt: task?.prompt === 'none' ? null : input.prompt.trim() || null,
 			setup: { preset_id: input.setup.preset_id, mode: input.setup.mode, form_data: input.setup.form_data },
 			candidates: input.candidates,
-			seed: input.seed
+			seed: input.seed,
+			...(isResizingTask(taskId) ? (input.options ?? {}) : {})
 		};
-		const options = runOptionsOf(input.options);
+		const options = isResizingTask(taskId) ? undefined : runOptionsOf(input.options);
 		if (options) body.options = options;
 		try {
 			return { run: await deps.engine.start(taskId, body, stepId), basis };
@@ -743,7 +756,8 @@ export function createGenerateController(deps: ControllerDeps) {
 		}
 		if (task.grows) return generateExpand(taskId, choice);
 		const prompt = current.prompts[taskId] ?? '';
-		const options = runOptionsOf(current.options[taskId]);
+		const resize = optionsFor(taskId);
+		const options = resize ?? runOptionsOf(current.options[taskId]);
 		if (task.prompt === 'required' && !prompt.trim()) return fail('Describe the change first.');
 		if (task.region === 'required' && !areaMarked) return fail('Mark the area first.');
 		patch({ starting: true, error: null });
@@ -764,6 +778,11 @@ export function createGenerateController(deps: ControllerDeps) {
 			const stepId = redo ? redo.step.step.id : nextStepId();
 			const candidates = countOf(offerOf(task.offers, choice), resolved.form_data);
 			const range = deps.range ? deps.range() : undefined;
+			const source = resize ? (deps.pictureSize?.(stepId) ?? null) : null;
+			if (resize && source) {
+				const outcome = upscaleSize(source, resize);
+				if (!outcome.ok) return fail(upscaleReasonText(outcome.reason));
+			}
 			const submitted = await submit(taskId, stepId, { prompt, setup: resolved, region, range, candidates, seed: redo ? redo.state.seed : null, options });
 			if (!('run' in submitted)) return fail(submitted.error);
 			const run = submitted.run;
@@ -1087,7 +1106,10 @@ export function createGenerateController(deps: ControllerDeps) {
 			if (view.run) return withRun(params, view.run);
 			return { ...params, run: { ...params.run, status: view.status as GenerateParams['run']['status'], error: view.error } };
 		});
-		if (next !== stack) deps.setStack(next);
+		if (next === stack) return;
+		const landed = view.status === 'done' ? next.steps.find((step) => step.id === view.stepId) : undefined;
+		const picture = landed ? resizedPictureOf(landed.params) : null;
+		deps.setStack(picture ? landUpscale(next, view.stepId, picture.size) : next);
 	}
 
 	function resume(stack: EditStackState<unknown>): void {
@@ -1140,6 +1162,8 @@ export function createGenerateController(deps: ControllerDeps) {
 		chooseBackgroundPicture,
 		findSubject,
 		applyBackground,
+		setOptions,
+		optionsFor,
 		askForPicker,
 		pickerHandled,
 		pick,

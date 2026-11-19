@@ -12,6 +12,7 @@ export interface TaskEntry extends EditorEntryBase {
 	result?: 'replace' | 'append';
 	fallback?: { task: string; prompt: string };
 	grows?: boolean;
+	note?: string;
 }
 
 export const tasks = createEditorRegistry<TaskEntry>('tasks');

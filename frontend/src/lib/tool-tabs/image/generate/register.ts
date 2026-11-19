@@ -6,6 +6,7 @@ import ExpandOptions from '$lib/components/tool-tabs/generate/ExpandOptions.svel
 import RangeOptions from '$lib/components/tool-tabs/video/options/RangeOptions.svelte';
 import ReplaceBackgroundOptions from '$lib/components/tool-tabs/generate/ReplaceBackgroundOptions.svelte';
 import GenerateSettings from '$lib/components/tool-tabs/generate/GenerateSettings.svelte';
+import UpscaleOptions from '$lib/components/tool-tabs/generate/UpscaleOptions.svelte';
 import { railGroups, railTools } from '$lib/editors/railTools';
 import { stepKinds } from '$lib/editors/stepKinds';
 import type { RailToolEntry } from '$lib/editors/railTools';
@@ -15,13 +16,17 @@ import type { EditorTaskInfo } from '$lib/services/api/editorTasks';
 import { taskToolActions } from '../canvasActions';
 import { GENERATE_TOOL, generateStepKind } from './generateStep';
 import { REPLACE_BACKGROUND_PROMPT, replaceBackgroundStepKind } from './backgroundStep';
+import { UPSCALE_TASK, markResizingTasks } from './upscale';
 
 export const GENERATE_GROUP = 'generate';
 export { REPLACE_BACKGROUND_PROMPT };
 export const REMOVE_PROMPT = 'Remove the marked object. Fill the area so it matches its surroundings.';
 export const EXPAND_PROMPT = 'Continue the picture beyond its edges so the new area matches it.';
 
-type TaskSeed = Pick<TaskEntry, 'id' | 'label' | 'icon' | 'region' | 'prompt' | 'fallback' | 'range' | 'result' | 'grows'>;
+type TaskSeed = Pick<TaskEntry, 'id' | 'label' | 'icon' | 'region' | 'prompt' | 'fallback' | 'range' | 'result' | 'grows' | 'note'>;
+
+const TASK_OPTIONS: Readonly<Record<string, Component<any>>> = { [UPSCALE_TASK]: UpscaleOptions as unknown as Component<any> };
+const TASK_NOTES: Readonly<Record<string, string>> = { [UPSCALE_TASK]: 'Enlarges the whole picture. Choose the size in the options.' };
 
 export const CORE_TASKS: readonly TaskSeed[] = [
 	{ id: 'edit_region', label: 'Edit a region', icon: editorToolIcons.edit_region, region: 'optional', prompt: 'required' },
@@ -46,6 +51,7 @@ function registerTask(seed: TaskSeed, order: number, owner?: string, editor: 'im
 	if (seed.result) entry.result = seed.result;
 	if (seed.fallback) entry.fallback = seed.fallback;
 	if (seed.grows) entry.grows = true;
+	if (seed.note) entry.note = seed.note;
 	const drops: Array<() => void> = [];
 	if (!tasks.get(editor, seed.id)) drops.push(tasks.register(entry, owner));
 	const taken = railTools.list(editor).some((tool) => tool.task === seed.id);
@@ -71,6 +77,7 @@ export function ensureGenerateEditor(): void {
 
 export function syncServerTasks(infos: readonly EditorTaskInfo[]): void {
 	ensureGenerateEditor();
+	markResizingTasks(infos.filter((info) => info.resizes === true).map((info) => info.id));
 	const shown = infos.filter((info) => !info.internal);
 	const wanted = new Map(shown.map((info) => [info.id, info]));
 	for (const [id, drop] of dynamic) {
@@ -82,7 +89,7 @@ export function syncServerTasks(infos: readonly EditorTaskInfo[]): void {
 	for (const info of shown) {
 		order += 10;
 		if (dynamic.has(info.id)) continue;
-		dynamic.set(info.id, registerTask({ id: info.id, label: info.label, icon: info.icon, region: info.region, prompt: info.prompt, fallback: info.fallback ?? undefined, ...(info.grows ? { grows: true } : {}) }, order, CORE_OWNER));
+		dynamic.set(info.id, registerTask({ id: info.id, label: info.label, icon: info.icon, region: info.region, prompt: info.prompt, fallback: info.fallback ?? undefined, ...(info.grows ? { grows: true } : {}), ...(TASK_NOTES[info.id] ? { note: TASK_NOTES[info.id] } : {}) }, order, CORE_OWNER, 'image', TASK_OPTIONS[info.id]));
 	}
 }
 

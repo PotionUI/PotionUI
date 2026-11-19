@@ -147,3 +147,30 @@ describe('the expand task and its formats', () => {
 		expect(formats.map((format) => format.id)).toEqual(['story']);
 	});
 });
+
+describe('upscale runs', () => {
+	it('reads the parts and the size of a run and of each candidate', () => {
+		const run = normalizeRun({ id: 'er', status: 'running', progress: 0.4, parts: { done: 2, total: 6 }, size: { width: 4096, height: 3072 }, candidates: [{ patch: { item_id: 'p' }, url: '/p.png', seed: 1, size: { width: 4096, height: 3072 } }] });
+		expect(run.parts).toEqual({ done: 2, total: 6 });
+		expect(run.size).toEqual({ width: 4096, height: 3072 });
+		expect(run.candidates[0].size).toEqual({ width: 4096, height: 3072 });
+	});
+
+	it('keeps old runs as they were', () => {
+		const run = normalizeRun({ id: 'er', status: 'done', candidates: [{ patch: { item_id: 'p' }, url: '/p.png', seed: 1 }] });
+		expect(run.parts).toBeNull();
+		expect(run.size).toBeNull();
+		expect(run.candidates[0]).not.toHaveProperty('size');
+	});
+
+	it('bounds parts that make no sense', () => {
+		expect(normalizeRun({ id: 'er', status: 'running', parts: { done: 9, total: 4 } }).parts).toEqual({ done: 4, total: 4 });
+		expect(normalizeRun({ id: 'er', status: 'running', parts: { done: 0, total: 0 } }).parts).toBeNull();
+	});
+
+	it('words the two size refusals', () => {
+		expect(describeEditorTaskFailure(failure(422, { error: 'upscale_not_larger' }))).toEqual({ kind: 'upscale_not_larger' });
+		expect(describeEditorTaskFailure(failure(422, { error: 'upscale_too_large' }))).toEqual({ kind: 'upscale_too_large' });
+		expect(editorTaskFailureMessage({ kind: 'upscale_not_larger' })).toBe('Pick a size larger than the picture.');
+	});
+});

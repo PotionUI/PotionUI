@@ -188,10 +188,9 @@ describe('a registered step kind drives the Image editor entry points', () => {
 		expect(toolMeta('acme.halftone')).toMatchObject({ label: 'Halftone', icon: 'extension' });
 	});
 
-	it('every paint entry contributes an in-progress group to the Edits list and no other core entry does', () => {
+	it('no core entry nests an in-progress group in the Layers or Edits list', () => {
 		imageRail();
-		const withGroup = railTools.list('image').filter((tool) => tool.children).map((tool) => tool.id).sort();
-		expect(withGroup).toEqual(['paint.brush', 'paint.eraser', 'paint.fill', 'paint.lasso', 'paint.move', 'paint.pick', 'paint.rect']);
+		expect(railTools.list('image').filter((tool) => tool.children).map((tool) => tool.id)).toEqual([]);
 	});
 
 	it('lets a plugin entry contribute its own in-progress group', () => {

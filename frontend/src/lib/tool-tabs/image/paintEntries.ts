@@ -1,4 +1,3 @@
-import PaintEditsGroup from '$lib/components/paint/PaintEditsGroup.svelte';
 import { CORE_OWNER } from '$lib/registries/registry';
 import { railGroups, railTools } from '$lib/editors/railTools';
 import {
@@ -39,7 +38,6 @@ function entryFor(tool: PaintTool, order: number) {
 		label: tool.label,
 		icon: paintIconFor(tool),
 		order,
-		children: { component: PaintEditsGroup },
 		...canvasActionsFor(tool),
 		...(tool.key ? { keys: tool.key } : {})
 	};

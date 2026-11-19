@@ -345,9 +345,23 @@
 		return activeTool ? railTools.get('image', activeTool) : undefined;
 	});
 	let stackGroup = $derived.by(() => {
-		if (!registeredTool?.children || !source) return null;
-		if (paintActive && !paintState) return null;
-		return { target: pendingHere?.target ?? null, keepRow: !!paintTargetStep };
+		if (!paintActive || !source || !paintState) return null;
+		return { target: pendingHere?.target ?? null, after: anchorCount >= 0 ? layerAnchor : null, live: paintLive };
+	});
+	let paintLive = $derived.by(() => {
+		const session = paintSession;
+		const state = paintState;
+		if (!session || !state || paintTargetStep) return null;
+		const index = state.activeIndex;
+		const layer = state.layers[index];
+		if (!layer) return null;
+		return {
+			label: paintLayerName,
+			hidden: !layer.visible,
+			opacity: layer.opacity,
+			onhide: () => session.toggleLayerVisible(index),
+			onopacity: (value: number) => session.setLayerOpacity(index, value)
+		};
 	});
 	let rowInfoFor = $derived.by(() => {
 		void $editorsRevision;
@@ -1333,14 +1347,16 @@
 
 	async function addEmptyLayer() {
 		if (busy || !source) return;
-		if (paintSession && mode === 'paint') {
-			paintSession.addLayer();
-			if (phone) stackOpen = false;
-			return;
-		}
-		const anchor = selectedStepId;
+		const inPaint = mode === 'paint';
+		const anchor = selectedStepId ?? (inPaint ? layerAnchor : null);
+		const reopened = !!pending?.target;
 		if (!(await leaveTool())) return;
-		await openNewLayer(anchor);
+		if (inPaint) paintKey += 1;
+		await openNewLayer(inPaint && !reopened ? (landedAnchor() ?? anchor) : anchor);
+	}
+
+	function landedAnchor(): string | null {
+		return layerAnchor ?? applied.findLast(isLayerStep)?.id ?? null;
 	}
 
 	async function openNewLayer(anchor: string | null, picture: { canvas: HTMLCanvasElement; name: string } | null = null) {
@@ -1366,13 +1382,11 @@
 	async function placePicture(image: { canvas: HTMLCanvasElement; name: string }) {
 		addSource = null;
 		const name = image.name.replace(/\.[^.]+$/, '') || 'Picture';
-		if (paintSession && mode === 'paint') {
-			paintSession.addImage(image.canvas, name);
-			if (phone) stackOpen = false;
-			return;
-		}
+		const inPaint = mode === 'paint';
+		const reopened = !!pending?.target;
 		if (!(await leaveTool())) return;
-		await openNewLayer(addAnchor, { canvas: image.canvas, name });
+		if (inPaint) paintKey += 1;
+		await openNewLayer(inPaint && !reopened ? (landedAnchor() ?? addAnchor) : addAnchor, { canvas: image.canvas, name });
 	}
 
 	function renameLayer(id: string, label: string) {
@@ -2840,11 +2854,6 @@
 						{/each}
 					{/snippet}
 				</Menu>
-			{/if}
-		{/snippet}
-		{#snippet progressRow(index)}
-			{#if registeredTool?.children}
-				<EditorEntryComponent entry={entryKey('image', registeredTool.id)} componentRef={registeredTool.children} props={{ host: toolHost, phone, index, session: paintSession, state: paintState, rowShown: !!paintTargetStep }} />
 			{/if}
 		{/snippet}
 		{#snippet notes()}

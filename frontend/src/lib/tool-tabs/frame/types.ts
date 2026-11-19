@@ -52,7 +52,16 @@ export type SaveAction =
 
 export type StackVariant = 'panel' | 'sheet';
 
+export interface LiveLayer {
+	label: string;
+	hidden: boolean;
+	opacity: number;
+	onhide: () => void;
+	onopacity: (value: number) => void;
+}
+
 export interface StackProgress {
 	target: string | null;
-	keepRow?: boolean;
+	after?: string | null;
+	live?: LiveLayer | null;
 }

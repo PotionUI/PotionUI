@@ -42,9 +42,23 @@
 	{/if}
 {/snippet}
 
+{#snippet floatingCard()}
+	{#if !layers && snapshot.floatingId !== null}
+		<div class="flex items-center gap-2 rounded-lg border border-dashed border-signal bg-signal/10 p-2" data-floating-row>
+			<span class="flex min-w-0 flex-1 flex-col">
+				<span class="truncate text-base font-medium text-fg">Floating piece</span>
+				<span class="truncate text-sm text-signal">Press Enter to place</span>
+			</span>
+			<Button variant="secondary" size="xs" onclick={() => session.placeFloating()} attrs={{ 'data-floating-place': '' }}>Place</Button>
+			<Button size="xs" onclick={() => session.keepFloatingAsLayer()} attrs={{ 'data-floating-keep': '' }}>Keep as layer</Button>
+		</div>
+	{/if}
+{/snippet}
+
 {#if phone}
 	<div class="flex flex-col gap-3" data-paint-options="phone">
 		{@render targetCard()}
+		{@render floatingCard()}
 		<PaintToolPanel {session} state={snapshot} {phone} {onSaveFilter} />
 		{#if layers}
 		<Button variant="secondary" size="sm" icon="layers" class="w-full" ariaHaspopup="dialog" onclick={() => (layersOpen = true)} attrs={{ 'data-paint-layers-button': '' }}>
@@ -63,6 +77,7 @@
 {:else}
 	<div class="flex flex-col gap-3" data-paint-options="desktop">
 		{@render targetCard()}
+		{@render floatingCard()}
 		<PaintPanel {session} state={snapshot} {layerActions} withLayers={layers} {onSaveFilter} />
 	</div>
 {/if}

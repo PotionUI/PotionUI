@@ -23,7 +23,8 @@
 		type LanePair,
 		type StackRow
 	} from '$lib/tool-tabs/frame/editStack';
-	import type { StackProgress, StackVariant } from '$lib/tool-tabs/frame/types';
+	import { readStackFolds, writeStackFolds, type StackFoldName } from '$lib/tool-tabs/frame/stackFolds';
+	import type { LiveLayer, StackProgress, StackVariant } from '$lib/tool-tabs/frame/types';
 	import type { PatchMask } from '$lib/tool-tabs/image/layers';
 
 	let {
@@ -51,7 +52,6 @@
 		moreItems = [],
 		notes,
 		progress = null,
-		progressRow,
 		rowInfo,
 		onrowaction,
 		onreopen,
@@ -87,7 +87,6 @@
 		moreItems?: MenuItem[];
 		notes?: Snippet;
 		progress?: StackProgress | null;
-		progressRow?: Snippet<[number]>;
 		rowInfo?: (step: EditStep<unknown>) => StepRowInfo | null;
 		onrowaction?: (id: string, action: string) => void;
 		onreopen: (id: string) => void;
@@ -113,17 +112,32 @@
 	let applied = $derived(appliedCount(stack));
 	let undone = $derived(undoneCount(stack));
 	let sheet = $derived(variant === 'sheet');
-	let grouped = $derived(!!progress && !!progressRow);
-	let slot = $derived.by(() => {
-		if (!progress) return null;
-		if (progress.target && rows.some((row) => row.key === progress.target)) return progress.target;
-		if (rows.some((row) => row.key === 'pending')) return 'pending';
+	let liveLayer = $derived<LiveLayer | null>(layered && progress && !progress.target ? (progress.live ?? null) : null);
+	let liveAnchor = $derived.by(() => {
+		if (!liveLayer) return null;
+		if (progress?.after && layerRows.some((row) => row.key === progress.after)) return progress.after;
 		let last = 'original';
-		for (const row of rows) if (row.status !== 'undone') last = row.key;
+		for (const row of layerRows.slice().reverse()) if (row.status !== 'undone' && row.status !== 'pending') last = row.key;
 		return last;
 	});
 	let opened = $state(false);
 	let shut = $derived(!sheet && (collapsed || (folded && !opened)));
+	let folds = $state(readStackFolds());
+	let bothFolded = $derived(layered && !sheet && folds.layers && folds.edits);
+
+	function toggleFold(name: StackFoldName) {
+		if (shut) {
+			if (folds[name]) {
+				folds = { ...folds, [name]: false };
+				writeStackFolds(folds);
+			}
+			if (folded && !collapsed) opened = true;
+			else collapsed = false;
+			return;
+		}
+		folds = { ...folds, [name]: !folds[name] };
+		writeStackFolds(folds);
+	}
 
 	$effect(() => {
 		if (!folded) opened = false;
@@ -329,7 +343,6 @@
 			class="group relative flex {rowHeight(row)} items-center gap-2 rounded pl-1 pr-1.5
 				{row.status === 'current' || row.reopened ? 'is-current bg-signal/[0.08]' : 'hover:bg-surface-2'}
 				{row.status === 'pending' ? 'border border-dashed border-line-hover' : ''}
-					{grouped && !progress?.keepRow && slot === row.key && (row.status === 'pending' || row.reopened) ? '!hidden' : ''}
 				{row.status === 'undone' ? 'opacity-[0.45]' : ''}
 				{dragging ? `z-10 bg-surface-2 shadow-floating ${dropAllowed ? '' : 'cursor-not-allowed'}` : ''}"
 			style={dragging && drag ? `transform: translateY(${drag.dy}px)` : undefined}
@@ -549,69 +562,117 @@
 		{#if dropHere && (dropIndex > (drag?.from ?? 0)) !== layered}
 			{@render refusalLine()}
 		{/if}
-		{#if grouped && progressRow && slot === row.key}
-			<div role="listitem" class="mt-0.5" data-stack-group>
-				{@render progressRow(((row.status === 'pending' || row.reopened) && !progress?.keepRow) ? row.index : row.index + 1)}
-			</div>
-		{/if}
 {/snippet}
 
-{#snippet sectionHeader(name: 'layers' | 'edits')}
+{#snippet liveRowView(live: LiveLayer)}
+	<div
+		role="listitem"
+		class="group relative flex {sheet ? 'h-12' : 'h-11'} items-center gap-2 rounded bg-signal/[0.08] pl-1 pr-1.5 before:absolute before:-left-2 before:inset-y-2 before:w-0.5 before:bg-signal"
+		data-stack-live
+		data-status="live"
+		aria-current="true"
+		data-hidden={live.hidden || undefined}
+	>
+		<span class="w-3 flex-none" aria-hidden="true"></span>
+		<span class="grid h-7 w-7 flex-none place-items-center rounded bg-surface-2 text-fg-muted {live.hidden ? 'opacity-[0.45]' : ''}">
+			<Icon name="editor-paint" className="h-3.5 w-3.5" />
+		</span>
+		<span class="flex min-w-0 flex-1 flex-col {live.hidden ? 'opacity-[0.45]' : ''}">
+			<span class="flex min-w-0 items-center gap-1.5 text-base font-medium leading-[18px] text-fg">
+				<i class="h-1.5 w-1.5 flex-none rounded-full bg-signal" data-stack-marker="live"></i>
+				<span class="truncate" data-stack-live-name>{live.label}</span>
+			</span>
+			<span class="truncate font-mono text-sm text-fg-subtle"><span class="font-sans text-signal">Painting</span><span class="px-1">·</span>New layer</span>
+		</span>
+		{#if !sheet}
+			<span class="flex-none font-mono text-sm tabular-nums text-fg {live.hidden ? 'opacity-[0.45]' : ''}" data-stack-opacity="live">{Math.round(live.opacity * 100)}%</span>
+		{/if}
+		<IconButton
+			icon={live.hidden ? 'editor-eye-off' : 'editor-eye'}
+			label="{live.hidden ? 'Show' : 'Hide'} {live.label}"
+			size="xs"
+			class={sheet ? 'min-h-11 min-w-11' : ''}
+			ariaPressed={live.hidden}
+			onclick={() => live.onhide()}
+			data-stack-hide="live"
+		/>
+	</div>
+	<div class="mb-1 ml-1 flex flex-col gap-1.5 border-l-2 border-signal bg-signal/[0.04] py-1 pl-3 pr-1.5" role="group" aria-label="Layer opacity" data-layer-drawer="live">
+		<SliderField
+			name="layer-opacity"
+			config={{ title: 'Opacity', min: 0, max: 100, default: 100, unit: '%', layout: 'inline', reset: true, legend: false }}
+			value={Math.round(live.opacity * 100)}
+			onChange={(_name, value) => live.onopacity(Number(value) / 100)}
+		/>
+	</div>
+{/snippet}
+
+{#snippet sectionHeader(name: StackFoldName)}
 	{@const count = name === 'layers' ? layerCount : editCount}
-	<div class="flex flex-none items-center gap-2 {sheet ? 'h-12 px-2' : name === 'layers' ? 'h-11 pl-4 pr-2' : 'h-10 border-t border-line pl-4 pr-2'}" data-stack-header={name}>
+	{@const closed = shut || folds[name]}
+	{@const title = name === 'layers' ? 'Layers' : 'Edits'}
+	<div class="relative flex flex-none items-center gap-2 {sheet ? 'h-12 px-2' : name === 'layers' ? 'h-11 pl-4 pr-2' : 'h-10 border-t border-line pl-4 pr-2'}" data-stack-header={name} data-fold-closed={closed || undefined}>
+		<button
+			type="button"
+			class="absolute inset-0 rounded hover:bg-surface-2/60 focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-signal"
+			aria-label={title}
+			aria-expanded={!closed}
+			onclick={() => toggleFold(name)}
+			data-stack-fold={name}
+		></button>
 		{#if !sheet}
 			<Icon name={name === 'layers' ? 'editor-layers' : 'sliders'} className="h-3.5 w-3.5 flex-none text-fg-muted" />
 		{/if}
-		<h2 class="{sheet ? 'text-lg' : 'text-base'} font-semibold text-fg">{name === 'layers' ? 'Layers' : 'Edits'}</h2>
+		<h2 class="{sheet ? 'text-lg' : 'text-base'} font-semibold text-fg">{title}</h2>
 		<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count={name}>{count}</span>
 		<span class="flex-1"></span>
-		{#if name === 'layers'}
-			{#if headerActions && !shut}
-				{@render headerActions()}
-			{/if}
-			{#if sheet}
-				<IconButton icon="editor-undo" label={undoLabel(stack) ? `Undo ${undoLabel(stack)}` : 'Undo'} size="sm" disabled={!canUndo(stack)} onclick={() => onundo?.()} />
-				<IconButton icon="editor-redo" label={redoLabel(stack) ? `Redo ${redoLabel(stack)}` : 'Redo'} size="sm" disabled={!canRedo(stack)} onclick={() => onredo?.()} />
-			{:else}
-				{#if moreItems.length && !shut}
+		<span class="relative z-10 flex items-center gap-0.5" data-stack-header-actions={name}>
+			{#if name === 'layers'}
+				{#if headerActions && !closed}
+					{@render headerActions()}
+				{/if}
+				{#if sheet}
+					<IconButton icon="editor-undo" label={undoLabel(stack) ? `Undo ${undoLabel(stack)}` : 'Undo'} size="sm" disabled={!canUndo(stack)} onclick={() => onundo?.()} />
+					<IconButton icon="editor-redo" label={redoLabel(stack) ? `Redo ${redoLabel(stack)}` : 'Redo'} size="sm" disabled={!canRedo(stack)} onclick={() => onredo?.()} />
+				{:else if moreItems.length && !closed}
 					<Menu label="Edit stack options" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
 				{/if}
-				<IconButton
-					icon={shut ? 'chevron-right' : 'chevron-down'}
-					label={shut ? 'Show layers and edits' : 'Hide layers and edits'}
-					size="sm"
-					ariaExpanded={!shut}
-					onclick={() => (folded && !collapsed ? (opened = !opened) : (collapsed = !collapsed))}
-					data-stack-fold
-				/>
 			{/if}
-		{/if}
+		</span>
+		<Icon name="chevron-down" className="h-3.5 w-3.5 flex-none text-fg-muted transition-transform {closed ? '-rotate-90' : ''}" />
 	</div>
 {/snippet}
 
 {#snippet layeredView()}
 	{@render sectionHeader('layers')}
 	<div class="min-h-0 flex-initial {sheet ? '' : 'overflow-y-auto pb-2'} {shut ? 'hidden' : ''}" data-stack-rows>
-		<div class={sheet ? '' : 'px-2'} role="list" aria-label="Layers" data-stack-section="layers">
-			{#each layerRows as row (row.key)}
-				{@render stackRow(row)}
-			{/each}
-		</div>
+		{#if !folds.layers}
+			<div class={sheet ? '' : 'px-2'} role="list" aria-label="Layers" data-stack-section="layers">
+				{#each layerRows as row (row.key)}
+					{#if liveLayer && liveAnchor === row.key}
+						{@render liveRowView(liveLayer)}
+					{/if}
+					{@render stackRow(row)}
+				{/each}
+			</div>
+		{/if}
 		<div class={sheet ? 'mt-2' : 'mt-1'}>
 			{@render sectionHeader('edits')}
 		</div>
-		<div class={sheet ? '' : 'px-2'} role="list" aria-label="Edits" data-stack-section="edits">
-			{#each editRows as row (row.key)}
-				{@render stackRow(row)}
-			{/each}
-		</div>
-		<p class="px-4 pb-1 pt-1.5 text-sm text-fg-subtle" data-stack-edits-hint>
-			{editRows.length ? 'Edits apply to the whole layered picture.' : 'No edits yet. Looks, light, crop and resize land here and apply to the whole layered picture.'}
-		</p>
+		{#if !folds.edits}
+			<div class={sheet ? '' : 'px-2'} role="list" aria-label="Edits" data-stack-section="edits">
+				{#each editRows as row (row.key)}
+					{@render stackRow(row)}
+				{/each}
+			</div>
+			<p class="px-4 pb-1 pt-1.5 text-sm text-fg-subtle" data-stack-edits-hint>
+				{editRows.length ? 'Edits apply to the whole layered picture.' : 'No edits yet. Looks, light, crop and resize land here and apply to the whole layered picture.'}
+			</p>
+		{/if}
 	</div>
 {/snippet}
 
-<section class="flex min-h-0 flex-col {sheet ? '' : `stack-panel ${shut ? 'h-11 overflow-hidden' : layered ? 'h-[360px] max-h-[62%]' : grouped ? 'h-[320px] max-h-[60%]' : 'h-[236px]'} flex-none border-t border-line`}" aria-label={layered ? 'Layers and edits' : 'Edits'} data-edit-stack={variant} data-folded={shut || undefined} data-stack-layered={layered || undefined}>
+<section class="flex min-h-0 flex-col {sheet ? '' : `stack-panel ${shut ? 'h-11 overflow-hidden' : layered ? (bothFolded ? 'h-auto max-h-[62%]' : 'h-[360px] max-h-[62%]') : 'h-[236px]'} flex-none border-t border-line`}" aria-label={layered ? 'Layers and edits' : 'Edits'} data-edit-stack={variant} data-folded={shut || undefined} data-stack-layered={layered || undefined}>
 	{#if layered}
 		{@render layeredView()}
 	{:else}

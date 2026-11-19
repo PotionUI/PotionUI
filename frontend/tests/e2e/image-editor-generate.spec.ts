@@ -1180,7 +1180,7 @@ test.describe('Edit a region and Remove an object on desktop', () => {
 		await expect(settings).toHaveAttribute('aria-pressed', 'true');
 		const view = page.locator('[data-settings-view="desktop"]');
 		await expect(view).toBeVisible();
-		await page.locator('[data-stack-fold]').click();
+		await page.locator('[data-stack-fold="layers"]').click();
 		await expect(page.locator('[data-edit-stack]')).not.toHaveAttribute('data-folded', 'true');
 		await view.locator('[data-detail-back]').click();
 		await expect(view).toHaveCount(0);

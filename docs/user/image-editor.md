@@ -18,7 +18,7 @@ Opening a picture from History, Library or a picture field in a form goes straig
 
 ## Layers
 
-The side panel has two lists: **Layers** on top and **Edits** under it. Layers stack up to make your picture; edits then change that whole layered picture.
+The side panel has two lists: **Layers** on top and **Edits** under it. Layers stack up to make your picture; edits then change that whole layered picture. Click the header of either list to fold or unfold it: the count stays in the header, the other list takes the room, and the editor remembers which lists you folded. The **+** and the three dots in the header do their own job and do not fold anything. You can also reach a header with the keyboard and press **Enter** or **Space**.
 
 The **Layers** list holds the original picture at the bottom and everything placed on it: paint layers, pictures you add, and the results of **Edit a region**, **Remove an object** and **Replace the background**. The newest layer is on top. Each row shows a thumbnail, the name, the opacity and an eye.
 
@@ -29,7 +29,7 @@ The **Layers** list holds the original picture at the bottom and everything plac
 
 A new layer always joins the Layers list, even after you added a look or a crop, so that look or crop applies to it too.
 
-**Paint on a layer.** Click a layer row to select it. The brush then paints on that layer. Layers always use the size of the original picture: while you paint, the canvas shows the layers without your edits, so the strokes stay in place when you change a crop later.
+**Paint on a layer.** Click a layer row to select it. The brush then paints on that layer, and the Paint panel says which one (*Painting on Paint 2*). With no layer selected, Paint starts a new layer; it shows in the Layers list as soon as you open the brush and becomes a regular layer when you press **Apply**, switch tool or add another layer. The Layers list is the only layer list, so adding, reordering, renaming, fading and hiding all happen there, never inside the Paint panel. Layers always use the size of the original picture: while you paint, the canvas shows the layers without your edits, so the strokes stay in place when you change a crop later.
 
 **Fade, hide, rename.** The selected layer shows an **Opacity** slider under its row. The eye hides a layer without deleting it. Use the row menu (the three dots) for **Rename**, **Duplicate**, **Merge down**, **Move up**, **Move down** and **Delete**. A region edit's row also shows its mask, with **Show mask** to outline it on the canvas.
 
@@ -45,7 +45,7 @@ Edits apply to the whole layered picture: first all visible layers are combined,
 
 **Older edits.** An edit made before layers and edits were split may have a look or a crop between its layers, where it only reached the layers beneath it. Such an edit still opens and saves exactly as before, and a note in the panel says so. Its layers and edits cannot be reordered until you press **Switch to layers**, which moves every layer under the edits. The result may change, for example a layer painted after a crop is then placed on the original picture; **Undo** brings the old order back. Dismiss the note to keep the old order.
 
-**On a phone.** Layers and Edits are two sections of one bottom sheet, with 48 pixel rows and a 44 pixel **+** button. Adding a layer closes the sheet and opens Paint.
+**On a phone.** Layers and Edits are two sections of one bottom sheet, each folding from its header, with 48 pixel rows and a 44 pixel **+** button. Adding a layer closes the sheet and opens Paint.
 
 ## Remove an object
 

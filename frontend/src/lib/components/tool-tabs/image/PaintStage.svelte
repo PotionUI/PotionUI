@@ -218,7 +218,7 @@
 	}
 </script>
 
-<div bind:this={host} class="relative min-h-0 min-w-0 flex-1 touch-none overflow-hidden bg-scrim" data-paint-stage>
+<div bind:this={host} class="relative min-h-0 min-w-0 flex-1 touch-none overflow-hidden bg-scrim" data-paint-stage data-paint-ready={snapshot.ready || undefined}>
 	<canvas
 		bind:this={stage}
 		aria-label="Drawing canvas"

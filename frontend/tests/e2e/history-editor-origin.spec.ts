@@ -98,10 +98,13 @@ for (const viewport of [
 		await expect(page).toHaveURL(/\/history/);
 
 		await openDetails(page, 0);
-		const origin = page.locator('[data-details-origin]');
-		await expect(origin.locator('[data-editor-origin="open"]')).toContainText('Made in the editor');
-		if (viewport.width === 1440) await screenshot(page, JOURNEY, `12b-history-details-dark-${viewport.width}`);
-		await origin.locator('[data-editor-origin="open"]').click();
+		const chip = page.getByRole('dialog', { name: 'Generation Details' }).locator('[data-editor-origin="open"]:visible');
+		await expect(chip).toHaveAttribute('aria-label', 'Made in the editor');
+		if (viewport.width === 1440) {
+			await expect(chip).toContainText('Made in the editor');
+			await screenshot(page, JOURNEY, `12b-history-details-dark-${viewport.width}`);
+		}
+		await chip.click();
 		await expect(page).toHaveURL(/\/generate/, { timeout: 15000 });
 		await expect(page.getByRole('dialog', { name: 'Generation Details' })).toHaveCount(0);
 		await expect(page.locator('[data-image-editor], [data-editor-frame]').first()).toBeVisible({ timeout: 15000 });

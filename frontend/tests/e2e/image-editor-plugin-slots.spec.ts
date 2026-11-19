@@ -134,7 +134,7 @@ test.describe('a plugin fills the image editor slots', () => {
 
 		const registered = await page.evaluate((relight) => (window as any).__potionui.editors.tasks.get('image', relight)?.label ?? null, RELIGHT);
 		expect(registered).toBe('Relight');
-		await expect(rail(page, RELIGHT)).toBeVisible();
+		await expect(railButton(page, RELIGHT)).toBeVisible();
 	});
 
 	test('opening its tool does not loop the editor', async ({ page }) => {

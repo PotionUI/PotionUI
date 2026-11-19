@@ -426,6 +426,13 @@ test.describe('the editor menu bar on desktop', () => {
 		await expect(await editorMenuItem(page, 'Edit', 'Show step')).toBeVisible();
 		await page.keyboard.press('Escape');
 		await openEditorMenu(page, 'Edit');
+		await expect(menuRowById(page, 'edit.undo')).toContainText('Undo marked area');
+		await menuRowById(page, 'edit.undo').click();
+		await expect(page.locator('[data-mask-area]')).toBeVisible();
+		await openEditorMenu(page, 'Edit');
+		await menuRowById(page, 'edit.undo').click();
+		await expect(page.locator('[data-mask-area]')).toBeHidden();
+		await openEditorMenu(page, 'Edit');
 		await menuRowById(page, 'edit.undo').click();
 		await expect(page.locator('[data-edit-stack] [data-stack-row][data-status="undone"]')).toHaveCount(1);
 		await expect(page.locator('[data-frame-redo]')).toBeEnabled();

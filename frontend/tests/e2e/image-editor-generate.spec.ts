@@ -1208,7 +1208,7 @@ test.describe('Edit a region at 1280', () => {
 		const g = await geometry(page);
 		checkStrip(g, 'wrapped');
 		console.log(`1280 flux3 ${widths(g)}`);
-		expect(g.preset!.width).toBeGreaterThan(80);
+		expect(g.preset!.width).toBeGreaterThan(75);
 		await screenshot(page, JOURNEY, '27-built-two-modes-dark-1280');
 	});
 

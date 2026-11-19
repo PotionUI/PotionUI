@@ -155,7 +155,7 @@ test.describe('clips are saved as edits', () => {
 
 		await expect(await editorMenuItem(page, 'File', 'Recent edits', 'observatory-timelapse')).toBeVisible();
 		await closeEditorMenu(page);
-		await editorMenu(page, 'File', 'See all edits');
+		await editorMenu(page, 'File', 'Recent edits', 'See all edits');
 		const dialog = page.locator('[data-recent-edits]');
 		await expect(dialog.locator('[data-edit-tile]')).toHaveCount(1);
 		await expect(dialog.locator('[data-clip-duration]')).toHaveText(/^\d+:\d{2}$/);

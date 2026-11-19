@@ -202,7 +202,9 @@ export async function editorMenu(page: Page, menu: string, item: string, sub?: s
 }
 
 export async function closeEditorMenu(page: Page): Promise<void> {
+	const submenuOpen = (await page.locator('[data-editor-submenu]').count()) > 0;
 	await page.keyboard.press('Escape');
+	if (submenuOpen) await page.keyboard.press('Escape');
 	await expect(page.locator('[data-editor-menu]')).toHaveCount(0);
 }
 

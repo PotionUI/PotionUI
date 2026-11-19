@@ -85,7 +85,7 @@ def test_core_param_names_are_the_contract_names():
         "volume": ["unit", "percent", "db", "fade_in", "fade_out"],
         "replace_audio": ["audio", "start", "loop"],
         "paint_layer": ["layer", "opacity"],
-        "place_patch": ["patch", "x", "y", "width", "height", "opacity"],
+        "place_patch": ["patch", "x", "y", "width", "height", "opacity", "canvas_width", "canvas_height", "canvas_x", "canvas_y"],
         "replace_background": ["kind", "color", "picture", "matte", "opacity"],
         "slice": ["rects", "trim", "tolerance", "padding", "aspect", "fill"],
     }

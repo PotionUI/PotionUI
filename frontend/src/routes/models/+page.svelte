@@ -9,17 +9,30 @@
 	import { isAxiosError } from 'axios';
 	import { api } from '$lib/services/api/index';
 	import { tagCatalog } from '$lib/stores/tagCatalog';
-	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { authStore } from '$lib/stores/auth';
+		import { authStore } from '$lib/stores/auth';
 	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
 	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
 	import ModelCard from '$lib/components/ModelCard.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import QuickTagFilterBar from '$lib/components/QuickTagFilterBar.svelte';
-	import { PageHeader, PageTitle, IconButton, Pagination, EmptyState, Button } from '$lib/components/ui';
+	import { Pagination, EmptyState, Button, Menu } from '$lib/components/ui';
+	import {
+		ListPageHeader,
+		HeaderTitle,
+		HeaderSearch,
+		HeaderToggle,
+		HeaderSelect,
+		HeaderFilters,
+		HeaderSort,
+		HeaderViewOptions,
+		HeaderDropdown,
+		type HeaderStage,
+		type FilterChip
+	} from '$lib/components/page-header';
 	import ModelLibrarySidebar from './components/ModelLibrarySidebar.svelte';
 	import CollectionSidebarSheet from '$lib/components/collections/CollectionSidebarSheet.svelte';
-	import SubcollectionFilters from '$lib/components/collections/SubcollectionFilters.svelte';
+	import IncludeSubcollections from '$lib/components/collections/IncludeSubcollections.svelte';
+	import { excludesSubcollections } from '$lib/components/collections/subcollections';
 	import { modelLibraryStore } from '$lib/stores/modelLibrary';
 	import ModelSelectionToolbar from './components/ModelSelectionToolbar.svelte';
 
@@ -48,6 +61,11 @@
 	let collectionId: string | undefined = undefined;
 	let unsorted = false;
 	let directOnly = false;
+	let indexedFrom = '';
+	let indexedTo = '';
+	let stage: HeaderStage = 'full';
+	let filtersOpen = false;
+	let unfilteredTotal: number | null = null;
 
 	// Multi-select mode: mirrors History's page-local selectionMode/selectedGenerationIds,
 	// but the models grid has no global store, so this stays local to the page.
@@ -81,7 +99,7 @@
 
 	$: totalPages = Math.ceil(totalCount / itemsPerPage);
 	$: hasActiveFilters =
-		selectedType !== 'all' || selectedTags.length > 0 || searchQuery !== '';
+		selectedType !== 'all' || selectedTags.length > 0 || searchQuery !== '' || !!indexedFrom || !!indexedTo;
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
 	// An admin looking at an empty model library can install the models a
 	// recipe brings; without a recipe catalog (or as a non-admin) the page
@@ -90,7 +108,7 @@
 	$: installModels = resolveInstallModelsTarget($recipeCatalog, null, isAdmin);
 
 	// Update URL when filters change (after initialization)
-	$: if (browser && initialized && (selectedType || searchQuery !== undefined || searchMode || selectedTags || sortBy || sortOrder || currentPage || itemsPerPage || favoritesOnly || collectionId || unsorted || directOnly)) {
+	$: if (browser && initialized && (selectedType || searchQuery !== undefined || searchMode || selectedTags || sortBy || sortOrder || indexedFrom || indexedTo || currentPage || itemsPerPage || favoritesOnly || collectionId || unsorted || directOnly)) {
 		updateUrlParams();
 	}
 
@@ -108,6 +126,8 @@
 		if (collectionId) params.set('collection', collectionId);
 		if (unsorted) params.set('unsorted', 'true');
 		if (directOnly) params.set('direct', 'true');
+		if (indexedFrom) params.set('from', indexedFrom);
+		if (indexedTo) params.set('to', indexedTo);
 
 		const newUrl = params.toString() ? `?${params.toString()}` : '/models';
 		replaceUrl(newUrl);
@@ -128,6 +148,8 @@
 		collectionId = params.get('collection') || undefined;
 		unsorted = params.get('unsorted') === 'true';
 		directOnly = params.get('direct') === 'true';
+		indexedFrom = params.get('from') || '';
+		indexedTo = params.get('to') || '';
 	}
 
 	function selectAllModels() {
@@ -186,6 +208,8 @@
 		collectionId;
 		unsorted;
 		directOnly;
+		indexedFrom;
+		indexedTo;
 		if (!loading) {
 			loadModels();
 			loadModelTypes();
@@ -205,6 +229,8 @@
 				include_tags: true,
 				tag_ids: selectedTags.length > 0 ? selectedTags.join(',') : undefined,
 				favorites_only: favoritesOnly || undefined,
+				indexed_from: indexedFrom || undefined,
+				indexed_to: indexedTo || undefined,
 				...collectionQueryParams({ collectionId, unsorted, directOnly })
 			});
 
@@ -236,6 +262,8 @@
 					q_mode: searchQuery && searchMode === 'regex' ? 'regex' : undefined,
 					tag_ids: selectedTags.length > 0 ? selectedTags.join(',') : undefined,
 					favorites_only: favoritesOnly || undefined,
+					indexed_from: indexedFrom || undefined,
+					indexed_to: indexedTo || undefined,
 					...collectionQueryParams({ collectionId, unsorted, directOnly })
 				},
 				request.signal
@@ -290,8 +318,63 @@
 		searchMode = 'substring';
 		selectedType = 'all';
 		selectedTags = [];
+		indexedFrom = '';
+		indexedTo = '';
 		currentPage = 1;
 	}
+
+	const perPageOptions = [12, 24, 48, 96].map((value) => ({ value: String(value), label: String(value) }));
+
+	const labelClass = 'block text-sm uppercase tracking-[0.07em] text-fg-subtle mb-1';
+
+	const sortOptions = [
+		{ value: 'filename', label: 'Name' },
+		{ value: 'model_type', label: 'Type' },
+		{ value: 'indexed_at', label: 'Date added' },
+		{ value: 'modified_at', label: 'Modified' },
+		{ value: 'file_size', label: 'Size' }
+	];
+
+	function handleSortChange(value: string) {
+		sortBy = value;
+		currentPage = 1;
+	}
+
+	function handleSortDirChange(dir: 'asc' | 'desc') {
+		sortOrder = dir;
+		currentPage = 1;
+	}
+
+	const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+	$: typeOptions = [
+		{ value: 'all', label: 'All', pinned: true },
+		...modelTypes.map((type) => ({ value: type.type, label: capitalize(type.type), count: type.count }))
+	];
+
+	$: excludingSubcollections = excludesSubcollections($modelLibraryStore.collections, collectionId, directOnly);
+
+	function buildChips(type: string, from: string, to: string, excluding: boolean): FilterChip[] {
+		const list: FilterChip[] = [];
+		if (type !== 'all') list.push({ id: 'type', label: capitalize(type), onremove: () => handleTypeChange('all') });
+		if (from || to) {
+			list.push({
+				id: 'added',
+				label: `Added ${from || '…'} – ${to || '…'}`,
+				onremove: () => {
+					indexedFrom = '';
+					indexedTo = '';
+					currentPage = 1;
+				}
+			});
+		}
+		if (excluding) list.push({ id: 'subcollections', label: 'Without subcollections', onremove: () => setDirectOnly(false) });
+		return list;
+	}
+
+	$: chips = buildChips(selectedType, indexedFrom, indexedTo, excludingSubcollections);
+
+	$: if (!hasActiveFilters && !collectionId && !favoritesOnly && !unsorted && !loading) unfilteredTotal = totalCount;
 
 	function toggleSearchMode() {
 		searchMode = searchMode === 'regex' ? 'substring' : 'regex';
@@ -335,114 +418,149 @@
 	<div class="flex-1 min-w-0 min-h-0 overflow-y-auto flex flex-col dot-grid bg-canvas">
 	<!-- Top Bar with Filters -->
 	<div class="sticky top-0 z-30">
-	<PageHeader wrap sticky={false}>
-		<div class="flex items-center gap-2 md:gap-4 flex-wrap w-full">
+	<ListPageHeader bind:stage>
+		{#snippet leading()}
 			<CollectionSidebarSheet label="Models" collapsed={!sidebarOpen} onExpand={() => (sidebarOpen = true)}>
 				{@render modelCollections('sidebar')}
 			</CollectionSidebarSheet>
-			<PageTitle title="Models" count={totalCount} countLabel="models" countLabelOne="model" />
+		{/snippet}
 
-			<!-- Divider -->
-			<div class="hidden md:block h-6 w-px bg-line-strong"></div>
+		{#snippet title(s)}
+			<HeaderTitle
+				title="Models"
+				count={totalCount}
+				unit="models"
+				unitOne="model"
+				total={unfilteredTotal}
+				filterCount={chips.length}
+				onOpenFilters={() => (filtersOpen = true)}
+				showUnit={s === 'full'}
+				narrow={s === 'narrow'}
+			/>
+		{/snippet}
 
-			<!-- Search - the anchor control -->
-			<div class="relative flex-1 min-w-[8rem] max-w-xs">
-				<Icon
-					name="search"
-					className="w-3.5 h-3.5 text-fg-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+		{#snippet search(s)}
+			<HeaderSearch
+				value={searchQuery}
+				placeholder={searchMode === 'regex' ? 'Regular expression…' : 'Search models · * and ? are wildcards'}
+				label="Search models"
+				error={searchError}
+				oninput={(value) => (searchQuery = value)}
+				narrow={s === 'narrow'}
+			>
+				{#snippet modifiers()}
+					<HeaderToggle
+						icon="regex"
+						label="Regular expression"
+						pressed={searchMode === 'regex'}
+						onclick={toggleSearchMode}
+					/>
+				{/snippet}
+			</HeaderSearch>
+		{/snippet}
+
+		{#snippet facets(s)}
+			{#if s !== 'tight' && s !== 'narrow'}
+				<HeaderSelect
+					label="Type"
+					active={selectedType !== 'all'}
+					value={selectedType}
+					options={typeOptions}
+					onchange={handleTypeChange}
 				/>
-				<input
-					type="text"
-					class="input text-xs py-1.5 pl-8 pr-9 bg-surface-2/50 w-full {searchError ? 'border-danger' : ''}"
-					placeholder={searchMode === 'regex' ? 'Regular expression…' : 'Search models · * and ? are wildcards'}
-					aria-invalid={searchError ? 'true' : undefined}
-					bind:value={searchQuery}
-				/>
-				<div class="absolute right-1 top-1/2 -translate-y-1/2">
-					<Tooltip text="Regular expression" position="bottom">
-						<IconButton
-							icon="regex"
-							label="Regular expression"
-							size="xs"
-							active={searchMode === 'regex'}
-							ariaPressed={searchMode === 'regex'}
-							onclick={toggleSearchMode}
-						/>
-					</Tooltip>
-				</div>
-			</div>
-			{#if searchError}
-				<span class="text-xs text-danger min-w-0 truncate">{searchError}</span>
 			{/if}
+		{/snippet}
 
-			<!-- Filters cluster -->
-			<div class="hidden md:flex items-center gap-2 flex-wrap">
-				<!-- Type filter: wraps instead of scrolling — never shows a scrollbar -->
-				<div class="flex items-center gap-0.5 bg-surface-2/50 rounded p-0.5 flex-wrap">
-					<button
-						class="px-2 py-1 text-xs rounded-sm transition-colors duration-100 whitespace-nowrap {selectedType === 'all'
-							? 'bg-signal/10 text-signal'
-							: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-						on:click={() => handleTypeChange('all')}
-					>
-						All
-					</button>
-					{#each modelTypes as type}
-						<button
-							class="px-2 py-1 text-xs rounded-sm transition-colors duration-100 whitespace-nowrap {selectedType === type.type
-								? 'bg-signal/10 text-signal'
-								: type.count === 0
-									? 'text-fg-subtle hover:bg-surface-3/50'
-									: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-							on:click={() => handleTypeChange(type.type)}
-						>
-							{type.type.charAt(0).toUpperCase() + type.type.slice(1)}
-							<span class="font-mono tabular-nums opacity-75">({type.count})</span>
-						</button>
-					{/each}
-				</div>
+		{#snippet filters(s)}
+			<HeaderFilters
+				bind:open={filtersOpen}
+				activeCount={chips.length}
+				{chips}
+				onClear={handleClearAllFilters}
+				iconOnly={s === 'narrow'}
+			>
+				{#snippet children()}
+					{#if s === 'narrow'}
+						<div class="col-span-2">
+							<span class={labelClass}>Sort</span>
+							<HeaderSort
+								options={sortOptions}
+								value={sortBy}
+								dir={sortOrder === 'asc' ? 'asc' : 'desc'}
+								onchange={handleSortChange}
+								ondir={handleSortDirChange}
+							/>
+						</div>
+					{/if}
+					{#if s === 'tight' || s === 'narrow'}
+						<div class="col-span-2">
+							<span class={labelClass}>Type</span>
+							<HeaderSelect
+								label="Type"
+								active={selectedType !== 'all'}
+								value={selectedType}
+								options={typeOptions}
+								onchange={handleTypeChange}
+							/>
+						</div>
+					{/if}
+					<div>
+						<label class={labelClass} for="models-filter-from">Added from</label>
+						<input
+							id="models-filter-from"
+							type="date"
+							class="input text-sm py-1.5 px-2 bg-surface-3/50 w-full"
+							bind:value={indexedFrom}
+							on:change={() => (currentPage = 1)}
+						/>
+					</div>
+					<div>
+						<label class={labelClass} for="models-filter-to">Added to</label>
+						<input
+							id="models-filter-to"
+							type="date"
+							class="input text-sm py-1.5 px-2 bg-surface-3/50 w-full"
+							bind:value={indexedTo}
+							on:change={() => (currentPage = 1)}
+						/>
+					</div>
+					<IncludeSubcollections
+						collections={$modelLibraryStore.collections}
+						activeId={collectionId}
+						{directOnly}
+						onDirectOnlyChange={setDirectOnly}
+					/>
+				{/snippet}
+			</HeaderFilters>
+		{/snippet}
 
-				<!-- Sort By -->
-				<select class="input w-auto pr-8 text-xs py-1.5 bg-surface-2/50" bind:value={sortBy}>
-					<option value="filename">Name</option>
-					<option value="model_type">Type</option>
-				</select>
+		{#snippet sort()}
+			<HeaderSort
+				options={sortOptions}
+				value={sortBy}
+				dir={sortOrder === 'asc' ? 'asc' : 'desc'}
+				onchange={handleSortChange}
+				ondir={handleSortDirChange}
+			/>
+		{/snippet}
 
-				<!-- Sort Order -->
-				<select class="input w-auto pr-8 text-xs py-1.5 bg-surface-2/50" bind:value={sortOrder}>
-					<option value="desc">Desc</option>
-					<option value="asc">Asc</option>
-				</select>
+		{#snippet view()}
+			{@render modelCollections('actions')}
+			<HeaderViewOptions onrefresh={() => loadModels()} />
+		{/snippet}
 
-				<SubcollectionFilters
-					class="flex-shrink-0"
-					collections={$modelLibraryStore.collections}
-					activeId={collectionId}
-					{directOnly}
-					onDirectOnlyChange={setDirectOnly}
+		{#snippet more(s)}
+			{#if s === 'narrow'}
+				<Menu
+					label="More actions"
+					tooltip="More actions"
+					items={[{ id: 'refresh', label: 'Refresh', icon: 'refresh' }]}
+					onselect={() => loadModels()}
+					width={200}
 				/>
-
-				{#if hasActiveFilters}
-					<button
-						class="text-xs text-fg-muted hover:text-fg transition-colors flex items-center gap-1 whitespace-nowrap"
-						on:click={handleClearAllFilters}
-					>
-						<Icon name="close" className="w-3 h-3" />
-						Clear
-					</button>
-				{/if}
-			</div>
-
-			<!-- Spacer -->
-			<div class="flex-1 hidden md:block"></div>
-
-			<!-- Right: Actions -->
-			<div class="flex items-center gap-2 ml-auto md:ml-0">
-				{@render modelCollections('actions')}
-				<IconButton icon="refresh" label="Refresh models" onclick={() => loadModels()} />
-			</div>
-		</div>
-	</PageHeader>
+			{/if}
+		{/snippet}
+	</ListPageHeader>
 
 		<!-- Quick Tags Bar -->
 		<QuickTagFilterBar
@@ -509,16 +627,12 @@
 
 					<div class="hidden md:flex items-center gap-2 absolute right-0">
 						<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Per page</span>
-						<select
-							class="input text-xs py-1 px-2 bg-surface-2/50 w-auto font-mono tabular-nums"
-							value={itemsPerPage}
-							on:change={(e) => handleItemsPerPageChange(parseInt(e.currentTarget.value))}
-						>
-							<option value={12}>12</option>
-							<option value={24}>24</option>
-							<option value={48}>48</option>
-							<option value={96}>96</option>
-						</select>
+						<HeaderDropdown
+							ariaLabel="Per page"
+							value={String(itemsPerPage)}
+							options={perPageOptions}
+							onchange={(value) => handleItemsPerPageChange(parseInt(value))}
+						/>
 					</div>
 				</div>
 			{/if}

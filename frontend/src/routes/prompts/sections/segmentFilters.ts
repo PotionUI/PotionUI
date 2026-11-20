@@ -4,7 +4,7 @@ import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/l
 import type { FilterChip } from '$lib/components/library/librarySection';
 
 export type SegmentEnabledFilter = '' | 'on' | 'off';
-export type SegmentSortBy = 'name' | 'created';
+export type SegmentSortBy = 'name' | 'created' | 'updated';
 
 export interface SegmentFilters {
 	q: string;
@@ -12,6 +12,7 @@ export interface SegmentFilters {
 	enabled: SegmentEnabledFilter;
 	tags: string[];
 	sortBy: SegmentSortBy;
+	sortDir?: 'asc' | 'desc';
 }
 
 export const DEFAULT_SEGMENT_FILTERS: SegmentFilters = {
@@ -19,13 +20,17 @@ export const DEFAULT_SEGMENT_FILTERS: SegmentFilters = {
 	category: '',
 	enabled: '',
 	tags: [],
-	sortBy: 'name'
+	sortBy: 'name',
+	sortDir: 'asc'
 };
 
 export const SEGMENT_SORT_OPTIONS: ReadonlyArray<{ value: SegmentSortBy; label: string }> = [
 	{ value: 'name', label: 'Name' },
-	{ value: 'created', label: 'Created' }
+	{ value: 'created', label: 'Created' },
+	{ value: 'updated', label: 'Updated' }
 ];
+
+export const SEGMENT_SORT_DEFAULT_DIR = { name: 'asc', created: 'desc', updated: 'desc' } as const;
 
 const FIELDS: readonly FilterFieldDescriptor<SegmentFilters>[] = [
 	{ kind: 'text', key: 'category', param: 'category', label: 'Category' },
@@ -44,7 +49,8 @@ const FIELDS: readonly FilterFieldDescriptor<SegmentFilters>[] = [
 export const segmentFilters = createFilterCodec<SegmentFilters>({
 	defaults: DEFAULT_SEGMENT_FILTERS,
 	fields: FIELDS,
-	sortValues: ['name', 'created']
+	sortValues: ['name', 'created', 'updated'],
+	sortDefaultDir: SEGMENT_SORT_DEFAULT_DIR
 });
 
 export function segmentFilterChips(filters: SegmentFilters, categories: readonly SegmentCategory[]): FilterChip[] {
@@ -52,8 +58,9 @@ export function segmentFilterChips(filters: SegmentFilters, categories: readonly
 	return segmentFilters.chips(filters, { category: () => `category = ${categoryName}` });
 }
 
-function segmentTimestamp(segment: SavedSegment): number {
-	return parseServerDate(segment.updated_at ?? segment.created_at)?.getTime() ?? 0;
+function segmentTimestamp(segment: SavedSegment, field: 'created' | 'updated'): number {
+	const raw = field === 'created' ? segment.created_at : (segment.updated_at ?? segment.created_at);
+	return parseServerDate(raw)?.getTime() ?? 0;
 }
 
 export function applySegmentFilters(
@@ -82,8 +89,12 @@ export function applySegmentFilters(
 			.toLowerCase();
 		return haystack.includes(query);
 	});
-	if (filters.sortBy === 'created') return matched.sort((a, b) => segmentTimestamp(b) - segmentTimestamp(a));
-	return matched.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+	const sign = (filters.sortDir ?? SEGMENT_SORT_DEFAULT_DIR[filters.sortBy]) === 'desc' ? -1 : 1;
+	if (filters.sortBy === 'created' || filters.sortBy === 'updated') {
+		const field = filters.sortBy;
+		return matched.sort((a, b) => sign * (segmentTimestamp(a, field) - segmentTimestamp(b, field)));
+	}
+	return matched.sort((a, b) => sign * a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
 
 export function segmentTagVocabulary(segments: readonly SavedSegment[]): Array<{ tag: string; count: number }> {

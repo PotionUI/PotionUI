@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api';
 	import { ModelPickTrigger, Switch } from '$lib/components/ui';
+	import HeaderDropdown from '$lib/components/page-header/HeaderDropdown.svelte';
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
 	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
 	import TagCloudFilter from '$lib/components/library/TagCloudFilter.svelte';
@@ -105,18 +106,16 @@
 	<SegmentedFilterGroup label="Source" options={sourceOptions} value={filters.source} onChange={(source) => set({ source })} />
 	<SegmentedFilterGroup label="Used in generations" options={usedOptions} value={filters.used} onChange={(used) => set({ used })} />
 
-	<label class="flex flex-col gap-1.5">
+	<div class="flex flex-col gap-1.5">
 		<span class="text-xs font-medium text-fg-muted">Last used</span>
-		<select
-			class="input text-xs"
+		<HeaderDropdown
+			block
+			ariaLabel="Last used"
 			value={filters.lastUsed}
-			onchange={(e) => set({ lastUsed: (e.currentTarget as HTMLSelectElement).value as PromptLastUsedFilter })}
-		>
-			{#each lastUsedOptions as option (option.value)}
-				<option value={option.value}>{option.label}</option>
-			{/each}
-		</select>
-	</label>
+			options={lastUsedOptions}
+			onchange={(value) => set({ lastUsed: value as PromptLastUsedFilter })}
+		/>
+	</div>
 
 	<TagCloudFilter tags={tags} selected={filters.tags} onToggle={toggleTag} />
 

@@ -6,6 +6,9 @@
 
 import { collectionQueryParams } from '$lib/components/collections/selection';
 
+export type InspirationsSortField = 'created' | 'title' | 'saved' | 'comments';
+export type InspirationsSortDir = 'asc' | 'desc';
+
 export interface InspirationsFilters {
 	search: string;
 	saved: boolean;
@@ -13,6 +16,8 @@ export interface InspirationsFilters {
 	unsorted?: boolean;
 	directOnly?: boolean;
 	authorId?: string;
+	sortBy?: InspirationsSortField;
+	sortDir?: InspirationsSortDir;
 }
 
 export interface InspirationsQuery {
@@ -22,6 +27,8 @@ export interface InspirationsQuery {
 	include_descendants?: boolean;
 	unsorted?: boolean;
 	author_id?: string;
+	sort_by?: InspirationsSortField;
+	sort_dir?: InspirationsSortDir;
 	limit: number;
 	offset: number;
 }
@@ -51,6 +58,10 @@ export function buildInspirationsQuery(
 	if (filters.saved) query.saved = true;
 	Object.assign(query, collectionQueryParams(filters));
 	if (filters.authorId) query.author_id = filters.authorId;
+	if (filters.sortBy) {
+		query.sort_by = filters.sortBy;
+		if (filters.sortDir) query.sort_dir = filters.sortDir;
+	}
 
 	return query;
 }

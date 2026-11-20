@@ -2,8 +2,10 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { Alert, Button, EmptyState, LoadErrorState, SegmentedControl, Spinner } from '$lib/components/ui';
+	import Icon from '$lib/components/Icon.svelte';
+	import { HeaderDropdown } from '$lib/components/page-header';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
-	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryListHeader from '$lib/components/library/LibraryListHeader.svelte';
 	import type { LibrarySectionMeta } from '$lib/components/library/librarySection';
 	import ActivityList from '$lib/components/organize/ActivityList.svelte';
 	import RuleEditor from '$lib/components/organize/RuleEditor.svelte';
@@ -53,10 +55,75 @@
 		writeLastSubject(slug);
 	});
 
+	type RuleSort = 'manual' | 'name' | 'last_run' | 'created';
+	const SORT_OPTIONS: Array<{ value: RuleSort; label: string }> = [
+		{ value: 'manual', label: 'Manual' },
+		{ value: 'name', label: 'Name' },
+		{ value: 'last_run', label: 'Last run' },
+		{ value: 'created', label: 'Created' }
+	];
+	const SORT_DEFAULT_DIR: Record<RuleSort, 'asc' | 'desc'> = {
+		manual: 'asc',
+		name: 'asc',
+		last_run: 'desc',
+		created: 'desc'
+	};
+	const STATUS_LABELS: Record<string, string> = {
+		active: 'Active',
+		off: 'Off',
+		paused: 'Paused',
+		needs_attention: 'Needs attention'
+	};
+
+	let statusFilter = $state('');
+	let triggerFilter = $state('');
+	let sortBy = $state<RuleSort>('manual');
+	let sortDir = $state<'asc' | 'desc'>('asc');
+
+	const triggerOptions = $derived([...new Set(rules.map((rule) => rule.trigger))].sort());
+	const statusOptions = [{ value: '', label: 'Any' }, ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))];
+	const triggerSelectOptions = $derived([
+		{ value: '', label: 'Any' },
+		...triggerOptions.map((value) => ({ value, label: humanize(value) }))
+	]);
+	const humanize = (value: string) => {
+		const text = value.replace(/_/g, ' ');
+		return text.charAt(0).toUpperCase() + text.slice(1);
+	};
+
+	const filtersActive = $derived(!!statusFilter || !!triggerFilter);
+	const reorderable = $derived(sortBy === 'manual' && !filtersActive && !query.trim());
+
 	const visibleRules = $derived.by(() => {
 		const q = query.trim().toLowerCase();
-		return q ? rules.filter((r) => r.name.toLowerCase().includes(q)) : rules;
+		const matched = rules.filter(
+			(r) =>
+				(!q || r.name.toLowerCase().includes(q)) &&
+				(!statusFilter || r.status === statusFilter) &&
+				(!triggerFilter || r.trigger === triggerFilter)
+		);
+		if (sortBy === 'manual') return matched;
+		const sign = sortDir === 'desc' ? -1 : 1;
+		const stamp = (value: string | null) => (value ? Date.parse(value) || 0 : 0);
+		if (sortBy === 'name') return [...matched].sort((a, b) => sign * a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+		if (sortBy === 'last_run') return [...matched].sort((a, b) => sign * (stamp(a.last_run_at) - stamp(b.last_run_at)));
+		return [...matched].sort((a, b) => sign * (stamp(a.created_at) - stamp(b.created_at)));
 	});
+
+	const headerChips = $derived([
+		...(statusFilter ? [{ key: 'status', label: `Status: ${STATUS_LABELS[statusFilter] ?? statusFilter}` }] : []),
+		...(triggerFilter ? [{ key: 'trigger', label: `Trigger: ${humanize(triggerFilter)}` }] : [])
+	]);
+
+	function removeChip(key: string) {
+		if (key === 'status') statusFilter = '';
+		else if (key === 'trigger') triggerFilter = '';
+	}
+
+	function clearFilters() {
+		statusFilter = '';
+		triggerFilter = '';
+	}
 	const labels = $derived<ValueLabels>({ models: modelNames, options: {} });
 	const collectionNames = $derived.by(() => {
 		const out: Record<string, string> = {};
@@ -287,18 +354,73 @@
 	detailOpen={!!editor || resolvingRule}
 	titleLabel="Auto-organize"
 >
-	{#snippet toolbar()}
-		{#if view === 'rules'}
-			<LibraryFilterBar
-				q={query}
-				onQueryChange={(value) => (query = value)}
-				searchPlaceholder="Search rules by name…"
-			/>
-		{/if}
-	{/snippet}
-
-	{#snippet primary()}
-		<Button variant="primary" size="sm" icon="plus" onclick={newRule}>New rule</Button>
+	{#snippet header(sectionSelect)}
+		<LibraryListHeader
+			title="Auto-organize"
+			count={visibleRules.length}
+			total={rules.length}
+			unit="rules"
+			unitOne="rule"
+			chips={view === 'rules' ? headerChips : []}
+			onRemoveChip={removeChip}
+			onClearFilters={clearFilters}
+			q={query}
+			onQueryChange={(value) => (query = value)}
+			searchPlaceholder="Search rules by name…"
+			showSearch={view === 'rules'}
+			sortOptions={view === 'rules' ? SORT_OPTIONS : []}
+			sortBy={sortBy}
+			sortDir={sortDir}
+			sortDirDisabled={sortBy === 'manual'}
+			onSortChange={(value) => {
+				sortBy = value as RuleSort;
+				sortDir = SORT_DEFAULT_DIR[value as RuleSort];
+			}}
+			onSortDirChange={(dir) => (sortDir = dir)}
+			onRefresh={view === 'rules' ? loadRules : undefined}
+			primaryLabel="New rule"
+			onPrimary={newRule}
+			{sectionSelect}
+		>
+			{#snippet popover(close)}
+				<div class="w-72 max-w-[90vw] rounded-xl border border-line-strong bg-surface-3 p-3.5 shadow-floating" role="dialog" aria-label="Filters">
+					{#if headerChips.length > 0}
+						<div class="mb-3 flex items-center">
+							<span class="text-sm uppercase tracking-[0.07em] text-fg-subtle">Active</span>
+							<button type="button" class="ml-auto text-sm text-fg-subtle hover:text-fg" onclick={clearFilters}>Clear all</button>
+						</div>
+						<div class="mb-3 flex flex-wrap gap-1.5 border-b border-line pb-3">
+							{#each headerChips as chip (chip.key)}
+								<span class="inline-flex h-6 max-w-full items-center gap-1 rounded border border-signal/25 bg-signal/10 pl-2 pr-1 text-sm text-signal">
+									<span class="truncate">{chip.label}</span>
+									<button
+										type="button"
+										class="inline-flex h-4 w-4 flex-none items-center justify-center rounded-sm hover:bg-signal/10"
+										aria-label="Remove {chip.label}"
+										onclick={() => removeChip(chip.key)}
+									>
+										<Icon name="close" className="h-3 w-3" />
+									</button>
+								</span>
+							{/each}
+						</div>
+					{/if}
+					<div class="grid grid-cols-2 gap-3">
+						<div class="flex flex-col gap-1.5">
+							<span class="text-sm font-medium text-fg-muted">Status</span>
+							<HeaderDropdown block ariaLabel="Status" value={statusFilter} options={statusOptions} onchange={(value) => (statusFilter = value)} />
+						</div>
+						<div class="flex flex-col gap-1.5">
+							<span class="text-sm font-medium text-fg-muted">Trigger</span>
+							<HeaderDropdown block ariaLabel="Trigger" value={triggerFilter} options={triggerSelectOptions} onchange={(value) => (triggerFilter = value)} />
+						</div>
+					</div>
+					<div class="mt-3.5 flex items-center justify-end border-t border-line pt-3">
+						<Button size="xs" variant="secondary" onclick={close}>Done</Button>
+					</div>
+				</div>
+			{/snippet}
+		</LibraryListHeader>
 	{/snippet}
 
 	{#if editor && catalog}
@@ -376,6 +498,7 @@
 						onDuplicate={handleDuplicate}
 						onDelete={handleDelete}
 						onReorder={handleReorder}
+						{reorderable}
 					/>
 				{/if}
 

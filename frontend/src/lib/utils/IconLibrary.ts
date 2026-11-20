@@ -35,6 +35,8 @@ export const iconPaths: Record<string, string | string[]> = {
 	'chevrons-right': ['M7 5l7 7-7 7', 'M14 5l7 7-7 7'],
 	'arrow-left': 'M10 19l-7-7m0 0l7-7m-7 7h18',
 	'arrow-right': 'M14 5l7 7m0 0l-7 7m7-7H3',
+	'arrow-up': 'M5 10l7-7m0 0l7 7m-7-7v18',
+	'arrow-down': 'M19 14l-7 7m0 0l-7-7m7 7V3',
 	menu: 'M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5',
 	more: 'M12 5.25a.375.375 0 110 .75.375.375 0 010-.75zm0 6.375a.375.375 0 110 .75.375.375 0 010-.75zm0 6.375a.375.375 0 110 .75.375.375 0 010-.75z',
 	'external-link': 'M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14',

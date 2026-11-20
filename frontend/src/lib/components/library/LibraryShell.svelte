@@ -3,6 +3,7 @@
 	import dismiss from '$lib/actions/dismiss';
 	import { IconButton, PageHeader, PageTitle } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import HeaderDropdown from '$lib/components/page-header/HeaderDropdown.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Pane, PaneRow } from '$lib/components/pane';
 	import type { FilterChip, LibrarySectionMeta } from './librarySection';
@@ -31,6 +32,7 @@
 		sectionTrailing,
 		overflow,
 		primary,
+		header,
 		children
 	}: {
 		title: string;
@@ -56,6 +58,7 @@
 		sectionTrailing?: Snippet<[S]>;
 		overflow?: Snippet<[() => void]>;
 		primary?: Snippet;
+		header?: Snippet<[Snippet | undefined]>;
 		children: Snippet;
 	} = $props();
 
@@ -93,6 +96,17 @@
 		overflowOpen = false;
 	}
 </script>
+
+{#snippet sectionSelect()}
+	<div class="md:hidden">
+		<HeaderDropdown
+			ariaLabel="Section"
+			value={section}
+			options={sections.map((entry) => ({ value: entry.id, label: entry.label }))}
+			onchange={(value) => selectSection(value as S)}
+		/>
+	</div>
+{/snippet}
 
 <div class="flex {heightClass} bg-canvas text-fg">
 	{#if hasSidebar && sidebarOpen}
@@ -150,7 +164,9 @@
 	{/if}
 
 	<div class="flex min-w-0 flex-1 flex-col">
-		{#if !detailOpen}
+		{#if !detailOpen && header}
+			{@render header(hasSidebar ? sectionSelect : undefined)}
+		{:else if !detailOpen}
 			<PageHeader sticky={false} wrap>
 				<div class="flex w-full flex-wrap items-center gap-2 xl:gap-4">
 					<PageTitle title={titleLabel ?? meta.label} count={count ?? undefined} {countLabel} {countLabelOne}>
@@ -204,7 +220,7 @@
 			</PageHeader>
 		{/if}
 
-		{#if !detailOpen && filterChips.length > 0}
+		{#if !detailOpen && !header && filterChips.length > 0}
 			<div class="flex flex-shrink-0 flex-wrap items-center gap-1.5 border-b border-line bg-surface-1 px-4 py-2 sm:px-6">
 				{#each filterChips as chip (chip.key)}
 					<span class="inline-flex h-6 items-center gap-1.5 rounded border border-signal/28 bg-signal/10 px-2 font-mono text-xs text-signal">

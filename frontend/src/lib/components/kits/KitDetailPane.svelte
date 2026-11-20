@@ -7,7 +7,8 @@
 	import MediaPreviewModal from '$lib/components/modals/MediaPreviewModal.svelte';
 	import type { PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import { fileDrop, readPastedImage } from '$lib/components/form-fields/mediaFieldInput';
-	import { Button, CopyButton, EmptyState, IconButton, LoadErrorState, Menu, Spinner } from '$lib/components/ui';
+	import { Button, CopyButton, LoadErrorState, Menu, Spinner } from '$lib/components/ui';
+	import { DetailHeader } from '$lib/components/detail';
 	import type { MenuItem } from '$lib/components/ui/Menu.svelte';
 	import { api } from '$lib/services/api/index';
 	import { confirmDialog } from '$lib/stores/confirm';
@@ -20,10 +21,10 @@
 	import { formatItemCount } from '$lib/kits/kitCounts';
 	import { formatKitPath } from '$lib/kits/kitPath';
 	import { defaultItemName } from '$lib/kits/kitNaming';
+	import { layoutJustifiedRows, flattenJustifiedRows } from '$lib/utils/justifiedLayout';
 	import { KIT_ITEM_LIMIT, type KitDetail, type KitItem, type KitLabelCount, type KitPatch, type NewKitItem } from '$lib/kits/types';
 	import KitDetailsDialog from './KitDetailsDialog.svelte';
 	import KitItemTile from './KitItemTile.svelte';
-	import KitKindCounts from './KitKindCounts.svelte';
 	import KitPath from './KitPath.svelte';
 	import KitTextDialog from './KitTextDialog.svelte';
 
@@ -57,6 +58,41 @@
 	const modifier = primaryModifier();
 
 	let items = $derived(kit?.items ?? []);
+
+	const WALL_GAP = 12;
+	const MIN_TILE_WIDTH = 150;
+	let wallWidth = $state(0);
+	let wallTarget = $derived(Math.round(Math.max(180, Math.min(320, (wallWidth > 0 ? wallWidth : 1200) / 4.6))));
+
+	function tileAspect(item: KitItem): number {
+		if (item.missing) return 1;
+		if (item.kind === 'image' || item.kind === 'video') {
+			const ratio = item.width && item.height ? item.width / item.height : 1.5;
+			return Math.max(MIN_TILE_WIDTH / wallTarget, ratio);
+		}
+		return 1.3;
+	}
+
+	let wall = $derived.by(() => {
+		const width = wallWidth > 0 ? wallWidth : 1200;
+		const flat = flattenJustifiedRows(
+			layoutJustifiedRows(
+				[
+					...items.map((item) => ({ item: item as KitItem | null, aspect: tileAspect(item) })),
+					{ item: null as KitItem | null, aspect: 1.3 }
+				],
+				width,
+				wallTarget,
+				WALL_GAP
+			)
+		);
+		let lastStart = flat.length - 1;
+		while (lastStart > 0 && !flat[lastStart - 1].rowEnd) lastStart -= 1;
+		const lastRow = flat.slice(lastStart);
+		const used = lastRow.reduce((sum, box) => sum + box.width, 0) + WALL_GAP * (lastRow.length - 1);
+		if (used >= width - 2) return flat;
+		return flat.map((box, index) => (index >= lastStart ? { ...box, rowEnd: false } : box));
+	});
 	let taken = $derived(takenNames(items));
 	let full = $derived(items.length >= KIT_ITEM_LIMIT);
 
@@ -415,126 +451,134 @@
 		<div class="mt-3 flex justify-center"><Button variant="secondary" size="sm" onclick={onBack}>Back to Kits</Button></div>
 	</div>
 {:else}
-	<header class="sticky top-0 z-30 flex min-h-header flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-surface-1 px-4 py-2.5 sm:px-6">
-		<button type="button" class="flex items-center gap-1 text-sm font-medium text-fg-muted hover:text-fg" aria-label="Back to Kits" onclick={onBack}>
-			<Icon name="chevron-left" className="h-3.5 w-3.5" />Kits
-		</button>
-		<span class="h-5 w-px flex-shrink-0 bg-line-strong" aria-hidden="true"></span>
-		<span class="flex h-[30px] w-[30px] flex-shrink-0 items-center justify-center rounded border border-line-strong bg-surface-2 text-fg-subtle">
-			<Icon name="layers" className="h-4 w-4" />
-		</span>
-		<div class="min-w-0 flex-1">
-			<div class="flex min-w-0 flex-wrap items-center gap-2">
+	{@const current = kit}
+	<div class="sticky top-0 z-30">
+		<DetailHeader title={current.name} icon="layers" backLabel="Kits" {onBack}>
+			{#snippet titleEditor()}
 				<label class="min-w-0" style="width:{Math.min(22, Math.max(7, titleDraft.length * 0.75 + 2))}rem">
 					<span class="sr-only">Kit name</span>
 					<input
-						class="h-8 w-full rounded border border-transparent bg-transparent px-1.5 text-base font-semibold text-fg transition-colors hover:border-line-strong focus:border-signal focus:bg-field-bg focus:outline-none"
+						class="h-7 w-full rounded border border-transparent bg-transparent px-1.5 text-base font-semibold text-fg transition-colors hover:border-line-strong focus:border-signal focus:bg-field-bg focus:outline-none"
 						bind:value={titleDraft}
 						onblur={() => void commitTitle()}
 						onkeydown={(event) => {
 							if (event.key === 'Enter') (event.currentTarget as HTMLInputElement).blur();
-							if (event.key === 'Escape' && kit) {
-								titleDraft = kit.name;
+							if (event.key === 'Escape') {
+								titleDraft = current.name;
 								(event.currentTarget as HTMLInputElement).blur();
 							}
 						}}
 					/>
 				</label>
+			{/snippet}
+			{#snippet subtitle()}
+				<span class="flex flex-wrap items-center gap-x-2 pl-1.5 text-sm">
+					<KitPath handle={current.handle} class="text-fg-muted" />
+					<CopyButton text={formatKitPath(current.handle)} size="xs" ariaLabel="Copy {formatKitPath(current.handle)}" />
+					<span class="text-fg-subtle">·</span>
+					<span class="tabular-nums text-fg-subtle">{formatItemCount(items.length)}</span>
+				</span>
+			{/snippet}
+			{#snippet actions()}
 				<button
 					type="button"
-					class="inline-flex items-center gap-1 rounded border border-line-strong bg-surface-2 px-2 py-0.5 text-sm font-medium text-fg-muted hover:text-fg"
-					aria-label="Label: {kit.label || 'none'}. Change"
+					class="inline-flex h-8 flex-none items-center gap-1.5 whitespace-nowrap rounded border border-line-strong bg-surface-2/50 pl-2.5 pr-2 text-sm text-fg transition-colors hover:bg-surface-3/60 focus-visible:ring-2 focus-visible:ring-signal {current.label
+						? 'border-signal/25 bg-signal/10 text-signal'
+						: ''}"
+					aria-label="Label: {current.label || 'none'}. Change"
 					onclick={() => (showDetails = true)}
 				>
-					{kit.label || 'Add label'}<Icon name="chevron-down" className="h-3 w-3 text-fg-subtle" />
+					<span class={current.label ? '' : 'text-fg-subtle'}>Label</span>
+					<span class="max-w-[10rem] truncate">{current.label || 'None'}</span>
+					<Icon name="chevron-down" className="h-3 w-3 flex-none text-fg-subtle" />
 				</button>
-			</div>
-			<div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 pl-1.5 text-sm">
-				<KitPath handle={kit.handle} class="text-fg-muted" />
-				<CopyButton text={formatKitPath(kit.handle)} size="xs" ariaLabel="Copy {formatKitPath(kit.handle)}" />
-				<span class="text-fg-subtle">·</span>
-				<span class="font-mono tabular-nums text-fg-subtle">{formatItemCount(items.length)}</span>
-			</div>
-		</div>
-		<div class="ml-auto flex flex-wrap items-center justify-end gap-2 max-sm:basis-full" data-detail-actions>
-			<Menu label="Add item" width={240} align="right" items={menuItems} onselect={pickSource}>
-				{#snippet trigger({ toggle })}
-					<Button variant="primary" size="sm" icon="plus" loading={working} onclick={toggle}>
-						Add item<Icon name="chevron-down" className="h-3.5 w-3.5" />
-					</Button>
-				{/snippet}
-			</Menu>
-			<Button variant="secondary" size="sm" icon="copy" onclick={() => void duplicate()}>Duplicate</Button>
-			<IconButton icon="edit" label="Name, path and label" onclick={() => (showDetails = true)} />
-			<IconButton icon="trash" label="Delete kit" class="text-danger" onclick={() => void askDelete()} />
-		</div>
-	</header>
+				<Menu label="Add item" width={240} align="right" items={menuItems} onselect={pickSource}>
+					{#snippet trigger({ toggle })}
+						<Button variant="primary" size="sm" icon="plus" class="h-8" loading={working} onclick={toggle}>
+							Add item<Icon name="chevron-down" className="h-3.5 w-3.5" />
+						</Button>
+					{/snippet}
+				</Menu>
+				<Menu
+					label="More actions"
+					tooltip="More actions"
+					width={220}
+					align="right"
+					items={[
+						{ id: 'edit', label: 'Name, path and label', icon: 'edit' },
+						{ id: 'duplicate', label: 'Duplicate', icon: 'copy' },
+						{ id: 'separator', label: '', separator: true },
+						{ id: 'delete', label: 'Delete kit', icon: 'trash', danger: true }
+					]}
+					onselect={(id) => {
+						if (id === 'edit') showDetails = true;
+						else if (id === 'duplicate') void duplicate();
+						else if (id === 'delete') void askDelete();
+					}}
+				/>
+			{/snippet}
+		</DetailHeader>
+	</div>
 
 	<main>
-		<div class="mx-auto max-w-[1240px] p-4 sm:p-6">
-			<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
-				{#if dragId}
-					<p class="text-sm text-fg-muted">Drag to reorder. <span class="font-mono text-fg">image1</span> is the first image a model sees.</p>
-				{:else}
-					<p class="text-sm text-fg-muted">
-						In a prompt, type <KitPath handle={kit.handle} class="text-fg" /> for everything a model can use{#if items.length > 0}, or <KitPath handle={kit.handle} item={items[0].name} class="text-fg" /> for one item{/if}.
-					</p>
-				{/if}
-				<KitKindCounts counts={kit.counts} class="text-fg-muted" />
-			</div>
+		<div class="px-3 py-3 md:px-6 md:py-6">
 			<div
-				class="relative grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+				class="relative flex flex-wrap items-stretch"
+				style="gap: {WALL_GAP}px"
+				bind:clientWidth={wallWidth}
 				use:fileDrop={{ onFiles: (files) => void uploadFiles(Array.from(files)), onActive: (active) => (dropping = active) }}
 				data-kit-items
 			>
-				{#each items as item, index (item.id)}
+				{#each wall as box, index (box.item?.id ?? '__add__')}
+					{@const item = box.item}
 					<div
-						class="relative"
+						class="relative flex flex-col"
+						style="flex: {box.rowEnd ? '1 1' : '0 0'} {box.width}px; min-width: 0"
 						role="presentation"
-						ondragover={(event) => overTile(event, index)}
-						ondrop={(event) => dropOn(event, index)}
+						ondragover={(event) => item && overTile(event, index)}
+						ondrop={(event) => item && dropOn(event, index)}
 					>
-						{#if dragId && dropIndex === index && dragId !== item.id}
-							<span class="absolute inset-y-0 -left-[10px] z-30 w-0.5 rounded bg-signal"></span>
+						{#if item}
+							{#if dragId && dropIndex === index && dragId !== item.id}
+								<span class="absolute inset-y-0 -left-[7px] z-30 w-0.5 rounded bg-signal"></span>
+							{/if}
+							<KitItemTile
+								{item}
+								handle={kit.handle}
+								{taken}
+								position={index + 1}
+								lifted={dragId === item.id}
+								mediaHeight={box.height}
+								onRename={renameItem}
+								onRemove={removeItem}
+								onPreview={(entry) => (preview = entry)}
+								onEditText={(entry) => (textDialog = { item: entry })}
+								onDragStart={startDrag}
+								onDragEnd={endDrag}
+								onNudge={nudge}
+							/>
+						{:else}
+							<div
+								class="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-4 text-center {dropping
+									? 'border-signal bg-signal/10'
+									: 'border-line-strong bg-surface-1'}"
+								style="min-height: {Math.round(box.height)}px"
+							>
+								<span class="text-sm text-fg-muted">{full ? `This kit is full (${KIT_ITEM_LIMIT})` : 'Add an item'}</span>
+								{#if !full}
+									<div class="flex flex-wrap items-center justify-center gap-1">
+										<Button variant="ghost" size="xs" icon="grid" onclick={() => pickSource('library')}>Library</Button>
+										<Button variant="ghost" size="xs" icon="clock" onclick={() => pickSource('history')}>History</Button>
+										<Button variant="ghost" size="xs" icon="upload" onclick={() => pickSource('upload')}>Upload</Button>
+										<Button variant="ghost" size="xs" icon="document" onclick={() => pickSource('text')}>Text</Button>
+									</div>
+									<span class="font-mono text-sm text-fg-subtle">or drop files here</span>
+								{/if}
+							</div>
 						{/if}
-						<KitItemTile
-							{item}
-							handle={kit.handle}
-							{taken}
-							position={index + 1}
-							lifted={dragId === item.id}
-							onRename={renameItem}
-							onRemove={removeItem}
-							onPreview={(entry) => (preview = entry)}
-							onEditText={(entry) => (textDialog = { item: entry })}
-							onDragStart={startDrag}
-							onDragEnd={endDrag}
-							onNudge={nudge}
-						/>
 					</div>
 				{/each}
-				<div
-					class="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-4 text-center {dropping
-						? 'border-signal bg-signal/10'
-						: 'border-line-strong bg-surface-1'}"
-				>
-					<span class="text-sm text-fg-muted">{full ? `This kit is full (${KIT_ITEM_LIMIT})` : 'Add an item'}</span>
-					{#if !full}
-						<div class="flex flex-wrap items-center justify-center gap-1">
-							<Button variant="ghost" size="xs" icon="grid" onclick={() => pickSource('library')}>Library</Button>
-							<Button variant="ghost" size="xs" icon="clock" onclick={() => pickSource('history')}>History</Button>
-							<Button variant="ghost" size="xs" icon="upload" onclick={() => pickSource('upload')}>Upload</Button>
-							<Button variant="ghost" size="xs" icon="document" onclick={() => pickSource('text')}>Text</Button>
-						</div>
-						<span class="font-mono text-sm text-fg-subtle">or drop files here</span>
-					{/if}
-				</div>
 			</div>
-			{#if items.length === 0}
-				<div class="mt-4">
-					<EmptyState compact icon="layers" title="This kit is empty" description="Add pictures, clips, sounds or a note. Each gets a name you call it by." />
-				</div>
-			{/if}
 		</div>
 	</main>
 

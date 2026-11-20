@@ -24,6 +24,7 @@
 		onSortChange = () => {},
 		filterCount = 0,
 		searchAddon,
+		afterSearch,
 		popover
 	}: {
 		q: string;
@@ -37,6 +38,7 @@
 		onSortChange?: (value: string) => void;
 		filterCount?: number;
 		searchAddon?: Snippet;
+		afterSearch?: Snippet;
 		popover?: Snippet<[() => void]>;
 	} = $props();
 
@@ -115,6 +117,8 @@
 		{/snippet}
 	</InputGroup>
 </div>
+
+{@render afterSearch?.()}
 
 {#if popover}
 	<div class="relative flex-shrink-0" bind:this={triggerEl}>

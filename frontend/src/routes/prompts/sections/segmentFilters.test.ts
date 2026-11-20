@@ -66,7 +66,8 @@ describe('segment filters URL round-trip', () => {
 			category: 'cat-light',
 			enabled: 'off',
 			tags: ['portrait', 'motion'],
-			sortBy: 'created'
+			sortBy: 'created',
+			sortDir: 'desc'
 		});
 		expect(segmentFilters.fromSearchParams(segmentFilters.toSearchParams(filters))).toEqual(filters);
 	});
@@ -116,7 +117,7 @@ describe('applySegmentFilters', () => {
 			'seg-1',
 			'seg-2'
 		]);
-		expect(applySegmentFilters(segments, categories, { ...DEFAULT_SEGMENT_FILTERS, sortBy: 'created' }).map((s) => s.id)).toEqual([
+		expect(applySegmentFilters(segments, categories, { ...DEFAULT_SEGMENT_FILTERS, sortBy: 'updated', sortDir: 'desc' }).map((s) => s.id)).toEqual([
 			'seg-2',
 			'seg-1',
 			'seg-3'

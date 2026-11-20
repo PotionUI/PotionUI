@@ -21,7 +21,8 @@
 		onToggleStop,
 		onDuplicate,
 		onDelete,
-		onReorder
+		onReorder,
+		reorderable = true
 	}: {
 		rules: OrganizeRule[];
 		catalog: OrganizeCatalog | null;
@@ -34,6 +35,7 @@
 		onDuplicate: (rule: OrganizeRule) => void;
 		onDelete: (rule: OrganizeRule) => void;
 		onReorder: (ids: string[]) => void;
+		reorderable?: boolean;
 	} = $props();
 
 	let dragIndex = $state<number | null>(null);
@@ -47,15 +49,15 @@
 		const from = dragIndex;
 		dragIndex = null;
 		overIndex = null;
-		if (from === null || from === to) return;
+		if (!reorderable || from === null || from === to) return;
 		onReorder(moveItem(rules, from, to).map((r) => r.id));
 	}
 
 	function ruleMenuItems(rule: OrganizeRule, index: number): MenuItem[] {
 		return [
 			{ id: 'stop', label: rule.stop_after ? 'Do not stop after this rule' : 'Stop after this rule' },
-			...(index === 0 ? [] : [{ id: 'up', label: 'Move up' }]),
-			...(index === rules.length - 1 ? [] : [{ id: 'down', label: 'Move down' }]),
+			...(!reorderable || index === 0 ? [] : [{ id: 'up', label: 'Move up' }]),
+			...(!reorderable || index === rules.length - 1 ? [] : [{ id: 'down', label: 'Move down' }]),
 			{ id: 'dup', label: 'Duplicate' },
 			{ id: 'del', label: 'Delete', danger: true }
 		];
@@ -94,6 +96,7 @@
 			}}
 		>
 			<div class="flex items-start gap-3 p-3">
+				{#if reorderable}
 				<span
 					class="mt-1 flex-shrink-0 cursor-grab text-fg-subtle"
 					role="button"
@@ -111,6 +114,7 @@
 				>
 					<Icon name="grip" className="h-4 w-4" />
 				</span>
+				{/if}
 				<div class="mt-0.5 flex-shrink-0">
 					<Switch
 						size="sm"

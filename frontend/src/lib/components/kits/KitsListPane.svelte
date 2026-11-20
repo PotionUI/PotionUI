@@ -1,14 +1,22 @@
 <script lang="ts">
 	import { onDestroy, onMount, type Snippet } from 'svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import { Button, EmptyState, IconButton, PageHeader, PageTitle, Pagination, Spinner, LoadErrorState } from '$lib/components/ui';
+	import { Button, EmptyState, Menu, Pagination, Spinner, LoadErrorState } from '$lib/components/ui';
+	import {
+		ListPageHeader,
+		HeaderTitle,
+		HeaderSearch,
+		HeaderSort,
+		HeaderSelect,
+		HeaderViewOptions,
+		HeaderAction,
+		type HeaderStage
+	} from '$lib/components/page-header';
 	import { api } from '$lib/services/api/index';
 	import { kitTotal, kitsRevision } from '$lib/stores/kits';
 	import { debounce } from '$lib/utils/time';
-	import type { Kit, KitListPage } from '$lib/kits/types';
+	import type { Kit, KitListPage, KitSortDir, KitSortField } from '$lib/kits/types';
 	import KitCard from './KitCard.svelte';
-	import KitLabelFilter from './KitLabelFilter.svelte';
-
+	
 	let {
 		leading,
 		onOpen,
@@ -30,6 +38,9 @@
 	let search = $state('');
 	let page = $state(1);
 	let requestId = 0;
+	let stage = $state<HeaderStage>('full');
+	let sortBy = $state<KitSortField>('manual');
+	let sortDir = $state<KitSortDir>('asc');
 
 	let everything = $derived($kitTotal ?? data?.total ?? 0);
 	let pages = $derived(data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1);
@@ -43,7 +54,7 @@
 		loading = true;
 		failed = false;
 		try {
-			const response = await api.listKits({ label, search, page, page_size: PAGE_SIZE });
+			const response = await api.listKits({ label, search, page, page_size: PAGE_SIZE, sort_by: sortBy, sort_dir: sortDir });
 			if (mine !== requestId) return;
 			if (response.success && response.data) {
 				data = response.data;
@@ -65,6 +76,32 @@
 		label = next;
 		page = 1;
 		void load();
+	}
+
+	const sortOptions = [
+		{ value: 'manual', label: 'Manual' },
+		{ value: 'name', label: 'Name' },
+		{ value: 'created', label: 'Created' },
+		{ value: 'updated', label: 'Updated' }
+	];
+	const sortDefaultDir: Record<string, KitSortDir> = { manual: 'asc', name: 'asc', created: 'desc', updated: 'desc' };
+
+	function pickSort(value: string) {
+		sortBy = value as KitSortField;
+		sortDir = sortDefaultDir[value];
+		page = 1;
+		void load();
+	}
+
+	function pickSortDir(dir: KitSortDir) {
+		sortDir = dir;
+		page = 1;
+		void load();
+	}
+
+	function handleSearchInput(value: string) {
+		search = value;
+		scheduleSearch();
 	}
 
 	function goTo(next: number) {
@@ -92,51 +129,75 @@
 	});
 </script>
 
-<div class="sticky top-0 z-30">
-<PageHeader wrap sticky={false}>
-	<div class="flex w-full flex-wrap items-center gap-2 xl:gap-4">
-		{@render leading?.()}
-		<PageTitle title="Kits" count={everything} countLabel="kits" countLabelOne="kit" />
-		{#if !empty}
-			<div class="hidden h-6 w-px flex-shrink-0 bg-line-strong md:block"></div>
-			<div class="relative min-w-[8rem] max-w-md flex-1">
-				<Icon name="search" className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" />
-				<input
-					type="text"
-					class="input w-full bg-surface-2/50 py-1.5 pl-8 pr-3 text-sm"
-					placeholder="Search kits"
-					aria-label="Search kits"
-					bind:value={search}
-					oninput={scheduleSearch}
-				/>
-			</div>
-			{#if data && data.labels.length > 0}
-				<div class="no-scrollbar order-last w-full overflow-x-auto md:order-none md:w-auto">
-					<KitLabelFilter labels={data.labels} total={everything} value={label} onChange={pickLabel} />
-				</div>
-			{/if}
-		{/if}
-		<div class="ml-auto flex flex-shrink-0 items-center gap-2">
-			<Button variant="primary" size="sm" icon="plus" onclick={onNew}>New kit</Button>
-			{#if !empty}
-				<IconButton icon="refresh" label="Refresh" onclick={() => void load()} />
-			{/if}
-		</div>
-	</div>
-</PageHeader>
+{#snippet searchZone(s: HeaderStage)}
+	{#if !empty}
+		<HeaderSearch value={search} placeholder="Search kits" label="Search kits" oninput={handleSearchInput} narrow={s === 'narrow'} />
+	{/if}
+{/snippet}
 
-{#if label !== null}
-	<div class="flex flex-shrink-0 flex-wrap items-center gap-1.5 border-b border-line bg-surface-1 px-4 py-2 sm:px-6">
-		<span class="inline-flex h-6 items-center gap-1.5 rounded border border-signal/25 bg-signal/10 px-2 font-mono text-sm text-signal">
-			Label: {label}
-			<button type="button" class="opacity-70 hover:opacity-100" aria-label="Remove filter Label: {label}" onclick={() => pickLabel(null)}>
-				<Icon name="close" className="h-3 w-3" />
-			</button>
-		</span>
-		<button type="button" class="text-sm text-fg-subtle hover:text-fg" onclick={() => pickLabel(null)}>Clear all</button>
-		<span class="ml-auto font-mono text-sm tabular-nums text-fg-subtle">{data?.total ?? 0} of {everything}</span>
-	</div>
-{/if}
+<div class="sticky top-0 z-30">
+<ListPageHeader bind:stage {leading} search={searchZone}>
+	{#snippet title(s)}
+		<HeaderTitle
+			title="Kits"
+			count={filtered && data ? data.total : everything}
+			unit="kits"
+			unitOne="kit"
+			total={everything}
+			filterCount={label !== null ? 1 : 0}
+			showUnit={s === 'full'}
+			narrow={s === 'narrow'}
+		/>
+	{/snippet}
+
+	{#snippet facets(s)}
+		{#if !empty && data && data.labels.length > 0}
+			<HeaderSelect
+				label="Label"
+				active={label !== null}
+				value={label ?? ''}
+				options={[
+					{ value: '', label: 'All labels', count: everything, pinned: true },
+					...data.labels.map((entry) => ({
+						value: entry.label,
+						label: entry.label,
+						count: entry.count ?? undefined
+					}))
+				]}
+				onchange={(value) => pickLabel(value || null)}
+			/>
+		{/if}
+	{/snippet}
+
+	{#snippet sort()}
+		{#if !empty}
+			<HeaderSort options={sortOptions} value={sortBy} dir={sortDir} onchange={pickSort} ondir={pickSortDir} dirDisabled={sortBy === 'manual'} />
+		{/if}
+	{/snippet}
+
+	{#snippet view()}
+		{#if !empty}
+			<HeaderViewOptions onrefresh={() => void load()} />
+		{/if}
+	{/snippet}
+
+	{#snippet primary(s)}
+		<HeaderAction primary icon="plus" label="New kit" compact={s === 'narrow'} onclick={onNew} />
+	{/snippet}
+
+	{#snippet more(s)}
+		{#if s === 'narrow' && !empty}
+			<Menu
+				label="More actions"
+				tooltip="More actions"
+				items={[{ id: 'refresh', label: 'Refresh', icon: 'refresh' }]}
+				onselect={() => void load()}
+				width={200}
+			/>
+		{/if}
+	{/snippet}
+</ListPageHeader>
+
 </div>
 
 <main class="flex flex-1 flex-col">

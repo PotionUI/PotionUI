@@ -14,6 +14,7 @@
 		taken,
 		position,
 		lifted = false,
+		mediaHeight,
 		onRename,
 		onRemove,
 		onPreview,
@@ -27,6 +28,7 @@
 		taken: string[];
 		position: number;
 		lifted?: boolean;
+		mediaHeight?: number;
 		onRename: (item: KitItem, name: string) => Promise<{ ok: boolean; clash?: boolean; suggestion?: string | null }>;
 		onRemove: (item: KitItem) => void;
 		onPreview: (item: KitItem) => void;
@@ -36,6 +38,8 @@
 		onNudge: (item: KitItem, step: -1 | 1) => void;
 	} = $props();
 
+	let frame = $derived(mediaHeight ? '' : 'aspect-square');
+	let frameStyle = $derived(mediaHeight ? `height:${Math.round(mediaHeight)}px` : undefined);
 	let draft = $state('');
 	let focused = $state(false);
 	let saving = $state(false);
@@ -138,7 +142,7 @@
 				: 'border-line hover:border-line-strong'}"
 	>
 		{#if item.missing}
-			<div class="flex aspect-square flex-col items-center justify-center gap-2 bg-surface-2 p-3 text-center" data-kit-missing>
+			<div class="flex {frame} flex-col items-center justify-center gap-2 bg-surface-2 p-3 text-center" style={frameStyle} data-kit-missing>
 				<Icon name="warning" className="h-6 w-6 text-warning" strokeWidth={1.75} />
 				<p class="text-sm font-semibold text-fg">File deleted</p>
 				<p class="text-sm text-fg-muted">Remove this item or put the file back in the Library.</p>
@@ -146,12 +150,13 @@
 		{:else if item.kind === 'image' || item.kind === 'video'}
 			<button
 				type="button"
-				class="relative block aspect-square w-full overflow-hidden bg-black"
+				class="relative block {frame} w-full overflow-hidden bg-surface-2"
+				style={frameStyle}
 				aria-label="Preview {item.name}"
 				onclick={() => onPreview(item)}
 			>
 				{#if item.thumbnail_url || (item.kind === 'image' && item.url)}
-					<img src={item.thumbnail_url ?? item.url} alt="" loading="lazy" class="h-full w-full object-cover" />
+					<img src={item.thumbnail_url ?? item.url} alt="" loading="lazy" class="h-full w-full {mediaHeight ? 'object-contain' : 'object-cover'}" />
 				{/if}
 				<span class="absolute left-1.5 top-1.5 inline-flex h-6 items-center gap-1 rounded bg-black/70 px-1.5 text-white backdrop-blur-sm">
 					<Icon name={KIT_KIND_ICONS[item.kind]} className="h-3 w-3" />
@@ -166,7 +171,7 @@
 				{/if}
 			</button>
 		{:else if item.kind === 'audio'}
-			<div class="relative flex aspect-square flex-col bg-surface-2 p-3">
+			<div class="relative flex {frame} flex-col bg-surface-2 p-3" style={frameStyle}>
 				<span class="mb-2 inline-flex items-center gap-1 self-start rounded bg-surface-3 px-1.5 py-0.5 text-fg-muted">
 					<Icon name="audio" className="h-3 w-3" />
 				</span>
@@ -175,7 +180,8 @@
 		{:else}
 			<button
 				type="button"
-				class="relative flex aspect-square w-full flex-col bg-surface-2 p-3 text-left"
+				class="relative flex {frame} w-full flex-col bg-surface-2 p-3 text-left"
+				style={frameStyle}
 				aria-label="Edit {item.name}"
 				onclick={() => onEditText(item)}
 			>

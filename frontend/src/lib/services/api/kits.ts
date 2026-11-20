@@ -170,6 +170,10 @@ export function kitListParams(query: KitListQuery): Record<string, string | numb
 	const params: Record<string, string | number> = {};
 	if (query.label) params.label = query.label;
 	if (query.search?.trim()) params.search = query.search.trim();
+	if (query.sort_by && query.sort_by !== 'manual') {
+		params.sort_by = query.sort_by;
+		if (query.sort_dir) params.sort_dir = query.sort_dir;
+	}
 	const size = query.page_size;
 	if (size) params.limit = size;
 	if (size && query.page && query.page > 1) params.offset = (query.page - 1) * size;

@@ -10,6 +10,9 @@ import { collectionQueryParams } from '$lib/components/collections/selection';
 
 export type LibraryMediaTypeFilter = 'all' | 'image' | 'video' | 'audio';
 
+export type LibrarySortField = 'added' | 'name' | 'size';
+export type LibrarySortDir = 'asc' | 'desc';
+
 export interface LibraryFilters {
 	mediaType: LibraryMediaTypeFilter;
 	selectedTagIds: string[];
@@ -18,6 +21,8 @@ export interface LibraryFilters {
 	directOnly?: boolean;
 	favoritesOnly?: boolean;
 	search: string;
+	sortBy?: LibrarySortField;
+	sortDir?: LibrarySortDir;
 }
 
 /** Snake-case query params, ready to hand to axios as `params`. */
@@ -29,6 +34,8 @@ export interface LibraryQuery {
 	unsorted?: boolean;
 	favorites_only?: boolean;
 	search?: string;
+	sort_by?: LibrarySortField;
+	sort_dir?: LibrarySortDir;
 	limit: number;
 	offset: number;
 }
@@ -70,6 +77,11 @@ export function buildLibraryQuery(
 
 	const search = filters.search.trim();
 	if (search) query.search = search;
+
+	if (filters.sortBy) {
+		query.sort_by = filters.sortBy;
+		if (filters.sortDir) query.sort_dir = filters.sortDir;
+	}
 
 	return query;
 }

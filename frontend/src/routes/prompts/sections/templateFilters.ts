@@ -4,20 +4,22 @@ import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/l
 import type { SortOption } from '$lib/components/library/librarySection';
 
 export type TemplateSlotsFilter = '' | '1' | '2-3' | '4+';
-export type TemplateSortBy = 'name' | 'created';
+export type TemplateSortBy = 'name' | 'created' | 'updated' | 'slots';
 
 export interface TemplateFilters {
 	q: string;
 	tags: string[];
 	slots: TemplateSlotsFilter;
 	sortBy: TemplateSortBy;
+	sortDir?: 'asc' | 'desc';
 }
 
 export const DEFAULT_TEMPLATE_FILTERS: TemplateFilters = {
 	q: '',
 	tags: [],
 	slots: '',
-	sortBy: 'name'
+	sortBy: 'name',
+	sortDir: 'asc'
 };
 
 export const TEMPLATE_SLOT_OPTIONS: ReadonlyArray<{ value: TemplateSlotsFilter; label: string }> = [
@@ -29,8 +31,12 @@ export const TEMPLATE_SLOT_OPTIONS: ReadonlyArray<{ value: TemplateSlotsFilter; 
 
 export const TEMPLATE_SORT_OPTIONS: readonly SortOption<TemplateSortBy>[] = [
 	{ value: 'name', label: 'Name' },
-	{ value: 'created', label: 'Created' }
+	{ value: 'created', label: 'Created' },
+	{ value: 'updated', label: 'Updated' },
+	{ value: 'slots', label: 'Slots' }
 ];
+
+export const TEMPLATE_SORT_DEFAULT_DIR = { name: 'asc', created: 'desc', updated: 'desc', slots: 'desc' } as const;
 
 const FIELDS: readonly FilterFieldDescriptor<TemplateFilters>[] = [
 	{
@@ -48,7 +54,8 @@ const FIELDS: readonly FilterFieldDescriptor<TemplateFilters>[] = [
 export const templateFilters = createFilterCodec<TemplateFilters>({
 	defaults: DEFAULT_TEMPLATE_FILTERS,
 	fields: FIELDS,
-	sortValues: ['name', 'created']
+	sortValues: ['name', 'created', 'updated', 'slots'],
+	sortDefaultDir: TEMPLATE_SORT_DEFAULT_DIR
 });
 
 export function templateSlotCount(template: Pick<SegmentTemplate, 'segments'>): number {
@@ -81,8 +88,9 @@ function matchesSlots(count: number, slots: TemplateSlotsFilter): boolean {
 	return count >= 4;
 }
 
-function templateTimestamp(template: SegmentTemplate): number {
-	return parseServerDate(template.updated_at ?? template.created_at)?.getTime() ?? 0;
+function templateTimestamp(template: SegmentTemplate, field: 'created' | 'updated'): number {
+	const raw = field === 'created' ? template.created_at : (template.updated_at ?? template.created_at);
+	return parseServerDate(raw)?.getTime() ?? 0;
 }
 
 export function applyTemplateFilters(
@@ -104,6 +112,15 @@ export function applyTemplateFilters(
 			.toLowerCase();
 		return haystack.includes(query);
 	});
-	if (filters.sortBy === 'created') return rows.sort((a, b) => templateTimestamp(b) - templateTimestamp(a));
-	return rows.sort((a, b) => a.name.localeCompare(b.name));
+	const sign = (filters.sortDir ?? TEMPLATE_SORT_DEFAULT_DIR[filters.sortBy]) === 'desc' ? -1 : 1;
+	if (filters.sortBy === 'created' || filters.sortBy === 'updated') {
+		const field = filters.sortBy;
+		return rows.sort((a, b) => sign * (templateTimestamp(a, field) - templateTimestamp(b, field)));
+	}
+	if (filters.sortBy === 'slots') {
+		return rows.sort(
+			(a, b) => sign * (templateSlotCount(a) - templateSlotCount(b)) || a.name.localeCompare(b.name)
+		);
+	}
+	return rows.sort((a, b) => sign * a.name.localeCompare(b.name));
 }

@@ -2,6 +2,7 @@
 	import { Pane, PaneTree, PaneRow, type PaneTreeNode } from '$lib/components/pane';
 	import { phrasebookStore, type CategoryWithChildren } from '$lib/stores/phrasebook';
 	import { EmptyState } from '$lib/components/ui';
+	import { phrasebookSort, sortCategories } from '$lib/stores/phrasebookSort';
 
 	// Self-contained: reads/writes phrasebookStore directly. Extracted
 	// verbatim from phrasebook/+page.svelte (left category tree pane).
@@ -18,7 +19,7 @@
 		refs: CategoryWithChildren[],
 		depth: number
 	): PaneTreeNode<CategoryWithChildren>[] {
-		return refs.map((ref) => {
+		return sortCategories(refs, $phrasebookSort).map((ref) => {
 			const cat = current.categories[ref.id] ?? ref;
 			return {
 				item: cat,

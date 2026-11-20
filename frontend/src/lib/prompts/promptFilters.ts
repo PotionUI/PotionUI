@@ -7,7 +7,16 @@ import { collectionQueryParams } from '$lib/components/collections/selection';
 export type PromptSourceFilter = 'any' | 'mine' | 'civitai';
 export type PromptUsedFilter = 'any' | 'used' | 'never';
 export type PromptLastUsedFilter = '' | '24h' | '7d' | '30d';
-export type PromptSortBy = 'last_used_at' | 'created_at' | 'name' | 'usage_count';
+export type PromptSortBy = 'last_used_at' | 'created_at' | 'updated_at' | 'name' | 'usage_count' | 'heart_count';
+
+export const PROMPT_SORT_DEFAULT_DIR: Record<PromptSortBy, 'asc' | 'desc'> = {
+	last_used_at: 'desc',
+	created_at: 'desc',
+	updated_at: 'desc',
+	name: 'asc',
+	usage_count: 'desc',
+	heart_count: 'desc'
+};
 
 export interface PromptFilters {
 	q: string;
@@ -101,7 +110,7 @@ const FIELDS: readonly FilterFieldDescriptor<PromptFilters>[] = [
 export const promptFilters = createFilterCodec<PromptFilters>({
 	defaults: DEFAULT_PROMPT_FILTERS,
 	fields: FIELDS,
-	sortValues: ['last_used_at', 'created_at', 'name', 'usage_count']
+	sortValues: ['last_used_at', 'created_at', 'updated_at', 'name', 'usage_count', 'heart_count']
 });
 
 export type PromptFilterChip = FilterChip;

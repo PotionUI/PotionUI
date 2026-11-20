@@ -11,7 +11,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
-	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryListHeader from '$lib/components/library/LibraryListHeader.svelte';
 	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
 	import { LIBRARY_SECTIONS, sectionHref, withSection } from '../library/librarySection';
 	import CategoryCard from './CategoryCard.svelte';
@@ -21,6 +21,7 @@
 	import { segmentCountsByCategory } from './segmentFilters';
 	import {
 		CATEGORY_SORT_OPTIONS,
+		CATEGORY_SORT_DEFAULT_DIR,
 		applyCategoryFilters,
 		type CategoryFilters,
 		type CategorySortBy,
@@ -371,30 +372,37 @@
 	sectionCounts={$libraryCounts}
 	count={visible.length}
 	{detailOpen}
-	filterChips={chips}
-	onRemoveChip={(key) => updateFilters(categoryFilters.clearChip(filters, key))}
-	onClearFilters={() => updateFilters(categoryFilters.clearAll(filters))}
 	loadedCount={visible.length}
 	total={categories.length}
 >
-	{#snippet toolbar()}
-		<LibraryFilterBar
+	{#snippet header(sectionSelect)}
+		<LibraryListHeader
+			title="Categories"
+			count={visible.length}
+			total={$libraryCounts.categories ?? null}
+			unit="categories"
+			unitOne="category"
+			chips={chips}
+			onRemoveChip={(key) => updateFilters(categoryFilters.clearChip(filters, key))}
+			onClearFilters={() => updateFilters(categoryFilters.clearAll(filters))}
+			filterCount={filterCount}
 			q={filters.q}
 			onQueryChange={(value) => updateFilters({ ...filters, q: value })}
 			searchPlaceholder="Search categories…"
-			sortBy={filters.sortBy}
 			sortOptions={CATEGORY_SORT_OPTIONS}
-			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as CategorySortBy })}
-			{filterCount}
+			sortBy={filters.sortBy}
+			sortDir={filters.sortDir ?? CATEGORY_SORT_DEFAULT_DIR[filters.sortBy]}
+			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as CategorySortBy, sortDir: CATEGORY_SORT_DEFAULT_DIR[value as CategorySortBy] })}
+			onSortDirChange={(dir) => updateFilters({ ...filters, sortDir: dir })}
+			onRefresh={loadAll}
+			primaryLabel="New category"
+			onPrimary={startNew}
+			{sectionSelect}
 		>
 			{#snippet popover(close)}
 				<CategoryFiltersPopover {filters} onChange={updateFilters} onClose={close} />
 			{/snippet}
-		</LibraryFilterBar>
-	{/snippet}
-
-	{#snippet primary()}
-		<Button size="sm" variant="primary" icon="plus" onclick={startNew}>New category</Button>
+		</LibraryListHeader>
 	{/snippet}
 
 	{#if detailOpen}

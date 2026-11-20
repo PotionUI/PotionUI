@@ -54,7 +54,12 @@ export interface KitListPage {
 	labels: KitLabelCount[];
 }
 
+export type KitSortField = 'manual' | 'name' | 'created' | 'updated';
+export type KitSortDir = 'asc' | 'desc';
+
 export interface KitListQuery {
+	sort_by?: KitSortField;
+	sort_dir?: KitSortDir;
 	label?: string | null;
 	search?: string;
 	page?: number;

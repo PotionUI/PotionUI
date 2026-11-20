@@ -10,7 +10,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
-	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryListHeader from '$lib/components/library/LibraryListHeader.svelte';
 	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
 	import { LIBRARY_SECTIONS, sectionHref, withSection } from '../library/librarySection';
 	import TemplateCard from './TemplateCard.svelte';
@@ -18,6 +18,7 @@
 	import TemplateFiltersPopover from './TemplateFiltersPopover.svelte';
 	import {
 		TEMPLATE_SORT_OPTIONS,
+		TEMPLATE_SORT_DEFAULT_DIR,
 		applyTemplateFilters,
 		templateTagVocabulary,
 		type TemplateFilters,
@@ -355,30 +356,37 @@
 	sectionCounts={$libraryCounts}
 	count={visible.length}
 	{detailOpen}
-	filterChips={chips}
-	onRemoveChip={(key) => updateFilters(templateFilters.clearChip(filters, key))}
-	onClearFilters={() => updateFilters(templateFilters.clearAll(filters))}
 	loadedCount={visible.length}
 	total={templates.length}
 >
-	{#snippet toolbar()}
-		<LibraryFilterBar
+	{#snippet header(sectionSelect)}
+		<LibraryListHeader
+			title="Templates"
+			count={visible.length}
+			total={$libraryCounts.templates ?? null}
+			unit="templates"
+			unitOne="template"
+			chips={chips}
+			onRemoveChip={(key) => updateFilters(templateFilters.clearChip(filters, key))}
+			onClearFilters={() => updateFilters(templateFilters.clearAll(filters))}
+			filterCount={activeFilterCount}
 			q={filters.q}
 			onQueryChange={(value) => updateFilters({ ...filters, q: value })}
 			searchPlaceholder="Search templates…"
-			sortBy={filters.sortBy}
 			sortOptions={TEMPLATE_SORT_OPTIONS}
-			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as TemplateSortBy })}
-			filterCount={activeFilterCount}
+			sortBy={filters.sortBy}
+			sortDir={filters.sortDir ?? TEMPLATE_SORT_DEFAULT_DIR[filters.sortBy]}
+			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as TemplateSortBy, sortDir: TEMPLATE_SORT_DEFAULT_DIR[value as TemplateSortBy] })}
+			onSortDirChange={(dir) => updateFilters({ ...filters, sortDir: dir })}
+			onRefresh={load}
+			primaryLabel="New template"
+			onPrimary={newTemplate}
+			{sectionSelect}
 		>
-			{#snippet popover(close: () => void)}
+			{#snippet popover(close)}
 				<TemplateFiltersPopover {filters} tags={tagVocabulary} onChange={updateFilters} onClose={close} />
 			{/snippet}
-		</LibraryFilterBar>
-	{/snippet}
-
-	{#snippet primary()}
-		<Button size="sm" variant="primary" icon="plus" onclick={newTemplate}>New template</Button>
+		</LibraryListHeader>
 	{/snippet}
 
 	{#if detailOpen}

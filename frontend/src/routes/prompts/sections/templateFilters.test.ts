@@ -32,7 +32,8 @@ describe('templateFilters.fromSearchParams / templateFilters.toSearchParams', ()
 			q: 'portrait',
 			tags: ['portrait', 'lighting'],
 			slots: '2-3',
-			sortBy: 'created'
+			sortBy: 'created',
+			sortDir: 'desc'
 		};
 		const params = templateFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('portrait');
@@ -102,7 +103,7 @@ describe('applyTemplateFilters', () => {
 			'Portrait base',
 			'Solo slot'
 		]);
-		expect(applyTemplateFilters(all, { ...DEFAULT_TEMPLATE_FILTERS, sortBy: 'created' })[0].id).toBe('five');
+		expect(applyTemplateFilters(all, { ...DEFAULT_TEMPLATE_FILTERS, sortBy: 'updated', sortDir: 'desc' })[0].id).toBe('five');
 	});
 
 	it('does not mutate the list it was given', () => {

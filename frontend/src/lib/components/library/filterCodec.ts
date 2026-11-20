@@ -38,15 +38,19 @@ export type FilterFieldDescriptor<F> =
 	| TagsFilterField<F>
 	| BooleanFilterField<F>;
 
+export type SortDirection = 'asc' | 'desc';
+
 export interface FilterBaseShape {
 	q: string;
 	sortBy: string;
+	sortDir?: SortDirection;
 }
 
 export interface FilterCodecConfig<F extends FilterBaseShape> {
 	defaults: F;
 	fields: readonly FilterFieldDescriptor<F>[];
 	sortValues: readonly string[];
+	sortDefaultDir?: Readonly<Record<string, SortDirection>>;
 }
 
 export interface FilterCodec<F extends FilterBaseShape> {
@@ -61,12 +65,19 @@ export interface FilterCodec<F extends FilterBaseShape> {
 const TAG_CHIP_PREFIX = 'tag:';
 
 export function createFilterCodec<F extends FilterBaseShape>(config: FilterCodecConfig<F>): FilterCodec<F> {
-	const { defaults, fields, sortValues } = config;
+	const { defaults, fields, sortValues, sortDefaultDir } = config;
+
+	function defaultDir(sortBy: string): SortDirection {
+		return sortDefaultDir?.[sortBy] ?? 'asc';
+	}
 
 	function fromSearchParams(params: URLSearchParams): F {
 		const result = { ...defaults } as Record<string, unknown>;
 		result.q = params.get('q') ?? defaults.q;
 		result.sortBy = oneOf(params.get('sort_by'), sortValues, defaults.sortBy);
+		if (sortDefaultDir) {
+			result.sortDir = oneOf(params.get('sort_dir'), ['asc', 'desc'] as const, defaultDir(result.sortBy as string));
+		}
 		for (const field of fields) {
 			const raw = params.get(field.param);
 			if (field.kind === 'enum') {
@@ -102,6 +113,9 @@ export function createFilterCodec<F extends FilterBaseShape>(config: FilterCodec
 			}
 		}
 		if (filters.sortBy !== defaults.sortBy) params.set('sort_by', filters.sortBy);
+		if (sortDefaultDir && filters.sortDir && filters.sortDir !== defaultDir(filters.sortBy)) {
+			params.set('sort_dir', filters.sortDir);
+		}
 		return params;
 	}
 
@@ -167,6 +181,7 @@ export function createFilterCodec<F extends FilterBaseShape>(config: FilterCodec
 
 	function clearAll(filters: F): F {
 		const result = { ...defaults, q: filters.q, sortBy: filters.sortBy } as unknown as Record<string, unknown>;
+		if (sortDefaultDir) result.sortDir = filters.sortDir;
 		for (const field of fields) {
 			if (field.filterable === false) result[field.key] = (filters as Record<string, unknown>)[field.key];
 		}

@@ -240,6 +240,21 @@ describe('generating several formats at once', () => {
 		]);
 	});
 
+	it('keeps a format run in its own edit when it finishes, not on this edit step', async () => {
+		const t = harness();
+		expandUi.set(ui(['story', 'landscape']));
+		await t.controller.prepare('expand');
+		await t.controller.generate('expand', false);
+		const before = readGenerateParams(t.stack().steps[0].params)!;
+		expect(before.run.id).toBe('er_1');
+
+		t.controller.settle({ id: 'er_2', stepId: t.stack().steps[0].id, status: 'done', error: null, run: run('er_2', { status: 'done' }) });
+
+		const after = readGenerateParams(t.stack().steps[0].params)!;
+		expect(after.run).toEqual(before.run);
+		expect(after.expand?.label).toBe('Story');
+	});
+
 	it('sends the prompt as typed and nothing when it is empty', async () => {
 		const t = harness();
 		expandUi.set(ui(['story']));

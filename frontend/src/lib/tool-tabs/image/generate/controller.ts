@@ -1171,10 +1171,11 @@ export function createGenerateController(deps: ControllerDeps) {
 		deps.setStack(commitLive(liveEdit(stack, draft, (entry) => entry.id === stepId)));
 	}
 
-	function settle(view: { stepId: string | null; status: string; error: string | null; run: EditorRun | null } | undefined): void {
+	function settle(view: { id?: string; stepId: string | null; status: string; error: string | null; run: EditorRun | null } | undefined): void {
 		if (!view?.stepId || disposed) return;
 		const stack = deps.getStack();
 		const next = replaceStepParams(stack, view.stepId, (params) => {
+			if (view.id && params.run.id !== view.id) return params;
 			if (view.run) return withRun(params, view.run);
 			return { ...params, run: { ...params.run, status: view.status as GenerateParams['run']['status'], error: view.error } };
 		});

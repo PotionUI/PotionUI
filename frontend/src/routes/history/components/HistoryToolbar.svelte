@@ -16,6 +16,8 @@
 	import type { PresetInfo } from '$lib/types/api';
 	import type { HeaderOption } from '$lib/components/page-header';
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
+	import { ORIGIN_FILTER_OPTIONS, originFilterLabel } from '$lib/generation/origin';
+	import type { HistoryOriginFilter } from '$lib/types/history';
 	import { buildModelOptions, modelFilterLabel } from '$lib/utils/historyModelFilter';
 	import { Menu, ModelPickTrigger } from '$lib/components/ui';
 	import {
@@ -113,6 +115,10 @@
 		{ value: 'cancelled', label: 'Cancelled' },
 		{ value: 'pending', label: 'Pending' },
 		{ value: 'running', label: 'Running' }
+	];
+	const originOptions: HeaderOption[] = [
+		{ value: '', label: 'All origins' },
+		...ORIGIN_FILTER_OPTIONS.map((option) => ({ value: option.value, label: option.label }))
 	];
 	const ratingOptions: HeaderOption[] = minRatingOptions.map((option) => ({ value: String(option.value), label: option.label }));
 
@@ -221,6 +227,11 @@
 
 	function handlePresetChange(value: string) {
 		historyStore.setFilter('presetId', value || undefined);
+		historyStore.loadGenerations();
+	}
+
+	function handleOriginChange(value: string) {
+		historyStore.setOriginFilter((value || null) as HistoryOriginFilter | null);
 		historyStore.loadGenerations();
 	}
 
@@ -356,6 +367,7 @@
 		!!currentState.filters.mode ||
 		!!currentState.filters.presetId ||
 		!!currentState.filters.modelName ||
+		!!currentState.filters.origin ||
 		!!currentState.filters.usedPhrasebookValueId ||
 		excludingSubcollections;
 
@@ -391,6 +403,7 @@
 		}
 		if (f.mode) list.push({ id: 'mode', label: modeLabel(f.mode), onremove: () => handleModeChange('') });
 		if (f.modelName) list.push({ id: 'model', label: modelText, onremove: () => handleModelChange('') });
+		if (f.origin) list.push({ id: 'origin', label: originFilterLabel(f.origin), onremove: () => handleOriginChange('') });
 		if (f.minRating) list.push({ id: 'rating', label: `★${f.minRating}+`, onremove: () => handleMinRatingChange(0) });
 		if (f.usedPhrasebookValueId) {
 			list.push({
@@ -637,6 +650,11 @@
 						}}
 						onclear={() => handleModelChange('')}
 					/>
+				</div>
+
+				<div>
+					<span class={labelClass}>Origin</span>
+					<HeaderDropdown block ariaLabel="Origin" value={currentState.filters.origin ?? ''} options={originOptions} onchange={handleOriginChange} />
 				</div>
 
 				<div>

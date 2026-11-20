@@ -13,6 +13,8 @@
 	} from '$lib/components/page-header';
 	import { api } from '$lib/services/api/index';
 	import { kitTotal, kitsRevision } from '$lib/stores/kits';
+	import { LIBRARY_ITEMS_PER_PAGE_OPTIONS } from '$lib/stores/library';
+	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import { debounce } from '$lib/utils/time';
 	import type { Kit, KitListPage, KitSortDir, KitSortField } from '$lib/kits/types';
 	import KitCard from './KitCard.svelte';
@@ -29,7 +31,18 @@
 		onPickFromLibrary: () => void;
 	} = $props();
 
-	const PAGE_SIZE = 8;
+	const PAGE_SIZE_STORAGE_KEY = 'kits-items-per-page';
+	const DEFAULT_PAGE_SIZE = 24;
+	const pageSizeOptions = LIBRARY_ITEMS_PER_PAGE_OPTIONS.map((value) => ({ value, label: String(value) }));
+
+	function loadPageSize(): number {
+		try {
+			const stored = Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+			return (LIBRARY_ITEMS_PER_PAGE_OPTIONS as readonly number[]).includes(stored) ? stored : DEFAULT_PAGE_SIZE;
+		} catch {
+			return DEFAULT_PAGE_SIZE;
+		}
+	}
 
 	let data = $state<KitListPage | null>(null);
 	let loading = $state(true);
@@ -37,15 +50,16 @@
 	let label = $state<string | null>(null);
 	let search = $state('');
 	let page = $state(1);
+	let pageSize = $state(DEFAULT_PAGE_SIZE);
 	let requestId = 0;
 	let stage = $state<HeaderStage>('full');
 	let sortBy = $state<KitSortField>('manual');
 	let sortDir = $state<KitSortDir>('asc');
 
 	let everything = $derived($kitTotal ?? data?.total ?? 0);
-	let pages = $derived(data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1);
-	let from = $derived(data && data.kits.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0);
-	let to = $derived(data ? (page - 1) * PAGE_SIZE + data.kits.length : 0);
+	let pages = $derived(data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1);
+	let from = $derived(data && data.kits.length > 0 ? (page - 1) * pageSize + 1 : 0);
+	let to = $derived(data ? (page - 1) * pageSize + data.kits.length : 0);
 	let filtered = $derived(label !== null || search.trim() !== '');
 	let empty = $derived(!loading && !failed && data !== null && data.total === 0 && !filtered);
 
@@ -54,7 +68,7 @@
 		loading = true;
 		failed = false;
 		try {
-			const response = await api.listKits({ label, search, page, page_size: PAGE_SIZE, sort_by: sortBy, sort_dir: sortDir });
+			const response = await api.listKits({ label, search, page, page_size: pageSize, sort_by: sortBy, sort_dir: sortDir });
 			if (mine !== requestId) return;
 			if (response.success && response.data) {
 				data = response.data;
@@ -104,6 +118,15 @@
 		scheduleSearch();
 	}
 
+	function pickPageSize(next: number) {
+		pageSize = next;
+		page = 1;
+		try {
+			localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(next));
+		} catch {}
+		void load();
+	}
+
 	function goTo(next: number) {
 		page = next;
 		void load();
@@ -113,6 +136,7 @@
 	let unsubscribe: (() => void) | null = null;
 
 	onMount(() => {
+		pageSize = loadPageSize();
 		void load();
 		unsubscribe = kitsRevision.subscribe(() => {
 			if (!primed) {
@@ -243,6 +267,14 @@
 				{#if pages > 1}{from}–{to} of {data.total} {data.total === 1 ? 'kit' : 'kits'}{:else}{data.total} of {everything} {everything === 1 ? 'kit' : 'kits'}{/if}
 			</span>
 			<Pagination currentPage={page} totalPages={pages} onPageChange={goTo} />
+			{#if data.total > LIBRARY_ITEMS_PER_PAGE_OPTIONS[0]}
+				<div class="flex items-center gap-2" data-kit-per-page>
+					<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Per page</span>
+					<div class="w-20">
+						<CustomSelect size="sm" fill value={pageSize} options={pageSizeOptions} on:change={(e) => pickPageSize(Number(e.detail))} />
+					</div>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </main>
